@@ -1,0 +1,49 @@
+name: bootstrap-v02-agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".bootstrap-v02/**"
+      - ".github/workflows/bootstrap-v02.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply exact v0.2 patch
+        shell: bash
+        run: |
+          cat .bootstrap-v02/part* | base64 -d > /tmp/modelweave-v02.tar.gz
+          tar -xzf /tmp/modelweave-v02.tar.gz
+          rm -rf .bootstrap-v02
+          rm -f .github/workflows/bootstrap-v02.yml
+      - name: Validate
+        shell: bash
+        run: |
+          npm ci
+          npm test
+          npm run benchmark
+          node --check src/agent.js
+          node --check src/provider.js
+          node --check src/tools.js
+          node --check src/session.js
+          node --check src/cli.js
+      - name: Commit v0.2
+        shell: bash
+        run: |
+          git config user.name "modelweave-bootstrap"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add standalone agent loop and free LLM providers"
+          git push origin HEAD:main
