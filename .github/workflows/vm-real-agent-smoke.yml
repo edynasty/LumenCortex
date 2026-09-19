@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
-          nohup ollama serve >/tmp/ollama.log 2>&1 &
+          OLLAMA_CONTEXT_LENGTH=8192 nohup ollama serve >/tmp/ollama.log 2>&1 &
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:11434/api/version >/dev/null; then
               exit 0
