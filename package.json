@@ -1,0 +1,29 @@
+{
+  "name": "modelweave",
+  "version": "0.1.0",
+  "description": "Versioned cognitive graph runtime with attention lights for long-running coding agents.",
+  "type": "module",
+  "bin": {
+    "modelweave": "./src/cli.js"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "benchmark": "node scripts/benchmark.js",
+    "demo": "node examples/demo.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "agent",
+    "context",
+    "knowledge-graph",
+    "attention",
+    "coding-agent",
+    "memory"
+  ],
+  "license": "MIT"
+}

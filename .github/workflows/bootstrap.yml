@@ -1,0 +1,59 @@
+name: bootstrap-modelweave
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".bootstrap/**"
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check bootstrap payload
+        shell: bash
+        run: |
+          if [ ! -f .bootstrap/part00 ]; then
+            echo "SKIP=true" >> "$GITHUB_ENV"
+          else
+            echo "SKIP=false" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: env.SKIP != 'true'
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Reconstruct exact source archive
+        if: env.SKIP != 'true'
+        shell: bash
+        run: |
+          cat .bootstrap/part* | base64 -d > /tmp/modelweave.tar.gz
+          tar -xzf /tmp/modelweave.tar.gz
+          rm -rf .bootstrap
+
+      - name: Validate source
+        if: env.SKIP != 'true'
+        shell: bash
+        run: |
+          npm ci
+          npm test
+          npm run benchmark
+
+      - name: Commit reconstructed source
+        if: env.SKIP != 'true'
+        shell: bash
+        run: |
+          git config user.name "modelweave-bootstrap"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add ModelWeave cognitive context runtime"
+          git push origin HEAD:main
