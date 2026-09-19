@@ -11,7 +11,7 @@ const DEFAULT_EXTENSIONS = new Set([
   '.sh', '.css', '.scss', '.html', '.vue', '.svelte'
 ]);
 
-const DEFAUL_IGNORES = new Set([
+const DEFAULT_IGNORES = new Set([
   '.git', '.modelweave', 'node_modules', 'dist', 'build', 'target', '.next', '.idea', '.vscode', 'coverage', 'vendor'
 ]);
 
@@ -105,7 +105,7 @@ export function ingestWorkspace(graphState, root, options = {}) {
     if (path.extname(rel) === '.java') {
       const pkg = content.match(/^\s*package\s+([\w.]+)\s*;/m)?.[1];
       const className = path.basename(rel, '.java');
-      if (pkg) javaByQualifiedName.set(`${peg}.${className}`, { rel, fileId, content });
+      if (pkg) javaByQualifiedName.set(`${pkg}.${className}`, { rel, fileId, content });
     }
   }
 
@@ -150,4 +150,158 @@ export function ingestWorkspace(graphState, root, options = {}) {
     dirtiedBeliefs: dirtied,
     archived
   };
+}
+
+function scanFiles(root, { extensions, ignores, maxFileBytes }) {
+  const out = [];
+  const stack = [root];
+  while (stack.length) {
+    const dir = stack.pop();
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith('.') && entry.name !== '.github') {
+        if (ignores.has(entry.name) || entry.isDirectory()) continue;
+      }
+      if (ignores.has(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const ext = path.extname(entry.name).toLowerCase();
+      if (!extensions.has(ext)) continue;
+      const stat = fs.statSync(full);
+      if (stat.size > maxFileBytes) continue;
+      if (looksBinary(full)) continue;
+      out.push(full);
+    }
+  }
+  return out.sort();
+}
+
+function looksBinary(file) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buffer = Buffer.alloc(4096);
+    const read = fs.readSync(fd, buffer, 0, buffer.length, 0);
+    for (let i = 0; i < read; i += 1) if (buffer[i] === 0) return true;
+    return false;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function chunkText(lines, size) {
+  const result = [];
+  for (let start = 0; start < lines.length; start += size) {
+    const slice = lines.slice(start, Math.min(lines.length, start + size));
+    result.push({ start: start + 1, end: start + slice.length, text: slice.join('\n') });
+  }
+  return result;
+}
+
+function ensureDirectoryChain(graph, sourceRoot, dirRel, rootId, seen, sourceVersion) {
+  if (!dirRel || dirRel === '.') return;
+  const parts = dirRel.split('/').filter(Boolean);
+  let current = '';
+  let parentId = rootId;
+  for (const part of parts) {
+    current = current ? `${current}/${part}` : part;
+    const currentId = directoryId(current);
+    upsertNode(graph, {
+      id: currentId,
+      kind: 'abstraction',
+      title: current,
+      body: `Directory ${current}`,
+      grade: 'static',
+      trustZone: 'repo_trusted',
+      metadata: { sourceKind: 'directory', path: current, ingestRoot: sourceRoot }
+    });
+    seen.add(currentId);
+    ensureEdge(graph, stableId('edge', `${parentId}:abstracts:${currentId}`), parentId, currentId, 'abstracts', 0.9, { structural: true });
+    parentId = currentId;
+  }
+}
+
+function resolveDependencies(rel, content, fileByRel, javaByQualifiedName) {
+  const result = new Set();
+  const ext = path.extname(rel);
+  if (['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'].includes(ext)) {
+    const imports = [
+      ...content.matchAll(/(?:from\s+|require\s*\()\s*['\"](\.[^'\"]+)['\"]/g),
+      ...content.matchAll(/import\s*\(\s*['\"](\.[^'\"]+)['\"]\s*\)/g)
+    ].map((m) => m[1]);
+    for (const specifier of imports) {
+      const resolved = resolveRelativeModule(rel, specifier, fileByRel);
+      if (resolved) result.add(resolved);
+    }
+  }
+  if (ext === '.java') {
+    for (const match of content.matchAll(/^\s*import\s+([\w.]+)\s*;/gm)) {
+      const target = javaByQualifiedName.get(match[1]);
+      if (target) result.add(target.rel);
+    }
+  }
+  return [...result];
+}
+
+function resolveRelativeModule(fromRel, specifier, fileByRel) {
+  const base = normalize(path.posix.normalize(path.posix.join(path.posix.dirname(fromRel), specifier)));
+  const candidates = [
+    base,
+    ...['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json'].map((ext) => `${base}${ext}`),
+    ...['index.ts', 'index.tsx', 'index.js', 'index.jsx'].map((name) => `${base}/${name}`)
+  ];
+  return candidates.find((candidate) => fileByRel.has(candidate)) ?? null;
+}
+
+function dirtyDependents(graph, changedEvidence) {
+  if (!changedEvidence.size) return [];
+  const dirtied = [];
+  for (const node of Object.values(graph.state.nodes)) {
+    if (!['belief', 'negative', 'abstraction'].includes(node.kind)) continue;
+    const evidenceHit = (node.evidenceIds ?? []).some((id) => changedEvidence.has(id));
+    const childHit = (node.childIds ?? []).some((id) => changedEvidence.has(id));
+    if ((evidenceHit || childHit) && node.status !== 'stale') {
+      graph.updateNode(node.id, { status: 'stale', metadata: { staleReason: 'ingested-source-changed' } });
+      dirtied.push(node.id);
+    }
+  }
+  return dirtied;
+}
+
+function upsertNode(graph, input) {
+  const current = graph.getNode(input.id);
+  if (!current) return graph.addNode(input);
+  // Keep exact versions stable when source content has not changed.
+  const comparableCurrent = { ...current, updatedAt: undefined, version: undefined, createdAt: undefined };
+  const candidate = { ...current, ...input, updatedAt: undefined, version: undefined, createdAt: undefined };
+  if (JSON.stringify(comparableCurrent) === JSON.stringify(candidate)) return current;
+  return graph.putNode({ ...current, ...input });
+}
+
+function ensureEdge(graph, edgeId, from, to, type, weight, metadata) {
+  const current = graph.getEdge(edgeId);
+  if (current) return current;
+  return graph.addEdge({ id: edgeId, from, to, type, weight, metadata });
+}
+
+function stableId(prefix, key) {
+  return `${prefix}_${hash(key).slice(0, 14)}`;
+}
+
+function directoryId(rel) {
+  return stableId('dir', rel || '.');
+}
+
+function normalize(value) {
+  return value.split(path.sep).join('/').replace(/^\.\//, '');
+}
+
+function gitHead(root) {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return null;
+  }
 }

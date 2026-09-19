@@ -98,7 +98,7 @@ export class AttentionEngine {
     }
 
     const selectedIds = new Set(selected.map((x) => x.nodeId));
-    const edges = Object.values(this.graph.edges ?? {}).filtet(
+    const edges = Object.values(this.graph.edges ?? {}).filter(
       (edge) => selectedIds.has(edge.from) && selectedIds.has(edge.to)
     );
 
