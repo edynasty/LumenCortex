@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { CognitiveRepository } from './repository.js';
 import { ModelWeaveRuntime } from './runtime.js';
 import { graphSummary } from './graph.js';
 import { ingestWorkspace } from './ingest.js';
+import { createProvider, providerInfo } from './provider.js';
+import { AgentLoop } from './agent.js';
+import { AgentSessionStore } from './session.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -39,11 +43,35 @@ try {
     process.exit(0);
   }
 
+  if (command === 'providers') {
+    for (const item of providerInfo()) {
+      const configured = Boolean(process.env[item.apiKeyEnv]) || (item.name === 'generic' && process.env.MODELWEAVE_REQUIRE_API_KEY === 'false');
+      console.log(`${configured ? '✓' : '○'} ${item.name.padEnd(12)} ${item.defaultModel.padEnd(28)} ${item.apiKeyEnv}`);
+      console.log(`  ${item.baseURL}`);
+    }
+    process.exit(0);
+  }
+
   const workspace = findWorkspace(process.cwd());
   const repo = new CognitiveRepository(workspace);
   const runtime = new ModelWeaveRuntime(repo);
 
   switch (command) {
+    case 'agent':
+      await agentCommand({ repo, runtime, workspace, argv: args });
+      break;
+    case 'chat':
+      await chatCommand({ repo, runtime, workspace, argv: args });
+      break;
+    case 'sessions': {
+      const parsed = parseFlags(args);
+      const store = new AgentSessionStore(repo.dir);
+      console.log(JSON.stringify(store.list(Number(parsed.flags.limit ?? 20)), null, 2));
+      break;
+    }
+    case 'doctor':
+      await doctorCommand(args);
+      break;
     case 'status': {
       const diff = repo.status();
       console.log(`${diff.operations.length} uncommitted operation(s)`);
@@ -59,15 +87,12 @@ try {
     }
     case 'log': {
       const limit = Number(args[0] ?? 20);
-      for (const commit of repo.log(limit)) {
-        console.log(`${commit.id} ${commit.createdAt} ${commit.message}`);
-      }
+      for (const commit of repo.log(limit)) console.log(`${commit.id} ${commit.createdAt} ${commit.message}`);
       break;
     }
     case 'branch': {
-      if (!args[0]) {
-        for (const branch of repo.branches()) console.log(`${branch.current ? '*' : ' '} ${branch.name} ${branch.commitId}`);
-      } else {
+      if (!args[0]) for (const branch of repo.branches()) console.log(`${branch.current ? '*' : ' '} ${branch.name} ${branch.commitId}`);
+      else {
         const branch = repo.createBranch(args[0]);
         console.log(`Created ${branch.name} at ${branch.commitId}`);
       }
@@ -86,11 +111,8 @@ try {
         console.error('Merge conflicts:');
         for (const conflict of result.conflicts) console.error(`  ${conflict.kind}:${conflict.id}`);
         process.exitCode = 2;
-      } else if (result.alreadyUpToDate) {
-        console.log('Already up to date');
-      } else {
-        console.log(`Merged as ${result.commit.id}`);
-      }
+      } else if (result.alreadyUpToDate) console.log('Already up to date');
+      else console.log(`Merged as ${result.commit.id}`);
       break;
     }
     case 'revert': {
@@ -99,19 +121,15 @@ try {
       if (result.conflicts.length) {
         console.error(`Revert conflict: ${result.conflicts[0].message}`);
         process.exitCode = 2;
-      } else {
-        console.log(`Reverted in ${result.commit.id}`);
-      }
+      } else console.log(`Reverted in ${result.commit.id}`);
       break;
     }
-    case 'node': {
+    case 'node':
       await nodeCommand(repo, args);
       break;
-    }
-    case 'edge': {
+    case 'edge':
       await edgeCommand(repo, args);
       break;
-    }
     case 'show': {
       const graph = repo.graph();
       if (!args[0]) console.log(JSON.stringify(graphSummary(graph.snapshot()), null, 2));
@@ -154,11 +172,7 @@ try {
     }
     case 'verify': {
       const result = runtime.verify();
-      console.log(JSON.stringify({
-        staleEvidence: result.staleEvidence,
-        dirtiedBeliefs: result.dirtiedBeliefs,
-        issues: result.issues
-      }, null, 2));
+      console.log(JSON.stringify({ staleEvidence: result.staleEvidence, dirtiedBeliefs: result.dirtiedBeliefs, issues: result.issues }, null, 2));
       break;
     }
     default:
@@ -166,32 +180,133 @@ try {
   }
 } catch (error) {
   console.error(`modelweave: ${error.message}`);
+  if (error.sessionId) console.error(`session: ${error.sessionId}`);
   process.exitCode = 1;
 }
 
-async function nodeCommand(repo, args) {
-  const action = args.shift();
+async function agentCommand({ repo, runtime, workspace, argv }) {
+  const parsed = parseFlags(argv);
+  const goal = parsed.positionals.join(' ').trim();
+  if (!goal && !parsed.flags.session) fail('Usage: modelweave agent <goal> [--provider openrouter] [--model MODEL] [--yes]');
+  const providerName = String(parsed.flags.provider ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
+  const provider = createProvider(providerName, {
+    model: parsed.flags.model ? String(parsed.flags.model) : undefined,
+    baseURL: parsed.flags['base-url'] ? String(parsed.flags['base-url']) : undefined
+  });
+  const json = Boolean(parsed.flags.json);
+  const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'workspace'), json });
+  const agent = new AgentLoop({
+    provider,
+    repository: repo,
+    runtime,
+    workspace,
+    authorize,
+    onEvent: json ? () => {} : renderAgentEvent
+  });
+  const result = await agent.run(goal, {
+    providerName,
+    sessionId: parsed.flags.session ? String(parsed.flags.session) : undefined,
+    maxSteps: Number(parsed.flags['max-steps'] ?? 24),
+    budgetTokens: Number(parsed.flags.budget ?? 24000),
+    maxTokens: parsed.flags['max-tokens'] ? Number(parsed.flags['max-tokens']) : undefined,
+    autoIngest: parsed.flags['no-ingest'] ? false : true,
+    cognitiveCommit: Boolean(parsed.flags['cognitive-commit']),
+    authorize
+  });
+  if (json) console.log(JSON.stringify({ sessionId: result.session.id, final: result.final, usage: result.usage }, null, 2));
+  else {
+    console.log(`\n${result.final}`);
+    console.log(`\n[session ${result.session.id}] requests=${result.usage.requests} tokens=${result.usage.totalTokens}`);
+  }
+}
+
+async function chatCommand({ repo, runtime, workspace, argv }) {
+  const parsed = parseFlags(argv);
+  const providerName = String(parsed.flags.provider ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
+  const provider = createProvider(providerName, { model: parsed.flags.model ? String(parsed.flags.model) : undefined });
+  const terminal = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'workspace'), json: false, terminal });
+  const agent = new AgentLoop({ provider, repository: repo, runtime, workspace, authorize, onEvent: renderAgentEvent });
+  let sessionId = parsed.flags.session ? String(parsed.flags.session) : null;
+  console.log(`ModelWeave chat — ${providerName}/${provider.model}. /exit to quit.`);
+  try {
+    while (true) {
+      const goal = (await terminal.question('mw> ')).trim();
+      if (!goal) continue;
+      if (['/exit', '/quit'].includes(goal)) break;
+      const result = await agent.run(goal, {
+        providerName,
+        sessionId: sessionId ?? undefined,
+        maxSteps: Number(parsed.flags['max-steps'] ?? 24),
+        budgetTokens: Number(parsed.flags.budget ?? 24000),
+        cognitiveCommit: Boolean(parsed.flags['cognitive-commit']),
+        authorize
+      });
+      sessionId = result.session.id;
+      console.log(`\n${result.final}\n`);
+    }
+  } finally {
+    terminal.close();
+  }
+}
+
+async function doctorCommand(argv) {
+  const parsed = parseFlags(argv);
+  const providerName = String(parsed.flags.provider ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
+  const info = providerInfo().find((item) => item.name === providerName);
+  if (!info) fail(`Unknown provider: ${providerName}`);
+  console.log(`provider: ${providerName}`);
+  console.log(`baseURL: ${parsed.flags['base-url'] ?? info.baseURL}`);
+  console.log(`model: ${parsed.flags.model ?? info.defaultModel}`);
+  console.log(`credential: ${process.env[info.apiKeyEnv] ? `${info.apiKeyEnv} is set` : `${info.apiKeyEnv} is NOT set`}`);
+  if (parsed.flags.live) {
+    const provider = createProvider(providerName, { model: parsed.flags.model ? String(parsed.flags.model) : undefined });
+    const result = await provider.complete({ messages: [{ role: 'user', content: 'Reply with exactly: MODELWEAVE_OK' }] });
+    console.log(`live: ${result.message.content}`);
+  }
+}
+
+function createAuthorizer({ yes, policy, json, terminal: sharedTerminal }) {
+  const allowed = new Set(policy === 'read-only' ? ['read'] : policy === 'workspace' ? ['read', 'write', 'exec'] : ['read', 'write', 'exec']);
+  return async (tool, args) => {
+    const permission = tool.permission ?? 'read';
+    if (!allowed.has(permission)) return false;
+    if (permission === 'read' || yes) return true;
+    if (!process.stdin.isTTY || json) return false;
+    const terminal = sharedTerminal ?? readline.createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      const preview = JSON.stringify(args).slice(0, 500);
+      const answer = (await terminal.question(`Allow ${permission} tool ${tool.name} ${preview}? [y/N] `)).trim().toLowerCase();
+      return answer === 'y' || answer === 'yes';
+    } finally {
+      if (!sharedTerminal) terminal.close();
+    }
+  };
+}
+
+function renderAgentEvent(event) {
+  if (event.type === 'session.start') console.log(`[agent] session=${event.sessionId} context=${event.selectedNodes} nodes/${event.contextTokens}t`);
+  else if (event.type === 'llm.request') console.log(`[agent] step ${event.step} → ${event.model}`);
+  else if (event.type === 'tool.start') console.log(`  → ${event.name} ${compact(event.args)}`);
+  else if (event.type === 'tool.end') console.log(`  ← ${event.name} ${event.ok ? 'ok' : event.denied ? 'denied' : 'error'}`);
+  else if (event.type === 'context.ingest') console.log(`  ↻ graph refreshed (${event.stats.changedEvidence} changed evidence)`);
+  else if (event.type === 'session.complete') console.log(`[agent] completed in ${event.step} step(s)`);
+}
+
+async function nodeCommand(repo, argv) {
+  const action = argv.shift();
   const graph = repo.graph();
   if (action === 'add') {
-    const parsed = parseFlags(args);
+    const parsed = parseFlags(argv);
     const [kind, title, ...bodyParts] = parsed.positionals;
-    if (!kind || !title) fail('Usage: modelweave node add <kind> <title> [body] [--grade static] [--trust repo_trusted]');
-    const node = graph.addNode({
-      kind,
-      title,
-      body: bodyParts.join(' '),
-      grade: parsed.flags.grade,
-      trustZone: parsed.flags.trust,
-      tags: parsed.flags.tags ? String(parsed.flags.tags).split(',') : undefined,
-      source: parsed.flags.source ? { uri: String(parsed.flags.source) } : undefined,
-      evidenceIds: parsed.flags.evidence ? String(parsed.flags.evidence).split(',') : undefined
-    });
+    if (!kind || !title) fail('Usage: modelweave node add <kind> <title> [body]');
+    const node = graph.addNode({ kind, title, body: bodyParts.join(' '), grade: parsed.flags.grade, trustZone: parsed.flags.trust, tags: parsed.flags.tags ? String(parsed.flags.tags).split(',') : undefined, source: parsed.flags.source ? { uri: String(parsed.flags.source) } : undefined, evidenceIds: parsed.flags.evidence ? String(parsed.flags.evidence).split(',') : undefined });
     repo.writeGraph(graph.snapshot());
     console.log(node.id);
   } else if (action === 'update') {
-    const parsed = parseFlags(args);
+    const parsed = parseFlags(argv);
     const id = parsed.positionals.shift();
-    if (!id) fail('Usage: modelweave node update <id> [--title x] [--body y] [--status stale]');
+    if (!id) fail('Usage: modelweave node update <id>');
     const node = graph.updateNode(id, {
       ...(parsed.flags.title ? { title: String(parsed.flags.title) } : {}),
       ...(parsed.flags.body ? { body: String(parsed.flags.body) } : {}),
@@ -201,40 +316,33 @@ async function nodeCommand(repo, args) {
     repo.writeGraph(graph.snapshot());
     console.log(JSON.stringify(node, null, 2));
   } else if (action === 'rm') {
-    const id = args[0];
-    if (!id) fail('Usage: modelweave node rm <id>');
-    graph.removeNode(id);
+    if (!argv[0]) fail('Usage: modelweave node rm <id>');
+    graph.removeNode(argv[0]);
     repo.writeGraph(graph.snapshot());
-    console.log(`Removed ${id}`);
-  } else {
-    fail('Usage: modelweave node <add|update|rm> ...');
-  }
+    console.log(`Removed ${argv[0]}`);
+  } else fail('Usage: modelweave node <add|update|rm> ...');
 }
 
-async function edgeCommand(repo, args) {
-  const action = args.shift();
+async function edgeCommand(repo, argv) {
+  const action = argv.shift();
   const graph = repo.graph();
   if (action === 'add') {
-    const [from, type, to, weight] = args;
+    const [from, type, to, weight] = argv;
     if (!from || !type || !to) fail('Usage: modelweave edge add <from> <type> <to> [weight]');
     const edge = graph.addEdge({ from, type, to, weight: weight === undefined ? 1 : Number(weight) });
     repo.writeGraph(graph.snapshot());
     console.log(edge.id);
   } else if (action === 'rm') {
-    if (!args[0]) fail('Usage: modelweave edge rm <id>');
-    graph.removeEdge(args[0]);
+    if (!argv[0]) fail('Usage: modelweave edge rm <id>');
+    graph.removeEdge(argv[0]);
     repo.writeGraph(graph.snapshot());
-    console.log(`Removed ${args[0]}`);
-  } else {
-    fail('Usage: modelweave edge <add|rm> ...');
-  }
+    console.log(`Removed ${argv[0]}`);
+  } else fail('Usage: modelweave edge <add|rm> ...');
 }
 
 function printLight(name, result) {
   console.log(`\n[${name}] ${result.usedTokens}/${result.budgetTokens} estimated tokens`);
-  for (const node of result.selectedNodes) {
-    console.log(`${node.activation.toFixed(3)} ${String(node.tokenCost).padStart(5)} ${node.id} ${node.kind} ${node.title}`);
-  }
+  for (const node of result.selectedNodes) console.log(`${node.activation.toFixed(3)} ${String(node.tokenCost).padStart(5)} ${node.id} ${node.kind} ${node.title}`);
 }
 
 function parseFlags(argv) {
@@ -242,17 +350,12 @@ function parseFlags(argv) {
   const flags = {};
   for (let i = 0; i < argv.length; i += 1) {
     const value = argv[i];
-    if (!value.startsWith('--')) {
-      positionals.push(value);
-      continue;
-    }
-    const key = value.slice(2);
+    if (!value.startsWith('--')) { positionals.push(value); continue; }
+    const [rawKey, inline] = value.slice(2).split(/=(.*)/s, 2);
+    if (inline !== undefined) { flags[rawKey] = inline; continue; }
     const next = argv[i + 1];
-    if (next === undefined || next.startsWith('--')) flags[key] = true;
-    else {
-      flags[key] = next;
-      i += 1;
-    }
+    if (next === undefined || next.startsWith('--')) flags[rawKey] = true;
+    else { flags[rawKey] = next; i += 1; }
   }
   return { positionals, flags };
 }
@@ -267,10 +370,13 @@ function findWorkspace(start) {
   }
 }
 
-function fail(message) {
-  throw new Error(message);
+function compact(value) {
+  const text = JSON.stringify(value);
+  return text.length > 240 ? `${text.slice(0, 237)}...` : text;
 }
 
+function fail(message) { throw new Error(message); }
+
 function help() {
-  console.log(`ModelWeave — versioned cognitive graph runtime\n\nCommands:\n  init [dir]\n  install-opencode [dir]\n  status\n  commit <message>\n  log [limit]\n  branch [name]\n  checkout <branch>\n  merge <branch>\n  revert <commit>\n  node add <kind> <title> [body] [--grade G] [--trust Z] [--tags a,b] [--source URI] [--evidence id,id]\n  node update <id> [--title x] [--body y] [--status S] [--grade G]\n  node rm <id>\n  ingest [dir] [--chunk-lines 160] [--max-bytes 524288]\n  edge add <from> <type> <to> [weight]\n  edge rm <id>\n  show [node-or-edge-id]\n  light <goal> [--budget 32000] [--multi] [--json]\n  promote <title> <nodeId> [nodeId...]\n  verify\n`);
+  console.log(`ModelWeave — cognitive graph + autonomous coding agent\n\nAgent commands:\n  agent <goal> [--provider openrouter|groq|generic] [--model MODEL] [--max-steps 24] [--budget 24000] [--yes] [--session ID]\n  chat [--provider P] [--model M] [--yes] [--session ID]\n  sessions [--limit 20]\n  providers\n  doctor [--provider P] [--model M] [--live]\n\nCognitive graph commands:\n  init [dir]\n  install-opencode [dir]\n  status\n  commit <message>\n  log [limit]\n  branch [name]\n  checkout <branch>\n  merge <branch>\n  revert <commit>\n  node add|update|rm ...\n  edge add|rm ...\n  ingest [dir] [--chunk-lines 160] [--max-bytes 524288]\n  show [node-or-edge-id]\n  light <goal> [--budget 32000] [--multi] [--json]\n  promote <title> <nodeId> [nodeId...]\n  verify\n\nProviders:\n  OpenRouter free: OPENROUTER_API_KEY + model openrouter/free\n  Groq free:       GROQ_API_KEY + model openai/gpt-oss-120b\n  Generic/local:   MODELWEAVE_BASE_URL, MODELWEAVE_MODEL, MODELWEAVE_API_KEY\n`);
 }

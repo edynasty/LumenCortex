@@ -8,3 +8,7 @@ export * from './promotion.js';
 export * from './verification.js';
 export * from './runtime.js';
 export * from './ingest.js';
+export * from './provider.js';
+export * from './tools.js';
+export * from './session.js';
+export * from './agent.js';

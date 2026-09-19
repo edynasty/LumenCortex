@@ -1,7 +1,7 @@
 {
   "name": "modelweave",
-  "version": "0.1.0",
-  "description": "Versioned cognitive graph runtime with attention lights for long-running coding agents.",
+  "version": "0.2.0",
+  "description": "Versioned cognitive graph runtime and autonomous coding agent with bounded attention.",
   "type": "module",
   "bin": {
     "modelweave": "./src/cli.js"
@@ -12,13 +12,16 @@
   "scripts": {
     "test": "node --test",
     "benchmark": "node scripts/benchmark.js",
-    "demo": "node examples/demo.js"
+    "demo": "node examples/demo.js",
+    "smoke:free": "node scripts/free-agent-smoke.js"
   },
   "engines": {
     "node": ">=20"
   },
   "keywords": [
     "agent",
+    "agent-loop",
+    "cli",
     "context",
     "knowledge-graph",
     "attention",

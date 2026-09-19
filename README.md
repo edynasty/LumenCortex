@@ -1,250 +1,212 @@
 # ModelWeave
 
-**ModelWeave is a versioned cognitive-context runtime for long-running coding agents.**
+ModelWeave is a **versioned cognitive graph + autonomous coding agent runtime**.
 
-Instead of treating an ever-growing conversation as the agent's memory, ModelWeave treats a persistent graph as the cognitive state and gives each LLM invocation only a bounded, task-specific **Active Subgraph**.
-
-The design is built around three ideas:
-
-1. **Graph is memory** — code evidence, beliefs, abstractions, tasks and relations live in a persistent graph.
-2. **Light is attention** — a bounded attention light selects the small part of the graph that should enter the current model context.
-3. **History is Git-like** — cognition changes are commits with branches, merge conflicts, revert and blame-friendly provenance.
-
-> Current status: `v0.1.0` is a working core runtime and OpenCode integration, intended for architecture validation and real-repository experiments. It is not presented as a finished replacement for mature IDE/agent products.
-
-## Why
-
-Typical coding-agent loops eventually degrade into:
+It replaces the assumption that an ever-growing chat history is the agent's memory. Project cognition is kept in a persistent graph, a bounded **Attention Light** selects the Active Subgraph for the current goal, and an independent **Agent Loop** reasons, calls tools, edits code, verifies results and continues until completion.
 
 ```text
-conversation
-  + tool output
-  + repeated file reads
-  + sub-agent summaries
-  + compaction
-  + more summaries
+Reality -> Evidence -> Belief -> Cognitive Graph
+                                  |
+                             Attention Light
+                                  |
+                            Active Subgraph
+                                  |
+                                  LLM
+                                  |
+                              tool_calls
+                                  |
+                        read / edit / shell / test
+                                  |
+                          refresh evidence graph
+                                  |
+                           next reasoning step
 ```
 
-ModelWeave changes the unit of persistence:
+## v0.2 features
 
-```text
-Reality -> Evidence -> Belief -> Context Graph
-                              |
-                         Attention Light
-                              |
-                        Active Subgraph
-                              |
-                             LLM
-                              |
-                         Graph Diff
-                              |
-                    Verify -> Commit
-```
+### Cognitive runtime
 
-The LLM is an executor over cognitive state; it is not the cognitive state itself.
+- persistent Context Graph
+- Evidence / Belief separation
+- evidence grades instead of fake numeric confidence
+- Git-like cognitive commit / branch / merge / revert
+- Attention Light with propagation and token budgets
+- exploit / explore / contrarian / anomaly lights
+- context Promotion without destructive compaction
+- incremental repository ingestion
+- source-change invalidation of dependent beliefs
+- OpenCode integration
 
-## Features
+### Standalone agent
 
-- Persistent `Context Graph`
-- `Evidence` / `Belief` separation
-- Evidence grades instead of fake numeric confidence
-- Git-like cognitive commits, branches, merge conflicts and revert
-- Bounded Attention Light with activation propagation
-- Separate exploit / explore / contrarian / anomaly lights
-- Context `Promotion`: create an abstraction while preserving all child detail
-- Incremental repository ingestion
-- Stable file/chunk IDs across re-ingestion
-- Static JS/TS and Java import dependency hints
-- Source-change invalidation of dependent beliefs
-- TTL-based evidence staleness
-- Atomic worker execution with rollback on invalid cognition
-- OpenCode custom tools
-- Zero runtime dependencies
+- complete multi-turn Agent Loop
+- OpenAI-compatible provider adapter
+- OpenRouter / Groq presets
+- generic local/API provider mode
+- workspace tools: read, list, search, write, exact replace, shell
+- ModelWeave context and ingest tools inside the loop
+- permission gate for read / write / exec
+- automatic graph refresh after workspace mutation
+- persistent resumable sessions
+- interactive chat CLI
+- max-step guard
+- per-session usage accounting
+- real-model free-tier smoke test
 
-## Requirements
-
-- Node.js 20+
-- Git is optional but recommended; when available, ingestion records the repository HEAD as `sourceVersion`.
-
-## Install from GitHub
+## Install
 
 ```bash
 npm install -g github:edynasty/ModelWeave
 ```
 
-During local development:
-
-```bash
-npm link
-```
-
-## Quick start
-
-Inside a code repository:
+Inside a repository:
 
 ```bash
 modelweave init
 modelweave ingest .
-modelweave commit "ingest repository baseline"
+modelweave commit "baseline"
 ```
 
-Ask the attention engine what should be considered for a task:
+## Free LLM quick start
+
+### OpenRouter
 
 ```bash
-modelweave light "why can duplicate acceptance cause inventory inconsistency" --budget 32000
+export OPENROUTER_API_KEY=sk-or-...
+modelweave agent "inspect this project, find the bug, fix it and run the relevant tests" \
+  --provider openrouter \
+  --model openrouter/free \
+  --yes
 ```
 
-Run all four attention policies:
+### Groq
 
 ```bash
-modelweave light "inventory acceptance race condition" --multi --json
+export GROQ_API_KEY=gsk_...
+modelweave agent "inspect this project, find the bug, fix it and run the relevant tests" \
+  --provider groq \
+  --model openai/gpt-oss-120b \
+  --yes
 ```
 
-Inspect state:
+### Local vLLM / any OpenAI-compatible API
 
 ```bash
-modelweave status
-modelweave log
-modelweave show
+export MODELWEAVE_BASE_URL=http://127.0.0.1:8000/v1
+export MODELWEAVE_MODEL=Qwen/Qwen2.5-32B-Instruct-AWQ
+export MODELWEAVE_API_KEY=dummy
+modelweave agent "run the tests and repair failures" --provider generic --yes
 ```
 
-Create a cognitive branch for a hypothesis:
+## Agent CLI
+
+One-shot autonomous run:
 
 ```bash
-modelweave branch hypothesis/inventory-race
-modelweave checkout hypothesis/inventory-race
+modelweave agent "add pagination to the user API and test it" --yes
 ```
 
-Add a belief backed by evidence:
+Interactive session:
 
 ```bash
-modelweave node add belief "Acceptance can race" \
-  "Two requests can enter the acceptance path concurrently" \
-  --grade static \
-  --evidence chunk_xxxxx
-
-modelweave commit "record inventory race hypothesis"
+modelweave chat --provider groq --model openai/gpt-oss-120b --yes
 ```
 
-Merge it back:
+Resume:
 
 ```bash
-modelweave checkout main
-modelweave merge hypothesis/inventory-race
+modelweave sessions
+modelweave agent "continue and fix the remaining failure" --session session_xxx --yes
 ```
 
-If two branches mutate the same cognitive object differently, ModelWeave reports a merge conflict instead of silently summarizing both claims into one.
-
-## Context Promotion
-
-Promotion preserves detail instead of destructive compaction:
+Check providers:
 
 ```bash
-modelweave promote "Inventory consistency" node_a node_b node_c
-modelweave commit "promote inventory context"
+modelweave providers
+modelweave doctor --provider openrouter
+modelweave doctor --provider openrouter --live
 ```
 
-The new abstraction has `abstracts` edges to the original nodes. The original context remains available for drill-down.
+Useful controls:
 
-## OpenCode integration
+```text
+--provider openrouter|groq|generic
+--model MODEL
+--base-url URL
+--max-steps 24
+--max-tokens N
+--budget 24000
+--policy read-only|workspace|full
+--yes
+--session ID
+--no-ingest
+--cognitive-commit
+--json
+```
 
-Install ModelWeave custom tools into the current project:
+Without `--yes`, write and shell actions require interactive approval. Non-interactive runs deny those actions unless explicitly approved.
+
+## Real-model smoke test
+
+The included smoke test creates a temporary repository, ingests it, asks the LLM to retrieve a hidden value by calling tools, loops over tool results, and checks the final answer.
+
+```bash
+OPENROUTER_API_KEY=... npm run smoke:free
+```
+
+or:
+
+```bash
+MODELWEAVE_PROVIDER=groq GROQ_API_KEY=... npm run smoke:free
+```
+
+## OpenCode mode
+
+ModelWeave can still be used only as the cognitive layer under OpenCode:
 
 ```bash
 modelweave install-opencode .
 ```
 
-This installs:
+This installs `modelweave_context`, `modelweave_ingest` and `modelweave_state` tools.
 
-- `modelweave_context` — returns a bounded active subgraph for a concrete coding goal.
-- `modelweave_ingest` — incrementally refreshes the repository graph.
-- `modelweave_state` — status / verify / cognitive commit.
-
-Recommended agent policy:
-
-```text
-1. For a non-trivial task, call modelweave_context before broad exploration.
-2. Use normal OpenCode read/LSP/bash/vision tools to execute the task.
-3. Re-ingest after meaningful source changes.
-4. Commit only cognition worth preserving.
-5. If current evidence is insufficient, widen the light before spawning more agents.
-```
-
-This keeps ModelWeave as the **cognitive layer** and OpenCode as the **execution harness**.
-
-## CLI
+## Core cognitive commands
 
 ```text
 modelweave init [dir]
-modelweave install-opencode [dir]
-modelweave ingest [dir] [--chunk-lines 160] [--max-bytes 524288]
+modelweave ingest [dir]
+modelweave light <goal> [--budget N] [--multi]
+modelweave promote <title> <nodeId> [nodeId...]
+modelweave verify
 modelweave status
 modelweave commit <message>
-modelweave log [limit]
+modelweave log
 modelweave branch [name]
 modelweave checkout <branch>
 modelweave merge <branch>
 modelweave revert <commit>
-modelweave node add <kind> <title> [body] ...
-modelweave node update <id> ...
-modelweave node rm <id>
-modelweave edge add <from> <type> <to> [weight]
-modelweave edge rm <id>
-modelweave show [id]
-modelweave light <goal> [--budget 32000] [--multi] [--json]
-modelweave promote <title> <nodeId> [nodeId...]
-modelweave verify
-```
-
-## Core model
-
-### Node kinds
-
-- `entity` — code/module/domain entity
-- `evidence` — observable source material
-- `belief` — derived cognition that must cite evidence once promoted above hypothesis
-- `negative` — scoped negative finding ("this path has been ruled out")
-- `abstraction` — higher-level index/summary that points to detail
-- `task` — transient or persistent task state
-
-### Evidence grades
-
-```text
-hypothesis < static < tested < runtime < reproduced
-```
-
-The runtime deliberately separates **truth strength** from **attention strength**. A low-confidence hypothesis may still deserve a bright light when it is relevant to the current problem.
-
-### Graph mutation principles
-
-ModelWeave maps the cognitive operations discussed during design into a small set of primitives:
-
-```text
-ACTIVATE   -> Attention Light
-PROPAGATE  -> graph traversal with decay
-PRUNE      -> lower activation / archive, not destructive deletion
-GRAFT      -> add relation edges
-SPLIT      -> create finer nodes
-MERGE      -> canonicalize or Git-like branch merge
-PROMOTE    -> create abstraction without destroying detail
-REVERT     -> restore prior cognitive state
 ```
 
 ## Development
 
 ```bash
 npm test
-npm run demo
 npm run benchmark
+npm run smoke:free   # requires a free provider API key
 ```
 
-The project intentionally has **zero runtime dependencies** so the graph/runtime can be embedded into other agent harnesses without pulling in another framework.
+The core has zero runtime npm dependencies and requires Node.js 20+.
 
-## Architecture docs
+## Documentation
 
-- [`docs/architecture.md`](docs/architecture.md)
-- [`docs/data-model.md`](docs/data-model.md)
-- [`docs/opencode.md`](docs/opencode.md)
+- `docs/architecture.md`
+- `docs/data-model.md`
+- `docs/opencode.md`
+- `docs/agent-runtime.md`
+
+## Current engineering direction
+
+v0.2 intentionally keeps the orchestration/control plane in Node.js. At large graph sizes the next bottleneck is not JavaScript syntax; it is full-graph candidate scoring and rebuilding indexes on each query. The planned optimization path is persistent lexical/symbol indexes, hybrid retrieval and cached adjacency before considering a Rust data-plane implementation.
 
 ## License
 
