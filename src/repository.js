@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { applyDiff, CognitiveGraph, diffGraphs, emptyGraph, invertDiff } from './graph.js';
+import { applyDiff, CognitiveGraph, diffGraphs, emptyGraph, GRAPH_MUTATION_HINTS, invertDiff } from './graph.js';
 import { clone, hash, isEqual, nowIso } from './util.js';
 import { resolveStateDir } from './brand.js';
 import { LumenCortexDatabase } from './database.js';
@@ -66,9 +66,10 @@ export class CognitiveRepository {
 
   writeGraph(state) {
     this.assertExists();
+    const mutationHints = state?.[GRAPH_MUTATION_HINTS] ?? null;
     new CognitiveGraph(state).validate();
     const expectedRevision = this.lastGraphRevision ?? this.database.graphRevision();
-    const result = this.database.syncGraph(state, { expectedRevision });
+    const result = this.database.syncGraph(state, { expectedRevision, mutationHints });
     this.lastGraphRevision = result.revision;
     this.graphCache = clone(state);
     this.graphCacheRevision = result.revision;
