@@ -1,4 +1,4 @@
-# ModelWeave Architecture — v0.3 core alignment
+# ModelWeave Architecture — v0.4 coding harness
 
 ModelWeave is a versioned cognitive runtime and coding-agent loop.
 
@@ -44,7 +44,7 @@ CLI / OpenCode / API
 +------------------------------------------------------+
 | Cognitive Control                                    |
 |                                                      |
-| [Hybrid Retrieval]* -> [Attention Light]             |
+| [BM25 + Symbol Retrieval] -> [Attention Light]        |
 |                         |                            |
 |                 Active Subgraph                      |
 |                         |                            |
@@ -75,7 +75,7 @@ CLI / OpenCode / API
 +------------------------------------------------------+
 | Storage                                              |
 | graph.json / commits / refs / journal / sessions     |
-| lexical-symbol-vector indexes* / hot-warm-cold GC*   |
+| persistent BM25/symbol index / vector index* / GC*    |
 +------------------------------------------------------+
 
 * planned or partial
@@ -157,17 +157,17 @@ Policies:
 
 Important: truth strength and attention strength are separate values. A low-confidence hypothesis can still deserve attention.
 
-### Remaining retrieval gap
+### Retrieval pipeline
 
-Current seed generation still performs a full lexical scan of graph nodes. The intended next stage is:
+Seed generation now uses a persistent BM25 + symbol inverted index. Full-graph lexical seed scanning remains only as a fallback when an index is unavailable. The current pipeline is:
 
 ```text
 Goal
  |
- +-> Symbol index
- +-> BM25 / lexical index
- +-> Embedding retrieval
- +-> Graph neighborhood
+ +-> Symbol index       [implemented]
+ +-> BM25 / lexical     [implemented]
+ +-> Embedding retrieval [planned/optional]
+ +-> Graph neighborhood [implemented]
  +-> History / recent evidence
          |
          v
@@ -177,7 +177,7 @@ Goal
    Attention Light
 ```
 
-This is required before million-node scale.
+This removes the dominant per-query O(N) seed scan. Embeddings remain optional for semantic recall rather than a prerequisite for indexed navigation.
 
 ## Active Promotion
 
@@ -299,15 +299,21 @@ All providers use the same tool-calling Agent Loop.
 | Real-model long-task validation | Implemented and VM-proven with Qwen3 4B; paged-out observations reactivated from graph |
 | DeepSeek official/OpenRouter adapters | Implemented |
 | Real DeepSeek V4 execution | Not yet verified in CI; no-key HF endpoint was paused and OpenRouter key is absent |
-| Hybrid BM25/Symbol/Embedding retrieval | Planned |
-| Persistent indexes / cached adjacency | Planned |
-| LSP/symbol semantic tooling | Planned |
+| Persistent BM25 + symbol retrieval | Implemented |
+| Embedding retrieval | Planned / optional |
+| Persistent retrieval index | Implemented |
+| Cached adjacency / segmented index updates | Planned |
+| LSP semantic tooling | Implemented (stdio JSON-RPC; Java/TS/Python defaults + custom config) |
 | Graph canonicalization / GC / hot-warm-cold storage | Planned |
 | Temporal valid_from/valid_to graph | Partial |
 | Negative-evidence lifecycle | Partial |
 | Cognitive branch <-> real Git worktree binding | Planned |
 | Transactional rollback of workspace file edits | Planned |
-| MCP / Skills / subagent DAG / vision / browser | Planned |
+| MCP client/tools | Implemented (2026 modern + legacy; stdio + HTTP) |
+| Focused Subagents | Implemented |
+| Multi-session parallel runner | Implemented (safe read parallel; write parallel explicit opt-in) |
+| TUI | Implemented |
+| Skills / vision / browser | Planned |
 | Attention propagation | Implemented |
 | Ephemeral attention cut under token budget | Implemented |
 | Structural cut / restore | Implemented: edge remains durable but is excluded from propagation |

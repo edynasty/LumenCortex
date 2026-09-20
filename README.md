@@ -22,7 +22,7 @@ Reality -> Evidence -> Belief -> Cognitive Graph
                            next reasoning step
 ```
 
-## v0.3 core features
+## v0.4 coding harness
 
 ### Cognitive runtime
 
@@ -37,6 +37,8 @@ Reality -> Evidence -> Belief -> Cognitive Graph
 - exploit / explore / contrarian / anomaly lights
 - manual + active Promotion without destructive compaction
 - incremental repository ingestion
+- persistent BM25 + symbol search index for large repositories
+- indexed candidate generation before Attention Light (avoids full-graph seed scans)
 - source-change invalidation of dependent beliefs
 - OpenCode integration
 
@@ -46,7 +48,11 @@ Reality -> Evidence -> Belief -> Cognitive Graph
 - OpenAI-compatible provider adapter
 - OpenRouter / Groq / DeepSeek official presets
 - generic local/API provider mode
-- workspace tools: read, list, search, write, exact replace, shell
+- workspace tools: read, list, indexed `code_search`, write, exact replace, shell
+- LSP tools: definition, references, symbols, hover, diagnostics
+- MCP client: 2026 modern + legacy negotiation, stdio + HTTP transports
+- focused Subagent + parallel Subagent tools
+- multi-session parallel runner and full-screen TUI
 - ModelWeave context and ingest tools inside the loop
 - permission gate for read / write / exec
 - automatic graph refresh after workspace mutation
@@ -133,6 +139,29 @@ Interactive session:
 
 ```bash
 modelweave chat --provider groq --model openai/gpt-oss-120b --yes
+modelweave tui --provider groq --model openai/gpt-oss-120b --yes
+```
+
+Large-repository code intelligence:
+
+```bash
+modelweave index build
+modelweave search "reserveInventory"
+modelweave lsp references src/main/java/.../InventoryService.java 42 18
+```
+
+MCP:
+
+```bash
+# configure .modelweave/mcp.json
+modelweave mcp status
+modelweave mcp tools my-server
+```
+
+Parallel sessions:
+
+```bash
+modelweave parallel tasks.json --concurrency 4
 ```
 
 Resume:
@@ -227,6 +256,7 @@ modelweave edge graft <from> <type> <to> [weight] [reason]
 ```bash
 npm test
 npm run benchmark
+npm run benchmark:search
 npm run smoke:free   # requires a free provider API key
 ```
 
@@ -241,13 +271,13 @@ The core has zero runtime npm dependencies and requires Node.js 20+.
 
 ## Implementation honesty
 
-Implemented and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, provider abstraction, tools and resumable sessions.
+Implemented and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, persistent BM25/symbol retrieval index, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, TUI, provider abstraction, tools and resumable sessions.
 
-Still planned rather than claimed as complete: hybrid BM25/symbol/embedding retrieval, persistent indexes, LSP, real Git-worktree transaction binding, graph GC/hot-warm-cold storage, MCP/Skills/subagent DAG, vision/browser tooling and automatic split/merge canonicalization.
+Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, graph GC/hot-warm-cold storage, reusable Skills layer, vision/browser tooling and automatic split/merge canonicalization.
 
 ## Current engineering direction
 
-v0.3 intentionally keeps the orchestration/control plane in Node.js. At large graph sizes the next bottleneck is not JavaScript syntax; it is full-graph candidate scoring and rebuilding indexes on each query. The planned optimization path is persistent lexical/symbol indexes, hybrid retrieval and cached adjacency before considering a Rust data-plane implementation.
+v0.4 intentionally keeps the orchestration/control plane in Node.js. At large graph sizes the next bottleneck is not JavaScript syntax; it is full-graph candidate scoring and rebuilding indexes on each query. Persistent lexical/symbol indexing is now implemented; the next data-plane optimizations are embeddings (optional), cached adjacency, incremental index segments and eventually a Rust core only if profiling justifies it.
 
 ## License
 

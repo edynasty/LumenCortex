@@ -6,9 +6,9 @@ This document separates architecture claims from evidence.
 
 Latest validated core suite:
 
-- 45 tests
-- 45 passed
-- 0 failed
+- Core suite + dedicated harness suite (current CI enforced)
+- Node.js 20 and 22 core matrix
+- isolated Search / LSP / MCP / Subagent / TUI harness jobs
 - Node.js 20 and 22
 - benchmark executed in CI
 
@@ -121,18 +121,29 @@ contextRatio          = 0.005
 
 This is a routing/attention benchmark, not a model-quality benchmark.
 
+## Coding-harness validation
+
+Dedicated `harness-ci` runs isolated tests for:
+
+- persistent BM25/symbol retrieval and Attention Light seeding,
+- Content-Length LSP JSON-RPC against a fake language server,
+- MCP 2026 modern discovery and 2025 legacy fallback,
+- dynamic MCP tool registration/calling,
+- focused Subagents and parallel durable sessions,
+- TUI frame/session/event rendering.
+
+A separate 100k-node search benchmark is enforced by `search-benchmark`.
+
 ## Still not validated / still planned
 
 The following are not represented as complete features:
 
-- BM25/symbol/embedding Hybrid Retrieval,
-- persistent retrieval indexes,
-- LSP semantic navigation,
+- embedding/vector semantic retrieval,
 - cognitive branch <-> actual Git worktree transaction binding,
 - transactional rollback of workspace edits,
 - graph GC / hot-warm-cold memory tiers,
 - full temporal validity querying,
 - automatic split/merge/canonicalization,
-- MCP/Skills/subagent DAG,
+- reusable Skills layer,
 - vision/browser tools,
 - formal independent Definition-of-Done evaluator.

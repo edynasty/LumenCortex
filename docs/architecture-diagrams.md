@@ -21,7 +21,8 @@ flowchart TB
     subgraph ENTRY["Entry / Harness"]
       CLI["Standalone CLI: agent / chat / git / light"]:::done
       OC["OpenCode tools"]:::done
-      API["MCP / API / Web UI"]:::plan
+      MCP["MCP stdio/HTTP"]:::done
+      API["API / Web UI"]:::plan
     end
 
     subgraph EXEC["Ephemeral Agent Execution"]
@@ -32,24 +33,26 @@ flowchart TB
       TWS["Tool Working Set / Schema Allowlist"]:::done
       TOOLS["Tool Registry + Permission Gate"]:::done
       VERIFY["Test / Shell / Reality Verification"]:::done
-      TASKDAG["Subagent / Dynamic Task DAG"]:::plan
+      TASKDAG["Focused Subagent / Parallel Sessions"]:::done
+      TUI["Full-screen TUI / Session Switch"]:::done
       GOAL --> LOOP
       SESSION --> WS --> LOOP
       LOOP --> TWS --> TOOLS --> VERIFY --> LOOP
-      LOOP -.-> TASKDAG
+      LOOP --> TASKDAG
+      LOOP --> TUI
     end
 
     subgraph RETRIEVAL["Candidate Retrieval"]
-      LEX["Current: full lexical scan"]:::done
-      SYM["Symbol / LSP index"]:::plan
-      BM25["Persistent BM25 index"]:::plan
+      LEX["Fallback lexical scan"]:::done
+      SYM["Symbol index + LSP"]:::done
+      BM25["Persistent BM25 index"]:::done
       EMB["Embedding index"]:::plan
       HIST["Recent evidence / history seeds"]:::done
       CAND["Candidate Set"]:::core
       LEX --> CAND
       HIST --> CAND
-      SYM -.-> CAND
-      BM25 -.-> CAND
+      SYM --> CAND
+      BM25 --> CAND
       EMB -.-> CAND
     end
 
@@ -105,6 +108,7 @@ flowchart TB
     end
 
     ENTRY --> GOAL
+    MCP --> TOOLS
     PROVIDERS <--> LOOP
     LOOP --> CAND --> LIGHT
     GRAPH --> LIGHT
