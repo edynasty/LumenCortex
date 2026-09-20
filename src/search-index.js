@@ -63,6 +63,10 @@ export class PersistentSearchIndex {
   stats() {
     return this.database.searchStats();
   }
+
+  close() {
+    this.database.close();
+  }
 }
 
 export function graphFingerprint(graphState) {
