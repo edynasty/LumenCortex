@@ -34,7 +34,7 @@ Core workspace tools:
 - `write_file`
 - `replace_in_file`
 - `apply_patch` — validates an exact multi-hunk / multi-file create-update-delete batch before mutating targets
-- `shell` — asynchronous, timeout-bounded and cancellable; POSIX cancellation terminates the command process group
+- `shell` — asynchronous, timeout-bounded and cancellable; stdout/stderr stream as live Agent events; POSIX cancellation terminates the command process group
 - `lumencortex_context`
 - `lumencortex_ingest`
 
@@ -250,7 +250,7 @@ The full-screen terminal view exposes:
 - current provider/model,
 - current Session,
 - recent Sessions,
-- live Agent events,
+- live Agent events, including streaming shell stdout/stderr while commands are still running,
 - current answer/result,
 - session switching,
 - new-session creation,
