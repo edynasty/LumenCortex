@@ -219,3 +219,32 @@ test('single-node graph mutation only dirties and refreshes that search row', ()
     db.close();
   }
 });
+
+
+test('stale graph writer is rejected instead of overwriting a newer WAL commit', () => {
+  const root=tempWorkspace('lcx-revision-conflict-');
+  const first=new CognitiveRepository(root);
+  first.init();
+  const second=new CognitiveRepository(root);
+
+  const graphA=first.graph();
+  const graphB=second.graph();
+
+  graphA.addNode({id:'from-a',kind:'entity',title:'writer A'});
+  first.writeGraph(graphA.snapshot());
+
+  graphB.addNode({id:'from-b',kind:'entity',title:'writer B'});
+  assert.throws(
+    () => second.writeGraph(graphB.snapshot()),
+    (error) => error?.code === 'GRAPH_REVISION_CONFLICT'
+  );
+
+  const reloaded=second.graph();
+  assert.ok(reloaded.getNode('from-a'));
+  reloaded.addNode({id:'from-b',kind:'entity',title:'writer B'});
+  second.writeGraph(reloaded.snapshot());
+
+  const finalGraph=first.graph();
+  assert.ok(finalGraph.getNode('from-a'));
+  assert.ok(finalGraph.getNode('from-b'));
+});
