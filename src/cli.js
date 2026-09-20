@@ -45,6 +45,11 @@ try {
     process.exit(0);
   }
 
+  if (command === 'doctor') {
+    await doctorCommand(args);
+    process.exit(0);
+  }
+
   let workspace;
   if (command === 'tui') {
     try {
@@ -73,9 +78,6 @@ try {
       console.log(JSON.stringify(store.list(Number(parsed.flags.limit ?? 20)), null, 2));
       break;
     }
-    case 'doctor':
-      await doctorCommand(args);
-      break;
     case 'tui':
       await tuiCommand({ repo, runtime, workspace, argv: args });
       break;
