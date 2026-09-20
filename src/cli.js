@@ -124,6 +124,31 @@ try {
       } else console.log(`Reverted in ${result.commit.id}`);
       break;
     }
+    case 'blame': {
+      if (!args[0]) fail('Usage: modelweave blame <node-or-edge-id> [limit]');
+      console.log(JSON.stringify(repo.blame(args[0], Number(args[1] ?? 20)), null, 2));
+      break;
+    }
+    case 'cherry-pick': {
+      if (!args[0]) fail('Usage: modelweave cherry-pick <commit>');
+      const result = repo.cherryPick(args[0]);
+      if (result.conflicts.length) {
+        console.error('Cherry-pick conflicts:');
+        for (const conflict of result.conflicts) console.error(`  ${conflict.kind}:${conflict.id}`);
+        process.exitCode = 2;
+      } else console.log(`Cherry-picked as ${result.commit.id}`);
+      break;
+    }
+    case 'rebase': {
+      if (!args[0]) fail('Usage: modelweave rebase <branch>');
+      const result = repo.rebase(args[0]);
+      if (result.conflicts.length) {
+        console.error('Rebase conflicts:');
+        for (const conflict of result.conflicts) console.error(`  ${conflict.kind}:${conflict.id}`);
+        process.exitCode = 2;
+      } else console.log(`Rebased ${result.branch} onto ${args[0]} (${result.commits.length} replayed commit(s))`);
+      break;
+    }
     case 'node':
       await nodeCommand(repo, args);
       break;
@@ -209,6 +234,9 @@ async function agentCommand({ repo, runtime, workspace, argv }) {
     maxSteps: Number(parsed.flags['max-steps'] ?? 24),
     budgetTokens: Number(parsed.flags.budget ?? 24000),
     maxTokens: parsed.flags['max-tokens'] ? Number(parsed.flags['max-tokens']) : undefined,
+    recentRounds: Number(parsed.flags['recent-rounds'] ?? 6),
+    maxWorkingChars: Number(parsed.flags['working-chars'] ?? 120000),
+    autoPromotion: parsed.flags['no-auto-promote'] ? false : true,
     autoIngest: parsed.flags['no-ingest'] ? false : true,
     cognitiveCommit: Boolean(parsed.flags['cognitive-commit']),
     authorize
@@ -289,6 +317,8 @@ function renderAgentEvent(event) {
   else if (event.type === 'llm.request') console.log(`[agent] step ${event.step} → ${event.model}`);
   else if (event.type === 'tool.start') console.log(`  → ${event.name} ${compact(event.args)}`);
   else if (event.type === 'tool.end') console.log(`  ← ${event.name} ${event.ok ? 'ok' : event.denied ? 'denied' : 'error'}`);
+  else if (event.type === 'context.refresh') console.log(`  💡 context refreshed (${event.selectedNodes} nodes/${event.contextTokens}t)`);
+  else if (event.type === 'context.promote') console.log(`  ↑ promoted context → ${event.abstractionId} [${event.reasons.join(', ')}]`);
   else if (event.type === 'context.ingest') console.log(`  ↻ graph refreshed (${event.stats.changedEvidence} changed evidence)`);
   else if (event.type === 'session.complete') console.log(`[agent] completed in ${event.step} step(s)`);
 }
@@ -378,5 +408,5 @@ function compact(value) {
 function fail(message) { throw new Error(message); }
 
 function help() {
-  console.log(`ModelWeave — cognitive graph + autonomous coding agent\n\nAgent commands:\n  agent <goal> [--provider openrouter|groq|generic] [--model MODEL] [--max-steps 24] [--budget 24000] [--yes] [--session ID]\n  chat [--provider P] [--model M] [--yes] [--session ID]\n  sessions [--limit 20]\n  providers\n  doctor [--provider P] [--model M] [--live]\n\nCognitive graph commands:\n  init [dir]\n  install-opencode [dir]\n  status\n  commit <message>\n  log [limit]\n  branch [name]\n  checkout <branch>\n  merge <branch>\n  revert <commit>\n  node add|update|rm ...\n  edge add|rm ...\n  ingest [dir] [--chunk-lines 160] [--max-bytes 524288]\n  show [node-or-edge-id]\n  light <goal> [--budget 32000] [--multi] [--json]\n  promote <title> <nodeId> [nodeId...]\n  verify\n\nProviders:\n  OpenRouter free: OPENROUTER_API_KEY + model openrouter/free\n  Groq free:       GROQ_API_KEY + model openai/gpt-oss-120b\n  Generic/local:   MODELWEAVE_BASE_URL, MODELWEAVE_MODEL, MODELWEAVE_API_KEY\n`);
+  console.log(`ModelWeave — cognitive graph + autonomous coding agent\n\nAgent commands:\n  agent <goal> [--provider openrouter|groq|deepseek|generic] [--model MODEL] [--max-steps 24] [--budget 24000] [--recent-rounds 6] [--working-chars 120000] [--no-auto-promote] [--yes] [--session ID]\n  chat [--provider P] [--model M] [--yes] [--session ID]\n  sessions [--limit 20]\n  providers\n  doctor [--provider P] [--model M] [--live]\n\nCognitive graph commands:\n  init [dir]\n  install-opencode [dir]\n  status\n  commit <message>\n  log [limit]\n  branch [name]\n  checkout <branch>\n  merge <branch>\n  revert <commit>\n  node add|update|rm ...\n  edge add|rm ...\n  ingest [dir] [--chunk-lines 160] [--max-bytes 524288]\n  show [node-or-edge-id]\n  light <goal> [--budget 32000] [--multi] [--json]\n  promote <title> <nodeId> [nodeId...]\n  verify\n\nProviders:\n  OpenRouter free: OPENROUTER_API_KEY + model openrouter/free\n  Groq free:       GROQ_API_KEY + model openai/gpt-oss-120b\n  Generic/local:   MODELWEAVE_BASE_URL, MODELWEAVE_MODEL, MODELWEAVE_API_KEY\n`);
 }
