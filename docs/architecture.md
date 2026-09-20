@@ -1,4 +1,4 @@
-# LumenCortex Architecture — v0.4 coding harness
+# LumenCortex Architecture — v0.6 SQLite cognitive runtime
 
 LumenCortex is a versioned cognitive runtime and coding-agent loop.
 
@@ -29,7 +29,7 @@ The graph is the durable cognitive subject. An LLM invocation is a temporary com
 ## System architecture
 
 ```text
-CLI / OpenCode / API
+TUI / CLI / API
         |
         v
 +------------------------------------------------------+
@@ -74,8 +74,8 @@ CLI / OpenCode / API
                        v
 +------------------------------------------------------+
 | Storage                                              |
-| graph.json / commits / refs / journal / sessions     |
-| persistent BM25/symbol index / vector index* / GC*    |
+| SQLite WAL: graph / sessions / Cognitive Git / journal|
+| FTS5 + symbol index / vector index* / GC*             |
 +------------------------------------------------------+
 
 * planned or partial
@@ -159,13 +159,13 @@ Important: truth strength and attention strength are separate values. A low-conf
 
 ### Retrieval pipeline
 
-Seed generation now uses a persistent BM25 + symbol inverted index. Full-graph lexical seed scanning remains only as a fallback when an index is unavailable. The current pipeline is:
+Seed generation now uses SQLite FTS5 + an exact symbol index. Full-graph lexical seed scanning remains only as a fallback when an index is unavailable. The current pipeline is:
 
 ```text
 Goal
  |
  +-> Symbol index       [implemented]
- +-> BM25 / lexical     [implemented]
+ +-> FTS5 / lexical     [implemented]
  +-> Embedding retrieval [planned/optional]
  +-> Graph neighborhood [implemented]
  +-> History / recent evidence
@@ -299,9 +299,10 @@ All providers use the same tool-calling Agent Loop.
 | Real-model long-task validation | Implemented and VM-proven with Qwen3 4B; paged-out observations reactivated from graph |
 | DeepSeek official/OpenRouter adapters | Implemented |
 | Real DeepSeek V4 execution | Not yet verified in CI; no-key HF endpoint was paused and OpenRouter key is absent |
-| Persistent BM25 + symbol retrieval | Implemented |
+| Persistent SQLite FTS5 + symbol retrieval | Implemented |
 | Embedding retrieval | Planned / optional |
-| Persistent retrieval index | Implemented |
+| SQLite WAL persistence | Implemented |
+| Persistent retrieval index | Implemented (FTS5 + symbols) |
 | Cached adjacency / segmented index updates | Planned |
 | LSP semantic tooling | Implemented (stdio JSON-RPC; Java/TS/Python defaults + custom config) |
 | Graph canonicalization / GC / hot-warm-cold storage | Planned |

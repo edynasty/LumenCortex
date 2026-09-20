@@ -94,6 +94,10 @@ An `evidence` node cannot use the `model_inferred` trust zone.
 
 Evidence expiration or content changes mark dependent cognition `stale`.
 
+## SQLite persistence
+
+The canonical workspace state is stored in `.lumencortex/lumencortex.db`. Graph nodes and edges are normalized into `graph_nodes` and `graph_edges`, Sessions into `sessions` / `session_messages` / `agent_steps`, and search into `symbols` + FTS5 `node_fts`.
+
 ## Cognitive commit
 
 ```json
@@ -104,9 +108,8 @@ Evidence expiration or content changes mark dependent cognition `stale`.
   "createdAt": "...",
   "graphHash": "...",
   "diff": { "operations": [] },
-  "metadata": {},
-  "snapshot": {}
+  "metadata": {}
 }
 ```
 
-Diff operations carry before/after objects, which makes strict precondition checking and inversion possible.
+Diff operations carry before/after objects, which makes strict precondition checking and inversion possible. Full snapshots are no longer persisted per commit; they are reconstructed through the first-parent diff chain and cached in memory.

@@ -1,12 +1,12 @@
-# Agent runtime — v0.4
+# Agent runtime — v0.6
 
-LumenCortex v0.4 is both a cognitive runtime and a standalone coding-agent harness.
+LumenCortex v0.6 is both a cognitive runtime and a standalone coding-agent harness.
 
 ## Runtime loop
 
 ```text
 Goal
-  -> persistent BM25/symbol candidate retrieval
+  -> persistent SQLite FTS5/symbol candidate retrieval
   -> Attention Light + graph propagation
   -> Active Promotion when granularity is too dense
   -> Active Subgraph
@@ -30,7 +30,7 @@ Core workspace tools:
 - `read_file`
 - `list_dir`
 - `search_text`
-- `code_search` — persistent BM25 + symbol index
+- `code_search` — persistent SQLite FTS5 + symbol index
 - `write_file`
 - `replace_in_file`
 - `shell`
@@ -73,26 +73,24 @@ The retrieval path is:
 ```text
 query
   -> exact symbol lookup
-  -> BM25 selective postings
+  -> FTS5 lexical retrieval
   -> candidate node IDs
   -> graph propagation
   -> Attention Light
   -> finite Active Subgraph
 ```
 
-High-document-frequency postings are pruned when more selective symbol/lexical terms are available, avoiding a hidden O(N) query path.
-
-Index freshness uses a small `.lumencortex/graph.revision` counter. Graph writes update the revision in O(1); queries rebuild only when the persisted index revision is stale.
+Search and persistence share the same SQLite database. Exact code identifiers use the `symbols` table; natural-language/code-token recall uses FTS5. Index freshness is keyed by the graph revision stored in SQLite, so Runtime rebuilds only when the graph revision changes.
 
 Current synthetic CI benchmark:
 
 ```text
 100,000 graph nodes
-index build       4.47 s
+index build       3.42 s
 50 symbol queries
-query p50         0.011 ms
-query p95         0.039 ms
-index size        84.27 MB
+query p50         0.101 ms
+query p95         0.228 ms
+database size     79.59 MB
 ```
 
 This benchmark measures exact/symbol-heavy code navigation, not semantic-natural-language quality.
@@ -271,11 +269,7 @@ Without `--yes`, TUI intentionally remains read-only because a full-screen readl
 
 ## Sessions and resume
 
-Sessions are stored under:
-
-```text
-.lumencortex/sessions/<session-id>.json
-```
+Sessions are stored in `.lumencortex/lumencortex.db` using normalized `sessions`, `session_messages`, and `agent_steps` tables. SQLite runs in WAL mode, allowing independent read-oriented Subagent sessions to persist concurrently.
 
 A session persists:
 
@@ -295,6 +289,24 @@ lcx agent "continue the task" --session session_xxx --yes
 ```
 
 Global step numbers, context history and usage remain continuous across resume.
+
+## SQLite storage
+
+The runtime uses one workspace-local database:
+
+```text
+.lumencortex/lumencortex.db
+```
+
+Important tables:
+
+- `graph_nodes` / `graph_edges`
+- `cognitive_commits` / `cognitive_refs`
+- `sessions` / `session_messages` / `agent_steps`
+- `journal`
+- `search_documents` / `symbols` / `node_fts`
+
+Cognitive Git stores diffs instead of duplicating the full graph in every commit. Historical snapshots are reconstructed from diffs and cached in memory. Pre-v0.6 JSON storage is imported once on open and archived after migration.
 
 ## Provider configuration
 

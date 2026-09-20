@@ -6,7 +6,7 @@
 
 The primary interface is the full-screen TUI. Run `lumencortex` or the short command `lcx` with no arguments to open it directly.
 
-## v0.5 LumenCortex runtime
+## v0.6 LumenCortex runtime
 
 ### Cognitive runtime
 
@@ -21,7 +21,8 @@ The primary interface is the full-screen TUI. Run `lumencortex` or the short com
 - exploit / explore / contrarian / anomaly lights
 - manual + active Promotion without destructive compaction
 - incremental repository ingestion
-- persistent BM25 + symbol search index for large repositories
+- SQLite WAL persistence for graph, sessions, Cognitive Git, journal, symbols and FTS5 retrieval
+- persistent FTS5 + symbol search index for large repositories
 - indexed candidate generation before Attention Light (avoids full-graph seed scans)
 - source-change invalidation of dependent beliefs
 
@@ -135,7 +136,7 @@ lcx search "reserveInventory"
 lcx lsp references src/main/java/.../InventoryService.java 42 18
 ```
 
-The CI performance gate currently validates a synthetic 100k-node index at ~4.47s build time and 0.039ms query p95 for exact/symbol-heavy queries.
+The CI performance gate currently validates a synthetic 100k-node SQLite/FTS5 index at ~3.42s build time and 0.228ms query p95 for exact/symbol-heavy queries.
 
 MCP:
 
@@ -191,6 +192,23 @@ Useful controls:
 
 Without `--yes`, write and shell actions require interactive approval. Non-interactive runs deny those actions unless explicitly approved.
 
+## Persistence
+
+Each workspace keeps one local database:
+
+```text
+.lumencortex/
+├── lumencortex.db
+├── lumencortex.db-wal
+├── lumencortex.db-shm
+├── lsp.json        # optional
+└── mcp.json        # optional
+```
+
+SQLite runs in WAL mode. The database stores the Cognitive Graph, Cognitive Git commits/refs, durable Sessions, Agent steps/messages, runtime journal, code symbols and FTS5 search data. Cognitive commits store graph diffs rather than a full graph snapshot per commit; historical snapshots are reconstructed from the first-parent diff chain and cached in memory.
+
+Existing pre-v0.6 JSON-based `.lumencortex` repositories are imported automatically once and moved into a timestamped `json-backup-*` directory after successful migration.
+
 ## Real-model smoke test
 
 The included smoke test creates a temporary repository, ingests it, asks the LLM to retrieve a hidden value by calling tools, loops over tool results, and checks the final answer.
@@ -238,7 +256,7 @@ npm run benchmark:search
 npm run smoke:free   # requires a free provider API key
 ```
 
-The core has zero runtime npm dependencies and requires Node.js 20+.
+The core has zero runtime npm dependencies and requires Node.js 22.13+ because persistence uses the built-in `node:sqlite` module.
 
 ## Documentation
 
@@ -254,7 +272,7 @@ Still planned rather than claimed as complete: embedding retrieval, real Git-wor
 
 ## Current engineering direction
 
-v0.4 intentionally keeps the orchestration/control plane in Node.js. At large graph sizes the next bottleneck is not JavaScript syntax; it is full-graph candidate scoring and rebuilding indexes on each query. Persistent lexical/symbol indexing is now implemented; the next data-plane optimizations are embeddings (optional), cached adjacency, incremental index segments and eventually a Rust core only if profiling justifies it.
+v0.6 intentionally keeps the orchestration/control plane in Node.js. At large graph sizes the next bottleneck is not JavaScript syntax; it is full-graph candidate scoring and rebuilding indexes on each query. Persistent lexical/symbol indexing is now implemented; the next data-plane optimizations are embeddings (optional), cached adjacency, incremental index segments and eventually a Rust core only if profiling justifies it.
 
 ## License
 

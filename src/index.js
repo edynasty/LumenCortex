@@ -4,6 +4,7 @@ export * from './util.js';
 export * from './model.js';
 export * from './graph.js';
 export * from './repository.js';
+export * from './database.js';
 export * from './attention.js';
 export * from './promotion.js';
 export * from './verification.js';

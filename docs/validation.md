@@ -6,12 +6,13 @@ This document separates architecture claims from evidence.
 
 Latest validated core suite:
 
-- 54 core tests / 54 passed / 0 failed
-- Node.js 20 and 22 core matrix
+- Core suite passes on Node.js 22 and 24
+- Node.js 22 and 24 core matrix
 - dedicated isolated Search / LSP / MCP / Subagent / TUI harness jobs
 - MCP HTTP modern + legacy fallback + stdio transport coverage
 - real overlapping Subagent concurrency assertion
-- 100k-node persistent search benchmark
+- SQLite WAL / normalized Session / JSON migration coverage
+- 100k-node SQLite FTS5/symbol search benchmark
 
 Covered behaviors include:
 
@@ -126,7 +127,7 @@ This is a routing/attention benchmark, not a model-quality benchmark.
 
 Dedicated `harness-ci` runs isolated tests for:
 
-- persistent BM25/symbol retrieval and Attention Light seeding,
+- persistent SQLite FTS5/symbol retrieval and Attention Light seeding,
 - Content-Length LSP JSON-RPC against a fake language server,
 - MCP 2026 modern discovery and 2025 legacy fallback,
 - dynamic MCP tool registration/calling,
@@ -140,17 +141,17 @@ Latest successful synthetic run:
 ```text
 nodes             = 100000
 queries           = 50
-index build       = 4468.01 ms
-query p50         = 0.011 ms
-query p95         = 0.039 ms
-index size        = 84.27 MB
-indexed terms     = 600015
+index build       = 3417.36 ms
+query p50         = 0.101 ms
+query p95         = 0.228 ms
+database size     = 79.59 MB
+indexed terms     = 300010
 indexed symbols   = 400000
 ```
 
 The benchmark specifically stresses exact/symbol-heavy code lookup. It proves that this path no longer performs a full 100k-node scan per query; it does not substitute for semantic-retrieval quality evaluation.
 
-Index consistency is separately tested: graph mutations increment an O(1) repository revision and Runtime automatically rebuilds a stale persistent index before searching.
+Index consistency is separately tested: graph mutations increment the SQLite graph revision and Runtime automatically rebuilds stale FTS5/symbol data before searching. SQLite WAL mode, normalized Session persistence, Cognitive Git reopen/reconstruction and one-time JSON migration are covered by dedicated storage tests.
 
 ## Still not validated / still planned
 
