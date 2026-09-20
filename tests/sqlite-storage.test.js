@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { spawn } from 'node:child_process';
 import { CognitiveRepository } from '../src/repository.js';
 import { AgentSessionStore } from '../src/session.js';
 import { LumenCortexRuntime } from '../src/runtime.js';
@@ -421,4 +422,70 @@ test('tool-call step payload round-trips through SQLite exactly', () => {
   assert.equal(reopened.steps[0].toolCalls[0].observationId,'obs_123');
   assert.equal(reopened.steps[0].toolCalls[0].args.path,'memory-long/item-01.txt');
   assert.equal(reopened.messages[0].tool_calls[0].function.name,'read_file');
+});
+
+
+test('separate Node processes can persist independent sessions concurrently under WAL', { timeout: 12000 }, async () => {
+  const root=tempWorkspace('lcx-wal-concurrency-');
+  const repo=new CognitiveRepository(root);
+  repo.init();
+  repo.close?.();
+
+  const worker=path.join(root,'session-writer.mjs');
+  fs.writeFileSync(worker, `
+    import { AgentSessionStore } from ${JSON.stringify(new URL('../src/session.js', import.meta.url).href)};
+    const [repoDir,id,delay] = process.argv.slice(2);
+    const store=new AgentSessionStore(repoDir);
+    const session=store.create({id,goal:'parallel '+id,provider:'mock',model:'mock'});
+    for(let i=0;i<12;i+=1){
+      session.messages.push({role:'assistant',content:id+':'+i});
+      session.steps.push({step:i+1,finishReason:'tool_calls',toolCalls:[]});
+      store.save(session);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,Number(delay));
+    }
+    session.status='completed';
+    session.final='done '+id;
+    store.save(session);
+    store.close?.();
+  `);
+
+  const repoDir=path.join(root,'.lumencortex');
+  const run=(id,delay)=>new Promise((resolve,reject)=>{
+    const child=spawn(process.execPath,[worker,repoDir,id,String(delay)],{stdio:['ignore','pipe','pipe']});
+    let stderr='';
+    child.stderr.on('data',chunk=>stderr+=chunk);
+    child.on('error',reject);
+    child.on('exit',code=>code===0?resolve():reject(new Error(`${id} exit=${code} ${stderr}`)));
+  });
+
+  const reader=new AgentSessionStore(repoDir);
+  const tasks=[
+    run('session_parallel_a',3),
+    run('session_parallel_b',4)
+  ];
+
+  let observed=false;
+  while(true){
+    const states=reader.list(10).filter(x=>x.id.startsWith('session_parallel_'));
+    if(states.length>=1) observed=true;
+    const settled=await Promise.race([
+      Promise.all(tasks).then(()=>true),
+      new Promise(resolve=>setTimeout(()=>resolve(false),15))
+    ]);
+    if(settled) break;
+  }
+  await Promise.all(tasks);
+
+  const a=reader.load('session_parallel_a');
+  const b=reader.load('session_parallel_b');
+  assert.equal(observed,true);
+  assert.equal(a.status,'completed');
+  assert.equal(b.status,'completed');
+  assert.equal(a.messages.length,12);
+  assert.equal(b.messages.length,12);
+  assert.equal(a.steps.length,12);
+  assert.equal(b.steps.length,12);
+  assert.equal(a.final,'done session_parallel_a');
+  assert.equal(b.final,'done session_parallel_b');
+  reader.close?.();
 });
