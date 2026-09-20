@@ -53,3 +53,11 @@ test('provider normalizes reasoning_content without treating it as final content
   assert.equal(result.message.content, '');
   assert.equal(result.message.reasoning, 'internal reasoning only');
 });
+
+
+test('official DeepSeek preset follows the current Flash API alias', () => {
+  const preset = PROVIDER_PRESETS.deepseek;
+  assert.equal(preset.baseURL, 'https://api.deepseek.com');
+  assert.equal(preset.apiKeyEnv, 'DEEPSEEK_API_KEY');
+  assert.equal(preset.defaultModel, 'deepseek-flash');
+});
