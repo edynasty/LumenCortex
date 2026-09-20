@@ -13,7 +13,7 @@ A feature being present in source code is not enough. Readiness claims require a
 | SQLite WAL / restart persistence | Complete | Core CI, integrity/checkpoint/concurrency tests | Ready |
 | Large-repository lexical/symbol retrieval | Complete | 100k-node FTS5/symbol benchmark | Ready for exact/symbol-heavy lookup |
 | Semantic/vector retrieval | Not implemented | None | Optional gap for fuzzy semantic recall |
-| Workspace read/search/write tools | Complete | Core CI | Ready |
+| Workspace read/search/write tools | Complete | Core CI, including bounded batch `read_files` | Ready |
 | Atomic multi-file patching | Complete | Batch validation/ambiguity/traversal tests | Ready |
 | Shell execution | Complete | async/timeout/process-tree/cancel tests | Ready |
 | Live shell stdout/stderr | Complete | pre-completion streaming + Agent/TUI event tests | Ready |
