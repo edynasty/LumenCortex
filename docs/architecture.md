@@ -1,156 +1,251 @@
-# Architecture
+# ModelWeave Architecture — v0.3 core alignment
 
-## 1. Design objective
+ModelWeave is a versioned cognitive runtime and coding-agent loop.
 
-ModelWeave is not another autonomous coding agent. It is a **cognitive runtime** that sits underneath an agent harness such as OpenCode.
-
-The problem it targets is long-horizon context degradation:
-
-- repeated repository exploration,
-- destructive compaction,
-- stale summaries,
-- sub-agent aggregation overhead,
-- inability to explain why a fact entered the current context,
-- model-generated beliefs silently becoming "truth".
-
-## 2. Seven-layer model
+The central invariant is:
 
 ```text
-┌──────────────────────────────────────┐
-│ 7. Goal / Intent                     │
-├──────────────────────────────────────┤
-│ 6. Attention / Light                 │
-├──────────────────────────────────────┤
-│ 5. Belief Graph                      │
-├──────────────────────────────────────┤
-│ 4. Evidence Graph                    │
-├──────────────────────────────────────┤
-│ 3. Reality Snapshot                  │
-│    code / DB / runtime / docs        │
-├──────────────────────────────────────┤
-│ 2. Version / History                 │
-│    commit / branch / merge / revert  │
-├──────────────────────────────────────┤
-│ 1. Execution                         │
-│    LLM / tools / actions             │
-└──────────────────────────────────────┘
+Reality -> Evidence -> Belief -> Cognitive Graph
+                                  |
+                           Retrieval / Light
+                                  |
+                           Active Subgraph
+                                  |
+                                 LLM
+                                  |
+                           Tool / Mutation
+                                  |
+                         Verify -> Commit
 ```
 
-The invariant is:
+The graph is the durable cognitive subject. An LLM invocation is a temporary computation over a finite working set.
+
+## Status legend
+
+- **Implemented** — code + automated tests exist.
+- **Partial** — useful implementation exists, but the discussed architecture is not complete.
+- **Planned** — architecture target only; not represented as a finished feature.
+
+## System architecture
 
 ```text
-Reality -> Evidence -> Belief
+CLI / OpenCode / API
+        |
+        v
++------------------------------------------------------+
+| Agent Runtime                                        |
+| Goal -> Agent Loop -> Tool Executor -> Verifier      |
+|        |             |                               |
+|        +-> Session Store (full durable history)      |
+|        +-> Working-Set Pager (bounded recent rounds) |
++----------------------+-------------------------------+
+                       |
+                       v
++------------------------------------------------------+
+| Cognitive Control                                    |
+|                                                      |
+| [Hybrid Retrieval]* -> [Attention Light]             |
+|                         |                            |
+|                 Active Subgraph                      |
+|                         |                            |
+|              Active Promotion Controller             |
+|                ^                 |                   |
+|          drill-down            promote               |
++----------------------+-------------------------------+
+                       |
+                       v
++------------------------------------------------------+
+| Versioned Cognitive Graph                            |
+| Reality snapshot / Evidence / Belief / Negative      |
+| Entity / Abstraction / Task                          |
+|                                                      |
+| Mutation: activate / propagate / prune / graft       |
+|           split* / merge* / promote / drill-down     |
++----------------------+-------------------------------+
+                       |
+                       v
++------------------------------------------------------+
+| Cognitive Git                                        |
+| commit / branch / checkout / merge / conflict        |
+| revert / blame / cherry-pick / rebase                |
++----------------------+-------------------------------+
+                       |
+                       v
++------------------------------------------------------+
+| Storage                                              |
+| graph.json / commits / refs / journal / sessions     |
+| lexical-symbol-vector indexes* / hot-warm-cold GC*   |
++------------------------------------------------------+
+
+* planned or partial
 ```
 
-A belief never becomes evidence merely because an LLM stated it confidently.
+## Working principle
 
-## 3. Attention Light
+Each reasoning step is deliberately finite:
 
-The complete graph can grow much larger than a model context window. A Light selects a bounded Active Subgraph.
+```text
+1. Observe current goal + recent tool evidence
+                   |
+                   v
+2. Recompute Attention Light
+                   |
+                   v
+3. Build Active Subgraph under token budget
+                   |
+          +--------+---------+
+          |                  |
+          v                  v
+   pressure/density low   pressure/density high
+          |                  |
+          |             Active Promotion
+          |             create parent abstraction
+          |             keep all child detail
+          +--------+---------+
+                   |
+                   v
+4. Build bounded LLM working set
+   - system policy
+   - current Active Subgraph
+   - current user goal
+   - only recent complete tool rounds
+                   |
+                   v
+5. LLM reasoning -> tool_calls
+                   |
+                   v
+6. Execute read/edit/shell/test/context tools
+                   |
+                   v
+7. Workspace changed?
+       | yes
+       v
+   re-ingest reality
+   Evidence changes -> dependent Beliefs become stale
+                   |
+                   v
+8. Move Light and iterate
+                   |
+             done / max steps
+                   |
+                   v
+9. Persist full Session + optional Cognitive Commit
+```
 
-Each node receives an activation score from:
+The full session can keep growing on disk, but it is not replayed wholesale into every model request.
 
-- lexical task relevance,
-- graph-edge propagation,
-- relation type,
-- evidence/trust quality,
-- status and staleness,
-- propagation distance,
+## Attention Light
+
+Implemented attention currently combines:
+
+- lexical relevance,
+- graph propagation,
+- relation weights,
+- trust/evidence quality,
+- staleness,
+- hop decay,
 - token cost.
 
-Attention and truth are separate dimensions. Truth quality influences attention but cannot reduce a relevant hypothesis to zero visibility.
+Policies:
 
-### Multi-light mode
+- Exploit
+- Explore
+- Contrarian
+- Anomaly
 
-The runtime exposes four policies:
+Important: truth strength and attention strength are separate values. A low-confidence hypothesis can still deserve attention.
 
-- **Exploit** — follow the strongest current path.
-- **Explore** — widen through weak/related edges and alternative seeds.
-- **Contrarian** — prioritize contradicting/invalidating relations.
-- **Anomaly** — prioritize stale or anomaly-tagged evidence.
+### Remaining retrieval gap
 
-This is designed to reduce self-reinforcing attention loops.
-
-## 4. Promotion instead of destructive compaction
-
-When a local area becomes too detailed, ModelWeave can create an `abstraction` node:
+Current seed generation still performs a full lexical scan of graph nodes. The intended next stage is:
 
 ```text
-Abstraction A
-  ├─ abstracts -> Detail 1
-  ├─ abstracts -> Detail 2
-  └─ abstracts -> Detail 3
+Goal
+ |
+ +-> Symbol index
+ +-> BM25 / lexical index
+ +-> Embedding retrieval
+ +-> Graph neighborhood
+ +-> History / recent evidence
+         |
+         v
+     Candidate Set
+         |
+         v
+   Attention Light
 ```
 
-The abstraction is an index and working summary. Child nodes remain intact and can be re-activated later.
+This is required before million-node scale.
 
-Increasing future model context sizes only increases how many descendants can be illuminated at once; the persistence model remains valid.
+## Active Promotion
 
-## 5. Git-like cognition
-
-`.modelweave/` stores:
+Promotion is non-destructive.
 
 ```text
-.modelweave/
-├── HEAD
-├── graph.json
-├── journal.jsonl
-├── config.json
-├── refs/heads/*
-└── commits/*.json
+Before
+
+Detail A   Detail B   Detail C
+  20K        18K        25K
+
+After
+
+        Parent Abstraction
+           2-3K view
+          /    |    \
+         A     B     C
+       full  full  full
 ```
 
-Every commit contains:
+The controller can trigger from:
 
-- parent commit(s),
-- graph diff,
-- full snapshot for reliable v0.1 checkout,
-- graph hash,
-- metadata.
+- context pressure,
+- selected-node density,
+- unresolved-question density,
+- cooldown / duplicate prevention.
 
-Branches represent competing hypotheses or task paths. Three-way merge works at node/edge object granularity. Conflicting edits are surfaced explicitly.
+Promotion changes cognitive granularity; it is not merely an emergency action at 95% context usage.
 
-A future storage backend can replace snapshot-heavy commits with packed deltas without changing the public model.
+## Cognitive Git
 
-## 6. Repository ingestion
+Implemented cognition history:
 
-Ingestion converts a code repository into a reality/evidence graph:
+- `commit`
+- `branch`
+- `checkout`
+- `merge`
+- explicit merge conflicts
+- `revert`
+- `blame`
+- `cherry-pick`
+- `rebase`
+
+The analogy is intentional:
+
+| Git | ModelWeave |
+|---|---|
+| repository | Cognitive Graph |
+| commit | cognitive mutation |
+| branch | hypothesis / task path |
+| merge | combine findings |
+| conflict | incompatible cognition |
+| revert | undo bad cognition |
+| blame | provenance of a node/edge |
+| cherry-pick | graft a useful finding |
+| rebase | reinterpret a task branch on a newer cognitive base |
+
+Current Cognitive Git versions the cognitive graph. Binding those branches transactionally to real Git worktrees is still planned.
+
+## Reality / Evidence / Belief
+
+A model statement does not become evidence.
+
+Evidence grades:
 
 ```text
-Directory abstraction
-  -> File entity
-       -> Evidence chunks
+hypothesis < static < tested < runtime < reproduced
 ```
 
-Stable IDs are derived from repository-relative paths and line ranges. Re-ingestion therefore updates existing nodes rather than creating new random copies.
-
-Current static dependency hints:
-
-- JS/TS relative imports,
-- Java imports resolvable inside the scanned source tree.
-
-When chunk content changes, beliefs/abstractions that cite the changed evidence are marked `stale` instead of silently trusted.
-
-## 7. Atomic worker runtime
-
-`ModelWeaveRuntime.execute()` gives a worker an Active Subgraph and accepts structured operations.
-
-The runtime:
-
-1. creates a task node,
-2. illuminates context,
-3. calls the worker,
-4. applies proposed graph operations in memory,
-5. validates evidence integrity,
-6. writes state,
-7. commits cognition,
-8. rolls back completely when validation fails.
-
-This prevents a model hallucination from partially corrupting persistent cognition.
-
-## 8. Safety / trust zones
-
-Nodes record a trust zone:
+Trust zones include:
 
 ```text
 system_verified
@@ -161,17 +256,61 @@ external_untrusted
 model_inferred
 ```
 
-Evidence is forbidden from using `model_inferred`. This is the first protection against persistent cognitive poisoning.
+Repository re-ingestion uses content hashes. When source evidence changes, dependent beliefs/abstractions are marked stale.
 
-External content should enter as `external_untrusted` evidence and must not be silently promoted to a verified belief.
+## Agent providers
 
-## 9. What v0.1 deliberately does not pretend to solve
+Implemented provider layer:
 
-- optimal active-subgraph routing,
-- semantic embeddings,
-- full static call/data-flow analysis,
-- distributed multi-agent scheduling,
-- automatic canonical graph GC,
-- persistent latent model state.
+- OpenRouter
+- Groq
+- DeepSeek official
+- generic OpenAI-compatible endpoints
+- local Ollama/vLLM through generic mode
 
-These are benchmark targets, not assumptions hidden behind marketing language.
+All providers use the same tool-calling Agent Loop.
+
+## Implementation status
+
+| Capability | Status |
+|---|---|
+| Persistent Context Graph | Implemented |
+| Evidence / Belief separation | Implemented |
+| Trust zones / evidence grades | Implemented |
+| Source-change invalidation | Implemented |
+| Attention propagation + budget | Implemented |
+| Multi-light policies | Implemented |
+| Light recomputed every agent step | Implemented |
+| Bounded model working-set pager | Implemented |
+| Full durable session history | Implemented |
+| Manual Promotion + drill-down edges | Implemented |
+| Active Promotion Controller | Implemented |
+| Commit / Branch / Merge / Conflict / Revert | Implemented |
+| Blame / Cherry-pick / Rebase | Implemented |
+| Agent Loop / CLI / tools / resume | Implemented |
+| Real local OpenAI-compatible model integration | Implemented and VM-tested at protocol level |
+| Hybrid BM25/Symbol/Embedding retrieval | Planned |
+| Persistent indexes / cached adjacency | Planned |
+| LSP/symbol semantic tooling | Planned |
+| Graph canonicalization / GC / hot-warm-cold storage | Planned |
+| Temporal valid_from/valid_to graph | Partial |
+| Negative-evidence lifecycle | Partial |
+| Cognitive branch <-> real Git worktree binding | Planned |
+| Transactional rollback of workspace file edits | Planned |
+| MCP / Skills / subagent DAG / vision / browser | Planned |
+| Automatic split/merge/canonicalization controller | Planned |
+
+## Long-task design
+
+The long-task invariant is:
+
+> Durable history may be unbounded; active model attention must remain bounded.
+
+The automated long-loop test executes 20 tool rounds followed by a final model turn and verifies:
+
+- Attention is recomputed every reasoning step.
+- Full tool history remains stored in the session.
+- Only recent complete assistant/tool rounds are sent to the model.
+- Tool messages are never kept without their matching assistant tool call.
+
+This is a runtime-mechanics test. Real-model coding quality must be measured separately because model capability and runtime correctness are different variables.
