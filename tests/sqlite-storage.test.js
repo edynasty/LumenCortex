@@ -489,3 +489,31 @@ test('separate Node processes can persist independent sessions concurrently unde
   assert.equal(b.final,'done session_parallel_b');
   reader.close?.();
 });
+
+
+test('database maintenance status integrity checkpoint and journal are operational', () => {
+  const root=tempWorkspace('lcx-db-maint-');
+  const repo=new CognitiveRepository(root);
+  repo.init();
+  repo.appendJournal('maintenance-test',{value:42});
+
+  const status=repo.database.status();
+  assert.equal(status.journalMode.toLowerCase(),'wal');
+  assert.equal(status.schemaVersion,1);
+  assert.ok(status.fileSizeBytes>0);
+  assert.ok(status.counts.cognitiveCommits>=1);
+  assert.equal(status.counts.journal,1);
+
+  const integrity=repo.database.integrityCheck();
+  assert.equal(integrity.ok,true);
+  assert.deepEqual(integrity.messages,['ok']);
+
+  const checkpoint=repo.database.checkpoint('PASSIVE');
+  assert.equal(checkpoint.mode,'PASSIVE');
+  assert.ok(Array.isArray(checkpoint.rows));
+
+  const journal=repo.journal(5);
+  assert.equal(journal[0].event,'maintenance-test');
+  assert.equal(journal[0].payload.value,42);
+  repo.close();
+});
