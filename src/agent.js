@@ -78,10 +78,17 @@ export class AgentLoop {
       systemPrompt: options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
     });
 
-    const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, requests: 0 };
+    const usage = {
+      promptTokens: Number(session.usage?.promptTokens ?? 0),
+      completionTokens: Number(session.usage?.completionTokens ?? 0),
+      totalTokens: Number(session.usage?.totalTokens ?? 0),
+      requests: Number(session.usage?.requests ?? 0)
+    };
+    const startStep = session.steps.length;
     let lastContext = null;
 
-    for (let step = 1; step <= maxSteps; step += 1) {
+    for (let turn = 1; turn <= maxSteps; turn += 1) {
+      const step = startStep + turn;
       const focus = deriveFocus(session, goal, step);
       const seedNodeIds = session.metadata.recentObservationNodeIds.slice(-8);
       let context = this.runtime.context(focus, { budgetTokens, seedNodeIds });
@@ -325,8 +332,11 @@ export class AgentLoop {
     session.status = 'max_steps';
     session.usage = usage;
     this.sessions.save(session);
-    this.emit('session.max_steps', { sessionId: session.id, maxSteps, usage });
-    throw new AgentMaxStepsError(`Agent reached max steps (${maxSteps}) without a final answer`, session.id);
+    this.emit('session.max_steps', { sessionId: session.id, maxSteps, totalSteps: session.steps.length, usage });
+    throw new AgentMaxStepsError(
+      `Agent reached max steps for this run (${maxSteps}); session has ${session.steps.length} total step(s) without a final answer`,
+      session.id
+    );
   }
 
   recordTask(session, context, options) {
