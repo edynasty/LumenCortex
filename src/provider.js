@@ -132,6 +132,8 @@ function normalizeAssistantMessage(message) {
           : JSON.stringify(call.function?.arguments ?? {})
       }
     })) } : {}),
-    ...(message.reasoning ? { reasoning: message.reasoning } : {})
+    ...((message.reasoning ?? message.reasoning_content)
+      ? { reasoning: message.reasoning ?? message.reasoning_content }
+      : {})
   };
 }
