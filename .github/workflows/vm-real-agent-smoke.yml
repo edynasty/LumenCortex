@@ -1,4 +1,5 @@
 name: vm-real-agent-smoke
+# validates real local tool-calling against the bounded moving-context agent loop
 
 on:
   push:
