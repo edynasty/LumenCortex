@@ -48,6 +48,7 @@ export class ToolRegistry {
       const value = await tool.execute(normalizedArgs, context);
       return { ok: true, mutatesWorkspace: Boolean(tool.mutatesWorkspace), permission: tool.permission ?? 'read', content: truncate(value) };
     } catch (error) {
+      if (context.signal?.aborted || error?.name === 'AbortError') throw error;
       return { ok: false, mutatesWorkspace: Boolean(tool.mutatesWorkspace), permission: tool.permission ?? 'read', content: truncate({ error: error.message }) };
     }
   }
@@ -296,7 +297,7 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
       required: ['command'],
       additionalProperties: false
     },
-    async execute({ command, timeout_ms = shellTimeoutMs }) {
+    async execute({ command, timeout_ms = shellTimeoutMs }, { signal } = {}) {
       const isWindows = process.platform === 'win32';
       const executable = isWindows ? 'cmd.exe' : '/bin/sh';
       const args = isWindows ? ['/d', '/s', '/c', command] : ['-lc', command];
@@ -313,11 +314,14 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
         let timedOut = false;
         let overflowed = false;
         let settled = false;
+        let cancelled = false;
+        let timer;
 
         const finish = (value, error) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
+          signal?.removeEventListener?.('abort', abort);
           if (error) reject(error);
           else resolve(value);
         };
@@ -334,20 +338,39 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
 
         child.stdout.on('data', (chunk) => { stdout = append(stdout, chunk); });
         child.stderr.on('data', (chunk) => { stderr = append(stderr, chunk); });
-        child.on('error', (error) => finish(null, error));
-        child.on('close', (exitCode, signal) => finish({
-          command,
-          exitCode,
-          signal,
-          stdout,
-          stderr: overflowed
-            ? `${stderr}\n[LumenCortex shell output exceeded ${maxBuffer} bytes and the process was terminated]`
-            : stderr,
-          timedOut,
-          overflowed
-        }));
+        const abort = () => {
+          cancelled = true;
+          child.kill('SIGTERM');
+          setTimeout(() => {
+            if (!settled) child.kill('SIGKILL');
+          }, 1000).unref?.();
+        };
 
-        const timer = setTimeout(() => {
+        child.on('error', (error) => finish(null, error));
+        child.on('close', (exitCode, processSignal) => {
+          if (cancelled) {
+            const error = new Error('Shell command cancelled');
+            error.name = 'AbortError';
+            finish(null, error);
+            return;
+          }
+          finish({
+            command,
+            exitCode,
+            signal: processSignal,
+            stdout,
+            stderr: overflowed
+              ? `${stderr}\n[LumenCortex shell output exceeded ${maxBuffer} bytes and the process was terminated]`
+              : stderr,
+            timedOut,
+            overflowed
+          });
+        });
+
+        if (signal?.aborted) abort();
+        else signal?.addEventListener?.('abort', abort, { once: true });
+
+        timer = setTimeout(() => {
           timedOut = true;
           child.kill('SIGTERM');
           setTimeout(() => {
