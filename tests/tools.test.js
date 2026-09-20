@@ -25,6 +25,86 @@ test('coding tools read, replace and search', async () => {
 });
 
 
+test('apply_patch performs validated multi-hunk and multi-file edits', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-patch-'));
+  fs.writeFileSync(path.join(root, 'a.txt'), 'alpha\nbeta\ngamma\n');
+  const tools = createCodingTools({ workspace: root });
+
+  const result = await tools.execute('apply_patch', {
+    patches: [
+      {
+        path: 'a.txt',
+        operation: 'update',
+        edits: [
+          { old_text: 'alpha', new_text: 'ALPHA' },
+          { old_text: 'gamma', new_text: 'GAMMA' }
+        ]
+      },
+      {
+        path: 'nested/new.txt',
+        operation: 'create',
+        content: 'created\n'
+      }
+    ]
+  }, { authorize: async () => true });
+
+  assert.equal(result.ok, true);
+  assert.equal(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'ALPHA\nbeta\nGAMMA\n');
+  assert.equal(fs.readFileSync(path.join(root, 'nested/new.txt'), 'utf8'), 'created\n');
+});
+
+
+test('apply_patch validates the whole batch before mutating files', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-patch-validate-'));
+  fs.writeFileSync(path.join(root, 'a.txt'), 'keep me\n');
+  fs.writeFileSync(path.join(root, 'b.txt'), 'duplicate duplicate\n');
+  const tools = createCodingTools({ workspace: root });
+
+  const result = await tools.execute('apply_patch', {
+    patches: [
+      {
+        path: 'a.txt',
+        operation: 'update',
+        edits: [{ old_text: 'keep me', new_text: 'changed' }]
+      },
+      {
+        path: 'b.txt',
+        operation: 'update',
+        edits: [{ old_text: 'duplicate', new_text: 'x' }]
+      }
+    ]
+  }, { authorize: async () => true });
+
+  assert.equal(result.ok, false);
+  assert.equal(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'keep me\n');
+  assert.equal(fs.readFileSync(path.join(root, 'b.txt'), 'utf8'), 'duplicate duplicate\n');
+  assert.match(result.content, /ambiguous/);
+});
+
+
+test('apply_patch blocks workspace traversal and duplicate targets', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-patch-safe-'));
+  fs.writeFileSync(path.join(root, 'a.txt'), 'one\n');
+  const tools = createCodingTools({ workspace: root });
+
+  const escape = await tools.execute('apply_patch', {
+    patches: [{ path: '../escape.txt', operation: 'create', content: 'nope' }]
+  }, { authorize: async () => true });
+  assert.equal(escape.ok, false);
+  assert.match(escape.content, /escapes workspace/);
+
+  const duplicate = await tools.execute('apply_patch', {
+    patches: [
+      { path: 'a.txt', operation: 'update', edits: [{ old_text: 'one', new_text: 'two' }] },
+      { path: 'a.txt', operation: 'delete' }
+    ]
+  }, { authorize: async () => true });
+  assert.equal(duplicate.ok, false);
+  assert.equal(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'one\n');
+});
+
+
+
 test('tool registry accepts camelCase aliases for snake_case schemas', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mw-tools-alias-'));
   fs.writeFileSync(path.join(dir, 'a.txt'), 'one\ntwo\nthree\n');
