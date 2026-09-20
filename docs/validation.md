@@ -6,11 +6,12 @@ This document separates architecture claims from evidence.
 
 Latest validated core suite:
 
-- Core suite + dedicated harness suite (current CI enforced)
+- 54 core tests / 54 passed / 0 failed
 - Node.js 20 and 22 core matrix
-- isolated Search / LSP / MCP / Subagent / TUI harness jobs
-- Node.js 20 and 22
-- benchmark executed in CI
+- dedicated isolated Search / LSP / MCP / Subagent / TUI harness jobs
+- MCP HTTP modern + legacy fallback + stdio transport coverage
+- real overlapping Subagent concurrency assertion
+- 100k-node persistent search benchmark
 
 Covered behaviors include:
 
@@ -133,6 +134,23 @@ Dedicated `harness-ci` runs isolated tests for:
 - TUI frame/session/event rendering.
 
 A separate 100k-node search benchmark is enforced by `search-benchmark`.
+
+Latest successful synthetic run:
+
+```text
+nodes             = 100000
+queries           = 50
+index build       = 4468.01 ms
+query p50         = 0.011 ms
+query p95         = 0.039 ms
+index size        = 84.27 MB
+indexed terms     = 600015
+indexed symbols   = 400000
+```
+
+The benchmark specifically stresses exact/symbol-heavy code lookup. It proves that this path no longer performs a full 100k-node scan per query; it does not substitute for semantic-retrieval quality evaluation.
+
+Index consistency is separately tested: graph mutations increment an O(1) repository revision and Runtime automatically rebuilds a stale persistent index before searching.
 
 ## Still not validated / still planned
 
