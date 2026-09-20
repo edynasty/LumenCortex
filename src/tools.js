@@ -17,8 +17,11 @@ export class ToolRegistry {
     return this;
   }
 
-  schemas() {
-    return [...this.tools.values()].map((tool) => ({
+  schemas(allowlist) {
+    const selected = allowlist
+      ? [...new Set(allowlist)].map((name) => this.get(name))
+      : [...this.tools.values()];
+    return selected.map((tool) => ({
       type: 'function',
       function: {
         name: tool.name,
