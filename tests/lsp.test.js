@@ -6,7 +6,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { LspManager } from '../src/lsp.js';
 
-const fakeServer=String.raw`
+const fakeServer=`
 let buffer=Buffer.alloc(0);
 process.stdin.on('data',chunk=>{buffer=Buffer.concat([buffer,chunk]); pump();});
 function pump(){
