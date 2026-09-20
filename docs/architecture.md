@@ -44,7 +44,7 @@ TUI / CLI / API
 +------------------------------------------------------+
 | Cognitive Control                                    |
 |                                                      |
-| [BM25 + Symbol Retrieval] -> [Attention Light]        |
+| [FTS5 + Symbol Retrieval] -> [Attention Light]        |
 |                         |                            |
 |                 Active Subgraph                      |
 |                         |                            |
@@ -303,7 +303,10 @@ All providers use the same tool-calling Agent Loop.
 | Embedding retrieval | Planned / optional |
 | SQLite WAL persistence | Implemented |
 | Persistent retrieval index | Implemented (FTS5 + symbols) |
-| Cached adjacency / segmented index updates | Planned |
+| Incremental dirty-node FTS/symbol updates | Implemented |
+| Optimistic graph revision conflict detection | Implemented |
+| Shared harness SessionStore lifecycle | Implemented |
+| Cached adjacency | Planned |
 | LSP semantic tooling | Implemented (stdio JSON-RPC; Java/TS/Python defaults + custom config) |
 | Graph canonicalization / GC / hot-warm-cold storage | Planned |
 | Temporal valid_from/valid_to graph | Partial |
@@ -321,6 +324,29 @@ All providers use the same tool-calling Agent Loop.
 | Structural graft edge | Implemented |
 | Cross-branch graft | Implemented through merge/cherry-pick |
 | Automatic split/merge/canonicalization controller | Planned |
+
+## SQLite consistency model
+
+The workspace database is opened in WAL mode. Graph writes use an optimistic revision check:
+
+```text
+read graph revision N
+        |
+mutate cached graph
+        |
+BEGIN IMMEDIATE
+        |
+expected revision == current revision?
+   | yes                    | no
+   v                        v
+upsert changed rows      reject stale writer
+mark changed nodes dirty
+increment revision
+        |
+incrementally refresh FTS5/symbol rows
+```
+
+The Repository caches the current graph snapshot behind the SQLite revision, so repeated reads do not reconstruct the whole graph unless another writer advances the revision. Agent/TUI/Subagent execution inside one harness shares a single SessionStore connection; independent processes can still use WAL with the optimistic graph revision guard.
 
 ## Long-task design
 

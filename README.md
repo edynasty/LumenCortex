@@ -136,7 +136,7 @@ lcx search "reserveInventory"
 lcx lsp references src/main/java/.../InventoryService.java 42 18
 ```
 
-The CI performance gate currently validates a synthetic 100k-node SQLite/FTS5 index at ~5.43s build time and 0.37ms query p95 for exact/symbol-heavy queries.
+The CI performance gate currently validates a synthetic 100k-node SQLite/FTS5 index at ~4.20s build time and 0.253ms query p95 for exact/symbol-heavy queries.
 
 MCP:
 
@@ -266,13 +266,13 @@ The core has zero runtime npm dependencies and requires Node.js 22.13+ because p
 
 ## Implementation honesty
 
-Implemented and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, persistent BM25/symbol retrieval index, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, TUI, provider abstraction, tools and resumable sessions.
+Implemented and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions.
 
 Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, graph GC/hot-warm-cold storage, reusable Skills layer, vision/browser tooling and automatic split/merge canonicalization.
 
 ## Current engineering direction
 
-v0.6 intentionally keeps the orchestration/control plane in Node.js. At large graph sizes the next bottleneck is not JavaScript syntax; it is full-graph candidate scoring and rebuilding indexes on each query. Persistent lexical/symbol indexing is now implemented; the next data-plane optimizations are embeddings (optional), cached adjacency, incremental index segments and eventually a Rust core only if profiling justifies it.
+v0.6 intentionally keeps the orchestration/control plane in Node.js. Full-graph seed scans and per-query index rebuilds have been removed from the normal retrieval path: SQLite FTS5/symbol lookup generates candidates, graph writes use optimistic revisions, and dirty-node queues incrementally synchronize search rows. The next data-plane optimizations are embeddings (optional), cached adjacency and graph hot/warm/cold tiers; a Rust core is only justified if profiling later shows a native data-plane bottleneck.
 
 ## License
 

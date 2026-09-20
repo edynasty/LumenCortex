@@ -6,7 +6,7 @@ This document separates architecture claims from evidence.
 
 Latest validated core suite:
 
-- 67 core tests / 67 passed / 0 failed on both Node.js 22 and 24
+- 70 core tests / 70 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
 - Node.js 22 and 24 core matrix
 - dedicated isolated Search / LSP / MCP / Subagent / TUI harness jobs
 - MCP HTTP modern + legacy fallback + stdio transport coverage
@@ -141,9 +141,9 @@ Latest successful synthetic run:
 ```text
 nodes             = 100000
 queries           = 50
-index build       = 5426.26 ms
-query p50         = 0.242 ms
-query p95         = 0.370 ms
+index build       = 4196.48 ms
+query p50         = 0.140 ms
+query p95         = 0.253 ms
 database size     = 79.60 MB
 indexed terms     = 300010
 indexed symbols   = 400000
@@ -151,7 +151,7 @@ indexed symbols   = 400000
 
 The benchmark specifically stresses exact/symbol-heavy code lookup. It proves that this path no longer performs a full 100k-node scan per query; it does not substitute for semantic-retrieval quality evaluation.
 
-Index consistency is separately tested: graph mutations increment the SQLite graph revision and Runtime automatically rebuilds stale FTS5/symbol data before searching. SQLite WAL mode, normalized Session persistence, Cognitive Git reopen/reconstruction and one-time JSON migration are covered by dedicated storage tests.
+Index consistency is separately tested: graph mutations use optimistic SQLite revisions, stale graph writers are rejected, changed nodes enter a dirty queue, and Runtime incrementally synchronizes only stale FTS5/symbol rows before searching. SQLite WAL mode, normalized incremental Session persistence, shared Subagent SessionStore reuse, Cognitive Git reopen/reconstruction and one-time JSON migration are covered by dedicated storage tests.
 
 ## Still not validated / still planned
 

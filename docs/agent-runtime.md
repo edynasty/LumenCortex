@@ -80,16 +80,16 @@ query
   -> finite Active Subgraph
 ```
 
-Search and persistence share the same SQLite database. Exact code identifiers use the `symbols` table; natural-language/code-token recall uses FTS5. Index freshness is keyed by the graph revision stored in SQLite, so Runtime rebuilds only when the graph revision changes.
+Search and persistence share the same SQLite database. Exact code identifiers use the `symbols` table; natural-language/code-token recall uses FTS5. Graph mutations mark only changed node IDs in `search_dirty_nodes`; Runtime incrementally replaces those FTS5/symbol rows when the SQLite graph revision advances. A full rebuild is only needed for an empty/new index.
 
 Current synthetic CI benchmark:
 
 ```text
 100,000 graph nodes
-index build       5.43 s
+index build       4.20 s
 50 symbol queries
-query p50         0.242 ms
-query p95         0.370 ms
+query p50         0.140 ms
+query p95         0.253 ms
 database size     79.60 MB
 ```
 
@@ -269,7 +269,7 @@ Without `--yes`, TUI intentionally remains read-only because a full-screen readl
 
 ## Sessions and resume
 
-Sessions are stored in `.lumencortex/lumencortex.db` using normalized `sessions`, `session_messages`, and `agent_steps` tables. SQLite runs in WAL mode, allowing independent read-oriented Subagent sessions to persist concurrently.
+Sessions are stored in `.lumencortex/lumencortex.db` using normalized `sessions`, `session_messages`, and `agent_steps` tables. Session growth uses incremental UPSERTs rather than deleting/reinserting the complete history on every Agent step. The main Agent, TUI and Subagents inside one harness share one SessionStore connection; SQLite WAL supports independent readers/processes.
 
 A session persists:
 
