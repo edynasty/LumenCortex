@@ -87,3 +87,20 @@ test('graph snapshots carry non-enumerable mutation hints for incremental persis
   assert.equal(Object.getOwnPropertyDescriptor(snapshot,GRAPH_MUTATION_HINTS).enumerable,false);
   assert.equal(JSON.stringify(snapshot).includes('changedNodeIds'),false);
 });
+
+
+test('structurally shared snapshot keeps old node values after later graph replacement updates', () => {
+  const graph=new CognitiveGraph();
+  graph.addNode({id:'stable',kind:'belief',title:'Stable',body:'before',metadata:{nested:'before'}});
+  const before=graph.snapshot();
+
+  graph.updateNode('stable',{body:'after',metadata:{nested:'after'}});
+  const after=graph.snapshot();
+
+  assert.equal(before.nodes.stable.body,'before');
+  assert.equal(before.nodes.stable.metadata.nested,'before');
+  assert.equal(after.nodes.stable.body,'after');
+  assert.equal(after.nodes.stable.metadata.nested,'after');
+  assert.notEqual(before.nodes,after.nodes);
+  assert.notEqual(before.nodes.stable,after.nodes.stable);
+});
