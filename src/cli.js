@@ -236,7 +236,7 @@ async function agentCommand({ repo, runtime, workspace, argv }) {
     maxTokens: parsed.flags['max-tokens'] ? Number(parsed.flags['max-tokens']) : undefined,
     recentRounds: Number(parsed.flags['recent-rounds'] ?? 6),
     maxWorkingChars: Number(parsed.flags['working-chars'] ?? 120000),
-    autoPromotion: parsed.flags['no-auto-promote'] ? false : true,
+    autoPromote: parsed.flags['no-auto-promote'] ? false : true,
     autoIngest: parsed.flags['no-ingest'] ? false : true,
     cognitiveCommit: Boolean(parsed.flags['cognitive-commit']),
     authorize
@@ -366,12 +366,31 @@ async function edgeCommand(repo, argv) {
     const edge = graph.addEdge({ from, type, to, weight: weight === undefined ? 1 : Number(weight) });
     repo.writeGraph(graph.snapshot());
     console.log(edge.id);
+  } else if (action === 'graft') {
+    const [from, type, to, weight, ...reasonParts] = argv;
+    if (!from || !type || !to) fail('Usage: modelweave edge graft <from> <type> <to> [weight] [reason]');
+    const edge = graph.graftEdge(
+      { from, type, to, weight: weight === undefined ? 1 : Number(weight) },
+      { reason: reasonParts.join(' ') || 'cli-graft' }
+    );
+    repo.writeGraph(graph.snapshot());
+    console.log(`Grafted ${edge.id}`);
+  } else if (action === 'cut') {
+    if (!argv[0]) fail('Usage: modelweave edge cut <id> [reason]');
+    const edge = graph.cutEdge(argv[0], { reason: argv.slice(1).join(' ') || 'cli-attention-cut' });
+    repo.writeGraph(graph.snapshot());
+    console.log(`Cut ${edge.id}; edge retained but excluded from attention propagation`);
+  } else if (action === 'restore') {
+    if (!argv[0]) fail('Usage: modelweave edge restore <id>');
+    const edge = graph.restoreEdge(argv[0]);
+    repo.writeGraph(graph.snapshot());
+    console.log(`Restored ${edge.id}`);
   } else if (action === 'rm') {
     if (!argv[0]) fail('Usage: modelweave edge rm <id>');
     graph.removeEdge(argv[0]);
     repo.writeGraph(graph.snapshot());
     console.log(`Removed ${argv[0]}`);
-  } else fail('Usage: modelweave edge <add|rm> ...');
+  } else fail('Usage: modelweave edge <add|graft|cut|restore|rm> ...');
 }
 
 function printLight(name, result) {
@@ -412,5 +431,5 @@ function compact(value) {
 function fail(message) { throw new Error(message); }
 
 function help() {
-  console.log(`ModelWeave — cognitive graph + autonomous coding agent\n\nAgent commands:\n  agent <goal> [--provider openrouter|groq|deepseek|generic] [--model MODEL] [--max-steps 24] [--budget 24000] [--recent-rounds 6] [--working-chars 120000] [--no-auto-promote] [--yes] [--session ID]\n  chat [--provider P] [--model M] [--yes] [--session ID]\n  sessions [--limit 20]\n  providers\n  doctor [--provider P] [--model M] [--live]\n\nCognitive graph commands:\n  init [dir]\n  install-opencode [dir]\n  status\n  commit <message>\n  log [limit]\n  branch [name]\n  checkout <branch>\n  merge <branch>\n  revert <commit>\n  node add|update|rm ...\n  edge add|rm ...\n  ingest [dir] [--chunk-lines 160] [--max-bytes 524288]\n  show [node-or-edge-id]\n  light <goal> [--budget 32000] [--multi] [--json]\n  promote <title> <nodeId> [nodeId...]\n  verify\n\nProviders:\n  OpenRouter free: OPENROUTER_API_KEY + model openrouter/free\n  Groq free:       GROQ_API_KEY + model openai/gpt-oss-120b\n  Generic/local:   MODELWEAVE_BASE_URL, MODELWEAVE_MODEL, MODELWEAVE_API_KEY\n`);
+  console.log(`ModelWeave — cognitive graph + autonomous coding agent\n\nAgent commands:\n  agent <goal> [--provider openrouter|groq|deepseek|generic] [--model MODEL] [--max-steps 24] [--budget 24000] [--recent-rounds 6] [--working-chars 120000] [--no-auto-promote] [--yes] [--session ID]\n  chat [--provider P] [--model M] [--yes] [--session ID]\n  sessions [--limit 20]\n  providers\n  doctor [--provider P] [--model M] [--live]\n\nCognitive graph commands:\n  init [dir]\n  install-opencode [dir]\n  status\n  commit <message>\n  log [limit]\n  branch [name]\n  checkout <branch>\n  merge <branch>\n  revert <commit>\n  node add|update|rm ...\n  edge add|graft|cut|restore|rm ...\n  ingest [dir] [--chunk-lines 160] [--max-bytes 524288]\n  show [node-or-edge-id]\n  light <goal> [--budget 32000] [--multi] [--json]\n  promote <title> <nodeId> [nodeId...]\n  verify\n\nProviders:\n  OpenRouter free: OPENROUTER_API_KEY + model openrouter/free\n  Groq free:       GROQ_API_KEY + model openai/gpt-oss-120b\n  Generic/local:   MODELWEAVE_BASE_URL, MODELWEAVE_MODEL, MODELWEAVE_API_KEY\n`);
 }
