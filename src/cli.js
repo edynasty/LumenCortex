@@ -319,7 +319,7 @@ async function tuiCommand({ repo, runtime, workspace, argv }) {
   });
   tui = new LumenCortexTui({
     agent: resources.agent,
-    sessions: new AgentSessionStore(repo.dir),
+    sessions: resources.sessionStore,
     providerLabel: `${providerName}/${provider.model}`,
     parallelRunner: resources.parallelRunner
   });
@@ -417,6 +417,7 @@ async function mcpCommand({ workspace, argv }) {
 async function createHarness({ repo, runtime, workspace, provider, providerName, parsed, authorize, onEvent }) {
   const lsp = new LspManager(workspace, { timeoutMs: Number(parsed.flags['lsp-timeout'] ?? 15000) });
   const mcp = new McpManager(workspace);
+  const sessionStore = new AgentSessionStore(repo.dir);
   const toolRegistry = createCodingTools({ workspace, repository: repo, runtime, lsp });
 
   if (!parsed.flags['no-mcp']) {
@@ -429,13 +430,13 @@ async function createHarness({ repo, runtime, workspace, provider, providerName,
   }
 
   const pool = new SubagentPool({
-    provider, repository: repo, runtime, workspace, tools: toolRegistry, authorize,
+    provider, repository: repo, runtime, workspace, tools: toolRegistry, sessionStore, authorize,
     onEvent, concurrency: Number(parsed.flags.concurrency ?? 4)
   });
   registerSubagentTools(toolRegistry, pool);
 
   const agent = new AgentLoop({
-    provider, repository: repo, runtime, workspace, tools: toolRegistry, authorize, onEvent
+    provider, repository: repo, runtime, workspace, tools: toolRegistry, sessionStore, authorize, onEvent
   });
   const parallelRunner = new ParallelSessionRunner({
     subagentPool: pool,
@@ -449,8 +450,10 @@ async function createHarness({ repo, runtime, workspace, provider, providerName,
     tools: toolRegistry,
     lsp,
     mcp,
+    sessionStore,
     async close() {
       await Promise.allSettled([lsp.close(), mcp.close()]);
+      sessionStore.close();
     }
   };
 }
