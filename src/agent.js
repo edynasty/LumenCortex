@@ -42,6 +42,7 @@ export class AgentLoop {
     const llmRetries = Math.max(0, Number(options.llmRetries ?? 2));
     const retryBaseMs = Math.max(0, Number(options.retryBaseMs ?? 800));
     const emptyTurnRetries = Math.max(0, Number(options.emptyTurnRetries ?? 1));
+    const maxToolCallsPerStep = Math.max(1, Number(options.maxToolCallsPerStep ?? Number.MAX_SAFE_INTEGER));
     let session;
 
     if (options.sessionId) {
@@ -268,8 +269,21 @@ export class AgentLoop {
         }
       }
 
-      session.messages.push(assistant);
       calls = assistant.tool_calls ?? [];
+      if (calls.length > maxToolCallsPerStep) {
+        const requested = calls.length;
+        calls = calls.slice(0, maxToolCallsPerStep);
+        assistant = { ...assistant, tool_calls: calls };
+        this.emit('tools.deferred', {
+          sessionId: session.id,
+          step,
+          requested,
+          executing: calls.length,
+          deferred: requested - calls.length
+        });
+      }
+
+      session.messages.push(assistant);
       const stepRecord = {
         step,
         at: nowIso(),
