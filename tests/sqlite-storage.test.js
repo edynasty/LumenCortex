@@ -288,3 +288,38 @@ test('SQLite integrity remains valid after graph, session, journal and FTS mutat
     db.close();
   }
 });
+
+
+test('active promotion incrementally synchronizes search index without full dirty backlog', () => {
+  const root=tempWorkspace('lcx-promotion-index-');
+  const repo=new CognitiveRepository(root);
+  repo.init();
+
+  let graph=repo.graph();
+  for (const [id,title] of [['a','Inventory validation'],['b','Inventory locking'],['c','Inventory allocation']]) {
+    graph.addNode({
+      id,
+      kind:'entity',
+      title,
+      body:title,
+      metadata:{path:`src/${id}.txt`}
+    });
+  }
+  repo.writeGraph(graph.snapshot());
+
+  const runtime=new LumenCortexRuntime(repo);
+  runtime.refreshSearchIndex();
+  const abstraction=runtime.promote(['a','b','c'],{id:'inventory-abstract',title:'Inventory consistency'});
+  assert.equal(abstraction.id,'inventory-abstract');
+
+  const db=new DatabaseSync(path.join(root,'.lumencortex','lumencortex.db'));
+  try {
+    assert.equal(Number(db.prepare('SELECT count(*) AS n FROM search_dirty_nodes').get().n),0);
+    const searchRevision=Number(db.prepare("SELECT value FROM metadata WHERE key='search_index_revision'").get().value);
+    assert.equal(searchRevision,repo.graphRevision());
+    const indexed=db.prepare('SELECT node_id FROM search_documents WHERE node_id = ?').get('inventory-abstract');
+    assert.equal(indexed.node_id,'inventory-abstract');
+  } finally {
+    db.close();
+  }
+});
