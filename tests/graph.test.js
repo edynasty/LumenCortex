@@ -67,3 +67,23 @@ test('explicit graft creates a marked structural edge without copying nodes', ()
   assert.equal(graft.metadata.graftReason, 'reuse inventory finding');
   assert.ok(graph.getNode('b1'));
 });
+
+
+test('graph snapshots carry non-enumerable mutation hints for incremental persistence', () => {
+  const graph=new CognitiveGraph();
+  graph.addNode({id:'a',kind:'belief',title:'A',body:'one'});
+  graph.addNode({id:'b',kind:'belief',title:'B',body:'two'});
+  graph.addEdge({id:'e',from:'a',to:'b',type:'relates_to'});
+  graph.updateNode('a',{body:'changed'});
+  graph.removeEdge('e');
+  graph.removeNode('b');
+
+  const snapshot=graph.snapshot();
+  const hints=snapshot[GRAPH_MUTATION_HINTS];
+  assert.deepEqual(hints.changedNodeIds,['a']);
+  assert.deepEqual(hints.removedNodeIds,['b']);
+  assert.deepEqual(hints.changedEdgeIds,[]);
+  assert.deepEqual(hints.removedEdgeIds,['e']);
+  assert.equal(Object.getOwnPropertyDescriptor(snapshot,GRAPH_MUTATION_HINTS).enumerable,false);
+  assert.equal(JSON.stringify(snapshot).includes('changedNodeIds'),false);
+});
