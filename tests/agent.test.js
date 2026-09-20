@@ -215,6 +215,12 @@ test('resumed session preserves global step numbering, context history and cumul
   }
   assert.ok(sessionId);
 
+  const store = new AgentSessionStore(repository.dir);
+  const interrupted = store.load(sessionId);
+  interrupted.error = { message: 'old transient failure', step: 1 };
+  interrupted.status = 'interrupted';
+  store.save(interrupted);
+
   const secondProvider = {
     model: 'mock-second',
     complete: async () => ({
@@ -237,6 +243,7 @@ test('resumed session preserves global step numbering, context history and cumul
   assert.deepEqual(result.session.metadata.contextHistory.map((item) => item.step), [1, 2]);
   assert.equal(result.usage.requests, 2);
   assert.equal(result.usage.totalTokens, 35);
+  assert.equal(result.session.error, undefined);
 });
 
 
@@ -290,7 +297,7 @@ test('agent recovers once from an empty assistant turn', async () => {
       }
       return {
         message: { role: 'assistant', content: 'recovered-final' },
-        finishReason: 'stop',
+        finishReason: 'recovered-stop',
         usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 }
       };
     }
@@ -310,4 +317,5 @@ test('agent recovers once from an empty assistant turn', async () => {
   assert.equal(calls, 2);
   assert.equal(result.usage.requests, 2);
   assert.equal(result.usage.totalTokens, 7);
+  assert.equal(result.session.steps[0].finishReason, 'recovered-stop');
 });
