@@ -29,6 +29,7 @@ function send(obj){
   process.stdout.write(body);
 }
 function handle(msg){
+  if(msg.method==='exit'){ process.exit(0); return; }
   if(msg.id===undefined)return;
   let result=null;
   if(msg.method==='initialize') result={capabilities:{definitionProvider:true,referencesProvider:true,documentSymbolProvider:true,hoverProvider:true}};
@@ -42,7 +43,7 @@ function handle(msg){
 }
 `;
 
-test('LSP manager speaks Content-Length JSON-RPC and resolves workspace files', async () => {
+test('LSP manager speaks Content-Length JSON-RPC and resolves workspace files', { timeout: 8000 }, async () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'mw-lsp-'));
   const source=path.join(root,'main.js');
   fs.writeFileSync(source,'function hello(){ return "ok"; }\n');
