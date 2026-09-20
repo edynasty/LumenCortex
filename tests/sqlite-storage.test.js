@@ -99,7 +99,7 @@ test('existing .lumencortex JSON repository migrates once into SQLite and is arc
   const root=tempWorkspace('lcx-json-migrate-');
   const dir=path.join(root,'.lumencortex');
   fs.mkdirSync(path.join(dir,'commits'),{recursive:true});
-  fs.mkdirSync(path.join(dir,'refs','heads'),{recursive:true});
+  fs.mkdirSync(path.join(dir,'refs','heads','feature'),{recursive:true});
   fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});
 
   const empty={version:1,nodes:{},edges:{},metadata:{}};
@@ -151,6 +151,7 @@ test('existing .lumencortex JSON repository migrates once into SQLite and is arc
   fs.writeFileSync(path.join(dir,'graph.revision'),'7\n');
   fs.writeFileSync(path.join(dir,'HEAD'),'ref: refs/heads/main\n');
   fs.writeFileSync(path.join(dir,'refs','heads','main'),add.id+'\n');
+  fs.writeFileSync(path.join(dir,'refs','heads','feature','nested'),add.id+'\n');
   fs.writeFileSync(path.join(dir,'commits',genesis.id+'.json'),JSON.stringify(genesis));
   fs.writeFileSync(path.join(dir,'commits',add.id+'.json'),JSON.stringify(add));
   fs.writeFileSync(path.join(dir,'sessions',session.id+'.json'),JSON.stringify(session));
@@ -161,6 +162,7 @@ test('existing .lumencortex JSON repository migrates once into SQLite and is arc
   assert.equal(repo.exists(),true);
   assert.equal(repo.graph().getNode('legacy').body,'preserve me');
   assert.equal(repo.headCommitId(),add.id);
+  assert.ok(repo.branches().some(branch=>branch.name==='feature/nested' && branch.commitId===add.id));
   assert.equal(repo.getCommit(add.id).snapshot.nodes.legacy.body,'preserve me');
   assert.equal(repo.graphRevision(),7);
 
