@@ -128,30 +128,15 @@ try {
       if (!args[0]) fail('Usage: modelweave cherry-pick <commit>');
       const result = repo.cherryPick(args[0]);
       if (result.conflicts.length) {
-        console.error(`Cherry-pick conflict: ${result.conflicts[0].message}`);
-        process.exitCode = 2;
-      } else console.log(`Cherry-picked as ${result.commit.id}`);
-      break;
-    }
-    case 'blame': {
-      if (!args[0]) fail('Usage: modelweave blame <nodeId>');
-      const result = repo.blameNode(args[0]);
-      console.log(JSON.stringify(result, null, 2));
-      break;
-    }
-    case 'blame': {
-      if (!args[0]) fail('Usage: modelweave blame <node-or-edge-id> [limit]');
-      console.log(JSON.stringify(repo.blame(args[0], Number(args[1] ?? 20)), null, 2));
-      break;
-    }
-    case 'cherry-pick': {
-      if (!args[0]) fail('Usage: modelweave cherry-pick <commit>');
-      const result = repo.cherryPick(args[0]);
-      if (result.conflicts.length) {
         console.error('Cherry-pick conflicts:');
-        for (const conflict of result.conflicts) console.error(`  ${conflict.kind}:${conflict.id}`);
+        for (const conflict of result.conflicts) console.error(`  ${conflict.kind ?? 'commit'}:${conflict.id ?? conflict.commitId ?? 'unknown'} ${conflict.message ?? ''}`);
         process.exitCode = 2;
       } else console.log(`Cherry-picked as ${result.commit.id}`);
+      break;
+    }
+    case 'blame': {
+      if (!args[0]) fail('Usage: modelweave blame <node-id> [limit]');
+      console.log(JSON.stringify(repo.blame(args[0], { limit: Number(args[1] ?? 20) }), null, 2));
       break;
     }
     case 'rebase': {
@@ -336,7 +321,6 @@ function renderAgentEvent(event) {
   else if (event.type === 'tool.start') console.log(`  → ${event.name} ${compact(event.args)}`);
   else if (event.type === 'tool.end') console.log(`  ← ${event.name} ${event.ok ? 'ok' : event.denied ? 'denied' : 'error'}`);
   else if (event.type === 'context.refresh') console.log(`  💡 context refreshed (${event.selectedNodes} nodes/${event.contextTokens}t)`);
-  else if (event.type === 'context.promote') console.log(`  ↑ promoted context → ${event.abstractionId} [${event.reasons.join(', ')}]`);
   else if (event.type === 'context.move') console.log(`  ☼ light moved: ${event.selectedNodes} nodes/${event.contextTokens}t`);
   else if (event.type === 'context.promote') console.log(`  ↑ promoted ${event.childCount} nodes → ${event.abstractionId}`);
   else if (event.type === 'context.ingest') console.log(`  ↻ graph refreshed (${event.stats.changedEvidence} changed evidence)`);
