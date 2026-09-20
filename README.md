@@ -4,7 +4,7 @@
 
 > Graph is Memory. Light is Attention. Agent is Execution.
 
-The primary interface is the full-screen TUI. Run `lumencortex` or the short command `lcx` with no arguments to open it directly.
+The primary interface is the full-screen TUI. Run `lumencortex` or the short command `lcx` with no arguments to open it directly. While an agent run is active, `Ctrl+C` cancels the provider/tool execution, persists the Session as `interrupted`, and leaves it resumable with `--session`.
 
 ## v0.6 LumenCortex runtime
 
@@ -32,7 +32,7 @@ The primary interface is the full-screen TUI. Run `lumencortex` or the short com
 - OpenAI-compatible provider adapter
 - OpenRouter / Groq / DeepSeek official presets
 - generic local/API provider mode
-- workspace tools: read, list, indexed `code_search`, write, exact replace, validated multi-file `apply_patch`, shell
+- workspace tools: read, list, indexed `code_search`, write, exact replace, validated multi-file `apply_patch`, asynchronous cancellable shell
 - LSP tools: definition, references, symbols, hover, diagnostics
 - MCP client: 2026 modern + legacy negotiation, stdio + HTTP transports
 - focused Subagent + parallel Subagent tools
