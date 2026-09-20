@@ -33,7 +33,8 @@ Core workspace tools:
 - `code_search` — persistent SQLite FTS5 + symbol index
 - `write_file`
 - `replace_in_file`
-- `shell`
+- `apply_patch` — validates an exact multi-hunk / multi-file create-update-delete batch before mutating targets
+- `shell` — asynchronous, timeout-bounded and cancellable; POSIX cancellation terminates the command process group
 - `lumencortex_context`
 - `lumencortex_ingest`
 
@@ -253,7 +254,8 @@ The full-screen terminal view exposes:
 - current answer/result,
 - session switching,
 - new-session creation,
-- parallel-task launch.
+- parallel-task launch,
+- `Ctrl+C` cancellation for the active Agent run; interrupted Session state remains resumable.
 
 Commands:
 
@@ -264,6 +266,7 @@ Commands:
 :parallel <tasks.json>
 :help
 :quit
+Ctrl+C   # cancel the active run without discarding its persisted Session
 ```
 
 Without `--yes`, TUI intentionally remains read-only because a full-screen readline loop and independent permission prompts must not compete for stdin.
