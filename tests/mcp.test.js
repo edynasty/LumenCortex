@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HttpMcpClient, McpManager } from '../src/mcp.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { HttpMcpClient, McpManager, StdioMcpClient } from '../src/mcp.js';
 import { ToolRegistry } from '../src/tools.js';
 
 function response(value,status=200,type='application/json'){
@@ -46,4 +49,48 @@ test('MCP client falls back to legacy initialize and manager exposes remote tool
   assert.match(output.content,/MODELWEAVE/);
   assert.equal(manager.clients.get('demo').era,'legacy');
   await manager.close();
+});
+
+
+test('MCP stdio client performs modern discovery, lists tools and calls them', { timeout: 8000 }, async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mw-mcp-stdio-'));
+  const server=path.join(root,'fake-mcp.mjs');
+  fs.writeFileSync(server, `
+process.stdin.setEncoding('utf8');
+let buffer='';
+process.stdin.on('data',chunk=>{ buffer+=chunk; pump(); });
+function pump(){
+  while(true){
+    const index=buffer.indexOf('\\n');
+    if(index<0)return;
+    const line=buffer.slice(0,index).trim();
+    buffer=buffer.slice(index+1);
+    if(!line)continue;
+    const msg=JSON.parse(line);
+    let result;
+    if(msg.method==='server/discover') result={protocolVersion:'2026-07-28',capabilities:{tools:{}}};
+    else if(msg.method==='tools/list') result={tools:[{name:'echo',description:'echo',inputSchema:{type:'object',properties:{text:{type:'string'}}}}]};
+    else if(msg.method==='tools/call') result={content:[{type:'text',text:msg.params.arguments.text}]};
+    else continue;
+    process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:msg.id,result})+'\\n');
+  }
+}
+`);
+
+  const client=new StdioMcpClient('stdio',{
+    command:process.execPath,
+    args:[server],
+    cwd:root,
+    timeoutMs:2000
+  });
+  try{
+    await client.connect();
+    assert.equal(client.era,'modern');
+    const listed=await client.listTools();
+    assert.equal(listed[0].name,'echo');
+    const called=await client.callTool('echo',{text:'stdio-ok'});
+    assert.equal(called.content[0].text,'stdio-ok');
+  } finally {
+    await client.close();
+  }
 });
