@@ -297,7 +297,7 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
       required: ['command'],
       additionalProperties: false
     },
-    async execute({ command, timeout_ms = shellTimeoutMs }, { signal } = {}) {
+    async execute({ command, timeout_ms = shellTimeoutMs }, { signal, onOutput } = {}) {
       const isWindows = process.platform === 'win32';
       const executable = isWindows ? 'cmd.exe' : '/bin/sh';
       const args = isWindows ? ['/d', '/s', '/c', command] : ['-lc', command];
@@ -337,8 +337,14 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
           return next;
         };
 
-        child.stdout.on('data', (chunk) => { stdout = append(stdout, chunk); });
-        child.stderr.on('data', (chunk) => { stderr = append(stderr, chunk); });
+        child.stdout.on('data', (chunk) => {
+          stdout = append(stdout, chunk);
+          onOutput?.({ stream: 'stdout', chunk: chunk.toString('utf8') });
+        });
+        child.stderr.on('data', (chunk) => {
+          stderr = append(stderr, chunk);
+          onOutput?.({ stream: 'stderr', chunk: chunk.toString('utf8') });
+        });
         const abort = () => {
           cancelled = true;
           terminateProcessTree(child, isWindows, 'SIGTERM');
