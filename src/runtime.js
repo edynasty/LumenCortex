@@ -48,8 +48,12 @@ export class LumenCortexRuntime {
   promote(nodeIds, options = {}) {
     const current = this.repository.graph().snapshot();
     const result = promoteNodes(current, nodeIds, options);
-    this.repository.writeGraph(result.graph);
-    this.refreshSearchIndex(result.graph);
+    const write = this.repository.writeGraph(result.graph);
+    if (this.searchIndex.ready()) {
+      this.searchIndex.sync(result.graph, { graphRevision: write.revision });
+    } else {
+      this.searchIndex.build(result.graph, { graphRevision: write.revision });
+    }
     this.#journal('promote', { abstractionId: result.abstraction.id, nodeIds });
     return result.abstraction;
   }
