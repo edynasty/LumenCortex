@@ -88,7 +88,7 @@ export class CognitiveRepository {
     const parent = this.headCommit();
     const snapshot = this.graph().snapshot();
     const diff = diffGraphs(parent.snapshot, snapshot);
-    if (!diff.operations.length && !additionalParents.length) throw new Error('Nothing to commit');
+    if (!diff.operations.length && !additionalParents.length) throw new Error(NOThing to commit');
     const commit = this.#makeCommit({
       message,
       parents: [parent.id, ...additionalParents],
@@ -114,6 +114,23 @@ export class CognitiveRepository {
     return result;
   }
 
+  blame(objectId, limit = 50) {
+    const result = [];
+    for (const commit of this.log(Math.max(limit * 4, 100))) {
+      const operations = (commit.diff?.operations ?? []).filter((op) => op.id === objectId);
+      if (!operations.length) continue;
+      result.push({
+        commitId: commit.id,
+        createdAt: commit.createdAt,
+        message: commit.message,
+        metadata: commit.metadata,
+        operations: clone(operations)
+      });
+      if (result.length >= limit) break;
+    }
+    return result;
+  }
+
   branches() {
     this.assertExists();
     const dir = path.join(this.dir, 'refs', 'heads');
@@ -123,7 +140,7 @@ export class CognitiveRepository {
   createBranch(name, startPoint = this.headCommitId()) {
     validateRefName(name);
     const file = path.join(this.dir, 'refs', 'heads', name);
-    if (fs.existsSync(file)) throw new Error(`Branch already exists: ${name}`);
+    if (fs.existsSync(file)) throw new Error(`branch already exists: ${name}`);
     this.getCommit(startPoint);
     this.#writeRef(name, startPoint);
     return { name, commitId: startPoint };
@@ -158,6 +175,80 @@ export class CognitiveRepository {
       metadata: { merge: { ours: oursBranch, theirs: theirsBranch, base: base.id } }
     });
     return { alreadyUpToDate: false, conflicts: [], commit };
+  }
+
+  cherryPick(commitId, { message } = {}) {
+    const target = this.getCommit(commitId);
+    if (!target.parents?.length) throw new Error('Cannot cherry-pick genesis commit');
+    const parent = this.getCommit(target.parents[0]);
+    const ours = this.graph().snapshot();
+    const merged = threeWayMergeGraph(parent.snapshot, ours, target.snapshot);
+    if (merged.conflicts.length) return { conflicts: merged.conflicts, commit: null };
+
+    this.writeGraph(merged.graph);
+    let commit;
+    try {
+      commit = this.commit(message ?? `Cherry-pick ${commitId}: ${target.message}`, {
+        metadata: { cherryPickOf: commitId }
+      });
+    } catch (error) {
+      if (!String(error.message).includes('Nothing to commit')) throw error;
+      commit = this.headCommit();
+    }
+    return { conflicts: [], commit };
+  }
+
+  rebase(ontoBranch) {
+    const branch = this.currentBranch();
+    if (!branch) throw new Error(Cannot rebase detached HEAD');
+    if (branch === ontoBranch) throw new Error(Cannot rebase a branch onto itself');
+
+    const sourceHead = this.headCommit();
+    const ontoId = this.#readRef(ontoBranch);
+    const onto = this.getCommit(ontoId);
+    const baseId = this.findMergeBase(sourceHead.id, ontoId);
+    if (!baseId) throw new Error(No merge base found');
+
+    const replay = [];
+    let cursor = sourceHead;
+    while (cursor.id !== baseId) {
+      replay.push(cursor);
+      const parentId = cursor.parents?.[0];
+      if (!parentId) throw new Error('Rebase first-parent history does not reach merge base');
+      cursor = this.getCommit(parentId);
+    }
+    replay.reverse();
+
+    let working = clone(onto.snapshot);
+    let parentId = onto.id;
+    const pending = [];
+    for (const original of replay) {
+      const originalParent = this.getCommit(original.parents[0]);
+      const merged = threeWayMergeGraph(originalParent.snapshot, working, original.snapshot);
+      if (merged.conflicts.length) {
+        return { conflicts: merged.conflicts, commits: [], onto: onto.id, branch };
+      }
+      const diff = diffGraphs(working, merged.graph);
+      const rebased = this.#makeCommit({
+        message: original.message,
+        parents: [parentId],
+        snapshot: merged.graph,
+        diff,
+        metadata: {
+          ...(original.metadata ?? {}),
+          rebaseOf: original.id,
+          rebaseOnto: onto.id
+        }
+      });
+      pending.push(rebased);
+      working = merged.graph;
+      parentId = rebased.id;
+    }
+
+    for (const commit of pending) this.#writeCommit(commit);
+    this.writeGraph(working);
+    this.#writeRef(branch, parentId);
+    return { conflicts: [], commits: pending, onto: onto.id, branch };
   }
 
   revert(commitId, { message = `Revert ${commitId}` } = {}) {
