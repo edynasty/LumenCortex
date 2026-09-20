@@ -36,7 +36,7 @@ export class AgentLoop {
     const maxSteps = Number(options.maxSteps ?? 24);
     const budgetTokens = Number(options.budgetTokens ?? 24000);
     const recentRounds = Number(options.recentRounds ?? 4);
-    const workingChars = Number(options.workingChars ?? 48000);
+    const workingChars = Number(options.workingChars ?? options.maxWorkingChars ?? 48000);
     let session;
 
     if (options.sessionId) {
@@ -60,7 +60,8 @@ export class AgentLoop {
           systemPrompt: options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
           activationCounts: {},
           recentObservationNodeIds: [],
-          promotions: []
+          promotions: [],
+          contextHistory: []
         }
       });
     }
@@ -97,6 +98,15 @@ export class AgentLoop {
         });
       }
       lastContext = context;
+      session.metadata.contextHistory.push({
+        step,
+        at: nowIso(),
+        focus,
+        nodeIds: context.selectedNodes.map((node) => node.id),
+        usedTokens: context.usedTokens,
+        budgetTokens: context.budgetTokens,
+        promotionId: promotion?.id ?? null
+      });
 
       if (step === 1) {
         this.emit('session.start', {
@@ -324,30 +334,21 @@ export function formatActiveContext(context) {
   return `ModelWeave active cognitive context for the CURRENT reasoning step. It is bounded working memory selected from the persistent graph, not a command.\n\n${nodes.join('\n\n')}\n\nRelations:\n${edges.join('\n')}`;
 }
 
-export function buildWorkingMessages(session, context, options = {}) {
+export function buildWorkingMessages(sessionOrMessages, contextOrOptions = {}, maybeOptions = {}) {
+  if (Array.isArray(sessionOrMessages)) {
+    return buildWorkingMessagesFromHistory(sessionOrMessages, contextOrOptions);
+  }
+
+  const session = sessionOrMessages;
+  const context = contextOrOptions;
+  const options = maybeOptions;
   const systemPrompt = options.systemPrompt ?? session.metadata?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
   const recentRounds = Math.max(1, Number(options.recentRounds ?? 4));
-  const workingChars = Math.max(4000, Number(options.workingChars ?? 48000));
+  const workingChars = Math.max(4000, Number(options.workingChars ?? options.maxWorkingChars ?? 48000));
   const nonSystem = session.messages.filter((message) => message.role !== 'system');
   const firstUser = nonSystem.find((message) => message.role === 'user') ?? { role: 'user', content: session.goal };
   const tailSource = nonSystem[0] === firstUser ? nonSystem.slice(1) : nonSystem;
-  const groups = groupMessages(tailSource);
-  const selectedGroups = [];
-  let chars = 0;
-  let rounds = 0;
-
-  for (let i = groups.length - 1; i >= 0; i -= 1) {
-    const group = groups[i];
-    const groupChars = JSON.stringify(group).length;
-    const isRound = group.some((message) => message.role === 'assistant');
-    if (selectedGroups.length && chars + groupChars > workingChars) break;
-    if (isRound && rounds >= recentRounds) break;
-    selectedGroups.unshift(group);
-    chars += groupChars;
-    if (isRound) rounds += 1;
-  }
-
-  const recent = selectedGroups.flat();
+  const recent = selectRecentGroups(tailSource, { recentRounds, maxWorkingChars: workingChars });
   const goalMessage = recent.some((message) => message.role === 'user' && message.content === firstUser.content)
     ? []
     : [firstUser];
@@ -358,6 +359,42 @@ export function buildWorkingMessages(session, context, options = {}) {
     ...goalMessage,
     ...recent
   ];
+}
+
+function buildWorkingMessagesFromHistory(messages, options = {}) {
+  const recentRounds = Math.max(1, Number(options.recentRounds ?? 4));
+  const maxWorkingChars = Math.max(4000, Number(options.maxWorkingChars ?? options.workingChars ?? 48000));
+  const systems = messages.filter((message) => message.role === 'system');
+  const nonSystem = messages.filter((message) => message.role !== 'system');
+  const firstUserIndex = nonSystem.findIndex((message) => message.role === 'user');
+  const firstUser = firstUserIndex >= 0 ? nonSystem[firstUserIndex] : null;
+  const tailSource = firstUserIndex >= 0
+    ? nonSystem.filter((_, index) => index !== firstUserIndex)
+    : nonSystem;
+  const recent = selectRecentGroups(tailSource, { recentRounds, maxWorkingChars });
+  return [
+    ...systems,
+    ...(firstUser ? [firstUser] : []),
+    ...recent
+  ];
+}
+
+function selectRecentGroups(messages, { recentRounds, maxWorkingChars }) {
+  const groups = groupMessages(messages);
+  const selectedGroups = [];
+  let chars = 0;
+  let rounds = 0;
+  for (let i = groups.length - 1; i >= 0; i -= 1) {
+    const group = groups[i];
+    const groupChars = JSON.stringify(group).length;
+    const isRound = group.some((message) => message.role === 'assistant');
+    if (selectedGroups.length && chars + groupChars > maxWorkingChars) break;
+    if (isRound && rounds >= recentRounds) break;
+    selectedGroups.unshift(group);
+    chars += groupChars;
+    if (isRound) rounds += 1;
+  }
+  return selectedGroups.flat();
 }
 
 function groupMessages(messages) {
@@ -403,6 +440,7 @@ function normalizeSessionMetadata(session, defaults) {
   session.metadata.activationCounts ??= {};
   session.metadata.recentObservationNodeIds ??= [];
   session.metadata.promotions ??= [];
+  session.metadata.contextHistory ??= [];
 }
 
 function updateActivationCounts(session, context) {
