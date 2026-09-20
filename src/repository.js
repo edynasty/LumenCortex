@@ -13,6 +13,7 @@ export class CognitiveRepository {
     this.dir = resolveStateDir(this.workspace);
     this.database = new LumenCortexDatabase(this.dir);
     this.commitCache = new Map();
+    this.lastGraphRevision = null;
     this.#migrateFileStoreIfNeeded();
   }
 
@@ -35,6 +36,7 @@ export class CognitiveRepository {
     this.database.setMeta('format_version', String(FORMAT_VERSION));
     this.database.setMeta('created_at', nowIso());
     this.database.setMeta('repository_initialized', '1');
+    this.lastGraphRevision = 1;
     return commit;
   }
 
@@ -48,13 +50,18 @@ export class CognitiveRepository {
 
   graph() {
     this.assertExists();
-    return new CognitiveGraph(this.database.loadGraph());
+    const snapshot = this.database.loadGraphSnapshot();
+    this.lastGraphRevision = snapshot.revision;
+    return new CognitiveGraph(snapshot.state);
   }
 
   writeGraph(state) {
     this.assertExists();
     new CognitiveGraph(state).validate();
-    this.database.syncGraph(state);
+    const expectedRevision = this.lastGraphRevision ?? this.database.graphRevision();
+    const result = this.database.syncGraph(state, { expectedRevision });
+    this.lastGraphRevision = result.revision;
+    return result;
   }
 
   graphRevision() {
@@ -434,6 +441,7 @@ export class CognitiveRepository {
     this.database.setMeta('format_version', String(FORMAT_VERSION));
     this.database.setMeta('repository_initialized', '1');
     this.database.setMeta('migrated_from_json_at', nowIso());
+    this.lastGraphRevision = this.database.graphRevision();
     this.#archiveLegacyStore();
   }
 
