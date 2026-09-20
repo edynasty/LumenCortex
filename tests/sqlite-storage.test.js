@@ -372,3 +372,53 @@ test('session growth upserts new rows without rewriting existing message and ste
     db.close();
   }
 });
+
+
+test('tool-call step payload round-trips through SQLite exactly', () => {
+  const root=tempWorkspace('lcx-toolcall-roundtrip-');
+  const repo=new CognitiveRepository(root);
+  repo.init();
+  const store=new AgentSessionStore(repo.dir);
+  const session=store.create({goal:'persist tool call',provider:'mock',model:'mock-model'});
+  session.steps.push({
+    step:1,
+    at:'2026-09-20T00:00:00.000Z',
+    focus:{goal:'persist tool call'},
+    contextNodeIds:['evidence-a'],
+    contextTokens:321,
+    promotionId:null,
+    finishReason:'tool_calls',
+    toolCalls:[{
+      id:'call_1',
+      name:'read_file',
+      args:{path:'memory-long/item-01.txt'},
+      ok:true,
+      denied:false,
+      observationId:'obs_123'
+    }],
+    content:''
+  });
+  session.messages.push({
+    role:'assistant',
+    content:'',
+    tool_calls:[{
+      id:'call_1',
+      type:'function',
+      function:{name:'read_file',arguments:'{"path":"memory-long/item-01.txt"}'}
+    }]
+  });
+  session.messages.push({
+    role:'tool',
+    tool_call_id:'call_1',
+    name:'read_file',
+    content:'VALUE_01=9123'
+  });
+  store.save(session);
+
+  const reopened=new AgentSessionStore(repo.dir).load(session.id);
+  assert.equal(reopened.steps.length,1);
+  assert.deepEqual(reopened.steps[0].toolCalls,session.steps[0].toolCalls);
+  assert.equal(reopened.steps[0].toolCalls[0].observationId,'obs_123');
+  assert.equal(reopened.steps[0].toolCalls[0].args.path,'memory-long/item-01.txt');
+  assert.equal(reopened.messages[0].tool_calls[0].function.name,'read_file');
+});
