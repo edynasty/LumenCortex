@@ -34,7 +34,7 @@ const singleMutationMs=performance.now()-t1;
 
 const result={nodes:N,initialWriteMs:Number(initialMs.toFixed(2)),singleMutationMs:Number(singleMutationMs.toFixed(2))};
 console.log(JSON.stringify(result,null,2));
-if(singleMutationMs>750){
-  console.error(`single-node mutation too slow: ${singleMutationMs.toFixed(2)}ms > 750ms`);
+if(singleMutationMs>500){
+  console.error(`single-node mutation too slow: ${singleMutationMs.toFixed(2)}ms > 500ms`);
   process.exit(1);
 }
