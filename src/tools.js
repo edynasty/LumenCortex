@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ingestWorkspace } from './ingest.js';
+import { locationToWorkspace } from './lsp.js';
 
 const DEFAULT_IGNORES = new Set(['.git', '.modelweave', 'node_modules', 'dist', 'build', 'target', '.next', 'vendor']);
 
@@ -52,7 +53,7 @@ export class ToolRegistry {
   }
 }
 
-export function createCodingTools({ workspace, repository, runtime, shellTimeoutMs = 120000 } = {}) {
+export function createCodingTools({ workspace, repository, runtime, lsp, shellTimeoutMs = 120000 } = {}) {
   if (!workspace) throw new Error('workspace is required');
   const root = path.resolve(workspace);
   const registry = new ToolRegistry();
@@ -217,6 +218,24 @@ export function createCodingTools({ workspace, repository, runtime, shellTimeout
 
   if (runtime) {
     registry.register({
+      name: 'code_search',
+      description: 'Fast indexed code/repository search using BM25, symbol matches and graph-backed node IDs. Prefer this over recursive text scanning in large repositories.',
+      permission: 'read',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+          max_results: { type: 'integer', minimum: 1, maximum: 200 }
+        },
+        required: ['query'],
+        additionalProperties: false
+      },
+      execute({ query, max_results = 40 }) {
+        return runtime.search(query, { limit: max_results });
+      }
+    });
+
+    registry.register({
       name: 'modelweave_context',
       description: 'Illuminate the persistent cognitive graph for a focused sub-question.',
       permission: 'read',
@@ -232,6 +251,93 @@ export function createCodingTools({ workspace, repository, runtime, shellTimeout
     });
   }
 
+
+  if (lsp) {
+    registry.register({
+      name: 'lsp_definition',
+      description: 'Resolve a symbol definition using the configured language server.',
+      permission: 'read',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          line: { type: 'integer', minimum: 1 },
+          character: { type: 'integer', minimum: 1 }
+        },
+        required: ['path', 'line', 'character'],
+        additionalProperties: false
+      },
+      async execute({ path: input, line, character }) {
+        const value = await lsp.definition(input, line, character);
+        return normalizeLspLocations(value, root);
+      }
+    });
+
+    registry.register({
+      name: 'lsp_references',
+      description: 'Find symbol references using the configured language server.',
+      permission: 'read',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          line: { type: 'integer', minimum: 1 },
+          character: { type: 'integer', minimum: 1 },
+          include_declaration: { type: 'boolean' }
+        },
+        required: ['path', 'line', 'character'],
+        additionalProperties: false
+      },
+      async execute({ path: input, line, character, include_declaration = true }) {
+        const value = await lsp.references(input, line, character, include_declaration);
+        return normalizeLspLocations(value, root);
+      }
+    });
+
+    registry.register({
+      name: 'lsp_symbols',
+      description: 'List structured symbols in a source file using the configured language server.',
+      permission: 'read',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+        required: ['path'],
+        additionalProperties: false
+      },
+      execute: ({ path: input }) => lsp.symbols(input)
+    });
+
+    registry.register({
+      name: 'lsp_hover',
+      description: 'Get type/signature/hover information at a source position.',
+      permission: 'read',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          line: { type: 'integer', minimum: 1 },
+          character: { type: 'integer', minimum: 1 }
+        },
+        required: ['path', 'line', 'character'],
+        additionalProperties: false
+      },
+      execute: ({ path: input, line, character }) => lsp.hover(input, line, character)
+    });
+
+    registry.register({
+      name: 'lsp_diagnostics',
+      description: 'Get language-server diagnostics for a source file.',
+      permission: 'read',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+        required: ['path'],
+        additionalProperties: false
+      },
+      execute: ({ path: input }) => lsp.diagnostics(input)
+    });
+  }
+
   if (repository) {
     registry.register({
       name: 'modelweave_ingest',
@@ -241,6 +347,7 @@ export function createCodingTools({ workspace, repository, runtime, shellTimeout
       execute() {
         const result = ingestWorkspace(repository.graph().snapshot(), root);
         repository.writeGraph(result.graph);
+        runtime?.refreshSearchIndex?.(result.graph);
         return result.stats;
       }
     });
@@ -295,4 +402,11 @@ function normalizeArguments(tool, args) {
     }
   }
   return normalized;
+}
+
+
+function normalizeLspLocations(value, workspace) {
+  if (value === null || value === undefined) return value;
+  const items = Array.isArray(value) ? value : [value];
+  return items.map((item) => locationToWorkspace(item, workspace));
 }
