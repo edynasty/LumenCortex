@@ -28,6 +28,7 @@ export class AgentLoop {
     this.runtime = runtime;
     this.workspace = workspace;
     this.tools = tools ?? createCodingTools({ workspace, repository, runtime });
+    this.ownsSessionStore = !sessionStore;
     this.sessions = sessionStore ?? new AgentSessionStore(repository.dir);
     this.promotionController = promotionController ?? new PromotionController(runtime);
     this.authorize = authorize;
@@ -476,6 +477,10 @@ export class AgentLoop {
 
   emit(type, payload) {
     this.onEvent({ type, at: nowIso(), ...payload });
+  }
+
+  close() {
+    if (this.ownsSessionStore) this.sessions.close();
   }
 }
 
