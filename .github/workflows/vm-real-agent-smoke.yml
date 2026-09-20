@@ -8,6 +8,7 @@ on:
     paths:
       - ".github/workflows/vm-real-agent-smoke.yml"
       - "src/agent.js"
+      - "src/cli.js"
       - "src/tools.js"
       - "src/provider.js"
       - "src/tui.js"
