@@ -16,7 +16,8 @@ Rules:
 7. If context is insufficient, call lumencortex_context with a focused sub-question.
 8. Keep changes scoped to the user's goal. Do not modify unrelated files.
 9. Before finishing, inspect the resulting diff/status when practical.
-10. Return a concise final result with what changed and what verification passed.`;
+10. Return a concise final result with what changed and what verification passed.
+11. If the latest tool result already proves the requested verification succeeded, stop calling tools immediately and return the final answer; do not restart or repeat the task.`;
 
 export class AgentLoop {
   constructor({ provider, repository, runtime, workspace, tools, sessionStore, promotionController, authorize, onEvent } = {}) {
