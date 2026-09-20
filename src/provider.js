@@ -1,15 +1,16 @@
+import { BRAND, envValue } from './brand.js';
 export const PROVIDER_PRESETS = {
   openrouter: {
     baseURL: 'https://openrouter.ai/api/v1',
     apiKeyEnv: 'OPENROUTER_API_KEY',
     defaultModel: 'openrouter/free',
-    headers: { 'HTTP-Referer': 'https://github.com/edynasty/ModelWeave', 'X-Title': 'ModelWeave' }
+    headers: { 'HTTP-Referer': 'https://github.com/edynasty/LumenCortex', 'X-Title': BRAND.name }
   },
   'openrouter-deepseek-free': {
     baseURL: 'https://openrouter.ai/api/v1',
     apiKeyEnv: 'OPENROUTER_API_KEY',
     defaultModel: 'deepseek/deepseek-v4-flash-0731:free',
-    headers: { 'HTTP-Referer': 'https://github.com/edynasty/ModelWeave', 'X-Title': 'ModelWeave DeepSeek Free' }
+    headers: { 'HTTP-Referer': 'https://github.com/edynasty/LumenCortex', 'X-Title': 'LumenCortex DeepSeek Free' }
   },
   groq: {
     baseURL: 'https://api.groq.com/openai/v1',
@@ -22,9 +23,10 @@ export const PROVIDER_PRESETS = {
     defaultModel: 'deepseek-flash'
   },
   generic: {
-    baseURL: process.env.MODELWEAVE_BASE_URL,
-    apiKeyEnv: 'MODELWEAVE_API_KEY',
-    defaultModel: process.env.MODELWEAVE_MODEL
+    baseURL: envValue('LUMENCORTEX_BASE_URL', 'MODELWEAVE_BASE_URL'),
+    apiKeyEnv: 'LUMENCORTEX_API_KEY',
+    legacyApiKeyEnv: 'MODELWEAVE_API_KEY',
+    defaultModel: envValue('LUMENCORTEX_MODEL', 'MODELWEAVE_MODEL')
   }
 };
 
@@ -87,17 +89,17 @@ export class OpenAICompatibleProvider {
   }
 }
 
-export function createProvider(name = process.env.MODELWEAVE_PROVIDER ?? 'openrouter', options = {}) {
+export function createProvider(name = envValue('LUMENCORTEX_PROVIDER', 'MODELWEAVE_PROVIDER') ?? 'openrouter', options = {}) {
   const preset = PROVIDER_PRESETS[name];
   if (!preset) throw new Error(`Unknown provider: ${name}`);
-  const apiKey = options.apiKey ?? process.env[preset.apiKeyEnv];
+  const apiKey = options.apiKey ?? process.env[preset.apiKeyEnv] ?? (preset.legacyApiKeyEnv ? process.env[preset.legacyApiKeyEnv] : undefined);
   const model = options.model ?? preset.defaultModel;
   const baseURL = options.baseURL ?? preset.baseURL;
   if (!apiKey && name !== 'generic') {
-    throw new Error(`Missing ${preset.apiKeyEnv}. Set it before running ModelWeave agent.`);
+    throw new Error(`Missing ${preset.apiKeyEnv}. Set it before running LumenCortex agent.`);
   }
-  if (!apiKey && name === 'generic' && process.env.MODELWEAVE_REQUIRE_API_KEY !== 'false') {
-    throw new Error(`Missing ${preset.apiKeyEnv}. Set MODELWEAVE_REQUIRE_API_KEY=false for unauthenticated local endpoints.`);
+  if (!apiKey && name === 'generic' && envValue('LUMENCORTEX_REQUIRE_API_KEY', 'MODELWEAVE_REQUIRE_API_KEY') !== 'false') {
+    throw new Error(`Missing ${preset.apiKeyEnv}. Set LUMENCORTEX_REQUIRE_API_KEY=false for unauthenticated local endpoints.`);
   }
   return new OpenAICompatibleProvider({
     baseURL,
@@ -112,9 +114,9 @@ export function createProvider(name = process.env.MODELWEAVE_PROVIDER ?? 'openro
 export function providerInfo() {
   return Object.entries(PROVIDER_PRESETS).map(([name, preset]) => ({
     name,
-    baseURL: preset.baseURL ?? '(MODELWEAVE_BASE_URL)',
+    baseURL: preset.baseURL ?? '(LUMENCORTEX_BASE_URL)',
     apiKeyEnv: preset.apiKeyEnv,
-    defaultModel: preset.defaultModel ?? '(MODELWEAVE_MODEL)'
+    defaultModel: preset.defaultModel ?? '(LUMENCORTEX_MODEL)'
   }));
 }
 

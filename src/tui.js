@@ -2,7 +2,7 @@ import readline from 'node:readline/promises';
 
 const ESC = '\u001b[';
 
-export class ModelWeaveTui {
+export class LumenCortexTui {
   constructor({ agent, sessions, providerLabel = '', parallelRunner, input = process.stdin, output = process.stdout } = {}) {
     if (!agent) throw new Error('agent is required');
     if (!sessions) throw new Error('sessions is required');
@@ -44,7 +44,7 @@ export class ModelWeaveTui {
     try {
       this.render();
       while (true) {
-        const line = (await terminal.question('\nmodelweave> ')).trim();
+        const line = (await terminal.question('\nlcx> ')).trim();
         if (!line) continue;
         if ([':q', ':quit', ':exit'].includes(line)) break;
         if (line === ':help') {
@@ -117,7 +117,7 @@ export class ModelWeaveTui {
 
 export function renderTuiFrame({ provider = '', currentSessionId, sessions = [], events = [], answer = '', busy = false, width = 100 } = {}) {
   const inner = Math.max(60, Number(width) - 2);
-  const top = `ModelWeave TUI  ${provider}  ${busy ? '[RUNNING]' : '[READY]'}`;
+  const top = `LumenCortex TUI  ${provider}  ${busy ? '[RUNNING]' : '[READY]'}`;
   const session = `Session: ${currentSessionId ?? '(new)'}`;
   const sessionLines = sessions.slice(0, 8).map((s) => {
     const marker = s.id === currentSessionId ? '>' : ' ';
@@ -166,3 +166,5 @@ function truncate(value, max) {
   const text = String(value ?? '');
   return text.length <= max ? text : text.slice(0, Math.max(0, max - 1)) + '…';
 }
+
+export { LumenCortexTui as ModelWeaveTui };

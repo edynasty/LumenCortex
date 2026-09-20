@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { ingestWorkspace } from './ingest.js';
 import { locationToWorkspace } from './lsp.js';
 
-const DEFAULT_IGNORES = new Set(['.git', '.modelweave', 'node_modules', 'dist', 'build', 'target', '.next', 'vendor']);
+const DEFAULT_IGNORES = new Set(['.git', '.lumencortex', '.modelweave', 'node_modules', 'dist', 'build', 'target', '.next', 'vendor']);
 
 export class ToolRegistry {
   constructor() {
@@ -21,7 +21,7 @@ export class ToolRegistry {
   schemas(allowlist) {
     const selected = allowlist
       ? [...new Set(allowlist)].map((name) => this.get(name))
-      : [...this.tools.values()];
+      : [...this.tools.values()].filter((tool) => !tool.hidden);
     return selected.map((tool) => ({
       type: 'function',
       function: {
@@ -236,7 +236,7 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
     });
 
     registry.register({
-      name: 'modelweave_context',
+      name: 'lumencortex_context',
       description: 'Illuminate the persistent cognitive graph for a focused sub-question.',
       permission: 'read',
       parameters: {
@@ -340,7 +340,7 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
 
   if (repository) {
     registry.register({
-      name: 'modelweave_ingest',
+      name: 'lumencortex_ingest',
       description: 'Refresh repository reality/evidence nodes after meaningful workspace changes.',
       permission: 'write',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
@@ -351,6 +351,16 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
         return result.stats;
       }
     });
+  }
+
+  // Backward-compatible hidden aliases: executable by legacy sessions but not advertised to new models.
+  if (runtime) {
+    const target = registry.get('lumencortex_context');
+    registry.register({ ...target, name: 'modelweave_context', hidden: true });
+  }
+  if (repository) {
+    const target = registry.get('lumencortex_ingest');
+    registry.register({ ...target, name: 'modelweave_ingest', hidden: true });
   }
 
   return registry;

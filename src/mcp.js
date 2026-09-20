@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { BRAND, resolveConfigFile } from './brand.js';
 
 const MODERN_VERSION = '2026-07-28';
 const LEGACY_VERSION = '2025-11-25';
@@ -92,7 +93,7 @@ class McpClientBase {
     const initialized = await this.rawRequest('initialize', {
       protocolVersion: LEGACY_VERSION,
       capabilities: {},
-      clientInfo: { name: 'ModelWeave', version: '0.4.0' }
+      clientInfo: { name: BRAND.name, version: BRAND.version }
     }, { legacy: true });
     if (initialized?.error) throw new Error(initialized.error.message ?? 'MCP initialize failed');
     const result = initialized?.result ?? initialized;
@@ -136,7 +137,7 @@ class McpClientBase {
         ...(params ?? {}),
         _meta: {
           ...(params?._meta ?? {}),
-          'io.modelcontextprotocol/clientInfo': { name: 'ModelWeave', version: '0.4.0' },
+          'io.modelcontextprotocol/clientInfo': { name: BRAND.name, version: BRAND.version },
           'io.modelcontextprotocol/clientCapabilities': {}
         }
       };
@@ -286,7 +287,7 @@ export class HttpMcpClient extends McpClientBase {
 }
 
 export function loadMcpConfig(workspace) {
-  const file = path.join(workspace, '.modelweave', 'mcp.json');
+  const file = resolveConfigFile(workspace, 'mcp.json');
   if (!fs.existsSync(file)) return { servers: {} };
   const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
   return { servers: parsed.servers ?? parsed.mcpServers ?? {} };

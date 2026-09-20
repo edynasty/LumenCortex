@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { BRAND, envValue, resolveConfigFile } from './brand.js';
 
 export class LspManager {
   constructor(workspace, options = {}) {
@@ -122,7 +123,7 @@ export class LspClient {
     const rootUri = pathToFileURL(this.workspace).href;
     await this.rpc.request('initialize', {
       processId: process.pid,
-      clientInfo: { name: 'ModelWeave', version: '0.4.0' },
+      clientInfo: { name: BRAND.name, version: BRAND.version },
       rootUri,
       workspaceFolders: [{ uri: rootUri, name: path.basename(this.workspace) }],
       capabilities: {
@@ -290,23 +291,23 @@ export class ContentLengthRpcClient {
 }
 
 export function loadLspConfig(workspace) {
-  const file = path.join(workspace, '.modelweave', 'lsp.json');
+  const file = resolveConfigFile(workspace, 'lsp.json');
   if (fs.existsSync(file)) return normalizeConfig(JSON.parse(fs.readFileSync(file, 'utf8')));
   return normalizeConfig({
     servers: {
       java: {
-        command: process.env.MODELWEAVE_LSP_JAVA_CMD || 'jdtls',
-        args: envArgs('MODELWEAVE_LSP_JAVA_ARGS'),
+        command: envValue('LUMENCORTEX_LSP_JAVA_CMD', 'MODELWEAVE_LSP_JAVA_CMD') || 'jdtls',
+        args: envArgs('LUMENCORTEX_LSP_JAVA_ARGS', [], 'MODELWEAVE_LSP_JAVA_ARGS'),
         extensions: ['.java']
       },
       typescript: {
-        command: process.env.MODELWEAVE_LSP_TS_CMD || 'typescript-language-server',
-        args: envArgs('MODELWEAVE_LSP_TS_ARGS', ['--stdio']),
+        command: envValue('LUMENCORTEX_LSP_TS_CMD', 'MODELWEAVE_LSP_TS_CMD') || 'typescript-language-server',
+        args: envArgs('LUMENCORTEX_LSP_TS_ARGS', ['--stdio'], 'MODELWEAVE_LSP_TS_ARGS'),
         extensions: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
       },
       python: {
-        command: process.env.MODELWEAVE_LSP_PY_CMD || 'pyright-langserver',
-        args: envArgs('MODELWEAVE_LSP_PY_ARGS', ['--stdio']),
+        command: envValue('LUMENCORTEX_LSP_PY_CMD', 'MODELWEAVE_LSP_PY_CMD') || 'pyright-langserver',
+        args: envArgs('LUMENCORTEX_LSP_PY_ARGS', ['--stdio'], 'MODELWEAVE_LSP_PY_ARGS'),
         extensions: ['.py']
       }
     }
@@ -352,8 +353,8 @@ function resolveInside(root, input) {
   return absolute;
 }
 
-function envArgs(name, fallback = []) {
-  const value = process.env[name];
+function envArgs(name, fallback = [], legacyName) {
+  const value = process.env[name] ?? (legacyName ? process.env[legacyName] : undefined);
   return value ? value.split(/\s+/).filter(Boolean) : fallback;
 }
 

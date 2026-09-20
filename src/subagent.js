@@ -3,7 +3,7 @@ import { AgentLoop } from './agent.js';
 const DEFAULT_READ_TOOLS = [
   'read_file', 'list_dir', 'code_search',
   'lsp_definition', 'lsp_references', 'lsp_symbols', 'lsp_hover', 'lsp_diagnostics',
-  'modelweave_context'
+  'lumencortex_context'
 ];
 
 export class SubagentPool {
@@ -26,7 +26,7 @@ export class SubagentPool {
     const available = new Set(this.tools.schemas().map((schema) => schema.function.name));
     const allowlist = requestedAllowlist.filter((name) => available.has(name));
     const systemPrompt = [
-      `You are a focused ModelWeave subagent${role ? ` acting as ${role}` : ''}.`,
+      `You are a focused LumenCortex subagent${role ? ` acting as ${role}` : ''}.`,
       'Solve only the delegated goal. Inspect evidence, use tools, and return a concise finding with evidence paths.',
       'Do not broaden scope. Do not spawn more subagents.'
     ].join(' ');

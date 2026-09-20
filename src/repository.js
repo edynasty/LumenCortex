@@ -2,17 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { applyDiff, CognitiveGraph, diffGraphs, emptyGraph, invertDiff } from './graph.js';
 import { clone, hash, isEqual, nowIso } from './util.js';
+import { BRAND, resolveStateDir } from './brand.js';
 
 const FORMAT_VERSION = 1;
 
 export class CognitiveRepository {
   constructor(workspace = process.cwd()) {
     this.workspace = path.resolve(workspace);
-    this.dir = path.join(this.workspace, '.modelweave');
+    this.dir = resolveStateDir(this.workspace);
   }
 
   init({ branch = 'main' } = {}) {
-    if (this.exists()) throw new Error(`ModelWeave repository already exists: ${this.dir}`);
+    if (this.exists()) throw new Error(`LumenCortex repository already exists: ${this.dir}`);
     fs.mkdirSync(path.join(this.dir, 'commits'), { recursive: true });
     fs.mkdirSync(path.join(this.dir, 'refs', 'heads'), { recursive: true });
     const graph = emptyGraph();
@@ -37,7 +38,7 @@ export class CognitiveRepository {
   }
 
   assertExists() {
-    if (!this.exists()) throw new Error(`Not a ModelWeave repository: ${this.workspace}`);
+    if (!this.exists()) throw new Error(`Not a LumenCortex repository: ${this.workspace}`);
   }
 
   graph() {

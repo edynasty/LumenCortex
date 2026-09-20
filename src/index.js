@@ -1,3 +1,4 @@
+export * from './brand.js';
 export * from './constants.js';
 export * from './util.js';
 export * from './model.js';

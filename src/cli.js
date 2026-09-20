@@ -4,7 +4,7 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { CognitiveRepository } from './repository.js';
-import { ModelWeaveRuntime } from './runtime.js';
+import { LumenCortexRuntime } from './runtime.js';
 import { graphSummary } from './graph.js';
 import { ingestWorkspace } from './ingest.js';
 import { createProvider, providerInfo } from './provider.js';
@@ -15,7 +15,8 @@ import { LspManager } from './lsp.js';
 import { McpManager } from './mcp.js';
 import { SubagentPool, registerSubagentTools } from './subagent.js';
 import { ParallelSessionRunner } from './parallel.js';
-import { ModelWeaveTui } from './tui.js';
+import { LumenCortexTui } from './tui.js';
+import { BRAND } from './brand.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -31,7 +32,7 @@ try {
     fs.mkdirSync(target, { recursive: true });
     const repo = new CognitiveRepository(target);
     const commit = repo.init();
-    console.log(`Initialized ModelWeave in ${repo.dir}`);
+    console.log(`Initialized LumenCortex in ${repo.dir}`);
     console.log(`Genesis ${commit.id}`);
     process.exit(0);
   }
@@ -58,9 +59,20 @@ try {
     process.exit(0);
   }
 
-  const workspace = findWorkspace(process.cwd());
+  let workspace;
+  if (command === 'tui') {
+    try {
+      workspace = findWorkspace(process.cwd());
+    } catch {
+      workspace = process.cwd();
+      const fresh = new CognitiveRepository(workspace);
+      if (!fresh.exists()) fresh.init();
+    }
+  } else {
+    workspace = findWorkspace(process.cwd());
+  }
   const repo = new CognitiveRepository(workspace);
-  const runtime = new ModelWeaveRuntime(repo);
+  const runtime = new LumenCortexRuntime(repo);
 
   switch (command) {
     case 'agent':
@@ -88,13 +100,13 @@ try {
       const action = args[0] ?? 'stats';
       if (action === 'build') console.log(JSON.stringify(runtime.refreshSearchIndex(), null, 2));
       else if (action === 'stats') console.log(JSON.stringify(runtime.searchIndex.stats(), null, 2));
-      else fail('Usage: modelweave index <build|stats>');
+      else fail('Usage: lcx index <build|stats>');
       break;
     }
     case 'search': {
       const parsed = parseFlags(args);
       const query = parsed.positionals.join(' ').trim();
-      if (!query) fail('Usage: modelweave search <query> [--limit 40]');
+      if (!query) fail('Usage: lcx search <query> [--limit 40]');
       console.log(JSON.stringify(runtime.search(query, { limit: Number(parsed.flags.limit ?? 40) }), null, 2));
       break;
     }
@@ -112,7 +124,7 @@ try {
     }
     case 'commit': {
       const message = args.join(' ').trim();
-      if (!message) fail('Usage: modelweave commit <message>');
+      if (!message) fail('Usage: lcx commit <message>');
       const commit = repo.commit(message);
       console.log(`${commit.id} ${commit.message}`);
       break;
@@ -131,13 +143,13 @@ try {
       break;
     }
     case 'checkout': {
-      if (!args[0]) fail('Usage: modelweave checkout <branch>');
+      if (!args[0]) fail('Usage: lcx checkout <branch>');
       const commit = repo.checkout(args[0]);
       console.log(`Switched to ${args[0]} (${commit.id})`);
       break;
     }
     case 'merge': {
-      if (!args[0]) fail('Usage: modelweave merge <branch>');
+      if (!args[0]) fail('Usage: lcx merge <branch>');
       const result = repo.merge(args[0]);
       if (result.conflicts.length) {
         console.error('Merge conflicts:');
@@ -148,7 +160,7 @@ try {
       break;
     }
     case 'revert': {
-      if (!args[0]) fail('Usage: modelweave revert <commit>');
+      if (!args[0]) fail('Usage: lcx revert <commit>');
       const result = repo.revert(args[0]);
       if (result.conflicts.length) {
         console.error(`Revert conflict: ${result.conflicts[0].message}`);
@@ -157,7 +169,7 @@ try {
       break;
     }
     case 'cherry-pick': {
-      if (!args[0]) fail('Usage: modelweave cherry-pick <commit>');
+      if (!args[0]) fail('Usage: lcx cherry-pick <commit>');
       const result = repo.cherryPick(args[0]);
       if (result.conflicts.length) {
         console.error('Cherry-pick conflicts:');
@@ -167,12 +179,12 @@ try {
       break;
     }
     case 'blame': {
-      if (!args[0]) fail('Usage: modelweave blame <node-id> [limit]');
+      if (!args[0]) fail('Usage: lcx blame <node-id> [limit]');
       console.log(JSON.stringify(repo.blame(args[0], { limit: Number(args[1] ?? 20) }), null, 2));
       break;
     }
     case 'rebase': {
-      if (!args[0]) fail('Usage: modelweave rebase <branch>');
+      if (!args[0]) fail('Usage: lcx rebase <branch>');
       const result = repo.rebase(args[0]);
       if (result.conflicts.length) {
         console.error('Rebase conflicts:');
@@ -208,7 +220,7 @@ try {
     case 'light': {
       const parsed = parseFlags(args);
       const goal = parsed.positionals.join(' ').trim();
-      if (!goal) fail('Usage: modelweave light <goal> [--budget 32000] [--multi]');
+      if (!goal) fail('Usage: lcx light <goal> [--budget 32000] [--multi]');
       const options = { budgetTokens: Number(parsed.flags.budget ?? 32000) };
       if (parsed.flags.multi) {
         const lights = runtime.contextMulti(goal, options);
@@ -223,7 +235,7 @@ try {
     }
     case 'promote': {
       const title = args.shift();
-      if (!title || !args.length) fail('Usage: modelweave promote <title> <nodeId> [nodeId...]');
+      if (!title || !args.length) fail('Usage: lcx promote <title> <nodeId> [nodeId...]');
       const abstraction = runtime.promote(args, { title });
       console.log(`${abstraction.id} ${abstraction.title}`);
       break;
@@ -237,7 +249,7 @@ try {
       fail(`Unknown command: ${command}`);
   }
 } catch (error) {
-  console.error(`modelweave: ${error.message}`);
+  console.error(`lcx: ${error.message}`);
   if (error.sessionId) console.error(`session: ${error.sessionId}`);
   process.exitCode = 1;
 }
@@ -245,7 +257,7 @@ try {
 async function agentCommand({ repo, runtime, workspace, argv }) {
   const parsed = parseFlags(argv);
   const goal = parsed.positionals.join(' ').trim();
-  if (!goal && !parsed.flags.session) fail('Usage: modelweave agent <goal> [--provider openrouter] [--model MODEL] [--yes]');
+  if (!goal && !parsed.flags.session) fail('Usage: lcx agent <goal> [--provider openrouter] [--model MODEL] [--yes]');
   const providerName = String(parsed.flags.provider ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
   const provider = createProvider(providerName, providerOptions(parsed));
   const json = Boolean(parsed.flags.json);
@@ -274,10 +286,10 @@ async function chatCommand({ repo, runtime, workspace, argv }) {
   const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'workspace'), json: false, terminal });
   const resources = await createHarness({ repo, runtime, workspace, provider, providerName, parsed, authorize, onEvent: renderAgentEvent });
   let sessionId = parsed.flags.session ? String(parsed.flags.session) : null;
-  console.log(`ModelWeave chat — ${providerName}/${provider.model}. /exit to quit.`);
+  console.log(`LumenCortex chat — ${providerName}/${provider.model}. /exit to quit.`);
   try {
     while (true) {
-      const goal = (await terminal.question('mw> ')).trim();
+      const goal = (await terminal.question('lcx> ')).trim();
       if (!goal) continue;
       if (['/exit', '/quit'].includes(goal)) break;
       const result = await resources.agent.run(goal, {
@@ -296,7 +308,17 @@ async function chatCommand({ repo, runtime, workspace, argv }) {
 async function tuiCommand({ repo, runtime, workspace, argv }) {
   const parsed = parseFlags(argv);
   const providerName = String(parsed.flags.provider ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
-  const provider = createProvider(providerName, providerOptions(parsed));
+  let provider;
+  let providerError = null;
+  try {
+    provider = createProvider(providerName, providerOptions(parsed));
+  } catch (error) {
+    providerError = error;
+    provider = {
+      model: '(not configured)',
+      async complete() { throw providerError; }
+    };
+  }
   // Full-screen input and permission prompts cannot own stdin simultaneously.
   // Without --yes, TUI is intentionally read-only.
   const authorize = createAuthorizer({
@@ -309,12 +331,13 @@ async function tuiCommand({ repo, runtime, workspace, argv }) {
     repo, runtime, workspace, provider, providerName, parsed, authorize,
     onEvent: (event) => tui?.event(event)
   });
-  tui = new ModelWeaveTui({
+  tui = new LumenCortexTui({
     agent: resources.agent,
     sessions: new AgentSessionStore(repo.dir),
     providerLabel: `${providerName}/${provider.model}`,
     parallelRunner: resources.parallelRunner
   });
+  if (providerError) tui.events.push(`provider not configured: ${providerError.message}`);
   try {
     await tui.run({
       agentOptions: agentRunOptions(parsed, providerName, authorize),
@@ -328,13 +351,13 @@ async function tuiCommand({ repo, runtime, workspace, argv }) {
 async function parallelCommand({ repo, runtime, workspace, argv }) {
   const parsed = parseFlags(argv);
   const file = parsed.positionals[0];
-  if (!file) fail('Usage: modelweave parallel <tasks.json> [--concurrency 4] [--provider P]');
+  if (!file) fail('Usage: lcx parallel <tasks.json> [--concurrency 4] [--provider P]');
   const tasks = JSON.parse(fs.readFileSync(path.resolve(file), 'utf8'));
   if (!Array.isArray(tasks)) fail('parallel tasks file must contain a JSON array');
 
   const mutating = tasks.some((task) =>
     Array.isArray(task?.toolAllowlist) &&
-    task.toolAllowlist.some((name) => ['write_file', 'replace_in_file', 'shell', 'modelweave_ingest'].includes(name))
+    task.toolAllowlist.some((name) => ['write_file', 'replace_in_file', 'shell', 'lumencortex_ingest'].includes(name))
   );
   const concurrency = Number(parsed.flags.concurrency ?? 4);
   if (mutating && concurrency > 1 && !parsed.flags['unsafe-write-parallel']) {
@@ -371,7 +394,7 @@ async function lspCommand({ workspace, argv }) {
     else if (action === 'symbols') console.log(JSON.stringify(await lsp.symbols(parsed.positionals[0]), null, 2));
     else if (['definition', 'references', 'hover'].includes(action)) {
       const [file, line, character] = parsed.positionals;
-      if (!file || !line || !character) fail(`Usage: modelweave lsp ${action} <file> <line> <character>`);
+      if (!file || !line || !character) fail(`Usage: lcx lsp ${action} <file> <line> <character>`);
       const result = action === 'definition'
         ? await lsp.definition(file, Number(line), Number(character))
         : action === 'references'
@@ -379,7 +402,7 @@ async function lspCommand({ workspace, argv }) {
           : await lsp.hover(file, Number(line), Number(character));
       console.log(JSON.stringify(result, null, 2));
     } else if (action === 'diagnostics') console.log(JSON.stringify(await lsp.diagnostics(parsed.positionals[0]), null, 2));
-    else fail('Usage: modelweave lsp <status|symbols|definition|references|hover|diagnostics> ...');
+    else fail('Usage: lcx lsp <status|symbols|definition|references|hover|diagnostics> ...');
   } finally {
     await lsp.close();
   }
@@ -393,13 +416,13 @@ async function mcpCommand({ workspace, argv }) {
     if (action === 'status') console.log(JSON.stringify(manager.configuredServers(), null, 2));
     else if (action === 'tools') {
       const server = parsed.positionals[0];
-      if (!server) fail('Usage: modelweave mcp tools <server>');
+      if (!server) fail('Usage: lcx mcp tools <server>');
       console.log(JSON.stringify(await manager.listTools(server), null, 2));
     } else if (action === 'call') {
       const [server, tool, rawArgs = '{}'] = parsed.positionals;
-      if (!server || !tool) fail('Usage: modelweave mcp call <server> <tool> [json-args]');
+      if (!server || !tool) fail('Usage: lcx mcp call <server> <tool> [json-args]');
       console.log(JSON.stringify(await manager.callTool(server, tool, JSON.parse(rawArgs)), null, 2));
-    } else fail('Usage: modelweave mcp <status|tools|call> ...');
+    } else fail('Usage: lcx mcp <status|tools|call> ...');
   } finally {
     await manager.close();
   }
@@ -532,14 +555,14 @@ async function nodeCommand(repo, argv) {
   if (action === 'add') {
     const parsed = parseFlags(argv);
     const [kind, title, ...bodyParts] = parsed.positionals;
-    if (!kind || !title) fail('Usage: modelweave node add <kind> <title> [body]');
+    if (!kind || !title) fail('Usage: lcx node add <kind> <title> [body]');
     const node = graph.addNode({ kind, title, body: bodyParts.join(' '), grade: parsed.flags.grade, trustZone: parsed.flags.trust, tags: parsed.flags.tags ? String(parsed.flags.tags).split(',') : undefined, source: parsed.flags.source ? { uri: String(parsed.flags.source) } : undefined, evidenceIds: parsed.flags.evidence ? String(parsed.flags.evidence).split(',') : undefined });
     repo.writeGraph(graph.snapshot());
     console.log(node.id);
   } else if (action === 'update') {
     const parsed = parseFlags(argv);
     const id = parsed.positionals.shift();
-    if (!id) fail('Usage: modelweave node update <id>');
+    if (!id) fail('Usage: lcx node update <id>');
     const node = graph.updateNode(id, {
       ...(parsed.flags.title ? { title: String(parsed.flags.title) } : {}),
       ...(parsed.flags.body ? { body: String(parsed.flags.body) } : {}),
@@ -549,11 +572,11 @@ async function nodeCommand(repo, argv) {
     repo.writeGraph(graph.snapshot());
     console.log(JSON.stringify(node, null, 2));
   } else if (action === 'rm') {
-    if (!argv[0]) fail('Usage: modelweave node rm <id>');
+    if (!argv[0]) fail('Usage: lcx node rm <id>');
     graph.removeNode(argv[0]);
     repo.writeGraph(graph.snapshot());
     console.log(`Removed ${argv[0]}`);
-  } else fail('Usage: modelweave node <add|update|rm> ...');
+  } else fail('Usage: lcx node <add|update|rm> ...');
 }
 
 async function edgeCommand(repo, argv) {
@@ -561,13 +584,13 @@ async function edgeCommand(repo, argv) {
   const graph = repo.graph();
   if (action === 'add') {
     const [from, type, to, weight] = argv;
-    if (!from || !type || !to) fail('Usage: modelweave edge add <from> <type> <to> [weight]');
+    if (!from || !type || !to) fail('Usage: lcx edge add <from> <type> <to> [weight]');
     const edge = graph.addEdge({ from, type, to, weight: weight === undefined ? 1 : Number(weight) });
     repo.writeGraph(graph.snapshot());
     console.log(edge.id);
   } else if (action === 'graft') {
     const [from, type, to, weight, ...reasonParts] = argv;
-    if (!from || !type || !to) fail('Usage: modelweave edge graft <from> <type> <to> [weight] [reason]');
+    if (!from || !type || !to) fail('Usage: lcx edge graft <from> <type> <to> [weight] [reason]');
     const edge = graph.graftEdge(
       { from, type, to, weight: weight === undefined ? 1 : Number(weight) },
       { reason: reasonParts.join(' ') || 'cli-graft' }
@@ -575,21 +598,21 @@ async function edgeCommand(repo, argv) {
     repo.writeGraph(graph.snapshot());
     console.log(`Grafted ${edge.id}`);
   } else if (action === 'cut') {
-    if (!argv[0]) fail('Usage: modelweave edge cut <id> [reason]');
+    if (!argv[0]) fail('Usage: lcx edge cut <id> [reason]');
     const edge = graph.cutEdge(argv[0], { reason: argv.slice(1).join(' ') || 'cli-attention-cut' });
     repo.writeGraph(graph.snapshot());
     console.log(`Cut ${edge.id}; edge retained but excluded from attention propagation`);
   } else if (action === 'restore') {
-    if (!argv[0]) fail('Usage: modelweave edge restore <id>');
+    if (!argv[0]) fail('Usage: lcx edge restore <id>');
     const edge = graph.restoreEdge(argv[0]);
     repo.writeGraph(graph.snapshot());
     console.log(`Restored ${edge.id}`);
   } else if (action === 'rm') {
-    if (!argv[0]) fail('Usage: modelweave edge rm <id>');
+    if (!argv[0]) fail('Usage: lcx edge rm <id>');
     graph.removeEdge(argv[0]);
     repo.writeGraph(graph.snapshot());
     console.log(`Removed ${argv[0]}`);
-  } else fail('Usage: modelweave edge <add|graft|cut|restore|rm> ...');
+  } else fail('Usage: lcx edge <add|graft|cut|restore|rm> ...');
 }
 
 function printLight(name, result) {
@@ -615,9 +638,9 @@ function parseFlags(argv) {
 function findWorkspace(start) {
   let current = path.resolve(start);
   while (true) {
-    if (fs.existsSync(path.join(current, '.modelweave'))) return current;
+    if (fs.existsSync(path.join(current, '.lumencortex')) || fs.existsSync(path.join(current, '.modelweave'))) return current;
     const parent = path.dirname(current);
-    if (parent === current) throw new Error('No .modelweave repository found. Run `modelweave init`.');
+    if (parent === current) throw new Error('No .lcx repository found. Run `lcx init`.');
     current = parent;
   }
 }
@@ -630,7 +653,7 @@ function compact(value) {
 function fail(message) { throw new Error(message); }
 
 function help() {
-  console.log(`ModelWeave — cognitive graph + autonomous coding harness
+  console.log(`LumenCortex — cognitive graph + autonomous coding harness
 
 Agent commands:
   agent <goal> [--provider P] [--model M] [--yes] [--session ID]

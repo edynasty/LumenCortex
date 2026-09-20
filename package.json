@@ -1,10 +1,12 @@
 {
-  "name": "modelweave",
-  "version": "0.4.0",
-  "description": "Versioned cognitive coding-agent runtime with indexed retrieval, LSP, MCP, subagents, parallel sessions and TUI.",
+  "name": "lumencortex",
+  "version": "0.5.0",
+  "description": "Persistent cognitive coding-agent runtime with Attention Light, indexed retrieval, LSP, MCP, subagents, parallel sessions and TUI.",
   "type": "module",
   "bin": {
-    "modelweave": "./src/cli.js"
+    "lcx": "./bin/lcx.js",
+    "lumencortex": "./bin/lumencortex.js",
+    "modelweave": "./bin/modelweave.js"
   },
   "exports": {
     ".": "./src/index.js"
@@ -33,7 +35,10 @@
     "tui",
     "subagent",
     "bm25",
-    "code-search"
+    "code-search",
+    "lumencortex",
+    "cognitive-runtime",
+    "attention-light"
   ],
   "license": "MIT"
 }

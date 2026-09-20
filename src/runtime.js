@@ -7,7 +7,7 @@ import { auditEvidence, validateBeliefEvidence } from './verification.js';
 import { id, nowIso } from './util.js';
 import { PersistentSearchIndex } from './search-index.js';
 
-export class ModelWeaveRuntime {
+export class LumenCortexRuntime {
   constructor(repository) {
     this.repository = repository;
     this.searchIndex = new PersistentSearchIndex(repository.dir);
@@ -191,3 +191,5 @@ export function enforceSemanticRules(graphState) {
   }
   return true;
 }
+
+export { LumenCortexRuntime as ModelWeaveRuntime };

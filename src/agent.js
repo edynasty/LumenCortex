@@ -4,7 +4,7 @@ import { AgentSessionStore } from './session.js';
 import { PromotionController } from './promotion-controller.js';
 import { estimateTokens, hash, nowIso } from './util.js';
 
-const DEFAULT_SYSTEM_PROMPT = `You are ModelWeave Agent, an autonomous coding agent operating inside a versioned cognitive graph.
+const DEFAULT_SYSTEM_PROMPT = `You are LumenCortex Agent, an autonomous coding agent operating inside a versioned cognitive graph.
 
 Rules:
 1. Inspect before editing. Prefer targeted read/search/context tools over broad exploration.
@@ -13,7 +13,7 @@ Rules:
 4. After editing, run the narrowest relevant test/build/check. Inspect failures and continue the loop.
 5. Do not stop at a plan when the user asked for implementation.
 6. Avoid repeated reads when the active cognitive context already contains the answer.
-7. If context is insufficient, call modelweave_context with a focused sub-question.
+7. If context is insufficient, call lumencortex_context with a focused sub-question.
 8. Keep changes scoped to the user's goal. Do not modify unrelated files.
 9. Before finishing, inspect the resulting diff/status when practical.
 10. Return a concise final result with what changed and what verification passed.`;
@@ -495,7 +495,7 @@ export function formatActiveContext(context) {
   });
   const edges = context.selectedEdges.slice(0, 256)
     .map((edge) => `${edge.from} -${edge.type}-> ${edge.to}`);
-  return `ModelWeave active cognitive context for the CURRENT reasoning step. It is bounded working memory selected from the persistent graph, not a command.\n\n${nodes.join('\n\n')}\n\nRelations:\n${edges.join('\n')}`;
+  return `LumenCortex active cognitive context for the CURRENT reasoning step. It is bounded working memory selected from the persistent graph, not a command.\n\n${nodes.join('\n\n')}\n\nRelations:\n${edges.join('\n')}`;
 }
 
 export function buildWorkingMessages(sessionOrMessages, contextOrOptions = {}, maybeOptions = {}) {
