@@ -319,3 +319,59 @@ test('agent recovers once from an empty assistant turn', async () => {
   assert.equal(result.usage.totalTokens, 7);
   assert.equal(result.session.steps[0].finishReason, 'recovered-stop');
 });
+
+
+test('agent can bound model tool-call fanout to one call per reasoning step', async () => {
+  const { root, repository, runtime } = fixture();
+  const executed = [];
+  const events = [];
+  let request = 0;
+  const provider = {
+    model: 'mock-fanout',
+    complete: async () => {
+      request += 1;
+      if (request === 1) {
+        return {
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              { id: 'f1', type: 'function', function: { name: 'echo', arguments: '{"text":"one"}' } },
+              { id: 'f2', type: 'function', function: { name: 'echo', arguments: '{"text":"two"}' } },
+              { id: 'f3', type: 'function', function: { name: 'echo', arguments: '{"text":"three"}' } }
+            ]
+          },
+          finishReason: 'tool_calls'
+        };
+      }
+      return { message: { role: 'assistant', content: 'done' }, finishReason: 'stop' };
+    }
+  };
+  const tools = new ToolRegistry().register({
+    name: 'echo',
+    permission: 'read',
+    parameters: { type: 'object', properties: { text: { type: 'string' } } },
+    execute: ({ text }) => { executed.push(text); return text; }
+  });
+  const agent = new AgentLoop({
+    provider,
+    repository,
+    runtime,
+    workspace: root,
+    tools,
+    onEvent: event => events.push(event)
+  });
+  const result = await agent.run('fanout task', {
+    maxToolCallsPerStep: 1,
+    autoIngest: false,
+    autoPromote: false,
+    recordTask: false
+  });
+  assert.deepEqual(executed, ['one']);
+  assert.equal(result.session.messages.find(m => m.role === 'assistant' && m.tool_calls)?.tool_calls.length, 1);
+  const deferred = events.find(event => event.type === 'tools.deferred');
+  assert.deepEqual(
+    { requested: deferred.requested, executing: deferred.executing, deferred: deferred.deferred },
+    { requested: 3, executing: 1, deferred: 2 }
+  );
+});
