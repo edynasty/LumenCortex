@@ -20,5 +20,5 @@ test('TUI frame renders provider, sessions, events and answer in bounded termina
   assert.match(frame,/> session_b/);
   assert.match(frame,/tool → code_search/);
   assert.match(frame,/all tests passed/);
-  assert.match(frame,/:parallel/);
+  assert.match(frame,/Ctrl\+C cancel/);
 });
