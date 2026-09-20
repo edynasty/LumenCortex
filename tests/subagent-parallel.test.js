@@ -14,10 +14,16 @@ test('subagents run as distinct durable sessions and parallel runner aggregates 
   const repo=new CognitiveRepository(root);
   repo.init();
   const runtime=new ModelWeaveRuntime(repo);
+  let active=0;
+  let maxActive=0;
   const provider={
     model:'mock-subagent',
     async complete({messages}){
+      active+=1;
+      maxActive=Math.max(maxActive,active);
+      await new Promise(resolve=>setTimeout(resolve,40));
       const user=[...messages].reverse().find(m=>m.role==='user');
+      active-=1;
       return {message:{role:'assistant',content:'finding:'+user.content},finishReason:'stop',usage:{total_tokens:3}};
     }
   };
@@ -33,6 +39,7 @@ test('subagents run as distinct durable sessions and parallel runner aggregates 
   assert.equal(result.length,3);
   assert.ok(result.every(x=>x.ok));
   assert.equal(new Set(result.map(x=>x.sessionId)).size,3);
+  assert.ok(maxActive>=2, `expected real overlap, maxActive=${maxActive}`);
   assert.match(result[0].final,/inspect auth/);
   assert.equal(repo.graph().findNodes(n=>n.kind==='task'&&n.tags?.includes('agent-session')).length,0);
 });
