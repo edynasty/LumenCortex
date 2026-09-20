@@ -292,6 +292,8 @@ All providers use the same tool-calling Agent Loop.
 | Commit / Branch / Merge / Conflict / Revert | Implemented |
 | Blame / Cherry-pick / Rebase | Implemented |
 | Agent Loop / CLI / tools / resume | Implemented |
+| Validated multi-file patch batches | Implemented (`apply_patch`; pre-validates exact update/create/delete batches) |
+| Agent / shell cancellation | Implemented (AbortSignal propagation, resumable interrupted Session, process-tree termination) |
 | Per-run Tool Working Set / schema allowlist | Implemented |
 | Per-step tool-call fanout bound | Implemented |
 | Provider retry / timeout / empty-turn recovery | Implemented |
@@ -318,7 +320,7 @@ All providers use the same tool-calling Agent Loop.
 | MCP client/tools | Implemented (2026 modern + legacy; stdio + HTTP) |
 | Focused Subagents | Implemented |
 | Multi-session parallel runner | Implemented (safe read parallel; write parallel explicit opt-in) |
-| TUI | Implemented |
+| TUI | Implemented (direct launch, Session switching, live events, Ctrl+C active-run cancellation) |
 | Skills / vision / browser | Planned |
 | Attention propagation | Implemented |
 | Ephemeral attention cut under token budget | Implemented |
