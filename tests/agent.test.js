@@ -178,3 +178,63 @@ test('agent persists an interrupted session after non-retryable provider failure
   assert.equal(saved.error.status, 400);
   assert.equal(saved.error.step, 1);
 });
+
+
+test('resumed session preserves global step numbering, context history and cumulative usage', async () => {
+  const { root, repository, runtime } = fixture();
+  const tools = new ToolRegistry().register({
+    name: 'echo',
+    permission: 'read',
+    execute: () => 'checkpoint'
+  });
+
+  const firstProvider = {
+    model: 'mock-first',
+    complete: async () => ({
+      message: {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: 'first-call', type: 'function', function: { name: 'echo', arguments: '{}' } }]
+      },
+      finishReason: 'tool_calls',
+      usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 }
+    })
+  };
+  const firstAgent = new AgentLoop({ provider: firstProvider, repository, runtime, workspace: root, tools });
+
+  let sessionId;
+  try {
+    await firstAgent.run('long task', {
+      maxSteps: 1,
+      autoIngest: false,
+      autoPromote: false,
+      recordTask: false
+    });
+  } catch (error) {
+    sessionId = error.sessionId;
+  }
+  assert.ok(sessionId);
+
+  const secondProvider = {
+    model: 'mock-second',
+    complete: async () => ({
+      message: { role: 'assistant', content: 'continued-done' },
+      finishReason: 'stop',
+      usage: { prompt_tokens: 20, completion_tokens: 3, total_tokens: 23 }
+    })
+  };
+  const secondAgent = new AgentLoop({ provider: secondProvider, repository, runtime, workspace: root, tools });
+  const result = await secondAgent.run('continue', {
+    sessionId,
+    maxSteps: 1,
+    autoIngest: false,
+    autoPromote: false,
+    recordTask: false
+  });
+
+  assert.equal(result.final, 'continued-done');
+  assert.deepEqual(result.session.steps.map((step) => step.step), [1, 2]);
+  assert.deepEqual(result.session.metadata.contextHistory.map((item) => item.step), [1, 2]);
+  assert.equal(result.usage.requests, 2);
+  assert.equal(result.usage.totalTokens, 35);
+});
