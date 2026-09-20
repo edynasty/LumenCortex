@@ -1,10 +1,10 @@
 # LumenCortex
 
-**LumenCortex** is a persistent cognitive coding-agent runtime.
+**LumenCortex** is a standalone persistent cognitive coding agent with a full-screen TUI and CLI.
 
 > Graph is Memory. Light is Attention. Agent is Execution.
 
-The short CLI is `lcx`. Running either `lumencortex` or `lcx` with no arguments opens the full-screen TUI.
+The primary interface is the full-screen TUI. Run `lumencortex` or the short command `lcx` with no arguments to open it directly.
 
 ## v0.5 LumenCortex runtime
 
@@ -24,7 +24,6 @@ The short CLI is `lcx`. Running either `lumencortex` or `lcx` with no arguments 
 - persistent BM25 + symbol search index for large repositories
 - indexed candidate generation before Attention Light (avoids full-graph seed scans)
 - source-change invalidation of dependent beliefs
-- OpenCode integration
 
 ### Standalone agent
 
@@ -206,15 +205,6 @@ or:
 LUMENCORTEX_PROVIDER=groq GROQ_API_KEY=... npm run smoke:free
 ```
 
-## OpenCode mode
-
-LumenCortex can still be used only as the cognitive layer under OpenCode:
-
-```bash
-lcx install-opencode .
-```
-
-This installs `lumencortex_context`, `lumencortex_ingest` and `lumencortex_state` tools.
 
 ## Core cognitive commands
 
@@ -254,7 +244,6 @@ The core has zero runtime npm dependencies and requires Node.js 20+.
 
 - `docs/architecture.md`
 - `docs/data-model.md`
-- `docs/opencode.md`
 - `docs/agent-runtime.md`
 
 ## Implementation honesty

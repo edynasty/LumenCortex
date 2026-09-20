@@ -2,7 +2,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
-import { fileURLToPath } from 'node:url';
 import { CognitiveRepository } from './repository.js';
 import { LumenCortexRuntime } from './runtime.js';
 import { graphSummary } from './graph.js';
@@ -34,19 +33,6 @@ try {
     const commit = repo.init();
     console.log(`Initialized LumenCortex in ${repo.dir}`);
     console.log(`Genesis ${commit.id}`);
-    process.exit(0);
-  }
-
-  if (command === 'install-opencode') {
-    const target = path.resolve(args[0] ?? process.cwd());
-    const sourceDir = fileURLToPath(new URL('../integrations/opencode/', import.meta.url));
-    const toolsDir = path.join(target, '.opencode', 'tools');
-    fs.mkdirSync(toolsDir, { recursive: true });
-    for (const file of fs.readdirSync(sourceDir)) {
-      if (!file.endsWith('.ts')) continue;
-      fs.copyFileSync(path.join(sourceDir, file), path.join(toolsDir, file));
-      console.log(`Installed ${path.join('.opencode', 'tools', file)}`);
-    }
     process.exit(0);
   }
 
@@ -673,7 +659,6 @@ Code intelligence:
 
 Cognitive graph:
   init [dir]
-  install-opencode [dir]
   status
   commit <message>
   log [limit]
