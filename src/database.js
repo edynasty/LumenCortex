@@ -482,12 +482,17 @@ export class LumenCortexDatabase {
         usage_json = excluded.usage_json,
         error_json = excluded.error_json
     `);
-    const insertMessage = this.db.prepare(
-      'INSERT INTO session_messages(session_id, seq, role, json) VALUES(?, ?, ?, ?)'
-    );
-    const insertStep = this.db.prepare(
-      'INSERT INTO agent_steps(session_id, step, json) VALUES(?, ?, ?)'
-    );
+    const upsertMessage = this.db.prepare(`
+      INSERT INTO session_messages(session_id, seq, role, json) VALUES(?, ?, ?, ?)
+      ON CONFLICT(session_id, seq) DO UPDATE SET
+        role = excluded.role,
+        json = excluded.json
+    `);
+    const upsertStep = this.db.prepare(`
+      INSERT INTO agent_steps(session_id, step, json) VALUES(?, ?, ?)
+      ON CONFLICT(session_id, step) DO UPDATE SET
+        json = excluded.json
+    `);
 
     this.transaction(() => {
       upsert.run(
@@ -503,14 +508,21 @@ export class LumenCortexDatabase {
         session.usage ? JSON.stringify(session.usage) : null,
         session.error ? JSON.stringify(session.error) : null
       );
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(session.id);
-      this.db.prepare('DELETE FROM agent_steps WHERE session_id = ?').run(session.id);
-      (session.messages ?? []).forEach((message, index) => {
-        insertMessage.run(session.id, index, message.role ?? '', JSON.stringify(message));
+
+      const messages = session.messages ?? [];
+      messages.forEach((message, index) => {
+        upsertMessage.run(session.id, index, message.role ?? '', JSON.stringify(message));
       });
-      for (const step of session.steps ?? []) {
-        insertStep.run(session.id, Number(step.step), JSON.stringify(step));
+      this.db.prepare('DELETE FROM session_messages WHERE session_id = ? AND seq >= ?')
+        .run(session.id, messages.length);
+
+      const steps = session.steps ?? [];
+      for (const step of steps) {
+        upsertStep.run(session.id, Number(step.step), JSON.stringify(step));
       }
+      const maxStep = steps.length ? Math.max(...steps.map((step) => Number(step.step))) : 0;
+      this.db.prepare('DELETE FROM agent_steps WHERE session_id = ? AND step > ?')
+        .run(session.id, maxStep);
     });
   }
 
