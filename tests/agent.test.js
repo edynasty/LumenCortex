@@ -490,3 +490,68 @@ test('agent refuses a hallucinated tool outside the current working set', async 
   const toolMessage = result.session.messages.find(message => message.role === 'tool');
   assert.match(toolMessage.content, /not available in the current tool working set/);
 });
+
+
+test('agent forwards live tool output as tool.output events', async () => {
+  const { root, repository, runtime } = fixture();
+  const events = [];
+  let turn = 0;
+  const provider = {
+    model: 'mock-stream',
+    complete: async () => {
+      turn += 1;
+      if (turn === 1) {
+        return {
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'stream-call',
+              type: 'function',
+              function: { name: 'streamer', arguments: '{}' }
+            }]
+          },
+          finishReason: 'tool_calls'
+        };
+      }
+      return {
+        message: { role: 'assistant', content: 'stream done' },
+        finishReason: 'stop'
+      };
+    }
+  };
+  const tools = new ToolRegistry().register({
+    name: 'streamer',
+    permission: 'read',
+    async execute(_args, context) {
+      context.onOutput?.({ stream: 'stdout', chunk: 'first line\n' });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      context.onOutput?.({ stream: 'stderr', chunk: 'warning line\n' });
+      return 'ok';
+    }
+  });
+  const agent = new AgentLoop({
+    provider,
+    repository,
+    runtime,
+    workspace: root,
+    tools,
+    onEvent: (event) => events.push(event)
+  });
+
+  const result = await agent.run('stream tool output', {
+    autoIngest: false,
+    autoPromote: false,
+    recordTask: false
+  });
+
+  assert.equal(result.final, 'stream done');
+  const outputEvents = events.filter((event) => event.type === 'tool.output');
+  assert.deepEqual(
+    outputEvents.map((event) => [event.name, event.stream, event.chunk.trim()]),
+    [
+      ['streamer', 'stdout', 'first line'],
+      ['streamer', 'stderr', 'warning line']
+    ]
+  );
+});
