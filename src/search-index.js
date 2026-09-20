@@ -84,15 +84,40 @@ export class PersistentSearchIndex {
     const limit = Math.max(1, Number(options.limit ?? 50));
     const k1 = Number(options.k1 ?? 1.35);
     const b = Number(options.b ?? 0.72);
+    const maxPostingRatio = Math.max(0.001, Math.min(1, Number(options.maxPostingRatio ?? 0.08)));
     const terms = [...new Set(indexTerms(query))];
     const scores = new Map();
     const reasons = new Map();
     const N = this.state.documentCount || 1;
     const avgdl = this.state.averageLength || 1;
 
-    for (const term of terms) {
-      const list = this.state.postings[term] ?? [];
-      if (!list.length) continue;
+    let symbolHitCount = 0;
+    for (const raw of identifierTerms(query)) {
+      const exact = this.state.symbols[raw] ?? [];
+      for (const id of exact) {
+        scores.set(id, (scores.get(id) ?? 0) + 8);
+        addReason(reasons, id, `symbol:${raw}`);
+        symbolHitCount += 1;
+      }
+      const lower = raw.toLowerCase();
+      if (lower !== raw) {
+        for (const id of this.state.symbols[lower] ?? []) {
+          scores.set(id, (scores.get(id) ?? 0) + 5);
+          addReason(reasons, id, `symbol-ci:${raw}`);
+          symbolHitCount += 1;
+        }
+      }
+    }
+
+    const postingTerms = terms
+      .map((term) => ({ term, list: this.state.postings[term] ?? [] }))
+      .filter((entry) => entry.list.length);
+    const selective = postingTerms.filter((entry) => entry.list.length / N <= maxPostingRatio);
+    const plannedTerms = selective.length || symbolHitCount
+      ? selective
+      : postingTerms;
+
+    for (const { term, list } of plannedTerms) {
       const df = list.length;
       const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
       for (const [id, tf] of list) {
@@ -100,21 +125,6 @@ export class PersistentSearchIndex {
         const score = idf * ((tf * (k1 + 1)) / (tf + k1 * (1 - b + b * dl / avgdl)));
         scores.set(id, (scores.get(id) ?? 0) + score);
         addReason(reasons, id, `bm25:${term}`);
-      }
-    }
-
-    for (const raw of identifierTerms(query)) {
-      const exact = this.state.symbols[raw] ?? [];
-      for (const id of exact) {
-        scores.set(id, (scores.get(id) ?? 0) + 8);
-        addReason(reasons, id, `symbol:${raw}`);
-      }
-      const lower = raw.toLowerCase();
-      if (lower !== raw) {
-        for (const id of this.state.symbols[lower] ?? []) {
-          scores.set(id, (scores.get(id) ?? 0) + 5);
-          addReason(reasons, id, `symbol-ci:${raw}`);
-        }
       }
     }
 
