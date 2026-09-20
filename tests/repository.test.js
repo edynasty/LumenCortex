@@ -101,3 +101,22 @@ test('cognitive cherry-pick grafts a compatible cognition diff', () => {
   assert.ok(repo.graph().getNode('finding1'));
   assert.equal(picked.commit.metadata.cherryPick, findingCommit.id);
 });
+
+
+test('legacy .modelweave state is migrated to .lumencortex without losing cognitive history', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'lumencortex-migrate-'));
+  const original=new CognitiveRepository(root);
+  original.init();
+  let graph=original.graph();
+  graph.addNode({ id:'legacy-node', kind:'belief', title:'Legacy cognition', body:'must survive rename' });
+  original.writeGraph(graph.snapshot());
+  const commit=original.commit('legacy cognition');
+
+  fs.renameSync(path.join(root,'.lumencortex'),path.join(root,'.modelweave'));
+  const migrated=new CognitiveRepository(root);
+
+  assert.equal(migrated.dir,path.join(root,'.lumencortex'));
+  assert.equal(fs.existsSync(path.join(root,'.modelweave')),false);
+  assert.equal(migrated.graph().getNode('legacy-node').body,'must survive rename');
+  assert.equal(migrated.headCommitId(),commit.id);
+});

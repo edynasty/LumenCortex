@@ -48,3 +48,19 @@ test('tool registry can expose a bounded schema working set', () => {
   );
   assert.throws(() => registry.schemas(['missing']), /Unknown tool/);
 });
+
+
+test('LumenCortex tools advertise new names while legacy ModelWeave aliases stay executable but hidden', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'lumencortex-tools-'));
+  const repo=new CognitiveRepository(root);
+  repo.init();
+  const runtime=new ModelWeaveRuntime(repo);
+  const registry=createCodingTools({workspace:root,repository:repo,runtime});
+  const names=registry.schemas().map(schema=>schema.function.name);
+  assert.ok(names.includes('lumencortex_context'));
+  assert.ok(names.includes('lumencortex_ingest'));
+  assert.equal(names.includes('modelweave_context'),false);
+  assert.equal(names.includes('modelweave_ingest'),false);
+  assert.equal(registry.get('modelweave_context').hidden,true);
+  assert.equal(registry.get('modelweave_ingest').hidden,true);
+});

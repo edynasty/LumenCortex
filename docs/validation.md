@@ -62,7 +62,7 @@ Environment:
 Observed with the earlier 1.7B ExpertTools model:
 
 - endpoint health succeeded,
-- ModelWeave provider compatibility succeeded,
+- LumenCortex provider compatibility succeeded,
 - real `tool_calls` were received,
 - `read_file` executed successfully,
 - by step 3 the model received the correct hidden file content,

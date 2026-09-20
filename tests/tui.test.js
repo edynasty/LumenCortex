@@ -15,7 +15,7 @@ test('TUI frame renders provider, sessions, events and answer in bounded termina
     busy:true,
     width:90
   });
-  assert.match(frame,/ModelWeave TUI/);
+  assert.match(frame,/LumenCortex TUI/);
   assert.match(frame,/\[RUNNING\]/);
   assert.match(frame,/> session_b/);
   assert.match(frame,/tool → code_search/);

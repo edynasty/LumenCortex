@@ -1,6 +1,6 @@
 # Agent runtime — v0.4
 
-ModelWeave v0.4 is both a cognitive runtime and a standalone coding-agent harness.
+LumenCortex v0.4 is both a cognitive runtime and a standalone coding-agent harness.
 
 ## Runtime loop
 
@@ -34,8 +34,8 @@ Core workspace tools:
 - `write_file`
 - `replace_in_file`
 - `shell`
-- `modelweave_context`
-- `modelweave_ingest`
+- `lumencortex_context`
+- `lumencortex_ingest`
 
 LSP tools when a language server is configured:
 
@@ -60,12 +60,12 @@ All tools participate in the same permission gate. File tools are workspace-scop
 
 ## Large-repository retrieval
 
-`modelweave ingest` builds repository evidence and refreshes the persistent search index.
+`lcx ingest` builds repository evidence and refreshes the persistent search index.
 
 ```bash
-modelweave ingest .
-modelweave index stats
-modelweave search "reserveInventory"
+lcx ingest .
+lcx index stats
+lcx search "reserveInventory"
 ```
 
 The retrieval path is:
@@ -82,7 +82,7 @@ query
 
 High-document-frequency postings are pruned when more selective symbol/lexical terms are available, avoiding a hidden O(N) query path.
 
-Index freshness uses a small `.modelweave/graph.revision` counter. Graph writes update the revision in O(1); queries rebuild only when the persisted index revision is stale.
+Index freshness uses a small `.lumencortex/graph.revision` counter. Graph writes update the revision in O(1); queries rebuild only when the persisted index revision is stale.
 
 Current synthetic CI benchmark:
 
@@ -112,7 +112,7 @@ Default command mapping:
 Override or add servers in:
 
 ```text
-.modelweave/lsp.json
+.lumencortex/lsp.json
 ```
 
 Example:
@@ -132,11 +132,11 @@ Example:
 CLI examples:
 
 ```bash
-modelweave lsp status
-modelweave lsp symbols src/main/java/demo/OrderService.java
-modelweave lsp definition src/main/java/demo/OrderService.java 42 18
-modelweave lsp references src/main/java/demo/OrderService.java 42 18
-modelweave lsp diagnostics src/main/java/demo/OrderService.java
+lcx lsp status
+lcx lsp symbols src/main/java/demo/OrderService.java
+lcx lsp definition src/main/java/demo/OrderService.java 42 18
+lcx lsp references src/main/java/demo/OrderService.java 42 18
+lcx lsp diagnostics src/main/java/demo/OrderService.java
 ```
 
 The same capabilities are exposed to the Agent Loop as tools.
@@ -146,7 +146,7 @@ The same capabilities are exposed to the Agent Loop as tools.
 Configure MCP servers in:
 
 ```text
-.modelweave/mcp.json
+.lumencortex/mcp.json
 ```
 
 Example stdio server:
@@ -179,12 +179,12 @@ Example HTTP server:
 }
 ```
 
-ModelWeave supports modern stateless MCP discovery and legacy initialize fallback, plus both HTTP and stdio transports.
+LumenCortex supports modern stateless MCP discovery and legacy initialize fallback, plus both HTTP and stdio transports.
 
 ```bash
-modelweave mcp status
-modelweave mcp tools dbx
-modelweave mcp call dbx query '{"sql":"select 1"}'
+lcx mcp status
+lcx mcp tools dbx
+lcx mcp call dbx query '{"sql":"select 1"}'
 ```
 
 MCP tools are also dynamically added to normal agent runs unless `--no-mcp` is supplied.
@@ -230,7 +230,7 @@ A task file:
 Run:
 
 ```bash
-modelweave parallel tasks.json --concurrency 3
+lcx parallel tasks.json --concurrency 3
 ```
 
 Each task receives a distinct durable Session ID. CI verifies that executions actually overlap rather than being serialized.
@@ -242,7 +242,7 @@ Parallel mutation is intentionally guarded. Multiple write-capable tasks require
 Launch:
 
 ```bash
-modelweave tui --provider deepseek --yes
+lcx tui --provider deepseek --yes
 ```
 
 The full-screen terminal view exposes:
@@ -274,7 +274,7 @@ Without `--yes`, TUI intentionally remains read-only because a full-screen readl
 Sessions are stored under:
 
 ```text
-.modelweave/sessions/<session-id>.json
+.lumencortex/sessions/<session-id>.json
 ```
 
 A session persists:
@@ -290,8 +290,8 @@ A session persists:
 Resume:
 
 ```bash
-modelweave sessions
-modelweave agent "continue the task" --session session_xxx --yes
+lcx sessions
+lcx agent "continue the task" --session session_xxx --yes
 ```
 
 Global step numbers, context history and usage remain continuous across resume.
@@ -304,7 +304,7 @@ OpenRouter, Groq, DeepSeek official and arbitrary OpenAI-compatible APIs use the
 
 ```bash
 export DEEPSEEK_API_KEY=...
-modelweave agent "run tests, fix failures and verify" \
+lcx agent "run tests, fix failures and verify" \
   --provider deepseek \
   --model deepseek-flash \
   --yes
@@ -313,17 +313,17 @@ modelweave agent "run tests, fix failures and verify" \
 ### Generic / local
 
 ```bash
-export MODELWEAVE_BASE_URL=http://127.0.0.1:8000/v1
-export MODELWEAVE_MODEL=Qwen/Qwen2.5-32B-Instruct-AWQ
-export MODELWEAVE_API_KEY=dummy
+export LUMENCORTEX_BASE_URL=http://127.0.0.1:8000/v1
+export LUMENCORTEX_MODEL=Qwen/Qwen2.5-32B-Instruct-AWQ
+export LUMENCORTEX_API_KEY=dummy
 
-modelweave agent "run the smoke tests" --provider generic --yes
+lcx agent "run the smoke tests" --provider generic --yes
 ```
 
 For an unauthenticated local endpoint:
 
 ```bash
-export MODELWEAVE_REQUIRE_API_KEY=false
+export LUMENCORTEX_REQUIRE_API_KEY=false
 ```
 
 ## Validation

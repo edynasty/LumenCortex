@@ -1,28 +1,14 @@
-# ModelWeave
+# LumenCortex
 
-ModelWeave is a **versioned cognitive graph + autonomous coding agent runtime**.
+**LumenCortex** is a persistent cognitive coding-agent runtime.
 
-It replaces the assumption that an ever-growing chat history is the agent's memory. Project cognition is kept in a persistent graph, a bounded **Attention Light** selects the Active Subgraph for the current goal, and an independent **Agent Loop** reasons, calls tools, edits code, verifies results and continues until completion.
+> Graph is Memory. Light is Attention. Agent is Execution.
 
-```text
-Reality -> Evidence -> Belief -> Cognitive Graph
-                                  |
-                             Attention Light
-                                  |
-                            Active Subgraph
-                                  |
-                                  LLM
-                                  |
-                              tool_calls
-                                  |
-                        read / edit / shell / test
-                                  |
-                          refresh evidence graph
-                                  |
-                           next reasoning step
-```
+The short CLI is `lcx`. Running either `lumencortex` or `lcx` with no arguments opens the full-screen TUI.
 
-## v0.4 coding harness
+Existing ModelWeave workspaces are migrated automatically from `.modelweave/` to `.lumencortex/`. The old `modelweave` command remains as a deprecated compatibility alias.
+
+## v0.5 LumenCortex runtime
 
 ### Cognitive runtime
 
@@ -53,7 +39,7 @@ Reality -> Evidence -> Belief -> Cognitive Graph
 - MCP client: 2026 modern + legacy negotiation, stdio + HTTP transports
 - focused Subagent + parallel Subagent tools
 - multi-session parallel runner and full-screen TUI
-- ModelWeave context and ingest tools inside the loop
+- LumenCortex context and ingest tools inside the loop
 - permission gate for read / write / exec
 - automatic graph refresh after workspace mutation
 - persistent resumable full sessions + bounded model Working-Set Pager
@@ -65,15 +51,15 @@ Reality -> Evidence -> Belief -> Cognitive Graph
 ## Install
 
 ```bash
-npm install -g github:edynasty/ModelWeave
+npm install -g github:edynasty/ModelWeave  # current repository URL; rename in GitHub Settings is still pending
 ```
 
 Inside a repository:
 
 ```bash
-modelweave init
-modelweave ingest .
-modelweave commit "baseline"
+lcx init
+lcx ingest .
+lcx commit "baseline"
 ```
 
 ## Free LLM quick start
@@ -82,7 +68,7 @@ modelweave commit "baseline"
 
 ```bash
 export OPENROUTER_API_KEY=sk-or-...
-modelweave agent "inspect this project, find the bug, fix it and run the relevant tests" \
+lcx agent "inspect this project, find the bug, fix it and run the relevant tests" \
   --provider openrouter \
   --model openrouter/free \
   --yes
@@ -92,7 +78,7 @@ modelweave agent "inspect this project, find the bug, fix it and run the relevan
 
 ```bash
 export GROQ_API_KEY=gsk_...
-modelweave agent "inspect this project, find the bug, fix it and run the relevant tests" \
+lcx agent "inspect this project, find the bug, fix it and run the relevant tests" \
   --provider groq \
   --model openai/gpt-oss-120b \
   --yes
@@ -102,7 +88,7 @@ modelweave agent "inspect this project, find the bug, fix it and run the relevan
 
 ```bash
 export DEEPSEEK_API_KEY=...
-modelweave agent "inspect this project, fix the failure and verify it" \
+lcx agent "inspect this project, fix the failure and verify it" \
   --provider deepseek \
   --model deepseek-flash \
   --yes
@@ -112,7 +98,7 @@ modelweave agent "inspect this project, fix the failure and verify it" \
 
 ```bash
 export OPENROUTER_API_KEY=sk-or-...
-modelweave agent "inspect this project, fix the failure and verify it" \
+lcx agent "inspect this project, fix the failure and verify it" \
   --provider openrouter-deepseek-free \
   --model deepseek/deepseek-v4-flash-0731:free \
   --yes
@@ -121,10 +107,10 @@ modelweave agent "inspect this project, fix the failure and verify it" \
 ### Local vLLM / any OpenAI-compatible API
 
 ```bash
-export MODELWEAVE_BASE_URL=http://127.0.0.1:8000/v1
-export MODELWEAVE_MODEL=Qwen/Qwen2.5-32B-Instruct-AWQ
-export MODELWEAVE_API_KEY=dummy
-modelweave agent "run the tests and repair failures" --provider generic --yes
+export LUMENCORTEX_BASE_URL=http://127.0.0.1:8000/v1
+export LUMENCORTEX_MODEL=Qwen/Qwen2.5-32B-Instruct-AWQ
+export LUMENCORTEX_API_KEY=dummy
+lcx agent "run the tests and repair failures" --provider generic --yes
 ```
 
 ## Agent CLI
@@ -132,22 +118,24 @@ modelweave agent "run the tests and repair failures" --provider generic --yes
 One-shot autonomous run:
 
 ```bash
-modelweave agent "add pagination to the user API and test it" --yes
+lcx agent "add pagination to the user API and test it" --yes
 ```
 
 Interactive session:
 
 ```bash
-modelweave chat --provider groq --model openai/gpt-oss-120b --yes
-modelweave tui --provider groq --model openai/gpt-oss-120b --yes
+lumencortex                         # opens TUI directly
+lcx                                 # short form, also opens TUI
+lcx chat --provider groq --model openai/gpt-oss-120b --yes
+lcx tui --provider groq --model openai/gpt-oss-120b --yes
 ```
 
 Large-repository code intelligence:
 
 ```bash
-modelweave index build
-modelweave search "reserveInventory"
-modelweave lsp references src/main/java/.../InventoryService.java 42 18
+lcx index build
+lcx search "reserveInventory"
+lcx lsp references src/main/java/.../InventoryService.java 42 18
 ```
 
 The CI performance gate currently validates a synthetic 100k-node index at ~4.47s build time and 0.039ms query p95 for exact/symbol-heavy queries.
@@ -155,30 +143,30 @@ The CI performance gate currently validates a synthetic 100k-node index at ~4.47
 MCP:
 
 ```bash
-# configure .modelweave/mcp.json
-modelweave mcp status
-modelweave mcp tools my-server
+# configure .lumencortex/mcp.json
+lcx mcp status
+lcx mcp tools my-server
 ```
 
 Parallel sessions:
 
 ```bash
-modelweave parallel tasks.json --concurrency 4
+lcx parallel tasks.json --concurrency 4
 ```
 
 Resume:
 
 ```bash
-modelweave sessions
-modelweave agent "continue and fix the remaining failure" --session session_xxx --yes
+lcx sessions
+lcx agent "continue and fix the remaining failure" --session session_xxx --yes
 ```
 
 Check providers:
 
 ```bash
-modelweave providers
-modelweave doctor --provider openrouter
-modelweave doctor --provider openrouter --live
+lcx providers
+lcx doctor --provider openrouter
+lcx doctor --provider openrouter --live
 ```
 
 Useful controls:
@@ -222,35 +210,35 @@ MODELWEAVE_PROVIDER=groq GROQ_API_KEY=... npm run smoke:free
 
 ## OpenCode mode
 
-ModelWeave can still be used only as the cognitive layer under OpenCode:
+LumenCortex can still be used only as the cognitive layer under OpenCode:
 
 ```bash
-modelweave install-opencode .
+lcx install-opencode .
 ```
 
-This installs `modelweave_context`, `modelweave_ingest` and `modelweave_state` tools.
+This installs `lumencortex_context`, `lumencortex_ingest` and `lumencortex_state` tools.
 
 ## Core cognitive commands
 
 ```text
-modelweave init [dir]
-modelweave ingest [dir]
-modelweave light <goal> [--budget N] [--multi]
-modelweave promote <title> <nodeId> [nodeId...]
-modelweave verify
-modelweave status
-modelweave commit <message>
-modelweave log
-modelweave branch [name]
-modelweave checkout <branch>
-modelweave merge <branch>
-modelweave revert <commit>
-modelweave blame <node-or-edge-id> [limit]
-modelweave cherry-pick <commit>
-modelweave rebase <branch>
-modelweave edge cut <edgeId> [reason]
-modelweave edge restore <edgeId>
-modelweave edge graft <from> <type> <to> [weight] [reason]
+lcx init [dir]
+lcx ingest [dir]
+lcx light <goal> [--budget N] [--multi]
+lcx promote <title> <nodeId> [nodeId...]
+lcx verify
+lcx status
+lcx commit <message>
+lcx log
+lcx branch [name]
+lcx checkout <branch>
+lcx merge <branch>
+lcx revert <commit>
+lcx blame <node-or-edge-id> [limit]
+lcx cherry-pick <commit>
+lcx rebase <branch>
+lcx edge cut <edgeId> [reason]
+lcx edge restore <edgeId>
+lcx edge graft <from> <type> <to> [weight] [reason]
 ```
 
 ## Development
@@ -291,3 +279,13 @@ MIT
 - `--provider deepseek` defaults to `deepseek-flash`, the current official DeepSeek Flash API model.
 - `--provider openrouter-deepseek-free` defaults to `deepseek/deepseek-v4-flash-0731:free`, the zero-token-price OpenRouter V4 Flash 0731 route.
 - The OpenRouter free route still requires an `OPENROUTER_API_KEY` for authentication even though prompt/completion token price is zero.
+
+
+## Rename compatibility
+
+LumenCortex v0.5 keeps compatibility with the former ModelWeave name:
+
+- `modelweave` remains a deprecated CLI alias.
+- `MODELWEAVE_*` generic-provider/LSP environment variables remain accepted as fallbacks.
+- legacy `.modelweave/` repositories migrate automatically to `.lumencortex/` on first open.
+- legacy Agent tool names `modelweave_context` and `modelweave_ingest` remain executable for resumed old sessions but are hidden from new tool schemas.

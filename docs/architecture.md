@@ -1,6 +1,6 @@
-# ModelWeave Architecture — v0.4 coding harness
+# LumenCortex Architecture — v0.4 coding harness
 
-ModelWeave is a versioned cognitive runtime and coding-agent loop.
+LumenCortex is a versioned cognitive runtime and coding-agent loop.
 
 The central invariant is:
 
@@ -224,7 +224,7 @@ Implemented cognition history:
 
 The analogy is intentional:
 
-| Git | ModelWeave |
+| Git | LumenCortex |
 |---|---|
 | repository | Cognitive Graph |
 | commit | cognitive mutation |

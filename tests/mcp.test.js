@@ -26,7 +26,7 @@ test('MCP HTTP client negotiates 2026 modern era and calls tools', async () => {
   assert.equal((await client.listTools())[0].name,'echo');
   const result=await client.callTool('echo',{text:'hello'});
   assert.equal(result.content[0].text,'hello');
-  assert.equal(seen[0].body.params._meta['io.modelcontextprotocol/clientInfo'].name,'ModelWeave');
+  assert.equal(seen[0].body.params._meta['io.modelcontextprotocol/clientInfo'].name,'LumenCortex');
   assert.equal(seen[1].headers['MCP-Protocol-Version'],'2026-07-28');
 });
 

@@ -258,7 +258,7 @@ async function agentCommand({ repo, runtime, workspace, argv }) {
   const parsed = parseFlags(argv);
   const goal = parsed.positionals.join(' ').trim();
   if (!goal && !parsed.flags.session) fail('Usage: lcx agent <goal> [--provider openrouter] [--model MODEL] [--yes]');
-  const providerName = String(parsed.flags.provider ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
+  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
   const provider = createProvider(providerName, providerOptions(parsed));
   const json = Boolean(parsed.flags.json);
   const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'workspace'), json });
@@ -280,7 +280,7 @@ async function agentCommand({ repo, runtime, workspace, argv }) {
 
 async function chatCommand({ repo, runtime, workspace, argv }) {
   const parsed = parseFlags(argv);
-  const providerName = String(parsed.flags.provider ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
+  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
   const provider = createProvider(providerName, providerOptions(parsed));
   const terminal = readline.createInterface({ input: process.stdin, output: process.stdout });
   const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'workspace'), json: false, terminal });
@@ -307,7 +307,7 @@ async function chatCommand({ repo, runtime, workspace, argv }) {
 
 async function tuiCommand({ repo, runtime, workspace, argv }) {
   const parsed = parseFlags(argv);
-  const providerName = String(parsed.flags.provider ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
+  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
   let provider;
   let providerError = null;
   try {
@@ -364,7 +364,7 @@ async function parallelCommand({ repo, runtime, workspace, argv }) {
     fail('Parallel write sessions require --unsafe-write-parallel or concurrency=1');
   }
 
-  const providerName = String(parsed.flags.provider ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
+  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
   const provider = createProvider(providerName, providerOptions(parsed));
   const authorize = createAuthorizer({
     yes: Boolean(parsed.flags.yes),
@@ -498,7 +498,7 @@ function agentRunOptions(parsed, providerName, authorize) {
 
 async function doctorCommand(argv) {
   const parsed = parseFlags(argv);
-  const providerName = String(parsed.flags.provider ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
+  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
   const info = providerInfo().find((item) => item.name === providerName);
   if (!info) fail(`Unknown provider: ${providerName}`);
   console.log(`provider: ${providerName}`);
