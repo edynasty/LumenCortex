@@ -27,7 +27,7 @@ export class AttentionEngine {
 
   illuminate(goal, options = {}) {
     const cfg = mergeConfig(options);
-    const candidates = scoreSeeds(this.graph, goal, cfg);
+    const candidates = scoreSeeds(this.graph, goal, cfg, options.candidateNodeIds);
     const explicitSeeds = (options.seedNodeIds ?? [])
       .map((id) => this.graph.nodes[id])
       .filter(Boolean)
@@ -167,8 +167,11 @@ export class AttentionEngine {
   }
 }
 
-function scoreSeeds(graph, goal, cfg) {
-  return Object.values(graph.nodes ?? {})
+function scoreSeeds(graph, goal, cfg, candidateNodeIds) {
+  const source = candidateNodeIds?.length
+    ? candidateNodeIds.map((id) => graph.nodes?.[id]).filter(Boolean)
+    : Object.values(graph.nodes ?? {});
+  return source
     .filter((node) => node.status !== 'archived' && node.status !== 'invalid')
     .map((node) => {
       const lexical = lexicalScore(goal, nodeText(node));
