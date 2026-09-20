@@ -170,6 +170,10 @@ function formatEvent(event) {
   if (event.type === 'llm.request') return `step ${event.step} → ${event.model}`;
   if (event.type === 'tool.start') return `tool → ${event.name}`;
   if (event.type === 'tool.end') return `tool ← ${event.name} ${event.ok ? 'ok' : 'error'}`;
+  if (event.type === 'tool.output') {
+    const text = String(event.chunk ?? '').replace(/\s+/g, ' ').trim();
+    return `${event.stream === 'stderr' ? 'err' : 'out'} ← ${event.name} ${truncate(text, 96)}`;
+  }
   if (event.type === 'context.move') return `light ${event.selectedNodes} nodes / ${event.contextTokens}t`;
   if (event.type === 'context.promote') return `promote → ${event.abstractionId}`;
   if (event.type === 'session.complete') return `completed at step ${event.step}`;
