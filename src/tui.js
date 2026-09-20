@@ -40,6 +40,20 @@ export class LumenCortexTui {
 
   async run(options = {}) {
     const terminal = readline.createInterface({ input: this.input, output: this.output, terminal: true });
+    let activeController = null;
+    const onSigint = () => {
+      if (activeController && !activeController.signal.aborted) {
+        this.events.push('cancelling active agent run…');
+        this.events = this.events.slice(-12);
+        activeController.abort();
+        this.render();
+      } else {
+        this.events.push('no active run; use :quit to exit');
+        this.events = this.events.slice(-12);
+        this.render();
+      }
+    };
+    terminal.on('SIGINT', onSigint);
     this.output.write(ESC + '?1049h');
     try {
       this.render();
@@ -48,7 +62,7 @@ export class LumenCortexTui {
         if (!line) continue;
         if ([':q', ':quit', ':exit'].includes(line)) break;
         if (line === ':help') {
-          this.events.push('commands: :new :sessions :use <id> :parallel <json-file> :quit');
+          this.events.push('commands: :new :sessions :use <id> :parallel <json-file> :quit; Ctrl+C cancels an active agent run');
           this.render();
           continue;
         }
@@ -92,23 +106,30 @@ export class LumenCortexTui {
         }
 
         this.busy = true;
+        activeController = new AbortController();
         this.render();
         try {
           const result = await this.agent.run(line, {
             ...options.agentOptions,
-            sessionId: this.currentSessionId ?? undefined
+            sessionId: this.currentSessionId ?? undefined,
+            signal: activeController.signal
           });
           this.currentSessionId = result.session.id;
           this.lastAnswer = result.final;
         } catch (error) {
           this.currentSessionId = error.sessionId ?? this.currentSessionId;
-          this.lastAnswer = `ERROR: ${error.message}`;
+          this.lastAnswer = error.name === 'AbortError'
+            ? 'CANCELLED: session state was persisted and can be resumed.'
+            : `ERROR: ${error.message}`;
         } finally {
+          activeController = null;
           this.busy = false;
           this.render();
         }
       }
     } finally {
+      terminal.off('SIGINT', onSigint);
+      activeController?.abort();
       terminal.close();
       this.output.write(ESC + '?1049l');
     }
@@ -139,7 +160,9 @@ export function renderTuiFrame({ provider = '', currentSessionId, sessions = [],
     boxLine('Last answer', inner),
     ...answerLines.map((x) => boxLine(x, inner)),
     divider(inner),
-    boxLine(':new  :sessions  :use <id>  :parallel <tasks.json>  :help  :quit', inner)
+    boxLine(busy
+      ? 'Ctrl+C cancel  :sessions  :help'
+      : ':new  :sessions  :use <id>  :parallel <tasks.json>  :help  :quit', inner)
   ].join('\n') + '\n';
 }
 
@@ -150,6 +173,7 @@ function formatEvent(event) {
   if (event.type === 'context.move') return `light ${event.selectedNodes} nodes / ${event.contextTokens}t`;
   if (event.type === 'context.promote') return `promote → ${event.abstractionId}`;
   if (event.type === 'session.complete') return `completed at step ${event.step}`;
+  if (event.type === 'session.interrupted') return `interrupted at step ${event.step}: ${event.error}`;
   if (event.type === 'llm.retry') return `retry ${event.attempt}: ${event.error}`;
   return event.type;
 }
