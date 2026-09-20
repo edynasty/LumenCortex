@@ -156,7 +156,7 @@ single mutation   = 129.11 ms
 
 The benchmark specifically stresses exact/symbol-heavy code lookup. It proves that this path no longer performs a full 100k-node scan per query; it does not substitute for semantic-retrieval quality evaluation.
 
-A separate mutation performance gate fails if a single-node update on a 100k-node graph exceeds 500ms. The pre-optimization path measured 2020.60ms; the current mutation-hint/structural-sharing path measures 129.11ms.
+A separate mutation performance gate fails if a single-node update on a 100k-node graph exceeds 500ms. The pre-optimization path measured about 2020ms. Recent successful CI runs observed 129.11ms, 207.87ms, and 212.90ms; the latest run measured 212.90ms. Treat these as runner-dependent measurements, not a fixed latency guarantee.
 
 Index consistency is separately tested: graph mutations use optimistic SQLite revisions, stale graph writers are rejected, changed nodes enter a dirty queue, and Runtime incrementally synchronizes only stale FTS5/symbol rows before searching. SQLite WAL mode, normalized incremental Session persistence, shared Subagent SessionStore reuse, Cognitive Git reopen/reconstruction and one-time JSON migration are covered by dedicated storage tests.
 
