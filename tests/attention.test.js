@@ -34,3 +34,36 @@ test('multi-light exposes separate exploration policies', () => {
   assert.ok(Array.isArray(lights.contrarian.selectedNodes));
   assert.ok(Array.isArray(lights.anomaly.selectedNodes));
 });
+
+
+test('structural cut stops propagation without deleting either side', () => {
+  const graph = new CognitiveGraph();
+  graph.addNode({ id: 'seed', kind: 'entity', title: 'critical inventory seed', body: 'critical inventory seed' });
+  graph.addNode({ id: 'remote', kind: 'entity', title: 'remote subsystem', body: 'unrelated downstream detail' });
+  graph.addEdge({ id: 'link', from: 'seed', to: 'remote', type: 'causes', weight: 1 });
+
+  const before = new AttentionEngine(graph.snapshot()).illuminate('critical inventory seed', {
+    budgetTokens: 500,
+    maxHops: 2,
+    seedNodeIds: ['seed']
+  });
+  assert.ok(before.selectedNodes.some((node) => node.id === 'remote'));
+
+  graph.cutEdge('link', { reason: 'temporary cognitive amputation' });
+  const cut = new AttentionEngine(graph.snapshot()).illuminate('critical inventory seed', {
+    budgetTokens: 500,
+    maxHops: 2,
+    seedNodeIds: ['seed']
+  });
+  assert.equal(cut.selectedNodes.some((node) => node.id === 'remote'), false);
+  assert.ok(graph.getNode('remote'));
+  assert.ok(graph.getEdge('link'));
+
+  graph.restoreEdge('link');
+  const restored = new AttentionEngine(graph.snapshot()).illuminate('critical inventory seed', {
+    budgetTokens: 500,
+    maxHops: 2,
+    seedNodeIds: ['seed']
+  });
+  assert.ok(restored.selectedNodes.some((node) => node.id === 'remote'));
+});
