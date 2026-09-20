@@ -11,7 +11,7 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 test('LumenCortex package exposes short and full CLI commands', () => {
   const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
   assert.equal(pkg.name,'lumencortex');
-  assert.equal(pkg.version,'0.5.0');
+  assert.equal(pkg.version,'0.6.0');
   assert.equal(pkg.bin.lcx,'./bin/lcx.js');
   assert.equal(pkg.bin.lumencortex,'./bin/lumencortex.js');
   assert.equal(BRAND.name,'LumenCortex');
