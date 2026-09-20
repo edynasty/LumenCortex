@@ -79,7 +79,7 @@ jobs:
         run: |
           set -o pipefail
           node src/cli.js agent \
-            "This is a strict long-memory protocol test. Read memory-long/item-01.txt, item-02.txt, item-03.txt, and item-04.txt in filename order. Use read_file only for these item files, never reread an item, and read exactly one item file per reasoning turn. After all four reads, create memory-long/report.json as {\"values\":[v1,v2,v3,v4]} using every observed numeric value in order. Then run node memory-long/verify.mjs with shell. If verification succeeds, return GRAPH_MEMORY_LONG_TASK_OK. Do not finish earlier." \
+            "This is a strict long-memory protocol test. Read memory-long/item-01.txt, item-02.txt, item-03.txt, and item-04.txt in filename order. Use read_file only for these item files, never reread an item, and read exactly one item file per reasoning turn. After all four reads, create memory-long/report.json as {\"values\":[v1,v2,v3,v4]} using every observed numeric value in order. Then run node memory-long/verify.mjs with shell. If verification succeeds and the shell result contains GRAPH_MEMORY_LONG_TASK_OK, do not call any more tools; return exactly GRAPH_MEMORY_LONG_TASK_OK. Do not finish earlier." \
             --provider generic \
             --model qwen3:4b-instruct \
             --base-url http://127.0.0.1:11434/v1 \
@@ -91,7 +91,7 @@ jobs:
             --max-tool-calls-per-step 1 \
             --tools read_file,write_file,shell \
             --max-tokens 192 \
-            --max-steps 12 \
+            --max-steps 8 \
             --yes | tee /tmp/memory-long-agent.log
 
           node memory-long/verify.mjs
