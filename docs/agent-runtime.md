@@ -313,7 +313,7 @@ Important tables:
 - `journal`
 - `search_documents` / `symbols` / `node_fts`
 
-Cognitive Git stores diffs instead of duplicating the full graph in every commit. Historical snapshots are reconstructed from diffs and cached in memory. Pre-v0.6 JSON storage is imported once on open and archived after migration.
+Cognitive Git stores diffs instead of duplicating the full graph in every commit. Sparse checkpoints are persisted roughly every 50 first-parent commits; history reconstruction starts from the nearest checkpoint and reconstructed snapshots are cached in memory. Pre-v0.6 JSON storage is imported once on open and archived after migration.
 
 ## Provider configuration
 

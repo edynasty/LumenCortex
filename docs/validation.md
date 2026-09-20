@@ -6,12 +6,14 @@ This document separates architecture claims from evidence.
 
 Latest validated core suite:
 
-- 72 core tests / 72 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
+- 75 core tests / 75 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
 - Node.js 22 and 24 core matrix
 - dedicated isolated Search / LSP / MCP / Subagent / TUI harness jobs
 - MCP HTTP modern + legacy fallback + stdio transport coverage
 - real overlapping Subagent concurrency assertion
 - SQLite WAL / normalized Session / JSON migration coverage
+- sparse Cognitive Git checkpoint/reopen coverage across 120+ commits
+- explicit Repository/Runtime/SessionStore connection cleanup
 - 100k-node SQLite FTS5/symbol search benchmark
 
 Covered behaviors include:

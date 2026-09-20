@@ -112,4 +112,4 @@ The canonical workspace state is stored in `.lumencortex/lumencortex.db`. Graph 
 }
 ```
 
-Diff operations carry before/after objects, which makes strict precondition checking and inversion possible. Full snapshots are no longer persisted per commit; they are reconstructed through the first-parent diff chain and cached in memory.
+Diff operations carry before/after objects, which makes strict precondition checking and inversion possible. Full snapshots are no longer persisted per commit. The normal history is diff-only, with sparse SQLite checkpoints approximately every 50 first-parent commits; reconstruction starts from the nearest checkpoint and is cached in memory.

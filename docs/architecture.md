@@ -302,6 +302,8 @@ All providers use the same tool-calling Agent Loop.
 | Persistent SQLite FTS5 + symbol retrieval | Implemented |
 | Embedding retrieval | Planned / optional |
 | SQLite WAL persistence | Implemented |
+| Sparse Cognitive Git checkpoints | Implemented (~50 first-parent commits) |
+| Explicit storage connection lifecycle | Implemented |
 | Persistent retrieval index | Implemented (FTS5 + symbols) |
 | Incremental dirty-node FTS/symbol updates | Implemented |
 | Optimistic graph revision conflict detection | Implemented |
