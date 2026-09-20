@@ -1,16 +1,22 @@
 name: vm-real-agent-smoke
-# validates real local tool-calling against the bounded moving-context agent loop v3
+# Real local-model proof for the standalone coding-agent loop.
+# Long-memory graph reactivation is validated separately in vm-long-memory-real-agent.yml.
 
 on:
   push:
     branches: [main]
     paths:
       - ".github/workflows/vm-real-agent-smoke.yml"
+      - "src/agent.js"
+      - "src/tools.js"
+      - "src/provider.js"
+      - "src/tui.js"
+  workflow_dispatch:
 
 jobs:
   real-agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -41,17 +47,6 @@ jobs:
       - name: Pull tool-calling model
         run: ollama pull qwen3:4b-instruct
 
-      - name: Prepare smoke workspace
-        shell: bash
-        run: |
-          rm -rf .lumencortex vm-smoke
-          mkdir -p vm-smoke
-          printf 'The VM-only secret code is 731942.\n' > vm-smoke/secret.txt
-          printf 'export function add(a,b){ return a-b }\n' > vm-smoke/calc.js
-          node src/cli.js init .
-          node src/cli.js ingest .
-          node src/cli.js commit "vm smoke baseline"
-
       - name: Verify local OpenAI-compatible endpoint
         env:
           LUMENCORTEX_PROVIDER: generic
@@ -61,103 +56,150 @@ jobs:
         run: |
           node src/cli.js doctor --provider generic --live
 
-      - name: Run real LLM agent loop
-        id: agent
-        continue-on-error: true
+      - name: Prepare real coding fixture
+        shell: bash
+        run: |
+          rm -rf .lumencortex vm-code
+          mkdir -p vm-code/src vm-code/test
+
+          cat > vm-code/package.json <<'EOF'
+          {
+            "name": "lumencortex-vm-code-fixture",
+            "type": "module",
+            "scripts": { "test": "node --test" }
+          }
+          EOF
+
+          cat > vm-code/src/math.js <<'EOF'
+          export function add(a, b) {
+            return a - b;
+          }
+
+          export function clamp(value, min, max) {
+            return Math.max(max, Math.min(min, value));
+          }
+          EOF
+
+          cat > vm-code/src/slug.js <<'EOF'
+          export function slugify(value) {
+            return value.replaceAll(' ', '_');
+          }
+          EOF
+
+          cat > vm-code/test/math.test.js <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { add, clamp } from '../src/math.js';
+
+          test('add sums two values', () => {
+            assert.equal(add(7, 5), 12);
+          });
+
+          test('clamp keeps a value inside the requested range', () => {
+            assert.equal(clamp(5, 0, 10), 5);
+            assert.equal(clamp(-2, 0, 10), 0);
+            assert.equal(clamp(99, 0, 10), 10);
+          });
+          EOF
+
+          cat > vm-code/test/slug.test.js <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { slugify } from '../src/slug.js';
+
+          test('slugify normalizes human labels', () => {
+            assert.equal(slugify('  Hello   Lumen Cortex  '), 'hello-lumen-cortex');
+          });
+          EOF
+
+          sha256sum vm-code/test/*.js > /tmp/vm-code-tests.sha
+
+          node src/cli.js init .
+          node src/cli.js ingest vm-code
+          node src/cli.js commit "real coding fixture"
+
+          set +e
+          (cd vm-code && npm test) >/tmp/vm-code-pretest.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/vm-code-pretest.log
+          [ "$status" -ne 0 ]
+
+      - name: Run real local-model autonomous coding task
+        timeout-minutes: 18
+        shell: bash
         env:
           LUMENCORTEX_PROVIDER: generic
           LUMENCORTEX_BASE_URL: http://127.0.0.1:11434/v1
           LUMENCORTEX_MODEL: qwen3:4b-instruct
           LUMENCORTEX_REQUIRE_API_KEY: "false"
-        shell: bash
         run: |
           set -o pipefail
           node src/cli.js agent \
-            "Use the available tools to read vm-smoke/secret.txt. Do not guess. Return the exact numeric secret as SECRET=<number>. You must inspect the file before answering." \
+            "Work only in vm-code. This is an implementation task, not a review. First run npm test in vm-code. Diagnose every failing test. Fix only implementation files under vm-code/src; do not edit tests. Rerun npm test until every test passes. There are independent bugs in math.js and slug.js, so do not stop after the first fix. Before finishing, inspect the resulting files or diff. Return CODE_TASK_OK only after tests pass." \
             --provider generic \
             --model qwen3:4b-instruct \
             --base-url http://127.0.0.1:11434/v1 \
-            --budget 900 \
+            --budget 2400 \
             --recent-rounds 3 \
-            --working-chars 24000 \
+            --working-chars 26000 \
             --timeout-ms 300000 \
-            --max-tokens 192 \
-            --yes \
-            --max-steps 8 | tee /tmp/agent.log
+            --max-tokens 512 \
+            --max-steps 14 \
+            --max-tool-calls-per-step 1 \
+            --tools read_file,replace_in_file,apply_patch,shell \
+            --yes | tee /tmp/vm-code-agent.log
 
-          grep -E "→ read_file|→ search_text" /tmp/agent.log || true
-          grep -F "SECRET=731942" /tmp/agent.log || true
+          echo "--- independent verification ---"
+          (cd vm-code && npm test)
+          sha256sum -c /tmp/vm-code-tests.sha
 
-      - name: Prepare real-model long task
+          echo "--- tool evidence ---"
+          grep -E '→ (shell|read_file|replace_in_file|apply_patch)' /tmp/vm-code-agent.log | tee /tmp/vm-code-tool-lines.log
+          tool_count=$(wc -l < /tmp/vm-code-tool-lines.log)
+          echo "TOOL_CALLS=$tool_count"
+          [ "$tool_count" -ge 5 ]
+          grep -E '→ (replace_in_file|apply_patch)' /tmp/vm-code-agent.log
+          grep -E '→ shell .*npm test' /tmp/vm-code-agent.log
+          grep -F '[agent] completed' /tmp/vm-code-agent.log
+          grep -F 'CODE_TASK_OK' /tmp/vm-code-agent.log
+
+      - name: Verify persisted coding session
         shell: bash
         run: |
-          rm -rf vm-long
-          mkdir -p vm-long
-          for i in 01 02 03 04 05 06 07 08; do
-            value=$((7300 + 10#$i * 17))
-            printf 'item-%s=%s\n' "$i" "$value" > "vm-long/item-$i.txt"
-          done
-          cat > vm-long/task.txt <<'EOF'
-          Read every item-01.txt through item-08.txt with tools.
-          Create vm-long/report.json containing:
-          {"values":[item01,item02,item03,item04,item05,item06,item07,item08]}
-          with numeric values in filename order.
-          Then run: node vm-long/verify.mjs
-          Do not finish until verification succeeds.
-          EOF
-          cat > vm-long/verify.mjs <<'EOF'
-          import fs from 'node:fs';
-          const expected = [];
-          for (let i = 1; i <= 8; i += 1) {
-            const n = String(i).padStart(2, '0');
-            const text = fs.readFileSync(new URL(`./item-${n}.txt`, import.meta.url), 'utf8');
-            expected.push(Number(text.trim().split('=')[1]));
-          }
-          const actual = JSON.parse(fs.readFileSync(new URL('./report.json', import.meta.url), 'utf8'));
-          if (JSON.stringify(actual.values) !== JSON.stringify(expected)) {
-            console.error({ expected, actual });
-            process.exit(1);
-          }
-          console.log('LONG_TASK_OK');
-          EOF
+          node --input-type=module <<'EOF'
+          import path from 'node:path';
+          import { AgentSessionStore } from './src/session.js';
 
-      - name: Run real local-model long task
-        timeout-minutes: 15
-        shell: bash
-        env:
-          LUMENCORTEX_PROVIDER: generic
-          LUMENCORTEX_BASE_URL: http://127.0.0.1:11434/v1
-          LUMENCORTEX_MODEL: qwen3:4b-instruct
-          LUMENCORTEX_REQUIRE_API_KEY: "false"
-        run: |
-          set -o pipefail
-          node src/cli.js agent \
-            "Follow vm-long/task.txt exactly. Use read_file on every item file, create the requested report, run the verifier, and continue until it prints LONG_TASK_OK." \
-            --provider generic \
-            --model qwen3:4b-instruct \
-            --base-url http://127.0.0.1:11434/v1 \
-            --budget 2200 \
-            --recent-rounds 3 \
-            --working-chars 22000 \
-            --timeout-ms 300000 \
-            --max-tokens 256 \
-            --max-steps 24 \
-            --yes | tee /tmp/agent-long.log
-
-          node vm-long/verify.mjs
-          grep -F "LONG_TASK_OK" /tmp/agent-long.log
-          read_count=$(grep -E '→ read_file .*vm-long/item-' /tmp/agent-long.log | wc -l)
-          echo "ITEM_READ_CALLS=$read_count"
-          [ "$read_count" -ge 8 ]
-          grep -E '→ (write_file|replace_in_file).*vm-long/report.json' /tmp/agent-long.log
-          grep -E '→ shell .*verify.mjs' /tmp/agent-long.log
+          const store = new AgentSessionStore(path.resolve('.lumencortex'));
+          const latest = store.list(1)[0];
+          if (!latest) throw new Error('missing persisted coding session');
+          const session = store.load(latest.id);
+          if (session.status !== 'completed') throw new Error(`status=${session.status}`);
+          const names = session.steps.flatMap(step => (step.toolCalls ?? []).map(call => call.name));
+          if (!names.includes('shell')) throw new Error('missing shell verification call');
+          if (!names.some(name => name === 'replace_in_file' || name === 'apply_patch')) {
+            throw new Error('missing implementation edit call');
+          }
+          console.log(JSON.stringify({
+            id: session.id,
+            status: session.status,
+            steps: session.steps.length,
+            requests: session.usage?.requests ?? null,
+            totalTokens: session.usage?.totalTokens ?? null,
+            toolCalls: names.length
+          }, null, 2));
+          store.close();
+          EOF
 
       - name: Show session evidence
         if: always()
         shell: bash
         run: |
           node src/cli.js sessions --limit 3 || true
-          echo "--- agent log ---"
-          cat /tmp/agent.log 2>/dev/null || true
+          echo "--- coding agent log ---"
+          cat /tmp/vm-code-agent.log 2>/dev/null || true
+          echo "--- pre-test ---"
+          cat /tmp/vm-code-pretest.log 2>/dev/null || true
           echo "--- ollama tail ---"
           tail -100 /tmp/ollama.log 2>/dev/null || true
