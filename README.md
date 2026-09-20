@@ -32,6 +32,8 @@ Reality -> Evidence -> Belief -> Cognitive Graph
 - Cognitive Git: commit / branch / checkout / merge / conflict / revert / blame / cherry-pick / rebase
 - non-destructive structural cut/restore + explicit graph graft
 - Attention Light with propagation and token budgets
+- per-run Tool Working Set allowlist and per-step tool-call fanout limits
+- provider retry / timeout / empty-turn recovery for long-running agents
 - exploit / explore / contrarian / anomaly lights
 - manual + active Promotion without destructive compaction
 - incremental repository ingestion
@@ -160,6 +162,8 @@ Useful controls:
 --recent-rounds 6
 --working-chars 120000
 --timeout-ms 120000
+--tools read_file,write_file,shell
+--max-tool-calls-per-step 1
 --no-auto-promote
 --policy read-only|workspace|full
 --yes
