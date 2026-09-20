@@ -313,7 +313,7 @@ function createAuthorizer({ yes, policy, json, terminal: sharedTerminal }) {
 }
 
 function renderAgentEvent(event) {
-  if (event.type === 'session.start') console.log(`[agent] session=${event.sessionId} context=${event.selectedNodes} nodes/${event.contextTokens}t`);
+  if (event.type === 'session.start') console.log(`[agent] session=${event.sessionId} budget=${event.budgetTokens}t maxSteps=${event.maxSteps}`);
   else if (event.type === 'llm.request') console.log(`[agent] step ${event.step} → ${event.model}`);
   else if (event.type === 'tool.start') console.log(`  → ${event.name} ${compact(event.args)}`);
   else if (event.type === 'tool.end') console.log(`  ← ${event.name} ${event.ok ? 'ok' : event.denied ? 'denied' : 'error'}`);
