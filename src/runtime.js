@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { AttentionEngine } from './attention.js';
 import { CognitiveGraph } from './graph.js';
 import { promoteNodes } from './promotion.js';
@@ -146,8 +144,7 @@ export class LumenCortexRuntime {
 
   #journal(event, payload) {
     if (!this.repository.exists()) return;
-    const line = JSON.stringify({ at: nowIso(), event, ...payload });
-    fs.appendFileSync(path.join(this.repository.dir, 'journal.jsonl'), `${line}\n`);
+    this.repository.appendJournal(event, payload);
   }
 }
 
