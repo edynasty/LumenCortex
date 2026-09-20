@@ -143,6 +143,7 @@ test('agent retries transient provider failures without losing the task', async 
   });
   assert.equal(result.final, 'recovered');
   assert.equal(attempts, 3);
+  assert.equal(result.usage.requests, 3);
   assert.equal(result.session.status, 'completed');
 });
 
