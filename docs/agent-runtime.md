@@ -28,6 +28,7 @@ Full session history is durable on disk. The model only receives the current Act
 Core workspace tools:
 
 - `read_file`
+- `read_files` — batch-read up to 32 already-known paths in one tool call to avoid one reasoning round per file
 - `list_dir`
 - `search_text`
 - `code_search` — persistent SQLite FTS5 + symbol index
