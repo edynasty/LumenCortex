@@ -28,7 +28,7 @@ export class PersistentSearchIndex {
     return Boolean(this.state?.documents && this.state?.postings);
   }
 
-  build(graphState) {
+  build(graphState, options = {}) {
     const documents = {};
     const postings = {};
     const symbols = {};
@@ -66,6 +66,7 @@ export class PersistentSearchIndex {
       version: INDEX_VERSION,
       createdAt: new Date().toISOString(),
       graphFingerprint: graphFingerprint(graphState),
+      graphRevision: options.graphRevision ?? null,
       documentCount,
       averageLength: documentCount ? totalLength / documentCount : 0,
       documents,
@@ -157,7 +158,8 @@ export class PersistentSearchIndex {
       termCount: Object.keys(this.state.postings).length,
       symbolCount: Object.keys(this.state.symbols).length,
       createdAt: this.state.createdAt,
-      graphFingerprint: this.state.graphFingerprint
+      graphFingerprint: this.state.graphFingerprint,
+      graphRevision: this.state.graphRevision ?? null
     };
   }
 }
