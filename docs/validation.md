@@ -6,7 +6,7 @@ This document separates architecture claims from evidence.
 
 Latest validated core suite:
 
-- 87 core tests / 87 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
+- 88 core tests / 88 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
 - Node.js 22 and 24 core matrix
 - dedicated isolated Search / LSP / MCP / Subagent / TUI harness jobs
 - MCP HTTP modern + legacy fallback + stdio transport coverage
@@ -143,7 +143,7 @@ Dedicated `harness-ci` runs isolated tests for:
 - MCP 2026 modern discovery and 2025 legacy fallback,
 - dynamic MCP tool registration/calling,
 - focused Subagents and parallel durable sessions,
-- TUI frame/session/event rendering, including active-run cancellation controls.
+- TUI frame/session/event rendering, including active-run cancellation controls and live stdout/stderr event formatting.
 
 A separate 100k-node search benchmark is enforced by `search-benchmark`.
 
