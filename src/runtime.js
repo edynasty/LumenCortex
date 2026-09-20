@@ -44,6 +44,7 @@ export class ModelWeaveRuntime {
     const current = this.repository.graph().snapshot();
     const result = promoteNodes(current, nodeIds, options);
     this.repository.writeGraph(result.graph);
+    this.refreshSearchIndex(result.graph);
     this.#journal('promote', { abstractionId: result.abstraction.id, nodeIds });
     return result.abstraction;
   }
