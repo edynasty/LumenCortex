@@ -549,6 +549,12 @@ function renderAgentEvent(event) {
   else if (event.type === 'llm.empty_turn') console.log(`  ↻ empty assistant turn, recovery attempt ${event.attempt}`);
   else if (event.type === 'tool.start') console.log(`  → ${event.name} ${compact(event.args)}`);
   else if (event.type === 'tool.end') console.log(`  ← ${event.name} ${event.ok ? 'ok' : event.denied ? 'denied' : 'error'}`);
+  else if (event.type === 'tool.output') {
+    const prefix = event.stream === 'stderr' ? '  │ err' : '  │ out';
+    for (const line of String(event.chunk ?? '').split(/\r?\n/).filter(Boolean)) {
+      console.log(`${prefix} ${line.slice(0, 1200)}`);
+    }
+  }
   else if (event.type === 'context.refresh') console.log(`  💡 context refreshed (${event.selectedNodes} nodes/${event.contextTokens}t)`);
   else if (event.type === 'context.move') console.log(`  ☼ light moved: ${event.selectedNodes} nodes/${event.contextTokens}t`);
   else if (event.type === 'context.promote') console.log(`  ↑ promoted ${event.childCount} nodes → ${event.abstractionId}`);
