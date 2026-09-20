@@ -1,5 +1,5 @@
 name: vm-real-agent-smoke
-# validates real local tool-calling against the bounded moving-context agent loop v2
+# validates real local tool-calling against the bounded moving-context agent loop v3
 
 on:
   push:
@@ -80,6 +80,7 @@ jobs:
             --budget 900 \
             --recent-rounds 3 \
             --working-chars 24000 \
+            --timeout-ms 300000 \
             --max-tokens 192 \
             --yes \
             --max-steps 8 | tee /tmp/agent.log
@@ -138,7 +139,8 @@ jobs:
             --budget 2200 \
             --recent-rounds 3 \
             --working-chars 22000 \
-            --max-tokens 320 \
+            --timeout-ms 300000 \
+            --max-tokens 256 \
             --max-steps 24 \
             --yes | tee /tmp/agent-long.log
 
