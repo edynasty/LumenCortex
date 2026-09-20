@@ -375,3 +375,68 @@ test('agent can bound model tool-call fanout to one call per reasoning step', as
     { requested: 3, executing: 1, deferred: 2 }
   );
 });
+
+
+test('agent sends only allowlisted tools to the provider', async () => {
+  const { root, repository, runtime } = fixture();
+  let requestTools;
+  const provider = {
+    model: 'mock-tool-working-set',
+    complete: async ({ tools }) => {
+      requestTools = tools;
+      return { message: { role: 'assistant', content: 'done' }, finishReason: 'stop' };
+    }
+  };
+  const tools = new ToolRegistry()
+    .register({ name: 'read_one', permission: 'read', execute: () => 'one' })
+    .register({ name: 'hidden_write', permission: 'write', execute: () => 'hidden' });
+
+  const agent = new AgentLoop({ provider, repository, runtime, workspace: root, tools });
+  await agent.run('bounded tools', {
+    toolAllowlist: ['read_one'],
+    recordTask: false
+  });
+
+  assert.deepEqual(requestTools.map(schema => schema.function.name), ['read_one']);
+});
+
+test('agent refuses a hallucinated tool outside the current working set', async () => {
+  const { root, repository, runtime } = fixture();
+  let hiddenExecuted = false;
+  let turn = 0;
+  const provider = {
+    model: 'mock-hidden-tool',
+    complete: async () => {
+      turn += 1;
+      if (turn === 1) {
+        return {
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'hidden-call',
+              type: 'function',
+              function: { name: 'hidden_write', arguments: '{}' }
+            }]
+          },
+          finishReason: 'tool_calls'
+        };
+      }
+      return { message: { role: 'assistant', content: 'done' }, finishReason: 'stop' };
+    }
+  };
+  const tools = new ToolRegistry()
+    .register({ name: 'read_one', permission: 'read', execute: () => 'one' })
+    .register({ name: 'hidden_write', permission: 'write', execute: () => { hiddenExecuted = true; return 'hidden'; } });
+
+  const agent = new AgentLoop({ provider, repository, runtime, workspace: root, tools });
+  const result = await agent.run('do not expose hidden tool', {
+    toolAllowlist: ['read_one'],
+    autoIngest: false,
+    recordTask: false
+  });
+
+  assert.equal(hiddenExecuted, false);
+  const toolMessage = result.session.messages.find(message => message.role === 'tool');
+  assert.match(toolMessage.content, /not available in the current tool working set/);
+});
