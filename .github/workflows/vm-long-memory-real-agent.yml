@@ -35,8 +35,8 @@ jobs:
           done
           exit 1
 
-      - name: Pull tool-specialized model
-        run: ollama pull MadhuryaPasan/Qwen3-ExpertTools:1.7b-q4_K_M
+      - name: Pull official tool-capable model
+        run: ollama pull qwen3:1.7b
 
       - name: Build long-memory fixture
         shell: bash
@@ -70,7 +70,7 @@ jobs:
         env:
           MODELWEAVE_PROVIDER: generic
           MODELWEAVE_BASE_URL: http://127.0.0.1:11434/v1
-          MODELWEAVE_MODEL: MadhuryaPasan/Qwen3-ExpertTools:1.7b-q4_K_M
+          MODELWEAVE_MODEL: qwen3:1.7b
           MODELWEAVE_REQUIRE_API_KEY: "false"
         shell: bash
         run: |
@@ -78,7 +78,7 @@ jobs:
           node src/cli.js agent \
             "This is a long-memory protocol test. Read memory-long/item-01.txt through item-08.txt in filename order. Use read_file only for these item files, never reread an item, and read exactly one item file per reasoning turn. After all eight reads, create memory-long/report.json as {\"values\":[v1,v2,v3,v4,v5,v6,v7,v8]} using every observed numeric value in order. Then run node memory-long/verify.mjs with shell. If verification succeeds, return GRAPH_MEMORY_LONG_TASK_OK. Do not finish earlier." \
             --provider generic \
-            --model MadhuryaPasan/Qwen3-ExpertTools:1.7b-q4_K_M \
+            --model qwen3:1.7b \
             --base-url http://127.0.0.1:11434/v1 \
             --budget 3200 \
             --recent-rounds 1 \
