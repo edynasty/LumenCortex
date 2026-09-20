@@ -97,6 +97,9 @@ export class AgentLoop {
 
     for (let turn = 1; turn <= maxSteps; turn += 1) {
       const step = startStep + turn;
+      if (options.signal?.aborted) {
+        throw this.interruptSession(session, step, usage, abortError(options.signal.reason));
+      }
       const focus = deriveFocus(session, goal, step);
       const seedNodeIds = session.metadata.recentObservationNodeIds.slice(-8);
       let context = this.runtime.context(focus, { budgetTokens, seedNodeIds });
@@ -186,7 +189,8 @@ export class AgentLoop {
             tools: toolSchemas,
             toolChoice: 'auto',
             temperature: options.temperature,
-            maxTokens: options.maxTokens
+            maxTokens: options.maxTokens,
+            signal: options.signal
           },
           {
             retries: llmRetries,
@@ -203,24 +207,7 @@ export class AgentLoop {
           }
         );
       } catch (error) {
-        session.status = 'interrupted';
-        session.error = {
-          at: nowIso(),
-          step,
-          name: error.name,
-          message: error.message,
-          status: error.status ?? null
-        };
-        session.usage = usage;
-        this.sessions.save(session);
-        this.emit('session.interrupted', {
-          sessionId: session.id,
-          step,
-          error: error.message,
-          status: error.status ?? null
-        });
-        error.sessionId ??= session.id;
-        throw error;
+        throw this.interruptSession(session, step, usage, error);
       }
       addUsage(usage, response.usage);
       let assistant = response.message;
@@ -250,7 +237,8 @@ export class AgentLoop {
               tools: toolSchemas,
               toolChoice: 'auto',
               temperature: options.temperature,
-              maxTokens: options.maxTokens
+              maxTokens: options.maxTokens,
+              signal: options.signal
             },
             {
               retries: llmRetries,
@@ -368,12 +356,20 @@ export class AgentLoop {
             name,
             args: parsed
           });
-          result = await this.tools.execute(name, parsed, {
-            workspace: this.workspace,
-            repository: this.repository,
-            runtime: this.runtime,
-            authorize: options.authorize ?? this.authorize
-          });
+          try {
+            result = await this.tools.execute(name, parsed, {
+              workspace: this.workspace,
+              repository: this.repository,
+              runtime: this.runtime,
+              authorize: options.authorize ?? this.authorize,
+              signal: options.signal
+            });
+          } catch (error) {
+            if (options.signal?.aborted || error?.name === 'AbortError') {
+              throw this.interruptSession(session, step, usage, error);
+            }
+            throw error;
+          }
           this.emit('tool.end', {
             sessionId: session.id,
             step,
@@ -436,6 +432,27 @@ export class AgentLoop {
       `Agent reached max steps for this run (${maxSteps}); session has ${session.steps.length} total step(s) without a final answer`,
       session.id
     );
+  }
+
+  interruptSession(session, step, usage, error) {
+    session.status = 'interrupted';
+    session.error = {
+      at: nowIso(),
+      step,
+      name: error?.name ?? 'Error',
+      message: error?.message ?? 'Agent interrupted',
+      status: error?.status ?? null
+    };
+    session.usage = usage;
+    this.sessions.save(session);
+    this.emit('session.interrupted', {
+      sessionId: session.id,
+      step,
+      error: session.error.message,
+      status: session.error.status
+    });
+    error.sessionId ??= session.id;
+    return error;
   }
 
   recordTask(session, context, options) {
@@ -679,15 +696,17 @@ function recordToolObservation(repository, { sessionId, step, call, name, args, 
 async function completeWithRetry(provider, request, { retries = 2, retryBaseMs = 800, onAttempt = () => {}, onRetry = () => {} } = {}) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    if (request.signal?.aborted) throw abortError(request.signal.reason);
     try {
       onAttempt({ attempt: attempt + 1 });
       return await provider.complete(request);
     } catch (error) {
       lastError = error;
+      if (request.signal?.aborted) throw error;
       if (attempt >= retries || !isRetryableProviderError(error)) throw error;
       const delayMs = retryDelay(error, attempt, retryBaseMs);
       onRetry({ attempt: attempt + 1, delayMs, error });
-      if (delayMs > 0) await sleep(delayMs);
+      if (delayMs > 0) await sleep(delayMs, request.signal);
     }
   }
   throw lastError;
@@ -713,8 +732,30 @@ function retryDelay(error, attempt, baseMs) {
   return Math.min(15_000, baseMs * (2 ** attempt));
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms, signal) {
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+  if (signal.aborted) return Promise.reject(abortError(signal.reason));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      reject(abortError(signal.reason));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function abortError(reason) {
+  if (reason instanceof Error && reason.name === 'AbortError') return reason;
+  const error = new Error(
+    typeof reason === 'string' && reason.trim() ? reason : 'Agent run cancelled'
+  );
+  error.name = 'AbortError';
+  return error;
 }
 
 function addUsage(total, usage) {
