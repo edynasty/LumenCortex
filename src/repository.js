@@ -54,7 +54,7 @@ export class CognitiveRepository {
   writeGraph(state) {
     this.assertExists();
     new CognitiveGraph(state).validate();
-    this.database.replaceGraph(state);
+    this.database.syncGraph(state);
   }
 
   graphRevision() {
