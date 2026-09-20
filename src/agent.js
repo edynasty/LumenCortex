@@ -41,6 +41,7 @@ export class AgentLoop {
     const workingChars = Number(options.workingChars ?? options.maxWorkingChars ?? 48000);
     const llmRetries = Math.max(0, Number(options.llmRetries ?? 2));
     const retryBaseMs = Math.max(0, Number(options.retryBaseMs ?? 800));
+    const emptyTurnRetries = Math.max(0, Number(options.emptyTurnRetries ?? 1));
     let session;
 
     if (options.sessionId) {
@@ -215,9 +216,58 @@ export class AgentLoop {
         throw error;
       }
       addUsage(usage, response.usage);
-      const assistant = response.message;
+      let assistant = response.message;
+      let calls = assistant.tool_calls ?? [];
+
+      if (!calls.length && !String(assistant.content ?? '').trim()) {
+        let recovered = null;
+        for (let emptyAttempt = 1; emptyAttempt <= emptyTurnRetries; emptyAttempt += 1) {
+          this.emit('llm.empty_turn', {
+            sessionId: session.id,
+            step,
+            attempt: emptyAttempt,
+            finishReason: response.finishReason,
+            reasoning: assistant.reasoning ? String(assistant.reasoning).slice(0, 500) : ''
+          });
+          const recoveryMessages = [
+            ...requestMessages,
+            {
+              role: 'user',
+              content: 'Continue the current task. Return either valid tool_calls or a non-empty final answer. Do not return an empty assistant message.'
+            }
+          ];
+          recovered = await completeWithRetry(
+            this.provider,
+            {
+              messages: recoveryMessages,
+              tools: this.tools.schemas(),
+              toolChoice: 'auto',
+              temperature: options.temperature,
+              maxTokens: options.maxTokens
+            },
+            {
+              retries: llmRetries,
+              retryBaseMs,
+              onAttempt: () => { usage.requests += 1; },
+              onRetry: ({ attempt, delayMs, error }) => this.emit('llm.retry', {
+                sessionId: session.id,
+                step,
+                attempt,
+                delayMs,
+                error: error.message,
+                status: error.status ?? null
+              })
+            }
+          );
+          addUsage(usage, recovered.usage);
+          assistant = recovered.message;
+          calls = assistant.tool_calls ?? [];
+          if (calls.length || String(assistant.content ?? '').trim()) break;
+        }
+      }
+
       session.messages.push(assistant);
-      const calls = assistant.tool_calls ?? [];
+      calls = assistant.tool_calls ?? [];
       const stepRecord = {
         step,
         at: nowIso(),
@@ -231,7 +281,15 @@ export class AgentLoop {
       };
 
       if (!calls.length) {
-        if (!assistant.content) throw new Error('Model returned neither tool calls nor final content');
+        if (!String(assistant.content ?? '').trim()) {
+          const error = new Error('Model returned neither tool calls nor final content after empty-turn recovery');
+          error.sessionId = session.id;
+          session.status = 'interrupted';
+          session.error = { at: nowIso(), step, name: error.name, message: error.message, status: null };
+          session.usage = usage;
+          this.sessions.save(session);
+          throw error;
+        }
         session.status = 'completed';
         session.final = assistant.content;
         session.usage = usage;
