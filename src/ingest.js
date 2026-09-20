@@ -12,7 +12,7 @@ const DEFAULT_EXTENSIONS = new Set([
 ]);
 
 const DEFAULT_IGNORES = new Set([
-  '.git', '.modelweave', 'node_modules', 'dist', 'build', 'target', '.next', '.idea', '.vscode', 'coverage', 'vendor'
+  '.git', '.lumencortex', 'node_modules', 'dist', 'build', 'target', '.next', '.idea', '.vscode', 'coverage', 'vendor'
 ]);
 
 export function ingestWorkspace(graphState, root, options = {}) {
