@@ -21,3 +21,16 @@ test('coding tools read, replace and search', async () => {
   const search = await tools.execute('search_text', { query: 'agent' }, { authorize: async () => true });
   assert.match(search.content, /a.txt/);
 });
+
+
+test('tool registry accepts camelCase aliases for snake_case schemas', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mw-tools-alias-'));
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'one\ntwo\nthree\n');
+  const tools = createCodingTools({ workspace: dir });
+  const result = await tools.execute('read_file', { path: 'a.txt', startLine: 2, endLine: 2 });
+  assert.equal(result.ok, true);
+  const parsed = JSON.parse(result.content);
+  assert.equal(parsed.startLine, 2);
+  assert.equal(parsed.endLine, 2);
+  assert.match(parsed.content, /2: two/);
+});
