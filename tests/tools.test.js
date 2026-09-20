@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createCodingTools, resolveInside } from '../src/tools.js';
+import { createCodingTools, resolveInside, ToolRegistry } from '../src/tools.js';
 
 test('resolveInside blocks traversal', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mw-tools-'));
@@ -33,4 +33,18 @@ test('tool registry accepts camelCase aliases for snake_case schemas', async () 
   assert.equal(parsed.startLine, 2);
   assert.equal(parsed.endLine, 2);
   assert.match(parsed.content, /2: two/);
+});
+
+
+test('tool registry can expose a bounded schema working set', () => {
+  const registry = new ToolRegistry()
+    .register({ name: 'alpha', execute: () => 'a' })
+    .register({ name: 'beta', execute: () => 'b' })
+    .register({ name: 'gamma', execute: () => 'g' });
+
+  assert.deepEqual(
+    registry.schemas(['gamma', 'alpha']).map(schema => schema.function.name),
+    ['gamma', 'alpha']
+  );
+  assert.throws(() => registry.schemas(['missing']), /Unknown tool/);
 });
