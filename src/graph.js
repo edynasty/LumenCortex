@@ -7,9 +7,18 @@ export function emptyGraph() {
   return { version: 1, nodes: {}, edges: {}, metadata: {} };
 }
 
+export function copyGraphState(state = emptyGraph()) {
+  return {
+    version: state.version ?? 1,
+    nodes: { ...(state.nodes ?? {}) },
+    edges: { ...(state.edges ?? {}) },
+    metadata: clone(state.metadata ?? {})
+  };
+}
+
 export class CognitiveGraph {
   constructor(state = emptyGraph()) {
-    this.state = clone(state);
+    this.state = copyGraphState(state);
     this.mutations = {
       changedNodeIds: new Set(),
       removedNodeIds: new Set(),
@@ -20,7 +29,7 @@ export class CognitiveGraph {
   }
 
   snapshot() {
-    const snapshot = clone(this.state);
+    const snapshot = copyGraphState(this.state);
     Object.defineProperty(snapshot, GRAPH_MUTATION_HINTS, {
       value: {
         version: 1,
