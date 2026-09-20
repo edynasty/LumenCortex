@@ -216,7 +216,8 @@ async function agentCommand({ repo, runtime, workspace, argv }) {
   const providerName = String(parsed.flags.provider ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
   const provider = createProvider(providerName, {
     model: parsed.flags.model ? String(parsed.flags.model) : undefined,
-    baseURL: parsed.flags['base-url'] ? String(parsed.flags['base-url']) : undefined
+    baseURL: parsed.flags['base-url'] ? String(parsed.flags['base-url']) : undefined,
+    timeoutMs: parsed.flags['timeout-ms'] ? Number(parsed.flags['timeout-ms']) : undefined
   });
   const json = Boolean(parsed.flags.json);
   const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'workspace'), json });
@@ -251,7 +252,10 @@ async function agentCommand({ repo, runtime, workspace, argv }) {
 async function chatCommand({ repo, runtime, workspace, argv }) {
   const parsed = parseFlags(argv);
   const providerName = String(parsed.flags.provider ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
-  const provider = createProvider(providerName, { model: parsed.flags.model ? String(parsed.flags.model) : undefined });
+  const provider = createProvider(providerName, {
+    model: parsed.flags.model ? String(parsed.flags.model) : undefined,
+    timeoutMs: parsed.flags['timeout-ms'] ? Number(parsed.flags['timeout-ms']) : undefined
+  });
   const terminal = readline.createInterface({ input: process.stdin, output: process.stdout });
   const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'workspace'), json: false, terminal });
   const agent = new AgentLoop({ provider, repository: repo, runtime, workspace, authorize, onEvent: renderAgentEvent });
@@ -291,7 +295,11 @@ async function doctorCommand(argv) {
   console.log(`model: ${parsed.flags.model ?? info.defaultModel}`);
   console.log(`credential: ${process.env[info.apiKeyEnv] ? `${info.apiKeyEnv} is set` : `${info.apiKeyEnv} is NOT set`}`);
   if (parsed.flags.live) {
-    const provider = createProvider(providerName, { model: parsed.flags.model ? String(parsed.flags.model) : undefined });
+    const provider = createProvider(providerName, {
+      model: parsed.flags.model ? String(parsed.flags.model) : undefined,
+      baseURL: parsed.flags['base-url'] ? String(parsed.flags['base-url']) : undefined,
+      timeoutMs: parsed.flags['timeout-ms'] ? Number(parsed.flags['timeout-ms']) : undefined
+    });
     const result = await provider.complete({ messages: [{ role: 'user', content: 'Reply with exactly: MODELWEAVE_OK' }] });
     console.log(`live: ${result.message.content}`);
   }
@@ -431,5 +439,5 @@ function compact(value) {
 function fail(message) { throw new Error(message); }
 
 function help() {
-  console.log(`ModelWeave — cognitive graph + autonomous coding agent\n\nAgent commands:\n  agent <goal> [--provider openrouter|groq|deepseek|generic] [--model MODEL] [--max-steps 24] [--budget 24000] [--recent-rounds 6] [--working-chars 120000] [--no-auto-promote] [--yes] [--session ID]\n  chat [--provider P] [--model M] [--yes] [--session ID]\n  sessions [--limit 20]\n  providers\n  doctor [--provider P] [--model M] [--live]\n\nCognitive graph commands:\n  init [dir]\n  install-opencode [dir]\n  status\n  commit <message>\n  log [limit]\n  branch [name]\n  checkout <branch>\n  merge <branch>\n  revert <commit>\n  node add|update|rm ...\n  edge add|graft|cut|restore|rm ...\n  ingest [dir] [--chunk-lines 160] [--max-bytes 524288]\n  show [node-or-edge-id]\n  light <goal> [--budget 32000] [--multi] [--json]\n  promote <title> <nodeId> [nodeId...]\n  verify\n\nProviders:\n  OpenRouter free: OPENROUTER_API_KEY + model openrouter/free\n  Groq free:       GROQ_API_KEY + model openai/gpt-oss-120b\n  Generic/local:   MODELWEAVE_BASE_URL, MODELWEAVE_MODEL, MODELWEAVE_API_KEY\n`);
+  console.log(`ModelWeave — cognitive graph + autonomous coding agent\n\nAgent commands:\n  agent <goal> [--provider openrouter|groq|deepseek|generic] [--model MODEL] [--max-steps 24] [--budget 24000] [--recent-rounds 6] [--working-chars 120000] [--timeout-ms 120000] [--no-auto-promote] [--yes] [--session ID]\n  chat [--provider P] [--model M] [--yes] [--session ID]\n  sessions [--limit 20]\n  providers\n  doctor [--provider P] [--model M] [--live]\n\nCognitive graph commands:\n  init [dir]\n  install-opencode [dir]\n  status\n  commit <message>\n  log [limit]\n  branch [name]\n  checkout <branch>\n  merge <branch>\n  revert <commit>\n  node add|update|rm ...\n  edge add|graft|cut|restore|rm ...\n  ingest [dir] [--chunk-lines 160] [--max-bytes 524288]\n  show [node-or-edge-id]\n  light <goal> [--budget 32000] [--multi] [--json]\n  promote <title> <nodeId> [nodeId...]\n  verify\n\nProviders:\n  OpenRouter free: OPENROUTER_API_KEY + model openrouter/free\n  Groq free:       GROQ_API_KEY + model openai/gpt-oss-120b\n  Generic/local:   MODELWEAVE_BASE_URL, MODELWEAVE_MODEL, MODELWEAVE_API_KEY\n`);
 }
