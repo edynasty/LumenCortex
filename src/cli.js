@@ -630,5 +630,62 @@ function compact(value) {
 function fail(message) { throw new Error(message); }
 
 function help() {
-  console.log(`ModelWeave — cognitive graph + autonomous coding agent\n\nAgent commands:\n  agent <goal> [--provider openrouter|groq|deepseek|generic] [--model MODEL] [--max-steps 24] [--budget 24000] [--recent-rounds 6] [--working-chars 120000] [--timeout-ms 120000] [--llm-retries 2] [--max-tool-calls-per-step N] [--tools read_file,write_file,shell] [--no-auto-promote] [--yes] [--session ID]\n  chat [--provider P] [--model M] [--yes] [--session ID]\n  sessions [--limit 20]\n  providers\n  doctor [--provider P] [--model M] [--live]\n\nCognitive graph commands:\n  init [dir]\n  install-opencode [dir]\n  status\n  commit <message>\n  log [limit]\n  branch [name]\n  checkout <branch>\n  merge <branch>\n  revert <commit>\n  node add|update|rm ...\n  edge add|graft|cut|restore|rm ...\n  ingest [dir] [--chunk-lines 160] [--max-bytes 524288]\n  show [node-or-edge-id]\n  light <goal> [--budget 32000] [--multi] [--json]\n  promote <title> <nodeId> [nodeId...]\n  verify\n\nProviders:\n  OpenRouter free: OPENROUTER_API_KEY + model openrouter/free\n  Groq free:       GROQ_API_KEY + model openai/gpt-oss-120b\n  Generic/local:   MODELWEAVE_BASE_URL, MODELWEAVE_MODEL, MODELWEAVE_API_KEY\n`);
+  console.log(`ModelWeave — cognitive graph + autonomous coding harness
+
+Agent commands:
+  agent <goal> [--provider P] [--model M] [--yes] [--session ID]
+  chat [--provider P] [--model M] [--yes] [--session ID]
+  tui [--provider P] [--model M] [--yes]
+  parallel <tasks.json> [--concurrency 4] [--unsafe-write-parallel]
+  sessions [--limit 20]
+  providers
+  doctor [--provider P] [--model M] [--live]
+
+Code intelligence:
+  ingest [dir] [--chunk-lines 160] [--max-bytes 524288]
+  index <build|stats>
+  search <query> [--limit 40]
+  lsp <status|symbols|definition|references|hover|diagnostics> ...
+  mcp <status|tools|call> ...
+
+Cognitive graph:
+  init [dir]
+  install-opencode [dir]
+  status
+  commit <message>
+  log [limit]
+  branch [name]
+  checkout <branch>
+  merge <branch>
+  revert <commit>
+  cherry-pick <commit>
+  blame <node-id> [limit]
+  rebase <branch>
+  node add|update|rm ...
+  edge add|graft|cut|restore|rm ...
+  show [node-or-edge-id]
+  light <goal> [--budget 32000] [--multi] [--json]
+  promote <title> <nodeId> [nodeId...]
+  verify
+
+Agent controls:
+  --max-steps 24
+  --budget 24000
+  --recent-rounds 6
+  --working-chars 120000
+  --timeout-ms 120000
+  --llm-retries 2
+  --max-tool-calls-per-step N
+  --tools read_file,code_search,lsp_definition,...
+  --no-mcp
+  --strict-mcp
+  --no-auto-promote
+  --yes
+
+Providers:
+  OpenRouter free: OPENROUTER_API_KEY + openrouter/free
+  DeepSeek free:  OPENROUTER_API_KEY + --provider openrouter-deepseek-free
+  Groq free:      GROQ_API_KEY + openai/gpt-oss-120b
+  Generic/local:  MODELWEAVE_BASE_URL, MODELWEAVE_MODEL, MODELWEAVE_API_KEY
+`);
 }
