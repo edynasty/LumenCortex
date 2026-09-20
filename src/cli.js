@@ -124,6 +124,21 @@ try {
       } else console.log(`Reverted in ${result.commit.id}`);
       break;
     }
+    case 'cherry-pick': {
+      if (!args[0]) fail('Usage: modelweave cherry-pick <commit>');
+      const result = repo.cherryPick(args[0]);
+      if (result.conflicts.length) {
+        console.error(`Cherry-pick conflict: ${result.conflicts[0].message}`);
+        process.exitCode = 2;
+      } else console.log(`Cherry-picked as ${result.commit.id}`);
+      break;
+    }
+    case 'blame': {
+      if (!args[0]) fail('Usage: modelweave blame <nodeId>');
+      const result = repo.blameNode(args[0]);
+      console.log(JSON.stringify(result, null, 2));
+      break;
+    }
     case 'blame': {
       if (!args[0]) fail('Usage: modelweave blame <node-or-edge-id> [limit]');
       console.log(JSON.stringify(repo.blame(args[0], Number(args[1] ?? 20)), null, 2));
@@ -267,6 +282,9 @@ async function chatCommand({ repo, runtime, workspace, argv }) {
         sessionId: sessionId ?? undefined,
         maxSteps: Number(parsed.flags['max-steps'] ?? 24),
         budgetTokens: Number(parsed.flags.budget ?? 24000),
+        recentRounds: Number(parsed.flags['recent-rounds'] ?? 4),
+        workingChars: Number(parsed.flags['working-chars'] ?? 48000),
+        autoPromote: parsed.flags['no-auto-promote'] ? false : true,
         cognitiveCommit: Boolean(parsed.flags['cognitive-commit']),
         authorize
       });
@@ -319,6 +337,8 @@ function renderAgentEvent(event) {
   else if (event.type === 'tool.end') console.log(`  ← ${event.name} ${event.ok ? 'ok' : event.denied ? 'denied' : 'error'}`);
   else if (event.type === 'context.refresh') console.log(`  💡 context refreshed (${event.selectedNodes} nodes/${event.contextTokens}t)`);
   else if (event.type === 'context.promote') console.log(`  ↑ promoted context → ${event.abstractionId} [${event.reasons.join(', ')}]`);
+  else if (event.type === 'context.move') console.log(`  ☼ light moved: ${event.selectedNodes} nodes/${event.contextTokens}t`);
+  else if (event.type === 'context.promote') console.log(`  ↑ promoted ${event.childCount} nodes → ${event.abstractionId}`);
   else if (event.type === 'context.ingest') console.log(`  ↻ graph refreshed (${event.stats.changedEvidence} changed evidence)`);
   else if (event.type === 'session.complete') console.log(`[agent] completed in ${event.step} step(s)`);
 }
