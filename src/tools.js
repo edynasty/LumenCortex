@@ -89,6 +89,45 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
   });
 
   registry.register({
+    name: 'read_files',
+    description: 'Batch-read multiple known UTF-8 workspace files in one tool call. Prefer this over repeated read_file calls when several relevant paths are already known.',
+    permission: 'read',
+    parameters: {
+      type: 'object',
+      properties: {
+        paths: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 32,
+          items: { type: 'string' }
+        },
+        max_lines_per_file: { type: 'integer', minimum: 1, maximum: 800 }
+      },
+      required: ['paths'],
+      additionalProperties: false
+    },
+    execute({ paths, max_lines_per_file = 400 }) {
+      const seen = new Set();
+      return paths.map((input) => {
+        const file = resolveInside(root, input);
+        const relative = normalize(path.relative(root, file));
+        if (seen.has(file)) throw new Error(`duplicate read path: ${relative}`);
+        seen.add(file);
+        const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+        const end = Math.min(lines.length, max_lines_per_file);
+        return {
+          path: relative,
+          startLine: 1,
+          endLine: end,
+          totalLines: lines.length,
+          truncated: end < lines.length,
+          content: lines.slice(0, end).map((line, index) => `${index + 1}: ${line}`).join('\n')
+        };
+      });
+    }
+  });
+
+  registry.register({
     name: 'list_dir',
     description: 'List files and directories inside the workspace.',
     permission: 'read',
