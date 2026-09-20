@@ -82,6 +82,68 @@ jobs:
           grep -E "→ read_file|→ search_text" /tmp/agent.log
           grep -F "SECRET=731942" /tmp/agent.log
 
+      - name: Prepare real-model long task
+        shell: bash
+        run: |
+          rm -rf vm-long
+          mkdir -p vm-long
+          for i in 01 02 03 04 05 06 07 08; do
+            value=$((7300 + 10#$i * 17))
+            printf 'item-%s=%s\n' "$i" "$value" > "vm-long/item-$i.txt"
+          done
+          cat > vm-long/task.txt <<'EOF'
+          Read every item-01.txt through item-08.txt with tools.
+          Create vm-long/report.json containing:
+          {"values":[item01,item02,item03,item04,item05,item06,item07,item08]}
+          with numeric values in filename order.
+          Then run: node vm-long/verify.mjs
+          Do not finish until verification succeeds.
+          EOF
+          cat > vm-long/verify.mjs <<'EOF'
+          import fs from 'node:fs';
+          const expected = [];
+          for (let i = 1; i <= 8; i += 1) {
+            const n = String(i).padStart(2, '0');
+            const text = fs.readFileSync(new URL(`./item-${n}.txt`, import.meta.url), 'utf8');
+            expected.push(Number(text.trim().split('=')[1]));
+          }
+          const actual = JSON.parse(fs.readFileSync(new URL('./report.json', import.meta.url), 'utf8'));
+          if (JSON.stringify(actual.values) !== JSON.stringify(expected)) {
+            console.error({ expected, actual });
+            process.exit(1);
+          }
+          console.log('LONG_TASK_OK');
+          EOF
+
+      - name: Run real local-model long task
+        shell: bash
+        env:
+          MODELWEAVE_PROVIDER: generic
+          MODELWEAVE_BASE_URL: http://127.0.0.1:11434/v1
+          MODELWEAVE_MODEL: MadhuryaPasan/Qwen3-ExpertTools:1.7b-q4_K_M
+          MODELWEAVE_REQUIRE_API_KEY: "false"
+        run: |
+          set -o pipefail
+          node src/cli.js agent \
+            "Follow vm-long/task.txt exactly. Use read_file on every item file, create the requested report, run the verifier, and continue until it prints LONG_TASK_OK." \
+            --provider generic \
+            --model MadhuryaPasan/Qwen3-ExpertTools:1.7b-q4_K_M \
+            --base-url http://127.0.0.1:11434/v1 \
+            --budget 1200 \
+            --recent-rounds 3 \
+            --working-chars 30000 \
+            --max-tokens 256 \
+            --max-steps 18 \
+            --yes | tee /tmp/agent-long.log
+
+          node vm-long/verify.mjs
+          grep -F "LONG_TASK_OK" /tmp/agent-long.log
+          read_count=$(grep -E '→ read_file .*vm-long/item-' /tmp/agent-long.log | wc -l)
+          echo "ITEM_READ_CALLS=$read_count"
+          [ "$read_count" -ge 8 ]
+          grep -E '→ (write_file|replace_in_file).*vm-long/report.json' /tmp/agent-long.log
+          grep -E '→ shell .*verify.mjs' /tmp/agent-long.log
+
       - name: Show session evidence
         if: always()
         shell: bash
