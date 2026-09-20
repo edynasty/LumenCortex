@@ -41,3 +41,30 @@ test('persistent search index ranks exact code symbols and seeds Attention Light
   assert.ok(ctx.selectedNodes.some(n=>n.id==='inventory_chunk'));
   assert.ok(runtime.searchIndex.stats().termCount>0);
 });
+
+
+test('runtime automatically refreshes a stale search index after graph mutation', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mw-search-revision-'));
+  const repo=new CognitiveRepository(root);
+  repo.init();
+  const runtime=new ModelWeaveRuntime(repo);
+  runtime.refreshSearchIndex();
+  const before=runtime.searchIndex.stats().graphRevision;
+
+  const graph=repo.graph();
+  graph.addNode({
+    id:'late_symbol',
+    kind:'evidence',
+    title:'src/Late.java:L1-L10',
+    body:'public class Late { public void newlyAddedSymbol() {} }',
+    grade:'static',
+    trustZone:'repo_trusted',
+    metadata:{sourceKind:'file-chunk',path:'src/Late.java',startLine:1,endLine:10}
+  });
+  repo.writeGraph(graph.snapshot());
+
+  const hits=runtime.search('newlyAddedSymbol');
+  assert.equal(hits[0].nodeId,'late_symbol');
+  assert.ok(runtime.searchIndex.stats().graphRevision>before);
+  assert.equal(runtime.searchIndex.stats().graphRevision,repo.graphRevision());
+});
