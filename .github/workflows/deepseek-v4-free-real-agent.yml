@@ -1,0 +1,167 @@
+name: deepseek-v4-free-real-agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deepseek-v4-free-real-agent.yml"
+      - "src/provider.js"
+      - "src/agent.js"
+      - "src/tools.js"
+  workflow_dispatch:
+
+jobs:
+  deepseek-free:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      MODELWEAVE_PROVIDER: openrouter-deepseek-free
+      MODELWEAVE_MODEL: deepseek/deepseek-v4-flash-0731:free
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check credential availability
+        id: key
+        shell: bash
+        run: |
+          if [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "OPENROUTER_KEY_AVAILABLE=true"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "OPENROUTER_KEY_AVAILABLE=false"
+          fi
+
+      - name: Prepare fixture
+        if: steps.key.outputs.available == 'true'
+        shell: bash
+        run: |
+          rm -rf .modelweave ds-free
+          mkdir -p ds-free
+          printf 'DeepSeek free route secret=548271\n' > ds-free/secret.txt
+          node src/cli.js init .
+          node src/cli.js ingest ds-free
+          node src/cli.js commit "deepseek free fixture"
+
+      - name: Real DeepSeek V4 tool call
+        if: steps.key.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          node src/cli.js agent \
+            "Use read_file to inspect ds-free/secret.txt. Do not guess. Return exactly SECRET=<number> after the tool result." \
+            --provider openrouter-deepseek-free \
+            --model deepseek/deepseek-v4-flash-0731:free \
+            --budget 1800 \
+            --recent-rounds 3 \
+            --working-chars 24000 \
+            --max-tokens 400 \
+            --max-steps 8 \
+            --yes | tee /tmp/deepseek-free.log
+
+          grep -E "→ read_file" /tmp/deepseek-free.log
+          grep -F "SECRET=548271" /tmp/deepseek-free.log
+
+      - name: Long-task fixture
+        if: steps.key.outputs.available == 'true'
+        shell: bash
+        run: |
+          rm -rf ds-long
+          mkdir -p ds-long/src ds-long/test
+          cat > ds-long/package.json <<'EOF'
+          {"name":"ds-long","type":"module","scripts":{"test":"node --test"}}
+          EOF
+          cat > ds-long/src/math.js <<'EOF'
+          export function add(a, b) { return a - b; }
+          export function clamp(value, min, max) { return Math.max(max, Math.min(min, value)); }
+          EOF
+          cat > ds-long/src/pricing.js <<'EOF'
+          import { clamp } from './math.js';
+          export function finalPrice(price, discountPercent) {
+            const discount = clamp(discountPercent, 0, 100);
+            return price - discount;
+          }
+          EOF
+          cat > ds-long/src/slug.js <<'EOF'
+          export function slugify(value) { return value.replaceAll(' ', '_'); }
+          EOF
+          cat > ds-long/src/order.js <<'EOF'
+          import { add } from './math.js';
+          import { finalPrice } from './pricing.js';
+          export function orderTotal(lines, discountPercent = 0) {
+            const subtotal = lines.reduce((sum, line) => add(sum, line.price * line.quantity), 0);
+            return finalPrice(subtotal, discountPercent);
+          }
+          EOF
+          cat > ds-long/test/math.test.js <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { add, clamp } from '../src/math.js';
+          test('add',()=>assert.equal(add(7,5),12));
+          test('clamp',()=>{assert.equal(clamp(5,0,10),5);assert.equal(clamp(-2,0,10),0);assert.equal(clamp(99,0,10),10);});
+          EOF
+          cat > ds-long/test/pricing.test.js <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { finalPrice } from '../src/pricing.js';
+          test('percentage discount',()=>{assert.equal(finalPrice(200,25),150);assert.equal(finalPrice(100,-5),100);assert.equal(finalPrice(100,150),0);});
+          EOF
+          cat > ds-long/test/slug.test.js <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { slugify } from '../src/slug.js';
+          test('slug',()=>assert.equal(slugify('  Hello   Model Weave  '),'hello-model-weave'));
+          EOF
+          cat > ds-long/test/order.test.js <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { orderTotal } from '../src/order.js';
+          test('total',()=>assert.equal(orderTotal([{price:50,quantity:2},{price:25,quantity:2}],10),135));
+          EOF
+          sha256sum ds-long/test/*.js > /tmp/ds-tests.sha
+          node src/cli.js ingest ds-long
+          node src/cli.js commit "deepseek long fixture"
+          set +e
+          (cd ds-long && npm test) >/tmp/ds-pretest.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/ds-pretest.log
+          [ "$status" -ne 0 ]
+
+      - name: Real DeepSeek V4 autonomous coding long task
+        if: steps.key.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          node src/cli.js agent \
+            "Work only in ds-long. Run tests, diagnose all failures, fix only implementation files, rerun until all tests pass, inspect git diff/status if available, and do not stop after the first bug." \
+            --provider openrouter-deepseek-free \
+            --model deepseek/deepseek-v4-flash-0731:free \
+            --budget 6000 \
+            --recent-rounds 4 \
+            --working-chars 50000 \
+            --max-tokens 1400 \
+            --max-steps 28 \
+            --yes | tee /tmp/deepseek-free-long.log
+
+          (cd ds-long && npm test)
+          sha256sum -c /tmp/ds-tests.sha
+          tool_count=$(grep -E '→ (read_file|search_text|replace_in_file|write_file|shell|modelweave_context)' /tmp/deepseek-free-long.log | wc -l)
+          echo "TOOL_CALLS=$tool_count"
+          [ "$tool_count" -ge 6 ]
+          grep -F "[agent] completed" /tmp/deepseek-free-long.log
+
+      - name: Report missing key without pretending to test
+        if: steps.key.outputs.available != 'true'
+        run: |
+          echo "Real DeepSeek V4 test not executed: repository secret OPENROUTER_API_KEY is absent."
+          echo "The target model itself is free; OpenRouter still requires an account API key."
