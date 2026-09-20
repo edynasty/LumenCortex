@@ -88,7 +88,7 @@ export class CognitiveRepository {
     const parent = this.headCommit();
     const snapshot = this.graph().snapshot();
     const diff = diffGraphs(parent.snapshot, snapshot);
-    if (!diff.operations.length && !additionalParents.length) throw new Error(NOThing to commit');
+    if (!diff.operations.length && !additionalParents.length) throw new Error('Nothing to commit');
     const commit = this.#makeCommit({
       message,
       parents: [parent.id, ...additionalParents],
@@ -200,14 +200,14 @@ export class CognitiveRepository {
 
   rebase(ontoBranch) {
     const branch = this.currentBranch();
-    if (!branch) throw new Error(Cannot rebase detached HEAD');
-    if (branch === ontoBranch) throw new Error(Cannot rebase a branch onto itself');
+    if (!branch) throw new Error('Cannot rebase detached HEAD');
+    if (branch === ontoBranch) throw new Error('Cannot rebase a branch onto itself');
 
     const sourceHead = this.headCommit();
     const ontoId = this.#readRef(ontoBranch);
     const onto = this.getCommit(ontoId);
     const baseId = this.findMergeBase(sourceHead.id, ontoId);
-    if (!baseId) throw new Error(No merge base found');
+    if (!baseId) throw new Error('No merge base found');
 
     const replay = [];
     let cursor = sourceHead;
