@@ -43,3 +43,29 @@ test('subagents run as distinct durable sessions and parallel runner aggregates 
   assert.match(result[0].final,/inspect auth/);
   assert.equal(repo.graph().findNodes(n=>n.kind==='task'&&n.tags?.includes('agent-session')).length,0);
 });
+
+
+test('subagent pool reuses the provided shared session store', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'lcx-shared-session-store-'));
+  const repo=new CognitiveRepository(root);
+  repo.init();
+  const runtime=new LumenCortexRuntime(repo);
+  const { AgentSessionStore } = await import('../src/session.js');
+  const shared=new AgentSessionStore(repo.dir);
+  const provider={
+    model:'mock-shared',
+    async complete({messages}){
+      const user=[...messages].reverse().find(m=>m.role==='user');
+      return {message:{role:'assistant',content:'ok:'+user.content},finishReason:'stop',usage:{total_tokens:1}};
+    }
+  };
+  const pool=new SubagentPool({
+    provider,repository:repo,runtime,workspace:root,tools:new ToolRegistry(),sessionStore:shared,concurrency:2
+  });
+  const result=await pool.runMany([{goal:'one'},{goal:'two'}]);
+  assert.equal(result.length,2);
+  assert.ok(result.every(x=>x.ok));
+  const listed=shared.list(10);
+  assert.ok(result.every(x=>listed.some(s=>s.id===x.sessionId)));
+  shared.close();
+});
