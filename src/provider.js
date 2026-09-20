@@ -5,6 +5,12 @@ export const PROVIDER_PRESETS = {
     defaultModel: 'openrouter/free',
     headers: { 'HTTP-Referer': 'https://github.com/edynasty/ModelWeave', 'X-Title': 'ModelWeave' }
   },
+  'openrouter-deepseek-free': {
+    baseURL: 'https://openrouter.ai/api/v1',
+    apiKeyEnv: 'OPENROUTER_API_KEY',
+    defaultModel: 'deepseek/deepseek-v4-flash-0731:free',
+    headers: { 'HTTP-Referer': 'https://github.com/edynasty/ModelWeave', 'X-Title': 'ModelWeave DeepSeek Free' }
+  },
   groq: {
     baseURL: 'https://api.groq.com/openai/v1',
     apiKeyEnv: 'GROQ_API_KEY',
