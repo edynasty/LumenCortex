@@ -22,7 +22,9 @@ export class SubagentPool {
     const goal = typeof task === 'string' ? task : task.goal;
     if (!goal) throw new Error('Subagent goal is required');
     const role = typeof task === 'string' ? options.role : task.role ?? options.role;
-    const allowlist = task.toolAllowlist ?? options.toolAllowlist ?? DEFAULT_READ_TOOLS;
+    const requestedAllowlist = task.toolAllowlist ?? options.toolAllowlist ?? DEFAULT_READ_TOOLS;
+    const available = new Set(this.tools.schemas().map((schema) => schema.function.name));
+    const allowlist = requestedAllowlist.filter((name) => available.has(name));
     const systemPrompt = [
       `You are a focused ModelWeave subagent${role ? ` acting as ${role}` : ''}.`,
       'Solve only the delegated goal. Inspect evidence, use tools, and return a concise finding with evidence paths.',
