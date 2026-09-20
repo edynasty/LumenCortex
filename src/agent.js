@@ -43,6 +43,9 @@ export class AgentLoop {
     const retryBaseMs = Math.max(0, Number(options.retryBaseMs ?? 800));
     const emptyTurnRetries = Math.max(0, Number(options.emptyTurnRetries ?? 1));
     const maxToolCallsPerStep = Math.max(1, Number(options.maxToolCallsPerStep ?? Number.MAX_SAFE_INTEGER));
+    const toolAllowlist = options.toolAllowlist?.length ? [...new Set(options.toolAllowlist)] : null;
+    const toolAllowset = toolAllowlist ? new Set(toolAllowlist) : null;
+    const toolSchemas = this.tools.schemas(toolAllowlist);
     let session;
 
     if (options.sessionId) {
@@ -178,7 +181,7 @@ export class AgentLoop {
           this.provider,
           {
             messages: requestMessages,
-            tools: this.tools.schemas(),
+            tools: toolSchemas,
             toolChoice: 'auto',
             temperature: options.temperature,
             maxTokens: options.maxTokens
@@ -242,7 +245,7 @@ export class AgentLoop {
             this.provider,
             {
               messages: recoveryMessages,
-              tools: this.tools.schemas(),
+              tools: toolSchemas,
               toolChoice: 'auto',
               temperature: options.temperature,
               maxTokens: options.maxTokens
@@ -339,6 +342,22 @@ export class AgentLoop {
               raw: parsed.__raw
             })
           };
+        } else if (toolAllowset && !toolAllowset.has(name)) {
+          result = {
+            ok: false,
+            denied: true,
+            permission: 'unavailable',
+            content: `Tool ${name} is not available in the current tool working set`
+          };
+          this.emit('tool.end', {
+            sessionId: session.id,
+            step,
+            toolCallId: call.id,
+            name,
+            ok: false,
+            denied: true,
+            permission: 'unavailable'
+          });
         } else {
           this.emit('tool.start', {
             sessionId: session.id,
