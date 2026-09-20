@@ -91,10 +91,10 @@ This is direct real-model evidence for the central design claim: paged-out tool 
 
 Integration support exists for:
 
-- official DeepSeek OpenAI-compatible API through the `deepseek` provider,
-- OpenRouter through the generic/OpenRouter provider path.
+- official DeepSeek OpenAI-compatible API through the `deepseek` provider; its current default model is `deepseek-flash`, which DeepSeek currently serves as DeepSeek-V4.1-Flash,
+- OpenRouter preset `openrouter-deepseek-free`, pinned to `deepseek/deepseek-v4-flash-0731:free` for the free V4 Flash 0731 route.
 
-A public no-key community DeepSeek V4 Flash endpoint was tested from an Ubuntu VM. It returned:
+A public no-key community DeepSeek V4 Flash endpoint was tested from an Ubuntu VM and re-tested on 2026-09-20. Four consecutive health requests returned:
 
 ```text
 HTTP 400
