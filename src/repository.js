@@ -132,6 +132,10 @@ export class CognitiveRepository {
     return result;
   }
 
+  blameNode(objectId, options = 50) {
+    return this.blame(objectId, options);
+  }
+
   branches() {
     this.assertExists();
     const dir = path.join(this.dir, 'refs', 'heads');
@@ -190,7 +194,7 @@ export class CognitiveRepository {
     let commit;
     try {
       commit = this.commit(message ?? `Cherry-pick ${commitId}: ${target.message}`, {
-        metadata: { cherryPickOf: commitId }
+        metadata: { cherryPickOf: commitId, cherryPick: commitId }
       });
     } catch (error) {
       if (!String(error.message).includes('Nothing to commit')) throw error;
