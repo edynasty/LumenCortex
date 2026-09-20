@@ -1,8 +1,14 @@
 # Architecture diagrams
 
-Solid boxes are implemented/tested core capabilities. Dashed boxes are planned/partial capabilities.
+These diagrams distinguish the **target architecture** from the **current implementation**.
 
-## System architecture
+Legend:
+
+- solid green/blue/orange: implemented and covered by automated tests;
+- dashed gray: planned or only partially represented;
+- "attention cut" means removing nodes from the **current working set**, not deleting durable graph memory.
+
+## Target system architecture
 
 ```mermaid
 flowchart TB
@@ -12,91 +18,175 @@ flowchart TB
     classDef plan fill:#fafafa,stroke:#777,stroke-width:1.5px,stroke-dasharray:6 4,color:#444
     classDef store fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#2b1232
 
-    subgraph ENTRY["Entry"]
-      CLI["CLI agent/chat/context/git"]:::done
+    subgraph ENTRY["Entry / Harness"]
+      CLI["Standalone CLI: agent / chat / git / light"]:::done
       OC["OpenCode tools"]:::done
-      API["API / MCP / Web UI"]:::plan
+      API["MCP / API / Web UI"]:::plan
     end
 
-    subgraph RUNTIME["Agent Runtime"]
+    subgraph EXEC["Ephemeral Agent Execution"]
       GOAL["Goal / Intent"]:::core
-      LOOP["Agent Loop"]:::core
+      LOOP["Agent Loop"]:::done
       WS["Bounded Working-Set Pager"]:::done
-      SESS["Full Durable Session"]:::store
-      EXEC["Tool Executor"]:::done
-      VERIFY["Verifier / Test Loop"]:::done
+      SESSION["Full Durable Session"]:::store
+      TOOLS["Tool Registry + Permission Gate"]:::done
+      VERIFY["Test / Shell / Reality Verification"]:::done
+      TASKDAG["Subagent / Dynamic Task DAG"]:::plan
       GOAL --> LOOP
-      SESS --> WS --> LOOP
-      LOOP --> EXEC --> VERIFY --> LOOP
+      SESSION --> WS --> LOOP
+      LOOP --> TOOLS --> VERIFY --> LOOP
+      LOOP -.-> TASKDAG
     end
 
-    subgraph CONTROL["Cognitive Control"]
-      RET["Hybrid Retrieval: BM25 + Symbol + Embedding + Graph"]:::plan
-      LIGHT["Moving Attention Light"]:::core
-      ACTIVE["Active Subgraph / Token Budget"]:::core
+    subgraph RETRIEVAL["Candidate Retrieval"]
+      LEX["Current: full lexical scan"]:::done
+      SYM["Symbol / LSP index"]:::plan
+      BM25["Persistent BM25 index"]:::plan
+      EMB["Embedding index"]:::plan
+      HIST["Recent evidence / history seeds"]:::done
+      CAND["Candidate Set"]:::core
+      LEX --> CAND
+      HIST --> CAND
+      SYM -.-> CAND
+      BM25 -.-> CAND
+      EMB -.-> CAND
+    end
+
+    subgraph ATTENTION["Cognitive Control / Light"]
+      LIGHT["Moving Attention Light"]:::done
+      PROP["Activation Propagation over typed edges"]:::done
+      CUT["Attention Cut: omit low-utility nodes under budget"]:::done
+      ACTIVE["Finite Active Subgraph"]:::core
       PROMOTE["Active Promotion Controller"]:::done
-      DRILL["Drill-down"]:::done
-      RET -.-> LIGHT --> ACTIVE --> PROMOTE --> DRILL --> LIGHT
+      DRILL["Drill-down by reseeding child/detail nodes"]:::core
+      LIGHT --> PROP --> CUT --> ACTIVE
+      ACTIVE --> PROMOTE
+      PROMOTE --> DRILL --> LIGHT
     end
 
-    subgraph GRAPH["Persistent Cognitive Graph"]
-      REAL["Reality"]:::done --> EVID["Evidence"]:::done --> BELIEF["Belief / Negative"]:::done
-      BELIEF --> CG["Context Graph"]:::core
-      ABS["Abstraction / Parent"]:::done --> CG
-      MUT["Propagate / Prune / Graft / Promote"]:::done
-      AUTO["Auto Split / Merge / Canonicalize"]:::plan
-      CG --> MUT --> CG
-      AUTO -.-> CG
+    subgraph MEMORY["Persistent Cognitive Memory"]
+      REAL["Reality / Repository / Runtime"]:::done
+      EVID["Evidence"]:::done
+      BELIEF["Belief / Negative / Hypothesis"]:::done
+      GRAPH["Context Graph"]:::store
+      ABS["Abstraction Parent; child detail preserved"]:::done
+      OBS["Tool Observations"]:::done
+      CANON["Canonicalization / GC / hot-warm-cold"]:::plan
+      REAL --> EVID --> GRAPH
+      BELIEF --> GRAPH
+      ABS --> GRAPH
+      OBS --> GRAPH
+      CANON -.-> GRAPH
     end
 
-    subgraph GIT["Cognitive Git"]
-      C["Commit / Diff"]:::git --> B["Branch / Checkout"]:::git --> M["Merge / Conflict / Revert"]:::git --> A["Blame / Cherry-pick / Rebase"]:::git
-      W["Real Git Worktree Binding"]:::plan -.-> C
+    subgraph CGIT["Cognitive Git"]
+      COMMIT["Commit / Diff"]:::git
+      BRANCH["Branch / Checkout"]:::git
+      MERGE["Merge / Conflict / Revert"]:::git
+      GRAFT["Graft: Cherry-pick"]:::git
+      BLAME["Blame / Rebase"]:::git
+      WORKTREE["Transactional real Git worktree binding"]:::plan
+      COMMIT --> BRANCH --> MERGE --> GRAFT --> BLAME
+      WORKTREE -.-> COMMIT
     end
 
-    subgraph PROVIDER["LLM Providers"]
-      DS["DeepSeek official"]:::done
+    subgraph PROVIDERS["LLM Providers"]
+      LOCAL["Ollama / vLLM / Generic OpenAI-compatible"]:::done
       OR["OpenRouter"]:::done
-      GQ["Groq"]:::done
-      LOCAL["Ollama / vLLM / generic OpenAI-compatible"]:::done
+      GROQ["Groq"]:::done
+      DS["DeepSeek official adapter"]:::done
+      DSREAL["Real DeepSeek V4 validation"]:::plan
+      DS --> DSREAL
     end
 
     ENTRY --> GOAL
-    PROVIDER <--> LOOP
-    LOOP --> LIGHT
-    CG --> LIGHT
+    PROVIDERS <--> LOOP
+    LOOP --> CAND --> LIGHT
+    GRAPH --> LIGHT
     ACTIVE --> WS
     VERIFY --> REAL
-    EVID -. "source changed => stale" .-> BELIEF
+    TOOLS --> OBS
+    EVID -. "source changed => dependent cognition stale" .-> BELIEF
     PROMOTE --> ABS
-    MUT --> C
-    GIT --> CG
+    GRAPH --> COMMIT
+    CGIT --> GRAPH
 ```
 
 ## Working principle
 
 ```mermaid
 flowchart LR
-    U["Goal"] --> OBS["Observe Reality"]
-    OBS --> EV["Evidence"]
-    EV --> G["Cognitive Graph"]
-    G --> L["Recompute Light every step"]
-    R["Recent tool evidence"] --> L
-    L --> AS["Active Subgraph"]
-    AS --> Q{"Granularity suitable?"}
-    Q -- no --> P["Active Promotion: parent abstraction, children preserved"] --> G
-    Q -- need detail --> D["Drill-down"] --> L
-    Q -- yes --> W["Bounded Working Set"]
-    H["Full durable Session"] --> W
+    U["User Goal"] --> R["Candidate Retrieval"]
+    R --> L["Move the Light"]
+    L --> P["Propagate Activation"]
+    P --> C["Attention Cut under token budget"]
+    C --> AS["Active Subgraph"]
+
+    AS --> Q{"Granularity still suitable?"}
+    Q -- "too dense / repeatedly activated" --> UP["Active Promotion"]
+    UP --> PAR["Create small parent abstraction"]
+    PAR --> KEEP["Keep all detailed children intact"]
+    KEEP --> G["Persistent Context Graph"]
+    Q -- "need detail" --> DOWN["Drill down / reseed child"]
+    DOWN --> L
+    Q -- yes --> W["Bounded LLM Working Set"]
+
+    S["Durable Session History"] --> W
+    G --> L
     W --> M["LLM"]
-    M --> T{"tool_calls?"}
-    T -- yes --> X["Execute tools"] --> V["Verify"]
-    V --> C{"Reality changed?"}
-    C -- yes --> RI["Re-ingest: changed evidence -> stale beliefs"] --> G
-    C -- no --> L
-    T -- final --> DF["Graph Diff / optional Cognitive Commit"] --> G
+    M --> TC{"Tool calls?"}
+
+    TC -- yes --> X["Read / Search / Edit / Shell / Test"]
+    X --> O["Tool Observation Evidence"]
+    O --> G
+    X --> CH{"Workspace changed?"}
+    CH -- yes --> ING["Re-ingest Reality"]
+    ING --> ST["Changed Evidence marks dependent cognition stale"]
+    ST --> G
+    CH -- no --> L
+
+    TC -- final --> DONE["Final Answer / Task Result"]
+    DONE --> CG["Optional Cognitive Commit"]
+
+    B["Alternative hypothesis / task branch"] --> MER["Merge or Cherry-pick = Graft"]
+    MER --> CG
+    CG --> G
 ```
 
-Core invariant:
+## The four key operations
 
-> Durable history may keep growing; the active model attention must remain finite.
+```text
+1. Propagation  传导
+   Seed nodes -> typed edges -> decayed activation -> candidate attention
+
+2. Attention Cut  截肢
+   Active candidates -> score/token budget -> omit low-value nodes
+   IMPORTANT: omitted nodes remain in persistent graph memory.
+
+3. Graft  嫁接
+   Another cognition branch/subgraph -> merge/cherry-pick -> current cognitive history
+
+4. Promotion  升格
+   Dense/reused detail -> parent abstraction
+   children remain intact -> future drill-down is possible
+```
+
+## Long-task invariant
+
+```text
+Persistent graph/session may grow without bound
+                |
+                v
+        Light moves every step
+                |
+                v
+      finite Active Subgraph
+                |
+                v
+       finite Working Set
+                |
+                v
+              LLM
+
+The model never needs the entire durable history in every request.
+```
