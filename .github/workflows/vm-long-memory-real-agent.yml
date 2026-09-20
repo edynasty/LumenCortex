@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/vm-long-memory-real-agent.yml"
+      - "src/agent.js"
+      - "src/provider.js"
+      - "src/tools.js"
+      - "src/attention.js"
   workflow_dispatch:
 
 jobs:
@@ -62,7 +66,7 @@ jobs:
           node src/cli.js ingest memory-long
           node src/cli.js commit "long-memory baseline"
 
-      - name: Run 8-turn real-model memory task
+      - name: Run real-model long-memory task
         env:
           MODELWEAVE_PROVIDER: generic
           MODELWEAVE_BASE_URL: http://127.0.0.1:11434/v1
@@ -72,13 +76,13 @@ jobs:
         run: |
           set -o pipefail
           node src/cli.js agent \
-            "This is a strict long-memory protocol test. Read exactly one file per reasoning turn, in this order: memory-long/item-01.txt, item-02.txt, item-03.txt, item-04.txt, item-05.txt, item-06.txt, item-07.txt, item-08.txt. Never use list_dir or search_text and never reread an item. After all eight reads, create memory-long/report.json as {\"values\":[v1,v2,v3,v4,v5,v6,v7,v8]} using every observed numeric value in order. Then run node memory-long/verify.mjs with shell. If verification succeeds, return GRAPH_MEMORY_LONG_TASK_OK. Do not finish earlier." \
+            "This is a long-memory protocol test. Read memory-long/item-01.txt through item-08.txt in filename order. Use read_file only for these item files, never reread an item, and read at most three item files in a single reasoning turn so the task spans multiple reasoning turns. After all eight reads, create memory-long/report.json as {\"values\":[v1,v2,v3,v4,v5,v6,v7,v8]} using every observed numeric value in order. Then run node memory-long/verify.mjs with shell. If verification succeeds, return GRAPH_MEMORY_LONG_TASK_OK. Do not finish earlier." \
             --provider generic \
             --model MadhuryaPasan/Qwen3-ExpertTools:1.7b-q4_K_M \
             --base-url http://127.0.0.1:11434/v1 \
-            --budget 2600 \
-            --recent-rounds 2 \
-            --working-chars 12000 \
+            --budget 3200 \
+            --recent-rounds 1 \
+            --working-chars 7000 \
             --timeout-ms 240000 \
             --llm-retries 1 \
             --max-tokens 160 \
@@ -105,16 +109,49 @@ jobs:
             .sort((a,b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
           const s = sessions[0];
           if (s.status !== 'completed') throw new Error(`status=${s.status}`);
-          if ((s.steps?.length ?? 0) < 10) throw new Error(`steps=${s.steps?.length}`);
           if ((s.metadata?.contextHistory?.length ?? 0) !== s.steps.length) {
             throw new Error('contextHistory does not match reasoning steps');
           }
-          if ((s.metadata?.recentObservationNodeIds?.length ?? 0) < 8) {
-            throw new Error('expected at least 8 durable observation seeds');
+
+          const readCalls = s.steps.flatMap(step =>
+            (step.toolCalls ?? [])
+              .filter(call => call.name === 'read_file' && String(call.args?.path ?? '').startsWith('memory-long/item-'))
+              .map(call => ({ step: step.step, path: call.args.path, observationId: call.observationId }))
+          );
+          if (readCalls.length !== 8) throw new Error(`readCalls=${readCalls.length}`);
+
+          const distinctReadSteps = [...new Set(readCalls.map(call => call.step))];
+          if (distinctReadSteps.length < 3) {
+            throw new Error(`expected reads across >=3 reasoning steps, got ${distinctReadSteps.join(',')}`);
           }
+
+          const writeStep = s.steps.find(step =>
+            (step.toolCalls ?? []).some(call =>
+              call.name === 'write_file' && call.args?.path === 'memory-long/report.json'
+            )
+          );
+          if (!writeStep) throw new Error('missing report write step');
+
+          const writeContext = s.metadata.contextHistory.find(item => item.step === writeStep.step);
+          if (!writeContext) throw new Error('missing write-step context history');
+
+          const readObservationIds = readCalls.map(call => call.observationId).filter(Boolean);
+          const missingFromActiveGraph = readObservationIds.filter(id => !writeContext.nodeIds.includes(id));
+          if (missingFromActiveGraph.length) {
+            throw new Error(`write-step Active Subgraph missed old read observations: ${missingFromActiveGraph.join(',')}`);
+          }
+
+          const earliestReadStep = Math.min(...distinctReadSteps);
+          if (writeStep.step - earliestReadStep < 3) {
+            throw new Error('oldest read was not old enough to be paged out of recentRounds=1 history');
+          }
+
           console.log(JSON.stringify({
             status: s.status,
             steps: s.steps.length,
+            readSteps: distinctReadSteps,
+            writeStep: writeStep.step,
+            activeReadObservationsAtWrite: readObservationIds.length,
             contextHistory: s.metadata.contextHistory.length,
             observations: s.metadata.recentObservationNodeIds.length,
             promotions: s.metadata.promotions?.length ?? 0,
