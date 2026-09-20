@@ -1,0 +1,54 @@
+name: harness-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/search-index.js"
+      - "src/lsp.js"
+      - "src/mcp.js"
+      - "src/subagent.js"
+      - "src/parallel.js"
+      - "src/tui.js"
+      - "src/tools.js"
+      - "src/runtime.js"
+      - "src/cli.js"
+      - "tests/search-index.test.js"
+      - "tests/lsp.test.js"
+      - "tests/mcp.test.js"
+      - "tests/subagent-parallel.test.js"
+      - "tests/tui.test.js"
+      - ".github/workflows/harness-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - tests/search-index.test.js
+          - tests/lsp.test.js
+          - tests/mcp.test.js
+          - tests/subagent-parallel.test.js
+          - tests/tui.test.js
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run isolated harness test
+        shell: bash
+        run: timeout 45s node --test "${{ matrix.test }}"
+      - name: Syntax-check harness modules
+        run: |
+          node --check src/search-index.js
+          node --check src/lsp.js
+          node --check src/mcp.js
+          node --check src/subagent.js
+          node --check src/parallel.js
+          node --check src/tui.js
+          node --check src/cli.js
