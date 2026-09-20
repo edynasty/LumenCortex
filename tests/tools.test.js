@@ -25,6 +25,46 @@ test('coding tools read, replace and search', async () => {
 });
 
 
+test('read_files batches known files in one bounded tool call', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-read-files-'));
+  fs.writeFileSync(path.join(root, 'a.txt'), 'a1\na2\na3\n');
+  fs.writeFileSync(path.join(root, 'b.txt'), 'b1\nb2\nb3\n');
+  const tools = createCodingTools({ workspace: root });
+
+  const result = await tools.execute('read_files', {
+    paths: ['a.txt', 'b.txt'],
+    max_lines_per_file: 2
+  }, { authorize: async () => true });
+
+  assert.equal(result.ok, true);
+  const payload = JSON.parse(result.content);
+  assert.deepEqual(payload.map((item) => item.path), ['a.txt', 'b.txt']);
+  assert.equal(payload[0].endLine, 2);
+  assert.equal(payload[0].truncated, true);
+  assert.match(payload[0].content, /1: a1/);
+  assert.match(payload[1].content, /2: b2/);
+});
+
+
+test('read_files rejects traversal and duplicate paths', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-read-files-safe-'));
+  fs.writeFileSync(path.join(root, 'a.txt'), 'ok\n');
+  const tools = createCodingTools({ workspace: root });
+
+  const escape = await tools.execute('read_files', {
+    paths: ['../escape.txt']
+  }, { authorize: async () => true });
+  assert.equal(escape.ok, false);
+  assert.match(escape.content, /escapes workspace/);
+
+  const duplicate = await tools.execute('read_files', {
+    paths: ['a.txt', './a.txt']
+  }, { authorize: async () => true });
+  assert.equal(duplicate.ok, false);
+  assert.match(duplicate.content, /duplicate read path/);
+});
+
+
 test('apply_patch performs validated multi-hunk and multi-file edits', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-patch-'));
   fs.writeFileSync(path.join(root, 'a.txt'), 'alpha\nbeta\ngamma\n');
