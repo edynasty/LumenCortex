@@ -105,6 +105,47 @@ test('apply_patch blocks workspace traversal and duplicate targets', async () =>
 
 
 
+test('shell tool keeps the Node event loop responsive during long commands', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-shell-async-'));
+  const tools = createCodingTools({ workspace: root });
+  const node = JSON.stringify(process.execPath);
+  let timerFired = false;
+  setTimeout(() => { timerFired = true; }, 25);
+
+  const pending = tools.execute('shell', {
+    command: `${node} -e "setTimeout(() => console.log('ASYNC_SHELL_OK'), 120)"`,
+    timeout_ms: 2000
+  }, { authorize: async () => true });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(timerFired, true);
+
+  const result = await pending;
+  assert.equal(result.ok, true);
+  const payload = JSON.parse(result.content);
+  assert.equal(payload.exitCode, 0);
+  assert.equal(payload.timedOut, false);
+  assert.match(payload.stdout, /ASYNC_SHELL_OK/);
+});
+
+
+test('shell tool reports timeout without blocking the runtime', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-shell-timeout-'));
+  const tools = createCodingTools({ workspace: root });
+  const node = JSON.stringify(process.execPath);
+  const result = await tools.execute('shell', {
+    command: `${node} -e "setTimeout(() => {}, 5000)"`,
+    timeout_ms: 80
+  }, { authorize: async () => true });
+
+  assert.equal(result.ok, true);
+  const payload = JSON.parse(result.content);
+  assert.equal(payload.timedOut, true);
+  assert.notEqual(payload.signal, null);
+});
+
+
+
 test('tool registry accepts camelCase aliases for snake_case schemas', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mw-tools-alias-'));
   fs.writeFileSync(path.join(dir, 'a.txt'), 'one\ntwo\nthree\n');
