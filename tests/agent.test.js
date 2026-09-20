@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { AgentLoop, AgentMaxStepsError } from '../src/agent.js';
 import { ToolRegistry } from '../src/tools.js';
+import { AgentSessionStore } from '../src/session.js';
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mw-agent-'));
@@ -110,4 +111,69 @@ test('agent stops at max steps', async () => {
   const tools = new ToolRegistry().register({ name: 'echo', permission: 'read', execute: () => 'x' });
   const agent = new AgentLoop({ provider, repository, runtime, workspace: root, tools });
   await assert.rejects(() => agent.run('loop', { maxSteps: 2, autoIngest: false, recordTask: false }), AgentMaxStepsError);
+});
+
+
+test('agent retries transient provider failures without losing the task', async () => {
+  const { root, repository, runtime } = fixture();
+  let attempts = 0;
+  const provider = {
+    model: 'mock-retry',
+    complete: async () => {
+      attempts += 1;
+      if (attempts < 3) {
+        const error = new Error('temporary upstream outage');
+        error.status = 503;
+        throw error;
+      }
+      return { message: { role: 'assistant', content: 'recovered' }, finishReason: 'stop' };
+    }
+  };
+  const agent = new AgentLoop({
+    provider,
+    repository,
+    runtime,
+    workspace: root,
+    tools: new ToolRegistry()
+  });
+  const result = await agent.run('retry task', {
+    llmRetries: 2,
+    retryBaseMs: 0,
+    recordTask: false
+  });
+  assert.equal(result.final, 'recovered');
+  assert.equal(attempts, 3);
+  assert.equal(result.session.status, 'completed');
+});
+
+test('agent persists an interrupted session after non-retryable provider failure', async () => {
+  const { root, repository, runtime } = fixture();
+  const provider = {
+    model: 'mock-fail',
+    complete: async () => {
+      const error = new Error('bad request');
+      error.status = 400;
+      throw error;
+    }
+  };
+  const agent = new AgentLoop({
+    provider,
+    repository,
+    runtime,
+    workspace: root,
+    tools: new ToolRegistry()
+  });
+
+  let caught;
+  try {
+    await agent.run('interrupt task', { llmRetries: 0, recordTask: false });
+  } catch (error) {
+    caught = error;
+  }
+  assert.ok(caught);
+  assert.ok(caught.sessionId);
+  const saved = new AgentSessionStore(repository.dir).load(caught.sessionId);
+  assert.equal(saved.status, 'interrupted');
+  assert.equal(saved.error.status, 400);
+  assert.equal(saved.error.step, 1);
 });
