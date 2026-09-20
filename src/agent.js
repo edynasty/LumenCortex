@@ -384,7 +384,7 @@ export class AgentLoop {
         }
 
         workspaceMutated ||= Boolean(result.mutatesWorkspace && result.ok);
-        const observationId = recordToolObservation(this.repository, {
+        const observationId = options.recordObservations === false ? null : recordToolObservation(this.repository, {
           sessionId: session.id,
           step,
           call,
@@ -416,6 +416,7 @@ export class AgentLoop {
       if (workspaceMutated && options.autoIngest !== false) {
         const refreshed = ingestWorkspace(this.repository.graph().snapshot(), this.workspace);
         this.repository.writeGraph(refreshed.graph);
+        this.runtime.refreshSearchIndex?.(refreshed.graph);
         stepRecord.ingest = refreshed.stats;
         this.emit('context.ingest', { sessionId: session.id, step, stats: refreshed.stats });
       }
