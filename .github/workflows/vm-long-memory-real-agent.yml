@@ -1,4 +1,5 @@
 name: vm-long-memory-real-agent
+# validates current SQLite/WAL session persistence
 
 on:
   push:
