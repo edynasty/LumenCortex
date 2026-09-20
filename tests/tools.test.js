@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createCodingTools, resolveInside, ToolRegistry } from '../src/tools.js';
+import { CognitiveRepository } from '../src/repository.js';
+import { ModelWeaveRuntime } from '../src/runtime.js';
 
 test('resolveInside blocks traversal', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mw-tools-'));
