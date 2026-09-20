@@ -26,7 +26,12 @@ function fixture() {
     commit() { return { id: 'commit1' }; }
   };
   const runtime = {
-    context: () => ({ selectedNodes: [], selectedEdges: [], usedTokens: 0, budgetTokens: 1000 })
+    contextCalls: 0,
+    context() {
+      this.contextCalls += 1;
+      return { selectedNodes: [], selectedEdges: [], usedTokens: 0, budgetTokens: 1000 };
+    },
+    promote() { throw new Error('promotion should not run with empty context'); }
   };
   return { root, repository, runtime };
 }
@@ -49,6 +54,50 @@ test('agent loops through tool call and final answer', async () => {
   assert.equal(result.usage.totalTokens, 29);
   assert.equal(result.session.steps.length, 2);
   assert.equal(result.session.messages.at(-2).role, 'tool');
+  assert.equal(runtime.contextCalls, 2, 'attention should be recomputed for every reasoning step');
+  assert.equal(result.session.metadata.recentObservationNodeIds.length, 1);
+});
+
+test('agent sends a bounded moving working set instead of replaying every message', async () => {
+  const { root, repository, runtime } = fixture();
+  const requests = [];
+  let n = 0;
+  const provider = {
+    model: 'mock',
+    complete: async ({ messages }) => {
+      requests.push(messages);
+      n += 1;
+      if (n < 5) {
+        return {
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{ id: `c${n}`, type: 'function', function: { name: 'echo', arguments: JSON.stringify({ text: `step-${n}` }) } }]
+          },
+          finishReason: 'tool_calls'
+        };
+      }
+      return { message: { role: 'assistant', content: 'done' }, finishReason: 'stop' };
+    }
+  };
+  const tools = new ToolRegistry().register({
+    name: 'echo',
+    permission: 'read',
+    parameters: { type: 'object', properties: { text: { type: 'string' } } },
+    execute: ({ text }) => `${text} ${'x'.repeat(3000)}`
+  });
+  const agent = new AgentLoop({ provider, repository, runtime, workspace: root, tools });
+  const result = await agent.run('long loop', {
+    autoIngest: false,
+    autoPromote: false,
+    recordTask: false,
+    recentRounds: 2,
+    workingChars: 7000
+  });
+  assert.equal(result.final, 'done');
+  assert.equal(runtime.contextCalls, 5);
+  assert.ok(result.session.messages.length > requests.at(-1).length, 'persisted history should be larger than model working set');
+  assert.ok(requests.at(-1).filter((m) => m.role === 'assistant').length <= 2);
 });
 
 test('agent stops at max steps', async () => {
