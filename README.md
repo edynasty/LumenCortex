@@ -32,7 +32,7 @@ The primary interface is the full-screen TUI. Run `lumencortex` or the short com
 - OpenAI-compatible provider adapter
 - OpenRouter / Groq / DeepSeek official presets
 - generic local/API provider mode
-- workspace tools: read, list, indexed `code_search`, write, exact replace, shell
+- workspace tools: read, list, indexed `code_search`, write, exact replace, validated multi-file `apply_patch`, shell
 - LSP tools: definition, references, symbols, hover, diagnostics
 - MCP client: 2026 modern + legacy negotiation, stdio + HTTP transports
 - focused Subagent + parallel Subagent tools
@@ -188,7 +188,7 @@ Useful controls:
 --recent-rounds 6
 --working-chars 120000
 --timeout-ms 120000
---tools read_file,write_file,shell
+--tools read_file,code_search,apply_patch,shell
 --max-tool-calls-per-step 1
 --no-auto-promote
 --policy read-only|workspace|full
@@ -200,6 +200,8 @@ Useful controls:
 ```
 
 Without `--yes`, write and shell actions require interactive approval. Non-interactive runs deny those actions unless explicitly approved.
+
+For non-trivial edits, `apply_patch` can validate multiple exact hunks across multiple files before mutating any target. It supports update/create/delete operations, rejects ambiguous hunks and workspace traversal, and is treated as a mutating tool by the parallel-session safety gate.
 
 ## Persistence
 
