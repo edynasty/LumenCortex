@@ -12,18 +12,18 @@ export class LspManager {
   }
 
   async definition(file, line, character) {
-    return this.#requestFor(file, 'textDocument/definition', positionParams(file, line, character));
+    return this.#requestFor(file, 'textDocument/definition', positionParams(path.resolve(this.workspace, file), line, character));
   }
 
   async references(file, line, character, includeDeclaration = true) {
     return this.#requestFor(file, 'textDocument/references', {
-      ...positionParams(file, line, character),
+      ...positionParams(path.resolve(this.workspace, file), line, character),
       context: { includeDeclaration }
     });
   }
 
   async hover(file, line, character) {
-    return this.#requestFor(file, 'textDocument/hover', positionParams(file, line, character));
+    return this.#requestFor(file, 'textDocument/hover', positionParams(path.resolve(this.workspace, file), line, character));
   }
 
   async symbols(file) {
@@ -69,7 +69,10 @@ export class LspManager {
     const absolute = resolveInside(this.workspace, file);
     const client = await this.#clientFor(absolute);
     await client.openDocument(absolute);
-    return client.request(method, params);
+    return client.request(method, {
+      ...params,
+      ...(params?.textDocument ? { textDocument: { uri: pathToFileURL(absolute).href } } : {})
+    });
   }
 
   async #clientFor(absolute) {
