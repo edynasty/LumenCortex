@@ -59,3 +59,49 @@ test('active promotion creates a reusable parent without deleting child detail',
   assert.equal(second.deduplicated, true);
   assert.equal(second.existing.id, first.abstraction.id);
 });
+
+
+test('active promotion can trigger from repeated activation before token pressure is high', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mw-promotion-reuse-'));
+  const repo = new CognitiveRepository(dir);
+  repo.init();
+
+  const graph = repo.graph();
+  const selectedNodes = [];
+  const activationCounts = {};
+  for (let i = 0; i < 5; i += 1) {
+    const node = graph.addNode({
+      id: `reuse_${i}`,
+      kind: 'evidence',
+      title: `Repeated evidence ${i}`,
+      body: `evidence ${i}`,
+      grade: 'static',
+      trustZone: 'repo_trusted'
+    });
+    selectedNodes.push({ ...node, activation: 0.8 - i * 0.02 });
+    activationCounts[node.id] = 4;
+  }
+  repo.writeGraph(graph.snapshot());
+
+  const runtime = new ModelWeaveRuntime(repo);
+  const controller = new PromotionController(runtime, {
+    pressureThreshold: 0.95,
+    nodeThreshold: 99,
+    unresolvedThreshold: 99,
+    reuseThreshold: 3,
+    reuseNodeThreshold: 4,
+    minChildren: 3,
+    cooldownSteps: 0
+  });
+
+  const result = controller.maybePromote('reused inventory evidence', {
+    selectedNodes,
+    selectedEdges: [],
+    usedTokens: 200,
+    budgetTokens: 1000
+  }, { step: 4, activationCounts });
+
+  assert.equal(result.promoted, true);
+  assert.ok(result.assessment.reasons.includes('repeated-activation'));
+  assert.equal(result.abstraction.childIds.length, 5);
+});
