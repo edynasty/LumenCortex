@@ -173,6 +173,7 @@ export class AgentLoop {
           {
             retries: llmRetries,
             retryBaseMs,
+            onAttempt: () => { usage.requests += 1; },
             onRetry: ({ attempt, delayMs, error }) => this.emit('llm.retry', {
               sessionId: session.id,
               step,
@@ -203,7 +204,6 @@ export class AgentLoop {
         error.sessionId ??= session.id;
         throw error;
       }
-      usage.requests += 1;
       addUsage(usage, response.usage);
       const assistant = response.message;
       session.messages.push(assistant);
@@ -563,10 +563,11 @@ function recordToolObservation(repository, { sessionId, step, call, name, args, 
   return nodeId;
 }
 
-async function completeWithRetry(provider, request, { retries = 2, retryBaseMs = 800, onRetry = () => {} } = {}) {
+async function completeWithRetry(provider, request, { retries = 2, retryBaseMs = 800, onAttempt = () => {}, onRetry = () => {} } = {}) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
+      onAttempt({ attempt: attempt + 1 });
       return await provider.complete(request);
     } catch (error) {
       lastError = error;
