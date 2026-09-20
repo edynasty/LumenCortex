@@ -147,6 +147,11 @@ export class LumenCortexDatabase {
 
       CREATE INDEX IF NOT EXISTS idx_symbols_node ON symbols(node_id);
 
+      CREATE TABLE IF NOT EXISTS search_dirty_nodes (
+        node_id TEXT PRIMARY KEY,
+        removed INTEGER NOT NULL DEFAULT 0
+      ) STRICT;
+
       CREATE VIRTUAL TABLE IF NOT EXISTS node_fts USING fts5(
         node_id UNINDEXED,
         title,
@@ -257,11 +262,121 @@ export class LumenCortexDatabase {
       }
       this.setMeta('graph_version', String(state.version ?? 1));
       this.setMeta('graph_metadata', JSON.stringify(state.metadata ?? {}));
+      this.db.exec('DELETE FROM search_dirty_nodes;');
+      const markDirty = this.db.prepare('INSERT INTO search_dirty_nodes(node_id, removed) VALUES(?, 0)');
+      for (const node of Object.values(state.nodes ?? {})) markDirty.run(node.id);
       if (incrementRevision) {
         const next = Number(this.getMeta('graph_revision') ?? 0) + 1;
         this.setMeta('graph_revision', String(next));
       }
     });
+  }
+
+  syncGraph(state) {
+    const existingNodes = new Map(
+      this.db.prepare('SELECT id, json FROM graph_nodes').all().map((row) => [row.id, row.json])
+    );
+    const existingEdges = new Map(
+      this.db.prepare('SELECT id, json FROM graph_edges').all().map((row) => [row.id, row.json])
+    );
+
+    const nextNodes = new Map(
+      Object.values(state.nodes ?? {}).map((node) => [node.id, JSON.stringify(node)])
+    );
+    const nextEdges = new Map(
+      Object.values(state.edges ?? {}).map((edge) => [edge.id, JSON.stringify(edge)])
+    );
+
+    const changedNodeIds = [];
+    const removedNodeIds = [];
+    const changedEdgeIds = [];
+    const removedEdgeIds = [];
+
+    for (const [id, json] of nextNodes) {
+      if (existingNodes.get(id) !== json) changedNodeIds.push(id);
+    }
+    for (const id of existingNodes.keys()) {
+      if (!nextNodes.has(id)) removedNodeIds.push(id);
+    }
+    for (const [id, json] of nextEdges) {
+      if (existingEdges.get(id) !== json) changedEdgeIds.push(id);
+    }
+    for (const id of existingEdges.keys()) {
+      if (!nextEdges.has(id)) removedEdgeIds.push(id);
+    }
+
+    const metadataChanged =
+      String(this.getMeta('graph_version') ?? '1') !== String(state.version ?? 1) ||
+      String(this.getMeta('graph_metadata') ?? '{}') !== JSON.stringify(state.metadata ?? {});
+
+    if (!changedNodeIds.length && !removedNodeIds.length && !changedEdgeIds.length && !removedEdgeIds.length && !metadataChanged) {
+      return { changed: false, changedNodeIds: [], removedNodeIds: [], revision: this.graphRevision() };
+    }
+
+    const upsertNode = this.db.prepare(`
+      INSERT INTO graph_nodes(id, kind, status, title, body, path, source_kind, updated_at, version, json)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        kind = excluded.kind,
+        status = excluded.status,
+        title = excluded.title,
+        body = excluded.body,
+        path = excluded.path,
+        source_kind = excluded.source_kind,
+        updated_at = excluded.updated_at,
+        version = excluded.version,
+        json = excluded.json
+    `);
+    const upsertEdge = this.db.prepare(`
+      INSERT INTO graph_edges(id, from_id, to_id, type, weight, json)
+      VALUES(?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        from_id = excluded.from_id,
+        to_id = excluded.to_id,
+        type = excluded.type,
+        weight = excluded.weight,
+        json = excluded.json
+    `);
+    const deleteEdge = this.db.prepare('DELETE FROM graph_edges WHERE id = ?');
+    const deleteNode = this.db.prepare('DELETE FROM graph_nodes WHERE id = ?');
+    const dirty = this.db.prepare(`
+      INSERT INTO search_dirty_nodes(node_id, removed) VALUES(?, ?)
+      ON CONFLICT(node_id) DO UPDATE SET removed = excluded.removed
+    `);
+
+    const revision = this.graphRevision() + 1;
+    this.transaction(() => {
+      for (const id of removedEdgeIds) deleteEdge.run(id);
+      for (const id of removedNodeIds) {
+        deleteNode.run(id);
+        dirty.run(id, 1);
+      }
+      for (const id of changedNodeIds) {
+        const node = state.nodes[id];
+        upsertNode.run(
+          node.id,
+          node.kind,
+          node.status ?? 'active',
+          node.title ?? '',
+          node.body ?? '',
+          node.metadata?.path ?? sourcePath(node),
+          node.metadata?.sourceKind ?? null,
+          node.updatedAt ?? null,
+          Number(node.version ?? 1),
+          nextNodes.get(id)
+        );
+        dirty.run(id, 0);
+      }
+      for (const id of changedEdgeIds) {
+        const edge = state.edges[id];
+        upsertEdge.run(edge.id, edge.from, edge.to, edge.type, Number(edge.weight ?? 1), nextEdges.get(id));
+      }
+      this.setMeta('graph_version', String(state.version ?? 1));
+      this.setMeta('graph_metadata', JSON.stringify(state.metadata ?? {}));
+      this.setMeta('graph_revision', String(revision));
+    });
+
+    return { changed: true, changedNodeIds, removedNodeIds, revision };
   }
 
   graphRevision() {
@@ -497,10 +612,73 @@ export class LumenCortexDatabase {
         documentCount += 1;
         totalLength += terms.length;
       }
+      this.db.exec('DELETE FROM search_dirty_nodes;');
       this.setMeta('search_index_revision', String(graphRevision ?? -1));
       this.setMeta('search_index_created_at', createdAt);
       this.setMeta('search_document_count', String(documentCount));
       this.setMeta('search_average_length', String(documentCount ? totalLength / documentCount : 0));
+    });
+
+    return this.searchStats();
+  }
+
+  syncSearchIndex(graphState, { graphRevision = null, extractSymbols, searchableText, indexTerms } = {}) {
+    if (!this.searchIndexReady()) {
+      return this.rebuildSearchIndex(graphState, { graphRevision, extractSymbols, searchableText, indexTerms });
+    }
+
+    const dirtyRows = this.db.prepare('SELECT node_id, removed FROM search_dirty_nodes').all();
+    if (!dirtyRows.length) {
+      this.setMeta('search_index_revision', String(graphRevision ?? this.graphRevision()));
+      return this.searchStats();
+    }
+
+    const deleteSymbols = this.db.prepare('DELETE FROM symbols WHERE node_id = ?');
+    const deleteDoc = this.db.prepare('DELETE FROM search_documents WHERE node_id = ?');
+    const deleteFts = this.db.prepare('DELETE FROM node_fts WHERE node_id = ?');
+    const insertDoc = this.db.prepare(`
+      INSERT INTO search_documents(node_id, title, path, kind, source_kind, content_hash, length)
+      VALUES(?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertSymbol = this.db.prepare(
+      'INSERT OR IGNORE INTO symbols(symbol, node_id) VALUES(?, ?)'
+    );
+    const insertFts = this.db.prepare(
+      'INSERT INTO node_fts(node_id, title, body, path, tags) VALUES(?, ?, ?, ?, ?)'
+    );
+
+    this.transaction(() => {
+      for (const row of dirtyRows) {
+        deleteSymbols.run(row.node_id);
+        deleteFts.run(row.node_id);
+        deleteDoc.run(row.node_id);
+
+        const node = graphState.nodes?.[row.node_id];
+        if (Number(row.removed) === 1 || !node || node.status === 'archived' || node.status === 'invalid') continue;
+
+        const text = searchableText(node);
+        const terms = indexTerms(text);
+        if (!terms.length) continue;
+        const docPath = node.metadata?.path ?? sourcePath(node);
+        insertDoc.run(
+          node.id,
+          node.title ?? '',
+          docPath || null,
+          node.kind,
+          node.metadata?.sourceKind ?? null,
+          node.contentHash ?? null,
+          terms.length
+        );
+        insertFts.run(node.id, node.title ?? '', node.body ?? '', docPath ?? '', (node.tags ?? []).join(' '));
+        for (const symbol of extractSymbols(node)) insertSymbol.run(symbol, node.id);
+      }
+      this.db.exec('DELETE FROM search_dirty_nodes;');
+      this.setMeta('search_index_revision', String(graphRevision ?? this.graphRevision()));
+      this.setMeta('search_index_created_at', new Date().toISOString());
+      const count = Number(this.db.prepare('SELECT count(*) AS n FROM search_documents').get()?.n ?? 0);
+      const average = Number(this.db.prepare('SELECT avg(length) AS n FROM search_documents').get()?.n ?? 0);
+      this.setMeta('search_document_count', String(count));
+      this.setMeta('search_average_length', String(average || 0));
     });
 
     return this.searchStats();
