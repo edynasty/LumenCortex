@@ -47,6 +47,7 @@ export class AgentLoop {
     if (options.sessionId) {
       session = this.sessions.load(options.sessionId);
       session.status = 'running';
+      delete session.error;
       if (goal) {
         session.goal = goal;
         session.messages.push({ role: 'user', content: goal });
@@ -260,6 +261,7 @@ export class AgentLoop {
             }
           );
           addUsage(usage, recovered.usage);
+          response = recovered;
           assistant = recovered.message;
           calls = assistant.tool_calls ?? [];
           if (calls.length || String(assistant.content ?? '').trim()) break;
