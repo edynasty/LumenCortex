@@ -16,8 +16,8 @@ jobs:
     timeout-minutes: 25
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      MODELWEAVE_PROVIDER: openrouter-deepseek-free
-      MODELWEAVE_MODEL: deepseek/deepseek-v4-flash-0731:free
+      LUMENCORTEX_PROVIDER: openrouter-deepseek-free
+      LUMENCORTEX_MODEL: deepseek/deepseek-v4-flash-0731:free
 
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
         if: steps.key.outputs.available == 'true'
         shell: bash
         run: |
-          rm -rf .modelweave ds-free
+          rm -rf .lumencortex ds-free
           mkdir -p ds-free
           printf 'DeepSeek free route secret=548271\n' > ds-free/secret.txt
           node src/cli.js init .
@@ -119,7 +119,7 @@ jobs:
           import test from 'node:test';
           import assert from 'node:assert/strict';
           import { slugify } from '../src/slug.js';
-          test('slug',()=>assert.equal(slugify('  Hello   Model Weave  '),'hello-model-weave'));
+          test('slug',()=>assert.equal(slugify('  Hello   Lumen Cortex  '),'hello-lumen-cortex'));
           EOF
           cat > ds-long/test/order.test.js <<'EOF'
           import test from 'node:test';
@@ -155,7 +155,7 @@ jobs:
 
           (cd ds-long && npm test)
           sha256sum -c /tmp/ds-tests.sha
-          tool_count=$(grep -E '→ (read_file|search_text|replace_in_file|write_file|shell|modelweave_context)' /tmp/deepseek-free-long.log | wc -l)
+          tool_count=$(grep -E '→ (read_file|search_text|replace_in_file|write_file|shell|lumencortex_context)' /tmp/deepseek-free-long.log | wc -l)
           echo "TOOL_CALLS=$tool_count"
           [ "$tool_count" -ge 6 ]
           grep -F "[agent] completed" /tmp/deepseek-free-long.log

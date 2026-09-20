@@ -12,10 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      MODELWEAVE_PROVIDER: generic
-      MODELWEAVE_BASE_URL: https://q5dh1rfszfym23hj.us-east-2.aws.endpoints.huggingface.cloud/v1
-      MODELWEAVE_MODEL: deepseek-ai/DeepSeek-V4-Flash-0731
-      MODELWEAVE_REQUIRE_API_KEY: "false"
+      LUMENCORTEX_PROVIDER: generic
+      LUMENCORTEX_BASE_URL: https://q5dh1rfszfym23hj.us-east-2.aws.endpoints.huggingface.cloud/v1
+      LUMENCORTEX_MODEL: deepseek-ai/DeepSeek-V4-Flash-0731
+      LUMENCORTEX_REQUIRE_API_KEY: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,7 +28,7 @@ jobs:
         run: |
           ok=0
           for i in 1 2 3 4; do
-            code=$(curl -sS -m 45 -o /tmp/deepseek-health.json -w '%{http_code}'               "$MODELWEAVE_BASE_URL/chat/completions"               -H 'Content-Type: application/json'               -d '{"model":"deepseek-ai/DeepSeek-V4-Flash-0731","messages":[{"role":"user","content":"Reply only OK"}],"max_tokens":32}') || true
+            code=$(curl -sS -m 45 -o /tmp/deepseek-health.json -w '%{http_code}'               "$LUMENCORTEX_BASE_URL/chat/completions"               -H 'Content-Type: application/json'               -d '{"model":"deepseek-ai/DeepSeek-V4-Flash-0731","messages":[{"role":"user","content":"Reply only OK"}],"max_tokens":32}') || true
             echo "attempt=$i http=$code"
             cat /tmp/deepseek-health.json || true
             echo
@@ -39,13 +39,13 @@ jobs:
       - name: Real DeepSeek tool-call loop
         shell: bash
         run: |
-          rm -rf .modelweave deepseek-public
+          rm -rf .lumencortex deepseek-public
           mkdir -p deepseek-public
           printf 'public-deepseek-secret=913624\n' > deepseek-public/secret.txt
           node src/cli.js init .
           node src/cli.js ingest deepseek-public
           node src/cli.js commit "public deepseek baseline"
           set -o pipefail
-          node src/cli.js agent             "Use read_file to inspect deepseek-public/secret.txt, then return exactly SECRET=<number>. Do not guess."             --provider generic             --model deepseek-ai/DeepSeek-V4-Flash-0731             --base-url "$MODELWEAVE_BASE_URL"             --budget 1600             --recent-rounds 3             --working-chars 22000             --max-tokens 300             --max-steps 8             --yes | tee /tmp/deepseek-public-agent.log
+          node src/cli.js agent             "Use read_file to inspect deepseek-public/secret.txt, then return exactly SECRET=<number>. Do not guess."             --provider generic             --model deepseek-ai/DeepSeek-V4-Flash-0731             --base-url "$LUMENCORTEX_BASE_URL"             --budget 1600             --recent-rounds 3             --working-chars 22000             --max-tokens 300             --max-steps 8             --yes | tee /tmp/deepseek-public-agent.log
           grep -E '→ read_file' /tmp/deepseek-public-agent.log
           grep -F 'SECRET=913624' /tmp/deepseek-public-agent.log

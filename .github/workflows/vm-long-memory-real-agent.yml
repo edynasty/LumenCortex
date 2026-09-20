@@ -37,7 +37,7 @@ jobs:
       - name: Build long-memory fixture
         shell: bash
         run: |
-          rm -rf .modelweave memory-long
+          rm -rf .lumencortex memory-long
           mkdir -p memory-long
           for i in 01 02 03 04; do
             value=$((9100 + 10#$i * 23))
@@ -65,10 +65,10 @@ jobs:
       - name: Run real-model long-memory task
         timeout-minutes: 25
         env:
-          MODELWEAVE_PROVIDER: generic
-          MODELWEAVE_BASE_URL: http://127.0.0.1:11434/v1
-          MODELWEAVE_MODEL: qwen3:4b-instruct
-          MODELWEAVE_REQUIRE_API_KEY: "false"
+          LUMENCORTEX_PROVIDER: generic
+          LUMENCORTEX_BASE_URL: http://127.0.0.1:11434/v1
+          LUMENCORTEX_MODEL: qwen3:4b-instruct
+          LUMENCORTEX_REQUIRE_API_KEY: "false"
         shell: bash
         run: |
           set -o pipefail
@@ -102,7 +102,7 @@ jobs:
 
           node --input-type=module <<'EOF'
           import fs from 'node:fs';
-          const dir = '.modelweave/sessions';
+          const dir = '.lumencortex/sessions';
           const files = fs.readdirSync(dir).filter(x => x.endsWith('.json'));
           const sessions = files.map(x => JSON.parse(fs.readFileSync(`${dir}/${x}`, 'utf8')))
             .sort((a,b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));

@@ -48,7 +48,3 @@ A RAG query normally returns top-k chunks. LumenCortex also uses:
 
 The active context is therefore a versioned subgraph, not just a similarity search result.
 
-
-## ModelWeave compatibility
-
-Existing OpenCode workspaces that already contain the old `modelweave_context`, `modelweave_ingest`, or `modelweave_state` files continue to work through the deprecated `modelweave` CLI alias. Re-running `lcx install-opencode .` installs the LumenCortex-named tools.

@@ -6,7 +6,7 @@
 
 The short CLI is `lcx`. Running either `lumencortex` or `lcx` with no arguments opens the full-screen TUI.
 
-Existing ModelWeave workspaces are migrated automatically from `.modelweave/` to `.lumencortex/`. The old `modelweave` command remains as a deprecated compatibility alias.
+Existing LumenCortex workspaces are migrated automatically from `.lumencortex/` to `.lumencortex/`. The old `modelweave` command remains as a deprecated compatibility alias.
 
 ## v0.5 LumenCortex runtime
 
@@ -51,7 +51,7 @@ Existing ModelWeave workspaces are migrated automatically from `.modelweave/` to
 ## Install
 
 ```bash
-npm install -g github:edynasty/ModelWeave  # current repository URL; rename in GitHub Settings is still pending
+npm install -g github:edynasty/LumenCortex
 ```
 
 Inside a repository:
@@ -205,7 +205,7 @@ OPENROUTER_API_KEY=... npm run smoke:free
 or:
 
 ```bash
-MODELWEAVE_PROVIDER=groq GROQ_API_KEY=... npm run smoke:free
+LUMENCORTEX_PROVIDER=groq GROQ_API_KEY=... npm run smoke:free
 ```
 
 ## OpenCode mode
@@ -280,12 +280,3 @@ MIT
 - `--provider openrouter-deepseek-free` defaults to `deepseek/deepseek-v4-flash-0731:free`, the zero-token-price OpenRouter V4 Flash 0731 route.
 - The OpenRouter free route still requires an `OPENROUTER_API_KEY` for authentication even though prompt/completion token price is zero.
 
-
-## Rename compatibility
-
-LumenCortex v0.5 keeps compatibility with the former ModelWeave name:
-
-- `modelweave` remains a deprecated CLI alias.
-- `MODELWEAVE_*` generic-provider/LSP environment variables remain accepted as fallbacks.
-- legacy `.modelweave/` repositories migrate automatically to `.lumencortex/` on first open.
-- legacy Agent tool names `modelweave_context` and `modelweave_ingest` remain executable for resumed old sessions but are hidden from new tool schemas.

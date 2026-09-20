@@ -44,7 +44,7 @@ jobs:
       - name: Prepare smoke workspace
         shell: bash
         run: |
-          rm -rf .modelweave vm-smoke
+          rm -rf .lumencortex vm-smoke
           mkdir -p vm-smoke
           printf 'The VM-only secret code is 731942.\n' > vm-smoke/secret.txt
           printf 'export function add(a,b){ return a-b }\n' > vm-smoke/calc.js
@@ -54,10 +54,10 @@ jobs:
 
       - name: Verify local OpenAI-compatible endpoint
         env:
-          MODELWEAVE_PROVIDER: generic
-          MODELWEAVE_BASE_URL: http://127.0.0.1:11434/v1
-          MODELWEAVE_MODEL: qwen3:4b-instruct
-          MODELWEAVE_REQUIRE_API_KEY: "false"
+          LUMENCORTEX_PROVIDER: generic
+          LUMENCORTEX_BASE_URL: http://127.0.0.1:11434/v1
+          LUMENCORTEX_MODEL: qwen3:4b-instruct
+          LUMENCORTEX_REQUIRE_API_KEY: "false"
         run: |
           node src/cli.js doctor --provider generic --live
 
@@ -65,10 +65,10 @@ jobs:
         id: agent
         continue-on-error: true
         env:
-          MODELWEAVE_PROVIDER: generic
-          MODELWEAVE_BASE_URL: http://127.0.0.1:11434/v1
-          MODELWEAVE_MODEL: qwen3:4b-instruct
-          MODELWEAVE_REQUIRE_API_KEY: "false"
+          LUMENCORTEX_PROVIDER: generic
+          LUMENCORTEX_BASE_URL: http://127.0.0.1:11434/v1
+          LUMENCORTEX_MODEL: qwen3:4b-instruct
+          LUMENCORTEX_REQUIRE_API_KEY: "false"
         shell: bash
         run: |
           set -o pipefail
@@ -125,10 +125,10 @@ jobs:
         timeout-minutes: 15
         shell: bash
         env:
-          MODELWEAVE_PROVIDER: generic
-          MODELWEAVE_BASE_URL: http://127.0.0.1:11434/v1
-          MODELWEAVE_MODEL: qwen3:4b-instruct
-          MODELWEAVE_REQUIRE_API_KEY: "false"
+          LUMENCORTEX_PROVIDER: generic
+          LUMENCORTEX_BASE_URL: http://127.0.0.1:11434/v1
+          LUMENCORTEX_MODEL: qwen3:4b-instruct
+          LUMENCORTEX_REQUIRE_API_KEY: "false"
         run: |
           set -o pipefail
           node src/cli.js agent \
