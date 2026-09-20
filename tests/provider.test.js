@@ -33,3 +33,23 @@ test('OpenRouter DeepSeek free preset pins the tool-capable V4 Flash route', () 
   assert.equal(preset.apiKeyEnv, 'OPENROUTER_API_KEY');
   assert.equal(preset.defaultModel, 'deepseek/deepseek-v4-flash-0731:free');
 });
+
+
+test('provider normalizes reasoning_content without treating it as final content', async () => {
+  const fetchImpl = async () => new Response(JSON.stringify({
+    model: 'fake',
+    choices: [{
+      finish_reason: 'stop',
+      message: { role: 'assistant', content: '', reasoning_content: 'internal reasoning only' }
+    }]
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  const provider = new OpenAICompatibleProvider({
+    baseURL: 'https://example.test/v1',
+    apiKey: 'x',
+    model: 'm',
+    fetchImpl
+  });
+  const result = await provider.complete({ messages: [{ role: 'user', content: 'x' }] });
+  assert.equal(result.message.content, '');
+  assert.equal(result.message.reasoning, 'internal reasoning only');
+});
