@@ -7,12 +7,13 @@ const DEFAULT_READ_TOOLS = [
 ];
 
 export class SubagentPool {
-  constructor({ provider, repository, runtime, workspace, tools, authorize, onEvent, concurrency = 4 } = {}) {
+  constructor({ provider, repository, runtime, workspace, tools, sessionStore, authorize, onEvent, concurrency = 4 } = {}) {
     this.provider = provider;
     this.repository = repository;
     this.runtime = runtime;
     this.workspace = workspace;
     this.tools = tools;
+    this.sessionStore = sessionStore;
     this.authorize = authorize;
     this.onEvent = onEvent ?? (() => {});
     this.concurrency = Math.max(1, Number(concurrency));
@@ -37,6 +38,7 @@ export class SubagentPool {
       runtime: this.runtime,
       workspace: this.workspace,
       tools: this.tools,
+      sessionStore: this.sessionStore,
       authorize: this.authorize,
       onEvent: (event) => this.onEvent({ ...event, subagent: true, role })
     });
