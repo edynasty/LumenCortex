@@ -4,9 +4,9 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { PersistentSearchIndex } from '../src/search-index.js';
 
-const count=Number(process.env.MODELWEAVE_SEARCH_BENCH_NODES ?? 100000);
-const queries=Number(process.env.MODELWEAVE_SEARCH_BENCH_QUERIES ?? 50);
-const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mw-search-bench-'));
+const count=Number(process.env.LUMENCORTEX_SEARCH_BENCH_NODES ?? 100000);
+const queries=Number(process.env.LUMENCORTEX_SEARCH_BENCH_QUERIES ?? 50);
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'lcx-search-bench-'));
 const graph={nodes:{},edges:{}};
 
 for(let i=0;i<count;i+=1){

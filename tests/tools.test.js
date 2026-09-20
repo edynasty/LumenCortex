@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createCodingTools, resolveInside, ToolRegistry } from '../src/tools.js';
 import { CognitiveRepository } from '../src/repository.js';
-import { ModelWeaveRuntime } from '../src/runtime.js';
+import { LumenCortexRuntime } from '../src/runtime.js';
 
 test('resolveInside blocks traversal', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mw-tools-'));
@@ -52,17 +52,17 @@ test('tool registry can expose a bounded schema working set', () => {
 });
 
 
-test('LumenCortex tools advertise new names while legacy ModelWeave aliases stay executable but hidden', () => {
+test('LumenCortex tools expose only LumenCortex cognitive tool names', () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'lumencortex-tools-'));
   const repo=new CognitiveRepository(root);
   repo.init();
-  const runtime=new ModelWeaveRuntime(repo);
+  const runtime=new LumenCortexRuntime(repo);
   const registry=createCodingTools({workspace:root,repository:repo,runtime});
   const names=registry.schemas().map(schema=>schema.function.name);
   assert.ok(names.includes('lumencortex_context'));
   assert.ok(names.includes('lumencortex_ingest'));
-  assert.equal(names.includes('modelweave_context'),false);
-  assert.equal(names.includes('modelweave_ingest'),false);
-  assert.equal(registry.get('modelweave_context').hidden,true);
-  assert.equal(registry.get('modelweave_ingest').hidden,true);
+  assert.deepEqual(
+    names.filter(name => name.includes('cortex') || name.includes('weave')).sort(),
+    ['lumencortex_context','lumencortex_ingest']
+  );
 });

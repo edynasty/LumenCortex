@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { CognitiveRepository, ModelWeaveRuntime, PromotionController } from '../src/index.js';
+import { CognitiveRepository, LumenCortexRuntime, PromotionController } from '../src/index.js';
 
 test('active promotion creates a reusable parent without deleting child detail', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mw-promotion-controller-'));
@@ -26,7 +26,7 @@ test('active promotion creates a reusable parent without deleting child detail',
   }
   repo.writeGraph(graph.snapshot());
 
-  const runtime = new ModelWeaveRuntime(repo);
+  const runtime = new LumenCortexRuntime(repo);
   const controller = new PromotionController(runtime, {
     pressureThreshold: 0.7,
     nodeThreshold: 8,
@@ -83,7 +83,7 @@ test('active promotion can trigger from repeated activation before token pressur
   }
   repo.writeGraph(graph.snapshot());
 
-  const runtime = new ModelWeaveRuntime(repo);
+  const runtime = new LumenCortexRuntime(repo);
   const controller = new PromotionController(runtime, {
     pressureThreshold: 0.95,
     nodeThreshold: 99,

@@ -5,14 +5,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { AgentLoop } from '../src/agent.js';
 import { CognitiveRepository } from '../src/repository.js';
-import { ModelWeaveRuntime } from '../src/runtime.js';
+import { LumenCortexRuntime } from '../src/runtime.js';
 import { ToolRegistry } from '../src/tools.js';
 
 test('old tool evidence returns through the cognitive graph after chat rounds are paged out', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mw-graph-memory-agent-'));
   const repository = new CognitiveRepository(root);
   repository.init();
-  const runtime = new ModelWeaveRuntime(repository);
+  const runtime = new LumenCortexRuntime(repository);
 
   const values = ['memory-one', 'memory-two', 'memory-three', 'memory-four'];
   let call = 0;

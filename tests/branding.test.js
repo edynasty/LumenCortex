@@ -8,13 +8,12 @@ import { BRAND } from '../src/brand.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 
-test('LumenCortex package exposes short, full and legacy CLI commands', () => {
+test('LumenCortex package exposes short and full CLI commands', () => {
   const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
   assert.equal(pkg.name,'lumencortex');
   assert.equal(pkg.version,'0.5.0');
   assert.equal(pkg.bin.lcx,'./bin/lcx.js');
   assert.equal(pkg.bin.lumencortex,'./bin/lumencortex.js');
-  assert.equal(pkg.bin.modelweave,'./bin/modelweave.js');
   assert.equal(BRAND.name,'LumenCortex');
   assert.equal(BRAND.stateDir,'.lumencortex');
 });

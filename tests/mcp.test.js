@@ -44,9 +44,9 @@ test('MCP client falls back to legacy initialize and manager exposes remote tool
   const registry=new ToolRegistry();
   const added=await manager.registerTools(registry);
   assert.equal(added[0].localName,'mcp_demo_upper');
-  const output=await registry.execute('mcp_demo_upper',{text:'modelweave'});
+  const output=await registry.execute('mcp_demo_upper',{text:'lumencortex'});
   assert.equal(output.ok,true);
-  assert.match(output.content,/MODELWEAVE/);
+  assert.match(output.content,/LUMENCORTEX/);
   assert.equal(manager.clients.get('demo').era,'legacy');
   await manager.close();
 });

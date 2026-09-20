@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CognitiveRepository } from '../src/repository.js';
-import { ModelWeaveRuntime } from '../src/runtime.js';
+import { LumenCortexRuntime } from '../src/runtime.js';
 import { ToolRegistry } from '../src/tools.js';
 import { SubagentPool } from '../src/subagent.js';
 import { ParallelSessionRunner } from '../src/parallel.js';
@@ -13,7 +13,7 @@ test('subagents run as distinct durable sessions and parallel runner aggregates 
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'mw-subagents-'));
   const repo=new CognitiveRepository(root);
   repo.init();
-  const runtime=new ModelWeaveRuntime(repo);
+  const runtime=new LumenCortexRuntime(repo);
   let active=0;
   let maxActive=0;
   const provider={

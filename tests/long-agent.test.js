@@ -8,7 +8,7 @@ import { ToolRegistry } from '../src/tools.js';
 
 test('long agent task refreshes attention every step while bounding model working history', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mw-long-agent-'));
-  const repoDir = path.join(root, '.modelweave');
+  const repoDir = path.join(root, '.lumencortex');
   fs.mkdirSync(repoDir, { recursive: true });
 
   const repository = {

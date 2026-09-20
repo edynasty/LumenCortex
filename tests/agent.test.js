@@ -9,7 +9,7 @@ import { AgentSessionStore } from '../src/session.js';
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mw-agent-'));
-  const repoDir = path.join(root, '.modelweave');
+  const repoDir = path.join(root, '.lumencortex');
   fs.mkdirSync(repoDir, { recursive: true });
   const graphState = { version: 1, nodes: {}, edges: {}, metadata: {} };
   const repository = {

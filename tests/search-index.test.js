@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CognitiveRepository } from '../src/repository.js';
-import { ModelWeaveRuntime } from '../src/runtime.js';
+import { LumenCortexRuntime } from '../src/runtime.js';
 
 test('persistent search index ranks exact code symbols and seeds Attention Light', () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'mw-search-'));
@@ -29,7 +29,7 @@ test('persistent search index ranks exact code symbols and seeds Attention Light
   });
   repo.writeGraph(graph.snapshot());
 
-  const runtime=new ModelWeaveRuntime(repo);
+  const runtime=new LumenCortexRuntime(repo);
   const stats=runtime.refreshSearchIndex();
   assert.equal(stats.documentCount >= 2,true);
 
@@ -47,7 +47,7 @@ test('runtime automatically refreshes a stale search index after graph mutation'
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'mw-search-revision-'));
   const repo=new CognitiveRepository(root);
   repo.init();
-  const runtime=new ModelWeaveRuntime(repo);
+  const runtime=new LumenCortexRuntime(repo);
   runtime.refreshSearchIndex();
   const before=runtime.searchIndex.stats().graphRevision;
 

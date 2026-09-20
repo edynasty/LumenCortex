@@ -3,11 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   CognitiveRepository,
-  ModelWeaveRuntime,
+  LumenCortexRuntime,
   ingestWorkspace
 } from '../src/index.js';
 
-const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'modelweave-demo-'));
+const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'lumencortex-demo-'));
 fs.mkdirSync(path.join(workspace, 'src'));
 fs.writeFileSync(path.join(workspace, 'src', 'inventory.js'), `
 export function submit(stock) {
@@ -32,7 +32,7 @@ const ingested = ingestWorkspace(repo.graph().snapshot(), workspace);
 repo.writeGraph(ingested.graph);
 repo.commit('ingest demo repository');
 
-const runtime = new ModelWeaveRuntime(repo);
+const runtime = new LumenCortexRuntime(repo);
 const context = runtime.context('where is inventory deducted when an application is accepted?', { budgetTokens: 3000 });
 
 console.log('Workspace:', workspace);

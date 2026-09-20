@@ -5,13 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   CognitiveRepository,
-  ModelWeaveRuntime,
+  LumenCortexRuntime,
   auditEvidence,
   promoteNodes
 } from '../src/index.js';
 
 function runtimeRepo() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'modelweave-runtime-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumencortex-runtime-'));
   const repo = new CognitiveRepository(dir);
   repo.init();
   return repo;
@@ -51,7 +51,7 @@ test('runtime commits structured worker output atomically', async () => {
   repo.writeGraph(graph.snapshot());
   repo.commit('seed source');
 
-  const runtime = new ModelWeaveRuntime(repo);
+  const runtime = new LumenCortexRuntime(repo);
   const result = await runtime.execute('determine submit inventory behavior', {
     async reason() {
       return {
@@ -76,7 +76,7 @@ test('runtime commits structured worker output atomically', async () => {
 test('runtime rolls back invalid model-inferred evidence', async () => {
   const repo = runtimeRepo();
   const before = repo.graph().snapshot();
-  const runtime = new ModelWeaveRuntime(repo);
+  const runtime = new LumenCortexRuntime(repo);
   await assert.rejects(
     runtime.execute('bad evidence', {
       async reason() {
