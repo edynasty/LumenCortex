@@ -14,3 +14,10 @@ export * from './session.js';
 export * from './agent.js';
 
 export * from './promotion-controller.js';
+
+export * from './search-index.js';
+export * from './lsp.js';
+export * from './mcp.js';
+export * from './subagent.js';
+export * from './parallel.js';
+export * from './tui.js';
