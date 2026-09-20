@@ -102,6 +102,20 @@ try {
     case 'mcp':
       await mcpCommand({ workspace, argv: args });
       break;
+    case 'db': {
+      const action = args.shift() ?? 'status';
+      if (action === 'status') console.log(JSON.stringify(repo.database.status(), null, 2));
+      else if (action === 'integrity') {
+        const result = repo.database.integrityCheck();
+        console.log(JSON.stringify(result, null, 2));
+        if (!result.ok) process.exitCode = 2;
+      } else if (action === 'checkpoint') {
+        console.log(JSON.stringify(repo.database.checkpoint(args[0] ?? 'TRUNCATE'), null, 2));
+      } else if (action === 'journal') {
+        console.log(JSON.stringify(repo.journal(Number(args[0] ?? 100)), null, 2));
+      } else fail('Usage: lcx db <status|integrity|checkpoint|journal> [arg]');
+      break;
+    }
     case 'status': {
       const diff = repo.status();
       console.log(`${diff.operations.length} uncommitted operation(s)`);
@@ -659,6 +673,7 @@ Code intelligence:
   ingest [dir] [--chunk-lines 160] [--max-bytes 524288]
   index <build|stats>
   search <query> [--limit 40]
+  db <status|integrity|checkpoint|journal> [arg]
   lsp <status|symbols|definition|references|hover|diagnostics> ...
   mcp <status|tools|call> ...
 
