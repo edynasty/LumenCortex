@@ -73,3 +73,22 @@ test('cognitive rebase replays branch cognition onto a newer base', () => {
   assert.equal(repo.currentBranch(), 'feature');
   assert.ok(result.commits.length >= 1);
 });
+
+
+test('cognitive blame follows merged-parent provenance', () => {
+  const repo = tempRepo();
+  repo.createBranch('finding');
+  repo.checkout('finding');
+
+  let graph = repo.graph();
+  graph.addNode({ id: 'merged-finding', kind: 'belief', title: 'Merged provenance', body: 'came from finding branch' });
+  repo.writeGraph(graph.snapshot());
+  const source = repo.commit('source branch finding');
+
+  repo.checkout('main');
+  const merged = repo.merge('finding');
+  assert.equal(merged.conflicts.length, 0);
+
+  const history = repo.blame('merged-finding');
+  assert.ok(history.some((entry) => entry.commitId === source.id));
+});
