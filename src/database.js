@@ -284,13 +284,10 @@ export class LumenCortexDatabase {
     });
   }
 
-  syncGraph(state, { expectedRevision = null } = {}) {
-    const nextNodes = new Map(
-      Object.values(state.nodes ?? {}).map((node) => [node.id, JSON.stringify(node)])
-    );
-    const nextEdges = new Map(
-      Object.values(state.edges ?? {}).map((edge) => [edge.id, JSON.stringify(edge)])
-    );
+  syncGraph(state, { expectedRevision = null, mutationHints = null } = {}) {
+    const hasHints = mutationHints?.version === 1;
+    let nextNodes = null;
+    let nextEdges = null;
 
     const upsertNode = this.db.prepare(`
       INSERT INTO graph_nodes(id, kind, status, title, body, path, source_kind, updated_at, version, json)
@@ -335,29 +332,49 @@ export class LumenCortexDatabase {
         throw error;
       }
 
-      const existingNodes = new Map(
-        this.db.prepare('SELECT id, json FROM graph_nodes').all().map((row) => [row.id, row.json])
-      );
-      const existingEdges = new Map(
-        this.db.prepare('SELECT id, json FROM graph_edges').all().map((row) => [row.id, row.json])
-      );
+      let changedNodeIds;
+      let removedNodeIds;
+      let changedEdgeIds;
+      let removedEdgeIds;
 
-      const changedNodeIds = [];
-      const removedNodeIds = [];
-      const changedEdgeIds = [];
-      const removedEdgeIds = [];
+      if (hasHints) {
+        changedNodeIds = [...new Set(mutationHints.changedNodeIds ?? [])]
+          .filter((id) => Boolean(state.nodes?.[id]));
+        removedNodeIds = [...new Set(mutationHints.removedNodeIds ?? [])];
+        changedEdgeIds = [...new Set(mutationHints.changedEdgeIds ?? [])]
+          .filter((id) => Boolean(state.edges?.[id]));
+        removedEdgeIds = [...new Set(mutationHints.removedEdgeIds ?? [])];
+      } else {
+        nextNodes = new Map(
+          Object.values(state.nodes ?? {}).map((node) => [node.id, JSON.stringify(node)])
+        );
+        nextEdges = new Map(
+          Object.values(state.edges ?? {}).map((edge) => [edge.id, JSON.stringify(edge)])
+        );
+        const existingNodes = new Map(
+          this.db.prepare('SELECT id, json FROM graph_nodes').all().map((row) => [row.id, row.json])
+        );
+        const existingEdges = new Map(
+          this.db.prepare('SELECT id, json FROM graph_edges').all().map((row) => [row.id, row.json])
+        );
 
-      for (const [id, json] of nextNodes) {
-        if (existingNodes.get(id) !== json) changedNodeIds.push(id);
-      }
-      for (const id of existingNodes.keys()) {
-        if (!nextNodes.has(id)) removedNodeIds.push(id);
-      }
-      for (const [id, json] of nextEdges) {
-        if (existingEdges.get(id) !== json) changedEdgeIds.push(id);
-      }
-      for (const id of existingEdges.keys()) {
-        if (!nextEdges.has(id)) removedEdgeIds.push(id);
+        changedNodeIds = [];
+        removedNodeIds = [];
+        changedEdgeIds = [];
+        removedEdgeIds = [];
+
+        for (const [id, json] of nextNodes) {
+          if (existingNodes.get(id) !== json) changedNodeIds.push(id);
+        }
+        for (const id of existingNodes.keys()) {
+          if (!nextNodes.has(id)) removedNodeIds.push(id);
+        }
+        for (const [id, json] of nextEdges) {
+          if (existingEdges.get(id) !== json) changedEdgeIds.push(id);
+        }
+        for (const id of existingEdges.keys()) {
+          if (!nextEdges.has(id)) removedEdgeIds.push(id);
+        }
       }
 
       const metadataChanged =
@@ -385,13 +402,20 @@ export class LumenCortexDatabase {
           node.metadata?.sourceKind ?? null,
           node.updatedAt ?? null,
           Number(node.version ?? 1),
-          nextNodes.get(id)
+          hasHints ? JSON.stringify(node) : nextNodes.get(id)
         );
         dirty.run(id, 0);
       }
       for (const id of changedEdgeIds) {
         const edge = state.edges[id];
-        upsertEdge.run(edge.id, edge.from, edge.to, edge.type, Number(edge.weight ?? 1), nextEdges.get(id));
+        upsertEdge.run(
+          edge.id,
+          edge.from,
+          edge.to,
+          edge.type,
+          Number(edge.weight ?? 1),
+          hasHints ? JSON.stringify(edge) : nextEdges.get(id)
+        );
       }
 
       const revision = currentRevision + 1;
