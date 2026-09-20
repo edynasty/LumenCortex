@@ -99,7 +99,7 @@ export class AttentionEngine {
 
     const selectedIds = new Set(selected.map((x) => x.nodeId));
     const edges = Object.values(this.graph.edges ?? {}).filter(
-      (edge) => selectedIds.has(edge.from) && selectedIds.has(edge.to)
+      (edge) => edgeParticipates(edge) && selectedIds.has(edge.from) && selectedIds.has(edge.to)
     );
 
     return {
@@ -132,7 +132,8 @@ export class AttentionEngine {
       }
     }
     for (const edge of Object.values(this.graph.edges ?? {})) {
-      if ((edge.type === 'contradicts' || edge.type === 'invalidates') &&
+      if (edgeParticipates(edge) &&
+          (edge.type === 'contradicts' || edge.type === 'invalidates') &&
           (exploitIds.has(edge.from) || exploitIds.has(edge.to))) {
         contrarianSeeds.push(edge.from, edge.to);
       }
@@ -182,6 +183,7 @@ function scoreSeeds(graph, goal, cfg) {
 function buildAdjacency(graph) {
   const map = new Map();
   for (const edge of Object.values(graph.edges ?? {})) {
+    if (!edgeParticipates(edge)) continue;
     if (!map.has(edge.from)) map.set(edge.from, []);
     if (!map.has(edge.to)) map.set(edge.to, []);
     map.get(edge.from).push({ edge, nodeId: edge.to, direction: 'out' });
@@ -190,6 +192,10 @@ function buildAdjacency(graph) {
   return map;
 }
 
+
+function edgeParticipates(edge) {
+  return edge?.metadata?.attentionCut !== true;
+}
 
 function attentionReliability(node, cfg) {
   // Trust/evidence quality influences attention, but must not hide a low-confidence
