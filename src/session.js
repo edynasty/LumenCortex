@@ -1,11 +1,9 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { LumenCortexDatabase } from './database.js';
 
 export class AgentSessionStore {
   constructor(repositoryDir) {
-    this.dir = path.join(repositoryDir, 'sessions');
-    fs.mkdirSync(this.dir, { recursive: true });
+    this.database = new LumenCortexDatabase(repositoryDir);
   }
 
   create(input = {}) {
@@ -28,27 +26,22 @@ export class AgentSessionStore {
 
   save(session) {
     session.updatedAt = new Date().toISOString();
-    fs.writeFileSync(this.file(session.id), JSON.stringify(session, null, 2));
+    this.database.saveSession(session);
     return session;
   }
 
   load(id) {
-    const file = this.file(id);
-    if (!fs.existsSync(file)) throw new Error(`Unknown session: ${id}`);
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    validateSessionId(id);
+    const session = this.database.loadSession(id);
+    if (!session) throw new Error(`Unknown session: ${id}`);
+    return session;
   }
 
   list(limit = 20) {
-    return fs.readdirSync(this.dir)
-      .filter((name) => name.endsWith('.json'))
-      .map((name) => JSON.parse(fs.readFileSync(path.join(this.dir, name), 'utf8')))
-      .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
-      .slice(0, limit)
-      .map(({ messages, steps, ...meta }) => ({ ...meta, messageCount: messages.length, stepCount: steps.length }));
+    return this.database.listSessions(limit);
   }
+}
 
-  file(id) {
-    if (!/^[A-Za-z0-9._-]+$/.test(id)) throw new Error(`Invalid session id: ${id}`);
-    return path.join(this.dir, `${id}.json`);
-  }
+function validateSessionId(id) {
+  if (!/^[A-Za-z0-9._-]+$/.test(id)) throw new Error(`Invalid session id: ${id}`);
 }
