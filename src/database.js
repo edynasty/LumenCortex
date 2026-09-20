@@ -874,6 +874,55 @@ export class LumenCortexDatabase {
     });
   }
 
+  status() {
+    const scalar = (sql, key) => this.db.prepare(sql).get()?.[key] ?? null;
+    const count = (table) => Number(this.db.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n ?? 0);
+    const fileSize = (file) => {
+      try { return fs.statSync(file).size; } catch { return 0; }
+    };
+    return {
+      file: this.file,
+      fileSizeBytes: fileSize(this.file),
+      walSizeBytes: fileSize(`${this.file}-wal`),
+      shmSizeBytes: fileSize(`${this.file}-shm`),
+      journalMode: String(scalar('PRAGMA journal_mode', 'journal_mode') ?? ''),
+      synchronous: Number(scalar('PRAGMA synchronous', 'synchronous') ?? 0),
+      busyTimeoutMs: Number(scalar('PRAGMA busy_timeout', 'timeout') ?? 0),
+      schemaVersion: Number(this.getMeta('schema_version') ?? 0),
+      graphRevision: this.graphRevision(),
+      searchRevision: Number(this.getMeta('search_index_revision') ?? -1),
+      counts: {
+        graphNodes: count('graph_nodes'),
+        graphEdges: count('graph_edges'),
+        cognitiveCommits: count('cognitive_commits'),
+        cognitiveCheckpoints: count('cognitive_checkpoints'),
+        cognitiveRefs: count('cognitive_refs'),
+        sessions: count('sessions'),
+        sessionMessages: count('session_messages'),
+        agentSteps: count('agent_steps'),
+        journal: count('journal'),
+        searchDocuments: count('search_documents'),
+        symbols: count('symbols'),
+        dirtySearchNodes: count('search_dirty_nodes')
+      }
+    };
+  }
+
+  integrityCheck() {
+    const rows = this.db.prepare('PRAGMA integrity_check').all();
+    const messages = rows.flatMap((row) => Object.values(row).map(String));
+    return { ok: messages.length === 1 && messages[0].toLowerCase() === 'ok', messages };
+  }
+
+  checkpoint(mode = 'TRUNCATE') {
+    const normalized = String(mode).toUpperCase();
+    if (!['PASSIVE', 'FULL', 'RESTART', 'TRUNCATE'].includes(normalized)) {
+      throw new Error(`Unsupported WAL checkpoint mode: ${mode}`);
+    }
+    const rows = this.db.prepare(`PRAGMA wal_checkpoint(${normalized})`).all();
+    return { mode: normalized, rows };
+  }
+
   searchStats() {
     const documentCount = Number(this.db.prepare(
       'SELECT count(*) AS n FROM search_documents'
