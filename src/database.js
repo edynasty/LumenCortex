@@ -584,6 +584,12 @@ export class LumenCortexDatabase {
 
   clearSearchIndex() {
     this.transaction(() => {
+      const currentGraphRevision = this.graphRevision();
+      if (graphRevision !== null && Number(graphRevision) !== currentGraphRevision) {
+        const error = new Error(`Search rebuild revision conflict: expected ${graphRevision}, current ${currentGraphRevision}`);
+        error.code = 'SEARCH_REVISION_CONFLICT';
+        throw error;
+      }
       this.db.exec('DELETE FROM symbols; DELETE FROM search_documents; DELETE FROM node_fts;');
       this.setMeta('search_index_revision', '-1');
       this.setMeta('search_index_created_at', '');
@@ -651,15 +657,10 @@ export class LumenCortexDatabase {
       return this.rebuildSearchIndex(graphState, { graphRevision, extractSymbols, searchableText, indexTerms });
     }
 
-    const dirtyRows = this.db.prepare('SELECT node_id, removed FROM search_dirty_nodes').all();
-    if (!dirtyRows.length) {
-      this.setMeta('search_index_revision', String(graphRevision ?? this.graphRevision()));
-      return this.searchStats();
-    }
-
     const deleteSymbols = this.db.prepare('DELETE FROM symbols WHERE node_id = ?');
     const deleteDoc = this.db.prepare('DELETE FROM search_documents WHERE node_id = ?');
     const deleteFts = this.db.prepare('DELETE FROM node_fts WHERE node_id = ?');
+    const deleteDirty = this.db.prepare('DELETE FROM search_dirty_nodes WHERE node_id = ?');
     const insertDoc = this.db.prepare(`
       INSERT INTO search_documents(node_id, title, path, kind, source_kind, content_hash, length)
       VALUES(?, ?, ?, ?, ?, ?, ?)
@@ -672,32 +673,44 @@ export class LumenCortexDatabase {
     );
 
     this.transaction(() => {
+      const currentGraphRevision = this.graphRevision();
+      if (graphRevision !== null && Number(graphRevision) !== currentGraphRevision) {
+        const error = new Error(
+          `Search sync revision conflict: expected ${graphRevision}, current ${currentGraphRevision}`
+        );
+        error.code = 'SEARCH_REVISION_CONFLICT';
+        throw error;
+      }
+
+      const dirtyRows = this.db.prepare('SELECT node_id, removed FROM search_dirty_nodes').all();
       for (const row of dirtyRows) {
         deleteSymbols.run(row.node_id);
         deleteFts.run(row.node_id);
         deleteDoc.run(row.node_id);
 
         const node = graphState.nodes?.[row.node_id];
-        if (Number(row.removed) === 1 || !node || node.status === 'archived' || node.status === 'invalid') continue;
-
-        const text = searchableText(node);
-        const terms = indexTerms(text);
-        if (!terms.length) continue;
-        const docPath = node.metadata?.path ?? sourcePath(node);
-        insertDoc.run(
-          node.id,
-          node.title ?? '',
-          docPath || null,
-          node.kind,
-          node.metadata?.sourceKind ?? null,
-          node.contentHash ?? null,
-          terms.length
-        );
-        insertFts.run(node.id, node.title ?? '', node.body ?? '', docPath ?? '', (node.tags ?? []).join(' '));
-        for (const symbol of extractSymbols(node)) insertSymbol.run(symbol, node.id);
+        if (Number(row.removed) !== 1 && node && node.status !== 'archived' && node.status !== 'invalid') {
+          const text = searchableText(node);
+          const terms = indexTerms(text);
+          if (terms.length) {
+            const docPath = node.metadata?.path ?? sourcePath(node);
+            insertDoc.run(
+              node.id,
+              node.title ?? '',
+              docPath || null,
+              node.kind,
+              node.metadata?.sourceKind ?? null,
+              node.contentHash ?? null,
+              terms.length
+            );
+            insertFts.run(node.id, node.title ?? '', node.body ?? '', docPath ?? '', (node.tags ?? []).join(' '));
+            for (const symbol of extractSymbols(node)) insertSymbol.run(symbol, node.id);
+          }
+        }
+        deleteDirty.run(row.node_id);
       }
-      this.db.exec('DELETE FROM search_dirty_nodes;');
-      this.setMeta('search_index_revision', String(graphRevision ?? this.graphRevision()));
+
+      this.setMeta('search_index_revision', String(graphRevision ?? currentGraphRevision));
       this.setMeta('search_index_created_at', new Date().toISOString());
       const count = Number(this.db.prepare('SELECT count(*) AS n FROM search_documents').get()?.n ?? 0);
       const average = Number(this.db.prepare('SELECT avg(length) AS n FROM search_documents').get()?.n ?? 0);
