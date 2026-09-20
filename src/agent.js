@@ -95,7 +95,7 @@ export class AgentLoop {
       let promotion = null;
 
       if (options.autoPromotion !== false && this.promotion) {
-        promotion = this.promotion.maybePromote(focus, context, { step });
+        promotion = this.promotion.maybePromote(goal || session.goal, context, { step });
         if (promotion.promoted) {
           context = this.runtime.context(focus, {
             budgetTokens,
