@@ -6,6 +6,7 @@ import { resolveStateDir } from './brand.js';
 import { LumenCortexDatabase } from './database.js';
 
 const FORMAT_VERSION = 2;
+const CHECKPOINT_INTERVAL = 50;
 
 export class CognitiveRepository {
   constructor(workspace = process.cwd()) {
@@ -111,12 +112,18 @@ export class CognitiveRepository {
     const raw = this.database.getCommit(commitId);
     if (!raw) throw new Error(`Unknown cognitive commit: ${commitId}`);
 
-    let snapshot;
-    if (!raw.parents?.length) {
-      snapshot = applyDiff(emptyGraph(), raw.diff ?? { operations: [] }, { strict: false });
-    } else {
-      const parent = this.getCommit(raw.parents[0]);
-      snapshot = applyDiff(parent.snapshot, raw.diff ?? { operations: [] }, { strict: true });
+    let snapshot = this.database.getCheckpoint(commitId);
+    if (!snapshot) {
+      if (!raw.parents?.length) {
+        snapshot = applyDiff(emptyGraph(), raw.diff ?? { operations: [] }, { strict: false });
+      } else {
+        const parent = this.getCommit(raw.parents[0]);
+        snapshot = applyDiff(parent.snapshot, raw.diff ?? { operations: [] }, { strict: true });
+      }
+      const distance = this.database.distanceToCheckpoint(commitId, CHECKPOINT_INTERVAL);
+      if (distance >= CHECKPOINT_INTERVAL || !raw.parents?.length) {
+        this.database.saveCheckpoint(commitId, snapshot, raw.createdAt);
+      }
     }
     const commit = { ...raw, snapshot };
     this.commitCache.set(commitId, clone(commit));
@@ -376,7 +383,17 @@ export class CognitiveRepository {
 
   #writeCommit(commit) {
     this.database.saveCommit(commit);
+    const parentId = commit.parents?.[0] ?? null;
+    const shouldCheckpoint = !parentId ||
+      this.database.distanceToCheckpoint(parentId, CHECKPOINT_INTERVAL) >= CHECKPOINT_INTERVAL - 1;
+    if (shouldCheckpoint) {
+      this.database.saveCheckpoint(commit.id, commit.snapshot, commit.createdAt);
+    }
     this.commitCache.set(commit.id, clone(commit));
+  }
+
+  close() {
+    this.database.close();
   }
 
   #advanceHead(commitId) {
