@@ -2,21 +2,26 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { applyDiff, CognitiveGraph, diffGraphs, emptyGraph, invertDiff } from './graph.js';
 import { clone, hash, isEqual, nowIso } from './util.js';
-import { BRAND, resolveStateDir } from './brand.js';
+import { resolveStateDir } from './brand.js';
+import { LumenCortexDatabase } from './database.js';
 
-const FORMAT_VERSION = 1;
+const FORMAT_VERSION = 2;
 
 export class CognitiveRepository {
   constructor(workspace = process.cwd()) {
     this.workspace = path.resolve(workspace);
     this.dir = resolveStateDir(this.workspace);
+    this.database = new LumenCortexDatabase(this.dir);
+    this.commitCache = new Map();
+    this.#migrateFileStoreIfNeeded();
   }
 
   init({ branch = 'main' } = {}) {
     if (this.exists()) throw new Error(`LumenCortex repository already exists: ${this.dir}`);
-    fs.mkdirSync(path.join(this.dir, 'commits'), { recursive: true });
-    fs.mkdirSync(path.join(this.dir, 'refs', 'heads'), { recursive: true });
     const graph = emptyGraph();
+    this.database.replaceGraph(graph, { incrementRevision: false });
+    this.database.setMeta('graph_revision', '1');
+
     const commit = this.#makeCommit({
       message: 'Initialize cognitive repository',
       parents: [],
@@ -26,15 +31,15 @@ export class CognitiveRepository {
     });
     this.#writeCommit(commit);
     this.#writeRef(branch, commit.id);
-    fs.writeFileSync(path.join(this.dir, 'HEAD'), `ref: refs/heads/${branch}\n`);
-    this.#writeJson('graph.json', graph);
-    fs.writeFileSync(path.join(this.dir, 'graph.revision'), '1\n');
-    this.#writeJson('config.json', { formatVersion: FORMAT_VERSION, createdAt: nowIso() });
+    this.database.setState('HEAD', `ref: refs/heads/${branch}`);
+    this.database.setMeta('format_version', String(FORMAT_VERSION));
+    this.database.setMeta('created_at', nowIso());
+    this.database.setMeta('repository_initialized', '1');
     return commit;
   }
 
   exists() {
-    return fs.existsSync(this.dir);
+    return this.database.initialized();
   }
 
   assertExists() {
@@ -43,28 +48,25 @@ export class CognitiveRepository {
 
   graph() {
     this.assertExists();
-    return new CognitiveGraph(this.#readJson('graph.json'));
+    return new CognitiveGraph(this.database.loadGraph());
   }
 
   writeGraph(state) {
     this.assertExists();
     new CognitiveGraph(state).validate();
-    this.#writeJson('graph.json', state);
-    const next = this.graphRevision() + 1;
-    fs.writeFileSync(path.join(this.dir, 'graph.revision'), `${next}\n`);
+    this.database.replaceGraph(state);
   }
 
   graphRevision() {
     this.assertExists();
-    const file = path.join(this.dir, 'graph.revision');
-    if (!fs.existsSync(file)) return 0;
-    const value = Number(fs.readFileSync(file, 'utf8').trim());
-    return Number.isFinite(value) ? value : 0;
+    return this.database.graphRevision();
   }
 
   headRef() {
     this.assertExists();
-    return fs.readFileSync(path.join(this.dir, 'HEAD'), 'utf8').trim();
+    const value = this.database.getState('HEAD');
+    if (!value) throw new Error('Repository HEAD is missing');
+    return value;
   }
 
   currentBranch() {
@@ -83,16 +85,28 @@ export class CognitiveRepository {
   }
 
   getCommit(commitId) {
+    const cached = this.commitCache.get(commitId);
+    if (cached) return clone(cached);
+
     this.assertExists();
-    const file = path.join(this.dir, 'commits', `${commitId}.json`);
-    if (!fs.existsSync(file)) throw new Error(`Unknown cognitive commit: ${commitId}`);
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    const raw = this.database.getCommit(commitId);
+    if (!raw) throw new Error(`Unknown cognitive commit: ${commitId}`);
+
+    let snapshot;
+    if (!raw.parents?.length) {
+      snapshot = applyDiff(emptyGraph(), raw.diff ?? { operations: [] }, { strict: false });
+    } else {
+      const parent = this.getCommit(raw.parents[0]);
+      snapshot = applyDiff(parent.snapshot, raw.diff ?? { operations: [] }, { strict: true });
+    }
+    const commit = { ...raw, snapshot };
+    this.commitCache.set(commitId, clone(commit));
+    return clone(commit);
   }
 
   status() {
     const head = this.headCommit();
-    const working = this.graph().snapshot();
-    return diffGraphs(head.snapshot, working);
+    return diffGraphs(head.snapshot, this.graph().snapshot());
   }
 
   commit(message, { metadata = {}, additionalParents = [] } = {}) {
@@ -101,6 +115,7 @@ export class CognitiveRepository {
     const snapshot = this.graph().snapshot();
     const diff = diffGraphs(parent.snapshot, snapshot);
     if (!diff.operations.length && !additionalParents.length) throw new Error('Nothing to commit');
+
     const commit = this.#makeCommit({
       message,
       parents: [parent.id, ...additionalParents],
@@ -161,14 +176,16 @@ export class CognitiveRepository {
 
   branches() {
     this.assertExists();
-    const dir = path.join(this.dir, 'refs', 'heads');
-    return fs.readdirSync(dir).sort().map((name) => ({ name, commitId: this.#readRef(name), current: name === this.currentBranch() }));
+    return this.database.listRefs().map((row) => ({
+      name: row.name,
+      commitId: row.commit_id,
+      current: row.name === this.currentBranch()
+    }));
   }
 
   createBranch(name, startPoint = this.headCommitId()) {
     validateRefName(name);
-    const file = path.join(this.dir, 'refs', 'heads', name);
-    if (fs.existsSync(file)) throw new Error(`branch already exists: ${name}`);
+    if (this.database.getRef(name)) throw new Error(`branch already exists: ${name}`);
     this.getCommit(startPoint);
     this.#writeRef(name, startPoint);
     return { name, commitId: startPoint };
@@ -178,7 +195,7 @@ export class CognitiveRepository {
     validateRefName(name);
     const commitId = this.#readRef(name);
     const commit = this.getCommit(commitId);
-    fs.writeFileSync(path.join(this.dir, 'HEAD'), `ref: refs/heads/${name}\n`);
+    this.database.setState('HEAD', `ref: refs/heads/${name}`);
     this.writeGraph(commit.snapshot);
     return commit;
   }
@@ -316,6 +333,14 @@ export class CognitiveRepository {
     return best?.id ?? null;
   }
 
+  appendJournal(event, payload) {
+    this.database.appendJournal(event, payload);
+  }
+
+  journal(limit = 100) {
+    return this.database.listJournal(limit);
+  }
+
   #makeCommit({ message, parents, snapshot, diff, metadata }) {
     const createdAt = nowIso();
     const body = {
@@ -325,39 +350,104 @@ export class CognitiveRepository {
       createdAt,
       graphHash: hash(snapshot),
       diff,
-      metadata,
-      snapshot: clone(snapshot)
+      metadata
     };
-    return { id: hash(body).slice(0, 16), ...body };
+    return { id: hash(body).slice(0, 16), ...body, snapshot: clone(snapshot) };
   }
 
   #writeCommit(commit) {
-    fs.writeFileSync(path.join(this.dir, 'commits', `${commit.id}.json`), JSON.stringify(commit, null, 2));
+    this.database.saveCommit(commit);
+    this.commitCache.set(commit.id, clone(commit));
   }
 
   #advanceHead(commitId) {
     const branch = this.currentBranch();
     if (branch) this.#writeRef(branch, commitId);
-    else fs.writeFileSync(path.join(this.dir, 'HEAD'), `${commitId}\n`);
+    else this.database.setState('HEAD', commitId);
   }
 
   #readRef(name) {
-    const file = path.join(this.dir, 'refs', 'heads', name);
-    if (!fs.existsSync(file)) throw new Error(`Unknown branch: ${name}`);
-    return fs.readFileSync(file, 'utf8').trim();
+    const commitId = this.database.getRef(name);
+    if (!commitId) throw new Error(`Unknown branch: ${name}`);
+    return commitId;
   }
 
   #writeRef(name, commitId) {
     validateRefName(name);
-    fs.writeFileSync(path.join(this.dir, 'refs', 'heads', name), `${commitId}\n`);
+    this.database.setRef(name, commitId);
   }
 
-  #readJson(name) {
-    return JSON.parse(fs.readFileSync(path.join(this.dir, name), 'utf8'));
+  #migrateFileStoreIfNeeded() {
+    if (this.database.initialized()) return;
+    const graphFile = path.join(this.dir, 'graph.json');
+    if (!fs.existsSync(graphFile)) return;
+
+    const graph = JSON.parse(fs.readFileSync(graphFile, 'utf8'));
+    new CognitiveGraph(graph).validate();
+    this.database.replaceGraph(graph, { incrementRevision: false });
+    const revisionFile = path.join(this.dir, 'graph.revision');
+    const revision = fs.existsSync(revisionFile)
+      ? Number(fs.readFileSync(revisionFile, 'utf8').trim()) || 1
+      : 1;
+    this.database.setMeta('graph_revision', String(revision));
+
+    const commitsDir = path.join(this.dir, 'commits');
+    if (fs.existsSync(commitsDir)) {
+      for (const name of fs.readdirSync(commitsDir).filter((x) => x.endsWith('.json'))) {
+        const commit = JSON.parse(fs.readFileSync(path.join(commitsDir, name), 'utf8'));
+        this.database.saveCommit(commit);
+      }
+    }
+
+    const refsDir = path.join(this.dir, 'refs', 'heads');
+    if (fs.existsSync(refsDir)) {
+      for (const name of fs.readdirSync(refsDir)) {
+        const value = fs.readFileSync(path.join(refsDir, name), 'utf8').trim();
+        if (value) this.database.setRef(name, value);
+      }
+    }
+
+    const headFile = path.join(this.dir, 'HEAD');
+    if (fs.existsSync(headFile)) {
+      this.database.setState('HEAD', fs.readFileSync(headFile, 'utf8').trim());
+    }
+
+    const sessionsDir = path.join(this.dir, 'sessions');
+    if (fs.existsSync(sessionsDir)) {
+      for (const name of fs.readdirSync(sessionsDir).filter((x) => x.endsWith('.json'))) {
+        const session = JSON.parse(fs.readFileSync(path.join(sessionsDir, name), 'utf8'));
+        this.database.saveSession(session);
+      }
+    }
+
+    const journalFile = path.join(this.dir, 'journal.jsonl');
+    if (fs.existsSync(journalFile)) {
+      for (const line of fs.readFileSync(journalFile, 'utf8').split(/\r?\n/).filter(Boolean)) {
+        try {
+          const entry = JSON.parse(line);
+          const { at, event, ...payload } = entry;
+          this.database.appendJournal(event ?? 'legacy', payload, at ?? nowIso());
+        } catch {}
+      }
+    }
+
+    this.database.setMeta('format_version', String(FORMAT_VERSION));
+    this.database.setMeta('repository_initialized', '1');
+    this.database.setMeta('migrated_from_json_at', nowIso());
+    this.#archiveLegacyStore();
   }
 
-  #writeJson(name, value) {
-    fs.writeFileSync(path.join(this.dir, name), JSON.stringify(value, null, 2));
+  #archiveLegacyStore() {
+    const names = [
+      'graph.json', 'graph.revision', 'config.json', 'HEAD',
+      'commits', 'refs', 'sessions', 'journal.jsonl', 'search-index.json'
+    ].filter((name) => fs.existsSync(path.join(this.dir, name)));
+    if (!names.length) return;
+    const backup = path.join(this.dir, `json-backup-${Date.now()}`);
+    fs.mkdirSync(backup, { recursive: true });
+    for (const name of names) {
+      fs.renameSync(path.join(this.dir, name), path.join(backup, name));
+    }
   }
 }
 
