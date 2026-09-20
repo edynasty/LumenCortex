@@ -292,7 +292,7 @@ All providers use the same tool-calling Agent Loop.
 | Blame / Cherry-pick / Rebase | Implemented |
 | Agent Loop / CLI / tools / resume | Implemented |
 | Real local OpenAI-compatible model integration | Implemented; real VM tool-call smoke passed |
-| Real-model long-task validation | In progress / separate quality gate |
+| Real-model long-task validation | Implemented and VM-proven with Qwen3 4B; paged-out observations reactivated from graph |
 | DeepSeek official/OpenRouter adapters | Implemented |
 | Real DeepSeek V4 execution | Not yet verified in CI; no-key HF endpoint was paused and OpenRouter key is absent |
 | Hybrid BM25/Symbol/Embedding retrieval | Planned |
@@ -324,4 +324,4 @@ The automated long-loop test executes 20 tool rounds followed by a final model t
 - Only recent complete assistant/tool rounds are sent to the model.
 - Tool messages are never kept without their matching assistant tool call.
 
-This is a runtime-mechanics test. Real-model coding quality must be measured separately because model capability and runtime correctness are different variables.
+This deterministic test proves bounded runtime mechanics. In addition, the strict VM test now proves the graph-memory path with a real Qwen3 4B model: four read observations across four reasoning turns are all present again in the write step Active Subgraph while recentRounds=1, followed by independent verifier success. Real-world coding quality on large repositories remains a separate benchmark dimension.
