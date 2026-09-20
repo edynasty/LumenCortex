@@ -265,6 +265,48 @@ export class CognitiveRepository {
     return { conflicts: [], commit: this.commit(message, { metadata: { reverts: commitId } }) };
   }
 
+  cherryPick(commitId, { message } = {}) {
+    const target = this.getCommit(commitId);
+    if (!target.parents?.length) throw new Error('Cannot cherry-pick genesis commit');
+    const working = this.graph().snapshot();
+    try {
+      const next = applyDiff(working, target.diff, { strict: true });
+      this.writeGraph(next);
+    } catch (error) {
+      return { conflicts: [{ commitId, message: error.message }], commit: null };
+    }
+    const commit = this.commit(message ?? `Cherry-pick ${commitId}: ${target.message}`, {
+      metadata: { cherryPick: commitId }
+    });
+    return { conflicts: [], commit };
+  }
+
+  blameNode(nodeId, { limit = 200 } = {}) {
+    const result = [];
+    const queue = [this.headCommitId()];
+    const seen = new Set();
+    while (queue.length && seen.size < limit) {
+      const commitId = queue.shift();
+      if (!commitId || seen.has(commitId)) continue;
+      seen.add(commitId);
+      const commit = this.getCommit(commitId);
+      const changes = (commit.diff?.operations ?? []).filter(
+        (op) => op.id === nodeId && (op.type === 'put_node' || op.type === 'remove_node')
+      );
+      if (changes.length) {
+        result.push({
+          commitId: commit.id,
+          message: commit.message,
+          createdAt: commit.createdAt,
+          parents: commit.parents,
+          changes: clone(changes)
+        });
+      }
+      for (const parent of commit.parents ?? []) queue.push(parent);
+    }
+    return result;
+  }
+
   findMergeBase(leftId, rightId) {
     const leftAncestors = new Map();
     const queue = [[leftId, 0]];
