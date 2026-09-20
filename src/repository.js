@@ -14,6 +14,8 @@ export class CognitiveRepository {
     this.database = new LumenCortexDatabase(this.dir);
     this.commitCache = new Map();
     this.lastGraphRevision = null;
+    this.graphCache = null;
+    this.graphCacheRevision = null;
     this.#migrateFileStoreIfNeeded();
   }
 
@@ -37,6 +39,8 @@ export class CognitiveRepository {
     this.database.setMeta('created_at', nowIso());
     this.database.setMeta('repository_initialized', '1');
     this.lastGraphRevision = 1;
+    this.graphCache = clone(graph);
+    this.graphCacheRevision = 1;
     return commit;
   }
 
@@ -50,13 +54,14 @@ export class CognitiveRepository {
 
   graphSnapshot() {
     this.assertExists();
-    const snapshot = this.database.loadGraphSnapshot();
-    this.lastGraphRevision = snapshot.revision;
-    return snapshot;
+    this.#ensureGraphCache();
+    return { state: clone(this.graphCache), revision: this.graphCacheRevision };
   }
 
   graph() {
-    return new CognitiveGraph(this.graphSnapshot().state);
+    this.assertExists();
+    this.#ensureGraphCache();
+    return new CognitiveGraph(this.graphCache);
   }
 
   writeGraph(state) {
@@ -65,6 +70,8 @@ export class CognitiveRepository {
     const expectedRevision = this.lastGraphRevision ?? this.database.graphRevision();
     const result = this.database.syncGraph(state, { expectedRevision });
     this.lastGraphRevision = result.revision;
+    this.graphCache = clone(state);
+    this.graphCacheRevision = result.revision;
     return result;
   }
 
@@ -388,6 +395,18 @@ export class CognitiveRepository {
     this.database.setRef(name, commitId);
   }
 
+  #ensureGraphCache() {
+    const revision = this.database.graphRevision();
+    if (this.graphCache && this.graphCacheRevision === revision) {
+      this.lastGraphRevision = revision;
+      return;
+    }
+    const snapshot = this.database.loadGraphSnapshot();
+    this.graphCache = snapshot.state;
+    this.graphCacheRevision = snapshot.revision;
+    this.lastGraphRevision = snapshot.revision;
+  }
+
   #migrateFileStoreIfNeeded() {
     if (this.database.initialized()) return;
     const graphFile = path.join(this.dir, 'graph.json');
@@ -446,6 +465,8 @@ export class CognitiveRepository {
     this.database.setMeta('repository_initialized', '1');
     this.database.setMeta('migrated_from_json_at', nowIso());
     this.lastGraphRevision = this.database.graphRevision();
+    this.graphCache = clone(graph);
+    this.graphCacheRevision = this.lastGraphRevision;
     this.#archiveLegacyStore();
   }
 
