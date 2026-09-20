@@ -95,10 +95,13 @@ export class AgentLoop {
       updateActivationCounts(session, context);
       const promotionResult = options.autoPromote === false
         ? { promoted: false }
-        : this.promotionController.maybePromote(focus, context, {
+        : this.promotionController.maybePromote(session.goal || goal || focus, context, {
             step,
             activationCounts: session.metadata.activationCounts,
-            metadata: { sessionId: session.id }
+            metadata: {
+              sessionId: session.id,
+              focus: focus.slice(0, 500)
+            }
           });
       const promotion = promotionResult.promoted ? promotionResult.abstraction : null;
       if (promotion) {
