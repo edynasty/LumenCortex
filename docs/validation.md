@@ -6,7 +6,7 @@ This document separates architecture claims from evidence.
 
 Latest validated core suite:
 
-- 84 core tests / 84 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
+- 85 core tests / 85 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
 - Node.js 22 and 24 core matrix
 - dedicated isolated Search / LSP / MCP / Subagent / TUI harness jobs
 - MCP HTTP modern + legacy fallback + stdio transport coverage
@@ -16,6 +16,7 @@ Latest validated core suite:
 - atomic multi-file `apply_patch` validation, ambiguity rejection and workspace-bound path coverage
 - asynchronous shell execution, process-tree timeout termination and explicit abort coverage
 - Agent cancellation propagation without retry, with interrupted Session persistence for resume
+- standalone `doctor` provider diagnostics outside an initialized LumenCortex workspace
 - SQLite status / integrity-check / checkpoint / journal maintenance coverage
 - sparse Cognitive Git checkpoint/reopen coverage across 120+ commits
 - explicit Repository/Runtime/SessionStore connection cleanup
