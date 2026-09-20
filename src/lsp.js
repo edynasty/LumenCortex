@@ -218,10 +218,26 @@ export class ContentLengthRpcClient {
 
   async close() {
     if (!this.process) return;
-    this.process.stdin.end();
-    if (!this.process.killed) this.process.kill('SIGTERM');
-    await delay(20);
-    if (!this.process.killed) this.process.kill('SIGKILL');
+    const child = this.process;
+    this.process = null;
+    const exited = new Promise((resolve) => {
+      if (child.exitCode !== null || child.signalCode !== null) resolve();
+      else child.once('exit', resolve);
+    });
+    try { child.stdin.end(); } catch {}
+    await Promise.race([exited, delay(120)]);
+    if (child.exitCode === null && child.signalCode === null) {
+      try { child.kill('SIGTERM'); } catch {}
+      await Promise.race([exited, delay(180)]);
+    }
+    if (child.exitCode === null && child.signalCode === null) {
+      try { child.kill('SIGKILL'); } catch {}
+      await Promise.race([exited, delay(300)]);
+    }
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    child.stdin?.destroy();
+    child.removeAllListeners();
   }
 
   #send(message) {
