@@ -147,6 +147,56 @@ test('agent retries transient provider failures without losing the task', async 
   assert.equal(result.session.status, 'completed');
 });
 
+test('user cancellation aborts the provider without retrying and persists resumable session state', async () => {
+  const { root, repository, runtime } = fixture();
+  const controller = new AbortController();
+  let attempts = 0;
+  const provider = {
+    model: 'mock-cancel',
+    complete: ({ signal }) => new Promise((resolve, reject) => {
+      attempts += 1;
+      if (!signal) return reject(new Error('missing abort signal'));
+      const abort = () => {
+        const error = new Error('cancelled by test');
+        error.name = 'AbortError';
+        reject(error);
+      };
+      if (signal.aborted) abort();
+      else signal.addEventListener('abort', abort, { once: true });
+    })
+  };
+  const agent = new AgentLoop({
+    provider,
+    repository,
+    runtime,
+    workspace: root,
+    tools: new ToolRegistry()
+  });
+
+  setTimeout(() => controller.abort(), 20);
+  let caught;
+  try {
+    await agent.run('cancel task', {
+      signal: controller.signal,
+      llmRetries: 3,
+      retryBaseMs: 1,
+      recordTask: false
+    });
+  } catch (error) {
+    caught = error;
+  }
+
+  assert.ok(caught);
+  assert.equal(caught.name, 'AbortError');
+  assert.equal(attempts, 1, 'explicit cancellation must not be retried');
+  assert.ok(caught.sessionId);
+  const saved = new AgentSessionStore(repository.dir).load(caught.sessionId);
+  assert.equal(saved.status, 'interrupted');
+  assert.equal(saved.error.name, 'AbortError');
+  assert.equal(saved.error.step, 1);
+});
+
+
 test('agent persists an interrupted session after non-retryable provider failure', async () => {
   const { root, repository, runtime } = fixture();
   const provider = {
