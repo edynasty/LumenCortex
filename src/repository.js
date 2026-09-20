@@ -314,7 +314,7 @@ export class CognitiveRepository {
   rebase(ontoBranch, { messagePrefix = 'Rebase' } = {}) {
     const branch = this.currentBranch();
     if (!branch) throw new Error('Cannot rebase detached HEAD');
-    if (branch === ontoBranch) return { conflicts: [], commits: [], onto: this.headCommitId() };
+    if (branch === ontoBranch) return { conflicts: [], commits: [], onto: this.headCommitId(), branch };
 
     const originalHeadId = this.headCommitId();
     const originalHead = this.getCommit(originalHeadId);
@@ -356,7 +356,7 @@ export class CognitiveRepository {
         });
         created.push(commit);
       }
-      return { conflicts: [], commits: created, onto: ontoId, originalHead: originalHeadId };
+      return { conflicts: [], commits: created, onto: ontoId, originalHead: originalHeadId, branch };
     } catch (error) {
       this.#writeRef(branch, originalHeadId);
       this.writeGraph(originalSnapshot);
@@ -364,7 +364,8 @@ export class CognitiveRepository {
         conflicts: [{ commitId: error.sourceCommit ?? originalHeadId, message: error.message }],
         commits: [],
         onto: ontoId,
-        originalHead: originalHeadId
+        originalHead: originalHeadId,
+        branch
       };
     }
   }
