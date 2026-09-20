@@ -238,3 +238,37 @@ test('resumed session preserves global step numbering, context history and cumul
   assert.equal(result.usage.requests, 2);
   assert.equal(result.usage.totalTokens, 35);
 });
+
+
+test('agent promotion dedupe key uses the stable session goal, not moving step focus', async () => {
+  const { root, repository, runtime } = fixture();
+  const promotionGoals = [];
+  const promotionController = {
+    maybePromote(goal) {
+      promotionGoals.push(goal);
+      return { promoted: false };
+    }
+  };
+  let calls = 0;
+  const provider = {
+    model: 'mock-promotion-goal',
+    complete: async () => {
+      calls += 1;
+      if (calls < 3) {
+        return {
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{ id: `p${calls}`, type: 'function', function: { name: 'echo', arguments: '{}' } }]
+          },
+          finishReason: 'tool_calls'
+        };
+      }
+      return { message: { role: 'assistant', content: 'done' }, finishReason: 'stop' };
+    }
+  };
+  const tools = new ToolRegistry().register({ name: 'echo', permission: 'read', execute: () => 'ok' });
+  const agent = new AgentLoop({ provider, repository, runtime, workspace: root, tools, promotionController });
+  await agent.run('stable task goal', { autoIngest: false, recordTask: false });
+  assert.deepEqual(promotionGoals, ['stable task goal', 'stable task goal', 'stable task goal']);
+});
