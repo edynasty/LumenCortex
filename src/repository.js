@@ -276,9 +276,13 @@ export class CognitiveRepository {
       return { conflicts: [{ commitId, message: error.message }], commit: null };
     }
     const commit = this.commit(message ?? `Cherry-pick ${commitId}: ${target.message}`, {
-      metadata: { cherryPick: commitId }
+      metadata: { cherryPick: commitId, cherryPickOf: commitId }
     });
     return { conflicts: [], commit };
+  }
+
+  blame(nodeId, options = {}) {
+    return this.blameNode(nodeId, options);
   }
 
   blameNode(nodeId, { limit = 200 } = {}) {
@@ -305,6 +309,64 @@ export class CognitiveRepository {
       for (const parent of commit.parents ?? []) queue.push(parent);
     }
     return result;
+  }
+
+  rebase(ontoBranch, { messagePrefix = 'Rebase' } = {}) {
+    const branch = this.currentBranch();
+    if (!branch) throw new Error('Cannot rebase detached HEAD');
+    if (branch === ontoBranch) return { conflicts: [], commits: [], onto: this.headCommitId() };
+
+    const originalHeadId = this.headCommitId();
+    const originalHead = this.getCommit(originalHeadId);
+    const ontoId = this.#readRef(ontoBranch);
+    const onto = this.getCommit(ontoId);
+    const baseId = this.findMergeBase(originalHeadId, ontoId);
+    if (!baseId) throw new Error('No merge base found');
+
+    const toReplay = [];
+    let cursor = originalHeadId;
+    const visited = new Set();
+    while (cursor && cursor !== baseId && !visited.has(cursor)) {
+      visited.add(cursor);
+      const commit = this.getCommit(cursor);
+      toReplay.push(commit);
+      cursor = commit.parents?.[0] ?? null;
+    }
+    toReplay.reverse();
+
+    const originalSnapshot = this.graph().snapshot();
+    const created = [];
+    this.#writeRef(branch, ontoId);
+    this.writeGraph(onto.snapshot);
+
+    try {
+      for (const source of toReplay) {
+        const working = this.graph().snapshot();
+        let next;
+        try {
+          next = applyDiff(working, source.diff, { strict: true });
+        } catch (error) {
+          throw Object.assign(new Error(error.message), { sourceCommit: source.id });
+        }
+        this.writeGraph(next);
+        const diff = this.status();
+        if (!diff.operations.length) continue;
+        const commit = this.commit(`${messagePrefix}: ${source.message}`, {
+          metadata: { rebaseOf: source.id, onto: ontoId, originalHead: originalHeadId }
+        });
+        created.push(commit);
+      }
+      return { conflicts: [], commits: created, onto: ontoId, originalHead: originalHeadId };
+    } catch (error) {
+      this.#writeRef(branch, originalHeadId);
+      this.writeGraph(originalSnapshot);
+      return {
+        conflicts: [{ commitId: error.sourceCommit ?? originalHeadId, message: error.message }],
+        commits: [],
+        onto: ontoId,
+        originalHead: originalHeadId
+      };
+    }
   }
 
   findMergeBase(leftId, rightId) {
