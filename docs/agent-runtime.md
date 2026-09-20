@@ -1,12 +1,15 @@
 # Agent runtime
 
-ModelWeave v0.2 is both a cognitive context runtime and a standalone coding agent.
+ModelWeave v0.3 is both a cognitive context runtime and a standalone coding agent.
 
 ## Loop
 
 ```text
-Goal
-  -> Active Subgraph (Attention Light)
+Goal + recent tool evidence
+  -> recompute Attention Light every reasoning step
+  -> Active Promotion when granularity is too dense
+  -> Active Subgraph
+  -> bounded Working-Set Pager
   -> LLM
   -> tool_calls
   -> permission gate
@@ -18,7 +21,7 @@ Goal
   -> continue until final or max_steps
 ```
 
-The loop is provider-independent. OpenRouter, Groq and any OpenAI-compatible local/API endpoint use the same runtime.
+The loop is provider-independent. OpenRouter, Groq, DeepSeek official and any OpenAI-compatible local/API endpoint use the same runtime. Full session history is persisted, while only the current Active Subgraph plus recent complete tool rounds are sent back to the model.
 
 ## Built-in tools
 
@@ -64,6 +67,26 @@ export GROQ_API_KEY=...
 modelweave agent "find and explain the failing test" \
   --provider groq \
   --model openai/gpt-oss-120b \
+  --yes
+```
+
+### DeepSeek official
+
+```bash
+export DEEPSEEK_API_KEY=...
+modelweave agent "run tests, fix all failures and verify the result" \
+  --provider deepseek \
+  --model deepseek-flash \
+  --yes
+```
+
+### DeepSeek V4 Flash free model through OpenRouter
+
+```bash
+export OPENROUTER_API_KEY=...
+modelweave agent "run tests, fix all failures and verify the result" \
+  --provider openrouter \
+  --model deepseek/deepseek-v4-flash-0731:free \
   --yes
 ```
 
