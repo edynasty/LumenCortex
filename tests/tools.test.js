@@ -129,6 +129,28 @@ test('shell tool keeps the Node event loop responsive during long commands', asy
 });
 
 
+test('shell tool abort signal terminates the active command', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-shell-cancel-'));
+  const tools = createCodingTools({ workspace: root });
+  const controller = new AbortController();
+  const node = JSON.stringify(process.execPath);
+
+  const pending = tools.execute('shell', {
+    command: `${node} -e "setTimeout(() => console.log('SHOULD_NOT_FINISH'), 5000)"`,
+    timeout_ms: 10000
+  }, {
+    authorize: async () => true,
+    signal: controller.signal
+  });
+
+  setTimeout(() => controller.abort(), 40);
+  await assert.rejects(
+    pending,
+    (error) => error?.name === 'AbortError'
+  );
+});
+
+
 test('shell tool reports timeout without blocking the runtime', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-shell-timeout-'));
   const tools = createCodingTools({ workspace: root });
