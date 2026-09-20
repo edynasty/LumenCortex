@@ -454,6 +454,8 @@ async function createHarness({ repo, runtime, workspace, provider, providerName,
     async close() {
       await Promise.allSettled([lsp.close(), mcp.close()]);
       sessionStore.close();
+      runtime.close?.();
+      repo.close?.();
     }
   };
 }
