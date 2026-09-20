@@ -128,6 +128,8 @@ export class AgentLoop {
         this.emit('session.start', {
           sessionId: session.id,
           goal,
+          budgetTokens,
+          maxSteps,
           selectedNodes: context.selectedNodes.length,
           contextTokens: context.usedTokens
         });
