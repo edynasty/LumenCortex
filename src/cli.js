@@ -238,6 +238,7 @@ async function agentCommand({ repo, runtime, workspace, argv }) {
     llmRetries: Number(parsed.flags['llm-retries'] ?? 2),
     retryBaseMs: Number(parsed.flags['retry-base-ms'] ?? 800),
     maxToolCallsPerStep: Number(parsed.flags['max-tool-calls-per-step'] ?? Number.MAX_SAFE_INTEGER),
+    toolAllowlist: parsed.flags.tools ? String(parsed.flags.tools).split(',').map(x => x.trim()).filter(Boolean) : undefined,
     recentRounds: Number(parsed.flags['recent-rounds'] ?? 6),
     maxWorkingChars: Number(parsed.flags['working-chars'] ?? 120000),
     autoPromote: parsed.flags['no-auto-promote'] ? false : true,
@@ -278,6 +279,7 @@ async function chatCommand({ repo, runtime, workspace, argv }) {
         llmRetries: Number(parsed.flags['llm-retries'] ?? 2),
         retryBaseMs: Number(parsed.flags['retry-base-ms'] ?? 800),
         maxToolCallsPerStep: Number(parsed.flags['max-tool-calls-per-step'] ?? Number.MAX_SAFE_INTEGER),
+        toolAllowlist: parsed.flags.tools ? String(parsed.flags.tools).split(',').map(x => x.trim()).filter(Boolean) : undefined,
         recentRounds: Number(parsed.flags['recent-rounds'] ?? 4),
         workingChars: Number(parsed.flags['working-chars'] ?? 48000),
         autoPromote: parsed.flags['no-auto-promote'] ? false : true,
@@ -449,5 +451,5 @@ function compact(value) {
 function fail(message) { throw new Error(message); }
 
 function help() {
-  console.log(`ModelWeave — cognitive graph + autonomous coding agent\n\nAgent commands:\n  agent <goal> [--provider openrouter|groq|deepseek|generic] [--model MODEL] [--max-steps 24] [--budget 24000] [--recent-rounds 6] [--working-chars 120000] [--timeout-ms 120000] [--llm-retries 2] [--max-tool-calls-per-step N] [--no-auto-promote] [--yes] [--session ID]\n  chat [--provider P] [--model M] [--yes] [--session ID]\n  sessions [--limit 20]\n  providers\n  doctor [--provider P] [--model M] [--live]\n\nCognitive graph commands:\n  init [dir]\n  install-opencode [dir]\n  status\n  commit <message>\n  log [limit]\n  branch [name]\n  checkout <branch>\n  merge <branch>\n  revert <commit>\n  node add|update|rm ...\n  edge add|graft|cut|restore|rm ...\n  ingest [dir] [--chunk-lines 160] [--max-bytes 524288]\n  show [node-or-edge-id]\n  light <goal> [--budget 32000] [--multi] [--json]\n  promote <title> <nodeId> [nodeId...]\n  verify\n\nProviders:\n  OpenRouter free: OPENROUTER_API_KEY + model openrouter/free\n  Groq free:       GROQ_API_KEY + model openai/gpt-oss-120b\n  Generic/local:   MODELWEAVE_BASE_URL, MODELWEAVE_MODEL, MODELWEAVE_API_KEY\n`);
+  console.log(`ModelWeave — cognitive graph + autonomous coding agent\n\nAgent commands:\n  agent <goal> [--provider openrouter|groq|deepseek|generic] [--model MODEL] [--max-steps 24] [--budget 24000] [--recent-rounds 6] [--working-chars 120000] [--timeout-ms 120000] [--llm-retries 2] [--max-tool-calls-per-step N] [--tools read_file,write_file,shell] [--no-auto-promote] [--yes] [--session ID]\n  chat [--provider P] [--model M] [--yes] [--session ID]\n  sessions [--limit 20]\n  providers\n  doctor [--provider P] [--model M] [--live]\n\nCognitive graph commands:\n  init [dir]\n  install-opencode [dir]\n  status\n  commit <message>\n  log [limit]\n  branch [name]\n  checkout <branch>\n  merge <branch>\n  revert <commit>\n  node add|update|rm ...\n  edge add|graft|cut|restore|rm ...\n  ingest [dir] [--chunk-lines 160] [--max-bytes 524288]\n  show [node-or-edge-id]\n  light <goal> [--budget 32000] [--multi] [--json]\n  promote <title> <nodeId> [nodeId...]\n  verify\n\nProviders:\n  OpenRouter free: OPENROUTER_API_KEY + model openrouter/free\n  Groq free:       GROQ_API_KEY + model openai/gpt-oss-120b\n  Generic/local:   MODELWEAVE_BASE_URL, MODELWEAVE_MODEL, MODELWEAVE_API_KEY\n`);
 }
