@@ -357,7 +357,7 @@ async function parallelCommand({ repo, runtime, workspace, argv }) {
 
   const mutating = tasks.some((task) =>
     Array.isArray(task?.toolAllowlist) &&
-    task.toolAllowlist.some((name) => ['write_file', 'replace_in_file', 'shell', 'lumencortex_ingest'].includes(name))
+    task.toolAllowlist.some((name) => ['write_file', 'replace_in_file', 'apply_patch', 'shell', 'lumencortex_ingest'].includes(name))
   );
   const concurrency = Number(parsed.flags.concurrency ?? 4);
   if (mutating && concurrency > 1 && !parsed.flags['unsafe-write-parallel']) {
