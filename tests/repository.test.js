@@ -61,3 +61,43 @@ test('three-way merge detects conflicting cognition edits', () => {
   assert.equal(result.conflicts.length, 1);
   assert.equal(result.conflicts[0].id, 'n1');
 });
+
+
+test('cognitive blame reports commits that changed a node', () => {
+  const repo = tempRepo();
+  let graph = repo.graph();
+  graph.addNode({ id: 'n1', kind: 'belief', title: 'Inventory phase', body: 'unknown' });
+  repo.writeGraph(graph.snapshot());
+  const first = repo.commit('seed node');
+
+  graph = repo.graph();
+  graph.updateNode('n1', { body: 'ACCEPT' });
+  repo.writeGraph(graph.snapshot());
+  const second = repo.commit('refine node');
+
+  const blame = repo.blameNode('n1');
+  assert.equal(blame.length, 2);
+  assert.equal(blame[0].commitId, second.id);
+  assert.equal(blame[1].commitId, first.id);
+});
+
+test('cognitive cherry-pick grafts a compatible cognition diff', () => {
+  const repo = tempRepo();
+  let graph = repo.graph();
+  graph.addNode({ id: 'base', kind: 'entity', title: 'Base' });
+  repo.writeGraph(graph.snapshot());
+  repo.commit('base');
+
+  repo.createBranch('finding');
+  repo.checkout('finding');
+  graph = repo.graph();
+  graph.addNode({ id: 'finding1', kind: 'belief', title: 'Finding', body: 'verified path' });
+  repo.writeGraph(graph.snapshot());
+  const findingCommit = repo.commit('add finding');
+
+  repo.checkout('main');
+  const picked = repo.cherryPick(findingCommit.id);
+  assert.equal(picked.conflicts.length, 0);
+  assert.ok(repo.graph().getNode('finding1'));
+  assert.equal(picked.commit.metadata.cherryPick, findingCommit.id);
+});
