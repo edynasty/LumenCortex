@@ -192,4 +192,3 @@ export function enforceSemanticRules(graphState) {
   return true;
 }
 
-export { LumenCortexRuntime as ModelWeaveRuntime };

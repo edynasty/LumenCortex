@@ -1,4 +1,4 @@
-import { BRAND, envValue } from './brand.js';
+import { BRAND } from './brand.js';
 export const PROVIDER_PRESETS = {
   openrouter: {
     baseURL: 'https://openrouter.ai/api/v1',
@@ -23,10 +23,9 @@ export const PROVIDER_PRESETS = {
     defaultModel: 'deepseek-flash'
   },
   generic: {
-    baseURL: envValue('LUMENCORTEX_BASE_URL', 'MODELWEAVE_BASE_URL'),
+    baseURL: process.env.LUMENCORTEX_BASE_URL,
     apiKeyEnv: 'LUMENCORTEX_API_KEY',
-    legacyApiKeyEnv: 'MODELWEAVE_API_KEY',
-    defaultModel: envValue('LUMENCORTEX_MODEL', 'MODELWEAVE_MODEL')
+    defaultModel: process.env.LUMENCORTEX_MODEL
   }
 };
 
@@ -89,16 +88,16 @@ export class OpenAICompatibleProvider {
   }
 }
 
-export function createProvider(name = envValue('LUMENCORTEX_PROVIDER', 'MODELWEAVE_PROVIDER') ?? 'openrouter', options = {}) {
+export function createProvider(name = process.env.LUMENCORTEX_PROVIDER ?? 'openrouter', options = {}) {
   const preset = PROVIDER_PRESETS[name];
   if (!preset) throw new Error(`Unknown provider: ${name}`);
-  const apiKey = options.apiKey ?? process.env[preset.apiKeyEnv] ?? (preset.legacyApiKeyEnv ? process.env[preset.legacyApiKeyEnv] : undefined);
+  const apiKey = options.apiKey ?? process.env[preset.apiKeyEnv];
   const model = options.model ?? preset.defaultModel;
   const baseURL = options.baseURL ?? preset.baseURL;
   if (!apiKey && name !== 'generic') {
     throw new Error(`Missing ${preset.apiKeyEnv}. Set it before running LumenCortex agent.`);
   }
-  if (!apiKey && name === 'generic' && envValue('LUMENCORTEX_REQUIRE_API_KEY', 'MODELWEAVE_REQUIRE_API_KEY') !== 'false') {
+  if (!apiKey && name === 'generic' && process.env.LUMENCORTEX_REQUIRE_API_KEY !== 'false') {
     throw new Error(`Missing ${preset.apiKeyEnv}. Set LUMENCORTEX_REQUIRE_API_KEY=false for unauthenticated local endpoints.`);
   }
   return new OpenAICompatibleProvider({

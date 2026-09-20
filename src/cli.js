@@ -52,7 +52,7 @@ try {
 
   if (command === 'providers') {
     for (const item of providerInfo()) {
-      const configured = Boolean(process.env[item.apiKeyEnv]) || (item.name === 'generic' && process.env.MODELWEAVE_REQUIRE_API_KEY === 'false');
+      const configured = Boolean(process.env[item.apiKeyEnv]) || (item.name === 'generic' && process.env.LUMENCORTEX_REQUIRE_API_KEY === 'false');
       console.log(`${configured ? '✓' : '○'} ${item.name.padEnd(12)} ${item.defaultModel.padEnd(28)} ${item.apiKeyEnv}`);
       console.log(`  ${item.baseURL}`);
     }
@@ -258,7 +258,7 @@ async function agentCommand({ repo, runtime, workspace, argv }) {
   const parsed = parseFlags(argv);
   const goal = parsed.positionals.join(' ').trim();
   if (!goal && !parsed.flags.session) fail('Usage: lcx agent <goal> [--provider openrouter] [--model MODEL] [--yes]');
-  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
+  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? 'openrouter');
   const provider = createProvider(providerName, providerOptions(parsed));
   const json = Boolean(parsed.flags.json);
   const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'workspace'), json });
@@ -280,7 +280,7 @@ async function agentCommand({ repo, runtime, workspace, argv }) {
 
 async function chatCommand({ repo, runtime, workspace, argv }) {
   const parsed = parseFlags(argv);
-  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
+  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? 'openrouter');
   const provider = createProvider(providerName, providerOptions(parsed));
   const terminal = readline.createInterface({ input: process.stdin, output: process.stdout });
   const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'workspace'), json: false, terminal });
@@ -307,7 +307,7 @@ async function chatCommand({ repo, runtime, workspace, argv }) {
 
 async function tuiCommand({ repo, runtime, workspace, argv }) {
   const parsed = parseFlags(argv);
-  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
+  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? 'openrouter');
   let provider;
   let providerError = null;
   try {
@@ -364,7 +364,7 @@ async function parallelCommand({ repo, runtime, workspace, argv }) {
     fail('Parallel write sessions require --unsafe-write-parallel or concurrency=1');
   }
 
-  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
+  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? 'openrouter');
   const provider = createProvider(providerName, providerOptions(parsed));
   const authorize = createAuthorizer({
     yes: Boolean(parsed.flags.yes),
@@ -498,7 +498,7 @@ function agentRunOptions(parsed, providerName, authorize) {
 
 async function doctorCommand(argv) {
   const parsed = parseFlags(argv);
-  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? process.env.MODELWEAVE_PROVIDER ?? 'openrouter');
+  const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? 'openrouter');
   const info = providerInfo().find((item) => item.name === providerName);
   if (!info) fail(`Unknown provider: ${providerName}`);
   console.log(`provider: ${providerName}`);
@@ -511,7 +511,7 @@ async function doctorCommand(argv) {
       baseURL: parsed.flags['base-url'] ? String(parsed.flags['base-url']) : undefined,
       timeoutMs: parsed.flags['timeout-ms'] ? Number(parsed.flags['timeout-ms']) : undefined
     });
-    const result = await provider.complete({ messages: [{ role: 'user', content: 'Reply with exactly: MODELWEAVE_OK' }] });
+    const result = await provider.complete({ messages: [{ role: 'user', content: 'Reply with exactly: LUMENCORTEX_OK' }] });
     console.log(`live: ${result.message.content}`);
   }
 }
@@ -638,7 +638,7 @@ function parseFlags(argv) {
 function findWorkspace(start) {
   let current = path.resolve(start);
   while (true) {
-    if (fs.existsSync(path.join(current, '.lumencortex')) || fs.existsSync(path.join(current, '.modelweave'))) return current;
+    if (fs.existsSync(path.join(current, '.lumencortex'))) return current;
     const parent = path.dirname(current);
     if (parent === current) throw new Error('No .lcx repository found. Run `lcx init`.');
     current = parent;
@@ -709,6 +709,6 @@ Providers:
   OpenRouter free: OPENROUTER_API_KEY + openrouter/free
   DeepSeek free:  OPENROUTER_API_KEY + --provider openrouter-deepseek-free
   Groq free:      GROQ_API_KEY + openai/gpt-oss-120b
-  Generic/local:  MODELWEAVE_BASE_URL, MODELWEAVE_MODEL, MODELWEAVE_API_KEY
+  Generic/local:  LUMENCORTEX_BASE_URL, LUMENCORTEX_MODEL, LUMENCORTEX_API_KEY
 `);
 }

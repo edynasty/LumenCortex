@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { BRAND, envValue, resolveConfigFile } from './brand.js';
+import { BRAND, resolveConfigFile } from './brand.js';
 
 export class LspManager {
   constructor(workspace, options = {}) {
@@ -296,18 +296,18 @@ export function loadLspConfig(workspace) {
   return normalizeConfig({
     servers: {
       java: {
-        command: envValue('LUMENCORTEX_LSP_JAVA_CMD', 'MODELWEAVE_LSP_JAVA_CMD') || 'jdtls',
-        args: envArgs('LUMENCORTEX_LSP_JAVA_ARGS', [], 'MODELWEAVE_LSP_JAVA_ARGS'),
+        command: process.env.LUMENCORTEX_LSP_JAVA_CMD || 'jdtls',
+        args: envArgs('LUMENCORTEX_LSP_JAVA_ARGS'),
         extensions: ['.java']
       },
       typescript: {
-        command: envValue('LUMENCORTEX_LSP_TS_CMD', 'MODELWEAVE_LSP_TS_CMD') || 'typescript-language-server',
-        args: envArgs('LUMENCORTEX_LSP_TS_ARGS', ['--stdio'], 'MODELWEAVE_LSP_TS_ARGS'),
+        command: process.env.LUMENCORTEX_LSP_TS_CMD || 'typescript-language-server',
+        args: envArgs('LUMENCORTEX_LSP_TS_ARGS', ['--stdio']),
         extensions: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
       },
       python: {
-        command: envValue('LUMENCORTEX_LSP_PY_CMD', 'MODELWEAVE_LSP_PY_CMD') || 'pyright-langserver',
-        args: envArgs('LUMENCORTEX_LSP_PY_ARGS', ['--stdio'], 'MODELWEAVE_LSP_PY_ARGS'),
+        command: process.env.LUMENCORTEX_LSP_PY_CMD || 'pyright-langserver',
+        args: envArgs('LUMENCORTEX_LSP_PY_ARGS', ['--stdio']),
         extensions: ['.py']
       }
     }
@@ -353,8 +353,8 @@ function resolveInside(root, input) {
   return absolute;
 }
 
-function envArgs(name, fallback = [], legacyName) {
-  const value = process.env[name] ?? (legacyName ? process.env[legacyName] : undefined);
+function envArgs(name, fallback = []) {
+  const value = process.env[name];
   return value ? value.split(/\s+/).filter(Boolean) : fallback;
 }
 

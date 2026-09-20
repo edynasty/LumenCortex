@@ -5,8 +5,7 @@
   "type": "module",
   "bin": {
     "lcx": "./bin/lcx.js",
-    "lumencortex": "./bin/lumencortex.js",
-    "modelweave": "./bin/modelweave.js"
+    "lumencortex": "./bin/lumencortex.js"
   },
   "exports": {
     ".": "./src/index.js"

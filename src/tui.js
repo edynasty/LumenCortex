@@ -167,4 +167,3 @@ function truncate(value, max) {
   return text.length <= max ? text : text.slice(0, Math.max(0, max - 1)) + '…';
 }
 
-export { LumenCortexTui as ModelWeaveTui };

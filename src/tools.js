@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { ingestWorkspace } from './ingest.js';
 import { locationToWorkspace } from './lsp.js';
 
-const DEFAULT_IGNORES = new Set(['.git', '.lumencortex', '.modelweave', 'node_modules', 'dist', 'build', 'target', '.next', 'vendor']);
+const DEFAULT_IGNORES = new Set(['.git', '.lumencortex', 'node_modules', 'dist', 'build', 'target', '.next', 'vendor']);
 
 export class ToolRegistry {
   constructor() {
@@ -351,16 +351,6 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
         return result.stats;
       }
     });
-  }
-
-  // Backward-compatible hidden aliases: executable by legacy sessions but not advertised to new models.
-  if (runtime) {
-    const target = registry.get('lumencortex_context');
-    registry.register({ ...target, name: 'modelweave_context', hidden: true });
-  }
-  if (repository) {
-    const target = registry.get('lumencortex_ingest');
-    registry.register({ ...target, name: 'modelweave_ingest', hidden: true });
   }
 
   return registry;
