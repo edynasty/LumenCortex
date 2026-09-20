@@ -54,8 +54,8 @@ export class McpManager {
         registry.register({
           name: localName,
           description: `MCP ${name}/${tool.name}: ${tool.description ?? ''}`,
-          permission: tool.annotations?.readOnlyHint === false ? 'write' : 'read',
-          mutatesWorkspace: tool.annotations?.readOnlyHint === false,
+          permission: tool.annotations?.readOnlyHint === true ? 'read' : 'write',
+          mutatesWorkspace: tool.annotations?.readOnlyHint !== true,
           parameters: tool.inputSchema ?? { type: 'object', properties: {} },
           execute: async (args) => normalizeToolResult(await client.callTool(tool.name, args))
         });
