@@ -5,6 +5,11 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/vm-long-memory-real-agent.yml"
+      - "src/database.js"
+      - "src/repository.js"
+      - "src/session.js"
+      - "src/search-index.js"
+      - "src/runtime.js"
   workflow_dispatch:
 
 jobs:
