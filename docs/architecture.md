@@ -59,8 +59,9 @@ CLI / OpenCode / API
 | Reality snapshot / Evidence / Belief / Negative      |
 | Entity / Abstraction / Task                          |
 |                                                      |
-| Mutation: activate / propagate / prune / graft       |
-|           split* / merge* / promote / drill-down     |
+| Attention: activate / propagate / budget-cut         |
+| Mutation: promote; graft via Cognitive Git            |
+| split / generic prune / canonicalize*                 |
 +----------------------+-------------------------------+
                        |
                        v
@@ -201,6 +202,7 @@ The controller can trigger from:
 - context pressure,
 - selected-node density,
 - unresolved-question density,
+- repeated activation / reuse frequency,
 - cooldown / duplicate prevention.
 
 Promotion changes cognitive granularity; it is not merely an emergency action at 95% context usage.
@@ -283,12 +285,16 @@ All providers use the same tool-calling Agent Loop.
 | Light recomputed every agent step | Implemented |
 | Bounded model working-set pager | Implemented |
 | Full durable session history | Implemented |
-| Manual Promotion + drill-down edges | Implemented |
-| Active Promotion Controller | Implemented |
+| Manual Promotion | Implemented |
+| Drill-down through abstraction edges + reseeding | Partial (works through Light; no dedicated API) |
+| Active Promotion Controller | Implemented (pressure, density, unresolved, repeated activation, dedupe/cooldown) |
 | Commit / Branch / Merge / Conflict / Revert | Implemented |
 | Blame / Cherry-pick / Rebase | Implemented |
 | Agent Loop / CLI / tools / resume | Implemented |
-| Real local OpenAI-compatible model integration | Implemented and VM-tested at protocol level |
+| Real local OpenAI-compatible model integration | Implemented; real VM tool-call smoke passed |
+| Real-model long-task validation | In progress / separate quality gate |
+| DeepSeek official/OpenRouter adapters | Implemented |
+| Real DeepSeek V4 execution | Not yet verified in CI; no-key HF endpoint was paused and OpenRouter key is absent |
 | Hybrid BM25/Symbol/Embedding retrieval | Planned |
 | Persistent indexes / cached adjacency | Planned |
 | LSP/symbol semantic tooling | Planned |
@@ -298,6 +304,9 @@ All providers use the same tool-calling Agent Loop.
 | Cognitive branch <-> real Git worktree binding | Planned |
 | Transactional rollback of workspace file edits | Planned |
 | MCP / Skills / subagent DAG / vision / browser | Planned |
+| Attention propagation | Implemented |
+| Attention cut under token budget (non-destructive) | Implemented |
+| Generic graph prune/graft API | Partial: no generic prune API; graft is represented by Cognitive Git merge/cherry-pick |
 | Automatic split/merge/canonicalization controller | Planned |
 
 ## Long-task design
