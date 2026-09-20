@@ -5,7 +5,7 @@ export const BRAND = Object.freeze({
   cli: 'lcx',
   fullCli: 'lumencortex',
   stateDir: '.lumencortex',
-  version: '0.5.0'
+  version: '0.6.0'
 });
 
 export function resolveStateDir(workspace = process.cwd()) {
