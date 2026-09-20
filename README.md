@@ -4,7 +4,7 @@
 
 > Graph is Memory. Light is Attention. Agent is Execution.
 
-The primary interface is the full-screen TUI. Run `lumencortex` or the short command `lcx` with no arguments to open it directly. While an agent run is active, `Ctrl+C` cancels the provider/tool execution, persists the Session as `interrupted`, and leaves it resumable with `--session`.
+The primary interface is the full-screen TUI. Run `lumencortex` or the short command `lcx` with no arguments to open it directly. Shell/test stdout and stderr are streamed into the active Agent view while commands are still running. While an agent run is active, `Ctrl+C` cancels the provider/tool execution, persists the Session as `interrupted`, and leaves it resumable with `--session`.
 
 ## v0.6 LumenCortex runtime
 
