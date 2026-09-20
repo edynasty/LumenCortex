@@ -10,6 +10,11 @@ export const PROVIDER_PRESETS = {
     apiKeyEnv: 'GROQ_API_KEY',
     defaultModel: 'openai/gpt-oss-120b'
   },
+  deepseek: {
+    baseURL: 'https://api.deepseek.com',
+    apiKeyEnv: 'DEEPSEEK_API_KEY',
+    defaultModel: 'deepseek-flash'
+  },
   generic: {
     baseURL: process.env.MODELWEAVE_BASE_URL,
     apiKeyEnv: 'MODELWEAVE_API_KEY',
