@@ -37,6 +37,20 @@ export class PersistentSearchIndex {
     return stats;
   }
 
+  sync(graphState, options = {}) {
+    const stats = this.database.syncSearchIndex(graphState, {
+      graphRevision: options.graphRevision ?? null,
+      extractSymbols,
+      searchableText,
+      indexTerms
+    });
+    this.state = {
+      graphRevision: stats.graphRevision,
+      createdAt: stats.createdAt
+    };
+    return stats;
+  }
+
   search(query, options = {}) {
     if (!this.ready()) return [];
     return this.database.search(query, {
