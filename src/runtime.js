@@ -169,6 +169,10 @@ export class LumenCortexRuntime {
     }
   }
 
+  close() {
+    this.searchIndex.close?.();
+  }
+
   #journal(event, payload) {
     if (!this.repository.exists()) return;
     this.repository.appendJournal(event, payload);
