@@ -48,11 +48,15 @@ export class CognitiveRepository {
     if (!this.exists()) throw new Error(`Not a LumenCortex repository: ${this.workspace}`);
   }
 
-  graph() {
+  graphSnapshot() {
     this.assertExists();
     const snapshot = this.database.loadGraphSnapshot();
     this.lastGraphRevision = snapshot.revision;
-    return new CognitiveGraph(snapshot.state);
+    return snapshot;
+  }
+
+  graph() {
+    return new CognitiveGraph(this.graphSnapshot().state);
   }
 
   writeGraph(state) {
