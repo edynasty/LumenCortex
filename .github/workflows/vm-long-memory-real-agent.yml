@@ -82,6 +82,7 @@ jobs:
             --timeout-ms 240000 \
             --llm-retries 1 \
             --max-tool-calls-per-step 1 \
+            --tools read_file,write_file,shell \
             --max-tokens 256 \
             --max-steps 16 \
             --yes | tee /tmp/memory-long-agent.log
