@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { ingestWorkspace } from './ingest.js';
 import { locationToWorkspace } from './lsp.js';
 
@@ -296,22 +296,66 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
       required: ['command'],
       additionalProperties: false
     },
-    execute({ command, timeout_ms = shellTimeoutMs }) {
+    async execute({ command, timeout_ms = shellTimeoutMs }) {
       const isWindows = process.platform === 'win32';
-      const result = spawnSync(isWindows ? 'cmd.exe' : '/bin/sh', isWindows ? ['/d', '/s', '/c', command] : ['-lc', command], {
-        cwd: root,
-        encoding: 'utf8',
-        timeout: timeout_ms,
-        maxBuffer: 4 * 1024 * 1024
+      const executable = isWindows ? 'cmd.exe' : '/bin/sh';
+      const args = isWindows ? ['/d', '/s', '/c', command] : ['-lc', command];
+      const maxBuffer = 4 * 1024 * 1024;
+
+      return await new Promise((resolve, reject) => {
+        const child = spawn(executable, args, {
+          cwd: root,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true
+        });
+        let stdout = '';
+        let stderr = '';
+        let timedOut = false;
+        let overflowed = false;
+        let settled = false;
+
+        const finish = (value, error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (error) reject(error);
+          else resolve(value);
+        };
+
+        const append = (current, chunk) => {
+          const next = current + chunk.toString('utf8');
+          if (Buffer.byteLength(next) > maxBuffer) {
+            overflowed = true;
+            child.kill('SIGTERM');
+            return next.slice(0, maxBuffer);
+          }
+          return next;
+        };
+
+        child.stdout.on('data', (chunk) => { stdout = append(stdout, chunk); });
+        child.stderr.on('data', (chunk) => { stderr = append(stderr, chunk); });
+        child.on('error', (error) => finish(null, error));
+        child.on('close', (exitCode, signal) => finish({
+          command,
+          exitCode,
+          signal,
+          stdout,
+          stderr: overflowed
+            ? `${stderr}\n[LumenCortex shell output exceeded ${maxBuffer} bytes and the process was terminated]`
+            : stderr,
+          timedOut,
+          overflowed
+        }));
+
+        const timer = setTimeout(() => {
+          timedOut = true;
+          child.kill('SIGTERM');
+          setTimeout(() => {
+            if (!settled) child.kill('SIGKILL');
+          }, 1000).unref?.();
+        }, timeout_ms);
+        timer.unref?.();
       });
-      return {
-        command,
-        exitCode: result.status,
-        signal: result.signal,
-        stdout: result.stdout ?? '',
-        stderr: result.stderr ?? '',
-        timedOut: Boolean(result.error?.code === 'ETIMEDOUT')
-      };
     }
   });
 
