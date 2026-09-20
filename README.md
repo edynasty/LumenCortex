@@ -22,32 +22,32 @@ Reality -> Evidence -> Belief -> Cognitive Graph
                            next reasoning step
 ```
 
-## v0.2 features
+## v0.3 core features
 
 ### Cognitive runtime
 
 - persistent Context Graph
 - Evidence / Belief separation
 - evidence grades instead of fake numeric confidence
-- Git-like cognitive commit / branch / merge / revert
+- Cognitive Git: commit / branch / checkout / merge / conflict / revert / blame / cherry-pick / rebase
 - Attention Light with propagation and token budgets
 - exploit / explore / contrarian / anomaly lights
-- context Promotion without destructive compaction
+- manual + active Promotion without destructive compaction
 - incremental repository ingestion
 - source-change invalidation of dependent beliefs
 - OpenCode integration
 
 ### Standalone agent
 
-- complete multi-turn Agent Loop
+- complete multi-turn Agent Loop with per-step moving Attention Light
 - OpenAI-compatible provider adapter
-- OpenRouter / Groq presets
+- OpenRouter / Groq / DeepSeek official presets
 - generic local/API provider mode
 - workspace tools: read, list, search, write, exact replace, shell
 - ModelWeave context and ingest tools inside the loop
 - permission gate for read / write / exec
 - automatic graph refresh after workspace mutation
-- persistent resumable sessions
+- persistent resumable full sessions + bounded model Working-Set Pager
 - interactive chat CLI
 - max-step guard
 - per-session usage accounting
@@ -86,6 +86,26 @@ export GROQ_API_KEY=gsk_...
 modelweave agent "inspect this project, find the bug, fix it and run the relevant tests" \
   --provider groq \
   --model openai/gpt-oss-120b \
+  --yes
+```
+
+### DeepSeek official
+
+```bash
+export DEEPSEEK_API_KEY=...
+modelweave agent "inspect this project, fix the failure and verify it" \
+  --provider deepseek \
+  --model deepseek-flash \
+  --yes
+```
+
+### DeepSeek V4 Flash 0731 free through OpenRouter
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+modelweave agent "inspect this project, fix the failure and verify it" \
+  --provider openrouter \
+  --model deepseek/deepseek-v4-flash-0731:free \
   --yes
 ```
 
@@ -130,12 +150,15 @@ modelweave doctor --provider openrouter --live
 Useful controls:
 
 ```text
---provider openrouter|groq|generic
+--provider openrouter|groq|deepseek|generic
 --model MODEL
 --base-url URL
 --max-steps 24
 --max-tokens N
 --budget 24000
+--recent-rounds 6
+--working-chars 120000
+--no-auto-promote
 --policy read-only|workspace|full
 --yes
 --session ID
@@ -185,6 +208,9 @@ modelweave branch [name]
 modelweave checkout <branch>
 modelweave merge <branch>
 modelweave revert <commit>
+modelweave blame <node-or-edge-id> [limit]
+modelweave cherry-pick <commit>
+modelweave rebase <branch>
 ```
 
 ## Development
@@ -204,9 +230,15 @@ The core has zero runtime npm dependencies and requires Node.js 20+.
 - `docs/opencode.md`
 - `docs/agent-runtime.md`
 
+## Implementation honesty
+
+Implemented and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, provider abstraction, tools and resumable sessions.
+
+Still planned rather than claimed as complete: hybrid BM25/symbol/embedding retrieval, persistent indexes, LSP, real Git-worktree transaction binding, graph GC/hot-warm-cold storage, MCP/Skills/subagent DAG, vision/browser tooling and automatic split/merge canonicalization.
+
 ## Current engineering direction
 
-v0.2 intentionally keeps the orchestration/control plane in Node.js. At large graph sizes the next bottleneck is not JavaScript syntax; it is full-graph candidate scoring and rebuilding indexes on each query. The planned optimization path is persistent lexical/symbol indexes, hybrid retrieval and cached adjacency before considering a Rust data-plane implementation.
+v0.3 intentionally keeps the orchestration/control plane in Node.js. At large graph sizes the next bottleneck is not JavaScript syntax; it is full-graph candidate scoring and rebuilding indexes on each query. The planned optimization path is persistent lexical/symbol indexes, hybrid retrieval and cached adjacency before considering a Rust data-plane implementation.
 
 ## License
 
