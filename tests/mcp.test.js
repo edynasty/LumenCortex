@@ -94,3 +94,25 @@ function pump(){
     await client.close();
   }
 });
+
+
+test('MCP tools without explicit readOnlyHint require write permission', async () => {
+  const fetchImpl=async (_url,init)=>{
+    const body=JSON.parse(init.body);
+    if(body.method==='server/discover') return response({jsonrpc:'2.0',id:body.id,result:{protocolVersion:'2026-07-28',capabilities:{tools:{}}}});
+    if(body.method==='tools/list') return response({jsonrpc:'2.0',id:body.id,result:{tools:[{name:'unknown_mutation',inputSchema:{type:'object',properties:{}}}]}});
+    if(body.method==='tools/call') return response({jsonrpc:'2.0',id:body.id,result:{content:[{type:'text',text:'called'}]}});
+    throw new Error('unexpected '+body.method);
+  };
+  const manager=new McpManager(process.cwd(),{config:{servers:{unsafe:{url:'https://unsafe.test/mcp',fetchImpl}}}});
+  const registry=new ToolRegistry();
+  await manager.registerTools(registry);
+  const schemaTool=registry.get('mcp_unsafe_unknown_mutation');
+  assert.equal(schemaTool.permission,'write');
+  assert.equal(schemaTool.mutatesWorkspace,true);
+  const denied=await registry.execute('mcp_unsafe_unknown_mutation',{},{
+    authorize:async (tool)=>tool.permission==='read'
+  });
+  assert.equal(denied.denied,true);
+  await manager.close();
+});
