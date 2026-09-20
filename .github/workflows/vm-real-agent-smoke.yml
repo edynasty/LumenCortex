@@ -1,5 +1,5 @@
 name: vm-real-agent-smoke
-# validates real local tool-calling against the bounded moving-context agent loop
+# validates real local tool-calling against the bounded moving-context agent loop v2
 
 on:
   push:
@@ -121,6 +121,7 @@ jobs:
           EOF
 
       - name: Run real local-model long task
+        timeout-minutes: 15
         shell: bash
         env:
           MODELWEAVE_PROVIDER: generic
@@ -134,11 +135,11 @@ jobs:
             --provider generic \
             --model qwen3:4b-instruct \
             --base-url http://127.0.0.1:11434/v1 \
-            --budget 1200 \
+            --budget 2200 \
             --recent-rounds 3 \
-            --working-chars 30000 \
-            --max-tokens 384 \
-            --max-steps 20 \
+            --working-chars 22000 \
+            --max-tokens 320 \
+            --max-steps 24 \
             --yes | tee /tmp/agent-long.log
 
           node vm-long/verify.mjs
