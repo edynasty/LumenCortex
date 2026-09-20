@@ -6,12 +6,14 @@ This document separates architecture claims from evidence.
 
 Latest validated core suite:
 
-- 75 core tests / 75 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
+- 77 core tests / 77 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
 - Node.js 22 and 24 core matrix
 - dedicated isolated Search / LSP / MCP / Subagent / TUI harness jobs
 - MCP HTTP modern + legacy fallback + stdio transport coverage
 - real overlapping Subagent concurrency assertion
 - SQLite WAL / normalized Session / JSON migration coverage
+- cross-process WAL Session concurrency with simultaneous reader coverage
+- SQLite status / integrity-check / checkpoint / journal maintenance coverage
 - sparse Cognitive Git checkpoint/reopen coverage across 120+ commits
 - explicit Repository/Runtime/SessionStore connection cleanup
 - 100k-node SQLite FTS5/symbol search benchmark
@@ -143,18 +145,18 @@ Latest successful synthetic run:
 ```text
 nodes             = 100000
 queries           = 50
-index build       = 4882.11 ms
-query p50         = 0.150 ms
-query p95         = 0.280 ms
-database size     = 79.60 MB
+index build       = 3317.38 ms
+query p50         = 0.101 ms
+query p95         = 0.189 ms
+database size     = 79.61 MB
 indexed terms     = 300010
 indexed symbols   = 400000
-single mutation   = 207.87 ms
+single mutation   = 129.11 ms
 ```
 
 The benchmark specifically stresses exact/symbol-heavy code lookup. It proves that this path no longer performs a full 100k-node scan per query; it does not substitute for semantic-retrieval quality evaluation.
 
-A separate mutation performance gate fails if a single-node update on a 100k-node graph exceeds 500ms. The pre-optimization path measured 2020.60ms; the current mutation-hint/structural-sharing path measures 207.87ms.
+A separate mutation performance gate fails if a single-node update on a 100k-node graph exceeds 500ms. The pre-optimization path measured 2020.60ms; the current mutation-hint/structural-sharing path measures 129.11ms.
 
 Index consistency is separately tested: graph mutations use optimistic SQLite revisions, stale graph writers are rejected, changed nodes enter a dirty queue, and Runtime incrementally synchronizes only stale FTS5/symbol rows before searching. SQLite WAL mode, normalized incremental Session persistence, shared Subagent SessionStore reuse, Cognitive Git reopen/reconstruction and one-time JSON migration are covered by dedicated storage tests.
 

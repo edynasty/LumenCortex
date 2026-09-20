@@ -136,7 +136,7 @@ lcx search "reserveInventory"
 lcx lsp references src/main/java/.../InventoryService.java 42 18
 ```
 
-The CI performance gate currently validates a synthetic 100k-node SQLite/FTS5 index at ~4.88s build time and 0.28ms query p95 for exact/symbol-heavy queries; a single-node mutation on the same 100k graph is 207.87ms.
+The CI performance gate currently validates a synthetic 100k-node SQLite/FTS5 index at ~3.32s build time and 0.189ms query p95 for exact/symbol-heavy queries; a single-node mutation on the same 100k graph is 129.11ms.
 
 MCP:
 
@@ -157,6 +157,15 @@ Resume:
 ```bash
 lcx sessions
 lcx agent "continue and fix the remaining failure" --session session_xxx --yes
+```
+
+Database health:
+
+```bash
+lcx db status
+lcx db integrity
+lcx db checkpoint
+lcx db journal 50
 ```
 
 Check providers:

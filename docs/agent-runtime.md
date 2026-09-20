@@ -295,7 +295,7 @@ Global step numbers, context history and usage remain continuous across resume.
 
 Routine Cognitive Graph writes carry transient mutation hints from `CognitiveGraph` to the Repository. The SQLite layer directly UPSERTs or deletes only hinted node/edge rows and marks only affected node IDs dirty for FTS5/symbol synchronization. Graph snapshots use structural sharing: the node/edge index maps are copied, while immutable node/edge values are shared until replacement.
 
-A 100k-node CI benchmark currently measures a single-node graph update at 207.87ms; the quality gate fails above 500ms.
+A 100k-node CI benchmark currently measures a single-node graph update at 129.11ms; the quality gate fails above 500ms.
 
 ## SQLite storage
 
@@ -314,6 +314,19 @@ Important tables:
 - `search_documents` / `symbols` / `node_fts`
 
 Cognitive Git stores diffs instead of duplicating the full graph in every commit. Sparse checkpoints are persisted roughly every 50 first-parent commits; history reconstruction starts from the nearest checkpoint and reconstructed snapshots are cached in memory. Pre-v0.6 JSON storage is imported once on open and archived after migration.
+
+### Database maintenance
+
+```bash
+lcx db status
+lcx db integrity
+lcx db checkpoint
+lcx db journal 100
+```
+
+`status` reports WAL mode, file/WAL sizes, graph/search revisions and table counts. `integrity` runs SQLite `PRAGMA integrity_check`. `checkpoint` performs a WAL checkpoint (TRUNCATE by default), and `journal` reads persisted runtime events.
+
+Cross-process CI also starts two independent Node processes that write separate Agent Sessions concurrently while a third connection reads the database; both sessions must complete without lost updates or lock failures.
 
 ## Provider configuration
 
