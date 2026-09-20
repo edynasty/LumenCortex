@@ -6,8 +6,6 @@
 
 The short CLI is `lcx`. Running either `lumencortex` or `lcx` with no arguments opens the full-screen TUI.
 
-Existing LumenCortex workspaces are migrated automatically from `.lumencortex/` to `.lumencortex/`. The old `modelweave` command remains as a deprecated compatibility alias.
-
 ## v0.5 LumenCortex runtime
 
 ### Cognitive runtime
