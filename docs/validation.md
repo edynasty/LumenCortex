@@ -114,6 +114,8 @@ A credentialed real-model validation must use one of:
 - `DEEPSEEK_API_KEY` with the official API, or
 - `OPENROUTER_API_KEY` with a currently free DeepSeek V4 route.
 
+The credentialed `.github/workflows/deepseek-v4-free-real-agent.yml` proof is manual-only and fail-closed: if `OPENROUTER_API_KEY` is missing, the workflow fails before the fixture is created. Therefore a green run from that workflow now means the real DeepSeek tool-call smoke and autonomous coding task both executed successfully; a missing credential can no longer produce a misleading green run.
+
 ## Benchmark snapshot
 
 The current synthetic benchmark in CI uses 1,205 graph nodes:
