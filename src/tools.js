@@ -187,6 +187,105 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
   });
 
   registry.register({
+    name: 'apply_patch',
+    description: 'Apply a validated batch of exact text edits, file creates, or file deletes inside the workspace. All patches are validated before any file is mutated. Prefer this for multi-hunk or multi-file edits.',
+    permission: 'write',
+    mutatesWorkspace: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        patches: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+              operation: { type: 'string', enum: ['update', 'create', 'delete'] },
+              edits: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    old_text: { type: 'string' },
+                    new_text: { type: 'string' }
+                  },
+                  required: ['old_text', 'new_text'],
+                  additionalProperties: false
+                }
+              },
+              content: { type: 'string' }
+            },
+            required: ['path', 'operation'],
+            additionalProperties: false
+          }
+        }
+      },
+      required: ['patches'],
+      additionalProperties: false
+    },
+    execute({ patches }) {
+      if (!Array.isArray(patches) || patches.length === 0) throw new Error('patches must contain at least one patch');
+      const seen = new Set();
+      const plans = [];
+
+      for (const patch of patches) {
+        const file = resolveInside(root, patch.path);
+        const relative = normalize(path.relative(root, file));
+        if (seen.has(file)) throw new Error(`duplicate patch path: ${relative}`);
+        seen.add(file);
+
+        if (patch.operation === 'update') {
+          if (!fs.existsSync(file) || !fs.statSync(file).isFile()) throw new Error(`update target not found: ${relative}`);
+          if (!Array.isArray(patch.edits) || patch.edits.length === 0) throw new Error(`update requires edits: ${relative}`);
+          const original = fs.readFileSync(file, 'utf8');
+          const next = applyExactEdits(original, patch.edits, relative);
+          plans.push({ operation: 'update', file, relative, original, next });
+        } else if (patch.operation === 'create') {
+          if (fs.existsSync(file)) throw new Error(`create target already exists: ${relative}`);
+          if (typeof patch.content !== 'string') throw new Error(`create requires content: ${relative}`);
+          plans.push({ operation: 'create', file, relative, original: null, next: patch.content });
+        } else if (patch.operation === 'delete') {
+          if (!fs.existsSync(file) || !fs.statSync(file).isFile()) throw new Error(`delete target not found: ${relative}`);
+          plans.push({ operation: 'delete', file, relative, original: fs.readFileSync(file, 'utf8'), next: null });
+        } else {
+          throw new Error(`unsupported patch operation: ${patch.operation}`);
+        }
+      }
+
+      const applied = [];
+      try {
+        for (const plan of plans) {
+          if (plan.operation === 'delete') {
+            fs.unlinkSync(plan.file);
+          } else {
+            fs.mkdirSync(path.dirname(plan.file), { recursive: true });
+            fs.writeFileSync(plan.file, plan.next, 'utf8');
+          }
+          applied.push(plan);
+        }
+      } catch (error) {
+        for (const plan of applied.reverse()) {
+          try {
+            if (plan.operation === 'create') fs.rmSync(plan.file, { force: true });
+            else {
+              fs.mkdirSync(path.dirname(plan.file), { recursive: true });
+              fs.writeFileSync(plan.file, plan.original, 'utf8');
+            }
+          } catch {}
+        }
+        throw error;
+      }
+
+      return plans.map((plan) => ({
+        path: plan.relative,
+        operation: plan.operation,
+        bytes: plan.next === null ? 0 : Buffer.byteLength(plan.next)
+      }));
+    }
+  });
+
+  registry.register({
     name: 'shell',
     description: 'Run a shell command in the workspace. Use for tests, builds, git diff/status, and deterministic inspection.',
     permission: 'exec',
@@ -377,6 +476,27 @@ function *walkFiles(root) {
       else if (entry.isFile() && fs.statSync(full).size <= 1024 * 1024) yield full;
     }
   }
+}
+
+function applyExactEdits(source, edits, relativePath) {
+  let next = source;
+  for (const [index, edit] of edits.entries()) {
+    const oldText = edit?.old_text;
+    const newText = edit?.new_text;
+    if (typeof oldText !== 'string' || oldText.length === 0) {
+      throw new Error(`patch edit ${index + 1} has empty old_text: ${relativePath}`);
+    }
+    if (typeof newText !== 'string') {
+      throw new Error(`patch edit ${index + 1} has invalid new_text: ${relativePath}`);
+    }
+    const first = next.indexOf(oldText);
+    if (first < 0) throw new Error(`patch edit ${index + 1} old_text not found: ${relativePath}`);
+    if (next.indexOf(oldText, first + oldText.length) >= 0) {
+      throw new Error(`patch edit ${index + 1} old_text is ambiguous: ${relativePath}`);
+    }
+    next = `${next.slice(0, first)}${newText}${next.slice(first + oldText.length)}`;
+  }
+  return next;
 }
 
 function truncate(value, maxChars = 24000) {
