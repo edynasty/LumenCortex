@@ -19,8 +19,8 @@ flowchart TB
     classDef store fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#2b1232
 
     subgraph ENTRY["Entry / Harness"]
+      TUI["Full-screen TUI / Session Switch"]:::done
       CLI["Standalone CLI: agent / chat / git / light"]:::done
-      OC["OpenCode tools"]:::done
       MCP["MCP stdio/HTTP"]:::done
       API["API / Web UI"]:::plan
     end
@@ -34,7 +34,6 @@ flowchart TB
       TOOLS["Tool Registry + Permission Gate"]:::done
       VERIFY["Test / Shell / Reality Verification"]:::done
       TASKDAG["Focused Subagent / Parallel Sessions"]:::done
-      TUI["Full-screen TUI / Session Switch"]:::done
       GOAL --> LOOP
       SESSION --> WS --> LOOP
       LOOP --> TWS --> TOOLS --> VERIFY --> LOOP
@@ -45,14 +44,14 @@ flowchart TB
     subgraph RETRIEVAL["Candidate Retrieval"]
       LEX["Fallback lexical scan"]:::done
       SYM["Symbol index + LSP"]:::done
-      BM25["Persistent BM25 index"]:::done
+      FTS["SQLite FTS5 lexical index"]:::done
       EMB["Embedding index"]:::plan
       HIST["Recent evidence / history seeds"]:::done
       CAND["Candidate Set"]:::core
       LEX --> CAND
       HIST --> CAND
       SYM --> CAND
-      BM25 --> CAND
+      FTS --> CAND
       EMB -.-> CAND
     end
 
@@ -68,6 +67,20 @@ flowchart TB
       SCUT --> PROP
       ACTIVE --> PROMOTE
       PROMOTE --> DRILL --> LIGHT
+    end
+
+    subgraph STORAGE["SQLite WAL Storage"]
+      DB["lumencortex.db"]:::store
+      GN["graph_nodes / graph_edges"]:::done
+      SS["sessions / messages / steps"]:::done
+      CJ["cognitive_commits / refs"]:::done
+      JR["journal"]:::done
+      SI["symbols / node_fts"]:::done
+      DB --> GN
+      DB --> SS
+      DB --> CJ
+      DB --> JR
+      DB --> SI
     end
 
     subgraph MEMORY["Persistent Cognitive Memory"]
@@ -108,6 +121,7 @@ flowchart TB
     end
 
     ENTRY --> GOAL
+    TUI --> GOAL
     MCP --> TOOLS
     PROVIDERS <--> LOOP
     LOOP --> CAND --> LIGHT
@@ -119,6 +133,11 @@ flowchart TB
     PROMOTE --> ABS
     GRAPH --> COMMIT
     CGIT --> GRAPH
+    GRAPH --> GN
+    SESSION --> SS
+    COMMIT --> CJ
+    OBS --> JR
+    CAND --> SI
 ```
 
 ## Working principle
