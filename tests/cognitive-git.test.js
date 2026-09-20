@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { CognitiveRepository } from '../src/index.js';
 
 function tempRepo() {
@@ -91,4 +92,45 @@ test('cognitive blame follows merged-parent provenance', () => {
 
   const history = repo.blame('merged-finding');
   assert.ok(history.some((entry) => entry.commitId === source.id));
+});
+
+
+test('long cognitive history uses sparse SQLite checkpoints instead of per-commit snapshots', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'lcx-checkpoints-'));
+  let repo=new CognitiveRepository(root);
+  repo.init();
+
+  let graph=repo.graph();
+  graph.addNode({id:'counter',kind:'belief',title:'Counter',body:'0'});
+  repo.writeGraph(graph.snapshot());
+  repo.commit('counter 0');
+
+  for(let i=1;i<=120;i+=1){
+    graph=repo.graph();
+    graph.updateNode('counter',{body:String(i)});
+    repo.writeGraph(graph.snapshot());
+    repo.commit(`counter ${i}`);
+  }
+  const head=repo.headCommitId();
+  repo.close();
+
+  const dbFile=path.join(root,'.lumencortex','lumencortex.db');
+  const db=new DatabaseSync(dbFile);
+  try{
+    const commits=Number(db.prepare('SELECT count(*) AS n FROM cognitive_commits').get().n);
+    const checkpoints=Number(db.prepare('SELECT count(*) AS n FROM cognitive_checkpoints').get().n);
+    assert.ok(commits>=122);
+    assert.ok(checkpoints>=3,`expected sparse checkpoints, got ${checkpoints}`);
+    assert.ok(checkpoints<10,`checkpoints should stay sparse, got ${checkpoints}`);
+  } finally {
+    db.close();
+  }
+
+  repo=new CognitiveRepository(root);
+  try{
+    assert.equal(repo.headCommitId(),head);
+    assert.equal(repo.getCommit(head).snapshot.nodes.counter.body,'120');
+  } finally {
+    repo.close();
+  }
 });
