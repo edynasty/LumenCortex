@@ -86,11 +86,12 @@ Current synthetic CI benchmark:
 
 ```text
 100,000 graph nodes
-index build       4.20 s
+index build       4.88 s
 50 symbol queries
-query p50         0.140 ms
-query p95         0.253 ms
+query p50         0.150 ms
+query p95         0.280 ms
 database size     79.60 MB
+single mutation   207.87 ms
 ```
 
 This benchmark measures exact/symbol-heavy code navigation, not semantic-natural-language quality.
@@ -289,6 +290,12 @@ lcx agent "continue the task" --session session_xxx --yes
 ```
 
 Global step numbers, context history and usage remain continuous across resume.
+
+## Mutation persistence
+
+Routine Cognitive Graph writes carry transient mutation hints from `CognitiveGraph` to the Repository. The SQLite layer directly UPSERTs or deletes only hinted node/edge rows and marks only affected node IDs dirty for FTS5/symbol synchronization. Graph snapshots use structural sharing: the node/edge index maps are copied, while immutable node/edge values are shared until replacement.
+
+A 100k-node CI benchmark currently measures a single-node graph update at 207.87ms; the quality gate fails above 500ms.
 
 ## SQLite storage
 

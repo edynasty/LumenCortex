@@ -136,7 +136,7 @@ lcx search "reserveInventory"
 lcx lsp references src/main/java/.../InventoryService.java 42 18
 ```
 
-The CI performance gate currently validates a synthetic 100k-node SQLite/FTS5 index at ~4.20s build time and 0.253ms query p95 for exact/symbol-heavy queries.
+The CI performance gate currently validates a synthetic 100k-node SQLite/FTS5 index at ~4.88s build time and 0.28ms query p95 for exact/symbol-heavy queries; a single-node mutation on the same 100k graph is 207.87ms.
 
 MCP:
 
@@ -205,7 +205,7 @@ Each workspace keeps one local database:
 └── mcp.json        # optional
 ```
 
-SQLite runs in WAL mode. The database stores the Cognitive Graph, Cognitive Git commits/refs, durable Sessions, Agent steps/messages, runtime journal, code symbols and FTS5 search data. Cognitive commits store graph diffs rather than a full graph snapshot per commit; historical snapshots are reconstructed from the first-parent diff chain and cached in memory.
+SQLite runs in WAL mode. The database stores the Cognitive Graph, Cognitive Git commits/refs, durable Sessions, Agent steps/messages, runtime journal, code symbols and FTS5 search data. Graph snapshots use structural sharing plus transient mutation hints, so the normal single-node mutation path avoids full-table scans and full deep copies. Cognitive commits store graph diffs rather than a full graph snapshot per commit; historical snapshots are reconstructed from the first-parent diff chain and cached in memory.
 
 Existing pre-v0.6 JSON-based `.lumencortex` repositories are imported automatically once and moved into a timestamped `json-backup-*` directory after successful migration.
 
