@@ -14,11 +14,11 @@ export class ModelWeaveRuntime {
   }
 
   refreshSearchIndex(graphState = this.repository.graph().snapshot()) {
-    return this.searchIndex.build(graphState);
+    return this.searchIndex.build(graphState, { graphRevision: this.repository.graphRevision() });
   }
 
   search(query, options = {}) {
-    if (!this.searchIndex.ready()) this.refreshSearchIndex();
+    this.#ensureFreshSearchIndex();
     return this.searchIndex.search(query, options);
   }
 
@@ -129,12 +129,19 @@ export class ModelWeaveRuntime {
     const explicit = options.candidateNodeIds ?? [];
     let indexed = [];
     try {
-      if (!this.searchIndex.ready()) this.refreshSearchIndex();
+      this.#ensureFreshSearchIndex();
       indexed = this.searchIndex.search(goal, { limit: Number(options.candidateLimit ?? 64) }).map((hit) => hit.nodeId);
     } catch {
       indexed = [];
     }
     return [...new Set([...explicit, ...indexed])];
+  }
+
+  #ensureFreshSearchIndex() {
+    const revision = this.repository.graphRevision();
+    if (!this.searchIndex.ready() || this.searchIndex.state?.graphRevision !== revision) {
+      this.refreshSearchIndex();
+    }
   }
 
   #journal(event, payload) {
