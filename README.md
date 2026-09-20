@@ -30,6 +30,7 @@ Reality -> Evidence -> Belief -> Cognitive Graph
 - Evidence / Belief separation
 - evidence grades instead of fake numeric confidence
 - Cognitive Git: commit / branch / checkout / merge / conflict / revert / blame / cherry-pick / rebase
+- non-destructive structural cut/restore + explicit graph graft
 - Attention Light with propagation and token budgets
 - exploit / explore / contrarian / anomaly lights
 - manual + active Promotion without destructive compaction
@@ -104,7 +105,7 @@ modelweave agent "inspect this project, fix the failure and verify it" \
 ```bash
 export OPENROUTER_API_KEY=sk-or-...
 modelweave agent "inspect this project, fix the failure and verify it" \
-  --provider openrouter \
+  --provider openrouter-deepseek-free \
   --model deepseek/deepseek-v4-flash-0731:free \
   --yes
 ```
@@ -158,6 +159,7 @@ Useful controls:
 --budget 24000
 --recent-rounds 6
 --working-chars 120000
+--timeout-ms 120000
 --no-auto-promote
 --policy read-only|workspace|full
 --yes
@@ -211,6 +213,9 @@ modelweave revert <commit>
 modelweave blame <node-or-edge-id> [limit]
 modelweave cherry-pick <commit>
 modelweave rebase <branch>
+modelweave edge cut <edgeId> [reason]
+modelweave edge restore <edgeId>
+modelweave edge graft <from> <type> <to> [weight] [reason]
 ```
 
 ## Development
