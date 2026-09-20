@@ -81,7 +81,7 @@ class McpClientBase {
 
   async connect() {
     try {
-      const discovery = await this.rawRequest('server/discover', {}, { modernProbe: true });
+      const discovery = await this.rawRequest('server/discover', this.#params({}, { modernProbe: true }), { modernProbe: true });
       if (!discovery?.error) {
         this.era = 'modern';
         this.protocolVersion = MODERN_VERSION;
@@ -94,6 +94,7 @@ class McpClientBase {
       capabilities: {},
       clientInfo: { name: 'ModelWeave', version: '0.4.0' }
     }, { legacy: true });
+    if (initialized?.error) throw new Error(initialized.error.message ?? 'MCP initialize failed');
     const result = initialized?.result ?? initialized;
     this.era = 'legacy';
     this.protocolVersion = result?.protocolVersion ?? LEGACY_VERSION;
