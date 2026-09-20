@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "src/search-index.js"
+      - "src/graph.js"
+      - "src/repository.js"
       - "src/database.js"
       - "scripts/benchmark-search.js"
       - "scripts/benchmark-mutation.js"
