@@ -252,3 +252,10 @@ v0.3 intentionally keeps the orchestration/control plane in Node.js. At large gr
 ## License
 
 MIT
+
+
+### DeepSeek provider distinction
+
+- `--provider deepseek` defaults to `deepseek-flash`, the current official DeepSeek Flash API model.
+- `--provider openrouter-deepseek-free` defaults to `deepseek/deepseek-v4-flash-0731:free`, the zero-token-price OpenRouter V4 Flash 0731 route.
+- The OpenRouter free route still requires an `OPENROUTER_API_KEY` for authentication even though prompt/completion token price is zero.
