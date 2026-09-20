@@ -129,6 +129,34 @@ test('shell tool keeps the Node event loop responsive during long commands', asy
 });
 
 
+test('shell tool streams stdout before process completion', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-shell-stream-'));
+  const tools = createCodingTools({ workspace: root });
+  const node = JSON.stringify(process.execPath);
+  const chunks = [];
+  let finished = false;
+
+  const pending = tools.execute('shell', {
+    command: `${node} -e "console.log('FIRST'); setTimeout(() => console.error('SECOND'), 120)"`,
+    timeout_ms: 2000
+  }, {
+    authorize: async () => true,
+    onOutput: (event) => chunks.push({ ...event, finished })
+  }).then((result) => {
+    finished = true;
+    return result;
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  assert.ok(chunks.some((event) => event.stream === 'stdout' && /FIRST/.test(event.chunk)));
+  assert.ok(chunks.some((event) => event.finished === false), 'at least one output chunk should arrive before completion');
+
+  const result = await pending;
+  assert.equal(result.ok, true);
+  assert.ok(chunks.some((event) => event.stream === 'stderr' && /SECOND/.test(event.chunk)));
+});
+
+
 test('shell tool abort signal terminates the active command', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-shell-cancel-'));
   const tools = createCodingTools({ workspace: root });
