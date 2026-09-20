@@ -29,12 +29,13 @@ flowchart TB
       LOOP["Agent Loop"]:::done
       WS["Bounded Working-Set Pager"]:::done
       SESSION["Full Durable Session"]:::store
+      TWS["Tool Working Set / Schema Allowlist"]:::done
       TOOLS["Tool Registry + Permission Gate"]:::done
       VERIFY["Test / Shell / Reality Verification"]:::done
       TASKDAG["Subagent / Dynamic Task DAG"]:::plan
       GOAL --> LOOP
       SESSION --> WS --> LOOP
-      LOOP --> TOOLS --> VERIFY --> LOOP
+      LOOP --> TWS --> TOOLS --> VERIFY --> LOOP
       LOOP -.-> TASKDAG
     end
 
