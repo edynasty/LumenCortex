@@ -5,20 +5,39 @@ import { CognitiveGraph } from './graph.js';
 import { promoteNodes } from './promotion.js';
 import { auditEvidence, validateBeliefEvidence } from './verification.js';
 import { id, nowIso } from './util.js';
+import { PersistentSearchIndex } from './search-index.js';
 
 export class ModelWeaveRuntime {
   constructor(repository) {
     this.repository = repository;
+    this.searchIndex = new PersistentSearchIndex(repository.dir);
+  }
+
+  refreshSearchIndex(graphState = this.repository.graph().snapshot()) {
+    return this.searchIndex.build(graphState);
+  }
+
+  search(query, options = {}) {
+    if (!this.searchIndex.ready()) this.refreshSearchIndex();
+    return this.searchIndex.search(query, options);
   }
 
   context(goal, options = {}) {
     const graph = this.repository.graph().snapshot();
-    return new AttentionEngine(graph).illuminate(goal, options);
+    const indexed = this.#candidateIds(goal, options);
+    return new AttentionEngine(graph).illuminate(goal, {
+      ...options,
+      candidateNodeIds: indexed.length ? indexed : options.candidateNodeIds
+    });
   }
 
   contextMulti(goal, options = {}) {
     const graph = this.repository.graph().snapshot();
-    return new AttentionEngine(graph).illuminateMulti(goal, options);
+    const indexed = this.#candidateIds(goal, options);
+    return new AttentionEngine(graph).illuminateMulti(goal, {
+      ...options,
+      candidateNodeIds: indexed.length ? indexed : options.candidateNodeIds
+    });
   }
 
   promote(nodeIds, options = {}) {
@@ -103,6 +122,18 @@ export class ModelWeaveRuntime {
       this.#journal('execute.rollback', { taskId, error: error.message });
       throw error;
     }
+  }
+
+  #candidateIds(goal, options) {
+    const explicit = options.candidateNodeIds ?? [];
+    let indexed = [];
+    try {
+      if (!this.searchIndex.ready()) this.refreshSearchIndex();
+      indexed = this.searchIndex.search(goal, { limit: Number(options.candidateLimit ?? 64) }).map((hit) => hit.nodeId);
+    } catch {
+      indexed = [];
+    }
+    return [...new Set([...explicit, ...indexed])];
   }
 
   #journal(event, payload) {
