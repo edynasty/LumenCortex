@@ -13,7 +13,8 @@
     "test": "node --test",
     "benchmark": "node scripts/benchmark.js",
     "demo": "node examples/demo.js",
-    "smoke:free": "node scripts/free-agent-smoke.js"
+    "smoke:free": "node scripts/free-agent-smoke.js",
+    "benchmark:search": "node scripts/benchmark-search.js"
   },
   "engines": {
     "node": ">=20"

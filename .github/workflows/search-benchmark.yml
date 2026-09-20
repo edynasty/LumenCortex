@@ -1,0 +1,24 @@
+name: search-benchmark
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/search-index.js"
+      - "scripts/benchmark-search.js"
+      - ".github/workflows/search-benchmark.yml"
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Benchmark 100k-node persistent code index
+        run: npm run benchmark:search
