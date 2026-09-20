@@ -211,17 +211,29 @@ export class LumenCortexDatabase {
   }
 
   loadGraph() {
-    const nodes = {};
-    const edges = {};
-    for (const row of this.db.prepare('SELECT id, json FROM graph_nodes').all()) {
-      nodes[row.id] = JSON.parse(row.json);
+    return this.loadGraphSnapshot().state;
+  }
+
+  loadGraphSnapshot() {
+    this.db.exec('BEGIN');
+    try {
+      const nodes = {};
+      const edges = {};
+      for (const row of this.db.prepare('SELECT id, json FROM graph_nodes').all()) {
+        nodes[row.id] = JSON.parse(row.json);
+      }
+      for (const row of this.db.prepare('SELECT id, json FROM graph_edges').all()) {
+        edges[row.id] = JSON.parse(row.json);
+      }
+      const version = Number(this.getMeta('graph_version') ?? 1);
+      const metadata = parseJson(this.getMeta('graph_metadata'), {});
+      const revision = this.graphRevision();
+      this.db.exec('COMMIT');
+      return { state: { version, nodes, edges, metadata }, revision };
+    } catch (error) {
+      try { this.db.exec('ROLLBACK'); } catch {}
+      throw error;
     }
-    for (const row of this.db.prepare('SELECT id, json FROM graph_edges').all()) {
-      edges[row.id] = JSON.parse(row.json);
-    }
-    const version = Number(this.getMeta('graph_version') ?? 1);
-    const metadata = parseJson(this.getMeta('graph_metadata'), {});
-    return { version, nodes, edges, metadata };
   }
 
   replaceGraph(state, { incrementRevision = true } = {}) {
@@ -272,46 +284,13 @@ export class LumenCortexDatabase {
     });
   }
 
-  syncGraph(state) {
-    const existingNodes = new Map(
-      this.db.prepare('SELECT id, json FROM graph_nodes').all().map((row) => [row.id, row.json])
-    );
-    const existingEdges = new Map(
-      this.db.prepare('SELECT id, json FROM graph_edges').all().map((row) => [row.id, row.json])
-    );
-
+  syncGraph(state, { expectedRevision = null } = {}) {
     const nextNodes = new Map(
       Object.values(state.nodes ?? {}).map((node) => [node.id, JSON.stringify(node)])
     );
     const nextEdges = new Map(
       Object.values(state.edges ?? {}).map((edge) => [edge.id, JSON.stringify(edge)])
     );
-
-    const changedNodeIds = [];
-    const removedNodeIds = [];
-    const changedEdgeIds = [];
-    const removedEdgeIds = [];
-
-    for (const [id, json] of nextNodes) {
-      if (existingNodes.get(id) !== json) changedNodeIds.push(id);
-    }
-    for (const id of existingNodes.keys()) {
-      if (!nextNodes.has(id)) removedNodeIds.push(id);
-    }
-    for (const [id, json] of nextEdges) {
-      if (existingEdges.get(id) !== json) changedEdgeIds.push(id);
-    }
-    for (const id of existingEdges.keys()) {
-      if (!nextEdges.has(id)) removedEdgeIds.push(id);
-    }
-
-    const metadataChanged =
-      String(this.getMeta('graph_version') ?? '1') !== String(state.version ?? 1) ||
-      String(this.getMeta('graph_metadata') ?? '{}') !== JSON.stringify(state.metadata ?? {});
-
-    if (!changedNodeIds.length && !removedNodeIds.length && !changedEdgeIds.length && !removedEdgeIds.length && !metadataChanged) {
-      return { changed: false, changedNodeIds: [], removedNodeIds: [], revision: this.graphRevision() };
-    }
 
     const upsertNode = this.db.prepare(`
       INSERT INTO graph_nodes(id, kind, status, title, body, path, source_kind, updated_at, version, json)
@@ -344,8 +323,51 @@ export class LumenCortexDatabase {
       ON CONFLICT(node_id) DO UPDATE SET removed = excluded.removed
     `);
 
-    const revision = this.graphRevision() + 1;
-    this.transaction(() => {
+    return this.transaction(() => {
+      const currentRevision = this.graphRevision();
+      if (expectedRevision !== null && Number(expectedRevision) !== currentRevision) {
+        const error = new Error(
+          `Graph revision conflict: expected ${expectedRevision}, current ${currentRevision}`
+        );
+        error.code = 'GRAPH_REVISION_CONFLICT';
+        error.expectedRevision = Number(expectedRevision);
+        error.currentRevision = currentRevision;
+        throw error;
+      }
+
+      const existingNodes = new Map(
+        this.db.prepare('SELECT id, json FROM graph_nodes').all().map((row) => [row.id, row.json])
+      );
+      const existingEdges = new Map(
+        this.db.prepare('SELECT id, json FROM graph_edges').all().map((row) => [row.id, row.json])
+      );
+
+      const changedNodeIds = [];
+      const removedNodeIds = [];
+      const changedEdgeIds = [];
+      const removedEdgeIds = [];
+
+      for (const [id, json] of nextNodes) {
+        if (existingNodes.get(id) !== json) changedNodeIds.push(id);
+      }
+      for (const id of existingNodes.keys()) {
+        if (!nextNodes.has(id)) removedNodeIds.push(id);
+      }
+      for (const [id, json] of nextEdges) {
+        if (existingEdges.get(id) !== json) changedEdgeIds.push(id);
+      }
+      for (const id of existingEdges.keys()) {
+        if (!nextEdges.has(id)) removedEdgeIds.push(id);
+      }
+
+      const metadataChanged =
+        String(this.getMeta('graph_version') ?? '1') !== String(state.version ?? 1) ||
+        String(this.getMeta('graph_metadata') ?? '{}') !== JSON.stringify(state.metadata ?? {});
+
+      if (!changedNodeIds.length && !removedNodeIds.length && !changedEdgeIds.length && !removedEdgeIds.length && !metadataChanged) {
+        return { changed: false, changedNodeIds: [], removedNodeIds: [], revision: currentRevision };
+      }
+
       for (const id of removedEdgeIds) deleteEdge.run(id);
       for (const id of removedNodeIds) {
         deleteNode.run(id);
@@ -371,12 +393,14 @@ export class LumenCortexDatabase {
         const edge = state.edges[id];
         upsertEdge.run(edge.id, edge.from, edge.to, edge.type, Number(edge.weight ?? 1), nextEdges.get(id));
       }
+
+      const revision = currentRevision + 1;
       this.setMeta('graph_version', String(state.version ?? 1));
       this.setMeta('graph_metadata', JSON.stringify(state.metadata ?? {}));
       this.setMeta('graph_revision', String(revision));
-    });
 
-    return { changed: true, changedNodeIds, removedNodeIds, revision };
+      return { changed: true, changedNodeIds, removedNodeIds, revision };
+    });
   }
 
   graphRevision() {
@@ -686,7 +710,7 @@ export class LumenCortexDatabase {
 
   searchIndexReady() {
     return Number(this.getMeta('search_document_count') ?? 0) > 0 ||
-      this.getMeta('search_index_created_at') !== null;
+      Boolean(this.getMeta('search_index_created_at'));
   }
 
   search(query, { limit = 50, identifierTerms, indexTerms } = {}) {
