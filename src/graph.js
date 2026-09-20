@@ -1,6 +1,8 @@
 import { createEdge, createNode } from './model.js';
 import { clone, isEqual, nowIso, stableStringify, uniq } from './util.js';
 
+export const GRAPH_MUTATION_HINTS = Symbol.for('lumencortex.graphMutationHints');
+
 export function emptyGraph() {
   return { version: 1, nodes: {}, edges: {}, metadata: {} };
 }
@@ -8,17 +10,37 @@ export function emptyGraph() {
 export class CognitiveGraph {
   constructor(state = emptyGraph()) {
     this.state = clone(state);
+    this.mutations = {
+      changedNodeIds: new Set(),
+      removedNodeIds: new Set(),
+      changedEdgeIds: new Set(),
+      removedEdgeIds: new Set()
+    };
     this.validate();
   }
 
   snapshot() {
-    return clone(this.state);
+    const snapshot = clone(this.state);
+    Object.defineProperty(snapshot, GRAPH_MUTATION_HINTS, {
+      value: {
+        version: 1,
+        changedNodeIds: [...this.mutations.changedNodeIds],
+        removedNodeIds: [...this.mutations.removedNodeIds],
+        changedEdgeIds: [...this.mutations.changedEdgeIds],
+        removedEdgeIds: [...this.mutations.removedEdgeIds]
+      },
+      enumerable: false,
+      configurable: false,
+      writable: false
+    });
+    return snapshot;
   }
 
   addNode(input) {
     const node = createNode(input);
     if (this.state.nodes[node.id]) throw new Error(`Node already exists: ${node.id}`);
     this.state.nodes[node.id] = node;
+    this.#markNodeChanged(node.id);
     return clone(node);
   }
 
@@ -31,6 +53,7 @@ export class CognitiveGraph {
       normalized.version = (previous.version ?? 1) + 1;
     }
     this.state.nodes[normalized.id] = normalized;
+    this.#markNodeChanged(normalized.id);
     this.validateNodeReferences(normalized);
     return clone(normalized);
   }
@@ -43,7 +66,10 @@ export class CognitiveGraph {
   removeNode(id) {
     const current = this.requireNode(id);
     for (const edge of Object.values(this.state.edges)) {
-      if (edge.from === id || edge.to === id) delete this.state.edges[edge.id];
+      if (edge.from === id || edge.to === id) {
+        delete this.state.edges[edge.id];
+        this.#markEdgeRemoved(edge.id);
+      }
     }
     // Preserve graph validity and provenance semantics when a referenced node is removed.
     for (const node of Object.values(this.state.nodes)) {
@@ -65,6 +91,7 @@ export class CognitiveGraph {
       }
     }
     delete this.state.nodes[id];
+    this.#markNodeRemoved(id);
     this.validate();
     return clone(current);
   }
@@ -75,6 +102,7 @@ export class CognitiveGraph {
     this.requireNode(edge.from);
     this.requireNode(edge.to);
     this.state.edges[edge.id] = edge;
+    this.#markEdgeChanged(edge.id);
     return clone(edge);
   }
 
@@ -83,6 +111,7 @@ export class CognitiveGraph {
     this.requireNode(normalized.from);
     this.requireNode(normalized.to);
     this.state.edges[normalized.id] = normalized;
+    this.#markEdgeChanged(normalized.id);
     return clone(normalized);
   }
 
@@ -90,6 +119,7 @@ export class CognitiveGraph {
     const edge = this.state.edges[id];
     if (!edge) throw new Error(`Unknown edge: ${id}`);
     delete this.state.edges[id];
+    this.#markEdgeRemoved(id);
     return clone(edge);
   }
 
@@ -181,6 +211,26 @@ export class CognitiveGraph {
     for (const childId of node.childIds ?? []) {
       if (!this.state.nodes[childId]) throw new Error(`Node ${node.id} references missing child ${childId}`);
     }
+  }
+
+  #markNodeChanged(id) {
+    this.mutations.removedNodeIds.delete(id);
+    this.mutations.changedNodeIds.add(id);
+  }
+
+  #markNodeRemoved(id) {
+    this.mutations.changedNodeIds.delete(id);
+    this.mutations.removedNodeIds.add(id);
+  }
+
+  #markEdgeChanged(id) {
+    this.mutations.removedEdgeIds.delete(id);
+    this.mutations.changedEdgeIds.add(id);
+  }
+
+  #markEdgeRemoved(id) {
+    this.mutations.changedEdgeIds.delete(id);
+    this.mutations.removedEdgeIds.add(id);
   }
 }
 
