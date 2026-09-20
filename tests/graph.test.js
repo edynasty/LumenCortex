@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CognitiveGraph, applyDiff, diffGraphs, emptyGraph, invertDiff } from '../src/index.js';
+import { CognitiveGraph, GRAPH_MUTATION_HINTS, applyDiff, diffGraphs, emptyGraph, invertDiff } from '../src/index.js';
 
 function sampleGraph() {
   const graph = new CognitiveGraph();
