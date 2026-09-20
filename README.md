@@ -150,6 +150,8 @@ modelweave search "reserveInventory"
 modelweave lsp references src/main/java/.../InventoryService.java 42 18
 ```
 
+The CI performance gate currently validates a synthetic 100k-node index at ~4.47s build time and 0.039ms query p95 for exact/symbol-heavy queries.
+
 MCP:
 
 ```bash
