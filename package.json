@@ -1,6 +1,6 @@
 {
   "name": "modelweave",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Versioned cognitive graph runtime and autonomous coding agent with bounded attention.",
   "type": "module",
   "bin": {
