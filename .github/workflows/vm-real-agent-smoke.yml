@@ -25,8 +25,8 @@ jobs:
       - name: Install Ollama
         shell: bash
         run: |
-          curl -fsSL https://ollama.com/download/ollama-linux-amd64.tgz -o /tmp/ollama.tgz
-          sudo tar -xzf /tmp/ollama.tgz -C /usr
+          curl -fsSL https://ollama.com/download/ollama-linux-amd64.tar.zst -o /tmp/ollama.tar.zst
+          sudo tar --zstd -xf /tmp/ollama.tar.zst -C /usr
           ollama --version
           OLLAMA_CONTEXT_LENGTH=8192 nohup ollama serve >/tmp/ollama.log 2>&1 &
           for i in {1..30}; do
