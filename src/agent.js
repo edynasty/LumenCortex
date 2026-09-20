@@ -362,7 +362,15 @@ export class AgentLoop {
               repository: this.repository,
               runtime: this.runtime,
               authorize: options.authorize ?? this.authorize,
-              signal: options.signal
+              signal: options.signal,
+              onOutput: ({ stream, chunk }) => this.emit('tool.output', {
+                sessionId: session.id,
+                step,
+                toolCallId: call.id,
+                name,
+                stream,
+                chunk: String(chunk ?? '').slice(-4000)
+              })
             });
           } catch (error) {
             if (options.signal?.aborted || error?.name === 'AbortError') {
