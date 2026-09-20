@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { applyDiff, CognitiveGraph, diffGraphs, emptyGraph, GRAPH_MUTATION_HINTS, invertDiff } from './graph.js';
+import { applyDiff, CognitiveGraph, copyGraphState, diffGraphs, emptyGraph, GRAPH_MUTATION_HINTS, invertDiff } from './graph.js';
 import { clone, hash, isEqual, nowIso } from './util.js';
 import { resolveStateDir } from './brand.js';
 import { LumenCortexDatabase } from './database.js';
@@ -39,7 +39,7 @@ export class CognitiveRepository {
     this.database.setMeta('created_at', nowIso());
     this.database.setMeta('repository_initialized', '1');
     this.lastGraphRevision = 1;
-    this.graphCache = clone(graph);
+    this.graphCache = copyGraphState(graph);
     this.graphCacheRevision = 1;
     return commit;
   }
@@ -55,7 +55,7 @@ export class CognitiveRepository {
   graphSnapshot() {
     this.assertExists();
     this.#ensureGraphCache();
-    return { state: clone(this.graphCache), revision: this.graphCacheRevision };
+    return { state: copyGraphState(this.graphCache), revision: this.graphCacheRevision };
   }
 
   graph() {
@@ -71,7 +71,7 @@ export class CognitiveRepository {
     const expectedRevision = this.lastGraphRevision ?? this.database.graphRevision();
     const result = this.database.syncGraph(state, { expectedRevision, mutationHints });
     this.lastGraphRevision = result.revision;
-    this.graphCache = clone(state);
+    this.graphCache = copyGraphState(state);
     this.graphCacheRevision = result.revision;
     return result;
   }
