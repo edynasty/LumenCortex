@@ -323,7 +323,7 @@ function languageId(file) {
     '.js': 'javascript', '.jsx': 'javascriptreact',
     '.mjs': 'javascript', '.cjs': 'javascript',
     '.py': 'python', '.go': 'go', '.rs': 'rust'
-  })[ext] ?? ext.slice(1) || 'plaintext';
+  })[ext] ?? (ext.slice(1) || 'plaintext');
 }
 
 function resolveInside(root, input) {
