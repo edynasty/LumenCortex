@@ -323,3 +323,50 @@ test('active promotion incrementally synchronizes search index without full dirt
     db.close();
   }
 });
+
+
+test('session growth upserts new rows without rewriting existing message and step rows', () => {
+  const root=tempWorkspace('lcx-session-incremental-');
+  const repo=new CognitiveRepository(root);
+  repo.init();
+  const store=new AgentSessionStore(repo.dir);
+
+  const session=store.create({goal:'incremental session',provider:'mock',model:'mock'});
+  session.messages.push({role:'user',content:'first'});
+  session.steps.push({step:1,finishReason:'tool_calls',toolCalls:[]});
+  store.save(session);
+
+  const db=new DatabaseSync(path.join(root,'.lumencortex','lumencortex.db'));
+  try {
+    const messageRowid=Number(db.prepare(
+      'SELECT rowid FROM session_messages WHERE session_id = ? AND seq = 0'
+    ).get(session.id).rowid);
+    const stepRowid=Number(db.prepare(
+      'SELECT rowid FROM agent_steps WHERE session_id = ? AND step = 1'
+    ).get(session.id).rowid);
+
+    session.messages.push({role:'assistant',content:'second'});
+    session.steps.push({step:2,finishReason:'stop',toolCalls:[]});
+    session.status='completed';
+    store.save(session);
+
+    assert.equal(
+      Number(db.prepare('SELECT rowid FROM session_messages WHERE session_id = ? AND seq = 0').get(session.id).rowid),
+      messageRowid
+    );
+    assert.equal(
+      Number(db.prepare('SELECT rowid FROM agent_steps WHERE session_id = ? AND step = 1').get(session.id).rowid),
+      stepRowid
+    );
+    assert.equal(
+      Number(db.prepare('SELECT count(*) AS n FROM session_messages WHERE session_id = ?').get(session.id).n),
+      2
+    );
+    assert.equal(
+      Number(db.prepare('SELECT count(*) AS n FROM agent_steps WHERE session_id = ?').get(session.id).n),
+      2
+    );
+  } finally {
+    db.close();
+  }
+});
