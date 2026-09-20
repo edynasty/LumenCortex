@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderTuiFrame } from '../src/tui.js';
+import { LumenCortexTui, renderTuiFrame } from '../src/tui.js';
 
 test('TUI frame renders provider, sessions, events and answer in bounded terminal layout', () => {
   const frame=renderTuiFrame({
@@ -21,4 +21,19 @@ test('TUI frame renders provider, sessions, events and answer in bounded termina
   assert.match(frame,/tool → code_search/);
   assert.match(frame,/all tests passed/);
   assert.match(frame,/Ctrl\+C cancel/);
+});
+
+
+test('TUI records live stdout and stderr tool events', () => {
+  const tui = new LumenCortexTui({
+    agent: {},
+    sessions: { list: () => [] },
+    output: { isTTY: false }
+  });
+
+  tui.event({ type: 'tool.output', name: 'shell', stream: 'stdout', chunk: 'tests passing\n' });
+  tui.event({ type: 'tool.output', name: 'shell', stream: 'stderr', chunk: 'warning line\n' });
+
+  assert.match(tui.events[0], /out ← shell tests passing/);
+  assert.match(tui.events[1], /err ← shell warning line/);
 });
