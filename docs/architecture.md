@@ -305,8 +305,10 @@ All providers use the same tool-calling Agent Loop.
 | Transactional rollback of workspace file edits | Planned |
 | MCP / Skills / subagent DAG / vision / browser | Planned |
 | Attention propagation | Implemented |
-| Attention cut under token budget (non-destructive) | Implemented |
-| Generic graph prune/graft API | Partial: no generic prune API; graft is represented by Cognitive Git merge/cherry-pick |
+| Ephemeral attention cut under token budget | Implemented |
+| Structural cut / restore | Implemented: edge remains durable but is excluded from propagation |
+| Structural graft edge | Implemented |
+| Cross-branch graft | Implemented through merge/cherry-pick |
 | Automatic split/merge/canonicalization controller | Planned |
 
 ## Long-task design
