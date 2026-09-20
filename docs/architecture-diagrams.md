@@ -31,8 +31,8 @@ flowchart TB
       WS["Bounded Working-Set Pager"]:::done
       SESSION["Full Durable Session"]:::store
       TWS["Tool Working Set / Schema Allowlist"]:::done
-      TOOLS["Tool Registry + Permission Gate"]:::done
-      VERIFY["Test / Shell / Reality Verification"]:::done
+      TOOLS["Tool Registry + Permission Gate\nread_file + read_files + apply_patch"]:::done
+      VERIFY["Async Test / Shell / Reality Verification\nlive stdout/stderr + cancel"]:::done
       TASKDAG["Focused Subagent / Parallel Sessions"]:::done
       GOAL --> LOOP
       SESSION --> WS --> LOOP
