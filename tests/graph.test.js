@@ -35,3 +35,35 @@ test('graph diff is reversible', () => {
   const reverted = applyDiff(applied, invertDiff(diff));
   assert.deepEqual(reverted, before);
 });
+
+
+test('structural cut preserves edge and can be restored or versioned as a diff', () => {
+  const graph = sampleGraph();
+  const before = graph.snapshot();
+
+  const cut = graph.cutEdge('x1', { reason: 'isolate disproven causal path' });
+  assert.equal(cut.metadata.attentionCut, true);
+  assert.equal(graph.getEdge('x1').metadata.cutReason, 'isolate disproven causal path');
+  assert.equal(graph.neighbors('b1').length, 1, 'cut is non-destructive');
+
+  const cutState = graph.snapshot();
+  const diff = diffGraphs(before, cutState);
+  assert.equal(diff.operations.length, 1);
+  assert.equal(diff.operations[0].type, 'put_edge');
+  assert.deepEqual(applyDiff(cutState, invertDiff(diff)), before);
+
+  const restored = graph.restoreEdge('x1');
+  assert.equal(restored.metadata.attentionCut, undefined);
+});
+
+test('explicit graft creates a marked structural edge without copying nodes', () => {
+  const graph = sampleGraph();
+  graph.addNode({ id: 'task2', kind: 'task', title: 'Acceptance investigation' });
+  const graft = graph.graftEdge(
+    { id: 'g1', from: 'task2', to: 'b1', type: 'relates_to', weight: 0.8 },
+    { reason: 'reuse inventory finding' }
+  );
+  assert.equal(graft.metadata.grafted, true);
+  assert.equal(graft.metadata.graftReason, 'reuse inventory finding');
+  assert.ok(graph.getNode('b1'));
+});
