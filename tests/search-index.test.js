@@ -68,3 +68,36 @@ test('runtime automatically refreshes a stale search index after graph mutation'
   assert.ok(runtime.searchIndex.stats().graphRevision>before);
   assert.equal(runtime.searchIndex.stats().graphRevision,repo.graphRevision());
 });
+
+
+test('natural-language FTS5 retrieval finds relevant code without exact symbol text', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'lcx-fts-'));
+  const repo=new CognitiveRepository(root);
+  repo.init();
+  const graph=repo.graph();
+  graph.addNode({
+    id:'stock_validation',
+    kind:'evidence',
+    title:'src/InventoryGuard.java:L1-L20',
+    body:'public class InventoryGuard { public void ensureAvailable(String sku) { check remaining stock before reservation; } }',
+    grade:'static',
+    trustZone:'repo_trusted',
+    metadata:{sourceKind:'file-chunk',path:'src/InventoryGuard.java',startLine:1,endLine:20}
+  });
+  graph.addNode({
+    id:'email_sender',
+    kind:'evidence',
+    title:'src/Mailer.java:L1-L20',
+    body:'public class Mailer { public void sendWelcomeEmail() {} }',
+    grade:'static',
+    trustZone:'repo_trusted',
+    metadata:{sourceKind:'file-chunk',path:'src/Mailer.java',startLine:1,endLine:20}
+  });
+  repo.writeGraph(graph.snapshot());
+
+  const runtime=new LumenCortexRuntime(repo);
+  runtime.refreshSearchIndex();
+  const hits=runtime.search('remaining stock reservation',{limit:5});
+  assert.equal(hits[0].nodeId,'stock_validation');
+  assert.ok(hits[0].reasons.includes('fts5'));
+});
