@@ -119,9 +119,9 @@ export class PersistentSearchIndex {
     }
 
     const queryLower = String(query).toLowerCase();
-    for (const [id, doc] of Object.entries(this.state.documents)) {
-      if (!scores.has(id)) continue;
-      if (doc.path && queryLower.includes(String(doc.path).toLowerCase())) {
+    for (const id of scores.keys()) {
+      const doc = this.state.documents[id];
+      if (doc?.path && queryLower.includes(String(doc.path).toLowerCase())) {
         scores.set(id, scores.get(id) + 4);
         addReason(reasons, id, 'path');
       }
