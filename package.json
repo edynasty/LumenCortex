@@ -1,7 +1,7 @@
 {
   "name": "modelweave",
-  "version": "0.3.0",
-  "description": "Versioned cognitive graph runtime and autonomous coding agent with bounded attention.",
+  "version": "0.4.0",
+  "description": "Versioned cognitive coding-agent runtime with indexed retrieval, LSP, MCP, subagents, parallel sessions and TUI.",
   "type": "module",
   "bin": {
     "modelweave": "./src/cli.js"
@@ -26,7 +26,13 @@
     "knowledge-graph",
     "attention",
     "coding-agent",
-    "memory"
+    "memory",
+    "lsp",
+    "mcp",
+    "tui",
+    "subagent",
+    "bm25",
+    "code-search"
   ],
   "license": "MIT"
 }
