@@ -248,3 +248,43 @@ test('stale graph writer is rejected instead of overwriting a newer WAL commit',
   assert.ok(finalGraph.getNode('from-a'));
   assert.ok(finalGraph.getNode('from-b'));
 });
+
+
+test('SQLite integrity remains valid after graph, session, journal and FTS mutations', () => {
+  const root=tempWorkspace('lcx-integrity-');
+  const repo=new CognitiveRepository(root);
+  repo.init();
+
+  let graph=repo.graph();
+  graph.addNode({
+    id:'integrity-node',
+    kind:'evidence',
+    title:'Integrity source',
+    body:'function integritySymbol() { return true; }',
+    grade:'static',
+    trustZone:'repo_trusted',
+    metadata:{sourceKind:'file-chunk',path:'integrity.js'}
+  });
+  repo.writeGraph(graph.snapshot());
+  repo.commit('integrity graph');
+
+  const runtime=new LumenCortexRuntime(repo);
+  runtime.refreshSearchIndex();
+  assert.equal(runtime.search('integritySymbol')[0].nodeId,'integrity-node');
+
+  const store=new AgentSessionStore(repo.dir);
+  const session=store.create({goal:'integrity session'});
+  session.messages.push({role:'user',content:'verify'});
+  session.steps.push({step:1,finishReason:'stop',toolCalls:[]});
+  session.status='completed';
+  store.save(session);
+  repo.appendJournal('integrity-check',{sessionId:session.id});
+
+  const db=new DatabaseSync(path.join(root,'.lumencortex','lumencortex.db'));
+  try {
+    const result=db.prepare('PRAGMA integrity_check').get();
+    assert.equal(result.integrity_check,'ok');
+  } finally {
+    db.close();
+  }
+});
