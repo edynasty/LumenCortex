@@ -7,6 +7,7 @@ on:
       - "src/search-index.js"
       - "src/database.js"
       - "scripts/benchmark-search.js"
+      - "scripts/benchmark-mutation.js"
       - ".github/workflows/search-benchmark.yml"
   workflow_dispatch:
 
@@ -23,3 +24,5 @@ jobs:
       - run: npm ci
       - name: Benchmark 100k-node persistent code index
         run: npm run benchmark:search
+      - name: Benchmark 100k-node single mutation
+        run: npm run benchmark:mutation
