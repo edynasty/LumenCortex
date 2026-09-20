@@ -431,8 +431,9 @@ export class CognitiveRepository {
 
     const refsDir = path.join(this.dir, 'refs', 'heads');
     if (fs.existsSync(refsDir)) {
-      for (const name of fs.readdirSync(refsDir)) {
-        const value = fs.readFileSync(path.join(refsDir, name), 'utf8').trim();
+      for (const refFile of walkFiles(refsDir)) {
+        const name = path.relative(refsDir, refFile).split(path.sep).join('/');
+        const value = fs.readFileSync(refFile, 'utf8').trim();
         if (value) this.database.setRef(name, value);
       }
     }
@@ -514,4 +515,15 @@ function validateRefName(name) {
   if (!/^[A-Za-z0-9._/-]+$/.test(name) || name.includes('..') || name.startsWith('/') || name.endsWith('/')) {
     throw new Error(`Invalid branch name: ${name}`);
   }
+}
+
+
+function walkFiles(root) {
+  const result = [];
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const absolute = path.join(root, entry.name);
+    if (entry.isDirectory()) result.push(...walkFiles(absolute));
+    else if (entry.isFile()) result.push(absolute);
+  }
+  return result;
 }
