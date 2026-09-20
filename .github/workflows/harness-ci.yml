@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - "src/search-index.js"
+      - "src/database.js"
+      - "src/repository.js"
+      - "src/session.js"
       - "src/lsp.js"
       - "src/mcp.js"
       - "src/subagent.js"

@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
 
@@ -101,12 +101,12 @@ jobs:
           grep -E '→ shell .*verify.mjs' /tmp/memory-long-agent.log
 
           node --input-type=module <<'EOF'
-          import fs from 'node:fs';
-          const dir = '.lumencortex/sessions';
-          const files = fs.readdirSync(dir).filter(x => x.endsWith('.json'));
-          const sessions = files.map(x => JSON.parse(fs.readFileSync(`${dir}/${x}`, 'utf8')))
-            .sort((a,b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
-          const s = sessions[0];
+          import path from 'node:path';
+          import { AgentSessionStore } from './src/session.js';
+          const store = new AgentSessionStore(path.resolve('.lumencortex'));
+          const latest = store.list(1)[0];
+          if (!latest) throw new Error('missing persisted session');
+          const s = store.load(latest.id);
           if (s.status !== 'completed') throw new Error(`status=${s.status}`);
           if ((s.metadata?.contextHistory?.length ?? 0) !== s.steps.length) {
             throw new Error('contextHistory does not match reasoning steps');

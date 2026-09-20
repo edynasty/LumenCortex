@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "src/search-index.js"
+      - "src/database.js"
       - "scripts/benchmark-search.js"
       - ".github/workflows/search-benchmark.yml"
   workflow_dispatch:

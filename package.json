@@ -1,6 +1,6 @@
 {
   "name": "lumencortex",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Persistent cognitive coding-agent runtime with Attention Light, indexed retrieval, LSP, MCP, subagents, parallel sessions and TUI.",
   "type": "module",
   "bin": {
@@ -18,7 +18,7 @@
     "benchmark:search": "node scripts/benchmark-search.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "keywords": [
     "agent",
