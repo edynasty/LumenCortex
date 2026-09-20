@@ -27,6 +27,7 @@ export class CognitiveRepository {
     this.#writeRef(branch, commit.id);
     fs.writeFileSync(path.join(this.dir, 'HEAD'), `ref: refs/heads/${branch}\n`);
     this.#writeJson('graph.json', graph);
+    fs.writeFileSync(path.join(this.dir, 'graph.revision'), '1\n');
     this.#writeJson('config.json', { formatVersion: FORMAT_VERSION, createdAt: nowIso() });
     return commit;
   }
@@ -48,6 +49,16 @@ export class CognitiveRepository {
     this.assertExists();
     new CognitiveGraph(state).validate();
     this.#writeJson('graph.json', state);
+    const next = this.graphRevision() + 1;
+    fs.writeFileSync(path.join(this.dir, 'graph.revision'), `${next}\n`);
+  }
+
+  graphRevision() {
+    this.assertExists();
+    const file = path.join(this.dir, 'graph.revision');
+    if (!fs.existsSync(file)) return 0;
+    const value = Number(fs.readFileSync(file, 'utf8').trim());
+    return Number.isFinite(value) ? value : 0;
   }
 
   headRef() {
