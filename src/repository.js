@@ -114,7 +114,8 @@ export class CognitiveRepository {
     return result;
   }
 
-  blame(objectId, limit = 50) {
+  blame(objectId, options = 50) {
+    const limit = typeof options === 'number' ? options : Number(options?.limit ?? 50);
     const result = [];
     for (const commit of this.log(Math.max(limit * 4, 100))) {
       const operations = (commit.diff?.operations ?? []).filter((op) => op.id === objectId);
@@ -263,111 +264,6 @@ export class CognitiveRepository {
       return { conflicts: [{ commitId, message: error.message }], commit: null };
     }
     return { conflicts: [], commit: this.commit(message, { metadata: { reverts: commitId } }) };
-  }
-
-  cherryPick(commitId, { message } = {}) {
-    const target = this.getCommit(commitId);
-    if (!target.parents?.length) throw new Error('Cannot cherry-pick genesis commit');
-    const working = this.graph().snapshot();
-    try {
-      const next = applyDiff(working, target.diff, { strict: true });
-      this.writeGraph(next);
-    } catch (error) {
-      return { conflicts: [{ commitId, message: error.message }], commit: null };
-    }
-    const commit = this.commit(message ?? `Cherry-pick ${commitId}: ${target.message}`, {
-      metadata: { cherryPick: commitId, cherryPickOf: commitId }
-    });
-    return { conflicts: [], commit };
-  }
-
-  blame(nodeId, options = {}) {
-    return this.blameNode(nodeId, options);
-  }
-
-  blameNode(nodeId, { limit = 200 } = {}) {
-    const result = [];
-    const queue = [this.headCommitId()];
-    const seen = new Set();
-    while (queue.length && seen.size < limit) {
-      const commitId = queue.shift();
-      if (!commitId || seen.has(commitId)) continue;
-      seen.add(commitId);
-      const commit = this.getCommit(commitId);
-      const changes = (commit.diff?.operations ?? []).filter(
-        (op) => op.id === nodeId && (op.type === 'put_node' || op.type === 'remove_node')
-      );
-      if (changes.length) {
-        result.push({
-          commitId: commit.id,
-          message: commit.message,
-          createdAt: commit.createdAt,
-          parents: commit.parents,
-          changes: clone(changes)
-        });
-      }
-      for (const parent of commit.parents ?? []) queue.push(parent);
-    }
-    return result;
-  }
-
-  rebase(ontoBranch, { messagePrefix = 'Rebase' } = {}) {
-    const branch = this.currentBranch();
-    if (!branch) throw new Error('Cannot rebase detached HEAD');
-    if (branch === ontoBranch) return { conflicts: [], commits: [], onto: this.headCommitId(), branch };
-
-    const originalHeadId = this.headCommitId();
-    const originalHead = this.getCommit(originalHeadId);
-    const ontoId = this.#readRef(ontoBranch);
-    const onto = this.getCommit(ontoId);
-    const baseId = this.findMergeBase(originalHeadId, ontoId);
-    if (!baseId) throw new Error('No merge base found');
-
-    const toReplay = [];
-    let cursor = originalHeadId;
-    const visited = new Set();
-    while (cursor && cursor !== baseId && !visited.has(cursor)) {
-      visited.add(cursor);
-      const commit = this.getCommit(cursor);
-      toReplay.push(commit);
-      cursor = commit.parents?.[0] ?? null;
-    }
-    toReplay.reverse();
-
-    const originalSnapshot = this.graph().snapshot();
-    const created = [];
-    this.#writeRef(branch, ontoId);
-    this.writeGraph(onto.snapshot);
-
-    try {
-      for (const source of toReplay) {
-        const working = this.graph().snapshot();
-        let next;
-        try {
-          next = applyDiff(working, source.diff, { strict: true });
-        } catch (error) {
-          throw Object.assign(new Error(error.message), { sourceCommit: source.id });
-        }
-        this.writeGraph(next);
-        const diff = this.status();
-        if (!diff.operations.length) continue;
-        const commit = this.commit(`${messagePrefix}: ${source.message}`, {
-          metadata: { rebaseOf: source.id, onto: ontoId, originalHead: originalHeadId }
-        });
-        created.push(commit);
-      }
-      return { conflicts: [], commits: created, onto: ontoId, originalHead: originalHeadId, branch };
-    } catch (error) {
-      this.#writeRef(branch, originalHeadId);
-      this.writeGraph(originalSnapshot);
-      return {
-        conflicts: [{ commitId: error.sourceCommit ?? originalHeadId, message: error.message }],
-        commits: [],
-        onto: ontoId,
-        originalHead: originalHeadId,
-        branch
-      };
-    }
   }
 
   findMergeBase(leftId, rightId) {
