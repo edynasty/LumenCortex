@@ -272,3 +272,42 @@ test('agent promotion dedupe key uses the stable session goal, not moving step f
   await agent.run('stable task goal', { autoIngest: false, recordTask: false });
   assert.deepEqual(promotionGoals, ['stable task goal', 'stable task goal', 'stable task goal']);
 });
+
+
+test('agent recovers once from an empty assistant turn', async () => {
+  const { root, repository, runtime } = fixture();
+  let calls = 0;
+  const provider = {
+    model: 'mock-empty-turn',
+    complete: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          message: { role: 'assistant', content: '', reasoning: 'still thinking' },
+          finishReason: 'stop',
+          usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 }
+        };
+      }
+      return {
+        message: { role: 'assistant', content: 'recovered-final' },
+        finishReason: 'stop',
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 }
+      };
+    }
+  };
+  const agent = new AgentLoop({
+    provider,
+    repository,
+    runtime,
+    workspace: root,
+    tools: new ToolRegistry()
+  });
+  const result = await agent.run('recover empty turn', {
+    emptyTurnRetries: 1,
+    recordTask: false
+  });
+  assert.equal(result.final, 'recovered-final');
+  assert.equal(calls, 2);
+  assert.equal(result.usage.requests, 2);
+  assert.equal(result.usage.totalTokens, 7);
+});
