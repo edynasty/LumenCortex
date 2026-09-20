@@ -1,13 +1,9 @@
 name: deepseek-v4-free-real-agent
 
+# Credentialed proof workflow.
+# A successful run must mean the real DeepSeek model actually executed.
+# Missing credentials are treated as a failure, never as a green skipped proof.
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/deepseek-v4-free-real-agent.yml"
-      - "src/provider.js"
-      - "src/agent.js"
-      - "src/tools.js"
   workflow_dispatch:
 
 jobs:
@@ -29,20 +25,17 @@ jobs:
 
       - run: npm ci
 
-      - name: Check credential availability
-        id: key
+      - name: Require OpenRouter credential
         shell: bash
         run: |
-          if [ -n "$OPENROUTER_API_KEY" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-            echo "OPENROUTER_KEY_AVAILABLE=true"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "OPENROUTER_KEY_AVAILABLE=false"
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::Real DeepSeek V4 validation was not executed because OPENROUTER_API_KEY is absent."
+            echo "::error::This workflow intentionally fails instead of reporting a misleading green skipped run."
+            exit 1
           fi
+          echo "OPENROUTER_KEY_AVAILABLE=true"
 
       - name: Prepare fixture
-        if: steps.key.outputs.available == 'true'
         shell: bash
         run: |
           rm -rf .lumencortex ds-free
@@ -53,7 +46,6 @@ jobs:
           node src/cli.js commit "deepseek free fixture"
 
       - name: Real DeepSeek V4 tool call
-        if: steps.key.outputs.available == 'true'
         shell: bash
         run: |
           set -o pipefail
@@ -72,7 +64,6 @@ jobs:
           grep -F "SECRET=548271" /tmp/deepseek-free.log
 
       - name: Long-task fixture
-        if: steps.key.outputs.available == 'true'
         shell: bash
         run: |
           rm -rf ds-long
@@ -138,7 +129,6 @@ jobs:
           [ "$status" -ne 0 ]
 
       - name: Real DeepSeek V4 autonomous coding long task
-        if: steps.key.outputs.available == 'true'
         shell: bash
         run: |
           set -o pipefail
@@ -159,9 +149,3 @@ jobs:
           echo "TOOL_CALLS=$tool_count"
           [ "$tool_count" -ge 6 ]
           grep -F "[agent] completed" /tmp/deepseek-free-long.log
-
-      - name: Report missing key without pretending to test
-        if: steps.key.outputs.available != 'true'
-        run: |
-          echo "Real DeepSeek V4 test not executed: repository secret OPENROUTER_API_KEY is absent."
-          echo "The target model itself is free; OpenRouter still requires an account API key."
