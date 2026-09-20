@@ -274,6 +274,7 @@ The core has zero runtime npm dependencies and requires Node.js 22.13+ because p
 - `docs/architecture.md`
 - `docs/data-model.md`
 - `docs/agent-runtime.md`
+- `docs/standalone-readiness.md` — evidence gates for primary standalone coding-agent claims
 
 ## Implementation honesty
 
