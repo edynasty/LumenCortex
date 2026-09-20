@@ -78,6 +78,13 @@ export class LumenCortexDatabase {
       CREATE INDEX IF NOT EXISTS idx_cognitive_commits_created
         ON cognitive_commits(created_at DESC);
 
+      CREATE TABLE IF NOT EXISTS cognitive_checkpoints (
+        commit_id TEXT PRIMARY KEY,
+        snapshot_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(commit_id) REFERENCES cognitive_commits(id) ON DELETE CASCADE
+      ) STRICT;
+
       CREATE TABLE IF NOT EXISTS cognitive_refs (
         name TEXT PRIMARY KEY,
         commit_id TEXT NOT NULL,
@@ -472,6 +479,47 @@ export class LumenCortexDatabase {
 
   hasCommit(id) {
     return Boolean(this.db.prepare('SELECT 1 ok FROM cognitive_commits WHERE id = ?').get(id));
+  }
+
+  saveCheckpoint(commitId, snapshot, createdAt = new Date().toISOString()) {
+    this.db.prepare(`
+      INSERT INTO cognitive_checkpoints(commit_id, snapshot_json, created_at)
+      VALUES(?, ?, ?)
+      ON CONFLICT(commit_id) DO UPDATE SET
+        snapshot_json = excluded.snapshot_json,
+        created_at = excluded.created_at
+    `).run(commitId, JSON.stringify(snapshot), createdAt);
+  }
+
+  getCheckpoint(commitId) {
+    const row = this.db.prepare(
+      'SELECT snapshot_json FROM cognitive_checkpoints WHERE commit_id = ?'
+    ).get(commitId);
+    return row ? JSON.parse(row.snapshot_json) : null;
+  }
+
+  hasCheckpoint(commitId) {
+    return Boolean(
+      this.db.prepare('SELECT 1 ok FROM cognitive_checkpoints WHERE commit_id = ?').get(commitId)
+    );
+  }
+
+  firstParent(commitId) {
+    const row = this.db.prepare('SELECT parents_json FROM cognitive_commits WHERE id = ?').get(commitId);
+    if (!row) return null;
+    const parents = JSON.parse(row.parents_json);
+    return parents?.[0] ?? null;
+  }
+
+  distanceToCheckpoint(commitId, maxDistance = 50) {
+    let current = commitId;
+    let distance = 0;
+    while (current && distance <= maxDistance) {
+      if (this.hasCheckpoint(current)) return distance;
+      current = this.firstParent(current);
+      distance += 1;
+    }
+    return distance;
   }
 
   setRef(name, commitId) {
