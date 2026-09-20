@@ -39,6 +39,8 @@ export class AgentLoop {
     const budgetTokens = Number(options.budgetTokens ?? 24000);
     const recentRounds = Number(options.recentRounds ?? 4);
     const workingChars = Number(options.workingChars ?? options.maxWorkingChars ?? 48000);
+    const llmRetries = Math.max(0, Number(options.llmRetries ?? 2));
+    const retryBaseMs = Math.max(0, Number(options.retryBaseMs ?? 800));
     let session;
 
     if (options.sessionId) {
@@ -157,13 +159,50 @@ export class AgentLoop {
         workingTokens: requestMessages.reduce((sum, message) => sum + estimateTokens(message), 0)
       });
 
-      const response = await this.provider.complete({
-        messages: requestMessages,
-        tools: this.tools.schemas(),
-        toolChoice: 'auto',
-        temperature: options.temperature,
-        maxTokens: options.maxTokens
-      });
+      let response;
+      try {
+        response = await completeWithRetry(
+          this.provider,
+          {
+            messages: requestMessages,
+            tools: this.tools.schemas(),
+            toolChoice: 'auto',
+            temperature: options.temperature,
+            maxTokens: options.maxTokens
+          },
+          {
+            retries: llmRetries,
+            retryBaseMs,
+            onRetry: ({ attempt, delayMs, error }) => this.emit('llm.retry', {
+              sessionId: session.id,
+              step,
+              attempt,
+              delayMs,
+              error: error.message,
+              status: error.status ?? null
+            })
+          }
+        );
+      } catch (error) {
+        session.status = 'interrupted';
+        session.error = {
+          at: nowIso(),
+          step,
+          name: error.name,
+          message: error.message,
+          status: error.status ?? null
+        };
+        session.usage = usage;
+        this.sessions.save(session);
+        this.emit('session.interrupted', {
+          sessionId: session.id,
+          step,
+          error: error.message,
+          status: error.status ?? null
+        });
+        error.sessionId ??= session.id;
+        throw error;
+      }
       usage.requests += 1;
       addUsage(usage, response.usage);
       const assistant = response.message;
@@ -522,6 +561,46 @@ function recordToolObservation(repository, { sessionId, step, call, name, args, 
 
   repository.writeGraph(graph.snapshot());
   return nodeId;
+}
+
+async function completeWithRetry(provider, request, { retries = 2, retryBaseMs = 800, onRetry = () => {} } = {}) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await provider.complete(request);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries || !isRetryableProviderError(error)) throw error;
+      const delayMs = retryDelay(error, attempt, retryBaseMs);
+      onRetry({ attempt: attempt + 1, delayMs, error });
+      if (delayMs > 0) await sleep(delayMs);
+    }
+  }
+  throw lastError;
+}
+
+function isRetryableProviderError(error) {
+  const status = Number(error?.status ?? 0);
+  if (status === 408 || status === 409 || status === 425 || status === 429) return true;
+  if (status >= 500 && status <= 599) return true;
+  const name = String(error?.name ?? '');
+  const message = String(error?.message ?? '').toLowerCase();
+  return name === 'AbortError' ||
+    message.includes('aborted') ||
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('econnreset') ||
+    message.includes('fetch failed');
+}
+
+function retryDelay(error, attempt, baseMs) {
+  const retryAfterMs = Number(error?.retryAfterMs);
+  if (Number.isFinite(retryAfterMs) && retryAfterMs >= 0) return retryAfterMs;
+  return Math.min(15_000, baseMs * (2 ** attempt));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function addUsage(total, usage) {
