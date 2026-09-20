@@ -1,6 +1,7 @@
 import { ingestWorkspace } from './ingest.js';
 import { createCodingTools } from './tools.js';
 import { AgentSessionStore } from './session.js';
+import { PromotionController } from './promotion-controller.js';
 import { estimateTokens, hash, nowIso } from './util.js';
 
 const DEFAULT_SYSTEM_PROMPT = `You are ModelWeave Agent, an autonomous coding agent operating inside a versioned cognitive graph.
@@ -18,7 +19,7 @@ Rules:
 10. Return a concise final result with what changed and what verification passed.`;
 
 export class AgentLoop {
-  constructor({ provider, repository, runtime, workspace, tools, sessionStore, authorize, onEvent } = {}) {
+  constructor({ provider, repository, runtime, workspace, tools, sessionStore, promotionController, authorize, onEvent } = {}) {
     if (!provider) throw new Error('provider is required');
     if (!repository) throw new Error('repository is required');
     if (!runtime) throw new Error('runtime is required');
@@ -28,6 +29,7 @@ export class AgentLoop {
     this.workspace = workspace;
     this.tools = tools ?? createCodingTools({ workspace, repository, runtime });
     this.sessions = sessionStore ?? new AgentSessionStore(repository.dir);
+    this.promotionController = promotionController ?? new PromotionController(runtime);
     this.authorize = authorize;
     this.onEvent = onEvent ?? (() => {});
   }
@@ -82,19 +84,33 @@ export class AgentLoop {
       const seedNodeIds = session.metadata.recentObservationNodeIds.slice(-8);
       let context = this.runtime.context(focus, { budgetTokens, seedNodeIds });
       updateActivationCounts(session, context);
-      const promotion = options.autoPromote === false
-        ? null
-        : maybeAutoPromote({ runtime: this.runtime, session, context, focus, step, budgetTokens });
+      const promotionResult = options.autoPromote === false
+        ? { promoted: false }
+        : this.promotionController.maybePromote(focus, context, {
+            step,
+            activationCounts: session.metadata.activationCounts,
+            metadata: { sessionId: session.id }
+          });
+      const promotion = promotionResult.promoted ? promotionResult.abstraction : null;
       if (promotion) {
         context = this.runtime.context(focus, {
           budgetTokens,
           seedNodeIds: [promotion.id, ...seedNodeIds]
         });
+        const record = {
+          abstractionId: promotion.id,
+          step,
+          pressure: promotionResult.assessment?.pressure ?? 0,
+          reasons: promotionResult.assessment?.reasons ?? [],
+          childIds: promotion.childIds ?? []
+        };
+        session.metadata.promotions.push(record);
         this.emit('context.promote', {
           sessionId: session.id,
           step,
           abstractionId: promotion.id,
-          childCount: promotion.childIds?.length ?? 0
+          childCount: promotion.childIds?.length ?? 0,
+          reasons: record.reasons
         });
       }
       lastContext = context;
@@ -446,44 +462,6 @@ function normalizeSessionMetadata(session, defaults) {
 function updateActivationCounts(session, context) {
   const counts = session.metadata.activationCounts;
   for (const node of context.selectedNodes) counts[node.id] = (counts[node.id] ?? 0) + 1;
-}
-
-function maybeAutoPromote({ runtime, session, context, focus, step, budgetTokens }) {
-  const counts = session.metadata.activationCounts;
-  const candidates = context.selectedNodes
-    .filter((node) => !['task', 'abstraction'].includes(node.kind))
-    .sort((a, b) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0) || b.activation - a.activation);
-
-  const repeated = candidates.filter((node) => (counts[node.id] ?? 0) >= 3);
-  const pressure = budgetTokens > 0 ? context.usedTokens / budgetTokens : 0;
-  const shouldPromote = repeated.length >= 4 || (pressure >= 0.72 && candidates.length >= 6);
-  if (!shouldPromote) return null;
-
-  const children = (repeated.length >= 4 ? repeated : candidates).slice(0, 8);
-  if (children.length < 3) return null;
-  const signature = hash(children.map((node) => node.id).sort()).slice(0, 16);
-  if (session.metadata.promotions.some((item) => item.signature === signature)) return null;
-
-  const abstraction = runtime.promote(children.map((node) => node.id), {
-    title: `Auto abstraction: ${session.goal.slice(0, 72)}`,
-    generatedBy: 'active-promotion-controller',
-    metadata: {
-      automatic: true,
-      sessionId: session.id,
-      step,
-      pressure,
-      focus: focus.slice(0, 500),
-      activationCounts: Object.fromEntries(children.map((node) => [node.id, counts[node.id] ?? 0]))
-    }
-  });
-  session.metadata.promotions.push({
-    signature,
-    abstractionId: abstraction.id,
-    step,
-    pressure,
-    childIds: children.map((node) => node.id)
-  });
-  return abstraction;
 }
 
 function recordToolObservation(repository, { sessionId, step, call, name, args, result }) {
