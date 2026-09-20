@@ -1,0 +1,130 @@
+name: vm-long-memory-real-agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/vm-long-memory-real-agent.yml"
+  workflow_dispatch:
+
+jobs:
+  long-memory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      - name: Install Ollama
+        shell: bash
+        run: |
+          curl -fsSL https://ollama.com/download/ollama-linux-amd64.tar.zst -o /tmp/ollama.tar.zst
+          sudo tar --zstd -xf /tmp/ollama.tar.zst -C /usr
+          OLLAMA_CONTEXT_LENGTH=8192 nohup ollama serve >/tmp/ollama-long.log 2>&1 &
+          for i in {1..30}; do
+            curl -fsS http://127.0.0.1:11434/api/version >/dev/null && exit 0
+            sleep 1
+          done
+          exit 1
+
+      - name: Pull tool-specialized model
+        run: ollama pull MadhuryaPasan/Qwen3-ExpertTools:1.7b-q4_K_M
+
+      - name: Build long-memory fixture
+        shell: bash
+        run: |
+          rm -rf .modelweave memory-long
+          mkdir -p memory-long
+          for i in 01 02 03 04 05 06 07 08; do
+            value=$((9100 + 10#$i * 23))
+            printf 'VALUE_%s=%s\n' "$i" "$value" > "memory-long/item-$i.txt"
+          done
+          cat > memory-long/verify.mjs <<'EOF'
+          import fs from 'node:fs';
+          const expected = [];
+          for (let i = 1; i <= 8; i += 1) {
+            const n = String(i).padStart(2, '0');
+            const line = fs.readFileSync(new URL(`./item-${n}.txt`, import.meta.url), 'utf8').trim();
+            expected.push(Number(line.split('=')[1]));
+          }
+          const report = JSON.parse(fs.readFileSync(new URL('./report.json', import.meta.url), 'utf8'));
+          if (JSON.stringify(report.values) !== JSON.stringify(expected)) {
+            console.error(JSON.stringify({expected, actual: report.values}));
+            process.exit(1);
+          }
+          console.log('GRAPH_MEMORY_LONG_TASK_OK');
+          EOF
+          node src/cli.js init .
+          node src/cli.js ingest memory-long
+          node src/cli.js commit "long-memory baseline"
+
+      - name: Run 8-turn real-model memory task
+        env:
+          MODELWEAVE_PROVIDER: generic
+          MODELWEAVE_BASE_URL: http://127.0.0.1:11434/v1
+          MODELWEAVE_MODEL: MadhuryaPasan/Qwen3-ExpertTools:1.7b-q4_K_M
+          MODELWEAVE_REQUIRE_API_KEY: "false"
+        shell: bash
+        run: |
+          set -o pipefail
+          node src/cli.js agent \
+            "This is a strict long-memory protocol test. Read exactly one file per reasoning turn, in this order: memory-long/item-01.txt, item-02.txt, item-03.txt, item-04.txt, item-05.txt, item-06.txt, item-07.txt, item-08.txt. Never use list_dir or search_text and never reread an item. After all eight reads, create memory-long/report.json as {\"values\":[v1,v2,v3,v4,v5,v6,v7,v8]} using every observed numeric value in order. Then run node memory-long/verify.mjs with shell. If verification succeeds, return GRAPH_MEMORY_LONG_TASK_OK. Do not finish earlier." \
+            --provider generic \
+            --model MadhuryaPasan/Qwen3-ExpertTools:1.7b-q4_K_M \
+            --base-url http://127.0.0.1:11434/v1 \
+            --budget 2600 \
+            --recent-rounds 2 \
+            --working-chars 12000 \
+            --timeout-ms 240000 \
+            --llm-retries 1 \
+            --max-tokens 160 \
+            --max-steps 16 \
+            --yes | tee /tmp/memory-long-agent.log
+
+          node memory-long/verify.mjs
+          grep -F 'GRAPH_MEMORY_LONG_TASK_OK' /tmp/memory-long-agent.log
+
+          for i in 01 02 03 04 05 06 07 08; do
+            count=$(grep -c "→ read_file .*memory-long/item-$i.txt" /tmp/memory-long-agent.log || true)
+            echo "item-$i reads=$count"
+            [ "$count" -eq 1 ]
+          done
+
+          grep -E '→ write_file .*memory-long/report.json' /tmp/memory-long-agent.log
+          grep -E '→ shell .*verify.mjs' /tmp/memory-long-agent.log
+
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          const dir = '.modelweave/sessions';
+          const files = fs.readdirSync(dir).filter(x => x.endsWith('.json'));
+          const sessions = files.map(x => JSON.parse(fs.readFileSync(`${dir}/${x}`, 'utf8')))
+            .sort((a,b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+          const s = sessions[0];
+          if (s.status !== 'completed') throw new Error(`status=${s.status}`);
+          if ((s.steps?.length ?? 0) < 10) throw new Error(`steps=${s.steps?.length}`);
+          if ((s.metadata?.contextHistory?.length ?? 0) !== s.steps.length) {
+            throw new Error('contextHistory does not match reasoning steps');
+          }
+          if ((s.metadata?.recentObservationNodeIds?.length ?? 0) < 8) {
+            throw new Error('expected at least 8 durable observation seeds');
+          }
+          console.log(JSON.stringify({
+            status: s.status,
+            steps: s.steps.length,
+            contextHistory: s.metadata.contextHistory.length,
+            observations: s.metadata.recentObservationNodeIds.length,
+            promotions: s.metadata.promotions?.length ?? 0,
+            usage: s.usage
+          }, null, 2));
+          EOF
+
+      - name: Logs
+        if: always()
+        shell: bash
+        run: |
+          cat /tmp/memory-long-agent.log 2>/dev/null || true
+          tail -80 /tmp/ollama-long.log 2>/dev/null || true
