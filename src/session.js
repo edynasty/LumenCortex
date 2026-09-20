@@ -40,6 +40,10 @@ export class AgentSessionStore {
   list(limit = 20) {
     return this.database.listSessions(limit);
   }
+
+  close() {
+    this.database.close();
+  }
 }
 
 function validateSessionId(id) {
