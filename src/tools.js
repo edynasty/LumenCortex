@@ -307,7 +307,8 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
         const child = spawn(executable, args, {
           cwd: root,
           stdio: ['ignore', 'pipe', 'pipe'],
-          windowsHide: true
+          windowsHide: true,
+          detached: !isWindows
         });
         let stdout = '';
         let stderr = '';
@@ -340,9 +341,9 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
         child.stderr.on('data', (chunk) => { stderr = append(stderr, chunk); });
         const abort = () => {
           cancelled = true;
-          child.kill('SIGTERM');
+          terminateProcessTree(child, isWindows, 'SIGTERM');
           setTimeout(() => {
-            if (!settled) child.kill('SIGKILL');
+            if (!settled) terminateProcessTree(child, isWindows, 'SIGKILL');
           }, 1000).unref?.();
         };
 
@@ -372,9 +373,9 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
 
         timer = setTimeout(() => {
           timedOut = true;
-          child.kill('SIGTERM');
+          terminateProcessTree(child, isWindows, 'SIGTERM');
           setTimeout(() => {
-            if (!settled) child.kill('SIGKILL');
+            if (!settled) terminateProcessTree(child, isWindows, 'SIGKILL');
           }, 1000).unref?.();
         }, timeout_ms);
         timer.unref?.();
@@ -542,6 +543,28 @@ function *walkFiles(root) {
       if (entry.isDirectory()) stack.push(full);
       else if (entry.isFile() && fs.statSync(full).size <= 1024 * 1024) yield full;
     }
+  }
+}
+
+function terminateProcessTree(child, isWindows, signal = 'SIGTERM') {
+  if (!child?.pid) return;
+  if (isWindows) {
+    try {
+      const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+        detached: true
+      });
+      killer.unref();
+    } catch {
+      child.kill(signal);
+    }
+    return;
+  }
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    try { child.kill(signal); } catch {}
   }
 }
 
