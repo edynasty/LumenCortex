@@ -86,11 +86,11 @@ Current synthetic CI benchmark:
 
 ```text
 100,000 graph nodes
-index build       3.42 s
+index build       5.43 s
 50 symbol queries
-query p50         0.101 ms
-query p95         0.228 ms
-database size     79.59 MB
+query p50         0.242 ms
+query p95         0.370 ms
+database size     79.60 MB
 ```
 
 This benchmark measures exact/symbol-heavy code navigation, not semantic-natural-language quality.

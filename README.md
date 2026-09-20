@@ -136,7 +136,7 @@ lcx search "reserveInventory"
 lcx lsp references src/main/java/.../InventoryService.java 42 18
 ```
 
-The CI performance gate currently validates a synthetic 100k-node SQLite/FTS5 index at ~3.42s build time and 0.228ms query p95 for exact/symbol-heavy queries.
+The CI performance gate currently validates a synthetic 100k-node SQLite/FTS5 index at ~5.43s build time and 0.37ms query p95 for exact/symbol-heavy queries.
 
 MCP:
 

@@ -6,7 +6,7 @@ This document separates architecture claims from evidence.
 
 Latest validated core suite:
 
-- Core suite passes on Node.js 22 and 24
+- 67 core tests / 67 passed / 0 failed on both Node.js 22 and 24
 - Node.js 22 and 24 core matrix
 - dedicated isolated Search / LSP / MCP / Subagent / TUI harness jobs
 - MCP HTTP modern + legacy fallback + stdio transport coverage
@@ -141,10 +141,10 @@ Latest successful synthetic run:
 ```text
 nodes             = 100000
 queries           = 50
-index build       = 3417.36 ms
-query p50         = 0.101 ms
-query p95         = 0.228 ms
-database size     = 79.59 MB
+index build       = 5426.26 ms
+query p50         = 0.242 ms
+query p95         = 0.370 ms
+database size     = 79.60 MB
 indexed terms     = 300010
 indexed symbols   = 400000
 ```
