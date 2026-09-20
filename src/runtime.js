@@ -11,8 +11,15 @@ export class LumenCortexRuntime {
     this.searchIndex = new PersistentSearchIndex(repository.dir);
   }
 
-  refreshSearchIndex(graphState = this.repository.graph().snapshot()) {
-    return this.searchIndex.build(graphState, { graphRevision: this.repository.graphRevision() });
+  refreshSearchIndex(graphState, graphRevision) {
+    if (!graphState) {
+      const snapshot = this.repository.graphSnapshot();
+      graphState = snapshot.state;
+      graphRevision = snapshot.revision;
+    }
+    return this.searchIndex.build(graphState, {
+      graphRevision: graphRevision ?? this.repository.graphRevision()
+    });
   }
 
   search(query, options = {}) {
@@ -136,13 +143,25 @@ export class LumenCortexRuntime {
   }
 
   #ensureFreshSearchIndex() {
-    const revision = this.repository.graphRevision();
-    if (!this.searchIndex.ready()) {
-      this.refreshSearchIndex();
-      return;
-    }
-    if (this.searchIndex.state?.graphRevision !== revision) {
-      this.searchIndex.sync(this.repository.graph().snapshot(), { graphRevision: revision });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const snapshot = this.repository.graphSnapshot();
+      if (!this.searchIndex.ready()) {
+        try {
+          this.searchIndex.build(snapshot.state, { graphRevision: snapshot.revision });
+          return;
+        } catch (error) {
+          if (error.code === 'SEARCH_REVISION_CONFLICT' && attempt === 0) continue;
+          throw error;
+        }
+      }
+      if (this.searchIndex.state?.graphRevision === snapshot.revision) return;
+      try {
+        this.searchIndex.sync(snapshot.state, { graphRevision: snapshot.revision });
+        return;
+      } catch (error) {
+        if (error.code === 'SEARCH_REVISION_CONFLICT' && attempt === 0) continue;
+        throw error;
+      }
     }
   }
 
