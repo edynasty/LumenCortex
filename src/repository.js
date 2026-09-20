@@ -117,17 +117,28 @@ export class CognitiveRepository {
   blame(objectId, options = 50) {
     const limit = typeof options === 'number' ? options : Number(options?.limit ?? 50);
     const result = [];
-    for (const commit of this.log(Math.max(limit * 4, 100))) {
+    const queue = [this.headCommitId()];
+    const seen = new Set();
+
+    while (queue.length && result.length < limit) {
+      const commitId = queue.shift();
+      if (!commitId || seen.has(commitId)) continue;
+      seen.add(commitId);
+      const commit = this.getCommit(commitId);
       const operations = (commit.diff?.operations ?? []).filter((op) => op.id === objectId);
-      if (!operations.length) continue;
-      result.push({
-        commitId: commit.id,
-        createdAt: commit.createdAt,
-        message: commit.message,
-        metadata: commit.metadata,
-        operations: clone(operations)
-      });
-      if (result.length >= limit) break;
+      if (operations.length) {
+        result.push({
+          commitId: commit.id,
+          createdAt: commit.createdAt,
+          message: commit.message,
+          metadata: commit.metadata,
+          parents: commit.parents ?? [],
+          operations: clone(operations)
+        });
+      }
+      for (const parent of commit.parents ?? []) {
+        if (!seen.has(parent)) queue.push(parent);
+      }
     }
     return result;
   }
