@@ -25,3 +25,11 @@ test('DeepSeek preset points at the official OpenAI-compatible API', () => {
   assert.equal(PROVIDER_PRESETS.deepseek.apiKeyEnv, 'DEEPSEEK_API_KEY');
   assert.equal(PROVIDER_PRESETS.deepseek.defaultModel, 'deepseek-flash');
 });
+
+
+test('OpenRouter DeepSeek free preset pins the tool-capable V4 Flash route', () => {
+  const preset = PROVIDER_PRESETS['openrouter-deepseek-free'];
+  assert.equal(preset.baseURL, 'https://openrouter.ai/api/v1');
+  assert.equal(preset.apiKeyEnv, 'OPENROUTER_API_KEY');
+  assert.equal(preset.defaultModel, 'deepseek/deepseek-v4-flash-0731:free');
+});
