@@ -14,6 +14,10 @@ on:
       - "src/tui.js"
   workflow_dispatch:
 
+concurrency:
+  group: vm-real-agent-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   real-agent:
     runs-on: ubuntu-latest
@@ -136,7 +140,7 @@ jobs:
           LUMENCORTEX_REQUIRE_API_KEY: "false"
         run: |
           set -o pipefail
-          node src/cli.js agent \
+          timeout --signal=TERM --kill-after=10s 900s node src/cli.js agent \
             "Work only in vm-code. This is an implementation task, not a review. First run npm test in vm-code. Diagnose every failing test. Fix only implementation files under vm-code/src; do not edit tests. Rerun npm test until every test passes. There are independent bugs in math.js and slug.js, so do not stop after the first fix. Before finishing, inspect the resulting files or diff. Return CODE_TASK_OK only after tests pass." \
             --provider generic \
             --model qwen3:4b-instruct \
@@ -146,8 +150,8 @@ jobs:
             --working-chars 26000 \
             --timeout-ms 300000 \
             --max-tokens 512 \
-            --max-steps 14 \
-            --max-tool-calls-per-step 1 \
+            --max-steps 10 \
+            --max-tool-calls-per-step 3 \
             --tools read_file,replace_in_file,apply_patch,shell \
             --yes | tee /tmp/vm-code-agent.log
 
