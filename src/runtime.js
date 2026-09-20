@@ -137,8 +137,12 @@ export class LumenCortexRuntime {
 
   #ensureFreshSearchIndex() {
     const revision = this.repository.graphRevision();
-    if (!this.searchIndex.ready() || this.searchIndex.state?.graphRevision !== revision) {
+    if (!this.searchIndex.ready()) {
       this.refreshSearchIndex();
+      return;
+    }
+    if (this.searchIndex.state?.graphRevision !== revision) {
+      this.searchIndex.sync(this.repository.graph().snapshot(), { graphRevision: revision });
     }
   }
 
