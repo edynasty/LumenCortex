@@ -36,11 +36,12 @@ export class ToolRegistry {
 
   async execute(name, args, context = {}) {
     const tool = this.get(name);
-    if (context.authorize && !(await context.authorize(tool, args))) {
+    const normalizedArgs = normalizeArguments(tool, args ?? {});
+    if (context.authorize && !(await context.authorize(tool, normalizedArgs))) {
       return { ok: false, denied: true, content: `Permission denied for tool ${name}` };
     }
     try {
-      const value = await tool.execute(args ?? {}, context);
+      const value = await tool.execute(normalizedArgs, context);
       return { ok: true, mutatesWorkspace: Boolean(tool.mutatesWorkspace), permission: tool.permission ?? 'read', content: truncate(value) };
     } catch (error) {
       return { ok: false, mutatesWorkspace: Boolean(tool.mutatesWorkspace), permission: tool.permission ?? 'read', content: truncate({ error: error.message }) };
@@ -276,4 +277,19 @@ function truncate(value, maxChars = 24000) {
 
 function normalize(value) {
   return value.split(path.sep).join('/');
+}
+
+
+function normalizeArguments(tool, args) {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return args;
+  const properties = tool.parameters?.properties ?? {};
+  const normalized = { ...args };
+  for (const key of Object.keys(args)) {
+    const snake = key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+    if (snake !== key && properties[snake] && normalized[snake] === undefined) {
+      normalized[snake] = args[key];
+      delete normalized[key];
+    }
+  }
+  return normalized;
 }
