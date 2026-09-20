@@ -93,6 +93,44 @@ export class CognitiveGraph {
     return clone(edge);
   }
 
+  cutEdge(id, { reason = 'attention-cut' } = {}) {
+    const edge = this.getEdge(id);
+    if (!edge) throw new Error(`Unknown edge: ${id}`);
+    if (edge.metadata?.attentionCut === true) return edge;
+    return this.putEdge({
+      ...edge,
+      metadata: {
+        ...(edge.metadata ?? {}),
+        attentionCut: true,
+        cutReason: reason,
+        cutAt: nowIso()
+      }
+    });
+  }
+
+  restoreEdge(id) {
+    const edge = this.getEdge(id);
+    if (!edge) throw new Error(`Unknown edge: ${id}`);
+    if (edge.metadata?.attentionCut !== true) return edge;
+    const metadata = { ...(edge.metadata ?? {}) };
+    delete metadata.attentionCut;
+    delete metadata.cutReason;
+    delete metadata.cutAt;
+    return this.putEdge({ ...edge, metadata });
+  }
+
+  graftEdge(input, { reason = 'explicit-graft' } = {}) {
+    return this.addEdge({
+      ...input,
+      metadata: {
+        ...(input.metadata ?? {}),
+        grafted: true,
+        graftReason: reason,
+        graftedAt: nowIso()
+      }
+    });
+  }
+
   getNode(id) {
     return this.state.nodes[id] ? clone(this.state.nodes[id]) : undefined;
   }
