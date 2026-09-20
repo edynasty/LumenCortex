@@ -55,11 +55,13 @@ flowchart TB
     subgraph ATTENTION["Cognitive Control / Light"]
       LIGHT["Moving Attention Light"]:::done
       PROP["Activation Propagation over typed edges"]:::done
-      CUT["Attention Cut: omit low-utility nodes under budget"]:::done
+      CUT["Ephemeral Attention Cut: omit low-utility nodes under budget"]:::done
+      SCUT["Structural Cut / Restore: disable propagation, retain memory"]:::done
       ACTIVE["Finite Active Subgraph"]:::core
       PROMOTE["Active Promotion Controller"]:::done
       DRILL["Drill-down by reseeding child/detail nodes"]:::core
       LIGHT --> PROP --> CUT --> ACTIVE
+      SCUT --> PROP
       ACTIVE --> PROMOTE
       PROMOTE --> DRILL --> LIGHT
     end
@@ -71,11 +73,13 @@ flowchart TB
       GRAPH["Context Graph"]:::store
       ABS["Abstraction Parent; child detail preserved"]:::done
       OBS["Tool Observations"]:::done
+      SGRAFT["Structural Graft Edge"]:::done
       CANON["Canonicalization / GC / hot-warm-cold"]:::plan
       REAL --> EVID --> GRAPH
       BELIEF --> GRAPH
       ABS --> GRAPH
       OBS --> GRAPH
+      SGRAFT --> GRAPH
       CANON -.-> GRAPH
     end
 
@@ -159,12 +163,14 @@ flowchart LR
 1. Propagation  传导
    Seed nodes -> typed edges -> decayed activation -> candidate attention
 
-2. Attention Cut  截肢
-   Active candidates -> score/token budget -> omit low-value nodes
-   IMPORTANT: omitted nodes remain in persistent graph memory.
+2. Cut / Amputation  截肢
+   Ephemeral cut: candidate -> token budget -> omit from this working set.
+   Structural cut: edge cut -> propagation stops while node/edge/history remain restorable.
+   IMPORTANT: neither form requires deleting durable cognitive memory.
 
 3. Graft  嫁接
-   Another cognition branch/subgraph -> merge/cherry-pick -> current cognitive history
+   Structural graft: add an explicit typed graph edge between existing cognition.
+   Branch graft: merge/cherry-pick another cognition branch into current history.
 
 4. Promotion  升格
    Dense/reused detail -> parent abstraction
