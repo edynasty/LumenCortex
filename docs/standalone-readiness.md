@@ -18,6 +18,7 @@ A feature being present in source code is not enough. Readiness claims require a
 | Shell execution | Complete | async/timeout/process-tree/cancel tests | Ready |
 | Live shell stdout/stderr | Complete | pre-completion streaming + Agent/TUI event tests | Ready |
 | Agent cancellation / resume | Complete | explicit AbortSignal test; interrupted Session persists | Ready |
+| Permission policy tiers | Partial | `read-only` differs; `workspace` and `full` currently authorize the same read/write/exec classes | Gap: make scope semantics real before final standalone-readiness claim |
 | LSP definition/references/symbols/hover/diagnostics | Complete | isolated LSP harness | Ready for navigation/diagnostics |
 | LSP rename/code actions | Not implemented | None | Gap for IDE-grade refactoring |
 | MCP stdio/HTTP | Complete | modern + legacy fallback harness | Ready |
