@@ -34,8 +34,8 @@ CLI / OpenCode / API
         v
 +------------------------------------------------------+
 | Agent Runtime                                        |
-| Goal -> Agent Loop -> Tool Executor -> Verifier      |
-|        |             |                               |
+| Goal -> Agent Loop -> Tool Working Set -> Executor  |
+|        |             -> Verifier                     |
 |        +-> Session Store (full durable history)      |
 |        +-> Working-Set Pager (bounded recent rounds) |
 +----------------------+-------------------------------+
@@ -110,6 +110,7 @@ Each reasoning step is deliberately finite:
    - current Active Subgraph
    - current user goal
    - only recent complete tool rounds
+   - only task-relevant tool schemas when an allowlist is supplied
                    |
                    v
 5. LLM reasoning -> tool_calls
@@ -291,6 +292,9 @@ All providers use the same tool-calling Agent Loop.
 | Commit / Branch / Merge / Conflict / Revert | Implemented |
 | Blame / Cherry-pick / Rebase | Implemented |
 | Agent Loop / CLI / tools / resume | Implemented |
+| Per-run Tool Working Set / schema allowlist | Implemented |
+| Per-step tool-call fanout bound | Implemented |
+| Provider retry / timeout / empty-turn recovery | Implemented |
 | Real local OpenAI-compatible model integration | Implemented; real VM tool-call smoke passed |
 | Real-model long-task validation | Implemented and VM-proven with Qwen3 4B; paged-out observations reactivated from graph |
 | DeepSeek official/OpenRouter adapters | Implemented |
