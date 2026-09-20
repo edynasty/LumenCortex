@@ -6,6 +6,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { CognitiveRepository } from '../src/repository.js';
 import { AgentSessionStore } from '../src/session.js';
+import { LumenCortexRuntime } from '../src/runtime.js';
 
 function tempWorkspace(prefix='lcx-sqlite-') {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -176,4 +177,45 @@ test('existing .lumencortex JSON repository migrates once into SQLite and is arc
   const reopened=new CognitiveRepository(root);
   assert.equal(reopened.graph().getNode('legacy').body,'preserve me');
   assert.equal(fs.readdirSync(dir).filter(name=>name.startsWith('json-backup-')).length,1);
+});
+
+
+test('single-node graph mutation only dirties and refreshes that search row', () => {
+  const root=tempWorkspace('lcx-incremental-');
+  const repo=new CognitiveRepository(root);
+  repo.init();
+  let graph=repo.graph();
+  graph.addNode({
+    id:'a',kind:'evidence',title:'A',body:'function alphaSymbol() {}',
+    grade:'static',trustZone:'repo_trusted',metadata:{sourceKind:'file-chunk',path:'a.js'}
+  });
+  graph.addNode({
+    id:'b',kind:'evidence',title:'B',body:'function betaSymbol() {}',
+    grade:'static',trustZone:'repo_trusted',metadata:{sourceKind:'file-chunk',path:'b.js'}
+  });
+  repo.writeGraph(graph.snapshot());
+
+  const runtime=new LumenCortexRuntime(repo);
+  runtime.refreshSearchIndex();
+
+  const db=new DatabaseSync(path.join(root,'.lumencortex','lumencortex.db'));
+  try {
+    assert.equal(Number(db.prepare('SELECT count(*) AS n FROM search_dirty_nodes').get().n),0);
+
+    graph=repo.graph();
+    graph.updateNode('a',{body:'function alphaRenamedSymbol() {}'});
+    repo.writeGraph(graph.snapshot());
+
+    const dirty=db.prepare('SELECT node_id, removed FROM search_dirty_nodes ORDER BY node_id').all();
+    assert.deepEqual(dirty.map(row=>[row.node_id,Number(row.removed)]),[['a',0]]);
+
+    const beforeB=db.prepare('SELECT title, path FROM search_documents WHERE node_id = ?').get('b');
+    const hits=runtime.search('alphaRenamedSymbol');
+    assert.equal(hits[0].nodeId,'a');
+    assert.equal(Number(db.prepare('SELECT count(*) AS n FROM search_dirty_nodes').get().n),0);
+    const afterB=db.prepare('SELECT title, path FROM search_documents WHERE node_id = ?').get('b');
+    assert.deepEqual(afterB,beforeB);
+  } finally {
+    db.close();
+  }
 });
