@@ -1,0 +1,216 @@
+name: deepseek-v4-real-agent
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deepseek-v4-real-agent.yml"
+
+jobs:
+  deepseek-real:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MODELWEAVE_PROVIDER: generic
+      MODELWEAVE_BASE_URL: https://q5dh1rfszfym23hj.us-east-2.aws.endpoints.huggingface.cloud/v1
+      MODELWEAVE_MODEL: deepseek-ai/DeepSeek-V4-Flash-0731
+      MODELWEAVE_REQUIRE_API_KEY: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+      - name: Verify public DeepSeek V4 endpoint
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -sS -m 90 -o /tmp/ds.json -w '%{http_code}' \
+              "$MODELWEAVE_BASE_URL/chat/completions" \
+              -H 'Content-Type: application/json' \
+              -d '{"model":"deepseek-ai/DeepSeek-V4-Flash-0731","messages":[{"role":"user","content":"Reply exactly MODELWEAVE_OK"}],"max_tokens":64}') || true
+            cat /tmp/ds.json || true
+            echo
+            echo "HTTP=$code"
+            [ "$code" = "200" ] && break
+            sleep 15
+          done
+          [ "$code" = "200" ]
+
+      - name: Prepare ModelWeave state
+        shell: bash
+        run: |
+          rm -rf .modelweave deepseek-smoke long-task
+          node src/cli.js init .
+
+      - name: Real DeepSeek tool-call smoke
+        shell: bash
+        run: |
+          mkdir -p deepseek-smoke
+          printf 'The DeepSeek-only secret is 846217.\n' > deepseek-smoke/secret.txt
+          node src/cli.js ingest deepseek-smoke
+          node src/cli.js commit "deepseek smoke baseline"
+
+          set -o pipefail
+          node src/cli.js agent \
+            "Use tools to inspect deepseek-smoke/secret.txt. Do not guess. Return exactly SECRET=<number> after reading the file." \
+            --provider generic \
+            --model deepseek-ai/DeepSeek-V4-Flash-0731 \
+            --base-url "$MODELWEAVE_BASE_URL" \
+            --budget 1600 \
+            --max-tokens 512 \
+            --max-steps 8 \
+            --yes | tee /tmp/deepseek-smoke.log
+
+          grep -E "→ (read_file|search_text)" /tmp/deepseek-smoke.log
+          grep -F "SECRET=846217" /tmp/deepseek-smoke.log
+
+      - name: Build multi-file long-task fixture
+        shell: bash
+        run: |
+          mkdir -p long-task/src long-task/test
+
+          cat > long-task/package.json <<'EOF'
+          {
+            "name": "modelweave-long-task-fixture",
+            "type": "module",
+            "scripts": { "test": "node --test" }
+          }
+          EOF
+
+          cat > long-task/src/math.js <<'EOF'
+          export function add(a, b) {
+            return a - b;
+          }
+
+          export function clamp(value, min, max) {
+            return Math.max(max, Math.min(min, value));
+          }
+          EOF
+
+          cat > long-task/src/pricing.js <<'EOF'
+          import { clamp } from './math.js';
+
+          export function finalPrice(price, discountPercent) {
+            const discount = clamp(discountPercent, 0, 100);
+            return price - discount;
+          }
+          EOF
+
+          cat > long-task/src/slug.js <<'EOF'
+          export function slugify(value) {
+            return value.replaceAll(' ', '_');
+          }
+          EOF
+
+          cat > long-task/src/order.js <<'EOF'
+          import { add } from './math.js';
+          import { finalPrice } from './pricing.js';
+
+          export function orderTotal(lines, discountPercent = 0) {
+            const subtotal = lines.reduce((sum, line) => add(sum, line.price * line.quantity), 0);
+            return finalPrice(subtotal, discountPercent);
+          }
+          EOF
+
+          cat > long-task/test/math.test.js <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { add, clamp } from '../src/math.js';
+
+          test('add sums values', () => assert.equal(add(7, 5), 12));
+          test('clamp keeps values inside range', () => {
+            assert.equal(clamp(5, 0, 10), 5);
+            assert.equal(clamp(-2, 0, 10), 0);
+            assert.equal(clamp(99, 0, 10), 10);
+          });
+          EOF
+
+          cat > long-task/test/pricing.test.js <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { finalPrice } from '../src/pricing.js';
+
+          test('discount is percentage based and bounded', () => {
+            assert.equal(finalPrice(200, 25), 150);
+            assert.equal(finalPrice(100, -5), 100);
+            assert.equal(finalPrice(100, 150), 0);
+          });
+          EOF
+
+          cat > long-task/test/slug.test.js <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { slugify } from '../src/slug.js';
+
+          test('slugify normalizes human labels', () => {
+            assert.equal(slugify('  Hello   Model Weave  '), 'hello-model-weave');
+          });
+          EOF
+
+          cat > long-task/test/order.test.js <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { orderTotal } from '../src/order.js';
+
+          test('order total combines line items then applies percent discount', () => {
+            assert.equal(orderTotal([
+              { price: 50, quantity: 2 },
+              { price: 25, quantity: 2 }
+            ], 10), 135);
+          });
+          EOF
+
+          sha256sum long-task/test/*.js > /tmp/tests-before.sha
+          node src/cli.js ingest long-task
+          node src/cli.js commit "long task fixture"
+
+          set +e
+          (cd long-task && npm test) >/tmp/pretest.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/pretest.log
+          [ "$status" -ne 0 ]
+
+      - name: Real DeepSeek long autonomous task
+        shell: bash
+        run: |
+          set -o pipefail
+          node src/cli.js agent \
+            "Work only in long-task. This is an implementation task, not a review. Run the tests, diagnose every failure, fix the implementation without modifying tests, rerun tests until all pass, and inspect the final diff/status before finishing. There are multiple independent bugs across modules; do not stop after the first fix." \
+            --provider generic \
+            --model deepseek-ai/DeepSeek-V4-Flash-0731 \
+            --base-url "$MODELWEAVE_BASE_URL" \
+            --budget 5000 \
+            --max-tokens 1200 \
+            --max-steps 24 \
+            --yes | tee /tmp/deepseek-long.log
+
+          echo "--- independent verification ---"
+          (cd long-task && npm test)
+          sha256sum -c /tmp/tests-before.sha
+
+          echo "--- agent evidence ---"
+          grep -E "→ (read_file|search_text|replace_in_file|write_file|shell|modelweave_context)" /tmp/deepseek-long.log | tee /tmp/tool-lines.log
+          tool_count=$(wc -l < /tmp/tool-lines.log)
+          echo "TOOL_CALLS=$tool_count"
+          [ "$tool_count" -ge 5 ]
+
+          grep -F "[agent] completed" /tmp/deepseek-long.log
+          node src/cli.js sessions --limit 5
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deepseek-v4-agent-logs
+          path: |
+            /tmp/ds.json
+            /tmp/deepseek-smoke.log
+            /tmp/deepseek-long.log
+            /tmp/pretest.log
