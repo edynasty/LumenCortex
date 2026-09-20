@@ -6,8 +6,8 @@ This document separates architecture claims from evidence.
 
 Latest validated core suite:
 
-- 23 tests
-- 23 passed
+- 45 tests
+- 45 passed
 - 0 failed
 - Node.js 20 and 22
 - benchmark executed in CI
@@ -71,7 +71,21 @@ Interpretation:
 
 The tool protocol and result feedback path worked. The observed failure was model policy/termination quality, not absence of the tool result.
 
-A stronger Qwen3 4B VM validation is maintained in `.github/workflows/vm-real-agent-smoke.yml`, including an independent multi-file long-task fixture.
+A stronger Qwen3 4B VM validation is maintained in `.github/workflows/vm-real-agent-smoke.yml`.
+
+A separate strict graph-memory proof in `.github/workflows/vm-long-memory-real-agent.yml` now passes on a GitHub-hosted Ubuntu VM with local Ollama and `qwen3:4b-instruct`:
+
+- 7 real reasoning steps,
+- step 1-4 each read exactly one distinct file,
+- `recentRounds=1`, so the oldest tool result was no longer retained as ordinary recent chat history,
+- the write step's Active Subgraph contained all 4 durable read Observation nodes,
+- Active Promotion triggered after the fourth read,
+- step 5 wrote the report from those values,
+- step 6 ran an independent verifier,
+- verifier printed `GRAPH_MEMORY_LONG_TASK_OK`,
+- step 7 returned the final answer.
+
+This is direct real-model evidence for the central design claim: paged-out tool evidence can remain durable in the Context Graph and be reactivated by the moving Attention Light when needed.
 
 ## DeepSeek validation
 
@@ -93,6 +107,19 @@ A credentialed real-model validation must use one of:
 
 - `DEEPSEEK_API_KEY` with the official API, or
 - `OPENROUTER_API_KEY` with a currently free DeepSeek V4 route.
+
+## Benchmark snapshot
+
+The current synthetic benchmark in CI uses 1,205 graph nodes:
+
+```text
+fullEstimatedTokens   = 393879
+activeEstimatedTokens = 1989
+selectedNodes         = 5
+contextRatio          = 0.005
+```
+
+This is a routing/attention benchmark, not a model-quality benchmark.
 
 ## Still not validated / still planned
 
