@@ -5,7 +5,10 @@ import (
 	"sync/atomic"
 )
 
-var ErrMemoryBudgetExceeded = errors.New("runtime memory budget exceeded")
+var (
+	ErrMemoryBudgetExceeded = errors.New("runtime memory budget exceeded")
+	ErrAgentLimitExceeded   = errors.New("runtime agent concurrency limit exceeded")
+)
 
 type Budget struct {
 	SoftBytes int64 `json:"softBytes"`
@@ -14,8 +17,9 @@ type Budget struct {
 }
 
 type Manager struct {
-	budget Budget
-	used   atomic.Int64
+	budget       Budget
+	used         atomic.Int64
+	activeAgents atomic.Int64
 }
 
 func New(b Budget) *Manager {
@@ -36,6 +40,7 @@ func New(b Budget) *Manager {
 
 func (m *Manager) Budget() Budget      { return m.budget }
 func (m *Manager) UsedBytes() int64    { return m.used.Load() }
+func (m *Manager) ActiveAgents() int   { return int(m.activeAgents.Load()) }
 func (m *Manager) UnderPressure() bool { return m.used.Load() >= m.budget.SoftBytes }
 
 // Reserve accounts bounded in-process working memory. It is deliberately explicit:
@@ -55,6 +60,24 @@ func (m *Manager) Reserve(bytes int64) (func(), error) {
 			return func() {
 				if released.CompareAndSwap(false, true) {
 					m.used.Add(-bytes)
+				}
+			}, nil
+		}
+	}
+}
+
+
+func (m *Manager) AcquireAgent() (func(), error) {
+	for {
+		current := m.activeAgents.Load()
+		if current >= int64(m.budget.MaxAgents) {
+			return nil, ErrAgentLimitExceeded
+		}
+		if m.activeAgents.CompareAndSwap(current, current+1) {
+			var released atomic.Bool
+			return func() {
+				if released.CompareAndSwap(false, true) {
+					m.activeAgents.Add(-1)
 				}
 			}, nil
 		}
