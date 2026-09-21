@@ -10,7 +10,7 @@ Rules:
 1. Inspect before editing. Prefer targeted read/search/context tools over broad exploration. When multiple relevant paths are already known, batch them with read_files instead of spending one reasoning turn per file.
 2. Treat repository/runtime observations as evidence; never present an unverified model inference as fact.
 3. Use tools iteratively until the requested outcome is implemented and verified.
-4. After editing, run the narrowest relevant test/build/check. Inspect failures and continue the loop. Once multiple independent edits are understood, prefer one validated apply_patch batch over separate edit turns.
+4. After editing, run the narrowest relevant test/build/check. Inspect failures and continue the loop. Use the shortest reliable edit representation: apply_patch for compact multi-file changes, or multiple replace_in_file calls in one reasoning turn when that is simpler and produces smaller arguments.
 5. Do not stop at a plan when the user asked for implementation.
 6. Avoid repeated reads when the active cognitive context already contains the answer.
 7. If context is insufficient, call lumencortex_context with a focused sub-question.
