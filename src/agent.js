@@ -196,13 +196,15 @@ export class AgentLoop {
             retries: llmRetries,
             retryBaseMs,
             onAttempt: () => { usage.requests += 1; },
-            onRetry: ({ attempt, delayMs, error }) => this.emit('llm.retry', {
+            onRetry: ({ attempt, delayMs, error, maxTokens, budgetAdjustment }) => this.emit('llm.retry', {
               sessionId: session.id,
               step,
               attempt,
               delayMs,
               error: error.message,
-              status: error.status ?? null
+              status: error.status ?? null,
+              maxTokens,
+              budgetAdjustment
             })
           }
         );
@@ -244,7 +246,7 @@ export class AgentLoop {
               retries: llmRetries,
               retryBaseMs,
               onAttempt: () => { usage.requests += 1; },
-              onRetry: ({ attempt, delayMs, error }) => this.emit('llm.retry', {
+              onRetry: ({ attempt, delayMs, error, maxTokens, budgetAdjustment }) => this.emit('llm.retry', {
                 sessionId: session.id,
                 step,
                 attempt,
@@ -703,21 +705,45 @@ function recordToolObservation(repository, { sessionId, step, call, name, args, 
 
 async function completeWithRetry(provider, request, { retries = 2, retryBaseMs = 800, onAttempt = () => {}, onRetry = () => {} } = {}) {
   let lastError;
+  const activeRequest = { ...request };
   for (let attempt = 0; attempt <= retries; attempt += 1) {
-    if (request.signal?.aborted) throw abortError(request.signal.reason);
+    if (activeRequest.signal?.aborted) throw abortError(activeRequest.signal.reason);
     try {
-      onAttempt({ attempt: attempt + 1 });
-      return await provider.complete(request);
+      onAttempt({ attempt: attempt + 1, maxTokens: activeRequest.maxTokens });
+      return await provider.complete(activeRequest);
     } catch (error) {
       lastError = error;
-      if (request.signal?.aborted) throw error;
+      if (activeRequest.signal?.aborted) throw error;
       if (attempt >= retries || !isRetryableProviderError(error)) throw error;
+      const budgetAdjustment = expandMalformedToolCallBudget(activeRequest, error);
       const delayMs = retryDelay(error, attempt, retryBaseMs);
-      onRetry({ attempt: attempt + 1, delayMs, error });
-      if (delayMs > 0) await sleep(delayMs, request.signal);
+      onRetry({
+        attempt: attempt + 1,
+        delayMs,
+        error,
+        maxTokens: activeRequest.maxTokens,
+        budgetAdjustment
+      });
+      if (delayMs > 0) await sleep(delayMs, activeRequest.signal);
     }
   }
   throw lastError;
+}
+
+function expandMalformedToolCallBudget(request, error) {
+  const message = String(error?.message ?? '').toLowerCase();
+  const malformedToolCall =
+    message.includes('invalid tool call arguments') ||
+    message.includes('unexpected end of json') ||
+    message.includes('unterminated') ||
+    message.includes('tool call') && message.includes('json');
+  if (!malformedToolCall) return null;
+
+  const current = Number(request.maxTokens);
+  if (!Number.isFinite(current) || current <= 0 || current >= 4096) return null;
+  const next = Math.min(4096, Math.max(current + 256, Math.ceil(current * 2)));
+  request.maxTokens = next;
+  return { from: current, to: next, reason: 'malformed_tool_call' };
 }
 
 function isRetryableProviderError(error) {
