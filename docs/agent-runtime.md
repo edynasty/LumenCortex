@@ -60,6 +60,18 @@ mcp_<server>_<tool>
 
 All tools participate in the same permission gate. File tools are workspace-scoped and reject path traversal.
 
+Permission policies have explicit scopes:
+
+```text
+read-only  -> read tools only
+workspace  -> reads + workspace writes; no host shell; no external MCP writes
+full       -> all configured read/write/exec tools
+```
+
+Unknown policy names are rejected. Ordinary autonomous `--yes` runs default to `full`; TUI without `--yes` remains `read-only`.
+
+One-shot Agent and Chat commands bridge `SIGINT` / `SIGTERM` into the Agent `AbortSignal`, matching the TUI cancellation semantics: active provider/shell work is cancelled and the Session is stored as `interrupted` for resume.
+
 ## Large-repository retrieval
 
 `lcx ingest` builds repository evidence and refreshes the persistent search index.
