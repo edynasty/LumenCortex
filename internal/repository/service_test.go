@@ -81,6 +81,30 @@ func TestGitStatusAndDiff(t *testing.T) {
 	if !strings.Contains(diff.Content, "-before") || !strings.Contains(diff.Content, "+after") {
 		t.Fatalf("diff=%q", diff.Content)
 	}
+
+	if _, err := service.GitStage(context.Background(), "demo.txt"); err != nil {
+		t.Fatal(err)
+	}
+	status, err = service.GitStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Files) != 1 || status.Files[0].Index != "M" {
+		t.Fatalf("staged status=%#v", status)
+	}
+	if _, err := service.GitUnstage(context.Background(), "demo.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.GitRevert(context.Background(), "demo.txt"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "before\n" {
+		t.Fatalf("reverted file=%q", raw)
+	}
 }
 
 func TestRepositoryPathTraversalRejected(t *testing.T) {
