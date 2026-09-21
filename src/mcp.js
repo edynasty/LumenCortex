@@ -56,6 +56,7 @@ export class McpManager {
           name: localName,
           description: `MCP ${name}/${tool.name}: ${tool.description ?? ''}`,
           permission: tool.annotations?.readOnlyHint === true ? 'read' : 'write',
+          scope: 'external',
           mutatesWorkspace: tool.annotations?.readOnlyHint !== true,
           parameters: tool.inputSchema ?? { type: 'object', properties: {} },
           execute: async (args) => normalizeToolResult(await client.callTool(tool.name, args))
