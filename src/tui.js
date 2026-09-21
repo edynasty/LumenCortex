@@ -115,7 +115,9 @@ export class LumenCortexTui {
             signal: activeController.signal
           });
           this.currentSessionId = result.session.id;
-          this.lastAnswer = result.final;
+          this.lastAnswer = result.waitingGate
+            ? `WORKFLOW PAUSED: ${result.waitingGate.gates.map((gate) => `${gate.id}: ${gate.title}`).join(', ')}. Approve with CLI, then resume this session.`
+            : result.final;
         } catch (error) {
           this.currentSessionId = error.sessionId ?? this.currentSessionId;
           this.lastAnswer = error.name === 'AbortError'
@@ -176,6 +178,10 @@ function formatEvent(event) {
   }
   if (event.type === 'context.move') return `light ${event.selectedNodes} nodes / ${event.contextTokens}t`;
   if (event.type === 'context.promote') return `promote → ${event.abstractionId}`;
+  if (event.type === 'workflow.transition') return `workflow ${event.from} → ${event.to}`;
+  if (event.type === 'workflow.facts') return `facts ${event.facts.map((item) => item.path).join(', ')}`;
+  if (event.type === 'workflow.blocked_final') return `completion blocked: ${truncate(event.reason, 72)}`;
+  if (event.type === 'workflow.gate_waiting') return `workflow gate ${event.gates.map((gate) => gate.id).join(', ')}`;
   if (event.type === 'session.complete') return `completed at step ${event.step}`;
   if (event.type === 'session.interrupted') return `interrupted at step ${event.step}: ${event.error}`;
   if (event.type === 'llm.retry') return `retry ${event.attempt}: ${event.error}`;
