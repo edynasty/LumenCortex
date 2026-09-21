@@ -20,6 +20,7 @@ type SessionPatch struct {
 	Status     *string
 	Metadata   map[string]any
 	Final      *string
+	ClearFinal bool
 	Usage      *protocol.Usage
 	Error      map[string]any
 	ClearError bool
