@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -30,6 +31,7 @@ type Set struct {
 	realWorkspace string
 	policy        string
 	shell         *shell.Runner
+	repository    *repository.Service
 	tools         map[string]tool
 }
 type tool struct {
@@ -72,7 +74,11 @@ func New(opts Options) (*Set, error) {
 	if runner == nil {
 		runner = shell.New(root)
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, tools: map[string]tool{}}
+	repoService, err := repository.New(root)
+	if err != nil {
+		return nil, err
+	}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -125,6 +131,10 @@ func (s *Set) add(spec protocol.ToolSpec, fn func(context.Context, map[string]an
 }
 
 func (s *Set) registerBuiltins() {
+	s.add(protocol.ToolSpec{Name: "search_text", Description: "Search repository text with bounded results. Uses ripgrep when available.", Permission: "read", Parameters: obj(map[string]any{"query": str(), "path": str(), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000}}, "query")}, s.searchText)
+	s.add(protocol.ToolSpec{Name: "find_files", Description: "Find repository files by bounded glob/name pattern.", Permission: "read", Parameters: obj(map[string]any{"pattern": str(), "path": str(), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000}}, "pattern")}, s.findFiles)
+	s.add(protocol.ToolSpec{Name: "git_status", Description: "Read bounded Git working tree status.", Permission: "read", Parameters: obj(map[string]any{})}, s.gitStatus)
+	s.add(protocol.ToolSpec{Name: "git_diff", Description: "Read a bounded Git diff for the repository or one file.", Permission: "read", Parameters: obj(map[string]any{"path": str(), "staged": map[string]any{"type": "boolean"}})}, s.gitDiff)
 	s.add(protocol.ToolSpec{Name: "read_file", Description: "Read a bounded UTF-8 file inside the workspace.", Permission: "read", Parameters: obj(map[string]any{"path": str()}, "path")}, s.readFile)
 	s.add(protocol.ToolSpec{Name: "list_dir", Description: "List a bounded number of entries in a workspace directory.", Permission: "read", Parameters: obj(map[string]any{"path": str()}, "path")}, s.listDir)
 	s.add(protocol.ToolSpec{Name: "write_file", Description: "Create or replace a UTF-8 file inside the workspace.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "content": str()}, "path", "content")}, s.writeFile)
