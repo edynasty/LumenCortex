@@ -36,3 +36,9 @@ When superseding a decision, link both directions.
 Ordinary implementation details and bug fixes do not need ADRs.
 
 Use [0000-template.md](0000-template.md) as the starting point.
+
+
+## Accepted decisions
+
+- [0001 — Go runtime migration](0001-go-runtime-migration.md)
+- [0002 — Bounded-memory runtime invariants](0002-bounded-memory-runtime.md)

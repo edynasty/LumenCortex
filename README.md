@@ -296,6 +296,10 @@ lcx edge restore <edgeId>
 lcx edge graft <from> <type> <to> [weight] [reason]
 ```
 
+## Go runtime migration preview
+
+LumenCortex is being migrated incrementally from the validated Node.js reference runtime to a bounded-memory Go runtime. The production `lcx` path remains on Node.js until parity gates are met; the current Go vertical slice exposes a public `runtime.Engine`, compatible SQLite-backed Sessions, bounded event streams, explicit memory budgets, and bounded streaming shell output. See [Go runtime migration](docs/go-runtime-migration.md).
+
 ## Development
 
 ```bash

@@ -34,6 +34,13 @@ The README at the repository root is intentionally a quick-start and product sum
 2. [ADR guide and template](adr/README.md)
 3. [Validation evidence](validation.md)
 
+
+### I want to follow the Go runtime migration
+
+1. [Go runtime migration](go-runtime-migration.md)
+2. [ADR 0001 — Go runtime migration](adr/0001-go-runtime-migration.md)
+3. [ADR 0002 — Bounded-memory runtime](adr/0002-bounded-memory-runtime.md)
+
 ## Document authority
 
 | Topic | Canonical document | Purpose |
