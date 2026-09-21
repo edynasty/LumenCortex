@@ -274,7 +274,15 @@ func (s *SessionHandle) RunShell(ctx context.Context, command string) (ShellResu
 		return ShellResult{}, errors.New("shell command is required")
 	}
 	s.engine.events.publish("tool.start", s.ID, map[string]any{"name": "shell", "command": command})
-	result, err := s.engine.shell.Run(ctx, command, func(chunk shell.StreamEvent) {
+	workspace, err := s.engine.agentWorkspace(ctx, s.ID)
+	if err != nil {
+		return ShellResult{}, err
+	}
+	runner := s.engine.shell
+	if workspace != s.engine.workspace {
+		runner = shell.New(workspace)
+	}
+	result, err := runner.Run(ctx, command, func(chunk shell.StreamEvent) {
 		s.engine.events.publish("tool.output", s.ID, map[string]any{
 			"name": "shell", "stream": chunk.Stream, "chunk": string(chunk.Chunk),
 		})
