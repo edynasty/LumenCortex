@@ -2,23 +2,26 @@
 
 LumenCortex is a versioned cognitive runtime and coding-agent loop.
 
-The central invariant is:
+The architecture has three separate state domains:
 
 ```text
-Reality -> Evidence -> Belief -> Cognitive Graph
-                                  |
-                           Retrieval / Light
-                                  |
-                           Active Subgraph
-                                  |
-                                 LLM
-                                  |
-                           Tool / Mutation
-                                  |
-                         Verify -> Commit
+Workflow State
+Facts / Action / Route / Outcome / Gate
+        │
+        │ constrains legal progress
+        ▼
+Execution State
+Agent / LLM / Tools / Shell / LSP / MCP / Sessions
+        ▲
+        │ receives selected evidence
+        │
+Cognitive State
+Evidence / Belief / Attention Light / Context Graph
 ```
 
-The graph is the durable cognitive subject. An LLM invocation is a temporary computation over a finite working set.
+The graph is the durable cognitive subject. Workflow is the deterministic task-control plane. An LLM invocation is a temporary computation over a finite working set.
+
+For the complete visual map, see [Architecture diagrams](architecture-diagrams.md). For exact per-step semantics, see [Agent execution flow](execution-flow.md).
 
 ## Status legend
 
@@ -28,113 +31,52 @@ The graph is the durable cognitive subject. An LLM invocation is a temporary com
 
 ## System architecture
 
-```text
-TUI / CLI / API
-        |
-        v
-+------------------------------------------------------+
-| Agent Runtime                                        |
-| Goal -> Agent Loop -> Tool Working Set -> Executor  |
-|        |             -> Verifier                     |
-|        +-> Session Store (full durable history)      |
-|        +-> Working-Set Pager (bounded recent rounds) |
-+----------------------+-------------------------------+
-                       |
-                       v
-+------------------------------------------------------+
-| Cognitive Control                                    |
-|                                                      |
-| [FTS5 + Symbol Retrieval] -> [Attention Light]        |
-|                         |                            |
-|                 Active Subgraph                      |
-|                         |                            |
-|              Active Promotion Controller             |
-|                ^                 |                   |
-|          drill-down            promote               |
-+----------------------+-------------------------------+
-                       |
-                       v
-+------------------------------------------------------+
-| Versioned Cognitive Graph                            |
-| Reality snapshot / Evidence / Belief / Negative      |
-| Entity / Abstraction / Task                          |
-|                                                      |
-| Attention: activate / propagate / budget-cut         |
-| Mutation: promote; graft via Cognitive Git            |
-| split / generic prune / canonicalize*                 |
-+----------------------+-------------------------------+
-                       |
-                       v
-+------------------------------------------------------+
-| Cognitive Git                                        |
-| commit / branch / checkout / merge / conflict        |
-| revert / blame / cherry-pick / rebase                |
-+----------------------+-------------------------------+
-                       |
-                       v
-+------------------------------------------------------+
-| Storage                                              |
-| SQLite WAL: graph / sessions / Cognitive Git / journal|
-| FTS5 + symbol index / vector index* / GC*             |
-+------------------------------------------------------+
+The canonical system-level diagram is maintained in [Architecture diagrams — System architecture](architecture-diagrams.md#system-architecture).
 
-* planned or partial
-```
+The important subsystem boundaries are:
+
+| Plane | Owns | Must not own |
+|---|---|---|
+| Workflow | task stage, deterministic Facts, legal tools, completion evidence, Gates | semantic repository memory |
+| Cognitive | Evidence, Beliefs, relations, retrieval, Attention, Promotion | authorization or task legality |
+| Execution | LLM requests, tools, shell/LSP/MCP, Sessions, cancellation | durable truth by model assertion alone |
+| Persistence | SQLite WAL, Sessions, graph, search, Cognitive Git, journal | reasoning policy |
+
+This separation lets Workflow constrain autonomous execution without turning the Context Graph into a state machine, and lets cognition preserve rich evidence without being trusted as an authorization engine.
 
 ## Working principle
 
-Each reasoning step is deliberately finite:
+Every reasoning step is deliberately finite.
 
 ```text
-1. Observe current goal + recent tool evidence
-                   |
-                   v
-2. Recompute Attention Light
-                   |
-                   v
-3. Build Active Subgraph under token budget
-                   |
-          +--------+---------+
-          |                  |
-          v                  v
-   pressure/density low   pressure/density high
-          |                  |
-          |             Active Promotion
-          |             create parent abstraction
-          |             keep all child detail
-          +--------+---------+
-                   |
-                   v
-4. Build bounded LLM working set
-   - system policy
-   - current Active Subgraph
-   - current user goal
-   - only recent complete tool rounds
-   - only task-relevant tool schemas when an allowlist is supplied
-                   |
-                   v
-5. LLM reasoning -> tool_calls
-                   |
-                   v
-6. Execute read/edit/shell/test/context tools
-                   |
-                   v
-7. Workspace changed?
-       | yes
-       v
-   re-ingest reality
-   Evidence changes -> dependent Beliefs become stale
-                   |
-                   v
-8. Move Light and iterate
-                   |
-             done / max steps
-                   |
-                   v
-9. Persist full Session + optional Cognitive Commit
+1. Load / resume Session and Workflow state
+2. Stop immediately if a Human Gate is waiting
+3. Derive current focus
+4. Retrieve indexed cognitive candidates
+5. Move Attention Light
+6. Build finite Active Subgraph
+7. Build bounded model working set
+8. Compute current Workflow/Agent tool working set
+9. LLM reasons
+10. For every tool call:
+      execution-time permission + Workflow check
+      -> execute
+      -> record observation
+      -> evaluate Workflow Outcomes
+      -> write Facts
+      -> evaluate Routes / Gates
+11. Re-ingest workspace reality after mutation
+12. Persist Session step and Workflow snapshot
+13. If model returns final:
+      accept only if terminal Workflow completion is proven
+14. Iterate, pause, complete, interrupt, or hit max steps
 ```
 
-The full session can keep growing on disk, but it is not replayed wholesale into every model request.
+The full Session and Context Graph can keep growing on disk, but neither is replayed wholesale into every model request.
+
+When no Workflow Contract is active, the same cognitive/execution loop runs without deterministic Action/Route/Gate constraints.
+
+The detailed state machine is maintained in [Agent execution flow](execution-flow.md).
 
 ## Attention Light
 
