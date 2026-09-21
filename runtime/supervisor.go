@@ -27,6 +27,7 @@ type managedRun struct {
 	done            chan struct{}
 	startedAt       time.Time
 	cancelRequested bool
+	releaseAgent    func()
 }
 
 // RunSupervisor is the process-local source of truth for active agent executions
@@ -73,12 +74,18 @@ func (s *RunSupervisor) Start(
 		s.mu.Unlock()
 		return SessionInfo{}, ErrRunAlreadyActive
 	}
+	releaseAgent, err := s.engine.resources.AcquireAgent()
+	if err != nil {
+		s.mu.Unlock()
+		return SessionInfo{}, err
+	}
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	run := &managedRun{
-		cancel:    cancel,
-		done:      make(chan struct{}),
-		startedAt: time.Now().UTC(),
+		cancel:       cancel,
+		done:         make(chan struct{}),
+		startedAt:    time.Now().UTC(),
+		releaseAgent: releaseAgent,
 	}
 	s.runs[sessionID] = run
 	s.mu.Unlock()
@@ -103,6 +110,7 @@ func (s *RunSupervisor) Start(
 			delete(s.runs, sessionID)
 		}
 		s.mu.Unlock()
+		run.releaseAgent()
 		close(run.done)
 
 		data := map[string]any{}
