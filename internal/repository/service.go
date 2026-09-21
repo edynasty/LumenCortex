@@ -63,6 +63,11 @@ type GitDiff struct {
 	Staged    bool   `json:"staged"`
 }
 
+type GitActionResult struct {
+	Output    string `json:"output"`
+	Truncated bool   `json:"truncated"`
+}
+
 func New(workspace string) (*Service, error) {
 	if strings.TrimSpace(workspace) == "" {
 		return nil, errors.New("workspace is required")
@@ -213,6 +218,84 @@ func (s *Service) GitDiff(ctx context.Context, relative string, staged bool) (Gi
 	return GitDiff{
 		Path: relative, Content: string(raw), Bytes: len(raw), Truncated: truncated, Staged: staged,
 	}, nil
+}
+
+func (s *Service) GitStage(ctx context.Context, relative string) (GitActionResult, error) {
+	path, err := s.gitPath(relative)
+	if err != nil {
+		return GitActionResult{}, err
+	}
+	raw, truncated, err := runBounded(ctx, s.workspace, MaxStatusBytes, "git", "add", "--", path)
+	return GitActionResult{Output: string(raw), Truncated: truncated}, err
+}
+
+func (s *Service) GitUnstage(ctx context.Context, relative string) (GitActionResult, error) {
+	path, err := s.gitPath(relative)
+	if err != nil {
+		return GitActionResult{}, err
+	}
+	raw, truncated, err := runBounded(ctx, s.workspace, MaxStatusBytes, "git", "restore", "--staged", "--", path)
+	return GitActionResult{Output: string(raw), Truncated: truncated}, err
+}
+
+func (s *Service) GitRevert(ctx context.Context, relative string) (GitActionResult, error) {
+	path, err := s.gitPath(relative)
+	if err != nil {
+		return GitActionResult{}, err
+	}
+	status, err := s.GitStatus(ctx)
+	if err != nil {
+		return GitActionResult{}, err
+	}
+	untracked := false
+	for _, item := range status.Files {
+		if item.Path == path && item.Index == "?" && item.Worktree == "?" {
+			untracked = true
+			break
+		}
+	}
+	if untracked {
+		absolute, err := s.resolve(path)
+		if err != nil {
+			return GitActionResult{}, err
+		}
+		if err := os.Remove(absolute); err != nil {
+			return GitActionResult{}, err
+		}
+		return GitActionResult{Output: "removed untracked file " + path}, nil
+	}
+	raw, truncated, err := runBounded(ctx, s.workspace, MaxStatusBytes, "git", "restore", "--worktree", "--", path)
+	return GitActionResult{Output: string(raw), Truncated: truncated}, err
+}
+
+func (s *Service) GitCommit(ctx context.Context, message string) (GitActionResult, error) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return GitActionResult{}, errors.New("commit message is required")
+	}
+	raw, truncated, err := runBounded(ctx, s.workspace, MaxStatusBytes, "git", "commit", "-m", message)
+	return GitActionResult{Output: string(raw), Truncated: truncated}, err
+}
+
+func (s *Service) GitPush(ctx context.Context) (GitActionResult, error) {
+	raw, truncated, err := runBounded(ctx, s.workspace, MaxStatusBytes, "git", "push")
+	return GitActionResult{Output: string(raw), Truncated: truncated}, err
+}
+
+func (s *Service) gitPath(relative string) (string, error) {
+	relative = strings.TrimSpace(relative)
+	if relative == "" {
+		return "", errors.New("git path is required")
+	}
+	absolute, err := s.resolve(relative)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(s.workspace, absolute)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(rel), nil
 }
 
 func (s *Service) resolve(relative string) (string, error) {
