@@ -61,7 +61,9 @@ func (s *memoryStore) Update(_ context.Context, _ string, p SessionPatch) error 
 	if p.Metadata != nil {
 		s.state.Metadata = p.Metadata
 	}
-	if p.Final != nil {
+	if p.ClearFinal {
+		s.state.Final = ""
+	} else if p.Final != nil {
 		s.state.Final = *p.Final
 	}
 	if p.Usage != nil {
@@ -206,5 +208,25 @@ func TestLoopPersistsInterruptionOnCancellation(t *testing.T) {
 	}
 	if store.state.Status != "interrupted" {
 		t.Fatalf("status=%s", store.state.Status)
+	}
+}
+
+
+func TestLoopClearsStaleFinalWhenRunStarts(t *testing.T) {
+	store := &memoryStore{
+		state: SessionState{ID: "continue", Goal: "continue", Status: "completed", Final: "old final", Metadata: map[string]any{}},
+		steps: map[int64]any{},
+	}
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "new final"}}}}
+	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
+	result, err := loop.Run(context.Background(), "continue", Options{MaxSteps: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Final != "new final" {
+		t.Fatalf("result final=%q", result.Final)
+	}
+	if store.state.Final != "new final" {
+		t.Fatalf("persisted final=%q", store.state.Final)
 	}
 }
