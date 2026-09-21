@@ -90,6 +90,45 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 	}, err
 }
 
+func (e *Engine) WorkflowSummary(ctx context.Context, sessionID string) (any, error) {
+	current, err := e.store.Get(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	metadata := map[string]any{}
+	if len(current.Metadata) > 0 {
+		if err := json.Unmarshal(current.Metadata, &metadata); err != nil {
+			return nil, err
+		}
+	}
+	rawSnapshot, ok := metadata["workflow"]
+	if !ok {
+		return nil, nil
+	}
+	raw, err := json.Marshal(rawSnapshot)
+	if err != nil {
+		return nil, err
+	}
+	var snapshot workflow.Snapshot
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		return nil, err
+	}
+	if snapshot.Definition == nil {
+		return nil, errors.New("persisted workflow has no definition")
+	}
+	runtime, err := workflow.New(snapshot.Definition, &workflow.State{
+		CurrentAction: snapshot.CurrentAction,
+		Facts:         snapshot.Facts,
+		FactSources:   snapshot.FactSources,
+		History:       snapshot.History,
+		Status:        snapshot.Status,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return runtime.Summary(), nil
+}
+
 func (e *Engine) ApproveWorkflowGate(ctx context.Context, sessionID, gateID, actor string) (any, error) {
 	current, err := e.store.Get(ctx, sessionID)
 	if err != nil {
