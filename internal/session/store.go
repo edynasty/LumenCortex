@@ -262,6 +262,46 @@ func (s *Store) AppendMessage(ctx context.Context, sessionID, role string, paylo
 	return seq, nil
 }
 
+func (s *Store) MessagesBefore(ctx context.Context, sessionID string, beforeSeq int64, limit int) ([]Message, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	query := `
+SELECT session_id, seq, role, json FROM session_messages
+WHERE session_id = ?`
+	args := []any{sessionID}
+	if beforeSeq >= 0 {
+		query += " AND seq < ?"
+		args = append(args, beforeSeq)
+	}
+	query += " ORDER BY seq DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]Message, 0, limit)
+	for rows.Next() {
+		var m Message
+		var raw string
+		if err := rows.Scan(&m.SessionID, &m.Seq, &m.Role, &raw); err != nil {
+			return nil, err
+		}
+		m.JSON = json.RawMessage(raw)
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
 func (s *Store) RecentMessages(ctx context.Context, sessionID string, limit int) ([]Message, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
