@@ -35,3 +35,10 @@ A Node subsystem is removed from the default path only when:
 3. memory behavior is bounded for unbounded inputs,
 4. the current CLI/session contract remains compatible,
 5. validation/readiness documentation is updated.
+
+
+## Agent/provider milestone
+
+The Go runtime now also contains the first bounded Agent Loop, Workflow integration, built-in workspace tools, and an OpenAI-compatible streaming provider. See [Go OpenAI-compatible provider](go-provider.md).
+
+The Node implementation remains the behavioral reference for Cognitive Graph retrieval, LSP/MCP, subagents, TUI behavior, and the remaining provider/compatibility cases until those parity gates are closed.
