@@ -17,6 +17,7 @@ import { ParallelSessionRunner } from './parallel.js';
 import { LumenCortexTui } from './tui.js';
 import { BRAND } from './brand.js';
 import { normalizePolicy, policyAllowsTool } from './permissions.js';
+import { withProcessCancellation } from './process-cancellation.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -267,10 +268,11 @@ async function agentCommand({ repo, runtime, workspace, argv }) {
   const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'full'), json });
   const resources = await createHarness({ repo, runtime, workspace, provider, providerName, parsed, authorize, onEvent: json ? () => {} : renderAgentEvent });
   try {
-    const result = await resources.agent.run(goal, {
+    const result = await withProcessCancellation((signal) => resources.agent.run(goal, {
       ...agentRunOptions(parsed, providerName, authorize),
-      sessionId: parsed.flags.session ? String(parsed.flags.session) : undefined
-    });
+      sessionId: parsed.flags.session ? String(parsed.flags.session) : undefined,
+      signal
+    }));
     if (json) console.log(JSON.stringify({ sessionId: result.session.id, final: result.final, usage: result.usage }, null, 2));
     else {
       console.log(`\n${result.final}`);
@@ -295,10 +297,11 @@ async function chatCommand({ repo, runtime, workspace, argv }) {
       const goal = (await terminal.question('lcx> ')).trim();
       if (!goal) continue;
       if (['/exit', '/quit'].includes(goal)) break;
-      const result = await resources.agent.run(goal, {
+      const result = await withProcessCancellation((signal) => resources.agent.run(goal, {
         ...agentRunOptions(parsed, providerName, authorize),
-        sessionId: sessionId ?? undefined
-      });
+        sessionId: sessionId ?? undefined,
+        signal
+      }));
       sessionId = result.session.id;
       console.log(`\n${result.final}\n`);
     }
