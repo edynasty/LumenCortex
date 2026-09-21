@@ -26,6 +26,15 @@ The primary interface is the full-screen TUI. Run `lumencortex` or the short com
 - indexed candidate generation before Attention Light (avoids full-graph seed scans)
 - source-change invalidation of dependent beliefs
 
+### Workflow Contract
+
+- durable Facts → Action → Route → Outcome → Gate state inside normal Sessions
+- per-Action tool visibility plus execution-time enforcement
+- deterministic tool-result Outcomes that write Facts with provenance
+- final-answer gate: model claims cannot bypass required evidence
+- human gates pause as `waiting_gate` and resume after explicit approval
+- independent from the Cognitive Graph: Workflow controls legal progress; Attention Light controls remembered evidence
+
 ### Standalone agent
 
 - complete multi-turn Agent Loop with per-step moving Attention Light
@@ -152,6 +161,18 @@ Parallel sessions:
 lcx parallel tasks.json --concurrency 4
 ```
 
+Workflow-constrained coding:
+
+```bash
+lcx workflow validate examples/workflows/verified-code-fix.json
+lcx agent "fix the failing tests" --workflow examples/workflows/verified-code-fix.json --yes
+
+# Human gate, when present
+lcx workflow status session_xxx
+lcx workflow approve session_xxx release-approval
+lcx agent --session session_xxx --yes
+```
+
 Resume:
 
 ```bash
@@ -189,6 +210,7 @@ Useful controls:
 --working-chars 120000
 --timeout-ms 120000
 --tools read_file,code_search,apply_patch,shell
+--workflow examples/workflows/verified-code-fix.json
 --max-tool-calls-per-step 1
 --no-auto-promote
 --policy read-only|workspace|full

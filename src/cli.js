@@ -18,6 +18,7 @@ import { LumenCortexTui } from './tui.js';
 import { BRAND } from './brand.js';
 import { normalizePolicy, policyAllowsTool } from './permissions.js';
 import { withProcessCancellation } from './process-cancellation.js';
+import { WorkflowRuntime, loadWorkflowFile } from './workflow.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -102,6 +103,9 @@ try {
     }
     case 'lsp':
       await lspCommand({ workspace, argv: args });
+      break;
+    case 'workflow':
+      await workflowCommand({ repo, workspace, argv: args });
       break;
     case 'mcp':
       await mcpCommand({ workspace, argv: args });
@@ -269,12 +273,17 @@ async function agentCommand({ repo, runtime, workspace, argv }) {
   const resources = await createHarness({ repo, runtime, workspace, provider, providerName, parsed, authorize, onEvent: json ? () => {} : renderAgentEvent });
   try {
     const result = await withProcessCancellation((signal) => resources.agent.run(goal, {
-      ...agentRunOptions(parsed, providerName, authorize),
+      ...agentRunOptions(parsed, providerName, authorize, workspace),
       sessionId: parsed.flags.session ? String(parsed.flags.session) : undefined,
       signal
     }));
-    if (json) console.log(JSON.stringify({ sessionId: result.session.id, final: result.final, usage: result.usage }, null, 2));
-    else {
+    if (json) console.log(JSON.stringify({ sessionId: result.session.id, final: result.final, usage: result.usage, waitingGate: result.waitingGate ?? null }, null, 2));
+    else if (result.waitingGate) {
+      console.log(`\n[workflow] waiting for human gate in action ${result.waitingGate.action}`);
+      for (const gate of result.waitingGate.gates) console.log(`  - ${gate.id}: ${gate.title}`);
+      console.log(`Approve with: lcx workflow approve ${result.session.id} <gate-id>`);
+      console.log(`Resume with:  lcx agent --session ${result.session.id} --yes`);
+    } else {
       console.log(`\n${result.final}`);
       console.log(`\n[session ${result.session.id}] requests=${result.usage.requests} tokens=${result.usage.totalTokens}`);
     }
@@ -298,11 +307,16 @@ async function chatCommand({ repo, runtime, workspace, argv }) {
       if (!goal) continue;
       if (['/exit', '/quit'].includes(goal)) break;
       const result = await withProcessCancellation((signal) => resources.agent.run(goal, {
-        ...agentRunOptions(parsed, providerName, authorize),
+        ...agentRunOptions(parsed, providerName, authorize, workspace),
         sessionId: sessionId ?? undefined,
         signal
       }));
       sessionId = result.session.id;
+      if (result.waitingGate) {
+        console.log(`\n[workflow] waiting for gate(s): ${result.waitingGate.gates.map((gate) => gate.id).join(', ')}`);
+        console.log(`Use: lcx workflow approve ${sessionId} <gate-id>, then resume the session.\n`);
+        break;
+      }
       console.log(`\n${result.final}\n`);
     }
   } finally {
@@ -346,7 +360,7 @@ async function tuiCommand({ repo, runtime, workspace, argv }) {
   if (providerError) tui.events.push(`provider not configured: ${providerError.message}`);
   try {
     await tui.run({
-      agentOptions: agentRunOptions(parsed, providerName, authorize),
+      agentOptions: agentRunOptions(parsed, providerName, authorize, workspace),
       parallelOptions: { concurrency: Number(parsed.flags.concurrency ?? 4) }
     });
   } finally {
@@ -488,7 +502,10 @@ function providerOptions(parsed) {
   };
 }
 
-function agentRunOptions(parsed, providerName, authorize) {
+function agentRunOptions(parsed, providerName, authorize, workspace) {
+  const workflow = parsed.flags.workflow
+    ? loadWorkflowFile(path.resolve(workspace, String(parsed.flags.workflow)))
+    : undefined;
   return {
     providerName,
     maxSteps: Number(parsed.flags['max-steps'] ?? 24),
@@ -503,8 +520,61 @@ function agentRunOptions(parsed, providerName, authorize) {
     autoPromote: parsed.flags['no-auto-promote'] ? false : true,
     autoIngest: parsed.flags['no-ingest'] ? false : true,
     cognitiveCommit: Boolean(parsed.flags['cognitive-commit']),
+    workflow,
     authorize
   };
+}
+
+async function workflowCommand({ repo, workspace, argv }) {
+  const parsed = parseFlags(argv);
+  const action = parsed.positionals.shift();
+  const store = new AgentSessionStore(repo.dir);
+  try {
+    if (action === 'validate') {
+      const file = parsed.positionals[0];
+      if (!file) fail('Usage: lcx workflow validate <file.json>');
+      const definition = loadWorkflowFile(path.resolve(workspace, file));
+      const workflow = new WorkflowRuntime(definition);
+      console.log(JSON.stringify({
+        valid: true,
+        id: definition.id,
+        title: definition.title,
+        entry: definition.entry,
+        actions: Object.keys(definition.actions),
+        initial: workflow.summary()
+      }, null, 2));
+      return;
+    }
+    if (action === 'status') {
+      const sessionId = parsed.positionals[0];
+      if (!sessionId) fail('Usage: lcx workflow status <session-id>');
+      const session = store.load(sessionId);
+      const workflow = WorkflowRuntime.fromSession(session);
+      if (!workflow) fail('Session has no workflow contract: ' + sessionId);
+      console.log(JSON.stringify({
+        sessionId,
+        sessionStatus: session.status,
+        ...workflow.summary(),
+        factSources: workflow.factSources
+      }, null, 2));
+      return;
+    }
+    if (action === 'approve') {
+      const [sessionId, gateId] = parsed.positionals;
+      if (!sessionId || !gateId) fail('Usage: lcx workflow approve <session-id> <gate-id> [--actor name]');
+      const session = store.load(sessionId);
+      const workflow = WorkflowRuntime.fromSession(session);
+      if (!workflow) fail('Session has no workflow contract: ' + sessionId);
+      const approval = workflow.approve(gateId, { actor: String(parsed.flags.actor ?? 'human') });
+      session.metadata.workflow = workflow.snapshot();
+      store.save(session);
+      console.log(JSON.stringify({ sessionId, approval, workflow: workflow.summary() }, null, 2));
+      return;
+    }
+    fail('Usage: lcx workflow <validate|status|approve> ...');
+  } finally {
+    store.close();
+  }
 }
 
 async function doctorCommand(argv) {
@@ -563,6 +633,11 @@ function renderAgentEvent(event) {
   else if (event.type === 'context.move') console.log(`  ☼ light moved: ${event.selectedNodes} nodes/${event.contextTokens}t`);
   else if (event.type === 'context.promote') console.log(`  ↑ promoted ${event.childCount} nodes → ${event.abstractionId}`);
   else if (event.type === 'context.ingest') console.log(`  ↻ graph refreshed (${event.stats.changedEvidence} changed evidence)`);
+  else if (event.type === 'workflow.start') console.log(`  ⊢ workflow ${event.workflow.id} → ${event.workflow.currentAction}`);
+  else if (event.type === 'workflow.transition') console.log(`  ⊢ workflow ${event.from} → ${event.to}`);
+  else if (event.type === 'workflow.facts') console.log(`  ⊢ facts ${event.facts.map((item) => item.path).join(', ')}`);
+  else if (event.type === 'workflow.blocked_final') console.log(`  ⊣ completion blocked: ${event.reason}`);
+  else if (event.type === 'workflow.gate_waiting') console.log(`  ⏸ workflow gate: ${event.gates.map((gate) => gate.id).join(', ')}`);
   else if (event.type === 'session.complete') console.log(`[agent] completed in ${event.step} step(s)`);
 }
 
@@ -678,6 +753,9 @@ Agent commands:
   tui [--provider P] [--model M] [--yes]
   parallel <tasks.json> [--concurrency 4] [--unsafe-write-parallel]
   sessions [--limit 20]
+  workflow validate <file.json>
+  workflow status <session-id>
+  workflow approve <session-id> <gate-id> [--actor name]
   providers
   doctor [--provider P] [--model M] [--live]
 
@@ -717,6 +795,7 @@ Agent controls:
   --llm-retries 2
   --max-tool-calls-per-step N
   --tools read_file,code_search,lsp_definition,...
+  --workflow path/to/workflow.json
   --no-mcp
   --strict-mcp
   --no-auto-promote

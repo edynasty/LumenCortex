@@ -6,6 +6,7 @@ LumenCortex v0.6 is both a cognitive runtime and a standalone coding-agent harne
 
 ```text
 Goal
+  -> optional Workflow Contract (Facts / Action / Route / Gate)
   -> persistent SQLite FTS5/symbol candidate retrieval
   -> Attention Light + graph propagation
   -> Active Promotion when granularity is too dense
@@ -377,3 +378,10 @@ export LUMENCORTEX_REQUIRE_API_KEY=false
 ## Validation
 
 The core suite, isolated coding-harness suite, 100k-node search benchmark and real-model long-memory workflows are maintained separately so failures can be attributed to the correct layer.
+
+
+## Workflow Contract
+
+Workflow state is orthogonal to the Cognitive Graph. The contract narrows the current Agent action, computes the visible tool set, observes deterministic tool outcomes into durable Facts, advances Routes, and blocks final completion until a terminal Action is proven. Human Gates persist the Session as `waiting_gate` instead of consuming more model turns.
+
+See `docs/workflow-contract.md` and `examples/workflows/verified-code-fix.json`.

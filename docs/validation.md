@@ -6,7 +6,7 @@ This document separates architecture claims from evidence.
 
 Latest validated core suite:
 
-- 91 core tests / 91 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
+- 108 core tests / 108 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
 - Node.js 22 and 24 core matrix
 - dedicated isolated Search / LSP / MCP / Subagent / TUI harness jobs
 - MCP HTTP modern + legacy fallback + stdio transport coverage
@@ -23,6 +23,9 @@ Latest validated core suite:
 - sparse Cognitive Git checkpoint/reopen coverage across 120+ commits
 - explicit Repository/Runtime/SessionStore connection cleanup
 - 100k-node SQLite FTS5/symbol search benchmark
+- Workflow Contract validation for deterministic Facts/Action/Route/Outcome/Gate transitions
+- Workflow Agent enforcement: per-Action tool visibility, execution-time recheck after mid-turn transitions, final-answer evidence gate, durable human-gate pause/approval/resume
+- Workflow CLI validate/status/approve integration
 
 Covered behaviors include:
 
@@ -98,6 +101,19 @@ A separate strict graph-memory proof in `.github/workflows/vm-long-memory-real-a
 - step 7 returned the final answer.
 
 This is direct real-model evidence for the central design claim: paged-out tool evidence can remain durable in the Context Graph and be reactivated by the moving Attention Light when needed.
+
+
+The standalone real coding workflow also completed successfully in run `35549612505` using local `qwen3:4b-instruct`:
+
+- initial implementation tests failed 0/2 pass,
+- the real model used `shell`, batch `read_files`, and `replace_in_file`,
+- it repaired two independent implementation bugs,
+- its own verification reached 2/2 passing tests,
+- an independent second `npm test` also passed 2/2,
+- test-file SHA256 hashes were unchanged,
+- durable Session `session_e01a914ce26344bc` finished as `completed` with seven reasoning steps and persisted shell/edit evidence.
+
+This closes the baseline real local-model coding gate. It does not imply parity with mature coding products on every repository or model.
 
 ## DeepSeek validation
 
@@ -180,4 +196,4 @@ The following are not represented as complete features:
 - automatic split/merge/canonicalization,
 - reusable Skills layer,
 - vision/browser tools,
-- formal independent Definition-of-Done evaluator.
+- richer verifier plugins beyond the deterministic Workflow Contract condition/gate DSL.

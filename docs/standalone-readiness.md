@@ -26,12 +26,13 @@ A feature being present in source code is not enough. Readiness claims require a
 | Parallel Sessions | Complete | overlap assertion + mutation safety gate | Ready |
 | Full-screen TUI | Complete baseline | frame/session/events/cancel/live-output tests | Usable; richer navigation/scrolling remains UX work |
 | Provider abstraction | Complete | provider tests + real local endpoint health | Ready |
-| Real local-model coding task | Implemented workflow | **Pending current VM proof** | Do not claim complete until independent tests and unchanged test hashes pass |
+| Workflow Contract / deterministic gates | Complete baseline | condition/runtime + Agent completion/tool-boundary + CLI human-gate tests | Ready baseline: Facts/Action/Route/Outcome/Gate with durable resume |
+| Real local-model coding task | Complete | Qwen3 4B VM run `35549612505`: failing baseline → edits → 2/2 tests pass; independent rerun and unchanged test SHA256; persisted completed Session | Ready baseline |
 | Real DeepSeek V4 coding | Adapter complete | Not yet verified with working credentialed route | Evidence gap |
 | Cognitive Git | Complete for cognitive graph | Core CI | Ready for cognition history |
 | Cognitive branch ↔ real Git worktree binding | Not implemented | None | Gap for transactional workspace isolation |
 | Workspace rollback after arbitrary shell mutation | Not implemented | None | Gap; apply_patch itself is atomic, whole Agent runs are not |
-| Skills layer | Not implemented | None | Gap |
+| Skills layer | Not implemented | None | Gap; Workflow Contract is now a stable substrate for future Skill bindings |
 | Vision/browser tools | Not implemented | None | Gap |
 
 ## Primary-agent evidence gates
@@ -71,7 +72,7 @@ In particular, the current architecture does not yet claim:
 
 - transactional Git worktree isolation for every Agent run,
 - rollback of arbitrary workspace changes produced by shell commands,
-- IDE-grade rename/code-action refactoring,
+- IDE-grade rename/code-action refactoring (implemented separately but not yet integrated into this branch),
 - semantic embedding retrieval,
 - reusable Skills,
 - vision/browser automation,

@@ -14,6 +14,7 @@ export * from './provider.js';
 export * from './tools.js';
 export * from './session.js';
 export * from './agent.js';
+export * from './workflow.js';
 
 export * from './promotion-controller.js';
 

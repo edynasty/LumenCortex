@@ -3,6 +3,7 @@ import { createCodingTools } from './tools.js';
 import { AgentSessionStore } from './session.js';
 import { PromotionController } from './promotion-controller.js';
 import { estimateTokens, hash, nowIso } from './util.js';
+import { WorkflowRuntime } from './workflow.js';
 
 const DEFAULT_SYSTEM_PROMPT = `You are LumenCortex Agent, an autonomous coding agent operating inside a versioned cognitive graph.
 
@@ -17,7 +18,7 @@ Rules:
 8. Keep changes scoped to the user's goal. Do not modify unrelated files.
 9. Before finishing, inspect the resulting diff/status when practical.
 10. Return a concise final result with what changed and what verification passed.
-11. If the latest tool result already proves the requested verification succeeded, stop calling tools immediately and return the final answer; do not restart or repeat the task.`;
+11. If the latest tool result already proves the requested verification succeeded, stop calling tools immediately and return the final answer; do not restart or repeat the task.\n12. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates. A model assertion is never a substitute for required workflow evidence.`;
 
 export class AgentLoop {
   constructor({ provider, repository, runtime, workspace, tools, sessionStore, promotionController, authorize, onEvent } = {}) {
@@ -46,8 +47,7 @@ export class AgentLoop {
     const emptyTurnRetries = Math.max(0, Number(options.emptyTurnRetries ?? 1));
     const maxToolCallsPerStep = Math.max(1, Number(options.maxToolCallsPerStep ?? Number.MAX_SAFE_INTEGER));
     const toolAllowlist = options.toolAllowlist?.length ? [...new Set(options.toolAllowlist)] : null;
-    const toolAllowset = toolAllowlist ? new Set(toolAllowlist) : null;
-    const toolSchemas = this.tools.schemas(toolAllowlist);
+    const baseToolAllowset = toolAllowlist ? new Set(toolAllowlist) : null;
     let session;
 
     if (options.sessionId) {
@@ -86,6 +86,13 @@ export class AgentLoop {
       systemPrompt: options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
     });
 
+    const hadWorkflow = Boolean(session.metadata.workflow);
+    const workflow = WorkflowRuntime.fromSession(session, options.workflow);
+    if (workflow) {
+      session.metadata.workflow = workflow.snapshot();
+      if (!hadWorkflow) this.emit('workflow.start', { sessionId: session.id, workflow: workflow.summary() });
+    }
+
     const usage = {
       promptTokens: Number(session.usage?.promptTokens ?? 0),
       completionTokens: Number(session.usage?.completionTokens ?? 0),
@@ -100,7 +107,13 @@ export class AgentLoop {
       if (options.signal?.aborted) {
         throw this.interruptSession(session, step, usage, abortError(options.signal.reason));
       }
-      const focus = deriveFocus(session, goal, step);
+      if (workflow?.waitingHumanGates().length) {
+        return this.pauseForWorkflowGate(session, step, usage, workflow, lastContext);
+      }
+      const stepToolAllowlist = workflow ? workflow.effectiveAllowlist(toolAllowlist) : toolAllowlist;
+      const toolSchemas = this.tools.schemas(stepToolAllowlist);
+      const baseFocus = deriveFocus(session, goal, step);
+      const focus = workflow ? `${baseFocus}\nworkflow-action:${workflow.actionId()}` : baseFocus;
       const seedNodeIds = session.metadata.recentObservationNodeIds.slice(-8);
       let context = this.runtime.context(focus, { budgetTokens, seedNodeIds });
       updateActivationCounts(session, context);
@@ -168,6 +181,7 @@ export class AgentLoop {
 
       const requestMessages = buildWorkingMessages(session, context, {
         systemPrompt: session.metadata.systemPrompt,
+        workflowPrompt: workflow?.prompt(),
         recentRounds,
         workingChars
       });
@@ -177,7 +191,9 @@ export class AgentLoop {
         step,
         model: this.provider.model,
         workingMessages: requestMessages.length,
-        workingTokens: requestMessages.reduce((sum, message) => sum + estimateTokens(message), 0)
+        workingTokens: requestMessages.reduce((sum, message) => sum + estimateTokens(message), 0),
+        workflowAction: workflow?.actionId() ?? null,
+        availableTools: toolSchemas.map((schema) => schema.function.name)
       });
 
       let response;
@@ -290,7 +306,8 @@ export class AgentLoop {
         promotionId: promotion?.id ?? null,
         finishReason: response.finishReason,
         toolCalls: [],
-        content: assistant.content ?? ''
+        content: assistant.content ?? '',
+        workflow: workflow?.summary() ?? null
       };
 
       if (!calls.length) {
@@ -303,10 +320,26 @@ export class AgentLoop {
           this.sessions.save(session);
           throw error;
         }
+        if (workflow && !workflow.canFinish()) {
+          const reason = workflow.blockReason();
+          stepRecord.workflow = workflow.summary();
+          stepRecord.workflowBlockedFinal = true;
+          session.steps.push(stepRecord);
+          session.messages.push({
+            role: 'user',
+            content: `Workflow contract rejected completion: ${reason}. Continue the current action and obtain the required evidence or gate approval.`
+          });
+          session.metadata.workflow = workflow.snapshot();
+          session.usage = usage;
+          this.sessions.save(session);
+          this.emit('workflow.blocked_final', { sessionId: session.id, step, action: workflow.actionId(), reason });
+          continue;
+        }
         session.status = 'completed';
         session.final = assistant.content;
         session.usage = usage;
         session.steps.push(stepRecord);
+        if (workflow) session.metadata.workflow = workflow.snapshot();
         this.sessions.save(session);
         this.recordTask(session, context, options);
         this.emit('session.complete', { sessionId: session.id, step, usage, final: assistant.content });
@@ -336,13 +369,17 @@ export class AgentLoop {
               raw: parsed.__raw
             })
           };
-        } else if (toolAllowset && !toolAllowset.has(name)) {
+        } else if ((baseToolAllowset && !baseToolAllowset.has(name)) || (workflow && !workflow.isToolAllowed(name))) {
+          const deniedByWorkflow = Boolean(workflow && !workflow.isToolAllowed(name));
           result = {
             ok: false,
             denied: true,
-            permission: 'unavailable',
-            content: `Tool ${name} is not available in the current tool working set`
+            permission: deniedByWorkflow ? 'workflow' : 'unavailable',
+            content: deniedByWorkflow
+              ? `Tool ${name} is not allowed by workflow action ${workflow.actionId()}`
+              : `Tool ${name} is not available in the current tool working set`
           };
+          if (deniedByWorkflow) this.emit('workflow.tool_denied', { sessionId: session.id, step, action: workflow.actionId(), name });
           this.emit('tool.end', {
             sessionId: session.id,
             step,
@@ -394,6 +431,17 @@ export class AgentLoop {
         }
 
         workspaceMutated ||= Boolean(result.mutatesWorkspace && result.ok);
+        if (workflow) {
+          const update = workflow.observeTool({ tool: name, args: parsed, result, step });
+          session.metadata.workflow = workflow.snapshot();
+          stepRecord.workflow = workflow.summary();
+          if (update.changedFacts.length) {
+            this.emit('workflow.facts', { sessionId: session.id, step, action: update.beforeAction, facts: update.changedFacts });
+          }
+          if (update.transition) {
+            this.emit('workflow.transition', { sessionId: session.id, step, ...update.transition });
+          }
+        }
         const observationId = options.recordObservations === false ? null : recordToolObservation(this.repository, {
           sessionId: session.id,
           step,
@@ -433,7 +481,11 @@ export class AgentLoop {
 
       session.steps.push(stepRecord);
       session.usage = usage;
+      if (workflow) session.metadata.workflow = workflow.snapshot();
       this.sessions.save(session);
+      if (workflow?.waitingHumanGates().length) {
+        return this.pauseForWorkflowGate(session, step + 1, usage, workflow, context);
+      }
     }
 
     session.status = 'max_steps';
@@ -444,6 +496,17 @@ export class AgentLoop {
       `Agent reached max steps for this run (${maxSteps}); session has ${session.steps.length} total step(s) without a final answer`,
       session.id
     );
+  }
+
+  pauseForWorkflowGate(session, step, usage, workflow, context) {
+    const gates = workflow.waitingHumanGates();
+    session.status = 'waiting_gate';
+    session.metadata.workflow = workflow.snapshot();
+    session.usage = usage;
+    this.sessions.save(session);
+    const waitingGate = { action: workflow.actionId(), gates };
+    this.emit('workflow.gate_waiting', { sessionId: session.id, step, action: waitingGate.action, gates });
+    return { session, final: null, usage, context, waitingGate };
   }
 
   interruptSession(session, step, usage, error) {
@@ -488,7 +551,12 @@ export class AgentLoop {
         status: session.status,
         usage: session.usage,
         stepCount: session.steps.length,
-        promotions: session.metadata.promotions ?? []
+        promotions: session.metadata.promotions ?? [],
+        workflow: session.metadata.workflow ? {
+          id: session.metadata.workflow.definition?.id ?? null,
+          currentAction: session.metadata.workflow.currentAction ?? null,
+          status: session.metadata.workflow.status ?? null
+        } : null
       }
     };
     if (current) graph.putNode({ ...current, ...input });
@@ -555,6 +623,7 @@ export function buildWorkingMessages(sessionOrMessages, contextOrOptions = {}, m
   return [
     { role: 'system', content: systemPrompt },
     { role: 'system', content: formatActiveContext(context) },
+    ...(options.workflowPrompt ? [{ role: 'system', content: options.workflowPrompt }] : []),
     ...goalMessage,
     ...recent
   ];
