@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/resource"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
@@ -36,6 +37,7 @@ type Engine struct {
 	repoDir   string
 	store     *session.Store
 	resources *resource.Manager
+	repo      *repository.Service
 	events    *eventBus
 	shell     *shell.Runner
 }
@@ -120,6 +122,11 @@ func Open(opts Options) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	repoService, err := repository.New(workspace)
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
 	return &Engine{
 		workspace: workspace,
 		repoDir:   repoDir,
@@ -129,6 +136,7 @@ func Open(opts Options) (*Engine, error) {
 			HardBytes: opts.Budget.HardBytes,
 			MaxAgents: opts.Budget.MaxAgents,
 		}),
+		repo:      repoService,
 		events:    newEventBus(),
 		shell:     shell.New(workspace),
 	}, nil
