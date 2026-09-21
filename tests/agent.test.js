@@ -197,6 +197,53 @@ test('user cancellation aborts the provider without retrying and persists resuma
 });
 
 
+test('agent expands maxTokens when a provider reports truncated tool-call JSON', async () => {
+  const { root, repository, runtime } = fixture();
+  const attempts = [];
+  const events = [];
+  const provider = {
+    model: 'mock-tool-json',
+    complete: async ({ maxTokens }) => {
+      attempts.push(maxTokens);
+      if (maxTokens < 640) {
+        const error = new Error('LLM request failed (500): invalid tool call arguments: unexpected end of JSON input');
+        error.status = 500;
+        throw error;
+      }
+      return {
+        message: { role: 'assistant', content: 'recovered tool budget' },
+        finishReason: 'stop'
+      };
+    }
+  };
+  const agent = new AgentLoop({
+    provider,
+    repository,
+    runtime,
+    workspace: root,
+    tools: new ToolRegistry(),
+    onEvent: (event) => events.push(event)
+  });
+
+  const result = await agent.run('recover truncated tool call', {
+    maxTokens: 320,
+    llmRetries: 1,
+    retryBaseMs: 0,
+    recordTask: false
+  });
+
+  assert.equal(result.final, 'recovered tool budget');
+  assert.deepEqual(attempts, [320, 640]);
+  const retry = events.find((event) => event.type === 'llm.retry');
+  assert.deepEqual(retry.budgetAdjustment, {
+    from: 320,
+    to: 640,
+    reason: 'malformed_tool_call'
+  });
+  assert.equal(retry.maxTokens, 640);
+});
+
+
 test('agent persists an interrupted session after non-retryable provider failure', async () => {
   const { root, repository, runtime } = fixture();
   const provider = {
