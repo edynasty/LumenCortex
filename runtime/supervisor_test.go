@@ -166,3 +166,65 @@ func TestRecoverStaleRunsInterruptsPersistedRunningSessions(t *testing.T) {
 		t.Fatal("expected recovery error metadata")
 	}
 }
+
+
+func TestRunSupervisorEnforcesMaxAgentsAndReusesReleasedSlots(t *testing.T) {
+	engine, err := Open(Options{
+		Workspace: t.TempDir(),
+		Budget: Budget{MaxAgents: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+
+	supervisor, err := NewRunSupervisor(engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer supervisor.Close()
+
+	handles := make([]*SessionHandle, 3)
+	providers := make([]*blockingProvider, 3)
+	for i := range handles {
+		handle, err := engine.NewSession(context.Background(), SessionOptions{Goal: "parallel"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		handles[i] = handle
+		providers[i] = &blockingProvider{started: make(chan struct{})}
+	}
+
+	for i := 0; i < 2; i++ {
+		if _, err := supervisor.Start(context.Background(), handles[i].ID, providers[i], AgentOptions{Policy: "read-only"}); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-providers[i].started:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("provider %d did not start", i)
+		}
+	}
+	if got := engine.Health().ActiveAgents; got != 2 {
+		t.Fatalf("active agents=%d want=2", got)
+	}
+
+	if _, err := supervisor.Start(context.Background(), handles[2].ID, providers[2], AgentOptions{Policy: "read-only"}); !errors.Is(err, ErrAgentLimitExceeded) {
+		t.Fatalf("third start err=%v", err)
+	}
+
+	if !supervisor.Cancel(handles[0].ID) {
+		t.Fatal("cancel first run failed")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for engine.Health().ActiveAgents != 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := engine.Health().ActiveAgents; got != 1 {
+		t.Fatalf("active agents after cancel=%d want=1", got)
+	}
+
+	if _, err := supervisor.Start(context.Background(), handles[2].ID, providers[2], AgentOptions{Policy: "read-only"}); err != nil {
+		t.Fatalf("start after release: %v", err)
+	}
+}
