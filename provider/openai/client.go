@@ -205,7 +205,7 @@ func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 	builder := streamBuilder{maxBytes: c.maxResponseBytes}
 	var consumed int64
 	for {
-		line, err := reader.ReadString('\\n')
+		line, err := reader.ReadString(10)
 		consumed += int64(len(line))
 		if consumed > c.maxResponseBytes {
 			return protocol.ProviderResponse{}, fmt.Errorf("provider stream exceeded %d bytes", c.maxResponseBytes)
