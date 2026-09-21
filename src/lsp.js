@@ -27,6 +27,58 @@ export class LspManager {
     return this.#requestFor(file, 'textDocument/hover', positionParams(path.resolve(this.workspace, file), line, character));
   }
 
+  async rename(file, line, character, newName, { apply = false } = {}) {
+    if (!String(newName ?? '').trim()) throw new Error('newName is required');
+    const edit = await this.#requestFor(
+      file,
+      'textDocument/rename',
+      {
+        ...positionParams(path.resolve(this.workspace, file), line, character),
+        newName: String(newName)
+      }
+    );
+    if (!apply) return edit;
+    return applyWorkspaceEdit(this.workspace, edit);
+  }
+
+  async codeActions(file, startLine, startCharacter, endLine = startLine, endCharacter = startCharacter, context = {}) {
+    const absolute = resolveInside(this.workspace, file);
+    return this.#requestFor(file, 'textDocument/codeAction', {
+      textDocument: { uri: pathToFileURL(absolute).href },
+      range: lspRange(startLine, startCharacter, endLine, endCharacter),
+      context: {
+        diagnostics: Array.isArray(context.diagnostics) ? context.diagnostics : [],
+        ...(Array.isArray(context.only) && context.only.length ? { only: context.only } : {})
+      }
+    });
+  }
+
+  async applyCodeAction(file, startLine, startCharacter, endLine, endCharacter, selector = {}) {
+    const actions = await this.codeActions(
+      file,
+      startLine,
+      startCharacter,
+      endLine,
+      endCharacter,
+      { only: selector.kind ? [String(selector.kind)] : undefined }
+    );
+    const candidates = (actions ?? []).filter((action) => {
+      if (!action || typeof action !== 'object') return false;
+      if (selector.title && action.title !== selector.title) return false;
+      if (selector.kind && action.kind !== selector.kind && !String(action.kind ?? '').startsWith(`${selector.kind}.`)) return false;
+      return Boolean(action.edit);
+    });
+    if (!candidates.length) throw new Error('No matching code action with a workspace edit');
+    if (candidates.length > 1 && !selector.title) {
+      throw new Error(`Multiple matching code actions; specify title. Candidates: ${candidates.map((item) => item.title).join(', ')}`);
+    }
+    const action = candidates[0];
+    return {
+      action: { title: action.title, kind: action.kind ?? null },
+      ...applyWorkspaceEdit(this.workspace, action.edit)
+    };
+  }
+
   async symbols(file) {
     const absolute = resolveInside(this.workspace, file);
     const client = await this.#clientFor(absolute);
@@ -131,6 +183,14 @@ export class LspClient {
           definition: {},
           references: {},
           hover: {},
+          rename: { prepareSupport: false },
+          codeAction: {
+            codeActionLiteralSupport: {
+              codeActionKind: {
+                valueSet: ['quickfix', 'refactor', 'refactor.extract', 'refactor.inline', 'refactor.rewrite', 'source']
+              }
+            }
+          },
           documentSymbol: {},
           publishDiagnostics: {},
           diagnostic: {}
@@ -325,6 +385,109 @@ function normalizeConfig(config) {
 function resolveServer(config, file) {
   const ext = path.extname(file).toLowerCase();
   return Object.values(config.servers ?? {}).find((server) => server.extensions?.includes(ext));
+}
+
+export function applyWorkspaceEdit(workspace, edit) {
+  if (!edit || typeof edit !== 'object') throw new Error('LSP workspace edit is empty');
+  const root = path.resolve(workspace);
+  const grouped = new Map();
+
+  const addEdits = (uri, edits) => {
+    if (!uri?.startsWith('file:')) throw new Error(`Unsupported workspace edit URI: ${uri ?? '(missing)'}`);
+    const file = fileURLToPath(uri);
+    const relative = path.relative(root, file);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error(`Workspace edit escapes workspace: ${file}`);
+    if (!Array.isArray(edits)) throw new Error('Workspace edit changes must be arrays');
+    const list = grouped.get(file) ?? [];
+    list.push(...edits);
+    grouped.set(file, list);
+  };
+
+  for (const [uri, edits] of Object.entries(edit.changes ?? {})) addEdits(uri, edits);
+
+  for (const change of edit.documentChanges ?? []) {
+    if (change?.kind) throw new Error(`Unsupported LSP resource operation: ${change.kind}`);
+    if (!change?.textDocument?.uri || !Array.isArray(change.edits)) {
+      throw new Error('Unsupported LSP documentChanges entry');
+    }
+    addEdits(change.textDocument.uri, change.edits);
+  }
+
+  if (!grouped.size) return { files: [], editCount: 0 };
+
+  const plans = [];
+  for (const [file, edits] of grouped) {
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) throw new Error(`Workspace edit target not found: ${file}`);
+    const original = fs.readFileSync(file, 'utf8');
+    const mapped = edits.map((item, index) => {
+      const range = item?.range;
+      if (!range?.start || !range?.end || typeof item.newText !== 'string') {
+        throw new Error(`Invalid TextEdit at index ${index}`);
+      }
+      return {
+        index,
+        start: lspPositionToOffset(original, range.start),
+        end: lspPositionToOffset(original, range.end),
+        newText: item.newText
+      };
+    }).sort((a, b) => b.start - a.start || b.end - a.end);
+
+    let rightBoundary = original.length + 1;
+    for (const item of mapped) {
+      if (item.start > item.end) throw new Error(`Invalid TextEdit range at index ${item.index}`);
+      if (item.end > rightBoundary) throw new Error('Overlapping LSP text edits are not supported');
+      rightBoundary = item.start;
+    }
+
+    let next = original;
+    for (const item of mapped) {
+      next = `${next.slice(0, item.start)}${item.newText}${next.slice(item.end)}`;
+    }
+    plans.push({ file, relative: path.relative(root, file).split(path.sep).join('/'), original, next, editCount: mapped.length });
+  }
+
+  const written = [];
+  try {
+    for (const plan of plans) {
+      fs.writeFileSync(plan.file, plan.next, 'utf8');
+      written.push(plan);
+    }
+  } catch (error) {
+    for (const plan of written.reverse()) {
+      try { fs.writeFileSync(plan.file, plan.original, 'utf8'); } catch {}
+    }
+    throw error;
+  }
+
+  return {
+    files: plans.map((plan) => ({ path: plan.relative, edits: plan.editCount })),
+    editCount: plans.reduce((sum, plan) => sum + plan.editCount, 0)
+  };
+}
+
+function lspRange(startLine, startCharacter, endLine, endCharacter) {
+  return {
+    start: {
+      line: Math.max(0, Number(startLine) - 1),
+      character: Math.max(0, Number(startCharacter) - 1)
+    },
+    end: {
+      line: Math.max(0, Number(endLine) - 1),
+      character: Math.max(0, Number(endCharacter) - 1)
+    }
+  };
+}
+
+function lspPositionToOffset(text, position) {
+  const line = Math.max(0, Number(position?.line ?? 0));
+  const character = Math.max(0, Number(position?.character ?? 0));
+  const lines = text.split(/\n/);
+  if (line >= lines.length) throw new Error(`LSP position line out of range: ${line}`);
+  let offset = 0;
+  for (let index = 0; index < line; index += 1) offset += lines[index].length + 1;
+  const current = lines[line].endsWith('\r') ? lines[line].slice(0, -1) : lines[line];
+  if (character > current.length) throw new Error(`LSP position character out of range: ${character}`);
+  return offset + character;
 }
 
 function positionParams(file, line, character) {
