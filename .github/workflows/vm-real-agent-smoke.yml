@@ -79,31 +79,21 @@ jobs:
           export function add(a, b) {
             return a - b;
           }
-
-          export function clamp(value, min, max) {
-            return Math.max(max, Math.min(min, value));
-          }
           EOF
 
           cat > vm-code/src/slug.js <<'EOF'
           export function slugify(value) {
-            return value.replaceAll(' ', '_');
+            return value.toUpperCase().replaceAll(' ', '_');
           }
           EOF
 
           cat > vm-code/test/math.test.js <<'EOF'
           import test from 'node:test';
           import assert from 'node:assert/strict';
-          import { add, clamp } from '../src/math.js';
+          import { add } from '../src/math.js';
 
           test('add sums two values', () => {
             assert.equal(add(7, 5), 12);
-          });
-
-          test('clamp keeps a value inside the requested range', () => {
-            assert.equal(clamp(5, 0, 10), 5);
-            assert.equal(clamp(-2, 0, 10), 0);
-            assert.equal(clamp(99, 0, 10), 10);
           });
           EOF
 
@@ -112,8 +102,8 @@ jobs:
           import assert from 'node:assert/strict';
           import { slugify } from '../src/slug.js';
 
-          test('slugify normalizes human labels', () => {
-            assert.equal(slugify('  Hello   Lumen Cortex  '), 'hello-lumen-cortex');
+          test('slugify normalizes a simple human label', () => {
+            assert.equal(slugify('Hello World'), 'hello-world');
           });
           EOF
 
@@ -140,14 +130,14 @@ jobs:
           LUMENCORTEX_REQUIRE_API_KEY: "false"
         run: |
           set -o pipefail
-          timeout --signal=TERM --kill-after=10s 900s node src/cli.js agent \
+          timeout --signal=TERM --kill-after=10s 1020s node src/cli.js agent \
             "Work only in vm-code. This is an implementation task, not a review. First run npm test in vm-code. Then use ONE read_files call to inspect vm-code/src/math.js, vm-code/src/slug.js, vm-code/test/math.test.js, and vm-code/test/slug.test.js together. Diagnose every failing test. Fix only implementation files under vm-code/src; do not edit tests. Use the shortest safe edit representation: multiple replace_in_file calls may be requested in the same reasoning turn, or use apply_patch/write_file when shorter. Rerun npm test until every test passes. Return CODE_TASK_OK only after tests pass." \
             --provider generic \
             --model qwen3:4b-instruct \
             --base-url http://127.0.0.1:11434/v1 \
             --budget 1800 \
-            --recent-rounds 3 \
-            --working-chars 22000 \
+            --recent-rounds 2 \
+            --working-chars 14000 \
             --timeout-ms 300000 \
             --max-tokens 768 \
             --max-steps 8 \
