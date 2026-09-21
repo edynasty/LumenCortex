@@ -329,6 +329,7 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
     name: 'shell',
     description: 'Run a shell command in the workspace. Use for tests, builds, git diff/status, and deterministic inspection.',
     permission: 'exec',
+    scope: 'host',
     mutatesWorkspace: true,
     parameters: {
       type: 'object',
@@ -370,7 +371,7 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
           const next = current + chunk.toString('utf8');
           if (Buffer.byteLength(next) > maxBuffer) {
             overflowed = true;
-            child.kill('SIGTERM');
+            terminateProcessTree(child, isWindows, 'SIGTERM');
             return next.slice(0, maxBuffer);
           }
           return next;
