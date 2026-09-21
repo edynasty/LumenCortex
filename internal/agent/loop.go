@@ -54,7 +54,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 	usage := state.Usage
 	running := "running"
 	state.Status = running
-	if err := l.Store.Update(ctx, sessionID, SessionPatch{Status: &running, ClearError: true}); err != nil {
+	if err := l.Store.Update(ctx, sessionID, SessionPatch{Status: &running, ClearFinal: true, ClearError: true}); err != nil {
 		return Result{}, err
 	}
 	startStep, err := l.Store.NextStep(ctx, sessionID)
