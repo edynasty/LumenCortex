@@ -32,7 +32,7 @@ func TestRunAgentUsesEmbeddedGoHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{{ID: "1", Name: "list_dir", Arguments: json.RawMessage(`{"path":"."}`)}}},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{{ID: "1", Name: "list_dir", Arguments: json.RawMessage(`{"path":"."}`)}}}},
 		{Message: protocol.Message{Content: "inspection complete"}},
 	}}
 	result, err := engine.RunAgent(ctx, handle.ID, provider, AgentOptions{Policy: "read-only", MaxSteps: 4})
