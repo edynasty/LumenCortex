@@ -34,8 +34,9 @@ type Options struct {
 
 type Engine struct {
 	workspace string
-	repoDir   string
-	store     *session.Store
+	repoDir      string
+	worktreeRoot string
+	store        *session.Store
 	resources *resource.Manager
 	repo      *repository.Service
 	events    *eventBus
@@ -119,6 +120,7 @@ func Open(opts Options) (*Engine, error) {
 	if repoDir == "" {
 		repoDir = filepath.Join(workspace, ".lumencortex")
 	}
+	worktreeRoot := filepath.Join(filepath.Dir(workspace), "."+filepath.Base(workspace)+".lumencortex-worktrees")
 	store, err := session.Open(repoDir)
 	if err != nil {
 		return nil, err
@@ -129,8 +131,9 @@ func Open(opts Options) (*Engine, error) {
 		return nil, err
 	}
 	return &Engine{
-		workspace: workspace,
-		repoDir:   repoDir,
+		workspace:    workspace,
+		repoDir:      repoDir,
+		worktreeRoot: worktreeRoot,
 		store:     store,
 		resources: resource.New(resource.Budget{
 			SoftBytes: opts.Budget.SoftBytes,
