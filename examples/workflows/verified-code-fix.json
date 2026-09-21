@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "id": "verified-code-fix",
+  "title": "Verified code repair",
+  "entry": "diagnose",
+  "facts": {
+    "tests": { "failed": false, "passed": false },
+    "implementation": { "changed": false }
+  },
+  "actions": {
+    "diagnose": {
+      "title": "Establish failing baseline",
+      "description": "Inspect relevant code and prove the current failure.",
+      "allowedTools": ["read_file", "read_files", "list_dir", "search_text", "code_search", "lsp_diagnostics", "shell"],
+      "outcomes": [{
+        "id": "baseline-fails",
+        "when": { "all": [
+          { "tool": "shell" },
+          { "arg": "command", "contains": "test" },
+          { "result": "exitCode", "notEquals": 0 }
+        ] },
+        "set": { "tests.failed": true }
+      }],
+      "routes": [{ "to": "repair", "when": { "fact": "tests.failed", "equals": true } }]
+    },
+    "repair": {
+      "title": "Repair implementation",
+      "allowedTools": ["read_file", "read_files", "search_text", "code_search", "lsp_definition", "lsp_references", "lsp_diagnostics", "replace_in_file", "apply_patch", "write_file"],
+      "outcomes": [{
+        "when": { "any": [
+          { "tool": "replace_in_file", "ok": true },
+          { "tool": "apply_patch", "ok": true },
+          { "tool": "write_file", "ok": true }
+        ] },
+        "set": { "implementation.changed": true }
+      }],
+      "completeWhen": { "fact": "implementation.changed", "equals": true },
+      "routes": [{ "to": "verify" }]
+    },
+    "verify": {
+      "title": "Independent verification",
+      "terminal": true,
+      "allowedTools": ["read_file", "read_files", "shell"],
+      "outcomes": [{
+        "id": "tests-pass",
+        "when": { "all": [
+          { "tool": "shell" },
+          { "arg": "command", "contains": "test" },
+          { "result": "exitCode", "equals": 0 }
+        ] },
+        "set": { "tests.passed": true }
+      }],
+      "completeWhen": { "fact": "tests.passed", "equals": true }
+    }
+  }
+}
