@@ -19,85 +19,11 @@ The central design goal is to allow long coding tasks to retain useful knowledge
 
 ## System architecture
 
-```mermaid
-flowchart TB
-  classDef entry fill:#0f172a,stroke:#38bdf8,color:#f8fafc,stroke-width:1.5px
-  classDef control fill:#eef2ff,stroke:#6366f1,color:#1e1b4b,stroke-width:1.5px
-  classDef cognitive fill:#ecfeff,stroke:#0891b2,color:#164e63,stroke-width:1.5px
-  classDef exec fill:#f0fdf4,stroke:#16a34a,color:#14532d,stroke-width:1.5px
-  classDef integ fill:#fff7ed,stroke:#ea580c,color:#7c2d12,stroke-width:1.5px
-  classDef store fill:#faf5ff,stroke:#9333ea,color:#581c87,stroke-width:1.5px
-  classDef planned fill:#f8fafc,stroke:#94a3b8,color:#475569,stroke-dasharray:5 4
+<p align="center">
+  <img src="assets/architecture/system-architecture.webp" alt="LumenCortex system architecture" width="100%">
+</p>
 
-  subgraph ENTRY["Entry Surface"]
-    TUI["TUI"]:::entry
-    CLI["CLI / Chat"]:::entry
-    PAR["Parallel Sessions"]:::entry
-  end
-
-  subgraph ORCH["Orchestration & Control"]
-    AGENT["Agent Loop"]:::exec
-    WF["Workflow Contract<br/>Facts · Action · Route · Outcome · Gate"]:::control
-    POLICY["Permission Policy<br/>read-only · workspace · full"]:::control
-    SESSION["Durable Session<br/>Messages · Steps · Usage · Status"]:::store
-  end
-
-  subgraph COG["Cognitive Plane"]
-    SEARCH["FTS5 + Symbol Retrieval"]:::cognitive
-    LIGHT["Attention Light"]:::cognitive
-    ACTIVE["Active Subgraph"]:::cognitive
-    PROMOTE["Active Promotion"]:::cognitive
-    GRAPH["Persistent Context Graph<br/>Evidence · Belief · Task · Abstraction"]:::store
-    CGIT["Cognitive Git"]:::store
-  end
-
-  subgraph EXEC["Execution Plane"]
-    LLM["LLM Provider"]:::exec
-    TOOLSET["Per-step Tool Working Set"]:::exec
-    TOOLS["Workspace Tools"]:::exec
-    SUB["Subagents"]:::exec
-  end
-
-  subgraph INTEG["External / Runtime Integration"]
-    SHELL["Shell / Tests"]:::integ
-    LSP["LSP"]:::integ
-    MCP["MCP"]:::integ
-    REPO["Workspace / Repository"]:::integ
-  end
-
-  subgraph STORE["Persistence"]
-    SQLITE["SQLite WAL<br/>Graph · Sessions · Journal · Search · Cognitive Git"]:::store
-    WORKTREE["Transactional Git Worktree Isolation"]:::planned
-    VECTOR["Embedding / Vector Index"]:::planned
-  end
-
-  TUI --> AGENT
-  CLI --> AGENT
-  PAR --> AGENT
-  SESSION <--> AGENT
-  WF --> AGENT
-  POLICY --> TOOLSET
-  AGENT --> SEARCH --> LIGHT --> ACTIVE
-  GRAPH --> LIGHT
-  ACTIVE --> AGENT
-  ACTIVE --> PROMOTE --> GRAPH
-  GRAPH <--> CGIT
-  AGENT <--> LLM
-  AGENT --> TOOLSET --> TOOLS
-  AGENT --> SUB
-  TOOLS --> SHELL
-  TOOLS --> LSP
-  TOOLS --> MCP
-  TOOLS --> REPO
-  SHELL --> REPO
-  REPO --> GRAPH
-  GRAPH --> SQLITE
-  SESSION --> SQLITE
-  CGIT --> SQLITE
-  SEARCH --> SQLITE
-  VECTOR -.-> SEARCH
-  WORKTREE -.-> REPO
-```
+_Maintainable topology source: [`diagrams/system-architecture.mmd`](diagrams/system-architecture.mmd)._
 
 Source: `docs/diagrams/system-architecture.mmd`.
 
