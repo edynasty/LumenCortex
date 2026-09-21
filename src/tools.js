@@ -638,7 +638,22 @@ function applyExactEdits(source, edits, relativePath) {
 function truncate(value, maxChars = 24000) {
   const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
   if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars)}\n... [truncated ${text.length - maxChars} chars]`;
+
+  const omittedChars = text.length - maxChars;
+  if (typeof value === 'string') {
+    return JSON.stringify({
+      truncated: true,
+      omittedChars,
+      content: text.slice(0, Math.max(0, maxChars - 160))
+    });
+  }
+
+  const preview = text.slice(0, Math.max(0, maxChars - 220));
+  return JSON.stringify({
+    truncated: true,
+    omittedChars,
+    preview
+  });
 }
 
 function normalize(value) {
