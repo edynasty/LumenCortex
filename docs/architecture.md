@@ -311,7 +311,7 @@ All providers use the same tool-calling Agent Loop.
 | Optimistic graph revision conflict detection | Implemented |
 | Shared harness SessionStore lifecycle | Implemented |
 | Cached adjacency | Planned |
-| LSP semantic tooling | Implemented (stdio JSON-RPC; Java/TS/Python defaults + custom config) |
+| LSP semantic tooling | Implemented (definition/references/symbols/hover/diagnostics + workspace-bounded rename and edit-based code actions) |
 | Graph canonicalization / GC / hot-warm-cold storage | Planned |
 | Temporal valid_from/valid_to graph | Partial |
 | Negative-evidence lifecycle | Partial |

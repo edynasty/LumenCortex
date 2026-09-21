@@ -33,7 +33,7 @@ The primary interface is the full-screen TUI. Run `lumencortex` or the short com
 - OpenRouter / Groq / DeepSeek official presets
 - generic local/API provider mode
 - workspace tools: single/batch read (`read_file` / `read_files`), list, indexed `code_search`, write, exact replace, validated multi-file `apply_patch`, asynchronous cancellable shell
-- LSP tools: definition, references, symbols, hover, diagnostics
+- LSP tools: definition, references, symbols, hover, diagnostics, rename, code actions
 - MCP client: 2026 modern + legacy negotiation, stdio + HTTP transports
 - focused Subagent + parallel Subagent tools
 - multi-session parallel runner and full-screen TUI
@@ -134,6 +134,8 @@ Large-repository code intelligence:
 lcx index build
 lcx search "reserveInventory"
 lcx lsp references src/main/java/.../InventoryService.java 42 18
+lcx lsp rename src/main/java/.../InventoryService.java 42 18 reserveStock --apply
+lcx lsp code-actions src/main/java/.../InventoryService.java 42 1 42 80 --kind quickfix
 ```
 
 The CI performance gate currently validates a synthetic 100k-node SQLite/FTS5 index. Recent runs show roughly 3.4–5.0s full index build, sub-millisecond exact/symbol query p95 (latest 0.29ms), and a separate single-node mutation gate below 500ms (recent successful runs 129–213ms).

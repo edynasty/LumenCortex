@@ -548,6 +548,71 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
       },
       execute: ({ path: input }) => lsp.diagnostics(input)
     });
+
+    registry.register({
+      name: 'lsp_rename',
+      description: 'Rename a symbol through the language server and atomically apply the returned workspace text edits.',
+      permission: 'write',
+      mutatesWorkspace: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          line: { type: 'integer', minimum: 1 },
+          character: { type: 'integer', minimum: 1 },
+          new_name: { type: 'string', minLength: 1 }
+        },
+        required: ['path', 'line', 'character', 'new_name'],
+        additionalProperties: false
+      },
+      execute: ({ path: input, line, character, new_name }) => lsp.rename(input, line, character, new_name, { apply: true })
+    });
+
+    registry.register({
+      name: 'lsp_code_actions',
+      description: 'List language-server quick fixes and refactors for a source range without applying them.',
+      permission: 'read',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          start_line: { type: 'integer', minimum: 1 },
+          start_character: { type: 'integer', minimum: 1 },
+          end_line: { type: 'integer', minimum: 1 },
+          end_character: { type: 'integer', minimum: 1 },
+          kind: { type: 'string' }
+        },
+        required: ['path', 'start_line', 'start_character'],
+        additionalProperties: false
+      },
+      execute: ({ path: input, start_line, start_character, end_line = start_line, end_character = start_character, kind }) =>
+        lsp.codeActions(input, start_line, start_character, end_line, end_character, {
+          only: kind ? [kind] : undefined
+        })
+    });
+
+    registry.register({
+      name: 'lsp_apply_code_action',
+      description: 'Apply one language-server code action workspace edit selected by exact title or action kind. Arbitrary server commands are not executed.',
+      permission: 'write',
+      mutatesWorkspace: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          start_line: { type: 'integer', minimum: 1 },
+          start_character: { type: 'integer', minimum: 1 },
+          end_line: { type: 'integer', minimum: 1 },
+          end_character: { type: 'integer', minimum: 1 },
+          title: { type: 'string' },
+          kind: { type: 'string' }
+        },
+        required: ['path', 'start_line', 'start_character'],
+        additionalProperties: false
+      },
+      execute: ({ path: input, start_line, start_character, end_line = start_line, end_character = start_character, title, kind }) =>
+        lsp.applyCodeAction(input, start_line, start_character, end_line, end_character, { title, kind })
+    });
   }
 
   if (repository) {

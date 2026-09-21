@@ -19,8 +19,7 @@ A feature being present in source code is not enough. Readiness claims require a
 | Live shell stdout/stderr | Complete | pre-completion streaming + Agent/TUI event tests | Ready |
 | Agent cancellation / resume | Complete | explicit AbortSignal test; interrupted Session persists | Ready |
 | Permission policy tiers | Partial | `read-only` differs; `workspace` and `full` currently authorize the same read/write/exec classes | Gap: make scope semantics real before final standalone-readiness claim |
-| LSP definition/references/symbols/hover/diagnostics | Complete | isolated LSP harness | Ready for navigation/diagnostics |
-| LSP rename/code actions | Not implemented | None | Gap for IDE-grade refactoring |
+| LSP definition/references/symbols/hover/diagnostics/rename/code actions | Complete | isolated fake-server LSP harness + workspace-edit safety tests | Ready for navigation, diagnostics and edit-based refactoring |
 | MCP stdio/HTTP | Complete | modern + legacy fallback harness | Ready |
 | Focused Subagents | Complete | durable isolated Session tests | Ready |
 | Parallel Sessions | Complete | overlap assertion + mutation safety gate | Ready |
@@ -71,7 +70,6 @@ In particular, the current architecture does not yet claim:
 
 - transactional Git worktree isolation for every Agent run,
 - rollback of arbitrary workspace changes produced by shell commands,
-- IDE-grade rename/code-action refactoring,
 - semantic embedding retrieval,
 - reusable Skills,
 - vision/browser automation,
