@@ -46,6 +46,9 @@ LSP tools when a language server is configured:
 - `lsp_symbols`
 - `lsp_hover`
 - `lsp_diagnostics`
+- `lsp_rename` — applies workspace-bounded LSP text edits atomically
+- `lsp_code_actions` — lists quick fixes/refactors for a range
+- `lsp_apply_code_action` — applies a selected code-action edit without executing arbitrary server commands
 
 Subagent tools:
 
@@ -138,6 +141,8 @@ lcx lsp symbols src/main/java/demo/OrderService.java
 lcx lsp definition src/main/java/demo/OrderService.java 42 18
 lcx lsp references src/main/java/demo/OrderService.java 42 18
 lcx lsp diagnostics src/main/java/demo/OrderService.java
+lcx lsp rename src/main/java/demo/OrderService.java 42 18 reserveStock --apply
+lcx lsp code-actions src/main/java/demo/OrderService.java 42 1 42 80 --kind quickfix
 ```
 
 The same capabilities are exposed to the Agent Loop as tools.
