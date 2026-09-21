@@ -403,8 +403,38 @@ async function lspCommand({ workspace, argv }) {
           ? await lsp.references(file, Number(line), Number(character))
           : await lsp.hover(file, Number(line), Number(character));
       console.log(JSON.stringify(result, null, 2));
-    } else if (action === 'diagnostics') console.log(JSON.stringify(await lsp.diagnostics(parsed.positionals[0]), null, 2));
-    else fail('Usage: lcx lsp <status|symbols|definition|references|hover|diagnostics> ...');
+    } else if (action === 'diagnostics') {
+      console.log(JSON.stringify(await lsp.diagnostics(parsed.positionals[0]), null, 2));
+    } else if (action === 'rename') {
+      const [file, line, character, newName] = parsed.positionals;
+      if (!file || !line || !character || !newName) fail('Usage: lcx lsp rename <file> <line> <character> <new-name> [--apply]');
+      console.log(JSON.stringify(await lsp.rename(file, Number(line), Number(character), newName, { apply: Boolean(parsed.flags.apply) }), null, 2));
+    } else if (action === 'code-actions') {
+      const [file, startLine, startCharacter, endLine = startLine, endCharacter = startCharacter] = parsed.positionals;
+      if (!file || !startLine || !startCharacter) fail('Usage: lcx lsp code-actions <file> <start-line> <start-char> [end-line end-char] [--kind K]');
+      console.log(JSON.stringify(await lsp.codeActions(
+        file,
+        Number(startLine),
+        Number(startCharacter),
+        Number(endLine),
+        Number(endCharacter),
+        { only: parsed.flags.kind ? [String(parsed.flags.kind)] : undefined }
+      ), null, 2));
+    } else if (action === 'apply-code-action') {
+      const [file, startLine, startCharacter, endLine = startLine, endCharacter = startCharacter] = parsed.positionals;
+      if (!file || !startLine || !startCharacter) fail('Usage: lcx lsp apply-code-action <file> <start-line> <start-char> [end-line end-char] [--title T|--kind K]');
+      console.log(JSON.stringify(await lsp.applyCodeAction(
+        file,
+        Number(startLine),
+        Number(startCharacter),
+        Number(endLine),
+        Number(endCharacter),
+        {
+          title: parsed.flags.title ? String(parsed.flags.title) : undefined,
+          kind: parsed.flags.kind ? String(parsed.flags.kind) : undefined
+        }
+      ), null, 2));
+    } else fail('Usage: lcx lsp <status|symbols|definition|references|hover|diagnostics|rename|code-actions|apply-code-action> ...');
   } finally {
     await lsp.close();
   }
@@ -682,7 +712,7 @@ Code intelligence:
   index <build|stats>
   search <query> [--limit 40]
   db <status|integrity|checkpoint|journal> [arg]
-  lsp <status|symbols|definition|references|hover|diagnostics> ...
+  lsp <status|symbols|definition|references|hover|diagnostics|rename|code-actions|apply-code-action> ...
   mcp <status|tools|call> ...
 
 Cognitive graph:
