@@ -17,8 +17,8 @@ A feature being present in source code is not enough. Readiness claims require a
 | Atomic multi-file patching | Complete | Batch validation/ambiguity/traversal tests | Ready |
 | Shell execution | Complete | async/timeout/process-tree/cancel tests | Ready |
 | Live shell stdout/stderr | Complete | pre-completion streaming + Agent/TUI event tests | Ready |
-| Agent cancellation / resume | Complete | explicit AbortSignal test; interrupted Session persists | Ready |
-| Permission policy tiers | Partial | `read-only` differs; `workspace` and `full` currently authorize the same read/write/exec classes | Gap: make scope semantics real before final standalone-readiness claim |
+| Agent cancellation / resume | Complete | AbortSignal + TUI + process SIGINT/SIGTERM tests; interrupted Session persists | Ready |
+| Permission policy tiers | Complete | dedicated policy tests; unknown policy fails closed | Ready: read-only/workspace/full have distinct scope semantics |
 | LSP definition/references/symbols/hover/diagnostics | Complete | isolated LSP harness | Ready for navigation/diagnostics |
 | LSP rename/code actions | Not implemented | None | Gap for IDE-grade refactoring |
 | MCP stdio/HTTP | Complete | modern + legacy fallback harness | Ready |

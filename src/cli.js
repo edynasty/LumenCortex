@@ -16,6 +16,8 @@ import { SubagentPool, registerSubagentTools } from './subagent.js';
 import { ParallelSessionRunner } from './parallel.js';
 import { LumenCortexTui } from './tui.js';
 import { BRAND } from './brand.js';
+import { normalizePolicy, policyAllowsTool } from './permissions.js';
+import { withProcessCancellation } from './process-cancellation.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -263,13 +265,14 @@ async function agentCommand({ repo, runtime, workspace, argv }) {
   const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? 'openrouter');
   const provider = createProvider(providerName, providerOptions(parsed));
   const json = Boolean(parsed.flags.json);
-  const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'workspace'), json });
+  const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'full'), json });
   const resources = await createHarness({ repo, runtime, workspace, provider, providerName, parsed, authorize, onEvent: json ? () => {} : renderAgentEvent });
   try {
-    const result = await resources.agent.run(goal, {
+    const result = await withProcessCancellation((signal) => resources.agent.run(goal, {
       ...agentRunOptions(parsed, providerName, authorize),
-      sessionId: parsed.flags.session ? String(parsed.flags.session) : undefined
-    });
+      sessionId: parsed.flags.session ? String(parsed.flags.session) : undefined,
+      signal
+    }));
     if (json) console.log(JSON.stringify({ sessionId: result.session.id, final: result.final, usage: result.usage }, null, 2));
     else {
       console.log(`\n${result.final}`);
@@ -285,7 +288,7 @@ async function chatCommand({ repo, runtime, workspace, argv }) {
   const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? 'openrouter');
   const provider = createProvider(providerName, providerOptions(parsed));
   const terminal = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'workspace'), json: false, terminal });
+  const authorize = createAuthorizer({ yes: Boolean(parsed.flags.yes), policy: String(parsed.flags.policy ?? 'full'), json: false, terminal });
   const resources = await createHarness({ repo, runtime, workspace, provider, providerName, parsed, authorize, onEvent: renderAgentEvent });
   let sessionId = parsed.flags.session ? String(parsed.flags.session) : null;
   console.log(`LumenCortex chat — ${providerName}/${provider.model}. /exit to quit.`);
@@ -294,10 +297,11 @@ async function chatCommand({ repo, runtime, workspace, argv }) {
       const goal = (await terminal.question('lcx> ')).trim();
       if (!goal) continue;
       if (['/exit', '/quit'].includes(goal)) break;
-      const result = await resources.agent.run(goal, {
+      const result = await withProcessCancellation((signal) => resources.agent.run(goal, {
         ...agentRunOptions(parsed, providerName, authorize),
-        sessionId: sessionId ?? undefined
-      });
+        sessionId: sessionId ?? undefined,
+        signal
+      }));
       sessionId = result.session.id;
       console.log(`\n${result.final}\n`);
     }
@@ -325,7 +329,7 @@ async function tuiCommand({ repo, runtime, workspace, argv }) {
   // Without --yes, TUI is intentionally read-only.
   const authorize = createAuthorizer({
     yes: Boolean(parsed.flags.yes),
-    policy: parsed.flags.yes ? String(parsed.flags.policy ?? 'workspace') : 'read-only',
+    policy: parsed.flags.yes ? String(parsed.flags.policy ?? 'full') : 'read-only',
     json: true
   });
   let tui;
@@ -370,7 +374,7 @@ async function parallelCommand({ repo, runtime, workspace, argv }) {
   const provider = createProvider(providerName, providerOptions(parsed));
   const authorize = createAuthorizer({
     yes: Boolean(parsed.flags.yes),
-    policy: parsed.flags.yes ? String(parsed.flags.policy ?? 'workspace') : 'read-only',
+    policy: parsed.flags.yes ? String(parsed.flags.policy ?? 'full') : 'read-only',
     json: true
   });
   const resources = await createHarness({ repo, runtime, workspace, provider, providerName, parsed, authorize, onEvent: () => {} });
@@ -524,10 +528,10 @@ async function doctorCommand(argv) {
 }
 
 function createAuthorizer({ yes, policy, json, terminal: sharedTerminal }) {
-  const allowed = new Set(policy === 'read-only' ? ['read'] : policy === 'workspace' ? ['read', 'write', 'exec'] : ['read', 'write', 'exec']);
+  const resolvedPolicy = normalizePolicy(policy);
   return async (tool, args) => {
     const permission = tool.permission ?? 'read';
-    if (!allowed.has(permission)) return false;
+    if (!policyAllowsTool(tool, resolvedPolicy)) return false;
     if (permission === 'read' || yes) return true;
     if (!process.stdin.isTTY || json) return false;
     const terminal = sharedTerminal ?? readline.createInterface({ input: process.stdin, output: process.stdout });

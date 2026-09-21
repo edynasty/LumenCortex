@@ -329,6 +329,7 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
     name: 'shell',
     description: 'Run a shell command in the workspace. Use for tests, builds, git diff/status, and deterministic inspection.',
     permission: 'exec',
+    scope: 'host',
     mutatesWorkspace: true,
     parameters: {
       type: 'object',
@@ -370,7 +371,7 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
           const next = current + chunk.toString('utf8');
           if (Buffer.byteLength(next) > maxBuffer) {
             overflowed = true;
-            child.kill('SIGTERM');
+            terminateProcessTree(child, isWindows, 'SIGTERM');
             return next.slice(0, maxBuffer);
           }
           return next;
@@ -637,7 +638,41 @@ function applyExactEdits(source, edits, relativePath) {
 function truncate(value, maxChars = 24000) {
   const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
   if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars)}\n... [truncated ${text.length - maxChars} chars]`;
+
+  if (typeof value === 'string') {
+    const keep = Math.max(0, maxChars - 180);
+    return JSON.stringify({
+      truncated: true,
+      omittedChars: Math.max(0, text.length - keep),
+      content: text.slice(0, keep)
+    });
+  }
+
+  const clipped = clipLongStrings(value, Math.max(256, Math.floor(maxChars / 2)));
+  let serialized = JSON.stringify(clipped, null, 2);
+  if (serialized.length <= maxChars) return serialized;
+
+  const compact = clipLongStrings(value, Math.max(128, Math.floor(maxChars / 4)));
+  serialized = JSON.stringify(compact);
+  if (serialized.length <= maxChars) return serialized;
+
+  return JSON.stringify({
+    truncated: true,
+    omittedChars: Math.max(0, text.length - maxChars),
+    summary: 'Tool result exceeded the output budget; large string fields were omitted.'
+  });
+}
+
+function clipLongStrings(value, maxStringChars) {
+  if (typeof value === 'string') {
+    if (value.length <= maxStringChars) return value;
+    return `${value.slice(0, maxStringChars)}\n... [truncated ${value.length - maxStringChars} chars]`;
+  }
+  if (Array.isArray(value)) return value.map((item) => clipLongStrings(item, maxStringChars));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, clipLongStrings(item, maxStringChars)])
+  );
 }
 
 function normalize(value) {

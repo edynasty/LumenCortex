@@ -201,6 +201,16 @@ Useful controls:
 
 Without `--yes`, write and shell actions require interactive approval. Non-interactive runs deny those actions unless explicitly approved.
 
+Permission policies are scope-aware:
+
+- `read-only` — read tools only.
+- `workspace` — workspace reads and writes, but no host shell execution and no external MCP write tools.
+- `full` — workspace access plus host shell execution and external write-capable tools.
+
+Unknown policy names fail closed instead of silently becoming full access. For normal autonomous coding with `--yes`, the default remains `full`.
+
+For one-shot `lcx agent` and interactive `lcx chat`, `SIGINT` / `SIGTERM` are forwarded into the active Agent run. Provider/tool work is cancelled and the durable Session is persisted as `interrupted` so it can be resumed.
+
 For non-trivial edits, `apply_patch` can validate multiple exact hunks across multiple files before mutating any target. It supports update/create/delete operations, rejects ambiguous hunks and workspace traversal, and is treated as a mutating tool by the parallel-session safety gate.
 
 ## Persistence
