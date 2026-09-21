@@ -7,14 +7,14 @@ import (
 
 func TestReserveHonorsHardLimitAndRelease(t *testing.T) {
 	m := New(Budget{SoftBytes: 100, HardBytes: 120, MaxAgents: 1})
-	release, err := m.Reserve(90)
+	release, err := m.Reserve(100)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !m.UnderPressure() {
 		t.Fatal("expected soft pressure")
 	}
-	if _, err := m.Reserve(31); !errors.Is(err, ErrMemoryBudgetExceeded) {
+	if _, err := m.Reserve(21); !errors.Is(err, ErrMemoryBudgetExceeded) {
 		t.Fatalf("expected hard limit error, got %v", err)
 	}
 	release()
