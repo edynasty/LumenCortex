@@ -68,6 +68,7 @@ func TestUpdateSessionUIPreservesOtherMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	metadata = map[string]any{}
 	if err := json.Unmarshal(info.Metadata, &metadata); err != nil {
 		t.Fatal(err)
 	}
