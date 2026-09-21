@@ -7,6 +7,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/internal/agent"
 	"github.com/edynasty/LumenCortex/internal/session"
+	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/toolset"
 	"github.com/edynasty/LumenCortex/internal/workflow"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -54,7 +55,15 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 	if policy == "" {
 		policy = toolset.PolicyReadOnly
 	}
-	tools, err := toolset.New(toolset.Options{Workspace: e.workspace, Policy: policy, Shell: e.shell})
+	agentWorkspace, err := e.agentWorkspace(ctx, sessionID)
+	if err != nil {
+		return AgentResult{}, err
+	}
+	runner := e.shell
+	if agentWorkspace != e.workspace {
+		runner = shell.New(agentWorkspace)
+	}
+	tools, err := toolset.New(toolset.Options{Workspace: agentWorkspace, Policy: policy, Shell: runner})
 	if err != nil {
 		return AgentResult{}, err
 	}
