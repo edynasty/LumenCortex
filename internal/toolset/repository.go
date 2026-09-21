@@ -8,6 +8,14 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
+func stringArg(args map[string]any, key string) string {
+	value, ok := args[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return fmt.Sprint(value)
+}
+
 func intArg(args map[string]any, key string, fallback int) int {
 	value, ok := args[key]
 	if !ok {
@@ -29,7 +37,7 @@ func boolArg(args map[string]any, key string) bool {
 }
 
 func (s *Set) searchText(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
-	result, err := s.repository.SearchText(ctx, fmt.Sprint(args["query"]), fmt.Sprint(args["path"]), intArg(args, "limit", 200))
+	result, err := s.repository.SearchText(ctx, stringArg(args, "query"), stringArg(args, "path"), intArg(args, "limit", 200))
 	if err != nil {
 		return protocol.ToolResult{}, err
 	}
@@ -38,7 +46,7 @@ func (s *Set) searchText(ctx context.Context, args map[string]any, _ func(protoc
 }
 
 func (s *Set) findFiles(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
-	result, err := s.repository.FindFiles(ctx, fmt.Sprint(args["pattern"]), fmt.Sprint(args["path"]), intArg(args, "limit", 200))
+	result, err := s.repository.FindFiles(ctx, stringArg(args, "pattern"), stringArg(args, "path"), intArg(args, "limit", 200))
 	if err != nil {
 		return protocol.ToolResult{}, err
 	}
@@ -56,7 +64,7 @@ func (s *Set) gitStatus(ctx context.Context, _ map[string]any, _ func(protocol.T
 }
 
 func (s *Set) gitDiff(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
-	result, err := s.repository.GitDiff(ctx, fmt.Sprint(args["path"]), boolArg(args, "staged"))
+	result, err := s.repository.GitDiff(ctx, stringArg(args, "path"), boolArg(args, "staged"))
 	if err != nil {
 		return protocol.ToolResult{}, err
 	}
