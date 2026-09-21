@@ -76,6 +76,30 @@ func TestSessionWorktreeLifecycleAndAgentWorkspace(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "isolated.txt")); !os.IsNotExist(err) {
 		t.Fatalf("main workspace unexpectedly contains isolated file: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(identity.Path, "README.md"), []byte("changed in worktree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sessionStatus, err := engine.SessionGitStatus(context.Background(), handle.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessionStatus.Files) == 0 {
+		t.Fatal("expected worktree session git status")
+	}
+	sessionDiff, err := engine.SessionGitDiff(context.Background(), handle.ID, "README.md", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sessionDiff.Content == "" {
+		t.Fatal("expected worktree session diff")
+	}
+	mainStatus, err := engine.GitStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mainStatus.Files) != 0 {
+		t.Fatalf("main workspace should remain clean: %#v", mainStatus.Files)
+	}
 
 	if err := engine.RemoveSessionWorktree(context.Background(), handle.ID, true); err != nil {
 		t.Fatal(err)
