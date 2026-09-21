@@ -131,7 +131,7 @@ jobs:
         run: |
           set -o pipefail
           timeout --signal=TERM --kill-after=10s 1020s node src/cli.js agent \
-            "Work only in vm-code. This is an implementation task, not a review. First run npm test in vm-code. Then use ONE read_files call to inspect vm-code/src/math.js, vm-code/src/slug.js, vm-code/test/math.test.js, and vm-code/test/slug.test.js together. Diagnose every failing test. Fix only implementation files under vm-code/src; do not edit tests. Use the shortest safe edit representation: multiple replace_in_file calls may be requested in the same reasoning turn, or use apply_patch/write_file when shorter. Rerun npm test until every test passes. Return CODE_TASK_OK only after tests pass." \
+            "Work only in vm-code. This is an implementation task, not a review. First run npm test in vm-code. Then use ONE read_files call to inspect vm-code/src/math.js, vm-code/src/slug.js, vm-code/test/math.test.js, and vm-code/test/slug.test.js together. Diagnose every failing test. Fix only implementation files under vm-code/src; do not edit tests. Use replace_in_file for implementation edits. Multiple replace_in_file calls may be requested in the same reasoning turn. Rerun npm test until every test passes. Return CODE_TASK_OK only after tests pass." \
             --provider generic \
             --model qwen3:4b-instruct \
             --base-url http://127.0.0.1:11434/v1 \
@@ -140,10 +140,10 @@ jobs:
             --working-chars 14000 \
             --timeout-ms 300000 \
             --max-tokens 768 \
-            --max-steps 8 \
+            --max-steps 10 \
             --llm-retries 1 \
             --max-tool-calls-per-step 3 \
-            --tools read_files,replace_in_file,write_file,apply_patch,shell \
+            --tools read_files,replace_in_file,shell \
             --yes | tee /tmp/vm-code-agent.log
 
           echo "--- independent verification ---"
@@ -151,12 +151,12 @@ jobs:
           sha256sum -c /tmp/vm-code-tests.sha
 
           echo "--- tool evidence ---"
-          grep -E '→ (shell|read_files|replace_in_file|write_file|apply_patch)' /tmp/vm-code-agent.log | tee /tmp/vm-code-tool-lines.log
+          grep -E '→ (shell|read_files|replace_in_file)' /tmp/vm-code-agent.log | tee /tmp/vm-code-tool-lines.log
           tool_count=$(wc -l < /tmp/vm-code-tool-lines.log)
           echo "TOOL_CALLS=$tool_count"
           [ "$tool_count" -ge 4 ]
           grep -E '→ read_files .*vm-code/src/math.js' /tmp/vm-code-agent.log
-          grep -E '→ (replace_in_file|write_file|apply_patch)' /tmp/vm-code-agent.log
+          grep -E '→ replace_in_file' /tmp/vm-code-agent.log
           grep -E '→ shell .*npm test' /tmp/vm-code-agent.log
           grep -F '[agent] completed' /tmp/vm-code-agent.log
           grep -F 'CODE_TASK_OK' /tmp/vm-code-agent.log
@@ -176,9 +176,7 @@ jobs:
           const names = session.steps.flatMap(step => (step.toolCalls ?? []).map(call => call.name));
           if (!names.includes('shell')) throw new Error('missing shell verification call');
           if (!names.includes('read_files')) throw new Error('missing batch read_files call');
-          if (!names.some(name => ['replace_in_file', 'write_file', 'apply_patch'].includes(name))) {
-            throw new Error('missing implementation edit call');
-          }
+          if (!names.includes('replace_in_file')) throw new Error('missing implementation edit call');
           console.log(JSON.stringify({
             id: session.id,
             status: session.status,
