@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -127,5 +128,41 @@ func TestRunSupervisorCloseCancelsOwnedRuns(t *testing.T) {
 	}
 	if _, err := supervisor.Start(context.Background(), handle.ID, provider, AgentOptions{}); !errors.Is(err, ErrRunSupervisorClosed) {
 		t.Fatalf("start after close err=%v", err)
+	}
+}
+
+
+func TestRecoverStaleRunsInterruptsPersistedRunningSessions(t *testing.T) {
+	engine, err := Open(Options{Workspace: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+
+	handle, err := engine.NewSession(context.Background(), SessionOptions{Goal: "recover stale"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	running := "running"
+	if err := engine.store.Update(context.Background(), handle.ID, session.Patch{Status: &running}); err != nil {
+		t.Fatal(err)
+	}
+
+	count, err := engine.RecoverStaleRuns(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("recovered=%d, want 1", count)
+	}
+	_, info, err := engine.Session(context.Background(), handle.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Status != "interrupted" {
+		t.Fatalf("status=%q, want interrupted", info.Status)
+	}
+	if len(info.Error) == 0 {
+		t.Fatal("expected recovery error metadata")
 	}
 }
