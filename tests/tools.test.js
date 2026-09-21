@@ -236,6 +236,33 @@ test('shell tool reports timeout without blocking the runtime', async () => {
 
 
 
+test('shell output overflow terminates the whole process tree promptly', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-shell-overflow-'));
+  const script = path.join(root, 'overflow-parent.cjs');
+  fs.writeFileSync(script, `
+    const { spawn } = require('node:child_process');
+    spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], {
+      stdio: ['ignore', 'inherit', 'inherit']
+    });
+    process.stdout.write('x'.repeat(5 * 1024 * 1024));
+    setTimeout(() => {}, 5000);
+  `);
+  const tools = createCodingTools({ workspace: root });
+  const started = Date.now();
+
+  const result = await tools.execute('shell', {
+    command: `${JSON.stringify(process.execPath)} overflow-parent.cjs`,
+    timeout_ms: 10000
+  }, { authorize: async () => true });
+
+  const elapsed = Date.now() - started;
+  assert.equal(result.ok, true);
+  const payload = JSON.parse(result.content);
+  assert.equal(payload.overflowed, true);
+  assert.ok(elapsed < 2000, `overflowed process tree should terminate promptly, elapsed=${elapsed}ms`);
+});
+
+
 test('tool registry accepts camelCase aliases for snake_case schemas', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mw-tools-alias-'));
   fs.writeFileSync(path.join(dir, 'a.txt'), 'one\ntwo\nthree\n');
