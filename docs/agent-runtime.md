@@ -385,3 +385,12 @@ The core suite, isolated coding-harness suite, 100k-node search benchmark and re
 Workflow state is orthogonal to the Cognitive Graph. The contract narrows the current Agent action, computes the visible tool set, observes deterministic tool outcomes into durable Facts, advances Routes, and blocks final completion until a terminal Action is proven. Human Gates persist the Session as `waiting_gate` instead of consuming more model turns.
 
 See `docs/workflow-contract.md` and `examples/workflows/verified-code-fix.json`.
+
+
+## Related documentation
+
+- [System overview](system-overview.md)
+- [Agent execution flow](execution-flow.md) — canonical step-by-step lifecycle
+- [Workflow Contract](workflow-contract.md)
+- [Security and trust](security-and-trust.md)
+- [Validation evidence](validation.md)

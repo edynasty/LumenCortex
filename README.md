@@ -303,14 +303,26 @@ The core has zero runtime npm dependencies and requires Node.js 22.13+ because p
 
 ## Documentation
 
-- `docs/architecture.md`
-- `docs/data-model.md`
-- `docs/agent-runtime.md`
-- `docs/standalone-readiness.md` — evidence gates for primary standalone coding-agent claims
+Start with **[`docs/README.md`](docs/README.md)**.
+
+Core documents:
+
+- [System overview](docs/system-overview.md)
+- [Architecture diagrams](docs/architecture-diagrams.md)
+- [Agent execution flow](docs/execution-flow.md)
+- [Architecture details](docs/architecture.md)
+- [Agent runtime](docs/agent-runtime.md)
+- [Workflow Contract](docs/workflow-contract.md)
+- [Data model](docs/data-model.md)
+- [Security and trust](docs/security-and-trust.md)
+- [Validation evidence](docs/validation.md)
+- [Standalone readiness](docs/standalone-readiness.md)
+- [Documentation guide](docs/documentation-guide.md)
+- [Architecture Decision Records](docs/adr/README.md)
 
 ## Implementation honesty
 
-Implemented and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions.
+Implemented and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions.
 
 Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, graph GC/hot-warm-cold storage, reusable Skills layer, vision/browser tooling and automatic split/merge canonicalization.
 
