@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sort"
 	"sync"
@@ -175,4 +176,24 @@ func (s *RunSupervisor) Close() {
 	for _, run := range runs {
 		<-run.done
 	}
+}
+
+
+func (e *Engine) RecoverStaleRuns(ctx context.Context) (int64, error) {
+	errorJSON, err := json.Marshal(map[string]any{
+		"message": "previous process ended while the agent run was active",
+		"kind":    "stale_run_recovered",
+		"at":      time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		return 0, err
+	}
+	count, err := e.store.InterruptRunning(ctx, errorJSON)
+	if err != nil {
+		return 0, err
+	}
+	if count > 0 {
+		e.events.publish("run.recovered_stale", "", map[string]any{"count": count})
+	}
+	return count, nil
 }
