@@ -8,12 +8,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/resource"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
 var (
-	ErrRunAlreadyActive = errors.New("agent run is already active for this session")
-	ErrRunSupervisorClosed = errors.New("run supervisor is closed")
+	ErrRunAlreadyActive     = errors.New("agent run is already active for this session")
+	ErrRunSupervisorClosed  = errors.New("run supervisor is closed")
+	ErrAgentLimitExceeded   = resource.ErrAgentLimitExceeded
 )
 
 type ActiveRun struct {
