@@ -209,6 +209,7 @@ SELECT id FROM sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	ids := make([]string, 0, limit)
 	for rows.Next() {
 		var id string
