@@ -4,6 +4,12 @@ This directory is the authoritative technical documentation set for LumenCortex.
 
 The README at the repository root is intentionally a quick-start and product summary. Detailed architecture, runtime semantics, evidence, safety boundaries, and maintenance rules live here.
 
+<p align="center">
+  <img src="assets/architecture/system-architecture.webp" alt="LumenCortex system architecture" width="100%">
+</p>
+
+[Open the full visual architecture index →](architecture-diagrams.md)
+
 ## Recommended reading order
 
 ### I want to understand the system

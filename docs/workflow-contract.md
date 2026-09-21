@@ -10,46 +10,11 @@ It is deliberately separate from the Cognitive Graph.
 
 ## Relationship to cognition
 
-```mermaid
-flowchart LR
-  classDef wf fill:#eef2ff,stroke:#6366f1,color:#312e81,stroke-width:1.5px
-  classDef cog fill:#ecfeff,stroke:#0891b2,color:#164e63,stroke-width:1.5px
-  classDef exec fill:#f0fdf4,stroke:#16a34a,color:#14532d,stroke-width:1.5px
-  classDef store fill:#faf5ff,stroke:#9333ea,color:#581c87,stroke-width:1.5px
+<p align="center">
+  <img src="assets/architecture/workflow-cognitive-dual-plane.webp" alt="Workflow and Cognitive Graph dual control plane" width="100%">
+</p>
 
-  GOAL["Goal"]:::exec --> AGENT["Agent Loop"]:::exec
-
-  subgraph WF["Workflow Control Plane — what is legal / proven?"]
-    FACTS["Facts"]:::wf --> ACTION["Current Action"]:::wf
-    ACTION --> ROUTE["Route"]:::wf
-    ACTION --> ALLOW["Allowed Tools"]:::wf
-    OUT["Tool Outcomes"]:::wf --> FACTS
-    GATE["Condition / Human Gate"]:::wf --> ACTION
-  end
-
-  subgraph COG["Cognitive Control Plane — what should be remembered / attended?"]
-    EVID["Evidence"]:::cog --> GRAPH["Context Graph"]:::store
-    BELIEF["Belief / Hypothesis"]:::cog --> GRAPH
-    GRAPH --> RET["Retrieval"]:::cog
-    RET --> LIGHT["Attention Light"]:::cog
-    LIGHT --> ACTIVE["Active Subgraph"]:::cog
-    ACTIVE --> PROMOTE["Promotion / Drill-down"]:::cog
-    PROMOTE --> GRAPH
-  end
-
-  AGENT --> ACTION
-  ACTION --> AGENT
-  AGENT --> ACTIVE
-  ACTIVE --> AGENT
-  ALLOW --> EXEC["Tool Execution"]:::exec
-  AGENT --> EXEC
-  EXEC --> OUT
-  EXEC --> EVID
-  GATE --> AGENT
-
-  NOTE["Workflow never replaces cognition.<br/>Cognition never overrides workflow legality."]:::store
-  WF --- NOTE --- COG
-```
+_Maintainable topology source: [`diagrams/workflow-cognitive-dual-plane.mmd`](diagrams/workflow-cognitive-dual-plane.mmd)._
 
 Workflow is not long-term semantic memory. Cognitive memory is not an authorization engine.
 

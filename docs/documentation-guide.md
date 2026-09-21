@@ -110,17 +110,24 @@ Avoid claims such as:
 
 ## Architecture diagrams
 
-Use Mermaid as source.
+Use two layers:
+
+- `docs/diagrams/*.mmd` — maintainable logical/topology source,
+- `docs/assets/architecture/*.webp` — curated presentation visuals used by README and architecture documents.
+
+The static visual is the primary reader-facing artifact when one exists. The Mermaid source is the maintainable structural reference, not a requirement that the WebP be a pixel-for-pixel renderer output.
 
 Rules:
 
-1. diagrams must render in GitHub Markdown,
-2. store reusable source in `docs/diagrams/*.mmd`,
-3. use consistent colors by architectural role,
-4. planned components use dashed gray lines/borders,
-5. do not hide known gaps in diagrams,
-6. diagrams should express one question each,
-7. update diagram source and corresponding Markdown together.
+1. each diagram answers one architectural question,
+2. keep the logical topology source in `docs/diagrams/*.mmd`,
+3. keep the reviewed presentation asset in `docs/assets/architecture/*.webp`,
+4. use consistent semantic colors by architectural role,
+5. planned components remain visually distinct, preferably dashed/gray,
+6. never hide known product gaps in a presentation image,
+7. when topology changes, update both the `.mmd` source and the corresponding static visual in the same change,
+8. README and overview documents should reference the static visual rather than embedding a large Mermaid graph,
+9. verify text labels in generated visuals manually before merging.
 
 Recommended semantic palette:
 

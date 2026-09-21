@@ -6,6 +6,12 @@
 
 The primary interface is the full-screen TUI. Run `lumencortex` or the short command `lcx` with no arguments to open it directly. Shell/test stdout and stderr are streamed into the active Agent view while commands are still running. While an agent run is active, `Ctrl+C` cancels the provider/tool execution, persists the Session as `interrupted`, and leaves it resumable with `--session`.
 
+<p align="center">
+  <img src="docs/assets/architecture/system-architecture.webp" alt="LumenCortex system architecture" width="100%">
+</p>
+
+> Visual architecture overview. Detailed diagrams and maintainable topology sources live in [docs/architecture-diagrams.md](docs/architecture-diagrams.md).
+
 ## v0.6 LumenCortex runtime
 
 ### Cognitive runtime

@@ -4,45 +4,11 @@ This document describes the runtime logic of one autonomous Agent run, including
 
 ## End-to-end logic
 
-```mermaid
-flowchart TD
-  classDef start fill:#0f172a,stroke:#38bdf8,color:#f8fafc
-  classDef decision fill:#fff7ed,stroke:#f97316,color:#7c2d12
-  classDef control fill:#eef2ff,stroke:#6366f1,color:#312e81
-  classDef cognitive fill:#ecfeff,stroke:#0891b2,color:#164e63
-  classDef action fill:#f0fdf4,stroke:#16a34a,color:#14532d
-  classDef stop fill:#fef2f2,stroke:#dc2626,color:#7f1d1d
+<p align="center">
+  <img src="assets/architecture/agent-execution-flow.webp" alt="LumenCortex agent execution flow" width="100%">
+</p>
 
-  START["User Goal / Resume Session"]:::start --> LOAD["Load durable Session<br/>+ optional Workflow Contract"]:::control
-  LOAD --> GATE0{"Human gate waiting?"}:::decision
-  GATE0 -- yes --> PAUSE["Persist waiting_gate<br/>Return without another LLM call"]:::stop
-  GATE0 -- no --> FOCUS["Derive step focus"]:::cognitive
-  FOCUS --> RETRIEVE["Indexed retrieval<br/>FTS5 · symbols · recent evidence"]:::cognitive
-  RETRIEVE --> LIGHT["Move Attention Light"]:::cognitive
-  LIGHT --> ACTIVE["Build finite Active Subgraph<br/>under token budget"]:::cognitive
-  ACTIVE --> WORK["Build bounded working messages<br/>system + workflow + active graph + recent rounds"]:::control
-  WORK --> TOOLS["Compute current Action tool allowlist"]:::control
-  TOOLS --> LLM["LLM reasoning"]:::action
-  LLM --> KIND{"Tool calls or final?"}:::decision
-
-  KIND -- tool calls --> CHECK["Execution-time tool boundary check"]:::control
-  CHECK --> EXEC["Execute Tool<br/>read · edit · shell · LSP · MCP"]:::action
-  EXEC --> OBS["Record tool observation<br/>and provenance"]:::cognitive
-  OBS --> OUT["Evaluate Workflow Outcomes<br/>write Facts"]:::control
-  OUT --> ROUTE["Evaluate Route / Gate"]:::control
-  ROUTE --> MUT{"Workspace changed?"}:::decision
-  MUT -- yes --> INGEST["Re-ingest reality<br/>invalidate stale dependent cognition"]:::cognitive
-  MUT -- no --> SAVE
-  INGEST --> SAVE["Persist Session step + workflow state"]:::control
-  SAVE --> GATE1{"Human gate reached?"}:::decision
-  GATE1 -- yes --> PAUSE
-  GATE1 -- no --> FOCUS
-
-  KIND -- final --> FINAL{"Terminal Action and<br/>completion evidence satisfied?"}:::decision
-  FINAL -- no --> REJECT["Reject premature completion<br/>persist corrective turn"]:::stop
-  REJECT --> FOCUS
-  FINAL -- yes --> DONE["Persist completed Session<br/>optional Cognitive Commit"]:::start
-```
+_Maintainable topology source: [`diagrams/agent-execution-flow.mmd`](diagrams/agent-execution-flow.mmd)._
 
 Source: `docs/diagrams/agent-execution-flow.mmd`.
 
