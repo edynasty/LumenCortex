@@ -46,6 +46,7 @@ export function validateWorkflowDefinition(input) {
       if (!outcome.set || typeof outcome.set !== 'object' || Array.isArray(outcome.set)) {
         throw new Error(`Outcome ${actionId}[${index}] requires a set object`);
       }
+      for (const factPath of Object.keys(outcome.set)) validatePath(factPath, `outcome ${actionId}[${index}].set`);
       return {
         id: outcome.id ?? `${actionId}.outcome.${index + 1}`,
         when: outcome.when ?? true,
@@ -322,6 +323,7 @@ export class WorkflowRuntime {
       transition = { from, to: route.to, reason };
       this.history.push({ at: nowIso(), type: 'transition', from, to: route.to, reason });
       this.trimHistory();
+      if (guard === 31) throw new Error('Workflow automatic transition limit exceeded; possible route cycle');
     }
     return transition;
   }
@@ -366,8 +368,10 @@ function normalizeGate(gate, actionId, index) {
   normalized.description ??= '';
   normalized.type ??= 'condition';
   if (!['condition', 'human'].includes(normalized.type)) throw new Error(`Unsupported gate type ${normalized.type} for ${normalized.id}`);
-  if (normalized.type === 'human') normalized.fact ??= `gates.${normalized.id}`;
-  else {
+  if (normalized.type === 'human') {
+    normalized.fact ??= `gates.${normalized.id}`;
+    validatePath(normalized.fact, `gate ${normalized.id}.fact`);
+  } else {
     if (normalized.condition == null) throw new Error(`Condition gate ${normalized.id} requires condition`);
     validateCondition(normalized.condition, `gate ${normalized.id}.condition`);
   }
@@ -393,6 +397,9 @@ function validateCondition(condition, label) {
   }
   const selectors = ['fact', 'tool', 'ok', 'arg', 'result'].filter((key) => Object.hasOwn(condition, key));
   if (!selectors.length) throw new Error(`Condition at ${label} has no selector`);
+  for (const selector of ['fact', 'arg', 'result']) {
+    if (Object.hasOwn(condition, selector)) validatePath(condition[selector], `${label}.${selector}`);
+  }
   for (const key of Object.keys(condition)) {
     if (selectors.includes(key) || COMPARATORS.has(key)) continue;
     throw new Error(`Unknown workflow condition key ${key} at ${label}`);
@@ -439,11 +446,12 @@ function parseResultContent(content) {
 
 function getPath(target, dottedPath) {
   if (!dottedPath) return target;
-  return String(dottedPath).split('.').reduce((value, key) => value == null ? undefined : value[key], target);
+  const parts = validatePath(dottedPath, 'runtime path');
+  return parts.reduce((value, key) => value == null ? undefined : value[key], target);
 }
 
 function setPath(target, dottedPath, value) {
-  const parts = String(dottedPath).split('.').filter(Boolean);
+  const parts = validatePath(dottedPath, 'fact path');
   if (!parts.length) throw new Error('Fact path cannot be empty');
   let cursor = target;
   for (const part of parts.slice(0, -1)) {
@@ -451,6 +459,16 @@ function setPath(target, dottedPath, value) {
     cursor = cursor[part];
   }
   cursor[parts.at(-1)] = value;
+}
+
+function validatePath(value, label) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`Invalid path at ${label}`);
+  const parts = value.split('.').filter(Boolean);
+  const forbidden = new Set(['__proto__', 'prototype', 'constructor']);
+  if (!parts.length || parts.some((part) => forbidden.has(part))) {
+    throw new Error(`Unsafe path at ${label}: ${value}`);
+  }
+  return parts;
 }
 
 function seedFactSources(target, facts, prefix = '') {

@@ -146,3 +146,40 @@ test('definition validation rejects routes to unknown actions', () => {
     actions: { a: { routes: [{ to: 'missing' }] } }
   }), /unknown action/);
 });
+
+
+test('workflow rejects prototype-polluting fact and selector paths', () => {
+  assert.throws(() => validateWorkflowDefinition({
+    version: 1,
+    id: 'unsafe-set',
+    actions: {
+      a: {
+        terminal: true,
+        outcomes: [{ when: true, set: { '__proto__.polluted': true } }]
+      }
+    }
+  }), /Unsafe path/);
+
+  assert.throws(() => validateWorkflowDefinition({
+    version: 1,
+    id: 'unsafe-read',
+    actions: {
+      a: {
+        terminal: true,
+        completeWhen: { fact: 'constructor.prototype.polluted', equals: true }
+      }
+    }
+  }), /Unsafe path/);
+});
+
+test('automatic route cycles fail closed instead of silently spinning', () => {
+  assert.throws(() => new WorkflowRuntime({
+    version: 1,
+    id: 'cycle',
+    entry: 'a',
+    actions: {
+      a: { routes: [{ to: 'b' }] },
+      b: { routes: [{ to: 'a' }] }
+    }
+  }), /transition limit exceeded/);
+});
