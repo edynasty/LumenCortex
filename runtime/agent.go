@@ -256,6 +256,7 @@ func (s agentStore) Update(ctx context.Context, id string, patch agent.SessionPa
 	value := session.Patch{
 		Status: patch.Status,
 		Final: patch.Final,
+		ClearFinal: patch.ClearFinal,
 		ClearError: patch.ClearError,
 	}
 	if patch.Metadata != nil {
