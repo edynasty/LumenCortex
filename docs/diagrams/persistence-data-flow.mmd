@@ -1,0 +1,51 @@
+flowchart TB
+  classDef db fill:#faf5ff,stroke:#9333ea,color:#581c87
+  classDef runtime fill:#f0fdf4,stroke:#16a34a,color:#14532d
+  classDef cog fill:#ecfeff,stroke:#0891b2,color:#164e63
+  classDef ctrl fill:#eef2ff,stroke:#6366f1,color:#312e81
+  classDef planned fill:#f8fafc,stroke:#94a3b8,color:#475569,stroke-dasharray:5 4
+
+  subgraph RUNTIME["Runtime State"]
+    SESSION["Session<br/>goal · status · usage"]:::runtime
+    MSG["Messages"]:::runtime
+    STEP["Agent Steps"]:::runtime
+    WF["Workflow Snapshot<br/>definition · facts · factSources · history"]:::ctrl
+    JOURNAL["Runtime Journal"]:::runtime
+  end
+
+  subgraph COG["Cognitive State"]
+    NODE["Graph Nodes"]:::cog
+    EDGE["Graph Edges"]:::cog
+    COMMIT["Cognitive Commits / Refs"]:::cog
+    SYMBOL["Symbols / FTS5"]:::cog
+  end
+
+  subgraph SQLITE[".lumencortex/lumencortex.db — WAL"]
+    SESS_T["sessions"]:::db
+    MSG_T["session_messages"]:::db
+    STEP_T["agent_steps"]:::db
+    NODE_T["graph_nodes"]:::db
+    EDGE_T["graph_edges"]:::db
+    CGIT_T["cognitive_commits / cognitive_refs"]:::db
+    SEARCH_T["symbols / search_documents / node_fts"]:::db
+    JR_T["journal"]:::db
+  end
+
+  SESSION --> SESS_T
+  WF --> SESS_T
+  MSG --> MSG_T
+  STEP --> STEP_T
+  JOURNAL --> JR_T
+  NODE --> NODE_T
+  EDGE --> EDGE_T
+  COMMIT --> CGIT_T
+  SYMBOL --> SEARCH_T
+
+  RESTART["Process restart / resume"]:::ctrl --> SESS_T
+  SESS_T --> SESSION
+  SESS_T --> WF
+  MSG_T --> MSG
+  STEP_T --> STEP
+
+  VECTOR["Vector / embedding index"]:::planned -.-> SEARCH_T
+  WORKTREE["Real Git worktree transaction metadata"]:::planned -.-> SESS_T
