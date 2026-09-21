@@ -252,7 +252,9 @@ export class AgentLoop {
                 attempt,
                 delayMs,
                 error: error.message,
-                status: error.status ?? null
+                status: error.status ?? null,
+                maxTokens,
+                budgetAdjustment
               })
             }
           );
