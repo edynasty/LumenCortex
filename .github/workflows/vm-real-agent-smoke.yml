@@ -149,7 +149,7 @@ jobs:
             --recent-rounds 3 \
             --working-chars 22000 \
             --timeout-ms 300000 \
-            --max-tokens 320 \
+            --max-tokens 768 \
             --max-steps 8 \
             --llm-retries 1 \
             --max-tool-calls-per-step 3 \
