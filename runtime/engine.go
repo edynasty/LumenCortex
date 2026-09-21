@@ -47,8 +47,9 @@ type Health struct {
 	Workspace string `json:"workspace"`
 	Database  string `json:"database"`
 	Budget    Budget `json:"budget"`
-	UsedBytes int64  `json:"usedBytes"`
-	Pressure  bool   `json:"pressure"`
+	UsedBytes    int64 `json:"usedBytes"`
+	ActiveAgents int   `json:"activeAgents"`
+	Pressure     bool  `json:"pressure"`
 }
 
 type SessionInfo struct {
@@ -157,8 +158,9 @@ func (e *Engine) Health() Health {
 			HardBytes: e.resources.Budget().HardBytes,
 			MaxAgents: e.resources.Budget().MaxAgents,
 		},
-		UsedBytes: e.resources.UsedBytes(),
-		Pressure:  e.resources.UnderPressure(),
+		UsedBytes:    e.resources.UsedBytes(),
+		ActiveAgents: e.resources.ActiveAgents(),
+		Pressure:     e.resources.UnderPressure(),
 	}
 }
 
