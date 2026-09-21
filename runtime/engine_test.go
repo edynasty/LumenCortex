@@ -22,6 +22,13 @@ func TestEnginePersistsSessionAndStreamsEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, info, err := engine.Session(ctx, handle.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Status != "created" {
+		t.Fatalf("new session status=%q, want created", info.Status)
+	}
 	if _, err := handle.AppendMessage(ctx, "user", map[string]string{"content": "hello"}); err != nil {
 		t.Fatal(err)
 	}

@@ -182,7 +182,7 @@ func (e *Engine) NewSession(ctx context.Context, opts SessionOptions) (*SessionH
 	}
 	now := time.Now().UTC()
 	v := session.Session{
-		ID: id, CreatedAt: now, UpdatedAt: now, Status: "running",
+		ID: id, CreatedAt: now, UpdatedAt: now, Status: "created",
 		Provider: opts.Provider, Model: opts.Model, Goal: opts.Goal, Metadata: metadata,
 	}
 	if err := e.store.Create(ctx, v); err != nil {

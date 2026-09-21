@@ -13,6 +13,7 @@ import (
 )
 
 type AgentOptions struct {
+	ProviderName        string          `json:"providerName,omitempty"`
 	Policy              string          `json:"policy,omitempty"`
 	MaxSteps            int             `json:"maxSteps,omitempty"`
 	RecentMessages      int             `json:"recentMessages,omitempty"`
@@ -38,6 +39,15 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 		return AgentResult{}, errors.New("provider is required")
 	}
 	if _, _, err := e.Session(ctx, sessionID); err != nil {
+		return AgentResult{}, err
+	}
+	model := provider.Model()
+	identity := session.Patch{Model: &model}
+	if opts.ProviderName != "" {
+		providerName := opts.ProviderName
+		identity.Provider = &providerName
+	}
+	if err := e.store.Update(ctx, sessionID, identity); err != nil {
 		return AgentResult{}, err
 	}
 	policy := opts.Policy

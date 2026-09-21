@@ -35,12 +35,19 @@ func TestRunAgentUsesEmbeddedGoHarness(t *testing.T) {
 		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{{ID: "1", Name: "list_dir", Arguments: json.RawMessage(`{"path":"."}`)}}}},
 		{Message: protocol.Message{Content: "inspection complete"}},
 	}}
-	result, err := engine.RunAgent(ctx, handle.ID, provider, AgentOptions{Policy: "read-only", MaxSteps: 4})
+	result, err := engine.RunAgent(ctx, handle.ID, provider, AgentOptions{ProviderName: "scripted-provider", Policy: "read-only", MaxSteps: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Status != "completed" || result.Final != "inspection complete" {
 		t.Fatalf("result=%#v", result)
+	}
+	_, info, err := engine.Session(ctx, handle.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Provider != "scripted-provider" || info.Model != "scripted" {
+		t.Fatalf("provider/model not persisted: provider=%q model=%q", info.Provider, info.Model)
 	}
 	messages, err := handle.RecentMessages(ctx, 10)
 	if err != nil {

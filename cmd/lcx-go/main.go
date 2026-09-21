@@ -163,6 +163,7 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 		}
 	}
 	return lcx.AgentOptions{
+		ProviderName: "openai-compatible",
 		Policy: policy,
 		MaxSteps: maxSteps,
 		MaxTokens: maxTokens,
