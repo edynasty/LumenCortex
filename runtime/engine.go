@@ -132,6 +132,7 @@ func Open(opts Options) (*Engine, error) {
 	}
 	if gitRoot, rootErr := repoService.GitRoot(context.Background()); rootErr == nil {
 		worktreeRoot = filepath.Join(filepath.Dir(gitRoot), "."+filepath.Base(gitRoot)+".lumencortex-worktrees")
+		_ = repoService.EnsureLocalExclude(context.Background(), repoDir)
 	}
 	return &Engine{
 		workspace:    workspace,
