@@ -130,6 +130,9 @@ func Open(opts Options) (*Engine, error) {
 		_ = store.Close()
 		return nil, err
 	}
+	if gitRoot, rootErr := repoService.GitRoot(context.Background()); rootErr == nil {
+		worktreeRoot = filepath.Join(filepath.Dir(gitRoot), "."+filepath.Base(gitRoot)+".lumencortex-worktrees")
+	}
 	return &Engine{
 		workspace:    workspace,
 		repoDir:      repoDir,
