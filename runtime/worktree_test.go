@@ -100,6 +100,15 @@ func TestSessionWorktreeLifecycleAndAgentWorkspace(t *testing.T) {
 	if len(mainStatus.Files) != 0 {
 		t.Fatalf("main workspace should remain clean: %#v", mainStatus.Files)
 	}
+	if _, err := handle.RunShell(context.Background(), "printf shell-isolated > shell.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(identity.Path, "shell.txt")); err != nil {
+		t.Fatalf("worktree shell output missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "shell.txt")); !os.IsNotExist(err) {
+		t.Fatalf("main workspace unexpectedly contains shell output: %v", err)
+	}
 
 	if err := engine.RemoveSessionWorktree(context.Background(), handle.ID, true); err != nil {
 		t.Fatal(err)
