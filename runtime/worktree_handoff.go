@@ -68,7 +68,7 @@ func (e *Engine) WorktreeHandoffPlan(ctx context.Context, sessionID string) (Wor
 	if base == "" {
 		return WorktreeHandoffPlan{}, errors.New("worktree base commit is missing")
 	}
-	commits, err := sourceRepo.GitCommitsBetween(ctx, base, sourceHead)
+	commits, err := sourceRepo.GitUnappliedCommits(ctx, targetHead, sourceHead, base)
 	if err != nil {
 		return WorktreeHandoffPlan{}, err
 	}
