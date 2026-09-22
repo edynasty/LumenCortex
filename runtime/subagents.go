@@ -36,6 +36,11 @@ type SubagentNode struct {
 
 type SessionCheckpoint = session.Checkpoint
 
+type SubagentWaitResult struct {
+	Node     SubagentNode `json:"node"`
+	TimedOut bool         `json:"timedOut"`
+}
+
 type subagentController struct {
 	supervisor *RunSupervisor
 	parentID   string
@@ -133,6 +138,50 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 
 func (c *subagentController) List(ctx context.Context) (any, error) {
 	return c.supervisor.SubagentTree(ctx, c.parentID)
+}
+
+func (c *subagentController) Wait(ctx context.Context, childSessionID string, timeout time.Duration) (any, error) {
+	childSessionID = strings.TrimSpace(childSessionID)
+	if childSessionID == "" {
+		return nil, errors.New("child session id is required")
+	}
+	relation, err := c.supervisor.engine.store.ParentRelation(ctx, childSessionID)
+	if err != nil {
+		return nil, err
+	}
+	if relation.Kind != "subagent" || relation.ParentSessionID != c.parentID {
+		return nil, errors.New("subagent does not belong to this parent session")
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	if timeout > 60*time.Second {
+		timeout = 60 * time.Second
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	for c.supervisor.Active(childSessionID) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-waitCtx.Done():
+			node, summaryErr := c.summary(context.Background(), childSessionID)
+			if summaryErr != nil {
+				return nil, summaryErr
+			}
+			return SubagentWaitResult{Node: node, TimedOut: true}, nil
+		case <-ticker.C:
+		}
+	}
+	node, err := c.summary(ctx, childSessionID)
+	if err != nil {
+		return nil, err
+	}
+	return SubagentWaitResult{Node: node}, nil
 }
 
 func (c *subagentController) childOptions() AgentOptions {
