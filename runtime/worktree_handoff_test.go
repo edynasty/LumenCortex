@@ -86,6 +86,13 @@ func TestWorktreeHandoffPlanBlocksDirtyAndAppliesSafeCommits(t *testing.T) {
 	if string(data) != "feature\n" {
 		t.Fatalf("feature=%q", data)
 	}
+	after, err := engine.WorktreeHandoffPlan(context.Background(), handle.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.CanApply || len(after.Commits) != 0 || after.BlockedReason != "worktree has no commits to apply" {
+		t.Fatalf("post-apply plan=%#v", after)
+	}
 }
 
 func TestWorktreeHandoffBlocksDirtyTargetAndOverlappingCommittedFiles(t *testing.T) {
