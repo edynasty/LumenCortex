@@ -135,7 +135,7 @@ func TestInterruptedRunResumesFromPersistedSafeBoundaryWithoutToolReplay(t *test
 		t.Fatal(err)
 	}
 
-	messages, err := engine.RecentMessages(context.Background(), handle.ID, 50)
+	messages, err := handle.RecentMessages(context.Background(), 50)
 	if err != nil {
 		t.Fatal(err)
 	}
