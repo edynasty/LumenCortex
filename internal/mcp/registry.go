@@ -33,16 +33,28 @@ type AgentTool struct {
 	ReadOnly    bool           `json:"readOnly"`
 }
 
-type Registry struct {
-	workspace  string
-	configPath string
+const (
+	ScopeGlobal    = "global"
+	ScopeProject   = "project"
+	ScopeEffective = "effective"
+)
 
-	mu      sync.RWMutex
-	configs map[string]Config
-	clients map[string]*Client
+type Registry struct {
+	workspace         string
+	globalConfigPath  string
+	projectConfigPath string
+
+	mu             sync.RWMutex
+	globalConfigs  map[string]Config
+	projectConfigs map[string]Config
+	clients        map[string]*Client
 }
 
 func NewRegistry(workspace, configPath string) (*Registry, error) {
+	return NewLayeredRegistry(workspace, "", configPath)
+}
+
+func NewLayeredRegistry(workspace, globalConfigPath, projectConfigPath string) (*Registry, error) {
 	if strings.TrimSpace(workspace) == "" {
 		return nil, errors.New("mcp registry workspace is required")
 	}
@@ -50,20 +62,35 @@ func NewRegistry(workspace, configPath string) (*Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	if configPath == "" {
-		configPath = filepath.Join(root, ".lumencortex", "mcp.json")
+	if projectConfigPath == "" {
+		projectConfigPath = filepath.Join(root, ".lumencortex", "mcp.json")
 	}
-	configPath, err = filepath.Abs(configPath)
+	projectConfigPath, err = filepath.Abs(projectConfigPath)
 	if err != nil {
 		return nil, err
 	}
-	r := &Registry{
-		workspace: root,
-		configPath: configPath,
-		configs: make(map[string]Config),
-		clients: make(map[string]*Client),
+	if globalConfigPath != "" {
+		globalConfigPath, err = filepath.Abs(globalConfigPath)
+		if err != nil {
+			return nil, err
+		}
 	}
-	if err := r.load(); err != nil {
+	r := &Registry{
+		workspace:         root,
+		globalConfigPath:  globalConfigPath,
+		projectConfigPath: projectConfigPath,
+		globalConfigs:     make(map[string]Config),
+		projectConfigs:    make(map[string]Config),
+		clients:           make(map[string]*Client),
+	}
+	if globalConfigPath != "" {
+		r.globalConfigs, err = loadConfigFile(globalConfigPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+	r.projectConfigs, err = loadConfigFile(projectConfigPath)
+	if err != nil {
 		return nil, err
 	}
 	return r, nil
@@ -72,21 +99,29 @@ func NewRegistry(workspace, configPath string) (*Registry, error) {
 func (r *Registry) Configs() []Config {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	ids := make([]string, 0, len(r.configs))
-	for id := range r.configs {
-		ids = append(ids, id)
+	return sortedConfigs(effectiveConfigs(r.globalConfigs, r.projectConfigs))
+}
+
+func (r *Registry) ConfigsScope(scope string) ([]Config, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	switch scope {
+	case ScopeGlobal:
+		return sortedConfigs(r.globalConfigs), nil
+	case ScopeProject:
+		return sortedConfigs(r.projectConfigs), nil
+	case ScopeEffective, "":
+		return sortedConfigs(effectiveConfigs(r.globalConfigs, r.projectConfigs)), nil
+	default:
+		return nil, errors.New("unknown mcp config scope")
 	}
-	sort.Strings(ids)
-	out := make([]Config, 0, len(ids))
-	for _, id := range ids {
-		cfg := r.configs[id]
-		cfg.Workspace = ""
-		out = append(out, cfg)
-	}
-	return out
 }
 
 func (r *Registry) Upsert(cfg Config) error {
+	return r.UpsertScope(ScopeProject, cfg)
+}
+
+func (r *Registry) UpsertScope(scope string, cfg Config) error {
 	cfg.ID = strings.TrimSpace(cfg.ID)
 	cfg.Name = strings.TrimSpace(cfg.Name)
 	cfg.Command = strings.TrimSpace(cfg.Command)
@@ -106,35 +141,56 @@ func (r *Registry) Upsert(cfg Config) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, exists := r.configs[cfg.ID]; !exists && len(r.configs) >= MaxServers {
+	target, path, err := r.scopeLocked(scope)
+	if err != nil {
+		return err
+	}
+	if _, exists := target[cfg.ID]; !exists && len(target) >= MaxServers {
 		return errors.New("mcp server configuration limit exceeded")
 	}
-	previous := r.configs[cfg.ID]
-	r.configs[cfg.ID] = cfg
-	if cfg.Disabled && !previous.Disabled {
-		for key, client := range r.clients {
-			if strings.HasSuffix(key, "\x00"+cfg.ID) {
-				_ = client.Close()
-				delete(r.clients, key)
-			}
-		}
-	}
-	return r.saveLocked()
+	target[cfg.ID] = cfg
+	r.stopInstancesLocked(cfg.ID)
+	return saveConfigFile(path, target)
 }
 
 func (r *Registry) Delete(id string) error {
+	return r.DeleteScope(ScopeProject, id)
+}
+
+func (r *Registry) DeleteScope(scope, id string) error {
 	id = strings.TrimSpace(id)
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	target, path, err := r.scopeLocked(scope)
+	if err != nil {
+		return err
+	}
+	delete(target, id)
+	r.stopInstancesLocked(id)
+	return saveConfigFile(path, target)
+}
+
+func (r *Registry) scopeLocked(scope string) (map[string]Config, string, error) {
+	switch scope {
+	case ScopeGlobal:
+		if r.globalConfigPath == "" {
+			return nil, "", errors.New("global mcp config path is unavailable")
+		}
+		return r.globalConfigs, r.globalConfigPath, nil
+	case ScopeProject, "":
+		return r.projectConfigs, r.projectConfigPath, nil
+	default:
+		return nil, "", errors.New("mcp config scope must be global or project")
+	}
+}
+
+func (r *Registry) stopInstancesLocked(id string) {
 	for key, client := range r.clients {
 		if strings.HasSuffix(key, "\x00"+id) {
 			_ = client.Close()
 			delete(r.clients, key)
 		}
 	}
-	delete(r.configs, id)
-	err := r.saveLocked()
-	r.mu.Unlock()
-	return err
 }
 
 func (r *Registry) Start(ctx context.Context, id, workspace string) (Status, error) {
@@ -145,7 +201,10 @@ func (r *Registry) Start(ctx context.Context, id, workspace string) (Status, err
 	}
 
 	r.mu.RLock()
-	cfg, ok := r.configs[id]
+	cfg, ok := r.projectConfigs[id]
+	if !ok {
+		cfg, ok = r.globalConfigs[id]
+	}
 	r.mu.RUnlock()
 	if !ok {
 		return Status{}, fmt.Errorf("unknown mcp server: %s", id)
@@ -328,23 +387,24 @@ func (r *Registry) runtimeWorkspace(workspace string) (string, error) {
 	return filepath.Clean(abs), nil
 }
 
-func (r *Registry) load() error {
-	raw, err := os.ReadFile(r.configPath)
+func loadConfigFile(path string) (map[string]Config, error) {
+	configs := make(map[string]Config)
+	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return nil
+		return configs, nil
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(raw) > MaxConfigBytes {
-		return errors.New("mcp configuration exceeds runtime limit")
+		return nil, errors.New("mcp configuration exceeds runtime limit")
 	}
 	var file ConfigFile
 	if err := json.Unmarshal(raw, &file); err != nil {
-		return err
+		return nil, err
 	}
 	if len(file.Servers) > MaxServers {
-		return errors.New("mcp configuration contains too many servers")
+		return nil, errors.New("mcp configuration contains too many servers")
 	}
 	for id, cfg := range file.Servers {
 		if cfg.ID == "" {
@@ -352,22 +412,25 @@ func (r *Registry) load() error {
 		}
 		cfg.Workspace = ""
 		if !serverIDPattern.MatchString(cfg.ID) || strings.TrimSpace(cfg.Command) == "" {
-			return fmt.Errorf("invalid mcp server configuration: %s", id)
+			return nil, fmt.Errorf("invalid mcp server configuration: %s", id)
 		}
 		if cfg.ProtocolMode == "" {
 			cfg.ProtocolMode = ModeLegacy
 		}
-		r.configs[cfg.ID] = cfg
+		configs[cfg.ID] = cfg
 	}
-	return nil
+	return configs, nil
 }
 
-func (r *Registry) saveLocked() error {
-	if err := os.MkdirAll(filepath.Dir(r.configPath), 0o700); err != nil {
+func saveConfigFile(path string, configs map[string]Config) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("mcp config path is unavailable")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	servers := make(map[string]Config, len(r.configs))
-	for id, cfg := range r.configs {
+	servers := make(map[string]Config, len(configs))
+	for id, cfg := range configs {
 		cfg.Workspace = ""
 		servers[id] = cfg
 	}
@@ -378,11 +441,37 @@ func (r *Registry) saveLocked() error {
 	if len(raw) > MaxConfigBytes {
 		return errors.New("mcp configuration exceeds runtime limit")
 	}
-	tmp := r.configPath + ".tmp"
+	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, append(raw, '\n'), 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, r.configPath)
+	return os.Rename(tmp, path)
+}
+
+func effectiveConfigs(global, project map[string]Config) map[string]Config {
+	out := make(map[string]Config, len(global)+len(project))
+	for id, cfg := range global {
+		out[id] = cfg
+	}
+	for id, cfg := range project {
+		out[id] = cfg
+	}
+	return out
+}
+
+func sortedConfigs(configs map[string]Config) []Config {
+	ids := make([]string, 0, len(configs))
+	for id := range configs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := make([]Config, 0, len(ids))
+	for _, id := range ids {
+		cfg := configs[id]
+		cfg.Workspace = ""
+		out = append(out, cfg)
+	}
+	return out
 }
 
 func instanceKey(workspace, id string) string {
