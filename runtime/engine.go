@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/resource"
 	"github.com/edynasty/LumenCortex/internal/session"
@@ -40,7 +42,9 @@ type Engine struct {
 	resources *resource.Manager
 	repo      *repository.Service
 	events    *eventBus
-	shell     *shell.Runner
+	shell       *shell.Runner
+	lspMu       sync.Mutex
+	lspManagers map[string]*lsp.Manager
 }
 
 type Health struct {
@@ -146,12 +150,23 @@ func Open(opts Options) (*Engine, error) {
 		}),
 		repo:      repoService,
 		events:    newEventBus(),
-		shell:     shell.New(workspace),
+		shell:       shell.New(workspace),
+		lspManagers: make(map[string]*lsp.Manager),
 	}, nil
 }
 
 func (e *Engine) Close() error {
 	e.events.close()
+	e.lspMu.Lock()
+	managers := make([]*lsp.Manager, 0, len(e.lspManagers))
+	for _, manager := range e.lspManagers {
+		managers = append(managers, manager)
+	}
+	e.lspManagers = make(map[string]*lsp.Manager)
+	e.lspMu.Unlock()
+	for _, manager := range managers {
+		_ = manager.Close()
+	}
 	return e.store.Close()
 }
 
