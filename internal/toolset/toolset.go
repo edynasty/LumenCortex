@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -25,6 +26,7 @@ type Options struct {
 	Workspace string
 	Policy    string
 	Shell     *shell.Runner
+	LSP       *lsp.Manager
 }
 type Set struct {
 	workspace     string
@@ -32,6 +34,7 @@ type Set struct {
 	policy        string
 	shell         *shell.Runner
 	repository    *repository.Service
+	lsp           *lsp.Manager
 	tools         map[string]tool
 }
 type tool struct {
@@ -78,7 +81,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -157,6 +160,9 @@ func (s *Set) registerBuiltins() {
 		"required": []string{"patches"}, "additionalProperties": false,
 	}}, s.applyPatch)
 	s.add(protocol.ToolSpec{Name: "shell", Description: "Run a shell command in the workspace with bounded retained output.", Permission: "exec", MutatesWorkspace: true, Parameters: obj(map[string]any{"command": str()}, "command")}, s.runShell)
+	if s.lsp != nil {
+		s.registerLSPTools()
+	}
 }
 func str() map[string]any { return map[string]any{"type": "string"} }
 func obj(props map[string]any, required ...string) map[string]any {
