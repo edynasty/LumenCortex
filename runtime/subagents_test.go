@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -276,5 +277,122 @@ func TestSubagentPersistsRelationEventsAndCheckpoints(t *testing.T) {
 		case <-timeout:
 			t.Fatal("did not receive aggregated subagent event")
 		}
+	}
+}
+
+
+type spawnToolProvider struct {
+	mu             sync.Mutex
+	parentCalls    int
+	parentSawSpawn bool
+	childRequests  int
+	childSawSpawn  bool
+}
+
+func (p *spawnToolProvider) Model() string { return "spawn-tool-model" }
+
+func (p *spawnToolProvider) Complete(_ context.Context, request protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+	hasSpawn := false
+	for _, spec := range request.Tools {
+		if spec.Name == "spawn_subagent" {
+			hasSpawn = true
+			break
+		}
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !hasSpawn {
+		p.childRequests++
+		p.childSawSpawn = p.childSawSpawn || hasSpawn
+		return protocol.ProviderResponse{
+			Message:      protocol.Message{Role: "assistant", Content: "child evidence"},
+			FinishReason: "stop",
+		}, nil
+	}
+
+	p.parentSawSpawn = true
+	p.parentCalls++
+	if p.parentCalls == 1 {
+		return protocol.ProviderResponse{
+			Message: protocol.Message{
+				Role: "assistant",
+				ToolCalls: []protocol.ToolCall{{
+					ID:        "spawn-1",
+					Name:      "spawn_subagent",
+					Arguments: json.RawMessage(`{"goal":"inspect the child path"}`),
+				}},
+			},
+			FinishReason: "tool_calls",
+		}, nil
+	}
+	return protocol.ProviderResponse{
+		Message:      protocol.Message{Role: "assistant", Content: "parent done"},
+		FinishReason: "stop",
+	}, nil
+}
+
+func TestTopLevelAgentGetsSpawnToolButChildCannotRecurse(t *testing.T) {
+	engine, err := Open(Options{
+		Workspace: t.TempDir(),
+		Budget:    Budget{MaxAgents: 4},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+
+	supervisor, err := NewRunSupervisor(engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer supervisor.Close()
+
+	parentID := newParentSession(t, engine)
+	provider := &spawnToolProvider{}
+	if _, err := supervisor.Start(context.Background(), parentID, provider, AgentOptions{
+		ProviderName: "spawn-provider",
+		Policy:       toolset.PolicyReadOnly,
+		MaxSteps:     4,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for supervisor.Active(parentID) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if supervisor.Active(parentID) {
+		t.Fatal("parent remained active")
+	}
+
+	tree, err := supervisor.SubagentTree(context.Background(), parentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tree) != 1 {
+		t.Fatalf("tree=%#v", tree)
+	}
+	for tree[0].Active && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+		tree, err = supervisor.SubagentTree(context.Background(), parentID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if tree[0].Status != "completed" || tree[0].Final != "child evidence" {
+		t.Fatalf("child=%#v", tree[0])
+	}
+
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	if !provider.parentSawSpawn || provider.parentCalls < 2 {
+		t.Fatalf("parent tool visibility calls=%d saw=%v", provider.parentCalls, provider.parentSawSpawn)
+	}
+	if provider.childRequests == 0 {
+		t.Fatal("child provider was not invoked")
+	}
+	if provider.childSawSpawn {
+		t.Fatal("child unexpectedly received recursive spawn tool")
 	}
 }
