@@ -119,3 +119,52 @@ func TestAgentToolNameIsBoundedAndDeterministic(t *testing.T) {
 		t.Fatalf("tool name too long: %d %q", len(nameA), nameA)
 	}
 }
+
+
+func TestRegistryDisabledServerCannotStartAndStopsRunningInstances(t *testing.T) {
+	root := t.TempDir()
+	registry, err := NewRegistry(root, filepath.Join(root, ".lumencortex", "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+
+	cfg := Config{
+		ID: "helper",
+		Command: os.Args[0],
+		Args: []string{"-test.run=TestHelperMCPServer"},
+		ProtocolMode: ModeLegacy,
+	}
+	if err := registry.Upsert(cfg); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LCX_MCP_HELPER", "1")
+	t.Setenv("LCX_MCP_MODERN", "0")
+	if _, err := registry.Start(context.Background(), "helper", root); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := registry.Statuses(root)
+	if err != nil || len(statuses) != 1 || !statuses[0].Running {
+		t.Fatalf("statuses=%#v err=%v", statuses, err)
+	}
+
+	cfg.Disabled = true
+	if err := registry.Upsert(cfg); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err = registry.Statuses(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 0 {
+		t.Fatalf("disabled server should be stopped: %#v", statuses)
+	}
+	if _, err := registry.Start(context.Background(), "helper", root); err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("expected disabled start rejection, got %v", err)
+	}
+
+	configs := registry.Configs()
+	if len(configs) != 1 || !configs[0].Disabled {
+		t.Fatalf("configs=%#v", configs)
+	}
+}
