@@ -44,7 +44,7 @@ func TestRegistryPersistsConfigWithoutAutostart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), ""helper"") {
+	if !strings.Contains(string(raw), "\"helper\"") {
 		t.Fatalf("config=%s", raw)
 	}
 }
