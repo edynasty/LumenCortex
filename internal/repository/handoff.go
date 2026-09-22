@@ -46,6 +46,29 @@ func (s *Service) GitCommitsBetween(ctx context.Context, base, head string) ([]s
 	return nonEmptyLines(string(raw)), nil
 }
 
+func (s *Service) GitUnappliedCommits(ctx context.Context, target, source, base string) ([]string, error) {
+	target = strings.TrimSpace(target)
+	source = strings.TrimSpace(source)
+	base = strings.TrimSpace(base)
+	if target == "" || source == "" || base == "" {
+		return nil, errors.New("target, source, and base commits are required")
+	}
+	raw, truncated, err := runBounded(ctx, s.workspace, MaxHandoffBytes, "git", "cherry", target, source, base)
+	if err != nil {
+		return nil, err
+	}
+	if truncated {
+		return nil, errors.New("handoff cherry comparison exceeded runtime limit")
+	}
+	out := make([]string, 0)
+	for _, line := range nonEmptyLines(string(raw)) {
+		if strings.HasPrefix(line, "+ ") {
+			out = append(out, strings.TrimSpace(strings.TrimPrefix(line, "+ ")))
+		}
+	}
+	return out, nil
+}
+
 func (s *Service) GitChangedFilesBetween(ctx context.Context, base, head string) ([]string, error) {
 	base = strings.TrimSpace(base)
 	head = strings.TrimSpace(head)
