@@ -112,7 +112,7 @@ func (e *Engine) LSPDiagnostics(ctx context.Context, sessionID, path string) ([]
 	if err != nil {
 		return nil, err
 	}
-	return manager.Diagnostics(path)
+	return manager.Diagnostics(ctx, path)
 }
 
 func (e *Engine) LSPRename(ctx context.Context, sessionID, path string, line, character int, newName string) (json.RawMessage, error) {
