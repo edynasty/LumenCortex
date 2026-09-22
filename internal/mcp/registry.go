@@ -378,7 +378,7 @@ func instanceKey(workspace, id string) string {
 }
 
 func agentToolName(serverID, toolName string) string {
-	return "mcp__" + sanitizeToolPart(serverID, 24) + "__" + sanitizeToolPart(toolName, 48)
+	return "mcp__" + sanitizeToolPart(serverID, 16) + "__" + sanitizeToolPart(toolName, 40)
 }
 
 func sanitizeToolPart(value string, maxLen int) string {
