@@ -55,6 +55,7 @@ type Options struct {
 	RecentMessages      int
 	MaxToolCallsPerStep int
 	ToolAllowlist       []string
+	ToolDenylist        []string
 	SystemPrompt        string
 	AdditionalSystemPrompt string
 	WorkflowJSON        []byte
