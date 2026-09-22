@@ -90,6 +90,23 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 	if err != nil {
 		return AgentResult{}, err
 	}
+	additionalSystemPrompt := ""
+	if e.skillRegistry != nil {
+		skillPrompt, loadedSkills, skillErr := e.skillRegistry.Prompt()
+		if skillErr != nil {
+			e.events.publish("skills.error", sessionID, map[string]any{"error": skillErr.Error()})
+		} else {
+			additionalSystemPrompt = skillPrompt
+			if len(loadedSkills) > 0 {
+				ids := make([]string, 0, len(loadedSkills))
+				for _, skill := range loadedSkills {
+					ids = append(ids, skill.ID)
+				}
+				e.events.publish("skills.loaded", sessionID, map[string]any{"skills": ids})
+			}
+		}
+	}
+
 	loop := agent.Loop{
 		Provider: provider,
 		Store:    agentStore{store: e.store},
@@ -116,6 +133,7 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 		MaxToolCallsPerStep: opts.MaxToolCallsPerStep,
 		ToolAllowlist:       opts.ToolAllowlist,
 		SystemPrompt:        opts.SystemPrompt,
+		AdditionalSystemPrompt: additionalSystemPrompt,
 		WorkflowJSON:        opts.Workflow,
 		MaxTokens:           opts.MaxTokens,
 		Temperature:         opts.Temperature,
