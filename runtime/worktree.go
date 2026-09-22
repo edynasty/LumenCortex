@@ -136,6 +136,9 @@ func (e *Engine) RemoveSessionWorktree(ctx context.Context, sessionID string, fo
 		return err
 	}
 	e.stopLSPWorkspace(identity.Path)
+	if e.mcpRegistry != nil {
+		e.mcpRegistry.StopWorkspace(identity.Path)
+	}
 	if err := e.repo.GitRemoveWorktree(ctx, identity.Path, force); err != nil {
 		return err
 	}
