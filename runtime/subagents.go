@@ -236,7 +236,7 @@ func (s *RunSupervisor) subagentChildren(ctx context.Context, parentSessionID st
 		if value.Final != nil {
 			final = *value.Final
 		}
-		*remaining--
+		(*remaining)--
 		node := SubagentNode{
 			SessionID:       value.ID,
 			ParentSessionID: parentSessionID,
