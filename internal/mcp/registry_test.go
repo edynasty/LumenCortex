@@ -168,3 +168,93 @@ func TestRegistryDisabledServerCannotStartAndStopsRunningInstances(t *testing.T)
 		t.Fatalf("configs=%#v", configs)
 	}
 }
+
+
+func TestLayeredRegistryProjectOverridesGlobalAndFallsBack(t *testing.T) {
+	root := t.TempDir()
+	globalPath := filepath.Join(t.TempDir(), "global", "mcp.json")
+	projectPath := filepath.Join(root, ".lumencortex", "mcp.json")
+
+	registry, err := NewLayeredRegistry(root, globalPath, projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+
+	global := Config{
+		ID: "shared",
+		Name: "Global helper",
+		Command: os.Args[0],
+		Args: []string{"-test.run=TestHelperMCPServer"},
+		ProtocolMode: ModeLegacy,
+	}
+	if err := registry.UpsertScope(ScopeGlobal, global); err != nil {
+		t.Fatal(err)
+	}
+	effective := registry.Configs()
+	if len(effective) != 1 || effective[0].Name != "Global helper" {
+		t.Fatalf("effective after global=%#v", effective)
+	}
+
+	project := global
+	project.Name = "Project helper"
+	if err := registry.UpsertScope(ScopeProject, project); err != nil {
+		t.Fatal(err)
+	}
+	effective = registry.Configs()
+	if len(effective) != 1 || effective[0].Name != "Project helper" {
+		t.Fatalf("project override not effective: %#v", effective)
+	}
+	globals, err := registry.ConfigsScope(ScopeGlobal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects, err := registry.ConfigsScope(ScopeProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(globals) != 1 || globals[0].Name != "Global helper" {
+		t.Fatalf("globals=%#v", globals)
+	}
+	if len(projects) != 1 || projects[0].Name != "Project helper" {
+		t.Fatalf("projects=%#v", projects)
+	}
+
+	t.Setenv("LCX_MCP_HELPER", "1")
+	t.Setenv("LCX_MCP_MODERN", "0")
+	status, err := registry.Start(context.Background(), "shared", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Name != "Project helper" {
+		t.Fatalf("start did not use project override: %#v", status)
+	}
+	if err := registry.Stop("shared", root); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := registry.DeleteScope(ScopeProject, "shared"); err != nil {
+		t.Fatal(err)
+	}
+	effective = registry.Configs()
+	if len(effective) != 1 || effective[0].Name != "Global helper" {
+		t.Fatalf("global fallback not restored: %#v", effective)
+	}
+
+	reloaded, err := NewLayeredRegistry(root, globalPath, projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reloaded.Close()
+	globals, err = reloaded.ConfigsScope(ScopeGlobal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects, err = reloaded.ConfigsScope(ScopeProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(globals) != 1 || len(projects) != 0 {
+		t.Fatalf("reloaded scopes globals=%#v projects=%#v", globals, projects)
+	}
+}
