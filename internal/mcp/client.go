@@ -311,6 +311,7 @@ func (c *Client) Status() Status {
 		ID:              c.cfg.ID,
 		Name:            c.cfg.Name,
 		Command:         c.cfg.Command,
+		Workspace:       c.cfg.Workspace,
 		ProtocolMode:    c.cfg.ProtocolMode,
 		ProtocolVersion: version,
 		Running:         !c.closed.Load(),
