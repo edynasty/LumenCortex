@@ -52,6 +52,7 @@ type Options struct {
 	MaxToolCallsPerStep int
 	ToolAllowlist       []string
 	SystemPrompt        string
+	AdditionalSystemPrompt string
 	WorkflowJSON        []byte
 	MaxTokens           int
 	Temperature         *float64
