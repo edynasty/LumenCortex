@@ -396,3 +396,114 @@ func TestTopLevelAgentGetsSpawnToolButChildCannotRecurse(t *testing.T) {
 		t.Fatal("child unexpectedly received recursive spawn tool")
 	}
 }
+
+
+func TestWaitSubagentReturnsCompletedResult(t *testing.T) {
+	engine, err := Open(Options{Workspace: t.TempDir(), Budget: Budget{MaxAgents: 4}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	supervisor, err := NewRunSupervisor(engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer supervisor.Close()
+
+	parentID := newParentSession(t, engine)
+	controller := &subagentController{
+		supervisor: supervisor,
+		parentID:   parentID,
+		provider:   &finalProvider{},
+		parentOpts: AgentOptions{ProviderName: "test-provider"},
+	}
+	value, err := controller.Spawn(context.Background(), "finish for wait")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := value.(SubagentNode)
+
+	waited, err := controller.Wait(context.Background(), child.SessionID, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := waited.(SubagentWaitResult)
+	if result.TimedOut || result.Node.Status != "completed" || result.Node.Final != "subagent done" {
+		t.Fatalf("wait result=%#v", result)
+	}
+}
+
+func TestWaitSubagentTimeoutReturnsActiveNode(t *testing.T) {
+	engine, err := Open(Options{Workspace: t.TempDir(), Budget: Budget{MaxAgents: 4}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	supervisor, err := NewRunSupervisor(engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer supervisor.Close()
+
+	parentID := newParentSession(t, engine)
+	controller := &subagentController{
+		supervisor: supervisor,
+		parentID:   parentID,
+		provider:   &multiBlockingProvider{},
+		parentOpts: AgentOptions{ProviderName: "test-provider"},
+	}
+	value, err := controller.Spawn(context.Background(), "block for timeout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := value.(SubagentNode)
+
+	waited, err := controller.Wait(context.Background(), child.SessionID, 40*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := waited.(SubagentWaitResult)
+	if !result.TimedOut || !result.Node.Active {
+		t.Fatalf("wait result=%#v", result)
+	}
+	if !supervisor.Cancel(child.SessionID) {
+		t.Fatal("timed-out child should remain active until explicitly cancelled")
+	}
+}
+
+func TestWaitSubagentRejectsForeignChild(t *testing.T) {
+	engine, err := Open(Options{Workspace: t.TempDir(), Budget: Budget{MaxAgents: 4}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	supervisor, err := NewRunSupervisor(engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer supervisor.Close()
+
+	parentA := newParentSession(t, engine)
+	parentB := newParentSession(t, engine)
+	controllerA := &subagentController{
+		supervisor: supervisor,
+		parentID:   parentA,
+		provider:   &multiBlockingProvider{},
+		parentOpts: AgentOptions{ProviderName: "test-provider"},
+	}
+	value, err := controllerA.Spawn(context.Background(), "belongs to A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := value.(SubagentNode)
+	controllerB := &subagentController{
+		supervisor: supervisor,
+		parentID:   parentB,
+		provider:   &multiBlockingProvider{},
+		parentOpts: AgentOptions{ProviderName: "test-provider"},
+	}
+	if _, err := controllerB.Wait(context.Background(), child.SessionID, time.Second); err == nil {
+		t.Fatal("expected foreign child wait rejection")
+	}
+	supervisor.Cancel(child.SessionID)
+}
