@@ -140,10 +140,16 @@ func TestClientManagedProcessAndLanguageFeatures(t *testing.T) {
 	}
 
 	deadline := time.Now().Add(time.Second)
-	for len(client.Diagnostics("main.go")) == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+	var diagnostics []Diagnostic
+	for len(diagnostics) == 0 && time.Now().Before(deadline) {
+		diagnostics, err = client.Diagnostics(context.Background(), "main.go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(diagnostics) == 0 {
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
-	diagnostics := client.Diagnostics("main.go")
 	if len(diagnostics) != 1 || diagnostics[0].Message != "helper diagnostic" {
 		t.Fatalf("diagnostics=%#v", diagnostics)
 	}
