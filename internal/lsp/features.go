@@ -49,7 +49,7 @@ func (c *Client) References(ctx context.Context, path string, line, character in
 	return result, err
 }
 
-func (c *Client DocumentSymbols(ctx context.Context, path string) (json.RawMessage, error) {
+func (c *Client) DocumentSymbols(ctx context.Context, path string) (json.RawMessage, error) {
 	doc, err := c.syncDocument(path)
 	if err != nil {
 		return nil, err
@@ -61,13 +61,13 @@ func (c *Client DocumentSymbols(ctx context.Context, path string) (json.RawMessa
 	return result, err
 }
 
-func (c *Client WorkspaceSymbols(ctx context.Context, query string) (json.RawMessage, error) {
+func (c *Client) WorkspaceSymbols(ctx context.Context, query string) (json.RawMessage, error) {
 	var result json.RawMessage
 	err := c.Request(ctx, "workspace/symbol", map[string]any{"query": query}, &result)
 	return result, err
 }
 
-func (c *Client Rename(ctx context.Context, path string, line, character int, newName string) (json.RawMessage, error) {
+func (c *Client) Rename(ctx context.Context, path string, line, character int, newName string) (json.RawMessage, error) {
 	if strings.TrimSpace(newName) == "" {
 		return nil, errors.New("rename new name is required")
 	}
@@ -140,7 +140,7 @@ func (c *Client) syncDocument(path string) (syncedDocument, error) {
 	return syncedDocument{uri: uri}, nil
 }
 
-func (c *Client resolvePath(input string) (string, error) {
+func (c *Client) resolvePath(input string) (string, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return "", errors.New("lsp path is required")
@@ -172,7 +172,7 @@ func (c *Client resolvePath(input string) (string, error) {
 	return candidate, nil
 }
 
-func (c *Client languageID(path string) string {
+func (c *Client) languageID(path string) string {
 	if strings.TrimSpace(c.cfg.LanguageID) != "" {
 		return c.cfg.LanguageID
 	}
