@@ -135,6 +135,7 @@ func (e *Engine) RemoveSessionWorktree(ctx context.Context, sessionID string, fo
 	if err := e.validateManagedWorktreePath(identity.Path); err != nil {
 		return err
 	}
+	e.stopLSPWorkspace(identity.Path)
 	if err := e.repo.GitRemoveWorktree(ctx, identity.Path, force); err != nil {
 		return err
 	}
