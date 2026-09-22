@@ -108,3 +108,36 @@ func TestRelationRejectsSelfReference(t *testing.T) {
 		t.Fatal("expected self relation rejection")
 	}
 }
+
+
+func TestCheckpointRetentionIsBounded(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	if err := store.Create(ctx, Session{ID: "bounded", Goal: "bounded", Status: "created"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 240; i++ {
+		if _, err := store.AppendCheckpoint(ctx, "bounded", "agent.safe", map[string]any{"i": i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var count int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM session_checkpoints WHERE session_id = ?`, "bounded").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 200 {
+		t.Fatalf("retained checkpoints=%d want=200", count)
+	}
+	items, err := store.Checkpoints(ctx, "bounded", 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 200 || items[0].Seq != 239 || items[len(items)-1].Seq != 40 {
+		t.Fatalf("checkpoint window=%#v ... %#v", items[0], items[len(items)-1])
+	}
+}
