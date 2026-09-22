@@ -306,6 +306,11 @@ func (s agentStore) AppendStep(ctx context.Context, id string, step int64, value
 	return s.store.AppendStep(ctx, id, step, value)
 }
 
+func (s agentStore) AppendCheckpoint(ctx context.Context, id, reason string, value any) error {
+	_, err := s.store.AppendCheckpoint(ctx, id, reason, value)
+	return err
+}
+
 func (s agentStore) NextStep(ctx context.Context, id string) (int64, error) {
 	return s.store.NextStep(ctx, id)
 }
