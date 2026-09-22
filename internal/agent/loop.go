@@ -90,7 +90,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 		if wf != nil {
 			allowlist = wf.EffectiveAllowlist(allowlist)
 		}
-		specs := l.Tools.Specs(allowlist)
+		specs := filterDeniedTools(l.Tools.Specs(allowlist), opts.ToolDenylist)
 		messages, err := l.buildMessages(ctx, sessionID, opts, wf)
 		if err != nil {
 			return Result{}, err
@@ -368,4 +368,29 @@ func addUsage(total *protocol.Usage, value protocol.Usage) {
 	} else {
 		total.TotalTokens += value.PromptTokens + value.CompletionTokens
 	}
+}
+
+
+func filterDeniedTools(specs []protocol.ToolSpec, deny []string) []protocol.ToolSpec {
+	if len(deny) == 0 {
+		return specs
+	}
+	blocked := make(map[string]struct{}, len(deny))
+	for _, name := range deny {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			blocked[name] = struct{}{}
+		}
+	}
+	if len(blocked) == 0 {
+		return specs
+	}
+	out := make([]protocol.ToolSpec, 0, len(specs))
+	for _, spec := range specs {
+		if _, denied := blocked[spec.Name]; denied {
+			continue
+		}
+		out = append(out, spec)
+	}
+	return out
 }
