@@ -21,6 +21,7 @@ type AgentOptions struct {
 	RecentMessages      int             `json:"recentMessages,omitempty"`
 	MaxToolCallsPerStep int             `json:"maxToolCallsPerStep,omitempty"`
 	ToolAllowlist       []string        `json:"toolAllowlist,omitempty"`
+	ToolDenylist        []string        `json:"toolDenylist,omitempty"`
 	SystemPrompt        string          `json:"systemPrompt,omitempty"`
 	Workflow            json.RawMessage `json:"workflow,omitempty"`
 	MaxTokens           int             `json:"maxTokens,omitempty"`
@@ -132,6 +133,7 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 		RecentMessages:      opts.RecentMessages,
 		MaxToolCallsPerStep: opts.MaxToolCallsPerStep,
 		ToolAllowlist:       opts.ToolAllowlist,
+		ToolDenylist:        opts.ToolDenylist,
 		SystemPrompt:        opts.SystemPrompt,
 		AdditionalSystemPrompt: additionalSystemPrompt,
 		WorkflowJSON:        opts.Workflow,
