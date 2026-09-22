@@ -217,6 +217,9 @@ func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options
 		return nil, err
 	}
 	messages := []protocol.Message{{Role: "system", Content: opts.SystemPrompt}}
+	if strings.TrimSpace(opts.AdditionalSystemPrompt) != "" {
+		messages = append(messages, protocol.Message{Role: "system", Content: opts.AdditionalSystemPrompt})
+	}
 	if wf != nil {
 		messages = append(messages, protocol.Message{Role: "system", Content: wf.Prompt()})
 	}
