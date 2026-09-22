@@ -66,12 +66,12 @@ func (m *Manager) Status() Status {
 	return client.Status()
 }
 
-func (m *Manager) Diagnostics(path string) ([]Diagnostic, error) {
+func (m *Manager) Diagnostics(ctx context.Context, path string) ([]Diagnostic, error) {
 	client, err := m.current()
 	if err != nil {
 		return nil, err
 	}
-	return client.Diagnostics(path), nil
+	return client.Diagnostics(ctx, path)
 }
 
 func (m *Manager) Hover(ctx context.Context, path string, line, character int) (json.RawMessage, error) {
