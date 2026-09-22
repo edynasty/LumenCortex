@@ -203,6 +203,22 @@ func (c *subagentController) summary(ctx context.Context, childID string) (Subag
 	}, nil
 }
 
+func (s *RunSupervisor) HasActiveSubagents(ctx context.Context, parentSessionID string) (bool, error) {
+	if s == nil || s.engine == nil {
+		return false, ErrRunSupervisorClosed
+	}
+	relations, err := s.engine.store.ChildRelations(ctx, parentSessionID, 100)
+	if err != nil {
+		return false, err
+	}
+	for _, relation := range relations {
+		if relation.Kind == "subagent" && s.Active(relation.ChildSessionID) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *RunSupervisor) SubagentTree(ctx context.Context, parentSessionID string) ([]SubagentNode, error) {
 	if s == nil || s.engine == nil {
 		return nil, ErrRunSupervisorClosed
