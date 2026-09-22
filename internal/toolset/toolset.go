@@ -29,6 +29,7 @@ type Options struct {
 	Shell     *shell.Runner
 	LSP       *lsp.Manager
 	MCP       *mcp.Registry
+	Subagents SubagentController
 }
 type Set struct {
 	workspace     string
@@ -38,6 +39,7 @@ type Set struct {
 	repository    *repository.Service
 	lsp           *lsp.Manager
 	mcp           *mcp.Registry
+	subagents     SubagentController
 	tools         map[string]tool
 }
 type tool struct {
@@ -84,7 +86,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -168,6 +170,9 @@ func (s *Set) registerBuiltins() {
 	}
 	if s.mcp != nil {
 		s.registerMCPTools()
+	}
+	if s.subagents != nil {
+		s.registerSubagentTools()
 	}
 }
 func str() map[string]any { return map[string]any{"type": "string"} }
