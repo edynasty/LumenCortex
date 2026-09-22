@@ -260,3 +260,54 @@ func TestLoopAddsAdditionalSystemPrompt(t *testing.T) {
 		t.Fatalf("additional prompt=%q", messages[1].Content)
 	}
 }
+
+
+func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
+	store := &memoryStore{
+		state: SessionState{ID: "deny", Goal: "test deny", Status: "created", Metadata: map[string]any{}},
+		steps: map[int64]any{},
+	}
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+		{
+			Message: protocol.Message{
+				Role: "assistant",
+				ToolCalls: []protocol.ToolCall{
+					call("blocked-shell", "shell", `{"command":"echo should-not-run"}`),
+				},
+			},
+			FinishReason: "tool_calls",
+		},
+		{
+			Message: protocol.Message{Role: "assistant", Content: "done"},
+			FinishReason: "stop",
+		},
+	}}
+	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
+	result, err := loop.Run(context.Background(), "deny", Options{
+		MaxSteps:     2,
+		ToolDenylist: []string{"shell"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("result=%#v", result)
+	}
+	if len(provider.seen) == 0 {
+		t.Fatal("provider did not receive request")
+	}
+	for _, spec := range provider.seen[0].Tools {
+		if spec.Name == "shell" {
+			t.Fatalf("denied shell leaked into provider tools: %#v", provider.seen[0].Tools)
+		}
+	}
+	foundDeniedResult := false
+	for _, message := range store.messages {
+		if message.Role == "tool" && message.ToolCallID == "blocked-shell" {
+			foundDeniedResult = strings.Contains(message.Content, "not allowed")
+		}
+	}
+	if !foundDeniedResult {
+		t.Fatalf("denied tool result missing from messages: %#v", store.messages)
+	}
+}
