@@ -326,17 +326,18 @@ func (c *Client) Status() Status {
 }
 
 func (c *Client) Close() error {
-	var waitErr error
 	c.closeOnce.Do(func() {
 		c.closed.Store(true)
 		_ = c.stdin.Close()
 		c.cancel()
 		if c.cmd != nil {
-			waitErr = c.cmd.Wait()
+			// The process is owned by this client. Cancellation/termination caused
+			// by an explicit Close is expected and must not surface as a Stop error.
+			_ = c.cmd.Wait()
 		}
 		c.failAllPending(ErrClosed)
 	})
-	return waitErr
+	return nil
 }
 
 func (c *Client) withModernMeta(params map[string]any) map[string]any {
@@ -359,6 +360,7 @@ func (c *Client) withModernMeta(params map[string]any) map[string]any {
 
 func (c *Client) readLoop(stderr *boundedBuffer) {
 	defer close(c.done)
+	defer c.closed.Store(true)
 	for {
 		raw, err := readJSONLine(c.stdout)
 		if err != nil {
