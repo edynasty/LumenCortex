@@ -203,6 +203,7 @@ func (c *subagentController) childOptions() AgentOptions {
 		MaxSteps:            maxSteps,
 		RecentMessages:      recent,
 		MaxToolCallsPerStep: maxCalls,
+		ToolDenylist:        append([]string(nil), c.parentOpts.ToolDenylist...),
 		SystemPrompt: "You are a focused read-only LumenCortex subagent. Investigate the assigned goal using repository search, file reads, Git inspection, and language services. Do not modify files, run shell commands, or spawn additional agents. Return concise evidence and actionable findings to the parent task.",
 		MaxTokens:           c.parentOpts.MaxTokens,
 		Temperature:         c.parentOpts.Temperature,
