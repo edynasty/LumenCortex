@@ -136,7 +136,15 @@ func Open(opts Options) (*Engine, error) {
 		_ = store.Close()
 		return nil, err
 	}
-	mcpRegistry, err := mcp.NewRegistry(workspace, filepath.Join(repoDir, "mcp.json"))
+	globalMCPPath := ""
+	if userConfigDir, configErr := os.UserConfigDir(); configErr == nil && userConfigDir != "" {
+		globalMCPPath = filepath.Join(userConfigDir, "lumencortex", "mcp.json")
+	}
+	mcpRegistry, err := mcp.NewLayeredRegistry(
+		workspace,
+		globalMCPPath,
+		filepath.Join(repoDir, "mcp.json"),
+	)
 	if err != nil {
 		_ = store.Close()
 		return nil, err
