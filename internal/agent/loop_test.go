@@ -230,3 +230,33 @@ func TestLoopClearsStaleFinalWhenRunStarts(t *testing.T) {
 		t.Fatalf("persisted final=%q", store.state.Final)
 	}
 }
+
+
+func TestLoopAddsAdditionalSystemPrompt(t *testing.T) {
+	store := &memoryStore{
+		state: SessionState{ID: "skills", Goal: "build", Status: "created", Metadata: map[string]any{}},
+		steps: map[int64]any{},
+	}
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done"}}}}
+	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
+	_, err := loop.Run(context.Background(), "skills", Options{
+		MaxSteps: 2,
+		AdditionalSystemPrompt: "Skill instruction: use repository conventions.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.seen) != 1 {
+		t.Fatalf("requests=%d", len(provider.seen))
+	}
+	messages := provider.seen[0].Messages
+	if len(messages) < 3 {
+		t.Fatalf("messages=%#v", messages)
+	}
+	if messages[0].Role != "system" || messages[1].Role != "system" {
+		t.Fatalf("system messages=%#v", messages[:2])
+	}
+	if messages[1].Content != "Skill instruction: use repository conventions." {
+		t.Fatalf("additional prompt=%q", messages[1].Content)
+	}
+}
