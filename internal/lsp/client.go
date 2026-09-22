@@ -47,6 +47,7 @@ type Client struct {
 	statusMu sync.RWMutex
 	lastError string
 	closed atomic.Bool
+	closing atomic.Bool
 	closeOnce sync.Once
 	done chan struct{}
 }
@@ -139,7 +140,11 @@ func (c *Client) initializeParams() map[string]any {
 }
 
 func (c *Client) Request(ctx context.Context, method string, params any, result any) error {
-	if c.closed.Load() {
+	return c.request(ctx, method, params, result, false)
+}
+
+func (c *Client) request(ctx context.Context, method string, params any, result any, allowClosing bool) error {
+	if c.closed.Load() || (c.closing.Load() && !allowClosing) {
 		return ErrClosed
 	}
 	id := c.nextID.Add(1)
@@ -158,7 +163,7 @@ func (c *Client) Request(ctx context.Context, method string, params any, result 
 		"id": id,
 		"method": method,
 		"params": params,
-	}); err != nil {
+	}, allowClosing); err != nil {
 		c.removePending(id)
 		return err
 	}
@@ -186,17 +191,21 @@ func (c *Client) Request(ctx context.Context, method string, params any, result 
 }
 
 func (c *Client) Notify(method string, params any) error {
-	if c.closed.Load() {
+	return c.notify(method, params, false)
+}
+
+func (c *Client) notify(method string, params any, allowClosing bool) error {
+	if c.closed.Load() || (c.closing.Load() && !allowClosing) {
 		return ErrClosed
 	}
 	return c.writeMessage(map[string]any{
 		"jsonrpc": "2.0",
 		"method": method,
 		"params": params,
-	})
+	}, allowClosing)
 }
 
-func (c *Client) writeMessage(value any) error {
+func (c *Client) writeMessage(value any, allowClosing bool) error {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -206,7 +215,7 @@ func (c *Client) writeMessage(value any) error {
 	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	if c.closed.Load() {
+	if c.closed.Load() || (c.closing.Load() && !allowClosing) {
 		return ErrClosed
 	}
 	if _, err := fmt.Fprintf(c.stdin, "Content-Length: %d\r\n\r\n", len(raw)); err != nil {
@@ -314,7 +323,7 @@ func (c *Client) handleServerRequest(msg envelope) {
 	} else {
 		payload["result"] = result
 	}
-	_ = c.writeMessage(payload)
+	_ = c.writeMessage(payload, true)
 }
 
 func (c *Client) Status() Status {
@@ -360,12 +369,14 @@ func (c *Client) Diagnostics(path string) []Diagnostic {
 func (c *Client) Close() error {
 	var closeErr error
 	c.closeOnce.Do(func() {
-		if !c.closed.Swap(true) {
+		if !c.closed.Load() {
+			c.closing.Store(true)
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			var ignored json.RawMessage
-			_ = c.requestDuringClose(ctx, "shutdown", nil, &ignored)
+			_ = c.request(ctx, "shutdown", nil, &ignored, true)
 			cancel()
-			_ = c.writeMessageDuringClose(map[string]any{"jsonrpc": "2.0", "method": "exit"})
+			_ = c.notify("exit", nil, true)
+			c.closed.Store(true)
 		}
 		_ = c.stdin.Close()
 		c.cancel()
@@ -375,20 +386,6 @@ func (c *Client) Close() error {
 		c.failAllPending(ErrClosed)
 	})
 	return closeErr
-}
-
-func (c *Client) requestDuringClose(ctx context.Context, method string, params any, result any) error {
-	c.closed.Store(false)
-	err := c.Request(ctx, method, params, result)
-	c.closed.Store(true)
-	return err
-}
-
-func (c *Client) writeMessageDuringClose(value any) error {
-	c.closed.Store(false)
-	err := c.writeMessage(value)
-	c.closed.Store(true)
-	return err
 }
 
 func (c *Client) removePending(id int64) bool {
