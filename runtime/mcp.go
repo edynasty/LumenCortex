@@ -18,18 +18,33 @@ func (e *Engine) MCPConfigs() []MCPConfig {
 	return e.mcpRegistry.Configs()
 }
 
+func (e *Engine) MCPConfigsScope(scope string) ([]MCPConfig, error) {
+	if e.mcpRegistry == nil {
+		return []MCPConfig{}, nil
+	}
+	return e.mcpRegistry.ConfigsScope(scope)
+}
+
 func (e *Engine) MCPUpsertConfig(cfg MCPConfig) error {
+	return e.MCPUpsertConfigScope(mcp.ScopeProject, cfg)
+}
+
+func (e *Engine) MCPUpsertConfigScope(scope string, cfg MCPConfig) error {
 	if e.mcpRegistry == nil {
 		return errors.New("mcp registry is unavailable")
 	}
-	return e.mcpRegistry.Upsert(cfg)
+	return e.mcpRegistry.UpsertScope(scope, cfg)
 }
 
 func (e *Engine) MCPDeleteConfig(id string) error {
+	return e.MCPDeleteConfigScope(mcp.ScopeProject, id)
+}
+
+func (e *Engine) MCPDeleteConfigScope(scope, id string) error {
 	if e.mcpRegistry == nil {
 		return errors.New("mcp registry is unavailable")
 	}
-	return e.mcpRegistry.Delete(id)
+	return e.mcpRegistry.DeleteScope(scope, id)
 }
 
 func (e *Engine) MCPStart(ctx context.Context, sessionID, serverID string) (MCPStatus, error) {
