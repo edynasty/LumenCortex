@@ -131,7 +131,7 @@ func (c *Client) negotiate(ctx context.Context) error {
 	}
 
 	var result struct {
-		ProtocolVersion string §json:"protocolVersion"§
+		ProtocolVersion string `json:"protocolVersion"`
 	}
 	err := c.request(ctx, "initialize", map[string]any{
 		"protocolVersion": ProtocolLegacy,
