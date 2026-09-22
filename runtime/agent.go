@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/edynasty/LumenCortex/internal/agent"
+	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/toolset"
@@ -63,7 +64,18 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 	if agentWorkspace != e.workspace {
 		runner = shell.New(agentWorkspace)
 	}
-	tools, err := toolset.New(toolset.Options{Workspace: agentWorkspace, Policy: policy, Shell: runner})
+	var lspManager *lsp.Manager
+	e.lspMu.Lock()
+	if candidate := e.lspManagers[agentWorkspace]; candidate != nil && candidate.Status().Running {
+		lspManager = candidate
+	}
+	e.lspMu.Unlock()
+	tools, err := toolset.New(toolset.Options{
+		Workspace: agentWorkspace,
+		Policy: policy,
+		Shell: runner,
+		LSP: lspManager,
+	})
 	if err != nil {
 		return AgentResult{}, err
 	}
