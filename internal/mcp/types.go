@@ -55,6 +55,7 @@ type Status struct {
 	ID              string       `json:"id"`
 	Name            string       `json:"name,omitempty"`
 	Command         string       `json:"command,omitempty"`
+	Workspace       string       `json:"workspace,omitempty"`
 	ProtocolMode    ProtocolMode `json:"protocolMode"`
 	ProtocolVersion string       `json:"protocolVersion,omitempty"`
 	Running         bool         `json:"running"`
