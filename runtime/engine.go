@@ -17,6 +17,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/resource"
 	"github.com/edynasty/LumenCortex/internal/session"
+	"github.com/edynasty/LumenCortex/internal/skills"
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/streambuf"
 )
@@ -46,7 +47,8 @@ type Engine struct {
 	shell       *shell.Runner
 	lspMu       sync.Mutex
 	lspManagers map[string]*lsp.Manager
-	mcpRegistry *mcp.Registry
+	mcpRegistry  *mcp.Registry
+	skillRegistry *skills.Registry
 }
 
 type Health struct {
@@ -137,8 +139,10 @@ func Open(opts Options) (*Engine, error) {
 		return nil, err
 	}
 	globalMCPPath := ""
+	globalSkillRoot := ""
 	if userConfigDir, configErr := os.UserConfigDir(); configErr == nil && userConfigDir != "" {
 		globalMCPPath = filepath.Join(userConfigDir, "lumencortex", "mcp.json")
+		globalSkillRoot = filepath.Join(userConfigDir, "lumencortex", "skills")
 	}
 	mcpRegistry, err := mcp.NewLayeredRegistry(
 		workspace,
@@ -146,6 +150,15 @@ func Open(opts Options) (*Engine, error) {
 		filepath.Join(repoDir, "mcp.json"),
 	)
 	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	skillRegistry, err := skills.NewRegistry(
+		globalSkillRoot,
+		filepath.Join(workspace, ".lumencortex", "skills"),
+	)
+	if err != nil {
+		_ = mcpRegistry.Close()
 		_ = store.Close()
 		return nil, err
 	}
@@ -167,7 +180,8 @@ func Open(opts Options) (*Engine, error) {
 		events:    newEventBus(),
 		shell:       shell.New(workspace),
 		lspManagers: make(map[string]*lsp.Manager),
-		mcpRegistry: mcpRegistry,
+		mcpRegistry:   mcpRegistry,
+		skillRegistry: skillRegistry,
 	}, nil
 }
 
