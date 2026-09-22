@@ -312,3 +312,51 @@ func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
 		t.Fatalf("denied tool result missing from messages: %#v", store.messages)
 	}
 }
+
+
+func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
+	store := &memoryStore{
+		state: SessionState{ID: "deny", Goal: "do not shell", Status: "created", Metadata: map[string]any{}},
+		steps: map[int64]any{},
+	}
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+		{
+			Message: protocol.Message{
+				ToolCalls: []protocol.ToolCall{call("deny-1", "shell", `{"command":"echo should-not-run"}`)},
+			},
+			FinishReason: "tool_calls",
+		},
+		{
+			Message: protocol.Message{Content: "done"},
+			FinishReason: "stop",
+		},
+	}}
+	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
+	result, err := loop.Run(context.Background(), "deny", Options{
+		MaxSteps:     3,
+		ToolDenylist: []string{"shell"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("result=%#v", result)
+	}
+	if len(provider.seen) == 0 {
+		t.Fatal("provider request missing")
+	}
+	for _, spec := range provider.seen[0].Tools {
+		if spec.Name == "shell" {
+			t.Fatalf("denied tool leaked into provider request: %#v", provider.seen[0].Tools)
+		}
+	}
+	foundDenied := false
+	for _, message := range store.messages {
+		if message.Role == "tool" && message.ToolCallID == "deny-1" {
+			foundDenied = strings.Contains(message.Content, "not allowed")
+		}
+	}
+	if !foundDenied {
+		t.Fatalf("denied tool result missing: %#v", store.messages)
+	}
+}
