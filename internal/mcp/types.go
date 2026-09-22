@@ -27,6 +27,7 @@ type Config struct {
 	Args         []string     `json:"args,omitempty"`
 	Workspace    string       `json:"workspace,omitempty"`
 	ProtocolMode ProtocolMode `json:"protocolMode,omitempty"`
+	Disabled     bool         `json:"disabled,omitempty"`
 }
 
 type Tool struct {
