@@ -44,6 +44,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 	if err != nil {
 		return Result{}, err
 	}
+	wasInterrupted := state.Status == "interrupted"
 	wf, err := restoreWorkflow(state.Metadata, opts.WorkflowJSON)
 	if err != nil {
 		return Result{}, err
@@ -61,6 +62,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 	if err != nil {
 		return Result{}, err
 	}
+	if wasInterrupted {
+		l.checkpoint(sessionID, "agent.resume", map[string]any{
+			"nextStep": startStep,
+		})
+	}
 
 	for turn := 0; turn < opts.MaxSteps; turn++ {
 		if err := ctx.Err(); err != nil {
@@ -71,6 +77,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 			metadata := withWorkflow(state.Metadata, wf)
 			status := "waiting_gate"
 			_ = l.Store.Update(context.Background(), sessionID, SessionPatch{Status: &status, Metadata: metadata, Usage: &usage})
+			l.checkpoint(sessionID, "agent.safe", map[string]any{
+				"phase": "waiting_gate",
+				"step": step,
+				"gates": wf.WaitingHumanGates(),
+			})
 			l.emit("workflow.gate_waiting", sessionID, map[string]any{"step": step, "gates": wf.WaitingHumanGates()})
 			return Result{SessionID: sessionID, Status: status, Usage: usage, WaitingGate: true, Workflow: wf.Summary()}, nil
 		}
@@ -146,7 +157,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 			if len(call.Arguments) > 0 {
 				if err := json.Unmarshal(call.Arguments, &args); err != nil {
 					result := protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, "invalid tool arguments: "+err.Error())}
-					if err := l.persistToolResult(ctx, sessionID, call, args, result); err != nil {
+					if _, err := l.persistToolResult(ctx, sessionID, call, args, result); err != nil {
 						return Result{}, err
 					}
 					continue
@@ -182,9 +193,19 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 				}
 				state.Metadata = withWorkflow(state.Metadata, wf)
 			}
-			if err := l.persistToolResult(ctx, sessionID, call, args, toolResult); err != nil {
+			messageSeq, err := l.persistToolResult(ctx, sessionID, call, args, toolResult)
+			if err != nil {
 				return Result{}, err
 			}
+			l.checkpoint(sessionID, "agent.safe", map[string]any{
+				"phase": "tool_result",
+				"step": step,
+				"toolCallId": call.ID,
+				"tool": call.Name,
+				"messageSeq": messageSeq,
+				"ok": toolResult.OK,
+				"denied": toolResult.Denied,
+			})
 			record.ToolCalls = append(record.ToolCalls, toolCallRecord{ID: call.ID, Name: call.Name, Args: args, OK: toolResult.OK, Denied: toolResult.Denied})
 		}
 		if wf != nil {
@@ -196,6 +217,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 		if err := l.Store.Update(ctx, sessionID, SessionPatch{Metadata: state.Metadata, Usage: &usage}); err != nil {
 			return Result{}, err
 		}
+		l.checkpoint(sessionID, "agent.safe", map[string]any{
+			"phase": "step_complete",
+			"step": step,
+			"nextStep": step + 1,
+		})
 	}
 	return l.interrupt(ctx, state, usage, fmt.Errorf("agent reached max steps: %d", opts.MaxSteps))
 }
@@ -227,9 +253,20 @@ func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options
 	return messages, nil
 }
 
-func (l *Loop) persistToolResult(ctx context.Context, sessionID string, call protocol.ToolCall, args map[string]any, result protocol.ToolResult) error {
-	_, err := l.Store.AppendMessage(ctx, sessionID, protocol.Message{Role: "tool", ToolCallID: call.ID, Name: call.Name, Content: result.Content})
-	return err
+func (l *Loop) persistToolResult(ctx context.Context, sessionID string, call protocol.ToolCall, args map[string]any, result protocol.ToolResult) (int64, error) {
+	return l.Store.AppendMessage(ctx, sessionID, protocol.Message{Role: "tool", ToolCallID: call.ID, Name: call.Name, Content: result.Content})
+}
+
+func (l *Loop) checkpoint(sessionID, reason string, payload any) {
+	store, ok := l.Store.(CheckpointStore)
+	if !ok {
+		return
+	}
+	if err := store.AppendCheckpoint(context.Background(), sessionID, reason, payload); err != nil {
+		l.emit("checkpoint.error", sessionID, map[string]any{"reason": reason, "error": err.Error()})
+		return
+	}
+	l.emit("checkpoint.saved", sessionID, map[string]any{"reason": reason})
 }
 
 func (l *Loop) interrupt(ctx context.Context, state SessionState, usage protocol.Usage, cause error) (Result, error) {
