@@ -35,6 +35,10 @@ type Store interface {
 	Update(context.Context, string, SessionPatch) error
 }
 
+type CheckpointStore interface {
+	AppendCheckpoint(context.Context, string, string, any) error
+}
+
 type Tools interface {
 	Specs([]string) []protocol.ToolSpec
 	Execute(context.Context, string, map[string]any, func(protocol.ToolOutput)) (protocol.ToolResult, error)
