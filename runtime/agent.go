@@ -75,6 +75,7 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 		Policy: policy,
 		Shell: runner,
 		LSP: lspManager,
+		MCP: e.mcpRegistry,
 	})
 	if err != nil {
 		return AgentResult{}, err
