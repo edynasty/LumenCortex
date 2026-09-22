@@ -109,7 +109,16 @@ func (r *Registry) Upsert(cfg Config) error {
 	if _, exists := r.configs[cfg.ID]; !exists && len(r.configs) >= MaxServers {
 		return errors.New("mcp server configuration limit exceeded")
 	}
+	previous := r.configs[cfg.ID]
 	r.configs[cfg.ID] = cfg
+	if cfg.Disabled && !previous.Disabled {
+		for key, client := range r.clients {
+			if strings.HasSuffix(key, "\x00"+cfg.ID) {
+				_ = client.Close()
+				delete(r.clients, key)
+			}
+		}
+	}
 	return r.saveLocked()
 }
 
@@ -140,6 +149,9 @@ func (r *Registry) Start(ctx context.Context, id, workspace string) (Status, err
 	r.mu.RUnlock()
 	if !ok {
 		return Status{}, fmt.Errorf("unknown mcp server: %s", id)
+	}
+	if cfg.Disabled {
+		return Status{}, fmt.Errorf("mcp server is disabled: %s", id)
 	}
 	cfg.Workspace = workspace
 
