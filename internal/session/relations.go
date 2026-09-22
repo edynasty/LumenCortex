@@ -149,6 +149,18 @@ VALUES(?, ?, ?, ?, ?)
 `, sessionID, seq, now.Format(time.RFC3339Nano), reason, string(raw)); err != nil {
 		return Checkpoint{}, err
 	}
+	if _, err := tx.ExecContext(ctx, `
+DELETE FROM session_checkpoints
+WHERE session_id = ?
+  AND seq NOT IN (
+    SELECT seq FROM session_checkpoints
+    WHERE session_id = ?
+    ORDER BY seq DESC
+    LIMIT 200
+  )
+`, sessionID, sessionID); err != nil {
+		return Checkpoint{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return Checkpoint{}, err
 	}
