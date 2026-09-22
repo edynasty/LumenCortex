@@ -354,16 +354,32 @@ func (c *Client) Status() Status {
 	return status
 }
 
-func (c *Client) Diagnostics(path string) []Diagnostic {
-	uri := path
-	if !strings.HasPrefix(uri, "file://") {
-		if abs, err := c.resolvePath(path); err == nil {
-			uri = fileURI(abs)
+func (c *Client) Diagnostics(ctx context.Context, path string) ([]Diagnostic, error) {
+	doc, err := c.syncDocument(path)
+	if err != nil {
+		return nil, err
+	}
+	deadline := time.NewTimer(350 * time.Millisecond)
+	defer deadline.Stop()
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		c.diagMu.RLock()
+		items, ok := c.diagnostics[doc.uri]
+		out := append([]Diagnostic(nil), items...)
+		c.diagMu.RUnlock()
+		if ok {
+			return out, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline.C:
+			return []Diagnostic{}, nil
+		case <-ticker.C:
 		}
 	}
-	c.diagMu.RLock()
-	defer c.diagMu.RUnlock()
-	return append([]Diagnostic(nil), c.diagnostics[uri]...)
 }
 
 func (c *Client) Close() error {
