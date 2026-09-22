@@ -25,6 +25,11 @@ type AgentOptions struct {
 	Workflow            json.RawMessage `json:"workflow,omitempty"`
 	MaxTokens           int             `json:"maxTokens,omitempty"`
 	Temperature         *float64        `json:"temperature,omitempty"`
+
+	subagents        toolset.SubagentController
+	parentSessionID  string
+	disableSubagents bool
+	disableMCP       bool
 }
 
 type AgentResult struct {
@@ -70,12 +75,17 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 		lspManager = candidate
 	}
 	e.lspMu.Unlock()
+	mcpRegistry := e.mcpRegistry
+	if opts.disableMCP {
+		mcpRegistry = nil
+	}
 	tools, err := toolset.New(toolset.Options{
 		Workspace: agentWorkspace,
 		Policy: policy,
 		Shell: runner,
 		LSP: lspManager,
-		MCP: e.mcpRegistry,
+		MCP: mcpRegistry,
+		Subagents: opts.subagents,
 	})
 	if err != nil {
 		return AgentResult{}, err
@@ -90,6 +100,14 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 				"sessionId": event.SessionID,
 				"data":      event.Data,
 			})
+			if opts.parentSessionID != "" {
+				data := subagentEventData(event.Type, event.SessionID, event.Data)
+				e.events.publish("subagent.event", opts.parentSessionID, data)
+				_ = e.store.Journal(context.Background(), "subagent.event", map[string]any{
+					"sessionId": opts.parentSessionID,
+					"data":      data,
+				})
+			}
 		},
 	}
 	result, err := loop.Run(ctx, sessionID, agent.Options{
