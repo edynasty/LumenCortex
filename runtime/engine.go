@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/lsp"
+	"github.com/edynasty/LumenCortex/internal/mcp"
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/resource"
 	"github.com/edynasty/LumenCortex/internal/session"
@@ -45,6 +46,7 @@ type Engine struct {
 	shell       *shell.Runner
 	lspMu       sync.Mutex
 	lspManagers map[string]*lsp.Manager
+	mcpRegistry *mcp.Registry
 }
 
 type Health struct {
@@ -134,6 +136,11 @@ func Open(opts Options) (*Engine, error) {
 		_ = store.Close()
 		return nil, err
 	}
+	mcpRegistry, err := mcp.NewRegistry(workspace, filepath.Join(repoDir, "mcp.json"))
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
 	if gitRoot, rootErr := repoService.GitRoot(context.Background()); rootErr == nil {
 		worktreeRoot = filepath.Join(filepath.Dir(gitRoot), "."+filepath.Base(gitRoot)+".lumencortex-worktrees")
 		_ = repoService.EnsureLocalExclude(context.Background(), repoDir)
@@ -152,6 +159,7 @@ func Open(opts Options) (*Engine, error) {
 		events:    newEventBus(),
 		shell:       shell.New(workspace),
 		lspManagers: make(map[string]*lsp.Manager),
+		mcpRegistry: mcpRegistry,
 	}, nil
 }
 
@@ -166,6 +174,9 @@ func (e *Engine) Close() error {
 	e.lspMu.Unlock()
 	for _, manager := range managers {
 		_ = manager.Close()
+	}
+	if e.mcpRegistry != nil {
+		_ = e.mcpRegistry.Close()
 	}
 	return e.store.Close()
 }
