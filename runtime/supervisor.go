@@ -99,6 +99,14 @@ func (s *RunSupervisor) Start(
 	if info.Provider == "" && opts.ProviderName != "" {
 		info.Provider = opts.ProviderName
 	}
+	if !opts.disableSubagents && opts.subagents == nil {
+		opts.subagents = &subagentController{
+			supervisor: s,
+			parentID:   sessionID,
+			provider:   provider,
+			parentOpts: opts,
+		}
+	}
 
 	s.engine.events.publish("run.started", sessionID, map[string]any{
 		"startedAt": run.startedAt,
@@ -120,6 +128,9 @@ func (s *RunSupervisor) Start(
 			data["error"] = runErr.Error()
 		}
 		s.engine.events.publish("run.stopped", sessionID, data)
+		if opts.parentSessionID != "" {
+			s.engine.checkpointSubagentStop(opts.parentSessionID, sessionID, runErr)
+		}
 	}()
 
 	return info, nil
