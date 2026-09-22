@@ -98,8 +98,8 @@ func (s *Set) lspWorkspaceSymbols(ctx context.Context, args map[string]any, _ fu
 	return rawLSPResult(raw, err)
 }
 
-func (s *Set) lspDiagnostics(_ context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
-	items, err := s.lsp.Diagnostics(stringArg(args, "path"))
+func (s *Set) lspDiagnostics(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
+	items, err := s.lsp.Diagnostics(ctx, stringArg(args, "path"))
 	if err != nil {
 		return protocol.ToolResult{}, err
 	}
