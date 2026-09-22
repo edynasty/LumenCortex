@@ -126,6 +126,32 @@ CREATE TABLE IF NOT EXISTS journal (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_journal_event_at ON journal(event, at DESC);
+
+CREATE TABLE IF NOT EXISTS session_relations (
+  child_session_id TEXT PRIMARY KEY,
+  parent_session_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  metadata_json TEXT NOT NULL,
+  FOREIGN KEY(parent_session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY(child_session_id) REFERENCES sessions(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_session_relations_parent
+ON session_relations(parent_session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS session_checkpoints (
+  session_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  at TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  json TEXT NOT NULL,
+  PRIMARY KEY(session_id, seq),
+  FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_session_checkpoints_at
+ON session_checkpoints(session_id, at DESC);
 `)
 	if err != nil {
 		return err
