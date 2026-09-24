@@ -62,7 +62,16 @@ export function loadCognitiveProfile(workspace, options = {}) {
     health: {
       failureThreshold: Math.max(1, Number(user.health?.failureThreshold ?? 3)),
       cooldownMs: Math.max(1000, Number(user.health?.cooldownMs ?? 30000))
-    }
+    },
+    governor: user.governor ? {
+      enabled: user.governor.enabled !== false,
+      provider: user.governor.provider,
+      model: user.governor.model,
+      baseURL: user.governor.baseURL,
+      timeoutMs: user.governor.timeoutMs,
+      reasoningEffort: user.governor.reasoningEffort ?? user.governor.reasoning_effort ?? 'high',
+      maxTokens: Number(user.governor.maxTokens ?? user.governor.max_tokens ?? 6000)
+    } : null
   };
 }
 
