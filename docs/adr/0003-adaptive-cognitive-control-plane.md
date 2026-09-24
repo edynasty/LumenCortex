@@ -27,18 +27,18 @@ Adopt a five-part cognitive control architecture:
 1. **Cognitive Kernel** — deterministic control, budgets, legality, policy application, persistence, and audit.
 2. **Light Controller** — fast typed local decisions through a pluggable `DecisionProvider`.
 3. **Think** — a first-class task-local deliberate reasoning route, selectable directly or after later progress/failure signals.
-4. **Model Broker** — capability/cost/latency-aware model selection for Work Units.
+4. **Cognitive Profile** — configuration that binds Fast, Think, DeepThink, execution, and Governor roles to concrete providers/models.
 5. **Graph Governor** — long-horizon Context Graph maintenance across tasks and Sessions.
 
 The current deterministic Attention Light remains the graph-selection engine.
 
 Jev, Laya, heuristic logic, or other future decision models may implement `DecisionProvider`. They are not part of the core architecture contract.
 
-Think produces strategies and Work Units. It does not directly choose concrete model names and does not own global graph maintenance.
+Think produces strategies and Work Units and does not own global graph maintenance.
 
 The Graph Governor produces validated graph-mutation plans. Its model component cannot directly mutate the durable graph.
 
-The Model Broker selects models from capability requirements and verified runtime outcomes. Cognitive roles and task categories do not bind directly to model identities.
+The framework chooses cognitive mode; configuration chooses the concrete provider/model for that mode. Runtime model competition is not part of this architecture.
 
 ## Invariants
 
@@ -51,10 +51,10 @@ The Model Broker selects models from capability requirements and verified runtim
 - Fast decision models never directly write Context Graph state.
 - Think is task-local and does not own long-horizon Cortex structure.
 - Graph Governor is cross-session/global and does not own the current task plan.
-- Model Broker does not perform task decomposition.
-- Work Units describe required capability, not provider/model names.
-- Model capability profiles are version-specific and evidence-driven.
-- Model switching uses hysteresis/stickiness rather than switching on small utility differences.
+- Cognitive mode selection and concrete model configuration are separate concerns.
+- Work Units do not choose models.
+- Fast/Think/DeepThink/Governor providers are configured explicitly.
+- Changing GPT to Claude for Think is a configuration change, not a runtime routing decision.
 - Durable graph maintenance preserves provenance and is auditable through Cognitive Git.
 - Destructive deletion is exceptional; archival/tiering/canonicalization are preferred.
 - Planned components must not be documented as implemented until code and validation exist.
@@ -110,21 +110,20 @@ Think may be selected directly for a complex or high-risk task, or later when ne
 
 Low confidence, high entropy, conflicting judgments, or a small top-two margin are route-selection signals, not availability failures.
 
-## Model selection
+## Configured model bindings
 
-A Work Unit produces a capability contract.
+The framework does not dynamically rank GPT, Claude, DeepSeek, Laya, Jev, or other models against one another at runtime.
 
-The broker first excludes models that fail hard requirements, then scores remaining models using:
+A Cognitive Profile binds roles to concrete implementations, for example:
 
 ```text
-U(m, w)
-  = P(success | m, w) * value(w)
-    - lambda * expected_cost(m, w)
-    - mu     * expected_latency(m, w)
-    - nu     * risk(m, w)
+Fast      -> Laya
+Think     -> Claude
+DeepThink -> GPT reasoning
+Governor  -> configured reasoning model
 ```
 
-A simple initial evidence model may use a Beta posterior per model/version and capability family.
+The same architecture remains valid if the user changes those bindings. Route selection remains framework-owned; provider/model choice remains configuration-owned.
 
 ## Graph governance
 
@@ -158,13 +157,13 @@ Rejected because task-local optimization and long-horizon memory maintenance hav
 
 Rejected because Attention Light should remain an independently usable deterministic selection engine. Adaptive policy belongs above it.
 
-### Hard-code model selection by task role
+### Runtime model competition inside cognitive routing
 
-Rejected because capability, cost, latency, and model quality change over time. The durable contract should be capability-based and evidence-driven.
+Rejected because the framework should decide the cognitive mode, while users/projects explicitly configure which model implements each mode. This keeps behavior predictable and avoids turning task planning into model scheduling.
 
 ### Let Think choose concrete models
 
-Rejected because task reasoning and resource scheduling are separate concerns. Think should state capability requirements, while Model Broker owns resource selection.
+Rejected because Think should reason about the task, not rewrite its own provider configuration.
 
 ### Let Graph Governor directly rewrite graph state
 
@@ -178,15 +177,15 @@ Rejected because semantic proposals require deterministic validation, provenance
 - separates fast judgment from deliberate reasoning,
 - prevents long-term memory maintenance from being biased by the current task,
 - supports future decision models without coupling the runtime to one provider,
-- supports heterogeneous model capabilities without permanent role mappings,
-- enables verified outcome learning for model selection,
+- keeps model choice explicit and configuration-driven,
+- allows GPT/Claude/Jev/Laya/local models to be swapped without changing architecture,
 - gives graph maintenance an explicit lifecycle and rollback boundary.
 
 ### Negative / trade-offs
 
 - introduces additional contracts and runtime state,
 - requires progress/failure instrumentation before adaptive routing is useful,
-- capability learning needs enough verified outcomes to become informative,
+- configured profiles require sensible defaults and clear override precedence,
 - Graph Governor adds validation and migration complexity,
 - cost/latency utility functions require calibration.
 
@@ -208,8 +207,7 @@ Future implementation may add persisted:
 
 - failure signatures,
 - Work Units,
-- capability profiles,
-- broker outcomes,
+- cognitive profile / mode bindings,
 - Governor plans,
 - Cortex Epoch metadata.
 
@@ -226,8 +224,8 @@ Before adaptive control can be called validated:
 5. low-confidence decisions remain visible to route selection rather than being hidden by provider switching,
 6. Progress Monitor correctly groups repeated failures,
 7. routing tests prove direct Think selection and fast -> Think -> fast transitions,
-8. broker tests prove hard-capability filtering and switch hysteresis,
-9. verified outcomes update capability profiles deterministically,
+8. profile-resolution tests prove explicit run override > project profile > user profile > default,
+9. changing Think from one configured reasoning provider to another does not change routing semantics,
 10. graph plans cannot bypass Graph Validator,
 11. Governor operations preserve provenance and support rollback,
 12. benchmark adaptive routing against fixed deterministic baselines for quality, cost, and latency.
