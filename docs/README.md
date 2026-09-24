@@ -19,7 +19,8 @@ The README at the repository root is intentionally a quick-start and product sum
 3. [Execution flow](execution-flow.md)
 4. [Architecture details](architecture.md)
 5. [Attention Light algorithm](attention-light-algorithm.md)
-6. [Data model](data-model.md)
+6. [Cognitive control plane](cognitive-control-plane.md)
+7. [Data model](data-model.md)
 
 ### I want to understand the autonomous coding runtime
 
@@ -50,6 +51,7 @@ The README at the repository root is intentionally a quick-start and product sum
 | System boundaries and component map | `docs/system-overview.md` | First architecture document to read |
 | Architecture invariants and cognitive design | `docs/architecture.md` | Deep architecture specification |
 | Attention/retrieval algorithms and parameters | `docs/attention-light-algorithm.md` | Canonical algorithm specification |
+| Adaptive cognition, model routing, and graph governance | `docs/cognitive-control-plane.md` | Target cognitive control architecture |
 | Diagrams | `docs/architecture-diagrams.md` | Visual architecture source |
 | Agent lifecycle and failure behavior | `docs/execution-flow.md` | End-to-end runtime logic |
 | Agent tools/providers/sessions | `docs/agent-runtime.md` | Runtime implementation reference |
