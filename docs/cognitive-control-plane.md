@@ -1,6 +1,6 @@
 # Cognitive control plane
 
-This document defines the target architecture for adaptive cognition, model selection, failure escalation, and long-horizon Context Graph governance in LumenCortex.
+This document defines the target architecture for adaptive cognition, cognitive-route selection, model selection, and long-horizon Context Graph governance in LumenCortex.
 
 > **Status:** Planned architecture. The current runtime already implements the Context Graph, Attention Light, Active Promotion, Agent Loop, Workflow Contracts, provider abstraction, verification, and Cognitive Git. The control-plane components below are not yet claimed as implemented.
 
@@ -149,7 +149,7 @@ Typical decisions:
 - whether Contrarian or Anomaly Light should run,
 - whether the agent is making progress,
 - whether a failure is local or reasoning-level,
-- whether to remain fast or escalate to Think,
+- which cognitive route should run next,
 - which budget class is appropriate.
 
 It does not produce long free-form plans.
@@ -404,7 +404,7 @@ Fast -> Think -> Think again
 
 Think is therefore not merely an escalation state. It is one route in the same cognitive routing space. The runtime should still return to cheaper routes when the deliberate work has produced a usable strategy.
 
-## 7. Progress Monitor and escalation
+## 7. Progress Monitor and route transitions
 
 Failure count alone is not enough. The runtime should classify failure and progress.
 
@@ -485,7 +485,7 @@ Also track the top-two margin:
 margin(p) = p_top1 - p_top2
 ```
 
-High entropy or a small margin means the fast controller itself is uncertain and is therefore an escalation signal.
+High entropy or a small margin means the fast controller itself is uncertain and is therefore a cognitive-route selection signal.
 
 ## 8. Work Units and Capability Contracts
 
@@ -813,7 +813,7 @@ The current fixed Attention algorithm remains an independently valid determinist
 | Laya decision provider | Planned |
 | Cognitive Router | Planned |
 | Progress Monitor / failure signatures | Planned |
-| Think escalation contract | Planned |
+| Think route contract | Planned |
 | Work Unit / Capability Contract | Planned |
 | Model Broker | Planned |
 | Verified capability learner | Planned |
@@ -834,7 +834,7 @@ Recommended implementation order:
 4. DecisionProvider + Algorithm Decision Path
 5. Cognitive Router + path availability/health
 6. Laya/Jev DecisionProvider adapters
-7. Think escalation contract
+7. Think route contract
 8. Outcome-based capability learning
 9. Graph Governor Analyzer
 10. GraphMutationPlan + Validator
