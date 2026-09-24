@@ -49,6 +49,16 @@ function graphFixture() {
     grade: 'reproduced',
     trustZone: 'runtime_verified'
   });
+  graph.addNode({
+    id: 'e',
+    kind: 'entity',
+    title: 'Provider Registry',
+    body: 'E',
+    status: 'active',
+    grade: 'static',
+    trustZone: 'repo_trusted',
+    tags: ['provider']
+  });
   graph.addEdge({
     id: 'e1',
     from: 'a',
@@ -65,7 +75,7 @@ test('Graph Governor analyzer produces governance candidates without mutating th
   const analyzer = new GraphGovernorAnalyzer({ promotionMinGroup: 3, archiveThreshold: 0.5 });
   const result = analyzer.analyze(before);
 
-  assert.equal(result.metrics.nodeCount, 4);
+  assert.equal(result.metrics.nodeCount, 5);
   assert.equal(result.metrics.contradictionCount, 1);
   assert.ok(result.candidates.canonicalize.some((group) => group.nodeIds.includes('a') && group.nodeIds.includes('b')));
   assert.ok(result.candidates.promote.some((group) => group.tag === 'provider'));
