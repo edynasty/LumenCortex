@@ -537,6 +537,25 @@ export class LumenCortexDatabase {
     return { touched, at };
   }
 
+  nodeStorageMap() {
+    const result = {};
+    for (const row of this.db.prepare(`
+      SELECT node_id, tier, last_access_at, last_tier_change_at,
+             archived_at, compacted_at, access_count
+      FROM graph_node_storage
+    `).all()) {
+      result[row.node_id] = {
+        tier: row.tier,
+        lastAccessAt: row.last_access_at,
+        lastTierChangeAt: row.last_tier_change_at,
+        archivedAt: row.archived_at,
+        compactedAt: row.compacted_at,
+        accessCount: Number(row.access_count ?? 0)
+      };
+    }
+    return result;
+  }
+
   nodeStorageStats() {
     const tiers = { hot: 0, warm: 0, cold: 0 };
     for (const row of this.db.prepare(`
