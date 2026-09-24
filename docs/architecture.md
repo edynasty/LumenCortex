@@ -87,7 +87,7 @@ The next architecture stage separates adaptive cognition into five roles:
 | Cognitive Kernel | deterministic constraints, budgets, legal transitions, validation | Planned |
 | Light Controller | fast typed decisions over compressed state | Planned |
 | Think | first-class task-local deliberate reasoning route | Planned |
-| Model Broker | capability/cost/latency-aware model selection | Planned |
+| Cognitive Profile | explicit mode-to-provider/model bindings | Planned |
 | Graph Governor | long-horizon pruning, branching, promotion, canonicalization, summaries, and Cortex versioning | Planned |
 
 These roles are intentionally separate from the current deterministic Attention Light and Agent Loop. The exact target contracts, cognitive-route selection formulas, model-selection utility, and Graph Governor lifecycle are defined in [Cognitive control plane](cognitive-control-plane.md).
@@ -101,13 +101,13 @@ models propose judgment / strategy / graph plans
 Cognitive Kernel / validators
         |
         v
-Attention / Broker / Graph engines
+Attention / Provider bindings / Graph engines
         |
         v
 verified execution + durable state
 ```
 
-Think does not own global graph maintenance. Graph Governor does not own current-task strategy. Model Broker does not decompose tasks, and tasks do not bind directly to concrete model names.
+Think does not own global graph maintenance. Graph Governor does not own current-task strategy. The framework chooses cognitive mode; Cognitive Profile configuration chooses the concrete provider/model used by that mode.
 
 ## Attention Light
 
@@ -305,9 +305,8 @@ All providers use the same tool-calling Agent Loop.
 | Automatic split/merge/canonicalization controller | Planned |
 | DecisionProvider / Light Controller | Planned |
 | Progress Monitor + cognitive route transitions | Planned |
-| Work Unit / Capability Contract | Planned |
-| Capability-aware Model Broker | Planned |
-| Verified model capability learning | Planned |
+| Work Unit structure | Planned |
+| Cognitive Profile / mode bindings | Planned |
 | Graph Governor | Planned |
 | Cortex Epochs | Planned |
 
