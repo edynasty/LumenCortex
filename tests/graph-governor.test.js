@@ -5,6 +5,7 @@ import { CognitiveGraph } from '../src/graph.js';
 import {
   GraphGovernor,
   GraphGovernorAnalyzer,
+  LLMGraphGovernorCurator,
   validateGraphGovernorPlan
 } from '../src/graph-governor.js';
 
@@ -120,4 +121,79 @@ test('Graph Governor safe executor only applies tiers and archival actions', () 
   assert.equal(repository._graph.nodes.c.status, 'archived');
   assert.equal(repository._graph.nodes.a.metadata.storageTier, 'hot');
   assert.equal(repository._graph.nodes.b.metadata.storageTier, 'warm');
+});
+
+
+test('model-backed Graph Governor Curator proposes a validated plan without mutating the graph', async () => {
+  const graph = graphFixture();
+  const before = graph.snapshot();
+  let request;
+
+  const provider = {
+    model: 'governor-reasoner',
+    async complete(input) {
+      request = input;
+      return {
+        message: {
+          role: 'assistant',
+          content: ```json
+{
+  "archive": ["c"],
+  "canonicalize": [
+    { "canonical": "a", "aliases": ["b"], "reason": "same concept title" }
+  ],
+  "branch": [
+    { "from": "a", "to": "b", "reason": "preserve contradiction" }
+  ],
+  "promote": [
+    { "title": "Provider model architecture", "childIds": ["a", "b", "e"], "reason": "shared provider cluster" }
+  ],
+  "epoch": { "proposed": false, "reasons": [] },
+  "summary": "Curate provider architecture cluster."
+}
+```
+        },
+        finishReason: 'stop'
+      };
+    }
+  };
+
+  const repository = {
+    _graph: before,
+    graph() {
+      return new CognitiveGraph(this._graph);
+    },
+    writeGraph(next) {
+      this._graph = structuredClone(next);
+    },
+    commit() {
+      throw new Error('propose must not commit');
+    }
+  };
+
+  const curator = new LLMGraphGovernorCurator({
+    provider,
+    reasoningEffort: 'high',
+    maxTokens: 4000
+  });
+  const governor = new GraphGovernor({
+    repository,
+    analyzer: new GraphGovernorAnalyzer({ promotionMinGroup: 3, archiveThreshold: 0.5 }),
+    curator
+  });
+
+  const result = await governor.propose();
+
+  assert.equal(result.validation.valid, true);
+  assert.equal(result.curator.model, 'governor-reasoner');
+  assert.deepEqual(result.plan.archive, ['c']);
+  assert.equal(result.plan.canonicalize[0].canonical, 'a');
+  assert.deepEqual(result.plan.promote[0].childIds, ['a', 'b', 'e']);
+  assert.equal(request.reasoningEffort, 'high');
+
+  const payload = JSON.parse(request.messages[1].content);
+  assert.equal(payload.objective, 'Propose long-horizon graph maintenance. Do not execute changes.');
+  assert.equal(payload.nodes.a.title, 'Provider Architecture');
+  assert.equal(payload.nodes.d, undefined);
+  assert.deepEqual(repository._graph, before);
 });
