@@ -15,7 +15,7 @@ The next architecture stage needs to support:
 - fast model-based local decisions,
 - deliberate reasoning only when additional computation is justified,
 - heterogeneous model selection by capability/cost/latency,
-- failure-aware escalation,
+- failure-aware cognitive routing,
 - long-horizon pruning, branching, promotion, canonicalization, and graph versioning.
 
 Putting all of this inside one planner or one reasoning model would mix responsibilities across very different time scales and would give model outputs too much direct control over durable state.
@@ -73,7 +73,7 @@ V(m | s)
 
 Cognitive routing selects the route with the best expected value after cost, latency, risk, and switching cost. Think may be selected immediately; it is not restricted to post-failure escalation.
 
-Decision uncertainty may use normalized entropy and top-two probability margin as escalation signals.
+Decision uncertainty may use normalized entropy and top-two probability margin as cognitive-route selection signals.
 
 
 ## Cognitive-route selection
