@@ -211,6 +211,107 @@ Example:
 
 The Cognitive Kernel owns thresholding and final legal transitions.
 
+
+### 5.3 Decision fallback chain
+
+Fast decision must remain available even when a preferred decision model is unavailable.
+
+The fallback chain has two distinct layers:
+
+```text
+Primary Decision Model
+    |
+    | provider/model unavailable,
+    | timeout, malformed response,
+    | schema violation, circuit open
+    v
+Secondary Decision Model
+    |
+    | still unavailable / unhealthy
+    v
+Deterministic Decision Algorithm
+    |
+    v
+Attention Light / Cognitive Kernel
+```
+
+Typical configuration:
+
+```text
+primary:    Laya or Jev
+secondary:  another compatible decision model
+algorithm:  deterministic heuristic policy
+```
+
+The secondary model is a **substitute model**, not a reasoning escalation. It should implement the same typed `DecisionProvider` contract.
+
+The deterministic algorithm is the final availability fallback. It should use runtime-observable signals such as:
+
+- repeated-failure count,
+- progress delta,
+- retrieval coverage,
+- contradiction count,
+- evidence sufficiency,
+- token pressure,
+- known hard thresholds,
+- current Workflow/action constraints.
+
+The algorithm fallback must not attempt to imitate semantic judgment it cannot reliably perform. When semantic ambiguity remains, it should prefer a safe bounded policy or escalate to Think.
+
+### 5.4 Failure vs uncertainty
+
+Fallback and escalation solve different problems.
+
+```text
+Decision model operational failure
+    -> substitute decision model
+    -> deterministic algorithm fallback
+
+Decision model semantic uncertainty
+    -> do NOT hide it with fallback
+    -> Think / deeper evidence gathering
+```
+
+Examples of operational failure:
+
+- provider unavailable,
+- timeout,
+- invalid/malformed typed output,
+- incompatible schema,
+- model health circuit open.
+
+Examples of semantic uncertainty:
+
+- high normalized entropy,
+- small top-two margin,
+- mutually conflicting answers,
+- low confidence on evidence sufficiency,
+- unstable decision across repeated equivalent state.
+
+Semantic uncertainty is information about the task. Replacing the model just to obtain a more confident answer can destroy that signal.
+
+### 5.5 Decision health and circuit breaker
+
+The Cognitive Kernel should maintain health independently for each decision provider.
+
+A provider may be temporarily bypassed after repeated operational failures.
+
+Conceptually:
+
+```text
+closed
+  -> failures exceed threshold
+open
+  -> skip provider for cooldown window
+half-open
+  -> probe with bounded request
+  -> success => closed
+  -> failure => open
+```
+
+Health state is operational metadata and must not be interpreted as model capability evidence.
+
+
 ## 6. Think
 
 Think is task-local deliberate reasoning.
@@ -667,6 +768,9 @@ The current fixed Attention algorithm remains the fallback when no adaptive cont
 | Current Active Promotion | Implemented |
 | Cognitive Git | Implemented |
 | DecisionProvider interface | Planned |
+| Decision-provider substitute-model fallback | Planned |
+| Deterministic decision-algorithm fallback | Planned |
+| Decision-provider health / circuit breaker | Planned |
 | Jev decision provider | Planned |
 | Laya decision provider | Planned |
 | Progress Monitor / failure signatures | Planned |
@@ -688,14 +792,15 @@ Recommended implementation order:
 1. Progress Monitor + failure signatures
 2. Work Unit + Capability Contract
 3. Model Broker with static hard capabilities
-4. DecisionProvider + heuristic implementation
-5. Laya/Jev DecisionProvider adapters
-6. Think escalation contract
-7. Outcome-based capability learning
-8. Graph Governor Analyzer
-9. GraphMutationPlan + Validator
-10. Governor model integration
-11. hot/warm/cold tiers + Cortex Epochs
+4. DecisionProvider + deterministic algorithm fallback
+5. Decision-provider health/circuit breaker + substitute-model chain
+6. Laya/Jev DecisionProvider adapters
+7. Think escalation contract
+8. Outcome-based capability learning
+9. Graph Governor Analyzer
+10. GraphMutationPlan + Validator
+11. Governor model integration
+12. hot/warm/cold tiers + Cortex Epochs
 ```
 
 The deterministic fallback path must remain usable throughout the migration.
