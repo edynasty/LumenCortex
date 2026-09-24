@@ -50,7 +50,9 @@ Node.js reference runtime 已接入第一版可运行控制面：
 - **Progress Monitor**：归一化失败 signature，识别重复等价失败。
 - **Cognitive Trace**：每一步记录 Category / Think / Effort / Retrieval / Decision error / Model candidates。
 - **Model Telemetry**：记录每个具体模型的调用次数、失败次数和 EWMA 总延迟；默认不会改变用户配置的 Category 顺序。
-- **Graph Governor baseline**：已实现全局 Analyzer、候选生成、确定性 Plan Validator、safe tier metadata 与 safe archive 执行。
+- **Persistent Work Units**：支持依赖、required evidence、verification gate 和最终回答门禁；Work Unit 禁止选择模型/provider/Category。
+- **Graph Governor baseline**：已实现全局 Analyzer、独立配置的语义 Curator、确定性 Validator、safe tier/archive，以及显式 branch/promotion/canonicalization 和可回滚 Cortex Epoch。
+- **Storage tiers**：SQLite schema v2 持久化 hot/warm/cold、访问时间/次数、归档时间和 compaction 状态；safe compaction 只清理派生搜索缓存，不删除图认知。
 
 Jev/Laya **只属于 Decision Layer**，不执行 coding Work Unit，也不会出现在 Category 生成模型链里。
 
@@ -208,9 +210,13 @@ Category Model Chain
 ```bash
 lcx cognition defaults
 lcx governor analyze
+lcx governor storage
+lcx governor compact --retention-days 30
+lcx governor compact --retention-days 30 --yes
 lcx governor plan
 lcx governor apply plan.json --dry-run
 lcx governor apply plan.json --yes
+lcx governor apply plan.json --semantic --epoch --yes
 ```
 
 关闭控制面：
@@ -242,6 +248,7 @@ lcx agent "continue" --session session_xxx --yes
 --timeout-ms 120000
 --tools read_file,code_search,apply_patch,shell
 --workflow path/to/workflow.json
+--work-units examples/work-units.json
 --max-tool-calls-per-step N
 --cognition path/to/cognition.json
 --no-cognition
@@ -315,8 +322,10 @@ lcx edge cut <edgeId> [reason]
 lcx edge restore <edgeId>
 lcx edge graft <from> <type> <to> [weight] [reason]
 lcx governor analyze
+lcx governor storage
+lcx governor compact [--retention-days 30] [--yes]
 lcx governor plan
-lcx governor apply <plan.json> --dry-run|--yes
+lcx governor apply <plan.json> --dry-run|--yes [--semantic] [--epoch]
 ```
 
 ## 持久化
@@ -376,11 +385,10 @@ Node.js 目前仍是生产 `lcx` 主路径；Go runtime 正在按 bounded-memory
 
 - Embedding Retrieval
 - Real Git Worktree transaction binding
-- Graph Governor 模型 Curator/Planner
-- Cortex Epoch 自动执行
-- 物理 Graph GC / hot-warm-cold storage
-- 自动 split / merge / canonicalization 执行
-- Jev/Laya live validation 与 routing benchmark
+- Governor 自动调度与更高层 split/merge policy
+- 独立物理 hot/warm/cold node store 或破坏性 cognitive GC
+- Jev/Laya live validation、校准与 routing benchmark
+- 新控制面的 Go runtime parity
 - reusable Skills
 - vision/browser tooling
 - 新认知控制面对 Go runtime 的完整 parity
