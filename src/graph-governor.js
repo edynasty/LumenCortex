@@ -211,6 +211,7 @@ export function validateGraphGovernorPlan(plan, graphState) {
   for (const item of plan?.branch ?? []) {
     if (!item?.from || !ids.has(item.from)) errors.push('branch from node is missing or unknown');
     if (!item?.to || !ids.has(item.to)) errors.push('branch to node is missing or unknown');
+    if (item?.from && item?.to && item.from === item.to) errors.push('branch endpoints must be different nodes');
   }
 
   for (const item of plan?.promote ?? []) {
@@ -294,8 +295,9 @@ export class GraphGovernor {
     const beforeAnalysis = this.analyzer.analyze(snapshot);
     const changed = [];
     const deferred = {
-      branch: validation.normalized.branch,
-      promote: validation.normalized.promote
+      canonicalize: [],
+      branch: [],
+      promote: []
     };
     const tierByNode = new Map();
 
@@ -371,8 +373,121 @@ export class GraphGovernor {
           }
         }
       }
-    } else if (validation.normalized.canonicalize.length) {
+      for (const item of validation.normalized.branch) {
+        const from = graph.requireNode(item.from);
+        const to = graph.requireNode(item.to);
+        const branchId = `branch_${hash({
+          from: [from.id, to.id].sort(),
+          reason: String(item.reason ?? '')
+        }).slice(0, 16)}`;
+
+        if (!graph.getNode(branchId)) {
+          graph.addNode({
+            id: branchId,
+            kind: 'abstraction',
+            title: `Cognitive Branch: ${from.title} ↔ ${to.title}`,
+            body: String(item.reason ?? 'Competing hypotheses preserved by Graph Governor.').slice(0, 4000),
+            tags: ['cognitive-branch', 'graph-governor'],
+            trustZone: 'model_inferred',
+            grade: 'hypothesis',
+            childIds: [from.id, to.id],
+            metadata: {
+              generatedBy: 'graph-governor',
+              governorBranch: true,
+              reason: String(item.reason ?? '').slice(0, 1000)
+            }
+          });
+          changed.push({
+            nodeId: branchId,
+            action: 'branch',
+            members: [from.id, to.id]
+          });
+        }
+
+        for (const childId of [from.id, to.id]) {
+          const edgeId = `edge_${hash(`branch-abstracts:${branchId}:${childId}`).slice(0, 16)}`;
+          if (!graph.getEdge(edgeId)) {
+            graph.addEdge({
+              id: edgeId,
+              from: branchId,
+              to: childId,
+              type: 'abstracts',
+              weight: 1,
+              metadata: {
+                governor: true,
+                cognitiveBranch: true
+              }
+            });
+            changed.push({
+              edgeId,
+              action: 'branch-edge',
+              from: branchId,
+              to: childId
+            });
+          }
+        }
+      }
+
+      for (const item of validation.normalized.promote) {
+        const childIds = uniqueStrings(item.childIds ?? []);
+        if (!childIds.length) continue;
+        const promotionId = `gov_abs_${hash({
+          title: String(item.title ?? ''),
+          childIds: [...childIds].sort()
+        }).slice(0, 16)}`;
+
+        if (!graph.getNode(promotionId)) {
+          const children = childIds.map((id) => graph.requireNode(id));
+          graph.addNode({
+            id: promotionId,
+            kind: 'abstraction',
+            title: String(item.title ?? '').trim() || `Governor abstraction of ${children.length} nodes`,
+            body: governorPromotionBody(children, item.reason),
+            tags: ['abstraction', 'graph-governor', 'global-promotion'],
+            trustZone: 'model_inferred',
+            grade: lowestGrade(children),
+            childIds,
+            metadata: {
+              generatedBy: 'graph-governor',
+              globalPromotion: true,
+              reason: String(item.reason ?? '').slice(0, 1000),
+              childCount: childIds.length
+            }
+          });
+          changed.push({
+            nodeId: promotionId,
+            action: 'promote',
+            childIds
+          });
+        }
+
+        for (const childId of childIds) {
+          const edgeId = `edge_${hash(`governor-abstracts:${promotionId}:${childId}`).slice(0, 16)}`;
+          if (!graph.getEdge(edgeId)) {
+            graph.addEdge({
+              id: edgeId,
+              from: promotionId,
+              to: childId,
+              type: 'abstracts',
+              weight: 1,
+              metadata: {
+                governor: true,
+                globalPromotion: true
+              }
+            });
+            changed.push({
+              edgeId,
+              action: 'promotion-edge',
+              from: promotionId,
+              to: childId
+            });
+          }
+        }
+      }
+    } else {
       deferred.canonicalize = validation.normalized.canonicalize;
+      deferred.branch = validation.normalized.branch;
+      deferred.promote = validation.normalized.promote;
     }
 
     const afterGovernanceSnapshot = graph.snapshot();
@@ -692,4 +807,25 @@ function parseGovernorJson(content) {
   }
 
   throw new Error('Graph Governor Curator returned invalid JSON');
+}
+
+
+function governorPromotionBody(children, reason) {
+  const lines = children.slice(0, 16).map((node) => {
+    const body = String(node.body ?? '').replace(/\s+/g, ' ').trim();
+    const excerpt = body.length > 180 ? `${body.slice(0, 177)}...` : body;
+    return `- ${node.title}${excerpt ? `: ${excerpt}` : ''}`;
+  });
+  const prefix = reason ? `Governor reason: ${String(reason).slice(0, 1000)}\n\n` : '';
+  return `${prefix}Children:\n${lines.join('\n')}`;
+}
+
+function lowestGrade(nodes) {
+  const order = ['hypothesis', 'static', 'tested', 'runtime', 'reproduced'];
+  let index = order.length - 1;
+  for (const node of nodes) {
+    const current = order.indexOf(node.grade);
+    index = Math.min(index, current >= 0 ? current : 0);
+  }
+  return order[index];
 }
