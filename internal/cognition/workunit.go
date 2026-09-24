@@ -181,6 +181,78 @@ func (m *WorkUnitManager) Seed(units []WorkUnit) error {
 	return nil
 }
 
+func (m *WorkUnitManager) List() []WorkUnit {
+	out := make([]WorkUnit, 0, len(m.State.Order))
+	for _, id := range m.State.Order {
+		if unit, ok := m.State.Items[id]; ok {
+			out = append(out, unit)
+		}
+	}
+	return out
+}
+
+func (m *WorkUnitManager) Current() *WorkUnit {
+	if m.State.ActiveID == "" {
+		return nil
+	}
+	unit, ok := m.State.Items[m.State.ActiveID]
+	if !ok || terminalWorkStatus(unit.Status) {
+		return nil
+	}
+	copy := unit
+	return &copy
+}
+
+func (m *WorkUnitManager) Add(unit WorkUnit) (WorkUnit, error) {
+	if strings.TrimSpace(unit.Goal) == "" {
+		return WorkUnit{}, errors.New("work unit goal is required")
+	}
+	if strings.TrimSpace(unit.ID) == "" {
+		unit.ID = fmt.Sprintf("wu_%d", len(m.State.Order)+1)
+	}
+	if _, exists := m.State.Items[unit.ID]; exists {
+		return WorkUnit{}, fmt.Errorf("work unit already exists: %s", unit.ID)
+	}
+	if unit.Status == "" {
+		unit.Status = WorkPending
+	}
+	if unit.Risk == "" {
+		unit.Risk = "medium"
+	}
+	if !validWorkStatus(unit.Status) {
+		return WorkUnit{}, fmt.Errorf("invalid work unit status: %s", unit.Status)
+	}
+	if !validRisk(unit.Risk) {
+		return WorkUnit{}, fmt.Errorf("invalid work unit risk: %s", unit.Risk)
+	}
+	unit.DependsOn = uniqueStrings(unit.DependsOn)
+	for _, dep := range unit.DependsOn {
+		if dep == unit.ID {
+			return WorkUnit{}, fmt.Errorf("work unit %s cannot depend on itself", unit.ID)
+		}
+		if _, ok := m.State.Items[dep]; !ok {
+			return WorkUnit{}, fmt.Errorf("work unit %s depends on unknown unit: %s", unit.ID, dep)
+		}
+	}
+	unit.RequiredEvidence = uniqueStrings(unit.RequiredEvidence)
+	unit.Verification = uniqueStrings(unit.Verification)
+	now := m.now().UTC()
+	if unit.CreatedAt.IsZero() {
+		unit.CreatedAt = now
+	}
+	unit.UpdatedAt = now
+
+	candidate := m.List()
+	candidate = append(candidate, unit)
+	if err := detectWorkCycles(candidate); err != nil {
+		return WorkUnit{}, err
+	}
+	m.State.Items[unit.ID] = unit
+	m.State.Order = append(m.State.Order, unit.ID)
+	_, _ = m.EnsureActive()
+	return unit, nil
+}
+
 func (m *WorkUnitManager) EnsureActive() (*WorkUnit, error) {
 	if m.State.ActiveID != "" {
 		if unit, ok := m.State.Items[m.State.ActiveID]; ok && !terminalWorkStatus(unit.Status) {
