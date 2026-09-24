@@ -78,6 +78,37 @@ When no Workflow Contract is active, the same cognitive/execution loop runs with
 
 The detailed state machine is maintained in [Agent execution flow](execution-flow.md).
 
+## Target cognitive control plane
+
+The next architecture stage separates adaptive cognition into five roles:
+
+| Role | Responsibility | Status |
+|---|---|---|
+| Cognitive Kernel | deterministic constraints, budgets, legal transitions, validation | Planned |
+| Light Controller | fast typed decisions over compressed state | Planned |
+| Think | task-local deliberate reasoning and strategy revision | Planned |
+| Model Broker | capability/cost/latency-aware model selection | Planned |
+| Graph Governor | long-horizon pruning, branching, promotion, canonicalization, summaries, and Cortex versioning | Planned |
+
+These roles are intentionally separate from the current deterministic Attention Light and Agent Loop. The exact target contracts, escalation formulas, model-selection utility, and Graph Governor lifecycle are defined in [Cognitive control plane](cognitive-control-plane.md).
+
+The core boundary is:
+
+```text
+models propose judgment / strategy / graph plans
+        |
+        v
+Cognitive Kernel / validators
+        |
+        v
+Attention / Broker / Graph engines
+        |
+        v
+verified execution + durable state
+```
+
+Think does not own global graph maintenance. Graph Governor does not own current-task strategy. Model Broker does not decompose tasks, and tasks do not bind directly to concrete model names.
+
 ## Attention Light
 
 Implemented attention currently combines:
@@ -272,6 +303,13 @@ All providers use the same tool-calling Agent Loop.
 | Structural graft edge | Implemented |
 | Cross-branch graft | Implemented through merge/cherry-pick |
 | Automatic split/merge/canonicalization controller | Planned |
+| DecisionProvider / Light Controller | Planned |
+| Progress Monitor + cognitive escalation | Planned |
+| Work Unit / Capability Contract | Planned |
+| Capability-aware Model Broker | Planned |
+| Verified model capability learning | Planned |
+| Graph Governor | Planned |
+| Cortex Epochs | Planned |
 
 ## SQLite consistency model
 
