@@ -235,6 +235,7 @@ export class AgentLoop {
         workingMessages: requestMessages.length,
         workingTokens: requestMessages.reduce((sum, message) => sum + estimateTokens(message), 0),
         workflowAction: workflow?.actionId() ?? null,
+        reasoningEffort: cognitivePlan ? (cognitivePlan.think ? cognitivePlan.effort : 'none') : null,
         availableTools: toolSchemas.map((schema) => schema.function.name)
       });
 
@@ -248,6 +249,7 @@ export class AgentLoop {
             toolChoice: 'auto',
             temperature: options.temperature,
             maxTokens: requestedMaxTokens,
+            reasoningEffort: cognitivePlan ? (cognitivePlan.think ? cognitivePlan.effort : 'none') : undefined,
             signal: options.signal
           },
           {
@@ -322,6 +324,7 @@ export class AgentLoop {
               toolChoice: 'auto',
               temperature: options.temperature,
               maxTokens: requestedMaxTokens,
+              reasoningEffort: cognitivePlan ? (cognitivePlan.think ? cognitivePlan.effort : 'none') : undefined,
               signal: options.signal
             },
             {
