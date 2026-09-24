@@ -457,12 +457,14 @@ async function governorCommand({ repo, workspace, argv }) {
 
   if (action === 'apply') {
     const file = parsed.positionals[0];
-    if (!file) fail('Usage: lcx governor apply <plan.json> --yes [--dry-run]');
+    if (!file) fail('Usage: lcx governor apply <plan.json> --yes [--dry-run] [--semantic] [--epoch]');
     const plan = JSON.parse(fs.readFileSync(path.resolve(file), 'utf8'));
     const dryRun = Boolean(parsed.flags['dry-run']);
     if (!dryRun && !parsed.flags.yes) fail('Graph Governor apply requires --yes or --dry-run');
-    const result = governor.applySafe(plan, {
+    const result = governor.applyPlan(plan, {
       dryRun,
+      semantic: Boolean(parsed.flags.semantic),
+      createEpoch: Boolean(parsed.flags.epoch),
       commit: parsed.flags['no-commit'] ? false : true,
       message: parsed.flags.message ? String(parsed.flags.message) : undefined
     });
@@ -848,7 +850,7 @@ Agent commands:
   tui [--provider P] [--model M] [--yes]
   parallel <tasks.json> [--concurrency 4] [--unsafe-write-parallel]
   sessions [--limit 20]
-  governor analyze|plan|apply
+  governor analyze|plan|apply [--semantic] [--epoch]
   workflow validate <file.json>
   workflow status <session-id>
   workflow approve <session-id> <gate-id> [--actor name]
