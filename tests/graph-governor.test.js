@@ -284,3 +284,57 @@ test('Cortex Epoch records governance metadata and is reversible through Cogniti
     repo.close();
   }
 });
+
+
+test('semantic Governor apply preserves competing branches and promotes global abstractions', () => {
+  const graph = graphFixture();
+  const repository = {
+    _graph: graph.snapshot(),
+    graph() {
+      return new CognitiveGraph(this._graph);
+    },
+    writeGraph(next) {
+      this._graph = structuredClone(next);
+    },
+    commit() {
+      throw new Error('commit not expected');
+    }
+  };
+  const governor = new GraphGovernor({ repository });
+
+  const result = governor.applyPlan({
+    branch: [
+      { from: 'a', to: 'b', reason: 'Both provider architecture hypotheses remain plausible.' }
+    ],
+    promote: [
+      { title: 'Provider Architecture Overview', childIds: ['a', 'b', 'e'], reason: 'Shared provider cluster.' }
+    ]
+  }, {
+    semantic: true,
+    commit: false
+  });
+
+  assert.equal(result.deferred.branch.length, 0);
+  assert.equal(result.deferred.promote.length, 0);
+
+  const nodes = Object.values(repository._graph.nodes);
+  const branch = nodes.find((node) => node.metadata?.governorBranch === true);
+  const promotion = nodes.find((node) => node.metadata?.globalPromotion === true);
+
+  assert.ok(branch);
+  assert.deepEqual(branch.childIds, ['a', 'b']);
+  assert.ok(promotion);
+  assert.deepEqual(promotion.childIds, ['a', 'b', 'e']);
+
+  assert.ok(repository._graph.nodes.a);
+  assert.ok(repository._graph.nodes.b);
+  assert.ok(repository._graph.nodes.e);
+
+  const branchEdges = Object.values(repository._graph.edges)
+    .filter((edge) => edge.metadata?.cognitiveBranch === true);
+  const promotionEdges = Object.values(repository._graph.edges)
+    .filter((edge) => edge.metadata?.globalPromotion === true);
+
+  assert.equal(branchEdges.length, 2);
+  assert.equal(promotionEdges.length, 3);
+});
