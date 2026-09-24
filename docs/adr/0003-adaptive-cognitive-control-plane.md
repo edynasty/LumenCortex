@@ -27,7 +27,7 @@ Adopt a five-part cognitive control architecture:
 1. **Cognitive Kernel** — deterministic control, budgets, legality, policy application, persistence, and audit.
 2. **Light Controller** — fast typed local decisions through a pluggable `DecisionProvider`.
 3. **Think** — a first-class task-local deliberate reasoning route, selectable directly or after later progress/failure signals.
-4. **Cognitive Profile** — configuration that binds Fast, Think, execution, and Governor roles to concrete providers/models and constrains allowed Think-effort ranges.
+4. **Cognitive Profile / Model Catalog** — declarative model list with mode eligibility, task specialties, defaults, and hard capabilities; runtime speed is observed automatically.
 5. **Graph Governor** — long-horizon Context Graph maintenance across tasks and Sessions.
 
 The current deterministic Attention Light remains the graph-selection engine.
@@ -53,9 +53,11 @@ The framework chooses cognitive mode; configuration chooses the concrete provide
 - Graph Governor is cross-session/global and does not own the current task plan.
 - Cognitive mode selection and concrete model configuration are separate concerns.
 - Work Units do not choose models.
-- Fast/Think/Governor providers are configured explicitly.
+- Fast/Think/Governor models are configured explicitly through a Model Catalog.
+- Model entries may declare qualitative task specialties; users do not configure numeric suitability scores or effort ranges.
 - Changing GPT to Claude for Think is a configuration change, not a runtime routing decision.
-- Think reasoning intensity is a framework-owned runtime decision within configured bounds.
+- Think reasoning intensity is a framework-owned runtime decision.
+- Runtime latency/speed is observed by LumenCortex rather than manually classified.
 - Durable graph maintenance preserves provenance and is auditable through Cognitive Git.
 - Destructive deletion is exceptional; archival/tiering/canonicalization are preferred.
 - Planned components must not be documented as implemented until code and validation exist.
@@ -119,7 +121,7 @@ The framework owns two independent decisions:
 2. Think effort: low / medium / high / max
 ```
 
-The concrete Think model remains configuration-bound.
+The concrete Think model is resolved from the configured Model Catalog after the framework determines mode, task profile, and effort.
 
 A target metareasoning objective is:
 
@@ -139,15 +141,18 @@ Provider adapters map the abstract effort to provider-supported reasoning contro
 
 The framework does not dynamically rank GPT, Claude, DeepSeek, Laya, Jev, or other models against one another at runtime.
 
-A Cognitive Profile binds roles to concrete implementations and bounds their runtime effort, for example:
+A Cognitive Profile / Model Catalog declares available models and simple task specialties, for example:
 
 ```text
-Fast     -> Laya
-Think    -> Claude, effort range low..high
-Governor -> configured reasoning model
+Laya   -> Fast
+Model A -> Think default
+Model B -> Think specialties: frontend, visual
+Model C -> Think specialties: debugging, architecture
 ```
 
-The same architecture remains valid if the user changes those bindings. Route selection remains framework-owned; provider/model choice remains configuration-owned.
+The framework derives the current Task Profile. The catalog resolver prefers a matching specialist, otherwise the configured mode default. List order resolves ties. Runtime speed is measured automatically and may be used as a tie-breaker.
+
+The same architecture remains valid if the user changes those entries. Cognitive-mode selection and Think effort remain framework-owned.
 
 ## Graph governance
 
@@ -209,7 +214,7 @@ Rejected because semantic proposals require deterministic validation, provenance
 
 - introduces additional contracts and runtime state,
 - requires progress/failure instrumentation before adaptive routing is useful,
-- configured profiles require sensible defaults and clear override precedence,
+- configured catalogs require sensible defaults, a small task-tag taxonomy, and clear override precedence,
 - Graph Governor adds validation and migration complexity,
 - cost/latency utility functions require calibration.
 
@@ -231,7 +236,7 @@ Future implementation may add persisted:
 
 - failure signatures,
 - Work Units,
-- cognitive profile / mode bindings,
+- cognitive profile / model catalog,
 - Governor plans,
 - Cortex Epoch metadata.
 
@@ -248,12 +253,13 @@ Before adaptive control can be called validated:
 5. low-confidence decisions remain visible to route selection rather than being hidden by provider switching,
 6. Progress Monitor correctly groups repeated failures,
 7. routing tests prove direct Think selection and fast -> Think -> fast transitions,
-8. profile-resolution tests prove explicit run override > project profile > user profile > default,
-9. changing Think from one configured reasoning provider to another does not change routing semantics,
-10. Think effort changes dynamically for low/high-complexity states while remaining within configured bounds,
-11. graph plans cannot bypass Graph Validator,
-12. Governor operations preserve provenance and support rollback,
-13. benchmark adaptive routing and Think-effort allocation against fixed baselines for quality, cost, and latency.
+8. catalog-resolution tests prove specialty matching, default fallback, and explicit run override > project > user > built-in precedence,
+9. speed telemetry is learned from runtime calls rather than user-entered classes,
+10. changing Think from one configured reasoning provider to another does not change routing semantics,
+11. Think effort changes dynamically for low/high-complexity states,
+12. graph plans cannot bypass Graph Validator,
+13. Governor operations preserve provenance and support rollback,
+14. benchmark adaptive routing and Think-effort allocation against fixed baselines for quality, cost, and latency.
 
 ## Documentation impact
 
