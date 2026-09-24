@@ -34,6 +34,9 @@ A feature being present in source code is not enough. Readiness claims require a
 | Workspace rollback after arbitrary shell mutation | Not implemented | None | Gap; apply_patch itself is atomic, whole Agent runs are not |
 | Skills layer | Not implemented | None | Gap; Workflow Contract is now a stable substrate for future Skill bindings |
 | Vision/browser tools | Not implemented | None | Gap |
+| Adaptive cognitive routing / Think escalation | Not implemented | None | Planned control-plane gap |
+| Capability-aware Model Broker | Not implemented | None | Planned control-plane gap |
+| Graph Governor / Cortex Epochs | Not implemented | None | Planned long-horizon cognition gap |
 
 ## Primary-agent evidence gates
 
@@ -76,6 +79,8 @@ In particular, the current architecture does not yet claim:
 - semantic embedding retrieval,
 - reusable Skills,
 - vision/browser automation,
-- polished terminal navigation equivalent to mature editor-grade TUIs.
+- polished terminal navigation equivalent to mature editor-grade TUIs,
+- adaptive Light/Think routing and capability-aware model brokering,
+- Graph Governor maintenance, hot/warm/cold tiers, canonicalization, and Cortex Epochs.
 
 These are tracked as explicit product gaps rather than being inferred from the existence of generic shell or MCP tools.
