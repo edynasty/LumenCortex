@@ -1,0 +1,85 @@
+flowchart TB
+  subgraph INPUT["INPUTS & RUNTIME STATE"]
+    direction LR
+    U["User Goal"]
+    P["Project Context"]
+    W["Workspace / Code"]
+    R["Runtime & Workflow State"]
+    M["Graph Memory"]
+  end
+
+  subgraph DECISION["DECISION LAYER — ADVISORY, NON-EXECUTION"]
+    direction LR
+    A["Algorithmic Decision"]
+    J["Jev Decision Provider"]
+    L["Laya Decision Provider"]
+    S["Typed Signals<br/>Category • Stuck • Evidence Sufficiency • Retrieval • Uncertainty"]
+    A --> S
+    J --> S
+    L --> S
+  end
+
+  subgraph KERNEL["COGNITIVE KERNEL / FRAMEWORK ROUTER — FINAL AUTHORITY"]
+    direction LR
+    C["1  Select Category"]
+    T["2  Need Think?"]
+    E["3  Dynamic Think Effort<br/>low • medium • high • max"]
+    C --> T --> E
+  end
+
+  subgraph CHAINS["CATEGORY MODEL CHAINS — ORDERED USER PREFERENCE"]
+    direction LR
+    Q["quick<br/>Model A → Model B"]
+    G["general  (default)<br/>Model A → Model B → Model C"]
+    D["deep<br/>Model A → Model B → Model C"]
+    B["ultrabrain<br/>Model A → Model B"]
+    V["visual-engineering<br/>Model A → Model B"]
+    RS["research<br/>Model A → Model B"]
+  end
+
+  subgraph EXEC["THINK / AGENT EXECUTION"]
+    direction LR
+    GEN["Generation & Reasoning"]
+    TOOL["Tool Use"]
+    TASK["Task Execution"]
+    VER["Verification & Reflection"]
+    GEN --> TOOL --> TASK --> VER
+  end
+
+  subgraph STORE["PERSISTENT COGNITIVE STATE"]
+    direction LR
+    CG["Context Graph"]
+    Git["Cognitive Git"]
+    Hist["Session / Execution History"]
+  end
+
+  GG["GRAPH GOVERNOR<br/>Analyze • Tier • Archive<br/>Branch • Promote • Canonicalize • Epoch"]
+
+  INPUT --> DECISION
+  M --> DECISION
+  S --> C
+  E --> CHAINS
+  CHAINS --> GEN
+  VER --> CG
+  VER --> Git
+  VER --> Hist
+  CG -. governance analysis .-> GG
+  Git -. version history .-> GG
+  GG -. safe maintenance .-> CG
+  GG -. governance commit .-> Git
+
+  classDef input fill:#e9f7e9,stroke:#4f8a4f,color:#173817,stroke-width:1.5px;
+  classDef decision fill:#eaf3ff,stroke:#3478c7,color:#17324f,stroke-width:1.5px;
+  classDef kernel fill:#f3ecff,stroke:#7a57c9,color:#34205f,stroke-width:1.5px;
+  classDef category fill:#fff4d9,stroke:#c99620,color:#573f08,stroke-width:1.5px;
+  classDef exec fill:#e9fbf4,stroke:#2d9d73,color:#123e30,stroke-width:1.5px;
+  classDef store fill:#edf6ff,stroke:#3c7ab8,color:#173b5d,stroke-width:1.5px;
+  classDef governor fill:#fff0f2,stroke:#c9576c,color:#5d1e2b,stroke-width:1.5px;
+
+  class U,P,W,R,M input;
+  class A,J,L,S decision;
+  class C,T,E kernel;
+  class Q,G,D,B,V,RS category;
+  class GEN,TOOL,TASK,VER exec;
+  class CG,Git,Hist store;
+  class GG governor;
