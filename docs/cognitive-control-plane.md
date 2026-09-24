@@ -14,467 +14,117 @@ Related documents:
 
 ## 1. Design goal
 
-LumenCortex needs three different kinds of cognition:
+LumenCortex separates four concerns that must not be collapsed into one model:
 
-1. **Fast local judgment** — routing hints, retrieval policy, budget, stop/continue, confidence, and bounded classification.
-2. **Deliberative task reasoning** — diagnosis, hypothesis revision, planning, unknowns, repeated failure, and high-risk decisions.
-3. **Long-horizon Cortex governance** — pruning, branching, promotion, canonicalization, global summarization, tiering, and cognitive versioning.
+1. **Decision judgment** — fast bounded judgments such as uncertainty, evidence sufficiency, likely task category, progress, and retrieval direction.
+2. **Framework routing** — deterministic runtime authority that decides what the system does next, including whether deliberate Think is needed and how much reasoning effort to spend.
+3. **Category model chains** — user-configurable ordered lists of generative models for different kinds of work.
+4. **Long-horizon Cortex governance** — pruning, branching, promotion, canonicalization, summarization, tiering, and cognitive versioning.
 
-These operate on different time scales and must remain separate.
+The target components are:
 
-The framework therefore separates:
-
-| Component | Time scale | Main responsibility |
-|---|---|---|
-| Cognitive Kernel / Router | every step | deterministic mode selection, constraints, budgets, legality, validation |
-| Light Controller | fast | bounded typed judgments inside Fast mode |
-| Think | when selected | task-local deliberate reasoning and strategy revision |
-| Graph Governor | periodic / global | maintain the long-term structure of the Context Graph |
-| Cognitive Profile / Model Catalog | configuration | declare available models, task specialties, defaults, and hard capabilities |
+| Component | Responsibility |
+|---|---|
+| Cognitive Kernel / Router | final deterministic routing, budgets, legality, Think decision, reasoning effort |
+| Decision Layer | advisory fast judgments from algorithm/Jev/Laya-compatible providers |
+| Category Resolver | choose an ordered generative-model chain from the selected Category |
+| Think | deliberate reasoning using the selected generative model and framework-selected effort |
+| Graph Governor | long-horizon Context Graph maintenance |
+| Cognitive Profile | configure Decision providers and Category model chains |
 
 ## 2. Core invariants
 
 ```text
 Graph is Memory.
 Light is Attention.
-Fast is Bounded Judgment.
+Decision is Judgment.
 Think is Deliberation.
+Category is Model Preference.
 Governor is Cognitive Maintenance.
 Agent is Execution.
 ```
 
 The runtime follows these rules:
 
-1. **The framework chooses the cognitive mode.**
-2. Models do not decide whether the runtime should be in Fast or Think.
-3. The framework computes cognitive mode and abstract effort; it does not directly choose vendor/model identity.
-4. Cognitive Profile / Model Catalog deterministically resolves `(mode, TaskProfile, constraints)` to a configured provider/model binding.
-5. Jev/Laya are interchangeable Fast-mode implementations behind a typed `DecisionProvider`.
-6. GPT/Claude/DeepSeek/local reasoning models are interchangeable Think-mode implementations behind a reasoning-provider contract.
-7. Different models may declare different task specialties; reasoning effort remains framework-controlled.
-8. Graph Governor uses its own configured model binding/catalog entry and does not share task-local Think responsibility.
-9. Models may propose judgments, strategies, or graph plans; deterministic runtime code owns legality, budgets, persistence, and execution.
+1. **The framework owns the final decision.**
+2. Jev/Laya do not execute the task and do not directly decide that the runtime must Think.
+3. Jev/Laya are Decision Layer implementations that return bounded judgments/signals to the framework.
+4. Category configuration contains ordered **generative model chains** only; it does not need a `mode` field.
+5. Category selection and Think effort are separate framework decisions.
+6. Think effort is dynamic and framework-controlled.
+7. A Category may contain multiple models. List order is explicit user preference.
+8. Category models generate/reason/execute through the Agent runtime; Decision Layer models do not.
+9. Models may propose judgments, strategies, or graph plans; deterministic runtime code owns legality, budgets, persistence, and durable mutation.
 10. Durable graph mutation must preserve provenance and remain auditable through Cognitive Git.
 
-## 3. Two separate decisions
-
-The architecture separates **framework cognition** from **declarative model policy**.
-
-The framework computes:
+## 3. Target control flow
 
 ```text
-(mode, TaskProfile, constraints)
+                        Current State
+                             |
+              +--------------+--------------+
+              |                             |
+              v                             v
+       Runtime Metrics                Decision Layer
+       deterministic              algorithm / Jev / Laya
+              |                             |
+              +--------------+--------------+
+                             |
+                             v
+                    Cognitive Kernel
+                    Framework Router
+                             |
+                +------------+------------+
+                |                         |
+                v                         v
+          Category choice           Think decision
+                                      + effort
+                |                         |
+                +------------+------------+
+                             |
+                             v
+                    Category Resolver
+                             |
+                             v
+                 Ordered Model Chain
+                 [Model A, B, C, ...]
+                             |
+                             v
+                 first eligible/healthy
+                     generative model
+                             |
+                             v
+                    Agent / Think / Tools
 ```
 
-The profile resolver computes:
+The Decision Layer is advisory.
 
-```text
-binding = resolve(catalog, mode, TaskProfile, constraints)
-```
+The Cognitive Kernel consumes:
 
-This resolver is deterministic configuration logic, not an autonomous model broker.
+- deterministic runtime state,
+- Decision Layer judgments,
+- Progress Monitor state,
+- Graph/Light state,
+- Workflow constraints,
+- provider health,
+- current budgets.
 
-```text
-                     Cognitive Request
-                            |
-                            v
-                  +--------------------+
-                  | Framework Router   |
-                  | deterministic      |
-                  +---------+----------+
-                            |
-                     (mode, effort)
-                            |
-                            v
-                  +--------------------+
-                  | Profile Resolver   |
-                  | deterministic      |
-                  +---------+----------+
-                            |
-        +-------------------+-------------------+
-        |                   |                   |
-        v                   v                   v
-   Algorithm Mode        Fast Mode          Think Mode
-   deterministic       DecisionProvider    ReasoningProvider
-                            |                   |
-                    configured route      configured tier
-                            |                   |
-                    Jev / Laya / ...      Model A / B / ...
-```
+It then makes the final routing decision.
 
-`DeepThink` is not a separate architecture mode. It is represented as Think with a higher framework-selected reasoning intensity.
+## 4. Decision Layer
 
-The framework never performs:
+Decision Layer models are not task-execution models.
 
-```text
-"Which model should I dynamically pick for this task?"
-```
+Typical questions are bounded and typed:
 
-Instead it performs:
+- what Category best describes the current work,
+- whether evidence is sufficient,
+- whether the current strategy is stuck,
+- whether retrieval should become causal/historical/dependency-oriented,
+- whether ambiguity is high,
+- whether observed progress is meaningful.
 
-```text
-"Which cognitive mode should run now?"
-```
-
-The configured Cognitive Profile / Model Catalog answers:
-
-```text
-"Given this mode, Task Profile and runtime constraints, which configured model applies?"
-```
-
-This is intentionally lighter than a learned model scheduler. It is explicit, inspectable, and deterministic.
-
-## 4. Cognitive Profile and lightweight Model Catalog
-
-The user-facing configuration should stay simple.
-
-Users should not need to estimate numeric suitability scores, effort ranges, cost classes, or latency classes.
-
-A model entry declares only:
-
-- provider/model identity,
-- which cognitive modes it may serve,
-- optional task specialties,
-- optional hard capabilities,
-- list order.
-
-Runtime speed is measured by LumenCortex.
-
-### 4.1 Minimal configuration
-
-```yaml
-cognition:
-  models:
-    - id: laya-local
-      provider: laya
-      model: decision-model
-      modes: [fast]
-
-    - id: general-think
-      provider: anthropic
-      model: reasoning-model
-      modes: [think]
-      default: true
-
-    - id: frontend-specialist
-      provider: provider-x
-      model: model-x
-      modes: [think]
-      specialties:
-        - frontend
-        - ui
-        - visual
-
-    - id: debug-specialist
-      provider: provider-y
-      model: model-y
-      modes: [think]
-      specialties:
-        - debugging
-        - architecture
-        - planning
-```
-
-This is intentionally qualitative.
-
-The user says:
-
-```text
-"this model is especially good at frontend/UI"
-```
-
-rather than:
-
-```text
-frontend = 0.93
-effort_range = [0.42, 0.81]
-latency_class = medium
-```
-
-### 4.2 Task Profile
-
-The framework derives a small set of task tags from the current state.
-
-Example:
-
-```text
-TaskProfile:
-  debugging
-  repository
-  architecture
-```
-
-Typical built-in tags may include:
-
-```text
-debugging
-architecture
-planning
-frontend
-ui
-visual
-research
-code_generation
-code_review
-repository_navigation
-testing
-refactoring
-documentation
-```
-
-The taxonomy should stay small and extensible. Custom tags may be allowed, but the built-in set should cover normal routing without configuration work.
-
-### 4.3 Deterministic matching
-
-For a selected cognitive mode:
-
-1. filter models that do not support the mode or required hard capabilities,
-2. prefer models whose `specialties` intersect the current Task Profile,
-3. if several models match equally, prefer earlier list order,
-4. if no specialist matches, use the configured default for that mode,
-5. if the default is unavailable, use the first eligible model.
-
-This is deterministic configuration resolution, not learned model competition.
-
-A specialist is a preference, not an exclusive binding.
-
-For example:
-
-```text
-TaskProfile = [frontend, visual]
-    -> frontend-specialist
-
-TaskProfile = [debugging, architecture]
-    -> debug-specialist
-
-TaskProfile = [general coding]
-    -> general-think
-```
-
-### 4.4 Runtime speed telemetry
-
-Users should not configure model speed.
-
-LumenCortex measures it from actual calls.
-
-Useful runtime observations include:
-
-- time to first token,
-- total response latency,
-- generated tokens per second,
-- tool-round latency,
-- timeout/error rate.
-
-The runtime keeps an EWMA or rolling percentile per concrete provider/model.
-
-Speed is only a tie-breaker or policy input after task suitability and hard requirements. A model marked as a specialist should not lose its intended task merely because a generic model is slightly faster.
-
-### 4.5 Dynamic Think effort
-
-Task/model matching and reasoning effort are separate decisions.
-
-The framework computes Think effort dynamically:
-
-```text
-low
-medium
-high
-max
-```
-
-The selected model adapter maps that abstract effort to whatever the provider supports:
-
-- native reasoning-effort parameter,
-- reasoning/token budget,
-- number of deliberate passes,
-- hypothesis count,
-- context budget,
-- Contrarian review,
-- focused Subagents,
-- verification depth.
-
-Users do not configure an `effort_range` per model.
-
-If a provider exposes hard limits, those are adapter capabilities, not user-authored suitability scores.
-
-### 4.6 Built-in defaults
-
-LumenCortex should ship a small built-in catalog so the system works without custom routing configuration.
-
-The built-in catalog should provide only a few roles:
-
-```text
-Fast default
-Think default
-Governor default
-```
-
-Optional built-in specialist hints may be shipped for a small number of well-known models, but they must remain overridable by user/project configuration.
-
-The product should avoid maintaining a large permanent model leaderboard.
-
-### 4.7 Configuration precedence
-
-Configuration resolves deterministically:
-
-```text
-explicit run override
-    > project catalog/profile
-    > user catalog/profile
-    > built-in default catalog
-```
-
-### 4.8 Route availability
-
-A cognitive mode is eligible only when at least one configured model for that mode is operational.
-
-```text
-Algorithm
-    always available
-
-Fast
-    available if at least one DecisionProvider model is available
-
-Think
-    available if at least one ReasoningProvider model is available
-```
-
-If a preferred specialist is unavailable, the resolver moves to the next matching entry or mode default.
-
-## 5. Cognitive Kernel / Router
-
-The Cognitive Kernel is deterministic orchestration code.
-
-It owns:
-
-- cognitive-mode selection,
-- Workflow and permission constraints,
-- token, cost, and latency budgets,
-- route availability,
-- deterministic Cognitive Profile resolution,
-- legal mode transitions,
-- provider health visibility,
-- validation of model-proposed policies,
-- graph-mutation authorization,
-- persistence and audit records.
-
-It does not answer semantic questions itself.
-
-The control invariant is:
-
-```text
-framework selects mode and Think effort
-    -> Task Profiler derives task tags
-        -> catalog resolver selects configured model
-        -> configured provider executes
-            -> kernel validates output
-                -> engine executes
-                    -> verifier records outcome
-```
-
-## 6. Framework cognitive-mode routing
-
-The framework chooses from modes, not model identities.
-
-```text
-M = {
-  Algorithm,
-  Fast,
-  Think
-}
-```
-
-Let `A(c)` be the set of modes available under configuration/health state `c`.
-
-```text
-mode* = argmax_{m in A(c)} V(m | s, c)
-```
-
-A target value function is:
-
-```text
-V(m | s)
-  = E[task_utility_gain | m, s]
-    - rho * transition_cost(m, s)
-    - nu  * risk(m, s)
-```
-
-The first implementation may approximate this with deterministic thresholds and state features.
-
-### 6.1 Typical routing signals
-
-Framework signals may include:
-
-- task complexity,
-- repeated equivalent failure,
-- progress delta,
-- unknown count,
-- contradiction density,
-- evidence sufficiency,
-- retrieval exhaustion,
-- requested operation risk,
-- irreversibility,
-- token pressure,
-- active Workflow constraints,
-- Fast-provider uncertainty,
-- mode availability.
-
-Examples:
-
-```text
-retry-after header is known
-    -> Algorithm
-
-token budget crossed a hard threshold
-    -> Algorithm
-
-bounded semantic routing question
-    -> Fast
-
-complex multi-file architectural change
-    -> Think
-
-same verified failure after multiple distinct attempts
-    -> Think
-
-Think failed and unresolved uncertainty remains high
-    -> Think again with higher framework-selected effort
-```
-
-Think can be selected on the first step. It is not only a failure escalation.
-
-## 7. Algorithm Mode
-
-Algorithm Mode handles decisions that are truly derivable from runtime state.
-
-Examples:
-
-- hard token-budget enforcement,
-- retry/backoff policy,
-- permission and Workflow gates,
-- known failure-count thresholds,
-- bounded graph-depth limits,
-- provider health state,
-- deterministic route exclusions.
-
-It must not imitate semantic judgment it cannot perform.
-
-If runtime state is insufficient, the framework selects Fast or Think according to routing policy and availability.
-
-## 8. Fast Mode and DecisionProvider
-
-Fast Mode performs high-frequency bounded semantic decisions.
-
-Typical uses:
-
-- choose retrieval policy,
-- judge evidence sufficiency,
-- classify likely failure type,
-- decide whether Light should expand,
-- score whether a contradiction is important,
-- estimate whether the current local action still has progress potential.
-
-### 8.1 Typed provider interface
+### 4.1 DecisionProvider
 
 ```ts
 interface DecisionProvider {
@@ -486,162 +136,286 @@ interface DecisionProvider {
 }
 ```
 
-Possible configured implementations:
+Possible implementations:
 
 ```text
 DecisionProvider
+├── AlgorithmDecisionProvider
 ├── JevDecisionProvider
 ├── LayaDecisionProvider
-├── SmallLLMDecisionProvider
-└── other compatible provider
+└── other compatible decision model
 ```
 
-Jev and Laya are implementations, not architecture requirements.
+Jev and Laya are interchangeable implementations of this layer, not entries in Category model chains.
 
 Conceptually:
 
 ```text
-D : State -> ProbabilityDistribution(Actions)
+D : compressed_state -> probability distributions / typed judgments
 ```
-
-The result should preserve distributions.
 
 Example:
 
 ```json
 {
-  "retrieval_mode": {
-    "code": 0.12,
-    "causal": 0.61,
-    "dependency": 0.19,
-    "historical": 0.08
+  "category": {
+    "general": 0.11,
+    "deep": 0.38,
+    "visual-engineering": 0.04,
+    "research": 0.07,
+    "ultrabrain": 0.40
   },
-  "evidence_sufficient": 0.34,
-  "stuck": 0.77
+  "evidence_sufficient": 0.22,
+  "stuck": 0.81,
+  "retrieval": {
+    "causal": 0.64,
+    "historical": 0.12,
+    "dependency": 0.24
+  }
 }
 ```
 
-### 8.2 Fast uncertainty
+The framework may accept, override, or ignore these judgments.
 
-For a probability distribution `p` over `K` actions:
+### 4.2 Decision uncertainty
+
+For a probability distribution `p` over `K` answers:
 
 ```text
 normalized_entropy(p)
   = - sum_i p_i * log(p_i) / log(K)
+
+margin(p)
+  = p_top1 - p_top2
 ```
 
-Also track:
+High entropy, low margin, conflicting answers, or unstable repeated judgments are themselves useful framework signals.
 
-```text
-margin(p) = p_top1 - p_top2
-```
+They are not task execution and are not direct commands to enter Think.
 
-High entropy, small margin, or conflicting Fast judgments are returned to the framework.
+### 4.3 No Decision model is required
 
-The Fast model does **not** decide to enter Think.
+A deployment may use:
 
-The framework consumes these signals and may choose:
+- algorithm only,
+- Jev only,
+- Laya only,
+- multiple DecisionProviders,
+- another compatible model.
 
-- remain in Fast,
-- gather more evidence,
-- switch to Algorithm,
-- enter Think,
-- remain in Think with a higher effort tier.
+The deterministic framework remains valid without Jev/Laya.
 
-## 9. Think Mode
+## 5. Category model chains
 
-Think is task-local deliberate reasoning selected by the framework.
+A Category describes a kind of generative work and provides an ordered model preference chain.
 
-The concrete reasoning model is configuration.
+It does **not** contain `mode: fast/think`.
 
-Examples:
-
-```text
-Think Mode
-├── OpenAI GPT reasoning model
-├── Anthropic Claude
-├── DeepSeek reasoning model
-├── local reasoning model
-└── other compatible generative provider
-```
-
-Changing:
-
-```text
-Think = GPT
-```
-
-to:
-
-```text
-Think = Claude
-```
-
-is a configuration change, not an architecture change and not a runtime model-selection decision.
-
-### 9.1 Think responsibilities
-
-Think is appropriate for:
-
-- root-cause diagnosis,
-- hypothesis generation/revision,
-- multi-step planning,
-- architecture trade-offs,
-- unresolved unknowns,
-- contradictory evidence,
-- repeated verified failures,
-- strategy reformulation.
-
-Think should normally return structured strategy/state:
+A minimal configuration is:
 
 ```yaml
-diagnosis:
-  hypotheses:
-    - transaction lifetime is wrong
-    - a test double hides the production path
+cognition:
+  decision:
+    providers:
+      - laya
+      - jev
 
-missing_evidence:
-  - production call path
-  - transaction boundary
+  categories:
+    quick:
+      description: small, bounded tasks with obvious local scope
+      models:
+        - provider/fast-general
+        - provider/general
 
-work_units:
-  - goal: inspect caller chain
-  - goal: reproduce the transaction boundary
+    general:
+      default: true
+      description: normal coding and reasoning work
+      models:
+        - provider/general
+        - provider/strong
 
-light_policy:
-  mode: causal
-  max_hops: 6
-  emphasize:
-    - calls
-    - causes
-    - depends_on
+    deep:
+      description: difficult multi-step reasoning and debugging
+      models:
+        - provider/strong
+        - provider/general
 
-stop_conditions:
-  - root cause reproduced
-  - hypothesis falsified
+    ultrabrain:
+      description: exceptionally difficult reasoning or repeated failed strategies
+      models:
+        - provider/best-reasoning
+        - provider/strong
+
+    visual-engineering:
+      description: UI, layout, visual implementation and interaction work
+      models:
+        - provider/visual-specialist
+        - provider/general
+
+    research:
+      description: broad investigation, evidence gathering and synthesis
+      models:
+        - provider/research-specialist
+        - provider/general
 ```
 
-The framework may return to Fast after Think has produced a usable strategy.
+Jev and Laya are intentionally absent from `categories.*.models`.
 
-## 10. Dynamic Think intensity
+## 6. Category selection
 
-Think is one cognitive mode with a dynamic reasoning intensity.
+The framework selects a Category from current task/state.
 
-The framework chooses the effort for each Think invocation. Model selection is resolved separately from task specialties and configured defaults.
+Inputs may include:
 
-A normalized target can be represented as:
+- user request,
+- current Goal,
+- active Work Unit,
+- repository context,
+- failure history,
+- Graph/Light evidence,
+- Decision Layer Category distribution,
+- previous Category and transition cost.
+
+Built-in Category names may take inspiration from concise work-oriented taxonomies such as:
 
 ```text
-e_t in [0, 1]
+quick
+general
+deep
+ultrabrain
+visual-engineering
+research
+writing
 ```
 
-or as implementation tiers:
+The built-in set should remain small. Users may add custom Categories with a short description and ordered model chain.
+
+### 6.1 Multiple models in one Category
+
+Multiple models are not a scoring problem.
+
+For:
+
+```yaml
+deep:
+  models:
+    - provider/model-a
+    - provider/model-b
+    - provider/model-c
+```
+
+resolution is:
 
 ```text
-low
-medium
-high
-max
+model-a eligible and healthy
+    -> model-a
+
+model-a unavailable/incompatible
+    -> model-b
+
+model-b unavailable/incompatible
+    -> model-c
+```
+
+If multiple entries are healthy, the first entry wins.
+
+This makes model choice predictable and lets the user explicitly express preference.
+
+### 6.2 Default Category
+
+If Category classification is uncertain and no stronger framework rule applies:
+
+```text
+use category.default == true
+```
+
+There must be at most one effective default after configuration precedence is resolved.
+
+### 6.3 Configuration precedence
+
+```text
+explicit run/project override
+    > project configuration
+    > user configuration
+    > built-in defaults
+```
+
+User-defined Category chains may override built-in chains without changing framework code.
+
+## 7. Runtime model telemetry
+
+Users should not manually describe speed classes.
+
+LumenCortex observes concrete provider/model behavior:
+
+- time to first token,
+- total latency,
+- output tokens/second,
+- tool-round latency,
+- timeout/error rate.
+
+A rolling EWMA or percentile summary may be retained.
+
+By default, telemetry does **not** reorder a healthy Category chain. Explicit list order remains authoritative.
+
+Telemetry is useful for:
+
+- timeout selection,
+- observability,
+- detecting unhealthy routes,
+- enforcing an explicit latency budget when one exists,
+- future opt-in routing policies.
+
+## 8. Framework Think decision
+
+Think is a framework behavior, not a Category property and not a Jev/Laya command.
+
+The Cognitive Kernel decides whether deliberate reasoning is warranted from runtime state.
+
+Typical signals:
+
+- task complexity,
+- important unknowns,
+- repeated equivalent failures,
+- low progress,
+- contradictory evidence,
+- retrieval exhaustion,
+- high-risk or hard-to-reverse actions,
+- Decision Layer uncertainty,
+- failed verification after plausible execution.
+
+A target value-of-computation rule is:
+
+```text
+Think if:
+
+E[deliberation_gain | state]
+  > compute_cost
+    + latency_cost
+    + transition_cost
+```
+
+The first implementation may use deterministic thresholds and bounded heuristics.
+
+A Category can influence model preference, but it does not itself force or disable Think.
+
+## 9. Dynamic Think intensity
+
+Once the framework chooses Think, it independently selects reasoning intensity.
+
+```text
+effort in {
+  low,
+  medium,
+  high,
+  max
+}
+```
+
+or internally:
+
+```text
+e in [0, 1]
 ```
 
 A target objective is:
@@ -654,7 +428,7 @@ effort* = argmax_e [
 ]
 ```
 
-The first implementation may estimate an effort score from observable state:
+A first implementation may estimate effort from:
 
 ```text
 z
@@ -666,25 +440,53 @@ z
   + w6 * action_risk
   + w7 * retrieval_exhaustion
 
-effort = clamp(sigmoid(z), configured_min, configured_max)
+effort = discretize(sigmoid(z))
 ```
 
-Users do not configure numeric effort ranges for individual models. The framework computes effort, while the selected provider adapter maps that effort to supported reasoning controls.
+The selected generative-model adapter maps the abstract effort to what that provider supports:
 
-After catalog resolution, the selected provider adapter translates the framework's abstract effort into controls supported by that provider/model.
-
-Possible mappings include:
-
-- native reasoning-effort controls when available,
+- native reasoning-effort controls,
 - reasoning/token budget,
-- context budget,
-- number of deliberate passes,
+- deliberate passes,
 - hypothesis count,
+- context budget,
 - Contrarian review,
 - focused Subagents,
 - verification depth.
 
-The provider/model does not choose its own effort tier. The framework computes it from runtime state.
+The Category does not need an effort range.
+
+## 10. Think and execution models
+
+Category chains contain normal generative models.
+
+Those models may be used by:
+
+- ordinary Agent execution,
+- deliberate Think,
+- planning,
+- coding,
+- review,
+- research,
+- other generative Work Units.
+
+The distinction is runtime behavior:
+
+```text
+same configured model
+    + ordinary Agent step
+        -> normal generation/execution
+
+same configured model
+    + Think selected
+        -> deliberate prompt/contract
+        -> dynamic effort
+        -> structured strategy/hypotheses
+```
+
+This keeps Category configuration simple while allowing the same model to serve different cognitive behaviors.
+
+Think should normally return structured strategy/state rather than directly owning persistent graph mutation.
 
 ## 11. Progress Monitor and route transitions
 
