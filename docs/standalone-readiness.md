@@ -35,7 +35,7 @@ A feature being present in source code is not enough. Readiness claims require a
 | Skills layer | Not implemented | None | Gap; Workflow Contract is now a stable substrate for future Skill bindings |
 | Vision/browser tools | Not implemented | None | Gap |
 | Adaptive cognitive routing / Think mode | Not implemented | None | Planned control-plane gap |
-| Cognitive Profile / specialty Model Catalog | Not implemented | None | Planned control-plane gap |
+| Decision Layer + Category model chains | Not implemented | None | Planned control-plane gap |
 | Graph Governor / Cortex Epochs | Not implemented | None | Planned long-horizon cognition gap |
 
 ## Primary-agent evidence gates
@@ -80,7 +80,7 @@ In particular, the current architecture does not yet claim:
 - reusable Skills,
 - vision/browser automation,
 - polished terminal navigation equivalent to mature editor-grade TUIs,
-- adaptive Algorithm/Fast/Think routing with a configurable specialty Model Catalog and runtime speed telemetry,
+- framework-owned Think routing with a separate Jev/Laya Decision Layer, ordered Category model chains, and runtime speed telemetry,
 - Graph Governor maintenance, hot/warm/cold tiers, canonicalization, and Cortex Epochs.
 
 These are tracked as explicit product gaps rather than being inferred from the existence of generic shell or MCP tools.
