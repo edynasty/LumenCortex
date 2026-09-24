@@ -2,7 +2,7 @@
 
 This document defines the target architecture for adaptive cognitive-mode routing, configurable model bindings, failure-aware reasoning, and long-horizon Context Graph governance in LumenCortex.
 
-> **Status:** Partially implemented architecture. The Node.js reference runtime now implements the Decision Layer baseline, ordered Category model chains, framework-owned Think routing, dynamic Think effort, Progress Monitor, model latency telemetry, and a safe Graph Governor analyzer/validator/executor baseline. Model-curated graph restructuring, full storage-tier migration, canonicalization execution, and Cortex Epoch execution remain planned.
+> **Status:** Implemented baseline with remaining scale/parity work. The Node.js reference runtime now implements the Decision Layer, ordered Category model chains, framework-owned Think routing, provider-specific reasoning-effort mapping, Progress Monitor, provider circuit breakers, persistent Work Units, semantic Graph Governor planning, provenance-preserving canonicalization/branch/promotion, reversible Cortex Epochs, and indexed hot/warm/cold storage metadata with safe derived-cache compaction. Live Jev/Laya calibration, physical data-plane tier separation/GC, and Go-runtime parity remain incomplete.
 
 Related documents:
 
@@ -540,10 +540,11 @@ unknown
 
 ## 12. Work Units
 
-Think may decompose a task into Work Units, but Work Units do not select models.
+Think may decompose a task into persistent Work Units, but Work Units never select models, providers, Categories, or reasoning effort.
 
 ```yaml
 work_unit:
+  id: repair-transaction
   goal: repair transaction bug
   risk: medium
   required_evidence:
@@ -553,23 +554,36 @@ work_unit:
     - unit_test
 ```
 
-The execution model remains whatever is configured for the execution role/profile unless the user explicitly overrides configuration.
+The implemented Work Unit runtime provides:
 
-This avoids turning task planning into dynamic model scheduling.
+- dependency ordering with cycle detection,
+- `pending / active / blocked / verifying / completed / failed / cancelled` state,
+- required-evidence gates,
+- passed-verification gates,
+- persistent Session storage,
+- `work_unit_list / work_unit_create / work_unit_update` Agent tools,
+- a final-answer gate while non-terminal Work Units remain.
+
+The active Work Unit is included in cognitive routing state, while model selection remains entirely outside the Work Unit contract.
 
 ## 13. Provider health
 
 Provider health is operational state, not cognitive competence.
 
-For each configured model-backed role:
+For each configured model-backed route, the implemented shared health registry uses a lightweight circuit breaker:
 
 ```text
 healthy
-  -> repeated transport/protocol failures
-temporarily unavailable
-  -> cooldown / bounded probe
-healthy again when probe succeeds
+  -> repeated operational failures
+  -> threshold reached
+circuit open
+  -> cooldown
+  -> bounded probe becomes eligible
+successful probe
+  -> healthy
 ```
+
+Current defaults are three consecutive failures and a 30-second cooldown; both are configurable.
 
 Operational failures include:
 
@@ -581,7 +595,7 @@ Operational failures include:
 
 Semantic uncertainty is different.
 
-A healthy Fast provider that returns uncertain probabilities is still healthy.
+A healthy DecisionProvider that returns uncertain probabilities is still healthy. Semantic uncertainty never increments the operational failure circuit.
 
 ## 14. Graph Governor
 
@@ -628,7 +642,7 @@ Graph Governor
     graph + Cognitive Git operations
 ```
 
-The Governor model never writes durable graph state directly.
+The Governor model never writes durable graph state directly. The implemented Curator receives a bounded candidate summary and returns JSON `GraphMutationPlan`; deterministic validation remains the mandatory gate before execution.
 
 ### 14.3 Governance operations
 
@@ -643,6 +657,28 @@ The Governor may propose:
 - **epoch/version** — create a cognitive version boundary after major reorganization.
 
 Deletion should be rare. Archival, tiering, and provenance-preserving canonicalization are preferred.
+
+The implemented semantic executor is opt-in (`lcx governor apply ... --semantic`):
+
+- canonicalization keeps every alias node, adds `canonicalNodeId`, and creates a `canonicalizes` edge,
+- branch creates an abstraction that preserves both competing nodes rather than selecting a winner,
+- global promotion creates a higher-level abstraction and `abstracts` edges while retaining all children,
+- safe apply without `--semantic` defers these semantic operations.
+
+### 14.4 Storage tiers and safe compaction
+
+SQLite schema v2 adds `graph_node_storage` with indexed:
+
+- `hot / warm / cold` tier,
+- last-access time,
+- tier-change time,
+- archive time,
+- derived-cache compaction time,
+- access count.
+
+Attention selections update access telemetry without changing the graph revision. Tier changes remain normal graph metadata mutations and therefore remain Cognitive-Git versioned.
+
+`lcx governor compact` only removes derived FTS5/symbol/search rows for retained cold+archived candidates. It does **not** delete Context Graph nodes. Reproduced/runtime evidence is excluded from GC candidates. Cognitive deletion, if introduced later, must remain an explicit graph mutation rather than an out-of-band SQL delete.
 
 ## 15. Global Cortex summary
 
@@ -759,7 +795,7 @@ An epoch records:
 - resulting root abstractions,
 - rollback target.
 
-Epoch creation must be reversible.
+Epoch creation is implemented as a normal Cognitive Git mutation. An epoch creates a durable `cortex-epoch` abstraction recording source commit, rollback target, reasons, and structural metrics before/after. The same governance mutations and epoch marker are committed together, so `lcx revert <epoch-commit>` reverses the epoch through the existing Cognitive Git diff mechanism.
 
 ## 20. Relationship to Attention Light
 
@@ -803,19 +839,21 @@ Deployments without Jev/Laya or any model-backed DecisionProvider remain valid b
 | DecisionProvider interface | Implemented |
 | Jev decision provider | Implemented HTTP adapter; live credentialed Jev validation still needed |
 | Laya decision provider | Implemented Jev-compatible HTTP adapter; local live validation still needed |
-| Think provider contract | Partial; uses the existing generative provider contract plus cognitive policy prompt |
+| Think provider contract | Implemented baseline; existing generative provider contract plus cognitive policy prompt |
+| Provider-specific Think-effort adapters | Implemented baseline for OpenRouter, Groq and DeepSeek; generic endpoints remain provider-default |
 | Dynamic Think effort policy | Implemented baseline |
 | Progress Monitor / failure signatures | Implemented |
-| Work Unit structure | Planned |
+| Work Unit structure/runtime | Implemented baseline |
 | Category classifier + deterministic chain resolver | Implemented baseline |
 | Automatic model-speed telemetry | Implemented baseline (EWMA total latency/failure counts) |
-| Provider health per Decision provider / Category model | Partial; operational failures advance chains, no circuit breaker yet |
+| Provider health / circuit breaker | Implemented baseline for Decision and Category routes |
 | Graph Governor Analyzer | Implemented baseline |
-| Graph Governor Curator/Planner | Partial; deterministic safe-plan proposal exists, model curator not integrated |
+| Graph Governor Curator/Planner | Implemented baseline with separately configured generative provider |
 | Graph mutation validator | Implemented baseline |
-| Hot/warm/cold graph tiers | Partial; node tier metadata can be applied, physical storage tiering is not implemented |
-| Global canonicalization | Planned; duplicate candidates are detected only |
-| Cortex Epochs | Partial; epoch recommendation exists, epoch execution/version boundary is not implemented |
+| Governor branch/global promotion | Implemented baseline, provenance-preserving |
+| Hot/warm/cold graph tiers | Partial: indexed SQLite storage metadata/access telemetry + derived-cache compaction implemented; separate physical stores are not |
+| Global canonicalization | Implemented baseline with alias preservation and `canonicalizes` relation |
+| Cortex Epochs | Implemented baseline and reversible through Cognitive Git |
 
 Implemented baseline sequence:
 
@@ -834,14 +872,12 @@ Implemented baseline sequence:
 Next control-plane work:
 
 ```text
-1. native provider-specific reasoning-effort adapters
-2. live Jev/Laya validation and provider health/circuit-breaker policy
-3. explicit Work Unit schema
-4. Graph Governor model Curator/Planner integration
-5. provenance-preserving canonicalization execution
-6. physical hot/warm/cold storage movement and GC
-7. reversible Cortex Epoch execution
-8. Go-runtime parity
+1. live Jev/Laya validation, calibration, and cognitive-routing benchmarks
+2. broader provider-specific reasoning-control adapters
+3. use storage access/recency telemetry in Governor tier recommendations
+4. physical data-plane hot/warm/cold separation only if profiling justifies it
+5. explicit cognitive deletion/retention policy built on Cognitive Git, never raw SQL deletion
+6. Go-runtime parity
 ```
 
 The deterministic Algorithm and Attention paths must remain independently usable throughout the migration.
