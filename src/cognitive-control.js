@@ -638,7 +638,7 @@ export function buildDecisionQuestions(categories = {}) {
 }
 
 export function algorithmicAnswers(state = {}) {
-  const text = [state.goal, state.focus].filter(Boolean).join(' ');
+  const text = [state.goal, state.focus, state.workUnit?.goal].filter(Boolean).join(' ');
   const progress = state.progress ?? {};
   const scores = {
     quick: 0.12,
@@ -720,11 +720,23 @@ function mergeDecisionSignals(algorithm, models) {
 }
 
 function buildDecisionState({ goal, focus, step, session, context, progress }) {
+  const workUnitState = session?.metadata?.workUnits;
+  const activeWorkUnit = workUnitState?.activeId
+    ? workUnitState.items?.[workUnitState.activeId]
+    : null;
   return {
     goal: goal ?? session?.goal ?? '',
     focus: focus ?? '',
     step: Number(step ?? 0),
     progress,
+    workUnit: activeWorkUnit ? {
+      id: activeWorkUnit.id,
+      goal: activeWorkUnit.goal,
+      status: activeWorkUnit.status,
+      risk: activeWorkUnit.risk,
+      requiredEvidenceCount: activeWorkUnit.requiredEvidence?.length ?? 0,
+      verificationCount: activeWorkUnit.verification?.length ?? 0
+    } : null,
     context: {
       selectedNodeCount: context?.selectedNodes?.length ?? 0,
       usedTokens: context?.usedTokens ?? 0,
