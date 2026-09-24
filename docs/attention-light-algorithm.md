@@ -10,6 +10,7 @@ Related documents:
 - [Execution flow](execution-flow.md) — where retrieval and Attention Light run during an Agent step.
 - [Agent runtime](agent-runtime.md) — runtime integration and persistent search-index behavior.
 - [Data model](data-model.md) — graph node, edge, evidence-grade, and trust-zone structures.
+- [Cognitive control plane](cognitive-control-plane.md) — planned adaptive policy above the deterministic Light engine.
 
 ## Status
 
@@ -610,5 +611,7 @@ The current reference implementation is primarily in:
 | `src/promotion.js` | non-destructive abstraction creation |
 | `src/ingest.js` | repository dependency extraction and source-change stale invalidation |
 | `src/graph.js` | graph mutation, adjacency-facing node/edge semantics, cut/restore/graft |
+
+The current deterministic algorithm remains the architectural fallback. A future Light Controller may select retrieval modes, budgets, or propagation policy, but it must not replace the deterministic engine or directly mutate graph state. See [Cognitive control plane](cognitive-control-plane.md).
 
 When any formula, default parameter, relation weight, or Light policy changes in code, this document should change in the same commit.
