@@ -44,6 +44,8 @@ The Node.js reference runtime now includes the first executable cognitive-contro
 - **Dynamic Think effort** — `low / medium / high / max` is recomputed from task complexity, evidence, repeated failure, and progress signals.
 - **Progress Monitor** — normalized failure signatures make repeated equivalent failures visible to the router.
 - **Session traces** — Category, Think state, effort, retrieval direction, decision errors, and selected model candidates are persisted per step.
+- **Model telemetry** — successful/failed model calls and EWMA total latency are recorded per concrete model in Session cognition metadata; explicit Category order remains authoritative.
+- **Graph Governor baseline** — global Analyzer, candidate generation, deterministic plan validation, safe tier metadata updates, and safe archival execution are available through the CLI.
 - **Deterministic baseline** — if no Jev/Laya endpoint or cognitive configuration is present, LumenCortex still runs with algorithmic judgment and the CLI-selected provider.
 
 Jev/Laya are decision providers only. They do not execute coding Work Units and never appear inside Category generative-model chains.
@@ -186,6 +188,10 @@ Useful controls:
 --cognition path/to/cognition.json
 --no-cognition
 lcx cognition defaults
+lcx governor analyze
+lcx governor plan
+lcx governor apply plan.json --dry-run
+lcx governor apply plan.json --yes
 ```
 ## Agent CLI
 
@@ -357,6 +363,9 @@ lcx rebase <branch>
 lcx edge cut <edgeId> [reason]
 lcx edge restore <edgeId>
 lcx edge graft <from> <type> <to> [weight] [reason]
+lcx governor analyze
+lcx governor plan
+lcx governor apply <plan.json> --dry-run|--yes
 ```
 
 ## Go runtime migration preview
@@ -397,9 +406,9 @@ Core documents:
 
 ## Implementation honesty
 
-Implemented in the reference runtime and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions, plus the first cognitive-control slice (Decision Layer, ordered Category chains, dynamic Think effort, Progress Monitor, and per-step cognitive traces).
+Implemented in the reference runtime and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions, plus the cognitive-control baseline (Decision Layer, ordered Category chains, dynamic Think effort, Progress Monitor, model latency telemetry, per-step cognitive traces) and a partial Graph Governor baseline (Analyzer, plan validator, safe tier/archive executor).
 
-Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, full Graph Governor / Cortex Epoch execution, graph GC/hot-warm-cold storage, reusable Skills layer, vision/browser tooling, automatic split/merge canonicalization, and Go-runtime parity for the new cognitive-control plane.
+Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, live Jev/Laya validation and routing benchmarks, Graph Governor model curation, semantic canonicalization execution, physical graph GC/hot-warm-cold storage, executable Cortex Epoch transitions, reusable Skills, vision/browser tooling, and Go-runtime parity for the new control plane.
 
 ## Current engineering direction
 
