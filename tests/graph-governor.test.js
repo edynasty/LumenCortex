@@ -338,3 +338,45 @@ test('semantic Governor apply preserves competing branches and promotes global a
   assert.equal(branchEdges.length, 2);
   assert.equal(promotionEdges.length, 3);
 });
+
+
+test('Governor tier value can use storage access telemetry without changing evidence quality', () => {
+  const graph = new CognitiveGraph();
+  graph.addNode({
+    id: 'recent',
+    kind: 'entity',
+    title: 'Recent context',
+    status: 'active',
+    grade: 'static',
+    trustZone: 'repo_trusted'
+  });
+  graph.addNode({
+    id: 'quiet',
+    kind: 'entity',
+    title: 'Quiet context',
+    status: 'active',
+    grade: 'static',
+    trustZone: 'repo_trusted'
+  });
+
+  const now = Date.parse('2026-09-25T00:00:00.000Z');
+  const analysis = new GraphGovernorAnalyzer().analyze(graph.snapshot(), {
+    now,
+    storageByNode: {
+      recent: {
+        tier: 'warm',
+        accessCount: 64,
+        lastAccessAt: '2026-09-24T23:59:00.000Z'
+      },
+      quiet: {
+        tier: 'warm',
+        accessCount: 0,
+        lastAccessAt: null
+      }
+    }
+  });
+
+  assert.ok(analysis.values.recent > analysis.values.quiet);
+  assert.equal(graph.getNode('recent').grade, 'static');
+  assert.equal(graph.getNode('quiet').grade, 'static');
+});
