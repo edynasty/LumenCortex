@@ -27,7 +27,7 @@ Adopt a five-part cognitive control architecture:
 1. **Cognitive Kernel** — deterministic control, budgets, legality, policy application, persistence, and audit.
 2. **Light Controller** — fast typed local decisions through a pluggable `DecisionProvider`.
 3. **Think** — a first-class task-local deliberate reasoning route, selectable directly or after later progress/failure signals.
-4. **Cognitive Profile** — configuration that binds Fast, Think, DeepThink, execution, and Governor roles to concrete providers/models.
+4. **Cognitive Profile** — configuration that binds Fast, Think, execution, and Governor roles to concrete providers/models and constrains allowed Think-effort ranges.
 5. **Graph Governor** — long-horizon Context Graph maintenance across tasks and Sessions.
 
 The current deterministic Attention Light remains the graph-selection engine.
@@ -53,8 +53,9 @@ The framework chooses cognitive mode; configuration chooses the concrete provide
 - Graph Governor is cross-session/global and does not own the current task plan.
 - Cognitive mode selection and concrete model configuration are separate concerns.
 - Work Units do not choose models.
-- Fast/Think/DeepThink/Governor providers are configured explicitly.
+- Fast/Think/Governor providers are configured explicitly.
 - Changing GPT to Claude for Think is a configuration change, not a runtime routing decision.
+- Think reasoning intensity is a framework-owned runtime decision within configured bounds.
 - Durable graph maintenance preserves provenance and is auditable through Cognitive Git.
 - Destructive deletion is exceptional; archival/tiering/canonicalization are preferred.
 - Planned components must not be documented as implemented until code and validation exist.
@@ -85,7 +86,6 @@ Cognitive Request
     -> deterministic Algorithm Route
     -> model-backed Decision Route
     -> Think Route
-    -> optional Deep-Think Route
 ```
 
 There is no requirement that a fast route run before Think.
@@ -106,21 +106,45 @@ A deterministic route may be selected first when the decision is mechanically de
 
 A model-backed decision route may be selected when a fast semantic judgment is sufficient.
 
-Think may be selected directly for a complex or high-risk task, or later when new evidence shows that deliberate reasoning has become worthwhile.
+Think may be selected directly for a complex or high-risk task, or later when new evidence shows that deliberate reasoning has become worthwhile. Once Think is selected, the framework independently chooses its reasoning intensity.
 
 Low confidence, high entropy, conflicting judgments, or a small top-two margin are route-selection signals, not availability failures.
+
+## Dynamic Think effort
+
+The framework owns two independent decisions:
+
+```text
+1. cognitive mode: Algorithm / Fast / Think
+2. Think effort: low / medium / high / max
+```
+
+The concrete Think model remains configuration-bound.
+
+A target metareasoning objective is:
+
+```text
+effort* = argmax_e [
+    E[deliberation_gain | state, e]
+    - lambda * compute_cost(e)
+    - mu * latency(e)
+]
+```
+
+The profile defines allowed bounds; the runtime chooses the value per invocation.
+
+Provider adapters map the abstract effort to provider-supported reasoning controls or, where necessary, orchestration controls such as reasoning budget, passes, context, subagents, and verification depth.
 
 ## Configured model bindings
 
 The framework does not dynamically rank GPT, Claude, DeepSeek, Laya, Jev, or other models against one another at runtime.
 
-A Cognitive Profile binds roles to concrete implementations, for example:
+A Cognitive Profile binds roles to concrete implementations and bounds their runtime effort, for example:
 
 ```text
-Fast      -> Laya
-Think     -> Claude
-DeepThink -> GPT reasoning
-Governor  -> configured reasoning model
+Fast     -> Laya
+Think    -> Claude, effort range low..high
+Governor -> configured reasoning model
 ```
 
 The same architecture remains valid if the user changes those bindings. Route selection remains framework-owned; provider/model choice remains configuration-owned.
@@ -226,9 +250,10 @@ Before adaptive control can be called validated:
 7. routing tests prove direct Think selection and fast -> Think -> fast transitions,
 8. profile-resolution tests prove explicit run override > project profile > user profile > default,
 9. changing Think from one configured reasoning provider to another does not change routing semantics,
-10. graph plans cannot bypass Graph Validator,
-11. Governor operations preserve provenance and support rollback,
-12. benchmark adaptive routing against fixed deterministic baselines for quality, cost, and latency.
+10. Think effort changes dynamically for low/high-complexity states while remaining within configured bounds,
+11. graph plans cannot bypass Graph Validator,
+12. Governor operations preserve provenance and support rollback,
+13. benchmark adaptive routing and Think-effort allocation against fixed baselines for quality, cost, and latency.
 
 ## Documentation impact
 
