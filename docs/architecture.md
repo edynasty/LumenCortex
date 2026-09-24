@@ -304,7 +304,7 @@ All providers use the same tool-calling Agent Loop.
 | Cross-branch graft | Implemented through merge/cherry-pick |
 | Automatic split/merge/canonicalization controller | Planned |
 | DecisionProvider / Light Controller | Planned |
-| Progress Monitor + cognitive escalation | Planned |
+| Progress Monitor + cognitive route transitions | Planned |
 | Work Unit / Capability Contract | Planned |
 | Capability-aware Model Broker | Planned |
 | Verified model capability learning | Planned |
