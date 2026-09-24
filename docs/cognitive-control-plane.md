@@ -30,7 +30,7 @@ The framework therefore separates:
 | Light Controller | fast | bounded typed judgments inside Fast mode |
 | Think | when selected | task-local deliberate reasoning and strategy revision |
 | Graph Governor | periodic / global | maintain the long-term structure of the Context Graph |
-| Cognitive Profile / Model Policy | configuration | declaratively map modes and effort ranges to providers/models, cost limits, and priorities |
+| Cognitive Profile / Model Catalog | configuration | declare available models, task specialties, defaults, and hard capabilities |
 
 ## 2. Core invariants
 
@@ -48,11 +48,11 @@ The runtime follows these rules:
 1. **The framework chooses the cognitive mode.**
 2. Models do not decide whether the runtime should be in Fast or Think.
 3. The framework computes cognitive mode and abstract effort; it does not directly choose vendor/model identity.
-4. Cognitive Profile / Model Policy deterministically resolves `(mode, effort, constraints)` to a configured provider/model binding.
+4. Cognitive Profile / Model Catalog deterministically resolves `(mode, TaskProfile, constraints)` to a configured provider/model binding.
 5. Jev/Laya are interchangeable Fast-mode implementations behind a typed `DecisionProvider`.
 6. GPT/Claude/DeepSeek/local reasoning models are interchangeable Think-mode implementations behind a reasoning-provider contract.
-7. Different models may be configured for different effort ranges because cost, latency, and useful reasoning depth differ by model.
-8. Graph Governor uses its own configured model policy and does not share task-local Think responsibility.
+7. Different models may declare different task specialties; reasoning effort remains framework-controlled.
+8. Graph Governor uses its own configured model binding/catalog entry and does not share task-local Think responsibility.
 9. Models may propose judgments, strategies, or graph plans; deterministic runtime code owns legality, budgets, persistence, and execution.
 10. Durable graph mutation must preserve provenance and remain auditable through Cognitive Git.
 
@@ -63,13 +63,13 @@ The architecture separates **framework cognition** from **declarative model poli
 The framework computes:
 
 ```text
-(mode, effort, constraints)
+(mode, TaskProfile, constraints)
 ```
 
 The profile resolver computes:
 
 ```text
-binding = resolve(profile, mode, effort, constraints)
+binding = resolve(catalog, mode, TaskProfile, constraints)
 ```
 
 This resolver is deterministic configuration logic, not an autonomous model broker.
@@ -116,189 +116,230 @@ Instead it performs:
 "Which cognitive mode should run now?"
 ```
 
-The configured Cognitive Profile / Model Policy answers:
+The configured Cognitive Profile / Model Catalog answers:
 
 ```text
-"Given this mode, effort and runtime constraints, which configured binding applies?"
+"Given this mode, Task Profile and runtime constraints, which configured model applies?"
 ```
 
 This is intentionally lighter than a learned model scheduler. It is explicit, inspectable, and deterministic.
 
-## 4. Cognitive Profile and lightweight Model Policy
+## 4. Cognitive Profile and lightweight Model Catalog
 
-A Cognitive Profile is declarative configuration.
+The user-facing configuration should stay simple.
 
-It may use either a single pinned binding or a small ordered set of effort-aware bindings.
+Users should not need to estimate numeric suitability scores, effort ranges, cost classes, or latency classes.
 
-### 4.1 Pinned binding
+A model entry declares only:
 
-```yaml
-cognition:
-  fast:
-    strategy: pinned
-    provider: laya
-    model: decision-model
+- provider/model identity,
+- which cognitive modes it may serve,
+- optional task specialties,
+- optional hard capabilities,
+- list order.
 
-  think:
-    strategy: pinned
-    provider: anthropic
-    model: reasoning-model
-    effort:
-      policy: adaptive
-      min: low
-      max: high
-```
+Runtime speed is measured by LumenCortex.
 
-This is the simplest mode: framework effort changes, but the model does not.
-
-### 4.2 Tiered binding
-
-When model cost and useful reasoning depth differ, a mode can define a small number of explicit tiers.
+### 4.1 Minimal configuration
 
 ```yaml
 cognition:
-  think:
-    strategy: tiered
-    effort:
-      policy: adaptive
-      min: low
-      max: max
+  models:
+    - id: laya-local
+      provider: laya
+      model: decision-model
+      modes: [fast]
 
-    tiers:
-      - id: economical
-        effort_range: [0.00, 0.35]
-        provider: provider-a
-        model: model-a
-        reasoning: low
-        max_cost: 0.02
-        priority: 10
+    - id: general-think
+      provider: anthropic
+      model: reasoning-model
+      modes: [think]
+      default: true
 
-      - id: standard
-        effort_range: [0.35, 0.75]
-        provider: provider-b
-        model: model-b
-        reasoning: medium
-        max_cost: 0.10
-        priority: 20
+    - id: frontend-specialist
+      provider: provider-x
+      model: model-x
+      modes: [think]
+      specialties:
+        - frontend
+        - ui
+        - visual
 
-      - id: intensive
-        effort_range: [0.75, 1.00]
-        provider: provider-c
-        model: model-c
-        reasoning: high
-        max_cost: 0.50
-        priority: 30
+    - id: debug-specialist
+      provider: provider-y
+      model: model-y
+      modes: [think]
+      specialties:
+        - debugging
+        - architecture
+        - planning
 ```
 
-The framework still decides the abstract effort. The profile only maps that effort to a configured route.
+This is intentionally qualitative.
 
-The same mechanism can be used for Fast mode:
-
-```yaml
-fast:
-  strategy: ordered
-  routes:
-    - provider: laya
-      locality: local
-      priority: 10
-    - provider: jev
-      locality: remote
-      priority: 20
-```
-
-### 4.3 Resolution rule
-
-For cognitive mode `m`, effort `e`, runtime constraints `x`, and profile entries `R_m`:
+The user says:
 
 ```text
-eligible(m, e, x)
-  = {
-      r in R_m |
-      e in r.effort_range
-      and r satisfies x
-      and r is operationally available
-    }
-
-binding
-  = first(eligible ordered by explicit priority)
+"this model is especially good at frontend/UI"
 ```
 
-Runtime constraints may include:
+rather than:
 
-- maximum per-call cost,
-- locality/privacy,
-- provider availability,
-- context requirement,
-- tool/structured-output requirement,
-- latency ceiling.
-
-This is deterministic policy resolution. There is no learned score and no hidden model-to-model tournament.
-
-### 4.4 Model effort envelope
-
-Each configured model may declare the range where it is intended to be used:
-
-```yaml
-model_policy:
-  provider: provider-b
-  model: model-b
-  effort_range: [0.25, 0.80]
-  native_effort_map:
-    low: minimal
-    medium: standard
-    high: extended
+```text
+frontend = 0.93
+effort_range = [0.42, 0.81]
+latency_class = medium
 ```
 
-This lets LumenCortex express that a cheap model is useful for low/medium deliberation while another model should be reserved for expensive high-effort reasoning.
+### 4.2 Task Profile
 
-### 4.5 Cost policy
+The framework derives a small set of task tags from the current state.
 
-Cost is a configuration constraint, not a learned preference.
+Example:
 
-Examples:
-
-```yaml
-budgets:
-  per_request: 0.20
-  per_session: 2.00
-
-think:
-  max_cost_by_effort:
-    low: 0.02
-    medium: 0.08
-    high: 0.20
-    max: 0.50
+```text
+TaskProfile:
+  debugging
+  repository
+  architecture
 ```
 
-The Framework Router may lower effort or choose another cognitive mode when the configured budget makes the requested Think effort unavailable.
+Typical built-in tags may include:
 
-### 4.6 Configuration precedence
+```text
+debugging
+architecture
+planning
+frontend
+ui
+visual
+research
+code_generation
+code_review
+repository_navigation
+testing
+refactoring
+documentation
+```
 
-Bindings resolve deterministically:
+The taxonomy should stay small and extensible. Custom tags may be allowed, but the built-in set should cover normal routing without configuration work.
+
+### 4.3 Deterministic matching
+
+For a selected cognitive mode:
+
+1. filter models that do not support the mode or required hard capabilities,
+2. prefer models whose `specialties` intersect the current Task Profile,
+3. if several models match equally, prefer earlier list order,
+4. if no specialist matches, use the configured default for that mode,
+5. if the default is unavailable, use the first eligible model.
+
+This is deterministic configuration resolution, not learned model competition.
+
+A specialist is a preference, not an exclusive binding.
+
+For example:
+
+```text
+TaskProfile = [frontend, visual]
+    -> frontend-specialist
+
+TaskProfile = [debugging, architecture]
+    -> debug-specialist
+
+TaskProfile = [general coding]
+    -> general-think
+```
+
+### 4.4 Runtime speed telemetry
+
+Users should not configure model speed.
+
+LumenCortex measures it from actual calls.
+
+Useful runtime observations include:
+
+- time to first token,
+- total response latency,
+- generated tokens per second,
+- tool-round latency,
+- timeout/error rate.
+
+The runtime keeps an EWMA or rolling percentile per concrete provider/model.
+
+Speed is only a tie-breaker or policy input after task suitability and hard requirements. A model marked as a specialist should not lose its intended task merely because a generic model is slightly faster.
+
+### 4.5 Dynamic Think effort
+
+Task/model matching and reasoning effort are separate decisions.
+
+The framework computes Think effort dynamically:
+
+```text
+low
+medium
+high
+max
+```
+
+The selected model adapter maps that abstract effort to whatever the provider supports:
+
+- native reasoning-effort parameter,
+- reasoning/token budget,
+- number of deliberate passes,
+- hypothesis count,
+- context budget,
+- Contrarian review,
+- focused Subagents,
+- verification depth.
+
+Users do not configure an `effort_range` per model.
+
+If a provider exposes hard limits, those are adapter capabilities, not user-authored suitability scores.
+
+### 4.6 Built-in defaults
+
+LumenCortex should ship a small built-in catalog so the system works without custom routing configuration.
+
+The built-in catalog should provide only a few roles:
+
+```text
+Fast default
+Think default
+Governor default
+```
+
+Optional built-in specialist hints may be shipped for a small number of well-known models, but they must remain overridable by user/project configuration.
+
+The product should avoid maintaining a large permanent model leaderboard.
+
+### 4.7 Configuration precedence
+
+Configuration resolves deterministically:
 
 ```text
 explicit run override
-    > project profile
-    > user profile
-    > built-in default
+    > project catalog/profile
+    > user catalog/profile
+    > built-in default catalog
 ```
 
-### 4.7 Route availability
+### 4.8 Route availability
 
-A mode is eligible only when at least one configured route matches its effort/constraints and is operational.
+A cognitive mode is eligible only when at least one configured model for that mode is operational.
 
 ```text
 Algorithm
     always available
 
 Fast
-    available if at least one DecisionProvider route matches
+    available if at least one DecisionProvider model is available
 
 Think
-    available if at least one ReasoningProvider tier matches
+    available if at least one ReasoningProvider model is available
 ```
 
-If no Think tier can satisfy the requested effort/budget, the framework re-evaluates its cognitive decision. It does not silently invent an unconfigured model.
+If a preferred specialist is unavailable, the resolver moves to the next matching entry or mode default.
 
 ## 5. Cognitive Kernel / Router
 
@@ -322,8 +363,9 @@ It does not answer semantic questions itself.
 The control invariant is:
 
 ```text
-framework selects (mode, effort)
-    -> profile resolver selects configured binding
+framework selects mode and Think effort
+    -> Task Profiler derives task tags
+        -> catalog resolver selects configured model
         -> configured provider executes
             -> kernel validates output
                 -> engine executes
@@ -351,12 +393,10 @@ mode* = argmax_{m in A(c)} V(m | s, c)
 A target value function is:
 
 ```text
-V(m | s, c)
+V(m | s)
   = E[task_utility_gain | m, s]
-    - lambda * configured_cost(m, effort, c)
-    - mu     * configured_latency(m, effort, c)
-    - rho    * transition_cost(m, s)
-    - nu     * risk(m, s)
+    - rho * transition_cost(m, s)
+    - nu  * risk(m, s)
 ```
 
 The first implementation may approximate this with deterministic thresholds and state features.
@@ -587,7 +627,7 @@ The framework may return to Fast after Think has produced a usable strategy.
 
 Think is one cognitive mode with a dynamic reasoning intensity.
 
-The framework chooses the effort for each Think invocation. A pinned profile may keep the model fixed; a tiered profile may deterministically map different effort ranges to different configured models.
+The framework chooses the effort for each Think invocation. Model selection is resolved separately from task specialties and configured defaults.
 
 A normalized target can be represented as:
 
@@ -629,25 +669,9 @@ z
 effort = clamp(sigmoid(z), configured_min, configured_max)
 ```
 
-The Cognitive Profile supplies bounds and effort-to-model mappings, not the per-request effort value:
+Users do not configure numeric effort ranges for individual models. The framework computes effort, while the selected provider adapter maps that effort to supported reasoning controls.
 
-```yaml
-think:
-  strategy: tiered
-  effort:
-    policy: adaptive
-    min: low
-    max: high
-  tiers:
-    - effort_range: [0.00, 0.50]
-      provider: provider-a
-      model: model-a
-    - effort_range: [0.50, 1.00]
-      provider: provider-b
-      model: model-b
-```
-
-After profile resolution, the selected provider adapter translates the framework's abstract effort into controls supported by that provider/model.
+After catalog resolution, the selected provider adapter translates the framework's abstract effort into controls supported by that provider/model.
 
 Possible mappings include:
 
@@ -972,7 +996,7 @@ Deployments without Fast mode remain valid because the deterministic Attention e
 | Current deterministic Attention Light | Implemented |
 | Current Active Promotion | Implemented |
 | Cognitive Git | Implemented |
-| Cognitive Profile / lightweight Model Policy | Planned |
+| Cognitive Profile / lightweight Model Catalog | Planned |
 | Framework Cognitive Router | Planned |
 | DecisionProvider interface | Planned |
 | Jev decision provider | Planned |
@@ -981,7 +1005,8 @@ Deployments without Fast mode remain valid because the deterministic Attention e
 | Dynamic Think effort policy | Planned |
 | Progress Monitor / failure signatures | Planned |
 | Work Unit structure | Planned |
-| Deterministic profile resolver | Planned |
+| Task Profiler + deterministic catalog resolver | Planned |
+| Automatic model-speed telemetry | Planned |
 | Provider health per configured route | Planned |
 | Graph Governor Analyzer | Planned |
 | Graph Governor Curator/Planner | Planned |
@@ -993,18 +1018,19 @@ Deployments without Fast mode remain valid because the deterministic Attention e
 Recommended implementation order:
 
 ```text
-1. Cognitive Profile + pinned/tiered Model Policy schema
-2. Deterministic profile resolver + cost/availability constraints
-3. Progress Monitor + failure signatures
-4. Framework Cognitive Router with Algorithm/Fast/Think modes
-5. DecisionProvider interface
-6. Laya/Jev DecisionProvider adapters
-7. Think provider contract
-8. Dynamic Think-effort policy + provider adapter mapping
-9. Graph Governor Analyzer
-10. GraphMutationPlan + Validator
-11. Governor configured model integration
-12. hot/warm/cold tiers + Cortex Epochs
+1. Cognitive Profile / Model Catalog schema
+2. Task Profiler + deterministic catalog resolver
+3. automatic model-speed telemetry
+4. Progress Monitor + failure signatures
+5. Framework Cognitive Router with Algorithm/Fast/Think modes
+6. DecisionProvider interface
+7. Laya/Jev DecisionProvider adapters
+8. Think provider contract
+9. Dynamic Think-effort policy + provider adapter mapping
+10. Graph Governor Analyzer
+11. GraphMutationPlan + Validator
+12. Governor configured model integration
+13. hot/warm/cold tiers + Cortex Epochs
 ```
 
 The deterministic Algorithm and Attention paths must remain independently usable throughout the migration.
