@@ -336,7 +336,7 @@ Core documents:
 
 Implemented and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions.
 
-Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, adaptive cognitive routing with a configurable specialty Model Catalog, Graph Governor / Cortex Epochs, graph GC/hot-warm-cold storage, reusable Skills layer, vision/browser tooling and automatic split/merge canonicalization.
+Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, a separate Decision Layer with ordered Category model chains and dynamic Think effort, Graph Governor / Cortex Epochs, graph GC/hot-warm-cold storage, reusable Skills layer, vision/browser tooling and automatic split/merge canonicalization.
 
 ## Current engineering direction
 
