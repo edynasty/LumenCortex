@@ -1,0 +1,89 @@
+{
+  "decision": {
+    "policy": "first",
+    "providers": [
+      {
+        "type": "laya",
+        "baseURL": "http://127.0.0.1:8000",
+        "timeoutMs": 2500
+      },
+      {
+        "type": "jev",
+        "model": "jev-latest",
+        "timeoutMs": 2500
+      }
+    ]
+  },
+  "categories": {
+    "quick": {
+      "description": "Small bounded work with obvious local scope.",
+      "models": [
+        {
+          "provider": "groq",
+          "model": "openai/gpt-oss-120b"
+        }
+      ]
+    },
+    "general": {
+      "default": true,
+      "description": "Normal coding, implementation, and reasoning work.",
+      "models": [
+        {
+          "provider": "openrouter",
+          "model": "openrouter/free"
+        }
+      ]
+    },
+    "deep": {
+      "description": "Difficult multi-step reasoning, debugging, refactoring, or architecture work.",
+      "models": [
+        {
+          "provider": "openrouter",
+          "model": "your-strong-reasoning-model"
+        },
+        {
+          "provider": "groq",
+          "model": "openai/gpt-oss-120b"
+        }
+      ]
+    },
+    "ultrabrain": {
+      "description": "Exceptionally difficult work with repeated failures, contradictions, or major uncertainty.",
+      "models": [
+        {
+          "provider": "openrouter",
+          "model": "your-best-reasoning-model"
+        }
+      ]
+    },
+    "visual-engineering": {
+      "description": "UI, layout, interaction, visual implementation, and frontend design work.",
+      "models": [
+        {
+          "provider": "openrouter",
+          "model": "your-visual-model"
+        },
+        {
+          "provider": "openrouter",
+          "model": "openrouter/free"
+        }
+      ]
+    },
+    "research": {
+      "description": "Broad investigation, evidence gathering, comparison, and synthesis.",
+      "models": [
+        {
+          "provider": "openrouter",
+          "model": "your-research-model"
+        },
+        {
+          "provider": "openrouter",
+          "model": "openrouter/free"
+        }
+      ]
+    }
+  },
+  "telemetry": {
+    "enabled": true
+  }
+}
