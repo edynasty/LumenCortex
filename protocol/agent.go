@@ -48,11 +48,12 @@ type Usage struct {
 }
 
 type ProviderRequest struct {
-	Messages    []Message  `json:"messages"`
-	Tools       []ToolSpec `json:"tools,omitempty"`
-	ToolChoice  string     `json:"toolChoice,omitempty"`
-	Temperature *float64   `json:"temperature,omitempty"`
-	MaxTokens   int        `json:"maxTokens,omitempty"`
+	Messages        []Message  `json:"messages"`
+	Tools           []ToolSpec `json:"tools,omitempty"`
+	ToolChoice      string     `json:"toolChoice,omitempty"`
+	Temperature     *float64   `json:"temperature,omitempty"`
+	MaxTokens       int        `json:"maxTokens,omitempty"`
+	ReasoningEffort string     `json:"reasoningEffort,omitempty"`
 }
 
 type ProviderResponse struct {
