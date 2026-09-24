@@ -1,8 +1,10 @@
 # LumenCortex
 
+**English** | [简体中文](README.zh-CN.md)
+
 **LumenCortex** is a standalone persistent cognitive coding agent with a full-screen TUI and CLI.
 
-> Graph is Memory. Light is Attention. Agent is Execution.
+> Graph is Memory. Light is Attention. Decision is Judgment. Think is Deliberation. Agent is Execution.
 
 The primary interface is the full-screen TUI. Run `lumencortex` or the short command `lcx` with no arguments to open it directly. Shell/test stdout and stderr are streamed into the active Agent view while commands are still running. While an agent run is active, `Ctrl+C` cancels the provider/tool execution, persists the Session as `interrupted`, and leaves it resumable with `--session`.
 
@@ -32,6 +34,19 @@ The primary interface is the full-screen TUI. Run `lumencortex` or the short com
 - indexed candidate generation before Attention Light (avoids full-graph seed scans)
 - source-change invalidation of dependent beliefs
 
+### Adaptive cognitive control
+
+The Node.js reference runtime now includes the first executable cognitive-control slice:
+
+- **Decision Layer** — deterministic algorithmic judgment plus optional Jev/Laya-compatible System One providers.
+- **Framework-owned routing** — the runtime owns final Category selection, whether Think is needed, and the current Think effort.
+- **Ordered Category model chains** — each Category lists generative models in explicit preference order; unavailable entries advance to the next configured model.
+- **Dynamic Think effort** — `low / medium / high / max` is recomputed from task complexity, evidence, repeated failure, and progress signals.
+- **Progress Monitor** — normalized failure signatures make repeated equivalent failures visible to the router.
+- **Session traces** — Category, Think state, effort, retrieval direction, decision errors, and selected model candidates are persisted per step.
+- **Deterministic baseline** — if no Jev/Laya endpoint or cognitive configuration is present, LumenCortex still runs with algorithmic judgment and the CLI-selected provider.
+
+Jev/Laya are decision providers only. They do not execute coding Work Units and never appear inside Category generative-model chains.
 ### Workflow Contract
 
 - durable Facts → Action → Route → Outcome → Gate state inside normal Sessions
@@ -126,6 +141,52 @@ export LUMENCORTEX_API_KEY=dummy
 lcx agent "run the tests and repair failures" --provider generic --yes
 ```
 
+## Cognitive routing configuration
+
+Cognitive control is enabled by default for CLI agent runs. Without a config file, the current `--provider/--model` remains the generative fallback and the Decision Layer uses deterministic algorithmic judgment.
+
+Create `.lumencortex/cognition.json` or pass `--cognition path/to/cognition.json`. See [`examples/cognition.json`](examples/cognition.json).
+
+```json
+{
+  "decision": {
+    "providers": [
+      { "type": "laya", "baseURL": "http://127.0.0.1:8000" },
+      { "type": "jev", "model": "jev-latest" }
+    ]
+  },
+  "categories": {
+    "general": {
+      "default": true,
+      "models": [
+        { "provider": "openrouter", "model": "openrouter/free" }
+      ]
+    },
+    "deep": {
+      "models": [
+        { "provider": "openrouter", "model": "your-strong-reasoning-model" },
+        { "provider": "groq", "model": "openai/gpt-oss-120b" }
+      ]
+    },
+    "visual-engineering": {
+      "models": [
+        { "provider": "openrouter", "model": "your-visual-model" },
+        { "provider": "openrouter", "model": "openrouter/free" }
+      ]
+    }
+  }
+}
+```
+
+Category chains contain normal generative models. Decision providers are configured separately. The Framework Router may use decision-model signals, but final Category/Think/effort decisions remain framework-owned.
+
+Useful controls:
+
+```text
+--cognition path/to/cognition.json
+--no-cognition
+lcx cognition defaults
+```
 ## Agent CLI
 
 One-shot autonomous run:
@@ -219,6 +280,8 @@ Useful controls:
 --workflow examples/workflows/verified-code-fix.json
 --max-tool-calls-per-step 1
 --no-auto-promote
+--cognition path/to/cognition.json
+--no-cognition
 --policy read-only|workspace|full
 --yes
 --session ID
@@ -334,9 +397,9 @@ Core documents:
 
 ## Implementation honesty
 
-Implemented and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions.
+Implemented in the reference runtime and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions, plus the first cognitive-control slice (Decision Layer, ordered Category chains, dynamic Think effort, Progress Monitor, and per-step cognitive traces).
 
-Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, a separate Decision Layer with ordered Category model chains and dynamic Think effort, Graph Governor / Cortex Epochs, graph GC/hot-warm-cold storage, reusable Skills layer, vision/browser tooling and automatic split/merge canonicalization.
+Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, full Graph Governor / Cortex Epoch execution, graph GC/hot-warm-cold storage, reusable Skills layer, vision/browser tooling, automatic split/merge canonicalization, and Go-runtime parity for the new cognitive-control plane.
 
 ## Current engineering direction
 
