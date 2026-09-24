@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/cognition"
 	"github.com/edynasty/LumenCortex/internal/workflow"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -53,6 +54,8 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 		return Result{}, err
 	}
 	usage := state.Usage
+	cognitiveProgress := restoreCognitiveProgress(state.Metadata)
+	router := cognition.Router{}
 	running := "running"
 	state.Status = running
 	if err := l.Store.Update(ctx, sessionID, SessionPatch{Status: &running, ClearFinal: true, ClearError: true}); err != nil {
@@ -91,14 +94,43 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 			allowlist = wf.EffectiveAllowlist(allowlist)
 		}
 		specs := filterDeniedTools(l.Tools.Specs(allowlist), opts.ToolDenylist)
-		messages, err := l.buildMessages(ctx, sessionID, opts, wf)
+		var cognitivePlan *cognition.Plan
+		if opts.CognitionEnabled {
+			plan := router.Route(cognition.Input{
+				Goal: state.Goal,
+				Progress: cognitiveProgress,
+			})
+			cognitivePlan = &plan
+			state.Metadata = withCognition(state.Metadata, cognitiveProgress, plan, step)
+			l.emit("cognition.route", sessionID, map[string]any{
+				"step": step,
+				"category": plan.Category,
+				"think": plan.Think,
+				"effort": plan.Effort,
+				"thinkScore": plan.ThinkScore,
+				"retrieval": plan.Retrieval,
+				"reasons": plan.Reasons,
+			})
+		}
+		messages, err := l.buildMessages(ctx, sessionID, opts, wf, cognitivePlan)
 		if err != nil {
 			return Result{}, err
 		}
+		reasoningEffort := ""
+		if cognitivePlan != nil {
+			reasoningEffort = string(cognition.EffortNone)
+			if cognitivePlan.Think {
+				reasoningEffort = string(cognitivePlan.Effort)
+			}
+		}
 		usage.Requests++
-		l.emit("llm.request", sessionID, map[string]any{"step": step, "model": l.Provider.Model(), "messages": len(messages), "tools": toolNames(specs)})
+		l.emit("llm.request", sessionID, map[string]any{
+			"step": step, "model": l.Provider.Model(), "messages": len(messages),
+			"tools": toolNames(specs), "reasoningEffort": reasoningEffort,
+		})
 		response, err := l.Provider.Complete(ctx, protocol.ProviderRequest{
-			Messages: messages, Tools: specs, ToolChoice: "auto", Temperature: opts.Temperature, MaxTokens: opts.MaxTokens,
+			Messages: messages, Tools: specs, ToolChoice: "auto", Temperature: opts.Temperature,
+			MaxTokens: opts.MaxTokens, ReasoningEffort: reasoningEffort,
 		})
 		if err != nil {
 			return l.interrupt(ctx, state, usage, err)
@@ -116,6 +148,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 			return Result{}, err
 		}
 		record := stepRecord{Step: step, FinishReason: response.FinishReason, Content: assistant.Content}
+		if cognitivePlan != nil {
+			record.Cognition = *cognitivePlan
+		}
 
 		if len(calls) == 0 {
 			if strings.TrimSpace(assistant.Content) == "" {
@@ -180,6 +215,10 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 				}
 			}
 			l.emit("tool.end", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "ok": toolResult.OK, "denied": toolResult.Denied})
+			if opts.CognitionEnabled {
+				cognitiveProgress.ObserveTool(call.Name, toolResult.OK, toolResult.Content)
+				state.Metadata = withCognitionProgress(state.Metadata, cognitiveProgress)
+			}
 			if wf != nil {
 				update, wfErr := wf.ObserveTool(workflow.ToolObservation{Tool: call.Name, Args: args, Result: map[string]any{"ok": toolResult.OK, "denied": toolResult.Denied, "permission": toolResult.Permission, "content": toolResult.Content}, Step: step})
 				if wfErr != nil {
@@ -237,7 +276,7 @@ func (l *Loop) ensureInitialMessage(ctx context.Context, state SessionState) err
 	return err
 }
 
-func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options, wf *workflow.Runtime) ([]protocol.Message, error) {
+func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options, wf *workflow.Runtime, cognitivePlan *cognition.Plan) ([]protocol.Message, error) {
 	recent, err := l.Store.RecentMessages(ctx, sessionID, opts.RecentMessages)
 	if err != nil {
 		return nil, err
@@ -248,6 +287,9 @@ func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options
 	}
 	if wf != nil {
 		messages = append(messages, protocol.Message{Role: "system", Content: wf.Prompt()})
+	}
+	if cognitivePlan != nil {
+		messages = append(messages, protocol.Message{Role: "system", Content: cognitivePrompt(*cognitivePlan)})
 	}
 	messages = append(messages, recent...)
 	return messages, nil
@@ -393,4 +435,87 @@ func filterDeniedTools(specs []protocol.ToolSpec, deny []string) []protocol.Tool
 		out = append(out, spec)
 	}
 	return out
+}
+
+
+func restoreCognitiveProgress(metadata map[string]any) cognition.Progress {
+	if metadata == nil {
+		return cognition.Progress{}
+	}
+	rawValue, ok := metadata["cognition"]
+	if !ok {
+		return cognition.Progress{}
+	}
+	raw, err := json.Marshal(rawValue)
+	if err != nil {
+		return cognition.Progress{}
+	}
+	var envelope struct {
+		Progress cognition.Progress `json:"progress"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return cognition.Progress{}
+	}
+	return envelope.Progress
+}
+
+func withCognition(metadata map[string]any, progress cognition.Progress, plan cognition.Plan, step int64) map[string]any {
+	out := cloneMetadata(metadata)
+	envelope := map[string]any{}
+	if current, ok := out["cognition"].(map[string]any); ok {
+		for key, value := range current {
+			envelope[key] = value
+		}
+	}
+	history, _ := envelope["history"].([]any)
+	history = append(history, map[string]any{
+		"step": step,
+		"category": plan.Category,
+		"think": plan.Think,
+		"effort": plan.Effort,
+		"thinkScore": plan.ThinkScore,
+		"retrieval": plan.Retrieval,
+		"reasons": plan.Reasons,
+	})
+	if len(history) > 64 {
+		history = history[len(history)-64:]
+	}
+	envelope["history"] = history
+	envelope["progress"] = progress
+	out["cognition"] = envelope
+	return out
+}
+
+func withCognitionProgress(metadata map[string]any, progress cognition.Progress) map[string]any {
+	out := cloneMetadata(metadata)
+	envelope := map[string]any{}
+	if current, ok := out["cognition"].(map[string]any); ok {
+		for key, value := range current {
+			envelope[key] = value
+		}
+	}
+	envelope["progress"] = progress
+	out["cognition"] = envelope
+	return out
+}
+
+func cloneMetadata(metadata map[string]any) map[string]any {
+	out := map[string]any{}
+	for key, value := range metadata {
+		out[key] = value
+	}
+	return out
+}
+
+func cognitivePrompt(plan cognition.Plan) string {
+	if !plan.Think {
+		return fmt.Sprintf(
+			"Cognitive policy: category=%s; deliberate Think is not required. Stay focused and verify the next concrete action.",
+			plan.Category,
+		)
+	}
+	return fmt.Sprintf(
+		"Cognitive policy: category=%s; Think is active; reasoning effort=%s. Deliberate before acting, identify missing evidence, and verify the chosen path.",
+		plan.Category, plan.Effort,
+	)
 }
