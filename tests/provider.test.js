@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OpenAICompatibleProvider, PROVIDER_PRESETS } from '../src/provider.js';
+import { OpenAICompatibleProvider, PROVIDER_PRESETS, reasoningRequestFields } from '../src/provider.js';
 
 test('provider sends tools and normalizes tool calls', async () => {
   let request;
@@ -60,4 +60,54 @@ test('official DeepSeek preset follows the current Flash API alias', () => {
   assert.equal(preset.baseURL, 'https://api.deepseek.com');
   assert.equal(preset.apiKeyEnv, 'DEEPSEEK_API_KEY');
   assert.equal(preset.defaultModel, 'deepseek-flash');
+});
+
+
+test('OpenRouter maps framework Think effort to reasoning.effort', async () => {
+  let body;
+  const provider = new OpenAICompatibleProvider({
+    baseURL: 'https://openrouter.ai/api/v1',
+    apiKey: 'x',
+    model: 'anthropic/claude-sonnet',
+    providerName: 'openrouter',
+    reasoningProfile: PROVIDER_PRESETS.openrouter.reasoning,
+    fetchImpl: async (_url, init) => {
+      body = JSON.parse(init.body);
+      return new Response(JSON.stringify({
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }]
+      }), { status: 200 });
+    }
+  });
+  await provider.complete({
+    messages: [{ role: 'user', content: 'x' }],
+    reasoningEffort: 'high'
+  });
+  assert.deepEqual(body.reasoning, { effort: 'high' });
+  assert.equal(body.reasoning_effort, undefined);
+});
+
+test('Groq maps max effort to supported high and does not force unsupported none', () => {
+  assert.deepEqual(
+    reasoningRequestFields(PROVIDER_PRESETS.groq.reasoning, 'max'),
+    { reasoning_effort: 'high' }
+  );
+  assert.deepEqual(
+    reasoningRequestFields(PROVIDER_PRESETS.groq.reasoning, 'none'),
+    {}
+  );
+});
+
+test('DeepSeek maps medium to high and explicitly disables thinking for none', () => {
+  assert.deepEqual(
+    reasoningRequestFields(PROVIDER_PRESETS.deepseek.reasoning, 'medium'),
+    { reasoning_effort: 'high', thinking: { type: 'enabled' } }
+  );
+  assert.deepEqual(
+    reasoningRequestFields(PROVIDER_PRESETS.deepseek.reasoning, 'none'),
+    { reasoning_effort: 'none', thinking: { type: 'disabled' } }
+  );
+});
+
+test('generic providers do not receive framework-specific reasoning fields by default', () => {
+  assert.deepEqual(reasoningRequestFields(PROVIDER_PRESETS.generic.reasoning, 'high'), {});
 });
