@@ -266,12 +266,14 @@ export class AgentLoop {
               maxTokens,
               budgetAdjustment
             }),
-            onProviderFailure: ({ provider, error, nextProvider, elapsedMs }) => {
+            onProviderFailure: ({ provider, descriptor, error, nextProvider, elapsedMs }) => {
               this.cognitiveController?.recordModelCall?.({
                 session,
                 model: provider?.model,
+                descriptor,
                 elapsedMs,
-                ok: false
+                ok: false,
+                error
               });
               this.emit('cognition.model_chain', {
                 sessionId: session.id,
@@ -282,9 +284,10 @@ export class AgentLoop {
                 status: error.status ?? null
               });
             },
-            onProviderComplete: ({ provider, elapsedMs }) => this.cognitiveController?.recordModelCall?.({
+            onProviderComplete: ({ provider, descriptor, elapsedMs }) => this.cognitiveController?.recordModelCall?.({
               session,
               model: provider?.model,
+              descriptor,
               elapsedMs,
               ok: true
             })
@@ -883,15 +886,17 @@ async function completeWithProviderChain(candidates, request, options = {}) {
       const elapsedMs = Date.now() - startedAt;
       lastError = error;
       const next = usable[index + 1];
+      if (error?.name !== 'AbortError' && !request.signal?.aborted) {
+        options.onProviderFailure?.({
+          provider: current.provider,
+          descriptor: current.descriptor,
+          error,
+          elapsedMs,
+          nextProvider: next?.provider ?? null,
+          nextDescriptor: next?.descriptor ?? null
+        });
+      }
       if (!next || error?.name === 'AbortError' || request.signal?.aborted) throw error;
-      options.onProviderFailure?.({
-        provider: current.provider,
-        descriptor: current.descriptor,
-        error,
-        elapsedMs,
-        nextProvider: next.provider,
-        nextDescriptor: next.descriptor
-      });
     }
   }
   throw lastError ?? new Error('Category model chain failed');
