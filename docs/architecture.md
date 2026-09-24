@@ -86,11 +86,11 @@ The next architecture stage separates adaptive cognition into five roles:
 |---|---|---|
 | Cognitive Kernel | deterministic constraints, budgets, legal transitions, validation | Planned |
 | Light Controller | fast typed decisions over compressed state | Planned |
-| Think | task-local deliberate reasoning and strategy revision | Planned |
+| Think | first-class task-local deliberate reasoning route | Planned |
 | Model Broker | capability/cost/latency-aware model selection | Planned |
 | Graph Governor | long-horizon pruning, branching, promotion, canonicalization, summaries, and Cortex versioning | Planned |
 
-These roles are intentionally separate from the current deterministic Attention Light and Agent Loop. The exact target contracts, escalation formulas, model-selection utility, and Graph Governor lifecycle are defined in [Cognitive control plane](cognitive-control-plane.md).
+These roles are intentionally separate from the current deterministic Attention Light and Agent Loop. The exact target contracts, cognitive-route selection formulas, model-selection utility, and Graph Governor lifecycle are defined in [Cognitive control plane](cognitive-control-plane.md).
 
 The core boundary is:
 
