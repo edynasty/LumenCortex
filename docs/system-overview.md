@@ -134,7 +134,7 @@ Reality / Evidence updated
 
 The LLM does not own durable truth. It performs temporary computation over selected evidence.
 
-The target control architecture adds a deterministic Cognitive Kernel above the existing runtime, with separate Fast, Think, configured cognitive-model bindings, and Graph-Governor roles. This is a planned control plane; the current implementation remains the deterministic Attention Light + Agent Loop described elsewhere. See [Cognitive control plane](cognitive-control-plane.md).
+The Node.js reference runtime now includes a baseline Cognitive Kernel above the existing Agent Loop: an advisory Decision Layer, ordered Category model chains, framework-owned Think routing with dynamic effort, failure/progress signals, and a partial Graph Governor. Semantic Governor curation and full Cortex lifecycle execution remain incomplete. See [Cognitive control plane](cognitive-control-plane.md).
 
 ## Workflow and cognition are complementary
 
