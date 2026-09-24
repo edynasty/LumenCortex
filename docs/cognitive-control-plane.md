@@ -765,7 +765,7 @@ Epoch creation must be reversible.
 
 Attention Light remains a deterministic graph-selection engine.
 
-In Fast mode, a configured DecisionProvider may produce a policy:
+A configured DecisionProvider in the Decision Layer may produce a bounded Attention policy signal:
 
 ```text
 pi_t = DecisionProvider(compressed_state_t)
@@ -783,13 +783,13 @@ activation_next
     * relevance
 ```
 
-The framework chooses the mode.
+The framework decides whether and how to use that signal.
 
-The configured Fast provider supplies bounded policy judgment.
+The configured DecisionProvider supplies bounded policy judgment only.
 
 Attention Light performs the actual graph search.
 
-Deployments without Fast mode remain valid because the deterministic Attention engine remains independently usable.
+Deployments without Jev/Laya or any model-backed DecisionProvider remain valid because deterministic Attention and algorithmic decision paths remain independently usable.
 
 ## 21. Status
 
@@ -798,7 +798,7 @@ Deployments without Fast mode remain valid because the deterministic Attention e
 | Current deterministic Attention Light | Implemented |
 | Current Active Promotion | Implemented |
 | Cognitive Git | Implemented |
-| Cognitive Profile / lightweight Model Catalog | Planned |
+| Cognitive Profile / Category model chains | Planned |
 | Framework Cognitive Router | Planned |
 | DecisionProvider interface | Planned |
 | Jev decision provider | Planned |
@@ -807,9 +807,9 @@ Deployments without Fast mode remain valid because the deterministic Attention e
 | Dynamic Think effort policy | Planned |
 | Progress Monitor / failure signatures | Planned |
 | Work Unit structure | Planned |
-| Task Profiler + deterministic catalog resolver | Planned |
+| Category classifier + deterministic chain resolver | Planned |
 | Automatic model-speed telemetry | Planned |
-| Provider health per configured route | Planned |
+| Provider health per Decision provider / Category model | Planned |
 | Graph Governor Analyzer | Planned |
 | Graph Governor Curator/Planner | Planned |
 | Graph mutation validator | Planned |
@@ -820,19 +820,18 @@ Deployments without Fast mode remain valid because the deterministic Attention e
 Recommended implementation order:
 
 ```text
-1. Cognitive Profile / Model Catalog schema
-2. Task Profiler + deterministic catalog resolver
-3. automatic model-speed telemetry
-4. Progress Monitor + failure signatures
-5. Framework Cognitive Router with Algorithm/Fast/Think modes
-6. DecisionProvider interface
-7. Laya/Jev DecisionProvider adapters
-8. Think provider contract
-9. Dynamic Think-effort policy + provider adapter mapping
-10. Graph Governor Analyzer
-11. GraphMutationPlan + Validator
-12. Governor configured model integration
-13. hot/warm/cold tiers + Cortex Epochs
+1. DecisionProvider interface + algorithmic decision path
+2. Laya/Jev DecisionProvider adapters
+3. Cognitive Profile / Category model-chain schema
+4. Category classifier + deterministic ordered-chain resolver
+5. Progress Monitor + failure signatures
+6. Framework Think decision + dynamic Think-effort policy
+7. Provider adapter effort mapping
+8. automatic model-speed telemetry
+9. Graph Governor Analyzer
+10. GraphMutationPlan + Validator
+11. Governor configured model integration
+12. hot/warm/cold tiers + Cortex Epochs
 ```
 
 The deterministic Algorithm and Attention paths must remain independently usable throughout the migration.
