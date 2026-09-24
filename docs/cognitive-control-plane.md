@@ -46,11 +46,12 @@ Agent is Execution.
 The runtime follows these rules:
 
 1. **The framework chooses the cognitive mode.**
-2. Models do not decide whether the runtime should be in Fast, Think, or DeepThink.
+2. Models do not decide whether the runtime should be in Fast or Think.
 3. A concrete model is selected by configuration, not by runtime model competition.
 4. Jev/Laya are interchangeable Fast-mode implementations behind a typed `DecisionProvider`.
 5. GPT/Claude/DeepSeek/local reasoning models are interchangeable Think-mode implementations behind a reasoning-provider contract.
-6. Graph Governor uses its own configured model binding and does not share task-local Think responsibility.
+6. Think reasoning intensity is selected dynamically by the framework, within configured bounds.
+7. Graph Governor uses its own configured model binding and does not share task-local Think responsibility.
 7. Models may propose judgments, strategies, or graph plans; deterministic runtime code owns legality, budgets, persistence, and execution.
 8. Durable graph mutation must preserve provenance and remain auditable through Cognitive Git.
 
@@ -78,10 +79,7 @@ The architecture separates **mode routing** from **model configuration**.
                     Jev / Laya / ...      GPT / Claude / ...
 ```
 
-Optional `DeepThink` is another framework mode. It may use:
-
-- the same Think provider with a larger reasoning budget, or
-- a separately configured reasoning provider/model.
+`DeepThink` is not a separate architecture mode. It is represented as Think with a higher framework-selected reasoning intensity.
 
 The framework never performs:
 
@@ -118,12 +116,10 @@ cognition:
     enabled: true
     provider: anthropic
     model: claude-sonnet
-
-  deep_think:
-    enabled: true
-    provider: openai
-    model: gpt-reasoning
-    reasoning_effort: high
+    effort:
+      policy: adaptive
+      min: low
+      max: high
 
   execution:
     provider: openai-compatible
@@ -186,8 +182,8 @@ Fast
 Think
     available if a ReasoningProvider is configured and healthy
 
-DeepThink
-    available if configured or derivable from Think configuration
+Think effort range
+    available when Think is configured; bounded by the profile
 ```
 
 If one route is unavailable, the framework re-evaluates the remaining modes. It does not silently choose an unrelated model.
@@ -228,8 +224,7 @@ The framework chooses from modes, not model identities.
 M = {
   Algorithm,
   Fast,
-  Think,
-  DeepThink
+  Think
 }
 ```
 
@@ -397,7 +392,7 @@ The framework consumes these signals and may choose:
 - gather more evidence,
 - switch to Algorithm,
 - enter Think,
-- enter DeepThink.
+- remain in Think with a higher effort tier.
 
 ## 9. Think Mode
 
@@ -474,22 +469,78 @@ stop_conditions:
 
 The framework may return to Fast after Think has produced a usable strategy.
 
-## 10. DeepThink Mode
+## 10. Dynamic Think intensity
 
-DeepThink is optional.
+Think is one cognitive mode with a dynamic reasoning intensity.
 
-It is selected only when the expected value of additional deliberate computation justifies the extra cost.
+The configured model remains fixed for the Think role. The framework chooses the effort for each Think invocation.
 
-Possible implementation styles:
+A normalized target can be represented as:
 
-- same Think model with higher reasoning effort,
-- separate configured high-capability reasoning model,
-- larger context budget,
-- multiple hypothesis passes,
+```text
+e_t in [0, 1]
+```
+
+or as implementation tiers:
+
+```text
+low
+medium
+high
+max
+```
+
+A target objective is:
+
+```text
+effort* = argmax_e [
+    E[deliberation_gain | state, e]
+    - lambda * compute_cost(e)
+    - mu * latency(e)
+]
+```
+
+The first implementation may estimate an effort score from observable state:
+
+```text
+z
+  = w1 * task_complexity
+  + w2 * semantic_uncertainty
+  + w3 * repeated_failure
+  + w4 * contradiction_density
+  + w5 * unknown_density
+  + w6 * action_risk
+  + w7 * retrieval_exhaustion
+
+effort = clamp(sigmoid(z), configured_min, configured_max)
+```
+
+The Cognitive Profile supplies bounds, not the per-request value:
+
+```yaml
+think:
+  provider: anthropic
+  model: claude-sonnet
+  effort:
+    policy: adaptive
+    min: low
+    max: high
+```
+
+Provider adapters translate the framework's abstract effort into controls supported by that provider/model.
+
+Possible mappings include:
+
+- native reasoning-effort controls when available,
+- reasoning/token budget,
+- context budget,
+- number of deliberate passes,
+- hypothesis count,
+- Contrarian review,
 - focused Subagents,
-- stronger Contrarian review.
+- verification depth.
 
-Again, the framework selects `DeepThink`; configuration determines its model.
+The provider/model does not choose its own effort tier. The framework computes it from runtime state.
 
 ## 11. Progress Monitor and route transitions
 
@@ -807,7 +858,7 @@ Deployments without Fast mode remain valid because the deterministic Attention e
 | Jev decision provider | Planned |
 | Laya decision provider | Planned |
 | Think provider contract | Planned |
-| DeepThink mode | Planned |
+| Dynamic Think effort policy | Planned |
 | Progress Monitor / failure signatures | Planned |
 | Work Unit structure | Planned |
 | Provider health per configured role | Planned |
@@ -827,7 +878,7 @@ Recommended implementation order:
 4. DecisionProvider interface
 5. Laya/Jev DecisionProvider adapters
 6. Think provider contract + configurable binding
-7. DeepThink configuration
+7. Dynamic Think-effort policy + provider adapter mapping
 8. Graph Governor Analyzer
 9. GraphMutationPlan + Validator
 10. Governor configured model integration
