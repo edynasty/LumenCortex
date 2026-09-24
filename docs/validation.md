@@ -6,7 +6,7 @@ This document separates architecture claims from evidence.
 
 Latest validated core suite:
 
-- 118 core tests / 118 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
+- 136 core tests / 136 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
 - Node.js 22 and 24 core matrix
 - dedicated isolated Search / LSP / MCP / Subagent / TUI harness jobs
 - MCP HTTP modern + legacy fallback + stdio transport coverage
@@ -26,8 +26,10 @@ Latest validated core suite:
 - Workflow Contract validation for deterministic Facts/Action/Route/Outcome/Gate transitions
 - Workflow Agent enforcement: per-Action tool visibility, execution-time recheck after mid-turn transitions, final-answer evidence gate, durable human-gate pause/approval/resume
 - Workflow CLI validate/status/approve integration
-- Cognitive control validation: algorithmic DecisionProvider, Jev/Laya-compatible `/v1/systemone` adapter shape, framework Think/effort routing, ordered Category model chains, provider-chain failover, failure signatures, and session model-latency telemetry
-- Graph Governor validation: global analyzer candidates, reproduced-evidence archive protection, plan validation, safe tier metadata updates, and safe archival execution
+- Cognitive control validation: algorithmic DecisionProvider, Jev/Laya-compatible `/v1/systemone` adapter shape, framework Think/effort routing, OpenRouter/Groq/DeepSeek effort mapping, ordered Category model chains, shared circuit breakers, provider-chain failover, failure signatures, and session model-latency telemetry
+- Work Unit validation: dependency-cycle rejection, model/provider/category field rejection, required-evidence/verification completion gates, ordered activation, and Agent premature-final blocking
+- Graph Governor validation: global analyzer candidates, model Curator JSON plans, reproduced-evidence archive protection, semantic plan validation, provenance-preserving canonicalization, branch preservation, global promotion, and reversible Cortex Epoch commits
+- Storage-tier validation: SQLite schema-v2 additive backfill, indexed hot/warm/cold metadata, Attention access telemetry without graph-revision changes, protected evidence GC filtering, and derived-cache-only cold archive compaction
 
 Covered behaviors include:
 
@@ -193,11 +195,10 @@ The following are not represented as complete features:
 - embedding/vector semantic retrieval,
 - cognitive branch <-> actual Git worktree transaction binding,
 - transactional rollback of workspace edits,
-- physical graph GC / hot-warm-cold storage tiers beyond current tier metadata,
+- separate physical hot/warm/cold node stores or destructive graph GC beyond current indexed storage metadata/derived-cache compaction,
 - full temporal validity querying,
-- model-curated Graph Governor planning and automatic split/merge/canonicalization,
+- autonomous Governor scheduling and higher-order split/merge policy beyond the implemented Curator/validated semantic operations,
 - live Jev/Laya provider validation and calibrated cognitive-routing benchmarks,
-- executable Cortex Epoch transitions,
 - reusable Skills layer,
 - vision/browser tools,
 - richer verifier plugins beyond the deterministic Workflow Contract condition/gate DSL.
