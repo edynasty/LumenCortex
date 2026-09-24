@@ -28,6 +28,31 @@ _Maintainable topology source: [`diagrams/system-architecture.mmd`](diagrams/sys
 
 Source: `docs/diagrams/system-architecture.mmd`.
 
+## Cognitive control plane
+
+Question answered:
+
+> How do Decision Layer judgments, framework routing, Category model chains, dynamic Think effort, Agent execution, and Graph Governor fit together?
+
+The maintainable English diagram source is:
+
+- [`diagrams/cognitive-control-plane.en.mmd`](diagrams/cognitive-control-plane.en.mmd)
+
+It reflects the implemented Node.js baseline:
+
+```text
+Decision Layer
+    -> Cognitive Kernel / Framework Router
+        -> Category Model Chains
+        -> Think / Agent Execution
+            -> Context Graph / Cognitive Git
+
+Graph Governor
+    <-> durable cognitive state
+```
+
+Jev/Laya are advisory Decision Layer providers. Category chains contain generative execution/reasoning models only.
+
 ## Agent execution logic
 
 Question answered:
