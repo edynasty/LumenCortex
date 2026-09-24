@@ -186,7 +186,7 @@ Not yet represented as complete:
 - vision/browser tooling,
 - automatic graph GC/hot-warm-cold tiers,
 - full editor-grade TUI UX,
-- adaptive cognitive control plane (framework routing, Fast/Think modes, configurable model bindings),
+- adaptive cognitive control plane (Decision Layer, framework-owned Think routing, ordered Category model chains),
 - Graph Governor for global pruning/branching/promotion/canonicalization and Cortex epochs.
 
 Use [Standalone readiness](standalone-readiness.md) for the current evidence gate.
