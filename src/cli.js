@@ -446,6 +446,29 @@ async function governorCommand({ repo, workspace, argv }) {
     return;
   }
 
+  if (action === 'storage') {
+    console.log(JSON.stringify({
+      storage: repo.storageStats(),
+      gcCandidates: repo.gcCandidates({
+        olderThanMs: Number(parsed.flags['retention-days'] ?? 30) * 24 * 60 * 60 * 1000,
+        limit: Number(parsed.flags.limit ?? 100)
+      })
+    }, null, 2));
+    return;
+  }
+
+  if (action === 'compact') {
+    const retentionDays = Math.max(0, Number(parsed.flags['retention-days'] ?? 30));
+    const dryRun = parsed.flags.yes ? false : true;
+    const result = repo.compactColdArchived({
+      olderThanMs: retentionDays * 24 * 60 * 60 * 1000,
+      limit: Number(parsed.flags.limit ?? 500),
+      dryRun
+    });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
   if (action === 'plan') {
     const result = await governor.propose();
     console.log(JSON.stringify({
@@ -472,7 +495,7 @@ async function governorCommand({ repo, workspace, argv }) {
     return;
   }
 
-  fail('Usage: lcx governor <analyze|plan|apply> ...');
+  fail('Usage: lcx governor <analyze|storage|compact|plan|apply> ...');
 }
 
 async function lspCommand({ workspace, argv }) {
@@ -850,7 +873,7 @@ Agent commands:
   tui [--provider P] [--model M] [--yes]
   parallel <tasks.json> [--concurrency 4] [--unsafe-write-parallel]
   sessions [--limit 20]
-  governor analyze|plan|apply [--semantic] [--epoch]
+  governor analyze|storage|compact|plan|apply [--semantic] [--epoch]
   workflow validate <file.json>
   workflow status <session-id>
   workflow approve <session-id> <gate-id> [--actor name]
