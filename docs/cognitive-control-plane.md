@@ -780,7 +780,7 @@ The controller chooses how to search.
 
 Attention Light performs the actual search.
 
-The current fixed Attention algorithm remains the fallback when no adaptive controller is configured.
+The current fixed Attention algorithm remains an independently valid deterministic path when no adaptive controller is configured.
 
 ## 16. Status and implementation sequence
 
