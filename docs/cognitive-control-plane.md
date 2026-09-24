@@ -28,7 +28,7 @@ The architecture therefore uses five roles:
 |---|---|---|
 | Cognitive Kernel | every step | deterministic control, constraints, budgets, validation |
 | Light Controller | fast | typed local decisions over compressed state |
-| Think | on escalation | task-local deliberate reasoning and strategy revision |
+| Think | when routed | task-local deliberate reasoning and strategy revision |
 | Model Broker | per Work Unit / switch event | select an execution model from capability requirements |
 | Graph Governor | periodic / global | maintain the long-term structure of the Context Graph |
 
@@ -216,26 +216,26 @@ The Cognitive Kernel owns thresholding and final legal transitions.
 
 Fast decision is not a strict model hierarchy and is not defined as a downgrade chain.
 
-The Cognitive Kernel selects among multiple **decision paths** that implement the same control contract:
+The Cognitive Kernel routes each cognitive request among multiple **cognitive routes**. Fast decision paths are one subset of those routes:
 
 ```text
-                    Decision Request
+                    Cognitive Request
                            |
                            v
                    +----------------+
-                   | Decision Router|
+                   | Cognitive Router|
                    +-------+--------+
                            |
-          +----------------+----------------+
-          |                |                |
-          v                v                v
-   Decision Model A  Decision Model B  Algorithm Path
-      Jev/Laya        other model      deterministic
-          |                |                |
-          +----------------+----------------+
+       +-------------------+-------------------+
+       |                   |                   |
+       v                   v                   v
+ Algorithm Route    Decision-Model Route    Think Route
+ deterministic       Jev/Laya/other          deliberate
+       |                   |                   |
+       +-------------------+-------------------+
                            |
                            v
-                     DecisionResult
+                    Cognitive Result
 ```
 
 A deployment may have:
@@ -247,9 +247,11 @@ A deployment may have:
 - no decision model at all,
 - deterministic algorithm only.
 
+Think remains a valid route regardless of which fast-decision providers are configured.
+
 All are valid configurations.
 
-The router considers:
+The Cognitive Router considers:
 
 - provider/model availability,
 - decision type,
@@ -258,7 +260,9 @@ The router considers:
 - privacy/locality requirements,
 - need for semantic judgment,
 - whether the state can be decided reliably from deterministic runtime signals,
-- recent provider health.
+- recent provider health,
+- task complexity and expected value of additional reasoning,
+- risk and irreversibility of the next action.
 
 An algorithm path is therefore not necessarily a last resort. For decisions that are already determined by runtime state, the algorithm path should be preferred even when a model is available.
 
@@ -288,13 +292,16 @@ Availability and uncertainty are separate routing signals.
 
 ```text
 provider unavailable
-    -> choose another available Decision Path
+    -> choose another eligible cognitive route
 
 decision can be made deterministically
-    -> choose Algorithm Path
+    -> Algorithm Route
 
-semantic uncertainty is high
-    -> Think / deeper evidence gathering
+fast semantic judgment is sufficient
+    -> Decision-Model Route
+
+complexity / uncertainty / risk justifies deliberation
+    -> Think Route
 ```
 
 Low confidence, high normalized entropy, a small top-two margin, or conflicting judgments are not provider failures.
@@ -336,9 +343,9 @@ It must not fabricate semantic judgment. If a decision requires meaning that the
 
 ## 6. Think
 
-Think is task-local deliberate reasoning.
+Think is a first-class task-local cognitive route for deliberate reasoning. It may be selected directly from the initial request or entered later after progress/failure signals.
 
-Typical triggers:
+Typical direct-routing or later-routing signals:
 
 - repeated equivalent failure,
 - low progress over multiple steps,
@@ -384,13 +391,18 @@ stop_conditions:
   - hypothesis falsified
 ```
 
-The preferred flow is:
+Think can be entered in multiple ways:
 
 ```text
+initial complex task -> Think
+
 Fast -> Think -> new strategy / policy -> Fast
+
+Fast -> Think -> Think again
+    only when continued deliberation still has positive expected value
 ```
 
-rather than keeping all later steps permanently in the expensive reasoning mode.
+Think is therefore not merely an escalation state. It is one route in the same cognitive routing space. The runtime should still return to cheaper routes when the deliberate work has produced a usable strategy.
 
 ## 7. Progress Monitor and escalation
 
@@ -444,12 +456,16 @@ V(m | s)
     - rho    * switching_cost(m)
 ```
 
-Escalate when the expected marginal value justifies additional computation:
+Choose a cognitive route when its expected value justifies its computation:
 
 ```text
-Think if:
+route* = argmax_m V(m | s)
 
-V(Think | s) > V(Fast | s) + escalation_margin
+where m may include:
+    Algorithm
+    DecisionModel
+    Think
+    DeepThink
 ```
 
 This is the target principle even if the first implementation uses simpler thresholds.
@@ -795,6 +811,7 @@ The current fixed Attention algorithm remains an independently valid determinist
 | Decision-path availability / health routing | Planned |
 | Jev decision provider | Planned |
 | Laya decision provider | Planned |
+| Cognitive Router | Planned |
 | Progress Monitor / failure signatures | Planned |
 | Think escalation contract | Planned |
 | Work Unit / Capability Contract | Planned |
@@ -815,7 +832,7 @@ Recommended implementation order:
 2. Work Unit + Capability Contract
 3. Model Broker with static hard capabilities
 4. DecisionProvider + Algorithm Decision Path
-5. Decision Router + path availability/health
+5. Cognitive Router + path availability/health
 6. Laya/Jev DecisionProvider adapters
 7. Think escalation contract
 8. Outcome-based capability learning
