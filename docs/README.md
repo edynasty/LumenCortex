@@ -110,6 +110,8 @@ The authoritative list is [Standalone readiness](standalone-readiness.md). The h
 4. reusable Skills,
 5. richer TUI navigation and interaction,
 6. vision/browser tools,
-7. credentialed DeepSeek real-model validation.
+7. credentialed DeepSeek real-model validation,
+8. adaptive cognitive routing / capability-aware model brokering,
+9. Graph Governor and Cortex lifecycle management.
 
 When one of these changes, update the readiness and validation documents in the same change.
