@@ -85,5 +85,16 @@
   },
   "telemetry": {
     "enabled": true
+  },
+  "health": {
+    "failureThreshold": 3,
+    "cooldownMs": 30000
+  },
+  "governor": {
+    "enabled": false,
+    "provider": "openrouter",
+    "model": "your-governor-reasoning-model",
+    "reasoningEffort": "high",
+    "maxTokens": 6000
   }
 }
