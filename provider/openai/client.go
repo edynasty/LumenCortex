@@ -34,6 +34,7 @@ type Config struct {
 	MaxRetries       int
 	RetryBaseDelay   time.Duration
 	MaxResponseBytes int64
+	ReasoningFormat   string
 }
 
 type Client struct {
@@ -46,6 +47,7 @@ type Client struct {
 	maxRetries       int
 	retryBaseDelay   time.Duration
 	maxResponseBytes int64
+	reasoningFormat   string
 }
 
 type HTTPError struct {
@@ -110,6 +112,7 @@ func New(cfg Config) (*Client, error) {
 		maxRetries:       maxRetries,
 		retryBaseDelay:   retryBaseDelay,
 		maxResponseBytes: maxResponseBytes,
+		reasoningFormat:   strings.TrimSpace(cfg.ReasoningFormat),
 	}, nil
 }
 
@@ -149,7 +152,7 @@ func (c *Client) Complete(ctx context.Context, req protocol.ProviderRequest) (pr
 }
 
 func (c *Client) completeOnce(ctx context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
-	wireReq := requestFromProtocol(c.model, req, c.stream)
+	wireReq := requestFromProtocol(c.model, req, c.stream, c.reasoningFormat)
 	body, err := json.Marshal(wireReq)
 	if err != nil {
 		return protocol.ProviderResponse{}, err
