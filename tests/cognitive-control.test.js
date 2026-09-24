@@ -11,6 +11,7 @@ import {
   CognitiveRouter,
   DecisionLayer,
   ProgressMonitor,
+  ProviderHealthRegistry,
   SystemOneDecisionProvider,
   loadCognitiveProfile
 } from '../src/cognitive-control.js';
@@ -201,9 +202,10 @@ test('agent uses the selected category model chain and switches only after provi
   };
   const second = {
     model: 'deep-secondary',
-    async complete({ messages }) {
+    async complete({ messages, reasoningEffort }) {
       secondCalls += 1;
       assert.ok(messages.some((message) => message.role === 'system' && /Think mode is active/.test(message.content)));
+      assert.ok(['medium', 'high', 'max'].includes(reasoningEffort));
       return { message: { role: 'assistant', content: 'done' }, finishReason: 'stop' };
     }
   };
@@ -259,4 +261,69 @@ test('agent uses the selected category model chain and switches only after provi
   assert.equal(result.session.metadata.cognition.modelTelemetry['deep-primary'].failures, 1);
   assert.equal(result.session.metadata.cognition.modelTelemetry['deep-secondary'].calls, 1);
   assert.ok(result.session.metadata.cognition.modelTelemetry['deep-secondary'].ewmaLatencyMs >= 0);
+});
+
+
+test('Decision Layer opens a circuit only for operational failures and probes after cooldown', async () => {
+  let now = 1000;
+  let calls = 0;
+  const health = new ProviderHealthRegistry({
+    failureThreshold: 2,
+    cooldownMs: 5000,
+    now: () => now
+  });
+  const provider = {
+    name: 'jev-test',
+    model: 'jev',
+    async decide() {
+      calls += 1;
+      const error = new Error('provider unavailable');
+      error.status = 503;
+      throw error;
+    }
+  };
+  const layer = new DecisionLayer({
+    providers: [provider],
+    healthRegistry: health
+  });
+
+  await layer.decide({ state: { goal: 'x' } });
+  await layer.decide({ state: { goal: 'x' } });
+  const skipped = await layer.decide({ state: { goal: 'x' } });
+
+  assert.equal(calls, 2);
+  assert.equal(skipped.errors[0].skipped, true);
+  assert.equal(health.snapshot()['decision:jev-test:jev'].available, false);
+
+  now += 5001;
+  await layer.decide({ state: { goal: 'x' } });
+  assert.equal(calls, 3);
+});
+
+test('Category resolver skips a model whose provider circuit is open and preserves chain order', () => {
+  const health = new ProviderHealthRegistry({ failureThreshold: 1, cooldownMs: 10000 });
+  health.recordFailure('model:mock:model-a', Object.assign(new Error('down'), { status: 503 }));
+  const resolver = new CategoryResolver({
+    profile: {
+      categories: {
+        general: { default: true, models: [] },
+        deep: {
+          models: [
+            { provider: 'mock', model: 'model-a' },
+            { provider: 'mock', model: 'model-b' }
+          ]
+        }
+      }
+    },
+    healthRegistry: health,
+    providerFactory: (_name, options) => ({
+      model: options.model,
+      complete: async () => ({ message: { role: 'assistant', content: 'ok' } })
+    })
+  });
+
+  const chain = resolver.resolveChain('deep');
+  assert.deepEqual(chain.entries.map((entry) => entry.descriptor.model), ['model-b']);
+  assert.equal(chain.skipped[0].descriptor.model, 'model-a');
+  assert.equal(chain.skipped[0].reason, 'circuit-open');
 });
