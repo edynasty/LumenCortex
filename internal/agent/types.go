@@ -61,6 +61,7 @@ type Options struct {
 	WorkflowJSON        []byte
 	MaxTokens           int
 	Temperature         *float64
+	CognitionEnabled    bool
 }
 
 type Result struct {
@@ -78,6 +79,7 @@ type stepRecord struct {
 	Content      string           `json:"content,omitempty"`
 	ToolCalls    []toolCallRecord `json:"toolCalls,omitempty"`
 	Workflow     any              `json:"workflow,omitempty"`
+	Cognition    any              `json:"cognition,omitempty"`
 }
 
 type toolCallRecord struct {
