@@ -212,40 +212,114 @@ Example:
 The Cognitive Kernel owns thresholding and final legal transitions.
 
 
-### 5.3 Decision fallback chain
+### 5.3 Decision paths
 
-Fast decision must remain available even when a preferred decision model is unavailable.
+Fast decision is not a strict model hierarchy and is not defined as a downgrade chain.
 
-The fallback chain has two distinct layers:
-
-```text
-Primary Decision Model
-    |
-    | provider/model unavailable,
-    | timeout, malformed response,
-    | schema violation, circuit open
-    v
-Secondary Decision Model
-    |
-    | still unavailable / unhealthy
-    v
-Deterministic Decision Algorithm
-    |
-    v
-Attention Light / Cognitive Kernel
-```
-
-Typical configuration:
+The Cognitive Kernel selects among multiple **decision paths** that implement the same control contract:
 
 ```text
-primary:    Laya or Jev
-secondary:  another compatible decision model
-algorithm:  deterministic heuristic policy
+                    Decision Request
+                           |
+                           v
+                   +----------------+
+                   | Decision Router|
+                   +-------+--------+
+                           |
+          +----------------+----------------+
+          |                |                |
+          v                v                v
+   Decision Model A  Decision Model B  Algorithm Path
+      Jev/Laya        other model      deterministic
+          |                |                |
+          +----------------+----------------+
+                           |
+                           v
+                     DecisionResult
 ```
 
-The secondary model is a **substitute model**, not a reasoning escalation. It should implement the same typed `DecisionProvider` contract.
+A deployment may have:
 
-The deterministic algorithm is the final availability fallback. It should use runtime-observable signals such as:
+- Jev only,
+- Laya only,
+- both Jev and Laya,
+- another compatible decision model,
+- no decision model at all,
+- deterministic algorithm only.
+
+All are valid configurations.
+
+The router considers:
+
+- provider/model availability,
+- decision type,
+- expected latency,
+- expected cost,
+- privacy/locality requirements,
+- need for semantic judgment,
+- whether the state can be decided reliably from deterministic runtime signals,
+- recent provider health.
+
+An algorithm path is therefore not necessarily a last resort. For decisions that are already determined by runtime state, the algorithm path should be preferred even when a model is available.
+
+Examples:
+
+```text
+HTTP 429 retry window known
+    -> algorithm
+
+token pressure above hard ceiling
+    -> algorithm
+
+choose causal vs historical retrieval from ambiguous semantic state
+    -> decision model
+
+provider unavailable but local decision model exists
+    -> another decision-model path
+
+no decision model configured
+    -> algorithm where sufficient
+    -> Think where semantic judgment is required
+```
+
+### 5.4 Availability and semantic uncertainty
+
+Availability and uncertainty are separate routing signals.
+
+```text
+provider unavailable
+    -> choose another available Decision Path
+
+decision can be made deterministically
+    -> choose Algorithm Path
+
+semantic uncertainty is high
+    -> Think / deeper evidence gathering
+```
+
+Low confidence, high normalized entropy, a small top-two margin, or conflicting judgments are not provider failures.
+
+They are information about the task state and should remain visible to the Cognitive Kernel.
+
+### 5.5 Decision-path health
+
+The Cognitive Kernel maintains operational health independently for each model-backed decision path.
+
+A model-backed path may be temporarily excluded after repeated operational failures:
+
+```text
+healthy
+  -> repeated operational failures
+temporarily unavailable
+  -> cooldown / bounded probe
+healthy again when probe succeeds
+```
+
+Health affects path eligibility, not semantic capability estimates.
+
+### 5.6 Algorithm decision path
+
+The deterministic Decision Path uses observable runtime state such as:
 
 - repeated-failure count,
 - progress delta,
@@ -253,64 +327,12 @@ The deterministic algorithm is the final availability fallback. It should use ru
 - contradiction count,
 - evidence sufficiency,
 - token pressure,
-- known hard thresholds,
-- current Workflow/action constraints.
+- Workflow/action constraints,
+- hard safety and permission rules.
 
-The algorithm fallback must not attempt to imitate semantic judgment it cannot reliably perform. When semantic ambiguity remains, it should prefer a safe bounded policy or escalate to Think.
+Its purpose is to make decisions that are truly derivable from runtime state.
 
-### 5.4 Failure vs uncertainty
-
-Fallback and escalation solve different problems.
-
-```text
-Decision model operational failure
-    -> substitute decision model
-    -> deterministic algorithm fallback
-
-Decision model semantic uncertainty
-    -> do NOT hide it with fallback
-    -> Think / deeper evidence gathering
-```
-
-Examples of operational failure:
-
-- provider unavailable,
-- timeout,
-- invalid/malformed typed output,
-- incompatible schema,
-- model health circuit open.
-
-Examples of semantic uncertainty:
-
-- high normalized entropy,
-- small top-two margin,
-- mutually conflicting answers,
-- low confidence on evidence sufficiency,
-- unstable decision across repeated equivalent state.
-
-Semantic uncertainty is information about the task. Replacing the model just to obtain a more confident answer can destroy that signal.
-
-### 5.5 Decision health and circuit breaker
-
-The Cognitive Kernel should maintain health independently for each decision provider.
-
-A provider may be temporarily bypassed after repeated operational failures.
-
-Conceptually:
-
-```text
-closed
-  -> failures exceed threshold
-open
-  -> skip provider for cooldown window
-half-open
-  -> probe with bounded request
-  -> success => closed
-  -> failure => open
-```
-
-Health state is operational metadata and must not be interpreted as model capability evidence.
-
+It must not fabricate semantic judgment. If a decision requires meaning that the algorithm cannot derive, the Kernel selects a model-backed path or Think.
 
 ## 6. Think
 
@@ -768,9 +790,9 @@ The current fixed Attention algorithm remains the fallback when no adaptive cont
 | Current Active Promotion | Implemented |
 | Cognitive Git | Implemented |
 | DecisionProvider interface | Planned |
-| Decision-provider substitute-model fallback | Planned |
-| Deterministic decision-algorithm fallback | Planned |
-| Decision-provider health / circuit breaker | Planned |
+| Multiple model-backed Decision Paths | Planned |
+| Deterministic Algorithm Decision Path | Planned |
+| Decision-path availability / health routing | Planned |
 | Jev decision provider | Planned |
 | Laya decision provider | Planned |
 | Progress Monitor / failure signatures | Planned |
@@ -792,8 +814,8 @@ Recommended implementation order:
 1. Progress Monitor + failure signatures
 2. Work Unit + Capability Contract
 3. Model Broker with static hard capabilities
-4. DecisionProvider + deterministic algorithm fallback
-5. Decision-provider health/circuit breaker + substitute-model chain
+4. DecisionProvider + Algorithm Decision Path
+5. Decision Router + path availability/health
 6. Laya/Jev DecisionProvider adapters
 7. Think escalation contract
 8. Outcome-based capability learning
@@ -803,4 +825,4 @@ Recommended implementation order:
 12. hot/warm/cold tiers + Cortex Epochs
 ```
 
-The deterministic fallback path must remain usable throughout the migration.
+The deterministic Algorithm Decision Path must remain independently usable throughout the migration.
