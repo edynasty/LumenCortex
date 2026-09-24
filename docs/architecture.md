@@ -99,6 +99,8 @@ Policies:
 
 Important: truth strength and attention strength are separate values. A low-confidence hypothesis can still deserve attention.
 
+The exact implemented formulas, default parameters, relation weights, traversal policy, token-cost utility, and Exploit / Explore / Contrarian / Anomaly behavior are specified in [Attention Light algorithm](attention-light-algorithm.md). This architecture document intentionally keeps only the subsystem-level summary.
+
 ### Retrieval pipeline
 
 Seed generation now uses SQLite FTS5 + an exact symbol index. Full-graph lexical seed scanning remains only as a fallback when an index is unavailable. The current pipeline is:
