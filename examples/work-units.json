@@ -1,0 +1,42 @@
+{
+  "workUnits": [
+    {
+      "id": "inspect-root-cause",
+      "goal": "Identify and reproduce the root cause before editing",
+      "risk": "medium",
+      "required_evidence": [
+        "production call path",
+        "reproduction"
+      ],
+      "verification": [
+        "root cause reproduced"
+      ]
+    },
+    {
+      "id": "implement-repair",
+      "goal": "Implement the smallest scoped repair",
+      "risk": "medium",
+      "depends_on": [
+        "inspect-root-cause"
+      ],
+      "required_evidence": [
+        "affected implementation path"
+      ],
+      "verification": [
+        "focused tests pass"
+      ]
+    },
+    {
+      "id": "final-verification",
+      "goal": "Verify the repaired behavior and inspect the resulting diff",
+      "risk": "low",
+      "depends_on": [
+        "implement-repair"
+      ],
+      "verification": [
+        "focused tests pass",
+        "final diff reviewed"
+      ]
+    }
+  ]
+}
