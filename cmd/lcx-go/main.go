@@ -140,6 +140,7 @@ func providerFromEnv() (*openai.Client, error) {
 		BaseURL:          strings.TrimSpace(os.Getenv("LCX_BASE_URL")),
 		APIKey:           os.Getenv("LCX_API_KEY"),
 		Model:            model,
+		ReasoningFormat:  strings.TrimSpace(os.Getenv("LCX_REASONING_FORMAT")),
 		DisableStreaming: envBool("LCX_DISABLE_STREAMING"),
 		DisableRetries:   envBool("LCX_DISABLE_RETRIES"),
 	})
@@ -170,6 +171,7 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 		RecentMessages: recentMessages,
 		MaxToolCallsPerStep: maxToolCalls,
 		Workflow: workflow,
+		CognitionEnabled: envBool("LCX_COGNITION"),
 	}, nil
 }
 
