@@ -20,7 +20,7 @@ import { normalizePolicy, policyAllowsTool } from './permissions.js';
 import { withProcessCancellation } from './process-cancellation.js';
 import { WorkflowRuntime, loadWorkflowFile } from './workflow.js';
 import { createCognitiveController, loadCognitiveProfile } from './cognitive-control.js';
-import { GraphGovernor } from './graph-governor.js';
+import { GraphGovernor, LLMGraphGovernorCurator } from './graph-governor.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -95,7 +95,7 @@ try {
       await parallelCommand({ repo, runtime, workspace, argv: args });
       break;
     case 'governor':
-      await governorCommand({ repo, argv: args });
+      await governorCommand({ repo, workspace, argv: args });
       break;
     case 'index': {
       const action = args[0] ?? 'stats';
@@ -415,10 +415,31 @@ async function parallelCommand({ repo, runtime, workspace, argv }) {
   }
 }
 
-async function governorCommand({ repo, argv }) {
+async function governorCommand({ repo, workspace, argv }) {
   const parsed = parseFlags(argv);
   const action = parsed.positionals.shift() ?? 'analyze';
-  const governor = new GraphGovernor({ repository: repo });
+  let curator = null;
+
+  if (action === 'plan') {
+    const profile = loadCognitiveProfile(workspace, {
+      file: parsed.flags.cognition ? path.resolve(workspace, String(parsed.flags.cognition)) : undefined
+    });
+    const config = profile.governor;
+    if (config?.enabled && config.provider && config.model) {
+      const provider = createProvider(config.provider, {
+        model: config.model,
+        baseURL: config.baseURL,
+        timeoutMs: config.timeoutMs
+      });
+      curator = new LLMGraphGovernorCurator({
+        provider,
+        reasoningEffort: config.reasoningEffort,
+        maxTokens: config.maxTokens
+      });
+    }
+  }
+
+  const governor = new GraphGovernor({ repository: repo, curator });
 
   if (action === 'analyze') {
     console.log(JSON.stringify(governor.analyze(), null, 2));
@@ -427,7 +448,10 @@ async function governorCommand({ repo, argv }) {
 
   if (action === 'plan') {
     const result = await governor.propose();
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify({
+      mode: curator ? 'semantic-curator' : 'deterministic',
+      ...result
+    }, null, 2));
     return;
   }
 
