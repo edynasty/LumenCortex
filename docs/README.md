@@ -111,7 +111,7 @@ The authoritative list is [Standalone readiness](standalone-readiness.md). The h
 5. richer TUI navigation and interaction,
 6. vision/browser tools,
 7. credentialed DeepSeek real-model validation,
-8. Decision Layer / Category model chains / dynamic Think effort,
-9. Graph Governor and Cortex lifecycle management.
+8. live Jev/Laya validation and routing-quality benchmarks,
+9. Graph Governor Curator/Planner, semantic canonicalization, physical hot/warm/cold storage, and Cortex Epoch execution.
 
 When one of these changes, update the readiness and validation documents in the same change.
