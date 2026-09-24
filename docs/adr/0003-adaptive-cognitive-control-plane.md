@@ -26,7 +26,7 @@ Adopt a five-part cognitive control architecture:
 
 1. **Cognitive Kernel** — deterministic control, budgets, legality, policy application, persistence, and audit.
 2. **Light Controller** — fast typed local decisions through a pluggable `DecisionProvider`.
-3. **Think** — task-local deliberate reasoning invoked by escalation.
+3. **Think** — a first-class task-local deliberate reasoning route, selectable directly or after later progress/failure signals.
 4. **Model Broker** — capability/cost/latency-aware model selection for Work Units.
 5. **Graph Governor** — long-horizon Context Graph maintenance across tasks and Sessions.
 
@@ -47,7 +47,7 @@ The Model Broker selects models from capability requirements and verified runtim
 - Attention Light remains usable without any adaptive decision model.
 - Fast control supports multiple peer Decision Paths: model-backed paths and a deterministic Algorithm Path.
 - Decision-path selection is based on applicability, availability, cost, latency, locality, and semantic requirements rather than a fixed downgrade order.
-- Semantic uncertainty is not treated as provider failure; it remains an escalation signal for Think.
+- Semantic uncertainty is not treated as provider failure; it is one signal that may route cognition to Think.
 - Fast decision models never directly write Context Graph state.
 - Think is task-local and does not own long-horizon Cortex structure.
 - Graph Governor is cross-session/global and does not own the current task plan.
@@ -71,39 +71,44 @@ V(m | s)
     - rho    * switching_cost(m)
 ```
 
-Escalation to Think occurs when its expected marginal value exceeds the fast path by a configured margin.
+Cognitive routing selects the route with the best expected value after cost, latency, risk, and switching cost. Think may be selected immediately; it is not restricted to post-failure escalation.
 
 Decision uncertainty may use normalized entropy and top-two probability margin as escalation signals.
 
 
-## Decision-path routing
+## Cognitive-route selection
 
-Fast control is expressed as a routing problem over peer Decision Paths.
+Cognition is routed among peer routes:
 
 ```text
-Decision Request
-    -> model-backed Decision Path
-    -> another model-backed Decision Path
-    -> deterministic Algorithm Path
+Cognitive Request
+    -> deterministic Algorithm Route
+    -> model-backed Decision Route
+    -> Think Route
+    -> optional Deep-Think Route
 ```
 
-There is no required primary/secondary hierarchy.
+There is no requirement that a fast route run before Think.
 
-The Cognitive Kernel selects an eligible path using:
+The Cognitive Kernel selects an eligible route using:
 
-- decision semantics,
+- task semantics and complexity,
 - provider/model availability,
-- cost,
-- latency,
+- cost and latency,
 - privacy/locality,
 - operational health,
-- whether deterministic runtime state is already sufficient.
+- whether deterministic runtime state is sufficient,
+- semantic uncertainty,
+- action risk and reversibility,
+- expected value of additional computation.
 
-The deterministic Algorithm Path may be selected first when the decision is mechanically derivable.
+A deterministic route may be selected first when the decision is mechanically derivable.
 
-If no model-backed path is configured, the runtime remains valid: deterministic decisions continue through the Algorithm Path and semantic ambiguity may escalate to Think.
+A model-backed decision route may be selected when a fast semantic judgment is sufficient.
 
-Low confidence, high entropy, conflicting judgments, or a small top-two margin are not availability failures. They are semantic uncertainty signals and should normally cause Think escalation or targeted evidence gathering.
+Think may be selected directly for a complex or high-risk task, or later when new evidence shows that deliberate reasoning has become worthwhile.
+
+Low confidence, high entropy, conflicting judgments, or a small top-two margin are route-selection signals, not availability failures.
 
 ## Model selection
 
@@ -215,12 +220,12 @@ Any schema addition requires a separate migration with backward compatibility.
 Before adaptive control can be called validated:
 
 1. deterministic decision-path behavior remains green,
-2. Decision Router selects another eligible model-backed path when one provider is unavailable,
+2. Cognitive Router selects an eligible alternate route when one provider is unavailable,
 3. Algorithm Decision Path is exercised as a first-class path when deterministic state is sufficient,
 4. configurations with no decision model remain functional,
-5. low-confidence decisions escalate rather than being hidden by path switching,
+5. low-confidence decisions remain visible to route selection rather than being hidden by provider switching,
 6. Progress Monitor correctly groups repeated failures,
-7. escalation tests prove fast -> Think -> fast transitions,
+7. routing tests prove direct Think selection and fast -> Think -> fast transitions,
 8. broker tests prove hard-capability filtering and switch hysteresis,
 9. verified outcomes update capability profiles deterministically,
 10. graph plans cannot bypass Graph Validator,
