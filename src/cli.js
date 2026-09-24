@@ -20,6 +20,7 @@ import { normalizePolicy, policyAllowsTool } from './permissions.js';
 import { withProcessCancellation } from './process-cancellation.js';
 import { WorkflowRuntime, loadWorkflowFile } from './workflow.js';
 import { createCognitiveController, loadCognitiveProfile } from './cognitive-control.js';
+import { GraphGovernor } from './graph-governor.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -92,6 +93,9 @@ try {
       break;
     case 'parallel':
       await parallelCommand({ repo, runtime, workspace, argv: args });
+      break;
+    case 'governor':
+      await governorCommand({ repo, argv: args });
       break;
     case 'index': {
       const action = args[0] ?? 'stats';
@@ -409,6 +413,40 @@ async function parallelCommand({ repo, runtime, workspace, argv }) {
   } finally {
     await resources.close();
   }
+}
+
+async function governorCommand({ repo, argv }) {
+  const parsed = parseFlags(argv);
+  const action = parsed.positionals.shift() ?? 'analyze';
+  const governor = new GraphGovernor({ repository: repo });
+
+  if (action === 'analyze') {
+    console.log(JSON.stringify(governor.analyze(), null, 2));
+    return;
+  }
+
+  if (action === 'plan') {
+    const result = await governor.propose();
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (action === 'apply') {
+    const file = parsed.positionals[0];
+    if (!file) fail('Usage: lcx governor apply <plan.json> --yes [--dry-run]');
+    const plan = JSON.parse(fs.readFileSync(path.resolve(file), 'utf8'));
+    const dryRun = Boolean(parsed.flags['dry-run']);
+    if (!dryRun && !parsed.flags.yes) fail('Graph Governor apply requires --yes or --dry-run');
+    const result = governor.applySafe(plan, {
+      dryRun,
+      commit: parsed.flags['no-commit'] ? false : true,
+      message: parsed.flags.message ? String(parsed.flags.message) : undefined
+    });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  fail('Usage: lcx governor <analyze|plan|apply> ...');
 }
 
 async function lspCommand({ workspace, argv }) {
@@ -779,6 +817,7 @@ Agent commands:
   tui [--provider P] [--model M] [--yes]
   parallel <tasks.json> [--concurrency 4] [--unsafe-write-parallel]
   sessions [--limit 20]
+  governor analyze|plan|apply
   workflow validate <file.json>
   workflow status <session-id>
   workflow approve <session-id> <gate-id> [--actor name]
