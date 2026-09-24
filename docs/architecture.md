@@ -86,7 +86,7 @@ The next architecture stage separates adaptive cognition into five roles:
 |---|---|---|
 | Cognitive Kernel | deterministic constraints, budgets, legal transitions, validation | Planned |
 | Light Controller | fast typed decisions over compressed state | Planned |
-| Think | first-class task-local deliberate reasoning route | Planned |
+| Think | task-local deliberate reasoning with framework-selected dynamic effort | Planned |
 | Cognitive Profile | explicit mode-to-provider/model bindings | Planned |
 | Graph Governor | long-horizon pruning, branching, promotion, canonicalization, summaries, and Cortex versioning | Planned |
 
@@ -107,7 +107,7 @@ Attention / Provider bindings / Graph engines
 verified execution + durable state
 ```
 
-Think does not own global graph maintenance. Graph Governor does not own current-task strategy. The framework chooses cognitive mode; Cognitive Profile configuration chooses the concrete provider/model used by that mode.
+Think does not own global graph maintenance. Graph Governor does not own current-task strategy. The framework chooses cognitive mode and, for Think, the per-request reasoning intensity; Cognitive Profile configuration chooses the concrete provider/model and allowed effort bounds.
 
 ## Attention Light
 
@@ -307,6 +307,7 @@ All providers use the same tool-calling Agent Loop.
 | Progress Monitor + cognitive route transitions | Planned |
 | Work Unit structure | Planned |
 | Cognitive Profile / mode bindings | Planned |
+| Dynamic Think reasoning effort | Planned |
 | Graph Governor | Planned |
 | Cortex Epochs | Planned |
 
