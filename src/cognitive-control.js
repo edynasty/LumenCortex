@@ -58,6 +58,10 @@ export function loadCognitiveProfile(workspace, options = {}) {
     categories,
     telemetry: {
       enabled: user.telemetry?.enabled !== false
+    },
+    health: {
+      failureThreshold: Math.max(1, Number(user.health?.failureThreshold ?? 3)),
+      cooldownMs: Math.max(1000, Number(user.health?.cooldownMs ?? 30000))
     }
   };
 }
@@ -165,11 +169,76 @@ export function createDecisionProvider(config, options = {}) {
   });
 }
 
+export class ProviderHealthRegistry {
+  constructor({ failureThreshold = 3, cooldownMs = 30000, now = () => Date.now() } = {}) {
+    this.failureThreshold = Math.max(1, Number(failureThreshold));
+    this.cooldownMs = Math.max(1000, Number(cooldownMs));
+    this.now = now;
+    this.states = new Map();
+  }
+
+  isAvailable(key) {
+    const state = this.states.get(key);
+    if (!state?.openUntil) return true;
+    return this.now() >= state.openUntil;
+  }
+
+  recordSuccess(key) {
+    const current = this.states.get(key) ?? emptyHealthState();
+    this.states.set(key, {
+      ...current,
+      successes: current.successes + 1,
+      consecutiveFailures: 0,
+      openUntil: null,
+      lastStatus: null,
+      lastError: null,
+      updatedAt: this.now()
+    });
+  }
+
+  recordFailure(key, error = {}) {
+    const current = this.states.get(key) ?? emptyHealthState();
+    const consecutiveFailures = current.consecutiveFailures + 1;
+    this.states.set(key, {
+      ...current,
+      failures: current.failures + 1,
+      consecutiveFailures,
+      openUntil: consecutiveFailures >= this.failureThreshold
+        ? this.now() + this.cooldownMs
+        : current.openUntil,
+      lastStatus: error.status ?? null,
+      lastError: error.message ?? String(error),
+      updatedAt: this.now()
+    });
+  }
+
+  snapshot() {
+    return Object.fromEntries(
+      [...this.states.entries()].map(([key, state]) => [
+        key,
+        {
+          ...state,
+          available: this.isAvailable(key),
+          cooldownRemainingMs: state.openUntil
+            ? Math.max(0, state.openUntil - this.now())
+            : 0
+        }
+      ])
+    );
+  }
+}
+
 export class DecisionLayer {
-  constructor({ providers = [], policy = 'first', algorithm = new AlgorithmDecisionProvider() } = {}) {
+  constructor({
+    providers = [],
+    policy = 'first',
+    algorithm = new AlgorithmDecisionProvider(),
+    healthRegistry = null
+  } = {}) {
     this.algorithm = algorithm;
     this.providers = providers;
     this.policy = policy;
+    this.healthRegistry = healthRegistry;
   }
 
   async decide(input = {}) {
@@ -178,11 +247,24 @@ export class DecisionLayer {
     const errors = [];
 
     for (const provider of this.providers) {
+      const healthKey = decisionHealthKey(provider);
+      if (this.healthRegistry && !this.healthRegistry.isAvailable(healthKey)) {
+        errors.push({
+          provider: provider.name ?? 'decision-provider',
+          message: 'circuit-open',
+          status: null,
+          skipped: true
+        });
+        continue;
+      }
+
       try {
         const result = await provider.decide(input);
+        this.healthRegistry?.recordSuccess(healthKey);
         models.push(result);
         if (this.policy !== 'all') break;
       } catch (error) {
+        this.healthRegistry?.recordFailure(healthKey, error);
         errors.push({
           provider: provider.name ?? 'decision-provider',
           message: error.message,
@@ -297,13 +379,15 @@ export class CategoryResolver {
     fallbackProvider,
     fallbackProviderName,
     fallbackModel,
-    providerFactory = createProvider
+    providerFactory = createProvider,
+    healthRegistry = null
   } = {}) {
     this.profile = profile;
     this.fallbackProvider = fallbackProvider;
     this.fallbackProviderName = fallbackProviderName;
     this.fallbackModel = fallbackModel ?? fallbackProvider?.model;
     this.providerFactory = providerFactory;
+    this.healthRegistry = healthRegistry;
     this.cache = new Map();
   }
 
@@ -312,32 +396,48 @@ export class CategoryResolver {
     const category = categories[categoryName] ?? this.defaultCategory();
     const chain = Array.isArray(category?.models) ? category.models : [];
     const resolved = [];
+    const skipped = [];
 
     for (const entry of chain) {
       try {
         const descriptor = normalizeModelDescriptor(entry, this.fallbackProviderName);
+        const healthKey = modelHealthKey(descriptor);
+        if (this.healthRegistry && !this.healthRegistry.isAvailable(healthKey)) {
+          skipped.push({ descriptor, reason: 'circuit-open' });
+          continue;
+        }
         const provider = this.#provider(descriptor);
-        if (provider) resolved.push({ provider, descriptor });
-      } catch {
-        // An unavailable or misconfigured chain entry is skipped. Ordered chain
-        // semantics continue with the next configured entry.
+        if (provider) resolved.push({ provider, descriptor, healthKey });
+      } catch (error) {
+        skipped.push({
+          descriptor: normalizeModelDescriptor(entry, this.fallbackProviderName),
+          reason: error.message
+        });
       }
     }
 
     if (!resolved.length && this.fallbackProvider) {
-      resolved.push({
-        provider: this.fallbackProvider,
-        descriptor: {
-          provider: this.fallbackProviderName ?? 'current',
-          model: this.fallbackModel ?? this.fallbackProvider.model,
-          fallback: true
-        }
-      });
+      const descriptor = {
+        provider: this.fallbackProviderName ?? 'current',
+        model: this.fallbackModel ?? this.fallbackProvider.model,
+        fallback: true
+      };
+      const healthKey = modelHealthKey(descriptor);
+      if (!this.healthRegistry || this.healthRegistry.isAvailable(healthKey)) {
+        resolved.push({
+          provider: this.fallbackProvider,
+          descriptor,
+          healthKey
+        });
+      } else {
+        skipped.push({ descriptor, reason: 'circuit-open' });
+      }
     }
 
     return {
       category: categoryName in categories ? categoryName : this.defaultCategoryName(),
-      entries: resolved
+      entries: resolved,
+      skipped
     };
   }
 
@@ -370,8 +470,9 @@ export class CategoryResolver {
 }
 
 export class CognitiveController {
-  constructor({ decisionLayer, router, categoryResolver, profile } = {}) {
-    this.decisionLayer = decisionLayer ?? new DecisionLayer();
+  constructor({ decisionLayer, router, categoryResolver, profile, healthRegistry } = {}) {
+    this.healthRegistry = healthRegistry ?? new ProviderHealthRegistry(profile?.health);
+    this.decisionLayer = decisionLayer ?? new DecisionLayer({ healthRegistry: this.healthRegistry });
     this.router = router ?? new CognitiveRouter();
     this.categoryResolver = categoryResolver;
     this.profile = profile;
@@ -404,8 +505,10 @@ export class CognitiveController {
       retrieval: plan.retrieval,
       reasons: plan.reasons,
       decisionErrors: decision.errors,
+      skippedModels: chain.skipped ?? [],
       models: plan.providers.map((item) => item.provider?.model ?? item.descriptor?.model ?? null)
     });
+    session.metadata.cognition.providerHealth = this.healthRegistry.snapshot();
     session.metadata.cognition.history = session.metadata.cognition.history.slice(-64);
     return plan;
   }
@@ -418,7 +521,7 @@ export class CognitiveController {
     session.metadata.cognition.progress = progress.snapshot();
   }
 
-  recordModelCall({ session, model, elapsedMs, ok }) {
+  recordModelCall({ session, model, descriptor, elapsedMs, ok, error }) {
     if (!model || !Number.isFinite(Number(elapsedMs))) return;
     session.metadata ??= {};
     session.metadata.cognition ??= { history: [], progress: {} };
@@ -438,6 +541,14 @@ export class CognitiveController {
       ? latency
       : alpha * latency + (1 - alpha) * current.ewmaLatencyMs;
     session.metadata.cognition.modelTelemetry[model] = current;
+
+    const healthKey = modelHealthKey({
+      provider: descriptor?.provider ?? 'current',
+      model
+    });
+    if (ok) this.healthRegistry.recordSuccess(healthKey);
+    else this.healthRegistry.recordFailure(healthKey, error ?? new Error('provider call failed'));
+    session.metadata.cognition.providerHealth = this.healthRegistry.snapshot();
   }
 }
 
@@ -456,6 +567,7 @@ export function createCognitiveController({
     fallbackModel
   });
 
+  const healthRegistry = new ProviderHealthRegistry(profile.health);
   const modelDecisionProviders = [];
   for (const entry of profile.decision.providers) {
     if (entry === 'algorithm' || entry?.type === 'algorithm') continue;
@@ -468,21 +580,24 @@ export function createCognitiveController({
 
   const decisionLayer = new DecisionLayer({
     providers: modelDecisionProviders,
-    policy: profile.decision.policy
+    policy: profile.decision.policy,
+    healthRegistry
   });
   const categoryResolver = new CategoryResolver({
     profile,
     fallbackProvider,
     fallbackProviderName,
     fallbackModel,
-    providerFactory
+    providerFactory,
+    healthRegistry
   });
 
   return new CognitiveController({
     profile,
     decisionLayer,
     router: new CognitiveRouter(),
-    categoryResolver
+    categoryResolver,
+    healthRegistry
   });
 }
 
@@ -697,4 +812,25 @@ function normalizeModelDescriptor(entry, fallbackProviderName) {
   }
 
   return { provider: fallbackProviderName, model: raw };
+}
+
+
+function emptyHealthState() {
+  return {
+    successes: 0,
+    failures: 0,
+    consecutiveFailures: 0,
+    openUntil: null,
+    lastStatus: null,
+    lastError: null,
+    updatedAt: null
+  };
+}
+
+function decisionHealthKey(provider) {
+  return `decision:${provider?.name ?? 'unknown'}:${provider?.model ?? 'default'}`;
+}
+
+export function modelHealthKey(descriptor = {}) {
+  return `model:${descriptor.provider ?? 'current'}:${descriptor.model ?? 'default'}`;
 }
