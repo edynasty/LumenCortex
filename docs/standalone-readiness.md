@@ -35,8 +35,10 @@ A feature being present in source code is not enough. Readiness claims require a
 | Skills layer | Not implemented | None | Gap; Workflow Contract is now a stable substrate for future Skill bindings |
 | Vision/browser tools | Not implemented | None | Gap |
 | Adaptive cognitive routing / Think mode | Implemented baseline | Core CI cognitive-control tests | Experimental baseline; routing quality still needs workload benchmarks |
-| Decision Layer + Category model chains | Implemented baseline | Core CI: algorithm/System-One adapter, ordered-chain fallback, session trace tests | Ready for experimental use; live Jev/Laya validation pending |
-| Graph Governor / Cortex Epochs | Partial | Core CI: analyzer, validator, safe tier/archive executor | Governor baseline only; curator/canonicalization/epoch execution remain gaps |
+| Decision Layer + Category model chains | Implemented baseline | Core CI: algorithm/System-One adapter, ordered-chain fallback, circuit breaker, provider effort mapping, session trace tests | Ready for experimental use; live Jev/Laya validation pending |
+| Persistent Work Units | Implemented baseline | dependency/evidence/verification/final-answer gate tests | Ready experimental baseline |
+| Hot/warm/cold storage metadata | Implemented baseline | SQLite schema-v2/backfill/access/compaction tests | Logical graph remains intact; physical tier separation is not claimed |
+| Graph Governor / Cortex Epochs | Implemented baseline | Core CI: analyzer, semantic Curator, validator, canonicalization/branch/promotion, reversible epoch tests | Experimental governance baseline; autonomous scheduling and physical tier separation remain gaps |
 
 ## Primary-agent evidence gates
 
@@ -81,6 +83,8 @@ In particular, the current architecture does not yet claim:
 - vision/browser automation,
 - polished terminal navigation equivalent to mature editor-grade TUIs,
 - live Jev/Laya endpoint validation and calibrated routing benchmarks,
-- full Graph Governor model Curator, semantic canonicalization, physical hot/warm/cold storage movement, and Cortex Epoch execution.
+- autonomous Governor scheduling and policy calibration,
+- separate physical hot/warm/cold data stores or destructive cognitive GC (not currently claimed),
+- broader provider-specific reasoning controls and Go-runtime parity.
 
 These are tracked as explicit product gaps rather than being inferred from the existence of generic shell or MCP tools.
