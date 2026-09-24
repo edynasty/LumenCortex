@@ -25,3 +25,5 @@ export * from './mcp.js';
 export * from './subagent.js';
 export * from './parallel.js';
 export * from './tui.js';
+
+export * from './graph-governor.js';
