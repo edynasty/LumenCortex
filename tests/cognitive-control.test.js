@@ -256,4 +256,7 @@ test('agent uses the selected category model chain and switches only after provi
   assert.equal(result.session.steps[0].cognition.category, 'deep');
   assert.equal(result.session.steps[0].cognition.think, true);
   assert.ok(events.some((event) => event.type === 'cognition.model_chain'));
+  assert.equal(result.session.metadata.cognition.modelTelemetry['deep-primary'].failures, 1);
+  assert.equal(result.session.metadata.cognition.modelTelemetry['deep-secondary'].calls, 1);
+  assert.ok(result.session.metadata.cognition.modelTelemetry['deep-secondary'].ewmaLatencyMs >= 0);
 });
