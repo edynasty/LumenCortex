@@ -4,23 +4,35 @@ export const PROVIDER_PRESETS = {
     baseURL: 'https://openrouter.ai/api/v1',
     apiKeyEnv: 'OPENROUTER_API_KEY',
     defaultModel: 'openrouter/free',
-    headers: { 'HTTP-Referer': 'https://github.com/edynasty/LumenCortex', 'X-Title': BRAND.name }
+    headers: { 'HTTP-Referer': 'https://github.com/edynasty/LumenCortex', 'X-Title': BRAND.name },
+    reasoning: { format: 'reasoning-object', supported: ['none', 'low', 'medium', 'high', 'max'] }
   },
   'openrouter-deepseek-free': {
     baseURL: 'https://openrouter.ai/api/v1',
     apiKeyEnv: 'OPENROUTER_API_KEY',
     defaultModel: 'deepseek/deepseek-v4-flash-0731:free',
-    headers: { 'HTTP-Referer': 'https://github.com/edynasty/LumenCortex', 'X-Title': 'LumenCortex DeepSeek Free' }
+    headers: { 'HTTP-Referer': 'https://github.com/edynasty/LumenCortex', 'X-Title': 'LumenCortex DeepSeek Free' },
+    reasoning: { format: 'reasoning-object', supported: ['none', 'low', 'medium', 'high', 'max'] }
   },
   groq: {
     baseURL: 'https://api.groq.com/openai/v1',
     apiKeyEnv: 'GROQ_API_KEY',
-    defaultModel: 'openai/gpt-oss-120b'
+    defaultModel: 'openai/gpt-oss-120b',
+    reasoning: {
+      format: 'reasoning-effort',
+      supported: ['low', 'medium', 'high'],
+      map: { max: 'high' }
+    }
   },
   deepseek: {
     baseURL: 'https://api.deepseek.com',
     apiKeyEnv: 'DEEPSEEK_API_KEY',
-    defaultModel: 'deepseek-flash'
+    defaultModel: 'deepseek-flash',
+    reasoning: {
+      format: 'deepseek',
+      supported: ['none', 'low', 'high', 'max'],
+      map: { medium: 'high' }
+    }
   },
   generic: {
     baseURL: process.env.LUMENCORTEX_BASE_URL,
@@ -30,19 +42,30 @@ export const PROVIDER_PRESETS = {
 };
 
 export class OpenAICompatibleProvider {
-  constructor({ baseURL, apiKey, model, headers = {}, fetchImpl = globalThis.fetch, timeoutMs = 120000 }) {
+  constructor({
+    baseURL,
+    apiKey,
+    model,
+    providerName = 'generic',
+    headers = {},
+    fetchImpl = globalThis.fetch,
+    timeoutMs = 120000,
+    reasoningProfile = null
+  }) {
     if (!baseURL) throw new Error('Provider baseURL is required');
     if (!model) throw new Error('Provider model is required');
     if (typeof fetchImpl !== 'function') throw new Error('fetch implementation is required');
     this.baseURL = baseURL.replace(/\/$/, '');
     this.apiKey = apiKey;
     this.model = model;
+    this.providerName = providerName;
     this.headers = headers;
+    this.reasoningProfile = reasoningProfile;
     this.fetch = fetchImpl;
     this.timeoutMs = timeoutMs;
   }
 
-  async complete({ messages, tools = [], toolChoice = 'auto', temperature, maxTokens, signal } = {}) {
+  async complete({ messages, tools = [], toolChoice = 'auto', temperature, maxTokens, reasoningEffort, signal } = {}) {
     const controller = signal ? null : new AbortController();
     const timeout = controller ? setTimeout(() => controller.abort(), this.timeoutMs) : null;
     try {
@@ -51,7 +74,8 @@ export class OpenAICompatibleProvider {
         messages,
         ...(tools.length ? { tools, tool_choice: toolChoice } : {}),
         ...(temperature !== undefined ? { temperature } : {}),
-        ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {})
+        ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+        ...reasoningRequestFields(this.reasoningProfile, reasoningEffort)
       };
       const response = await this.fetch(`${this.baseURL}/chat/completions`, {
         method: 'POST',
@@ -104,9 +128,11 @@ export function createProvider(name = process.env.LUMENCORTEX_PROVIDER ?? 'openr
     baseURL,
     apiKey,
     model,
+    providerName: name,
     headers: { ...(preset.headers ?? {}), ...(options.headers ?? {}) },
     fetchImpl: options.fetchImpl,
-    timeoutMs: options.timeoutMs
+    timeoutMs: options.timeoutMs,
+    reasoningProfile: options.reasoningProfile ?? preset.reasoning ?? null
   });
 }
 
@@ -115,7 +141,8 @@ export function providerInfo() {
     name,
     baseURL: preset.baseURL ?? '(LUMENCORTEX_BASE_URL)',
     apiKeyEnv: preset.apiKeyEnv,
-    defaultModel: preset.defaultModel ?? '(LUMENCORTEX_MODEL)'
+    defaultModel: preset.defaultModel ?? '(LUMENCORTEX_MODEL)',
+    reasoning: preset.reasoning?.format ?? 'provider-default'
   }));
 }
 
@@ -137,4 +164,29 @@ function normalizeAssistantMessage(message) {
       ? { reasoning: message.reasoning ?? message.reasoning_content }
       : {})
   };
+}
+
+
+export function reasoningRequestFields(profile, effort) {
+  if (!profile || effort === undefined || effort === null) return {};
+  const requested = String(effort).toLowerCase();
+  const mapped = profile.map?.[requested] ?? requested;
+  if (!profile.supported?.includes(mapped)) return {};
+
+  if (profile.format === 'reasoning-object') {
+    return { reasoning: { effort: mapped } };
+  }
+
+  if (profile.format === 'reasoning-effort') {
+    return { reasoning_effort: mapped };
+  }
+
+  if (profile.format === 'deepseek') {
+    return {
+      reasoning_effort: mapped,
+      thinking: { type: mapped === 'none' ? 'disabled' : 'enabled' }
+    };
+  }
+
+  return {};
 }
