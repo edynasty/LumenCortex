@@ -85,12 +85,12 @@ The next architecture stage separates adaptive cognition into five roles:
 | Role | Responsibility | Status |
 |---|---|---|
 | Cognitive Kernel | deterministic constraints, budgets, legal transitions, validation | Planned |
-| Light Controller | fast typed decisions over compressed state | Planned |
-| Think | task-local deliberate reasoning with framework-selected dynamic effort | Planned |
-| Cognitive Profile / Model Catalog | model defaults, task specialties, and hard capabilities | Planned |
+| Decision Layer | advisory typed judgments via algorithm/Jev/Laya-compatible providers | Planned |
+| Think | framework-selected deliberate reasoning with dynamic effort | Planned |
+| Category model chains | ordered generative-model preferences by work category | Planned |
 | Graph Governor | long-horizon pruning, branching, promotion, canonicalization, summaries, and Cortex versioning | Planned |
 
-These roles are intentionally separate from the current deterministic Attention Light and Agent Loop. The exact target contracts, cognitive-route selection formulas, model-selection utility, and Graph Governor lifecycle are defined in [Cognitive control plane](cognitive-control-plane.md).
+These roles are intentionally separate from the current deterministic Attention Light and Agent Loop. The exact Decision Layer contracts, Category-chain semantics, Think-effort formulas, and Graph Governor lifecycle are defined in [Cognitive control plane](cognitive-control-plane.md).
 
 The core boundary is:
 
@@ -107,7 +107,7 @@ Attention / Provider bindings / Graph engines
 verified execution + durable state
 ```
 
-Think does not own global graph maintenance. Graph Governor does not own current-task strategy. The framework chooses cognitive mode and, for Think, per-request reasoning intensity. A simple Model Catalog resolves the concrete provider/model using mode eligibility, task specialties, configured defaults, and hard capabilities; runtime speed is measured automatically.
+Think does not own global graph maintenance. Graph Governor does not own current-task strategy. Jev/Laya belong to an advisory Decision Layer and do not execute Category Work Units. The framework chooses Category, whether Think is needed, and Think effort; the selected Category supplies an ordered generative-model chain.
 
 ## Attention Light
 
@@ -303,10 +303,12 @@ All providers use the same tool-calling Agent Loop.
 | Structural graft edge | Implemented |
 | Cross-branch graft | Implemented through merge/cherry-pick |
 | Automatic split/merge/canonicalization controller | Planned |
-| DecisionProvider / Light Controller | Planned |
-| Progress Monitor + cognitive route transitions | Planned |
+| Decision Layer / DecisionProvider | Planned |
+| Jev/Laya decision adapters | Planned |
+| Progress Monitor + framework routing | Planned |
 | Work Unit structure | Planned |
-| Cognitive Profile / Model Catalog | Planned |
+| Category model chains | Planned |
+| Category resolver | Planned |
 | Automatic model-speed telemetry | Planned |
 | Dynamic Think reasoning effort | Planned |
 | Graph Governor | Planned |
