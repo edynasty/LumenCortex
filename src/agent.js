@@ -4,6 +4,7 @@ import { AgentSessionStore } from './session.js';
 import { PromotionController } from './promotion-controller.js';
 import { estimateTokens, hash, nowIso } from './util.js';
 import { WorkflowRuntime } from './workflow.js';
+import { WorkUnitManager, formatWorkUnitPrompt, registerWorkUnitTools } from './work-unit.js';
 
 const DEFAULT_SYSTEM_PROMPT = `You are LumenCortex Agent, an autonomous coding agent operating inside a versioned cognitive graph.
 
@@ -34,6 +35,7 @@ export class AgentLoop {
     this.sessions = sessionStore ?? new AgentSessionStore(repository.dir);
     this.promotionController = promotionController ?? new PromotionController(runtime);
     this.cognitiveController = cognitiveController ?? null;
+    if (this.cognitiveController) registerWorkUnitTools(this.tools);
     this.authorize = authorize;
     this.onEvent = onEvent ?? (() => {});
   }
@@ -88,6 +90,11 @@ export class AgentLoop {
       systemPrompt: options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
     });
 
+    const workUnits = this.cognitiveController ? new WorkUnitManager(session) : null;
+    if (workUnits && Array.isArray(options.workUnits) && options.workUnits.length && !workUnits.list().length) {
+      workUnits.seed(options.workUnits);
+    }
+
     const hadWorkflow = Boolean(session.metadata.workflow);
     const workflow = WorkflowRuntime.fromSession(session, options.workflow);
     if (workflow) {
@@ -114,8 +121,12 @@ export class AgentLoop {
       }
       const stepToolAllowlist = workflow ? workflow.effectiveAllowlist(toolAllowlist) : toolAllowlist;
       const toolSchemas = this.tools.schemas(stepToolAllowlist);
+      const activeWorkUnit = workUnits?.ensureActive() ?? null;
       const baseFocus = deriveFocus(session, goal, step);
-      const focus = workflow ? `${baseFocus}\nworkflow-action:${workflow.actionId()}` : baseFocus;
+      const workUnitFocus = activeWorkUnit
+        ? `${baseFocus}\nwork-unit:${activeWorkUnit.id}:${activeWorkUnit.goal}`
+        : baseFocus;
+      const focus = workflow ? `${workUnitFocus}\nworkflow-action:${workflow.actionId()}` : workUnitFocus;
       const seedNodeIds = session.metadata.recentObservationNodeIds.slice(-8);
       let context = this.runtime.context(focus, { budgetTokens, seedNodeIds });
       updateActivationCounts(session, context);
@@ -222,6 +233,7 @@ export class AgentLoop {
         systemPrompt: session.metadata.systemPrompt,
         workflowPrompt: workflow?.prompt(),
         cognitivePrompt: cognitivePlan?.prompt,
+        workUnitPrompt: workUnits ? formatWorkUnitPrompt(workUnits) : '',
         recentRounds,
         workingChars
       });
@@ -380,6 +392,12 @@ export class AgentLoop {
         toolCalls: [],
         content: assistant.content ?? '',
         workflow: workflow?.summary() ?? null,
+        workUnit: activeWorkUnit ? {
+          id: activeWorkUnit.id,
+          goal: activeWorkUnit.goal,
+          status: activeWorkUnit.status,
+          risk: activeWorkUnit.risk
+        } : null,
         cognition: cognitivePlan ? {
           category: cognitivePlan.category,
           think: cognitivePlan.think,
@@ -413,6 +431,23 @@ export class AgentLoop {
           session.usage = usage;
           this.sessions.save(session);
           this.emit('workflow.blocked_final', { sessionId: session.id, step, action: workflow.actionId(), reason });
+          continue;
+        }
+        if (workUnits?.hasIncomplete()) {
+          const remaining = workUnits.remaining();
+          stepRecord.workUnitBlockedFinal = true;
+          session.steps.push(stepRecord);
+          session.messages.push({
+            role: 'user',
+            content: `Work Unit completion gate rejected final completion. Remaining units: ${remaining.map((unit) => `${unit.id}[${unit.status}]: ${unit.goal}`).join('; ')}. Use work_unit_update to record required evidence/verification and complete the active unit before finishing.`
+          });
+          session.usage = usage;
+          this.sessions.save(session);
+          this.emit('work_unit.blocked_final', {
+            sessionId: session.id,
+            step,
+            remaining: remaining.map((unit) => ({ id: unit.id, status: unit.status, goal: unit.goal }))
+          });
           continue;
         }
         session.status = 'completed';
@@ -482,6 +517,8 @@ export class AgentLoop {
               workspace: this.workspace,
               repository: this.repository,
               runtime: this.runtime,
+              session,
+              step,
               authorize: options.authorize ?? this.authorize,
               signal: options.signal,
               onOutput: ({ stream, chunk }) => this.emit('tool.output', {
@@ -712,6 +749,7 @@ export function buildWorkingMessages(sessionOrMessages, contextOrOptions = {}, m
     { role: 'system', content: formatActiveContext(context) },
     ...(options.workflowPrompt ? [{ role: 'system', content: options.workflowPrompt }] : []),
     ...(options.cognitivePrompt ? [{ role: 'system', content: options.cognitivePrompt }] : []),
+    ...(options.workUnitPrompt ? [{ role: 'system', content: options.workUnitPrompt }] : []),
     ...goalMessage,
     ...recent
   ];
@@ -800,6 +838,7 @@ function normalizeSessionMetadata(session, defaults) {
   session.metadata.cognition ??= { history: [], progress: {} };
   session.metadata.cognition.history ??= [];
   session.metadata.cognition.progress ??= {};
+  session.metadata.workUnits ??= { version: 1, order: [], items: {}, activeId: null };
 }
 
 function updateActivationCounts(session, context) {
