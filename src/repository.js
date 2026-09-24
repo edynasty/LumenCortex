@@ -82,6 +82,26 @@ export class CognitiveRepository {
     return this.database.graphRevision();
   }
 
+  touchNodeAccess(nodeIds, at) {
+    this.assertExists();
+    return this.database.touchNodeAccess(nodeIds, at);
+  }
+
+  storageStats() {
+    this.assertExists();
+    return this.database.nodeStorageStats();
+  }
+
+  gcCandidates(options = {}) {
+    this.assertExists();
+    return this.database.listGcCandidates(options);
+  }
+
+  compactColdArchived(options = {}) {
+    this.assertExists();
+    return this.database.compactColdArchived(options);
+  }
+
   headRef() {
     this.assertExists();
     const value = this.database.getState('HEAD');
