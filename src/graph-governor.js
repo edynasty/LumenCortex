@@ -108,6 +108,37 @@ export class GraphGovernorAnalyzer {
   }
 }
 
+export class LLMGraphGovernorCurator {
+  constructor({ provider, maxTokens = 6000, reasoningEffort = 'high' } = {}) {
+    if (!provider || typeof provider.complete !== 'function') {
+      throw new Error('LLMGraphGovernorCurator provider is required');
+    }
+    this.provider = provider;
+    this.maxTokens = Math.max(512, Number(maxTokens));
+    this.reasoningEffort = reasoningEffort;
+  }
+
+  async propose({ graph, analysis, options = {} } = {}) {
+    const payload = buildGovernorCandidateContext(graph, analysis, options);
+    const response = await this.provider.complete({
+      messages: [
+        {
+          role: 'system',
+          content: GRAPH_GOVERNOR_SYSTEM_PROMPT
+        },
+        {
+          role: 'user',
+          content: JSON.stringify(payload)
+        }
+      ],
+      maxTokens: Number(options.maxTokens ?? this.maxTokens),
+      reasoningEffort: options.reasoningEffort ?? this.reasoningEffort
+    });
+    const raw = parseGovernorJson(response?.message?.content ?? '');
+    return normalizeCuratorPlan(raw, analysis);
+  }
+}
+
 export function validateGraphGovernorPlan(plan, graphState) {
   const errors = [];
   const warnings = [];
@@ -176,7 +207,8 @@ export function validateGraphGovernorPlan(plan, graphState) {
       canonicalize: plan?.canonicalize ?? [],
       branch: plan?.branch ?? [],
       promote: plan?.promote ?? [],
-      epoch: plan?.epoch ?? null
+      epoch: plan?.epoch ?? null,
+      summary: String(plan?.summary ?? '').slice(0, 4000)
     }
   };
 }
@@ -203,7 +235,16 @@ export class GraphGovernor {
       };
     }
     const plan = await this.curator.propose({ graph, analysis, options });
-    return { analysis, plan };
+    const validation = validateGraphGovernorPlan(plan, graph);
+    return {
+      analysis,
+      plan: validation.normalized,
+      validation,
+      curator: {
+        enabled: true,
+        model: this.curator.provider?.model ?? null
+      }
+    };
   }
 
   applySafe(plan, options = {}) {
@@ -370,4 +411,129 @@ function uniqueStrings(values) {
 
 function clamp01(value) {
   return Math.max(0, Math.min(1, Number(value) || 0));
+}
+
+
+const GRAPH_GOVERNOR_SYSTEM_PROMPT = [
+  'You are the semantic Curator for LumenCortex Graph Governor.',
+  'You do not mutate the graph. You only propose a GraphMutationPlan over the candidate IDs provided.',
+  'Return one JSON object only. Do not use markdown fences.',
+  'Preserve provenance. Prefer archive/tiering over deletion. Never invent node IDs.',
+  'Canonicalization means choosing a canonical node and alias nodes without deleting provenance.',
+  'Branch means preserving competing hypotheses, not choosing a winner.',
+  'Promotion means proposing an abstraction over existing children.',
+  'The deterministic Validator may reject any unsafe or invalid proposal.',
+  'Schema:',
+  JSON.stringify({
+    archive: ['node-id'],
+    tiers: { hot: ['node-id'], warm: ['node-id'], cold: ['node-id'] },
+    canonicalize: [{ canonical: 'node-id', aliases: ['node-id'], reason: 'short reason' }],
+    branch: [{ from: 'node-id', to: 'node-id', reason: 'short reason' }],
+    promote: [{ title: 'abstraction title', childIds: ['node-id'], reason: 'short reason' }],
+    epoch: { proposed: false, reasons: ['reason'] },
+    summary: 'short plan summary'
+  })
+].join('\n');
+
+function buildGovernorCandidateContext(graph, analysis, options = {}) {
+  const nodes = graph?.nodes ?? {};
+  const maxGroups = Math.max(1, Number(options.maxCandidateGroups ?? 64));
+  const maxNodes = Math.max(10, Number(options.maxCandidateNodes ?? 256));
+  const candidateIds = new Set();
+
+  for (const item of analysis?.candidates?.archive ?? []) candidateIds.add(item.nodeId);
+  for (const group of (analysis?.candidates?.canonicalize ?? []).slice(0, maxGroups)) {
+    for (const id of group.nodeIds ?? []) candidateIds.add(id);
+  }
+  for (const item of (analysis?.candidates?.branch ?? []).slice(0, maxGroups)) {
+    candidateIds.add(item.from);
+    candidateIds.add(item.to);
+  }
+  for (const group of (analysis?.candidates?.promote ?? []).slice(0, maxGroups)) {
+    for (const id of group.nodeIds ?? []) candidateIds.add(id);
+  }
+  for (const id of (analysis?.tiers?.hot ?? []).slice(0, 32)) candidateIds.add(id);
+
+  const summaries = {};
+  for (const id of [...candidateIds].slice(0, maxNodes)) {
+    const node = nodes[id];
+    if (!node) continue;
+    summaries[id] = {
+      id: node.id,
+      kind: node.kind,
+      title: node.title,
+      status: node.status,
+      grade: node.grade,
+      trustZone: node.trustZone,
+      tags: (node.tags ?? []).slice(0, 12),
+      body: String(node.body ?? '').slice(0, 800),
+      metadata: {
+        path: node.metadata?.path ?? null,
+        sourceKind: node.metadata?.sourceKind ?? null,
+        storageTier: node.metadata?.storageTier ?? null
+      }
+    };
+  }
+
+  return {
+    objective: 'Propose long-horizon graph maintenance. Do not execute changes.',
+    metrics: analysis?.metrics ?? {},
+    currentTiers: {
+      hot: (analysis?.tiers?.hot ?? []).slice(0, maxNodes),
+      warm: (analysis?.tiers?.warm ?? []).slice(0, maxNodes),
+      cold: (analysis?.tiers?.cold ?? []).slice(0, maxNodes)
+    },
+    candidates: {
+      archive: (analysis?.candidates?.archive ?? []).slice(0, maxGroups),
+      canonicalize: (analysis?.candidates?.canonicalize ?? []).slice(0, maxGroups),
+      branch: (analysis?.candidates?.branch ?? []).slice(0, maxGroups),
+      promote: (analysis?.candidates?.promote ?? []).slice(0, maxGroups),
+      epoch: analysis?.epoch ?? null
+    },
+    nodes: summaries
+  };
+}
+
+function normalizeCuratorPlan(raw, analysis) {
+  return {
+    archive: uniqueStrings(raw?.archive ?? []),
+    tiers: {
+      hot: uniqueStrings(raw?.tiers?.hot ?? analysis?.tiers?.hot ?? []),
+      warm: uniqueStrings(raw?.tiers?.warm ?? analysis?.tiers?.warm ?? []),
+      cold: uniqueStrings(raw?.tiers?.cold ?? analysis?.tiers?.cold ?? [])
+    },
+    canonicalize: Array.isArray(raw?.canonicalize) ? raw.canonicalize : [],
+    branch: Array.isArray(raw?.branch) ? raw.branch : [],
+    promote: Array.isArray(raw?.promote) ? raw.promote : [],
+    epoch: raw?.epoch ?? (
+      analysis?.epoch?.recommended
+        ? { proposed: true, reasons: analysis.epoch.reasons }
+        : null
+    ),
+    summary: String(raw?.summary ?? '').slice(0, 4000)
+  };
+}
+
+function parseGovernorJson(content) {
+  const text = String(content ?? '').trim();
+  if (!text) throw new Error('Graph Governor Curator returned empty output');
+
+  const unfenced = text
+    .replace(/^\s*```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+
+  try {
+    return JSON.parse(unfenced);
+  } catch {}
+
+  const start = unfenced.indexOf('{');
+  const end = unfenced.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    try {
+      return JSON.parse(unfenced.slice(start, end + 1));
+    } catch {}
+  }
+
+  throw new Error('Graph Governor Curator returned invalid JSON');
 }
