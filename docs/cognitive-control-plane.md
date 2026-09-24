@@ -284,7 +284,7 @@ same verified failure after multiple distinct attempts
     -> Think
 
 Think failed and unresolved uncertainty remains high
-    -> DeepThink
+    -> Think again with higher framework-selected effort
 ```
 
 Think can be selected on the first step. It is not only a failure escalation.
