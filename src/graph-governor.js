@@ -1,5 +1,5 @@
 import { GRADE_WEIGHTS, TRUST_WEIGHTS } from './constants.js';
-import { nowIso } from './util.js';
+import { hash, nowIso } from './util.js';
 
 const STATUS_WEIGHT = {
   active: 1,
@@ -175,10 +175,36 @@ export function validateGraphGovernorPlan(plan, graphState) {
   }
 
   for (const item of plan?.canonicalize ?? []) {
-    if (!item?.canonical || !ids.has(item.canonical)) errors.push('canonicalize canonical node is missing or unknown');
-    for (const alias of uniqueStrings(item?.aliases ?? [])) {
-      if (!ids.has(alias)) errors.push(`canonicalize alias references unknown node: ${alias}`);
-      if (alias === item.canonical) errors.push(`canonicalize alias equals canonical node: ${alias}`);
+    const canonical = item?.canonical ? nodes[item.canonical] : null;
+    if (!canonical) {
+      errors.push('canonicalize canonical node is missing or unknown');
+      continue;
+    }
+    if (canonical.metadata?.canonicalNodeId) {
+      errors.push(`canonical node is itself an alias: ${canonical.id}`);
+    }
+
+    const aliases = uniqueStrings(item?.aliases ?? []);
+    if (!aliases.length) warnings.push(`canonicalize has no aliases: ${canonical.id}`);
+    for (const aliasId of aliases) {
+      const alias = nodes[aliasId];
+      if (!alias) {
+        errors.push(`canonicalize alias references unknown node: ${aliasId}`);
+        continue;
+      }
+      if (aliasId === canonical.id) errors.push(`canonicalize alias equals canonical node: ${aliasId}`);
+      if (alias.kind !== canonical.kind) {
+        errors.push(`canonicalize kind mismatch: ${canonical.id}(${canonical.kind}) vs ${aliasId}(${alias.kind})`);
+      }
+      if (alias.metadata?.canonicalNodeId && alias.metadata.canonicalNodeId !== canonical.id) {
+        errors.push(`alias already canonicalized elsewhere: ${aliasId} -> ${alias.metadata.canonicalNodeId}`);
+      }
+      if (
+        ['evidence', 'belief', 'negative', 'abstraction'].includes(canonical.kind) &&
+        (GRADE_WEIGHTS[alias.grade] ?? 0) > (GRADE_WEIGHTS[canonical.grade] ?? 0)
+      ) {
+        errors.push(`canonical node has lower evidence grade than alias: ${canonical.id} < ${aliasId}`);
+      }
     }
   }
 
@@ -248,6 +274,14 @@ export class GraphGovernor {
   }
 
   applySafe(plan, options = {}) {
+    return this.applyPlan(plan, {
+      ...options,
+      semantic: false,
+      createEpoch: false
+    });
+  }
+
+  applyPlan(plan, options = {}) {
     const graph = this.repository.graph();
     const snapshot = graph.snapshot();
     const validation = validateGraphGovernorPlan(plan, snapshot);
@@ -257,8 +291,14 @@ export class GraphGovernor {
       throw error;
     }
 
+    const beforeAnalysis = this.analyzer.analyze(snapshot);
     const changed = [];
+    const deferred = {
+      branch: validation.normalized.branch,
+      promote: validation.normalized.promote
+    };
     const tierByNode = new Map();
+
     for (const tier of ['hot', 'warm', 'cold']) {
       for (const id of validation.normalized.tiers[tier]) tierByNode.set(id, tier);
     }
@@ -288,27 +328,143 @@ export class GraphGovernor {
       changed.push({ nodeId: id, action: 'archive' });
     }
 
+    if (options.semantic) {
+      for (const item of validation.normalized.canonicalize) {
+        const canonical = graph.requireNode(item.canonical);
+        for (const aliasId of uniqueStrings(item.aliases ?? [])) {
+          const alias = graph.requireNode(aliasId);
+          if (alias.metadata?.canonicalNodeId !== canonical.id) {
+            graph.updateNode(aliasId, {
+              metadata: {
+                canonicalNodeId: canonical.id,
+                canonicalizedBy: 'graph-governor',
+                canonicalizedAt: nowIso(),
+                canonicalizationReason: String(item.reason ?? '').slice(0, 1000)
+              }
+            });
+            changed.push({
+              nodeId: aliasId,
+              action: 'canonicalize',
+              canonicalNodeId: canonical.id
+            });
+          }
+
+          const edgeId = `edge_${hash(`canonicalizes:${canonical.id}:${aliasId}`).slice(0, 16)}`;
+          if (!graph.getEdge(edgeId)) {
+            graph.addEdge({
+              id: edgeId,
+              from: canonical.id,
+              to: aliasId,
+              type: 'canonicalizes',
+              weight: 1,
+              metadata: {
+                governor: true,
+                reason: String(item.reason ?? '').slice(0, 1000)
+              }
+            });
+            changed.push({
+              edgeId,
+              action: 'canonicalizes-edge',
+              from: canonical.id,
+              to: aliasId
+            });
+          }
+        }
+      }
+    } else if (validation.normalized.canonicalize.length) {
+      deferred.canonicalize = validation.normalized.canonicalize;
+    }
+
+    const afterGovernanceSnapshot = graph.snapshot();
+    const afterAnalysis = this.analyzer.analyze(afterGovernanceSnapshot);
+    let epoch = null;
+
+    if (options.createEpoch) {
+      const sourceCommit = typeof this.repository.headCommitId === 'function'
+        ? this.repository.headCommitId()
+        : null;
+      const epochId = options.epochId ?? `epoch_${hash({
+        sourceCommit,
+        changed,
+        summary: validation.normalized.summary,
+        reasons: validation.normalized.epoch?.reasons ?? []
+      }).slice(0, 16)}`;
+      const childIds = uniqueStrings(
+        changed
+          .map((item) => item.nodeId)
+          .filter((id) => id && afterGovernanceSnapshot.nodes?.[id])
+      ).slice(0, 128);
+
+      graph.addNode({
+        id: epochId,
+        kind: 'abstraction',
+        title: options.epochTitle ?? `Cortex Epoch ${nowIso()}`,
+        body: validation.normalized.summary || 'Graph Governor maintenance epoch',
+        tags: ['cortex-epoch', 'graph-governor'],
+        trustZone: 'system_verified',
+        grade: 'static',
+        childIds,
+        metadata: {
+          cortexEpoch: true,
+          sourceCommit,
+          rollbackTarget: sourceCommit,
+          reasons: validation.normalized.epoch?.reasons ?? [],
+          metricsBefore: beforeAnalysis.metrics,
+          metricsAfter: afterAnalysis.metrics,
+          semantic: Boolean(options.semantic),
+          changedCount: changed.length
+        }
+      });
+      changed.push({ nodeId: epochId, action: 'cortex-epoch' });
+      epoch = {
+        id: epochId,
+        sourceCommit,
+        rollbackTarget: sourceCommit,
+        reasons: validation.normalized.epoch?.reasons ?? [],
+        metricsBefore: beforeAnalysis.metrics,
+        metricsAfter: afterAnalysis.metrics
+      };
+    }
+
     if (options.dryRun) {
-      return { validation, changed, applied: false };
+      return {
+        validation,
+        changed,
+        deferred,
+        epoch,
+        applied: false
+      };
     }
 
     this.repository.writeGraph(graph.snapshot());
     let commit = null;
     if (options.commit !== false && changed.length) {
       try {
-        commit = this.repository.commit(options.message ?? 'governor: apply safe graph maintenance', {
-          metadata: {
-            governor: true,
-            changedCount: changed.length,
-            epoch: validation.normalized.epoch ?? null
+        commit = this.repository.commit(
+          options.message ?? (epoch ? `governor: cortex epoch ${epoch.id}` : 'governor: apply graph maintenance'),
+          {
+            metadata: {
+              governor: true,
+              semantic: Boolean(options.semantic),
+              changedCount: changed.length,
+              epoch,
+              planSummary: validation.normalized.summary
+            }
           }
-        });
+        );
       } catch (error) {
         if (!String(error.message).includes('Nothing to commit')) throw error;
       }
     }
 
-    return { validation, changed, applied: true, commit };
+    return {
+      validation,
+      changed,
+      deferred,
+      epoch,
+      applied: true,
+      commit
+    };
   }
 }
 
