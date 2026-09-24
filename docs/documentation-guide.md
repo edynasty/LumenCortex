@@ -40,7 +40,8 @@ Examples:
 - `agent-runtime.md`,
 - `workflow-contract.md`,
 - `data-model.md`,
-- `security-and-trust.md`.
+- `security-and-trust.md`,
+- `attention-light-algorithm.md`.
 
 These explain exact behavior and contracts.
 
@@ -67,6 +68,7 @@ Prefer one source of truth.
 |---|---|
 | What is the system? | `system-overview.md` |
 | Why graph + attention? | `architecture.md` |
+| How does Attention Light retrieve, propagate, rank, and budget context? | `attention-light-algorithm.md` |
 | What happens during a run? | `execution-flow.md` |
 | How does Workflow work? | `workflow-contract.md` |
 | How are things persisted? | `data-model.md` |
@@ -148,7 +150,7 @@ Recommended semantic palette:
 | Agent Loop lifecycle | `execution-flow.md`, `agent-runtime.md`, `validation.md` |
 | Workflow schema/semantics | `workflow-contract.md`, `execution-flow.md`, `data-model.md`, tests |
 | Tool permission/scope | `security-and-trust.md`, `agent-runtime.md`, tests |
-| Cognitive Graph/Light/Promotion | `architecture.md`, diagrams, `validation.md` |
+| Cognitive Graph/Light/Promotion | `architecture.md`, `attention-light-algorithm.md`, diagrams, `validation.md` |
 | SQLite schema/persistence | `data-model.md`, `architecture.md`, migration tests |
 | LSP/MCP/Subagent | `agent-runtime.md`, readiness, validation |
 | Provider behavior | README quick start, `agent-runtime.md`, validation |
