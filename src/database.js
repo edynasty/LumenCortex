@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 export class LumenCortexDatabase {
   constructor(repositoryDir) {
@@ -48,6 +48,22 @@ export class LumenCortexDatabase {
         ON graph_nodes(kind, status);
       CREATE INDEX IF NOT EXISTS idx_graph_nodes_path
         ON graph_nodes(path);
+
+      CREATE TABLE IF NOT EXISTS graph_node_storage (
+        node_id TEXT PRIMARY KEY,
+        tier TEXT NOT NULL CHECK(tier IN ('hot', 'warm', 'cold')),
+        last_access_at TEXT,
+        last_tier_change_at TEXT NOT NULL,
+        archived_at TEXT,
+        compacted_at TEXT,
+        access_count INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY(node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE
+      ) STRICT;
+
+      CREATE INDEX IF NOT EXISTS idx_graph_node_storage_tier_access
+        ON graph_node_storage(tier, last_access_at);
+      CREATE INDEX IF NOT EXISTS idx_graph_node_storage_archive
+        ON graph_node_storage(tier, archived_at);
 
       CREATE TABLE IF NOT EXISTS graph_edges (
         id TEXT PRIMARY KEY,
@@ -172,7 +188,36 @@ export class LumenCortexDatabase {
         USING fts5vocab(node_fts, 'row');
     `);
 
+    this.#backfillNodeStorage();
     this.setMeta('schema_version', String(SCHEMA_VERSION));
+  }
+
+  #backfillNodeStorage() {
+    const rows = this.db.prepare(`
+      SELECT n.id, n.status, n.updated_at, n.json
+      FROM graph_nodes n
+      LEFT JOIN graph_node_storage s ON s.node_id = n.id
+      WHERE s.node_id IS NULL
+    `).all();
+    if (!rows.length) return;
+
+    const insert = this.db.prepare(`
+      INSERT INTO graph_node_storage(
+        node_id, tier, last_access_at, last_tier_change_at, archived_at, compacted_at, access_count
+      ) VALUES(?, ?, NULL, ?, ?, NULL, 0)
+    `);
+    const now = new Date().toISOString();
+    for (const row of rows) {
+      const node = parseJson(row.json, {});
+      const tier = storageTierForNode(node, 'warm');
+      const changedAt = row.updated_at ?? now;
+      insert.run(
+        row.id,
+        tier,
+        changedAt,
+        row.status === 'archived' ? changedAt : null
+      );
+    }
   }
 
   transaction(fn) {
@@ -252,9 +297,15 @@ export class LumenCortexDatabase {
       INSERT INTO graph_edges(id, from_id, to_id, type, weight, json)
       VALUES(?, ?, ?, ?, ?, ?)
     `);
+    const insertStorage = this.db.prepare(`
+      INSERT INTO graph_node_storage(
+        node_id, tier, last_access_at, last_tier_change_at, archived_at, compacted_at, access_count
+      ) VALUES(?, ?, NULL, ?, ?, NULL, 0)
+    `);
 
     return this.transaction(() => {
       this.db.exec('DELETE FROM graph_edges; DELETE FROM graph_nodes;');
+      const storageNow = new Date().toISOString();
       for (const node of Object.values(state.nodes ?? {})) {
         insertNode.run(
           node.id,
@@ -267,6 +318,14 @@ export class LumenCortexDatabase {
           node.updatedAt ?? null,
           Number(node.version ?? 1),
           JSON.stringify(node)
+        );
+        const tier = storageTierForNode(node, 'warm');
+        const tierChangedAt = node.metadata?.governorUpdatedAt ?? node.updatedAt ?? storageNow;
+        insertStorage.run(
+          node.id,
+          tier,
+          tierChangedAt,
+          node.status === 'archived' ? (node.updatedAt ?? storageNow) : null
         );
       }
       for (const edge of Object.values(state.edges ?? {})) {
@@ -325,6 +384,18 @@ export class LumenCortexDatabase {
     const dirty = this.db.prepare(`
       INSERT INTO search_dirty_nodes(node_id, removed) VALUES(?, ?)
       ON CONFLICT(node_id) DO UPDATE SET removed = excluded.removed
+    `);
+    const getStorage = this.db.prepare(
+      'SELECT tier, last_tier_change_at, archived_at FROM graph_node_storage WHERE node_id = ?'
+    );
+    const upsertStorage = this.db.prepare(`
+      INSERT INTO graph_node_storage(
+        node_id, tier, last_access_at, last_tier_change_at, archived_at, compacted_at, access_count
+      ) VALUES(?, ?, NULL, ?, ?, NULL, 0)
+      ON CONFLICT(node_id) DO UPDATE SET
+        tier = excluded.tier,
+        last_tier_change_at = excluded.last_tier_change_at,
+        archived_at = excluded.archived_at
     `);
 
     return this.transaction(() => {
@@ -397,6 +468,7 @@ export class LumenCortexDatabase {
         deleteNode.run(id);
         dirty.run(id, 1);
       }
+      const storageNow = new Date().toISOString();
       for (const id of changedNodeIds) {
         const node = state.nodes[id];
         upsertNode.run(
@@ -411,6 +483,15 @@ export class LumenCortexDatabase {
           Number(node.version ?? 1),
           hasHints ? JSON.stringify(node) : nextNodes.get(id)
         );
+        const currentStorage = getStorage.get(id);
+        const tier = storageTierForNode(node, currentStorage?.tier ?? 'warm');
+        const tierChangedAt = currentStorage?.tier === tier
+          ? (currentStorage?.last_tier_change_at ?? storageNow)
+          : storageNow;
+        const archivedAt = node.status === 'archived'
+          ? (currentStorage?.archived_at ?? storageNow)
+          : null;
+        upsertStorage.run(id, tier, tierChangedAt, archivedAt);
         dirty.run(id, 0);
       }
       for (const id of changedEdgeIds) {
@@ -436,6 +517,129 @@ export class LumenCortexDatabase {
 
   graphRevision() {
     return Number(this.getMeta('graph_revision') ?? 0);
+  }
+
+  touchNodeAccess(nodeIds, at = new Date().toISOString()) {
+    const ids = [...new Set((nodeIds ?? []).filter(Boolean))];
+    if (!ids.length) return { touched: 0, at };
+    const update = this.db.prepare(`
+      UPDATE graph_node_storage
+      SET last_access_at = ?, access_count = access_count + 1
+      WHERE node_id = ?
+    `);
+    let touched = 0;
+    this.transaction(() => {
+      for (const id of ids) {
+        const result = update.run(at, id);
+        touched += Number(result.changes ?? 0);
+      }
+    });
+    return { touched, at };
+  }
+
+  nodeStorageStats() {
+    const tiers = { hot: 0, warm: 0, cold: 0 };
+    for (const row of this.db.prepare(`
+      SELECT tier, count(*) AS n
+      FROM graph_node_storage
+      GROUP BY tier
+    `).all()) {
+      tiers[row.tier] = Number(row.n ?? 0);
+    }
+    const accessed = Number(this.db.prepare(
+      'SELECT count(*) AS n FROM graph_node_storage WHERE last_access_at IS NOT NULL'
+    ).get()?.n ?? 0);
+    const compacted = Number(this.db.prepare(
+      'SELECT count(*) AS n FROM graph_node_storage WHERE compacted_at IS NOT NULL'
+    ).get()?.n ?? 0);
+    const accessCount = Number(this.db.prepare(
+      'SELECT coalesce(sum(access_count), 0) AS n FROM graph_node_storage'
+    ).get()?.n ?? 0);
+    return {
+      tiers,
+      accessed,
+      compacted,
+      accessCount,
+      total: tiers.hot + tiers.warm + tiers.cold
+    };
+  }
+
+  listGcCandidates({ olderThanMs = 30 * 24 * 60 * 60 * 1000, limit = 500, now = Date.now() } = {}) {
+    const cutoff = new Date(Number(now) - Math.max(0, Number(olderThanMs))).toISOString();
+    const rows = this.db.prepare(`
+      SELECT n.id, n.kind, n.status, n.title, n.json,
+             s.tier, s.last_access_at, s.archived_at, s.compacted_at, s.access_count
+      FROM graph_nodes n
+      JOIN graph_node_storage s ON s.node_id = n.id
+      WHERE n.status = 'archived'
+        AND s.tier = 'cold'
+        AND s.archived_at IS NOT NULL
+        AND s.archived_at <= ?
+      ORDER BY s.archived_at ASC, n.id ASC
+      LIMIT ?
+    `).all(cutoff, Math.max(1, Number(limit)));
+
+    return rows
+      .map((row) => {
+        const node = parseJson(row.json, {});
+        return {
+          nodeId: row.id,
+          kind: row.kind,
+          title: row.title,
+          tier: row.tier,
+          archivedAt: row.archived_at,
+          lastAccessAt: row.last_access_at,
+          compactedAt: row.compacted_at,
+          accessCount: Number(row.access_count ?? 0),
+          protected: row.kind === 'evidence' && ['runtime', 'reproduced'].includes(node.grade),
+          grade: node.grade ?? null
+        };
+      })
+      .filter((item) => !item.protected);
+  }
+
+  compactDerivedNodeData(nodeIds, { at = new Date().toISOString() } = {}) {
+    const ids = [...new Set((nodeIds ?? []).filter(Boolean))];
+    if (!ids.length) return { compacted: 0, nodeIds: [], at };
+
+    const deleteSymbols = this.db.prepare('DELETE FROM symbols WHERE node_id = ?');
+    const deleteFts = this.db.prepare('DELETE FROM node_fts WHERE node_id = ?');
+    const deleteDoc = this.db.prepare('DELETE FROM search_documents WHERE node_id = ?');
+    const deleteDirty = this.db.prepare('DELETE FROM search_dirty_nodes WHERE node_id = ?');
+    const mark = this.db.prepare(
+      'UPDATE graph_node_storage SET compacted_at = ? WHERE node_id = ?'
+    );
+
+    let compacted = 0;
+    this.transaction(() => {
+      for (const id of ids) {
+        deleteSymbols.run(id);
+        deleteFts.run(id);
+        deleteDoc.run(id);
+        deleteDirty.run(id);
+        const result = mark.run(at, id);
+        compacted += Number(result.changes ?? 0);
+      }
+      const count = Number(this.db.prepare('SELECT count(*) AS n FROM search_documents').get()?.n ?? 0);
+      const average = Number(this.db.prepare('SELECT avg(length) AS n FROM search_documents').get()?.n ?? 0);
+      this.setMeta('search_document_count', String(count));
+      this.setMeta('search_average_length', String(average || 0));
+    });
+
+    return { compacted, nodeIds: ids, at };
+  }
+
+  compactColdArchived(options = {}) {
+    const candidates = this.listGcCandidates(options);
+    if (options.dryRun !== false) {
+      return { dryRun: true, candidates, compacted: 0 };
+    }
+    const result = this.compactDerivedNodeData(candidates.map((item) => item.nodeId));
+    return {
+      dryRun: false,
+      candidates,
+      ...result
+    };
   }
 
   saveCommit(commit) {
@@ -891,9 +1095,11 @@ export class LumenCortexDatabase {
       schemaVersion: Number(this.getMeta('schema_version') ?? 0),
       graphRevision: this.graphRevision(),
       searchRevision: Number(this.getMeta('search_index_revision') ?? -1),
+      storage: this.nodeStorageStats(),
       counts: {
         graphNodes: count('graph_nodes'),
         graphEdges: count('graph_edges'),
+        graphNodeStorage: count('graph_node_storage'),
         cognitiveCommits: count('cognitive_commits'),
         cognitiveCheckpoints: count('cognitive_checkpoints'),
         cognitiveRefs: count('cognitive_refs'),
@@ -965,4 +1171,10 @@ function addScore(scores, reasons, nodeId, score, reason) {
   scores.set(nodeId, (scores.get(nodeId) ?? 0) + score);
   if (!reasons.has(nodeId)) reasons.set(nodeId, new Set());
   reasons.get(nodeId).add(reason);
+}
+
+
+function storageTierForNode(node, fallback = 'warm') {
+  const value = String(node?.metadata?.storageTier ?? fallback).toLowerCase();
+  return ['hot', 'warm', 'cold'].includes(value) ? value : 'warm';
 }
