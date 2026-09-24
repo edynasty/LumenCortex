@@ -10,7 +10,7 @@ Related documents:
 - [Execution flow](execution-flow.md) — where retrieval and Attention Light run during an Agent step.
 - [Agent runtime](agent-runtime.md) — runtime integration and persistent search-index behavior.
 - [Data model](data-model.md) — graph node, edge, evidence-grade, and trust-zone structures.
-- [Cognitive control plane](cognitive-control-plane.md) — planned adaptive policy above the deterministic Light engine.
+- [Cognitive control plane](cognitive-control-plane.md) — implemented baseline adaptive policy above the deterministic Light engine.
 
 ## Status
 
@@ -284,6 +284,7 @@ do not participate in propagation.
 | `depends_on` | 0.90 |
 | `calls` | 0.85 |
 | `derived_from` | 0.85 |
+| `canonicalizes` | 0.92 |
 | `affects` | 0.80 |
 | `abstracts` | 0.75 |
 | `contradicts` | 0.70 |
