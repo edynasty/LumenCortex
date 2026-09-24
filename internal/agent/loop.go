@@ -50,6 +50,13 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 	if err != nil {
 		return Result{}, err
 	}
+	workUnits, err := restoreWorkUnits(state.Metadata, opts.WorkUnitsJSON)
+	if err != nil {
+		return Result{}, err
+	}
+	if workUnits != nil {
+		state.Metadata = withWorkUnits(state.Metadata, workUnits)
+	}
 	if err := l.ensureInitialMessage(ctx, state); err != nil {
 		return Result{}, err
 	}
@@ -93,7 +100,12 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 		if wf != nil {
 			allowlist = wf.EffectiveAllowlist(allowlist)
 		}
-		specs := filterDeniedTools(l.Tools.Specs(allowlist), opts.ToolDenylist)
+		specs := l.Tools.Specs(allowlist)
+		if workUnits != nil {
+			specs = append(specs, filterWorkUnitSpecs(allowlist)...)
+		}
+		specs = filterDeniedTools(specs, opts.ToolDenylist)
+		activeWorkUnit, _ := currentWorkUnit(workUnits)
 		var cognitivePlan *cognition.Plan
 		if opts.CognitionEnabled {
 			plan := router.Route(cognition.Input{
@@ -112,7 +124,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 				"reasons": plan.Reasons,
 			})
 		}
-		messages, err := l.buildMessages(ctx, sessionID, opts, wf, cognitivePlan)
+		messages, err := l.buildMessages(ctx, sessionID, opts, wf, cognitivePlan, workUnits)
 		if err != nil {
 			return Result{}, err
 		}
@@ -148,6 +160,14 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 			return Result{}, err
 		}
 		record := stepRecord{Step: step, FinishReason: response.FinishReason, Content: assistant.Content}
+		if activeWorkUnit != nil {
+			record.WorkUnit = map[string]any{
+				"id": activeWorkUnit.ID,
+				"goal": activeWorkUnit.Goal,
+				"status": activeWorkUnit.Status,
+				"risk": activeWorkUnit.Risk,
+			}
+		}
 		if cognitivePlan != nil {
 			record.Cognition = *cognitivePlan
 		}
@@ -167,8 +187,25 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 					return Result{}, err
 				}
 				state.Metadata = withWorkflow(state.Metadata, wf)
+				if workUnits != nil {
+					state.Metadata = withWorkUnits(state.Metadata, workUnits)
+				}
 				_ = l.Store.Update(ctx, sessionID, SessionPatch{Metadata: state.Metadata, Usage: &usage})
 				l.emit("workflow.blocked_final", sessionID, map[string]any{"step": step, "reason": reason})
+				continue
+			}
+			if workUnits != nil && len(workUnits.Incomplete()) > 0 {
+				remaining := workUnits.Incomplete()
+				if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
+					return Result{}, err
+				}
+				correction := protocol.Message{Role: "user", Content: workUnitCompletionCorrection(remaining)}
+				if _, err := l.Store.AppendMessage(ctx, sessionID, correction); err != nil {
+					return Result{}, err
+				}
+				state.Metadata = withWorkUnits(state.Metadata, workUnits)
+				_ = l.Store.Update(ctx, sessionID, SessionPatch{Metadata: state.Metadata, Usage: &usage})
+				l.emit("work_unit.blocked_final", sessionID, map[string]any{"step": step, "remaining": remaining})
 				continue
 			}
 			status := "completed"
@@ -204,14 +241,19 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 				toolResult = protocol.ToolResult{OK: false, Denied: true, Permission: "workflow", Content: "tool is not allowed in the current working set"}
 			} else {
 				l.emit("tool.start", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "args": args})
-				toolResult, err = l.Tools.Execute(ctx, call.Name, args, func(output protocol.ToolOutput) {
-					l.emit("tool.output", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "stream": output.Stream, "chunk": output.Chunk})
-				})
-				if err != nil {
-					if ctx.Err() != nil {
-						return l.interrupt(ctx, state, usage, ctx.Err())
+				if workUnits != nil && isWorkUnitTool(call.Name) {
+					toolResult = executeWorkUnitTool(workUnits, call.Name, args)
+					state.Metadata = withWorkUnits(state.Metadata, workUnits)
+				} else {
+					toolResult, err = l.Tools.Execute(ctx, call.Name, args, func(output protocol.ToolOutput) {
+						l.emit("tool.output", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "stream": output.Stream, "chunk": output.Chunk})
+					})
+					if err != nil {
+						if ctx.Err() != nil {
+							return l.interrupt(ctx, state, usage, ctx.Err())
+						}
+						toolResult = protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, err.Error())}
 					}
-					toolResult = protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, err.Error())}
 				}
 			}
 			l.emit("tool.end", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "ok": toolResult.OK, "denied": toolResult.Denied})
@@ -250,6 +292,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 		if wf != nil {
 			record.Workflow = wf.Summary()
 		}
+		if workUnits != nil {
+			state.Metadata = withWorkUnits(state.Metadata, workUnits)
+		}
 		if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
 			return Result{}, err
 		}
@@ -276,7 +321,7 @@ func (l *Loop) ensureInitialMessage(ctx context.Context, state SessionState) err
 	return err
 }
 
-func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options, wf *workflow.Runtime, cognitivePlan *cognition.Plan) ([]protocol.Message, error) {
+func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options, wf *workflow.Runtime, cognitivePlan *cognition.Plan, workUnits *cognition.WorkUnitManager) ([]protocol.Message, error) {
 	recent, err := l.Store.RecentMessages(ctx, sessionID, opts.RecentMessages)
 	if err != nil {
 		return nil, err
@@ -290,6 +335,9 @@ func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options
 	}
 	if cognitivePlan != nil {
 		messages = append(messages, protocol.Message{Role: "system", Content: cognitivePrompt(*cognitivePlan)})
+	}
+	if workUnits != nil {
+		messages = append(messages, protocol.Message{Role: "system", Content: workUnitPrompt(workUnits)})
 	}
 	messages = append(messages, recent...)
 	return messages, nil
@@ -518,4 +566,221 @@ func cognitivePrompt(plan cognition.Plan) string {
 		"Cognitive policy: category=%s; Think is active; reasoning effort=%s. Deliberate before acting, identify missing evidence, and verify the chosen path.",
 		plan.Category, plan.Effort,
 	)
+}
+
+
+func restoreWorkUnits(metadata map[string]any, supplied []byte) (*cognition.WorkUnitManager, error) {
+	if metadata != nil {
+		if rawValue, ok := metadata["workUnits"]; ok {
+			raw, err := json.Marshal(rawValue)
+			if err != nil {
+				return nil, err
+			}
+			var state cognition.WorkUnitState
+			if err := json.Unmarshal(raw, &state); err != nil {
+				return nil, err
+			}
+			return cognition.NewWorkUnitManager(&state), nil
+		}
+	}
+	if len(supplied) == 0 {
+		return nil, nil
+	}
+	units, err := cognition.ParseWorkUnits(supplied)
+	if err != nil {
+		return nil, err
+	}
+	manager := cognition.NewWorkUnitManager(nil)
+	if err := manager.Seed(units); err != nil {
+		return nil, err
+	}
+	return manager, nil
+}
+
+func withWorkUnits(metadata map[string]any, manager *cognition.WorkUnitManager) map[string]any {
+	out := cloneMetadata(metadata)
+	if manager != nil {
+		out["workUnits"] = manager.Snapshot()
+	}
+	return out
+}
+
+func currentWorkUnit(manager *cognition.WorkUnitManager) (*cognition.WorkUnit, error) {
+	if manager == nil {
+		return nil, nil
+	}
+	return manager.EnsureActive()
+}
+
+func workUnitToolSpecs() []protocol.ToolSpec {
+	return []protocol.ToolSpec{
+		{
+			Name: "work_unit_list",
+			Description: "Inspect persistent Work Units for this Agent session.",
+			Permission: "read",
+			Parameters: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
+		},
+		{
+			Name: "work_unit_create",
+			Description: "Create a persistent Work Unit. Work Units cannot choose providers, models, Categories or reasoning effort.",
+			Permission: "read",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id": map[string]any{"type": "string"},
+					"goal": map[string]any{"type": "string"},
+					"description": map[string]any{"type": "string"},
+					"risk": map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "critical"}},
+					"required_evidence": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"verification": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"depends_on": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				},
+				"required": []string{"goal"},
+				"additionalProperties": false,
+			},
+		},
+		{
+			Name: "work_unit_update",
+			Description: "Update Work Unit status, evidence and verification. Completion is gated by required evidence and passed checks.",
+			Permission: "read",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id": map[string]any{"type": "string"},
+					"status": map[string]any{"type": "string", "enum": []string{"pending", "active", "blocked", "verifying", "completed", "failed", "cancelled"}},
+					"summary": map[string]any{"type": "string"},
+					"evidence": map[string]any{"type": "array"},
+					"verification_results": map[string]any{"type": "array"},
+				},
+				"required": []string{"id"},
+				"additionalProperties": false,
+			},
+		},
+	}
+}
+
+func filterWorkUnitSpecs(allow []string) []protocol.ToolSpec {
+	specs := workUnitToolSpecs()
+	if allow == nil {
+		return specs
+	}
+	allowed := map[string]bool{}
+	for _, name := range allow {
+		allowed[name] = true
+	}
+	out := make([]protocol.ToolSpec, 0, len(specs))
+	for _, spec := range specs {
+		if allowed[spec.Name] {
+			out = append(out, spec)
+		}
+	}
+	return out
+}
+
+func isWorkUnitTool(name string) bool {
+	return name == "work_unit_list" || name == "work_unit_create" || name == "work_unit_update"
+}
+
+func executeWorkUnitTool(manager *cognition.WorkUnitManager, name string, args map[string]any) protocol.ToolResult {
+	var payload any
+	var err error
+
+	switch name {
+	case "work_unit_list":
+		active, activeErr := manager.EnsureActive()
+		if activeErr != nil {
+			err = activeErr
+			break
+		}
+		payload = map[string]any{"active": active, "units": manager.List()}
+	case "work_unit_create":
+		raw, marshalErr := json.Marshal([]any{args})
+		if marshalErr != nil {
+			err = marshalErr
+			break
+		}
+		units, parseErr := cognition.ParseWorkUnits(raw)
+		if parseErr != nil || len(units) != 1 {
+			err = parseErr
+			if err == nil {
+				err = errors.New("invalid work unit")
+			}
+			break
+		}
+		var unit cognition.WorkUnit
+		unit, err = manager.Add(units[0])
+		if err == nil {
+			payload = map[string]any{"unit": unit, "active": manager.Current()}
+		}
+	case "work_unit_update":
+		id := strings.TrimSpace(fmt.Sprint(args["id"]))
+		if id == "" {
+			err = errors.New("work_unit_update requires id")
+			break
+		}
+		patch := cognition.WorkUnitPatch{}
+		if value, ok := args["status"]; ok {
+			status := cognition.WorkUnitStatus(strings.TrimSpace(fmt.Sprint(value)))
+			patch.Status = &status
+		}
+		if value, ok := args["summary"]; ok {
+			summary := fmt.Sprint(value)
+			patch.Summary = &summary
+		}
+		if value, ok := args["evidence"]; ok {
+			raw, _ := json.Marshal(value)
+			var items []cognition.EvidenceRef
+			if decodeErr := json.Unmarshal(raw, &items); decodeErr != nil {
+				err = decodeErr
+				break
+			}
+			patch.Evidence = &items
+		}
+		if value, ok := args["verification_results"]; ok {
+			raw, _ := json.Marshal(value)
+			var items []cognition.VerificationResult
+			if decodeErr := json.Unmarshal(raw, &items); decodeErr != nil {
+				err = decodeErr
+				break
+			}
+			patch.VerificationResults = &items
+		}
+		var unit cognition.WorkUnit
+		unit, err = manager.Update(id, patch)
+		if err == nil {
+			active, _ := manager.EnsureActive()
+			payload = map[string]any{"unit": unit, "active": active, "remaining": manager.Incomplete()}
+		}
+	default:
+		err = fmt.Errorf("unknown Work Unit tool: %s", name)
+	}
+
+	if err != nil {
+		raw, _ := json.Marshal(map[string]any{"error": err.Error()})
+		return protocol.ToolResult{OK: false, Content: string(raw)}
+	}
+	raw, _ := json.Marshal(payload)
+	return protocol.ToolResult{OK: true, Content: string(raw)}
+}
+
+func workUnitPrompt(manager *cognition.WorkUnitManager) string {
+	active, _ := manager.EnsureActive()
+	var b strings.Builder
+	b.WriteString("Persistent Work Units are active. They constrain goals/evidence/verification and never choose providers/models/Categories.\n")
+	if active != nil {
+		fmt.Fprintf(&b, "Current Work Unit: %s — %s\n", active.ID, active.Goal)
+	}
+	for _, unit := range manager.List() {
+		fmt.Fprintf(&b, "- %s [%s/%s] %s\n", unit.ID, unit.Status, unit.Risk, unit.Goal)
+	}
+	b.WriteString("Use work_unit_update to record evidence/verification and complete the active unit before final completion.")
+	return b.String()
+}
+
+func workUnitCompletionCorrection(units []cognition.WorkUnit) string {
+	var parts []string
+	for _, unit := range units {
+		parts = append(parts, fmt.Sprintf("%s[%s]: %s", unit.ID, unit.Status, unit.Goal))
+	}
+	return "Work Unit completion gate rejected final completion. Remaining units: " + strings.Join(parts, "; ") + ". Use work_unit_update to satisfy evidence/verification and complete them before finishing."
 }
