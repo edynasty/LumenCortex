@@ -136,22 +136,20 @@ test('model-backed Graph Governor Curator proposes a validated plan without muta
       return {
         message: {
           role: 'assistant',
-          content: ```json
-{
-  "archive": ["c"],
-  "canonicalize": [
-    { "canonical": "a", "aliases": ["b"], "reason": "same concept title" }
-  ],
-  "branch": [
-    { "from": "a", "to": "b", "reason": "preserve contradiction" }
-  ],
-  "promote": [
-    { "title": "Provider model architecture", "childIds": ["a", "b", "e"], "reason": "shared provider cluster" }
-  ],
-  "epoch": { "proposed": false, "reasons": [] },
-  "summary": "Curate provider architecture cluster."
-}
-```
+          content: JSON.stringify({
+            archive: ['c'],
+            canonicalize: [
+              { canonical: 'a', aliases: ['b'], reason: 'same concept title' }
+            ],
+            branch: [
+              { from: 'a', to: 'b', reason: 'preserve contradiction' }
+            ],
+            promote: [
+              { title: 'Provider model architecture', childIds: ['a', 'b', 'e'], reason: 'shared provider cluster' }
+            ],
+            epoch: { proposed: false, reasons: [] },
+            summary: 'Curate provider architecture cluster.'
+          })
         },
         finishReason: 'stop'
       };
