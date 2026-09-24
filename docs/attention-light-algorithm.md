@@ -612,6 +612,6 @@ The current reference implementation is primarily in:
 | `src/ingest.js` | repository dependency extraction and source-change stale invalidation |
 | `src/graph.js` | graph mutation, adjacency-facing node/edge semantics, cut/restore/graft |
 
-The current deterministic algorithm remains the architectural fallback. A future Light Controller may select retrieval modes, budgets, or propagation policy, but it must not replace the deterministic engine or directly mutate graph state. See [Cognitive control plane](cognitive-control-plane.md).
+The current deterministic algorithm remains a first-class execution path. A future Light Controller may select retrieval modes, budgets, or propagation policy, but it must not replace the deterministic engine or directly mutate graph state. Deployments without a decision model remain valid. See [Cognitive control plane](cognitive-control-plane.md).
 
 When any formula, default parameter, relation weight, or Light policy changes in code, this document should change in the same commit.
