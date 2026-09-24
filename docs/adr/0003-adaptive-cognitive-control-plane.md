@@ -45,6 +45,8 @@ The Model Broker selects models from capability requirements and verified runtim
 - Models propose; deterministic runtime code validates and executes.
 - Workflow and permission policy remain authoritative over legal execution.
 - Attention Light remains usable without any adaptive decision model.
+- Fast decision availability uses a two-level fallback: substitute DecisionProvider first, deterministic algorithm second.
+- Semantic uncertainty is not treated as provider failure; it remains an escalation signal for Think.
 - Fast decision models never directly write Context Graph state.
 - Think is task-local and does not own long-horizon Cortex structure.
 - Graph Governor is cross-session/global and does not own the current task plan.
@@ -71,6 +73,23 @@ V(m | s)
 Escalation to Think occurs when its expected marginal value exceeds the fast path by a configured margin.
 
 Decision uncertainty may use normalized entropy and top-two probability margin as escalation signals.
+
+
+## Decision-provider fallback
+
+The fast-decision plane must not depend on one model endpoint.
+
+```text
+primary DecisionProvider
+    -> substitute DecisionProvider
+        -> deterministic decision algorithm
+```
+
+Fallback is triggered by operational failure such as unavailability, timeout, malformed typed output, schema incompatibility, or an open provider-health circuit.
+
+Low confidence, high entropy, conflicting judgments, or a small top-two margin are **not** fallback conditions. Those are semantic uncertainty signals and should normally cause Think escalation or targeted evidence gathering.
+
+The deterministic fallback must preserve a bounded safe policy using observable runtime state and existing Attention defaults. It is an availability mechanism, not a semantic replacement for a decision model.
 
 ## Model selection
 
@@ -182,13 +201,16 @@ Any schema addition requires a separate migration with backward compatibility.
 Before adaptive control can be called validated:
 
 1. deterministic fallback behavior remains green,
-2. Progress Monitor correctly groups repeated failures,
-3. escalation tests prove fast -> Think -> fast transitions,
-4. broker tests prove hard-capability filtering and switch hysteresis,
-5. verified outcomes update capability profiles deterministically,
-6. graph plans cannot bypass Graph Validator,
-7. Governor operations preserve provenance and support rollback,
-8. benchmark adaptive routing against fixed deterministic baselines for quality, cost, and latency.
+2. substitute-model fallback is exercised for provider failure,
+3. algorithm fallback is exercised when all decision providers are unavailable,
+4. low-confidence decisions escalate rather than silently falling back,
+5. Progress Monitor correctly groups repeated failures,
+6. escalation tests prove fast -> Think -> fast transitions,
+7. broker tests prove hard-capability filtering and switch hysteresis,
+8. verified outcomes update capability profiles deterministically,
+9. graph plans cannot bypass Graph Validator,
+10. Governor operations preserve provenance and support rollback,
+11. benchmark adaptive routing against fixed deterministic baselines for quality, cost, and latency.
 
 ## Documentation impact
 
