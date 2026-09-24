@@ -30,19 +30,27 @@ export class LumenCortexRuntime {
   context(goal, options = {}) {
     const graph = this.repository.graph().snapshot();
     const indexed = this.#candidateIds(goal, options);
-    return new AttentionEngine(graph).illuminate(goal, {
+    const result = new AttentionEngine(graph).illuminate(goal, {
       ...options,
       candidateNodeIds: indexed.length ? indexed : options.candidateNodeIds
     });
+    this.repository.touchNodeAccess?.(result.selectedNodes.map((node) => node.id));
+    return result;
   }
 
   contextMulti(goal, options = {}) {
     const graph = this.repository.graph().snapshot();
     const indexed = this.#candidateIds(goal, options);
-    return new AttentionEngine(graph).illuminateMulti(goal, {
+    const result = new AttentionEngine(graph).illuminateMulti(goal, {
       ...options,
       candidateNodeIds: indexed.length ? indexed : options.candidateNodeIds
     });
+    const touched = new Set();
+    for (const view of Object.values(result)) {
+      for (const node of view?.selectedNodes ?? []) touched.add(node.id);
+    }
+    this.repository.touchNodeAccess?.([...touched]);
+    return result;
   }
 
   promote(nodeIds, options = {}) {
