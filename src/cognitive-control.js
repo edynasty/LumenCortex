@@ -417,6 +417,28 @@ export class CognitiveController {
     progress.observeTool({ name, args, result, step });
     session.metadata.cognition.progress = progress.snapshot();
   }
+
+  recordModelCall({ session, model, elapsedMs, ok }) {
+    if (!model || !Number.isFinite(Number(elapsedMs))) return;
+    session.metadata ??= {};
+    session.metadata.cognition ??= { history: [], progress: {} };
+    session.metadata.cognition.modelTelemetry ??= {};
+    const current = session.metadata.cognition.modelTelemetry[model] ?? {
+      calls: 0,
+      failures: 0,
+      ewmaLatencyMs: null,
+      lastLatencyMs: null
+    };
+    const latency = Math.max(0, Number(elapsedMs));
+    const alpha = 0.2;
+    current.calls += 1;
+    if (!ok) current.failures += 1;
+    current.lastLatencyMs = latency;
+    current.ewmaLatencyMs = current.ewmaLatencyMs == null
+      ? latency
+      : alpha * latency + (1 - alpha) * current.ewmaLatencyMs;
+    session.metadata.cognition.modelTelemetry[model] = current;
+  }
 }
 
 export function createCognitiveController({
