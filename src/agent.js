@@ -21,7 +21,7 @@ Rules:
 11. If the latest tool result already proves the requested verification succeeded, stop calling tools immediately and return the final answer; do not restart or repeat the task.\n12. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates. A model assertion is never a substitute for required workflow evidence.`;
 
 export class AgentLoop {
-  constructor({ provider, repository, runtime, workspace, tools, sessionStore, promotionController, authorize, onEvent } = {}) {
+  constructor({ provider, repository, runtime, workspace, tools, sessionStore, promotionController, cognitiveController, authorize, onEvent } = {}) {
     if (!provider) throw new Error('provider is required');
     if (!repository) throw new Error('repository is required');
     if (!runtime) throw new Error('runtime is required');
@@ -33,6 +33,7 @@ export class AgentLoop {
     this.ownsSessionStore = !sessionStore;
     this.sessions = sessionStore ?? new AgentSessionStore(repository.dir);
     this.promotionController = promotionController ?? new PromotionController(runtime);
+    this.cognitiveController = cognitiveController ?? null;
     this.authorize = authorize;
     this.onEvent = onEvent ?? (() => {});
   }
@@ -73,7 +74,8 @@ export class AgentLoop {
           activationCounts: {},
           recentObservationNodeIds: [],
           promotions: [],
-          contextHistory: []
+          contextHistory: [],
+          cognition: { history: [], progress: {} }
         }
       });
     }
@@ -179,17 +181,57 @@ export class AgentLoop {
         });
       }
 
+      let cognitivePlan = null;
+      let providerCandidates = [{
+        provider: this.provider,
+        descriptor: { provider: options.providerName ?? session.provider ?? 'current', model: this.provider.model }
+      }];
+      if (this.cognitiveController) {
+        try {
+          cognitivePlan = await this.cognitiveController.planStep({
+            goal: session.goal || goal,
+            focus,
+            step,
+            session,
+            context,
+            signal: options.signal
+          });
+          if (cognitivePlan.providers?.length) providerCandidates = cognitivePlan.providers;
+          this.emit('cognition.route', {
+            sessionId: session.id,
+            step,
+            category: cognitivePlan.category,
+            think: cognitivePlan.think,
+            effort: cognitivePlan.effort,
+            thinkScore: cognitivePlan.thinkScore,
+            retrieval: cognitivePlan.retrieval,
+            reasons: cognitivePlan.reasons,
+            models: providerCandidates.map((item) => item.provider?.model ?? item.descriptor?.model ?? null),
+            decisionErrors: cognitivePlan.decision?.errors ?? []
+          });
+        } catch (error) {
+          this.emit('cognition.error', {
+            sessionId: session.id,
+            step,
+            error: error.message
+          });
+        }
+      }
+
       const requestMessages = buildWorkingMessages(session, context, {
         systemPrompt: session.metadata.systemPrompt,
         workflowPrompt: workflow?.prompt(),
+        cognitivePrompt: cognitivePlan?.prompt,
         recentRounds,
         workingChars
       });
+      const requestedMaxTokens = adjustMaxTokensForEffort(options.maxTokens, cognitivePlan?.effort);
+      let activeProvider = providerCandidates[0]?.provider ?? this.provider;
 
       this.emit('llm.request', {
         sessionId: session.id,
         step,
-        model: this.provider.model,
+        model: activeProvider.model,
         workingMessages: requestMessages.length,
         workingTokens: requestMessages.reduce((sum, message) => sum + estimateTokens(message), 0),
         workflowAction: workflow?.actionId() ?? null,
@@ -198,14 +240,14 @@ export class AgentLoop {
 
       let response;
       try {
-        response = await completeWithRetry(
-          this.provider,
+        const completion = await completeWithProviderChain(
+          providerCandidates,
           {
             messages: requestMessages,
             tools: toolSchemas,
             toolChoice: 'auto',
             temperature: options.temperature,
-            maxTokens: options.maxTokens,
+            maxTokens: requestedMaxTokens,
             signal: options.signal
           },
           {
@@ -221,9 +263,19 @@ export class AgentLoop {
               status: error.status ?? null,
               maxTokens,
               budgetAdjustment
+            }),
+            onProviderFailure: ({ provider, error, nextProvider }) => this.emit('cognition.model_chain', {
+              sessionId: session.id,
+              step,
+              failedModel: provider?.model ?? null,
+              nextModel: nextProvider?.model ?? null,
+              error: error.message,
+              status: error.status ?? null
             })
           }
         );
+        response = completion.response;
+        activeProvider = completion.provider;
       } catch (error) {
         throw this.interruptSession(session, step, usage, error);
       }
@@ -249,13 +301,13 @@ export class AgentLoop {
             }
           ];
           recovered = await completeWithRetry(
-            this.provider,
+            activeProvider,
             {
               messages: recoveryMessages,
               tools: toolSchemas,
               toolChoice: 'auto',
               temperature: options.temperature,
-              maxTokens: options.maxTokens,
+              maxTokens: requestedMaxTokens,
               signal: options.signal
             },
             {
@@ -307,7 +359,15 @@ export class AgentLoop {
         finishReason: response.finishReason,
         toolCalls: [],
         content: assistant.content ?? '',
-        workflow: workflow?.summary() ?? null
+        workflow: workflow?.summary() ?? null,
+        cognition: cognitivePlan ? {
+          category: cognitivePlan.category,
+          think: cognitivePlan.think,
+          effort: cognitivePlan.effort,
+          thinkScore: cognitivePlan.thinkScore,
+          retrieval: cognitivePlan.retrieval,
+          model: activeProvider.model
+        } : null
       };
 
       if (!calls.length) {
@@ -431,6 +491,13 @@ export class AgentLoop {
         }
 
         workspaceMutated ||= Boolean(result.mutatesWorkspace && result.ok);
+        this.cognitiveController?.observeTool?.({
+          session,
+          name,
+          args: parsed,
+          result,
+          step
+        });
         if (workflow) {
           const update = workflow.observeTool({ tool: name, args: parsed, result, step });
           session.metadata.workflow = workflow.snapshot();
@@ -624,6 +691,7 @@ export function buildWorkingMessages(sessionOrMessages, contextOrOptions = {}, m
     { role: 'system', content: systemPrompt },
     { role: 'system', content: formatActiveContext(context) },
     ...(options.workflowPrompt ? [{ role: 'system', content: options.workflowPrompt }] : []),
+    ...(options.cognitivePrompt ? [{ role: 'system', content: options.cognitivePrompt }] : []),
     ...goalMessage,
     ...recent
   ];
@@ -709,6 +777,9 @@ function normalizeSessionMetadata(session, defaults) {
   session.metadata.recentObservationNodeIds ??= [];
   session.metadata.promotions ??= [];
   session.metadata.contextHistory ??= [];
+  session.metadata.cognition ??= { history: [], progress: {} };
+  session.metadata.cognition.history ??= [];
+  session.metadata.cognition.progress ??= {};
 }
 
 function updateActivationCounts(session, context) {
@@ -772,6 +843,39 @@ function recordToolObservation(repository, { sessionId, step, call, name, args, 
 
   repository.writeGraph(graph.snapshot());
   return nodeId;
+}
+
+async function completeWithProviderChain(candidates, request, options = {}) {
+  const usable = (candidates ?? []).filter((item) => item?.provider && typeof item.provider.complete === 'function');
+  if (!usable.length) throw new Error('No generative provider is available for the selected category');
+
+  let lastError;
+  for (let index = 0; index < usable.length; index += 1) {
+    const current = usable[index];
+    try {
+      const response = await completeWithRetry(current.provider, request, options);
+      return { response, provider: current.provider, descriptor: current.descriptor, index };
+    } catch (error) {
+      lastError = error;
+      const next = usable[index + 1];
+      if (!next || error?.name === 'AbortError' || request.signal?.aborted) throw error;
+      options.onProviderFailure?.({
+        provider: current.provider,
+        descriptor: current.descriptor,
+        error,
+        nextProvider: next.provider,
+        nextDescriptor: next.descriptor
+      });
+    }
+  }
+  throw lastError ?? new Error('Category model chain failed');
+}
+
+function adjustMaxTokensForEffort(maxTokens, effort) {
+  if (maxTokens === undefined || maxTokens === null) return maxTokens;
+  const base = Math.max(1, Number(maxTokens));
+  const multiplier = effort === 'max' ? 2 : effort === 'high' ? 1.5 : effort === 'medium' ? 1.15 : 1;
+  return Math.ceil(base * multiplier);
 }
 
 async function completeWithRetry(provider, request, { retries = 2, retryBaseMs = 800, onAttempt = () => {}, onRetry = () => {} } = {}) {
