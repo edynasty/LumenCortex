@@ -59,6 +59,7 @@ type Options struct {
 	SystemPrompt        string
 	AdditionalSystemPrompt string
 	WorkflowJSON        []byte
+	WorkUnitsJSON       []byte
 	MaxTokens           int
 	Temperature         *float64
 	CognitionEnabled    bool
@@ -79,6 +80,7 @@ type stepRecord struct {
 	Content      string           `json:"content,omitempty"`
 	ToolCalls    []toolCallRecord `json:"toolCalls,omitempty"`
 	Workflow     any              `json:"workflow,omitempty"`
+	WorkUnit     any              `json:"workUnit,omitempty"`
 	Cognition    any              `json:"cognition,omitempty"`
 }
 
