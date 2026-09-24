@@ -88,7 +88,7 @@ The next architecture stage separates adaptive cognition into five roles:
 | Decision Layer | advisory typed judgments via algorithm/Jev/Laya-compatible providers | Implemented baseline |
 | Think | framework-selected deliberate reasoning with dynamic effort | Implemented baseline |
 | Category model chains | ordered generative-model preferences by work category | Implemented baseline |
-| Graph Governor | global analysis, safe tier/archive apply; semantic governance remains partial | Partial |
+| Graph Governor | analyzer + semantic Curator + validated tier/archive/branch/promotion/canonicalization + Cortex Epochs | Implemented baseline |
 
 These roles remain separate from deterministic Attention Light and the Agent Loop; the first Node.js reference implementation is now wired into the Agent Loop. The exact Decision Layer contracts, Category-chain semantics, Think-effort formulas, and Graph Governor lifecycle are defined in [Cognitive control plane](cognitive-control-plane.md).
 
@@ -287,7 +287,7 @@ All providers use the same tool-calling Agent Loop.
 | Shared harness SessionStore lifecycle | Implemented |
 | Cached adjacency | Planned |
 | LSP semantic tooling | Implemented (stdio JSON-RPC; Java/TS/Python defaults + custom config) |
-| Graph canonicalization / GC / hot-warm-cold storage | Planned |
+| Graph canonicalization / GC / hot-warm-cold storage | Partial: canonicalization + indexed storage tiers + safe derived-cache compaction implemented; physical tier separation/cognitive deletion not implemented |
 | Temporal valid_from/valid_to graph | Partial |
 | Negative-evidence lifecycle | Partial |
 | Cognitive branch <-> real Git worktree binding | Planned |
@@ -302,17 +302,19 @@ All providers use the same tool-calling Agent Loop.
 | Structural cut / restore | Implemented: edge remains durable but is excluded from propagation |
 | Structural graft edge | Implemented |
 | Cross-branch graft | Implemented through merge/cherry-pick |
-| Automatic split/merge/canonicalization controller | Planned |
+| Automatic split/merge/canonicalization controller | Partial: Governor candidate generation + model Curator + validated canonicalization/branch execution; autonomous scheduling not implemented |
 | Decision Layer / DecisionProvider | Implemented baseline |
 | Jev/Laya decision adapters | Implemented HTTP adapters; live validation pending |
 | Progress Monitor + framework routing | Implemented baseline |
-| Work Unit structure | Planned |
+| Work Unit structure/runtime | Implemented baseline (persistent dependencies/evidence/verification/final gate) |
 | Category model chains | Implemented baseline |
 | Category resolver | Implemented |
 | Automatic model-speed telemetry | Implemented baseline (EWMA total latency) |
 | Dynamic Think reasoning effort | Implemented baseline |
-| Graph Governor | Partial (Analyzer + validator + safe tier/archive executor) |
-| Cortex Epochs | Partial (recommendation only; execution planned) |
+| Provider-specific Think-effort mapping | Implemented baseline (OpenRouter/Groq/DeepSeek) |
+| Decision/Category provider circuit breaker | Implemented baseline |
+| Graph Governor | Implemented baseline (Analyzer + optional model Curator + validator + safe/semantic executor) |
+| Cortex Epochs | Implemented baseline (durable marker + Cognitive Git commit/revert) |
 
 ## SQLite consistency model
 
