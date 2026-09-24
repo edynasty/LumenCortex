@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { CognitiveGraph } from '../src/graph.js';
+import { CognitiveRepository } from '../src/repository.js';
 import {
   GraphGovernor,
   GraphGovernorAnalyzer,
@@ -194,4 +198,89 @@ test('model-backed Graph Governor Curator proposes a validated plan without muta
   assert.equal(payload.nodes.a.title, 'Provider Architecture');
   assert.equal(payload.nodes.d, undefined);
   assert.deepEqual(repository._graph, before);
+});
+
+
+test('semantic Governor apply canonicalizes without deleting provenance', () => {
+  const graph = graphFixture();
+  const repository = {
+    _graph: graph.snapshot(),
+    graph() {
+      return new CognitiveGraph(this._graph);
+    },
+    writeGraph(next) {
+      this._graph = structuredClone(next);
+    },
+    commit() {
+      throw new Error('commit not expected');
+    }
+  };
+  const governor = new GraphGovernor({ repository });
+
+  const safeOnly = governor.applyPlan({
+    canonicalize: [
+      { canonical: 'a', aliases: ['b'], reason: 'same provider architecture concept' }
+    ]
+  }, { semantic: false, commit: false });
+
+  assert.equal(safeOnly.deferred.canonicalize.length, 1);
+  assert.equal(repository._graph.nodes.b.metadata.canonicalNodeId, undefined);
+
+  const semantic = governor.applyPlan({
+    canonicalize: [
+      { canonical: 'a', aliases: ['b'], reason: 'same provider architecture concept' }
+    ]
+  }, { semantic: true, commit: false });
+
+  assert.equal(semantic.applied, true);
+  assert.equal(repository._graph.nodes.b.metadata.canonicalNodeId, 'a');
+  assert.ok(repository._graph.nodes.a);
+  assert.ok(repository._graph.nodes.b);
+
+  const edge = Object.values(repository._graph.edges)
+    .find((item) => item.type === 'canonicalizes' && item.from === 'a' && item.to === 'b');
+  assert.ok(edge);
+  assert.equal(edge.metadata.governor, true);
+});
+
+test('Cortex Epoch records governance metadata and is reversible through Cognitive Git', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-cortex-epoch-'));
+  const repo = new CognitiveRepository(root);
+  try {
+    repo.init();
+    repo.writeGraph(graphFixture().snapshot());
+    const baseline = repo.commit('fixture baseline');
+
+    const governor = new GraphGovernor({ repository: repo });
+    const result = governor.applyPlan({
+      canonicalize: [
+        { canonical: 'a', aliases: ['b'], reason: 'same provider architecture concept' }
+      ],
+      epoch: {
+        proposed: true,
+        reasons: ['canonicalization-backlog']
+      },
+      summary: 'Canonicalize duplicate provider architecture beliefs.'
+    }, {
+      semantic: true,
+      createEpoch: true
+    });
+
+    assert.ok(result.epoch?.id);
+    assert.equal(result.epoch.rollbackTarget, baseline.id);
+    assert.equal(result.commit.metadata.epoch.id, result.epoch.id);
+    assert.equal(repo.graph().getNode('b').metadata.canonicalNodeId, 'a');
+    assert.equal(repo.graph().getNode(result.epoch.id).metadata.cortexEpoch, true);
+    assert.ok(Object.values(repo.graph().snapshot().edges).some((edge) =>
+      edge.type === 'canonicalizes' && edge.from === 'a' && edge.to === 'b'
+    ));
+
+    const reverted = repo.revert(result.commit.id);
+    assert.deepEqual(reverted.conflicts, []);
+    assert.equal(repo.graph().getNode(result.epoch.id), undefined);
+    assert.equal(repo.graph().getNode('b').metadata.canonicalNodeId, undefined);
+    assert.equal(Object.values(repo.graph().snapshot().edges).some((edge) => edge.type === 'canonicalizes'), false);
+  } finally {
+    repo.close();
+  }
 });
