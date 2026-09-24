@@ -321,6 +321,7 @@ Core documents:
 - [Architecture diagrams](docs/architecture-diagrams.md)
 - [Agent execution flow](docs/execution-flow.md)
 - [Architecture details](docs/architecture.md)
+- [Attention Light algorithm](docs/attention-light-algorithm.md)
 - [Agent runtime](docs/agent-runtime.md)
 - [Workflow Contract](docs/workflow-contract.md)
 - [Data model](docs/data-model.md)
