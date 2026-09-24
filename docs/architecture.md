@@ -87,7 +87,7 @@ The next architecture stage separates adaptive cognition into five roles:
 | Cognitive Kernel | deterministic constraints, budgets, legal transitions, validation | Planned |
 | Light Controller | fast typed decisions over compressed state | Planned |
 | Think | task-local deliberate reasoning with framework-selected dynamic effort | Planned |
-| Cognitive Profile | explicit mode-to-provider/model bindings | Planned |
+| Cognitive Profile / Model Catalog | model defaults, task specialties, and hard capabilities | Planned |
 | Graph Governor | long-horizon pruning, branching, promotion, canonicalization, summaries, and Cortex versioning | Planned |
 
 These roles are intentionally separate from the current deterministic Attention Light and Agent Loop. The exact target contracts, cognitive-route selection formulas, model-selection utility, and Graph Governor lifecycle are defined in [Cognitive control plane](cognitive-control-plane.md).
@@ -107,7 +107,7 @@ Attention / Provider bindings / Graph engines
 verified execution + durable state
 ```
 
-Think does not own global graph maintenance. Graph Governor does not own current-task strategy. The framework chooses cognitive mode and, for Think, the per-request reasoning intensity; Cognitive Profile configuration chooses the concrete provider/model and allowed effort bounds.
+Think does not own global graph maintenance. Graph Governor does not own current-task strategy. The framework chooses cognitive mode and, for Think, per-request reasoning intensity. A simple Model Catalog resolves the concrete provider/model using mode eligibility, task specialties, configured defaults, and hard capabilities; runtime speed is measured automatically.
 
 ## Attention Light
 
@@ -306,7 +306,8 @@ All providers use the same tool-calling Agent Loop.
 | DecisionProvider / Light Controller | Planned |
 | Progress Monitor + cognitive route transitions | Planned |
 | Work Unit structure | Planned |
-| Cognitive Profile / mode bindings | Planned |
+| Cognitive Profile / Model Catalog | Planned |
+| Automatic model-speed telemetry | Planned |
 | Dynamic Think reasoning effort | Planned |
 | Graph Governor | Planned |
 | Cortex Epochs | Planned |
