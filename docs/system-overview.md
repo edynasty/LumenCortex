@@ -134,6 +134,8 @@ Reality / Evidence updated
 
 The LLM does not own durable truth. It performs temporary computation over selected evidence.
 
+The target control architecture adds a deterministic Cognitive Kernel above the existing runtime, with separate fast decision, deliberate Think, model-broker, and Graph-Governor roles. This is a planned control plane; the current implementation remains the deterministic Attention Light + Agent Loop described elsewhere. See [Cognitive control plane](cognitive-control-plane.md).
+
 ## Workflow and cognition are complementary
 
 A common architectural mistake would be to merge Workflow state into the cognitive graph or make the cognitive graph decide task legality.
@@ -183,6 +185,8 @@ Not yet represented as complete:
 - reusable Skills,
 - vision/browser tooling,
 - automatic graph GC/hot-warm-cold tiers,
-- full editor-grade TUI UX.
+- full editor-grade TUI UX,
+- adaptive cognitive control plane (Light Controller, Think escalation, Model Broker),
+- Graph Governor for global pruning/branching/promotion/canonicalization and Cortex epochs.
 
 Use [Standalone readiness](standalone-readiness.md) for the current evidence gate.
