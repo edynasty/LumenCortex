@@ -30,7 +30,7 @@ test('repository uses a single SQLite database in WAL mode', () => {
     const tables=db.prepare(
       "SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name"
     ).all().map(row=>row.name);
-    for(const name of ['graph_nodes','graph_edges','cognitive_commits','cognitive_refs','sessions','session_messages','agent_steps','journal','symbols','node_fts']){
+    for(const name of ['graph_nodes','graph_node_storage','graph_edges','cognitive_commits','cognitive_refs','sessions','session_messages','agent_steps','journal','symbols','node_fts']){
       assert.ok(tables.includes(name),`missing table ${name}`);
     }
   } finally {
@@ -499,7 +499,7 @@ test('database maintenance status integrity checkpoint and journal are operation
 
   const status=repo.database.status();
   assert.equal(status.journalMode.toLowerCase(),'wal');
-  assert.equal(status.schemaVersion,1);
+  assert.equal(status.schemaVersion,2);
   assert.ok(status.fileSizeBytes>0);
   assert.ok(status.counts.cognitiveCommits>=1);
   assert.equal(status.counts.journal,1);
@@ -516,4 +516,153 @@ test('database maintenance status integrity checkpoint and journal are operation
   assert.equal(journal[0].event,'maintenance-test');
   assert.equal(journal[0].payload.value,42);
   repo.close();
+});
+
+
+test('storage tiers and Attention access telemetry are indexed without changing graph revision', () => {
+  const root=tempWorkspace('lcx-storage-tier-');
+  const repo=new CognitiveRepository(root);
+  repo.init();
+
+  const graph=repo.graph();
+  graph.addNode({
+    id:'hot-node',
+    kind:'entity',
+    title:'Frequently used architecture context',
+    body:'hot memory',
+    metadata:{storageTier:'hot'}
+  });
+  repo.writeGraph(graph.snapshot());
+
+  const revision=repo.graphRevision();
+  const before=repo.storageStats();
+  assert.equal(before.tiers.hot,1);
+  assert.equal(before.total,1);
+
+  const touched=repo.touchNodeAccess(['hot-node'],'2026-09-25T00:00:00.000Z');
+  assert.equal(touched.touched,1);
+  assert.equal(repo.graphRevision(),revision);
+
+  const db=new DatabaseSync(path.join(root,'.lumencortex','lumencortex.db'));
+  try {
+    const row=db.prepare(
+      'SELECT tier, last_access_at, access_count FROM graph_node_storage WHERE node_id = ?'
+    ).get('hot-node');
+    assert.equal(row.tier,'hot');
+    assert.equal(row.last_access_at,'2026-09-25T00:00:00.000Z');
+    assert.equal(Number(row.access_count),1);
+  } finally {
+    db.close();
+    repo.close();
+  }
+});
+
+test('cold archived compaction removes derived search data but preserves cognitive graph nodes', () => {
+  const root=tempWorkspace('lcx-cold-compact-');
+  const repo=new CognitiveRepository(root);
+  repo.init();
+
+  let graph=repo.graph();
+  graph.addNode({
+    id:'cold-old',
+    kind:'evidence',
+    title:'Old static evidence',
+    body:'function oldColdSymbol() {}',
+    grade:'static',
+    trustZone:'repo_trusted',
+    metadata:{storageTier:'warm',sourceKind:'file-chunk',path:'old.js'}
+  });
+  graph.addNode({
+    id:'protected-runtime',
+    kind:'evidence',
+    title:'Reproduced runtime evidence',
+    body:'runtime proof',
+    grade:'reproduced',
+    trustZone:'runtime_verified',
+    metadata:{storageTier:'warm'}
+  });
+  repo.writeGraph(graph.snapshot());
+
+  const runtime=new LumenCortexRuntime(repo);
+  runtime.refreshSearchIndex();
+  assert.equal(runtime.search('oldColdSymbol')[0].nodeId,'cold-old');
+
+  graph=repo.graph();
+  graph.updateNode('cold-old',{
+    status:'archived',
+    metadata:{storageTier:'cold'}
+  });
+  graph.updateNode('protected-runtime',{
+    status:'archived',
+    metadata:{storageTier:'cold'}
+  });
+  repo.writeGraph(graph.snapshot());
+
+  const future=Date.now()+1000;
+  const candidates=repo.gcCandidates({olderThanMs:0,now:future});
+  assert.ok(candidates.some(item=>item.nodeId==='cold-old'));
+  assert.equal(candidates.some(item=>item.nodeId==='protected-runtime'),false);
+
+  const compacted=repo.database.compactColdArchived({
+    olderThanMs:0,
+    now:future,
+    dryRun:false
+  });
+  assert.equal(compacted.compacted,1);
+  assert.ok(repo.graph().getNode('cold-old'));
+  assert.ok(repo.graph().getNode('protected-runtime'));
+
+  const db=new DatabaseSync(path.join(root,'.lumencortex','lumencortex.db'));
+  try {
+    assert.equal(
+      db.prepare('SELECT node_id FROM search_documents WHERE node_id = ?').get('cold-old'),
+      undefined
+    );
+    const storage=db.prepare(
+      'SELECT tier, compacted_at FROM graph_node_storage WHERE node_id = ?'
+    ).get('cold-old');
+    assert.equal(storage.tier,'cold');
+    assert.ok(storage.compacted_at);
+  } finally {
+    runtime.close();
+    db.close();
+    repo.close();
+  }
+});
+
+test('opening an existing SQLite graph backfills storage metadata additively', () => {
+  const root=tempWorkspace('lcx-storage-backfill-');
+  const repo=new CognitiveRepository(root);
+  repo.init();
+  let graph=repo.graph();
+  graph.addNode({
+    id:'legacy-storage-node',
+    kind:'entity',
+    title:'Legacy storage node',
+    metadata:{storageTier:'cold'}
+  });
+  repo.writeGraph(graph.snapshot());
+  repo.close();
+
+  const dbFile=path.join(root,'.lumencortex','lumencortex.db');
+  const raw=new DatabaseSync(dbFile);
+  raw.prepare('DELETE FROM graph_node_storage WHERE node_id = ?').run('legacy-storage-node');
+  raw.prepare("UPDATE metadata SET value='1' WHERE key='schema_version'").run();
+  raw.close();
+
+  const reopened=new CognitiveRepository(root);
+  try {
+    assert.equal(reopened.database.status().schemaVersion,2);
+    const check=new DatabaseSync(dbFile);
+    try {
+      const row=check.prepare(
+        'SELECT tier FROM graph_node_storage WHERE node_id = ?'
+      ).get('legacy-storage-node');
+      assert.equal(row.tier,'cold');
+    } finally {
+      check.close();
+    }
+  } finally {
+    reopened.close();
+  }
 });
