@@ -49,6 +49,8 @@ Node.js reference runtime 已接入第一版可运行控制面：
 - **Dynamic Think Effort**：`low / medium / high / max`，根据任务复杂度、证据、重复失败和进展动态计算。
 - **Progress Monitor**：归一化失败 signature，识别重复等价失败。
 - **Cognitive Trace**：每一步记录 Category / Think / Effort / Retrieval / Decision error / Model candidates。
+- **Model Telemetry**：记录每个具体模型的调用次数、失败次数和 EWMA 总延迟；默认不会改变用户配置的 Category 顺序。
+- **Graph Governor baseline**：已实现全局 Analyzer、候选生成、确定性 Plan Validator、safe tier metadata 与 safe archive 执行。
 
 Jev/Laya **只属于 Decision Layer**，不执行 coding Work Unit，也不会出现在 Category 生成模型链里。
 
@@ -205,6 +207,10 @@ Category Model Chain
 
 ```bash
 lcx cognition defaults
+lcx governor analyze
+lcx governor plan
+lcx governor apply plan.json --dry-run
+lcx governor apply plan.json --yes
 ```
 
 关闭控制面：
@@ -308,6 +314,9 @@ lcx rebase <branch>
 lcx edge cut <edgeId> [reason]
 lcx edge restore <edgeId>
 lcx edge graft <from> <type> <to> [weight] [reason]
+lcx governor analyze
+lcx governor plan
+lcx governor apply <plan.json> --dry-run|--yes
 ```
 
 ## 持久化
@@ -360,15 +369,18 @@ Node.js 目前仍是生产 `lcx` 主路径；Go runtime 正在按 bounded-memory
 - Dynamic Think effort
 - Progress Monitor / failure signatures
 - Per-step cognitive trace
+- Model latency telemetry
+- Graph Governor Analyzer / Plan Validator / safe tier+archive executor
 
 仍然不应宣称已经完成：
 
 - Embedding Retrieval
 - Real Git Worktree transaction binding
-- Graph Governor 完整执行链
+- Graph Governor 模型 Curator/Planner
 - Cortex Epoch 自动执行
-- Graph GC / hot-warm-cold storage
-- 自动 split / merge / canonicalization
+- 物理 Graph GC / hot-warm-cold storage
+- 自动 split / merge / canonicalization 执行
+- Jev/Laya live validation 与 routing benchmark
 - reusable Skills
 - vision/browser tooling
 - 新认知控制面对 Go runtime 的完整 parity
