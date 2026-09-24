@@ -567,6 +567,12 @@ function agentRunOptions(parsed, providerName, authorize, workspace) {
   const workflow = parsed.flags.workflow
     ? loadWorkflowFile(path.resolve(workspace, String(parsed.flags.workflow)))
     : undefined;
+  let workUnits;
+  if (parsed.flags['work-units']) {
+    const raw = JSON.parse(fs.readFileSync(path.resolve(workspace, String(parsed.flags['work-units'])), 'utf8'));
+    workUnits = Array.isArray(raw) ? raw : raw?.workUnits;
+    if (!Array.isArray(workUnits)) fail('--work-units file must contain an array or {"workUnits": [...]}');
+  }
   return {
     providerName,
     maxSteps: Number(parsed.flags['max-steps'] ?? 24),
@@ -582,6 +588,7 @@ function agentRunOptions(parsed, providerName, authorize, workspace) {
     autoIngest: parsed.flags['no-ingest'] ? false : true,
     cognitiveCommit: Boolean(parsed.flags['cognitive-commit']),
     workflow,
+    workUnits,
     authorize
   };
 }
