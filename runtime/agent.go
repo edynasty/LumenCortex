@@ -26,6 +26,7 @@ type AgentOptions struct {
 	Workflow            json.RawMessage `json:"workflow,omitempty"`
 	MaxTokens           int             `json:"maxTokens,omitempty"`
 	Temperature         *float64        `json:"temperature,omitempty"`
+	CognitionEnabled    bool            `json:"cognitionEnabled,omitempty"`
 
 	subagents        toolset.SubagentController
 	parentSessionID  string
@@ -139,6 +140,7 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 		WorkflowJSON:        opts.Workflow,
 		MaxTokens:           opts.MaxTokens,
 		Temperature:         opts.Temperature,
+		CognitionEnabled:    opts.CognitionEnabled,
 	})
 	return AgentResult{
 		SessionID: result.SessionID,
