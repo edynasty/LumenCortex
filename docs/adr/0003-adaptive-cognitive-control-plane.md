@@ -151,7 +151,7 @@ Rejected because task-local optimization and long-horizon memory maintenance hav
 
 ### Put adaptive decisions directly inside AttentionEngine
 
-Rejected because Attention Light should remain a deterministic selection engine with a stable fallback path. Adaptive policy belongs above it.
+Rejected because Attention Light should remain an independently usable deterministic selection engine. Adaptive policy belongs above it.
 
 ### Hard-code model selection by task role
 
@@ -169,7 +169,7 @@ Rejected because semantic proposals require deterministic validation, provenance
 
 ### Positive
 
-- preserves a deterministic fallback path,
+- preserves an independently usable deterministic decision path,
 - separates fast judgment from deliberate reasoning,
 - prevents long-term memory maintenance from being biased by the current task,
 - supports future decision models without coupling the runtime to one provider,
@@ -214,7 +214,7 @@ Any schema addition requires a separate migration with backward compatibility.
 
 Before adaptive control can be called validated:
 
-1. deterministic fallback behavior remains green,
+1. deterministic decision-path behavior remains green,
 2. Decision Router selects another eligible model-backed path when one provider is unavailable,
 3. Algorithm Decision Path is exercised as a first-class path when deterministic state is sufficient,
 4. configurations with no decision model remain functional,
