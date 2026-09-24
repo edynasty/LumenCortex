@@ -360,3 +360,54 @@ func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 		t.Fatalf("denied tool result missing: %#v", store.messages)
 	}
 }
+
+
+func TestLoopCognitiveRoutingPersistsPlanAndPassesReasoningEffort(t *testing.T) {
+	store := &memoryStore{
+		state: SessionState{
+			ID: "cognition",
+			Goal: "Debug a cross-module transaction deadlock and verify the root cause",
+			Status: "created",
+			Metadata: map[string]any{},
+		},
+		steps: map[int64]any{},
+	}
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
+	}}
+	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
+	result, err := loop.Run(context.Background(), "cognition", Options{
+		MaxSteps: 2,
+		CognitionEnabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("result=%#v", result)
+	}
+	if len(provider.seen) != 1 {
+		t.Fatalf("requests=%d", len(provider.seen))
+	}
+	req := provider.seen[0]
+	if req.ReasoningEffort == "" || req.ReasoningEffort == "none" {
+		t.Fatalf("expected active reasoning effort, got %q", req.ReasoningEffort)
+	}
+	foundPolicy := false
+	for _, message := range req.Messages {
+		if message.Role == "system" && strings.Contains(message.Content, "Cognitive policy:") {
+			foundPolicy = true
+		}
+	}
+	if !foundPolicy {
+		t.Fatalf("missing cognitive policy prompt: %#v", req.Messages)
+	}
+	cognitive, ok := store.state.Metadata["cognition"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing persisted cognition metadata: %#v", store.state.Metadata)
+	}
+	history, ok := cognitive["history"].([]any)
+	if !ok || len(history) != 1 {
+		t.Fatalf("cognition history=%#v", cognitive["history"])
+	}
+}
