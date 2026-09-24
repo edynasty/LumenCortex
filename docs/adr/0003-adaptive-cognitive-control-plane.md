@@ -45,7 +45,8 @@ The Model Broker selects models from capability requirements and verified runtim
 - Models propose; deterministic runtime code validates and executes.
 - Workflow and permission policy remain authoritative over legal execution.
 - Attention Light remains usable without any adaptive decision model.
-- Fast decision availability uses a two-level fallback: substitute DecisionProvider first, deterministic algorithm second.
+- Fast control supports multiple peer Decision Paths: model-backed paths and a deterministic Algorithm Path.
+- Decision-path selection is based on applicability, availability, cost, latency, locality, and semantic requirements rather than a fixed downgrade order.
 - Semantic uncertainty is not treated as provider failure; it remains an escalation signal for Think.
 - Fast decision models never directly write Context Graph state.
 - Think is task-local and does not own long-horizon Cortex structure.
@@ -75,21 +76,34 @@ Escalation to Think occurs when its expected marginal value exceeds the fast pat
 Decision uncertainty may use normalized entropy and top-two probability margin as escalation signals.
 
 
-## Decision-provider fallback
+## Decision-path routing
 
-The fast-decision plane must not depend on one model endpoint.
+Fast control is expressed as a routing problem over peer Decision Paths.
 
 ```text
-primary DecisionProvider
-    -> substitute DecisionProvider
-        -> deterministic decision algorithm
+Decision Request
+    -> model-backed Decision Path
+    -> another model-backed Decision Path
+    -> deterministic Algorithm Path
 ```
 
-Fallback is triggered by operational failure such as unavailability, timeout, malformed typed output, schema incompatibility, or an open provider-health circuit.
+There is no required primary/secondary hierarchy.
 
-Low confidence, high entropy, conflicting judgments, or a small top-two margin are **not** fallback conditions. Those are semantic uncertainty signals and should normally cause Think escalation or targeted evidence gathering.
+The Cognitive Kernel selects an eligible path using:
 
-The deterministic fallback must preserve a bounded safe policy using observable runtime state and existing Attention defaults. It is an availability mechanism, not a semantic replacement for a decision model.
+- decision semantics,
+- provider/model availability,
+- cost,
+- latency,
+- privacy/locality,
+- operational health,
+- whether deterministic runtime state is already sufficient.
+
+The deterministic Algorithm Path may be selected first when the decision is mechanically derivable.
+
+If no model-backed path is configured, the runtime remains valid: deterministic decisions continue through the Algorithm Path and semantic ambiguity may escalate to Think.
+
+Low confidence, high entropy, conflicting judgments, or a small top-two margin are not availability failures. They are semantic uncertainty signals and should normally cause Think escalation or targeted evidence gathering.
 
 ## Model selection
 
@@ -201,16 +215,17 @@ Any schema addition requires a separate migration with backward compatibility.
 Before adaptive control can be called validated:
 
 1. deterministic fallback behavior remains green,
-2. substitute-model fallback is exercised for provider failure,
-3. algorithm fallback is exercised when all decision providers are unavailable,
-4. low-confidence decisions escalate rather than silently falling back,
-5. Progress Monitor correctly groups repeated failures,
-6. escalation tests prove fast -> Think -> fast transitions,
-7. broker tests prove hard-capability filtering and switch hysteresis,
-8. verified outcomes update capability profiles deterministically,
-9. graph plans cannot bypass Graph Validator,
-10. Governor operations preserve provenance and support rollback,
-11. benchmark adaptive routing against fixed deterministic baselines for quality, cost, and latency.
+2. Decision Router selects another eligible model-backed path when one provider is unavailable,
+3. Algorithm Decision Path is exercised as a first-class path when deterministic state is sufficient,
+4. configurations with no decision model remain functional,
+5. low-confidence decisions escalate rather than being hidden by path switching,
+6. Progress Monitor correctly groups repeated failures,
+7. escalation tests prove fast -> Think -> fast transitions,
+8. broker tests prove hard-capability filtering and switch hysteresis,
+9. verified outcomes update capability profiles deterministically,
+10. graph plans cannot bypass Graph Validator,
+11. Governor operations preserve provenance and support rollback,
+12. benchmark adaptive routing against fixed deterministic baselines for quality, cost, and latency.
 
 ## Documentation impact
 
