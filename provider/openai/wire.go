@@ -16,9 +16,20 @@ type chatRequest struct {
 	Tools         []wireTool    `json:"tools,omitempty"`
 	ToolChoice    any           `json:"tool_choice,omitempty"`
 	Temperature  *float64      `json:"temperature,omitempty"`
-	MaxTokens     int           `json:"max_tokens,omitempty"`
-	Stream        bool          `json:"stream,omitempty"`
-	StreamOptions *streamOpts   `json:"stream_options,omitempty"`
+	MaxTokens       int               `json:"max_tokens,omitempty"`
+	Reasoning       *reasoningOptions `json:"reasoning,omitempty"`
+	ReasoningEffort string            `json:"reasoning_effort,omitempty"`
+	Thinking        *thinkingOptions  `json:"thinking,omitempty"`
+	Stream          bool              `json:"stream,omitempty"`
+	StreamOptions   *streamOpts       `json:"stream_options,omitempty"`
+}
+
+type reasoningOptions struct {
+	Effort string `json:"effort"`
+}
+
+type thinkingOptions struct {
+	Type string `json:"type"`
 }
 
 type streamOpts struct {
@@ -94,7 +105,7 @@ type streamToolCall struct {
 	Function wireFunction `json:"function"`
 }
 
-func requestFromProtocol(model string, req protocol.ProviderRequest, stream bool) chatRequest {
+func requestFromProtocol(model string, req protocol.ProviderRequest, stream bool, reasoningFormat string) chatRequest {
 	messages := make([]wireMessage, 0, len(req.Messages))
 	for _, message := range req.Messages {
 		wire := wireMessage{
@@ -127,6 +138,7 @@ func requestFromProtocol(model string, req protocol.ProviderRequest, stream bool
 		Model: model, Messages: messages, Tools: tools, ToolChoice: toolChoice,
 		Temperature: req.Temperature, MaxTokens: req.MaxTokens, Stream: stream,
 	}
+	applyReasoning(&out, reasoningFormat, req.ReasoningEffort)
 	if stream {
 		out.StreamOptions = &streamOpts{IncludeUsage: true}
 	}
@@ -265,5 +277,40 @@ func (b *streamBuilder) result() protocol.ProviderResponse {
 			CompletionTokens: b.usage.CompletionTokens,
 			TotalTokens: b.usage.TotalTokens,
 		},
+	}
+}
+
+
+func applyReasoning(out *chatRequest, format, effort string) {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort == "" {
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "reasoning-object":
+		switch effort {
+		case "none", "low", "medium", "high", "max":
+			out.Reasoning = &reasoningOptions{Effort: effort}
+		}
+	case "reasoning-effort":
+		if effort == "max" {
+			effort = "high"
+		}
+		switch effort {
+		case "low", "medium", "high":
+			out.ReasoningEffort = effort
+		}
+	case "deepseek":
+		if effort == "medium" {
+			effort = "high"
+		}
+		switch effort {
+		case "none":
+			out.ReasoningEffort = effort
+			out.Thinking = &thinkingOptions{Type: "disabled"}
+		case "low", "high", "max":
+			out.ReasoningEffort = effort
+			out.Thinking = &thinkingOptions{Type: "enabled"}
+		}
 	}
 }
