@@ -84,13 +84,13 @@ The next architecture stage separates adaptive cognition into five roles:
 
 | Role | Responsibility | Status |
 |---|---|---|
-| Cognitive Kernel | deterministic constraints, budgets, legal transitions, validation | Planned |
-| Decision Layer | advisory typed judgments via algorithm/Jev/Laya-compatible providers | Planned |
-| Think | framework-selected deliberate reasoning with dynamic effort | Planned |
-| Category model chains | ordered generative-model preferences by work category | Planned |
-| Graph Governor | long-horizon pruning, branching, promotion, canonicalization, summaries, and Cortex versioning | Planned |
+| Cognitive Kernel | deterministic constraints, routing, budgets, and validation | Implemented baseline |
+| Decision Layer | advisory typed judgments via algorithm/Jev/Laya-compatible providers | Implemented baseline |
+| Think | framework-selected deliberate reasoning with dynamic effort | Implemented baseline |
+| Category model chains | ordered generative-model preferences by work category | Implemented baseline |
+| Graph Governor | global analysis, safe tier/archive apply; semantic governance remains partial | Partial |
 
-These roles are intentionally separate from the current deterministic Attention Light and Agent Loop. The exact Decision Layer contracts, Category-chain semantics, Think-effort formulas, and Graph Governor lifecycle are defined in [Cognitive control plane](cognitive-control-plane.md).
+These roles remain separate from deterministic Attention Light and the Agent Loop; the first Node.js reference implementation is now wired into the Agent Loop. The exact Decision Layer contracts, Category-chain semantics, Think-effort formulas, and Graph Governor lifecycle are defined in [Cognitive control plane](cognitive-control-plane.md).
 
 The core boundary is:
 
@@ -303,16 +303,16 @@ All providers use the same tool-calling Agent Loop.
 | Structural graft edge | Implemented |
 | Cross-branch graft | Implemented through merge/cherry-pick |
 | Automatic split/merge/canonicalization controller | Planned |
-| Decision Layer / DecisionProvider | Planned |
-| Jev/Laya decision adapters | Planned |
-| Progress Monitor + framework routing | Planned |
+| Decision Layer / DecisionProvider | Implemented baseline |
+| Jev/Laya decision adapters | Implemented HTTP adapters; live validation pending |
+| Progress Monitor + framework routing | Implemented baseline |
 | Work Unit structure | Planned |
-| Category model chains | Planned |
-| Category resolver | Planned |
-| Automatic model-speed telemetry | Planned |
-| Dynamic Think reasoning effort | Planned |
-| Graph Governor | Planned |
-| Cortex Epochs | Planned |
+| Category model chains | Implemented baseline |
+| Category resolver | Implemented |
+| Automatic model-speed telemetry | Implemented baseline (EWMA total latency) |
+| Dynamic Think reasoning effort | Implemented baseline |
+| Graph Governor | Partial (Analyzer + validator + safe tier/archive executor) |
+| Cortex Epochs | Partial (recommendation only; execution planned) |
 
 ## SQLite consistency model
 
