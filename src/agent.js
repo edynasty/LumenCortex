@@ -264,13 +264,27 @@ export class AgentLoop {
               maxTokens,
               budgetAdjustment
             }),
-            onProviderFailure: ({ provider, error, nextProvider }) => this.emit('cognition.model_chain', {
-              sessionId: session.id,
-              step,
-              failedModel: provider?.model ?? null,
-              nextModel: nextProvider?.model ?? null,
-              error: error.message,
-              status: error.status ?? null
+            onProviderFailure: ({ provider, error, nextProvider, elapsedMs }) => {
+              this.cognitiveController?.recordModelCall?.({
+                session,
+                model: provider?.model,
+                elapsedMs,
+                ok: false
+              });
+              this.emit('cognition.model_chain', {
+                sessionId: session.id,
+                step,
+                failedModel: provider?.model ?? null,
+                nextModel: nextProvider?.model ?? null,
+                error: error.message,
+                status: error.status ?? null
+              });
+            },
+            onProviderComplete: ({ provider, elapsedMs }) => this.cognitiveController?.recordModelCall?.({
+              session,
+              model: provider?.model,
+              elapsedMs,
+              ok: true
             })
           }
         );
@@ -852,10 +866,18 @@ async function completeWithProviderChain(candidates, request, options = {}) {
   let lastError;
   for (let index = 0; index < usable.length; index += 1) {
     const current = usable[index];
+    const startedAt = Date.now();
     try {
       const response = await completeWithRetry(current.provider, request, options);
-      return { response, provider: current.provider, descriptor: current.descriptor, index };
+      const elapsedMs = Date.now() - startedAt;
+      options.onProviderComplete?.({
+        provider: current.provider,
+        descriptor: current.descriptor,
+        elapsedMs
+      });
+      return { response, provider: current.provider, descriptor: current.descriptor, index, elapsedMs };
     } catch (error) {
+      const elapsedMs = Date.now() - startedAt;
       lastError = error;
       const next = usable[index + 1];
       if (!next || error?.name === 'AbortError' || request.signal?.aborted) throw error;
@@ -863,6 +885,7 @@ async function completeWithProviderChain(candidates, request, options = {}) {
         provider: current.provider,
         descriptor: current.descriptor,
         error,
+        elapsedMs,
         nextProvider: next.provider,
         nextDescriptor: next.descriptor
       });
