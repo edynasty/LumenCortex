@@ -19,6 +19,7 @@ import { BRAND } from './brand.js';
 import { normalizePolicy, policyAllowsTool } from './permissions.js';
 import { withProcessCancellation } from './process-cancellation.js';
 import { WorkflowRuntime, loadWorkflowFile } from './workflow.js';
+import { createCognitiveController, loadCognitiveProfile } from './cognitive-control.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -50,6 +51,11 @@ try {
 
   if (command === 'doctor') {
     await doctorCommand(args);
+    process.exit(0);
+  }
+
+  if (command === 'cognition' && args[0] === 'defaults') {
+    console.log(JSON.stringify(loadCognitiveProfile(process.cwd(), { file: '__missing__' }), null, 2));
     process.exit(0);
   }
 
@@ -449,6 +455,15 @@ async function mcpCommand({ workspace, argv }) {
 }
 
 async function createHarness({ repo, runtime, workspace, provider, providerName, parsed, authorize, onEvent }) {
+  const cognitiveController = parsed.flags['no-cognition']
+    ? null
+    : createCognitiveController({
+        workspace,
+        profileFile: parsed.flags.cognition ? path.resolve(workspace, String(parsed.flags.cognition)) : undefined,
+        fallbackProvider: provider,
+        fallbackProviderName: providerName,
+        fallbackModel: provider.model
+      });
   const lsp = new LspManager(workspace, { timeoutMs: Number(parsed.flags['lsp-timeout'] ?? 15000) });
   const mcp = new McpManager(workspace);
   const sessionStore = new AgentSessionStore(repo.dir);
@@ -470,7 +485,15 @@ async function createHarness({ repo, runtime, workspace, provider, providerName,
   registerSubagentTools(toolRegistry, pool);
 
   const agent = new AgentLoop({
-    provider, repository: repo, runtime, workspace, tools: toolRegistry, sessionStore, authorize, onEvent
+    provider,
+    repository: repo,
+    runtime,
+    workspace,
+    tools: toolRegistry,
+    sessionStore,
+    cognitiveController,
+    authorize,
+    onEvent
   });
   const parallelRunner = new ParallelSessionRunner({
     subagentPool: pool,
@@ -619,6 +642,9 @@ function renderAgentEvent(event) {
   if (event.type === 'session.start') console.log(`[agent] session=${event.sessionId} budget=${event.budgetTokens}t maxSteps=${event.maxSteps}`);
   else if (event.type === 'llm.request') console.log(`[agent] step ${event.step} → ${event.model}`);
   else if (event.type === 'llm.retry') console.log(`  ↻ LLM retry ${event.attempt} in ${event.delayMs}ms: ${event.error}`);
+  else if (event.type === 'cognition.route') console.log(`  ◇ category=${event.category} think=${event.think ? event.effort : 'no'} model=${event.models?.[0] ?? '(current)'}`);
+  else if (event.type === 'cognition.model_chain') console.log(`  ↪ model chain ${event.failedModel ?? '?'} → ${event.nextModel ?? '?'} (${event.error})`);
+  else if (event.type === 'cognition.error') console.log(`  ! cognitive control fallback: ${event.error}`);
   else if (event.type === 'tools.deferred') console.log(`  ⇢ tool fanout bounded: executing ${event.executing}/${event.requested}, deferred ${event.deferred}`);
   else if (event.type === 'llm.empty_turn') console.log(`  ↻ empty assistant turn, recovery attempt ${event.attempt}`);
   else if (event.type === 'tool.start') console.log(`  → ${event.name} ${compact(event.args)}`);
@@ -758,6 +784,7 @@ Agent commands:
   workflow approve <session-id> <gate-id> [--actor name]
   providers
   doctor [--provider P] [--model M] [--live]
+  cognition defaults
 
 Code intelligence:
   ingest [dir] [--chunk-lines 160] [--max-bytes 524288]
@@ -799,6 +826,8 @@ Agent controls:
   --no-mcp
   --strict-mcp
   --no-auto-promote
+  --cognition path/to/cognition.json
+  --no-cognition
   --yes
 
 Providers:
