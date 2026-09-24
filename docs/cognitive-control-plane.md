@@ -1,6 +1,6 @@
 # Cognitive control plane
 
-This document defines the target architecture for adaptive cognition, cognitive-route selection, model selection, and long-horizon Context Graph governance in LumenCortex.
+This document defines the target architecture for adaptive cognitive-mode routing, configurable model bindings, failure-aware reasoning, and long-horizon Context Graph governance in LumenCortex.
 
 > **Status:** Planned architecture. The current runtime already implements the Context Graph, Attention Light, Active Promotion, Agent Loop, Workflow Contracts, provider abstraction, verification, and Cognitive Git. The control-plane components below are not yet claimed as implemented.
 
@@ -16,28 +16,28 @@ Related documents:
 
 LumenCortex needs three different kinds of cognition:
 
-1. **Fast local judgment** — routing, retrieval policy, budget, stop/continue, confidence, and simple classification.
-2. **Deliberative task reasoning** — diagnosis, hypothesis revision, planning, and recovery from unknowns or repeated failure.
+1. **Fast local judgment** — routing hints, retrieval policy, budget, stop/continue, confidence, and bounded classification.
+2. **Deliberative task reasoning** — diagnosis, hypothesis revision, planning, unknowns, repeated failure, and high-risk decisions.
 3. **Long-horizon Cortex governance** — pruning, branching, promotion, canonicalization, global summarization, tiering, and cognitive versioning.
 
 These operate on different time scales and must remain separate.
 
-The architecture therefore uses five roles:
+The framework therefore separates:
 
 | Component | Time scale | Main responsibility |
 |---|---|---|
-| Cognitive Kernel | every step | deterministic control, constraints, budgets, validation |
-| Light Controller | fast | typed local decisions over compressed state |
-| Think | when routed | task-local deliberate reasoning and strategy revision |
-| Model Broker | per Work Unit / switch event | select an execution model from capability requirements |
+| Cognitive Kernel / Router | every step | deterministic mode selection, constraints, budgets, legality, validation |
+| Light Controller | fast | bounded typed judgments inside Fast mode |
+| Think | when selected | task-local deliberate reasoning and strategy revision |
 | Graph Governor | periodic / global | maintain the long-term structure of the Context Graph |
+| Cognitive Profile | configuration | bind modes/roles to concrete providers and models |
 
 ## 2. Core invariants
 
 ```text
 Graph is Memory.
 Light is Attention.
-System One is Fast Judgment.
+Fast is Bounded Judgment.
 Think is Deliberation.
 Governor is Cognitive Maintenance.
 Agent is Execution.
@@ -45,118 +45,287 @@ Agent is Execution.
 
 The runtime follows these rules:
 
-1. Models may propose judgments, strategies, or graph plans.
-2. Deterministic runtime code owns legality, budgets, permissions, persistence, and execution.
-3. Think does not own long-term graph maintenance.
-4. Graph Governor does not own the current task strategy.
-5. The Model Broker does not decompose tasks.
-6. Tasks and cognitive roles do not bind directly to model names.
-7. Durable graph mutation must remain provenance-preserving and auditable through Cognitive Git.
+1. **The framework chooses the cognitive mode.**
+2. Models do not decide whether the runtime should be in Fast, Think, or DeepThink.
+3. A concrete model is selected by configuration, not by runtime model competition.
+4. Jev/Laya are interchangeable Fast-mode implementations behind a typed `DecisionProvider`.
+5. GPT/Claude/DeepSeek/local reasoning models are interchangeable Think-mode implementations behind a reasoning-provider contract.
+6. Graph Governor uses its own configured model binding and does not share task-local Think responsibility.
+7. Models may propose judgments, strategies, or graph plans; deterministic runtime code owns legality, budgets, persistence, and execution.
+8. Durable graph mutation must preserve provenance and remain auditable through Cognitive Git.
 
-## 3. Target topology
+## 3. Two separate decisions
+
+The architecture separates **mode routing** from **model configuration**.
 
 ```text
-                         User Goal
+                     Cognitive Request
                             |
                             v
-                    +------------------+
-                    | Cognitive Kernel |
-                    +---------+--------+
-                              |
-         +--------------------+--------------------+
-         |                    |                    |
-         v                    v                    v
- +----------------+   +----------------+   +----------------+
- | Light Controller|  | Think          |   | Graph Governor |
- | System One      |  | System Two     |   | Cortex Curator |
- +-------+---------+   +-------+--------+   +-------+--------+
-         |                     |                    |
-         | LightPolicy         | Strategy           | GraphPlan
-         | Work requirements   | WorkUnits          |
-         +----------+----------+                    |
-                    v                               |
-             +--------------+                      |
-             | Model Broker |                      |
-             +------+-------+                      |
-                    |                              |
-                    v                              |
-             Execution Model                       |
-                    |                              |
-                    v                              |
-               Agent Loop                          |
-                    |                              |
-                    v                              |
-            Tools / Workspace                      |
-                    |                              |
-                    v                              |
-              Verification                         |
-                    |                              |
-          +---------+----------+                   |
-          |                    |                   |
-          v                    v                   v
-   Progress Monitor      Outcome Learner      Graph Validator
-          |                    |                   |
-          +---------+----------+-------------------+
-                    |
-                    v
-               Context Graph
-                    |
-           +--------+--------+
-           |        |        |
-          Hot      Warm     Cold
-                    |
-                    v
-               Cognitive Git
+                  +--------------------+
+                  | Framework Router   |
+                  | deterministic      |
+                  +---------+----------+
+                            |
+        +-------------------+-------------------+
+        |                   |                   |
+        v                   v                   v
+   Algorithm Mode        Fast Mode          Think Mode
+   deterministic       DecisionProvider    ReasoningProvider
+                            |                   |
+                     configured binding    configured binding
+                            |                   |
+                    Jev / Laya / ...      GPT / Claude / ...
 ```
 
-## 4. Cognitive Kernel
+Optional `DeepThink` is another framework mode. It may use:
+
+- the same Think provider with a larger reasoning budget, or
+- a separately configured reasoning provider/model.
+
+The framework never performs:
+
+```text
+"Which model should I dynamically pick for this task?"
+```
+
+Instead it performs:
+
+```text
+"Which cognitive mode should run now?"
+```
+
+The configured Cognitive Profile answers:
+
+```text
+"Which provider/model implements that mode in this deployment?"
+```
+
+## 4. Cognitive Profile
+
+A Cognitive Profile is configuration, not learned routing policy.
+
+Example:
+
+```yaml
+cognition:
+  fast:
+    enabled: true
+    provider: laya
+    model: convaiinnovations/laya
+
+  think:
+    enabled: true
+    provider: anthropic
+    model: claude-sonnet
+
+  deep_think:
+    enabled: true
+    provider: openai
+    model: gpt-reasoning
+    reasoning_effort: high
+
+  execution:
+    provider: openai-compatible
+    model: coding-model
+
+  governor:
+    enabled: true
+    provider: openai
+    model: reasoning-model
+```
+
+Equivalent profiles are valid:
+
+```yaml
+fast:
+  provider: jev
+
+think:
+  provider: openai
+  model: gpt-*
+```
+
+or:
+
+```yaml
+fast:
+  enabled: false
+
+think:
+  provider: anthropic
+  model: claude-*
+```
+
+No Jev/Laya installation is required for LumenCortex to function.
+
+### 4.1 Configuration precedence
+
+A future implementation should resolve bindings deterministically:
+
+```text
+explicit run override
+    > project profile
+    > user profile
+    > built-in default
+```
+
+This is configuration resolution, not automatic model selection.
+
+### 4.2 Route availability
+
+A mode is eligible only when its required binding is configured and operational.
+
+```text
+Algorithm
+    always available
+
+Fast
+    available if a DecisionProvider is configured and healthy
+
+Think
+    available if a ReasoningProvider is configured and healthy
+
+DeepThink
+    available if configured or derivable from Think configuration
+```
+
+If one route is unavailable, the framework re-evaluates the remaining modes. It does not silently choose an unrelated model.
+
+## 5. Cognitive Kernel / Router
 
 The Cognitive Kernel is deterministic orchestration code.
 
 It owns:
 
+- cognitive-mode selection,
 - Workflow and permission constraints,
 - token, cost, and latency budgets,
-- legal cognitive-mode transitions,
-- model/provider availability,
-- model-switch hysteresis,
+- route availability,
+- legal mode transitions,
+- provider health visibility,
 - validation of model-proposed policies,
 - graph-mutation authorization,
 - persistence and audit records.
 
-It does not answer semantic questions.
+It does not answer semantic questions itself.
 
 The control invariant is:
 
 ```text
-model proposes
-    -> kernel validates
-        -> engine executes
-            -> verifier records outcome
+framework selects mode
+    -> configured provider executes that mode
+        -> kernel validates output
+            -> engine executes
+                -> verifier records outcome
 ```
 
-## 5. Light Controller
+## 6. Framework cognitive-mode routing
 
-### 5.1 Role
+The framework chooses from modes, not model identities.
 
-The Light Controller performs high-frequency bounded decisions over compressed runtime state.
+```text
+M = {
+  Algorithm,
+  Fast,
+  Think,
+  DeepThink
+}
+```
 
-Typical decisions:
+Let `A(c)` be the set of modes available under configuration/health state `c`.
 
-- which retrieval mode to use,
-- whether current evidence is sufficient,
-- whether Light should expand,
-- whether Contrarian or Anomaly Light should run,
-- whether the agent is making progress,
-- whether a failure is local or reasoning-level,
-- which cognitive route should run next,
-- which budget class is appropriate.
+```text
+mode* = argmax_{m in A(c)} V(m | s, c)
+```
 
-It does not produce long free-form plans.
+A target value function is:
 
-### 5.2 DecisionProvider
+```text
+V(m | s, c)
+  = E[task_utility_gain | m, s]
+    - lambda * expected_compute_cost(m, c)
+    - mu     * expected_latency(m, c)
+    - rho    * transition_cost(m, s)
+    - nu     * risk(m, s)
+```
 
-The intelligence may be model-based, but the role is modular through a typed interface.
+The first implementation may approximate this with deterministic thresholds and state features.
+
+### 6.1 Typical routing signals
+
+Framework signals may include:
+
+- task complexity,
+- repeated equivalent failure,
+- progress delta,
+- unknown count,
+- contradiction density,
+- evidence sufficiency,
+- retrieval exhaustion,
+- requested operation risk,
+- irreversibility,
+- token pressure,
+- active Workflow constraints,
+- Fast-provider uncertainty,
+- mode availability.
+
+Examples:
+
+```text
+retry-after header is known
+    -> Algorithm
+
+token budget crossed a hard threshold
+    -> Algorithm
+
+bounded semantic routing question
+    -> Fast
+
+complex multi-file architectural change
+    -> Think
+
+same verified failure after multiple distinct attempts
+    -> Think
+
+Think failed and unresolved uncertainty remains high
+    -> DeepThink
+```
+
+Think can be selected on the first step. It is not only a failure escalation.
+
+## 7. Algorithm Mode
+
+Algorithm Mode handles decisions that are truly derivable from runtime state.
+
+Examples:
+
+- hard token-budget enforcement,
+- retry/backoff policy,
+- permission and Workflow gates,
+- known failure-count thresholds,
+- bounded graph-depth limits,
+- provider health state,
+- deterministic route exclusions.
+
+It must not imitate semantic judgment it cannot perform.
+
+If runtime state is insufficient, the framework selects Fast or Think according to routing policy and availability.
+
+## 8. Fast Mode and DecisionProvider
+
+Fast Mode performs high-frequency bounded semantic decisions.
+
+Typical uses:
+
+- choose retrieval policy,
+- judge evidence sufficiency,
+- classify likely failure type,
+- decide whether Light should expand,
+- score whether a contradiction is important,
+- estimate whether the current local action still has progress potential.
+
+### 8.1 Typed provider interface
 
 ```ts
 interface DecisionProvider {
@@ -168,17 +337,17 @@ interface DecisionProvider {
 }
 ```
 
-Possible implementations:
+Possible configured implementations:
 
 ```text
 DecisionProvider
-├── HeuristicDecisionProvider
 ├── JevDecisionProvider
 ├── LayaDecisionProvider
-└── LLMDecisionProvider
+├── SmallLLMDecisionProvider
+└── other compatible provider
 ```
 
-Jev and Laya are treated as candidate **decision-model implementations**, not as generative Agent providers.
+Jev and Laya are implementations, not architecture requirements.
 
 Conceptually:
 
@@ -186,18 +355,12 @@ Conceptually:
 D : State -> ProbabilityDistribution(Actions)
 ```
 
-A result should retain distributions instead of immediately discarding them into one argmax.
+The result should preserve distributions.
 
 Example:
 
 ```json
 {
-  "cognitive_mode": {
-    "fast": 0.72,
-    "expand_light": 0.18,
-    "think": 0.09,
-    "deep_think": 0.01
-  },
   "retrieval_mode": {
     "code": 0.12,
     "causal": 0.61,
@@ -209,174 +372,92 @@ Example:
 }
 ```
 
-The Cognitive Kernel owns thresholding and final legal transitions.
+### 8.2 Fast uncertainty
 
-
-### 5.3 Decision paths
-
-Fast decision is not a strict model hierarchy and is not defined as a downgrade chain.
-
-The Cognitive Kernel routes each cognitive request among multiple **cognitive routes**. Fast decision paths are one subset of those routes:
+For a probability distribution `p` over `K` actions:
 
 ```text
-                    Cognitive Request
-                           |
-                           v
-                   +----------------+
-                   | Cognitive Router|
-                   +-------+--------+
-                           |
-       +-------------------+-------------------+
-       |                   |                   |
-       v                   v                   v
- Algorithm Route    Decision-Model Route    Think Route
- deterministic       Jev/Laya/other          deliberate
-       |                   |                   |
-       +-------------------+-------------------+
-                           |
-                           v
-                    Cognitive Result
+normalized_entropy(p)
+  = - sum_i p_i * log(p_i) / log(K)
 ```
 
-A deployment may have:
+Also track:
 
-- Jev only,
-- Laya only,
-- both Jev and Laya,
-- another compatible decision model,
-- no decision model at all,
-- deterministic algorithm only.
+```text
+margin(p) = p_top1 - p_top2
+```
 
-Think remains a valid route regardless of which fast-decision providers are configured.
+High entropy, small margin, or conflicting Fast judgments are returned to the framework.
 
-All are valid configurations.
+The Fast model does **not** decide to enter Think.
 
-The Cognitive Router considers:
+The framework consumes these signals and may choose:
 
-- provider/model availability,
-- decision type,
-- expected latency,
-- expected cost,
-- privacy/locality requirements,
-- need for semantic judgment,
-- whether the state can be decided reliably from deterministic runtime signals,
-- recent provider health,
-- task complexity and expected value of additional reasoning,
-- risk and irreversibility of the next action.
+- remain in Fast,
+- gather more evidence,
+- switch to Algorithm,
+- enter Think,
+- enter DeepThink.
 
-An algorithm path is therefore not necessarily a last resort. For decisions that are already determined by runtime state, the algorithm path should be preferred even when a model is available.
+## 9. Think Mode
+
+Think is task-local deliberate reasoning selected by the framework.
+
+The concrete reasoning model is configuration.
 
 Examples:
 
 ```text
-HTTP 429 retry window known
-    -> algorithm
-
-token pressure above hard ceiling
-    -> algorithm
-
-choose causal vs historical retrieval from ambiguous semantic state
-    -> decision model
-
-provider unavailable but local decision model exists
-    -> another decision-model path
-
-no decision model configured
-    -> algorithm where sufficient
-    -> Think where semantic judgment is required
+Think Mode
+├── OpenAI GPT reasoning model
+├── Anthropic Claude
+├── DeepSeek reasoning model
+├── local reasoning model
+└── other compatible generative provider
 ```
 
-### 5.4 Availability and semantic uncertainty
-
-Availability and uncertainty are separate routing signals.
+Changing:
 
 ```text
-provider unavailable
-    -> choose another eligible cognitive route
-
-decision can be made deterministically
-    -> Algorithm Route
-
-fast semantic judgment is sufficient
-    -> Decision-Model Route
-
-complexity / uncertainty / risk justifies deliberation
-    -> Think Route
+Think = GPT
 ```
 
-Low confidence, high normalized entropy, a small top-two margin, or conflicting judgments are not provider failures.
-
-They are information about the task state and should remain visible to the Cognitive Kernel.
-
-### 5.5 Decision-path health
-
-The Cognitive Kernel maintains operational health independently for each model-backed decision path.
-
-A model-backed path may be temporarily excluded after repeated operational failures:
+to:
 
 ```text
-healthy
-  -> repeated operational failures
-temporarily unavailable
-  -> cooldown / bounded probe
-healthy again when probe succeeds
+Think = Claude
 ```
 
-Health affects path eligibility, not semantic capability estimates.
+is a configuration change, not an architecture change and not a runtime model-selection decision.
 
-### 5.6 Algorithm decision path
+### 9.1 Think responsibilities
 
-The deterministic Decision Path uses observable runtime state such as:
+Think is appropriate for:
 
-- repeated-failure count,
-- progress delta,
-- retrieval coverage,
-- contradiction count,
-- evidence sufficiency,
-- token pressure,
-- Workflow/action constraints,
-- hard safety and permission rules.
-
-Its purpose is to make decisions that are truly derivable from runtime state.
-
-It must not fabricate semantic judgment. If a decision requires meaning that the algorithm cannot derive, the Kernel selects a model-backed path or Think.
-
-## 6. Think
-
-Think is a first-class task-local cognitive route for deliberate reasoning. It may be selected directly from the initial request or entered later after progress/failure signals.
-
-Typical direct-routing or later-routing signals:
-
-- repeated equivalent failure,
-- low progress over multiple steps,
-- important unknowns,
+- root-cause diagnosis,
+- hypothesis generation/revision,
+- multi-step planning,
+- architecture trade-offs,
+- unresolved unknowns,
 - contradictory evidence,
-- retrieval exhaustion,
-- high-risk mutation,
-- high Light-Controller uncertainty,
-- strategy churn,
-- failed verification after plausible execution.
+- repeated verified failures,
+- strategy reformulation.
 
-Think should return a structured strategy rather than take over the runtime indefinitely.
-
-Conceptual output:
+Think should normally return structured strategy/state:
 
 ```yaml
 diagnosis:
   hypotheses:
     - transaction lifetime is wrong
-    - the current test double hides the real path
+    - a test double hides the production path
 
 missing_evidence:
   - production call path
   - transaction boundary
 
 work_units:
-  - goal: inspect the transaction caller chain
-    requirements:
-      reasoning: high
-      repository_navigation: high
-      tool_calling: required
+  - goal: inspect caller chain
+  - goal: reproduce the transaction boundary
 
 light_policy:
   mode: causal
@@ -391,43 +472,42 @@ stop_conditions:
   - hypothesis falsified
 ```
 
-Think can be entered in multiple ways:
+The framework may return to Fast after Think has produced a usable strategy.
 
-```text
-initial complex task -> Think
+## 10. DeepThink Mode
 
-Fast -> Think -> new strategy / policy -> Fast
+DeepThink is optional.
 
-Fast -> Think -> Think again
-    only when continued deliberation still has positive expected value
-```
+It is selected only when the expected value of additional deliberate computation justifies the extra cost.
 
-Think is therefore not merely an escalation state. It is one route in the same cognitive routing space. The runtime should still return to cheaper routes when the deliberate work has produced a usable strategy.
+Possible implementation styles:
 
-## 7. Progress Monitor and route transitions
+- same Think model with higher reasoning effort,
+- separate configured high-capability reasoning model,
+- larger context budget,
+- multiple hypothesis passes,
+- focused Subagents,
+- stronger Contrarian review.
 
-Failure count alone is not enough. The runtime should classify failure and progress.
+Again, the framework selects `DeepThink`; configuration determines its model.
 
-### 7.1 Failure classes
+## 11. Progress Monitor and route transitions
 
-```text
-execution_failure
-    -> retry or model-switch candidate
+Failure count alone is insufficient.
 
-retrieval_failure
-    -> expand/change Light
+The Progress Monitor records:
 
-reasoning_failure
-    -> Think
+- normalized failure signatures,
+- repeated failure count,
+- attempted strategies,
+- verification outcomes,
+- progress delta,
+- retrieval coverage,
+- unknowns,
+- contradictions,
+- repeated tool/action loops.
 
-environment_failure
-    -> diagnose runtime/environment
-
-unknown
-    -> Think or targeted evidence gathering
-```
-
-Equivalent failures should be grouped by a normalized signature.
+Example:
 
 ```json
 {
@@ -442,165 +522,81 @@ Equivalent failures should be grouped by a normalized signature.
 }
 ```
 
-### 7.2 Value of computation
-
-Cognitive-mode selection is a metareasoning problem.
-
-For mode `m` in state `s`:
+Possible framework interpretation:
 
 ```text
-V(m | s)
-  = E[task_utility | m, s]
-    - lambda * compute_cost(m)
-    - mu     * latency(m)
-    - rho    * switching_cost(m)
+execution_failure
+    -> Algorithm / retry
+
+retrieval_failure
+    -> Fast + expanded Light
+
+reasoning_failure
+    -> Think
+
+environment_failure
+    -> Algorithm or targeted Think
+
+unknown
+    -> evidence gathering or Think
 ```
 
-Choose a cognitive route when its expected value justifies its computation:
+## 12. Work Units
 
-```text
-route* = argmax_m V(m | s)
-
-where m may include:
-    Algorithm
-    DecisionModel
-    Think
-    DeepThink
-```
-
-This is the target principle even if the first implementation uses simpler thresholds.
-
-### 7.3 Decision uncertainty
-
-For a System-One distribution `p` over `K` actions:
-
-```text
-normalized_entropy(p)
-  = - sum_i p_i * log(p_i) / log(K)
-```
-
-Also track the top-two margin:
-
-```text
-margin(p) = p_top1 - p_top2
-```
-
-High entropy or a small margin means the fast controller itself is uncertain and is therefore a cognitive-route selection signal.
-
-## 8. Work Units and Capability Contracts
-
-Think, user intent, or a fast controller may produce Work Units.
-
-A Work Unit specifies what is needed without naming a concrete model.
+Think may decompose a task into Work Units, but Work Units do not select models.
 
 ```yaml
 work_unit:
-  goal: repair the transaction bug
-
-  requirements:
-    tool_calling: required
-    code_edit: true
-    reasoning: high
-    repository_navigation: high
-    context: medium
-
+  goal: repair transaction bug
   risk: medium
-
+  required_evidence:
+    - production call path
   verification:
     - focused_reproduction
     - unit_test
 ```
 
-The invariant is:
+The execution model remains whatever is configured for the execution role/profile unless the user explicitly overrides configuration.
+
+This avoids turning task planning into dynamic model scheduling.
+
+## 13. Provider health
+
+Provider health is operational state, not cognitive competence.
+
+For each configured model-backed role:
 
 ```text
-task -> Work Unit -> Capability Contract -> Model Broker -> model
+healthy
+  -> repeated transport/protocol failures
+temporarily unavailable
+  -> cooldown / bounded probe
+healthy again when probe succeeds
 ```
 
-not:
+Operational failures include:
 
-```text
-task -> hard-coded model
-```
+- timeout,
+- provider unavailable,
+- authentication failure,
+- malformed protocol response,
+- incompatible schema.
 
-## 9. Model Broker
+Semantic uncertainty is different.
 
-### 9.1 Hard filtering
+A healthy Fast provider that returns uncertain probabilities is still healthy.
 
-A model must first satisfy hard requirements:
+## 14. Graph Governor
 
-- tool calling,
-- structured output,
-- vision when required,
-- context capacity,
-- privacy/local-only constraints,
-- provider availability,
-- allowed data boundary.
+### 14.1 Role
 
-Models that fail a hard constraint are excluded.
-
-### 9.2 Learned capability profile
-
-Soft capability should be learned from verified outcomes.
-
-For model `m` and capability/task family `c`, a simple baseline is:
-
-```text
-p(m, c) ~ Beta(alpha_m,c, beta_m,c)
-
-verified success:
-    alpha <- alpha + 1
-
-verified failure:
-    beta  <- beta + 1
-
-expected_success
-    = alpha / (alpha + beta)
-```
-
-Profiles should be keyed by concrete model/version so new versions do not inherit unjustified confidence.
-
-### 9.3 Broker utility
-
-For model `m` and Work Unit `w`:
-
-```text
-U(m, w)
-  = P(success | m, w) * value(w)
-    - lambda * expected_cost(m, w)
-    - mu     * expected_latency(m, w)
-    - nu     * risk(m, w)
-```
-
-Select:
-
-```text
-m* = argmax_m U(m, w)
-```
-
-### 9.4 Model stickiness
-
-Switching models has cost.
-
-If `m0` is current and `m1` is a candidate:
-
-```text
-switch only if:
-
-U(m1, w) - U(m0, w) > switch_margin
-```
-
-This prevents model churn when another model is only marginally better.
-
-## 10. Graph Governor
-
-### 10.1 Role
-
-The Graph Governor is a separate long-horizon cognitive subsystem.
+Graph Governor is a separate long-horizon subsystem.
 
 Think optimizes the current task.
 
 Graph Governor optimizes the durable Cortex across tasks and sessions.
+
+Its configured model may be different from Think.
 
 A conceptual objective is:
 
@@ -619,14 +615,14 @@ minimize:
   + retrieval_noise
 ```
 
-### 10.2 Internal decomposition
+### 14.2 Internal decomposition
 
 ```text
 Graph Governor
 ├── Analyzer
 │   deterministic metrics and candidate generation
 ├── Curator
-│   semantic/model judgment
+│   configured semantic model
 ├── Planner
 │   GraphMutationPlan generation
 ├── Validator
@@ -637,23 +633,23 @@ Graph Governor
 
 The Governor model never writes durable graph state directly.
 
-### 10.3 Governance operations
+### 14.3 Governance operations
 
 The Governor may propose:
 
 - **prune/tier** — hot -> warm -> cold -> archive,
-- **branch** — preserve competing hypotheses or incompatible interpretations,
+- **branch** — preserve competing hypotheses,
 - **promote** — create higher-level abstractions,
-- **merge/canonicalize** — identify aliases or duplicate concepts without erasing provenance,
-- **reweight** — propose relation-weight changes subject to policy,
+- **merge/canonicalize** — identify aliases/duplicates without erasing provenance,
+- **reweight** — propose relation-weight changes,
 - **summarize** — create structured global Cortex summaries,
-- **epoch/version** — create a major cognitive version boundary after structural reorganization.
+- **epoch/version** — create a cognitive version boundary after major reorganization.
 
 Deletion should be rare. Archival, tiering, and provenance-preserving canonicalization are preferred.
 
-### 10.4 Global summary
+## 15. Global Cortex summary
 
-A Governor summary should be structured graph state, not only prose.
+Governor summaries should be structured graph state, not only prose.
 
 ```yaml
 cortex_state:
@@ -668,13 +664,13 @@ cortex_state:
   candidate_promotions: []
 ```
 
-These summaries may themselves become high-level graph nodes so Attention Light can retrieve global structure cheaply.
+These summaries may become high-level graph nodes so Attention Light can retrieve global structure cheaply.
 
-## 11. Graph metrics for Governor candidate generation
+## 16. Graph metrics for governance
 
-The Analyzer should narrow the search space before model judgment.
+The Analyzer should narrow the search space before semantic model judgment.
 
-Useful signals include:
+Useful signals:
 
 - activation frequency,
 - retrieval contribution,
@@ -689,7 +685,7 @@ Useful signals include:
 - abstraction coverage,
 - retrieval hit rate.
 
-A simple node-value model may be:
+A simple node-value model:
 
 ```text
 Value(node)
@@ -702,9 +698,9 @@ Value(node)
 
 Low-value nodes become prune/tier candidates, not automatic deletion targets.
 
-## 12. Branching and conflict
+## 17. Branching and conflict
 
-For two graph regions `C1` and `C2`, a conflict candidate can be estimated by:
+For two graph regions `C1` and `C2`:
 
 ```text
 Conflict(C1, C2)
@@ -714,21 +710,21 @@ Conflict(C1, C2)
 
 A high score means “consider a cognitive branch”, not “branch automatically”.
 
-The Curator should distinguish:
+The Governor should distinguish:
 
 - genuinely competing hypotheses,
-- historical phase change,
+- historical phase changes,
 - alias/duplicate confusion,
 - bad ingestion,
 - temporary stale evidence.
 
-## 13. Promotion and compression
+## 18. Promotion and compression
 
-Local Active Promotion remains useful during a task.
+Local Active Promotion remains task-local.
 
-The Governor adds global promotion across sessions.
+Governor adds global promotion across sessions.
 
-A useful target criterion is an MDL-style gain:
+An MDL-style target:
 
 ```text
 PromotionGain
@@ -740,15 +736,13 @@ PromotionGain
       )
 ```
 
-Promotion is attractive when it reduces cognitive description cost without destroying the ability to drill back to evidence.
+Promotion is attractive when it reduces cognitive description cost without destroying drill-down to evidence.
 
-The first implementation does not need exact information-theoretic optimality; this formula defines the design direction.
-
-## 14. Cognitive epochs
+## 19. Cortex Epochs
 
 Cognitive Git versions ordinary graph mutations.
 
-A **Cortex Epoch** represents a larger semantic reorganization.
+A **Cortex Epoch** represents larger semantic reorganization.
 
 Possible triggers:
 
@@ -759,7 +753,7 @@ Possible triggers:
 - graph density beyond configured limits,
 - hot/warm/cold restructuring.
 
-An epoch should record:
+An epoch records:
 
 - source Cognitive Git commit,
 - Governor plan,
@@ -770,17 +764,17 @@ An epoch should record:
 
 Epoch creation must be reversible.
 
-## 15. Relationship to Attention Light
+## 20. Relationship to Attention Light
 
 Attention Light remains a deterministic graph-selection engine.
 
-The Light Controller may produce a policy:
+In Fast mode, a configured DecisionProvider may produce a policy:
 
 ```text
 pi_t = DecisionProvider(compressed_state_t)
 ```
 
-Attention propagation can then become policy-conditioned:
+Attention propagation may then become policy-conditioned:
 
 ```text
 activation_next
@@ -792,32 +786,31 @@ activation_next
     * relevance
 ```
 
-The controller chooses how to search.
+The framework chooses the mode.
 
-Attention Light performs the actual search.
+The configured Fast provider supplies bounded policy judgment.
 
-The current fixed Attention algorithm remains an independently valid deterministic path when no adaptive controller is configured.
+Attention Light performs the actual graph search.
 
-## 16. Status and implementation sequence
+Deployments without Fast mode remain valid because the deterministic Attention engine remains independently usable.
+
+## 21. Status
 
 | Capability | Status |
 |---|---|
 | Current deterministic Attention Light | Implemented |
 | Current Active Promotion | Implemented |
 | Cognitive Git | Implemented |
+| Cognitive Profile / mode bindings | Planned |
+| Framework Cognitive Router | Planned |
 | DecisionProvider interface | Planned |
-| Multiple model-backed Decision Paths | Planned |
-| Deterministic Algorithm Decision Path | Planned |
-| Decision-path availability / health routing | Planned |
 | Jev decision provider | Planned |
 | Laya decision provider | Planned |
-| Cognitive Router | Planned |
+| Think provider contract | Planned |
+| DeepThink mode | Planned |
 | Progress Monitor / failure signatures | Planned |
-| Think route contract | Planned |
-| Work Unit / Capability Contract | Planned |
-| Model Broker | Planned |
-| Verified capability learner | Planned |
-| Model stickiness | Planned |
+| Work Unit structure | Planned |
+| Provider health per configured role | Planned |
 | Graph Governor Analyzer | Planned |
 | Graph Governor Curator/Planner | Planned |
 | Graph mutation validator | Planned |
@@ -828,18 +821,17 @@ The current fixed Attention algorithm remains an independently valid determinist
 Recommended implementation order:
 
 ```text
-1. Progress Monitor + failure signatures
-2. Work Unit + Capability Contract
-3. Model Broker with static hard capabilities
-4. DecisionProvider + Algorithm Decision Path
-5. Cognitive Router + path availability/health
-6. Laya/Jev DecisionProvider adapters
-7. Think route contract
-8. Outcome-based capability learning
-9. Graph Governor Analyzer
-10. GraphMutationPlan + Validator
-11. Governor model integration
-12. hot/warm/cold tiers + Cortex Epochs
+1. Cognitive Profile + deterministic config resolution
+2. Progress Monitor + failure signatures
+3. Framework Cognitive Router with Algorithm/Fast/Think modes
+4. DecisionProvider interface
+5. Laya/Jev DecisionProvider adapters
+6. Think provider contract + configurable binding
+7. DeepThink configuration
+8. Graph Governor Analyzer
+9. GraphMutationPlan + Validator
+10. Governor configured model integration
+11. hot/warm/cold tiers + Cortex Epochs
 ```
 
-The deterministic Algorithm Decision Path must remain independently usable throughout the migration.
+The deterministic Algorithm and Attention paths must remain independently usable throughout the migration.
