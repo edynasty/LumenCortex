@@ -41,7 +41,8 @@ Examples:
 - `workflow-contract.md`,
 - `data-model.md`,
 - `security-and-trust.md`,
-- `attention-light-algorithm.md`.
+- `attention-light-algorithm.md`,
+- `cognitive-control-plane.md`.
 
 These explain exact behavior and contracts.
 
@@ -69,6 +70,7 @@ Prefer one source of truth.
 | What is the system? | `system-overview.md` |
 | Why graph + attention? | `architecture.md` |
 | How does Attention Light retrieve, propagate, rank, and budget context? | `attention-light-algorithm.md` |
+| How are fast decisions, Think, model routing, and Graph governance separated? | `cognitive-control-plane.md` |
 | What happens during a run? | `execution-flow.md` |
 | How does Workflow work? | `workflow-contract.md` |
 | How are things persisted? | `data-model.md` |
@@ -151,6 +153,7 @@ Recommended semantic palette:
 | Workflow schema/semantics | `workflow-contract.md`, `execution-flow.md`, `data-model.md`, tests |
 | Tool permission/scope | `security-and-trust.md`, `agent-runtime.md`, tests |
 | Cognitive Graph/Light/Promotion | `architecture.md`, `attention-light-algorithm.md`, diagrams, `validation.md` |
+| Cognitive routing / model broker / Graph Governor | `cognitive-control-plane.md`, `architecture.md`, ADR, readiness, validation |
 | SQLite schema/persistence | `data-model.md`, `architecture.md`, migration tests |
 | LSP/MCP/Subagent | `agent-runtime.md`, readiness, validation |
 | Provider behavior | README quick start, `agent-runtime.md`, validation |
