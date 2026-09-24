@@ -27,7 +27,9 @@ export class GraphGovernorAnalyzer {
     for (const node of nodes) {
       values[node.id] = nodeValue(node, {
         degree: degree.get(node.id) ?? 0,
-        maxDegree
+        maxDegree,
+        storage: options.storageByNode?.[node.id],
+        now: options.now ?? Date.now()
       });
     }
 
@@ -249,12 +251,16 @@ export class GraphGovernor {
   }
 
   analyze(options = {}) {
-    return this.analyzer.analyze(this.repository.graph().snapshot(), options);
+    return this.analyzer.analyze(this.repository.graph().snapshot(), {
+      ...options,
+      storageByNode: options.storageByNode ?? this.repository.database?.nodeStorageMap?.()
+    });
   }
 
   async propose(options = {}) {
     const graph = this.repository.graph().snapshot();
-    const analysis = this.analyzer.analyze(graph, options);
+    const storageByNode = options.storageByNode ?? this.repository.database?.nodeStorageMap?.();
+    const analysis = this.analyzer.analyze(graph, { ...options, storageByNode });
     if (!this.curator?.propose) {
       return {
         analysis,
@@ -292,7 +298,8 @@ export class GraphGovernor {
       throw error;
     }
 
-    const beforeAnalysis = this.analyzer.analyze(snapshot);
+    const storageByNode = options.storageByNode ?? this.repository.database?.nodeStorageMap?.();
+    const beforeAnalysis = this.analyzer.analyze(snapshot, { ...options, storageByNode });
     const changed = [];
     const deferred = {
       canonicalize: [],
@@ -491,7 +498,10 @@ export class GraphGovernor {
     }
 
     const afterGovernanceSnapshot = graph.snapshot();
-    const afterAnalysis = this.analyzer.analyze(afterGovernanceSnapshot);
+    const afterAnalysis = this.analyzer.analyze(afterGovernanceSnapshot, {
+      ...options,
+      storageByNode: this.repository.database?.nodeStorageMap?.() ?? storageByNode
+    });
     let epoch = null;
 
     if (options.createEpoch) {
@@ -597,18 +607,27 @@ function deterministicSafePlan(analysis) {
   };
 }
 
-function nodeValue(node, { degree, maxDegree }) {
+function nodeValue(node, { degree, maxDegree, storage, now = Date.now() }) {
   const grade = GRADE_WEIGHTS[node.grade] ?? 0.45;
   const trust = TRUST_WEIGHTS[node.trustZone] ?? 0.5;
   const lifecycle = STATUS_WEIGHT[node.status] ?? 0.5;
   const centrality = Math.log2(degree + 1) / Math.log2(maxDegree + 1);
   const activation = clamp01(Number(node.metadata?.activationFrequency ?? node.metadata?.retrievalContribution ?? 0));
+  const accessFrequency = storage
+    ? clamp01(Math.log2(Number(storage.accessCount ?? 0) + 1) / 8)
+    : 0;
+  const accessRecency = storage?.lastAccessAt
+    ? Math.exp(-Math.max(0, Number(now) - new Date(storage.lastAccessAt).getTime()) / (30 * 24 * 60 * 60 * 1000))
+    : 0;
+
   return clamp01(
-    0.28 * grade +
-    0.2 * trust +
-    0.24 * lifecycle +
-    0.18 * centrality +
-    0.1 * activation
+    0.25 * grade +
+    0.18 * trust +
+    0.22 * lifecycle +
+    0.16 * centrality +
+    0.09 * activation +
+    0.06 * accessFrequency +
+    0.04 * accessRecency
   );
 }
 
