@@ -2,7 +2,7 @@
 
 This document defines the target architecture for adaptive cognitive-mode routing, configurable model bindings, failure-aware reasoning, and long-horizon Context Graph governance in LumenCortex.
 
-> **Status:** Planned architecture. The current runtime already implements the Context Graph, Attention Light, Active Promotion, Agent Loop, Workflow Contracts, provider abstraction, verification, and Cognitive Git. The control-plane components below are not yet claimed as implemented.
+> **Status:** Partially implemented architecture. The Node.js reference runtime now implements the Decision Layer baseline, ordered Category model chains, framework-owned Think routing, dynamic Think effort, Progress Monitor, model latency telemetry, and a safe Graph Governor analyzer/validator/executor baseline. Model-curated graph restructuring, full storage-tier migration, canonicalization execution, and Cortex Epoch execution remain planned.
 
 Related documents:
 
@@ -798,40 +798,50 @@ Deployments without Jev/Laya or any model-backed DecisionProvider remain valid b
 | Current deterministic Attention Light | Implemented |
 | Current Active Promotion | Implemented |
 | Cognitive Git | Implemented |
-| Cognitive Profile / Category model chains | Planned |
-| Framework Cognitive Router | Planned |
-| DecisionProvider interface | Planned |
-| Jev decision provider | Planned |
-| Laya decision provider | Planned |
-| Think provider contract | Planned |
-| Dynamic Think effort policy | Planned |
-| Progress Monitor / failure signatures | Planned |
+| Cognitive Profile / Category model chains | Implemented baseline |
+| Framework Cognitive Router | Implemented baseline |
+| DecisionProvider interface | Implemented |
+| Jev decision provider | Implemented HTTP adapter; live credentialed Jev validation still needed |
+| Laya decision provider | Implemented Jev-compatible HTTP adapter; local live validation still needed |
+| Think provider contract | Partial; uses the existing generative provider contract plus cognitive policy prompt |
+| Dynamic Think effort policy | Implemented baseline |
+| Progress Monitor / failure signatures | Implemented |
 | Work Unit structure | Planned |
-| Category classifier + deterministic chain resolver | Planned |
-| Automatic model-speed telemetry | Planned |
-| Provider health per Decision provider / Category model | Planned |
-| Graph Governor Analyzer | Planned |
-| Graph Governor Curator/Planner | Planned |
-| Graph mutation validator | Planned |
-| Hot/warm/cold graph tiers | Planned |
-| Global canonicalization | Planned |
-| Cortex Epochs | Planned |
+| Category classifier + deterministic chain resolver | Implemented baseline |
+| Automatic model-speed telemetry | Implemented baseline (EWMA total latency/failure counts) |
+| Provider health per Decision provider / Category model | Partial; operational failures advance chains, no circuit breaker yet |
+| Graph Governor Analyzer | Implemented baseline |
+| Graph Governor Curator/Planner | Partial; deterministic safe-plan proposal exists, model curator not integrated |
+| Graph mutation validator | Implemented baseline |
+| Hot/warm/cold graph tiers | Partial; node tier metadata can be applied, physical storage tiering is not implemented |
+| Global canonicalization | Planned; duplicate candidates are detected only |
+| Cortex Epochs | Partial; epoch recommendation exists, epoch execution/version boundary is not implemented |
 
-Recommended implementation order:
+Implemented baseline sequence:
 
 ```text
-1. DecisionProvider interface + algorithmic decision path
-2. Laya/Jev DecisionProvider adapters
-3. Cognitive Profile / Category model-chain schema
-4. Category classifier + deterministic ordered-chain resolver
+1. DecisionProvider + algorithmic decision path
+2. Laya/Jev-compatible System One HTTP adapters
+3. Cognitive Profile / ordered Category model chains
+4. Category classifier + deterministic chain resolver
 5. Progress Monitor + failure signatures
-6. Framework Think decision + dynamic Think-effort policy
-7. Provider adapter effort mapping
-8. automatic model-speed telemetry
-9. Graph Governor Analyzer
-10. GraphMutationPlan + Validator
-11. Governor configured model integration
-12. hot/warm/cold tiers + Cortex Epochs
+6. Framework Think decision + dynamic Think effort
+7. Session-level model latency telemetry
+8. Graph Governor Analyzer
+9. Graph Governor plan validation + safe tier/archive executor
+```
+
+Next control-plane work:
+
+```text
+1. native provider-specific reasoning-effort adapters
+2. live Jev/Laya validation and provider health/circuit-breaker policy
+3. explicit Work Unit schema
+4. Graph Governor model Curator/Planner integration
+5. provenance-preserving canonicalization execution
+6. physical hot/warm/cold storage movement and GC
+7. reversible Cortex Epoch execution
+8. Go-runtime parity
 ```
 
 The deterministic Algorithm and Attention paths must remain independently usable throughout the migration.
