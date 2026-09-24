@@ -144,7 +144,7 @@ test('profile accepts user-defined categories without numeric suitability config
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'cognition.json'), JSON.stringify({
     categories: {
-      rust-hard: {
+      'rust-hard': {
         description: 'Hard Rust implementation and debugging',
         models: [
           { provider: 'generic', model: 'local-rust-model' },
