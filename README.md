@@ -45,7 +45,9 @@ The Node.js reference runtime now includes the first executable cognitive-contro
 - **Progress Monitor** — normalized failure signatures make repeated equivalent failures visible to the router.
 - **Session traces** — Category, Think state, effort, retrieval direction, decision errors, and selected model candidates are persisted per step.
 - **Model telemetry** — successful/failed model calls and EWMA total latency are recorded per concrete model in Session cognition metadata; explicit Category order remains authoritative.
-- **Graph Governor baseline** — global Analyzer, candidate generation, deterministic plan validation, safe tier metadata updates, and safe archival execution are available through the CLI.
+- **Persistent Work Units** — dependency-aware execution units with required evidence/verification gates; Work Units cannot choose models/providers/Categories.
+- **Graph Governor baseline** — global Analyzer, separately configured semantic Curator, deterministic validation, safe tier/archive plus opt-in branch/promotion/canonicalization execution, and reversible Cortex Epoch commits.
+- **Storage tiers** — SQLite schema v2 indexes hot/warm/cold tier, access recency/count, archive time, and compaction state; safe compaction removes derived search caches without deleting graph cognition.
 - **Deterministic baseline** — if no Jev/Laya endpoint or cognitive configuration is present, LumenCortex still runs with algorithmic judgment and the CLI-selected provider.
 
 Jev/Laya are decision providers only. They do not execute coding Work Units and never appear inside Category generative-model chains.
@@ -189,9 +191,13 @@ Useful controls:
 --no-cognition
 lcx cognition defaults
 lcx governor analyze
+lcx governor storage
+lcx governor compact --retention-days 30
+lcx governor compact --retention-days 30 --yes
 lcx governor plan
 lcx governor apply plan.json --dry-run
 lcx governor apply plan.json --yes
+lcx governor apply plan.json --semantic --epoch --yes
 ```
 ## Agent CLI
 
@@ -284,6 +290,7 @@ Useful controls:
 --timeout-ms 120000
 --tools read_file,code_search,apply_patch,shell
 --workflow examples/workflows/verified-code-fix.json
+--work-units examples/work-units.json
 --max-tool-calls-per-step 1
 --no-auto-promote
 --cognition path/to/cognition.json
@@ -364,8 +371,10 @@ lcx edge cut <edgeId> [reason]
 lcx edge restore <edgeId>
 lcx edge graft <from> <type> <to> [weight] [reason]
 lcx governor analyze
+lcx governor storage
+lcx governor compact [--retention-days 30] [--yes]
 lcx governor plan
-lcx governor apply <plan.json> --dry-run|--yes
+lcx governor apply <plan.json> --dry-run|--yes [--semantic] [--epoch]
 ```
 
 ## Go runtime migration preview
@@ -406,9 +415,9 @@ Core documents:
 
 ## Implementation honesty
 
-Implemented in the reference runtime and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions, plus the cognitive-control baseline (Decision Layer, ordered Category chains, dynamic Think effort, Progress Monitor, model latency telemetry, per-step cognitive traces) and a partial Graph Governor baseline (Analyzer, plan validator, safe tier/archive executor).
+Implemented in the reference runtime and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions, plus the cognitive-control baseline (Decision Layer, ordered Category chains, provider-specific dynamic Think effort, circuit breakers, Progress Monitor, persistent Work Units, model telemetry, per-step cognitive traces) and the Graph Governor baseline (Analyzer, optional semantic Curator, validator, branch/promotion/canonicalization executor, reversible Cortex Epochs, indexed storage tiers, and safe derived-cache compaction).
 
-Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, live Jev/Laya validation and routing benchmarks, Graph Governor model curation, semantic canonicalization execution, physical graph GC/hot-warm-cold storage, executable Cortex Epoch transitions, reusable Skills, vision/browser tooling, and Go-runtime parity for the new control plane.
+Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, live Jev/Laya validation/calibration and routing benchmarks, autonomous Governor scheduling, separate physical hot/warm/cold node stores or destructive cognitive GC, reusable Skills, vision/browser tooling, and Go-runtime parity for the new control plane.
 
 ## Current engineering direction
 
