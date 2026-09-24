@@ -119,3 +119,26 @@ func TestResponseBudget(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+
+func TestReasoningWireFormats(t *testing.T) {
+	object := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "high"}, false, "reasoning-object")
+	if object.Reasoning == nil || object.Reasoning.Effort != "high" || object.ReasoningEffort != "" {
+		t.Fatalf("reasoning-object=%#v", object)
+	}
+
+	groq := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "max"}, false, "reasoning-effort")
+	if groq.ReasoningEffort != "high" || groq.Reasoning != nil {
+		t.Fatalf("reasoning-effort=%#v", groq)
+	}
+
+	deepseek := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "none"}, false, "deepseek")
+	if deepseek.ReasoningEffort != "none" || deepseek.Thinking == nil || deepseek.Thinking.Type != "disabled" {
+		t.Fatalf("deepseek none=%#v", deepseek)
+	}
+
+	generic := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "high"}, false, "")
+	if generic.Reasoning != nil || generic.ReasoningEffort != "" || generic.Thinking != nil {
+		t.Fatalf("generic should not inject reasoning fields: %#v", generic)
+	}
+}
