@@ -6,7 +6,7 @@ This document separates architecture claims from evidence.
 
 Latest validated core suite:
 
-- 108 core tests / 108 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
+- 118 core tests / 118 passed / 0 failed on Node.js 22; the Node.js 24 matrix job also passes
 - Node.js 22 and 24 core matrix
 - dedicated isolated Search / LSP / MCP / Subagent / TUI harness jobs
 - MCP HTTP modern + legacy fallback + stdio transport coverage
@@ -26,6 +26,8 @@ Latest validated core suite:
 - Workflow Contract validation for deterministic Facts/Action/Route/Outcome/Gate transitions
 - Workflow Agent enforcement: per-Action tool visibility, execution-time recheck after mid-turn transitions, final-answer evidence gate, durable human-gate pause/approval/resume
 - Workflow CLI validate/status/approve integration
+- Cognitive control validation: algorithmic DecisionProvider, Jev/Laya-compatible `/v1/systemone` adapter shape, framework Think/effort routing, ordered Category model chains, provider-chain failover, failure signatures, and session model-latency telemetry
+- Graph Governor validation: global analyzer candidates, reproduced-evidence archive protection, plan validation, safe tier metadata updates, and safe archival execution
 
 Covered behaviors include:
 
@@ -191,9 +193,11 @@ The following are not represented as complete features:
 - embedding/vector semantic retrieval,
 - cognitive branch <-> actual Git worktree transaction binding,
 - transactional rollback of workspace edits,
-- graph GC / hot-warm-cold memory tiers,
+- physical graph GC / hot-warm-cold storage tiers beyond current tier metadata,
 - full temporal validity querying,
-- automatic split/merge/canonicalization,
+- model-curated Graph Governor planning and automatic split/merge/canonicalization,
+- live Jev/Laya provider validation and calibrated cognitive-routing benchmarks,
+- executable Cortex Epoch transitions,
 - reusable Skills layer,
 - vision/browser tools,
 - richer verifier plugins beyond the deterministic Workflow Contract condition/gate DSL.
