@@ -9,6 +9,9 @@ export class LumenCortexRuntime {
   constructor(repository) {
     this.repository = repository;
     this.searchIndex = new PersistentSearchIndex(repository.dir);
+    this.attentionEngine = null;
+    this.attentionEngineRevision = null;
+    this.attentionEngineBuilds = 0;
   }
 
   refreshSearchIndex(graphState, graphRevision) {
@@ -28,9 +31,9 @@ export class LumenCortexRuntime {
   }
 
   context(goal, options = {}) {
-    const graph = this.repository.graph().snapshot();
+    const snapshot = this.repository.graphSnapshot();
     const indexed = this.#candidateIds(goal, options);
-    const result = new AttentionEngine(graph).illuminate(goal, {
+    const result = this.#attentionFor(snapshot).illuminate(goal, {
       ...options,
       candidateNodeIds: indexed.length ? indexed : options.candidateNodeIds
     });
@@ -39,9 +42,9 @@ export class LumenCortexRuntime {
   }
 
   contextMulti(goal, options = {}) {
-    const graph = this.repository.graph().snapshot();
+    const snapshot = this.repository.graphSnapshot();
     const indexed = this.#candidateIds(goal, options);
-    const result = new AttentionEngine(graph).illuminateMulti(goal, {
+    const result = this.#attentionFor(snapshot).illuminateMulti(goal, {
       ...options,
       candidateNodeIds: indexed.length ? indexed : options.candidateNodeIds
     });
@@ -142,6 +145,26 @@ export class LumenCortexRuntime {
     }
   }
 
+  attentionCacheStats() {
+    return {
+      cached: Boolean(this.attentionEngine),
+      revision: this.attentionEngineRevision,
+      builds: this.attentionEngineBuilds
+    };
+  }
+
+  #attentionFor(snapshot) {
+    if (
+      !this.attentionEngine ||
+      this.attentionEngineRevision !== snapshot.revision
+    ) {
+      this.attentionEngine = new AttentionEngine(snapshot.state);
+      this.attentionEngineRevision = snapshot.revision;
+      this.attentionEngineBuilds += 1;
+    }
+    return this.attentionEngine;
+  }
+
   #candidateIds(goal, options) {
     const explicit = options.candidateNodeIds ?? [];
     let indexed = [];
@@ -178,6 +201,8 @@ export class LumenCortexRuntime {
   }
 
   close() {
+    this.attentionEngine = null;
+    this.attentionEngineRevision = null;
     this.searchIndex.close?.();
   }
 
