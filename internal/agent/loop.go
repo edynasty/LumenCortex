@@ -18,10 +18,13 @@ const defaultSystemPrompt = `You are LumenCortex Agent, an autonomous coding age
 Inspect before editing. Use tools until the requested outcome is implemented and verified. Keep changes scoped. Do not claim completion without evidence. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates.`
 
 type Loop struct {
-	Provider protocol.Provider
-	Store    Store
-	Tools    Tools
-	Emit     func(Event)
+	Provider       protocol.Provider
+	ProviderName   string
+	ProviderChains map[string][]ProviderBinding
+	ProviderHealth *cognition.HealthRegistry
+	Store          Store
+	Tools          Tools
+	Emit           func(Event)
 }
 
 func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result, error) {
@@ -138,18 +141,27 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 				reasoningEffort = string(cognitivePlan.Effort)
 			}
 		}
+		category := "general"
+		if cognitivePlan != nil && strings.TrimSpace(cognitivePlan.Category) != "" {
+			category = cognitivePlan.Category
+		}
 		usage.Requests++
-		l.emit("llm.request", sessionID, map[string]any{
-			"step": step, "model": l.Provider.Model(), "messages": len(messages),
-			"tools": toolNames(specs), "reasoningEffort": reasoningEffort,
-		})
-		response, err := l.Provider.Complete(ctx, protocol.ProviderRequest{
-			Messages: messages, Tools: specs, ToolChoice: "auto", Temperature: opts.Temperature,
-			MaxTokens: opts.MaxTokens, ReasoningEffort: reasoningEffort,
-		})
+		attempt, err := l.completeWithProviderChain(
+			ctx,
+			sessionID,
+			step,
+			category,
+			protocol.ProviderRequest{
+				Messages: messages, Tools: specs, ToolChoice: "auto", Temperature: opts.Temperature,
+				MaxTokens: opts.MaxTokens, ReasoningEffort: reasoningEffort,
+			},
+			len(messages),
+			specs,
+		)
 		if err != nil {
 			return l.interrupt(ctx, state, usage, err)
 		}
+		response := attempt.Response
 		addUsage(&usage, response.Usage)
 		assistant := response.Message
 		assistant.Role = "assistant"
@@ -162,7 +174,13 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 		if _, err := l.Store.AppendMessage(ctx, sessionID, assistant); err != nil {
 			return Result{}, err
 		}
-		record := stepRecord{Step: step, FinishReason: response.FinishReason, Content: assistant.Content}
+		record := stepRecord{
+			Step: step,
+			FinishReason: response.FinishReason,
+			Content: assistant.Content,
+			Provider: attempt.Binding.Name,
+			Model: attempt.Binding.Provider.Model(),
+		}
 		if activeWorkUnit != nil {
 			record.WorkUnit = map[string]any{
 				"id": activeWorkUnit.ID,
