@@ -1,6 +1,7 @@
 import { LumenCortexDatabase } from './database.js';
 import { searchableText } from './search-index.js';
 import { hash } from './util.js';
+import { PROVIDER_PRESETS } from './provider.js';
 
 export class OpenAICompatibleEmbeddingProvider {
   constructor({
@@ -298,4 +299,64 @@ function embeddingDimensionError(dimensions, model) {
   );
   error.code = 'EMBEDDING_DIMENSION_MISMATCH';
   return error;
+}
+
+
+export function createEmbeddingProviderFromConfig(config = {}, {
+  env = process.env,
+  fetchImpl
+} = {}) {
+  if (!config?.enabled) return null;
+  const providerName = String(config.provider ?? 'generic');
+  const preset = PROVIDER_PRESETS[providerName] ?? {};
+  const model = String(config.model ?? '').trim();
+  if (!model) throw new Error('Enabled embedding retrieval requires an explicit model');
+
+  const baseURL = String(
+    config.baseURL ??
+    preset.baseURL ??
+    env.LUMENCORTEX_EMBEDDING_BASE_URL ??
+    env.LUMENCORTEX_BASE_URL ??
+    ''
+  ).trim();
+  if (!baseURL) throw new Error('Enabled embedding retrieval requires a baseURL');
+
+  const apiKeyEnv = String(config.apiKeyEnv ?? '').trim();
+  const apiKey = config.apiKey ??
+    (apiKeyEnv ? env[apiKeyEnv] : undefined) ??
+    (providerName === 'generic' ? env.LUMENCORTEX_EMBEDDING_API_KEY : undefined) ??
+    (preset.apiKeyEnv ? env[preset.apiKeyEnv] : undefined) ??
+    (providerName === 'generic' ? env.LUMENCORTEX_API_KEY : undefined);
+
+  return new OpenAICompatibleEmbeddingProvider({
+    baseURL,
+    apiKey,
+    model,
+    headers: {
+      ...(preset.headers ?? {}),
+      ...(config.headers ?? {})
+    },
+    fetchImpl,
+    timeoutMs: config.timeoutMs ?? 60000
+  });
+}
+
+export function embeddingRuntimeConfig(profile = {}, options = {}) {
+  const config = profile?.retrieval?.embeddings;
+  const provider = createEmbeddingProviderFromConfig(config, options);
+  if (!provider) return null;
+  return {
+    provider,
+    model: provider.model,
+    batchSize: config.batchSize,
+    hybrid: {
+      candidateLimit: config.candidateLimit,
+      lexicalLimit: config.lexicalLimit,
+      semanticLimit: config.semanticLimit,
+      semanticMinScore: config.semanticMinScore,
+      rrfK: config.rrfK,
+      lexicalWeight: config.lexicalWeight,
+      semanticWeight: config.semanticWeight
+    }
+  };
 }
