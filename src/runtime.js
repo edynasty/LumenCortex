@@ -77,14 +77,20 @@ export class LumenCortexRuntime {
 
   async semanticSearch(query, options = {}) {
     await this.#ensureFreshEmbeddingIndex(options.signal);
-    return this.embeddingIndex.search(query, options);
+    try {
+      return await this.embeddingIndex.search(query, options);
+    } catch (error) {
+      if (error.code !== 'EMBEDDING_DIMENSION_MISMATCH') throw error;
+      await this.#rebuildEmbeddingIndex(options.signal);
+      return this.embeddingIndex.search(query, options);
+    }
   }
 
   async hybridSearch(query, options = {}) {
     this.#ensureFreshSearchIndex();
     await this.#ensureFreshEmbeddingIndex(options.signal);
     const hybrid = { ...this.hybridRetrievalOptions, ...definedEntries(options) };
-    return this.embeddingIndex.hybridSearch(query, {
+    const request = {
       lexicalIndex: this.searchIndex,
       limit: hybrid.limit ?? 50,
       lexicalLimit: hybrid.lexicalLimit,
@@ -94,7 +100,14 @@ export class LumenCortexRuntime {
       lexicalWeight: hybrid.lexicalWeight,
       semanticWeight: hybrid.semanticWeight,
       signal: options.signal
-    });
+    };
+    try {
+      return await this.embeddingIndex.hybridSearch(query, request);
+    } catch (error) {
+      if (error.code !== 'EMBEDDING_DIMENSION_MISMATCH') throw error;
+      await this.#rebuildEmbeddingIndex(options.signal);
+      return this.embeddingIndex.hybridSearch(query, request);
+    }
   }
 
   async contextAsync(goal, options = {}) {
@@ -128,17 +141,34 @@ export class LumenCortexRuntime {
         ...this.hybridRetrievalOptions,
         ...definedEntries(options)
       };
-      const hits = await this.embeddingIndex.hybridSearch(goal, {
-        lexicalIndex: this.searchIndex,
-        limit: Number(hybrid.candidateLimit ?? 64),
-        lexicalLimit: hybrid.lexicalLimit,
-        semanticLimit: hybrid.semanticLimit,
-        semanticMinScore: hybrid.semanticMinScore,
-        rrfK: hybrid.rrfK,
-        lexicalWeight: hybrid.lexicalWeight,
-        semanticWeight: hybrid.semanticWeight,
-        signal: options.signal
-      });
+      let hits;
+      try {
+        hits = await this.embeddingIndex.hybridSearch(goal, {
+          lexicalIndex: this.searchIndex,
+          limit: Number(hybrid.candidateLimit ?? 64),
+          lexicalLimit: hybrid.lexicalLimit,
+          semanticLimit: hybrid.semanticLimit,
+          semanticMinScore: hybrid.semanticMinScore,
+          rrfK: hybrid.rrfK,
+          lexicalWeight: hybrid.lexicalWeight,
+          semanticWeight: hybrid.semanticWeight,
+          signal: options.signal
+        });
+      } catch (error) {
+        if (error.code !== 'EMBEDDING_DIMENSION_MISMATCH') throw error;
+        await this.#rebuildEmbeddingIndex(options.signal, snapshot);
+        hits = await this.embeddingIndex.hybridSearch(goal, {
+          lexicalIndex: this.searchIndex,
+          limit: Number(hybrid.candidateLimit ?? 64),
+          lexicalLimit: hybrid.lexicalLimit,
+          semanticLimit: hybrid.semanticLimit,
+          semanticMinScore: hybrid.semanticMinScore,
+          rrfK: hybrid.rrfK,
+          lexicalWeight: hybrid.lexicalWeight,
+          semanticWeight: hybrid.semanticWeight,
+          signal: options.signal
+        });
+      }
       const candidateNodeIds = [...new Set([
         ...(options.candidateNodeIds ?? []),
         ...hits.map((hit) => hit.nodeId)
@@ -322,6 +352,15 @@ export class LumenCortexRuntime {
       indexed = [];
     }
     return [...new Set([...explicit, ...indexed])];
+  }
+
+  async #rebuildEmbeddingIndex(signal, snapshot = null) {
+    const current = snapshot ?? this.repository.graphSnapshot();
+    return this.embeddingIndex.sync(current.state, {
+      graphRevision: current.revision,
+      force: true,
+      signal
+    });
   }
 
   async #ensureFreshEmbeddingIndex(signal) {
