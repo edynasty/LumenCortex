@@ -30,6 +30,8 @@ Latest validated core suite:
 - Work Unit validation: dependency-cycle rejection, model/provider/category field rejection, required-evidence/verification completion gates, ordered activation, and Agent premature-final blocking
 - Graph Governor validation: global analyzer candidates, model Curator JSON plans, reproduced-evidence archive protection, semantic plan validation, provenance-preserving canonicalization, branch preservation, global promotion, and reversible Cortex Epoch commits
 - Storage-tier validation: SQLite schema-v2 additive backfill, indexed hot/warm/cold metadata, Attention access telemetry without graph-revision changes, protected evidence GC filtering, and derived-cache-only cold archive compaction
+- Go cognitive-control parity validation: shared cognition-profile parsing, Algorithm Router, Jev/Laya-compatible System One HTTP signals, explicit-zero probability handling, ordered Category provider failover, shared circuit breakers, provider-specific reasoning effort, Think token-budget scaling, persistent Work Unit tools/evidence gates, and per-step provider/model traces
+- Go Graph Governor validation: Node-parity Analyzer thresholds/formulas, deterministic safe plan, semantic Curator plan generation, deterministic validator, read-only shared SQLite graph snapshot, and no-mutation assertions
 
 Covered behaviors include:
 
