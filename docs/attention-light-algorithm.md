@@ -327,11 +327,11 @@ A propagated state is discarded when:
 The current traversal is priority / best-first in style:
 
 ```text
-queue = seed states
+queue = stable max-heap(seed states)
 
 while queue is not empty:
-    sort queue by score descending
-    current = remove highest score
+    current = pop highest score
+    # equal scores preserve insertion order
 
     if this node was already reached with >= current score:
         skip
@@ -514,21 +514,32 @@ Promotion therefore creates a reusable parent view while leaving child nodes and
 
 Repository ingestion tracks source content changes.
 
-When changed evidence is detected, current ingestion marks directly dependent nodes stale when a `belief`, `negative`, or `abstraction` node references changed evidence through:
+Changed-source and evidence-lifecycle invalidation now share one bounded transitive dependency propagation algorithm.
 
-- `evidenceIds`, or
-- `childIds`.
+A reverse dependency map is built from only relations with explicit dependency semantics:
 
-The stale node receives:
+- node `evidenceIds`,
+- node `childIds`,
+- `derived_from` edges,
+- `depends_on` edges,
+- `abstracts` edges.
+
+Starting from changed/stale evidence roots, breadth-first propagation follows dependency -> dependent links transitively. Only `belief`, `negative`, and `abstraction` nodes are automatically marked stale; entity/evidence nodes may be traversed as structural intermediates but are not rewritten by the propagator. Existing `archived`, `invalid`, and already-`stale` states are not overwritten.
+
+Relations such as `relates_to`, `affects`, `causes`, `contradicts`, and `canonicalizes` deliberately do not trigger automatic stale propagation because they are not treated as truth-dependency declarations.
+
+A newly dirtied node records provenance:
 
 ```text
 status = stale
-metadata.staleReason = ingested-source-changed
+metadata.staleReason = <source-specific reason>
+metadata.staleSourceIds = [root source ids]
+metadata.staleDepth = minimum dependency distance
+metadata.staleVia = [bounded propagation links]
+metadata.stalePropagation = true
 ```
 
-This stale state then reduces future attention through the reliability penalty.
-
-Current limitation: ingestion invalidation is a direct reference check, not a general transitive graph invalidation algorithm.
+The same propagator is used by repository re-ingestion, TTL evidence audit, and evidence-content refresh.
 
 ## 12. Complexity characteristics
 
@@ -542,13 +553,13 @@ Let:
 Current characteristics:
 
 - persistent FTS5/symbol retrieval avoids the normal O(V) full-graph seed scan,
-- building the in-memory adjacency map for a new `AttentionEngine` is O(E),
+- building the in-memory adjacency map for a new graph revision is O(E),
+- the Runtime caches the `AttentionEngine` and adjacency by repository graph revision, so repeated queries on an unchanged graph reuse the same adjacency,
 - seed scoring is normally O(C),
 - propagation is bounded by `maxHops`, `minScore`, and reachable graph structure,
-- the current queue is re-sorted each iteration rather than using a binary heap, so queue management is not asymptotically optimal,
-- token selection is greedy after utility ranking.
-
-Cached adjacency is still planned and is expected to remove repeated adjacency construction from the hot path.
+- the propagation frontier is a stable binary max-heap: push/pop are O(log Q), where `Q` is frontier size, while equal-score states preserve insertion order,
+- token selection is greedy after utility ranking,
+- dependency invalidation builds a reverse dependency view in O(V + E) and then visits only reachable dependency paths from changed roots.
 
 ## 13. Why these algorithms are separate
 
