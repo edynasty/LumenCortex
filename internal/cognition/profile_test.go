@@ -42,6 +42,17 @@ func TestLoadConfigMergesBuiltinsAndParsesSharedProfile(t *testing.T) {
 		},
 		"telemetry":{"enabled":false},
 		"health":{"failureThreshold":5,"cooldownMs":45000},
+		"retrieval":{"embeddings":{
+			"enabled":true,
+			"provider":"generic",
+			"model":"embed-local",
+			"baseURL":"http://127.0.0.1:11434/v1",
+			"batchSize":7,
+			"candidateLimit":80,
+			"rrfK":42,
+			"lexicalWeight":0,
+			"semanticWeight":1.4
+		}},
 		"governor":{"enabled":true,"provider":"openrouter","model":"governor-model"}
 	}`)
 	if err := os.WriteFile(file, raw, 0o644); err != nil {
@@ -89,6 +100,19 @@ func TestLoadConfigMergesBuiltinsAndParsesSharedProfile(t *testing.T) {
 	}
 	if config.Governor == nil || !config.Governor.Enabled || config.Governor.Model != "governor-model" {
 		t.Fatalf("governor=%#v", config.Governor)
+	}
+	if config.Retrieval.Embeddings == nil || !config.Retrieval.Embeddings.Enabled {
+		t.Fatalf("embeddings=%#v", config.Retrieval.Embeddings)
+	}
+	if config.Retrieval.Embeddings.Model != "embed-local" ||
+		config.Retrieval.Embeddings.BatchSize != 7 ||
+		config.Retrieval.Embeddings.CandidateLimit != 80 ||
+		config.Retrieval.Embeddings.RRFK != 42 {
+		t.Fatalf("embeddings=%#v", config.Retrieval.Embeddings)
+	}
+	if config.Retrieval.Embeddings.LexicalWeight != 0 ||
+		config.Retrieval.Embeddings.SemanticWeight != 1.4 {
+		t.Fatalf("embedding weights=%#v", config.Retrieval.Embeddings)
 	}
 }
 
