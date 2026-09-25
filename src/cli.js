@@ -573,8 +573,61 @@ async function lspCommand({ workspace, argv }) {
           ? await lsp.references(file, Number(line), Number(character))
           : await lsp.hover(file, Number(line), Number(character));
       console.log(JSON.stringify(result, null, 2));
-    } else if (action === 'diagnostics') console.log(JSON.stringify(await lsp.diagnostics(parsed.positionals[0]), null, 2));
-    else fail('Usage: lcx lsp <status|symbols|definition|references|hover|diagnostics> ...');
+    } else if (action === 'diagnostics') {
+      console.log(JSON.stringify(await lsp.diagnostics(parsed.positionals[0]), null, 2));
+    } else if (action === 'rename') {
+      const [file, line, character, newName] = parsed.positionals;
+      if (!file || !line || !character || !newName) {
+        fail('Usage: lcx lsp rename <file> <line> <character> <new-name> [--yes]');
+      }
+      const edit = await lsp.rename(file, Number(line), Number(character), newName);
+      if (!parsed.flags.yes) {
+        console.log(JSON.stringify({ preview: true, edit }, null, 2));
+      } else {
+        console.log(JSON.stringify(await lsp.applyWorkspaceEdit(edit), null, 2));
+      }
+    } else if (action === 'actions') {
+      const [file, startLine, startCharacter, endLine = startLine, endCharacter = startCharacter] = parsed.positionals;
+      if (!file || !startLine || !startCharacter) {
+        fail('Usage: lcx lsp actions <file> <start-line> <start-character> [end-line] [end-character] [--only quickfix,source]');
+      }
+      const diagnostics = parsed.flags['no-diagnostics'] ? [] : await lsp.diagnostics(file);
+      const only = parsed.flags.only
+        ? String(parsed.flags.only).split(',').map((item) => item.trim()).filter(Boolean)
+        : undefined;
+      console.log(JSON.stringify(await lsp.codeActions(
+        file,
+        Number(startLine),
+        Number(startCharacter),
+        Number(endLine),
+        Number(endCharacter),
+        { diagnostics, only }
+      ), null, 2));
+    } else if (action === 'apply-action') {
+      const [file, startLine, startCharacter, endLine, endCharacter, rawIndex] = parsed.positionals;
+      if (!file || !startLine || !startCharacter || !endLine || !endCharacter || rawIndex === undefined) {
+        fail('Usage: lcx lsp apply-action <file> <start-line> <start-character> <end-line> <end-character> <zero-based-index> --yes');
+      }
+      if (!parsed.flags.yes) fail('lsp apply-action requires --yes');
+      const diagnostics = parsed.flags['no-diagnostics'] ? [] : await lsp.diagnostics(file);
+      const only = parsed.flags.only
+        ? String(parsed.flags.only).split(',').map((item) => item.trim()).filter(Boolean)
+        : undefined;
+      const actions = await lsp.codeActions(
+        file,
+        Number(startLine),
+        Number(startCharacter),
+        Number(endLine),
+        Number(endCharacter),
+        { diagnostics, only }
+      );
+      const index = Number(rawIndex);
+      const selected = actions?.[index];
+      if (!selected) fail(`LSP code action index out of range: ${rawIndex}`);
+      console.log(JSON.stringify(await lsp.applyCodeAction(file, selected), null, 2));
+    } else {
+      fail('Usage: lcx lsp <status|symbols|definition|references|hover|diagnostics|rename|actions|apply-action> ...');
+    }
   } finally {
     await lsp.close();
   }
@@ -984,7 +1037,7 @@ Code intelligence:
   index <build|stats|embeddings> [--force]
   search <query> [--limit 40] [--hybrid|--semantic]
   db <status|integrity|checkpoint|journal> [arg]
-  lsp <status|symbols|definition|references|hover|diagnostics> ...
+  lsp <status|symbols|definition|references|hover|diagnostics|rename|actions|apply-action> ...
   mcp <status|tools|call> ...
 
 Cognitive graph:
