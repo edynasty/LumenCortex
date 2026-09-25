@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/edynasty/LumenCortex/internal/cognition"
 	"github.com/edynasty/LumenCortex/provider/openai"
 	lcx "github.com/edynasty/LumenCortex/runtime"
 )
@@ -86,7 +90,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		agentOpts, err := agentOptionsFromEnv()
+		agentOpts, err := agentOptionsFromEnv(workspace, engine)
 		if err != nil {
 			return err
 		}
@@ -103,7 +107,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		agentOpts, err := agentOptionsFromEnv()
+		agentOpts, err := agentOptionsFromEnv(workspace, engine)
 		if err != nil {
 			return err
 		}
@@ -146,7 +150,7 @@ func providerFromEnv() (*openai.Client, error) {
 	})
 }
 
-func agentOptionsFromEnv() (lcx.AgentOptions, error) {
+func agentOptionsFromEnv(workspace string, engine *lcx.Engine) (lcx.AgentOptions, error) {
 	policy := strings.TrimSpace(os.Getenv("LCX_POLICY"))
 	if policy == "" {
 		policy = "read-only"
@@ -171,7 +175,7 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 			return lcx.AgentOptions{}, fmt.Errorf("read LCX_WORK_UNITS %q: %w", path, err)
 		}
 	}
-	return lcx.AgentOptions{
+	opts := lcx.AgentOptions{
 		ProviderName: "openai-compatible",
 		Policy: policy,
 		MaxSteps: maxSteps,
@@ -180,8 +184,39 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 		MaxToolCallsPerStep: maxToolCalls,
 		Workflow: workflow,
 		WorkUnits: workUnits,
-		CognitionEnabled: envBool("LCX_COGNITION"),
-	}, nil
+	}
+
+	profilePath := strings.TrimSpace(os.Getenv("LCX_COGNITION_PROFILE"))
+	defaultProfile := filepath.Join(workspace, ".lumencortex", "cognition.json")
+	_, defaultProfileErr := os.Stat(defaultProfile)
+	opts.CognitionEnabled = envBool("LCX_COGNITION") || profilePath != "" || defaultProfileErr == nil
+	if !opts.CognitionEnabled {
+		return opts, nil
+	}
+
+	config, err := cognition.LoadConfig(workspace, profilePath)
+	if err != nil {
+		return lcx.AgentOptions{}, fmt.Errorf("load cognition profile: %w", err)
+	}
+	if engine != nil {
+		engine.ConfigureCognitionHealth(lcx.CognitionHealthOptions{
+			FailureThreshold: config.Health.FailureThreshold,
+			CooldownMS: config.Health.CooldownMS,
+		})
+	}
+
+	categoryProviders, err := categoryProvidersFromConfig(config)
+	if err != nil {
+		return lcx.AgentOptions{}, err
+	}
+	decisionProviders, err := decisionProvidersFromConfig(config)
+	if err != nil {
+		return lcx.AgentOptions{}, err
+	}
+	opts.CategoryProviders = categoryProviders
+	opts.DecisionProviders = decisionProviders
+	opts.DecisionPolicy = config.Decision.Policy
+	return opts, nil
 }
 
 func streamEvents(engine *lcx.Engine) func() {
@@ -220,4 +255,181 @@ func printJSON(v any) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
+}
+
+
+type providerPreset struct {
+	BaseURL         string
+	APIKeyEnv       string
+	DefaultModel    string
+	ReasoningFormat string
+	Headers         map[string]string
+}
+
+var cognitiveProviderPresets = map[string]providerPreset{
+	"openrouter": {
+		BaseURL: "https://openrouter.ai/api/v1",
+		APIKeyEnv: "OPENROUTER_API_KEY",
+		DefaultModel: "openrouter/free",
+		ReasoningFormat: "reasoning-object",
+		Headers: map[string]string{
+			"HTTP-Referer": "https://github.com/edynasty/LumenCortex",
+			"X-Title": "LumenCortex",
+		},
+	},
+	"openrouter-deepseek-free": {
+		BaseURL: "https://openrouter.ai/api/v1",
+		APIKeyEnv: "OPENROUTER_API_KEY",
+		DefaultModel: "deepseek/deepseek-v4-flash-0731:free",
+		ReasoningFormat: "reasoning-object",
+		Headers: map[string]string{
+			"HTTP-Referer": "https://github.com/edynasty/LumenCortex",
+			"X-Title": "LumenCortex DeepSeek Free",
+		},
+	},
+	"groq": {
+		BaseURL: "https://api.groq.com/openai/v1",
+		APIKeyEnv: "GROQ_API_KEY",
+		DefaultModel: "openai/gpt-oss-120b",
+		ReasoningFormat: "reasoning-effort",
+	},
+	"deepseek": {
+		BaseURL: "https://api.deepseek.com",
+		APIKeyEnv: "DEEPSEEK_API_KEY",
+		DefaultModel: "deepseek-flash",
+		ReasoningFormat: "deepseek",
+	},
+	"generic": {},
+}
+
+func categoryProvidersFromConfig(config cognition.Config) (map[string][]lcx.ProviderBinding, error) {
+	out := map[string][]lcx.ProviderBinding{}
+	for category, entry := range config.Categories {
+		for _, spec := range entry.Models {
+			binding, err := providerBindingFromSpec(spec)
+			if err != nil {
+				return nil, fmt.Errorf("category %s: %w", category, err)
+			}
+			out[category] = append(out[category], binding)
+		}
+	}
+	return out, nil
+}
+
+func providerBindingFromSpec(spec cognition.ModelSpec) (lcx.ProviderBinding, error) {
+	name := strings.TrimSpace(spec.Provider)
+	if name == "" {
+		name = "generic"
+	}
+	preset, ok := cognitiveProviderPresets[name]
+	if !ok {
+		return lcx.ProviderBinding{}, fmt.Errorf("unknown provider %q", name)
+	}
+	model := strings.TrimSpace(spec.Model)
+	if model == "" {
+		model = preset.DefaultModel
+	}
+	if model == "" {
+		model = strings.TrimSpace(os.Getenv("LCX_MODEL"))
+	}
+	if model == "" {
+		return lcx.ProviderBinding{}, fmt.Errorf("provider %s model is required", name)
+	}
+	baseURL := strings.TrimSpace(spec.BaseURL)
+	if baseURL == "" {
+		baseURL = preset.BaseURL
+	}
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(os.Getenv("LCX_BASE_URL"))
+	}
+	apiKey := spec.APIKey
+	apiKeyEnv := strings.TrimSpace(spec.APIKeyEnv)
+	if apiKeyEnv == "" {
+		apiKeyEnv = preset.APIKeyEnv
+	}
+	if apiKey == "" && apiKeyEnv != "" {
+		apiKey = os.Getenv(apiKeyEnv)
+	}
+	headers := map[string]string{}
+	for key, value := range preset.Headers {
+		headers[key] = value
+	}
+	for key, value := range spec.Headers {
+		headers[key] = value
+	}
+	var httpClient *http.Client
+	if spec.TimeoutMS > 0 {
+		httpClient = &http.Client{Timeout: time.Duration(spec.TimeoutMS) * time.Millisecond}
+	}
+	provider, err := openai.New(openai.Config{
+		BaseURL: baseURL,
+		APIKey: apiKey,
+		Model: model,
+		Headers: headers,
+		HTTPClient: httpClient,
+		ReasoningFormat: preset.ReasoningFormat,
+		DisableStreaming: envBool("LCX_DISABLE_STREAMING"),
+		DisableRetries: envBool("LCX_DISABLE_RETRIES"),
+	})
+	if err != nil {
+		return lcx.ProviderBinding{}, err
+	}
+	return lcx.ProviderBinding{Name: name, Provider: provider}, nil
+}
+
+func decisionProvidersFromConfig(config cognition.Config) ([]lcx.DecisionProvider, error) {
+	out := []lcx.DecisionProvider{}
+	for _, spec := range config.Decision.Providers {
+		provider, err := decisionProviderFromSpec(spec)
+		if err != nil {
+			return nil, err
+		}
+		if provider != nil {
+			out = append(out, provider)
+		}
+	}
+	return out, nil
+}
+
+func decisionProviderFromSpec(spec cognition.DecisionProviderSpec) (lcx.DecisionProvider, error) {
+	kind := strings.ToLower(strings.TrimSpace(spec.Type))
+	if kind == "" {
+		kind = "systemone"
+	}
+	if kind == "algorithm" {
+		return nil, nil
+	}
+	apiKey := spec.APIKey
+	apiKeyEnv := strings.TrimSpace(spec.APIKeyEnv)
+	if apiKeyEnv == "" {
+		switch kind {
+		case "jev":
+			apiKeyEnv = "TYPESAFE_API_KEY"
+		case "laya":
+			apiKeyEnv = "LAYA_API_KEY"
+		}
+	}
+	if apiKey == "" && apiKeyEnv != "" {
+		apiKey = os.Getenv(apiKeyEnv)
+	}
+	cfg := cognition.SystemOneConfig{
+		Name: spec.Name,
+		BaseURL: spec.BaseURL,
+		APIKey: apiKey,
+		Model: spec.Model,
+		Headers: spec.Headers,
+	}
+	if spec.TimeoutMS > 0 {
+		cfg.Timeout = time.Duration(spec.TimeoutMS) * time.Millisecond
+	}
+	switch kind {
+	case "jev":
+		return cognition.NewJevDecisionProvider(cfg)
+	case "laya":
+		return cognition.NewLayaDecisionProvider(cfg)
+	case "systemone":
+		return cognition.NewSystemOneProvider(cfg)
+	default:
+		return nil, fmt.Errorf("unknown decision provider type %q", kind)
+	}
 }
