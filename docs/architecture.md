@@ -286,6 +286,7 @@ All providers use the same tool-calling Agent Loop.
 | Optimistic graph revision conflict detection | Implemented |
 | Shared harness SessionStore lifecycle | Implemented |
 | Cached adjacency | Implemented (Runtime caches AttentionEngine/adjacency by graph revision) |
+| Associative Personalized PageRank Light | Implemented opt-in; bounded neighborhood, restart diffusion, same token budget; weighted Light remains default |
 | LSP semantic tooling | Implemented (stdio JSON-RPC; Java/TS/Python defaults + custom config) |
 | Graph canonicalization / GC / hot-warm-cold storage | Partial: canonicalization + indexed storage tiers + safe derived-cache compaction implemented; physical tier separation/cognitive deletion not implemented |
 | Temporal valid_from/valid_to graph | Partial |
