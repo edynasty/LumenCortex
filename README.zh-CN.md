@@ -441,3 +441,21 @@ lcx light "why is warehouse acceptance inconsistent?" --mode hybrid --json
 ```
 
 该实现是正确性优先的 exact-cosine baseline，不是 ANN。HNSW/IVF 等近似最近邻索引仍属于后续性能优化。
+
+
+### LSP Rename / Code Action
+
+LSP 已不仅用于跳转和诊断，也支持基于真实 language server 的 rename 与 edit-backed code action。返回的 WorkspaceEdit 会先进行全量路径/range/重叠校验，再按多文件原子方式应用；写入失败会回滚。
+
+```bash
+# 默认只预览
+lcx lsp rename src/file.ts 12 8 NewName
+
+# 显式确认后应用
+lcx lsp rename src/file.ts 12 8 NewName --yes
+
+lcx lsp actions src/file.ts 20 1 20 80
+lcx lsp apply-action src/file.ts 20 1 20 80 0 --yes
+```
+
+command-only code action 与 LSP create/rename/delete resource operation 当前不会自动执行。
