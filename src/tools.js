@@ -549,6 +549,113 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
       },
       execute: ({ path: input }) => lsp.diagnostics(input)
     });
+
+    registry.register({
+      name: 'lsp_rename',
+      description: 'Rename a symbol through the language server and atomically apply its validated WorkspaceEdit.',
+      permission: 'write',
+      mutatesWorkspace: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          line: { type: 'integer', minimum: 1 },
+          character: { type: 'integer', minimum: 1 },
+          new_name: { type: 'string', minLength: 1 }
+        },
+        required: ['path', 'line', 'character', 'new_name'],
+        additionalProperties: false
+      },
+      async execute({ path: input, line, character, new_name }) {
+        const edit = await lsp.rename(input, line, character, new_name);
+        if (!edit) return { applied: false, editCount: 0, files: [] };
+        return lsp.applyWorkspaceEdit(edit);
+      }
+    });
+
+    registry.register({
+      name: 'lsp_code_actions',
+      description: 'List language-server code actions for a source range. Command-only actions may be listed but are not auto-executed.',
+      permission: 'read',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          start_line: { type: 'integer', minimum: 1 },
+          start_character: { type: 'integer', minimum: 1 },
+          end_line: { type: 'integer', minimum: 1 },
+          end_character: { type: 'integer', minimum: 1 },
+          only: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+          include_diagnostics: { type: 'boolean' }
+        },
+        required: ['path', 'start_line', 'start_character'],
+        additionalProperties: false
+      },
+      async execute({
+        path: input,
+        start_line,
+        start_character,
+        end_line = start_line,
+        end_character = start_character,
+        only,
+        include_diagnostics = true
+      }) {
+        const diagnostics = include_diagnostics ? await lsp.diagnostics(input) : [];
+        return lsp.codeActions(
+          input,
+          start_line,
+          start_character,
+          end_line,
+          end_character,
+          { only, diagnostics }
+        );
+      }
+    });
+
+    registry.register({
+      name: 'lsp_code_action_apply',
+      description: 'Re-query code actions for a range, select one by zero-based index, resolve it if necessary, and atomically apply its WorkspaceEdit.',
+      permission: 'write',
+      mutatesWorkspace: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          start_line: { type: 'integer', minimum: 1 },
+          start_character: { type: 'integer', minimum: 1 },
+          end_line: { type: 'integer', minimum: 1 },
+          end_character: { type: 'integer', minimum: 1 },
+          action_index: { type: 'integer', minimum: 0 },
+          only: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+          include_diagnostics: { type: 'boolean' }
+        },
+        required: ['path', 'start_line', 'start_character', 'action_index'],
+        additionalProperties: false
+      },
+      async execute({
+        path: input,
+        start_line,
+        start_character,
+        end_line = start_line,
+        end_character = start_character,
+        action_index,
+        only,
+        include_diagnostics = true
+      }) {
+        const diagnostics = include_diagnostics ? await lsp.diagnostics(input) : [];
+        const actions = await lsp.codeActions(
+          input,
+          start_line,
+          start_character,
+          end_line,
+          end_character,
+          { only, diagnostics }
+        );
+        const action = actions?.[action_index];
+        if (!action) throw new Error(`LSP code action index out of range: ${action_index}`);
+        return lsp.applyCodeAction(input, action);
+      }
+    });
   }
 
   if (repository) {
