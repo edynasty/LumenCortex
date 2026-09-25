@@ -231,6 +231,7 @@ func parseAgentCommandArgs(args []string) (agentCommandArgs, error) {
 			if out.Base == "" {
 				return agentCommandArgs{}, fmt.Errorf("--base requires a non-empty Git ref")
 			}
+			out.Worktree = true
 		default:
 			if strings.HasPrefix(value, "--") {
 				return agentCommandArgs{}, fmt.Errorf("unknown option %q", value)
