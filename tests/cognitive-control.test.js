@@ -327,3 +327,65 @@ test('Category resolver skips a model whose provider circuit is open and preserv
   assert.equal(chain.skipped[0].descriptor.model, 'model-a');
   assert.equal(chain.skipped[0].reason, 'circuit-open');
 });
+
+
+test('cognition profile normalizes explicitly enabled embedding retrieval', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-cognition-embedding-'));
+  const dir = path.join(root, '.lumencortex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'cognition.json'), JSON.stringify({
+    retrieval: {
+      embeddings: {
+        enabled: true,
+        provider: 'generic',
+        model: 'embed-local',
+        baseURL: 'http://127.0.0.1:11434/v1',
+        apiKeyEnv: 'LOCAL_EMBED_KEY',
+        timeoutMs: 5000,
+        batchSize: 7,
+        candidateLimit: 80,
+        rrfK: 42,
+        lexicalWeight: 0.8,
+        semanticWeight: 1.3,
+        semanticMinScore: 0.2
+      }
+    }
+  }));
+
+  const profile = loadCognitiveProfile(root);
+  assert.deepEqual(profile.retrieval.embeddings, {
+    enabled: true,
+    provider: 'generic',
+    model: 'embed-local',
+    baseURL: 'http://127.0.0.1:11434/v1',
+    apiKey: undefined,
+    apiKeyEnv: 'LOCAL_EMBED_KEY',
+    headers: {},
+    timeoutMs: 5000,
+    batchSize: 7,
+    candidateLimit: 80,
+    lexicalLimit: undefined,
+    semanticLimit: undefined,
+    semanticMinScore: 0.2,
+    rrfK: 42,
+    lexicalWeight: 0.8,
+    semanticWeight: 1.3
+  });
+});
+
+test('embedding retrieval remains disabled unless explicitly enabled', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-cognition-embedding-disabled-'));
+  const dir = path.join(root, '.lumencortex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'cognition.json'), JSON.stringify({
+    retrieval: {
+      embeddings: {
+        model: 'would-be-model',
+        baseURL: 'http://127.0.0.1:11434/v1'
+      }
+    }
+  }));
+
+  const profile = loadCognitiveProfile(root);
+  assert.equal(profile.retrieval.embeddings.enabled, false);
+});
