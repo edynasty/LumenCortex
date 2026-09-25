@@ -158,3 +158,38 @@ test('runtime caches Attention adjacency for the same graph revision and invalid
 
   runtime.close();
 });
+
+
+test('runtime keeps weighted retrieval as default and enables associative mode explicitly', () => {
+  const repo = runtimeRepo();
+  let graph = repo.graph();
+  graph.addNode({ id: 'seed', kind: 'entity', title: 'inventory seed', body: 'inventory seed' });
+  graph.addNode({ id: 'mid', kind: 'entity', title: 'acceptance stage', body: 'acceptance stage' });
+  graph.addNode({ id: 'remote', kind: 'belief', title: 'distributed lock pattern', body: 'distributed lock pattern' });
+  graph.addEdge({ id: 'e1', from: 'seed', to: 'mid', type: 'affects', weight: 1 });
+  graph.addEdge({ id: 'e2', from: 'mid', to: 'remote', type: 'depends_on', weight: 1 });
+  repo.writeGraph(graph.snapshot());
+
+  const runtime = new LumenCortexRuntime(repo);
+  const weighted = runtime.context('inventory seed', {
+    seedNodeIds: ['seed'],
+    candidateNodeIds: ['seed'],
+    maxHops: 2,
+    budgetTokens: 500
+  });
+  const associative = runtime.context('inventory seed', {
+    retrievalMode: 'associative',
+    seedNodeIds: ['seed'],
+    candidateNodeIds: ['seed'],
+    maxHops: 2,
+    pprIterations: 20,
+    budgetTokens: 500
+  });
+
+  assert.equal(weighted.mode, 'weighted');
+  assert.equal(associative.mode, 'associative');
+  assert.ok(associative.selectedNodes.some((node) => node.id === 'remote'));
+  assert.ok(associative.iterations > 0);
+  assert.ok(associative.neighborhoodNodeCount >= 3);
+  runtime.close();
+});
