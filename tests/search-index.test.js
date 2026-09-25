@@ -101,3 +101,47 @@ test('natural-language FTS5 retrieval finds relevant code without exact symbol t
   assert.equal(hits[0].nodeId,'stock_validation');
   assert.ok(hits[0].reasons.includes('fts5'));
 });
+
+
+test('search index clear supports an explicit graph revision guard', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-search-clear-'));
+  const repo = new CognitiveRepository(root);
+  repo.init();
+  const graph = repo.graph();
+  graph.addNode({
+    id: 'clear-me',
+    kind: 'evidence',
+    title: 'Clearable symbol',
+    body: 'function clearableSymbol() {}',
+    grade: 'static',
+    trustZone: 'repo_trusted'
+  });
+  repo.writeGraph(graph.snapshot());
+
+  const runtime = new LumenCortexRuntime(repo);
+  runtime.refreshSearchIndex();
+  const revision = repo.graphRevision();
+
+  assert.throws(
+    () => runtime.searchIndex.database.clearSearchIndex({ graphRevision: revision - 1 }),
+    (error) => error?.code === 'SEARCH_REVISION_CONFLICT'
+  );
+
+  runtime.searchIndex.database.clearSearchIndex({ graphRevision: revision });
+  assert.equal(runtime.searchIndex.database.searchIndexReady(), false);
+  assert.deepEqual(runtime.search('clearableSymbol'), [{ 
+    nodeId: 'clear-me',
+    score: 13,
+    reasons: ['symbol:clearableSymbol', 'symbol-ci:clearableSymbol', 'fts5'],
+    id: 'clear-me',
+    length: runtime.search('clearableSymbol')[0].length,
+    title: 'Clearable symbol',
+    path: '',
+    kind: 'evidence',
+    sourceKind: null,
+    contentHash: null
+  }]);
+
+  runtime.close();
+  repo.close();
+});
