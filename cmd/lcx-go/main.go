@@ -116,6 +116,53 @@ func run() error {
 			return err
 		}
 		return printJSON(result)
+	case "governor":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: lcx-go governor <analyze|plan|validate> [plan.json]")
+		}
+		profile, err := cognition.LoadConfig(workspace, strings.TrimSpace(os.Getenv("LCX_COGNITION_PROFILE")))
+		if err != nil {
+			return err
+		}
+		switch args[1] {
+		case "analyze":
+			analysis, err := engine.GovernorAnalyze(ctx, cognition.GovernorAnalyzeOptions{})
+			if err != nil {
+				return err
+			}
+			return printJSON(analysis)
+		case "plan":
+			curator, err := governorCuratorFromConfig(profile)
+			if err != nil {
+				return err
+			}
+			result, err := engine.GovernorPlan(ctx, curator, cognition.GovernorAnalyzeOptions{})
+			if err != nil {
+				return err
+			}
+			return printJSON(result)
+		case "validate":
+			if len(args) != 3 {
+				return fmt.Errorf("usage: lcx-go governor validate <plan.json>")
+			}
+			raw, err := os.ReadFile(args[2])
+			if err != nil {
+				return err
+			}
+			var plan cognition.GovernorPlan
+			if err := json.Unmarshal(raw, &plan); err != nil {
+				return fmt.Errorf("decode Governor plan: %w", err)
+			}
+			validation, err := engine.GovernorValidate(ctx, plan)
+			if err != nil {
+				return err
+			}
+			return printJSON(validation)
+		case "apply":
+			return fmt.Errorf("lcx-go Governor is read-only; use the Node reference runtime for validated graph mutation/apply")
+		default:
+			return fmt.Errorf("unknown governor command %q (supported: analyze, plan, validate)", args[1])
+		}
 	case "approve":
 		if len(args) < 3 || len(args) > 4 {
 			return fmt.Errorf("usage: lcx-go approve <session-id> <gate-id> [actor]")
@@ -130,7 +177,7 @@ func run() error {
 		}
 		return printJSON(result)
 	default:
-		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, shell, agent, resume, approve)", args[0])
+		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, shell, agent, resume, governor, approve)", args[0])
 	}
 }
 
@@ -432,4 +479,38 @@ func decisionProviderFromSpec(spec cognition.DecisionProviderSpec) (lcx.Decision
 	default:
 		return nil, fmt.Errorf("unknown decision provider type %q", kind)
 	}
+}
+
+
+func governorCuratorFromConfig(config cognition.Config) (*cognition.LLMGovernorCurator, error) {
+	governor := config.Governor
+	if governor == nil || !governor.Enabled {
+		return nil, nil
+	}
+	if strings.TrimSpace(governor.Provider) == "" || strings.TrimSpace(governor.Model) == "" {
+		return nil, fmt.Errorf("enabled Governor requires provider and model")
+	}
+	binding, err := providerBindingFromSpec(cognition.ModelSpec{
+		Provider: governor.Provider,
+		Model: governor.Model,
+		BaseURL: governor.BaseURL,
+		TimeoutMS: governor.TimeoutMS,
+		Headers: governor.Headers,
+	})
+	if err != nil {
+		return nil, err
+	}
+	maxTokens := governor.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 6000
+	}
+	effort := strings.TrimSpace(governor.ReasoningEffort)
+	if effort == "" {
+		effort = "high"
+	}
+	return &cognition.LLMGovernorCurator{
+		Provider: binding.Provider,
+		MaxTokens: maxTokens,
+		ReasoningEffort: effort,
+	}, nil
 }
