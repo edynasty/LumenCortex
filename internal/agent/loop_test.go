@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/edynasty/LumenCortex/internal/cognition"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -539,4 +541,119 @@ func containsString(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+
+type chainProvider struct {
+	model string
+	fail  bool
+	calls int
+}
+
+func (p *chainProvider) Model() string { return p.model }
+
+func (p *chainProvider) Complete(_ context.Context, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+	p.calls++
+	if p.fail {
+		return protocol.ProviderResponse{}, errors.New("provider unavailable")
+	}
+	return protocol.ProviderResponse{
+		Message: protocol.Message{Content: "done via " + p.model},
+		FinishReason: "stop",
+	}, nil
+}
+
+func TestLoopCategoryProviderChainFailoverAndCircuitSkip(t *testing.T) {
+	health := cognition.NewHealthRegistry(cognition.HealthConfig{
+		FailureThreshold: 1,
+		Cooldown: time.Hour,
+	})
+	bad := &chainProvider{model: "bad-model", fail: true}
+	good := &chainProvider{model: "good-model"}
+	fallback := &chainProvider{model: "fallback-model"}
+
+	events := []Event{}
+	store := &memoryStore{
+		state: SessionState{
+			ID: "chain-1",
+			Goal: "Debug a production database migration deadlock",
+			Status: "created",
+			Metadata: map[string]any{},
+		},
+		steps: map[int64]any{},
+	}
+	loop := Loop{
+		Provider: fallback,
+		ProviderName: "fallback",
+		ProviderChains: map[string][]ProviderBinding{
+			"deep": {
+				{Name: "primary", Provider: bad},
+				{Name: "secondary", Provider: good},
+			},
+		},
+		ProviderHealth: health,
+		Store: store,
+		Tools: fakeTools{},
+		Emit: func(event Event) { events = append(events, event) },
+	}
+
+	result, err := loop.Run(context.Background(), "chain-1", Options{
+		MaxSteps: 2,
+		CognitionEnabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Final != "done via good-model" {
+		t.Fatalf("result=%#v", result)
+	}
+	if bad.calls != 1 || good.calls != 1 || fallback.calls != 0 {
+		t.Fatalf("calls bad=%d good=%d fallback=%d", bad.calls, good.calls, fallback.calls)
+	}
+	if health.Available("model:primary:bad-model") {
+		t.Fatal("expected failed primary provider circuit to be open")
+	}
+	failovers := 0
+	for _, event := range events {
+		if event.Type == "provider.failover" {
+			failovers++
+		}
+	}
+	if failovers != 1 {
+		t.Fatalf("provider failovers=%d events=%#v", failovers, events)
+	}
+	step, ok := store.steps[1].(stepRecord)
+	if !ok {
+		t.Fatalf("step=%#v", store.steps[1])
+	}
+	if step.Provider != "secondary" || step.Model != "good-model" {
+		t.Fatalf("provider trace=%#v", step)
+	}
+
+	store2 := &memoryStore{
+		state: SessionState{
+			ID: "chain-2",
+			Goal: "Debug a production database migration deadlock",
+			Status: "created",
+			Metadata: map[string]any{},
+		},
+		steps: map[int64]any{},
+	}
+	loop.Store = store2
+	result, err = loop.Run(context.Background(), "chain-2", Options{
+		MaxSteps: 2,
+		CognitionEnabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Final != "done via good-model" {
+		t.Fatalf("result2=%#v", result)
+	}
+	if bad.calls != 1 {
+		t.Fatalf("circuit-open primary should have been skipped, calls=%d", bad.calls)
+	}
+	if good.calls != 2 {
+		t.Fatalf("secondary calls=%d", good.calls)
+	}
 }
