@@ -16,6 +16,8 @@ const DEFAULTS = {
   archivedPenalty: 0.2,
   dormantPenalty: 0.75,
   costPenalty: 0.08,
+  diversityLambda: 1,
+  diversityCandidateLimit: 256,
   pprRestart: 0.2,
   pprIterations: 12,
   pprTolerance: 0.00001,
@@ -96,13 +98,7 @@ export class AttentionEngine {
       })
       .sort((a, b) => b.utility - a.utility || b.score - a.score);
 
-    const selected = [];
-    let used = 0;
-    for (const item of ranked) {
-      if (used + item.tokenCost > cfg.budgetTokens) continue;
-      selected.push(item);
-      used += item.tokenCost;
-    }
+    const { selected, used } = selectRankedWithinBudget(ranked, cfg);
 
     const selectedIds = new Set(selected.map((x) => x.nodeId));
     const edges = Object.values(this.graph.edges ?? {}).filter(
@@ -236,13 +232,7 @@ export class AttentionEngine {
       .filter((entry) => entry.score >= cfg.associativeMinScore)
       .sort((a, b) => b.utility - a.utility || b.score - a.score || a.nodeId.localeCompare(b.nodeId));
 
-    const selected = [];
-    let used = 0;
-    for (const item of ranked) {
-      if (used + item.tokenCost > cfg.budgetTokens) continue;
-      selected.push(item);
-      used += item.tokenCost;
-    }
+    const { selected, used } = selectRankedWithinBudget(ranked, cfg);
 
     const selectedIds = new Set(selected.map((item) => item.nodeId));
     const edges = Object.values(this.graph.edges ?? {}).filter(
@@ -437,6 +427,73 @@ function estimateNodeTokens(node) {
     unresolved: node.unresolved,
     metadata: node.metadata
   });
+}
+
+function selectRankedWithinBudget(ranked, cfg) {
+  const lambda = clamp(Number(cfg.diversityLambda ?? 1), 0, 1);
+  if (lambda >= 0.999999) {
+    const selected = [];
+    let used = 0;
+    for (const item of ranked) {
+      if (used + item.tokenCost > cfg.budgetTokens) continue;
+      selected.push(item);
+      used += item.tokenCost;
+    }
+    return { selected, used };
+  }
+
+  const limit = Math.max(1, Math.floor(Number(cfg.diversityCandidateLimit ?? 256)));
+  const pool = ranked.slice(0, limit);
+  const overflow = ranked.slice(limit);
+  const selected = [];
+  const remaining = new Set(pool.map((_, index) => index));
+  const maxUtility = Math.max(0.0000001, ...pool.map((item) => Number(item.utility ?? 0)));
+  let used = 0;
+
+  while (remaining.size) {
+    let bestIndex = null;
+    let bestMMR = -Infinity;
+    for (const index of remaining) {
+      const item = pool[index];
+      if (used + item.tokenCost > cfg.budgetTokens) continue;
+      const relevance = Number(item.utility ?? 0) / maxUtility;
+      let redundancy = 0;
+      for (const chosen of selected) {
+        redundancy = Math.max(
+          redundancy,
+          lexicalScore(nodeText(item.node), nodeText(chosen.node))
+        );
+      }
+      const mmr = lambda * relevance - (1 - lambda) * redundancy;
+      const currentBest = bestIndex === null ? null : pool[bestIndex];
+      if (
+        mmr > bestMMR ||
+        (mmr === bestMMR && compareRanked(item, currentBest) < 0)
+      ) {
+        bestIndex = index;
+        bestMMR = mmr;
+      }
+    }
+    if (bestIndex === null) break;
+    const item = pool[bestIndex];
+    remaining.delete(bestIndex);
+    selected.push(item);
+    used += item.tokenCost;
+  }
+
+  for (const item of overflow) {
+    if (used + item.tokenCost > cfg.budgetTokens) continue;
+    selected.push(item);
+    used += item.tokenCost;
+  }
+  return { selected, used };
+}
+
+function compareRanked(left, right) {
+  if (!right) return -1;
+  if (left.utility !== right.utility) return right.utility - left.utility;
+  if (left.score !== right.score) return right.score - left.score;
+  return String(left.nodeId).localeCompare(String(right.nodeId));
 }
 
 function mergeConfig(options) {
