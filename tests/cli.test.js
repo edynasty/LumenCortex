@@ -168,3 +168,75 @@ function runCli(argv, { cwd, env = {} } = {}) {
     child.on('exit', (code) => resolve({ code, stdout, stderr }));
   });
 }
+
+
+test('Node skills CLI manages project Skills without touching the user global root', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-cli-skills-'));
+  const globalRoot = path.join(cwd, 'isolated-global-skills');
+  const repo = new CognitiveRepository(cwd);
+  repo.init();
+  repo.close();
+
+  const source = path.join(cwd, 'skill-source.md');
+  fs.writeFileSync(source, [
+    '---',
+    'name: CLI Test Skill',
+    'description: managed through CLI',
+    '---',
+    '',
+    'CLI_SKILL_SENTINEL'
+  ].join('\n'));
+
+  const env = {
+    ...process.env,
+    LUMENCORTEX_SKILLS_GLOBAL_ROOT: globalRoot
+  };
+
+  let result = spawnSync(process.execPath, [
+    cli, 'skills', 'save', 'project', 'cli-test', source
+  ], { cwd, encoding: 'utf8', env });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).id, 'cli-test');
+
+  result = spawnSync(process.execPath, [
+    cli, 'skills', 'list', 'effective'
+  ], { cwd, encoding: 'utf8', env });
+  assert.equal(result.status, 0, result.stderr);
+  let items = JSON.parse(result.stdout);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].id, 'cli-test');
+  assert.equal(items[0].enabled, true);
+
+  result = spawnSync(process.execPath, [
+    cli, 'skills', 'show', 'project', 'cli-test'
+  ], { cwd, encoding: 'utf8', env });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(JSON.parse(result.stdout).content, /CLI_SKILL_SENTINEL/);
+
+  result = spawnSync(process.execPath, [
+    cli, 'skills', 'disable', 'project', 'cli-test'
+  ], { cwd, encoding: 'utf8', env });
+  assert.equal(result.status, 0, result.stderr);
+
+  result = spawnSync(process.execPath, [
+    cli, 'skills', 'list', 'effective'
+  ], { cwd, encoding: 'utf8', env });
+  items = JSON.parse(result.stdout);
+  assert.equal(items[0].enabled, false);
+
+  result = spawnSync(process.execPath, [
+    cli, 'skills', 'enable', 'project', 'cli-test'
+  ], { cwd, encoding: 'utf8', env });
+  assert.equal(result.status, 0, result.stderr);
+
+  result = spawnSync(process.execPath, [
+    cli, 'skills', 'delete', 'project', 'cli-test'
+  ], { cwd, encoding: 'utf8', env });
+  assert.equal(result.status, 0, result.stderr);
+
+  result = spawnSync(process.execPath, [
+    cli, 'skills', 'list', 'effective'
+  ], { cwd, encoding: 'utf8', env });
+  assert.deepEqual(JSON.parse(result.stdout), []);
+  assert.equal(fs.existsSync(globalRoot), false);
+});
