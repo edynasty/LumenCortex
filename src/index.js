@@ -8,6 +8,7 @@ export * from './database.js';
 export * from './attention.js';
 export * from './promotion.js';
 export * from './verification.js';
+export * from './invalidation.js';
 export * from './runtime.js';
 export * from './ingest.js';
 export * from './provider.js';
