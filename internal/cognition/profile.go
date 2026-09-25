@@ -101,6 +101,29 @@ type GovernorConfig struct {
 	Headers         map[string]string `json:"headers,omitempty"`
 }
 
+type EmbeddingRetrievalConfig struct {
+	Enabled          bool              `json:"enabled,omitempty"`
+	Provider         string            `json:"provider,omitempty"`
+	Model            string            `json:"model,omitempty"`
+	BaseURL          string            `json:"baseURL,omitempty"`
+	APIKey           string            `json:"apiKey,omitempty"`
+	APIKeyEnv        string            `json:"apiKeyEnv,omitempty"`
+	TimeoutMS        int               `json:"timeoutMs,omitempty"`
+	BatchSize        int               `json:"batchSize,omitempty"`
+	CandidateLimit   int               `json:"candidateLimit,omitempty"`
+	LexicalLimit     int               `json:"lexicalLimit,omitempty"`
+	SemanticLimit    int               `json:"semanticLimit,omitempty"`
+	SemanticMinScore float64           `json:"semanticMinScore,omitempty"`
+	RRFK             int               `json:"rrfK,omitempty"`
+	LexicalWeight    float64           `json:"lexicalWeight,omitempty"`
+	SemanticWeight   float64           `json:"semanticWeight,omitempty"`
+	Headers          map[string]string `json:"headers,omitempty"`
+}
+
+type RetrievalConfig struct {
+	Embeddings *EmbeddingRetrievalConfig `json:"embeddings,omitempty"`
+}
+
 type Config struct {
 	Version    int                       `json:"version"`
 	Source     string                    `json:"source"`
@@ -108,6 +131,7 @@ type Config struct {
 	Categories map[string]CategoryConfig `json:"categories"`
 	Telemetry  bool                      `json:"telemetry"`
 	Health     HealthConfig              `json:"health"`
+	Retrieval  RetrievalConfig           `json:"retrieval"`
 	Governor   *GovernorConfig           `json:"governor,omitempty"`
 }
 
@@ -116,6 +140,7 @@ type rawConfig struct {
 	Categories map[string]CategoryConfig `json:"categories"`
 	Telemetry  TelemetryConfig           `json:"telemetry"`
 	Health     HealthConfig              `json:"health"`
+	Retrieval  RetrievalConfig           `json:"retrieval"`
 	Governor   *GovernorConfig           `json:"governor"`
 }
 
@@ -169,6 +194,31 @@ func LoadConfig(workspace, file string) (Config, error) {
 	}
 	if user.Health.CooldownMS > 0 {
 		config.Health.CooldownMS = user.Health.CooldownMS
+	}
+	if user.Retrieval.Embeddings != nil {
+		copy := *user.Retrieval.Embeddings
+		if copy.Provider == "" {
+			copy.Provider = "generic"
+		}
+		if copy.TimeoutMS <= 0 {
+			copy.TimeoutMS = 60000
+		}
+		if copy.BatchSize <= 0 {
+			copy.BatchSize = 32
+		}
+		if copy.CandidateLimit <= 0 {
+			copy.CandidateLimit = 64
+		}
+		if copy.RRFK <= 0 {
+			copy.RRFK = 60
+		}
+		if copy.LexicalWeight == 0 {
+			copy.LexicalWeight = 1
+		}
+		if copy.SemanticWeight == 0 {
+			copy.SemanticWeight = 1
+		}
+		config.Retrieval.Embeddings = &copy
 	}
 	if user.Governor != nil {
 		copy := *user.Governor
