@@ -22,6 +22,7 @@ import { WorkflowRuntime, loadWorkflowFile } from './workflow.js';
 import { createCognitiveController, loadCognitiveProfile } from './cognitive-control.js';
 import { GraphGovernor, LLMGraphGovernorCurator } from './graph-governor.js';
 import { embeddingRuntimeConfig } from './embedding-index.js';
+import { SkillRegistry, projectSkillRoot } from './skills.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -97,6 +98,9 @@ try {
       break;
     case 'governor':
       await governorCommand({ repo, workspace, argv: args });
+      break;
+    case 'skills':
+      await skillsCommand({ workspace, argv: args });
       break;
     case 'index': {
       const parsed = parseFlags(args);
@@ -474,6 +478,51 @@ async function parallelCommand({ repo, runtime, workspace, argv }) {
   }
 }
 
+async function skillsCommand({ workspace, argv }) {
+  const parsed = parseFlags(argv);
+  const action = parsed.positionals.shift() ?? 'list';
+  const registry = new SkillRegistry({ projectRoot: projectSkillRoot(workspace) });
+
+  if (action === 'list') {
+    const scope = parsed.positionals[0] ?? 'effective';
+    console.log(JSON.stringify(registry.list(scope), null, 2));
+    return;
+  }
+
+  if (action === 'show') {
+    const [scope, id] = parsed.positionals;
+    if (!scope || !id) fail('Usage: lcx skills show <global|project> <id>');
+    console.log(JSON.stringify({ scope, id, content: registry.content(scope, id) }, null, 2));
+    return;
+  }
+
+  if (action === 'save') {
+    const [scope, id, file] = parsed.positionals;
+    if (!scope || !id || !file) fail('Usage: lcx skills save <global|project> <id> <SKILL.md>');
+    const content = fs.readFileSync(path.resolve(file), 'utf8');
+    console.log(JSON.stringify(registry.save(scope, id, content), null, 2));
+    return;
+  }
+
+  if (action === 'enable' || action === 'disable') {
+    const [scope, id] = parsed.positionals;
+    if (!scope || !id) fail(`Usage: lcx skills ${action} <global|project> <id>`);
+    registry.setEnabled(scope, id, action === 'enable');
+    console.log(JSON.stringify({ scope, id, enabled: action === 'enable' }, null, 2));
+    return;
+  }
+
+  if (action === 'delete') {
+    const [scope, id] = parsed.positionals;
+    if (!scope || !id) fail('Usage: lcx skills delete <global|project> <id>');
+    registry.delete(scope, id);
+    console.log(JSON.stringify({ scope, id, deleted: true }, null, 2));
+    return;
+  }
+
+  fail('Usage: lcx skills <list|show|save|enable|disable|delete> ...');
+}
+
 async function governorCommand({ repo, workspace, argv }) {
   const parsed = parseFlags(argv);
   const action = parsed.positionals.shift() ?? 'analyze';
@@ -676,6 +725,7 @@ async function createHarness({ repo, runtime, workspace, provider, providerName,
   const lsp = new LspManager(workspace, { timeoutMs: Number(parsed.flags['lsp-timeout'] ?? 15000) });
   const mcp = new McpManager(workspace);
   const sessionStore = new AgentSessionStore(repo.dir);
+  const skillRegistry = new SkillRegistry({ projectRoot: projectSkillRoot(workspace) });
   const toolRegistry = createCodingTools({ workspace, repository: repo, runtime, lsp });
 
   if (!parsed.flags['no-mcp']) {
@@ -688,7 +738,7 @@ async function createHarness({ repo, runtime, workspace, provider, providerName,
   }
 
   const pool = new SubagentPool({
-    provider, repository: repo, runtime, workspace, tools: toolRegistry, sessionStore, authorize,
+    provider, repository: repo, runtime, workspace, tools: toolRegistry, sessionStore, skillRegistry, authorize,
     onEvent, concurrency: Number(parsed.flags.concurrency ?? 4)
   });
   registerSubagentTools(toolRegistry, pool);
@@ -701,6 +751,7 @@ async function createHarness({ repo, runtime, workspace, provider, providerName,
     tools: toolRegistry,
     sessionStore,
     cognitiveController,
+    skillRegistry,
     authorize,
     onEvent
   });
@@ -1025,6 +1076,11 @@ Agent commands:
   parallel <tasks.json> [--concurrency 4] [--unsafe-write-parallel]
   sessions [--limit 20]
   governor analyze|storage|compact|plan|apply [--semantic] [--epoch]
+  skills list [effective|global|project]
+  skills show <global|project> <id>
+  skills save <global|project> <id> <SKILL.md>
+  skills enable|disable <global|project> <id>
+  skills delete <global|project> <id>
   workflow validate <file.json>
   workflow status <session-id>
   workflow approve <session-id> <gate-id> [--actor name]
