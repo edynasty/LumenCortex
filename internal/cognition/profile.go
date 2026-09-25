@@ -212,12 +212,6 @@ func LoadConfig(workspace, file string) (Config, error) {
 		if copy.RRFK <= 0 {
 			copy.RRFK = 60
 		}
-		if copy.LexicalWeight == 0 {
-			copy.LexicalWeight = 1
-		}
-		if copy.SemanticWeight == 0 {
-			copy.SemanticWeight = 1
-		}
 		config.Retrieval.Embeddings = &copy
 	}
 	if user.Governor != nil {
