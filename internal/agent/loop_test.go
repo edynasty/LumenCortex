@@ -545,15 +545,17 @@ func containsString(values []string, target string) bool {
 
 
 type chainProvider struct {
-	model string
-	fail  bool
-	calls int
+	model       string
+	fail        bool
+	calls       int
+	lastRequest protocol.ProviderRequest
 }
 
 func (p *chainProvider) Model() string { return p.model }
 
-func (p *chainProvider) Complete(_ context.Context, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+func (p *chainProvider) Complete(_ context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 	p.calls++
+	p.lastRequest = req
 	if p.fail {
 		return protocol.ProviderResponse{}, errors.New("provider unavailable")
 	}
@@ -655,5 +657,86 @@ func TestLoopCategoryProviderChainFailoverAndCircuitSkip(t *testing.T) {
 	}
 	if good.calls != 2 {
 		t.Fatalf("secondary calls=%d", good.calls)
+	}
+}
+
+
+type agentDecisionStub struct{}
+
+func (agentDecisionStub) Name() string  { return "decision-stub" }
+func (agentDecisionStub) Model() string { return "system-one-test" }
+
+func (agentDecisionStub) Decide(context.Context, cognition.DecisionRequest) (cognition.DecisionResult, error) {
+	return cognition.DecisionResult{
+		Source: "decision-stub",
+		Model: "system-one-test",
+		Signals: cognition.Signals{
+			Category: "writing",
+			CategoryConfidence: 0.95,
+			NeedThink: 0.9,
+			HasNeedThink: true,
+			Retrieval: "historical",
+		},
+	}, nil
+}
+
+func TestLoopDecisionLayerControlsCategoryChainAndThinkEffort(t *testing.T) {
+	health := cognition.NewHealthRegistry(cognition.HealthConfig{
+		FailureThreshold: 2,
+		Cooldown: time.Minute,
+	})
+	writer := &chainProvider{model: "writer-model"}
+	fallback := &chainProvider{model: "fallback-model"}
+	store := &memoryStore{
+		state: SessionState{
+			ID: "decision-route",
+			Goal: "update the release notes",
+			Status: "created",
+			Metadata: map[string]any{},
+		},
+		steps: map[int64]any{},
+	}
+	loop := Loop{
+		Provider: fallback,
+		ProviderName: "fallback",
+		ProviderChains: map[string][]ProviderBinding{
+			"writing": {
+				{Name: "writer", Provider: writer},
+			},
+		},
+		ProviderHealth: health,
+		DecisionLayer: &cognition.DecisionLayer{
+			Providers: []cognition.DecisionProvider{agentDecisionStub{}},
+			Health: health,
+		},
+		Store: store,
+		Tools: fakeTools{},
+	}
+	result, err := loop.Run(context.Background(), "decision-route", Options{
+		MaxSteps: 2,
+		CognitionEnabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Final != "done via writer-model" {
+		t.Fatalf("result=%#v", result)
+	}
+	if writer.calls != 1 || fallback.calls != 0 {
+		t.Fatalf("calls writer=%d fallback=%d", writer.calls, fallback.calls)
+	}
+	if writer.lastRequest.ReasoningEffort == "" || writer.lastRequest.ReasoningEffort == "none" {
+		t.Fatalf("reasoning effort=%q", writer.lastRequest.ReasoningEffort)
+	}
+	step, ok := store.steps[1].(stepRecord)
+	if !ok || step.Provider != "writer" || step.Model != "writer-model" {
+		t.Fatalf("step=%#v", store.steps[1])
+	}
+	cognitionMeta, ok := store.state.Metadata["cognition"].(map[string]any)
+	if !ok {
+		t.Fatalf("metadata=%#v", store.state.Metadata)
+	}
+	if _, ok := cognitionMeta["lastDecision"]; !ok {
+		t.Fatalf("lastDecision missing: %#v", cognitionMeta)
 	}
 }
