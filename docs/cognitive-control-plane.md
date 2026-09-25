@@ -2,7 +2,7 @@
 
 This document defines the target architecture for adaptive cognitive-mode routing, configurable model bindings, failure-aware reasoning, and long-horizon Context Graph governance in LumenCortex.
 
-> **Status:** Implemented baseline with remaining scale/parity work. The Node.js reference runtime now implements the Decision Layer, ordered Category model chains, framework-owned Think routing, provider-specific reasoning-effort mapping, Progress Monitor, provider circuit breakers, persistent Work Units, semantic Graph Governor planning, provenance-preserving canonicalization/branch/promotion, reversible Cortex Epochs, and indexed hot/warm/cold storage metadata with safe derived-cache compaction. Live Jev/Laya calibration, physical data-plane tier separation/GC, and Go-runtime parity remain incomplete.
+> **Status:** Implemented baseline with remaining scale/parity work. The Node.js reference runtime now implements the Decision Layer, ordered Category model chains, framework-owned Think routing, provider-specific reasoning-effort mapping, Progress Monitor, provider circuit breakers, persistent Work Units, semantic Graph Governor planning, provenance-preserving canonicalization/branch/promotion, reversible Cortex Epochs, and indexed hot/warm/cold storage metadata with safe derived-cache compaction. Live Jev/Laya calibration and physical data-plane tier separation/GC remain incomplete. The Go runtime now has a control-plane parity baseline for routing, Decision providers, Category chains, Think effort, circuit breakers, persistent Work Units, shared cognition-profile loading, and read-only Graph Governor analysis/planning/validation; Graph Governor mutation/execution remains owned by the Node reference runtime.
 
 Related documents:
 
@@ -854,6 +854,8 @@ Deployments without Jev/Laya or any model-backed DecisionProvider remain valid b
 | Hot/warm/cold graph tiers | Partial: indexed SQLite storage metadata/access telemetry + derived-cache compaction implemented; separate physical stores are not |
 | Global canonicalization | Implemented baseline with alias preservation and `canonicalizes` relation |
 | Cortex Epochs | Implemented baseline and reversible through Cognitive Git |
+| Go control-plane parity | Implemented baseline: Router, System One Decision Layer, Category chains, Think effort, circuit breaker, Work Units, shared profile; Governor Analyze/Plan/Validate is read-only |
+| Go Governor graph mutation/executor | Planned; Node remains the sole mutation authority |
 
 Implemented baseline sequence:
 
@@ -877,7 +879,7 @@ Next control-plane work:
 3. use storage access/recency telemetry in Governor tier recommendations
 4. physical data-plane hot/warm/cold separation only if profiling justifies it
 5. explicit cognitive deletion/retention policy built on Cognitive Git, never raw SQL deletion
-6. Go-runtime parity
+6. Go Graph Governor executor / Cognitive Graph mutation parity after a single shared transaction authority is defined
 ```
 
 The deterministic Algorithm and Attention paths must remain independently usable throughout the migration.
