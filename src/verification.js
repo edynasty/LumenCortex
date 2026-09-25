@@ -1,5 +1,6 @@
 import { CognitiveGraph } from './graph.js';
 import { hash, nowIso } from './util.js';
+import { propagateStaleDependents } from './invalidation.js';
 
 export function auditEvidence(graphState, now = Date.now()) {
   const graph = new CognitiveGraph(graphState);
@@ -19,14 +20,9 @@ export function auditEvidence(graphState, now = Date.now()) {
   }
 
   if (staleEvidence.length) {
-    const staleSet = new Set(staleEvidence);
-    for (const node of Object.values(graph.state.nodes)) {
-      if (!['belief', 'negative', 'abstraction'].includes(node.kind)) continue;
-      if ((node.evidenceIds ?? []).some((id) => staleSet.has(id)) && node.status !== 'stale') {
-        graph.updateNode(node.id, { status: 'stale', metadata: { staleReason: 'evidence-stale' } });
-        dirtiedBeliefs.push(node.id);
-      }
-    }
+    dirtiedBeliefs.push(...propagateStaleDependents(graph, staleEvidence, {
+      reason: 'evidence-stale'
+    }));
   }
 
   return { graph: graph.snapshot(), staleEvidence, dirtiedBeliefs };
@@ -55,19 +51,9 @@ export function refreshEvidence(graphState, evidenceId, observation) {
     }
   });
 
-  const invalidated = [];
-  if (changed) {
-    for (const candidate of Object.values(graph.state.nodes)) {
-      if (!['belief', 'negative', 'abstraction'].includes(candidate.kind)) continue;
-      if ((candidate.evidenceIds ?? []).includes(evidenceId)) {
-        graph.updateNode(candidate.id, {
-          status: 'stale',
-          metadata: { staleReason: 'evidence-content-changed', evidenceId }
-        });
-        invalidated.push(candidate.id);
-      }
-    }
-  }
+  const invalidated = changed
+    ? propagateStaleDependents(graph, [evidenceId], { reason: 'evidence-content-changed' })
+    : [];
   return { graph: graph.snapshot(), changed, invalidated };
 }
 
