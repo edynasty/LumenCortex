@@ -466,3 +466,21 @@ lcx light "why is warehouse acceptance inconsistent?" --mode hybrid --json
 ```
 
 This baseline is not ANN: vectors are persisted incrementally in SQLite and exact cosine-scored. HNSW/IVF or another approximate-nearest-neighbor backend remains a future optimization.
+
+
+### LSP refactoring
+
+Configured language servers can now drive validated workspace refactors rather than only navigation:
+
+```bash
+# preview WorkspaceEdit
+lcx lsp rename src/file.ts 12 8 NewName
+
+# apply only with explicit approval
+lcx lsp rename src/file.ts 12 8 NewName --yes
+
+lcx lsp actions src/file.ts 20 1 20 80
+lcx lsp apply-action src/file.ts 20 1 20 80 0 --yes
+```
+
+Agent tools expose the same edit-backed rename/code-action path. Workspace edits are prevalidated across all files and rolled back on write failure. Command-only code actions and LSP resource operations are not auto-executed.
