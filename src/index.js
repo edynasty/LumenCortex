@@ -21,6 +21,7 @@ export * from './cognitive-control.js';
 export * from './promotion-controller.js';
 
 export * from './search-index.js';
+export * from './embedding-index.js';
 export * from './lsp.js';
 export * from './mcp.js';
 export * from './subagent.js';
