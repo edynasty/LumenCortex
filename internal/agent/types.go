@@ -78,6 +78,8 @@ type stepRecord struct {
 	Step         int64            `json:"step"`
 	FinishReason string           `json:"finishReason,omitempty"`
 	Content      string           `json:"content,omitempty"`
+	Provider     string           `json:"provider,omitempty"`
+	Model        string           `json:"model,omitempty"`
 	ToolCalls    []toolCallRecord `json:"toolCalls,omitempty"`
 	Workflow     any              `json:"workflow,omitempty"`
 	WorkUnit     any              `json:"workUnit,omitempty"`
