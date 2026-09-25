@@ -35,7 +35,13 @@ export class AttentionEngine {
 
   illuminate(goal, options = {}) {
     const cfg = mergeConfig(options);
-    const candidates = scoreSeeds(this.graph, goal, cfg, options.candidateNodeIds);
+    const candidates = scoreSeeds(
+      this.graph,
+      goal,
+      cfg,
+      options.candidateNodeIds,
+      options.candidateSeedScores
+    );
     const explicitSeeds = (options.seedNodeIds ?? [])
       .map((id) => this.graph.nodes[id])
       .filter(Boolean)
@@ -120,7 +126,13 @@ export class AttentionEngine {
 
   illuminateAssociative(goal, options = {}) {
     const cfg = mergeConfig(options);
-    const candidates = scoreSeeds(this.graph, goal, cfg, options.candidateNodeIds);
+    const candidates = scoreSeeds(
+      this.graph,
+      goal,
+      cfg,
+      options.candidateNodeIds,
+      options.candidateSeedScores
+    );
     const explicitSeeds = (options.seedNodeIds ?? [])
       .map((id) => this.graph.nodes[id])
       .filter(Boolean)
@@ -356,7 +368,7 @@ function associativeTransitionWeight(goal, target, link, cfg) {
   return Math.max(0, edgeWeight * directionWeight * reliability * relevance);
 }
 
-function scoreSeeds(graph, goal, cfg, candidateNodeIds) {
+function scoreSeeds(graph, goal, cfg, candidateNodeIds, candidateSeedScores) {
   const source = candidateNodeIds?.length
     ? candidateNodeIds.map((id) => graph.nodes?.[id]).filter(Boolean)
     : Object.values(graph.nodes ?? {});
@@ -367,12 +379,25 @@ function scoreSeeds(graph, goal, cfg, candidateNodeIds) {
     )
     .map((node) => {
       const lexical = lexicalScore(goal, nodeText(node));
+      const external = candidateSeedScore(candidateSeedScores, node.id);
+      const seedRelevance = Math.max(lexical, external);
       const reliability = attentionReliability(node, cfg);
       const kindBoost = node.kind === 'task' ? 1.1 : node.kind === 'abstraction' ? 1.05 : 1;
-      return { node, score: clamp(lexical * reliability * kindBoost, 0, 1), reason: 'lexical-seed' };
+      return {
+        node,
+        score: clamp(seedRelevance * reliability * kindBoost, 0, 1),
+        reason: external > lexical ? 'retrieval-seed' : 'lexical-seed'
+      };
     })
     .filter((x) => x.score >= cfg.minScore)
     .sort((a, b) => b.score - a.score);
+}
+
+function candidateSeedScore(scores, nodeId) {
+  if (!scores) return 0;
+  const raw = scores instanceof Map ? scores.get(nodeId) : scores[nodeId];
+  const value = Number(raw ?? 0);
+  return Number.isFinite(value) ? clamp(value, 0, 1) : 0;
 }
 
 function buildAdjacency(graph) {
