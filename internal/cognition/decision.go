@@ -376,3 +376,45 @@ func topProbability(values map[string]float64) float64 {
 	}
 	return best
 }
+
+
+func DefaultDecisionQuestions() map[string]any {
+	profile := DefaultProfile()
+	criteria := map[string]string{}
+	for name, category := range profile.Categories {
+		description := strings.TrimSpace(category.Description)
+		if description == "" {
+			description = name
+		}
+		criteria[name] = description
+	}
+	return map[string]any{
+		"category": map[string]any{
+			"type": "choice",
+			"instructions": "Which work category best matches the current task state?",
+			"criteria": criteria,
+		},
+		"need_think": map[string]any{
+			"type": "noul",
+			"instructions": "Would deliberate multi-step reasoning materially improve the next decision?",
+		},
+		"evidence_sufficient": map[string]any{
+			"type": "noul",
+			"instructions": "Is the currently selected evidence sufficient for the next action?",
+		},
+		"stuck": map[string]any{
+			"type": "noul",
+			"instructions": "Is the current strategy stuck or repeating without useful progress?",
+		},
+		"retrieval": map[string]any{
+			"type": "choice",
+			"instructions": "Which retrieval direction is most useful next?",
+			"criteria": map[string]string{
+				"lexical": "Exact or lexical lookup is sufficient.",
+				"dependency": "Follow calls, imports, dependencies, and structural relations.",
+				"causal": "Follow causes, derived evidence, effects, and failure chains.",
+				"historical": "Use prior sessions, changes, superseded facts, or temporal history.",
+			},
+		},
+	}
+}
