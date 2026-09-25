@@ -163,6 +163,14 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 			return lcx.AgentOptions{}, fmt.Errorf("read LCX_WORKFLOW %q: %w", path, err)
 		}
 	}
+	var workUnits []byte
+	if path := strings.TrimSpace(os.Getenv("LCX_WORK_UNITS")); path != "" {
+		var err error
+		workUnits, err = os.ReadFile(path)
+		if err != nil {
+			return lcx.AgentOptions{}, fmt.Errorf("read LCX_WORK_UNITS %q: %w", path, err)
+		}
+	}
 	return lcx.AgentOptions{
 		ProviderName: "openai-compatible",
 		Policy: policy,
@@ -171,6 +179,7 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 		RecentMessages: recentMessages,
 		MaxToolCallsPerStep: maxToolCalls,
 		Workflow: workflow,
+		WorkUnits: workUnits,
 		CognitionEnabled: envBool("LCX_COGNITION"),
 	}, nil
 }
