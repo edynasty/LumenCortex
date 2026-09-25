@@ -889,4 +889,29 @@ The deterministic Algorithm and Attention paths must remain independently usable
 
 The cognitive Router may choose `associative` in addition to lexical/dependency/causal/historical directions. The Node Agent does not recursively re-run retrieval after making that decision in the same reasoning step. Instead, it persists a bounded `nextRetrievalMode`; the next Agent turn applies that mode when constructing context. Session resume preserves this field.
 
-`associative` selects bounded Personalized PageRank. `dependency`, `causal`, and `historical` select bounded deterministic weighted-Attention profiles with fixed relation/lifecycle overrides; `lexical` preserves the default weighted path. Unknown labels fall back to `weighted`.
+`associative` selects bounded Personalized PageRank. `dependency`, `causal`, and `historical` select bounded deterministic weighted-Attention profiles with fixed relation/lifecycle overrides; `lexical` preserves the default weighted path. `hybrid` is an optional async path that fuses symbol/FTS and configured embedding exact-cosine ranks through RRF before normal Attention. Unknown labels fall back to `weighted`.
+
+
+### Optional embedding controller configuration
+
+Embedding recall is explicitly opt-in in the shared cognition profile:
+
+```json
+{
+  "retrieval": {
+    "embeddings": {
+      "enabled": true,
+      "provider": "generic",
+      "model": "your-embedding-model",
+      "baseURL": "http://127.0.0.1:11434/v1",
+      "batchSize": 32,
+      "candidateLimit": 64,
+      "rrfK": 60,
+      "lexicalWeight": 1,
+      "semanticWeight": 1
+    }
+  }
+}
+```
+
+The Node runtime consumes this configuration. The Go profile parser accepts the same fields for configuration compatibility, but Go embedding/Hybrid execution is not currently claimed as implemented.
