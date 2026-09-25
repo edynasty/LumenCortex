@@ -602,3 +602,138 @@ test('agent forwards live tool output as tool.output events', async () => {
     ]
   );
 });
+
+
+test('cognitive retrieval policy applies on the next turn and survives resume', async () => {
+  const { root, repository, runtime } = fixture();
+  runtime.contextOptions = [];
+  runtime.context = function context(_focus, options = {}) {
+    this.contextCalls += 1;
+    this.contextOptions.push({ ...options });
+    return {
+      mode: options.retrievalMode ?? 'weighted',
+      selectedNodes: [],
+      selectedEdges: [],
+      usedTokens: 0,
+      budgetTokens: options.budgetTokens ?? 1000
+    };
+  };
+
+  const firstCognition = {
+    async planStep() {
+      return {
+        category: 'general',
+        think: false,
+        effort: 'none',
+        thinkScore: 0.1,
+        retrieval: 'associative',
+        reasons: [],
+        providers: [],
+        decision: { errors: [] },
+        prompt: ''
+      };
+    },
+    observeTool() {}
+  };
+  const firstProvider = {
+    model: 'mock-first',
+    complete: async () => ({
+      message: {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{
+          id: 'next-mode',
+          type: 'function',
+          function: { name: 'echo', arguments: '{}' }
+        }]
+      },
+      finishReason: 'tool_calls'
+    })
+  };
+  const firstTools = new ToolRegistry().register({
+    name: 'echo',
+    permission: 'read',
+    execute: () => 'continue'
+  });
+  const firstAgent = new AgentLoop({
+    provider: firstProvider,
+    repository,
+    runtime,
+    workspace: root,
+    tools: firstTools,
+    cognitiveController: firstCognition
+  });
+
+  let sessionId;
+  await assert.rejects(
+    async () => {
+      try {
+        await firstAgent.run('find indirect graph context', {
+          maxSteps: 1,
+          autoIngest: false,
+          autoPromote: false,
+          recordTask: false,
+          recordObservations: false
+        });
+      } catch (error) {
+        sessionId = error.sessionId;
+        throw error;
+      }
+    },
+    AgentMaxStepsError
+  );
+  assert.ok(sessionId);
+  assert.equal(runtime.contextOptions[0].retrievalMode, 'weighted');
+
+  const stored = new AgentSessionStore(repository.dir).load(sessionId);
+  assert.equal(stored.metadata.cognition.nextRetrievalMode, 'associative');
+  assert.equal(stored.metadata.contextHistory[0].retrievalMode, 'weighted');
+
+  const secondCognition = {
+    async planStep() {
+      return {
+        category: 'general',
+        think: false,
+        effort: 'none',
+        thinkScore: 0.1,
+        retrieval: 'lexical',
+        reasons: [],
+        providers: [],
+        decision: { errors: [] },
+        prompt: ''
+      };
+    }
+  };
+  const secondProvider = {
+    model: 'mock-second',
+    complete: async () => ({
+      message: { role: 'assistant', content: 'done after associative retrieval' },
+      finishReason: 'stop'
+    })
+  };
+  const secondAgent = new AgentLoop({
+    provider: secondProvider,
+    repository,
+    runtime,
+    workspace: root,
+    tools: new ToolRegistry(),
+    cognitiveController: secondCognition
+  });
+  const result = await secondAgent.run('continue', {
+    sessionId,
+    maxSteps: 1,
+    autoIngest: false,
+    autoPromote: false,
+    recordTask: false,
+    recordObservations: false
+  });
+
+  assert.equal(runtime.contextOptions[1].retrievalMode, 'associative');
+  assert.deepEqual(
+    result.session.metadata.contextHistory.map((item) => item.retrievalMode),
+    ['weighted', 'associative']
+  );
+  assert.equal(result.session.metadata.cognition.nextRetrievalMode, 'weighted');
+  assert.equal(result.session.steps[1].cognition.activeRetrievalMode, 'associative');
+  assert.equal(result.session.steps[1].cognition.nextRetrievalMode, 'weighted');
+});
