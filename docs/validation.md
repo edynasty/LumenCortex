@@ -29,7 +29,7 @@ Latest validated core suite:
 - Cognitive control validation: algorithmic DecisionProvider, Jev/Laya-compatible `/v1/systemone` adapter shape, framework Think/effort routing, OpenRouter/Groq/DeepSeek effort mapping, ordered Category model chains, shared circuit breakers, provider-chain failover, failure signatures, and session model-latency telemetry
 - Work Unit validation: dependency-cycle rejection, model/provider/category field rejection, required-evidence/verification completion gates, ordered activation, and Agent premature-final blocking
 - Graph Governor validation: global analyzer candidates, model Curator JSON plans, reproduced-evidence archive protection, semantic plan validation, provenance-preserving canonicalization, branch preservation, global promotion, and reversible Cortex Epoch commits
-- Storage-tier validation: SQLite schema-v2 additive backfill, indexed hot/warm/cold metadata, Attention access telemetry without graph-revision changes, protected evidence GC filtering, and derived-cache-only cold archive compaction
+- Storage-tier validation: SQLite schema-v3 additive backfill, indexed hot/warm/cold metadata, Attention access telemetry without graph-revision changes, protected evidence GC filtering, and derived-cache-only cold archive compaction
 - Go cognitive-control parity validation: shared cognition-profile parsing, Algorithm Router, Jev/Laya-compatible System One HTTP signals, explicit-zero probability handling, ordered Category provider failover, shared circuit breakers, provider-specific reasoning effort, Think token-budget scaling, persistent Work Unit tools/evidence gates, and per-step provider/model traces
 - Go Graph Governor validation: Node-parity Analyzer thresholds/formulas, deterministic safe plan, semantic Curator plan generation, deterministic validator, read-only shared SQLite graph snapshot, and no-mutation assertions
 
@@ -214,3 +214,6 @@ The following are not represented as complete features:
 
 
 - Embedding/Hybrid validation: OpenAI-compatible `/embeddings` wire shape, response-order normalization, persistent SQLite schema v3, content-hash incremental reuse, single-node re-embedding, model dimension protection, exact cosine ranking, deterministic RRF fusion, pure semantic candidate seeding into Attention, unconfigured-provider fallback, shared cognition-profile configuration, Agent next-turn async Hybrid routing, and CLI Hybrid search.
+
+
+- LSP refactoring validation: `textDocument/rename`, `textDocument/codeAction`, optional `codeAction/resolve`, UTF-16 WorkspaceEdit range application, whole-edit prevalidation, multi-file rollback safety, post-write didChange synchronization, Agent write-tool integration, command-only action rejection, and resource-operation rejection.
