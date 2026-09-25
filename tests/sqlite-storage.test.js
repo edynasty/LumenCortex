@@ -30,7 +30,7 @@ test('repository uses a single SQLite database in WAL mode', () => {
     const tables=db.prepare(
       "SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name"
     ).all().map(row=>row.name);
-    for(const name of ['graph_nodes','graph_node_storage','graph_edges','cognitive_commits','cognitive_refs','sessions','session_messages','agent_steps','journal','symbols','node_fts']){
+    for(const name of ['graph_nodes','graph_node_storage','graph_edges','cognitive_commits','cognitive_refs','sessions','session_messages','agent_steps','journal','symbols','node_embeddings','node_fts']){
       assert.ok(tables.includes(name),`missing table ${name}`);
     }
   } finally {
@@ -499,7 +499,7 @@ test('database maintenance status integrity checkpoint and journal are operation
 
   const status=repo.database.status();
   assert.equal(status.journalMode.toLowerCase(),'wal');
-  assert.equal(status.schemaVersion,2);
+  assert.equal(status.schemaVersion,3);
   assert.ok(status.fileSizeBytes>0);
   assert.ok(status.counts.cognitiveCommits>=1);
   assert.equal(status.counts.journal,1);
@@ -652,7 +652,7 @@ test('opening an existing SQLite graph backfills storage metadata additively', (
 
   const reopened=new CognitiveRepository(root);
   try {
-    assert.equal(reopened.database.status().schemaVersion,2);
+    assert.equal(reopened.database.status().schemaVersion,3);
     const check=new DatabaseSync(dbFile);
     try {
       const row=check.prepare(
