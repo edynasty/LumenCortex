@@ -85,3 +85,42 @@ test('attention max-heap preserves stable insertion order for equal-score seeds'
     ['first', 'second']
   );
 });
+
+
+test('associative Light is bounded and respects structural cuts', () => {
+  const graph = new CognitiveGraph();
+  graph.addNode({ id: 'seed', kind: 'entity', title: 'root context', body: 'root context' });
+  graph.addNode({ id: 'a', kind: 'entity', title: 'adjacent context', body: 'adjacent context' });
+  graph.addNode({ id: 'b', kind: 'entity', title: 'indirect association', body: 'indirect association' });
+  graph.addNode({ id: 'c', kind: 'entity', title: 'beyond hop bound', body: 'beyond hop bound' });
+  graph.addEdge({ id: 's-a', from: 'seed', to: 'a', type: 'relates_to', weight: 1 });
+  graph.addEdge({ id: 'a-b', from: 'a', to: 'b', type: 'relates_to', weight: 1 });
+  graph.addEdge({ id: 'b-c', from: 'b', to: 'c', type: 'relates_to', weight: 1 });
+
+  const engine = new AttentionEngine(graph.snapshot());
+  const bounded = engine.illuminateAssociative('root context', {
+    seedNodeIds: ['seed'],
+    candidateNodeIds: ['seed'],
+    maxHops: 2,
+    associativeNodeLimit: 3,
+    budgetTokens: 500,
+    pprIterations: 20
+  });
+  assert.equal(bounded.mode, 'associative');
+  assert.equal(bounded.neighborhoodNodeCount, 3);
+  assert.ok(bounded.selectedNodes.some((node) => node.id === 'b'));
+  assert.equal(bounded.selectedNodes.some((node) => node.id === 'c'), false);
+  assert.ok(bounded.usedTokens <= 500);
+
+  graph.cutEdge('a-b', { reason: 'exclude remote branch' });
+  const cut = new AttentionEngine(graph.snapshot()).illuminateAssociative('root context', {
+    seedNodeIds: ['seed'],
+    candidateNodeIds: ['seed'],
+    maxHops: 3,
+    associativeNodeLimit: 10,
+    budgetTokens: 500,
+    pprIterations: 20
+  });
+  assert.equal(cut.selectedNodes.some((node) => node.id === 'b'), false);
+  assert.equal(cut.selectedNodes.some((node) => node.id === 'c'), false);
+});
