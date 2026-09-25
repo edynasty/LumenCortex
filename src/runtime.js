@@ -33,12 +33,20 @@ export class LumenCortexRuntime {
   context(goal, options = {}) {
     const snapshot = this.repository.graphSnapshot();
     const indexed = this.#candidateIds(goal, options);
-    const result = this.#attentionFor(snapshot).illuminate(goal, {
+    const attention = this.#attentionFor(snapshot);
+    const retrievalMode = normalizeRetrievalMode(options.retrievalMode ?? options.mode);
+    const request = {
       ...options,
       candidateNodeIds: indexed.length ? indexed : options.candidateNodeIds
-    });
+    };
+    const result = retrievalMode === 'associative'
+      ? attention.illuminateAssociative(goal, request)
+      : attention.illuminate(goal, request);
     this.repository.touchNodeAccess?.(result.selectedNodes.map((node) => node.id));
-    return result;
+    return {
+      ...result,
+      mode: result.mode ?? retrievalMode
+    };
   }
 
   contextMulti(goal, options = {}) {
@@ -253,3 +261,10 @@ export function enforceSemanticRules(graphState) {
   return true;
 }
 
+
+
+function normalizeRetrievalMode(value) {
+  const mode = String(value ?? 'weighted').trim().toLowerCase();
+  if (mode === 'associative') return 'associative';
+  return 'weighted';
+}
