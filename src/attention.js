@@ -16,6 +16,11 @@ const DEFAULTS = {
   archivedPenalty: 0.2,
   dormantPenalty: 0.75,
   costPenalty: 0.08,
+  pprRestart: 0.2,
+  pprIterations: 12,
+  pprTolerance: 0.00001,
+  associativeNodeLimit: 512,
+  associativeMinScore: 0.001,
   edgeWeights: DEFAULT_EDGE_WEIGHTS
 };
 
@@ -116,6 +121,165 @@ export class AttentionEngine {
     };
   }
 
+  illuminateAssociative(goal, options = {}) {
+    const cfg = mergeConfig(options);
+    const candidates = scoreSeeds(this.graph, goal, cfg, options.candidateNodeIds);
+    const explicitSeeds = (options.seedNodeIds ?? [])
+      .map((id) => this.graph.nodes[id])
+      .filter(Boolean)
+      .map((node) => ({ node, score: 1, reason: 'explicit-seed' }));
+    const seeds = dedupeSeedEntries([...explicitSeeds, ...candidates]).slice(0, cfg.seedLimit);
+
+    if (!seeds.length) {
+      return {
+        mode: 'associative',
+        goal,
+        budgetTokens: cfg.budgetTokens,
+        usedTokens: 0,
+        selectedNodes: [],
+        selectedEdges: [],
+        omittedNodeIds: [],
+        trace: [],
+        seeds: [],
+        iterations: 0,
+        neighborhoodNodeCount: 0
+      };
+    }
+
+    const neighborhood = collectBoundedNeighborhood(
+      this.graph,
+      this.adjacency,
+      seeds.map((entry) => entry.node.id),
+      cfg.maxHops,
+      cfg.associativeNodeLimit
+    );
+    const nodeIds = [...neighborhood.depth.keys()];
+    const nodeSet = new Set(nodeIds);
+
+    const seedWeights = new Map();
+    let seedTotal = 0;
+    for (const entry of seeds) {
+      if (!nodeSet.has(entry.node.id)) continue;
+      const weight = Math.max(cfg.associativeMinScore, Number(entry.score) || 0);
+      seedWeights.set(entry.node.id, weight);
+      seedTotal += weight;
+    }
+    const seedDistribution = new Map(
+      [...seedWeights.entries()].map(([nodeId, weight]) => [nodeId, weight / seedTotal])
+    );
+
+    let ranks = new Map(seedDistribution);
+    let iterations = 0;
+    for (let iteration = 0; iteration < cfg.pprIterations; iteration += 1) {
+      iterations = iteration + 1;
+      const next = new Map();
+      for (const [nodeId, probability] of seedDistribution) {
+        next.set(nodeId, cfg.pprRestart * probability);
+      }
+
+      for (const nodeId of nodeIds) {
+        const mass = ranks.get(nodeId) ?? 0;
+        if (mass <= 0) continue;
+        const weighted = [];
+        let totalWeight = 0;
+        for (const link of this.adjacency.get(nodeId) ?? []) {
+          if (!nodeSet.has(link.nodeId)) continue;
+          const target = this.graph.nodes[link.nodeId];
+          if (!target) continue;
+          const weight = associativeTransitionWeight(goal, target, link, cfg);
+          if (weight <= 0) continue;
+          weighted.push({ nodeId: link.nodeId, weight });
+          totalWeight += weight;
+        }
+
+        const propagatedMass = (1 - cfg.pprRestart) * mass;
+        if (totalWeight <= 0) {
+          for (const [seedId, probability] of seedDistribution) {
+            next.set(seedId, (next.get(seedId) ?? 0) + propagatedMass * probability);
+          }
+          continue;
+        }
+        for (const item of weighted) {
+          next.set(
+            item.nodeId,
+            (next.get(item.nodeId) ?? 0) + propagatedMass * (item.weight / totalWeight)
+          );
+        }
+      }
+
+      let delta = 0;
+      for (const nodeId of nodeIds) {
+        delta += Math.abs((next.get(nodeId) ?? 0) - (ranks.get(nodeId) ?? 0));
+      }
+      ranks = next;
+      if (delta <= cfg.pprTolerance) break;
+    }
+
+    const ranked = nodeIds
+      .map((nodeId) => {
+        const score = ranks.get(nodeId) ?? 0;
+        const node = this.graph.nodes[nodeId];
+        const tokenCost = estimateNodeTokens(node);
+        const utility = score / (1 + cfg.costPenalty * Math.log2(tokenCost + 1));
+        return {
+          nodeId,
+          score,
+          hop: neighborhood.depth.get(nodeId) ?? 0,
+          parent: null,
+          edge: null,
+          reason: 'associative-ppr',
+          tokenCost,
+          utility,
+          node
+        };
+      })
+      .filter((entry) => entry.score >= cfg.associativeMinScore)
+      .sort((a, b) => b.utility - a.utility || b.score - a.score || a.nodeId.localeCompare(b.nodeId));
+
+    const selected = [];
+    let used = 0;
+    for (const item of ranked) {
+      if (used + item.tokenCost > cfg.budgetTokens) continue;
+      selected.push(item);
+      used += item.tokenCost;
+    }
+
+    const selectedIds = new Set(selected.map((item) => item.nodeId));
+    const edges = Object.values(this.graph.edges ?? {}).filter(
+      (edge) => edgeParticipates(edge) && selectedIds.has(edge.from) && selectedIds.has(edge.to)
+    );
+    const trace = ranked.map(({ nodeId, score, hop, parent, edge, reason }) => ({
+      nodeId,
+      score,
+      hop,
+      parent,
+      edge,
+      reason
+    }));
+
+    return {
+      mode: 'associative',
+      goal,
+      budgetTokens: cfg.budgetTokens,
+      usedTokens: used,
+      selectedNodes: selected.map((item) => ({
+        ...item.node,
+        activation: item.score,
+        tokenCost: item.tokenCost
+      })),
+      selectedEdges: edges,
+      omittedNodeIds: ranked.filter((item) => !selectedIds.has(item.nodeId)).map((item) => item.nodeId),
+      trace,
+      seeds: seeds.map((entry) => ({
+        nodeId: entry.node.id,
+        score: entry.score,
+        reason: entry.reason
+      })),
+      iterations,
+      neighborhoodNodeCount: nodeIds.length
+    };
+  }
+
   illuminateMulti(goal, options = {}) {
     const exploit = this.illuminate(goal, options);
     const exploitIds = new Set(exploit.selectedNodes.map((n) => n.id));
@@ -167,6 +331,38 @@ export class AttentionEngine {
       })
     };
   }
+}
+
+function collectBoundedNeighborhood(graph, adjacency, seedNodeIds, maxHops, nodeLimit) {
+  const depth = new Map();
+  const queue = [];
+  for (const nodeId of seedNodeIds) {
+    if (!graph.nodes?.[nodeId] || depth.has(nodeId) || depth.size >= nodeLimit) continue;
+    depth.set(nodeId, 0);
+    queue.push(nodeId);
+  }
+
+  let index = 0;
+  while (index < queue.length && depth.size < nodeLimit) {
+    const nodeId = queue[index++];
+    const currentDepth = depth.get(nodeId) ?? 0;
+    if (currentDepth >= maxHops) continue;
+    for (const link of adjacency.get(nodeId) ?? []) {
+      if (depth.has(link.nodeId) || !graph.nodes?.[link.nodeId]) continue;
+      depth.set(link.nodeId, currentDepth + 1);
+      queue.push(link.nodeId);
+      if (depth.size >= nodeLimit) break;
+    }
+  }
+  return { depth };
+}
+
+function associativeTransitionWeight(goal, target, link, cfg) {
+  const edgeWeight = cfg.edgeWeights[link.edge.type] ?? 0.35;
+  const directionWeight = link.direction === 'out' ? 1 : cfg.incomingPenalty;
+  const reliability = attentionReliability(target, cfg);
+  const relevance = 0.5 + 0.5 * lexicalScore(goal, nodeText(target));
+  return Math.max(0, edgeWeight * directionWeight * reliability * relevance);
 }
 
 function scoreSeeds(graph, goal, cfg, candidateNodeIds) {
