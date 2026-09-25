@@ -51,6 +51,73 @@ export class LspManager {
     }
   }
 
+  async rename(file, line, character, newName) {
+    if (!String(newName ?? '').trim()) throw new Error('LSP rename requires a non-empty new name');
+    return this.#requestFor(
+      file,
+      'textDocument/rename',
+      {
+        ...positionParams(path.resolve(this.workspace, file), line, character),
+        newName: String(newName)
+      }
+    );
+  }
+
+  async codeActions(file, startLine, startCharacter, endLine = startLine, endCharacter = startCharacter, options = {}) {
+    const absolute = resolveInside(this.workspace, file);
+    const client = await this.#clientFor(absolute);
+    await client.openDocument(absolute);
+    const diagnostics = options.diagnostics ?? [];
+    return await client.request('textDocument/codeAction', {
+      textDocument: { uri: pathToFileURL(absolute).href },
+      range: {
+        start: lspPosition(startLine, startCharacter),
+        end: lspPosition(endLine, endCharacter)
+      },
+      context: {
+        diagnostics,
+        ...(options.only?.length ? { only: options.only } : {})
+      }
+    }) ?? [];
+  }
+
+  async resolveCodeAction(file, action) {
+    if (!action || typeof action !== 'object') throw new Error('LSP code action is required');
+    if (action.edit) return action;
+    const absolute = resolveInside(this.workspace, file);
+    const client = await this.#clientFor(absolute);
+    await client.openDocument(absolute);
+    return client.request('codeAction/resolve', action);
+  }
+
+  async applyWorkspaceEdit(edit) {
+    const result = applyLspWorkspaceEdit(this.workspace, edit);
+    for (const changed of result.files) {
+      const absolute = resolveInside(this.workspace, changed.path);
+      const server = resolveServer(this.config, absolute);
+      const client = server ? this.clients.get(server.name) : null;
+      if (client) await client.updateDocument(absolute);
+    }
+    return result;
+  }
+
+  async applyCodeAction(file, action) {
+    const resolved = await this.resolveCodeAction(file, action);
+    if (!resolved?.edit) {
+      if (resolved?.command) {
+        throw new Error('LSP command-only code actions are not auto-executed; only WorkspaceEdit actions are supported');
+      }
+      throw new Error('LSP code action did not provide a WorkspaceEdit');
+    }
+    return {
+      action: {
+        title: resolved.title ?? action.title ?? '',
+        kind: resolved.kind ?? action.kind ?? null
+      },
+      ...(await this.applyWorkspaceEdit(resolved.edit))
+    };
+  }
+
   status() {
     return Object.entries(this.config.servers ?? {}).map(([name, value]) => ({
       name,
@@ -103,6 +170,7 @@ export class LspClient {
     this.timeoutMs = timeoutMs;
     this.rpc = null;
     this.opened = new Set();
+    this.versions = new Map();
     this.diagnostics = new Map();
   }
 
@@ -133,7 +201,17 @@ export class LspClient {
           hover: {},
           documentSymbol: {},
           publishDiagnostics: {},
-          diagnostic: {}
+          diagnostic: {},
+          rename: { prepareSupport: false },
+          codeAction: {
+            resolveSupport: { properties: ['edit'] }
+          }
+        },
+        workspace: {
+          applyEdit: true,
+          workspaceEdit: {
+            documentChanges: true
+          }
         }
       }
     });
@@ -158,6 +236,19 @@ export class LspClient {
       }
     });
     this.opened.add(uri);
+    this.versions.set(uri, 1);
+  }
+
+  async updateDocument(file) {
+    const uri = pathToFileURL(file).href;
+    if (!this.opened.has(uri)) return;
+    const version = Number(this.versions.get(uri) ?? 1) + 1;
+    const text = fs.readFileSync(file, 'utf8');
+    this.rpc.notify('textDocument/didChange', {
+      textDocument: { uri, version },
+      contentChanges: [{ text }]
+    });
+    this.versions.set(uri, version);
   }
 
   async close() {
@@ -344,6 +435,135 @@ function languageId(file) {
     '.mjs': 'javascript', '.cjs': 'javascript',
     '.py': 'python', '.go': 'go', '.rs': 'rust'
   })[ext] ?? (ext.slice(1) || 'plaintext');
+}
+
+export function applyLspWorkspaceEdit(workspace, edit) {
+  const root = path.resolve(workspace);
+  const grouped = normalizeWorkspaceEdit(root, edit);
+  const plans = [];
+
+  for (const [file, edits] of grouped) {
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+      throw new Error(`LSP WorkspaceEdit target not found: ${normalizeWorkspacePath(root, file)}`);
+    }
+    const original = fs.readFileSync(file, 'utf8');
+    const ranged = edits.map((entry, index) => {
+      if (!entry?.range || typeof entry.newText !== 'string') {
+        throw new Error(`Unsupported LSP text edit at ${normalizeWorkspacePath(root, file)}#${index + 1}`);
+      }
+      return {
+        index,
+        start: lspOffset(original, entry.range.start),
+        end: lspOffset(original, entry.range.end),
+        newText: entry.newText
+      };
+    }).sort((a, b) => a.start - b.start || a.end - b.end || a.index - b.index);
+
+    for (let index = 1; index < ranged.length; index += 1) {
+      const previous = ranged[index - 1];
+      const current = ranged[index];
+      if (current.start < previous.end) {
+        throw new Error(`Overlapping LSP edits are not supported: ${normalizeWorkspacePath(root, file)}`);
+      }
+    }
+
+    let next = original;
+    for (const item of [...ranged].sort((a, b) => b.start - a.start || b.end - a.end || b.index - a.index)) {
+      next = `${next.slice(0, item.start)}${item.newText}${next.slice(item.end)}`;
+    }
+    plans.push({
+      file,
+      path: normalizeWorkspacePath(root, file),
+      original,
+      next,
+      edits: ranged.length
+    });
+  }
+
+  const applied = [];
+  try {
+    for (const plan of plans) {
+      fs.writeFileSync(plan.file, plan.next, 'utf8');
+      applied.push(plan);
+    }
+  } catch (error) {
+    for (const plan of applied.reverse()) {
+      try { fs.writeFileSync(plan.file, plan.original, 'utf8'); } catch {}
+    }
+    throw error;
+  }
+
+  return {
+    applied: true,
+    editCount: plans.reduce((sum, plan) => sum + plan.edits, 0),
+    files: plans.map((plan) => ({
+      path: plan.path,
+      edits: plan.edits,
+      bytes: Buffer.byteLength(plan.next)
+    }))
+  };
+}
+
+export function normalizeWorkspaceEdit(workspace, edit) {
+  if (!edit || typeof edit !== 'object') throw new Error('LSP WorkspaceEdit is required');
+  const root = path.resolve(workspace);
+  const grouped = new Map();
+  const add = (uri, edits) => {
+    if (!uri?.startsWith('file:')) throw new Error(`Unsupported LSP WorkspaceEdit URI: ${uri ?? '(missing)'}`);
+    const file = fileURLToPath(uri);
+    resolveInside(root, file);
+    const list = grouped.get(file) ?? [];
+    list.push(...(edits ?? []));
+    grouped.set(file, list);
+  };
+
+  for (const [uri, edits] of Object.entries(edit.changes ?? {})) add(uri, edits);
+
+  for (const change of edit.documentChanges ?? []) {
+    if (change?.textDocument?.uri && Array.isArray(change.edits)) {
+      add(change.textDocument.uri, change.edits);
+      continue;
+    }
+    const kind = change?.kind ?? 'resource-operation';
+    throw new Error(`Unsupported LSP WorkspaceEdit resource operation: ${kind}`);
+  }
+
+  return grouped;
+}
+
+function lspOffset(text, position) {
+  const line = Math.max(0, Number(position?.line ?? 0));
+  const character = Math.max(0, Number(position?.character ?? 0));
+  let lineStart = 0;
+  let currentLine = 0;
+
+  while (currentLine < line) {
+    const newline = text.indexOf('\n', lineStart);
+    if (newline < 0) throw new Error(`LSP position line out of range: ${line}`);
+    lineStart = newline + 1;
+    currentLine += 1;
+  }
+
+  let lineEnd = text.indexOf('\n', lineStart);
+  if (lineEnd < 0) lineEnd = text.length;
+  let contentEnd = lineEnd;
+  if (contentEnd > lineStart && text[contentEnd - 1] === '\r') contentEnd -= 1;
+  const length = contentEnd - lineStart;
+  if (character > length) {
+    throw new Error(`LSP position character out of range: ${character} > ${length}`);
+  }
+  return lineStart + character;
+}
+
+function lspPosition(line, character) {
+  return {
+    line: Math.max(0, Number(line) - 1),
+    character: Math.max(0, Number(character) - 1)
+  };
+}
+
+function normalizeWorkspacePath(root, file) {
+  return path.relative(root, file).split(path.sep).join('/');
 }
 
 function resolveInside(root, input) {
