@@ -29,5 +29,6 @@ export * from './parallel.js';
 export * from './tui.js';
 
 export * from './graph-governor.js';
+export * from './governor-scheduler.js';
 
 export * from './work-unit.js';
