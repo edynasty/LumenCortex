@@ -417,7 +417,7 @@ Core documents:
 
 Implemented in the reference runtime and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions, plus the cognitive-control baseline (Decision Layer, ordered Category chains, provider-specific dynamic Think effort, circuit breakers, Progress Monitor, persistent Work Units, model telemetry, per-step cognitive traces) and the Graph Governor baseline (Analyzer, optional semantic Curator, validator, branch/promotion/canonicalization executor, reversible Cortex Epochs, indexed storage tiers, and safe derived-cache compaction).
 
-Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, live Jev/Laya validation/calibration and routing benchmarks, autonomous Governor scheduling, separate physical hot/warm/cold node stores or destructive cognitive GC, reusable Skills, vision/browser tooling, and Go-runtime parity for the new control plane.
+Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, live Jev/Laya validation/calibration and routing benchmarks, autonomous Governor scheduling, separate physical hot/warm/cold node stores or destructive cognitive GC, reusable Skills, vision/browser tooling, and Go Graph Governor mutation/executor parity. The Go runtime already has a control-plane baseline for System One decisions, Category chains, dynamic Think effort, circuit breakers, Work Units, shared cognition profiles, and read-only Governor Analyze/Plan/Validate over the shared SQLite graph.
 
 ## Current engineering direction
 
@@ -434,3 +434,21 @@ MIT
 - `--provider openrouter-deepseek-free` defaults to `deepseek/deepseek-v4-flash-0731:free`, the zero-token-price OpenRouter V4 Flash 0731 route.
 - The OpenRouter free route still requires an `OPENROUTER_API_KEY` for authentication even though prompt/completion token price is zero.
 
+
+
+### Go cognitive-control preview
+
+The Go runtime can consume the same `.lumencortex/cognition.json` used by the Node reference runtime. When `LCX_COGNITION=true`, `LCX_COGNITION_PROFILE` is set, or a workspace profile exists, it enables the algorithmic Router, optional Jev/Laya-compatible Decision Layer, ordered Category provider chains, provider health circuits, dynamic Think effort, and persistent Work Units.
+
+```bash
+LCX_MODEL=your-fallback-model \
+LCX_BASE_URL=http://127.0.0.1:11434/v1 \
+LCX_COGNITION=true \
+lcx-go agent "debug the transaction path"
+
+lcx-go governor analyze
+lcx-go governor plan
+lcx-go governor validate plan.json
+```
+
+The Go Governor commands are intentionally read-only. Durable Graph Governor mutation/apply and Cortex Epoch execution remain owned by the Node reference runtime so the project does not create two competing Cognitive Graph transaction authorities.
