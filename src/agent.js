@@ -128,7 +128,8 @@ export class AgentLoop {
         : baseFocus;
       const focus = workflow ? `${workUnitFocus}\nworkflow-action:${workflow.actionId()}` : workUnitFocus;
       const seedNodeIds = session.metadata.recentObservationNodeIds.slice(-8);
-      let context = this.runtime.context(focus, { budgetTokens, seedNodeIds });
+      const retrievalMode = normalizeAgentRetrievalMode(session.metadata.cognition.nextRetrievalMode);
+      let context = this.runtime.context(focus, { budgetTokens, seedNodeIds, retrievalMode });
       updateActivationCounts(session, context);
       const promotionResult = options.autoPromote === false
         ? { promoted: false }
@@ -144,7 +145,8 @@ export class AgentLoop {
       if (promotion) {
         context = this.runtime.context(focus, {
           budgetTokens,
-          seedNodeIds: [promotion.id, ...seedNodeIds]
+          seedNodeIds: [promotion.id, ...seedNodeIds],
+          retrievalMode
         });
         const record = {
           abstractionId: promotion.id,
@@ -170,6 +172,7 @@ export class AgentLoop {
         nodeIds: context.selectedNodes.map((node) => node.id),
         usedTokens: context.usedTokens,
         budgetTokens: context.budgetTokens,
+        retrievalMode: context.mode ?? retrievalMode,
         promotionId: promotion?.id ?? null
       });
 
@@ -208,6 +211,7 @@ export class AgentLoop {
             signal: options.signal
           });
           if (cognitivePlan.providers?.length) providerCandidates = cognitivePlan.providers;
+          session.metadata.cognition.nextRetrievalMode = normalizeAgentRetrievalMode(cognitivePlan.retrieval);
           this.emit('cognition.route', {
             sessionId: session.id,
             step,
@@ -216,6 +220,8 @@ export class AgentLoop {
             effort: cognitivePlan.effort,
             thinkScore: cognitivePlan.thinkScore,
             retrieval: cognitivePlan.retrieval,
+            activeRetrievalMode: context.mode ?? retrievalMode,
+            nextRetrievalMode: normalizeAgentRetrievalMode(cognitivePlan.retrieval),
             reasons: cognitivePlan.reasons,
             models: providerCandidates.map((item) => item.provider?.model ?? item.descriptor?.model ?? null),
             decisionErrors: cognitivePlan.decision?.errors ?? []
@@ -404,6 +410,8 @@ export class AgentLoop {
           effort: cognitivePlan.effort,
           thinkScore: cognitivePlan.thinkScore,
           retrieval: cognitivePlan.retrieval,
+          activeRetrievalMode: context.mode ?? retrievalMode,
+          nextRetrievalMode: session.metadata.cognition.nextRetrievalMode ?? 'weighted',
           model: activeProvider.model
         } : null
       };
@@ -822,6 +830,12 @@ function deriveFocus(session, fallbackGoal, step) {
     })
   );
   return [goal, `current-step:${step}`, ...recent].filter(Boolean).join('\n');
+}
+
+function normalizeAgentRetrievalMode(value) {
+  return String(value ?? '').trim().toLowerCase() === 'associative'
+    ? 'associative'
+    : 'weighted';
 }
 
 function normalizeSessionMetadata(session, defaults) {
