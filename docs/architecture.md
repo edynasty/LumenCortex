@@ -255,7 +255,7 @@ All providers use the same tool-calling Agent Loop.
 | Persistent Context Graph | Implemented |
 | Evidence / Belief separation | Implemented |
 | Trust zones / evidence grades | Implemented |
-| Source-change invalidation | Implemented |
+| Source-change invalidation | Implemented (transitive over explicit dependency relations) |
 | Attention propagation + budget | Implemented |
 | Multi-light policies | Implemented |
 | Light recomputed every agent step | Implemented |
@@ -285,7 +285,7 @@ All providers use the same tool-calling Agent Loop.
 | Incremental dirty-node FTS/symbol updates | Implemented |
 | Optimistic graph revision conflict detection | Implemented |
 | Shared harness SessionStore lifecycle | Implemented |
-| Cached adjacency | Planned |
+| Cached adjacency | Implemented (Runtime caches AttentionEngine/adjacency by graph revision) |
 | LSP semantic tooling | Implemented (stdio JSON-RPC; Java/TS/Python defaults + custom config) |
 | Graph canonicalization / GC / hot-warm-cold storage | Partial: canonicalization + indexed storage tiers + safe derived-cache compaction implemented; physical tier separation/cognitive deletion not implemented |
 | Temporal valid_from/valid_to graph | Partial |
