@@ -312,3 +312,53 @@ test('embedding Runtime config is opt-in and requires an explicit model', () => 
     /explicit model/
   );
 });
+
+
+test('Runtime rebuilds a model embedding cache once when query dimension drifts', async () => {
+  const { repo } = tempRepo('lcx-embedding-drift-');
+  const graph = repo.graph();
+  graph.addNode({
+    id: 'inventory',
+    kind: 'evidence',
+    title: 'Inventory coordinator',
+    body: 'reserve available units',
+    grade: 'static',
+    trustZone: 'repo_trusted'
+  });
+  repo.writeGraph(graph.snapshot());
+
+  const provider = {
+    model: 'mutable-embedding-model',
+    dimension: 2,
+    calls: [],
+    async embed(input) {
+      const values = Array.isArray(input) ? input : [input];
+      this.calls.push({ dimension: this.dimension, size: values.length });
+      return values.map(() =>
+        this.dimension === 2 ? [1, 0] : [1, 0, 0]
+      );
+    }
+  };
+  const runtime = new LumenCortexRuntime(repo, {
+    embeddingProvider: provider,
+    embeddingModel: provider.model
+  });
+
+  await runtime.refreshEmbeddingIndex();
+  assert.equal(runtime.embeddingIndex.stats().minDimension, 2);
+  assert.equal(runtime.embeddingIndex.stats().maxDimension, 2);
+
+  provider.dimension = 3;
+  const hits = await runtime.semanticSearch('warehouse contention', { limit: 3 });
+
+  assert.equal(hits[0].nodeId, 'inventory');
+  assert.equal(runtime.embeddingIndex.stats().minDimension, 3);
+  assert.equal(runtime.embeddingIndex.stats().maxDimension, 3);
+  assert.deepEqual(
+    provider.calls.map((call) => [call.dimension, call.size]),
+    [[2, 1], [3, 1], [3, 1], [3, 1]]
+  );
+
+  runtime.close();
+  repo.close();
+});
