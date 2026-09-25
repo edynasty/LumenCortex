@@ -179,14 +179,14 @@ Implemented architecture should not be confused with future target architecture.
 
 Not yet represented as complete:
 
-- transactional real Git worktree isolation,
-- whole-run rollback after arbitrary shell mutations,
-- embeddings/vector retrieval,
-- reusable Skills,
+- mandatory real Git worktree isolation for every Agent run; Go supports explicit session worktrees and safe handoff/apply,
+- whole-run rollback after arbitrary local-session shell mutations,
+- ANN/vector-index acceleration; Node already has an optional exact-cosine + RRF Hybrid embedding baseline,
+- Node Skills parity; Go already has layered reusable Skills injected into Agent prompts,
 - vision/browser tooling,
 - automatic graph GC/hot-warm-cold tiers,
 - full editor-grade TUI UX,
-- adaptive cognitive control plane (Decision Layer, framework-owned Think routing, ordered Category model chains),
-- Graph Governor for global pruning/branching/promotion/canonicalization and Cortex epochs.
+- production-calibrated adaptive cognitive control; Decision Layer, framework-owned Think routing, ordered Category model chains, and circuit-breaker baselines are implemented,
+- autonomous Graph Governor scheduling and policy calibration; analyzer/curator/validator/epoch baselines are implemented.
 
 Use [Standalone readiness](standalone-readiness.md) for the current evidence gate.
