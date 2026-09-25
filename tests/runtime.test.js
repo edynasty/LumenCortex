@@ -91,3 +91,63 @@ test('runtime rolls back invalid model-inferred evidence', async () => {
   );
   assert.deepEqual(repo.graph().snapshot(), before);
 });
+
+
+test('runtime caches Attention adjacency for the same graph revision and invalidates on mutation', () => {
+  const repo = runtimeRepo();
+  let graph = repo.graph();
+  graph.addNode({
+    id: 'a',
+    kind: 'entity',
+    title: 'critical inventory seed',
+    body: 'critical inventory seed'
+  });
+  repo.writeGraph(graph.snapshot());
+
+  const runtime = new LumenCortexRuntime(repo);
+  const first = runtime.context('critical inventory seed', {
+    seedNodeIds: ['a'],
+    budgetTokens: 500,
+    maxHops: 2
+  });
+  assert.ok(first.selectedNodes.some((node) => node.id === 'a'));
+  assert.deepEqual(runtime.attentionCacheStats(), {
+    cached: true,
+    revision: repo.graphRevision(),
+    builds: 1
+  });
+
+  runtime.context('critical inventory seed', {
+    seedNodeIds: ['a'],
+    budgetTokens: 500,
+    maxHops: 2
+  });
+  assert.equal(runtime.attentionCacheStats().builds, 1);
+
+  graph = repo.graph();
+  graph.addNode({
+    id: 'b',
+    kind: 'entity',
+    title: 'downstream inventory lock',
+    body: 'downstream inventory lock'
+  });
+  graph.addEdge({
+    id: 'a-b',
+    from: 'a',
+    to: 'b',
+    type: 'causes',
+    weight: 1
+  });
+  repo.writeGraph(graph.snapshot());
+
+  const afterMutation = runtime.context('critical inventory seed', {
+    seedNodeIds: ['a'],
+    budgetTokens: 500,
+    maxHops: 2
+  });
+  assert.equal(runtime.attentionCacheStats().builds, 2);
+  assert.equal(runtime.attentionCacheStats().revision, repo.graphRevision());
+  assert.ok(afterMutation.selectedNodes.some((node) => node.id === 'b'));
+
+  runtime.close();
+});
