@@ -207,3 +207,7 @@ The following are not represented as complete features:
 
 
 - Associative Light validation: bounded Personalized PageRank neighborhood, structural-cut enforcement, hop/node/token limits, explicit Runtime mode, default weighted-mode preservation, and next-turn cognitive retrieval policy persistence across Agent resume.
+
+
+- Retrieval-profile validation: default weighted/lexical equivalence, dependency and causal relation weighting, historical archived-seed access, unknown-mode fallback, and next-turn profile persistence.
+- Context-diversity validation: default greedy preservation, optional bounded MMR replacement of redundant nodes, shared weighted/PPR selector behavior, token-budget enforcement, and invalid-parameter fallback.
