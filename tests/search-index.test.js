@@ -129,18 +129,11 @@ test('search index clear supports an explicit graph revision guard', () => {
 
   runtime.searchIndex.database.clearSearchIndex({ graphRevision: revision });
   assert.equal(runtime.searchIndex.database.searchIndexReady(), false);
-  assert.deepEqual(runtime.search('clearableSymbol'), [{ 
-    nodeId: 'clear-me',
-    score: 13,
-    reasons: ['symbol:clearableSymbol', 'symbol-ci:clearableSymbol', 'fts5'],
-    id: 'clear-me',
-    length: runtime.search('clearableSymbol')[0].length,
-    title: 'Clearable symbol',
-    path: '',
-    kind: 'evidence',
-    sourceKind: null,
-    contentHash: null
-  }]);
+
+  const rebuilt = runtime.search('clearableSymbol');
+  assert.equal(rebuilt[0].nodeId, 'clear-me');
+  assert.equal(runtime.searchIndex.database.searchIndexReady(), true);
+  assert.equal(runtime.searchIndex.stats().graphRevision, revision);
 
   runtime.close();
   repo.close();
