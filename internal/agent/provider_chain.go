@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edynasty/LumenCortex/internal/cognition"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -86,7 +85,9 @@ func (l *Loop) completeWithProviderChain(
 		response, err := binding.Provider.Complete(ctx, req)
 		elapsed := time.Since(started)
 		if err == nil {
-			l.ProviderHealth?.Success(providerHealthKey(binding))
+			if l.ProviderHealth != nil {
+				l.ProviderHealth.Success(providerHealthKey(binding))
+			}
 			l.emit("llm.complete", sessionID, map[string]any{
 				"step": step,
 				"category": category,
@@ -107,7 +108,9 @@ func (l *Loop) completeWithProviderChain(
 		if ctx.Err() != nil {
 			return providerAttempt{}, ctx.Err()
 		}
-		l.ProviderHealth?.Failure(providerHealthKey(binding), err)
+		if l.ProviderHealth != nil {
+			l.ProviderHealth.Failure(providerHealthKey(binding), err)
+		}
 		next := ""
 		nextModel := ""
 		if index+1 < len(candidates) {
