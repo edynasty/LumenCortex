@@ -456,6 +456,55 @@ runtime.context(goal, { retrievalMode: 'associative' })
 
 Without that mode, `runtime.context()` remains weighted propagation. The cognitive Decision Layer exposes `associative` as a routing choice; Agent Loop applies a selected retrieval policy on the next reasoning turn rather than re-running retrieval inside the same turn.
 
+### 8.2 Optional MMR diversity selection
+
+Both weighted and associative Light share the same final token-budget selector. The default remains the existing greedy utility order:
+
+```text
+diversityLambda = 1.0
+```
+
+When a caller explicitly sets `diversityLambda < 1`, the first `diversityCandidateLimit` ranked candidates (default `256`) are selected iteratively with a Maximal Marginal Relevance-style score:
+
+```text
+relevance_i = utility_i / maxUtility
+
+redundancy_i =
+    max lexicalScore(node_i, selected_node_j)
+
+MMR_i =
+    lambda * relevance_i
+    - (1 - lambda) * redundancy_i
+```
+
+The highest MMR candidate that still fits the remaining token budget is selected next. Ties fall back to the original utility/activation/id ordering. Candidates outside the bounded diversity pool fall back to normal greedy filling.
+
+This uses the existing deterministic token-vector lexical similarity; it is not an embedding-based semantic diversity metric.
+
+### 8.3 Deterministic retrieval profiles
+
+The Runtime recognizes these retrieval modes:
+
+| Mode | Execution | Deterministic profile |
+|---|---|---|
+| `weighted` | weighted Attention | existing default behavior |
+| `lexical` | weighted Attention | same propagation defaults; label preserves Router intent |
+| `dependency` | weighted Attention | `maxHops=5`; emphasizes `depends_on=1.0`, `calls=0.95`, `abstracts=0.85`, `derived_from=0.80`; reduces `relates_to=0.25` |
+| `causal` | weighted Attention | `maxHops=5`; emphasizes `causes=1.0`, `affects=0.95`, `derived_from=0.95`, `depends_on=0.90`; reduces `relates_to=0.25` |
+| `historical` | weighted Attention | `maxHops=5`; emphasizes `supersedes=1.0`, `invalidates=0.95`, `derived_from=0.90`, `contradicts=0.80`; permits archived seeds with bounded lifecycle penalties |
+| `associative` | bounded PPR Light | personalized restart diffusion described above |
+
+For historical mode:
+
+```text
+includeArchivedSeeds = true
+archivedPenalty = 0.55
+stalePenalty = 0.70
+dormantPenalty = 0.85
+```
+
+Explicit caller options override profile defaults. Unknown retrieval modes fail soft to `weighted`.
+
 ## 9. Multi-Light policies
 
 `illuminateMulti()` produces four related views.
@@ -649,6 +698,7 @@ Lexical token cosine          IMPLEMENTED
 Weighted graph propagation    IMPLEMENTED
 Multi-Light policies          IMPLEMENTED
 Token-budget ranking          IMPLEMENTED
+Optional MMR diversity        IMPLEMENTED
 
 Embedding retrieval           PLANNED / OPTIONAL
 Personalized PageRank         IMPLEMENTED / OPTIONAL ASSOCIATIVE LIGHT
