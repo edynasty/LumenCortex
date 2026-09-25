@@ -14,6 +14,8 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
+type ProviderBinding = agent.ProviderBinding
+
 type AgentOptions struct {
 	ProviderName        string          `json:"providerName,omitempty"`
 	Policy              string          `json:"policy,omitempty"`
@@ -28,6 +30,7 @@ type AgentOptions struct {
 	MaxTokens           int             `json:"maxTokens,omitempty"`
 	Temperature         *float64        `json:"temperature,omitempty"`
 	CognitionEnabled    bool            `json:"cognitionEnabled,omitempty"`
+	CategoryProviders   map[string][]ProviderBinding `json:"-"`
 
 	subagents        toolset.SubagentController
 	parentSessionID  string
@@ -112,6 +115,9 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 
 	loop := agent.Loop{
 		Provider: provider,
+		ProviderName: opts.ProviderName,
+		ProviderChains: opts.CategoryProviders,
+		ProviderHealth: e.cognitionHealth,
 		Store:    agentStore{store: e.store},
 		Tools:    tools,
 		Emit: func(event agent.Event) {
