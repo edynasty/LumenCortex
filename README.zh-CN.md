@@ -388,7 +388,7 @@ Node.js 目前仍是生产 `lcx` 主路径；Go runtime 正在按 bounded-memory
 - Governor 自动调度与更高层 split/merge policy
 - 独立物理 hot/warm/cold node store 或破坏性 cognitive GC
 - Jev/Laya live validation、校准与 routing benchmark
-- 新控制面的 Go runtime parity
+- Go Graph Governor mutation/executor parity；Go 控制面 baseline 已覆盖 Decision Layer、Category chain、Think effort、circuit breaker、Work Unit、共享 cognition profile 与只读 Governor Analyze/Plan/Validate
 - reusable Skills
 - vision/browser tooling
 - 新认知控制面对 Go runtime 的完整 parity
@@ -409,3 +409,21 @@ Node.js 目前仍是生产 `lcx` 主路径；Go runtime 正在按 bounded-memory
 ## License
 
 MIT
+
+
+### Go 认知控制预览
+
+Go runtime 现在可以直接读取与 Node reference runtime 相同的 `.lumencortex/cognition.json`。当设置 `LCX_COGNITION=true`、`LCX_COGNITION_PROFILE`，或 workspace 已存在 cognition profile 时，会启用 Algorithm Router、可选 Jev/Laya-compatible Decision Layer、Category 模型链、provider circuit breaker、动态 Think effort 和 Persistent Work Units。
+
+```bash
+LCX_MODEL=your-fallback-model \
+LCX_BASE_URL=http://127.0.0.1:11434/v1 \
+LCX_COGNITION=true \
+lcx-go agent "debug the transaction path"
+
+lcx-go governor analyze
+lcx-go governor plan
+lcx-go governor validate plan.json
+```
+
+Go Governor 当前刻意保持只读。持久化 Graph Governor mutation/apply 与 Cortex Epoch 执行仍由 Node reference runtime 负责，避免出现两套 Cognitive Graph 写事务 authority。
