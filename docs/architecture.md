@@ -294,13 +294,15 @@ All providers use the same tool-calling Agent Loop.
 | Graph canonicalization / GC / hot-warm-cold storage | Partial: canonicalization + indexed storage tiers + safe derived-cache compaction implemented; physical tier separation/cognitive deletion not implemented |
 | Temporal valid_from/valid_to graph | Partial |
 | Negative-evidence lifecycle | Partial |
-| Cognitive branch <-> real Git worktree binding | Planned |
-| Transactional rollback of workspace file edits | Planned |
+| Go session <-> real Git worktree isolation | Implemented baseline: explicit attach, Agent/shell/LSP workspace routing, conflict detection, handoff/apply, removal |
+| Cognitive branch <-> real Git worktree binding | Planned: session worktrees are not yet a one-to-one Cognitive Git branch transaction |
+| Transactional rollback of workspace file edits | Partial: worktree sessions can be discarded; arbitrary mutations in local sessions are not whole-run transactional |
 | MCP client/tools | Implemented (2026 modern + legacy; stdio + HTTP) |
 | Focused Subagents | Implemented |
 | Multi-session parallel runner | Implemented (safe read parallel; write parallel explicit opt-in) |
 | TUI | Implemented (direct launch, Session switching, live events, Ctrl+C active-run cancellation) |
-| Skills / vision / browser | Planned |
+| Skills | Implemented baseline in Go runtime: global/project layering, enable state, prompt injection, CLI management |
+| Vision / browser | Planned |
 | Attention propagation | Implemented |
 | Ephemeral attention cut under token budget | Implemented |
 | Structural cut / restore | Implemented: edge remains durable but is excluded from propagation |
