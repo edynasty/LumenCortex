@@ -51,12 +51,20 @@ func run() error {
 	}
 	switch args[0] {
 	case "session-new":
-		if len(args) < 2 {
-			return fmt.Errorf("usage: lcx-go session-new <goal>")
+		parsed, err := parseAgentCommandArgs(args[1:])
+		if err != nil {
+			return fmt.Errorf("session-new: %w", err)
 		}
-		h, err := engine.NewSession(ctx, lcx.SessionOptions{Goal: strings.Join(args[1:], " ")})
+		h, err := engine.NewSession(ctx, lcx.SessionOptions{Goal: parsed.Goal})
 		if err != nil {
 			return err
+		}
+		if parsed.Worktree {
+			identity, err := engine.AttachWorktree(ctx, h.ID, parsed.Base)
+			if err != nil {
+				return err
+			}
+			return printJSON(map[string]any{"session": h, "runtime": identity})
 		}
 		return printJSON(h)
 	case "sessions":
@@ -79,16 +87,22 @@ func run() error {
 		}
 		return printJSON(result)
 	case "agent":
-		if len(args) < 2 {
-			return fmt.Errorf("usage: lcx-go agent <goal>")
+		parsed, err := parseAgentCommandArgs(args[1:])
+		if err != nil {
+			return fmt.Errorf("agent: %w", err)
 		}
 		provider, err := providerFromEnv()
 		if err != nil {
 			return err
 		}
-		h, err := engine.NewSession(ctx, lcx.SessionOptions{Goal: strings.Join(args[1:], " "), Provider: "openai-compatible", Model: provider.Model()})
+		h, err := engine.NewSession(ctx, lcx.SessionOptions{Goal: parsed.Goal, Provider: "openai-compatible", Model: provider.Model()})
 		if err != nil {
 			return err
+		}
+		if parsed.Worktree {
+			if _, err := engine.AttachWorktree(ctx, h.ID, parsed.Base); err != nil {
+				return err
+			}
 		}
 		agentOpts, err := agentOptionsFromEnv(workspace, engine)
 		if err != nil {
@@ -183,6 +197,52 @@ func run() error {
 	default:
 		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, shell, agent, resume, governor, approve, worktree, skills)", args[0])
 	}
+}
+
+type agentCommandArgs struct {
+	Goal     string
+	Worktree bool
+	Base     string
+}
+
+func parseAgentCommandArgs(args []string) (agentCommandArgs, error) {
+	out := agentCommandArgs{
+		Worktree: envBool("LCX_AGENT_WORKTREE"),
+		Base:     strings.TrimSpace(os.Getenv("LCX_WORKTREE_BASE")),
+	}
+	if out.Base == "" {
+		out.Base = "HEAD"
+	}
+
+	positionals := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		value := args[index]
+		switch value {
+		case "--worktree":
+			out.Worktree = true
+		case "--no-worktree":
+			out.Worktree = false
+		case "--base":
+			if index+1 >= len(args) {
+				return agentCommandArgs{}, fmt.Errorf("--base requires a Git ref")
+			}
+			index++
+			out.Base = strings.TrimSpace(args[index])
+			if out.Base == "" {
+				return agentCommandArgs{}, fmt.Errorf("--base requires a non-empty Git ref")
+			}
+		default:
+			if strings.HasPrefix(value, "--") {
+				return agentCommandArgs{}, fmt.Errorf("unknown option %q", value)
+			}
+			positionals = append(positionals, value)
+		}
+	}
+	out.Goal = strings.TrimSpace(strings.Join(positionals, " "))
+	if out.Goal == "" {
+		return agentCommandArgs{}, fmt.Errorf("usage: <command> [--worktree] [--base REF] <goal>")
+	}
+	return out, nil
 }
 
 func runWorktreeCommand(ctx context.Context, engine *lcx.Engine, args []string) error {
