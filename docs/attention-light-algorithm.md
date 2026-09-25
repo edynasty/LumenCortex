@@ -403,6 +403,59 @@ The returned Active Subgraph contains:
 
 The current selector is a deterministic greedy heuristic; it is not a knapsack optimizer.
 
+### 8.1 Optional associative Personalized PageRank
+
+The default runtime path remains the weighted best-path Attention Light described above. A separate explicit `associative` mode is implemented for tasks where indirect graph association is more useful than a single strongest propagation path.
+
+It starts from the same indexed/explicit seed set, then builds a bounded neighborhood using:
+
+- `maxHops`,
+- `associativeNodeLimit = 512` by default,
+- structural cuts via `metadata.attentionCut`.
+
+Inside that bounded neighborhood, LumenCortex runs a personalized restart diffusion:
+
+```text
+r_(t+1) = alpha * s + (1 - alpha) * P^T * r_t
+```
+
+Current defaults:
+
+```text
+alpha = pprRestart = 0.20
+iterations <= 12
+tolerance = 0.00001
+minimum retained rank = 0.001
+```
+
+The restart distribution `s` is the normalized seed activation distribution. Transition weights are not uniform; each edge transition is weighted by the same structural/reliability semantics used by Attention:
+
+```text
+transitionWeight =
+    edgeWeight(type)
+    * directionWeight
+    * attentionReliability(target)
+    * (0.5 + 0.5 * lexicalScore(goal, target))
+```
+
+Outgoing transition weights are normalized per source node. Dangling probability mass is redistributed back to the personalized seed distribution.
+
+After convergence or the iteration cap, nodes use the same token-cost utility rule as the normal Light:
+
+```text
+utility = pprRank / (1 + costPenalty * log2(tokenCost + 1))
+```
+
+Selection remains greedy under `budgetTokens`.
+
+Runtime activation is explicit:
+
+```js
+runtime.context(goal, { retrievalMode: 'associative' })
+```
+
+Without that mode, `runtime.context()` remains weighted propagation. The cognitive Decision Layer exposes `associative` as a routing choice; Agent Loop applies a selected retrieval policy on the next reasoning turn rather than re-running retrieval inside the same turn.
+
 ## 9. Multi-Light policies
 
 `illuminateMulti()` produces four related views.
@@ -598,7 +651,7 @@ Multi-Light policies          IMPLEMENTED
 Token-budget ranking          IMPLEMENTED
 
 Embedding retrieval           PLANNED / OPTIONAL
-Personalized PageRank         NOT IMPLEMENTED
+Personalized PageRank         IMPLEMENTED / OPTIONAL ASSOCIATIVE LIGHT
 Global PageRank               NOT IMPLEMENTED
 Dijkstra / A* retrieval       NOT IMPLEMENTED
 Graph neural network ranking  NOT IMPLEMENTED
@@ -606,7 +659,7 @@ Graph neural network ranking  NOT IMPLEMENTED
 
 Embedding retrieval is intended as an additional semantic candidate-recall channel, not as a replacement for the Context Graph or Attention Light.
 
-If a PageRank-family algorithm is introduced later, it should be documented as a separate architectural change rather than retroactively describing the current algorithm as PageRank.
+The PageRank-family path is intentionally separate from the default weighted propagation algorithm. It must not be used to retroactively describe the default Attention Light as PageRank.
 
 ## 15. Implementation map
 
@@ -614,7 +667,7 @@ The current reference implementation is primarily in:
 
 | File | Responsibility |
 |---|---|
-| `src/attention.js` | seed scoring, reliability, weighted propagation, multi-light policies, token-cost ranking |
+| `src/attention.js` | seed scoring, reliability, weighted propagation, optional bounded associative PPR, multi-light policies, token-cost ranking |
 | `src/constants.js` | edge, evidence-grade, and trust-zone weights |
 | `src/search-index.js` | searchable text, symbol extraction, query tokenization |
 | `src/database.js` | FTS5/symbol persistence, BM25 lookup, incremental index synchronization |
