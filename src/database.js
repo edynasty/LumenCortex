@@ -905,7 +905,7 @@ export class LumenCortexDatabase {
     }));
   }
 
-  clearSearchIndex() {
+  clearSearchIndex({ graphRevision = null } = {}) {
     this.transaction(() => {
       const currentGraphRevision = this.graphRevision();
       if (graphRevision !== null && Number(graphRevision) !== currentGraphRevision) {
