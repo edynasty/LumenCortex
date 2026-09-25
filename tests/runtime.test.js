@@ -29,7 +29,7 @@ test('promotion keeps child detail and creates drill-down edges', () => {
   assert.equal(Object.values(result.graph.edges).filter((e) => e.type === 'abstracts').length, 2);
 });
 
-test('evidence expiry dirties dependent belief', () => {
+test('evidence expiry transitively dirties dependent cognition', () => {
   const repo = runtimeRepo();
   const graph = repo.graph();
   graph.addNode({
@@ -37,9 +37,16 @@ test('evidence expiry dirties dependent belief', () => {
     trustZone: 'runtime_verified', observedAt: '2020-01-01T00:00:00.000Z', ttlMs: 1000
   });
   graph.addNode({ id: 'b', kind: 'belief', title: 'auth is healthy', grade: 'runtime', evidenceIds: ['e'] });
+  graph.addNode({ id: 'a', kind: 'abstraction', title: 'auth summary', childIds: ['b'] });
+  graph.addNode({ id: 'd', kind: 'belief', title: 'downstream auth decision' });
+  graph.addEdge({ id: 'd-a', from: 'd', to: 'a', type: 'depends_on' });
+
   const audit = auditEvidence(graph.snapshot(), Date.now());
   assert.equal(audit.graph.nodes.e.status, 'stale');
   assert.equal(audit.graph.nodes.b.status, 'stale');
+  assert.equal(audit.graph.nodes.a.status, 'stale');
+  assert.equal(audit.graph.nodes.d.status, 'stale');
+  assert.deepEqual(new Set(audit.dirtiedBeliefs), new Set(['b', 'a', 'd']));
 });
 
 test('runtime commits structured worker output atomically', async () => {
