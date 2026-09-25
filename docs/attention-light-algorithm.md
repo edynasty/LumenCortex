@@ -25,8 +25,8 @@ Related documents:
 | Exploit / Explore / Contrarian / Anomaly lights | **Implemented** |
 | Active Promotion heuristic | **Implemented** |
 | Source-change stale invalidation | **Implemented** |
-| Embedding/vector retrieval | **Planned / optional** |
-| Personalized PageRank | **Not implemented** |
+| Persistent embedding retrieval (exact cosine) | **Implemented / optional** |
+| Personalized PageRank | **Implemented / optional associative Light** |
 | Global PageRank | **Not implemented** |
 | Dijkstra/A* shortest-path retrieval | **Not implemented** |
 | GNN-based retrieval/ranking | **Not implemented** |
@@ -121,6 +121,92 @@ Graph mutations mark affected nodes dirty. When the graph revision advances, onl
 A full index rebuild is required for an empty/new index, not for every graph mutation.
 
 This candidate stage exists to keep Attention seed generation bounded on large graphs.
+
+### 2.3 Optional persistent embedding retrieval
+
+The Node reference runtime supports an opt-in persistent embedding cache in SQLite table `node_embeddings`.
+
+For each non-archived, non-invalid searchable node, the embedding document is the same `searchableText(node)` used by the lexical index. A content hash of that text is stored with the vector, model name, dimension, and update time.
+
+Embedding synchronization is incremental:
+
+- unchanged `model + contentHash` rows are reused,
+- changed/missing nodes are re-embedded in bounded batches,
+- removed/archived nodes are removed from the active model cache,
+- embedding model revision is tracked independently,
+- a dimension change for the same configured model forces a clean model-cache rebuild instead of mixing incompatible vectors.
+
+The baseline semantic search is **exact cosine scan**, not ANN:
+
+```text
+cos(q, d) =
+       q · d
+    -------------
+    ||q|| ||d||
+```
+
+All stored vectors for the configured model with matching dimension are scored, sorted by cosine similarity, and limited. This is deliberately a correctness-first baseline. HNSW/IVF/native ANN indexing is **not implemented**.
+
+The provider wire contract is OpenAI-compatible:
+
+```text
+POST <baseURL>/embeddings
+{
+  "model": "...",
+  "input": ["...", "..."]
+}
+```
+
+Embedding retrieval is disabled unless `retrieval.embeddings.enabled=true` and an explicit embedding model is configured.
+
+### 2.4 Hybrid lexical + semantic fusion
+
+Hybrid retrieval combines existing symbol/FTS ranks with embedding ranks using Reciprocal Rank Fusion:
+
+```text
+RRF(d) =
+    sum over channels c of
+        weight_c / (k + rank_c(d))
+```
+
+Current default:
+
+```text
+k = 60
+lexicalWeight = 1
+semanticWeight = 1
+```
+
+The hybrid candidate list is ranked by fused RRF score. Before entering Attention, fused scores are normalized by the top fused candidate into `[0,1]` and supplied as an external retrieval prior:
+
+```text
+retrievalPrior(d) =
+    fusedScore(d) / maxFusedScore
+
+seedRelevance(d) =
+    max(
+        lexicalScore(goal, d),
+        retrievalPrior(d)
+    )
+
+seedScore(d) =
+    seedRelevance(d)
+    * attentionReliability(d)
+    * kindBoost(d)
+```
+
+This is important: semantic retrieval does not bypass graph/evidence controls. Hybrid recall only supplies candidate IDs and bounded seed priors. The normal reliability weighting, graph propagation, token-cost ranking, MMR option, structural cuts, and context budget still apply.
+
+Runtime APIs:
+
+```js
+await runtime.semanticSearch(query)
+await runtime.hybridSearch(query)
+await runtime.contextHybrid(goal)
+await runtime.contextAsync(goal, { retrievalMode: 'hybrid' })
+```
+
+The synchronous `runtime.context()` API remains unchanged. Agent Loop uses the async path only when the next-turn cognitive retrieval policy requests `hybrid`.
 
 ## 3. Lexical similarity
 
@@ -700,14 +786,16 @@ Multi-Light policies          IMPLEMENTED
 Token-budget ranking          IMPLEMENTED
 Optional MMR diversity        IMPLEMENTED
 
-Embedding retrieval           PLANNED / OPTIONAL
+Embedding exact cosine        IMPLEMENTED / OPTIONAL
+Hybrid RRF fusion             IMPLEMENTED / OPTIONAL
+Approximate NN (HNSW/IVF)     NOT IMPLEMENTED
 Personalized PageRank         IMPLEMENTED / OPTIONAL ASSOCIATIVE LIGHT
 Global PageRank               NOT IMPLEMENTED
 Dijkstra / A* retrieval       NOT IMPLEMENTED
 Graph neural network ranking  NOT IMPLEMENTED
 ```
 
-Embedding retrieval is intended as an additional semantic candidate-recall channel, not as a replacement for the Context Graph or Attention Light.
+Embedding retrieval is an optional semantic candidate-recall channel, not a replacement for the Context Graph or Attention Light. The implemented baseline is persistent exact cosine; approximate nearest-neighbor indexing remains planned.
 
 The PageRank-family path is intentionally separate from the default weighted propagation algorithm. It must not be used to retroactively describe the default Attention Light as PageRank.
 
@@ -720,6 +808,7 @@ The current reference implementation is primarily in:
 | `src/attention.js` | seed scoring, reliability, weighted propagation, optional bounded associative PPR, multi-light policies, token-cost ranking |
 | `src/constants.js` | edge, evidence-grade, and trust-zone weights |
 | `src/search-index.js` | searchable text, symbol extraction, query tokenization |
+| `src/embedding-index.js` | OpenAI-compatible embeddings, incremental vector cache, exact cosine, RRF fusion |
 | `src/database.js` | FTS5/symbol persistence, BM25 lookup, incremental index synchronization |
 | `src/runtime.js` | indexed candidate generation and Attention integration |
 | `src/promotion-controller.js` | automatic Promotion trigger heuristic |
