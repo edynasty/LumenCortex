@@ -11,11 +11,13 @@ export class LumenCortexRuntime {
     this.repository = repository;
     this.searchIndex = new PersistentSearchIndex(repository.dir);
     this.embeddingIndex = null;
+    this.hybridRetrievalOptions = {};
     if (options.embeddingProvider) {
       this.configureEmbeddings({
         provider: options.embeddingProvider,
         model: options.embeddingModel,
-        batchSize: options.embeddingBatchSize
+        batchSize: options.embeddingBatchSize,
+        hybrid: options.hybridRetrievalOptions
       });
     }
     this.attentionEngine = null;
@@ -39,9 +41,10 @@ export class LumenCortexRuntime {
     return this.searchIndex.search(query, options);
   }
 
-  configureEmbeddings({ provider, model, batchSize } = {}) {
+  configureEmbeddings({ provider, model, batchSize, hybrid = {} } = {}) {
     if (!provider) {
       this.embeddingIndex = null;
+      this.hybridRetrievalOptions = {};
       return null;
     }
     this.embeddingIndex = new PersistentEmbeddingIndex(this.repository.dir, {
@@ -51,7 +54,11 @@ export class LumenCortexRuntime {
       database: this.searchIndex.database,
       ownsDatabase: false
     });
-    return this.embeddingIndex.stats();
+    this.hybridRetrievalOptions = normalizeHybridRetrievalOptions(hybrid);
+    return {
+      ...this.embeddingIndex.stats(),
+      hybrid: { ...this.hybridRetrievalOptions }
+    };
   }
 
   async refreshEmbeddingIndex(graphState, graphRevision, options = {}) {
@@ -76,15 +83,16 @@ export class LumenCortexRuntime {
   async hybridSearch(query, options = {}) {
     this.#ensureFreshSearchIndex();
     await this.#ensureFreshEmbeddingIndex(options.signal);
+    const hybrid = { ...this.hybridRetrievalOptions, ...definedEntries(options) };
     return this.embeddingIndex.hybridSearch(query, {
       lexicalIndex: this.searchIndex,
-      limit: options.limit ?? 50,
-      lexicalLimit: options.lexicalLimit,
-      semanticLimit: options.semanticLimit,
-      semanticMinScore: options.semanticMinScore,
-      rrfK: options.rrfK,
-      lexicalWeight: options.lexicalWeight,
-      semanticWeight: options.semanticWeight,
+      limit: hybrid.limit ?? 50,
+      lexicalLimit: hybrid.lexicalLimit,
+      semanticLimit: hybrid.semanticLimit,
+      semanticMinScore: hybrid.semanticMinScore,
+      rrfK: hybrid.rrfK,
+      lexicalWeight: hybrid.lexicalWeight,
+      semanticWeight: hybrid.semanticWeight,
       signal: options.signal
     });
   }
@@ -116,15 +124,19 @@ export class LumenCortexRuntime {
         attempt === 0
       ) continue;
 
+      const hybrid = {
+        ...this.hybridRetrievalOptions,
+        ...definedEntries(options)
+      };
       const hits = await this.embeddingIndex.hybridSearch(goal, {
         lexicalIndex: this.searchIndex,
-        limit: Number(options.candidateLimit ?? 64),
-        lexicalLimit: options.lexicalLimit,
-        semanticLimit: options.semanticLimit,
-        semanticMinScore: options.semanticMinScore,
-        rrfK: options.rrfK,
-        lexicalWeight: options.lexicalWeight,
-        semanticWeight: options.semanticWeight,
+        limit: Number(hybrid.candidateLimit ?? 64),
+        lexicalLimit: hybrid.lexicalLimit,
+        semanticLimit: hybrid.semanticLimit,
+        semanticMinScore: hybrid.semanticMinScore,
+        rrfK: hybrid.rrfK,
+        lexicalWeight: hybrid.lexicalWeight,
+        semanticWeight: hybrid.semanticWeight,
         signal: options.signal
       });
       const candidateNodeIds = [...new Set([
@@ -467,4 +479,28 @@ function retrievalRequest(mode, options) {
       ...(options.edgeWeights ?? {})
     }
   };
+}
+
+
+function normalizeHybridRetrievalOptions(options = {}) {
+  const out = {};
+  for (const key of [
+    'candidateLimit',
+    'lexicalLimit',
+    'semanticLimit',
+    'semanticMinScore',
+    'rrfK',
+    'lexicalWeight',
+    'semanticWeight'
+  ]) {
+    const value = Number(options?.[key]);
+    if (Number.isFinite(value)) out[key] = value;
+  }
+  return out;
+}
+
+function definedEntries(value = {}) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined)
+  );
 }
