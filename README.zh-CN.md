@@ -37,7 +37,7 @@ lcx
 - Repository 增量 ingest
 - SQLite WAL 持久化 Graph / Session / Cognitive Git / Journal / Symbol / FTS5
 - FTS5 + Symbol Index 大仓库候选召回
-- Source change invalidation
+- Source/evidence change transitive invalidation
 
 ### 自适应认知控制
 
