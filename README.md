@@ -417,7 +417,7 @@ Core documents:
 
 Implemented in the reference runtime and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions, plus the cognitive-control baseline (Decision Layer, ordered Category chains, provider-specific dynamic Think effort, circuit breakers, Progress Monitor, persistent Work Units, model telemetry, per-step cognitive traces) and the Graph Governor baseline (Analyzer, optional semantic Curator, validator, branch/promotion/canonicalization executor, reversible Cortex Epochs, indexed storage tiers, and safe derived-cache compaction).
 
-Still planned rather than claimed as complete: approximate-nearest-neighbor embedding indexes (the current optional baseline is persistent exact cosine + RRF Hybrid), real Git-worktree transaction binding, live Jev/Laya validation/calibration and routing benchmarks, autonomous Governor scheduling, separate physical hot/warm/cold node stores or destructive cognitive GC, reusable Skills, vision/browser tooling, and Go Graph Governor mutation/executor parity. The Go runtime already has a control-plane baseline for System One decisions, Category chains, dynamic Think effort, circuit breakers, Work Units, shared cognition profiles, and read-only Governor Analyze/Plan/Validate over the shared SQLite graph.
+Still planned rather than claimed as complete: approximate-nearest-neighbor embedding indexes (the current optional baseline is persistent exact cosine + RRF Hybrid), one-to-one Cognitive-Git branch ↔ real Git-worktree transactions and whole-run rollback for local sessions (Go already supports explicit isolated session worktrees with safe handoff/apply), live Jev/Laya validation/calibration and routing benchmarks, autonomous Governor scheduling, separate physical hot/warm/cold node stores or destructive cognitive GC, Node Skills parity (Go layered Skills are implemented), vision/browser tooling, and Go Graph Governor mutation/executor parity. The Go runtime already has a control-plane baseline for System One decisions, Category chains, dynamic Think effort, circuit breakers, Work Units, shared cognition profiles, and read-only Governor Analyze/Plan/Validate over the shared SQLite graph.
 
 ## Current engineering direction
 
@@ -484,3 +484,30 @@ lcx lsp apply-action src/file.ts 20 1 20 80 0 --yes
 ```
 
 Agent tools expose the same edit-backed rename/code-action path. Workspace edits are prevalidated across all files and rolled back on write failure. Command-only code actions and LSP resource operations are not auto-executed.
+
+
+### Go session worktrees and Skills
+
+The Go runtime can isolate a Session in a managed Git worktree. Agent tools, shell, LSP and repository operations use that session workspace; safe handoff/apply checks dirty targets and overlapping files before bringing committed work back.
+
+```bash
+lcx-go worktree attach <session-id> [base]
+lcx-go worktree status <session-id>
+lcx-go worktree plan <session-id>
+lcx-go worktree apply <session-id> --yes
+lcx-go worktree conflicts
+lcx-go worktree remove <session-id> [--force]
+```
+
+Go also has layered reusable Skills (global + project) that are injected into the Agent system prompt:
+
+```bash
+lcx-go skills list [effective|global|project]
+lcx-go skills show project my-skill
+lcx-go skills save project my-skill ./SKILL.md
+lcx-go skills disable project my-skill
+lcx-go skills enable project my-skill
+lcx-go skills delete project my-skill
+```
+
+These are Go-runtime baselines. They do not imply Node Skills parity or a one-to-one transaction between Cognitive Git branches and real Git worktrees.
