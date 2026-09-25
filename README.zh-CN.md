@@ -459,3 +459,29 @@ lcx lsp apply-action src/file.ts 20 1 20 80 0 --yes
 ```
 
 command-only code action 与 LSP create/rename/delete resource operation 当前不会自动执行。
+
+
+### Go Session Worktree / Skills
+
+Go runtime 已支持显式的 Session Git Worktree 隔离：Agent 工具、Shell、LSP 与 Repository 操作会切到该 Session 的 managed worktree；handoff/apply 前会检查目标工作区脏状态和重叠文件冲突。
+
+```bash
+lcx-go worktree attach <session-id> [base]
+lcx-go worktree status <session-id>
+lcx-go worktree plan <session-id>
+lcx-go worktree apply <session-id> --yes
+lcx-go worktree conflicts
+lcx-go worktree remove <session-id> [--force]
+```
+
+Go runtime 同时已有 global/project 分层 Skills，并会把启用的 Skill 注入 Agent system prompt：
+
+```bash
+lcx-go skills list effective
+lcx-go skills save project my-skill ./SKILL.md
+lcx-go skills disable project my-skill
+lcx-go skills enable project my-skill
+lcx-go skills delete project my-skill
+```
+
+这不等同于“Cognitive Git branch 与真实 Git worktree 一一事务绑定”，也不代表 Node runtime 已有 Skills parity；这两项仍保持独立边界。
