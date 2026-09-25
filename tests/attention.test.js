@@ -67,3 +67,21 @@ test('structural cut stops propagation without deleting either side', () => {
   });
   assert.ok(restored.selectedNodes.some((node) => node.id === 'remote'));
 });
+
+
+test('attention max-heap preserves stable insertion order for equal-score seeds', () => {
+  const graph = new CognitiveGraph();
+  graph.addNode({ id: 'first', kind: 'entity', title: 'first seed', body: 'same' });
+  graph.addNode({ id: 'second', kind: 'entity', title: 'second seed', body: 'same' });
+
+  const result = new AttentionEngine(graph.snapshot()).illuminate('same', {
+    seedNodeIds: ['first', 'second'],
+    budgetTokens: 500,
+    maxHops: 0
+  });
+
+  assert.deepEqual(
+    result.trace.slice(0, 2).map((entry) => entry.nodeId),
+    ['first', 'second']
+  );
+});
