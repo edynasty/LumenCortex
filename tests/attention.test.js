@@ -124,3 +124,95 @@ test('associative Light is bounded and respects structural cuts', () => {
   assert.equal(cut.selectedNodes.some((node) => node.id === 'b'), false);
   assert.equal(cut.selectedNodes.some((node) => node.id === 'c'), false);
 });
+
+
+test('optional MMR selector trades redundant context for lexical diversity', () => {
+  const graph = new CognitiveGraph();
+  graph.addNode({
+    id: 'dup-a',
+    kind: 'entity',
+    title: 'inventory lock acceptance path',
+    body: 'optimistic inventory lock acceptance path'
+  });
+  graph.addNode({
+    id: 'dup-b',
+    kind: 'entity',
+    title: 'inventory lock acceptance path',
+    body: 'optimistic inventory lock acceptance path'
+  });
+  graph.addNode({
+    id: 'other',
+    kind: 'entity',
+    title: 'payment ledger audit trail',
+    body: 'reconcile payment ledger audit trail'
+  });
+
+  const engine = new AttentionEngine(graph.snapshot());
+  const full = engine.illuminate('unrelated query', {
+    seedNodeIds: ['dup-a', 'dup-b', 'other'],
+    candidateNodeIds: ['dup-a', 'dup-b', 'other'],
+    maxHops: 0,
+    minScore: 0,
+    costPenalty: 0,
+    budgetTokens: 10000
+  });
+  const costs = full.selectedNodes.map((node) => node.tokenCost);
+  const budgetTokens = costs.reduce((sum, value) => sum + value, 0) - Math.min(...costs);
+
+  const greedy = engine.illuminate('unrelated query', {
+    seedNodeIds: ['dup-a', 'dup-b', 'other'],
+    candidateNodeIds: ['dup-a', 'dup-b', 'other'],
+    maxHops: 0,
+    minScore: 0,
+    costPenalty: 0,
+    budgetTokens
+  });
+  assert.deepEqual(
+    greedy.selectedNodes.map((node) => node.id),
+    ['dup-a', 'dup-b']
+  );
+
+  const diverse = engine.illuminate('unrelated query', {
+    seedNodeIds: ['dup-a', 'dup-b', 'other'],
+    candidateNodeIds: ['dup-a', 'dup-b', 'other'],
+    maxHops: 0,
+    minScore: 0,
+    costPenalty: 0,
+    diversityLambda: 0.55,
+    budgetTokens
+  });
+  assert.deepEqual(
+    diverse.selectedNodes.map((node) => node.id),
+    ['dup-a', 'other']
+  );
+
+  const associative = engine.illuminateAssociative('unrelated query', {
+    seedNodeIds: ['dup-a', 'dup-b', 'other'],
+    candidateNodeIds: ['dup-a', 'dup-b', 'other'],
+    maxHops: 0,
+    minScore: 0,
+    costPenalty: 0,
+    diversityLambda: 0.55,
+    budgetTokens,
+    pprIterations: 4
+  });
+  assert.deepEqual(
+    associative.selectedNodes.map((node) => node.id),
+    ['dup-a', 'other']
+  );
+});
+
+test('invalid diversity parameters preserve safe greedy defaults', () => {
+  const graph = new CognitiveGraph();
+  graph.addNode({ id: 'a', kind: 'entity', title: 'A', body: 'same' });
+  graph.addNode({ id: 'b', kind: 'entity', title: 'B', body: 'same' });
+  const result = new AttentionEngine(graph.snapshot()).illuminate('same', {
+    seedNodeIds: ['a', 'b'],
+    candidateNodeIds: ['a', 'b'],
+    maxHops: 0,
+    diversityLambda: Number.NaN,
+    diversityCandidateLimit: Number.NaN,
+    budgetTokens: 1000
+  });
+  assert.deepEqual(result.selectedNodes.map((node) => node.id), ['a', 'b']);
+});
