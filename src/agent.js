@@ -129,7 +129,9 @@ export class AgentLoop {
       const focus = workflow ? `${workUnitFocus}\nworkflow-action:${workflow.actionId()}` : workUnitFocus;
       const seedNodeIds = session.metadata.recentObservationNodeIds.slice(-8);
       const retrievalMode = normalizeAgentRetrievalMode(session.metadata.cognition.nextRetrievalMode);
-      let context = this.runtime.context(focus, { budgetTokens, seedNodeIds, retrievalMode });
+      let context = this.runtime.contextAsync
+        ? await this.runtime.contextAsync(focus, { budgetTokens, seedNodeIds, retrievalMode })
+        : this.runtime.context(focus, { budgetTokens, seedNodeIds, retrievalMode });
       updateActivationCounts(session, context);
       const promotionResult = options.autoPromote === false
         ? { promoted: false }
@@ -143,11 +145,17 @@ export class AgentLoop {
           });
       const promotion = promotionResult.promoted ? promotionResult.abstraction : null;
       if (promotion) {
-        context = this.runtime.context(focus, {
-          budgetTokens,
-          seedNodeIds: [promotion.id, ...seedNodeIds],
-          retrievalMode
-        });
+        context = this.runtime.contextAsync
+          ? await this.runtime.contextAsync(focus, {
+              budgetTokens,
+              seedNodeIds: [promotion.id, ...seedNodeIds],
+              retrievalMode
+            })
+          : this.runtime.context(focus, {
+              budgetTokens,
+              seedNodeIds: [promotion.id, ...seedNodeIds],
+              retrievalMode
+            });
         const record = {
           abstractionId: promotion.id,
           step,
@@ -834,7 +842,7 @@ function deriveFocus(session, fallbackGoal, step) {
 
 function normalizeAgentRetrievalMode(value) {
   const mode = String(value ?? '').trim().toLowerCase();
-  if (['lexical', 'dependency', 'causal', 'historical', 'associative'].includes(mode)) return mode;
+  if (['lexical', 'dependency', 'causal', 'historical', 'associative', 'hybrid'].includes(mode)) return mode;
   return 'weighted';
 }
 
