@@ -916,6 +916,8 @@ export class LumenCortexDatabase {
       this.db.exec('DELETE FROM symbols; DELETE FROM search_documents; DELETE FROM node_fts;');
       this.setMeta('search_index_revision', '-1');
       this.setMeta('search_index_created_at', '');
+      this.setMeta('search_document_count', '0');
+      this.setMeta('search_average_length', '0');
     });
   }
 
