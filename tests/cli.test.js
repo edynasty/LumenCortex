@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import http from 'node:http';
+import { CognitiveRepository } from '../src/repository.js';
 
 const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
 
@@ -31,3 +33,134 @@ test('doctor can inspect provider configuration outside a LumenCortex workspace'
   assert.match(result.stdout, /qwen3:4b-instruct/);
   assert.equal(fs.existsSync(path.join(cwd, '.lumencortex')), false);
 });
+
+
+test('light CLI exposes deterministic retrieval profiles', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-light-mode-'));
+  const repo = new CognitiveRepository(cwd);
+  repo.init();
+  const graph = repo.graph();
+  graph.addNode({ id: 'seed', kind: 'entity', title: 'root failure', body: 'root failure' });
+  graph.addNode({ id: 'cause', kind: 'belief', title: 'causal branch', body: 'causal branch' });
+  graph.addNode({ id: 'related', kind: 'belief', title: 'related branch', body: 'related branch' });
+  graph.addEdge({ id: 'cause-edge', from: 'seed', to: 'cause', type: 'causes', weight: 1 });
+  graph.addEdge({ id: 'related-edge', from: 'seed', to: 'related', type: 'relates_to', weight: 1 });
+  repo.writeGraph(graph.snapshot());
+  repo.close();
+
+  const result = spawnSync(process.execPath, [
+    cli,
+    'light',
+    'root failure',
+    '--mode',
+    'causal',
+    '--json'
+  ], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env }
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.mode, 'causal');
+  const activation = Object.fromEntries(
+    parsed.selectedNodes.map((node) => [node.id, node.activation])
+  );
+  assert.ok(activation.cause > activation.related);
+});
+
+test('search --hybrid loads embedding config and reaches semantic-only candidates', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-cli-hybrid-'));
+  const repo = new CognitiveRepository(cwd);
+  repo.init();
+  const graph = repo.graph();
+  graph.addNode({
+    id: 'inventory',
+    kind: 'evidence',
+    title: 'Inventory capacity coordinator',
+    body: 'reserve available units before acceptance',
+    grade: 'static',
+    trustZone: 'repo_trusted'
+  });
+  graph.addNode({
+    id: 'mailer',
+    kind: 'evidence',
+    title: 'Welcome notification sender',
+    body: 'send welcome mail after registration',
+    grade: 'static',
+    trustZone: 'repo_trusted'
+  });
+  repo.writeGraph(graph.snapshot());
+  repo.close();
+
+  const server = http.createServer(async (req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/embeddings') {
+      res.writeHead(404).end();
+      return;
+    }
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    const payload = JSON.parse(body);
+    const values = Array.isArray(payload.input) ? payload.input : [payload.input];
+    const data = values.map((value, index) => {
+      const text = String(value).toLowerCase();
+      const embedding = text.includes('warehouse contention') ||
+        text.includes('inventory') ||
+        text.includes('reserve available')
+        ? [1, 0]
+        : [0, 1];
+      return { index, embedding };
+    });
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ model: payload.model, data }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+
+  const configDir = path.join(cwd, '.lumencortex');
+  fs.writeFileSync(path.join(configDir, 'cognition.json'), JSON.stringify({
+    retrieval: {
+      embeddings: {
+        enabled: true,
+        provider: 'generic',
+        model: 'fake-embed',
+        baseURL: `http://127.0.0.1:${address.port}/v1`,
+        batchSize: 16
+      }
+    }
+  }));
+
+  try {
+    const result = await runCli([
+      'search',
+      'warehouse contention',
+      '--hybrid',
+      '--limit',
+      '5'
+    ], { cwd });
+
+    assert.equal(result.code, 0, result.stderr);
+    const hits = JSON.parse(result.stdout);
+    assert.equal(hits[0].nodeId, 'inventory');
+    assert.ok(hits[0].reasons.includes('rrf:semantic'));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+function runCli(argv, { cwd, env = {} } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cli, ...argv], {
+      cwd,
+      env: { ...process.env, ...env },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('error', reject);
+    child.on('exit', (code) => resolve({ code, stdout, stderr }));
+  });
+}
