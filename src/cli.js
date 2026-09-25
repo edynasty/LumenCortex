@@ -21,6 +21,7 @@ import { withProcessCancellation } from './process-cancellation.js';
 import { WorkflowRuntime, loadWorkflowFile } from './workflow.js';
 import { createCognitiveController, loadCognitiveProfile } from './cognitive-control.js';
 import { GraphGovernor, LLMGraphGovernorCurator } from './graph-governor.js';
+import { embeddingRuntimeConfig } from './embedding-index.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -542,11 +543,29 @@ async function mcpCommand({ workspace, argv }) {
 }
 
 async function createHarness({ repo, runtime, workspace, provider, providerName, parsed, authorize, onEvent }) {
+  const profileFile = parsed.flags.cognition
+    ? path.resolve(workspace, String(parsed.flags.cognition))
+    : undefined;
+  const profile = loadCognitiveProfile(workspace, {
+    file: profileFile,
+    fallbackProviderName: providerName,
+    fallbackModel: provider.model
+  });
+  const embedding = embeddingRuntimeConfig(profile);
+  if (embedding) {
+    runtime.configureEmbeddings({
+      provider: embedding.provider,
+      model: embedding.model,
+      batchSize: embedding.batchSize,
+      hybrid: embedding.hybrid
+    });
+  }
+
   const cognitiveController = parsed.flags['no-cognition']
     ? null
     : createCognitiveController({
         workspace,
-        profileFile: parsed.flags.cognition ? path.resolve(workspace, String(parsed.flags.cognition)) : undefined,
+        profileFile,
         fallbackProvider: provider,
         fallbackProviderName: providerName,
         fallbackModel: provider.model
