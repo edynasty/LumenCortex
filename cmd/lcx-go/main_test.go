@@ -98,3 +98,38 @@ func TestAgentOptionsAutoEnableCognitionFromWorkspaceProfile(t *testing.T) {
 		t.Fatalf("decision providers=%#v", opts.DecisionProviders)
 	}
 }
+
+
+func TestGovernorCuratorUsesDedicatedProfileBinding(t *testing.T) {
+	disabled, err := governorCuratorFromConfig(cognition.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled != nil {
+		t.Fatal("disabled Governor should use deterministic planning")
+	}
+
+	config := cognition.Config{
+		Governor: &cognition.GovernorConfig{
+			Enabled: true,
+			Provider: "generic",
+			Model: "governor-only-model",
+			BaseURL: "http://127.0.0.1:11434/v1",
+			ReasoningEffort: "max",
+			MaxTokens: 7000,
+		},
+	}
+	curator, err := governorCuratorFromConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if curator == nil {
+		t.Fatal("expected configured Governor Curator")
+	}
+	if curator.Provider.Model() != "governor-only-model" {
+		t.Fatalf("model=%q", curator.Provider.Model())
+	}
+	if curator.ReasoningEffort != "max" || curator.MaxTokens != 7000 {
+		t.Fatalf("curator effort=%q maxTokens=%d", curator.ReasoningEffort, curator.MaxTokens)
+	}
+}
