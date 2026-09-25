@@ -24,6 +24,7 @@ type AgentOptions struct {
 	ToolDenylist        []string        `json:"toolDenylist,omitempty"`
 	SystemPrompt        string          `json:"systemPrompt,omitempty"`
 	Workflow            json.RawMessage `json:"workflow,omitempty"`
+	WorkUnits           json.RawMessage `json:"workUnits,omitempty"`
 	MaxTokens           int             `json:"maxTokens,omitempty"`
 	Temperature         *float64        `json:"temperature,omitempty"`
 	CognitionEnabled    bool            `json:"cognitionEnabled,omitempty"`
@@ -138,6 +139,7 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 		SystemPrompt:        opts.SystemPrompt,
 		AdditionalSystemPrompt: additionalSystemPrompt,
 		WorkflowJSON:        opts.Workflow,
+		WorkUnitsJSON:       opts.WorkUnits,
 		MaxTokens:           opts.MaxTokens,
 		Temperature:         opts.Temperature,
 		CognitionEnabled:    opts.CognitionEnabled,
