@@ -640,7 +640,8 @@ export function buildDecisionQuestions(categories = {}) {
         lexical: 'Exact or lexical lookup is sufficient.',
         dependency: 'Follow calls, imports, dependencies, and structural relations.',
         causal: 'Follow causes, derived evidence, effects, and failure chains.',
-        historical: 'Use prior sessions, changes, superseded facts, or temporal history.'
+        historical: 'Use prior sessions, changes, superseded facts, or temporal history.',
+        associative: 'Diffuse attention through a bounded graph neighborhood when indirect associations may matter.'
       }
     }
   };
