@@ -204,3 +204,6 @@ The following are not represented as complete features:
 - reusable Skills layer,
 - vision/browser tools,
 - richer verifier plugins beyond the deterministic Workflow Contract condition/gate DSL.
+
+
+- Associative Light validation: bounded Personalized PageRank neighborhood, structural-cut enforcement, hop/node/token limits, explicit Runtime mode, default weighted-mode preservation, and next-turn cognitive retrieval policy persistence across Agent resume.
