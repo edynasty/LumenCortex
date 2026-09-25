@@ -22,6 +22,7 @@ type Loop struct {
 	ProviderName   string
 	ProviderChains map[string][]ProviderBinding
 	ProviderHealth *cognition.HealthRegistry
+	DecisionLayer  *cognition.DecisionLayer
 	Store          Store
 	Tools          Tools
 	Emit           func(Event)
@@ -114,10 +115,31 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 		activeWorkUnit, _ := currentWorkUnit(workUnits)
 		var cognitivePlan *cognition.Plan
 		if opts.CognitionEnabled {
-			plan := router.Route(cognition.Input{
+			input := cognition.Input{
 				Goal: state.Goal,
 				Progress: cognitiveProgress,
-			})
+			}
+			if activeWorkUnit != nil {
+				input.Focus = activeWorkUnit.Goal
+			}
+			if l.DecisionLayer != nil {
+				decision, decisionErr := l.DecisionLayer.Decide(ctx, cognition.DecisionRequest{
+					State: input,
+					Questions: cognition.DefaultDecisionQuestions(),
+				})
+				if decisionErr != nil {
+					return l.interrupt(ctx, state, usage, decisionErr)
+				}
+				input.Signals = decision.Signals
+				state.Metadata = withDecisionSummary(state.Metadata, decision, step)
+				l.emit("decision.complete", sessionID, map[string]any{
+					"step": step,
+					"signals": decision.Signals,
+					"results": len(decision.Results),
+					"errors": decision.Errors,
+				})
+			}
+			plan := router.Route(input)
 			cognitivePlan = &plan
 			state.Metadata = withCognition(state.Metadata, cognitiveProgress, plan, step)
 			l.emit("cognition.route", sessionID, map[string]any{
@@ -804,4 +826,30 @@ func workUnitCompletionCorrection(units []cognition.WorkUnit) string {
 		parts = append(parts, fmt.Sprintf("%s[%s]: %s", unit.ID, unit.Status, unit.Goal))
 	}
 	return "Work Unit completion gate rejected final completion. Remaining units: " + strings.Join(parts, "; ") + ". Use work_unit_update to satisfy evidence/verification and complete them before finishing."
+}
+
+
+func withDecisionSummary(metadata map[string]any, summary cognition.DecisionSummary, step int64) map[string]any {
+	out := cloneMetadata(metadata)
+	envelope := map[string]any{}
+	if current, ok := out["cognition"].(map[string]any); ok {
+		for key, value := range current {
+			envelope[key] = value
+		}
+	}
+	providers := make([]map[string]any, 0, len(summary.Results))
+	for _, result := range summary.Results {
+		providers = append(providers, map[string]any{
+			"source": result.Source,
+			"model": result.Model,
+		})
+	}
+	envelope["lastDecision"] = map[string]any{
+		"step": step,
+		"signals": summary.Signals,
+		"providers": providers,
+		"errors": summary.Errors,
+	}
+	out["cognition"] = envelope
+	return out
 }
