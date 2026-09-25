@@ -430,7 +430,8 @@ function estimateNodeTokens(node) {
 }
 
 function selectRankedWithinBudget(ranked, cfg) {
-  const lambda = clamp(Number(cfg.diversityLambda ?? 1), 0, 1);
+  const rawLambda = Number(cfg.diversityLambda ?? 1);
+  const lambda = Number.isFinite(rawLambda) ? clamp(rawLambda, 0, 1) : 1;
   if (lambda >= 0.999999) {
     const selected = [];
     let used = 0;
@@ -442,7 +443,8 @@ function selectRankedWithinBudget(ranked, cfg) {
     return { selected, used };
   }
 
-  const limit = Math.max(1, Math.floor(Number(cfg.diversityCandidateLimit ?? 256)));
+  const rawLimit = Number(cfg.diversityCandidateLimit ?? 256);
+  const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.floor(rawLimit)) : 256;
   const pool = ranked.slice(0, limit);
   const overflow = ranked.slice(limit);
   const selected = [];
