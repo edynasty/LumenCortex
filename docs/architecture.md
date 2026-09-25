@@ -152,7 +152,7 @@ Goal
    Attention Light
 ```
 
-This removes the dominant per-query O(N) seed scan. Embeddings remain optional for semantic recall rather than a prerequisite for indexed navigation.
+This removes the dominant lexical per-query O(N) seed scan. Embeddings remain optional for semantic recall rather than a prerequisite for indexed navigation. The current embedding baseline uses persistent exact cosine scoring; ANN indexing remains planned.
 
 ## Active Promotion
 
@@ -277,7 +277,8 @@ All providers use the same tool-calling Agent Loop.
 | DeepSeek official/OpenRouter adapters | Implemented |
 | Real DeepSeek V4 execution | Not yet verified in CI; no-key HF endpoint was paused and OpenRouter key is absent |
 | Persistent SQLite FTS5 + symbol retrieval | Implemented |
-| Embedding retrieval | Planned / optional |
+| Hybrid lexical + embedding fusion | Implemented / optional: weighted RRF before Attention |
+| Embedding retrieval | Implemented / optional: SQLite vector cache + exact cosine; ANN not implemented |
 | SQLite WAL persistence | Implemented |
 | Sparse Cognitive Git checkpoints | Implemented (~50 first-parent commits) |
 | Explicit storage connection lifecycle | Implemented |
@@ -287,7 +288,7 @@ All providers use the same tool-calling Agent Loop.
 | Shared harness SessionStore lifecycle | Implemented |
 | Cached adjacency | Implemented (Runtime caches AttentionEngine/adjacency by graph revision) |
 | Associative Personalized PageRank Light | Implemented opt-in; bounded neighborhood, restart diffusion, same token budget; weighted Light remains default |
-| Deterministic retrieval profiles | Implemented: lexical, dependency, causal, historical, associative; Agent applies Router choice next turn |
+| Deterministic retrieval profiles | Implemented: lexical, dependency, causal, historical, associative; optional hybrid uses async embedding recall; Agent applies Router choice next turn |
 | Optional context diversity | Implemented: bounded lexical MMR selector; default lambda=1 preserves greedy behavior |
 | LSP semantic tooling | Implemented (stdio JSON-RPC; Java/TS/Python defaults + custom config) |
 | Graph canonicalization / GC / hot-warm-cold storage | Partial: canonicalization + indexed storage tiers + safe derived-cache compaction implemented; physical tier separation/cognitive deletion not implemented |
