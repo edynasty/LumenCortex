@@ -30,9 +30,9 @@ A feature being present in source code is not enough. Readiness claims require a
 | Real local-model coding task | Complete | Qwen3 4B VM run `35549612505`: failing baseline → edits → 2/2 tests pass; independent rerun and unchanged test SHA256; persisted completed Session | Ready baseline |
 | Real DeepSeek V4 coding | Adapter complete | Not yet verified with working credentialed route | Evidence gap |
 | Cognitive Git | Complete for cognitive graph | Core CI | Ready for cognition history |
-| Cognitive branch ↔ real Git worktree binding | Not implemented | None | Gap for transactional workspace isolation |
-| Workspace rollback after arbitrary shell mutation | Not implemented | None | Gap; apply_patch itself is atomic, whole Agent runs are not |
-| Skills layer | Not implemented | None | Gap; Workflow Contract is now a stable substrate for future Skill bindings |
+| Session ↔ real Git worktree isolation | Complete Go baseline | Go runtime lifecycle, Agent workspace routing, shell isolation, status/diff, overlap-conflict and safe handoff/apply tests; Go CLI lifecycle tests | Ready optional baseline for isolated Go sessions; not the same as Cognitive-Git branch ↔ worktree transactional binding |
+| Workspace rollback after arbitrary shell mutation | Partial | Worktree-session isolation/removal tests | Worktree sessions can be discarded safely; local-session arbitrary shell mutation still has no whole-run rollback |
+| Skills layer | Complete Go baseline | layered registry tests + Agent system-prompt injection + Go CLI lifecycle tests | Ready baseline in Go runtime/CLI; Node reference runtime does not claim Skills parity |
 | Vision/browser tools | Not implemented | None | Gap |
 | Adaptive cognitive routing / Think mode | Implemented baseline | Core CI cognitive-control tests | Experimental baseline; routing quality still needs workload benchmarks |
 | Decision Layer + Category model chains | Implemented baseline | Core CI: algorithm/System-One adapter, ordered-chain fallback, circuit breaker, provider effort mapping, session trace tests | Ready for experimental use; live Jev/Laya validation pending |
@@ -77,11 +77,11 @@ Passing the readiness gates does not mean LumenCortex has every feature of a mat
 
 In particular, the current architecture does not yet claim:
 
-- transactional Git worktree isolation for every Agent run,
-- rollback of arbitrary workspace changes produced by shell commands,
+- mandatory Git worktree isolation for every Agent run; the Go runtime supports explicit per-session worktrees, but local sessions remain valid,
+- whole-run rollback of arbitrary local-session workspace changes produced by shell commands,
 - automatic execution of command-only LSP code actions or LSP create/rename/delete resource operations,
 - approximate-nearest-neighbor embedding indexes; the optional exact-cosine/RRF baseline is implemented,
-- reusable Skills,
+- Node-runtime Skills parity; reusable layered Skills are implemented in the Go runtime and injected into Go Agent prompts,
 - vision/browser automation,
 - polished terminal navigation equivalent to mature editor-grade TUIs,
 - live Jev/Laya endpoint validation and calibrated routing benchmarks,
