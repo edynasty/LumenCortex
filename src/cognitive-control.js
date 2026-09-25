@@ -63,6 +63,9 @@ export function loadCognitiveProfile(workspace, options = {}) {
       failureThreshold: Math.max(1, Number(user.health?.failureThreshold ?? 3)),
       cooldownMs: Math.max(1000, Number(user.health?.cooldownMs ?? 30000))
     },
+    retrieval: {
+      embeddings: normalizeEmbeddingProfile(user.retrieval?.embeddings)
+    },
     governor: user.governor ? {
       enabled: user.governor.enabled !== false,
       provider: user.governor.provider,
@@ -72,6 +75,34 @@ export function loadCognitiveProfile(workspace, options = {}) {
       reasoningEffort: user.governor.reasoningEffort ?? user.governor.reasoning_effort ?? 'high',
       maxTokens: Number(user.governor.maxTokens ?? user.governor.max_tokens ?? 6000)
     } : null
+  };
+}
+
+function normalizeEmbeddingProfile(input) {
+  if (!input || typeof input !== 'object') return null;
+  const numberOrUndefined = (value, { min = -Infinity } = {}) => {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= min ? number : undefined;
+  };
+  return {
+    enabled: input.enabled === true,
+    provider: String(input.provider ?? 'generic'),
+    model: input.model ? String(input.model) : undefined,
+    baseURL: input.baseURL ? String(input.baseURL) : undefined,
+    apiKey: input.apiKey ? String(input.apiKey) : undefined,
+    apiKeyEnv: input.apiKeyEnv ? String(input.apiKeyEnv) : undefined,
+    headers: input.headers && typeof input.headers === 'object' && !Array.isArray(input.headers)
+      ? { ...input.headers }
+      : {},
+    timeoutMs: numberOrUndefined(input.timeoutMs, { min: 1 }) ?? 60000,
+    batchSize: numberOrUndefined(input.batchSize, { min: 1 }) ?? 32,
+    candidateLimit: numberOrUndefined(input.candidateLimit, { min: 1 }) ?? 64,
+    lexicalLimit: numberOrUndefined(input.lexicalLimit, { min: 1 }),
+    semanticLimit: numberOrUndefined(input.semanticLimit, { min: 1 }),
+    semanticMinScore: numberOrUndefined(input.semanticMinScore),
+    rrfK: numberOrUndefined(input.rrfK, { min: 1 }) ?? 60,
+    lexicalWeight: numberOrUndefined(input.lexicalWeight, { min: 0 }) ?? 1,
+    semanticWeight: numberOrUndefined(input.semanticWeight, { min: 0 }) ?? 1
   };
 }
 
