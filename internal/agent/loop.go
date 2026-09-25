@@ -54,6 +54,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 	if err != nil {
 		return Result{}, err
 	}
+	if workUnits == nil && opts.CognitionEnabled {
+		workUnits = cognition.NewWorkUnitManager(nil)
+	}
 	if workUnits != nil {
 		state.Metadata = withWorkUnits(state.Metadata, workUnits)
 	}
