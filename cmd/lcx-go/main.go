@@ -176,8 +176,144 @@ func run() error {
 			return err
 		}
 		return printJSON(result)
+	case "worktree":
+		return runWorktreeCommand(ctx, engine, args[1:])
+	case "skills":
+		return runSkillsCommand(engine, args[1:])
 	default:
-		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, shell, agent, resume, governor, approve)", args[0])
+		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, shell, agent, resume, governor, approve, worktree, skills)", args[0])
+	}
+}
+
+func runWorktreeCommand(ctx context.Context, engine *lcx.Engine, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: lcx-go worktree <status|attach|plan|apply|remove|conflicts> ...")
+	}
+	switch args[0] {
+	case "status":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: lcx-go worktree status <session-id>")
+		}
+		result, err := engine.SessionRuntime(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		return printJSON(result)
+	case "attach":
+		if len(args) < 2 || len(args) > 3 {
+			return fmt.Errorf("usage: lcx-go worktree attach <session-id> [base]")
+		}
+		base := "HEAD"
+		if len(args) == 3 {
+			base = args[2]
+		}
+		result, err := engine.AttachWorktree(ctx, args[1], base)
+		if err != nil {
+			return err
+		}
+		return printJSON(result)
+	case "plan":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: lcx-go worktree plan <session-id>")
+		}
+		result, err := engine.WorktreeHandoffPlan(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		return printJSON(result)
+	case "apply":
+		if len(args) < 2 || len(args) > 3 || (len(args) == 3 && args[2] != "--yes") {
+			return fmt.Errorf("usage: lcx-go worktree apply <session-id> --yes")
+		}
+		if len(args) != 3 || args[2] != "--yes" {
+			return fmt.Errorf("worktree apply requires --yes")
+		}
+		result, err := engine.ApplySessionWorktree(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		return printJSON(result)
+	case "remove":
+		if len(args) < 2 || len(args) > 3 || (len(args) == 3 && args[2] != "--force") {
+			return fmt.Errorf("usage: lcx-go worktree remove <session-id> [--force]")
+		}
+		force := len(args) == 3 && args[2] == "--force"
+		if err := engine.RemoveSessionWorktree(ctx, args[1], force); err != nil {
+			return err
+		}
+		return printJSON(map[string]any{"removed": true, "sessionId": args[1], "force": force})
+	case "conflicts":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: lcx-go worktree conflicts")
+		}
+		result, err := engine.WorktreeConflicts(ctx)
+		if err != nil {
+			return err
+		}
+		return printJSON(result)
+	default:
+		return fmt.Errorf("unknown worktree command %q (supported: status, attach, plan, apply, remove, conflicts)", args[0])
+	}
+}
+
+func runSkillsCommand(engine *lcx.Engine, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: lcx-go skills <list|show|save|enable|disable|delete> ...")
+	}
+	switch args[0] {
+	case "list":
+		if len(args) > 2 {
+			return fmt.Errorf("usage: lcx-go skills list [effective|global|project]")
+		}
+		scope := "effective"
+		if len(args) == 2 {
+			scope = args[1]
+		}
+		items, err := engine.Skills(scope)
+		if err != nil {
+			return err
+		}
+		return printJSON(items)
+	case "show":
+		if len(args) != 3 {
+			return fmt.Errorf("usage: lcx-go skills show <global|project> <id>")
+		}
+		content, err := engine.SkillContent(args[1], args[2])
+		if err != nil {
+			return err
+		}
+		return printJSON(map[string]any{"scope": args[1], "id": args[2], "content": content})
+	case "save":
+		if len(args) != 4 {
+			return fmt.Errorf("usage: lcx-go skills save <global|project> <id> <skill.md>")
+		}
+		raw, err := os.ReadFile(args[3])
+		if err != nil {
+			return err
+		}
+		if err := engine.SaveSkill(args[1], args[2], string(raw)); err != nil {
+			return err
+		}
+		return printJSON(map[string]any{"saved": true, "scope": args[1], "id": args[2]})
+	case "enable", "disable":
+		if len(args) != 3 {
+			return fmt.Errorf("usage: lcx-go skills %s <global|project> <id>", args[0])
+		}
+		enabled := args[0] == "enable"
+		if err := engine.SetSkillEnabled(args[1], args[2], enabled); err != nil {
+			return err
+		}
+		return printJSON(map[string]any{"scope": args[1], "id": args[2], "enabled": enabled})
+	case "delete":
+		if len(args) != 3 {
+			return fmt.Errorf("usage: lcx-go skills delete <global|project> <id>")
+		}
+		if err := engine.DeleteSkill(args[1], args[2]); err != nil {
+			return err
+		}
+		return printJSON(map[string]any{"deleted": true, "scope": args[1], "id": args[2]})
+	default:
+		return fmt.Errorf("unknown skills command %q (supported: list, show, save, enable, disable, delete)", args[0])
 	}
 }
 
