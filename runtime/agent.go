@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/edynasty/LumenCortex/internal/agent"
+	"github.com/edynasty/LumenCortex/internal/cognition"
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
@@ -15,6 +16,7 @@ import (
 )
 
 type ProviderBinding = agent.ProviderBinding
+type DecisionProvider = cognition.DecisionProvider
 
 type AgentOptions struct {
 	ProviderName        string          `json:"providerName,omitempty"`
@@ -31,6 +33,8 @@ type AgentOptions struct {
 	Temperature         *float64        `json:"temperature,omitempty"`
 	CognitionEnabled    bool            `json:"cognitionEnabled,omitempty"`
 	CategoryProviders   map[string][]ProviderBinding `json:"-"`
+	DecisionProviders   []DecisionProvider `json:"-"`
+	DecisionPolicy      string             `json:"-"`
 
 	subagents        toolset.SubagentController
 	parentSessionID  string
@@ -113,11 +117,21 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 		}
 	}
 
+	var decisionLayer *cognition.DecisionLayer
+	if len(opts.DecisionProviders) > 0 {
+		decisionLayer = &cognition.DecisionLayer{
+			Providers: opts.DecisionProviders,
+			Policy: opts.DecisionPolicy,
+			Health: e.cognitionHealth,
+		}
+	}
+
 	loop := agent.Loop{
 		Provider: provider,
 		ProviderName: opts.ProviderName,
 		ProviderChains: opts.CategoryProviders,
 		ProviderHealth: e.cognitionHealth,
+		DecisionLayer: decisionLayer,
 		Store:    agentStore{store: e.store},
 		Tools:    tools,
 		Emit: func(event agent.Event) {
