@@ -4,11 +4,20 @@ import { promoteNodes } from './promotion.js';
 import { auditEvidence, validateBeliefEvidence } from './verification.js';
 import { id, nowIso } from './util.js';
 import { PersistentSearchIndex } from './search-index.js';
+import { PersistentEmbeddingIndex } from './embedding-index.js';
 
 export class LumenCortexRuntime {
-  constructor(repository) {
+  constructor(repository, options = {}) {
     this.repository = repository;
     this.searchIndex = new PersistentSearchIndex(repository.dir);
+    this.embeddingIndex = null;
+    if (options.embeddingProvider) {
+      this.configureEmbeddings({
+        provider: options.embeddingProvider,
+        model: options.embeddingModel,
+        batchSize: options.embeddingBatchSize
+      });
+    }
     this.attentionEngine = null;
     this.attentionEngineRevision = null;
     this.attentionEngineBuilds = 0;
@@ -28,6 +37,116 @@ export class LumenCortexRuntime {
   search(query, options = {}) {
     this.#ensureFreshSearchIndex();
     return this.searchIndex.search(query, options);
+  }
+
+  configureEmbeddings({ provider, model, batchSize } = {}) {
+    if (!provider) {
+      this.embeddingIndex = null;
+      return null;
+    }
+    this.embeddingIndex = new PersistentEmbeddingIndex(this.repository.dir, {
+      provider,
+      model,
+      batchSize,
+      database: this.searchIndex.database,
+      ownsDatabase: false
+    });
+    return this.embeddingIndex.stats();
+  }
+
+  async refreshEmbeddingIndex(graphState, graphRevision, options = {}) {
+    if (!this.embeddingIndex) throw new Error('Embedding retrieval is not configured');
+    if (!graphState) {
+      const snapshot = this.repository.graphSnapshot();
+      graphState = snapshot.state;
+      graphRevision = snapshot.revision;
+    }
+    return this.embeddingIndex.sync(graphState, {
+      graphRevision: graphRevision ?? this.repository.graphRevision(),
+      force: options.force ?? false,
+      signal: options.signal
+    });
+  }
+
+  async semanticSearch(query, options = {}) {
+    await this.#ensureFreshEmbeddingIndex(options.signal);
+    return this.embeddingIndex.search(query, options);
+  }
+
+  async hybridSearch(query, options = {}) {
+    this.#ensureFreshSearchIndex();
+    await this.#ensureFreshEmbeddingIndex(options.signal);
+    return this.embeddingIndex.hybridSearch(query, {
+      lexicalIndex: this.searchIndex,
+      limit: options.limit ?? 50,
+      lexicalLimit: options.lexicalLimit,
+      semanticLimit: options.semanticLimit,
+      semanticMinScore: options.semanticMinScore,
+      rrfK: options.rrfK,
+      lexicalWeight: options.lexicalWeight,
+      semanticWeight: options.semanticWeight,
+      signal: options.signal
+    });
+  }
+
+  async contextAsync(goal, options = {}) {
+    const requestedMode = String(options.retrievalMode ?? options.mode ?? '').trim().toLowerCase();
+    if (requestedMode === 'hybrid') return this.contextHybrid(goal, options);
+    return this.context(goal, options);
+  }
+
+  async contextHybrid(goal, options = {}) {
+    if (!this.embeddingIndex) {
+      const fallback = this.context(goal, { ...options, retrievalMode: 'weighted' });
+      return {
+        ...fallback,
+        requestedMode: 'hybrid',
+        fallbackReason: 'embedding-provider-unavailable'
+      };
+    }
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      this.#ensureFreshSearchIndex();
+      await this.#ensureFreshEmbeddingIndex(options.signal);
+      const snapshot = this.repository.graphSnapshot();
+      const searchRevision = Number(this.searchIndex.state?.graphRevision ?? -1);
+      const embeddingRevision = Number(this.embeddingIndex.stats().graphRevision ?? -1);
+      if (
+        (searchRevision !== snapshot.revision || embeddingRevision !== snapshot.revision) &&
+        attempt === 0
+      ) continue;
+
+      const hits = await this.embeddingIndex.hybridSearch(goal, {
+        lexicalIndex: this.searchIndex,
+        limit: Number(options.candidateLimit ?? 64),
+        lexicalLimit: options.lexicalLimit,
+        semanticLimit: options.semanticLimit,
+        semanticMinScore: options.semanticMinScore,
+        rrfK: options.rrfK,
+        lexicalWeight: options.lexicalWeight,
+        semanticWeight: options.semanticWeight,
+        signal: options.signal
+      });
+      const candidateNodeIds = [...new Set([
+        ...(options.candidateNodeIds ?? []),
+        ...hits.map((hit) => hit.nodeId)
+      ])];
+      const result = this.#attentionFor(snapshot).illuminate(goal, {
+        ...options,
+        candidateNodeIds
+      });
+      this.repository.touchNodeAccess?.(result.selectedNodes.map((node) => node.id));
+      return {
+        ...result,
+        mode: 'hybrid',
+        hybrid: {
+          model: this.embeddingIndex.model,
+          candidateCount: hits.length,
+          hits
+        }
+      };
+    }
+    throw new Error('Hybrid retrieval could not stabilize against the current graph revision');
   }
 
   context(goal, options = {}) {
@@ -185,6 +304,25 @@ export class LumenCortexRuntime {
     return [...new Set([...explicit, ...indexed])];
   }
 
+  async #ensureFreshEmbeddingIndex(signal) {
+    if (!this.embeddingIndex) throw new Error('Embedding retrieval is not configured');
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const snapshot = this.repository.graphSnapshot();
+      const stats = this.embeddingIndex.stats();
+      if (Number(stats.graphRevision ?? -1) === snapshot.revision) return;
+      try {
+        await this.embeddingIndex.sync(snapshot.state, {
+          graphRevision: snapshot.revision,
+          signal
+        });
+        return;
+      } catch (error) {
+        if (error.code === 'EMBEDDING_REVISION_CONFLICT' && attempt === 0) continue;
+        throw error;
+      }
+    }
+  }
+
   #ensureFreshSearchIndex() {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const snapshot = this.repository.graphSnapshot();
@@ -211,6 +349,8 @@ export class LumenCortexRuntime {
   close() {
     this.attentionEngine = null;
     this.attentionEngineRevision = null;
+    this.embeddingIndex?.close?.();
+    this.embeddingIndex = null;
     this.searchIndex.close?.();
   }
 
