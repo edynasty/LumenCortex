@@ -99,17 +99,57 @@ try {
       await governorCommand({ repo, workspace, argv: args });
       break;
     case 'index': {
-      const action = args[0] ?? 'stats';
-      if (action === 'build') console.log(JSON.stringify(runtime.refreshSearchIndex(), null, 2));
-      else if (action === 'stats') console.log(JSON.stringify(runtime.searchIndex.stats(), null, 2));
-      else fail('Usage: lcx index <build|stats>');
+      const parsed = parseFlags(args);
+      const action = parsed.positionals[0] ?? 'stats';
+      if (action === 'build') {
+        console.log(JSON.stringify(runtime.refreshSearchIndex(), null, 2));
+      } else if (action === 'stats') {
+        const configured = configureRuntimeEmbeddingsFromProfile(runtime, workspace, {
+          profileFile: parsed.flags.cognition
+            ? path.resolve(workspace, String(parsed.flags.cognition))
+            : undefined,
+          required: false
+        });
+        console.log(JSON.stringify({
+          lexical: runtime.searchIndex.stats(),
+          embeddings: configured.embedding ? runtime.embeddingIndex.stats() : null
+        }, null, 2));
+      } else if (action === 'embeddings') {
+        configureRuntimeEmbeddingsFromProfile(runtime, workspace, {
+          profileFile: parsed.flags.cognition
+            ? path.resolve(workspace, String(parsed.flags.cognition))
+            : undefined,
+          required: true
+        });
+        console.log(JSON.stringify(await runtime.refreshEmbeddingIndex(
+          undefined,
+          undefined,
+          { force: Boolean(parsed.flags.force) }
+        ), null, 2));
+      } else {
+        fail('Usage: lcx index <build|stats|embeddings> [--force] [--cognition profile.json]');
+      }
       break;
     }
     case 'search': {
       const parsed = parseFlags(args);
       const query = parsed.positionals.join(' ').trim();
-      if (!query) fail('Usage: lcx search <query> [--limit 40]');
-      console.log(JSON.stringify(runtime.search(query, { limit: Number(parsed.flags.limit ?? 40) }), null, 2));
+      if (!query) fail('Usage: lcx search <query> [--limit 40] [--hybrid|--semantic]');
+      const limit = Number(parsed.flags.limit ?? 40);
+      if (parsed.flags.hybrid || parsed.flags.semantic) {
+        configureRuntimeEmbeddingsFromProfile(runtime, workspace, {
+          profileFile: parsed.flags.cognition
+            ? path.resolve(workspace, String(parsed.flags.cognition))
+            : undefined,
+          required: true
+        });
+      }
+      const result = parsed.flags.hybrid
+        ? await runtime.hybridSearch(query, { limit })
+        : parsed.flags.semantic
+          ? await runtime.semanticSearch(query, { limit })
+          : runtime.search(query, { limit });
+      console.log(JSON.stringify(result, null, 2));
       break;
     }
     case 'lsp':
@@ -239,16 +279,34 @@ try {
     case 'light': {
       const parsed = parseFlags(args);
       const goal = parsed.positionals.join(' ').trim();
-      if (!goal) fail('Usage: lcx light <goal> [--budget 32000] [--multi]');
-      const options = { budgetTokens: Number(parsed.flags.budget ?? 32000) };
+      if (!goal) fail('Usage: lcx light <goal> [--budget 32000] [--mode weighted|lexical|dependency|causal|historical|associative|hybrid] [--multi]');
+      const retrievalMode = String(parsed.flags.mode ?? 'weighted');
+      const options = {
+        budgetTokens: Number(parsed.flags.budget ?? 32000),
+        retrievalMode,
+        ...(parsed.flags.diversity !== undefined
+          ? { diversityLambda: Number(parsed.flags.diversity) }
+          : {})
+      };
       if (parsed.flags.multi) {
+        if (retrievalMode !== 'weighted') fail('--multi currently uses the weighted Multi-Light policy; omit --mode');
         const lights = runtime.contextMulti(goal, options);
         if (parsed.flags.json) console.log(JSON.stringify(lights, null, 2));
         else for (const [name, result] of Object.entries(lights)) printLight(name, result);
       } else {
-        const result = runtime.context(goal, options);
+        if (retrievalMode === 'hybrid') {
+          configureRuntimeEmbeddingsFromProfile(runtime, workspace, {
+            profileFile: parsed.flags.cognition
+              ? path.resolve(workspace, String(parsed.flags.cognition))
+              : undefined,
+            required: true
+          });
+        }
+        const result = retrievalMode === 'hybrid'
+          ? await runtime.contextAsync(goal, options)
+          : runtime.context(goal, options);
         if (parsed.flags.json) console.log(JSON.stringify(result, null, 2));
-        else printLight('spotlight', result);
+        else printLight(retrievalMode, result);
       }
       break;
     }
@@ -546,20 +604,12 @@ async function createHarness({ repo, runtime, workspace, provider, providerName,
   const profileFile = parsed.flags.cognition
     ? path.resolve(workspace, String(parsed.flags.cognition))
     : undefined;
-  const profile = loadCognitiveProfile(workspace, {
-    file: profileFile,
+  configureRuntimeEmbeddingsFromProfile(runtime, workspace, {
+    profileFile,
     fallbackProviderName: providerName,
-    fallbackModel: provider.model
+    fallbackModel: provider.model,
+    required: false
   });
-  const embedding = embeddingRuntimeConfig(profile);
-  if (embedding) {
-    runtime.configureEmbeddings({
-      provider: embedding.provider,
-      model: embedding.model,
-      batchSize: embedding.batchSize,
-      hybrid: embedding.hybrid
-    });
-  }
 
   const cognitiveController = parsed.flags['no-cognition']
     ? null
@@ -621,6 +671,35 @@ async function createHarness({ repo, runtime, workspace, provider, providerName,
       repo.close?.();
     }
   };
+}
+
+function configureRuntimeEmbeddingsFromProfile(runtime, workspace, {
+  profileFile,
+  fallbackProviderName,
+  fallbackModel,
+  required = false
+} = {}) {
+  const profile = loadCognitiveProfile(workspace, {
+    file: profileFile,
+    fallbackProviderName,
+    fallbackModel
+  });
+  const embedding = embeddingRuntimeConfig(profile);
+  if (!embedding) {
+    if (required) {
+      throw new Error(
+        'Embedding retrieval is not enabled. Configure retrieval.embeddings.enabled=true with an explicit model in cognition.json.'
+      );
+    }
+    return { profile, embedding: null };
+  }
+  runtime.configureEmbeddings({
+    provider: embedding.provider,
+    model: embedding.model,
+    batchSize: embedding.batchSize,
+    hybrid: embedding.hybrid
+  });
+  return { profile, embedding };
 }
 
 function providerOptions(parsed) {
@@ -902,8 +981,8 @@ Agent commands:
 
 Code intelligence:
   ingest [dir] [--chunk-lines 160] [--max-bytes 524288]
-  index <build|stats>
-  search <query> [--limit 40]
+  index <build|stats|embeddings> [--force]
+  search <query> [--limit 40] [--hybrid|--semantic]
   db <status|integrity|checkpoint|journal> [arg]
   lsp <status|symbols|definition|references|hover|diagnostics> ...
   mcp <status|tools|call> ...
@@ -923,7 +1002,7 @@ Cognitive graph:
   node add|update|rm ...
   edge add|graft|cut|restore|rm ...
   show [node-or-edge-id]
-  light <goal> [--budget 32000] [--multi] [--json]
+  light <goal> [--budget 32000] [--mode MODE] [--diversity 0..1] [--multi] [--json]
   promote <title> <nodeId> [nodeId...]
   verify
 
