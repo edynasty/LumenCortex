@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/edynasty/LumenCortex/internal/cognition"
+	lcx "github.com/edynasty/LumenCortex/runtime"
 )
 
 func TestCategoryAndDecisionProvidersFromSharedConfig(t *testing.T) {
@@ -132,4 +136,128 @@ func TestGovernorCuratorUsesDedicatedProfileBinding(t *testing.T) {
 	if curator.ReasoningEffort != "max" || curator.MaxTokens != 7000 {
 		t.Fatalf("curator effort=%q maxTokens=%d", curator.ReasoningEffort, curator.MaxTokens)
 	}
+}
+
+
+func TestGoCLIWorktreeCommandsExposeSessionIsolation(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	root := t.TempDir()
+	initCLIGitRepo(t, root)
+
+	engine, err := lcx.Open(lcx.Options{Workspace: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+
+	handle, err := engine.NewSession(context.Background(), lcx.SessionOptions{Goal: "cli worktree"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runWorktreeCommand(context.Background(), engine, []string{"attach", handle.ID}); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := engine.SessionRuntime(context.Background(), handle.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.Kind != lcx.RuntimeWorktree || runtime.Path == root || runtime.Branch == "" {
+		t.Fatalf("runtime=%#v", runtime)
+	}
+
+	if err := runWorktreeCommand(context.Background(), engine, []string{"apply", handle.ID}); err == nil ||
+		!strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("expected apply --yes guard, got %v", err)
+	}
+
+	if err := runWorktreeCommand(context.Background(), engine, []string{"remove", handle.ID, "--force"}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := engine.SessionRuntime(context.Background(), handle.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Kind != lcx.RuntimeLocal || after.Path != root {
+		t.Fatalf("after=%#v", after)
+	}
+}
+
+func TestGoCLISkillsCommandsExposeRegistryLifecycle(t *testing.T) {
+	root := t.TempDir()
+	engine, err := lcx.Open(lcx.Options{Workspace: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+
+	skillFile := filepath.Join(root, "example-skill.md")
+	if err := os.WriteFile(skillFile, []byte("# Example Skill\n\nUse exact tests before edits.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runSkillsCommand(engine, []string{"save", "project", "example", skillFile}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := engine.Skills("effective")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ID != "example" || !items[0].Enabled {
+		t.Fatalf("items=%#v", items)
+	}
+
+	if err := runSkillsCommand(engine, []string{"disable", "project", "example"}); err != nil {
+		t.Fatal(err)
+	}
+	items, err = engine.Skills("effective")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Enabled {
+		t.Fatalf("disabled items=%#v", items)
+	}
+
+	if err := runSkillsCommand(engine, []string{"enable", "project", "example"}); err != nil {
+		t.Fatal(err)
+	}
+	content, err := engine.SkillContent("project", "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(content, "exact tests") {
+		t.Fatalf("content=%q", content)
+	}
+
+	if err := runSkillsCommand(engine, []string{"delete", "project", "example"}); err != nil {
+		t.Fatal(err)
+	}
+	items, err = engine.Skills("effective")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("items after delete=%#v", items)
+	}
+}
+
+func initCLIGitRepo(t *testing.T, root string) {
+	t.Helper()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	run("init")
+	run("config", "user.email", "test@example.com")
+	run("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "README.md")
+	run("commit", "-m", "initial")
 }
