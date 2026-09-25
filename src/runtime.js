@@ -131,9 +131,17 @@ export class LumenCortexRuntime {
         ...(options.candidateNodeIds ?? []),
         ...hits.map((hit) => hit.nodeId)
       ])];
+      const topHybridScore = Math.max(0.0000001, ...hits.map((hit) => Number(hit.score ?? 0)));
+      const candidateSeedScores = Object.fromEntries(
+        hits.map((hit) => [
+          hit.nodeId,
+          Math.max(0, Math.min(1, Number(hit.score ?? 0) / topHybridScore))
+        ])
+      );
       const result = this.#attentionFor(snapshot).illuminate(goal, {
         ...options,
-        candidateNodeIds
+        candidateNodeIds,
+        candidateSeedScores
       });
       this.repository.touchNodeAccess?.(result.selectedNodes.map((node) => node.id));
       return {
