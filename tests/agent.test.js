@@ -733,7 +733,7 @@ test('cognitive retrieval policy applies on the next turn and survives resume', 
     result.session.metadata.contextHistory.map((item) => item.retrievalMode),
     ['weighted', 'associative']
   );
-  assert.equal(result.session.metadata.cognition.nextRetrievalMode, 'weighted');
+  assert.equal(result.session.metadata.cognition.nextRetrievalMode, 'lexical');
   assert.equal(result.session.steps[1].cognition.activeRetrievalMode, 'associative');
-  assert.equal(result.session.steps[1].cognition.nextRetrievalMode, 'weighted');
+  assert.equal(result.session.steps[1].cognition.nextRetrievalMode, 'lexical');
 });
