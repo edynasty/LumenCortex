@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/cognition"
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/mcp"
 	"github.com/edynasty/LumenCortex/internal/repository"
@@ -49,6 +50,7 @@ type Engine struct {
 	lspManagers map[string]*lsp.Manager
 	mcpRegistry  *mcp.Registry
 	skillRegistry *skills.Registry
+	cognitionHealth *cognition.HealthRegistry
 }
 
 type Health struct {
@@ -182,6 +184,10 @@ func Open(opts Options) (*Engine, error) {
 		lspManagers: make(map[string]*lsp.Manager),
 		mcpRegistry:   mcpRegistry,
 		skillRegistry: skillRegistry,
+		cognitionHealth: cognition.NewHealthRegistry(cognition.HealthConfig{
+			FailureThreshold: 3,
+			Cooldown: 30 * time.Second,
+		}),
 	}, nil
 }
 
