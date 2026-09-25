@@ -411,3 +411,132 @@ func TestLoopCognitiveRoutingPersistsPlanAndPassesReasoningEffort(t *testing.T) 
 		t.Fatalf("cognition history=%#v", cognitive["history"])
 	}
 }
+
+
+func TestLoopWorkUnitBlocksPrematureFinalUntilEvidenceAndVerificationPass(t *testing.T) {
+	store := &memoryStore{
+		state: SessionState{
+			ID: "work-units",
+			Goal: "repair the transaction bug",
+			Status: "created",
+			Metadata: map[string]any{},
+		},
+		steps: map[int64]any{},
+	}
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+		{Message: protocol.Message{Content: "done too early"}, FinishReason: "stop"},
+		{
+			Message: protocol.Message{ToolCalls: []protocol.ToolCall{
+				call("wu-update", "work_unit_update", `{
+					"id":"repair",
+					"status":"completed",
+					"summary":"verified",
+					"evidence":[{"requirement":"production path","ref":"service.go:42"}],
+					"verification_results":[{"check":"focused test","status":"passed","detail":"ok"}]
+				}`),
+			}},
+			FinishReason: "tool_calls",
+		},
+		{Message: protocol.Message{Content: "all work units complete"}, FinishReason: "stop"},
+	}}
+	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
+	workUnits := []byte(`{"workUnits":[{
+		"id":"repair",
+		"goal":"repair the transaction bug",
+		"requiredEvidence":["production path"],
+		"verification":["focused test"]
+	}]}`)
+	result, err := loop.Run(context.Background(), "work-units", Options{
+		MaxSteps: 5,
+		WorkUnitsJSON: workUnits,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "completed" || result.Final != "all work units complete" {
+		t.Fatalf("result=%#v", result)
+	}
+	if len(provider.seen) != 3 {
+		t.Fatalf("requests=%d", len(provider.seen))
+	}
+	foundCorrection := false
+	for _, message := range store.messages {
+		if message.Role == "user" && strings.Contains(message.Content, "Work Unit completion gate rejected") {
+			foundCorrection = true
+			break
+		}
+	}
+	if !foundCorrection {
+		t.Fatalf("missing Work Unit completion correction: %#v", store.messages)
+	}
+	raw, err := json.Marshal(store.state.Metadata["workUnits"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(raw, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	items, ok := persisted["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("persisted work units=%#v", persisted)
+	}
+	repair, ok := items["repair"].(map[string]any)
+	if !ok || repair["status"] != "completed" {
+		t.Fatalf("repair unit=%#v", items["repair"])
+	}
+}
+
+func TestLoopCognitiveSessionCanCreateWorkUnitsDynamically(t *testing.T) {
+	store := &memoryStore{
+		state: SessionState{
+			ID: "dynamic-work-unit",
+			Goal: "implement a bounded change",
+			Status: "created",
+			Metadata: map[string]any{},
+		},
+		steps: map[int64]any{},
+	}
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+		{
+			Message: protocol.Message{ToolCalls: []protocol.ToolCall{
+				call("wu-create", "work_unit_create", `{"id":"dynamic","goal":"implement the change","risk":"low"}`),
+			}},
+			FinishReason: "tool_calls",
+		},
+		{
+			Message: protocol.Message{ToolCalls: []protocol.ToolCall{
+				call("wu-complete", "work_unit_update", `{"id":"dynamic","status":"completed","summary":"done"}`),
+			}},
+			FinishReason: "tool_calls",
+		},
+		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
+	}}
+	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
+	result, err := loop.Run(context.Background(), "dynamic-work-unit", Options{
+		MaxSteps: 5,
+		CognitionEnabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("result=%#v", result)
+	}
+	if len(provider.seen) < 1 {
+		t.Fatal("provider saw no requests")
+	}
+	names := toolNames(provider.seen[0].Tools)
+	if !containsString(names, "work_unit_create") || !containsString(names, "work_unit_update") {
+		t.Fatalf("missing dynamic Work Unit tools: %#v", names)
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
