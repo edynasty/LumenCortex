@@ -315,6 +315,8 @@ All providers use the same tool-calling Agent Loop.
 | Decision/Category provider circuit breaker | Implemented baseline |
 | Graph Governor | Implemented baseline (Analyzer + optional model Curator + validator + safe/semantic executor) |
 | Cortex Epochs | Implemented baseline (durable marker + Cognitive Git commit/revert) |
+| Go cognitive control plane | Implemented baseline (Router, Jev/Laya-compatible Decision Layer, Category chains, Think effort, health, Work Units, shared profile) |
+| Go Graph Governor | Partial: Analyzer/Curator/Validator + read-only shared SQLite snapshot; mutation/apply remains Node-only |
 
 ## SQLite consistency model
 
