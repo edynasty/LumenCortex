@@ -641,7 +641,8 @@ export function buildDecisionQuestions(categories = {}) {
         dependency: 'Follow calls, imports, dependencies, and structural relations.',
         causal: 'Follow causes, derived evidence, effects, and failure chains.',
         historical: 'Use prior sessions, changes, superseded facts, or temporal history.',
-        associative: 'Diffuse attention through a bounded graph neighborhood when indirect associations may matter.'
+        associative: 'Diffuse attention through a bounded graph neighborhood when indirect associations may matter.',
+        hybrid: 'Fuse lexical/symbol and embedding retrieval before deterministic graph Attention.'
       }
     }
   };
