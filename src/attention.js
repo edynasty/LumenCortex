@@ -23,6 +23,7 @@ const DEFAULTS = {
   pprTolerance: 0.00001,
   associativeNodeLimit: 512,
   associativeMinScore: 0.001,
+  includeArchivedSeeds: false,
   edgeWeights: DEFAULT_EDGE_WEIGHTS
 };
 
@@ -360,7 +361,10 @@ function scoreSeeds(graph, goal, cfg, candidateNodeIds) {
     ? candidateNodeIds.map((id) => graph.nodes?.[id]).filter(Boolean)
     : Object.values(graph.nodes ?? {});
   return source
-    .filter((node) => node.status !== 'archived' && node.status !== 'invalid')
+    .filter((node) =>
+      node.status !== 'invalid' &&
+      (cfg.includeArchivedSeeds || node.status !== 'archived')
+    )
     .map((node) => {
       const lexical = lexicalScore(goal, nodeText(node));
       const reliability = attentionReliability(node, cfg);
