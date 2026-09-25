@@ -8,6 +8,7 @@ import {
   LumenCortexRuntime,
   OpenAICompatibleEmbeddingProvider,
   PersistentEmbeddingIndex,
+  embeddingRuntimeConfig,
   reciprocalRankFusion
 } from '../src/index.js';
 
@@ -242,4 +243,72 @@ test('hybrid Runtime retrieval falls back to weighted Attention when embeddings 
 
   runtime.close();
   repo.close();
+});
+
+
+test('embedding Runtime config resolves explicit profile and environment credentials', () => {
+  const profile = {
+    retrieval: {
+      embeddings: {
+        enabled: true,
+        provider: 'generic',
+        model: 'embed-configured',
+        baseURL: 'http://embedding.test/v1',
+        apiKeyEnv: 'CUSTOM_EMBED_KEY',
+        headers: { 'X-Embedding': 'yes' },
+        timeoutMs: 1234,
+        batchSize: 9,
+        candidateLimit: 70,
+        lexicalLimit: 90,
+        semanticLimit: 110,
+        semanticMinScore: 0.25,
+        rrfK: 41,
+        lexicalWeight: 0.7,
+        semanticWeight: 1.4
+      }
+    }
+  };
+  const configured = embeddingRuntimeConfig(profile, {
+    env: {
+      CUSTOM_EMBED_KEY: 'secret'
+    },
+    fetchImpl: async () => {
+      throw new Error('network not expected');
+    }
+  });
+
+  assert.equal(configured.provider.model, 'embed-configured');
+  assert.equal(configured.provider.baseURL, 'http://embedding.test/v1');
+  assert.equal(configured.provider.apiKey, 'secret');
+  assert.equal(configured.provider.headers['X-Embedding'], 'yes');
+  assert.equal(configured.provider.timeoutMs, 1234);
+  assert.equal(configured.batchSize, 9);
+  assert.deepEqual(configured.hybrid, {
+    candidateLimit: 70,
+    lexicalLimit: 90,
+    semanticLimit: 110,
+    semanticMinScore: 0.25,
+    rrfK: 41,
+    lexicalWeight: 0.7,
+    semanticWeight: 1.4
+  });
+});
+
+test('embedding Runtime config is opt-in and requires an explicit model', () => {
+  assert.equal(
+    embeddingRuntimeConfig({ retrieval: { embeddings: { enabled: false } } }),
+    null
+  );
+  assert.throws(
+    () => embeddingRuntimeConfig({
+      retrieval: {
+        embeddings: {
+          enabled: true,
+          provider: 'generic',
+          baseURL: 'http://embedding.test/v1'
+        }
+      }
+    }),
+    /explicit model/
+  );
 });
