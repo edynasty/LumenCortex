@@ -211,3 +211,6 @@ The following are not represented as complete features:
 
 - Retrieval-profile validation: default weighted/lexical equivalence, dependency and causal relation weighting, historical archived-seed access, unknown-mode fallback, and next-turn profile persistence.
 - Context-diversity validation: default greedy preservation, optional bounded MMR replacement of redundant nodes, shared weighted/PPR selector behavior, token-budget enforcement, and invalid-parameter fallback.
+
+
+- Embedding/Hybrid validation: OpenAI-compatible `/embeddings` wire shape, response-order normalization, persistent SQLite schema v3, content-hash incremental reuse, single-node re-embedding, model dimension protection, exact cosine ranking, deterministic RRF fusion, pure semantic candidate seeding into Attention, unconfigured-provider fallback, shared cognition-profile configuration, Agent next-turn async Hybrid routing, and CLI Hybrid search.
