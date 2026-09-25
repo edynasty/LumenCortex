@@ -125,6 +125,8 @@ func LoadConfig(workspace, file string) (Config, error) {
 	}
 	if strings.TrimSpace(file) == "" {
 		file = filepath.Join(workspace, ".lumencortex", "cognition.json")
+	} else if !filepath.IsAbs(file) {
+		file = filepath.Join(workspace, file)
 	}
 
 	config := defaultConfig()
