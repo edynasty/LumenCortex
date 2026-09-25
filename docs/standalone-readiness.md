@@ -39,6 +39,8 @@ A feature being present in source code is not enough. Readiness claims require a
 | Persistent Work Units | Implemented baseline | dependency/evidence/verification/final-answer gate tests | Ready experimental baseline |
 | Hot/warm/cold storage metadata | Implemented baseline | SQLite schema-v2/backfill/access/compaction tests | Logical graph remains intact; physical tier separation is not claimed |
 | Graph Governor / Cortex Epochs | Implemented baseline | Core CI: analyzer, semantic Curator, validator, canonicalization/branch/promotion, reversible epoch tests | Experimental governance baseline; autonomous scheduling and physical tier separation remain gaps |
+| Go cognitive-control parity | Implemented baseline | Go CI: shared profile, System One HTTP, Category failover/circuit, dynamic Think effort, Work Unit gates | Governor write/apply is intentionally not duplicated |
+| Go Graph Governor read path | Implemented baseline | Go CI: shared SQLite snapshot + Analyzer/Curator/Validator + no-mutation assertions | Read-only; Node remains mutation authority |
 
 ## Primary-agent evidence gates
 
@@ -85,6 +87,7 @@ In particular, the current architecture does not yet claim:
 - live Jev/Laya endpoint validation and calibrated routing benchmarks,
 - autonomous Governor scheduling and policy calibration,
 - separate physical hot/warm/cold data stores or destructive cognitive GC (not currently claimed),
-- broader provider-specific reasoning controls and Go-runtime parity.
+- broader provider-specific reasoning controls,
+- Go Graph Governor mutation/executor parity; the current Go Governor is intentionally read-only against the shared SQLite graph.
 
 These are tracked as explicit product gaps rather than being inferred from the existence of generic shell or MCP tools.
