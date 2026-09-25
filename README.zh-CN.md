@@ -383,7 +383,7 @@ Node.js 目前仍是生产 `lcx` 主路径；Go runtime 正在按 bounded-memory
 
 仍然不应宣称已经完成：
 
-- Embedding Retrieval
+- Embedding Retrieval：Node 已实现可选 SQLite 持久化向量 + exact cosine + RRF Hybrid；ANN/HNSW/IVF 仍未实现
 - Real Git Worktree transaction binding
 - Governor 自动调度与更高层 split/merge policy
 - 独立物理 hot/warm/cold node store 或破坏性 cognitive GC
@@ -427,3 +427,17 @@ lcx-go governor validate plan.json
 ```
 
 Go Governor 当前刻意保持只读。持久化 Graph Governor mutation/apply 与 Cortex Epoch 执行仍由 Node reference runtime 负责，避免出现两套 Cognitive Graph 写事务 authority。
+
+
+### 可选 Embedding / Hybrid Retrieval
+
+Node runtime 已支持显式开启的 OpenAI-compatible embedding 检索：向量按内容 hash 增量持久化到 SQLite，使用 exact cosine 排序，再通过 RRF 与 Symbol/FTS 结果融合，最后仍进入 Attention 的 reliability、graph propagation 与 token budget 约束。
+
+```bash
+lcx index embeddings
+lcx search "warehouse contention" --semantic
+lcx search "warehouse contention" --hybrid
+lcx light "why is warehouse acceptance inconsistent?" --mode hybrid --json
+```
+
+该实现是正确性优先的 exact-cosine baseline，不是 ANN。HNSW/IVF 等近似最近邻索引仍属于后续性能优化。
