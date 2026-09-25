@@ -42,12 +42,15 @@ type Progress struct {
 }
 
 type Signals struct {
-	Category            string  `json:"category,omitempty"`
-	CategoryConfidence  float64 `json:"categoryConfidence,omitempty"`
-	NeedThink           float64 `json:"needThink,omitempty"`
-	Stuck               float64 `json:"stuck,omitempty"`
-	EvidenceSufficiency float64 `json:"evidenceSufficiency,omitempty"`
-	Retrieval            string  `json:"retrieval,omitempty"`
+	Category               string  `json:"category,omitempty"`
+	CategoryConfidence     float64 `json:"categoryConfidence,omitempty"`
+	NeedThink              float64 `json:"needThink,omitempty"`
+	Stuck                  float64 `json:"stuck,omitempty"`
+	EvidenceSufficiency    float64 `json:"evidenceSufficiency,omitempty"`
+	Retrieval               string  `json:"retrieval,omitempty"`
+	HasNeedThink            bool    `json:"-"`
+	HasStuck                bool    `json:"-"`
+	HasEvidenceSufficiency bool    `json:"-"`
 }
 
 type Input struct {
@@ -147,7 +150,7 @@ func (r Router) Route(input Input) Plan {
 	}
 
 	thinkScore := algorithmThink
-	if input.Signals.NeedThink > 0 {
+	if input.Signals.HasNeedThink || input.Signals.NeedThink > 0 {
 		thinkScore = math.Max(thinkScore, clamp01(input.Signals.NeedThink)*0.9)
 	}
 	repeated := input.Progress.MaxRepeatedFailure
@@ -156,10 +159,10 @@ func (r Router) Route(input Input) Plan {
 	}
 	thinkScore += math.Min(0.35, float64(repeated)*0.12)
 	thinkScore += math.Min(0.2, float64(input.Progress.NoProgressSteps)*0.06)
-	if input.Signals.Stuck > 0.7 {
+	if (input.Signals.HasStuck || input.Signals.Stuck > 0) && input.Signals.Stuck > 0.7 {
 		thinkScore += 0.12
 	}
-	if input.Signals.EvidenceSufficiency > 0 && input.Signals.EvidenceSufficiency < 0.35 {
+	if (input.Signals.HasEvidenceSufficiency || input.Signals.EvidenceSufficiency > 0) && input.Signals.EvidenceSufficiency < 0.35 {
 		thinkScore += 0.08
 	}
 	thinkScore = clamp01(thinkScore)
@@ -171,10 +174,10 @@ func (r Router) Route(input Input) Plan {
 	if repeated >= 2 {
 		reasons = append(reasons, "repeated-failure")
 	}
-	if input.Signals.Stuck > 0.7 {
+	if (input.Signals.HasStuck || input.Signals.Stuck > 0) && input.Signals.Stuck > 0.7 {
 		reasons = append(reasons, "stuck")
 	}
-	if input.Signals.EvidenceSufficiency > 0 && input.Signals.EvidenceSufficiency < 0.35 {
+	if (input.Signals.HasEvidenceSufficiency || input.Signals.EvidenceSufficiency > 0) && input.Signals.EvidenceSufficiency < 0.35 {
 		reasons = append(reasons, "insufficient-evidence")
 	}
 	if strings.TrimSpace(input.Signals.Retrieval) != "" {
