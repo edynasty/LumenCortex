@@ -833,9 +833,9 @@ function deriveFocus(session, fallbackGoal, step) {
 }
 
 function normalizeAgentRetrievalMode(value) {
-  return String(value ?? '').trim().toLowerCase() === 'associative'
-    ? 'associative'
-    : 'weighted';
+  const mode = String(value ?? '').trim().toLowerCase();
+  if (['lexical', 'dependency', 'causal', 'historical', 'associative'].includes(mode)) return mode;
+  return 'weighted';
 }
 
 function normalizeSessionMetadata(session, defaults) {
