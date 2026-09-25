@@ -32,7 +32,7 @@ The primary interface is the full-screen TUI. Run `lumencortex` or the short com
 - SQLite WAL persistence for graph, sessions, Cognitive Git, journal, symbols and FTS5 retrieval
 - persistent FTS5 + symbol search index for large repositories
 - indexed candidate generation before Attention Light (avoids full-graph seed scans)
-- source-change invalidation of dependent beliefs
+- transitive source/evidence invalidation across explicit dependency relations
 
 ### Adaptive cognitive control
 
@@ -421,7 +421,7 @@ Still planned rather than claimed as complete: embedding retrieval, real Git-wor
 
 ## Current engineering direction
 
-v0.6 intentionally keeps the orchestration/control plane in Node.js. Full-graph seed scans and per-query index rebuilds have been removed from the normal retrieval path: SQLite FTS5/symbol lookup generates candidates, graph writes use optimistic revisions, and dirty-node queues incrementally synchronize search rows. The next data-plane optimizations are embeddings (optional), cached adjacency and graph hot/warm/cold tiers; a Rust core is only justified if profiling later shows a native data-plane bottleneck.
+v0.6 intentionally keeps the orchestration/control plane in Node.js. Full-graph seed scans and per-query index rebuilds have been removed from the normal retrieval path: SQLite FTS5/symbol lookup generates candidates, graph writes use optimistic revisions, and dirty-node queues incrementally synchronize search rows. The next data-plane optimizations are embeddings (optional), richer retrieval diversity/semantic recall, and further physical graph-tier work; revision-scoped Attention adjacency caching and a stable max-heap propagation frontier are already implemented; a Rust core is only justified if profiling later shows a native data-plane bottleneck.
 
 ## License
 
