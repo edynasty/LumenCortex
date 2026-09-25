@@ -122,8 +122,10 @@ export class PersistentEmbeddingIndex {
     ) {
       this.database.clearEmbeddings(this.model);
       manifest = new Map();
-      changed = [...desired.values()];
-      upserts = await this.#embedDocuments(changed, signal);
+      if (upserts.length !== desired.size) {
+        changed = [...desired.values()];
+        upserts = await this.#embedDocuments(changed, signal);
+      }
       const rebuiltDimensions = new Set(upserts.map((item) => item.vector.length));
       if (rebuiltDimensions.size > 1) {
         throw embeddingDimensionError([...rebuiltDimensions], this.model);
@@ -159,7 +161,27 @@ export class PersistentEmbeddingIndex {
     const [vector] = await this.provider.embed([String(query ?? '')], {
       signal: options.signal
     });
+    this.assertQueryDimension(vector);
     return this.searchVector(vector, options);
+  }
+
+  assertQueryDimension(vector) {
+    const query = normalizeEmbeddingVector(vector, 'query embedding');
+    const dimensions = new Set(
+      this.database.embeddingManifest(this.model)
+        .map((item) => item.dimension)
+        .filter((value) => Number(value) > 0)
+    );
+    if (
+      dimensions.size > 1 ||
+      (dimensions.size === 1 && !dimensions.has(query.length))
+    ) {
+      throw embeddingDimensionError(
+        [...new Set([...dimensions, query.length])],
+        this.model
+      );
+    }
+    return query.length;
   }
 
   async hybridSearch(query, {
