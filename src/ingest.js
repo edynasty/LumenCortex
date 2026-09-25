@@ -3,6 +3,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { CognitiveGraph } from './graph.js';
 import { hash, nowIso } from './util.js';
+import { propagateStaleDependents } from './invalidation.js';
 
 const DEFAULT_EXTENSIONS = new Set([
   '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs',
@@ -134,7 +135,7 @@ export function ingestWorkspace(graphState, root, options = {}) {
     }
   }
 
-  const dirtied = dirtyDependents(graph, changedEvidence);
+  const dirtied = propagateStaleDependents(graph, [...changedEvidence], { reason: 'ingested-source-changed' });
   return {
     graph: graph.snapshot(),
     stats: {
@@ -253,21 +254,6 @@ function resolveRelativeModule(fromRel, specifier, fileByRel) {
     ...['index.ts', 'index.tsx', 'index.js', 'index.jsx'].map((name) => `${base}/${name}`)
   ];
   return candidates.find((candidate) => fileByRel.has(candidate)) ?? null;
-}
-
-function dirtyDependents(graph, changedEvidence) {
-  if (!changedEvidence.size) return [];
-  const dirtied = [];
-  for (const node of Object.values(graph.state.nodes)) {
-    if (!['belief', 'negative', 'abstraction'].includes(node.kind)) continue;
-    const evidenceHit = (node.evidenceIds ?? []).some((id) => changedEvidence.has(id));
-    const childHit = (node.childIds ?? []).some((id) => changedEvidence.has(id));
-    if ((evidenceHit || childHit) && node.status !== 'stale') {
-      graph.updateNode(node.id, { status: 'stale', metadata: { staleReason: 'ingested-source-changed' } });
-      dirtied.push(node.id);
-    }
-  }
-  return dirtied;
 }
 
 function upsertNode(graph, input) {
