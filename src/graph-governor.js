@@ -261,10 +261,17 @@ export class GraphGovernor {
     const graph = this.repository.graph().snapshot();
     const storageByNode = options.storageByNode ?? this.repository.database?.nodeStorageMap?.();
     const analysis = this.analyzer.analyze(graph, { ...options, storageByNode });
-    if (!this.curator?.propose) {
+    if (options.curator === false || !this.curator?.propose) {
+      const plan = deterministicSafePlan(analysis);
+      const validation = validateGraphGovernorPlan(plan, graph);
       return {
         analysis,
-        plan: deterministicSafePlan(analysis)
+        plan: validation.normalized,
+        validation,
+        curator: {
+          enabled: false,
+          model: null
+        }
       };
     }
     const plan = await this.curator.propose({ graph, analysis, options });
