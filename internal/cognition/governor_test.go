@@ -3,7 +3,6 @@ package cognition
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +29,7 @@ func governorFixture() GraphState {
 
 func TestGovernorAnalyzerMatchesNodeCandidateSemantics(t *testing.T) {
 	graph := governorFixture()
-	before := cloneGraphForTest(graph)
+	before, _ := json.Marshal(graph)
 	analysis := (GovernorAnalyzer{}).Analyze(graph, GovernorAnalyzeOptions{
 		ArchiveThreshold: 0.5,
 		PromotionMinGroup: 3,
@@ -54,7 +53,8 @@ func TestGovernorAnalyzerMatchesNodeCandidateSemantics(t *testing.T) {
 	if hasArchiveNode(analysis.Candidates.Archive, "d") {
 		t.Fatal("reproduced evidence must not be an archive candidate")
 	}
-	if !reflect.DeepEqual(graph, before) {
+	after, _ := json.Marshal(graph)
+	if string(after) != string(before) {
 		t.Fatal("analyzer mutated input graph")
 	}
 }
@@ -131,7 +131,7 @@ func (p *governorScriptProvider) Complete(_ context.Context, req protocol.Provid
 
 func TestGovernorCuratorProducesBoundedPlanWithoutMutatingGraph(t *testing.T) {
 	graph := governorFixture()
-	before := cloneGraphForTest(graph)
+	before, _ := json.Marshal(graph)
 	analysis := (GovernorAnalyzer{}).Analyze(graph, GovernorAnalyzeOptions{ArchiveThreshold: 0.5})
 	provider := &governorScriptProvider{}
 	curator := LLMGovernorCurator{Provider: provider, MaxTokens: 4000, ReasoningEffort: "high"}
@@ -152,14 +152,8 @@ func TestGovernorCuratorProducesBoundedPlanWithoutMutatingGraph(t *testing.T) {
 	if !ok { t.Fatalf("nodes=%#v", payload["nodes"]) }
 	if _, ok := nodes["a"]; !ok { t.Fatal("candidate node a missing") }
 	if _, ok := nodes["d"]; ok { t.Fatal("unrelated protected node d leaked into Curator candidate context") }
-	if !reflect.DeepEqual(graph, before) { t.Fatal("Curator mutated graph") }
-}
-
-func cloneGraphForTest(graph GraphState) GraphState {
-	raw, _ := json.Marshal(graph)
-	var out GraphState
-	_ = json.Unmarshal(raw, &out)
-	return out
+	after, _ := json.Marshal(graph)
+	if string(after) != string(before) { t.Fatal("Curator mutated graph") }
 }
 
 func hasArchiveNode(values []ArchiveCandidate, id string) bool {
