@@ -261,3 +261,84 @@ func initCLIGitRepo(t *testing.T, root string) {
 	run("add", "README.md")
 	run("commit", "-m", "initial")
 }
+
+
+func TestParseAgentCommandArgsWorktreeFlagsAndEnv(t *testing.T) {
+	t.Run("default local session", func(t *testing.T) {
+		t.Setenv("LCX_AGENT_WORKTREE", "")
+		t.Setenv("LCX_WORKTREE_BASE", "")
+		parsed, err := parseAgentCommandArgs([]string{"fix", "the", "bug"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if parsed.Goal != "fix the bug" || parsed.Worktree || parsed.Base != "HEAD" {
+			t.Fatalf("parsed=%#v", parsed)
+		}
+	})
+
+	t.Run("explicit worktree and base", func(t *testing.T) {
+		t.Setenv("LCX_AGENT_WORKTREE", "")
+		t.Setenv("LCX_WORKTREE_BASE", "")
+		parsed, err := parseAgentCommandArgs([]string{
+			"--worktree", "--base", "origin/main", "fix", "isolated", "bug",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if parsed.Goal != "fix isolated bug" || !parsed.Worktree || parsed.Base != "origin/main" {
+			t.Fatalf("parsed=%#v", parsed)
+		}
+	})
+
+	t.Run("base implies worktree", func(t *testing.T) {
+		t.Setenv("LCX_AGENT_WORKTREE", "")
+		t.Setenv("LCX_WORKTREE_BASE", "")
+		parsed, err := parseAgentCommandArgs([]string{"--base", "HEAD~2", "inspect"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !parsed.Worktree || parsed.Base != "HEAD~2" {
+			t.Fatalf("parsed=%#v", parsed)
+		}
+	})
+
+	t.Run("environment defaults and explicit opt out", func(t *testing.T) {
+		t.Setenv("LCX_AGENT_WORKTREE", "true")
+		t.Setenv("LCX_WORKTREE_BASE", "main")
+		parsed, err := parseAgentCommandArgs([]string{"--no-worktree", "local", "task"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if parsed.Worktree || parsed.Base != "main" || parsed.Goal != "local task" {
+			t.Fatalf("parsed=%#v", parsed)
+		}
+	})
+
+	t.Run("last isolation flag wins", func(t *testing.T) {
+		t.Setenv("LCX_AGENT_WORKTREE", "")
+		t.Setenv("LCX_WORKTREE_BASE", "")
+		parsed, err := parseAgentCommandArgs([]string{
+			"--base", "feature", "--no-worktree", "manual",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if parsed.Worktree || parsed.Base != "feature" || parsed.Goal != "manual" {
+			t.Fatalf("parsed=%#v", parsed)
+		}
+	})
+
+	t.Run("invalid options fail closed", func(t *testing.T) {
+		t.Setenv("LCX_AGENT_WORKTREE", "")
+		t.Setenv("LCX_WORKTREE_BASE", "")
+		for _, args := range [][]string{
+			{},
+			{"--base"},
+			{"--unknown", "task"},
+		} {
+			if _, err := parseAgentCommandArgs(args); err == nil {
+				t.Fatalf("expected error for %#v", args)
+			}
+		}
+	})
+}
