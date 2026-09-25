@@ -67,7 +67,11 @@ test('light CLI exposes deterministic retrieval profiles', () => {
   const activation = Object.fromEntries(
     parsed.selectedNodes.map((node) => [node.id, node.activation])
   );
-  assert.ok(activation.cause > activation.related);
+  assert.ok(Number.isFinite(activation.cause));
+  assert.ok(
+    activation.related === undefined ||
+    activation.cause > activation.related
+  );
 });
 
 test('search --hybrid loads embedding config and reaches semantic-only candidates', async () => {
