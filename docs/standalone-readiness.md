@@ -12,7 +12,7 @@ A feature being present in source code is not enough. Readiness claims require a
 | Bounded long-task context | Complete | deterministic 20-tool-round test + real Qwen3 graph-memory VM proof | Ready |
 | SQLite WAL / restart persistence | Complete | Core CI, integrity/checkpoint/concurrency tests | Ready |
 | Large-repository lexical/symbol retrieval | Complete | 100k-node FTS5/symbol benchmark | Ready for exact/symbol-heavy lookup |
-| Semantic/vector retrieval | Not implemented | None | Optional gap for fuzzy semantic recall |
+| Semantic/vector retrieval | Complete optional baseline | Core CI: SQLite embedding cache, incremental content-hash sync, exact cosine, RRF Hybrid, pure-semantic recall and CLI path | Ready optional baseline; ANN/HNSW/IVF acceleration remains a scale optimization |
 | Workspace read/search/write tools | Complete | Core CI, including bounded batch `read_files` | Ready |
 | Atomic multi-file patching | Complete | Batch validation/ambiguity/traversal tests | Ready |
 | Shell execution | Complete | async/timeout/process-tree/cancel tests | Ready |
@@ -20,7 +20,7 @@ A feature being present in source code is not enough. Readiness claims require a
 | Agent cancellation / resume | Complete | AbortSignal + TUI + process SIGINT/SIGTERM tests; interrupted Session persists | Ready |
 | Permission policy tiers | Complete | dedicated policy tests; unknown policy fails closed | Ready: read-only/workspace/full have distinct scope semantics |
 | LSP definition/references/symbols/hover/diagnostics | Complete | isolated LSP harness | Ready for navigation/diagnostics |
-| LSP rename/code actions | Not implemented | None | Gap for IDE-grade refactoring |
+| LSP rename/code actions | Complete baseline | isolated Content-Length LSP harness + atomic WorkspaceEdit + Agent-tool tests | Ready for edit-backed rename/quick-fix; command-only actions and LSP resource operations intentionally require separate handling |
 | MCP stdio/HTTP | Complete | modern + legacy fallback harness | Ready |
 | Focused Subagents | Complete | durable isolated Session tests | Ready |
 | Parallel Sessions | Complete | overlap assertion + mutation safety gate | Ready |
@@ -37,7 +37,7 @@ A feature being present in source code is not enough. Readiness claims require a
 | Adaptive cognitive routing / Think mode | Implemented baseline | Core CI cognitive-control tests | Experimental baseline; routing quality still needs workload benchmarks |
 | Decision Layer + Category model chains | Implemented baseline | Core CI: algorithm/System-One adapter, ordered-chain fallback, circuit breaker, provider effort mapping, session trace tests | Ready for experimental use; live Jev/Laya validation pending |
 | Persistent Work Units | Implemented baseline | dependency/evidence/verification/final-answer gate tests | Ready experimental baseline |
-| Hot/warm/cold storage metadata | Implemented baseline | SQLite schema-v2/backfill/access/compaction tests | Logical graph remains intact; physical tier separation is not claimed |
+| Hot/warm/cold storage metadata | Implemented baseline | SQLite schema-v3/backfill/access/compaction tests | Logical graph remains intact; physical tier separation is not claimed |
 | Graph Governor / Cortex Epochs | Implemented baseline | Core CI: analyzer, semantic Curator, validator, canonicalization/branch/promotion, reversible epoch tests | Experimental governance baseline; autonomous scheduling and physical tier separation remain gaps |
 | Go cognitive-control parity | Implemented baseline | Go CI: shared profile, System One HTTP, Category failover/circuit, dynamic Think effort, Work Unit gates | Governor write/apply is intentionally not duplicated |
 | Go Graph Governor read path | Implemented baseline | Go CI: shared SQLite snapshot + Analyzer/Curator/Validator + no-mutation assertions | Read-only; Node remains mutation authority |
@@ -79,8 +79,8 @@ In particular, the current architecture does not yet claim:
 
 - transactional Git worktree isolation for every Agent run,
 - rollback of arbitrary workspace changes produced by shell commands,
-- IDE-grade rename/code-action refactoring (implemented separately but not yet integrated into this branch),
-- semantic embedding retrieval,
+- automatic execution of command-only LSP code actions or LSP create/rename/delete resource operations,
+- approximate-nearest-neighbor embedding indexes; the optional exact-cosine/RRF baseline is implemented,
 - reusable Skills,
 - vision/browser automation,
 - polished terminal navigation equivalent to mature editor-grade TUIs,
