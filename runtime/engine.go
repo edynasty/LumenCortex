@@ -53,6 +53,11 @@ type Engine struct {
 	cognitionHealth *cognition.HealthRegistry
 }
 
+type CognitionHealthOptions struct {
+	FailureThreshold int   `json:"failureThreshold,omitempty"`
+	CooldownMS       int64 `json:"cooldownMs,omitempty"`
+}
+
 type Health struct {
 	Version   string `json:"version"`
 	Workspace string `json:"workspace"`
@@ -207,6 +212,15 @@ func (e *Engine) Close() error {
 		_ = e.mcpRegistry.Close()
 	}
 	return e.store.Close()
+}
+
+func (e *Engine) ConfigureCognitionHealth(opts CognitionHealthOptions) {
+	cooldown := time.Duration(opts.CooldownMS) * time.Millisecond
+	e.cognitionHealth = cognition.NewHealthRegistry(cognition.HealthConfig{
+		FailureThreshold: opts.FailureThreshold,
+		Cooldown: cooldown,
+		CooldownMS: opts.CooldownMS,
+	})
 }
 
 func (e *Engine) Health() Health {
