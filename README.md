@@ -29,7 +29,7 @@ The primary interface is the full-screen TUI. Run `lumencortex` or the short com
 - exploit / explore / contrarian / anomaly lights
 - manual + active Promotion without destructive compaction
 - incremental repository ingestion
-- SQLite WAL persistence for graph, sessions, Cognitive Git, journal, symbols and FTS5 retrieval
+- SQLite WAL persistence for graph, sessions, Cognitive Git, journal, symbols, FTS5 retrieval, and optional embedding vectors
 - persistent FTS5 + symbol search index for large repositories
 - indexed candidate generation before Attention Light (avoids full-graph seed scans)
 - transitive source/evidence invalidation across explicit dependency relations
@@ -417,11 +417,11 @@ Core documents:
 
 Implemented in the reference runtime and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions, plus the cognitive-control baseline (Decision Layer, ordered Category chains, provider-specific dynamic Think effort, circuit breakers, Progress Monitor, persistent Work Units, model telemetry, per-step cognitive traces) and the Graph Governor baseline (Analyzer, optional semantic Curator, validator, branch/promotion/canonicalization executor, reversible Cortex Epochs, indexed storage tiers, and safe derived-cache compaction).
 
-Still planned rather than claimed as complete: embedding retrieval, real Git-worktree transaction binding, live Jev/Laya validation/calibration and routing benchmarks, autonomous Governor scheduling, separate physical hot/warm/cold node stores or destructive cognitive GC, reusable Skills, vision/browser tooling, and Go Graph Governor mutation/executor parity. The Go runtime already has a control-plane baseline for System One decisions, Category chains, dynamic Think effort, circuit breakers, Work Units, shared cognition profiles, and read-only Governor Analyze/Plan/Validate over the shared SQLite graph.
+Still planned rather than claimed as complete: approximate-nearest-neighbor embedding indexes (the current optional baseline is persistent exact cosine + RRF Hybrid), real Git-worktree transaction binding, live Jev/Laya validation/calibration and routing benchmarks, autonomous Governor scheduling, separate physical hot/warm/cold node stores or destructive cognitive GC, reusable Skills, vision/browser tooling, and Go Graph Governor mutation/executor parity. The Go runtime already has a control-plane baseline for System One decisions, Category chains, dynamic Think effort, circuit breakers, Work Units, shared cognition profiles, and read-only Governor Analyze/Plan/Validate over the shared SQLite graph.
 
 ## Current engineering direction
 
-v0.6 intentionally keeps the orchestration/control plane in Node.js. Full-graph seed scans and per-query index rebuilds have been removed from the normal retrieval path: SQLite FTS5/symbol lookup generates candidates, graph writes use optimistic revisions, and dirty-node queues incrementally synchronize search rows. The next data-plane optimizations are embeddings (optional), richer retrieval diversity/semantic recall, and further physical graph-tier work; revision-scoped Attention adjacency caching and a stable max-heap propagation frontier are already implemented; a Rust core is only justified if profiling later shows a native data-plane bottleneck.
+v0.6 intentionally keeps the orchestration/control plane in Node.js. Full-graph seed scans and per-query index rebuilds have been removed from the normal retrieval path: SQLite FTS5/symbol lookup generates candidates, graph writes use optimistic revisions, and dirty-node queues incrementally synchronize search rows. The next data-plane optimizations are ANN acceleration for the now-implemented optional embedding baseline, richer semantic calibration/benchmarks, and further physical graph-tier work; revision-scoped Attention adjacency caching and a stable max-heap propagation frontier are already implemented; a Rust core is only justified if profiling later shows a native data-plane bottleneck.
 
 ## License
 
@@ -452,3 +452,17 @@ lcx-go governor validate plan.json
 ```
 
 The Go Governor commands are intentionally read-only. Durable Graph Governor mutation/apply and Cortex Epoch execution remain owned by the Node reference runtime so the project does not create two competing Cognitive Graph transaction authorities.
+
+
+### Optional embedding + Hybrid retrieval
+
+Node runtime supports an opt-in OpenAI-compatible embedding cache with exact cosine scoring and RRF fusion against symbol/FTS retrieval. It is disabled by default; configure `retrieval.embeddings` in `.lumencortex/cognition.json` with an explicit embedding model.
+
+```bash
+lcx index embeddings
+lcx search "warehouse contention" --semantic
+lcx search "warehouse contention" --hybrid
+lcx light "why is warehouse acceptance inconsistent?" --mode hybrid --json
+```
+
+This baseline is not ANN: vectors are persisted incrementally in SQLite and exact cosine-scored. HNSW/IVF or another approximate-nearest-neighbor backend remains a future optimization.
