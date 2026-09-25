@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -167,6 +168,10 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 		if cognitivePlan != nil && strings.TrimSpace(cognitivePlan.Category) != "" {
 			category = cognitivePlan.Category
 		}
+		requestMaxTokens := opts.MaxTokens
+		if cognitivePlan != nil && cognitivePlan.Think {
+			requestMaxTokens = adjustedMaxTokens(opts.MaxTokens, cognitivePlan.Effort)
+		}
 		usage.Requests++
 		attempt, err := l.completeWithProviderChain(
 			ctx,
@@ -175,7 +180,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 			category,
 			protocol.ProviderRequest{
 				Messages: messages, Tools: specs, ToolChoice: "auto", Temperature: opts.Temperature,
-				MaxTokens: opts.MaxTokens, ReasoningEffort: reasoningEffort,
+				MaxTokens: requestMaxTokens, ReasoningEffort: reasoningEffort,
 			},
 			len(messages),
 			specs,
@@ -852,4 +857,21 @@ func withDecisionSummary(metadata map[string]any, summary cognition.DecisionSumm
 	}
 	out["cognition"] = envelope
 	return out
+}
+
+
+func adjustedMaxTokens(base int, effort cognition.Effort) int {
+	if base <= 0 {
+		return base
+	}
+	multiplier := 1.0
+	switch effort {
+	case cognition.EffortMedium:
+		multiplier = 1.15
+	case cognition.EffortHigh:
+		multiplier = 1.5
+	case cognition.EffortMax:
+		multiplier = 2
+	}
+	return int(math.Ceil(float64(base) * multiplier))
 }
