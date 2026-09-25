@@ -740,3 +740,24 @@ func TestLoopDecisionLayerControlsCategoryChainAndThinkEffort(t *testing.T) {
 		t.Fatalf("lastDecision missing: %#v", cognitionMeta)
 	}
 }
+
+
+func TestAdjustedMaxTokensMatchesNodeThinkEffortPolicy(t *testing.T) {
+	cases := []struct {
+		effort cognition.Effort
+		want   int
+	}{
+		{cognition.EffortLow, 1000},
+		{cognition.EffortMedium, 1150},
+		{cognition.EffortHigh, 1500},
+		{cognition.EffortMax, 2000},
+	}
+	for _, tc := range cases {
+		if got := adjustedMaxTokens(1000, tc.effort); got != tc.want {
+			t.Fatalf("effort=%s got=%d want=%d", tc.effort, got, tc.want)
+		}
+	}
+	if got := adjustedMaxTokens(0, cognition.EffortMax); got != 0 {
+		t.Fatalf("unbounded max tokens changed: %d", got)
+	}
+}
