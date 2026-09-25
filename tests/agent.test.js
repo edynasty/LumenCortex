@@ -737,3 +737,92 @@ test('cognitive retrieval policy applies on the next turn and survives resume', 
   assert.equal(result.session.steps[1].cognition.activeRetrievalMode, 'associative');
   assert.equal(result.session.steps[1].cognition.nextRetrievalMode, 'lexical');
 });
+
+
+test('Agent awaits Hybrid context only on the next reasoning turn', async () => {
+  const { root, repository, runtime } = fixture();
+  const asyncModes = [];
+  runtime.contextAsync = async function contextAsync(_focus, options = {}) {
+    asyncModes.push(options.retrievalMode ?? 'weighted');
+    return {
+      mode: options.retrievalMode ?? 'weighted',
+      selectedNodes: [],
+      selectedEdges: [],
+      usedTokens: 0,
+      budgetTokens: options.budgetTokens ?? 1000
+    };
+  };
+
+  let planCalls = 0;
+  const cognitiveController = {
+    async planStep() {
+      planCalls += 1;
+      return {
+        category: 'general',
+        think: false,
+        effort: 'none',
+        thinkScore: 0.1,
+        retrieval: planCalls === 1 ? 'hybrid' : 'lexical',
+        reasons: [],
+        providers: [],
+        decision: { errors: [] },
+        prompt: ''
+      };
+    },
+    observeTool() {}
+  };
+
+  let providerCalls = 0;
+  const provider = {
+    model: 'mock-hybrid-next-turn',
+    complete: async () => {
+      providerCalls += 1;
+      if (providerCalls === 1) {
+        return {
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'hybrid-next',
+              type: 'function',
+              function: { name: 'echo', arguments: '{}' }
+            }]
+          },
+          finishReason: 'tool_calls'
+        };
+      }
+      return {
+        message: { role: 'assistant', content: 'done' },
+        finishReason: 'stop'
+      };
+    }
+  };
+
+  const tools = new ToolRegistry().register({
+    name: 'echo',
+    permission: 'read',
+    execute: () => 'continue'
+  });
+  const agent = new AgentLoop({
+    provider,
+    repository,
+    runtime,
+    workspace: root,
+    tools,
+    cognitiveController
+  });
+
+  const result = await agent.run('semantic retrieval task', {
+    maxSteps: 2,
+    autoIngest: false,
+    autoPromote: false,
+    recordTask: false,
+    recordObservations: false
+  });
+
+  assert.equal(result.final, 'done');
+  assert.deepEqual(asyncModes, ['weighted', 'hybrid']);
+  assert.equal(result.session.steps[0].cognition.nextRetrievalMode, 'hybrid');
+  assert.equal(result.session.steps[1].cognition.activeRetrievalMode, 'hybrid');
+  assert.equal(result.session.steps[1].cognition.nextRetrievalMode, 'lexical');
+});
