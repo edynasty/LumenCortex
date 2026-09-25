@@ -34,20 +34,22 @@ export class AttentionEngine {
       .map((node) => ({ node, score: 1, reason: 'explicit-seed' }));
     const seeds = dedupeSeedEntries([...explicitSeeds, ...candidates]).slice(0, cfg.seedLimit);
 
-    const queue = seeds.map((entry) => ({
-      nodeId: entry.node.id,
-      score: entry.score,
-      hop: 0,
-      parent: null,
-      edge: null,
-      reason: entry.reason
-    }));
+    const queue = new StableMaxPriorityQueue();
+    for (const entry of seeds) {
+      queue.push({
+        nodeId: entry.node.id,
+        score: entry.score,
+        hop: 0,
+        parent: null,
+        edge: null,
+        reason: entry.reason
+      });
+    }
     const best = new Map();
     const trace = [];
 
     while (queue.length) {
-      queue.sort((a, b) => b.score - a.score);
-      const current = queue.shift();
+      const current = queue.pop();
       const previous = best.get(current.nodeId);
       if (previous && previous.score >= current.score) continue;
       if (current.score < cfg.minScore) continue;
@@ -256,4 +258,54 @@ function dedupeSeedEntries(entries) {
     if (!previous || previous.score < entry.score) best.set(entry.node.id, entry);
   }
   return [...best.values()].sort((a, b) => b.score - a.score);
+}
+
+
+class StableMaxPriorityQueue {
+  constructor() {
+    this.heap = [];
+    this.sequence = 0;
+  }
+
+  get length() {
+    return this.heap.length;
+  }
+
+  push(item) {
+    const entry = { item, sequence: this.sequence++ };
+    this.heap.push(entry);
+    let index = this.heap.length - 1;
+    while (index > 0) {
+      const parent = Math.floor((index - 1) / 2);
+      if (!priorityHigher(this.heap[index], this.heap[parent])) break;
+      [this.heap[index], this.heap[parent]] = [this.heap[parent], this.heap[index]];
+      index = parent;
+    }
+  }
+
+  pop() {
+    if (!this.heap.length) return undefined;
+    const top = this.heap[0];
+    const tail = this.heap.pop();
+    if (this.heap.length && tail) {
+      this.heap[0] = tail;
+      let index = 0;
+      while (true) {
+        const left = index * 2 + 1;
+        const right = left + 1;
+        let next = index;
+        if (left < this.heap.length && priorityHigher(this.heap[left], this.heap[next])) next = left;
+        if (right < this.heap.length && priorityHigher(this.heap[right], this.heap[next])) next = right;
+        if (next === index) break;
+        [this.heap[index], this.heap[next]] = [this.heap[next], this.heap[index]];
+        index = next;
+      }
+    }
+    return top.item;
+  }
+}
+
+function priorityHigher(left, right) {
+  if (left.item.score !== right.item.score) return left.item.score > right.item.score;
+  return left.sequence < right.sequence;
 }
