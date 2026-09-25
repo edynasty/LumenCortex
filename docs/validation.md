@@ -217,3 +217,7 @@ The following are not represented as complete features:
 
 
 - LSP refactoring validation: `textDocument/rename`, `textDocument/codeAction`, optional `codeAction/resolve`, UTF-16 WorkspaceEdit range application, whole-edit prevalidation, multi-file rollback safety, post-write didChange synchronization, Agent write-tool integration, command-only action rejection, and resource-operation rejection.
+
+
+- Go session-worktree validation: managed path confinement, per-session branch creation, Agent/shell workspace isolation, main-workspace cleanliness, session git status/diff, overlap conflict detection, dirty-target and overlapping-file handoff blocks, safe commit apply, forced removal/discard, and CLI attach/apply-confirmation/remove lifecycle.
+- Go Skills validation: global/project layered registry, project override semantics, enable/disable state, bounded SKILL.md parsing, prompt injection into Go Agent execution, and CLI save/list/show/enable/disable/delete lifecycle.
