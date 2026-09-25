@@ -35,10 +35,10 @@ export class LumenCortexRuntime {
     const indexed = this.#candidateIds(goal, options);
     const attention = this.#attentionFor(snapshot);
     const retrievalMode = normalizeRetrievalMode(options.retrievalMode ?? options.mode);
-    const request = {
+    const request = retrievalRequest(retrievalMode, {
       ...options,
       candidateNodeIds: indexed.length ? indexed : options.candidateNodeIds
-    };
+    });
     const result = retrievalMode === 'associative'
       ? attention.illuminateAssociative(goal, request)
       : attention.illuminate(goal, request);
@@ -263,8 +263,60 @@ export function enforceSemanticRules(graphState) {
 
 
 
+const RETRIEVAL_PROFILES = Object.freeze({
+  weighted: Object.freeze({}),
+  lexical: Object.freeze({}),
+  dependency: Object.freeze({
+    maxHops: 5,
+    edgeWeights: Object.freeze({
+      depends_on: 1,
+      calls: 0.95,
+      abstracts: 0.85,
+      derived_from: 0.8,
+      relates_to: 0.25
+    })
+  }),
+  causal: Object.freeze({
+    maxHops: 5,
+    edgeWeights: Object.freeze({
+      causes: 1,
+      affects: 0.95,
+      derived_from: 0.95,
+      depends_on: 0.9,
+      contradicts: 0.55,
+      relates_to: 0.25
+    })
+  }),
+  historical: Object.freeze({
+    maxHops: 5,
+    includeArchivedSeeds: true,
+    archivedPenalty: 0.55,
+    stalePenalty: 0.7,
+    dormantPenalty: 0.85,
+    edgeWeights: Object.freeze({
+      supersedes: 1,
+      invalidates: 0.95,
+      derived_from: 0.9,
+      contradicts: 0.8,
+      relates_to: 0.35
+    })
+  }),
+  associative: Object.freeze({})
+});
+
 function normalizeRetrievalMode(value) {
   const mode = String(value ?? 'weighted').trim().toLowerCase();
-  if (mode === 'associative') return 'associative';
-  return 'weighted';
+  return Object.hasOwn(RETRIEVAL_PROFILES, mode) ? mode : 'weighted';
+}
+
+function retrievalRequest(mode, options) {
+  const profile = RETRIEVAL_PROFILES[mode] ?? RETRIEVAL_PROFILES.weighted;
+  return {
+    ...profile,
+    ...options,
+    edgeWeights: {
+      ...(profile.edgeWeights ?? {}),
+      ...(options.edgeWeights ?? {})
+    }
+  };
 }
