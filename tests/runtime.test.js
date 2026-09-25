@@ -193,3 +193,87 @@ test('runtime keeps weighted retrieval as default and enables associative mode e
   assert.ok(associative.neighborhoodNodeCount >= 3);
   runtime.close();
 });
+
+
+test('runtime retrieval profiles apply bounded deterministic graph policies', () => {
+  const repo = runtimeRepo();
+  let graph = repo.graph();
+  graph.addNode({ id: 'seed', kind: 'entity', title: 'root failure', body: 'root failure' });
+  graph.addNode({ id: 'cause', kind: 'belief', title: 'causal branch', body: 'causal branch' });
+  graph.addNode({ id: 'related', kind: 'belief', title: 'related branch', body: 'related branch' });
+  graph.addNode({ id: 'dependency', kind: 'entity', title: 'dependency branch', body: 'dependency branch' });
+  graph.addNode({
+    id: 'archived',
+    kind: 'belief',
+    title: 'previous regression history',
+    body: 'previous regression history',
+    status: 'archived',
+    grade: 'tested'
+  });
+  graph.addEdge({ id: 'cause-edge', from: 'seed', to: 'cause', type: 'causes', weight: 1 });
+  graph.addEdge({ id: 'related-edge', from: 'seed', to: 'related', type: 'relates_to', weight: 1 });
+  graph.addEdge({ id: 'dependency-edge', from: 'seed', to: 'dependency', type: 'depends_on', weight: 1 });
+  repo.writeGraph(graph.snapshot());
+
+  const runtime = new LumenCortexRuntime(repo);
+  const causal = runtime.context('root failure', {
+    retrievalMode: 'causal',
+    seedNodeIds: ['seed'],
+    candidateNodeIds: ['seed'],
+    minScore: 0,
+    budgetTokens: 1000
+  });
+  assert.equal(causal.mode, 'causal');
+  const causalActivation = Object.fromEntries(causal.selectedNodes.map((node) => [node.id, node.activation]));
+  assert.ok(causalActivation.cause > causalActivation.related);
+
+  const dependency = runtime.context('root failure', {
+    retrievalMode: 'dependency',
+    seedNodeIds: ['seed'],
+    candidateNodeIds: ['seed'],
+    minScore: 0,
+    budgetTokens: 1000
+  });
+  assert.equal(dependency.mode, 'dependency');
+  const dependencyActivation = Object.fromEntries(dependency.selectedNodes.map((node) => [node.id, node.activation]));
+  assert.ok(dependencyActivation.dependency > dependencyActivation.related);
+
+  const weightedHistory = runtime.context('previous regression history', {
+    retrievalMode: 'weighted',
+    candidateNodeIds: ['archived'],
+    minScore: 0,
+    budgetTokens: 1000
+  });
+  assert.equal(weightedHistory.selectedNodes.some((node) => node.id === 'archived'), false);
+
+  const historical = runtime.context('previous regression history', {
+    retrievalMode: 'historical',
+    candidateNodeIds: ['archived'],
+    minScore: 0,
+    budgetTokens: 1000
+  });
+  assert.equal(historical.mode, 'historical');
+  assert.ok(historical.selectedNodes.some((node) => node.id === 'archived'));
+
+  const lexical = runtime.context('root failure', {
+    retrievalMode: 'lexical',
+    seedNodeIds: ['seed'],
+    candidateNodeIds: ['seed'],
+    maxHops: 1,
+    minScore: 0,
+    budgetTokens: 1000
+  });
+  const weighted = runtime.context('root failure', {
+    retrievalMode: 'weighted',
+    seedNodeIds: ['seed'],
+    candidateNodeIds: ['seed'],
+    maxHops: 1,
+    minScore: 0,
+    budgetTokens: 1000
+  });
+  assert.deepEqual(
+    lexical.selectedNodes.map((node) => node.id),
+    weighted.selectedNodes.map((node) => node.id)
+  );
+  runtime.close();
+});
