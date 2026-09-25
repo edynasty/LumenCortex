@@ -22,7 +22,7 @@ Rules:
 11. If the latest tool result already proves the requested verification succeeded, stop calling tools immediately and return the final answer; do not restart or repeat the task.\n12. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates. A model assertion is never a substitute for required workflow evidence.`;
 
 export class AgentLoop {
-  constructor({ provider, repository, runtime, workspace, tools, sessionStore, promotionController, cognitiveController, authorize, onEvent } = {}) {
+  constructor({ provider, repository, runtime, workspace, tools, sessionStore, promotionController, cognitiveController, skillRegistry, authorize, onEvent } = {}) {
     if (!provider) throw new Error('provider is required');
     if (!repository) throw new Error('repository is required');
     if (!runtime) throw new Error('runtime is required');
@@ -35,6 +35,7 @@ export class AgentLoop {
     this.sessions = sessionStore ?? new AgentSessionStore(repository.dir);
     this.promotionController = promotionController ?? new PromotionController(runtime);
     this.cognitiveController = cognitiveController ?? null;
+    this.skillRegistry = skillRegistry ?? null;
     if (this.cognitiveController) registerWorkUnitTools(this.tools);
     this.authorize = authorize;
     this.onEvent = onEvent ?? (() => {});
@@ -89,6 +90,25 @@ export class AgentLoop {
       workingChars,
       systemPrompt: options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
     });
+
+    let skillPrompt = '';
+    if (this.skillRegistry) {
+      try {
+        const loaded = this.skillRegistry.prompt();
+        skillPrompt = loaded.prompt ?? '';
+        if (loaded.skills?.length) {
+          this.emit('skills.loaded', {
+            sessionId: session.id,
+            skills: loaded.skills.map((skill) => skill.id)
+          });
+        }
+      } catch (error) {
+        this.emit('skills.error', {
+          sessionId: session.id,
+          error: error.message
+        });
+      }
+    }
 
     const workUnits = this.cognitiveController ? new WorkUnitManager(session) : null;
     if (workUnits && Array.isArray(options.workUnits) && options.workUnits.length && !workUnits.list().length) {
@@ -245,6 +265,7 @@ export class AgentLoop {
 
       const requestMessages = buildWorkingMessages(session, context, {
         systemPrompt: session.metadata.systemPrompt,
+        skillPrompt,
         workflowPrompt: workflow?.prompt(),
         cognitivePrompt: cognitivePlan?.prompt,
         workUnitPrompt: workUnits ? formatWorkUnitPrompt(workUnits) : '',
@@ -762,6 +783,7 @@ export function buildWorkingMessages(sessionOrMessages, contextOrOptions = {}, m
 
   return [
     { role: 'system', content: systemPrompt },
+    ...(options.skillPrompt ? [{ role: 'system', content: options.skillPrompt }] : []),
     { role: 'system', content: formatActiveContext(context) },
     ...(options.workflowPrompt ? [{ role: 'system', content: options.workflowPrompt }] : []),
     ...(options.cognitivePrompt ? [{ role: 'system', content: options.cognitivePrompt }] : []),
