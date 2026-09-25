@@ -889,4 +889,4 @@ The deterministic Algorithm and Attention paths must remain independently usable
 
 The cognitive Router may choose `associative` in addition to lexical/dependency/causal/historical directions. The Node Agent does not recursively re-run retrieval after making that decision in the same reasoning step. Instead, it persists a bounded `nextRetrievalMode`; the next Agent turn applies that mode when constructing context. Session resume preserves this field.
 
-At present only `associative` selects a distinct Runtime algorithm. Other routing labels continue to map to the default weighted Attention path until dedicated deterministic profiles are added.
+`associative` selects bounded Personalized PageRank. `dependency`, `causal`, and `historical` select bounded deterministic weighted-Attention profiles with fixed relation/lifecycle overrides; `lexical` preserves the default weighted path. Unknown labels fall back to `weighted`.
