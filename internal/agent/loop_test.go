@@ -366,7 +366,7 @@ func TestLoopCognitiveRoutingPersistsPlanAndPassesReasoningEffort(t *testing.T) 
 	store := &memoryStore{
 		state: SessionState{
 			ID: "cognition",
-			Goal: "Debug a cross-module transaction deadlock and verify the root cause",
+			Goal: "Debug a production database migration deadlock and verify the root cause",
 			Status: "created",
 			Metadata: map[string]any{},
 		},
