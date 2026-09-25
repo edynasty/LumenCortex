@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export class LumenCortexDatabase {
   constructor(repositoryDir) {
@@ -174,6 +174,20 @@ export class LumenCortexDatabase {
         node_id TEXT PRIMARY KEY,
         removed INTEGER NOT NULL DEFAULT 0
       ) STRICT;
+
+      CREATE TABLE IF NOT EXISTS node_embeddings (
+        node_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        dimension INTEGER NOT NULL,
+        content_hash TEXT NOT NULL,
+        vector_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(node_id, model),
+        FOREIGN KEY(node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE
+      ) STRICT;
+
+      CREATE INDEX IF NOT EXISTS idx_node_embeddings_model
+        ON node_embeddings(model, node_id);
 
       CREATE VIRTUAL TABLE IF NOT EXISTS node_fts USING fts5(
         node_id UNINDEXED,
@@ -625,6 +639,7 @@ export class LumenCortexDatabase {
     const deleteFts = this.db.prepare('DELETE FROM node_fts WHERE node_id = ?');
     const deleteDoc = this.db.prepare('DELETE FROM search_documents WHERE node_id = ?');
     const deleteDirty = this.db.prepare('DELETE FROM search_dirty_nodes WHERE node_id = ?');
+    const deleteEmbeddings = this.db.prepare('DELETE FROM node_embeddings WHERE node_id = ?');
     const mark = this.db.prepare(
       'UPDATE graph_node_storage SET compacted_at = ? WHERE node_id = ?'
     );
@@ -636,6 +651,7 @@ export class LumenCortexDatabase {
         deleteFts.run(id);
         deleteDoc.run(id);
         deleteDirty.run(id);
+        deleteEmbeddings.run(id);
         const result = mark.run(at, id);
         compacted += Number(result.changes ?? 0);
       }
@@ -1028,6 +1044,145 @@ export class LumenCortexDatabase {
     return this.searchStats();
   }
 
+  embeddingManifest(model) {
+    const rows = this.db.prepare(`
+      SELECT node_id, dimension, content_hash, updated_at
+      FROM node_embeddings
+      WHERE model = ?
+      ORDER BY node_id
+    `).all(String(model));
+    return rows.map((row) => ({
+      nodeId: row.node_id,
+      dimension: Number(row.dimension),
+      contentHash: row.content_hash,
+      updatedAt: row.updated_at
+    }));
+  }
+
+  syncEmbeddings({ model, upserts = [], removeNodeIds = [], graphRevision = null } = {}) {
+    if (!model) throw new Error('Embedding model is required');
+    const normalizedModel = String(model);
+    const deleteOne = this.db.prepare(
+      'DELETE FROM node_embeddings WHERE node_id = ? AND model = ?'
+    );
+    const upsert = this.db.prepare(`
+      INSERT INTO node_embeddings(
+        node_id, model, dimension, content_hash, vector_json, updated_at
+      ) VALUES(?, ?, ?, ?, ?, ?)
+      ON CONFLICT(node_id, model) DO UPDATE SET
+        dimension = excluded.dimension,
+        content_hash = excluded.content_hash,
+        vector_json = excluded.vector_json,
+        updated_at = excluded.updated_at
+    `);
+    const updatedAt = new Date().toISOString();
+
+    this.transaction(() => {
+      const currentGraphRevision = this.graphRevision();
+      if (graphRevision !== null && Number(graphRevision) !== currentGraphRevision) {
+        const error = new Error(
+          `Embedding sync revision conflict: expected ${graphRevision}, current ${currentGraphRevision}`
+        );
+        error.code = 'EMBEDDING_REVISION_CONFLICT';
+        error.expectedRevision = Number(graphRevision);
+        error.currentRevision = currentGraphRevision;
+        throw error;
+      }
+
+      for (const nodeId of new Set(removeNodeIds.filter(Boolean))) {
+        deleteOne.run(nodeId, normalizedModel);
+      }
+      for (const item of upserts) {
+        const vector = normalizeVector(item.vector);
+        upsert.run(
+          item.nodeId,
+          normalizedModel,
+          vector.length,
+          String(item.contentHash ?? ''),
+          JSON.stringify(vector),
+          item.updatedAt ?? updatedAt
+        );
+      }
+
+      this.setMeta(embeddingMetaKey('revision', normalizedModel), String(graphRevision ?? currentGraphRevision));
+      this.setMeta(embeddingMetaKey('updated_at', normalizedModel), updatedAt);
+    });
+
+    return this.embeddingStats(normalizedModel);
+  }
+
+  clearEmbeddings(model) {
+    if (!model) throw new Error('Embedding model is required');
+    const normalizedModel = String(model);
+    this.transaction(() => {
+      this.db.prepare('DELETE FROM node_embeddings WHERE model = ?').run(normalizedModel);
+      this.setMeta(embeddingMetaKey('revision', normalizedModel), '-1');
+      this.setMeta(embeddingMetaKey('updated_at', normalizedModel), '');
+    });
+    return this.embeddingStats(normalizedModel);
+  }
+
+  searchEmbeddings(queryVector, { model, limit = 50, minScore = -1 } = {}) {
+    if (!model) throw new Error('Embedding model is required');
+    const query = normalizeVector(queryVector);
+    const max = Math.max(1, Number(limit));
+    const rows = this.db.prepare(`
+      SELECT e.node_id, e.dimension, e.content_hash, e.vector_json,
+             n.title, n.path, n.kind, n.source_kind
+      FROM node_embeddings e
+      JOIN graph_nodes n ON n.id = e.node_id
+      WHERE e.model = ?
+    `).all(String(model));
+
+    return rows
+      .map((row) => {
+        if (Number(row.dimension) !== query.length) return null;
+        const vector = normalizeVector(parseJson(row.vector_json, []));
+        if (vector.length !== query.length) return null;
+        const score = cosineSimilarity(query, vector);
+        if (!Number.isFinite(score) || score < Number(minScore)) return null;
+        return {
+          nodeId: row.node_id,
+          score,
+          model: String(model),
+          dimension: query.length,
+          contentHash: row.content_hash,
+          title: row.title ?? '',
+          path: row.path ?? '',
+          kind: row.kind ?? '',
+          sourceKind: row.source_kind ?? null
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score || a.nodeId.localeCompare(b.nodeId))
+      .slice(0, max);
+  }
+
+  embeddingStats(model = null) {
+    const where = model ? ' WHERE model = ?' : '';
+    const args = model ? [String(model)] : [];
+    const row = this.db.prepare(`
+      SELECT count(*) AS n,
+             count(DISTINCT model) AS models,
+             min(dimension) AS min_dimension,
+             max(dimension) AS max_dimension
+      FROM node_embeddings${where}
+    `).get(...args);
+    return {
+      model: model ? String(model) : null,
+      count: Number(row?.n ?? 0),
+      models: Number(row?.models ?? 0),
+      minDimension: row?.min_dimension == null ? null : Number(row.min_dimension),
+      maxDimension: row?.max_dimension == null ? null : Number(row.max_dimension),
+      graphRevision: model
+        ? Number(this.getMeta(embeddingMetaKey('revision', String(model))) ?? -1)
+        : null,
+      updatedAt: model
+        ? this.getMeta(embeddingMetaKey('updated_at', String(model)))
+        : null
+    };
+  }
+
   searchIndexReady() {
     return Number(this.getMeta('search_document_count') ?? 0) > 0 ||
       Boolean(this.getMeta('search_index_created_at'));
@@ -1128,7 +1283,8 @@ export class LumenCortexDatabase {
         journal: count('journal'),
         searchDocuments: count('search_documents'),
         symbols: count('symbols'),
-        dirtySearchNodes: count('search_dirty_nodes')
+        dirtySearchNodes: count('search_dirty_nodes'),
+        nodeEmbeddings: count('node_embeddings')
       }
     };
   }
@@ -1196,4 +1352,33 @@ function addScore(scores, reasons, nodeId, score, reason) {
 function storageTierForNode(node, fallback = 'warm') {
   const value = String(node?.metadata?.storageTier ?? fallback).toLowerCase();
   return ['hot', 'warm', 'cold'].includes(value) ? value : 'warm';
+}
+
+
+function embeddingMetaKey(kind, model) {
+  return `embedding_index_${kind}:${String(model)}`;
+}
+
+function normalizeVector(vector) {
+  if (!Array.isArray(vector) && !ArrayBuffer.isView(vector)) {
+    throw new Error('Embedding vector must be an array');
+  }
+  const values = Array.from(vector, Number);
+  if (!values.length || values.some((value) => !Number.isFinite(value))) {
+    throw new Error('Embedding vector must contain finite numeric values');
+  }
+  return values;
+}
+
+function cosineSimilarity(left, right) {
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+  for (let i = 0; i < left.length; i += 1) {
+    dot += left[i] * right[i];
+    leftNorm += left[i] * left[i];
+    rightNorm += right[i] * right[i];
+  }
+  if (leftNorm <= 0 || rightNorm <= 0) return 0;
+  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
 }
