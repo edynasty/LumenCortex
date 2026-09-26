@@ -105,7 +105,8 @@
       "canonicalizeGroupThreshold": 3,
       "branchCandidateThreshold": 3,
       "promotionGroupThreshold": 3,
-      "tierChangeThreshold": 25
+      "tierChangeThreshold": 25,
+      "autoApplySafe": false
     }
   },
   "retrieval": {
