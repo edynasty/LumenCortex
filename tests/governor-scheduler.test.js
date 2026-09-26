@@ -228,3 +228,112 @@ test('Governor scheduler invokes semantic Curator only when explicitly enabled',
 
   repo.close();
 });
+
+
+test('Governor scheduler auto-applies deterministic safe tier/archive changes when explicitly enabled', async () => {
+  const { repo } = tempRepository();
+  addStaleGraph(repo, 3);
+  const governor = new GraphGovernor({
+    repository: repo,
+    analyzer: new GraphGovernorAnalyzer({ archiveThreshold: 0.5 })
+  });
+  const scheduler = new GraphGovernorScheduler({
+    repository: repo,
+    governor,
+    options: {
+      enabled: true,
+      useCurator: false,
+      autoApplySafe: true,
+      checkRevisionDelta: 1,
+      cooldownMs: 0,
+      archiveCandidateThreshold: 1,
+      canonicalizeGroupThreshold: 999,
+      branchCandidateThreshold: 999,
+      promotionGroupThreshold: 999,
+      tierChangeThreshold: 999
+    }
+  });
+
+  const result = await scheduler.evaluate({ now: Date.UTC(2026, 8, 26, 1, 0, 0) });
+  assert.equal(result.scheduled, true);
+  assert.equal(result.autoApplied, true);
+  assert.ok(result.safeChangedCount > 0);
+  assert.equal(result.pending, null);
+  assert.equal(result.apply.automatic, true);
+  assert.equal(scheduler.status().state.pending, null);
+  assert.equal(scheduler.status().state.lastAutoAppliedPlanId, result.apply.planId);
+  assert.equal(repo.graph().getNode('stale-0').status, 'archived');
+
+  const appliedEvent = repo.journal().find((entry) => entry.event === 'governor.scheduler.applied');
+  assert.equal(appliedEvent.payload.automatic, true);
+  repo.close();
+});
+
+test('Governor scheduler never auto-applies Curator-backed plans', async () => {
+  const { repo } = tempRepository();
+  let calls = 0;
+  const provider = {
+    model: 'curator-auto-safe-test',
+    async complete() {
+      calls += 1;
+      return {
+        message: {
+          role: 'assistant',
+          content: JSON.stringify({
+            archive: [],
+            canonicalize: [],
+            branch: [],
+            promote: [],
+            summary: 'semantic plan requires review'
+          })
+        },
+        finishReason: 'stop'
+      };
+    }
+  };
+  const governor = new GraphGovernor({
+    repository: repo,
+    curator: new LLMGraphGovernorCurator({ provider })
+  });
+  const scheduler = new GraphGovernorScheduler({
+    repository: repo,
+    governor,
+    options: {
+      enabled: true,
+      useCurator: true,
+      autoApplySafe: true,
+      cooldownMs: 0
+    }
+  });
+
+  const result = await scheduler.evaluate({ force: true });
+  assert.equal(calls, 1);
+  assert.equal(result.autoApplied, false);
+  assert.equal(result.autoApplySkippedReason, 'curator-plan-requires-explicit-apply');
+  assert.ok(result.pending?.id);
+  assert.equal(scheduler.status().state.pending.id, result.pending.id);
+  repo.close();
+});
+
+test('Governor scheduler leaves a pending plan when auto-safe preview has no safe mutations', async () => {
+  const { repo } = tempRepository();
+  const governor = new GraphGovernor({ repository: repo });
+  const scheduler = new GraphGovernorScheduler({
+    repository: repo,
+    governor,
+    options: {
+      enabled: true,
+      useCurator: false,
+      autoApplySafe: true,
+      cooldownMs: 0
+    }
+  });
+
+  const result = await scheduler.evaluate({ force: true });
+  assert.equal(result.scheduled, true);
+  assert.equal(result.autoApplied, false);
+  assert.equal(result.autoApplySkippedReason, 'no-safe-changes');
+  assert.ok(result.pending?.id);
+  assert.equal(scheduler.status().state.pending.id, result.pending.id);
+  repo.close();
+});
