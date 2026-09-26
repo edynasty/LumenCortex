@@ -91,9 +91,41 @@ export class LspManager {
   }
 
   async applyWorkspaceEdit(edit) {
-    const result = applyLspWorkspaceEdit(this.workspace, edit);
+    const openRenames = [];
+    const openDeletes = [];
+    const planned = planLspWorkspaceEdit(this.workspace, edit);
+
+    for (const operation of planned.resourceOperations) {
+      if (operation.kind === 'rename') {
+        const from = resolveInside(this.workspace, operation.oldPath);
+        const server = resolveServer(this.config, from);
+        const client = server ? this.clients.get(server.name) : null;
+        if (client?.isDocumentOpen(from)) {
+          openRenames.push({ client, from, to: resolveInside(this.workspace, operation.newPath) });
+        }
+      } else if (operation.kind === 'delete') {
+        const file = resolveInside(this.workspace, operation.path);
+        const server = resolveServer(this.config, file);
+        const client = server ? this.clients.get(server.name) : null;
+        if (client?.isDocumentOpen(file)) openDeletes.push({ client, file });
+      }
+    }
+
+    const result = applyLspWorkspaceEdit(this.workspace, edit, { planned });
+
+    for (const item of openDeletes) await item.client.closeDocument(item.file);
+    for (const item of openRenames) {
+      await item.client.closeDocument(item.from);
+      if (fs.existsSync(item.to)) {
+        const targetClient = await this.#clientFor(item.to);
+        await targetClient.openDocument(item.to);
+      }
+    }
+
+    const renamedSources = new Set(openRenames.map((item) => path.resolve(item.from)));
     for (const changed of result.files) {
       const absolute = resolveInside(this.workspace, changed.path);
+      if (!changed.exists || renamedSources.has(path.resolve(absolute))) continue;
       const server = resolveServer(this.config, absolute);
       const client = server ? this.clients.get(server.name) : null;
       if (client) await client.updateDocument(absolute);
@@ -210,7 +242,8 @@ export class LspClient {
         workspace: {
           applyEdit: true,
           workspaceEdit: {
-            documentChanges: true
+            documentChanges: true,
+            resourceOperations: ['create', 'rename', 'delete']
           }
         }
       }
@@ -239,6 +272,10 @@ export class LspClient {
     this.versions.set(uri, 1);
   }
 
+  isDocumentOpen(file) {
+    return this.opened.has(pathToFileURL(file).href);
+  }
+
   async updateDocument(file) {
     const uri = pathToFileURL(file).href;
     if (!this.opened.has(uri)) return;
@@ -249,6 +286,18 @@ export class LspClient {
       contentChanges: [{ text }]
     });
     this.versions.set(uri, version);
+  }
+
+  async closeDocument(file) {
+    const uri = pathToFileURL(file).href;
+    if (!this.opened.has(uri)) return false;
+    this.rpc.notify('textDocument/didClose', {
+      textDocument: { uri }
+    });
+    this.opened.delete(uri);
+    this.versions.delete(uri);
+    this.diagnostics.delete(uri);
+    return true;
   }
 
   async close() {
@@ -437,98 +486,396 @@ function languageId(file) {
   })[ext] ?? (ext.slice(1) || 'plaintext');
 }
 
-export function applyLspWorkspaceEdit(workspace, edit) {
+export function applyLspWorkspaceEdit(workspace, edit, options = {}) {
   const root = path.resolve(workspace);
-  const grouped = normalizeWorkspaceEdit(root, edit);
-  const plans = [];
+  const planned = options.planned ?? planLspWorkspaceEdit(root, edit);
+  const changed = planned.files.filter((item) => workspaceFileChanged(item.initial, item.final));
+  const createdDirectories = new Set();
 
-  for (const [file, edits] of grouped) {
-    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
-      throw new Error(`LSP WorkspaceEdit target not found: ${normalizeWorkspacePath(root, file)}`);
-    }
-    const original = fs.readFileSync(file, 'utf8');
-    const ranged = edits.map((entry, index) => {
-      if (!entry?.range || typeof entry.newText !== 'string') {
-        throw new Error(`Unsupported LSP text edit at ${normalizeWorkspacePath(root, file)}#${index + 1}`);
-      }
-      return {
-        index,
-        start: lspOffset(original, entry.range.start),
-        end: lspOffset(original, entry.range.end),
-        newText: entry.newText
-      };
-    }).sort((a, b) => a.start - b.start || a.end - b.end || a.index - b.index);
-
-    for (let index = 1; index < ranged.length; index += 1) {
-      const previous = ranged[index - 1];
-      const current = ranged[index];
-      if (current.start < previous.end) {
-        throw new Error(`Overlapping LSP edits are not supported: ${normalizeWorkspacePath(root, file)}`);
-      }
-    }
-
-    let next = original;
-    for (const item of [...ranged].sort((a, b) => b.start - a.start || b.end - a.end || b.index - a.index)) {
-      next = `${next.slice(0, item.start)}${item.newText}${next.slice(item.end)}`;
-    }
-    plans.push({
-      file,
-      path: normalizeWorkspacePath(root, file),
-      original,
-      next,
-      edits: ranged.length
-    });
-  }
-
-  const applied = [];
   try {
-    for (const plan of plans) {
-      fs.writeFileSync(plan.file, plan.next, 'utf8');
-      applied.push(plan);
+    for (const item of changed.filter((entry) => entry.final.exists)) {
+      ensureWorkspaceParentDirectories(root, item.file, createdDirectories);
+      writeWorkspaceFileAtomic(item.file, item.final.content, item.final.mode);
+    }
+    for (const item of changed.filter((entry) => !entry.final.exists && entry.initial.exists)) {
+      fs.unlinkSync(item.file);
     }
   } catch (error) {
-    for (const plan of applied.reverse()) {
-      try { fs.writeFileSync(plan.file, plan.original, 'utf8'); } catch {}
-    }
+    const rollbackErrors = rollbackWorkspaceFiles(root, changed, createdDirectories);
+    if (rollbackErrors.length) error.rollbackErrors = rollbackErrors;
     throw error;
   }
 
   return {
     applied: true,
-    editCount: plans.reduce((sum, plan) => sum + plan.edits, 0),
-    files: plans.map((plan) => ({
-      path: plan.path,
-      edits: plan.edits,
-      bytes: Buffer.byteLength(plan.next)
+    editCount: planned.editCount,
+    resourceOperationCount: planned.resourceOperations.length,
+    resourceOperations: planned.resourceOperations.map((item) => ({ ...item })),
+    files: changed.map((item) => ({
+      path: item.path,
+      edits: item.edits,
+      bytes: item.final.exists ? Buffer.byteLength(item.final.content) : 0,
+      exists: item.final.exists,
+      action: workspaceFileAction(item)
     }))
   };
 }
 
-export function normalizeWorkspaceEdit(workspace, edit) {
+export function planLspWorkspaceEdit(workspace, edit) {
   if (!edit || typeof edit !== 'object') throw new Error('LSP WorkspaceEdit is required');
   const root = path.resolve(workspace);
-  const grouped = new Map();
-  const add = (uri, edits) => {
-    if (!uri?.startsWith('file:')) throw new Error(`Unsupported LSP WorkspaceEdit URI: ${uri ?? '(missing)'}`);
-    const file = fileURLToPath(uri);
-    resolveInside(root, file);
-    const list = grouped.get(file) ?? [];
-    list.push(...(edits ?? []));
-    grouped.set(file, list);
+  const initial = new Map();
+  const current = new Map();
+  const editCounts = new Map();
+  const resourceOperations = [];
+  let editCount = 0;
+
+  const load = (uri, label = 'WorkspaceEdit') => {
+    const file = workspaceFileFromUri(root, uri, label);
+    if (!current.has(file)) {
+      const snapshot = readWorkspaceFileSnapshot(root, file);
+      initial.set(file, cloneWorkspaceFileState(snapshot));
+      current.set(file, cloneWorkspaceFileState(snapshot));
+    }
+    return { file, state: current.get(file) };
   };
 
-  for (const [uri, edits] of Object.entries(edit.changes ?? {})) add(uri, edits);
+  const applyText = (uri, edits, label = 'text edit') => {
+    const { file, state } = load(uri, label);
+    if (!state.exists) {
+      throw new Error(`LSP WorkspaceEdit target not found: ${normalizeWorkspacePath(root, file)}`);
+    }
+    if (!Array.isArray(edits)) throw new Error(`Invalid LSP text edits for ${normalizeWorkspacePath(root, file)}`);
+    state.content = applyLspTextEdits(
+      state.content,
+      edits,
+      normalizeWorkspacePath(root, file)
+    );
+    editCounts.set(file, Number(editCounts.get(file) ?? 0) + edits.length);
+    editCount += edits.length;
+  };
+
+  for (const [uri, edits] of Object.entries(edit.changes ?? {})) {
+    applyText(uri, edits, 'WorkspaceEdit changes');
+  }
 
   for (const change of edit.documentChanges ?? []) {
     if (change?.textDocument?.uri && Array.isArray(change.edits)) {
-      add(change.textDocument.uri, change.edits);
+      applyText(change.textDocument.uri, change.edits, 'TextDocumentEdit');
       continue;
     }
-    const kind = change?.kind ?? 'resource-operation';
-    throw new Error(`Unsupported LSP WorkspaceEdit resource operation: ${kind}`);
+
+    const kind = String(change?.kind ?? '');
+    if (kind === 'create') {
+      const { file, state } = load(change.uri, 'CreateFile');
+      const filePath = normalizeWorkspacePath(root, file);
+      const overwrite = Boolean(change.options?.overwrite);
+      const ignoreIfExists = Boolean(change.options?.ignoreIfExists);
+      let ignored = false;
+      if (state.exists) {
+        if (overwrite) {
+          state.content = '';
+        } else if (ignoreIfExists) {
+          ignored = true;
+        } else {
+          throw new Error(`LSP CreateFile target already exists: ${filePath}`);
+        }
+      } else {
+        state.exists = true;
+        state.content = '';
+        state.mode = 0o666;
+      }
+      resourceOperations.push({
+        kind: 'create',
+        path: filePath,
+        overwrite,
+        ignoreIfExists,
+        ignored
+      });
+      continue;
+    }
+
+    if (kind === 'rename') {
+      const source = load(change.oldUri, 'RenameFile oldUri');
+      const target = load(change.newUri, 'RenameFile newUri');
+      const oldPath = normalizeWorkspacePath(root, source.file);
+      const newPath = normalizeWorkspacePath(root, target.file);
+      const overwrite = Boolean(change.options?.overwrite);
+      const ignoreIfExists = Boolean(change.options?.ignoreIfExists);
+      let ignored = false;
+
+      if (source.file === target.file) {
+        ignored = true;
+      } else if (!source.state.exists) {
+        throw new Error(`LSP RenameFile source not found: ${oldPath}`);
+      } else if (target.state.exists && !overwrite) {
+        if (ignoreIfExists) ignored = true;
+        else throw new Error(`LSP RenameFile target already exists: ${newPath}`);
+      }
+
+      if (!ignored) {
+        target.state.exists = true;
+        target.state.content = source.state.content;
+        target.state.mode = source.state.mode;
+        source.state.exists = false;
+        source.state.content = '';
+      }
+      resourceOperations.push({
+        kind: 'rename',
+        oldPath,
+        newPath,
+        overwrite,
+        ignoreIfExists,
+        ignored
+      });
+      continue;
+    }
+
+    if (kind === 'delete') {
+      const { file, state } = load(change.uri, 'DeleteFile');
+      const filePath = normalizeWorkspacePath(root, file);
+      const ignoreIfNotExists = Boolean(change.options?.ignoreIfNotExists);
+      const recursive = Boolean(change.options?.recursive);
+      let ignored = false;
+      if (!state.exists) {
+        if (ignoreIfNotExists) ignored = true;
+        else throw new Error(`LSP DeleteFile target not found: ${filePath}`);
+      } else {
+        state.exists = false;
+        state.content = '';
+      }
+      resourceOperations.push({
+        kind: 'delete',
+        path: filePath,
+        recursive,
+        ignoreIfNotExists,
+        ignored
+      });
+      continue;
+    }
+
+    throw new Error(`Unsupported LSP WorkspaceEdit resource operation: ${kind || 'resource-operation'}`);
   }
 
+  const files = [...new Set([...initial.keys(), ...current.keys()])]
+    .sort((left, right) => left.localeCompare(right))
+    .map((file) => ({
+      file,
+      path: normalizeWorkspacePath(root, file),
+      initial: cloneWorkspaceFileState(initial.get(file) ?? missingWorkspaceFileState()),
+      final: cloneWorkspaceFileState(current.get(file) ?? missingWorkspaceFileState()),
+      edits: Number(editCounts.get(file) ?? 0)
+    }));
+
+  validateWorkspacePlanParents(root, files);
+
+  return {
+    editCount,
+    resourceOperations,
+    files
+  };
+}
+
+export function normalizeWorkspaceEdit(workspace, edit) {
+  const planned = planLspWorkspaceEdit(workspace, edit);
+  if (planned.resourceOperations.length) {
+    throw new Error('normalizeWorkspaceEdit only supports text-only WorkspaceEdit values');
+  }
+  const root = path.resolve(workspace);
+  const grouped = new Map();
+  for (const [uri, edits] of Object.entries(edit.changes ?? {})) {
+    grouped.set(workspaceFileFromUri(root, uri, 'WorkspaceEdit changes'), [...edits]);
+  }
+  for (const change of edit.documentChanges ?? []) {
+    if (change?.textDocument?.uri && Array.isArray(change.edits)) {
+      const file = workspaceFileFromUri(root, change.textDocument.uri, 'TextDocumentEdit');
+      const list = grouped.get(file) ?? [];
+      list.push(...change.edits);
+      grouped.set(file, list);
+    }
+  }
   return grouped;
+}
+
+function applyLspTextEdits(text, edits, displayPath) {
+  const ranged = edits.map((entry, index) => {
+    if (!entry?.range || typeof entry.newText !== 'string') {
+      throw new Error(`Unsupported LSP text edit at ${displayPath}#${index + 1}`);
+    }
+    return {
+      index,
+      start: lspOffset(text, entry.range.start),
+      end: lspOffset(text, entry.range.end),
+      newText: entry.newText
+    };
+  }).sort((a, b) => a.start - b.start || a.end - b.end || a.index - b.index);
+
+  for (let index = 1; index < ranged.length; index += 1) {
+    const previous = ranged[index - 1];
+    const current = ranged[index];
+    if (current.start < previous.end) {
+      throw new Error(`Overlapping LSP edits are not supported: ${displayPath}`);
+    }
+  }
+
+  let next = text;
+  for (const item of [...ranged].sort((a, b) => b.start - a.start || b.end - a.end || b.index - a.index)) {
+    next = `${next.slice(0, item.start)}${item.newText}${next.slice(item.end)}`;
+  }
+  return next;
+}
+
+function workspaceFileFromUri(root, uri, label) {
+  if (!String(uri ?? '').startsWith('file:')) {
+    throw new Error(`Unsupported LSP ${label} URI: ${uri ?? '(missing)'}`);
+  }
+  return resolveInside(root, fileURLToPath(uri));
+}
+
+function readWorkspaceFileSnapshot(root, file) {
+  assertWorkspaceResourcePath(root, file);
+  let stat;
+  try {
+    stat = fs.lstatSync(file);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return missingWorkspaceFileState();
+    throw error;
+  }
+  if (stat.isSymbolicLink()) {
+    throw new Error(`LSP WorkspaceEdit refuses symbolic link target: ${normalizeWorkspacePath(root, file)}`);
+  }
+  if (!stat.isFile()) {
+    throw new Error(`LSP WorkspaceEdit resource is not a regular file: ${normalizeWorkspacePath(root, file)}`);
+  }
+  return {
+    exists: true,
+    content: fs.readFileSync(file, 'utf8'),
+    mode: stat.mode & 0o777
+  };
+}
+
+function assertWorkspaceResourcePath(root, file) {
+  resolveInside(root, file);
+  let cursor = path.dirname(file);
+  const rootPath = path.resolve(root);
+  while (cursor !== rootPath) {
+    let stat;
+    try {
+      stat = fs.lstatSync(cursor);
+    } catch (error) {
+      if (error?.code === 'ENOENT') {
+        cursor = path.dirname(cursor);
+        continue;
+      }
+      throw error;
+    }
+    if (stat.isSymbolicLink()) {
+      throw new Error(`LSP WorkspaceEdit refuses symbolic link parent: ${normalizeWorkspacePath(rootPath, cursor)}`);
+    }
+    if (!stat.isDirectory()) {
+      throw new Error(`LSP WorkspaceEdit parent is not a directory: ${normalizeWorkspacePath(rootPath, cursor)}`);
+    }
+    cursor = path.dirname(cursor);
+  }
+}
+
+function validateWorkspacePlanParents(root, files) {
+  const finalByPath = new Map(files.map((item) => [path.resolve(item.file), item.final]));
+  for (const item of files) {
+    if (!item.final.exists) continue;
+    assertWorkspaceResourcePath(root, item.file);
+    let cursor = path.dirname(item.file);
+    const rootPath = path.resolve(root);
+    while (cursor !== rootPath) {
+      const virtual = finalByPath.get(path.resolve(cursor));
+      if (virtual?.exists) {
+        throw new Error(
+          `LSP WorkspaceEdit parent would be a file: ${normalizeWorkspacePath(root, cursor)}`
+        );
+      }
+      cursor = path.dirname(cursor);
+    }
+  }
+}
+
+function missingWorkspaceFileState() {
+  return { exists: false, content: '', mode: 0o666 };
+}
+
+function cloneWorkspaceFileState(state) {
+  return {
+    exists: Boolean(state?.exists),
+    content: String(state?.content ?? ''),
+    mode: Number(state?.mode ?? 0o666)
+  };
+}
+
+function workspaceFileChanged(initial, final) {
+  return initial.exists !== final.exists ||
+    (initial.exists && final.exists && (
+      initial.content !== final.content ||
+      initial.mode !== final.mode
+    ));
+}
+
+function workspaceFileAction(item) {
+  if (!item.initial.exists && item.final.exists) return 'create';
+  if (item.initial.exists && !item.final.exists) return 'delete';
+  return 'modify';
+}
+
+function ensureWorkspaceParentDirectories(root, file, createdDirectories) {
+  const rootPath = path.resolve(root);
+  const pending = [];
+  let cursor = path.dirname(file);
+  while (cursor !== rootPath) {
+    if (fs.existsSync(cursor)) break;
+    pending.push(cursor);
+    cursor = path.dirname(cursor);
+  }
+  for (const dir of pending.reverse()) {
+    fs.mkdirSync(dir);
+    createdDirectories.add(dir);
+  }
+}
+
+function writeWorkspaceFileAtomic(file, content, mode = 0o666) {
+  const tmp = path.join(
+    path.dirname(file),
+    `.${path.basename(file)}.lcx-lsp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  );
+  fs.writeFileSync(tmp, content, { encoding: 'utf8', mode });
+  try {
+    fs.renameSync(tmp, file);
+  } catch (error) {
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+    throw error;
+  }
+  try { fs.chmodSync(file, mode); } catch {}
+}
+
+function rollbackWorkspaceFiles(root, changed, createdDirectories) {
+  const errors = [];
+  for (const item of [...changed].reverse()) {
+    try {
+      if (item.initial.exists) {
+        ensureWorkspaceParentDirectories(root, item.file, new Set());
+        writeWorkspaceFileAtomic(item.file, item.initial.content, item.initial.mode);
+      } else if (fs.existsSync(item.file)) {
+        const stat = fs.lstatSync(item.file);
+        if (stat.isFile() && !stat.isSymbolicLink()) fs.unlinkSync(item.file);
+      }
+    } catch (error) {
+      errors.push({
+        path: item.path,
+        error: error.message
+      });
+    }
+  }
+  for (const dir of [...createdDirectories].sort((a, b) => b.length - a.length)) {
+    try { fs.rmdirSync(dir); } catch {}
+  }
+  return errors;
 }
 
 function lspOffset(text, position) {
