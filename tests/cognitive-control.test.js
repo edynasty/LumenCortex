@@ -10,9 +10,11 @@ import {
   CognitiveController,
   CognitiveRouter,
   DecisionLayer,
+  GenerativeDecisionProvider,
   ProgressMonitor,
   ProviderHealthRegistry,
   SystemOneDecisionProvider,
+  createDecisionProvider,
   loadCognitiveProfile
 } from '../src/cognitive-control.js';
 import { AgentLoop } from '../src/agent.js';
@@ -663,4 +665,221 @@ test('causal retrieval can become applicable from repeated failures or contradic
     }
   });
   assert.equal(contradiction.retrieval, 'causal');
+});
+
+
+test('Generative DecisionProvider returns bounded typed answers and discounts self-reported confidence', async () => {
+  const requests = [];
+  const provider = {
+    model: 'decision-fallback-model',
+    async complete(request) {
+      requests.push(request);
+      return {
+        model: 'decision-fallback-model',
+        usage: { total_tokens: 42 },
+        message: {
+          role: 'assistant',
+          content: [
+            '```json',
+            JSON.stringify({
+              answers: {
+                category: { type: 'choice', choice: 'deep', confidence: 0.9 },
+                need_think: { type: 'noul', noul: 0.8 },
+                evidence_sufficient: { type: 'noul', noul: 0.3 },
+                stuck: { type: 'noul', noul: 0.2 },
+                retrieval: { type: 'choice', choice: 'causal', confidence: 0.95 }
+              }
+            }),
+            '```'
+          ].join('\n')
+        }
+      };
+    }
+  };
+  const decision = new GenerativeDecisionProvider({
+    provider,
+    confidenceScale: 0.85,
+    confidenceCap: 0.9,
+    scoreScale: 0.85
+  });
+  const questions = {
+    category: {
+      type: 'choice',
+      criteria: { general: 'normal', deep: 'hard' }
+    },
+    need_think: { type: 'noul' },
+    evidence_sufficient: { type: 'noul' },
+    stuck: { type: 'noul' },
+    retrieval: {
+      type: 'choice',
+      criteria: { lexical: 'default', causal: 'root cause' }
+    }
+  };
+
+  const result = await decision.decide({
+    state: { goal: 'Debug the root cause of a race' },
+    questions
+  });
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].tools.length, 0);
+  assert.equal(requests[0].toolChoice, 'none');
+  assert.equal(requests[0].reasoningEffort, 'low');
+  assert.match(requests[0].messages[0].content, /bounded Decision Layer/);
+  assert.match(requests[0].messages[0].content, /Do not execute the task/);
+  assert.equal(result.answers.category.choice, 'deep');
+  assert.equal(result.answers.category.confidence, 0.765);
+  assert.equal(result.answers.retrieval.choice, 'causal');
+  assert.ok(Math.abs(result.answers.retrieval.confidence - 0.8075) < 1e-9);
+  assert.ok(Math.abs(result.answers.need_think.noul - 0.755) < 1e-9);
+  assert.ok(Math.abs(result.answers.evidence_sufficient.noul - 0.33) < 1e-9);
+  assert.equal(result.usage.total_tokens, 42);
+});
+
+test('Decision Layer can fall through System One failure to a generative decision model', async () => {
+  const first = {
+    name: 'laya',
+    model: 'local-laya',
+    async decide() {
+      const error = new Error('laya unavailable');
+      error.status = 503;
+      throw error;
+    }
+  };
+  const second = new GenerativeDecisionProvider({
+    name: 'generative:deepseek',
+    provider: {
+      model: 'deepseek-flash',
+      async complete() {
+        return {
+          message: {
+            role: 'assistant',
+            content: JSON.stringify({
+              answers: {
+                category: { type: 'choice', choice: 'deep', confidence: 0.95 },
+                need_think: { type: 'noul', noul: 0.9 },
+                retrieval: { type: 'choice', choice: 'causal', confidence: 0.95 }
+              }
+            })
+          }
+        };
+      }
+    }
+  });
+  const layer = new DecisionLayer({
+    providers: [first, second],
+    policy: 'first'
+  });
+  const summary = await layer.decide({
+    state: { goal: 'Debug the root cause' },
+    questions: {
+      category: { type: 'choice', criteria: { general: 'normal', deep: 'hard' } },
+      need_think: { type: 'noul' },
+      retrieval: { type: 'choice', criteria: { lexical: 'default', causal: 'root cause' } }
+    }
+  });
+
+  assert.equal(summary.models.length, 1);
+  assert.equal(summary.models[0].source, 'generative:deepseek');
+  assert.equal(summary.errors.length, 1);
+  assert.equal(summary.errors[0].provider, 'laya');
+  assert.equal(summary.signals.category.choice, 'deep');
+});
+
+test('malformed generative decision output fails closed and participates in circuit fallback', async () => {
+  let badCalls = 0;
+  const bad = new GenerativeDecisionProvider({
+    name: 'bad-generative',
+    provider: {
+      model: 'bad-model',
+      async complete() {
+        badCalls += 1;
+        return {
+          message: { role: 'assistant', content: 'not-json' }
+        };
+      }
+    }
+  });
+  const good = {
+    name: 'good-system-one',
+    model: 'good-model',
+    async decide() {
+      return {
+        source: 'good-system-one',
+        answers: {
+          category: { type: 'choice', choice: 'general', confidence: 0.8 }
+        }
+      };
+    }
+  };
+  const health = new ProviderHealthRegistry({
+    failureThreshold: 1,
+    cooldownMs: 10000
+  });
+  const layer = new DecisionLayer({
+    providers: [bad, good],
+    healthRegistry: health
+  });
+
+  const first = await layer.decide({
+    state: { goal: 'normal task' },
+    questions: {
+      category: { type: 'choice', criteria: { general: 'normal' } }
+    }
+  });
+  const second = await layer.decide({
+    state: { goal: 'normal task' },
+    questions: {
+      category: { type: 'choice', criteria: { general: 'normal' } }
+    }
+  });
+
+  assert.equal(badCalls, 1);
+  assert.equal(first.models[0].source, 'good-system-one');
+  assert.equal(second.errors[0].skipped, true);
+  assert.equal(health.snapshot()['decision:bad-generative:bad-model'].available, false);
+});
+
+test('createDecisionProvider builds a generative fallback from an ordinary execution provider', async () => {
+  const factoryCalls = [];
+  const provider = createDecisionProvider({
+    type: 'generative',
+    name: 'fallback-router',
+    provider: 'mock-provider',
+    model: 'router-model',
+    reasoningEffort: 'low',
+    maxTokens: 321
+  }, {
+    providerFactory(name, options) {
+      factoryCalls.push({ name, options });
+      return {
+        model: options.model,
+        async complete() {
+          return {
+            message: {
+              role: 'assistant',
+              content: JSON.stringify({
+                answers: {
+                  category: { type: 'choice', choice: 'general', confidence: 0.9 }
+                }
+              })
+            }
+          };
+        }
+      };
+    }
+  });
+
+  assert.equal(provider.name, 'fallback-router');
+  assert.equal(factoryCalls[0].name, 'mock-provider');
+  assert.equal(factoryCalls[0].options.model, 'router-model');
+
+  const result = await provider.decide({
+    state: { goal: 'small task' },
+    questions: {
+      category: { type: 'choice', criteria: { general: 'normal' } }
+    }
+  });
+  assert.equal(result.answers.category.choice, 'general');
+  assert.ok(result.answers.category.confidence < 0.9);
 });
