@@ -26,7 +26,9 @@ import { embeddingRuntimeConfig } from './embedding-index.js';
 import { SkillRegistry, projectSkillRoot } from './skills.js';
 import {
   loadCognitiveRoutingBenchmark,
-  runCognitiveRoutingBenchmark
+  loadCognitiveRoutingPredictions,
+  runCognitiveRoutingBenchmark,
+  scoreCognitiveRoutingPredictions
 } from './cognitive-benchmark.js';
 
 const args = process.argv.slice(2);
@@ -976,13 +978,24 @@ async function cognitionBenchmarkCommand(argv) {
     ? path.resolve(process.cwd(), String(parsed.flags.file))
     : undefined;
   const fixture = loadCognitiveRoutingBenchmark(file);
-  const result = runCognitiveRoutingBenchmark(fixture);
+  const result = parsed.flags.predictions
+    ? scoreCognitiveRoutingPredictions(
+        fixture,
+        loadCognitiveRoutingPredictions(
+          path.resolve(process.cwd(), String(parsed.flags.predictions))
+        )
+      )
+    : runCognitiveRoutingBenchmark(fixture);
 
   if (parsed.flags.json) {
     console.log(JSON.stringify(result, null, 2));
   } else {
-    console.log(`Cognitive routing benchmark: ${result.name}`);
+    const suffix = result.mode === 'predictions' ? ' (external predictions)' : '';
+    console.log(`Cognitive routing benchmark: ${result.name}${suffix}`);
     console.log(`cases: ${result.passed}/${result.total} passed (${(result.passRate * 100).toFixed(1)}%)`);
+    if (result.mode === 'predictions') {
+      console.log(`missing: ${result.missing} extra: ${result.extraPredictionIds.length}`);
+    }
     for (const [name, metric] of Object.entries(result.metrics)) {
       if (!metric.total) continue;
       console.log(`  ${name.padEnd(10)} ${metric.passed}/${metric.total} (${(metric.accuracy * 100).toFixed(1)}%)`);
@@ -992,7 +1005,7 @@ async function cognitionBenchmarkCommand(argv) {
         .filter(([, ok]) => !ok)
         .map(([name]) => name)
         .join(',');
-      console.log(`  FAIL ${item.id}: ${failed} expected=${JSON.stringify(item.expected)} actual=${JSON.stringify(item.actual)}`);
+      console.log(`  FAIL ${item.id}: ${item.missing ? 'missing-prediction' : failed} expected=${JSON.stringify(item.expected)} actual=${JSON.stringify(item.actual)}`);
     }
   }
 
@@ -1191,7 +1204,7 @@ Agent commands:
   providers
   doctor [--provider P] [--model M] [--live]
   cognition defaults
-  cognition benchmark [--file benchmarks/cognitive-routing.json] [--strict] [--json]
+  cognition benchmark [--file benchmark.json] [--predictions predictions.json|jsonl] [--strict] [--json]
 
 Code intelligence:
   ingest [dir] [--chunk-lines 160] [--max-bytes 524288]
