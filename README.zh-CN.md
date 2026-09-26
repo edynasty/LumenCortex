@@ -43,7 +43,7 @@ lcx
 
 Node.js reference runtime 已接入第一版可运行控制面：
 
-- **Decision Layer**：内置 Algorithmic Decision Provider，并支持可选 Jev/Laya-compatible System One provider。
+- **Decision Layer**：内置 Algorithmic Decision Provider，并支持可选 Jev/Laya-compatible System One provider，以及受约束的普通生成模型 Decision fallback。
 - **Framework Router**：框架拥有最终决策权，决定 Category、是否 Think、Think Effort。
 - **Ordered Category Model Chains**：Category 配置有序生成模型链；前一个模型不可用时按顺序尝试下一个。
 - **Dynamic Think Effort**：`low / medium / high / max`，根据任务复杂度、证据、重复失败和进展动态计算。
@@ -54,9 +54,9 @@ Node.js reference runtime 已接入第一版可运行控制面：
 - **Graph Governor baseline**：已实现全局 Analyzer、独立配置的语义 Curator、确定性 Validator、safe tier/archive，以及显式 branch/promotion/canonicalization 和可回滚 Cortex Epoch。
 - **Storage tiers**：SQLite schema v2 持久化 hot/warm/cold、访问时间/次数、归档时间和 compaction 状态；safe compaction 只清理派生搜索缓存，不删除图认知。
 
-Jev/Laya **只属于 Decision Layer**，不执行 coding Work Unit，也不会出现在 Category 生成模型链里。
+Jev/Laya **只属于 Decision Layer**，不执行 coding Work Unit，也不会出现在 Category 生成模型链里。普通生成模型也可以被包装成 bounded Decision fallback，但该 adapter 同样没有工具权限、不会执行任务。
 
-即使没有 Jev/Laya，LumenCortex 仍然可以使用 Algorithmic Decision Path 和当前 CLI 指定的生成模型运行。
+即使没有 Jev/Laya 或任何模型化 Decision route，LumenCortex 仍然可以使用 Algorithmic Decision Path 和当前 CLI 指定的执行模型运行。可选 Decision provider 是不同判断线路，不是必须逐级经过的“降级链”。
 
 ### Workflow Contract
 
@@ -162,7 +162,15 @@ lcx agent "..." --cognition path/to/cognition.json --yes
   "decision": {
     "providers": [
       { "type": "laya", "baseURL": "http://127.0.0.1:8000" },
-      { "type": "jev", "model": "jev-latest" }
+      { "type": "jev", "model": "jev-latest" },
+      {
+        "type": "generative",
+        "name": "decision-fallback",
+        "provider": "deepseek",
+        "model": "deepseek-flash",
+        "reasoningEffort": "low",
+        "maxTokens": 700
+      }
     ]
   },
   "categories": {
@@ -413,7 +421,7 @@ MIT
 
 ### Go 认知控制预览
 
-Go runtime 现在可以直接读取与 Node reference runtime 相同的 `.lumencortex/cognition.json`。当设置 `LCX_COGNITION=true`、`LCX_COGNITION_PROFILE`，或 workspace 已存在 cognition profile 时，会启用 Algorithm Router、可选 Jev/Laya-compatible Decision Layer、Category 模型链、provider circuit breaker、动态 Think effort 和 Persistent Work Units。
+Go runtime 现在可以直接读取与 Node reference runtime 相同的 `.lumencortex/cognition.json`。当设置 `LCX_COGNITION=true`、`LCX_COGNITION_PROFILE`，或 workspace 已存在 cognition profile 时，会启用 Algorithm Router、可选 Jev/Laya-compatible 或 bounded-generative Decision route、Category 模型链、provider circuit breaker、动态 Think effort 和 Persistent Work Units。
 
 ```bash
 LCX_MODEL=your-fallback-model \
@@ -536,3 +544,20 @@ lcx cognition benchmark --predictions predictions.jsonl --strict --json
 当前内置 12 个 workload，同时检查 Category、是否进入 Think、动态 effort 与 retrieval direction。`--prompt` 会输出与 runtime Decision Layer 共用的 canonical、无标签 routing rubric，避免 benchmark 和运行时各维护一套提示。
 
 2026-09-26 使用本机 OMP + `local/deepseek-v4.1-flash`、low thinking、canonical prompt 做了一次真实生成模型校准，当前 fixture 得分 12/12；预测快照保存在 `benchmarks/predictions/deepseek-v4.1-flash-2026-09-26.jsonl`，并由 CI 重新评分。它只代表一份 generative-model routing calibration 样本，不等同于 Jev/Laya live endpoint 验证，也不等同于完整 DeepSeek coding-agent 任务已通过。
+
+
+### Decision Fallback 路线
+
+Decision Layer 现在支持三类可组合线路：
+
+```text
+Algorithm（始终存在）
+   +
+可选 System One：Laya / Jev
+   +
+可选 bounded generative DecisionProvider：DeepSeek / GPT / Claude-compatible provider
+```
+
+`decision.providers` 的顺序只决定可选模型化判断线路的尝试顺序。Algorithm baseline 始终由框架独立计算，因此不需要写进列表。
+
+Generative Decision fallback 只接收压缩后的 state 与 typed questions，要求结构化 JSON，不提供工具，并对模型自报 confidence 做折减。格式错误、超时或 provider 故障会进入同一个 circuit/fallback 机制，最终仍可只用算法判断继续运行。它不属于 Category 执行模型链。
