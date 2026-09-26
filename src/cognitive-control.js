@@ -1109,20 +1109,68 @@ export function retrievalRelationEligible(state = {}, choice) {
 
 function mergeDecisionSignals(algorithm, models) {
   const merged = structuredClone(algorithm.answers ?? {});
+  if (!Array.isArray(models) || !models.length) return merged;
+
+  const names = new Set();
   for (const result of models) {
-    for (const [key, answer] of Object.entries(result.answers ?? {})) {
-      if (!answer || typeof answer !== 'object') continue;
-      if (answer.type === 'choice' || answer.choice !== undefined) {
-        const confidence = Number(answer.confidence ?? topProbability(answer.probabilities) ?? 0);
-        if (confidence >= 0.5) merged[key] = { ...answer, confidence };
-      } else if (answer.type === 'noul' || answer.noul !== undefined) {
-        const probability = Number(answer.noul);
-        if (Number.isFinite(probability)) merged[key] = { ...answer, noul: clamp(probability, 0, 1) };
-      } else if (answer.type === 'score' || answer.score !== undefined) {
-        merged[key] = answer;
-      }
+    for (const name of Object.keys(result?.answers ?? {})) names.add(name);
+  }
+
+  for (const name of names) {
+    const candidates = models
+      .map((result, index) => ({
+        answer: result?.answers?.[name],
+        index
+      }))
+      .filter((item) => item.answer && typeof item.answer === 'object');
+    if (!candidates.length) continue;
+
+    const choiceCandidates = candidates
+      .filter(({ answer }) => answer.type === 'choice' || answer.choice !== undefined)
+      .map(({ answer, index }) => ({
+        answer,
+        index,
+        confidence: Number(answer.confidence ?? topProbability(answer.probabilities) ?? 0)
+      }))
+      .filter((item) => Number.isFinite(item.confidence) && item.confidence >= 0.5)
+      .sort((left, right) =>
+        right.confidence - left.confidence ||
+        left.index - right.index
+      );
+    if (choiceCandidates.length) {
+      const winner = choiceCandidates[0];
+      merged[name] = {
+        ...winner.answer,
+        confidence: clamp(winner.confidence, 0, 1)
+      };
+      continue;
+    }
+
+    const noulValues = candidates
+      .filter(({ answer }) => answer.type === 'noul' || answer.noul !== undefined)
+      .map(({ answer }) => Number(answer.noul))
+      .filter(Number.isFinite)
+      .map((value) => clamp(value, 0, 1));
+    if (noulValues.length) {
+      merged[name] = {
+        type: 'noul',
+        noul: noulValues.reduce((sum, value) => sum + value, 0) / noulValues.length
+      };
+      continue;
+    }
+
+    const scoreValues = candidates
+      .filter(({ answer }) => answer.type === 'score' || answer.score !== undefined)
+      .map(({ answer }) => Number(answer.score))
+      .filter(Number.isFinite);
+    if (scoreValues.length) {
+      merged[name] = {
+        type: 'score',
+        score: scoreValues.reduce((sum, value) => sum + value, 0) / scoreValues.length
+      };
     }
   }
+
   return merged;
 }
 
