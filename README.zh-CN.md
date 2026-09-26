@@ -485,3 +485,33 @@ lcx-go skills delete project my-skill
 ```
 
 这不等同于“Cognitive Git branch 与真实 Git worktree 一一事务绑定”，也不代表 Node runtime 已有 Skills parity；这两项仍保持独立边界。
+
+
+### Governor Scheduler
+
+Node runtime 现在支持显式开启的全局 Governor 调度器。它在 Agent 成功完成并记录任务 cognition 后，根据 graph revision、cooldown、archive/canonicalization/branch/promotion backlog、tier drift 和 Cortex Epoch 信号决定是否生成新的全局维护计划。
+
+调度器**只自动规划，不静默改图**。计划绑定生成时的 graph revision；图发生变化后旧计划会以 `GOVERNOR_PLAN_STALE` 拒绝应用。
+
+```bash
+lcx governor scheduler status
+lcx governor scheduler run --force
+lcx governor scheduler apply --dry-run
+lcx governor scheduler apply --yes
+lcx governor scheduler apply --semantic --epoch --yes
+```
+
+`governor.scheduler.useCurator` 默认关闭，因此不会自动产生 Governor 模型成本。只有显式开启后才会调用独立配置的 Governor Curator 模型。
+
+### Node Skills
+
+Node reference runtime 与 Go runtime 现在都支持 global/project 分层 Skills。Node 主 Agent、Subagent 和标准 CLI/TUI harness 使用同一个 effective Skill registry，并把启用的 Skill 注入模型 system working set。
+
+```bash
+lcx skills list effective
+lcx skills show project my-skill
+lcx skills save project my-skill ./SKILL.md
+lcx skills disable project my-skill
+lcx skills enable project my-skill
+lcx skills delete project my-skill
+```
