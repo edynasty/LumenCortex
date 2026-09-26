@@ -883,3 +883,96 @@ test('createDecisionProvider builds a generative fallback from an ordinary execu
   assert.equal(result.answers.category.choice, 'general');
   assert.ok(result.answers.category.confidence < 0.9);
 });
+
+
+test('Decision Layer policy all keeps highest-confidence choices and averages scalar judgments', async () => {
+  const primary = {
+    name: 'laya',
+    model: 'laya-local',
+    async decide() {
+      return {
+        source: 'laya',
+        model: 'laya-local',
+        answers: {
+          category: { type: 'choice', choice: 'deep', confidence: 0.94 },
+          retrieval: { type: 'choice', choice: 'causal', confidence: 0.9 },
+          need_think: { type: 'noul', noul: 0.9 },
+          evidence_sufficient: { type: 'noul', noul: 0.4 },
+          stuck: { type: 'noul', noul: 0.8 }
+        }
+      };
+    }
+  };
+  const fallback = {
+    name: 'generative-fallback',
+    model: 'router-model',
+    async decide() {
+      return {
+        source: 'generative-fallback',
+        model: 'router-model',
+        answers: {
+          category: { type: 'choice', choice: 'general', confidence: 0.61 },
+          retrieval: { type: 'choice', choice: 'lexical', confidence: 0.58 },
+          need_think: { type: 'noul', noul: 0.5 },
+          evidence_sufficient: { type: 'noul', noul: 0.8 },
+          stuck: { type: 'noul', noul: 0.2 }
+        }
+      };
+    }
+  };
+  const layer = new DecisionLayer({
+    providers: [primary, fallback],
+    policy: 'all'
+  });
+
+  const summary = await layer.decide({
+    state: { goal: 'Debug the root cause of a race' },
+    questions: buildDecisionQuestions({
+      general: { description: 'normal work' },
+      deep: { description: 'hard debugging' }
+    })
+  });
+
+  assert.equal(summary.models.length, 2);
+  assert.equal(summary.signals.category.choice, 'deep');
+  assert.equal(summary.signals.category.confidence, 0.94);
+  assert.equal(summary.signals.retrieval.choice, 'causal');
+  assert.equal(summary.signals.retrieval.confidence, 0.9);
+  assert.equal(summary.signals.need_think.noul, 0.7);
+  assert.equal(summary.signals.evidence_sufficient.noul, 0.6000000000000001);
+  assert.equal(summary.signals.stuck.noul, 0.5);
+});
+
+test('Decision Layer policy all uses configured order only as a confidence tie-breaker', async () => {
+  const makeProvider = (name, choice) => ({
+    name,
+    model: name,
+    async decide() {
+      return {
+        source: name,
+        answers: {
+          category: { type: 'choice', choice, confidence: 0.8 }
+        }
+      };
+    }
+  });
+  const layer = new DecisionLayer({
+    providers: [
+      makeProvider('first', 'research'),
+      makeProvider('second', 'deep')
+    ],
+    policy: 'all'
+  });
+  const summary = await layer.decide({
+    state: { goal: 'compare architecture' },
+    questions: {
+      category: {
+        type: 'choice',
+        criteria: { research: 'research', deep: 'deep' }
+      }
+    }
+  });
+
+  assert.equal(summary.signals.category.choice, 'research');
+  assert.equal(summary.signals.category.confidence, 0.8);
+});
