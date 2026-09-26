@@ -26,7 +26,7 @@ The target components are:
 | Component | Responsibility |
 |---|---|
 | Cognitive Kernel / Router | final deterministic routing, budgets, legality, Think decision, reasoning effort |
-| Decision Layer | advisory fast judgments from algorithm/Jev/Laya-compatible providers |
+| Decision Layer | advisory bounded judgments from the always-on algorithm plus optional Jev/Laya-compatible System One or bounded generative Decision providers |
 | Category Resolver | choose an ordered generative-model chain from the selected Category |
 | Think | deliberate reasoning using the selected generative model and framework-selected effort |
 | Graph Governor | long-horizon Context Graph maintenance |
@@ -66,7 +66,7 @@ The runtime follows these rules:
               |                             |
               v                             v
        Runtime Metrics                Decision Layer
-       deterministic              algorithm / Jev / Laya
+       deterministic              algorithm / Jev / Laya / bounded generative decision
               |                             |
               +--------------+--------------+
                              |
@@ -143,10 +143,11 @@ DecisionProvider
 ├── AlgorithmDecisionProvider
 ├── JevDecisionProvider
 ├── LayaDecisionProvider
+├── GenerativeDecisionProvider
 └── other compatible decision model
 ```
 
-Jev and Laya are interchangeable implementations of this layer, not entries in Category model chains.
+Jev and Laya are interchangeable System One implementations of this layer, not entries in Category model chains. A normal generative model may also be wrapped as a bounded `GenerativeDecisionProvider` when a dedicated System One model is unavailable or when the user explicitly wants that route. It remains a Decision provider: it receives compressed state and typed questions, has no tools, and never executes the coding task.
 
 Conceptually:
 
@@ -200,10 +201,51 @@ A deployment may use:
 - algorithm only,
 - Jev only,
 - Laya only,
+- bounded generative Decision provider only,
+- Jev/Laya followed by one or more generative Decision fallbacks,
 - multiple DecisionProviders,
 - another compatible model.
 
-The deterministic framework remains valid without Jev/Laya.
+The deterministic framework remains valid without Jev/Laya or any model-backed Decision provider. These are alternative decision routes, not semantic "degradation levels": availability, ordering, circuit state, and user configuration determine which optional route contributes signals, while the Algorithm DecisionProvider remains the framework baseline.
+
+### 4.4 Bounded generative Decision fallback
+
+A dedicated System One model is optional. The same Decision Layer can wrap a normal generative provider as a bounded judgment route:
+
+```json
+{
+  "decision": {
+    "policy": "first",
+    "providers": [
+      {
+        "type": "laya",
+        "baseURL": "http://127.0.0.1:8000"
+      },
+      {
+        "type": "generative",
+        "name": "decision-fallback",
+        "provider": "deepseek",
+        "model": "deepseek-flash",
+        "reasoningEffort": "low",
+        "maxTokens": 700
+      }
+    ]
+  }
+}
+```
+
+This does **not** put the model into the Category execution chain. The adapter:
+
+- sends only bounded Decision state plus typed questions,
+- supplies no tools and requests no task execution,
+- requires strict structured JSON,
+- rejects invalid choices/values,
+- discounts self-reported choice confidence,
+- shrinks scalar judgment scores toward uncertainty,
+- participates in the same timeout/circuit/fallback path as Jev/Laya,
+- still passes its signals through framework-owned Think and retrieval arbitration.
+
+The Algorithm DecisionProvider is always computed independently. If every optional provider is unavailable, circuit-open, malformed, or omitted, the framework continues with the deterministic algorithmic judgment. Therefore `decision.providers` describes optional ordered judgment routes, not an execution-model failover list and not a required stack.
 
 ## 5. Category model chains
 
@@ -837,6 +879,7 @@ Deployments without Jev/Laya or any model-backed DecisionProvider remain valid b
 | Cognitive Profile / Category model chains | Implemented baseline |
 | Framework Cognitive Router | Implemented baseline with confidence-gated and relation-applicability-constrained retrieval arbitration |
 | DecisionProvider interface | Implemented |
+| Bounded generative Decision fallback | Implemented in Node + Go; strict structured output, confidence discount, circuit/fallback integration |
 | Jev decision provider | Implemented HTTP adapter; live credentialed Jev validation still needed |
 | Laya decision provider | Implemented Jev-compatible HTTP adapter; local live validation still needed |
 | Think provider contract | Implemented baseline; existing generative provider contract plus cognitive policy prompt |
@@ -855,7 +898,7 @@ Deployments without Jev/Laya or any model-backed DecisionProvider remain valid b
 | Hot/warm/cold graph tiers | Partial: indexed SQLite storage metadata/access telemetry + derived-cache compaction implemented; separate physical stores are not |
 | Global canonicalization | Implemented baseline with alias preservation and `canonicalizes` relation |
 | Cortex Epochs | Implemented baseline and reversible through Cognitive Git |
-| Go control-plane parity | Implemented baseline: Router, System One Decision Layer, Category chains, Think effort, circuit breaker, Work Units, shared profile; Governor Analyze/Plan/Validate is read-only |
+| Go control-plane parity | Implemented baseline: Router, System One + bounded generative Decision routes, confidence/relation-constrained retrieval arbitration, Category chains, Think effort, circuit breaker, Work Units, shared profile; Governor Analyze/Plan/Validate is read-only |
 | Go Governor graph mutation/executor | Planned; Node remains the sole mutation authority |
 
 Implemented baseline sequence:
@@ -863,7 +906,8 @@ Implemented baseline sequence:
 ```text
 1. DecisionProvider + algorithmic decision path
 2. Laya/Jev-compatible System One HTTP adapters
-3. Cognitive Profile / ordered Category model chains
+3. bounded generative DecisionProvider fallback
+4. Cognitive Profile / ordered Category model chains
 4. Category classifier + deterministic chain resolver
 5. Progress Monitor + failure signatures
 6. Framework Think decision + dynamic Think effort
