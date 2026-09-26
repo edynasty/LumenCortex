@@ -28,6 +28,39 @@ export function loadCognitiveRoutingBenchmark(file = DEFAULT_COGNITIVE_ROUTING_B
   };
 }
 
+export function loadCognitiveRoutingPredictions(file) {
+  const absolute = path.resolve(file);
+  const raw = fs.readFileSync(absolute, 'utf8').trim();
+  if (!raw) throw new Error('Cognitive routing predictions file is empty');
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    const lines = raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    parsed = lines.map((line, index) => {
+      try { return JSON.parse(line); }
+      catch (error) {
+        throw new Error(`Invalid cognitive routing prediction JSONL at line ${index + 1}: ${error.message}`);
+      }
+    });
+  }
+
+  const predictions = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.predictions)
+      ? parsed.predictions
+      : [];
+  if (!predictions.length) throw new Error('Cognitive routing predictions require at least one prediction');
+  return {
+    source: absolute,
+    predictions
+  };
+}
+
 export function runCognitiveRoutingBenchmark(benchmark, options = {}) {
   const fixture = Array.isArray(benchmark)
     ? { version: 1, name: 'inline', source: null, cases: benchmark }
@@ -42,6 +75,7 @@ export function runCognitiveRoutingBenchmark(benchmark, options = {}) {
   const metrics = aggregateMetrics(results);
 
   return {
+    mode: 'deterministic',
     version: Number(fixture.version ?? 1),
     name: String(fixture.name ?? 'cognitive-routing'),
     source: fixture.source ?? null,
@@ -51,6 +85,72 @@ export function runCognitiveRoutingBenchmark(benchmark, options = {}) {
     passRate: results.length ? passed / results.length : 0,
     ok: passed === results.length,
     metrics,
+    cases: results
+  };
+}
+
+export function scoreCognitiveRoutingPredictions(benchmark, predictionInput) {
+  const fixture = Array.isArray(benchmark)
+    ? { version: 1, name: 'inline', source: null, cases: benchmark }
+    : benchmark;
+  if (!Array.isArray(fixture?.cases) || !fixture.cases.length) {
+    throw new Error('Cognitive routing benchmark requires cases');
+  }
+
+  const predictions = Array.isArray(predictionInput)
+    ? predictionInput
+    : predictionInput?.predictions;
+  if (!Array.isArray(predictions) || !predictions.length) {
+    throw new Error('Cognitive routing predictions require predictions');
+  }
+
+  const byId = new Map(
+    predictions
+      .filter((item) => item?.id)
+      .map((item) => [String(item.id), item])
+  );
+
+  const results = fixture.cases.map((entry, index) => {
+    const id = String(entry?.id ?? `case-${index + 1}`);
+    const prediction = byId.get(id) ?? null;
+    const expected = entry?.expect ?? {};
+    const actual = prediction ? normalizePrediction(prediction) : null;
+    const checks = actual
+      ? checksForActual(expected, actual)
+      : Object.fromEntries(
+          expectedDimensions(expected).map((name) => [name, false])
+        );
+    return {
+      id,
+      description: String(entry?.description ?? ''),
+      pass: Boolean(actual) && Object.values(checks).every(Boolean),
+      missing: !actual,
+      checks,
+      expected: structuredClone(expected),
+      actual
+    };
+  });
+
+  const fixtureIds = new Set(results.map((item) => item.id));
+  const extraPredictionIds = predictions
+    .map((item) => String(item?.id ?? ''))
+    .filter((id) => id && !fixtureIds.has(id));
+  const passed = results.filter((item) => item.pass).length;
+
+  return {
+    mode: 'predictions',
+    version: Number(fixture.version ?? 1),
+    name: String(fixture.name ?? 'cognitive-routing'),
+    source: fixture.source ?? null,
+    predictionSource: predictionInput?.source ?? null,
+    total: results.length,
+    passed,
+    failed: results.length - passed,
+    missing: results.filter((item) => item.missing).length,
+    passRate: results.length ? passed / results.length : 0,
+    ok: passed === results.length,
+    metrics: aggregateMetrics(results),
+    extraPredictionIds,
     cases: results
   };
 }
@@ -70,23 +170,15 @@ function evaluateCase(entry, index, router) {
   };
   const route = router.route({ state, decision });
   const expected = entry?.expect ?? {};
-  const checks = {};
-
-  if (expected.category !== undefined) {
-    checks.category = allowed(expected.category).includes(route.category);
-  }
-  if (expected.think !== undefined) {
-    checks.think = route.think === Boolean(expected.think);
-  }
-  if (expected.effort !== undefined) {
-    checks.effort = route.effort === String(expected.effort);
-  } else if (expected.effortAtLeast !== undefined) {
-    checks.effort = effortAtLeast(route.effort, expected.effortAtLeast);
-  }
-  if (expected.retrieval !== undefined) {
-    checks.retrieval = allowed(expected.retrieval).includes(route.retrieval);
-  }
-
+  const actual = {
+    category: route.category,
+    think: route.think,
+    effort: route.effort,
+    retrieval: route.retrieval,
+    thinkScore: route.thinkScore,
+    reasons: route.reasons
+  };
+  const checks = checksForActual(expected, actual);
   const pass = Object.values(checks).every(Boolean);
   return {
     id,
@@ -94,15 +186,45 @@ function evaluateCase(entry, index, router) {
     pass,
     checks,
     expected: structuredClone(expected),
-    actual: {
-      category: route.category,
-      think: route.think,
-      effort: route.effort,
-      retrieval: route.retrieval,
-      thinkScore: route.thinkScore,
-      reasons: route.reasons
-    },
+    actual,
     state
+  };
+}
+
+function checksForActual(expected, actual) {
+  const checks = {};
+  if (expected.category !== undefined) {
+    checks.category = allowed(expected.category).includes(String(actual.category));
+  }
+  if (expected.think !== undefined) {
+    checks.think = Boolean(actual.think) === Boolean(expected.think);
+  }
+  if (expected.effort !== undefined) {
+    checks.effort = String(actual.effort) === String(expected.effort);
+  } else if (expected.effortAtLeast !== undefined) {
+    checks.effort = effortAtLeast(actual.effort, expected.effortAtLeast);
+  }
+  if (expected.retrieval !== undefined) {
+    checks.retrieval = allowed(expected.retrieval).includes(String(actual.retrieval));
+  }
+  return checks;
+}
+
+function expectedDimensions(expected) {
+  const out = [];
+  if (expected.category !== undefined) out.push('category');
+  if (expected.think !== undefined) out.push('think');
+  if (expected.effort !== undefined || expected.effortAtLeast !== undefined) out.push('effort');
+  if (expected.retrieval !== undefined) out.push('retrieval');
+  return out;
+}
+
+function normalizePrediction(input) {
+  return {
+    category: String(input.category ?? ''),
+    think: Boolean(input.think),
+    effort: String(input.effort ?? ''),
+    retrieval: String(input.retrieval ?? '')
   };
 }
 
