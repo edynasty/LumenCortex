@@ -83,7 +83,7 @@ export class LspManager {
 
   async resolveCodeAction(file, action) {
     if (!action || typeof action !== 'object') throw new Error('LSP code action is required');
-    if (action.edit) return action;
+    if (action.edit || typeof action.command === 'string') return action;
     const absolute = resolveInside(this.workspace, file);
     const client = await this.#clientFor(absolute);
     await client.openDocument(absolute);
@@ -136,18 +136,40 @@ export class LspManager {
 
   async applyCodeAction(file, action) {
     const resolved = await this.resolveCodeAction(file, action);
-    if (!resolved?.edit) {
-      if (resolved?.command) {
-        throw new Error('LSP command-only code actions are not auto-executed; only WorkspaceEdit actions are supported');
-      }
-      throw new Error('LSP code action did not provide a WorkspaceEdit');
+    const command = codeActionCommand(resolved);
+    let editResult = null;
+    if (resolved?.edit) editResult = await this.applyWorkspaceEdit(resolved.edit);
+
+    let commandResult = null;
+    if (command) {
+      const absolute = resolveInside(this.workspace, file);
+      const client = await this.#clientFor(absolute);
+      if (fs.existsSync(absolute)) await client.openDocument(absolute);
+      commandResult = await client.executeCommand(command);
     }
+
+    if (!editResult && !command) {
+      throw new Error('LSP code action did not provide a WorkspaceEdit or executable command');
+    }
+
     return {
       action: {
-        title: resolved.title ?? action.title ?? '',
-        kind: resolved.kind ?? action.kind ?? null
+        title: resolved?.title ?? action.title ?? command?.title ?? '',
+        kind: resolved?.kind ?? action.kind ?? null
       },
-      ...(await this.applyWorkspaceEdit(resolved.edit))
+      ...(editResult ?? {
+        applied: false,
+        editCount: 0,
+        resourceOperationCount: 0,
+        resourceOperations: [],
+        files: []
+      }),
+      command: command ? {
+        command: command.command,
+        title: command.title ?? resolved?.title ?? action.title ?? '',
+        executed: true,
+        result: commandResult
+      } : null
     };
   }
 
@@ -185,7 +207,18 @@ export class LspManager {
         command: server.command,
         args: server.args ?? [],
         env: server.env,
-        timeoutMs: this.timeoutMs
+        timeoutMs: this.timeoutMs,
+        applyWorkspaceEdit: async (params) => {
+          try {
+            await this.applyWorkspaceEdit(params?.edit);
+            return { applied: true };
+          } catch (error) {
+            return {
+              applied: false,
+              failureReason: error.message
+            };
+          }
+        }
       });
       await client.start();
       this.clients.set(server.name, client);
@@ -195,12 +228,14 @@ export class LspManager {
 }
 
 export class LspClient {
-  constructor({ workspace, command, args = [], env, timeoutMs = 15000 }) {
+  constructor({ workspace, command, args = [], env, timeoutMs = 15000, applyWorkspaceEdit }) {
     this.workspace = workspace;
     this.command = command;
     this.args = args;
     this.env = env;
     this.timeoutMs = timeoutMs;
+    this.applyWorkspaceEdit = applyWorkspaceEdit ?? null;
+    this.serverApplyEditDepth = 0;
     this.rpc = null;
     this.opened = new Set();
     this.versions = new Map();
@@ -219,6 +254,30 @@ export class LspClient {
       if (method === 'textDocument/publishDiagnostics') {
         this.diagnostics.set(params.uri, params.diagnostics ?? []);
       }
+    };
+    this.rpc.onRequest = async (method, params) => {
+      if (method === 'workspace/applyEdit') {
+        if (this.serverApplyEditDepth <= 0 || !this.applyWorkspaceEdit) {
+          return {
+            applied: false,
+            failureReason: 'No explicitly authorized LSP command is active'
+          };
+        }
+        return this.applyWorkspaceEdit(params);
+      }
+      if (method === 'workspace/configuration') {
+        return Array.isArray(params?.items) ? params.items.map(() => null) : [];
+      }
+      if (method === 'workspace/workspaceFolders') {
+        const uri = pathToFileURL(this.workspace).href;
+        return [{ uri, name: path.basename(this.workspace) }];
+      }
+      if (method === 'client/registerCapability' || method === 'client/unregisterCapability') {
+        return null;
+      }
+      const error = new Error(`Unsupported LSP server request: ${method}`);
+      error.rpcCode = -32601;
+      throw error;
     };
     await this.rpc.start();
     const rootUri = pathToFileURL(this.workspace).href;
@@ -255,6 +314,21 @@ export class LspClient {
   request(method, params) {
     if (!this.rpc) throw new Error('LSP client is not started');
     return this.rpc.request(method, params);
+  }
+
+  async executeCommand(command) {
+    if (!command || typeof command.command !== 'string' || !command.command.trim()) {
+      throw new Error('LSP executeCommand requires a command name');
+    }
+    this.serverApplyEditDepth += 1;
+    try {
+      return await this.request('workspace/executeCommand', {
+        command: command.command,
+        arguments: Array.isArray(command.arguments) ? command.arguments : []
+      });
+    } finally {
+      this.serverApplyEditDepth = Math.max(0, this.serverApplyEditDepth - 1);
+    }
   }
 
   async openDocument(file) {
@@ -322,6 +396,11 @@ export class ContentLengthRpcClient {
     this.nextId = 1;
     this.pending = new Map();
     this.onNotification = () => {};
+    this.onRequest = async (method) => {
+      const error = new Error(`Unsupported JSON-RPC request: ${method}`);
+      error.rpcCode = -32601;
+      throw error;
+    };
   }
 
   async start() {
@@ -411,7 +490,7 @@ export class ContentLengthRpcClient {
   }
 
   #dispatch(message) {
-    if (message.id !== undefined && this.pending.has(message.id)) {
+    if (message.id !== undefined && message.method === undefined && this.pending.has(message.id)) {
       const pending = this.pending.get(message.id);
       this.pending.delete(message.id);
       clearTimeout(pending.timer);
@@ -419,6 +498,30 @@ export class ContentLengthRpcClient {
       else pending.resolve(message.result);
       return;
     }
+
+    if (message.id !== undefined && message.method) {
+      Promise.resolve()
+        .then(() => this.onRequest(message.method, message.params))
+        .then((result) => {
+          this.#send({
+            jsonrpc: '2.0',
+            id: message.id,
+            result: result ?? null
+          });
+        })
+        .catch((error) => {
+          this.#send({
+            jsonrpc: '2.0',
+            id: message.id,
+            error: {
+              code: Number.isInteger(error?.rpcCode) ? error.rpcCode : -32603,
+              message: error?.message ?? 'LSP client request handler failed'
+            }
+          });
+        });
+      return;
+    }
+
     if (message.method) this.onNotification(message.method, message.params);
   }
 
@@ -466,6 +569,30 @@ function normalizeConfig(config) {
 function resolveServer(config, file) {
   const ext = path.extname(file).toLowerCase();
   return Object.values(config.servers ?? {}).find((server) => server.extensions?.includes(ext));
+}
+
+function codeActionCommand(action) {
+  if (!action || typeof action !== 'object') return null;
+  if (typeof action.command === 'string' && action.command.trim()) {
+    return {
+      title: action.title ?? '',
+      command: action.command,
+      arguments: Array.isArray(action.arguments) ? action.arguments : []
+    };
+  }
+  if (
+    action.command &&
+    typeof action.command === 'object' &&
+    typeof action.command.command === 'string' &&
+    action.command.command.trim()
+  ) {
+    return {
+      title: action.command.title ?? action.title ?? '',
+      command: action.command.command,
+      arguments: Array.isArray(action.command.arguments) ? action.command.arguments : []
+    };
+  }
+  return null;
 }
 
 function positionParams(file, line, character) {
