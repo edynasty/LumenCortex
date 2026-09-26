@@ -575,7 +575,7 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
 
     registry.register({
       name: 'lsp_code_actions',
-      description: 'List language-server code actions for a source range. Command-only actions may be listed but are not auto-executed.',
+      description: 'List language-server code actions for a source range, including edit-backed and command-backed actions.',
       permission: 'read',
       parameters: {
         type: 'object',
@@ -614,7 +614,7 @@ export function createCodingTools({ workspace, repository, runtime, lsp, shellTi
 
     registry.register({
       name: 'lsp_code_action_apply',
-      description: 'Re-query code actions for a range, select one by zero-based index, resolve it if necessary, and atomically apply its WorkspaceEdit.',
+      description: 'Re-query code actions for a range, select one by zero-based index, resolve it if necessary, then apply its validated WorkspaceEdit and/or execute its authorized language-server command.',
       permission: 'write',
       mutatesWorkspace: true,
       parameters: {
