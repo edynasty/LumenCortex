@@ -48,6 +48,7 @@ type Signals struct {
 	Stuck                  float64 `json:"stuck,omitempty"`
 	EvidenceSufficiency    float64 `json:"evidenceSufficiency,omitempty"`
 	Retrieval               string  `json:"retrieval,omitempty"`
+	RetrievalConfidence     float64 `json:"retrievalConfidence,omitempty"`
 	HasNeedThink            bool    `json:"-"`
 	HasStuck                bool    `json:"-"`
 	HasEvidenceSufficiency bool    `json:"-"`
@@ -105,8 +106,10 @@ type Plan struct {
 }
 
 type Router struct {
-	CategoryConfidenceThreshold float64
-	ThinkThreshold              float64
+	CategoryConfidenceThreshold          float64
+	ThinkThreshold                       float64
+	RetrievalConfidenceThreshold         float64
+	ExpensiveRetrievalConfidenceThreshold float64
 }
 
 var (
@@ -116,6 +119,9 @@ var (
 	writingTerms  = regexp.MustCompile(`(?i)\b(readme|documentation|docs|write|rewrite|copy|guide|tutorial|explain)\b`)
 	deepTerms     = regexp.MustCompile(`(?i)\b(debug|deadlock|race|concurrency|architecture|migration|refactor|security|performance|root cause|multi[- ]?module|cross[- ]?module|distributed|transaction)\b`)
 	highRiskTerms = regexp.MustCompile(`(?i)\b(delete|drop|migration|production|security|auth|credential|payment|billing|database|schema|release|deploy)\b`)
+	dependencyRetrievalTerms = regexp.MustCompile(`(?i)\b(dependency|dependencies|depends?|imports?|calls?|caller|callee|references?|referenced|symbols?|ownership|owns?|used by|defined in)\b`)
+	causalRetrievalTerms = regexp.MustCompile(`(?i)\b(root cause|why|causes?|caused|failure|failing|failed|bug|debug|error|incident|race|deadlock|effects?|derived from)\b`)
+	historicalRetrievalTerms = regexp.MustCompile(`(?i)\b(history|historical|previous|before|commit|version|regression|superseded|prior|changed since|used to)\b`)
 )
 
 func DefaultProfile() Profile {
@@ -142,8 +148,17 @@ func (r Router) Route(input Input) Plan {
 	if thinkThreshold <= 0 {
 		thinkThreshold = 0.56
 	}
+	retrievalThreshold := r.RetrievalConfidenceThreshold
+	if retrievalThreshold <= 0 {
+		retrievalThreshold = 0.68
+	}
+	expensiveRetrievalThreshold := r.ExpensiveRetrievalConfidenceThreshold
+	if expensiveRetrievalThreshold <= 0 {
+		expensiveRetrievalThreshold = 0.82
+	}
 
-	algorithmCategory, algorithmThink, retrieval := algorithmic(input)
+	algorithmCategory, algorithmThink, algorithmRetrieval := algorithmic(input)
+	retrieval := algorithmRetrieval
 	category := algorithmCategory
 	if strings.TrimSpace(input.Signals.Category) != "" && input.Signals.CategoryConfidence >= categoryThreshold {
 		category = input.Signals.Category
@@ -180,8 +195,27 @@ func (r Router) Route(input Input) Plan {
 	if (input.Signals.HasEvidenceSufficiency || input.Signals.EvidenceSufficiency > 0) && input.Signals.EvidenceSufficiency < 0.35 {
 		reasons = append(reasons, "insufficient-evidence")
 	}
-	if strings.TrimSpace(input.Signals.Retrieval) != "" {
-		retrieval = input.Signals.Retrieval
+	modelRetrieval := strings.TrimSpace(input.Signals.Retrieval)
+	if modelRetrieval != "" {
+		switch {
+		case algorithmRetrieval != "lexical":
+			if modelRetrieval != algorithmRetrieval {
+				reasons = append(reasons, "retrieval-model-constrained")
+			}
+		case !retrievalRelationEligible(input, modelRetrieval):
+			reasons = append(reasons, "retrieval-model-constrained")
+		default:
+			threshold := retrievalThreshold
+			if modelRetrieval == "associative" || modelRetrieval == "hybrid" {
+				threshold = expensiveRetrievalThreshold
+			}
+			if input.Signals.RetrievalConfidence >= threshold {
+				retrieval = modelRetrieval
+				reasons = append(reasons, "retrieval-model-high-confidence")
+			} else if modelRetrieval != "lexical" {
+				reasons = append(reasons, "retrieval-model-constrained")
+			}
+		}
 	}
 
 	return Plan{
@@ -280,16 +314,38 @@ func algorithmic(input Input) (string, float64, string) {
 	}
 
 	retrieval := "lexical"
-	lower := strings.ToLower(text)
 	switch {
-	case strings.Contains(lower, "history"), strings.Contains(lower, "previous"), strings.Contains(lower, "regression"):
+	case historicalRetrievalTerms.MatchString(text):
 		retrieval = "historical"
-	case strings.Contains(lower, "cause"), strings.Contains(lower, "root"), strings.Contains(lower, "debug"), strings.Contains(lower, "failure"):
+	case causalRetrievalTerms.MatchString(text):
 		retrieval = "causal"
-	case strings.Contains(lower, "dependency"), strings.Contains(lower, "import"), strings.Contains(lower, "reference"), strings.Contains(lower, "symbol"):
+	case dependencyRetrievalTerms.MatchString(text):
 		retrieval = "dependency"
 	}
 	return category, clamp01(think), retrieval
+}
+
+func retrievalRelationEligible(input Input, choice string) bool {
+	text := strings.TrimSpace(input.Goal + " " + input.Focus)
+	switch choice {
+	case "dependency":
+		return dependencyRetrievalTerms.MatchString(text)
+	case "historical":
+		return historicalRetrievalTerms.MatchString(text)
+	case "causal":
+		if causalRetrievalTerms.MatchString(text) {
+			return true
+		}
+		repeated := input.Progress.MaxRepeatedFailure
+		if input.Progress.SameFailureCount > repeated {
+			repeated = input.Progress.SameFailureCount
+		}
+		return repeated >= 2
+	case "lexical", "associative", "hybrid":
+		return true
+	default:
+		return false
+	}
 }
 
 func effortFor(score float64, repeated int) Effort {
