@@ -643,6 +643,38 @@ func decisionProviderFromSpec(spec cognition.DecisionProviderSpec) (lcx.Decision
 	if kind == "algorithm" {
 		return nil, nil
 	}
+	if kind == "generative" || kind == "llm" || kind == "model" {
+		providerName := strings.TrimSpace(spec.Provider)
+		if providerName == "" || providerName == "generative" || providerName == "llm" || providerName == "model" {
+			return nil, errors.New("generative decision provider requires an execution provider name")
+		}
+		binding, err := providerBindingFromSpec(cognition.ModelSpec{
+			Provider: providerName,
+			Model: spec.Model,
+			BaseURL: spec.BaseURL,
+			APIKey: spec.APIKey,
+			APIKeyEnv: spec.APIKeyEnv,
+			TimeoutMS: spec.TimeoutMS,
+			Headers: spec.Headers,
+		})
+		if err != nil {
+			return nil, err
+		}
+		temperature := 0.0
+		if spec.Temperature != nil {
+			temperature = *spec.Temperature
+		}
+		return cognition.NewGenerativeDecisionProvider(cognition.GenerativeDecisionConfig{
+			Name: spec.Name,
+			Provider: binding.Provider,
+			MaxTokens: spec.MaxTokens,
+			ReasoningEffort: spec.ReasoningEffort,
+			Temperature: temperature,
+			ConfidenceScale: spec.ConfidenceScale,
+			ConfidenceCap: spec.ConfidenceCap,
+			ScoreScale: spec.ScoreScale,
+		})
+	}
 	apiKey := spec.APIKey
 	apiKeyEnv := strings.TrimSpace(spec.APIKeyEnv)
 	if apiKeyEnv == "" {
