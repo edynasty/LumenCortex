@@ -95,7 +95,18 @@
     "provider": "openrouter",
     "model": "your-governor-reasoning-model",
     "reasoningEffort": "high",
-    "maxTokens": 6000
+    "maxTokens": 6000,
+    "scheduler": {
+      "enabled": false,
+      "useCurator": false,
+      "checkRevisionDelta": 25,
+      "cooldownMs": 1800000,
+      "archiveCandidateThreshold": 8,
+      "canonicalizeGroupThreshold": 3,
+      "branchCandidateThreshold": 3,
+      "promotionGroupThreshold": 3,
+      "tierChangeThreshold": 25
+    }
   },
   "retrieval": {
     "embeddings": {
