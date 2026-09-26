@@ -49,14 +49,21 @@ type CategoryConfig struct {
 }
 
 type DecisionProviderSpec struct {
-	Type      string            `json:"type,omitempty"`
-	Name      string            `json:"name,omitempty"`
-	BaseURL   string            `json:"baseURL,omitempty"`
-	APIKey    string            `json:"apiKey,omitempty"`
-	APIKeyEnv string            `json:"apiKeyEnv,omitempty"`
-	Model     string            `json:"model,omitempty"`
-	TimeoutMS int               `json:"timeoutMs,omitempty"`
-	Headers   map[string]string `json:"headers,omitempty"`
+	Type            string            `json:"type,omitempty"`
+	Name            string            `json:"name,omitempty"`
+	Provider        string            `json:"provider,omitempty"`
+	BaseURL         string            `json:"baseURL,omitempty"`
+	APIKey          string            `json:"apiKey,omitempty"`
+	APIKeyEnv       string            `json:"apiKeyEnv,omitempty"`
+	Model           string            `json:"model,omitempty"`
+	TimeoutMS       int               `json:"timeoutMs,omitempty"`
+	Headers         map[string]string `json:"headers,omitempty"`
+	ReasoningEffort string            `json:"reasoningEffort,omitempty"`
+	MaxTokens       int               `json:"maxTokens,omitempty"`
+	Temperature     *float64          `json:"temperature,omitempty"`
+	ConfidenceScale float64           `json:"confidenceScale,omitempty"`
+	ConfidenceCap   float64           `json:"confidenceCap,omitempty"`
+	ScoreScale      float64           `json:"scoreScale,omitempty"`
 }
 
 func (d *DecisionProviderSpec) UnmarshalJSON(raw []byte) error {
