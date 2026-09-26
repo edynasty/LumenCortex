@@ -216,7 +216,7 @@ The following are not represented as complete features:
 - Embedding/Hybrid validation: OpenAI-compatible `/embeddings` wire shape, response-order normalization, persistent SQLite schema v3, content-hash incremental reuse, single-node re-embedding, model dimension protection, exact cosine ranking, deterministic RRF fusion, pure semantic candidate seeding into Attention, unconfigured-provider fallback, shared cognition-profile configuration, Agent next-turn async Hybrid routing, and CLI Hybrid search.
 
 
-- LSP refactoring validation: `textDocument/rename`, `textDocument/codeAction`, optional `codeAction/resolve`, UTF-16 WorkspaceEdit range application, whole-edit prevalidation, multi-file rollback safety, post-write didChange synchronization, Agent write-tool integration, command-only action rejection, and resource-operation rejection.
+- LSP refactoring validation: `textDocument/rename`, `textDocument/codeAction`, optional `codeAction/resolve`, UTF-16 WorkspaceEdit range application, ordered `CreateFile`/`RenameFile`/`DeleteFile` file-resource operations, overwrite/ignore semantics, workspace/symlink containment, whole-edit prevalidation, multi-file rollback safety, opened-document close/reopen synchronization after rename, Agent write-tool integration, and command-only action rejection.
 
 
 - Go session-worktree validation: managed path confinement, per-session branch creation, Agent/shell workspace isolation, main-workspace cleanliness, session git status/diff, overlap conflict detection, dirty-target and overlapping-file handoff blocks, safe commit apply, forced removal/discard, and CLI attach/apply-confirmation/remove lifecycle.
