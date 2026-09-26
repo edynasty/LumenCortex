@@ -915,3 +915,59 @@ Embedding recall is explicitly opt-in in the shared cognition profile:
 ```
 
 The Node runtime consumes this configuration. The Go profile parser accepts the same fields for configuration compatibility, but Go embedding/Hybrid execution is not currently claimed as implemented.
+
+
+## Graph Governor scheduler
+
+The Governor remains separate from Think and from Jev/Laya. The Node reference runtime now has an opt-in scheduler that decides **when to ask the existing Governor to produce a plan**.
+
+The scheduler is deliberately non-destructive:
+
+```text
+completed Agent run
+        ↓
+revision-delta gate
+        ↓
+cooldown gate
+        ↓
+global Analyzer
+        ↓
+governance pressure?
+   no ───────→ persist check state only
+   yes
+        ↓
+deterministic safe plan
+or explicitly enabled Curator
+        ↓
+Validator
+        ↓
+persist one pending plan + journal
+        ↓
+explicit apply / dry-run / clear
+```
+
+The scheduler uses graph revision rather than individual node counts for change gating. Current pressure signals include:
+
+- Cortex Epoch recommendation,
+- archive-candidate backlog,
+- canonicalization backlog,
+- competing-branch backlog,
+- global-promotion backlog,
+- hot/warm/cold tier drift.
+
+A pending plan records the graph revision on which it was produced. If the graph revision changes before application, application fails closed with `GOVERNOR_PLAN_STALE`; the plan must be regenerated.
+
+The scheduler does **not** silently invoke the semantic Curator. `useCurator` defaults to false and must be explicitly enabled under `governor.scheduler`. This keeps Governor-model cost independent from Think-model cost.
+
+Likewise, scheduling does not automatically mutate the graph. Applying the pending plan remains explicit:
+
+```bash
+lcx governor scheduler status
+lcx governor scheduler run --force
+lcx governor scheduler apply --dry-run
+lcx governor scheduler apply --yes
+lcx governor scheduler apply --semantic --epoch --yes
+lcx governor scheduler clear --yes
+```
+
+When enabled in the cognition profile, the standard Node Agent harness runs one scheduler evaluation after a successfully completed Agent run and after task cognition has been recorded. Interrupted, max-step, and waiting-gate runs do not trigger global governance.
