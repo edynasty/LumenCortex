@@ -127,3 +127,54 @@ func TestWorkUnitDependencyCycle(t *testing.T) {
 		t.Fatal("expected dependency cycle")
 	}
 }
+
+
+func TestRouterConstrainsModelRetrievalByConfidenceAndRelationApplicability(t *testing.T) {
+	router := Router{
+		RetrievalConfidenceThreshold: 0.68,
+		ExpensiveRetrievalConfidenceThreshold: 0.82,
+	}
+
+	migration := router.Route(Input{
+		Goal: "Run the database schema migration safely in production",
+		Signals: Signals{Retrieval: "dependency", RetrievalConfidence: 0.99},
+	})
+	if migration.Retrieval != "lexical" || !containsReason(migration.Reasons, "retrieval-model-constrained") {
+		t.Fatalf("migration=%#v", migration)
+	}
+
+	explicit := router.Route(Input{
+		Goal: "Inspect this symbol ownership relation",
+		Signals: Signals{Retrieval: "dependency", RetrievalConfidence: 0.95},
+	})
+	if explicit.Retrieval != "dependency" {
+		t.Fatalf("explicit dependency=%#v", explicit)
+	}
+
+	mediumHybrid := router.Route(Input{
+		Goal: "Inspect this behavior",
+		Signals: Signals{Retrieval: "hybrid", RetrievalConfidence: 0.8},
+	})
+	if mediumHybrid.Retrieval != "lexical" {
+		t.Fatalf("medium hybrid=%#v", mediumHybrid)
+	}
+
+	highHybrid := router.Route(Input{
+		Goal: "Inspect this behavior",
+		Signals: Signals{Retrieval: "hybrid", RetrievalConfidence: 0.9},
+	})
+	if highHybrid.Retrieval != "hybrid" {
+		t.Fatalf("high hybrid=%#v", highHybrid)
+	}
+}
+
+func TestRouterAllowsCausalModelRetrievalAfterRepeatedFailure(t *testing.T) {
+	plan := (Router{}).Route(Input{
+		Goal: "Try again",
+		Progress: Progress{MaxRepeatedFailure: 3},
+		Signals: Signals{Retrieval: "causal", RetrievalConfidence: 0.95},
+	})
+	if plan.Retrieval != "causal" {
+		t.Fatalf("plan=%#v", plan)
+	}
+}
