@@ -48,7 +48,7 @@ function handle(msg){
   }
   if(msg.id===undefined){
     if(msg.method==='initialized' && workspaceRootUri){
-      const uri=workspaceRootUri.replace(/\/$/,'')+'/main.js';
+      const uri=workspaceRootUri.replace(/\\\/$/,'')+'/main.js';
       requestClient('workspace/applyEdit',{
         label:'unsolicited edit',
         edit:{changes:{[uri]:[{
