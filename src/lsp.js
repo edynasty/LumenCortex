@@ -83,7 +83,11 @@ export class LspManager {
 
   async resolveCodeAction(file, action) {
     if (!action || typeof action !== 'object') throw new Error('LSP code action is required');
-    if (action.edit || typeof action.command === 'string') return action;
+    if (
+      action.edit ||
+      typeof action.command === 'string' ||
+      (action.command && typeof action.command === 'object' && typeof action.command.command === 'string')
+    ) return action;
     const absolute = resolveInside(this.workspace, file);
     const client = await this.#clientFor(absolute);
     await client.openDocument(absolute);
