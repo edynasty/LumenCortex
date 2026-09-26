@@ -9,6 +9,8 @@ import { createCodingTools } from '../src/tools.js';
 
 const fakeServer=`
 let buffer=Buffer.alloc(0);
+let nextServerRequestId=1000;
+const pendingServerRequests=new Map();
 process.stdin.on('data',chunk=>{buffer=Buffer.concat([buffer,chunk]); pump();});
 function pump(){
   while(true){
@@ -29,8 +31,19 @@ function send(obj){
   process.stdout.write('Content-Length: '+body.length+'\\r\\n\\r\\n');
   process.stdout.write(body);
 }
+function requestClient(method,params,callback){
+  const id=nextServerRequestId++;
+  pendingServerRequests.set(id,callback);
+  send({jsonrpc:'2.0',id,method,params});
+}
 function handle(msg){
   if(msg.method==='exit'){ process.exit(0); return; }
+  if(msg.method===undefined && msg.id!==undefined && pendingServerRequests.has(msg.id)){
+    const callback=pendingServerRequests.get(msg.id);
+    pendingServerRequests.delete(msg.id);
+    callback(msg);
+    return;
+  }
   if(msg.id===undefined)return;
   let result=null;
   if(msg.method==='initialize') result={capabilities:{definitionProvider:true,referencesProvider:true,documentSymbolProvider:true,hoverProvider:true,renameProvider:true,codeActionProvider:{resolveProvider:true}}};
@@ -55,10 +68,37 @@ function handle(msg){
     {
       title:'Command only',
       kind:'source',
-      command:{title:'Run command',command:'fake.command'}
+      command:{
+        title:'Run command',
+        command:'fake.command',
+        arguments:[msg.params.textDocument.uri]
+      }
     }
   ];
   else if(msg.method==='codeAction/resolve') result=msg.params;
+  else if(msg.method==='workspace/executeCommand'){
+    if(msg.params.command==='fake.command'){
+      const uri=msg.params.arguments[0];
+      requestClient('workspace/applyEdit',{
+        label:'fake command edit',
+        edit:{changes:{[uri]:[{
+          range:{start:{line:0,character:0},end:{line:0,character:0}},
+          newText:'// command applied\\n'
+        }]}}
+      },response=>{
+        send({
+          jsonrpc:'2.0',
+          id:msg.id,
+          result:{
+            serverApplied:Boolean(response.result?.applied),
+            failureReason:response.result?.failureReason??null
+          }
+        });
+      });
+      return;
+    }
+    result={unknownCommand:msg.params.command};
+  }
   else if(msg.method==='shutdown') result=null;
   send({jsonrpc:'2.0',id:msg.id,result});
 }
@@ -92,10 +132,11 @@ test('LSP manager speaks Content-Length JSON-RPC and resolves workspace files', 
     assert.equal(renamed.editCount,1);
     assert.match(fs.readFileSync(source,'utf8'),/function world\(\)/);
 
-    await assert.rejects(
-      lsp.applyCodeAction('main.js',actions[1]),
-      /command-only/
-    );
+    const commandAction=await lsp.applyCodeAction('main.js',actions[1]);
+    assert.equal(commandAction.command.executed,true);
+    assert.equal(commandAction.command.command,'fake.command');
+    assert.equal(commandAction.command.result.serverApplied,true);
+    assert.match(fs.readFileSync(source,'utf8'),/^\/\/ command applied/);
   } finally {
     await lsp.close();
   }
@@ -234,6 +275,20 @@ test('coding tools expose LSP rename and bounded code-action apply', { timeout: 
     assert.equal(rename.ok,true);
     assert.equal(rename.mutatesWorkspace,true);
     assert.match(fs.readFileSync(source,'utf8'),/function world\(\)/);
+
+    const command=await tools.execute('lsp_code_action_apply',{
+      path:'main.js',
+      start_line:1,
+      start_character:1,
+      end_line:1,
+      end_character:32,
+      action_index:1,
+      include_diagnostics:false
+    });
+    assert.equal(command.ok,true);
+    assert.equal(command.mutatesWorkspace,true);
+    assert.match(command.content,/fake.command/);
+    assert.match(fs.readFileSync(source,'utf8'),/^\/\/ command applied/);
   } finally {
     await lsp.close();
   }
