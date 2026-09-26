@@ -417,7 +417,7 @@ Core documents:
 
 Implemented in the reference runtime and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, layered Skills with Agent/Subagent prompt injection, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions, plus the cognitive-control baseline (Decision Layer, ordered Category chains, provider-specific dynamic Think effort, circuit breakers, Progress Monitor, persistent Work Units, model telemetry, per-step cognitive traces) and the Graph Governor baseline (Analyzer, optional semantic Curator, validator, branch/promotion/canonicalization executor, reversible Cortex Epochs, indexed storage tiers, safe derived-cache compaction, opt-in post-Agent scheduling with persistent pending plans, and optional deterministic tier/archive auto-apply).
 
-Still planned rather than claimed as complete: approximate-nearest-neighbor embedding indexes (the current optional baseline is persistent exact cosine + RRF Hybrid), one-to-one Cognitive-Git branch ↔ real Git-worktree transactions and whole-run rollback for local sessions (Go already supports explicit isolated session worktrees with safe handoff/apply), live Jev/Laya validation/calibration and routing benchmarks, automatic Curator/semantic Governor application and policy calibration, separate physical hot/warm/cold node stores or destructive cognitive GC, vision/browser tooling, and Go Graph Governor mutation/executor parity. The Go runtime already has a control-plane baseline for System One decisions, Category chains, dynamic Think effort, circuit breakers, Work Units, shared cognition profiles, and read-only Governor Analyze/Plan/Validate over the shared SQLite graph.
+Still planned rather than claimed as complete: approximate-nearest-neighbor embedding indexes (the current optional baseline is persistent exact cosine + RRF Hybrid), one-to-one Cognitive-Git branch ↔ real Git-worktree transactions and whole-run rollback for local sessions (Go already supports explicit isolated session worktrees with safe handoff/apply), live Jev/Laya endpoint validation and broader multi-model routing calibration, automatic Curator/semantic Governor application and policy calibration, separate physical hot/warm/cold node stores or destructive cognitive GC, vision/browser tooling, and Go Graph Governor mutation/executor parity. The Go runtime already has a control-plane baseline for System One decisions, Category chains, dynamic Think effort, circuit breakers, Work Units, shared cognition profiles, and read-only Governor Analyze/Plan/Validate over the shared SQLite graph.
 
 ## Current engineering direction
 
@@ -536,6 +536,11 @@ The deterministic Decision Layer / Think router has a labeled, zero-model-cost r
 lcx cognition benchmark
 lcx cognition benchmark --strict
 lcx cognition benchmark --strict --json
+lcx cognition benchmark --prompt
+lcx cognition benchmark --prompt --ids quick-readme-typo,deep-concurrency-root-cause
+lcx cognition benchmark --predictions predictions.jsonl --strict --json
 ```
 
-The built-in fixture currently covers 12 representative workloads and validates Category, Think activation, reasoning effort, and retrieval direction. This does not replace live Jev/Laya or generative-model calibration; it provides a stable baseline so heuristic changes cannot silently regress known task classes.
+The built-in fixture currently covers 12 representative workloads and validates Category, Think activation, reasoning effort, and retrieval direction. The prompt command emits the same unlabeled routing rubric used by runtime Decision questions, so external model calibration does not maintain a separate policy prompt.
+
+A captured local OMP calibration on 2026-09-26 using `local/deepseek-v4.1-flash` and the canonical prompt scored 12/12; its JSONL output is versioned at `benchmarks/predictions/deepseek-v4.1-flash-2026-09-26.jsonl` and re-scored in CI. This is one generative-model calibration sample; it does not replace live Jev/Laya validation or the separate full DeepSeek coding-agent proof.
