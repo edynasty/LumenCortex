@@ -40,7 +40,7 @@ export function loadCognitiveRoutingPredictions(file) {
     const lines = raw
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith('\\`\\`\\`'));
+      .filter((line) => line && !line.startsWith('```'));
     parsed = lines.map((line, index) => {
       try { return JSON.parse(line); }
       catch (error) {
