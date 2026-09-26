@@ -300,6 +300,7 @@ func signalsFromAnswers(answers map[string]json.RawMessage) Signals {
 	}
 	if answer, ok := decodeAnswer(answers["retrieval"]); ok {
 		out.Retrieval = answer.Choice
+		out.RetrievalConfidence = answer.confidence()
 	}
 	return out
 }
@@ -357,6 +358,7 @@ func mergeSignals(base, next Signals) Signals {
 	}
 	if strings.TrimSpace(next.Retrieval) != "" {
 		out.Retrieval = next.Retrieval
+		out.RetrievalConfidence = next.RetrievalConfidence
 	}
 	return out
 }
@@ -396,7 +398,7 @@ func DefaultDecisionQuestions() map[string]any {
 		},
 		"need_think": map[string]any{
 			"type": "noul",
-			"instructions": "Would deliberate multi-step reasoning materially improve the next decision?",
+			"instructions": "Would deliberate multi-step reasoning materially improve the next decision? Use yes for root-cause debugging, architecture/refactoring, high-risk operations, comparative research, or repeated failure; keep simple bounded quick, writing, and visual edits on the fast path.",
 		},
 		"evidence_sufficient": map[string]any{
 			"type": "noul",
@@ -410,10 +412,12 @@ func DefaultDecisionQuestions() map[string]any {
 			"type": "choice",
 			"instructions": "Which retrieval direction is most useful next?",
 			"criteria": map[string]string{
-				"lexical": "Exact or lexical lookup is sufficient.",
-				"dependency": "Follow calls, imports, dependencies, and structural relations.",
-				"causal": "Follow causes, derived evidence, effects, and failure chains.",
-				"historical": "Use prior sessions, changes, superseded facts, or temporal history.",
+				"lexical": "Default retrieval. Use exact/symbol/lexical lookup unless a more specific graph relation is clearly required.",
+				"dependency": "Use only when the current question explicitly asks about calls, imports, dependencies, ownership, references, symbols, or structural relations. High-risk execution order or a database migration alone is not dependency retrieval.",
+				"causal": "Use only for explicit root-cause, why/failure-chain, derived-evidence, cause, or effect questions, or when repeated failures make causal diagnosis necessary. Performance investigation alone is not causal.",
+				"historical": "Use for regressions, previous versions, prior sessions, superseded facts, commit history, or temporal comparison.",
+				"associative": "Use only when indirect graph associations are specifically useful and no more precise dependency/causal/historical relation fits.",
+				"hybrid": "Use only when semantic/fuzzy recall beyond lexical/symbol lookup is materially required and embedding retrieval is configured. Research alone is not sufficient.",
 			},
 		},
 	}
