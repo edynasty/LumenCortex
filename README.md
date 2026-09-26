@@ -526,3 +526,16 @@ lcx governor scheduler apply --semantic --epoch --yes
 ```
 
 `governor.scheduler.useCurator` defaults to `false`; enabling it explicitly allows the separately configured Governor model to curate scheduled plans. `governor.scheduler.autoApplySafe` also defaults to `false`; when enabled without Curator, only deterministic tier/archive changes may auto-apply after a dry-run preview. Semantic actions and Cortex Epoch creation remain explicit. A pending plan is rejected if the graph revision changes before apply.
+
+
+### Cognitive routing benchmark
+
+The deterministic Decision Layer / Think router has a labeled, zero-model-cost regression benchmark:
+
+```bash
+lcx cognition benchmark
+lcx cognition benchmark --strict
+lcx cognition benchmark --strict --json
+```
+
+The built-in fixture currently covers 12 representative workloads and validates Category, Think activation, reasoning effort, and retrieval direction. This does not replace live Jev/Laya or generative-model calibration; it provides a stable baseline so heuristic changes cannot silently regress known task classes.
