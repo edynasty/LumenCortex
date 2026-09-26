@@ -483,7 +483,7 @@ lcx lsp actions src/file.ts 20 1 20 80
 lcx lsp apply-action src/file.ts 20 1 20 80 0 --yes
 ```
 
-Agent tools expose the same edit-backed rename/code-action path. Workspace edits are prevalidated across all files and rolled back on write failure. Ordered file-based LSP CreateFile/RenameFile/DeleteFile operations are supported with overwrite/ignore semantics and symlink/workspace containment. Command-only code actions are not auto-executed.
+Agent tools expose the same rename/code-action path. Workspace edits are prevalidated across all files and rolled back on write failure. Ordered file-based LSP CreateFile/RenameFile/DeleteFile operations are supported with overwrite/ignore semantics and symlink/workspace containment. Command-backed code actions can execute through bidirectional JSON-RPC; server `workspace/applyEdit` is accepted only while an explicitly selected action is executing, and unsolicited server edits are rejected.
 
 
 ### Go session worktrees and Skills
