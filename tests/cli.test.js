@@ -318,3 +318,26 @@ test('Governor scheduler CLI persists pending plans and requires explicit apply/
   ], { cwd, encoding: 'utf8', env: { ...process.env } });
   assert.equal(JSON.parse(result.stdout).state.pending, null);
 });
+
+
+test('cognition benchmark runs outside a workspace and passes the built-in strict gate', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-cognition-benchmark-'));
+  const result = spawnSync(process.execPath, [
+    cli,
+    'cognition',
+    'benchmark',
+    '--strict',
+    '--json'
+  ], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env }
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.total, 12);
+  assert.equal(parsed.failed, 0);
+  assert.equal(parsed.ok, true);
+  assert.equal(fs.existsSync(path.join(cwd, '.lumencortex')), false);
+});
