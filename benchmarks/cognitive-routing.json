@@ -121,7 +121,7 @@
     },
     {
       "id": "ultrabrain-repeated-failure",
-      "description": "Repeated equivalent failures and no progress should escalate to ultrabrain/max.",
+      "description": "Repeated equivalent failures and no progress should escalate to ultrabrain/max; retrieval may stay lexical or enter causal diagnosis.",
       "state": {
         "goal": "Try again",
         "progress": {
@@ -134,7 +134,10 @@
         "category": "ultrabrain",
         "think": true,
         "effort": "max",
-        "retrieval": "lexical"
+        "retrieval": [
+          "lexical",
+          "causal"
+        ]
       }
     },
     {
