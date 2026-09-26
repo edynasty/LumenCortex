@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import { CognitiveRepository } from '../src/repository.js';
+import { loadCognitiveRoutingBenchmark } from '../src/cognitive-benchmark.js';
 
 const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
 
@@ -340,4 +341,40 @@ test('cognition benchmark runs outside a workspace and passes the built-in stric
   assert.equal(parsed.failed, 0);
   assert.equal(parsed.ok, true);
   assert.equal(fs.existsSync(path.join(cwd, '.lumencortex')), false);
+});
+
+
+test('cognition benchmark scores external prediction files with the strict gate', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-cognition-predictions-'));
+  const fixture = loadCognitiveRoutingBenchmark();
+  const predictions = fixture.cases.map((entry) => ({
+    id: entry.id,
+    category: Array.isArray(entry.expect.category) ? entry.expect.category[0] : entry.expect.category,
+    think: entry.expect.think,
+    effort: entry.expect.effort ?? entry.expect.effortAtLeast,
+    retrieval: Array.isArray(entry.expect.retrieval) ? entry.expect.retrieval[0] : entry.expect.retrieval
+  }));
+  const file = path.join(cwd, 'predictions.json');
+  fs.writeFileSync(file, JSON.stringify({ predictions }, null, 2));
+
+  const result = spawnSync(process.execPath, [
+    cli,
+    'cognition',
+    'benchmark',
+    '--predictions',
+    file,
+    '--strict',
+    '--json'
+  ], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env }
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.mode, 'predictions');
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.missing, 0);
+  assert.equal(parsed.failed, 0);
 });
