@@ -13,6 +13,39 @@ export const BUILTIN_CATEGORY_DESCRIPTIONS = {
   writing: 'Documentation, technical writing, and explanatory content.'
 };
 
+export const RETRIEVAL_DIRECTION_DESCRIPTIONS = Object.freeze({
+  lexical: 'Default retrieval. Use exact/symbol/lexical lookup unless a more specific graph relation is clearly required.',
+  dependency: 'Use only for calls, imports, dependencies, ownership, and structural relations.',
+  causal: 'Use only for explicit root-cause, why/failure-chain, derived-evidence, cause, or effect questions. Performance investigation alone is not causal.',
+  historical: 'Use for regressions, previous versions, prior sessions, superseded facts, commit history, or temporal comparison.',
+  associative: 'Use only when indirect graph associations are specifically useful and no more precise dependency/causal/historical relation fits.',
+  hybrid: 'Use only when semantic/fuzzy recall beyond lexical/symbol lookup is materially required and embedding retrieval is configured. Research alone is not sufficient.'
+});
+
+export const THINK_DECISION_INSTRUCTION =
+  'Would deliberate multi-step reasoning materially improve the next decision? Use yes for root-cause debugging, architecture/refactoring, high-risk operations, comparative research, or repeated failure; keep simple bounded quick, writing, and visual edits on the fast path.';
+
+export function cognitiveRoutingRubric(categories = BUILTIN_CATEGORY_DESCRIPTIONS) {
+  const categoryLines = Object.entries(categories).map(([name, description]) =>
+    `- ${name}: ${typeof description === 'string' ? description : description?.description ?? name}`
+  );
+  const retrievalLines = Object.entries(RETRIEVAL_DIRECTION_DESCRIPTIONS)
+    .map(([name, description]) => `- ${name}: ${description}`);
+  return [
+    'LumenCortex cognitive routing rubric:',
+    'Categories:',
+    ...categoryLines,
+    '',
+    'Think:',
+    `- ${THINK_DECISION_INSTRUCTION}`,
+    '- reasoning effort is framework-owned: low for fast-path work, medium for ordinary deliberate work, high for high-risk/distributed work, max mainly for repeated failure or exceptional difficulty.',
+    '',
+    'Retrieval:',
+    ...retrievalLines,
+    '- Do not upgrade retrieval merely because the task is difficult; lexical is the conservative default.'
+  ].join('\n');
+}
+
 const QUICK_TERMS = /\b(typo|rename|format|lint|small|tiny|quick|one[- ]?line|single[- ]?file|copy change)\b/i;
 const VISUAL_TERMS = /\b(ui|ux|css|layout|frontend|front-end|visual|design|responsive|react|vue|svelte|wails|figma)\b/i;
 const RESEARCH_TERMS = /\b(research|investigate|compare|paper|papers|source|sources|latest|benchmark|survey|literature|web search)\b/i;
@@ -410,6 +443,10 @@ export class CognitiveRouter {
   constructor(options = {}) {
     this.categoryConfidenceThreshold = Number(options.categoryConfidenceThreshold ?? 0.55);
     this.thinkThreshold = Number(options.thinkThreshold ?? 0.56);
+    this.retrievalConfidenceThreshold = Number(options.retrievalConfidenceThreshold ?? 0.68);
+    this.expensiveRetrievalConfidenceThreshold = Number(
+      options.expensiveRetrievalConfidenceThreshold ?? 0.82
+    );
   }
 
   route({ state, decision }) {
@@ -441,13 +478,24 @@ export class CognitiveRouter {
     if (Number(signals.stuck?.noul ?? 0) > 0.7) reasons.push('stuck');
     if (Number(signals.evidence_sufficient?.noul ?? 1) < 0.35) reasons.push('insufficient-evidence');
 
+    const retrievalDecision = selectRetrievalDirection({
+      algorithm: algorithm.retrieval,
+      model: signals.retrieval,
+      confidenceThreshold: this.retrievalConfidenceThreshold,
+      expensiveConfidenceThreshold: this.expensiveRetrievalConfidenceThreshold
+    });
+    if (retrievalDecision.source === 'decision') reasons.push('retrieval-model-high-confidence');
+    if (retrievalDecision.blockedModelChoice) reasons.push('retrieval-model-constrained');
+
     return {
       category,
       think,
       effort,
       thinkScore,
       reasons,
-      retrieval: signals.retrieval?.choice ?? algorithm.retrieval?.choice ?? 'lexical'
+      retrieval: retrievalDecision.choice,
+      retrievalSource: retrievalDecision.source,
+      retrievalConfidence: retrievalDecision.confidence
     };
   }
 }
@@ -693,7 +741,7 @@ export function buildDecisionQuestions(categories = {}) {
     },
     need_think: {
       type: 'noul',
-      instructions: 'Would deliberate multi-step reasoning materially improve the next decision?'
+      instructions: THINK_DECISION_INSTRUCTION
     },
     evidence_sufficient: {
       type: 'noul',
@@ -706,14 +754,7 @@ export function buildDecisionQuestions(categories = {}) {
     retrieval: {
       type: 'choice',
       instructions: 'Which retrieval direction is most useful next?',
-      criteria: {
-        lexical: 'Exact or lexical lookup is sufficient.',
-        dependency: 'Follow calls, imports, dependencies, and structural relations.',
-        causal: 'Follow causes, derived evidence, effects, and failure chains.',
-        historical: 'Use prior sessions, changes, superseded facts, or temporal history.',
-        associative: 'Diffuse attention through a bounded graph neighborhood when indirect associations may matter.',
-        hybrid: 'Fuse lexical/symbol and embedding retrieval before deterministic graph Attention.'
-      }
+      criteria: { ...RETRIEVAL_DIRECTION_DESCRIPTIONS }
     }
   };
 }
@@ -780,6 +821,59 @@ export function algorithmicAnswers(state = {}) {
     evidence_sufficient: { type: 'noul', noul: evidenceSufficient },
     stuck: { type: 'noul', noul: stuck },
     retrieval: { type: 'choice', choice: retrieval, confidence: 0.65 }
+  };
+}
+
+function selectRetrievalDirection({
+  algorithm,
+  model,
+  confidenceThreshold,
+  expensiveConfidenceThreshold
+}) {
+  const allowed = new Set(Object.keys(RETRIEVAL_DIRECTION_DESCRIPTIONS));
+  const algorithmChoice = allowed.has(String(algorithm?.choice))
+    ? String(algorithm.choice)
+    : 'lexical';
+  const modelChoice = allowed.has(String(model?.choice))
+    ? String(model.choice)
+    : null;
+  const confidence = Number(model?.confidence ?? topProbability(model?.probabilities) ?? 0);
+
+  // Explicit deterministic structural/causal/history cues are framework-owned.
+  // A decision model may agree with them, but does not redirect them to another mode.
+  if (algorithmChoice !== 'lexical') {
+    return {
+      choice: algorithmChoice,
+      source: 'algorithm',
+      confidence: Number.isFinite(confidence) ? confidence : 0,
+      blockedModelChoice: Boolean(modelChoice && modelChoice !== algorithmChoice)
+    };
+  }
+
+  if (!modelChoice || modelChoice === 'lexical' || !Number.isFinite(confidence)) {
+    return {
+      choice: 'lexical',
+      source: 'algorithm',
+      confidence: Number.isFinite(confidence) ? confidence : 0,
+      blockedModelChoice: false
+    };
+  }
+
+  const expensive = modelChoice === 'associative' || modelChoice === 'hybrid';
+  const threshold = expensive ? expensiveConfidenceThreshold : confidenceThreshold;
+  if (confidence >= threshold) {
+    return {
+      choice: modelChoice,
+      source: 'decision',
+      confidence,
+      blockedModelChoice: false
+    };
+  }
+  return {
+    choice: 'lexical',
+    source: 'algorithm',
+    confidence,
+    blockedModelChoice: true
   };
 }
 
