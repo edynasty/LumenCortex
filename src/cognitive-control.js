@@ -16,8 +16,9 @@ export const BUILTIN_CATEGORY_DESCRIPTIONS = {
 const QUICK_TERMS = /\b(typo|rename|format|lint|small|tiny|quick|one[- ]?line|single[- ]?file|copy change)\b/i;
 const VISUAL_TERMS = /\b(ui|ux|css|layout|frontend|front-end|visual|design|responsive|react|vue|svelte|wails|figma)\b/i;
 const RESEARCH_TERMS = /\b(research|investigate|compare|paper|papers|source|sources|latest|benchmark|survey|literature|web search)\b/i;
+const COMPLEX_RESEARCH_TERMS = /\b(compare|synthesi[sz]e|conflict|trade[- ]?off|benchmark|methodology|survey|literature|multi[- ]?source)\b/i;
 const WRITING_TERMS = /\b(readme|documentation|docs|write|rewrite|copy|guide|tutorial|explain)\b/i;
-const DEEP_TERMS = /\b(debug|deadlock|race|concurrency|architecture|migration|refactor|security|performance|root cause|multi[- ]?module|cross[- ]?module|distributed|transaction)\b/i;
+const DEEP_TERMS = /\b(debug|deadlock|race|concurrency|architecture|migration|refactor|security|performance|root cause|regression|multi[- ]?module|cross[- ]?module|distributed|transaction)\b/i;
 const HIGH_RISK_TERMS = /\b(delete|drop|migration|production|security|auth|credential|payment|billing|database|schema|release|deploy)\b/i;
 
 export function loadCognitiveProfile(workspace, options = {}) {
@@ -730,7 +731,8 @@ export function algorithmicAnswers(state = {}) {
     writing: 0.04
   };
 
-  if (QUICK_TERMS.test(text) || text.length < 80) scores.quick += 0.35;
+  if (QUICK_TERMS.test(text)) scores.quick += 0.55;
+  else if (text.length < 80) scores.quick += 0.25;
   if (VISUAL_TERMS.test(text)) scores['visual-engineering'] += 0.7;
   if (RESEARCH_TERMS.test(text)) scores.research += 0.65;
   if (WRITING_TERMS.test(text)) scores.writing += 0.45;
@@ -744,6 +746,7 @@ export function algorithmicAnswers(state = {}) {
   let think = 0.18;
   if (DEEP_TERMS.test(text)) think += 0.32;
   if (RESEARCH_TERMS.test(text)) think += 0.16;
+  if (RESEARCH_TERMS.test(text) && COMPLEX_RESEARCH_TERMS.test(text)) think += 0.22;
   if (HIGH_RISK_TERMS.test(text)) think += 0.15;
   if (text.length > 500) think += 0.08;
   think += Math.min(0.35, Number(progress.maxRepeatedFailure ?? 0) * 0.12);
