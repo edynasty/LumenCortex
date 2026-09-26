@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { algorithmicAnswers, CognitiveRouter } from './cognitive-control.js';
+import {
+  algorithmicAnswers,
+  cognitiveRoutingRubric,
+  CognitiveRouter
+} from './cognitive-control.js';
 
 export const DEFAULT_COGNITIVE_ROUTING_BENCHMARK = fileURLToPath(
   new URL('../benchmarks/cognitive-routing.json', import.meta.url)
@@ -59,6 +63,48 @@ export function loadCognitiveRoutingPredictions(file) {
     source: absolute,
     predictions
   };
+}
+
+export function buildCognitiveRoutingPredictionPrompt(benchmark, options = {}) {
+  const fixture = Array.isArray(benchmark)
+    ? { version: 1, name: 'inline', source: null, cases: benchmark }
+    : benchmark;
+  if (!Array.isArray(fixture?.cases) || !fixture.cases.length) {
+    throw new Error('Cognitive routing benchmark requires cases');
+  }
+
+  const requestedIds = Array.isArray(options.ids)
+    ? new Set(options.ids.map(String))
+    : null;
+  const cases = requestedIds
+    ? fixture.cases.filter((entry, index) =>
+        requestedIds.has(String(entry?.id ?? `case-${index + 1}`))
+      )
+    : fixture.cases;
+  if (!cases.length) throw new Error('No cognitive routing benchmark cases matched the requested ids');
+
+  const categories = options.categories;
+  const rows = cases.map((entry, index) => JSON.stringify({
+    id: String(entry?.id ?? `case-${index + 1}`),
+    description: String(entry?.description ?? ''),
+    state: normalizeBenchmarkState(entry?.state ?? {})
+  }));
+
+  return [
+    cognitiveRoutingRubric(categories),
+    '',
+    'External prediction contract:',
+    '- Return exactly one JSON object per line and no prose or Markdown fences.',
+    '- Required fields: id, category, think, effort, retrieval.',
+    '- category must be one configured category name.',
+    '- think must be boolean.',
+    '- effort must be one of: low, medium, high, max.',
+    '- retrieval must be one of: lexical, dependency, causal, historical, associative, hybrid.',
+    '- Predict the framework policy from the case state. Do not invent extra cases.',
+    '',
+    'Cases (labels intentionally omitted):',
+    ...rows
+  ].join('\n');
 }
 
 export function runCognitiveRoutingBenchmark(benchmark, options = {}) {
