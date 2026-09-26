@@ -415,9 +415,9 @@ Core documents:
 
 ## Implementation honesty
 
-Implemented in the reference runtime and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions, plus the cognitive-control baseline (Decision Layer, ordered Category chains, provider-specific dynamic Think effort, circuit breakers, Progress Monitor, persistent Work Units, model telemetry, per-step cognitive traces) and the Graph Governor baseline (Analyzer, optional semantic Curator, validator, branch/promotion/canonicalization executor, reversible Cortex Epochs, indexed storage tiers, and safe derived-cache compaction).
+Implemented in the reference runtime and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, layered Skills with Agent/Subagent prompt injection, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions, plus the cognitive-control baseline (Decision Layer, ordered Category chains, provider-specific dynamic Think effort, circuit breakers, Progress Monitor, persistent Work Units, model telemetry, per-step cognitive traces) and the Graph Governor baseline (Analyzer, optional semantic Curator, validator, branch/promotion/canonicalization executor, reversible Cortex Epochs, indexed storage tiers, safe derived-cache compaction, and opt-in post-Agent scheduling with persistent pending plans).
 
-Still planned rather than claimed as complete: approximate-nearest-neighbor embedding indexes (the current optional baseline is persistent exact cosine + RRF Hybrid), one-to-one Cognitive-Git branch ↔ real Git-worktree transactions and whole-run rollback for local sessions (Go already supports explicit isolated session worktrees with safe handoff/apply), live Jev/Laya validation/calibration and routing benchmarks, autonomous Governor scheduling, separate physical hot/warm/cold node stores or destructive cognitive GC, Node Skills parity (Go layered Skills are implemented), vision/browser tooling, and Go Graph Governor mutation/executor parity. The Go runtime already has a control-plane baseline for System One decisions, Category chains, dynamic Think effort, circuit breakers, Work Units, shared cognition profiles, and read-only Governor Analyze/Plan/Validate over the shared SQLite graph.
+Still planned rather than claimed as complete: approximate-nearest-neighbor embedding indexes (the current optional baseline is persistent exact cosine + RRF Hybrid), one-to-one Cognitive-Git branch ↔ real Git-worktree transactions and whole-run rollback for local sessions (Go already supports explicit isolated session worktrees with safe handoff/apply), live Jev/Laya validation/calibration and routing benchmarks, automatic Governor plan application/policy calibration, separate physical hot/warm/cold node stores or destructive cognitive GC, vision/browser tooling, and Go Graph Governor mutation/executor parity. The Go runtime already has a control-plane baseline for System One decisions, Category chains, dynamic Think effort, circuit breakers, Work Units, shared cognition profiles, and read-only Governor Analyze/Plan/Validate over the shared SQLite graph.
 
 ## Current engineering direction
 
@@ -511,3 +511,18 @@ lcx-go skills delete project my-skill
 ```
 
 These are Go-runtime baselines. They do not imply Node Skills parity or a one-to-one transaction between Cognitive Git branches and real Git worktrees.
+
+
+### Governor scheduling
+
+Global graph governance can be checked automatically after completed Node Agent runs without silently mutating the graph. Scheduler checks are revision/cooldown bounded and persist one revision-bound pending plan.
+
+```bash
+lcx governor scheduler status
+lcx governor scheduler run --force
+lcx governor scheduler apply --dry-run
+lcx governor scheduler apply --yes
+lcx governor scheduler apply --semantic --epoch --yes
+```
+
+`governor.scheduler.useCurator` defaults to `false`; enabling it explicitly allows the separately configured Governor model to curate scheduled plans. A pending plan is rejected if the graph revision changes before apply.
