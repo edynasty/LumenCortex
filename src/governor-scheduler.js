@@ -6,6 +6,7 @@ const STATE_KEY = 'graph_governor_scheduler_state_v1';
 export const DEFAULT_GOVERNOR_SCHEDULER = Object.freeze({
   enabled: false,
   useCurator: false,
+  autoApplySafe: false,
   checkRevisionDelta: 25,
   cooldownMs: 30 * 60 * 1000,
   archiveCandidateThreshold: 8,
@@ -173,6 +174,71 @@ export class GraphGovernorScheduler {
       counts: planCounts(plan)
     });
 
+    if (cfg.autoApplySafe) {
+      if (cfg.useCurator || proposal.curator?.enabled) {
+        this.#journal('governor.scheduler.auto_apply_skipped', {
+          planId,
+          revision,
+          reason: 'curator-plan-requires-explicit-apply'
+        });
+        return this.#result({
+          scheduled: true,
+          reason: force ? 'forced' : 'pressure',
+          revision,
+          revisionDelta,
+          analysis: state.lastAnalysis,
+          pending: state.pending,
+          autoApplied: false,
+          autoApplySkippedReason: 'curator-plan-requires-explicit-apply',
+          state
+        });
+      }
+
+      const preview = this.governor.applySafe(plan, {
+        dryRun: true,
+        commit: false
+      });
+      const safeChangedCount = Number(preview.changed?.length ?? 0);
+      if (safeChangedCount > 0) {
+        const applied = this.applyPending({
+          automatic: true,
+          semantic: false,
+          createEpoch: false,
+          message: `governor: auto-apply safe plan ${planId}`
+        });
+        const nextState = this.#loadState();
+        return this.#result({
+          scheduled: true,
+          reason: force ? 'forced' : 'pressure',
+          revision,
+          revisionDelta,
+          analysis: state.lastAnalysis,
+          pending: null,
+          autoApplied: true,
+          safeChangedCount,
+          apply: applied,
+          state: nextState
+        });
+      }
+
+      this.#journal('governor.scheduler.auto_apply_skipped', {
+        planId,
+        revision,
+        reason: 'no-safe-changes'
+      });
+      return this.#result({
+        scheduled: true,
+        reason: force ? 'forced' : 'pressure',
+        revision,
+        revisionDelta,
+        analysis: state.lastAnalysis,
+        pending: state.pending,
+        autoApplied: false,
+        autoApplySkippedReason: 'no-safe-changes',
+        state
+      });
+    }
+
     return this.#result({
       scheduled: true,
       reason: force ? 'forced' : 'pressure',
@@ -180,6 +246,7 @@ export class GraphGovernorScheduler {
       revisionDelta,
       analysis: state.lastAnalysis,
       pending: state.pending,
+      autoApplied: false,
       state
     });
   }
@@ -226,6 +293,10 @@ export class GraphGovernorScheduler {
     state.lastApplyAt = appliedAt;
     state.lastApplyRevision = this.repository.graphRevision();
     state.lastAppliedPlanId = pending.id;
+    if (options.automatic) {
+      state.lastAutoApplyAt = appliedAt;
+      state.lastAutoAppliedPlanId = pending.id;
+    }
     state.pending = null;
     this.#saveState(state);
     this.#journal('governor.scheduler.applied', {
@@ -234,11 +305,13 @@ export class GraphGovernorScheduler {
       appliedRevision: state.lastApplyRevision,
       semantic: Boolean(options.semantic),
       epoch: result.epoch ?? null,
-      changedCount: result.changed?.length ?? 0
+      changedCount: result.changed?.length ?? 0,
+      automatic: Boolean(options.automatic)
     });
     return {
       planId: pending.id,
       pending: false,
+      automatic: Boolean(options.automatic),
       ...result
     };
   }
@@ -297,6 +370,7 @@ export function normalizeGovernorSchedulerOptions(input = {}) {
   return {
     enabled: input.enabled === true,
     useCurator: input.useCurator === true,
+    autoApplySafe: input.autoApplySafe === true,
     checkRevisionDelta: positiveInteger(
       input.checkRevisionDelta,
       DEFAULT_GOVERNOR_SCHEDULER.checkRevisionDelta
@@ -383,6 +457,8 @@ function emptySchedulerState() {
     lastApplyAt: null,
     lastApplyRevision: null,
     lastAppliedPlanId: null,
+    lastAutoApplyAt: null,
+    lastAutoAppliedPlanId: null,
     pending: null
   };
 }
