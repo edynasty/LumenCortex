@@ -11,6 +11,17 @@
         "type": "jev",
         "model": "jev-latest",
         "timeoutMs": 2500
+      },
+      {
+        "type": "generative",
+        "name": "decision-fallback",
+        "provider": "deepseek",
+        "model": "deepseek-flash",
+        "reasoningEffort": "low",
+        "maxTokens": 700,
+        "timeoutMs": 8000,
+        "confidenceScale": 0.85,
+        "confidenceCap": 0.9
       }
     ]
   },
