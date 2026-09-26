@@ -515,7 +515,7 @@ These are Go-runtime baselines. They do not imply Node Skills parity or a one-to
 
 ### Governor scheduling
 
-Global graph governance can be checked automatically after completed Node Agent runs without silently mutating the graph. Scheduler checks are revision/cooldown bounded and persist one revision-bound pending plan.
+Global graph governance can be checked automatically after completed Node Agent runs. By default the scheduler only persists a revision-bound pending plan; optional `autoApplySafe` may apply deterministic tier/archive changes after a dry-run preview.
 
 ```bash
 lcx governor scheduler status
