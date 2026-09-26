@@ -90,15 +90,29 @@ type TelemetryConfig struct {
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
+type GovernorSchedulerConfig struct {
+	Enabled                        bool `json:"enabled,omitempty"`
+	UseCurator                     bool `json:"useCurator,omitempty"`
+	AutoApplySafe                  bool `json:"autoApplySafe,omitempty"`
+	CheckRevisionDelta             int  `json:"checkRevisionDelta,omitempty"`
+	CooldownMS                     int  `json:"cooldownMs,omitempty"`
+	ArchiveCandidateThreshold      int  `json:"archiveCandidateThreshold,omitempty"`
+	CanonicalizeGroupThreshold     int  `json:"canonicalizeGroupThreshold,omitempty"`
+	BranchCandidateThreshold       int  `json:"branchCandidateThreshold,omitempty"`
+	PromotionGroupThreshold        int  `json:"promotionGroupThreshold,omitempty"`
+	TierChangeThreshold            int  `json:"tierChangeThreshold,omitempty"`
+}
+
 type GovernorConfig struct {
-	Enabled         bool              `json:"enabled,omitempty"`
-	Provider        string            `json:"provider,omitempty"`
-	Model           string            `json:"model,omitempty"`
-	BaseURL         string            `json:"baseURL,omitempty"`
-	TimeoutMS       int               `json:"timeoutMs,omitempty"`
-	ReasoningEffort string            `json:"reasoningEffort,omitempty"`
-	MaxTokens       int               `json:"maxTokens,omitempty"`
-	Headers         map[string]string `json:"headers,omitempty"`
+	Enabled         bool                     `json:"enabled,omitempty"`
+	Provider        string                   `json:"provider,omitempty"`
+	Model           string                   `json:"model,omitempty"`
+	BaseURL         string                   `json:"baseURL,omitempty"`
+	TimeoutMS       int                      `json:"timeoutMs,omitempty"`
+	ReasoningEffort string                   `json:"reasoningEffort,omitempty"`
+	MaxTokens       int                      `json:"maxTokens,omitempty"`
+	Headers         map[string]string        `json:"headers,omitempty"`
+	Scheduler       *GovernorSchedulerConfig `json:"scheduler,omitempty"`
 }
 
 type EmbeddingRetrievalConfig struct {
@@ -216,6 +230,33 @@ func LoadConfig(workspace, file string) (Config, error) {
 	}
 	if user.Governor != nil {
 		copy := *user.Governor
+		if copy.Scheduler != nil {
+			scheduler := *copy.Scheduler
+			if scheduler.CheckRevisionDelta <= 0 {
+				scheduler.CheckRevisionDelta = 25
+			}
+			if scheduler.CooldownMS < 0 {
+				scheduler.CooldownMS = 0
+			} else if scheduler.CooldownMS == 0 {
+				scheduler.CooldownMS = 30 * 60 * 1000
+			}
+			if scheduler.ArchiveCandidateThreshold <= 0 {
+				scheduler.ArchiveCandidateThreshold = 8
+			}
+			if scheduler.CanonicalizeGroupThreshold <= 0 {
+				scheduler.CanonicalizeGroupThreshold = 3
+			}
+			if scheduler.BranchCandidateThreshold <= 0 {
+				scheduler.BranchCandidateThreshold = 3
+			}
+			if scheduler.PromotionGroupThreshold <= 0 {
+				scheduler.PromotionGroupThreshold = 3
+			}
+			if scheduler.TierChangeThreshold <= 0 {
+				scheduler.TierChangeThreshold = 25
+			}
+			copy.Scheduler = &scheduler
+		}
 		config.Governor = &copy
 	}
 
