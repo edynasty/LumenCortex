@@ -959,7 +959,19 @@ A pending plan records the graph revision on which it was produced. If the graph
 
 The scheduler does **not** silently invoke the semantic Curator. `useCurator` defaults to false and must be explicitly enabled under `governor.scheduler`. This keeps Governor-model cost independent from Think-model cost.
 
-Likewise, scheduling does not automatically mutate the graph. Applying the pending plan remains explicit:
+By default, scheduling does not mutate the graph. An explicit `governor.scheduler.autoApplySafe=true` option can auto-apply **only deterministic safe-plan tier/archive mutations** after a dry-run preview confirms real safe changes. If Curator is enabled, or if the useful work is semantic branch/canonicalize/promotion/Epoch work, the plan remains pending and requires explicit application.
+
+```json
+{
+  "governor": {
+    "scheduler": {
+      "enabled": true,
+      "useCurator": false,
+      "autoApplySafe": false
+    }
+  }
+}
+```
 
 ```bash
 lcx governor scheduler status
@@ -970,4 +982,4 @@ lcx governor scheduler apply --semantic --epoch --yes
 lcx governor scheduler clear --yes
 ```
 
-When enabled in the cognition profile, the standard Node Agent harness runs one scheduler evaluation after a successfully completed Agent run and after task cognition has been recorded. Interrupted, max-step, and waiting-gate runs do not trigger global governance.
+When enabled in the cognition profile, the standard Node Agent harness runs one scheduler evaluation after a successfully completed Agent run and after task cognition has been recorded. Interrupted, max-step, and waiting-gate runs do not trigger global governance. Safe auto-apply never turns on implicitly and is suppressed for Curator-backed plans.
