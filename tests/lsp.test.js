@@ -427,3 +427,45 @@ test('LSP Manager keeps opened documents coherent across resource rename', { tim
     await lsp.close();
   }
 });
+
+
+test('LSP resource operations reject the workspace root and keep ignored operations side-effect free', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mw-lsp-resource-root-'));
+  const source=path.join(root,'source.js');
+  const target=path.join(root,'target.js');
+  fs.writeFileSync(source,'source\n');
+  fs.writeFileSync(target,'target\n');
+
+  assert.throws(
+    () => applyLspWorkspaceEdit(root,{
+      documentChanges:[{
+        kind:'delete',
+        uri:pathToFileURL(root).href
+      }]
+    }),
+    /workspace root/
+  );
+
+  const beforeSource=fs.readFileSync(source,'utf8');
+  const beforeTarget=fs.readFileSync(target,'utf8');
+  const result=applyLspWorkspaceEdit(root,{
+    documentChanges:[
+      {
+        kind:'rename',
+        oldUri:pathToFileURL(source).href,
+        newUri:pathToFileURL(target).href,
+        options:{ignoreIfExists:true}
+      },
+      {
+        kind:'delete',
+        uri:pathToFileURL(path.join(root,'missing.js')).href,
+        options:{ignoreIfNotExists:true}
+      }
+    ]
+  });
+
+  assert.equal(result.resourceOperations.every((item)=>item.ignored),true);
+  assert.equal(result.files.length,0);
+  assert.equal(fs.readFileSync(source,'utf8'),beforeSource);
+  assert.equal(fs.readFileSync(target,'utf8'),beforeTarget);
+});
