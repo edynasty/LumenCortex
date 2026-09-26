@@ -34,7 +34,7 @@ A feature being present in source code is not enough. Readiness claims require a
 | Workspace rollback after arbitrary shell mutation | Partial | Worktree-session isolation/removal tests | Worktree sessions can be discarded safely; local-session arbitrary shell mutation still has no whole-run rollback |
 | Skills layer | Complete Node + Go baseline | layered registry tests, Node/Go Agent prompt injection, Node Subagent propagation, Node/Go CLI lifecycle tests | Ready baseline with global/project layering and enable state |
 | Vision/browser tools | Not implemented | None | Gap |
-| Adaptive cognitive routing / Think mode | Implemented baseline | Core CI cognitive-control tests | Experimental baseline; routing quality still needs workload benchmarks |
+| Adaptive cognitive routing / Think mode | Implemented baseline | Core CI cognitive-control tests + 12-case labeled deterministic routing benchmark + strict CLI gate | Experimental baseline; deterministic workload expectations are regression-gated, while live System One/generative-model calibration still needs broader benchmarks |
 | Decision Layer + Category model chains | Implemented baseline | Core CI: algorithm/System-One adapter, ordered-chain fallback, circuit breaker, provider effort mapping, session trace tests | Ready for experimental use; live Jev/Laya validation pending |
 | Persistent Work Units | Implemented baseline | dependency/evidence/verification/final-answer gate tests | Ready experimental baseline |
 | Hot/warm/cold storage metadata | Implemented baseline | SQLite schema-v3/backfill/access/compaction tests | Logical graph remains intact; physical tier separation is not claimed |
@@ -83,7 +83,7 @@ In particular, the current architecture does not yet claim:
 - approximate-nearest-neighbor embedding indexes; the optional exact-cosine/RRF baseline is implemented,
 - vision/browser automation,
 - polished terminal navigation equivalent to mature editor-grade TUIs,
-- live Jev/Laya endpoint validation and calibrated routing benchmarks,
+- live Jev/Laya endpoint validation and live-model calibration benchmarks; the deterministic labeled routing benchmark is implemented,
 - automatic Curator/semantic Governor application or production-calibrated governance policy; deterministic tier/archive auto-apply is available only through explicit `autoApplySafe` opt-in,
 - separate physical hot/warm/cold data stores or destructive cognitive GC (not currently claimed),
 - broader provider-specific reasoning controls,
