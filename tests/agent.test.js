@@ -826,3 +826,94 @@ test('Agent awaits Hybrid context only on the next reasoning turn', async () => 
   assert.equal(result.session.steps[1].cognition.activeRetrievalMode, 'hybrid');
   assert.equal(result.session.steps[1].cognition.nextRetrievalMode, 'lexical');
 });
+
+
+test('completed Agent run evaluates the Governor scheduler once', async () => {
+  const { root, repository, runtime } = fixture();
+  const calls = [];
+  const events = [];
+  const governorScheduler = {
+    async evaluate(options) {
+      calls.push(options);
+      return {
+        scheduled: true,
+        reason: 'pressure',
+        revision: 4,
+        pending: { id: 'govplan_test' }
+      };
+    }
+  };
+  const provider = {
+    model: 'mock',
+    complete: async () => ({
+      message: { role: 'assistant', content: 'done' },
+      finishReason: 'stop'
+    })
+  };
+  const agent = new AgentLoop({
+    provider,
+    repository,
+    runtime,
+    workspace: root,
+    tools: new ToolRegistry(),
+    governorScheduler,
+    onEvent: (event) => events.push(event)
+  });
+
+  const result = await agent.run('finish and schedule governance', {
+    maxSteps: 1,
+    autoIngest: false,
+    autoPromote: false,
+    recordTask: false,
+    recordObservations: false
+  });
+
+  assert.equal(result.final, 'done');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].reason, 'agent-complete');
+  assert.equal(calls[0].sessionId, result.session.id);
+  assert.ok(events.some((event) =>
+    event.type === 'governor.scheduler' &&
+    event.pendingPlanId === 'govplan_test'
+  ));
+});
+
+test('Governor scheduler failures do not turn a completed Agent task into failure', async () => {
+  const { root, repository, runtime } = fixture();
+  const events = [];
+  const provider = {
+    model: 'mock',
+    complete: async () => ({
+      message: { role: 'assistant', content: 'completed result' },
+      finishReason: 'stop'
+    })
+  };
+  const agent = new AgentLoop({
+    provider,
+    repository,
+    runtime,
+    workspace: root,
+    tools: new ToolRegistry(),
+    governorScheduler: {
+      async evaluate() {
+        throw new Error('scheduler unavailable');
+      }
+    },
+    onEvent: (event) => events.push(event)
+  });
+
+  const result = await agent.run('complete despite scheduler failure', {
+    maxSteps: 1,
+    autoIngest: false,
+    autoPromote: false,
+    recordTask: false,
+    recordObservations: false
+  });
+
+  assert.equal(result.final, 'completed result');
+  assert.equal(result.session.status, 'completed');
+  assert.ok(events.some((event) =>
+    event.type === 'governor.scheduler.error' &&
+    /scheduler unavailable/.test(event.error)
+  ));
+});
