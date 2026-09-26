@@ -32,13 +32,13 @@ A feature being present in source code is not enough. Readiness claims require a
 | Cognitive Git | Complete for cognitive graph | Core CI | Ready for cognition history |
 | Session ↔ real Git worktree isolation | Complete Go baseline | Go runtime lifecycle, Agent workspace routing, shell isolation, status/diff, overlap-conflict and safe handoff/apply tests; Go CLI lifecycle tests | Ready optional baseline for isolated Go sessions; not the same as Cognitive-Git branch ↔ worktree transactional binding |
 | Workspace rollback after arbitrary shell mutation | Partial | Worktree-session isolation/removal tests | Worktree sessions can be discarded safely; local-session arbitrary shell mutation still has no whole-run rollback |
-| Skills layer | Complete Go baseline | layered registry tests + Agent system-prompt injection + Go CLI lifecycle tests | Ready baseline in Go runtime/CLI; Node reference runtime does not claim Skills parity |
+| Skills layer | Complete Node + Go baseline | layered registry tests, Node/Go Agent prompt injection, Node Subagent propagation, Node/Go CLI lifecycle tests | Ready baseline with global/project layering and enable state |
 | Vision/browser tools | Not implemented | None | Gap |
 | Adaptive cognitive routing / Think mode | Implemented baseline | Core CI cognitive-control tests | Experimental baseline; routing quality still needs workload benchmarks |
 | Decision Layer + Category model chains | Implemented baseline | Core CI: algorithm/System-One adapter, ordered-chain fallback, circuit breaker, provider effort mapping, session trace tests | Ready for experimental use; live Jev/Laya validation pending |
 | Persistent Work Units | Implemented baseline | dependency/evidence/verification/final-answer gate tests | Ready experimental baseline |
 | Hot/warm/cold storage metadata | Implemented baseline | SQLite schema-v3/backfill/access/compaction tests | Logical graph remains intact; physical tier separation is not claimed |
-| Graph Governor / Cortex Epochs | Implemented baseline | Core CI: analyzer, semantic Curator, validator, canonicalization/branch/promotion, reversible epoch tests | Experimental governance baseline; autonomous scheduling and physical tier separation remain gaps |
+| Graph Governor / Cortex Epochs | Implemented baseline + opt-in scheduler | Core CI: analyzer, semantic Curator, validator, canonicalization/branch/promotion, reversible epoch tests, persistent scheduler debounce/stale-plan/CLI/Agent lifecycle tests | Experimental governance baseline; scheduler can auto-plan after completed Agent runs, but apply remains explicit and physical tier separation remains a gap |
 | Go cognitive-control parity | Implemented baseline | Go CI: shared profile, System One HTTP, Category failover/circuit, dynamic Think effort, Work Unit gates | Governor write/apply is intentionally not duplicated |
 | Go Graph Governor read path | Implemented baseline | Go CI: shared SQLite snapshot + Analyzer/Curator/Validator + no-mutation assertions | Read-only; Node remains mutation authority |
 
@@ -81,11 +81,10 @@ In particular, the current architecture does not yet claim:
 - whole-run rollback of arbitrary local-session workspace changes produced by shell commands,
 - automatic execution of command-only LSP code actions or LSP create/rename/delete resource operations,
 - approximate-nearest-neighbor embedding indexes; the optional exact-cosine/RRF baseline is implemented,
-- Node-runtime Skills parity; reusable layered Skills are implemented in the Go runtime and injected into Go Agent prompts,
 - vision/browser automation,
 - polished terminal navigation equivalent to mature editor-grade TUIs,
 - live Jev/Laya endpoint validation and calibrated routing benchmarks,
-- autonomous Governor scheduling and policy calibration,
+- automatic Governor plan application or production-calibrated governance policy; opt-in post-Agent scheduling/pending-plan persistence is implemented,
 - separate physical hot/warm/cold data stores or destructive cognitive GC (not currently claimed),
 - broader provider-specific reasoning controls,
 - Go Graph Governor mutation/executor parity; the current Go Governor is intentionally read-only against the shared SQLite graph.
