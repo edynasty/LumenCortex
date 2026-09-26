@@ -528,6 +528,11 @@ Decision Layer / Think Router 现在有一套零模型成本的 labeled workload
 lcx cognition benchmark
 lcx cognition benchmark --strict
 lcx cognition benchmark --strict --json
+lcx cognition benchmark --prompt
+lcx cognition benchmark --prompt --ids quick-readme-typo,deep-concurrency-root-cause
+lcx cognition benchmark --predictions predictions.jsonl --strict --json
 ```
 
-当前内置 12 个 workload，同时检查 Category、是否进入 Think、动态 effort 与 retrieval direction。它用于锁住 deterministic baseline；Jev/Laya 与 generative model 的 live calibration benchmark 仍需单独验证。
+当前内置 12 个 workload，同时检查 Category、是否进入 Think、动态 effort 与 retrieval direction。`--prompt` 会输出与 runtime Decision Layer 共用的 canonical、无标签 routing rubric，避免 benchmark 和运行时各维护一套提示。
+
+2026-09-26 使用本机 OMP + `local/deepseek-v4.1-flash`、low thinking、canonical prompt 做了一次真实生成模型校准，当前 fixture 得分 12/12；预测快照保存在 `benchmarks/predictions/deepseek-v4.1-flash-2026-09-26.jsonl`，并由 CI 重新评分。它只代表一份 generative-model routing calibration 样本，不等同于 Jev/Laya live endpoint 验证，也不等同于完整 DeepSeek coding-agent 任务已通过。
