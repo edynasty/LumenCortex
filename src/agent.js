@@ -22,7 +22,7 @@ Rules:
 11. If the latest tool result already proves the requested verification succeeded, stop calling tools immediately and return the final answer; do not restart or repeat the task.\n12. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates. A model assertion is never a substitute for required workflow evidence.`;
 
 export class AgentLoop {
-  constructor({ provider, repository, runtime, workspace, tools, sessionStore, promotionController, cognitiveController, skillRegistry, authorize, onEvent } = {}) {
+  constructor({ provider, repository, runtime, workspace, tools, sessionStore, promotionController, cognitiveController, skillRegistry, governorScheduler, authorize, onEvent } = {}) {
     if (!provider) throw new Error('provider is required');
     if (!repository) throw new Error('repository is required');
     if (!runtime) throw new Error('runtime is required');
@@ -36,6 +36,7 @@ export class AgentLoop {
     this.promotionController = promotionController ?? new PromotionController(runtime);
     this.cognitiveController = cognitiveController ?? null;
     this.skillRegistry = skillRegistry ?? null;
+    this.governorScheduler = governorScheduler ?? null;
     if (this.cognitiveController) registerWorkUnitTools(this.tools);
     this.authorize = authorize;
     this.onEvent = onEvent ?? (() => {});
@@ -494,6 +495,7 @@ export class AgentLoop {
         if (workflow) session.metadata.workflow = workflow.snapshot();
         this.sessions.save(session);
         this.recordTask(session, context, options);
+        await this.scheduleGovernorAfterCompletion(session);
         this.emit('session.complete', { sessionId: session.id, step, usage, final: assistant.content });
         return { session, final: assistant.content, usage, context };
       }
@@ -657,6 +659,30 @@ export class AgentLoop {
       `Agent reached max steps for this run (${maxSteps}); session has ${session.steps.length} total step(s) without a final answer`,
       session.id
     );
+  }
+
+  async scheduleGovernorAfterCompletion(session) {
+    if (!this.governorScheduler) return null;
+    try {
+      const result = await this.governorScheduler.evaluate({
+        reason: 'agent-complete',
+        sessionId: session.id
+      });
+      this.emit('governor.scheduler', {
+        sessionId: session.id,
+        scheduled: result.scheduled,
+        reason: result.reason,
+        revision: result.revision,
+        pendingPlanId: result.pending?.id ?? result.state?.pending?.id ?? null
+      });
+      return result;
+    } catch (error) {
+      this.emit('governor.scheduler.error', {
+        sessionId: session.id,
+        error: error.message
+      });
+      return null;
+    }
   }
 
   pauseForWorkflowGate(session, step, usage, workflow, context) {
