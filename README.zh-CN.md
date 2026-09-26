@@ -458,7 +458,7 @@ lcx lsp actions src/file.ts 20 1 20 80
 lcx lsp apply-action src/file.ts 20 1 20 80 0 --yes
 ```
 
-LSP WorkspaceEdit 中针对文件的 create/rename/delete 已支持，并带有 overwrite/ignore 语义、工作区边界与 symlink 防护、全量预验证和失败回滚。command-only code action 当前仍不会自动执行。
+LSP WorkspaceEdit 中针对文件的 create/rename/delete 已支持，并带有 overwrite/ignore 语义、工作区边界与 symlink 防护、全量预验证和失败回滚。command-backed code action 也已支持：只有用户/Agent 显式选择并执行该 action 时，language server 反向发起的 `workspace/applyEdit` 才会被接受；普通会话中的 unsolicited edit 会被拒绝。
 
 
 ### Go Session Worktree / Skills
