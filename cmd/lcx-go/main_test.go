@@ -18,6 +18,12 @@ func TestCategoryAndDecisionProvidersFromSharedConfig(t *testing.T) {
 			Policy: "first",
 			Providers: []cognition.DecisionProviderSpec{
 				{Type: "laya", BaseURL: "http://127.0.0.1:8000"},
+				{
+					Type: "generative", Name: "fast-fallback",
+					Provider: "generic", Model: "router-model",
+					BaseURL: "http://127.0.0.1:11434/v1",
+					ReasoningEffort: "low", MaxTokens: 512,
+				},
 				{Type: "jev"},
 			},
 		},
@@ -48,11 +54,15 @@ func TestCategoryAndDecisionProvidersFromSharedConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(decisions) != 2 {
+	if len(decisions) != 3 {
 		t.Fatalf("decision providers=%#v", decisions)
 	}
-	if decisions[0].Name() != "laya" || decisions[1].Name() != "jev" || decisions[1].Model() != "jev-latest" {
-		t.Fatalf("decision providers laya=%s jev=%s/%s", decisions[0].Name(), decisions[1].Name(), decisions[1].Model())
+	if decisions[0].Name() != "laya" ||
+		decisions[1].Name() != "fast-fallback" ||
+		decisions[1].Model() != "router-model" ||
+		decisions[2].Name() != "jev" ||
+		decisions[2].Model() != "jev-latest" {
+		t.Fatalf("decision providers=%#v", decisions)
 	}
 }
 
