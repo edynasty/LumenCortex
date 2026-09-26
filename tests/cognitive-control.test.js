@@ -440,3 +440,99 @@ test('cognition profile keeps Governor scheduler independent and disabled by def
   assert.equal(defaults.governor.scheduler.autoApplySafe, false);
   assert.equal(defaults.governor.scheduler.checkRevisionDelta, 25);
 });
+
+
+test('Cognitive Router keeps explicit deterministic retrieval cues framework-owned', () => {
+  const router = new CognitiveRouter();
+  const state = {
+    goal: 'Why did this regression start after the previous version?',
+    progress: {}
+  };
+  const algorithm = {
+    category: { type: 'choice', choice: 'deep', confidence: 0.9 },
+    need_think: { type: 'noul', noul: 0.8 },
+    evidence_sufficient: { type: 'noul', noul: 0.8 },
+    stuck: { type: 'noul', noul: 0.1 },
+    retrieval: { type: 'choice', choice: 'historical', confidence: 0.65 }
+  };
+  const route = router.route({
+    state,
+    decision: {
+      algorithm: { answers: algorithm },
+      signals: {
+        ...algorithm,
+        retrieval: { type: 'choice', choice: 'causal', confidence: 0.99 }
+      }
+    }
+  });
+
+  assert.equal(route.retrieval, 'historical');
+  assert.equal(route.retrievalSource, 'algorithm');
+  assert.ok(route.reasons.includes('retrieval-model-constrained'));
+});
+
+test('Cognitive Router requires high confidence before escalating lexical retrieval', () => {
+  const router = new CognitiveRouter({
+    retrievalConfidenceThreshold: 0.68,
+    expensiveRetrievalConfidenceThreshold: 0.82
+  });
+  const state = { goal: 'Inspect this behavior', progress: {} };
+  const algorithm = {
+    category: { type: 'choice', choice: 'general', confidence: 0.7 },
+    need_think: { type: 'noul', noul: 0.2 },
+    evidence_sufficient: { type: 'noul', noul: 0.8 },
+    stuck: { type: 'noul', noul: 0.1 },
+    retrieval: { type: 'choice', choice: 'lexical', confidence: 0.65 }
+  };
+
+  const lowCausal = router.route({
+    state,
+    decision: {
+      algorithm: { answers: algorithm },
+      signals: {
+        ...algorithm,
+        retrieval: { type: 'choice', choice: 'causal', confidence: 0.67 }
+      }
+    }
+  });
+  assert.equal(lowCausal.retrieval, 'lexical');
+  assert.equal(lowCausal.retrievalSource, 'algorithm');
+
+  const highCausal = router.route({
+    state,
+    decision: {
+      algorithm: { answers: algorithm },
+      signals: {
+        ...algorithm,
+        retrieval: { type: 'choice', choice: 'causal', confidence: 0.91 }
+      }
+    }
+  });
+  assert.equal(highCausal.retrieval, 'causal');
+  assert.equal(highCausal.retrievalSource, 'decision');
+
+  const mediumHybrid = router.route({
+    state,
+    decision: {
+      algorithm: { answers: algorithm },
+      signals: {
+        ...algorithm,
+        retrieval: { type: 'choice', choice: 'hybrid', confidence: 0.8 }
+      }
+    }
+  });
+  assert.equal(mediumHybrid.retrieval, 'lexical');
+
+  const highHybrid = router.route({
+    state,
+    decision: {
+      algorithm: { answers: algorithm },
+      signals: {
+        ...algorithm,
+        retrieval: { type: 'choice', choice: 'hybrid', confidence: 0.9 }
+      }
+    }
+  });
+  assert.equal(highHybrid.retrieval, 'hybrid');
+  assert.equal(highHybrid.retrievalSource, 'decision');
+});
