@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 func TestSystemOneProviderParsesTypedSignalsIncludingExplicitZero(t *testing.T) {
@@ -72,8 +76,8 @@ func TestSystemOneProviderParsesTypedSignalsIncludingExplicitZero(t *testing.T) 
 	if !result.Signals.HasStuck || result.Signals.Stuck != 0.76 {
 		t.Fatalf("stuck=%#v", result.Signals)
 	}
-	if result.Signals.Retrieval != "historical" {
-		t.Fatalf("retrieval=%q", result.Signals.Retrieval)
+	if result.Signals.Retrieval != "historical" || result.Signals.RetrievalConfidence != 0.84 {
+		t.Fatalf("retrieval=%q confidence=%f", result.Signals.Retrieval, result.Signals.RetrievalConfidence)
 	}
 
 	plan := (Router{}).Route(Input{
@@ -180,4 +184,125 @@ func containsReason(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+
+type fakeGenerativeProtocolProvider struct {
+	model    string
+	response protocol.ProviderResponse
+	err      error
+	last     protocol.ProviderRequest
+	calls    int
+}
+
+func (p *fakeGenerativeProtocolProvider) Model() string { return p.model }
+
+func (p *fakeGenerativeProtocolProvider) Complete(_ context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+	p.calls++
+	p.last = req
+	if p.err != nil {
+		return protocol.ProviderResponse{}, p.err
+	}
+	return p.response, nil
+}
+
+func TestGenerativeDecisionProviderParsesFencedTypedSignalsAndDiscountsConfidence(t *testing.T) {
+	base := &fakeGenerativeProtocolProvider{
+		model: "router-model",
+		response: protocol.ProviderResponse{
+			Message: protocol.Message{
+				Role: "assistant",
+				Content: "```json\n" + `{"answers":{"category":{"type":"choice","choice":"deep","confidence":0.9},"need_think":{"type":"noul","noul":0.8},"evidence_sufficient":{"type":"noul","noul":0.3},"stuck":{"type":"noul","noul":0.2},"retrieval":{"type":"choice","choice":"causal","confidence":0.95}}}` + "\n```",
+			},
+			Usage: protocol.Usage{TotalTokens: 42},
+		},
+	}
+	provider, err := NewGenerativeDecisionProvider(GenerativeDecisionConfig{
+		Name: "generative:deepseek",
+		Provider: base,
+		ConfidenceScale: 0.85,
+		ConfidenceCap: 0.9,
+		ScoreScale: 0.85,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := provider.Decide(context.Background(), DecisionRequest{
+		State: Input{Goal: "Debug the root cause of a race"},
+		Questions: DefaultDecisionQuestions(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base.calls != 1 || len(base.last.Messages) != 2 {
+		t.Fatalf("calls=%d request=%#v", base.calls, base.last)
+	}
+	if base.last.ToolChoice != "none" || base.last.ReasoningEffort != "low" {
+		t.Fatalf("request=%#v", base.last)
+	}
+	if !strings.Contains(base.last.Messages[0].Content, "bounded Decision Layer") ||
+		!strings.Contains(base.last.Messages[0].Content, "Do not execute the task") {
+		t.Fatalf("system prompt=%q", base.last.Messages[0].Content)
+	}
+	if result.Signals.Category != "deep" || math.Abs(result.Signals.CategoryConfidence-0.765) > 1e-9 {
+		t.Fatalf("category signals=%#v", result.Signals)
+	}
+	if result.Signals.Retrieval != "causal" || math.Abs(result.Signals.RetrievalConfidence-0.8075) > 1e-9 {
+		t.Fatalf("retrieval signals=%#v", result.Signals)
+	}
+	if !result.Signals.HasNeedThink || math.Abs(result.Signals.NeedThink-0.755) > 1e-9 {
+		t.Fatalf("need think=%#v", result.Signals)
+	}
+	if !result.Signals.HasEvidenceSufficiency || math.Abs(result.Signals.EvidenceSufficiency-0.33) > 1e-9 {
+		t.Fatalf("evidence=%#v", result.Signals)
+	}
+}
+
+func TestGenerativeDecisionProviderMalformedOutputFallsThroughCircuit(t *testing.T) {
+	badBase := &fakeGenerativeProtocolProvider{
+		model: "bad-model",
+		response: protocol.ProviderResponse{
+			Message: protocol.Message{Role: "assistant", Content: "not-json"},
+		},
+	}
+	bad, err := NewGenerativeDecisionProvider(GenerativeDecisionConfig{
+		Name: "bad-generative",
+		Provider: badBase,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := &fakeDecisionProvider{
+		name: "laya",
+		model: "good",
+		signals: Signals{Category: "writing", CategoryConfidence: 0.9},
+	}
+	health := NewHealthRegistry(HealthConfig{
+		FailureThreshold: 1,
+		Cooldown: time.Hour,
+	})
+	layer := DecisionLayer{
+		Providers: []DecisionProvider{bad, good},
+		Health: health,
+	}
+	first, err := layer.Decide(context.Background(), DecisionRequest{
+		State: Input{Goal: "write docs"},
+		Questions: DefaultDecisionQuestions(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Signals.Category != "writing" || badBase.calls != 1 {
+		t.Fatalf("first=%#v calls=%d", first, badBase.calls)
+	}
+	second, err := layer.Decide(context.Background(), DecisionRequest{
+		State: Input{Goal: "write docs"},
+		Questions: DefaultDecisionQuestions(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if badBase.calls != 1 || len(second.Errors) == 0 || !second.Errors[0].Skipped {
+		t.Fatalf("second=%#v calls=%d", second, badBase.calls)
+	}
 }
