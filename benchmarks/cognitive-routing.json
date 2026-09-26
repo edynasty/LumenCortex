@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "name": "LumenCortex deterministic cognitive routing baseline",
+  "cases": [
+    {
+      "id": "quick-readme-typo",
+      "description": "Explicit tiny edit should stay on the cheap quick path even though README is writing.",
+      "state": {
+        "goal": "Fix a typo in README"
+      },
+      "expect": {
+        "category": "quick",
+        "think": false,
+        "effort": "low",
+        "retrieval": "lexical"
+      }
+    },
+    {
+      "id": "visual-responsive-wails",
+      "description": "Visual frontend work should route to visual-engineering.",
+      "state": {
+        "goal": "Make the Wails UI responsive and improve CSS layout"
+      },
+      "expect": {
+        "category": "visual-engineering",
+        "think": false,
+        "effort": "low",
+        "retrieval": "lexical"
+      }
+    },
+    {
+      "id": "research-comparative-benchmark",
+      "description": "Comparative multi-source research should use research and deliberate Think.",
+      "state": {
+        "goal": "Research and compare recent papers on graph retrieval benchmarks"
+      },
+      "expect": {
+        "category": "research",
+        "think": true,
+        "effortAtLeast": "medium",
+        "retrieval": "lexical"
+      }
+    },
+    {
+      "id": "writing-provider-guide",
+      "description": "Documentation work without a tiny-edit signal should stay writing.",
+      "state": {
+        "goal": "Rewrite the documentation guide for providers"
+      },
+      "expect": {
+        "category": "writing",
+        "think": false,
+        "effort": "low",
+        "retrieval": "lexical"
+      }
+    },
+    {
+      "id": "deep-concurrency-root-cause",
+      "description": "Cross-module race debugging should enter deep Think and causal retrieval.",
+      "state": {
+        "goal": "Debug the root cause of a concurrency race across multiple modules"
+      },
+      "expect": {
+        "category": "deep",
+        "think": true,
+        "effortAtLeast": "medium",
+        "retrieval": "causal"
+      }
+    },
+    {
+      "id": "deep-production-schema-migration",
+      "description": "Production database migration is high-risk and should raise reasoning effort.",
+      "state": {
+        "goal": "Run the database schema migration safely in production"
+      },
+      "expect": {
+        "category": "deep",
+        "think": true,
+        "effortAtLeast": "high",
+        "retrieval": "lexical"
+      }
+    },
+    {
+      "id": "quick-symbol-dependency",
+      "description": "A bounded symbol lookup can be quick while using dependency retrieval.",
+      "state": {
+        "goal": "Find where this symbol is imported and called"
+      },
+      "expect": {
+        "category": "quick",
+        "think": false,
+        "effort": "low",
+        "retrieval": "dependency"
+      }
+    },
+    {
+      "id": "deep-regression-history",
+      "description": "Regression root-cause work should not be misclassified as quick because the prompt is short.",
+      "state": {
+        "goal": "Why did this bug failure start after the regression?"
+      },
+      "expect": {
+        "category": "deep",
+        "think": true,
+        "effortAtLeast": "medium",
+        "retrieval": "historical"
+      }
+    },
+    {
+      "id": "research-history-comparison",
+      "description": "Comparing prior versions is research with historical retrieval.",
+      "state": {
+        "goal": "Compare the previous version and commit history for this behavior"
+      },
+      "expect": {
+        "category": "research",
+        "think": true,
+        "effortAtLeast": "medium",
+        "retrieval": "historical"
+      }
+    },
+    {
+      "id": "ultrabrain-repeated-failure",
+      "description": "Repeated equivalent failures and no progress should escalate to ultrabrain/max.",
+      "state": {
+        "goal": "Try again",
+        "progress": {
+          "maxRepeatedFailure": 4,
+          "sameFailureCount": 4,
+          "noProgressSteps": 4
+        }
+      },
+      "expect": {
+        "category": "ultrabrain",
+        "think": true,
+        "effort": "max",
+        "retrieval": "lexical"
+      }
+    },
+    {
+      "id": "deep-distributed-performance",
+      "description": "Distributed transaction performance investigation should use deep Think.",
+      "state": {
+        "goal": "Investigate performance of distributed transaction processing"
+      },
+      "expect": {
+        "category": "deep",
+        "think": true,
+        "effortAtLeast": "high",
+        "retrieval": "lexical"
+      }
+    },
+    {
+      "id": "visual-refactor-with-think",
+      "description": "A visual frontend architecture refactor remains visual-engineering but needs Think.",
+      "state": {
+        "goal": "Refactor the React frontend layout architecture for responsive desktop behavior"
+      },
+      "expect": {
+        "category": "visual-engineering",
+        "think": true,
+        "effortAtLeast": "medium",
+        "retrieval": "lexical"
+      }
+    }
+  ]
+}
