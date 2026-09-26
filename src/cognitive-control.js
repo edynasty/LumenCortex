@@ -84,6 +84,7 @@ function normalizeGovernorSchedulerProfile(input) {
     return {
       enabled: false,
       useCurator: false,
+      autoApplySafe: false,
       checkRevisionDelta: 25,
       cooldownMs: 30 * 60 * 1000,
       archiveCandidateThreshold: 8,
@@ -104,6 +105,7 @@ function normalizeGovernorSchedulerProfile(input) {
   return {
     enabled: input.enabled === true,
     useCurator: input.useCurator === true,
+    autoApplySafe: input.autoApplySafe === true,
     checkRevisionDelta: positiveInteger(input.checkRevisionDelta, 25),
     cooldownMs: nonNegative(input.cooldownMs, 30 * 60 * 1000),
     archiveCandidateThreshold: positiveInteger(input.archiveCandidateThreshold, 8),
