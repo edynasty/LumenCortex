@@ -21,6 +21,7 @@ import { withProcessCancellation } from './process-cancellation.js';
 import { WorkflowRuntime, loadWorkflowFile } from './workflow.js';
 import { createCognitiveController, loadCognitiveProfile } from './cognitive-control.js';
 import { GraphGovernor, LLMGraphGovernorCurator } from './graph-governor.js';
+import { GraphGovernorScheduler } from './governor-scheduler.js';
 import { embeddingRuntimeConfig } from './embedding-index.js';
 import { SkillRegistry, projectSkillRoot } from './skills.js';
 
@@ -526,32 +527,62 @@ async function skillsCommand({ workspace, argv }) {
 async function governorCommand({ repo, workspace, argv }) {
   const parsed = parseFlags(argv);
   const action = parsed.positionals.shift() ?? 'analyze';
-  let curator = null;
-
-  if (action === 'plan') {
-    const profile = loadCognitiveProfile(workspace, {
-      file: parsed.flags.cognition ? path.resolve(workspace, String(parsed.flags.cognition)) : undefined
-    });
-    const config = profile.governor;
-    if (config?.enabled && config.provider && config.model) {
-      const provider = createProvider(config.provider, {
-        model: config.model,
-        baseURL: config.baseURL,
-        timeoutMs: config.timeoutMs
-      });
-      curator = new LLMGraphGovernorCurator({
-        provider,
-        reasoningEffort: config.reasoningEffort,
-        maxTokens: config.maxTokens
-      });
-    }
-  }
-
+  const profile = loadCognitiveProfile(workspace, {
+    file: parsed.flags.cognition ? path.resolve(workspace, String(parsed.flags.cognition)) : undefined
+  });
+  const curator = ['plan', 'scheduler'].includes(action)
+    ? createGovernorCuratorFromProfile(profile)
+    : null;
   const governor = new GraphGovernor({ repository: repo, curator });
 
   if (action === 'analyze') {
     console.log(JSON.stringify(governor.analyze(), null, 2));
     return;
+  }
+
+  if (action === 'scheduler') {
+    const subaction = parsed.positionals.shift() ?? 'status';
+    const scheduler = new GraphGovernorScheduler({
+      repository: repo,
+      governor,
+      options: profile.governor?.scheduler ?? {}
+    });
+
+    if (subaction === 'status') {
+      console.log(JSON.stringify(scheduler.status(), null, 2));
+      return;
+    }
+    if (subaction === 'run') {
+      const result = await scheduler.evaluate({
+        force: Boolean(parsed.flags.force)
+      });
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (subaction === 'apply') {
+      const dryRun = Boolean(parsed.flags['dry-run']);
+      if (!dryRun && !parsed.flags.yes) {
+        fail('Graph Governor scheduler apply requires --yes or --dry-run');
+      }
+      const result = scheduler.applyPending({
+        planId: parsed.flags.plan ? String(parsed.flags.plan) : undefined,
+        semantic: Boolean(parsed.flags.semantic),
+        createEpoch: Boolean(parsed.flags.epoch),
+        dryRun
+      });
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (subaction === 'clear') {
+      if (!parsed.flags.yes) fail('Graph Governor scheduler clear requires --yes');
+      console.log(JSON.stringify(
+        scheduler.clearPending(parsed.flags.reason ? String(parsed.flags.reason) : 'manual-clear'),
+        null,
+        2
+      ));
+      return;
+    }
+    fail('Usage: lcx governor scheduler <status|run|apply|clear> [--force] [--yes] [--semantic] [--epoch]');
   }
 
   if (action === 'storage') {
@@ -706,12 +737,14 @@ async function createHarness({ repo, runtime, workspace, provider, providerName,
   const profileFile = parsed.flags.cognition
     ? path.resolve(workspace, String(parsed.flags.cognition))
     : undefined;
-  configureRuntimeEmbeddingsFromProfile(runtime, workspace, {
+  const configuredProfile = configureRuntimeEmbeddingsFromProfile(runtime, workspace, {
     profileFile,
     fallbackProviderName: providerName,
     fallbackModel: provider.model,
     required: false
   });
+  const profile = configuredProfile.profile;
+  const governorScheduler = createGovernorSchedulerFromProfile(repo, profile);
 
   const cognitiveController = parsed.flags['no-cognition']
     ? null
@@ -752,6 +785,7 @@ async function createHarness({ repo, runtime, workspace, provider, providerName,
     sessionStore,
     cognitiveController,
     skillRegistry,
+    governorScheduler,
     authorize,
     onEvent
   });
@@ -775,6 +809,34 @@ async function createHarness({ repo, runtime, workspace, provider, providerName,
       repo.close?.();
     }
   };
+}
+
+function createGovernorCuratorFromProfile(profile) {
+  const config = profile?.governor;
+  if (!config?.enabled || !config.provider || !config.model) return null;
+  const provider = createProvider(config.provider, {
+    model: config.model,
+    baseURL: config.baseURL,
+    timeoutMs: config.timeoutMs
+  });
+  return new LLMGraphGovernorCurator({
+    provider,
+    reasoningEffort: config.reasoningEffort,
+    maxTokens: config.maxTokens
+  });
+}
+
+function createGovernorSchedulerFromProfile(repository, profile) {
+  const config = profile?.governor?.scheduler;
+  if (!config?.enabled) return null;
+  const curator = config.useCurator
+    ? createGovernorCuratorFromProfile(profile)
+    : null;
+  return new GraphGovernorScheduler({
+    repository,
+    governor: new GraphGovernor({ repository, curator }),
+    options: config
+  });
 }
 
 function configureRuntimeEmbeddingsFromProfile(runtime, workspace, {
@@ -1076,6 +1138,7 @@ Agent commands:
   parallel <tasks.json> [--concurrency 4] [--unsafe-write-parallel]
   sessions [--limit 20]
   governor analyze|storage|compact|plan|apply [--semantic] [--epoch]
+  governor scheduler status|run|apply|clear [--force] [--yes] [--semantic] [--epoch]
   skills list [effective|global|project]
   skills show <global|project> <id>
   skills save <global|project> <id> <SKILL.md>
