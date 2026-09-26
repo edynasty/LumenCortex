@@ -24,6 +24,10 @@ import { GraphGovernor, LLMGraphGovernorCurator } from './graph-governor.js';
 import { GraphGovernorScheduler } from './governor-scheduler.js';
 import { embeddingRuntimeConfig } from './embedding-index.js';
 import { SkillRegistry, projectSkillRoot } from './skills.js';
+import {
+  loadCognitiveRoutingBenchmark,
+  runCognitiveRoutingBenchmark
+} from './cognitive-benchmark.js';
 
 const args = process.argv.slice(2);
 const command = args.shift();
@@ -58,9 +62,17 @@ try {
     process.exit(0);
   }
 
-  if (command === 'cognition' && args[0] === 'defaults') {
-    console.log(JSON.stringify(loadCognitiveProfile(process.cwd(), { file: '__missing__' }), null, 2));
-    process.exit(0);
+  if (command === 'cognition') {
+    const action = args.shift() ?? 'defaults';
+    if (action === 'defaults') {
+      console.log(JSON.stringify(loadCognitiveProfile(process.cwd(), { file: '__missing__' }), null, 2));
+      process.exit(0);
+    }
+    if (action === 'benchmark') {
+      await cognitionBenchmarkCommand(args);
+      process.exit(process.exitCode ?? 0);
+    }
+    fail('Usage: lcx cognition <defaults|benchmark> ...');
   }
 
   let workspace;
@@ -958,6 +970,35 @@ async function workflowCommand({ repo, workspace, argv }) {
   }
 }
 
+async function cognitionBenchmarkCommand(argv) {
+  const parsed = parseFlags(argv);
+  const file = parsed.flags.file
+    ? path.resolve(process.cwd(), String(parsed.flags.file))
+    : undefined;
+  const fixture = loadCognitiveRoutingBenchmark(file);
+  const result = runCognitiveRoutingBenchmark(fixture);
+
+  if (parsed.flags.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(`Cognitive routing benchmark: ${result.name}`);
+    console.log(`cases: ${result.passed}/${result.total} passed (${(result.passRate * 100).toFixed(1)}%)`);
+    for (const [name, metric] of Object.entries(result.metrics)) {
+      if (!metric.total) continue;
+      console.log(`  ${name.padEnd(10)} ${metric.passed}/${metric.total} (${(metric.accuracy * 100).toFixed(1)}%)`);
+    }
+    for (const item of result.cases.filter((entry) => !entry.pass)) {
+      const failed = Object.entries(item.checks)
+        .filter(([, ok]) => !ok)
+        .map(([name]) => name)
+        .join(',');
+      console.log(`  FAIL ${item.id}: ${failed} expected=${JSON.stringify(item.expected)} actual=${JSON.stringify(item.actual)}`);
+    }
+  }
+
+  if (parsed.flags.strict && !result.ok) process.exitCode = 2;
+}
+
 async function doctorCommand(argv) {
   const parsed = parseFlags(argv);
   const providerName = String(parsed.flags.provider ?? process.env.LUMENCORTEX_PROVIDER ?? 'openrouter');
@@ -1150,6 +1191,7 @@ Agent commands:
   providers
   doctor [--provider P] [--model M] [--live]
   cognition defaults
+  cognition benchmark [--file benchmarks/cognitive-routing.json] [--strict] [--json]
 
 Code intelligence:
   ingest [dir] [--chunk-lines 160] [--max-bytes 524288]
