@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  buildCognitiveRoutingPredictionPrompt,
   loadCognitiveRoutingBenchmark,
   loadCognitiveRoutingPredictions,
   runCognitiveRoutingBenchmark,
@@ -120,4 +121,19 @@ test('prediction loader accepts fenced JSONL output from external model runners'
   const loaded = loadCognitiveRoutingPredictions(file);
   assert.equal(loaded.predictions.length, 2);
   assert.equal(loaded.predictions[1].id, 'b');
+});
+
+
+test('external cognitive routing prompt reuses canonical runtime rubric and omits labels', () => {
+  const fixture = loadCognitiveRoutingBenchmark();
+  const prompt = buildCognitiveRoutingPredictionPrompt(fixture, {
+    ids: ['quick-readme-typo', 'deep-concurrency-root-cause']
+  });
+
+  assert.match(prompt, /lexical is the conservative default/i);
+  assert.match(prompt, /Do not upgrade retrieval merely because the task is difficult/i);
+  assert.match(prompt, /quick-readme-typo/);
+  assert.match(prompt, /deep-concurrency-root-cause/);
+  assert.doesNotMatch(prompt, /visual-responsive-wails/);
+  assert.doesNotMatch(prompt, /"expect"/);
 });
