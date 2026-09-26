@@ -20,7 +20,7 @@ A feature being present in source code is not enough. Readiness claims require a
 | Agent cancellation / resume | Complete | AbortSignal + TUI + process SIGINT/SIGTERM tests; interrupted Session persists | Ready |
 | Permission policy tiers | Complete | dedicated policy tests; unknown policy fails closed | Ready: read-only/workspace/full have distinct scope semantics |
 | LSP definition/references/symbols/hover/diagnostics | Complete | isolated LSP harness | Ready for navigation/diagnostics |
-| LSP rename/code actions | Complete baseline | isolated Content-Length LSP harness + atomic WorkspaceEdit + Agent-tool tests | Ready for edit-backed rename/quick-fix; command-only actions and LSP resource operations intentionally require separate handling |
+| LSP rename/code actions | Complete baseline | isolated Content-Length LSP harness + atomic WorkspaceEdit + Agent-tool tests + create/rename/delete file-resource rollback tests | Ready for edit-backed rename/quick-fix and file resource operations; command-only actions still require separate handling |
 | MCP stdio/HTTP | Complete | modern + legacy fallback harness | Ready |
 | Focused Subagents | Complete | durable isolated Session tests | Ready |
 | Parallel Sessions | Complete | overlap assertion + mutation safety gate | Ready |
@@ -79,7 +79,7 @@ In particular, the current architecture does not yet claim:
 
 - mandatory Git worktree isolation for every Agent run; the Go runtime supports explicit per-session worktrees, but local sessions remain valid,
 - whole-run rollback of arbitrary local-session workspace changes produced by shell commands,
-- automatic execution of command-only LSP code actions or LSP create/rename/delete resource operations,
+- automatic execution of command-only LSP code actions; file-based LSP create/rename/delete WorkspaceEdit operations are implemented, while directory resource operations are not claimed,
 - approximate-nearest-neighbor embedding indexes; the optional exact-cosine/RRF baseline is implemented,
 - vision/browser automation,
 - polished terminal navigation equivalent to mature editor-grade TUIs,
