@@ -476,7 +476,7 @@ test('Cognitive Router requires high confidence before escalating lexical retrie
     retrievalConfidenceThreshold: 0.68,
     expensiveRetrievalConfidenceThreshold: 0.82
   });
-  const state = { goal: 'Inspect this behavior', progress: {} };
+  const state = { goal: 'Debug the root cause of this behavior', progress: {} };
   const algorithm = {
     category: { type: 'choice', choice: 'general', confidence: 0.7 },
     need_think: { type: 'noul', noul: 0.2 },
