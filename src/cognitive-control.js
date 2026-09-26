@@ -15,8 +15,8 @@ export const BUILTIN_CATEGORY_DESCRIPTIONS = {
 
 export const RETRIEVAL_DIRECTION_DESCRIPTIONS = Object.freeze({
   lexical: 'Default retrieval. Use exact/symbol/lexical lookup unless a more specific graph relation is clearly required.',
-  dependency: 'Use only for calls, imports, dependencies, ownership, and structural relations.',
-  causal: 'Use only for explicit root-cause, why/failure-chain, derived-evidence, cause, or effect questions. Performance investigation alone is not causal.',
+  dependency: 'Use only when the current question explicitly asks about calls, imports, dependencies, ownership, references, symbols, or structural relations. High-risk execution order or a database migration alone is not dependency retrieval.',
+  causal: 'Use only for explicit root-cause, why/failure-chain, derived-evidence, cause, or effect questions, or when repeated failures/contradictions make causal diagnosis necessary. Performance investigation alone is not causal.',
   historical: 'Use for regressions, previous versions, prior sessions, superseded facts, commit history, or temporal comparison.',
   associative: 'Use only when indirect graph associations are specifically useful and no more precise dependency/causal/historical relation fits.',
   hybrid: 'Use only when semantic/fuzzy recall beyond lexical/symbol lookup is materially required and embedding retrieval is configured. Research alone is not sufficient.'
@@ -53,6 +53,9 @@ const COMPLEX_RESEARCH_TERMS = /\b(compare|synthesi[sz]e|conflict|trade[- ]?off|
 const WRITING_TERMS = /\b(readme|documentation|docs|write|rewrite|copy|guide|tutorial|explain)\b/i;
 const DEEP_TERMS = /\b(debug|deadlock|race|concurrency|architecture|migration|refactor|security|performance|root cause|regression|multi[- ]?module|cross[- ]?module|distributed|transaction)\b/i;
 const HIGH_RISK_TERMS = /\b(delete|drop|migration|production|security|auth|credential|payment|billing|database|schema|release|deploy)\b/i;
+const DEPENDENCY_RETRIEVAL_TERMS = /\b(dependency|dependencies|depends?|imports?|calls?|caller|callee|references?|referenced|symbols?|ownership|owns?|used by|defined in)\b/i;
+const CAUSAL_RETRIEVAL_TERMS = /\b(root cause|why|causes?|caused|failure|failing|failed|bug|debug|error|incident|race|deadlock|effects?|derived from)\b/i;
+const HISTORICAL_RETRIEVAL_TERMS = /\b(history|historical|previous|before|commit|version|regression|superseded|prior|changed since|used to)\b/i;
 
 export function loadCognitiveProfile(workspace, options = {}) {
   const file = options.file ?? path.join(workspace, '.lumencortex', 'cognition.json');
@@ -479,6 +482,7 @@ export class CognitiveRouter {
     if (Number(signals.evidence_sufficient?.noul ?? 1) < 0.35) reasons.push('insufficient-evidence');
 
     const retrievalDecision = selectRetrievalDirection({
+      state,
       algorithm: algorithm.retrieval,
       model: signals.retrieval,
       confidenceThreshold: this.retrievalConfidenceThreshold,
@@ -825,6 +829,7 @@ export function algorithmicAnswers(state = {}) {
 }
 
 function selectRetrievalDirection({
+  state,
   algorithm,
   model,
   confidenceThreshold,
@@ -859,6 +864,18 @@ function selectRetrievalDirection({
     };
   }
 
+  if (
+    ['dependency', 'causal', 'historical'].includes(modelChoice) &&
+    !retrievalRelationEligible(state, modelChoice)
+  ) {
+    return {
+      choice: 'lexical',
+      source: 'algorithm',
+      confidence,
+      blockedModelChoice: true
+    };
+  }
+
   const expensive = modelChoice === 'associative' || modelChoice === 'hybrid';
   const threshold = expensive ? expensiveConfidenceThreshold : confidenceThreshold;
   if (confidence >= threshold) {
@@ -875,6 +892,22 @@ function selectRetrievalDirection({
     confidence,
     blockedModelChoice: true
   };
+}
+
+export function retrievalRelationEligible(state = {}, choice) {
+  const text = [state.goal, state.focus, state.workUnit?.goal]
+    .filter(Boolean)
+    .join(' ');
+  if (choice === 'dependency') return DEPENDENCY_RETRIEVAL_TERMS.test(text);
+  if (choice === 'historical') return HISTORICAL_RETRIEVAL_TERMS.test(text);
+  if (choice === 'causal') {
+    if (CAUSAL_RETRIEVAL_TERMS.test(text)) return true;
+    const progress = state.progress ?? {};
+    const repeated = Number(progress.maxRepeatedFailure ?? progress.sameFailureCount ?? 0);
+    const contradictions = Number(state.context?.contradictionCount ?? 0);
+    return repeated >= 2 || contradictions > 0;
+  }
+  return true;
 }
 
 function mergeDecisionSignals(algorithm, models) {
