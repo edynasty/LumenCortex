@@ -53,7 +53,23 @@ func TestLoadConfigMergesBuiltinsAndParsesSharedProfile(t *testing.T) {
 			"lexicalWeight":0,
 			"semanticWeight":1.4
 		}},
-		"governor":{"enabled":true,"provider":"openrouter","model":"governor-model"}
+		"governor":{
+			"enabled":true,
+			"provider":"openrouter",
+			"model":"governor-model",
+			"scheduler":{
+				"enabled":true,
+				"useCurator":false,
+				"autoApplySafe":true,
+				"checkRevisionDelta":7,
+				"cooldownMs":1234,
+				"archiveCandidateThreshold":4,
+				"canonicalizeGroupThreshold":2,
+				"branchCandidateThreshold":5,
+				"promotionGroupThreshold":6,
+				"tierChangeThreshold":9
+			}
+		}
 	}`)
 	if err := os.WriteFile(file, raw, 0o644); err != nil {
 		t.Fatal(err)
@@ -100,6 +116,14 @@ func TestLoadConfigMergesBuiltinsAndParsesSharedProfile(t *testing.T) {
 	}
 	if config.Governor == nil || !config.Governor.Enabled || config.Governor.Model != "governor-model" {
 		t.Fatalf("governor=%#v", config.Governor)
+	}
+	if config.Governor.Scheduler == nil ||
+		!config.Governor.Scheduler.Enabled ||
+		!config.Governor.Scheduler.AutoApplySafe ||
+		config.Governor.Scheduler.UseCurator ||
+		config.Governor.Scheduler.CheckRevisionDelta != 7 ||
+		config.Governor.Scheduler.CooldownMS != 1234 {
+		t.Fatalf("governor scheduler=%#v", config.Governor.Scheduler)
 	}
 	if config.Retrieval.Embeddings == nil || !config.Retrieval.Embeddings.Enabled {
 		t.Fatalf("embeddings=%#v", config.Retrieval.Embeddings)
