@@ -25,6 +25,7 @@ import { GraphGovernorScheduler } from './governor-scheduler.js';
 import { embeddingRuntimeConfig } from './embedding-index.js';
 import { SkillRegistry, projectSkillRoot } from './skills.js';
 import {
+  buildCognitiveRoutingPredictionPrompt,
   loadCognitiveRoutingBenchmark,
   loadCognitiveRoutingPredictions,
   runCognitiveRoutingBenchmark,
@@ -978,6 +979,14 @@ async function cognitionBenchmarkCommand(argv) {
     ? path.resolve(process.cwd(), String(parsed.flags.file))
     : undefined;
   const fixture = loadCognitiveRoutingBenchmark(file);
+  if (parsed.flags.prompt) {
+    const ids = parsed.flags.ids
+      ? String(parsed.flags.ids).split(',').map((item) => item.trim()).filter(Boolean)
+      : undefined;
+    console.log(buildCognitiveRoutingPredictionPrompt(fixture, { ids }));
+    return;
+  }
+
   const result = parsed.flags.predictions
     ? scoreCognitiveRoutingPredictions(
         fixture,
@@ -1204,7 +1213,7 @@ Agent commands:
   providers
   doctor [--provider P] [--model M] [--live]
   cognition defaults
-  cognition benchmark [--file benchmark.json] [--predictions predictions.json|jsonl] [--strict] [--json]
+  cognition benchmark [--file benchmark.json] [--prompt] [--ids id1,id2] [--predictions predictions.json|jsonl] [--strict] [--json]
 
 Code intelligence:
   ingest [dir] [--chunk-lines 160] [--max-bytes 524288]
