@@ -134,7 +134,7 @@ Reality / Evidence updated
 
 The LLM does not own durable truth. It performs temporary computation over selected evidence.
 
-The Node.js reference runtime now includes a baseline Cognitive Kernel above the existing Agent Loop: an advisory Decision Layer, ordered Category model chains, framework-owned Think routing with dynamic effort, failure/progress signals, and a partial Graph Governor. Semantic Governor curation and full Cortex lifecycle execution remain incomplete. See [Cognitive control plane](cognitive-control-plane.md).
+The Node.js reference runtime now includes a baseline Cognitive Kernel above the existing Agent Loop: an advisory Decision Layer, ordered Category model chains, framework-owned Think routing with dynamic effort, failure/progress signals, semantic Graph Governor curation, validated Governor execution, and an opt-in post-Agent Governor scheduler. See [Cognitive control plane](cognitive-control-plane.md).
 
 ## Workflow and cognition are complementary
 
@@ -182,11 +182,10 @@ Not yet represented as complete:
 - mandatory real Git worktree isolation for every Agent run; Go supports explicit session worktrees and safe handoff/apply,
 - whole-run rollback after arbitrary local-session shell mutations,
 - ANN/vector-index acceleration; Node already has an optional exact-cosine + RRF Hybrid embedding baseline,
-- Node Skills parity; Go already has layered reusable Skills injected into Agent prompts,
 - vision/browser tooling,
 - automatic graph GC/hot-warm-cold tiers,
 - full editor-grade TUI UX,
 - production-calibrated adaptive cognitive control; Decision Layer, framework-owned Think routing, ordered Category model chains, and circuit-breaker baselines are implemented,
-- autonomous Graph Governor scheduling and policy calibration; analyzer/curator/validator/epoch baselines are implemented.
+- automatic Governor plan application and production policy calibration; opt-in post-Agent scheduling with persistent pending plans is implemented.
 
 Use [Standalone readiness](standalone-readiness.md) for the current evidence gate.
