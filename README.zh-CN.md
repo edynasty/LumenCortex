@@ -515,3 +515,6 @@ lcx skills disable project my-skill
 lcx skills enable project my-skill
 lcx skills delete project my-skill
 ```
+
+
+Governor scheduler 还支持显式 `autoApplySafe`：仅当 `useCurator=false` 时，对 deterministic safe plan 的 tier/archive 变更做 dry-run 后自动应用。该选项默认关闭；Curator 计划、branch/canonicalize/promotion 与 Cortex Epoch 仍必须显式 apply。
