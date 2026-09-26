@@ -96,6 +96,7 @@ export class LspManager {
     const planned = planLspWorkspaceEdit(this.workspace, edit);
 
     for (const operation of planned.resourceOperations) {
+      if (operation.ignored) continue;
       if (operation.kind === 'rename') {
         const from = resolveInside(this.workspace, operation.oldPath);
         const server = resolveServer(this.config, from);
@@ -756,8 +757,11 @@ function readWorkspaceFileSnapshot(root, file) {
 
 function assertWorkspaceResourcePath(root, file) {
   resolveInside(root, file);
-  let cursor = path.dirname(file);
   const rootPath = path.resolve(root);
+  if (path.resolve(file) === rootPath) {
+    throw new Error('LSP WorkspaceEdit resource cannot be the workspace root');
+  }
+  let cursor = path.dirname(file);
   while (cursor !== rootPath) {
     let stat;
     try {
