@@ -194,14 +194,13 @@ Index consistency is separately tested: graph mutations use optimistic SQLite re
 
 The following are not represented as complete features:
 
-- embedding/vector semantic retrieval,
+- approximate-nearest-neighbor embedding acceleration and scale validation beyond the implemented persistent exact-cosine/RRF Hybrid baseline,
 - cognitive branch <-> actual Git worktree transaction binding,
-- transactional rollback of workspace edits,
+- whole-run rollback of arbitrary local-session shell mutations; atomic patch/LSP edit rollback and discardable Go worktree sessions are implemented,
 - separate physical hot/warm/cold node stores or destructive graph GC beyond current indexed storage metadata/derived-cache compaction,
 - full temporal validity querying,
-- autonomous Governor scheduling and higher-order split/merge policy beyond the implemented Curator/validated semantic operations,
-- live Jev/Laya provider validation and calibrated cognitive-routing benchmarks,
-- reusable Skills layer,
+- automatic Curator/semantic Governor application and production-calibrated governance policy beyond the implemented scheduler and deterministic safe auto-apply path,
+- live Jev/Laya provider validation and broader multi-model routing calibration; one captured local DeepSeek V4.1 Flash routing calibration is implemented,
 - vision/browser tools,
 - richer verifier plugins beyond the deterministic Workflow Contract condition/gate DSL.
 
@@ -228,3 +227,4 @@ The following are not represented as complete features:
 
 
 - Cognitive-routing benchmark validation: 12 labeled workloads spanning quick edits, visual engineering, writing, comparative research, deep debugging, production migration risk, dependency lookup, historical regression analysis, repeated-failure ultrabrain escalation, and distributed-performance investigation. The benchmark checks Category, Think decision, minimum/exact effort, and retrieval direction through the production deterministic router, and is available as `lcx cognition benchmark --strict` without any model/API cost.
+- External routing calibration validation: `lcx cognition benchmark --prompt` emits the same unlabeled canonical routing rubric used by runtime Decision questions. A captured local OMP run with `local/deepseek-v4.1-flash` on 2026-09-26 scored 12/12 against the current fixture; the JSONL artifact lives at `benchmarks/predictions/deepseek-v4.1-flash-2026-09-26.jsonl` and is re-scored in CI. This validates one generative-model calibration sample, not live Jev/Laya and not the full DeepSeek coding workflow.
