@@ -225,3 +225,6 @@ The following are not represented as complete features:
 
 - Governor-scheduler validation: opt-in disable gate, revision-delta and cooldown debounce, pressure triggers, deterministic no-Curator path, explicit Curator opt-in, persistent pending plan across scheduler instances, deterministic `autoApplySafe` tier/archive application, Curator auto-apply suppression, no-safe-change pending preservation, journal entries, dry-run preservation, graph-revision stale-plan rejection, Agent-completion invocation, scheduler-error isolation, and CLI run/status/apply/clear lifecycle.
 - Node Skills validation: global/project override semantics, persisted enable state, bounded prompt generation, main Agent prompt injection, delegated Subagent propagation, and isolated CLI save/list/show/enable/disable/delete lifecycle.
+
+
+- Cognitive-routing benchmark validation: 12 labeled workloads spanning quick edits, visual engineering, writing, comparative research, deep debugging, production migration risk, dependency lookup, historical regression analysis, repeated-failure ultrabrain escalation, and distributed-performance investigation. The benchmark checks Category, Think decision, minimum/exact effort, and retrieval direction through the production deterministic router, and is available as `lcx cognition benchmark --strict` without any model/API cost.
