@@ -18,6 +18,7 @@ func TestLoadConfigMergesBuiltinsAndParsesSharedProfile(t *testing.T) {
 			"policy": "all",
 			"providers": [
 				{"type":"laya","baseURL":"http://127.0.0.1:8000","timeoutMs":1200},
+				{"type":"generative","name":"fast-fallback","provider":"deepseek","model":"deepseek-flash","reasoningEffort":"low","maxTokens":512,"confidenceScale":0.8},
 				"jev"
 			]
 		},
@@ -82,11 +83,19 @@ func TestLoadConfigMergesBuiltinsAndParsesSharedProfile(t *testing.T) {
 	if config.Source != file {
 		t.Fatalf("source=%q", config.Source)
 	}
-	if config.Decision.Policy != "all" || len(config.Decision.Providers) != 2 {
+	if config.Decision.Policy != "all" || len(config.Decision.Providers) != 3 {
 		t.Fatalf("decision=%#v", config.Decision)
 	}
-	if config.Decision.Providers[1].Type != "jev" {
-		t.Fatalf("decision provider=%#v", config.Decision.Providers[1])
+	if config.Decision.Providers[1].Type != "generative" ||
+		config.Decision.Providers[1].Provider != "deepseek" ||
+		config.Decision.Providers[1].Model != "deepseek-flash" ||
+		config.Decision.Providers[1].ReasoningEffort != "low" ||
+		config.Decision.Providers[1].MaxTokens != 512 ||
+		config.Decision.Providers[1].ConfidenceScale != 0.8 {
+		t.Fatalf("generative decision provider=%#v", config.Decision.Providers[1])
+	}
+	if config.Decision.Providers[2].Type != "jev" {
+		t.Fatalf("decision provider=%#v", config.Decision.Providers[2])
 	}
 	if config.Telemetry {
 		t.Fatal("expected telemetry disabled")
