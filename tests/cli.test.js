@@ -240,3 +240,81 @@ test('Node skills CLI manages project Skills without touching the user global ro
   assert.deepEqual(JSON.parse(result.stdout), []);
   assert.equal(fs.existsSync(globalRoot), false);
 });
+
+
+test('Governor scheduler CLI persists pending plans and requires explicit apply/clear intent', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-cli-governor-scheduler-'));
+  const repo = new CognitiveRepository(cwd);
+  repo.init();
+  const graph = repo.graph();
+  graph.addNode({
+    id: 'stale',
+    kind: 'evidence',
+    title: 'Old hypothesis',
+    body: 'obsolete',
+    status: 'stale',
+    grade: 'hypothesis',
+    trustZone: 'model_inferred'
+  });
+  repo.writeGraph(graph.snapshot());
+  repo.close();
+
+  const configDir = path.join(cwd, '.lumencortex');
+  fs.writeFileSync(path.join(configDir, 'cognition.json'), JSON.stringify({
+    governor: {
+      enabled: false,
+      scheduler: {
+        enabled: true,
+        useCurator: false,
+        checkRevisionDelta: 1,
+        cooldownMs: 0,
+        archiveCandidateThreshold: 1,
+        canonicalizeGroupThreshold: 999,
+        branchCandidateThreshold: 999,
+        promotionGroupThreshold: 999,
+        tierChangeThreshold: 999
+      }
+    }
+  }));
+
+  let result = spawnSync(process.execPath, [
+    cli, 'governor', 'scheduler', 'run', '--force'
+  ], { cwd, encoding: 'utf8', env: { ...process.env } });
+  assert.equal(result.status, 0, result.stderr);
+  const planned = JSON.parse(result.stdout);
+  assert.equal(planned.scheduled, true);
+  assert.ok(planned.pending.id.startsWith('govplan_'));
+
+  result = spawnSync(process.execPath, [
+    cli, 'governor', 'scheduler', 'status'
+  ], { cwd, encoding: 'utf8', env: { ...process.env } });
+  assert.equal(result.status, 0, result.stderr);
+  const status = JSON.parse(result.stdout);
+  assert.equal(status.state.pending.id, planned.pending.id);
+  assert.equal(status.state.pending.stale, false);
+
+  result = spawnSync(process.execPath, [
+    cli, 'governor', 'scheduler', 'apply', '--dry-run'
+  ], { cwd, encoding: 'utf8', env: { ...process.env } });
+  assert.equal(result.status, 0, result.stderr);
+  const dryRun = JSON.parse(result.stdout);
+  assert.equal(dryRun.applied, false);
+  assert.equal(dryRun.pending, true);
+
+  result = spawnSync(process.execPath, [
+    cli, 'governor', 'scheduler', 'apply'
+  ], { cwd, encoding: 'utf8', env: { ...process.env } });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /requires --yes or --dry-run/);
+
+  result = spawnSync(process.execPath, [
+    cli, 'governor', 'scheduler', 'clear', '--yes'
+  ], { cwd, encoding: 'utf8', env: { ...process.env } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).cleared, true);
+
+  result = spawnSync(process.execPath, [
+    cli, 'governor', 'scheduler', 'status'
+  ], { cwd, encoding: 'utf8', env: { ...process.env } });
+  assert.equal(JSON.parse(result.stdout).state.pending, null);
+});
