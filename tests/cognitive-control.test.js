@@ -389,3 +389,51 @@ test('embedding retrieval remains disabled unless explicitly enabled', () => {
   const profile = loadCognitiveProfile(root);
   assert.equal(profile.retrieval.embeddings.enabled, false);
 });
+
+
+test('cognition profile keeps Governor scheduler independent and disabled by default', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-governor-scheduler-profile-'));
+  const dir = path.join(root, '.lumencortex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'cognition.json'), JSON.stringify({
+    governor: {
+      enabled: false,
+      scheduler: {
+        enabled: true,
+        useCurator: false,
+        checkRevisionDelta: 7,
+        cooldownMs: 1234,
+        archiveCandidateThreshold: 4,
+        canonicalizeGroupThreshold: 2,
+        branchCandidateThreshold: 5,
+        promotionGroupThreshold: 6,
+        tierChangeThreshold: 9
+      }
+    }
+  }));
+
+  const profile = loadCognitiveProfile(root);
+  assert.equal(profile.governor.enabled, false);
+  assert.deepEqual(profile.governor.scheduler, {
+    enabled: true,
+    useCurator: false,
+    checkRevisionDelta: 7,
+    cooldownMs: 1234,
+    archiveCandidateThreshold: 4,
+    canonicalizeGroupThreshold: 2,
+    branchCandidateThreshold: 5,
+    promotionGroupThreshold: 6,
+    tierChangeThreshold: 9
+  });
+
+  const emptyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lcx-governor-scheduler-default-'));
+  const emptyDir = path.join(emptyRoot, '.lumencortex');
+  fs.mkdirSync(emptyDir, { recursive: true });
+  fs.writeFileSync(path.join(emptyDir, 'cognition.json'), JSON.stringify({
+    governor: { enabled: false }
+  }));
+  const defaults = loadCognitiveProfile(emptyRoot);
+  assert.equal(defaults.governor.scheduler.enabled, false);
+  assert.equal(defaults.governor.scheduler.useCurator, false);
+  assert.equal(defaults.governor.scheduler.checkRevisionDelta, 25);
+});
