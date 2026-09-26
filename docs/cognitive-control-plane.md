@@ -835,13 +835,14 @@ Deployments without Jev/Laya or any model-backed DecisionProvider remain valid b
 | Current Active Promotion | Implemented |
 | Cognitive Git | Implemented |
 | Cognitive Profile / Category model chains | Implemented baseline |
-| Framework Cognitive Router | Implemented baseline |
+| Framework Cognitive Router | Implemented baseline with confidence-gated and relation-applicability-constrained retrieval arbitration |
 | DecisionProvider interface | Implemented |
 | Jev decision provider | Implemented HTTP adapter; live credentialed Jev validation still needed |
 | Laya decision provider | Implemented Jev-compatible HTTP adapter; local live validation still needed |
 | Think provider contract | Implemented baseline; existing generative provider contract plus cognitive policy prompt |
 | Provider-specific Think-effort adapters | Implemented baseline for OpenRouter, Groq and DeepSeek; generic endpoints remain provider-default |
 | Dynamic Think effort policy | Implemented baseline |
+| External routing calibration contract | Implemented: canonical unlabeled prompt generator + external JSON/JSONL scorer + captured DeepSeek V4.1 Flash 12/12 calibration artifact |
 | Progress Monitor / failure signatures | Implemented |
 | Work Unit structure/runtime | Implemented baseline |
 | Category classifier + deterministic chain resolver | Implemented baseline |
@@ -874,7 +875,7 @@ Implemented baseline sequence:
 Next control-plane work:
 
 ```text
-1. live Jev/Laya validation, calibration, and cognitive-routing benchmarks
+1. live Jev/Laya endpoint validation and broader multi-model calibration; one local DeepSeek V4.1 Flash canonical-prompt calibration is captured at 12/12
 2. broader provider-specific reasoning-control adapters
 3. use storage access/recency telemetry in Governor tier recommendations
 4. physical data-plane hot/warm/cold separation only if profiling justifies it
@@ -983,3 +984,24 @@ lcx governor scheduler clear --yes
 ```
 
 When enabled in the cognition profile, the standard Node Agent harness runs one scheduler evaluation after a successfully completed Agent run and after task cognition has been recorded. Interrupted, max-step, and waiting-gate runs do not trigger global governance. Safe auto-apply never turns on implicitly and is suppressed for Curator-backed plans.
+
+
+### External routing calibration contract
+
+The routing benchmark exposes the same canonical Category/Think/retrieval rubric used by the runtime Decision Layer. This avoids maintaining a separate hand-written prompt for model calibration.
+
+```bash
+lcx cognition benchmark --prompt
+lcx cognition benchmark --prompt --ids quick-readme-typo,deep-concurrency-root-cause
+lcx cognition benchmark --predictions predictions.jsonl --strict --json
+```
+
+Retrieval arbitration remains framework-owned even when a model supplies a choice:
+
+- explicit deterministic dependency/causal/historical cues take precedence,
+- model escalation from lexical to dependency/causal/historical must be both high-confidence and semantically applicable to the task state,
+- associative/hybrid require a higher confidence threshold,
+- repeated failure or graph contradiction may make causal retrieval applicable,
+- task difficulty by itself never implies a more expensive retrieval operator.
+
+On 2026-09-26 a local OMP run using `local/deepseek-v4.1-flash`, low OMP thinking, and the canonical unlabeled prompt scored 12/12 on the current fixture. The captured predictions are versioned under `benchmarks/predictions/`. This is a calibration sample, not a Jev/Laya live-endpoint result and not a full coding-agent proof.
