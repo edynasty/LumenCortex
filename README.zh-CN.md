@@ -518,3 +518,16 @@ lcx skills delete project my-skill
 
 
 Governor scheduler 还支持显式 `autoApplySafe`：仅当 `useCurator=false` 时，对 deterministic safe plan 的 tier/archive 变更做 dry-run 后自动应用。该选项默认关闭；Curator 计划、branch/canonicalize/promotion 与 Cortex Epoch 仍必须显式 apply。
+
+
+### Cognitive Routing Benchmark
+
+Decision Layer / Think Router 现在有一套零模型成本的 labeled workload 回归基准，覆盖 quick、visual-engineering、writing、research、deep、ultrabrain、dependency/causal/historical retrieval 等典型路径：
+
+```bash
+lcx cognition benchmark
+lcx cognition benchmark --strict
+lcx cognition benchmark --strict --json
+```
+
+当前内置 12 个 workload，同时检查 Category、是否进入 Think、动态 effort 与 retrieval direction。它用于锁住 deterministic baseline；Jev/Laya 与 generative model 的 live calibration benchmark 仍需单独验证。
