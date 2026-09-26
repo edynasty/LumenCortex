@@ -118,7 +118,7 @@ test('Governor scheduler debounces checks by revision delta and cooldown', async
     governor,
     options: {
       enabled: true,
-      checkRevisionDelta: 3,
+      checkRevisionDelta: 2,
       cooldownMs: 1000,
       archiveCandidateThreshold: 999,
       canonicalizeGroupThreshold: 999,
