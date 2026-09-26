@@ -536,3 +536,131 @@ test('Cognitive Router requires high confidence before escalating lexical retrie
   assert.equal(highHybrid.retrieval, 'hybrid');
   assert.equal(highHybrid.retrievalSource, 'decision');
 });
+
+
+test('retrieval relation applicability blocks model-only dependency and causal overreach', () => {
+  const router = new CognitiveRouter({
+    retrievalConfidenceThreshold: 0.68,
+    expensiveRetrievalConfidenceThreshold: 0.82
+  });
+
+  const lexicalAlgorithm = {
+    category: { type: 'choice', choice: 'deep', confidence: 0.8 },
+    need_think: { type: 'noul', noul: 0.8 },
+    evidence_sufficient: { type: 'noul', noul: 0.7 },
+    stuck: { type: 'noul', noul: 0.1 },
+    retrieval: { type: 'choice', choice: 'lexical', confidence: 0.65 }
+  };
+
+  const migration = router.route({
+    state: {
+      goal: 'Run the database schema migration safely in production',
+      progress: {},
+      context: {}
+    },
+    decision: {
+      algorithm: { answers: lexicalAlgorithm },
+      signals: {
+        ...lexicalAlgorithm,
+        retrieval: { type: 'choice', choice: 'dependency', confidence: 0.99 }
+      }
+    }
+  });
+  assert.equal(migration.retrieval, 'lexical');
+  assert.equal(migration.retrievalSource, 'algorithm');
+  assert.ok(migration.reasons.includes('retrieval-model-constrained'));
+
+  const performance = router.route({
+    state: {
+      goal: 'Investigate performance of distributed transaction processing',
+      progress: {},
+      context: {}
+    },
+    decision: {
+      algorithm: { answers: lexicalAlgorithm },
+      signals: {
+        ...lexicalAlgorithm,
+        retrieval: { type: 'choice', choice: 'causal', confidence: 0.99 }
+      }
+    }
+  });
+  assert.equal(performance.retrieval, 'lexical');
+  assert.equal(performance.retrievalSource, 'algorithm');
+
+  const explicitDependency = router.route({
+    state: {
+      goal: 'Find where this symbol is imported and called',
+      progress: {},
+      context: {}
+    },
+    decision: {
+      algorithm: { answers: lexicalAlgorithm },
+      signals: {
+        ...lexicalAlgorithm,
+        retrieval: { type: 'choice', choice: 'dependency', confidence: 0.99 }
+      }
+    }
+  });
+  assert.equal(explicitDependency.retrieval, 'dependency');
+  assert.equal(explicitDependency.retrievalSource, 'decision');
+
+  const explicitCausal = router.route({
+    state: {
+      goal: 'Debug the root cause of a concurrency race',
+      progress: {},
+      context: {}
+    },
+    decision: {
+      algorithm: { answers: lexicalAlgorithm },
+      signals: {
+        ...lexicalAlgorithm,
+        retrieval: { type: 'choice', choice: 'causal', confidence: 0.99 }
+      }
+    }
+  });
+  assert.equal(explicitCausal.retrieval, 'causal');
+  assert.equal(explicitCausal.retrievalSource, 'decision');
+});
+
+test('causal retrieval can become applicable from repeated failures or contradictions', () => {
+  const router = new CognitiveRouter();
+  const algorithm = {
+    category: { type: 'choice', choice: 'ultrabrain', confidence: 0.9 },
+    need_think: { type: 'noul', noul: 0.9 },
+    evidence_sufficient: { type: 'noul', noul: 0.3 },
+    stuck: { type: 'noul', noul: 0.9 },
+    retrieval: { type: 'choice', choice: 'lexical', confidence: 0.65 }
+  };
+
+  const repeatedFailure = router.route({
+    state: {
+      goal: 'Try again',
+      progress: { maxRepeatedFailure: 3 },
+      context: {}
+    },
+    decision: {
+      algorithm: { answers: algorithm },
+      signals: {
+        ...algorithm,
+        retrieval: { type: 'choice', choice: 'causal', confidence: 0.95 }
+      }
+    }
+  });
+  assert.equal(repeatedFailure.retrieval, 'causal');
+
+  const contradiction = router.route({
+    state: {
+      goal: 'Resolve this inconsistent behavior',
+      progress: {},
+      context: { contradictionCount: 2 }
+    },
+    decision: {
+      algorithm: { answers: algorithm },
+      signals: {
+        ...algorithm,
+        retrieval: { type: 'choice', choice: 'causal', confidence: 0.95 }
+      }
+    }
+  });
+  assert.equal(contradiction.retrieval, 'causal');
+});
