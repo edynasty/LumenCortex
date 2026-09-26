@@ -145,10 +145,51 @@ test('LSP WorkspaceEdit validates all files before atomically mutating them', ()
 
   assert.throws(
     () => applyLspWorkspaceEdit(root,{
-      documentChanges:[{kind:'rename',oldUri:pathToFileURL(a).href,newUri:pathToFileURL(b).href}]
+      documentChanges:[{
+        kind:'rename',
+        oldUri:pathToFileURL(a).href,
+        newUri:pathToFileURL(b).href
+      }]
     }),
-    /resource operation/
+    /target already exists/
   );
+
+  const resource=applyLspWorkspaceEdit(root,{
+    documentChanges:[
+      {
+        kind:'create',
+        uri:pathToFileURL(path.join(root,'generated.js')).href
+      },
+      {
+        textDocument:{uri:pathToFileURL(path.join(root,'generated.js')).href,version:null},
+        edits:[{
+          range:{start:{line:0,character:0},end:{line:0,character:0}},
+          newText:'export const generated = 1;\n'
+        }]
+      },
+      {
+        kind:'rename',
+        oldUri:pathToFileURL(path.join(root,'generated.js')).href,
+        newUri:pathToFileURL(path.join(root,'moved.js')).href
+      },
+      {
+        textDocument:{uri:pathToFileURL(path.join(root,'moved.js')).href,version:null},
+        edits:[{
+          range:{start:{line:0,character:25},end:{line:0,character:26}},
+          newText:'2'
+        }]
+      },
+      {
+        kind:'delete',
+        uri:pathToFileURL(b).href
+      }
+    ]
+  });
+  assert.equal(resource.resourceOperationCount,3);
+  assert.equal(resource.editCount,2);
+  assert.equal(fs.existsSync(path.join(root,'generated.js')),false);
+  assert.equal(fs.readFileSync(path.join(root,'moved.js'),'utf8'),'export const generated = 2;\n');
+  assert.equal(fs.existsSync(b),false);
 });
 
 test('coding tools expose LSP rename and bounded code-action apply', { timeout: 8000 }, async () => {
@@ -193,6 +234,195 @@ test('coding tools expose LSP rename and bounded code-action apply', { timeout: 
     assert.equal(rename.ok,true);
     assert.equal(rename.mutatesWorkspace,true);
     assert.match(fs.readFileSync(source,'utf8'),/function world\(\)/);
+  } finally {
+    await lsp.close();
+  }
+});
+
+
+test('LSP file resource operations honor overwrite and ignore options', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mw-lsp-resource-options-'));
+  const source=path.join(root,'source.js');
+  const target=path.join(root,'target.js');
+  fs.writeFileSync(source,'source\n');
+  fs.writeFileSync(target,'target\n');
+
+  let result=applyLspWorkspaceEdit(root,{
+    documentChanges:[{
+      kind:'rename',
+      oldUri:pathToFileURL(source).href,
+      newUri:pathToFileURL(target).href,
+      options:{ignoreIfExists:true}
+    }]
+  });
+  assert.equal(result.resourceOperations[0].ignored,true);
+  assert.equal(fs.readFileSync(source,'utf8'),'source\n');
+  assert.equal(fs.readFileSync(target,'utf8'),'target\n');
+
+  result=applyLspWorkspaceEdit(root,{
+    documentChanges:[{
+      kind:'rename',
+      oldUri:pathToFileURL(source).href,
+      newUri:pathToFileURL(target).href,
+      options:{overwrite:true}
+    }]
+  });
+  assert.equal(result.resourceOperations[0].ignored,false);
+  assert.equal(fs.existsSync(source),false);
+  assert.equal(fs.readFileSync(target,'utf8'),'source\n');
+
+  result=applyLspWorkspaceEdit(root,{
+    documentChanges:[{
+      kind:'create',
+      uri:pathToFileURL(target).href,
+      options:{ignoreIfExists:true}
+    }]
+  });
+  assert.equal(result.resourceOperations[0].ignored,true);
+  assert.equal(fs.readFileSync(target,'utf8'),'source\n');
+
+  result=applyLspWorkspaceEdit(root,{
+    documentChanges:[{
+      kind:'create',
+      uri:pathToFileURL(target).href,
+      options:{overwrite:true}
+    }]
+  });
+  assert.equal(fs.readFileSync(target,'utf8'),'');
+
+  result=applyLspWorkspaceEdit(root,{
+    documentChanges:[{
+      kind:'delete',
+      uri:pathToFileURL(path.join(root,'missing.js')).href,
+      options:{ignoreIfNotExists:true}
+    }]
+  });
+  assert.equal(result.resourceOperations[0].ignored,true);
+});
+
+test('LSP WorkspaceEdit rejects workspace escapes and symlink-backed writes', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mw-lsp-resource-safe-'));
+  const outside=fs.mkdtempSync(path.join(os.tmpdir(),'mw-lsp-outside-'));
+  const outsideFile=path.join(outside,'outside.js');
+  fs.writeFileSync(outsideFile,'outside\n');
+
+  assert.throws(
+    () => applyLspWorkspaceEdit(root,{
+      documentChanges:[{
+        kind:'create',
+        uri:pathToFileURL(outsideFile).href
+      }]
+    }),
+    /escapes workspace/
+  );
+
+  if (process.platform !== 'win32') {
+    const link=path.join(root,'link');
+    fs.symlinkSync(outside,link,'dir');
+    assert.throws(
+      () => applyLspWorkspaceEdit(root,{
+        documentChanges:[{
+          kind:'create',
+          uri:pathToFileURL(path.join(link,'escaped.js')).href
+        }]
+      }),
+      /symbolic link parent/
+    );
+    assert.equal(fs.existsSync(path.join(outside,'escaped.js')),false);
+  }
+});
+
+test('LSP WorkspaceEdit prevalidates later resource failures before mutating earlier files', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mw-lsp-resource-prevalidate-'));
+  const a=path.join(root,'a.js');
+  const b=path.join(root,'b.js');
+  fs.writeFileSync(a,'const value = 1;\n');
+  fs.writeFileSync(b,'occupied\n');
+  const before=fs.readFileSync(a,'utf8');
+
+  assert.throws(
+    () => applyLspWorkspaceEdit(root,{
+      documentChanges:[
+        {
+          textDocument:{uri:pathToFileURL(a).href,version:null},
+          edits:[{
+            range:{start:{line:0,character:14},end:{line:0,character:15}},
+            newText:'2'
+          }]
+        },
+        {
+          kind:'create',
+          uri:pathToFileURL(b).href
+        }
+      ]
+    }),
+    /already exists/
+  );
+  assert.equal(fs.readFileSync(a,'utf8'),before);
+});
+
+test('LSP WorkspaceEdit rolls back earlier writes when a later filesystem mutation fails', {
+  skip: process.platform === 'win32'
+}, () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mw-lsp-resource-rollback-'));
+  const a=path.join(root,'a.js');
+  const locked=path.join(root,'locked');
+  const b=path.join(locked,'b.js');
+  fs.mkdirSync(locked);
+  fs.writeFileSync(a,'const value = 1;\n');
+  fs.writeFileSync(b,'delete me\n');
+  const beforeA=fs.readFileSync(a,'utf8');
+  const beforeB=fs.readFileSync(b,'utf8');
+  fs.chmodSync(locked,0o555);
+
+  try {
+    assert.throws(
+      () => applyLspWorkspaceEdit(root,{
+        documentChanges:[
+          {
+            textDocument:{uri:pathToFileURL(a).href,version:null},
+            edits:[{
+              range:{start:{line:0,character:14},end:{line:0,character:15}},
+              newText:'2'
+            }]
+          },
+          {
+            kind:'delete',
+            uri:pathToFileURL(b).href
+          }
+        ]
+      })
+    );
+    assert.equal(fs.readFileSync(a,'utf8'),beforeA);
+    assert.equal(fs.readFileSync(b,'utf8'),beforeB);
+  } finally {
+    fs.chmodSync(locked,0o755);
+  }
+});
+
+test('LSP Manager keeps opened documents coherent across resource rename', { timeout: 8000 }, async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mw-lsp-resource-manager-'));
+  const source=path.join(root,'main.js');
+  const target=path.join(root,'renamed.js');
+  fs.writeFileSync(source,'function hello(){ return "ok"; }\n');
+  const server=path.join(root,'fake-lsp.mjs');
+  fs.writeFileSync(server,fakeServer);
+
+  const lsp=new LspManager(root,{config:{servers:{fake:{name:'fake',command:process.execPath,args:[server],extensions:['.js']}}}});
+  try {
+    await lsp.symbols('main.js');
+    const result=await lsp.applyWorkspaceEdit({
+      documentChanges:[{
+        kind:'rename',
+        oldUri:pathToFileURL(source).href,
+        newUri:pathToFileURL(target).href
+      }]
+    });
+    assert.equal(result.resourceOperationCount,1);
+    assert.equal(fs.existsSync(source),false);
+    assert.equal(fs.readFileSync(target,'utf8'),'function hello(){ return "ok"; }\n');
+    const symbols=await lsp.symbols('renamed.js');
+    assert.equal(symbols[0].name,'hello');
   } finally {
     await lsp.close();
   }
