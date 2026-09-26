@@ -458,7 +458,7 @@ lcx lsp actions src/file.ts 20 1 20 80
 lcx lsp apply-action src/file.ts 20 1 20 80 0 --yes
 ```
 
-command-only code action 与 LSP create/rename/delete resource operation 当前不会自动执行。
+LSP WorkspaceEdit 中针对文件的 create/rename/delete 已支持，并带有 overwrite/ignore 语义、工作区边界与 symlink 防护、全量预验证和失败回滚。command-only code action 当前仍不会自动执行。
 
 
 ### Go Session Worktree / Skills
