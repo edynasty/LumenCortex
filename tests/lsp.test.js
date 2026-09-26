@@ -4,13 +4,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { LspManager, applyLspWorkspaceEdit } from '../src/lsp.js';
+import { LspClient, LspManager, applyLspWorkspaceEdit } from '../src/lsp.js';
 import { createCodingTools } from '../src/tools.js';
 
 const fakeServer=`
 let buffer=Buffer.alloc(0);
 let nextServerRequestId=1000;
 const pendingServerRequests=new Map();
+let workspaceRootUri=null;
+let unsolicitedApplyResult=null;
 process.stdin.on('data',chunk=>{buffer=Buffer.concat([buffer,chunk]); pump();});
 function pump(){
   while(true){
@@ -44,9 +46,26 @@ function handle(msg){
     callback(msg);
     return;
   }
-  if(msg.id===undefined)return;
+  if(msg.id===undefined){
+    if(msg.method==='initialized' && workspaceRootUri){
+      const uri=workspaceRootUri.replace(/\/$/,'')+'/main.js';
+      requestClient('workspace/applyEdit',{
+        label:'unsolicited edit',
+        edit:{changes:{[uri]:[{
+          range:{start:{line:0,character:0},end:{line:0,character:0}},
+          newText:'// unsolicited\\n'
+        }]}}
+      },response=>{
+        unsolicitedApplyResult=response.result??null;
+      });
+    }
+    return;
+  }
   let result=null;
-  if(msg.method==='initialize') result={capabilities:{definitionProvider:true,referencesProvider:true,documentSymbolProvider:true,hoverProvider:true,renameProvider:true,codeActionProvider:{resolveProvider:true}}};
+  if(msg.method==='initialize'){
+    workspaceRootUri=msg.params.rootUri;
+    result={capabilities:{definitionProvider:true,referencesProvider:true,documentSymbolProvider:true,hoverProvider:true,renameProvider:true,codeActionProvider:{resolveProvider:true}}};
+  }
   else if(msg.method==='textDocument/definition') result={uri:msg.params.textDocument.uri,range:{start:{line:0,character:0},end:{line:0,character:5}}};
   else if(msg.method==='textDocument/references') result=[{uri:msg.params.textDocument.uri,range:{start:{line:0,character:0},end:{line:0,character:5}}}];
   else if(msg.method==='textDocument/documentSymbol') result=[{name:'hello',kind:12,range:{start:{line:0,character:0},end:{line:0,character:10}},selectionRange:{start:{line:0,character:9},end:{line:0,character:14}}}];
@@ -99,6 +118,7 @@ function handle(msg){
     }
     result={unknownCommand:msg.params.command};
   }
+  else if(msg.method==='fake/unsolicitedStatus') result=unsolicitedApplyResult;
   else if(msg.method==='shutdown') result=null;
   send({jsonrpc:'2.0',id:msg.id,result});
 }
@@ -523,4 +543,38 @@ test('LSP resource operations reject the workspace root and keep ignored operati
   assert.equal(result.files.length,0);
   assert.equal(fs.readFileSync(source,'utf8'),beforeSource);
   assert.equal(fs.readFileSync(target,'utf8'),beforeTarget);
+});
+
+
+test('LSP rejects unsolicited server workspace/applyEdit outside an authorized command', { timeout: 8000 }, async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mw-lsp-unsolicited-'));
+  const source=path.join(root,'main.js');
+  fs.writeFileSync(source,'function hello(){ return "ok"; }\n');
+  const before=fs.readFileSync(source,'utf8');
+  const server=path.join(root,'fake-lsp.mjs');
+  fs.writeFileSync(server,fakeServer);
+  let applyCalls=0;
+
+  const client=new LspClient({
+    workspace:root,
+    command:process.execPath,
+    args:[server],
+    applyWorkspaceEdit:async(params)=>{
+      applyCalls+=1;
+      applyLspWorkspaceEdit(root,params.edit);
+      return {applied:true};
+    }
+  });
+
+  try {
+    await client.start();
+    await new Promise((resolve)=>setTimeout(resolve,50));
+    const status=await client.request('fake/unsolicitedStatus',{});
+    assert.equal(status?.applied,false);
+    assert.match(status?.failureReason??'',/explicitly authorized LSP command/);
+    assert.equal(applyCalls,0);
+    assert.equal(fs.readFileSync(source,'utf8'),before);
+  } finally {
+    await client.close();
+  }
 });
