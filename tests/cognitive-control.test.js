@@ -401,6 +401,7 @@ test('cognition profile keeps Governor scheduler independent and disabled by def
       scheduler: {
         enabled: true,
         useCurator: false,
+        autoApplySafe: true,
         checkRevisionDelta: 7,
         cooldownMs: 1234,
         archiveCandidateThreshold: 4,
@@ -417,6 +418,7 @@ test('cognition profile keeps Governor scheduler independent and disabled by def
   assert.deepEqual(profile.governor.scheduler, {
     enabled: true,
     useCurator: false,
+    autoApplySafe: true,
     checkRevisionDelta: 7,
     cooldownMs: 1234,
     archiveCandidateThreshold: 4,
@@ -435,5 +437,6 @@ test('cognition profile keeps Governor scheduler independent and disabled by def
   const defaults = loadCognitiveProfile(emptyRoot);
   assert.equal(defaults.governor.scheduler.enabled, false);
   assert.equal(defaults.governor.scheduler.useCurator, false);
+  assert.equal(defaults.governor.scheduler.autoApplySafe, false);
   assert.equal(defaults.governor.scheduler.checkRevisionDelta, 25);
 });
