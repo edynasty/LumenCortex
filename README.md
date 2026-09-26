@@ -38,7 +38,7 @@ The primary interface is the full-screen TUI. Run `lumencortex` or the short com
 
 The Node.js reference runtime now includes the first executable cognitive-control slice:
 
-- **Decision Layer** — deterministic algorithmic judgment plus optional Jev/Laya-compatible System One providers.
+- **Decision Layer** — deterministic algorithmic judgment plus optional Jev/Laya-compatible System One providers or bounded generative Decision-provider routes.
 - **Framework-owned routing** — the runtime owns final Category selection, whether Think is needed, and the current Think effort.
 - **Ordered Category model chains** — each Category lists generative models in explicit preference order; unavailable entries advance to the next configured model.
 - **Dynamic Think effort** — `low / medium / high / max` is recomputed from task complexity, evidence, repeated failure, and progress signals.
@@ -48,9 +48,9 @@ The Node.js reference runtime now includes the first executable cognitive-contro
 - **Persistent Work Units** — dependency-aware execution units with required evidence/verification gates; Work Units cannot choose models/providers/Categories.
 - **Graph Governor baseline** — global Analyzer, separately configured semantic Curator, deterministic validation, safe tier/archive plus opt-in branch/promotion/canonicalization execution, and reversible Cortex Epoch commits.
 - **Storage tiers** — SQLite schema v2 indexes hot/warm/cold tier, access recency/count, archive time, and compaction state; safe compaction removes derived search caches without deleting graph cognition.
-- **Deterministic baseline** — if no Jev/Laya endpoint or cognitive configuration is present, LumenCortex still runs with algorithmic judgment and the CLI-selected provider.
+- **Deterministic baseline** — if no Jev/Laya endpoint or model-backed Decision route is present, LumenCortex still runs with algorithmic judgment and the CLI-selected execution provider.
 
-Jev/Laya are decision providers only. They do not execute coding Work Units and never appear inside Category generative-model chains.
+Jev/Laya are decision providers only. They do not execute coding Work Units and never appear inside Category generative-model chains. A normal generative provider may be configured as a bounded Decision fallback, but that adapter also has no tools and does not execute the task.
 ### Workflow Contract
 
 - durable Facts → Action → Route → Outcome → Gate state inside normal Sessions
@@ -156,7 +156,15 @@ Create `.lumencortex/cognition.json` or pass `--cognition path/to/cognition.json
   "decision": {
     "providers": [
       { "type": "laya", "baseURL": "http://127.0.0.1:8000" },
-      { "type": "jev", "model": "jev-latest" }
+      { "type": "jev", "model": "jev-latest" },
+      {
+        "type": "generative",
+        "name": "decision-fallback",
+        "provider": "deepseek",
+        "model": "deepseek-flash",
+        "reasoningEffort": "low",
+        "maxTokens": 700
+      }
     ]
   },
   "categories": {
@@ -182,7 +190,7 @@ Create `.lumencortex/cognition.json` or pass `--cognition path/to/cognition.json
 }
 ```
 
-Category chains contain normal generative models. Decision providers are configured separately. The Framework Router may use decision-model signals, but final Category/Think/effort decisions remain framework-owned.
+Category chains contain task-execution generative models. Decision providers are configured separately. Optional Decision routes may be Jev/Laya or a bounded generative adapter; the latter still receives no tools and cannot execute a Work Unit. The Algorithm DecisionProvider remains available regardless of the optional route list, and final Category/Think/effort/retrieval decisions remain framework-owned.
 
 Useful controls:
 
@@ -438,7 +446,7 @@ MIT
 
 ### Go cognitive-control preview
 
-The Go runtime can consume the same `.lumencortex/cognition.json` used by the Node reference runtime. When `LCX_COGNITION=true`, `LCX_COGNITION_PROFILE` is set, or a workspace profile exists, it enables the algorithmic Router, optional Jev/Laya-compatible Decision Layer, ordered Category provider chains, provider health circuits, dynamic Think effort, and persistent Work Units.
+The Go runtime can consume the same `.lumencortex/cognition.json` used by the Node reference runtime. When `LCX_COGNITION=true`, `LCX_COGNITION_PROFILE` is set, or a workspace profile exists, it enables the algorithmic Router, optional Jev/Laya-compatible or bounded-generative Decision routes, ordered Category provider chains, provider health circuits, dynamic Think effort, and persistent Work Units.
 
 ```bash
 LCX_MODEL=your-fallback-model \
