@@ -73,8 +73,44 @@ export function loadCognitiveProfile(workspace, options = {}) {
       baseURL: user.governor.baseURL,
       timeoutMs: user.governor.timeoutMs,
       reasoningEffort: user.governor.reasoningEffort ?? user.governor.reasoning_effort ?? 'high',
-      maxTokens: Number(user.governor.maxTokens ?? user.governor.max_tokens ?? 6000)
+      maxTokens: Number(user.governor.maxTokens ?? user.governor.max_tokens ?? 6000),
+      scheduler: normalizeGovernorSchedulerProfile(user.governor.scheduler)
     } : null
+  };
+}
+
+function normalizeGovernorSchedulerProfile(input) {
+  if (!input || typeof input !== 'object') {
+    return {
+      enabled: false,
+      useCurator: false,
+      checkRevisionDelta: 25,
+      cooldownMs: 30 * 60 * 1000,
+      archiveCandidateThreshold: 8,
+      canonicalizeGroupThreshold: 3,
+      branchCandidateThreshold: 3,
+      promotionGroupThreshold: 3,
+      tierChangeThreshold: 25
+    };
+  }
+  const positiveInteger = (value, fallback) => {
+    const number = Math.floor(Number(value));
+    return Number.isFinite(number) && number >= 1 ? number : fallback;
+  };
+  const nonNegative = (value, fallback) => {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : fallback;
+  };
+  return {
+    enabled: input.enabled === true,
+    useCurator: input.useCurator === true,
+    checkRevisionDelta: positiveInteger(input.checkRevisionDelta, 25),
+    cooldownMs: nonNegative(input.cooldownMs, 30 * 60 * 1000),
+    archiveCandidateThreshold: positiveInteger(input.archiveCandidateThreshold, 8),
+    canonicalizeGroupThreshold: positiveInteger(input.canonicalizeGroupThreshold, 3),
+    branchCandidateThreshold: positiveInteger(input.branchCandidateThreshold, 3),
+    promotionGroupThreshold: positiveInteger(input.promotionGroupThreshold, 3),
+    tierChangeThreshold: positiveInteger(input.tierChangeThreshold, 25)
   };
 }
 
