@@ -301,14 +301,14 @@ All providers use the same tool-calling Agent Loop.
 | Focused Subagents | Implemented |
 | Multi-session parallel runner | Implemented (safe read parallel; write parallel explicit opt-in) |
 | TUI | Implemented (direct launch, Session switching, live events, Ctrl+C active-run cancellation) |
-| Skills | Implemented baseline in Go runtime: global/project layering, enable state, prompt injection, CLI management |
+| Skills | Implemented baseline in Node + Go: global/project layering, enable state, Agent prompt injection, Node Subagent propagation, CLI management |
 | Vision / browser | Planned |
 | Attention propagation | Implemented |
 | Ephemeral attention cut under token budget | Implemented |
 | Structural cut / restore | Implemented: edge remains durable but is excluded from propagation |
 | Structural graft edge | Implemented |
 | Cross-branch graft | Implemented through merge/cherry-pick |
-| Automatic split/merge/canonicalization controller | Partial: Governor candidate generation + model Curator + validated canonicalization/branch execution; autonomous scheduling not implemented |
+| Automatic split/merge/canonicalization controller | Partial: Governor candidate generation + model Curator + validated canonicalization/branch execution + opt-in post-Agent scheduler; plan application remains explicit |
 | Decision Layer / DecisionProvider | Implemented baseline |
 | Jev/Laya decision adapters | Implemented HTTP adapters; live validation pending |
 | Progress Monitor + framework routing | Implemented baseline |
@@ -320,6 +320,7 @@ All providers use the same tool-calling Agent Loop.
 | Provider-specific Think-effort mapping | Implemented baseline (OpenRouter/Groq/DeepSeek) |
 | Decision/Category provider circuit breaker | Implemented baseline |
 | Graph Governor | Implemented baseline (Analyzer + optional model Curator + validator + safe/semantic executor) |
+| Governor scheduler | Implemented opt-in baseline: revision/cooldown pressure gate, persistent pending plan, stale-plan rejection, explicit apply |
 | Cortex Epochs | Implemented baseline (durable marker + Cognitive Git commit/revert) |
 | Go cognitive control plane | Implemented baseline (Router, Jev/Laya-compatible Decision Layer, Category chains, Think effort, health, Work Units, shared profile) |
 | Go Graph Governor | Partial: Analyzer/Curator/Validator + read-only shared SQLite snapshot; mutation/apply remains Node-only |
