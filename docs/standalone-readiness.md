@@ -38,7 +38,7 @@ A feature being present in source code is not enough. Readiness claims require a
 | Decision Layer + Category model chains | Implemented baseline | Core CI: algorithm/System-One adapter, ordered-chain fallback, circuit breaker, provider effort mapping, session trace tests | Ready for experimental use; live Jev/Laya validation pending |
 | Persistent Work Units | Implemented baseline | dependency/evidence/verification/final-answer gate tests | Ready experimental baseline |
 | Hot/warm/cold storage metadata | Implemented baseline | SQLite schema-v3/backfill/access/compaction tests | Logical graph remains intact; physical tier separation is not claimed |
-| Graph Governor / Cortex Epochs | Implemented baseline + opt-in scheduler | Core CI: analyzer, semantic Curator, validator, canonicalization/branch/promotion, reversible epoch tests, persistent scheduler debounce/stale-plan/CLI/Agent lifecycle tests | Experimental governance baseline; scheduler can auto-plan after completed Agent runs, but apply remains explicit and physical tier separation remains a gap |
+| Graph Governor / Cortex Epochs | Implemented baseline + opt-in scheduler | Core CI: analyzer, semantic Curator, validator, canonicalization/branch/promotion, reversible epoch tests, persistent scheduler debounce/stale-plan/CLI/Agent lifecycle tests, deterministic safe auto-apply boundaries | Experimental governance baseline; scheduler can auto-plan and optionally auto-apply deterministic tier/archive changes, while Curator/semantic/Epoch plans remain explicit |
 | Go cognitive-control parity | Implemented baseline | Go CI: shared profile, System One HTTP, Category failover/circuit, dynamic Think effort, Work Unit gates | Governor write/apply is intentionally not duplicated |
 | Go Graph Governor read path | Implemented baseline | Go CI: shared SQLite snapshot + Analyzer/Curator/Validator + no-mutation assertions | Read-only; Node remains mutation authority |
 
@@ -84,7 +84,7 @@ In particular, the current architecture does not yet claim:
 - vision/browser automation,
 - polished terminal navigation equivalent to mature editor-grade TUIs,
 - live Jev/Laya endpoint validation and calibrated routing benchmarks,
-- automatic Governor plan application or production-calibrated governance policy; opt-in post-Agent scheduling/pending-plan persistence is implemented,
+- automatic Curator/semantic Governor application or production-calibrated governance policy; deterministic tier/archive auto-apply is available only through explicit `autoApplySafe` opt-in,
 - separate physical hot/warm/cold data stores or destructive cognitive GC (not currently claimed),
 - broader provider-specific reasoning controls,
 - Go Graph Governor mutation/executor parity; the current Go Governor is intentionally read-only against the shared SQLite graph.
