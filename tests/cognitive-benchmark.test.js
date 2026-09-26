@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   buildCognitiveRoutingPredictionPrompt,
   loadCognitiveRoutingBenchmark,
@@ -136,4 +137,29 @@ test('external cognitive routing prompt reuses canonical runtime rubric and omit
   assert.match(prompt, /deep-concurrency-root-cause/);
   assert.doesNotMatch(prompt, /visual-responsive-wails/);
   assert.doesNotMatch(prompt, /"expect"/);
+});
+
+
+test('captured DeepSeek V4.1 Flash routing calibration still satisfies the benchmark contract', () => {
+  const fixture = loadCognitiveRoutingBenchmark();
+  const predictionFile = fileURLToPath(new URL(
+    '../benchmarks/predictions/deepseek-v4.1-flash-2026-09-26.jsonl',
+    import.meta.url
+  ));
+  const result = scoreCognitiveRoutingPredictions(
+    fixture,
+    loadCognitiveRoutingPredictions(predictionFile)
+  );
+
+  assert.equal(result.total, 12);
+  assert.equal(result.failed, 0, JSON.stringify(
+    result.cases.filter((item) => !item.pass),
+    null,
+    2
+  ));
+  assert.equal(result.ok, true);
+  assert.equal(result.metrics.category.accuracy, 1);
+  assert.equal(result.metrics.think.accuracy, 1);
+  assert.equal(result.metrics.effort.accuracy, 1);
+  assert.equal(result.metrics.retrieval.accuracy, 1);
 });
