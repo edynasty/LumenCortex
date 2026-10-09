@@ -142,3 +142,22 @@ func TestReasoningWireFormats(t *testing.T) {
 		t.Fatalf("generic should not inject reasoning fields: %#v", generic)
 	}
 }
+
+func TestToolCallArgumentsReturnToModelAsText(t *testing.T) {
+	history := []protocol.Message{{Role: "assistant", ToolCalls: []protocol.ToolCall{
+		{ID: "ok", Name: "read_file", Arguments: json.RawMessage(`{"path":"a.go"}`)},
+		{ID: "bad", Name: "read_file", Arguments: json.RawMessage(`"{\"path\":"`)},
+		{ID: "empty", Name: "list_dir"},
+	}}}
+	wire := requestFromProtocol("m", protocol.ProviderRequest{Messages: history}, false, "")
+	got := map[string]string{}
+	for _, call := range wire.Messages[0].ToolCalls {
+		got[call.ID] = call.Function.Arguments
+	}
+	want := map[string]string{"ok": `{"path":"a.go"}`, "bad": `{"path":`, "empty": `{}`}
+	for id, args := range want {
+		if got[id] != args {
+			t.Errorf("call %s arguments = %q, want %q", id, got[id], args)
+		}
+	}
+}

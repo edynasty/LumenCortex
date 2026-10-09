@@ -112,7 +112,7 @@ func requestFromProtocol(model string, req protocol.ProviderRequest, stream bool
 			Role: message.Role, Content: message.Content, Name: message.Name, ToolCallID: message.ToolCallID,
 		}
 		for _, call := range message.ToolCalls {
-			args := string(call.Arguments)
+			args := wireArguments(call.Arguments)
 			if strings.TrimSpace(args) == "" {
 				args = "{}"
 			}
@@ -143,6 +143,17 @@ func requestFromProtocol(model string, req protocol.ProviderRequest, stream bool
 		out.StreamOptions = &streamOpts{IncludeUsage: true}
 	}
 	return out
+}
+
+// wireArguments is the text sent as function.arguments. Arguments that were not
+// valid JSON are stored as a JSON string holding the model's raw text; the wire
+// carries that text back unchanged instead of its quoted form.
+func wireArguments(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	return string(raw)
 }
 
 func (r chatResponse) toProtocol() (protocol.ProviderResponse, error) {

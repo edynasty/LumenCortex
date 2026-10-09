@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -29,7 +30,7 @@ type Loop struct {
 	Emit           func(Event)
 }
 
-func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result, error) {
+func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result Result, err error) {
 	if l.Provider == nil || l.Store == nil || l.Tools == nil {
 		return Result{}, errors.New("provider, store, and tools are required")
 	}
@@ -46,7 +47,18 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 		opts.SystemPrompt = defaultSystemPrompt
 	}
 
-	state, err := l.Store.Get(ctx, sessionID)
+	var (
+		state   SessionState
+		usage   protocol.Usage
+		started bool // the session row says "running"; from here on every return goes through finish
+	)
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			result, err = l.panicExit(ctx, started, state, usage, recovered)
+		}
+	}()
+
+	state, err = l.Store.Get(ctx, sessionID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -68,17 +80,18 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 	if err := l.ensureInitialMessage(ctx, state); err != nil {
 		return Result{}, err
 	}
-	usage := state.Usage
+	usage = state.Usage
 	cognitiveProgress := restoreCognitiveProgress(state.Metadata)
 	router := cognition.Router{}
-	running := "running"
+	running := StatusRunning
 	state.Status = running
 	if err := l.Store.Update(ctx, sessionID, SessionPatch{Status: &running, ClearFinal: true, ClearError: true}); err != nil {
 		return Result{}, err
 	}
+	started = true
 	startStep, err := l.Store.NextStep(ctx, sessionID)
 	if err != nil {
-		return Result{}, err
+		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 	}
 	if wasInterrupted {
 		l.checkpoint(sessionID, "agent.resume", map[string]any{
@@ -88,20 +101,23 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 
 	for turn := 0; turn < opts.MaxSteps; turn++ {
 		if err := ctx.Err(); err != nil {
-			return l.interrupt(ctx, state, usage, err)
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
 		}
 		step := startStep + int64(turn)
 		if wf != nil && len(wf.WaitingHumanGates()) > 0 {
-			metadata := withWorkflow(state.Metadata, wf)
-			status := "waiting_gate"
-			_ = l.Store.Update(context.Background(), sessionID, SessionPatch{Status: &status, Metadata: metadata, Usage: &usage})
+			gates := wf.WaitingHumanGates()
+			state.Metadata = withWorkflow(state.Metadata, wf)
+			cause := ExitCause{Status: StatusWaitingGate, Kind: KindWorkflowGate, Err: errors.New("workflow human gate is pending")}
+			if err := l.finish(ctx, state, usage, cause, nil); err != nil {
+				return finishFailure(state, usage, cause, err)
+			}
 			l.checkpoint(sessionID, "agent.safe", map[string]any{
 				"phase": "waiting_gate",
 				"step": step,
-				"gates": wf.WaitingHumanGates(),
+				"gates": gates,
 			})
-			l.emit("workflow.gate_waiting", sessionID, map[string]any{"step": step, "gates": wf.WaitingHumanGates()})
-			return Result{SessionID: sessionID, Status: status, Usage: usage, WaitingGate: true, Workflow: wf.Summary()}, nil
+			l.emit("workflow.gate_waiting", sessionID, map[string]any{"step": step, "gates": gates})
+			return Result{SessionID: sessionID, Status: StatusWaitingGate, Usage: usage, WaitingGate: true, Workflow: wf.Summary()}, nil
 		}
 
 		allowlist := opts.ToolAllowlist
@@ -129,7 +145,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 					Questions: cognition.DefaultDecisionQuestions(),
 				})
 				if decisionErr != nil {
-					return l.interrupt(ctx, state, usage, decisionErr)
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindProviderAvailability, Err: decisionErr})
 				}
 				input.Signals = decision.Signals
 				state.Metadata = withDecisionSummary(state.Metadata, decision, step)
@@ -155,7 +171,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 		}
 		messages, err := l.buildMessages(ctx, sessionID, opts, wf, cognitivePlan, workUnits)
 		if err != nil {
-			return Result{}, err
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		reasoningEffort := ""
 		if cognitivePlan != nil {
@@ -186,7 +202,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 			specs,
 		)
 		if err != nil {
-			return l.interrupt(ctx, state, usage, err)
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindProviderAvailability, Err: err})
 		}
 		response := attempt.Response
 		addUsage(&usage, response.Usage)
@@ -195,11 +211,12 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 		calls := assistant.ToolCalls
 		if len(calls) > opts.MaxToolCallsPerStep {
 			calls = calls[:opts.MaxToolCallsPerStep]
-			assistant.ToolCalls = calls
 			l.emit("tools.deferred", sessionID, map[string]any{"step": step, "requested": len(response.Message.ToolCalls), "executing": len(calls)})
 		}
+		calls = preserveToolArguments(calls)
+		assistant.ToolCalls = calls
 		if _, err := l.Store.AppendMessage(ctx, sessionID, assistant); err != nil {
-			return Result{}, err
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		record := stepRecord{
 			Step: step,
@@ -222,17 +239,17 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 
 		if len(calls) == 0 {
 			if strings.TrimSpace(assistant.Content) == "" {
-				return l.interrupt(ctx, state, usage, errors.New("model returned neither tool calls nor final content"))
+				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindEmptyResponse, Err: errors.New("model returned neither tool calls nor final content")})
 			}
 			if wf != nil && !wf.CanFinish() {
 				reason := wf.BlockReason()
 				record.Workflow = wf.Summary()
 				if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
-					return Result{}, err
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 				}
 				correction := protocol.Message{Role: "user", Content: "Workflow contract rejected completion: " + reason + ". Continue the current action and obtain the required evidence or gate approval."}
 				if _, err := l.Store.AppendMessage(ctx, sessionID, correction); err != nil {
-					return Result{}, err
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 				}
 				state.Metadata = withWorkflow(state.Metadata, wf)
 				if workUnits != nil {
@@ -245,43 +262,41 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 			if workUnits != nil && len(workUnits.Incomplete()) > 0 {
 				remaining := workUnits.Incomplete()
 				if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
-					return Result{}, err
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 				}
 				correction := protocol.Message{Role: "user", Content: workUnitCompletionCorrection(remaining)}
 				if _, err := l.Store.AppendMessage(ctx, sessionID, correction); err != nil {
-					return Result{}, err
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 				}
 				state.Metadata = withWorkUnits(state.Metadata, workUnits)
 				_ = l.Store.Update(ctx, sessionID, SessionPatch{Metadata: state.Metadata, Usage: &usage})
 				l.emit("work_unit.blocked_final", sessionID, map[string]any{"step": step, "remaining": remaining})
 				continue
 			}
-			status := "completed"
 			final := assistant.Content
 			if wf != nil {
 				record.Workflow = wf.Summary()
 				state.Metadata = withWorkflow(state.Metadata, wf)
 			}
 			if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
-				return Result{}, err
+				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 			}
-			if err := l.Store.Update(ctx, sessionID, SessionPatch{Status: &status, Metadata: state.Metadata, Final: &final, Usage: &usage}); err != nil {
-				return Result{}, err
+			cause := ExitCause{Status: StatusCompleted}
+			if err := l.finish(ctx, state, usage, cause, &final); err != nil {
+				return finishFailure(state, usage, cause, err)
 			}
 			l.emit("session.complete", sessionID, map[string]any{"step": step})
-			return Result{SessionID: sessionID, Status: status, Final: final, Usage: usage, Workflow: workflowSummary(wf)}, nil
+			return Result{SessionID: sessionID, Status: StatusCompleted, Final: final, Usage: usage, Workflow: workflowSummary(wf)}, nil
 		}
 
 		for _, call := range calls {
-			args := map[string]any{}
-			if len(call.Arguments) > 0 {
-				if err := json.Unmarshal(call.Arguments, &args); err != nil {
-					result := protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, "invalid tool arguments: "+err.Error())}
-					if _, err := l.persistToolResult(ctx, sessionID, call, args, result); err != nil {
-						return Result{}, err
-					}
-					continue
+			args, argsErr := parseToolArguments(call.Arguments)
+			if argsErr != nil {
+				rejected := protocol.ToolResult{OK: false, Content: toolErrorContent("invalid tool arguments: " + argsErr.Error())}
+				if _, err := l.persistToolResult(ctx, sessionID, call, args, rejected); err != nil {
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 				}
+				continue
 			}
 			denied := !containsTool(specs, call.Name) || (wf != nil && !wf.IsToolAllowed(call.Name))
 			var toolResult protocol.ToolResult
@@ -296,10 +311,13 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 					toolResult, err = l.Tools.Execute(ctx, call.Name, args, func(output protocol.ToolOutput) {
 						l.emit("tool.output", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "stream": output.Stream, "chunk": output.Chunk})
 					})
+					if ctx.Err() != nil {
+						// A tool stopped by cancellation often returns a result, not an error. Its
+						// output is not saved: the run ends interrupted/cancelled and the call
+						// stays unanswered.
+						return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()})
+					}
 					if err != nil {
-						if ctx.Err() != nil {
-							return l.interrupt(ctx, state, usage, ctx.Err())
-						}
 						toolResult = protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, err.Error())}
 					}
 				}
@@ -312,7 +330,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 			if wf != nil {
 				update, wfErr := wf.ObserveTool(workflow.ToolObservation{Tool: call.Name, Args: args, Result: map[string]any{"ok": toolResult.OK, "denied": toolResult.Denied, "permission": toolResult.Permission, "content": toolResult.Content}, Step: step})
 				if wfErr != nil {
-					return Result{}, wfErr
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindConfig, Err: wfErr})
 				}
 				if len(update.ChangedFacts) > 0 {
 					l.emit("workflow.facts", sessionID, map[string]any{"step": step, "facts": update.ChangedFacts})
@@ -324,7 +342,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 			}
 			messageSeq, err := l.persistToolResult(ctx, sessionID, call, args, toolResult)
 			if err != nil {
-				return Result{}, err
+				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 			}
 			l.checkpoint(sessionID, "agent.safe", map[string]any{
 				"phase": "tool_result",
@@ -344,10 +362,10 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 			state.Metadata = withWorkUnits(state.Metadata, workUnits)
 		}
 		if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
-			return Result{}, err
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		if err := l.Store.Update(ctx, sessionID, SessionPatch{Metadata: state.Metadata, Usage: &usage}); err != nil {
-			return Result{}, err
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		l.checkpoint(sessionID, "agent.safe", map[string]any{
 			"phase": "step_complete",
@@ -355,7 +373,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (Result,
 			"nextStep": step + 1,
 		})
 	}
-	return l.interrupt(ctx, state, usage, fmt.Errorf("agent reached max steps: %d", opts.MaxSteps))
+	return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindMaxSteps, Err: fmt.Errorf("agent reached max steps: %d", opts.MaxSteps)})
 }
 
 func (l *Loop) ensureInitialMessage(ctx context.Context, state SessionState) error {
@@ -407,12 +425,106 @@ func (l *Loop) checkpoint(sessionID, reason string, payload any) {
 	l.emit("checkpoint.saved", sessionID, map[string]any{"reason": reason})
 }
 
-func (l *Loop) interrupt(ctx context.Context, state SessionState, usage protocol.Usage, cause error) (Result, error) {
-	status := "interrupted"
-	errorData := map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano), "message": cause.Error()}
-	_ = l.Store.Update(context.Background(), state.ID, SessionPatch{Status: &status, Metadata: state.Metadata, Usage: &usage, Error: errorData})
-	l.emit("session.interrupted", state.ID, map[string]any{"error": cause.Error()})
-	return Result{SessionID: state.ID, Status: status, Usage: usage}, cause
+// finishTimeout bounds the terminal write, which runs without the run's cancellation.
+const finishTimeout = 5 * time.Second
+
+// finish persists the terminal status, ExitCause, final text and usage in one
+// store update. It ignores the run's cancellation (a cancelled run must still be
+// able to record that it was cancelled) and is bounded by its own timeout.
+func (l *Loop) finish(ctx context.Context, state SessionState, usage protocol.Usage, cause ExitCause, final *string) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishTimeout)
+	defer cancel()
+	status := cause.Status
+	patch := SessionPatch{Status: &status, Metadata: state.Metadata, Usage: &usage}
+	if cause.Status == StatusCompleted {
+		patch.Final = final
+		patch.ClearError = true
+	} else {
+		patch.Error = cause.errorData(time.Now())
+	}
+	return l.Store.Update(ctx, state.ID, patch)
+}
+
+// finishFailure reports a run whose terminal write failed. The row still says
+// "running"; the next Start overwrites it. The cause is kept in the returned error.
+func finishFailure(state SessionState, usage protocol.Usage, cause ExitCause, err error) (Result, error) {
+	failure := fmt.Errorf("persist %s exit: %w", cause.Status, err)
+	return Result{SessionID: state.ID, Status: state.Status, Usage: usage}, errors.Join(cause.returnErr(), failure)
+}
+
+// exit ends the run with an interrupted or failed cause: finish, then the
+// terminal event. A storage or provider error that arrives with the run context
+// already cancelled is the cancellation, not a failure.
+func (l *Loop) exit(ctx context.Context, state SessionState, usage protocol.Usage, cause ExitCause) (Result, error) {
+	if ctx.Err() != nil && (cause.Kind == KindStorage || cause.Kind == KindProviderAvailability) {
+		cause = ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()}
+	}
+	if err := l.finish(ctx, state, usage, cause, nil); err != nil {
+		return finishFailure(state, usage, cause, err)
+	}
+	event := "session.interrupted"
+	if cause.Status == StatusFailed {
+		event = "session.failed"
+	}
+	l.emit(event, state.ID, map[string]any{"kind": cause.Kind, "error": cause.Err.Error()})
+	return Result{SessionID: state.ID, Status: cause.Status, Usage: usage}, cause.Err
+}
+
+// panicExit turns a panic in the run into failed/panic. A panic before the
+// session row became "running" has nothing to finalize and only becomes an error.
+func (l *Loop) panicExit(ctx context.Context, started bool, state SessionState, usage protocol.Usage, recovered any) (Result, error) {
+	err := fmt.Errorf("panic: %v", recovered)
+	if !started {
+		return Result{}, err
+	}
+	l.emit("session.panic", state.ID, map[string]any{"error": err.Error(), "stack": string(debug.Stack())})
+	return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindPanic, Err: err})
+}
+
+// preserveToolArguments keeps arguments that are not valid JSON as a JSON string
+// holding the raw text, so the assistant row can be stored and the model can be
+// shown its own text again. It copies the slice before changing it.
+func preserveToolArguments(calls []protocol.ToolCall) []protocol.ToolCall {
+	var out []protocol.ToolCall
+	for i, call := range calls {
+		if len(call.Arguments) == 0 || json.Valid(call.Arguments) {
+			continue
+		}
+		quoted, err := json.Marshal(string(call.Arguments))
+		if err != nil {
+			continue
+		}
+		if out == nil {
+			out = append([]protocol.ToolCall(nil), calls...)
+		}
+		out[i].Arguments = quoted
+	}
+	if out == nil {
+		return calls
+	}
+	return out
+}
+
+// parseToolArguments decodes tool call arguments, which must be a JSON object.
+// A JSON string is what preserveToolArguments stores for text that was not valid JSON.
+func parseToolArguments(raw json.RawMessage) (map[string]any, error) {
+	args := map[string]any{}
+	if len(raw) == 0 {
+		return args, nil
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return args, errors.New("the arguments were not a JSON object; send one valid JSON object")
+	}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return args, err
+	}
+	return args, nil
+}
+
+func toolErrorContent(message string) string {
+	raw, _ := json.Marshal(map[string]string{"error": message})
+	return string(raw)
 }
 
 func (l *Loop) emit(kind, sessionID string, data map[string]any) {

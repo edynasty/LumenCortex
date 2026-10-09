@@ -308,6 +308,26 @@ lcx agent "continue the task" --session session_xxx --yes
 
 Global step numbers, context history and usage remain continuous across resume.
 
+### Go loop exit contract
+
+Every way the Go loop (`internal/agent`) ends a run, once the session row says `running`, writes one status and one cause in a single store update (`finish`). The cause is stored in `sessions.error_json` as `{"kind", "message", "at"}`; a `completed` run stores none, and the next run clears it. The write ignores the run's cancellation and has its own 5 s timeout. It happens after the step record and before the terminal event.
+
+| Exit | Status | Kind |
+|---|---|---|
+| run context cancelled (also during a tool, or when a storage/provider error is the cancellation) | `interrupted` | `cancelled` |
+| step budget exhausted | `interrupted` | `max_steps` |
+| no tool calls and no content | `interrupted` | `empty_response` |
+| provider or decision-provider error | `interrupted` | `provider:availability` |
+| workflow human gate pending | `waiting_gate` | `workflow_gate` |
+| storage error | `failed` | `storage` |
+| workflow evaluation error | `failed` | `config` |
+| panic in the run | `failed` | `panic` |
+| completion accepted | `completed` | — |
+
+If the terminal write itself fails, `Run` returns the cause joined with the write error, publishes no terminal event, and leaves the row `running`; the next run overwrites it.
+
+Tool-call arguments that are not valid JSON are stored as a JSON string holding the raw text. They are never executed: the model receives a tool error for that call, and the OpenAI-compatible adapter sends the raw text back unquoted. A tool stopped by cancellation leaves its call without a result row.
+
 ## Mutation persistence
 
 Routine Cognitive Graph writes carry transient mutation hints from `CognitiveGraph` to the Repository. The SQLite layer directly UPSERTs or deletes only hinted node/edge rows and marks only affected node IDs dirty for FTS5/symbol synchronization. Graph snapshots use structural sharing: the node/edge index maps are copied, while immutable node/edge values are shared until replacement.

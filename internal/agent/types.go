@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -72,6 +73,53 @@ type Result struct {
 	Usage       protocol.Usage
 	WaitingGate bool
 	Workflow    any
+}
+
+// Session statuses the loop writes.
+const (
+	StatusRunning     = "running"
+	StatusInterrupted = "interrupted"
+	StatusWaitingGate = "waiting_gate"
+	StatusFailed      = "failed"
+	StatusCompleted   = "completed"
+)
+
+// Kinds of ExitCause the loop produces. Provider error classes and stale-run
+// recovery have their own kinds in later migration items.
+const (
+	KindCancelled            = "cancelled"
+	KindMaxSteps             = "max_steps"
+	KindEmptyResponse        = "empty_response"
+	KindProviderAvailability = "provider:availability"
+	KindWorkflowGate         = "workflow_gate"
+	KindConfig               = "config"
+	KindStorage              = "storage"
+	KindPanic                = "panic"
+)
+
+// ExitCause is why a run ended. Every return path of Loop.Run after the session
+// row became "running" maps to exactly one ExitCause, persisted by Loop.finish.
+type ExitCause struct {
+	Status string
+	Kind   string
+	Err    error
+}
+
+// errorData is the sessions.error_json payload: {"kind", "message", "at"}.
+func (c ExitCause) errorData(at time.Time) map[string]any {
+	message := ""
+	if c.Err != nil {
+		message = c.Err.Error()
+	}
+	return map[string]any{"kind": c.Kind, "message": message, "at": at.UTC().Format(time.RFC3339Nano)}
+}
+
+// returnErr is the error Run reports: only interrupted and failed exits are errors.
+func (c ExitCause) returnErr() error {
+	if c.Status == StatusInterrupted || c.Status == StatusFailed {
+		return c.Err
+	}
+	return nil
 }
 
 type stepRecord struct {

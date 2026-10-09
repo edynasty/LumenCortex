@@ -19,6 +19,7 @@ type memoryStore struct {
 	state    SessionState
 	messages []protocol.Message
 	steps    map[int64]any
+	cause    map[string]any // sessions.error_json as last written
 }
 
 func (s *memoryStore) Get(context.Context, string) (SessionState, error) {
@@ -68,6 +69,11 @@ func (s *memoryStore) Update(_ context.Context, _ string, p SessionPatch) error 
 		s.state.Final = ""
 	} else if p.Final != nil {
 		s.state.Final = *p.Final
+	}
+	if p.ClearError {
+		s.cause = nil
+	} else if p.Error != nil {
+		s.cause = p.Error
 	}
 	if p.Usage != nil {
 		s.state.Usage = *p.Usage
