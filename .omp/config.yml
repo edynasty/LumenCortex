@@ -1,0 +1,6 @@
+# LumenCortex project-level OMP model overrides.
+# Keep this file minimal: unspecified roles inherit ~/.omp/agent/config.yml.
+modelRoles:
+  default: local-anthropic/claude-sonnet-5-5:high
+  plan: local-anthropic/claude-opus-5-5:high
+  slow: local-anthropic/claude-opus-5-5:max
