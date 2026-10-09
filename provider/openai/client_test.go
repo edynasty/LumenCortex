@@ -143,10 +143,15 @@ func TestReasoningWireFormats(t *testing.T) {
 	}
 }
 
+// Stored arguments are a JSON object, a JSON string holding the model's raw text, or
+// another JSON value; the wire sends the object and other values as JSON text and the
+// string's text unquoted, so the model sees exactly what it sent.
 func TestToolCallArgumentsReturnToModelAsText(t *testing.T) {
 	history := []protocol.Message{{Role: "assistant", ToolCalls: []protocol.ToolCall{
 		{ID: "ok", Name: "read_file", Arguments: json.RawMessage(`{"path":"a.go"}`)},
 		{ID: "bad", Name: "read_file", Arguments: json.RawMessage(`"{\"path\":"`)},
+		{ID: "quoted", Name: "read_file", Arguments: json.RawMessage(`"\"a.go\""`)},
+		{ID: "null", Name: "read_file", Arguments: json.RawMessage(`null`)},
 		{ID: "empty", Name: "list_dir"},
 	}}}
 	wire := requestFromProtocol("m", protocol.ProviderRequest{Messages: history}, false, "")
@@ -154,7 +159,7 @@ func TestToolCallArgumentsReturnToModelAsText(t *testing.T) {
 	for _, call := range wire.Messages[0].ToolCalls {
 		got[call.ID] = call.Function.Arguments
 	}
-	want := map[string]string{"ok": `{"path":"a.go"}`, "bad": `{"path":`, "empty": `{}`}
+	want := map[string]string{"ok": `{"path":"a.go"}`, "bad": `{"path":`, "quoted": `"a.go"`, "null": `null`, "empty": `{}`}
 	for id, args := range want {
 		if got[id] != args {
 			t.Errorf("call %s arguments = %q, want %q", id, got[id], args)

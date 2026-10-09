@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -145,13 +146,16 @@ func requestFromProtocol(model string, req protocol.ProviderRequest, stream bool
 	return out
 }
 
-// wireArguments is the text sent as function.arguments. Arguments that were not
-// valid JSON are stored as a JSON string holding the model's raw text; the wire
-// carries that text back unchanged instead of its quoted form.
+// wireArguments is the text sent as function.arguments. A stored JSON string always
+// holds the model's raw text (arguments that were not valid JSON, or were a JSON
+// string): the wire carries that text back unchanged instead of its quoted form.
+// Any other value, null included, is sent as its JSON text.
 func wireArguments(raw json.RawMessage) string {
-	var text string
-	if json.Unmarshal(raw, &text) == nil {
-		return text
+	if trimmed := bytes.TrimLeft(raw, " \t\r\n"); len(trimmed) > 0 && trimmed[0] == '"' {
+		var text string
+		if json.Unmarshal(raw, &text) == nil {
+			return text
+		}
 	}
 	return string(raw)
 }

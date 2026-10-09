@@ -324,9 +324,9 @@ Every way the Go loop (`internal/agent`) ends a run, once the session row says `
 | panic in the run | `failed` | `panic` |
 | completion accepted | `completed` | — |
 
-If the terminal write itself fails, `Run` returns the cause joined with the write error, publishes no terminal event, and leaves the row `running`; the next run overwrites it.
+If the terminal write itself fails, `Run` returns the cause joined with the write error, publishes no terminal event, and leaves the row `running`; the next run overwrites it. A panic's terminal event is `session.failed`, published after the write like the others, with the panic's stack.
 
-Tool-call arguments that are not valid JSON are stored as a JSON string holding the raw text. They are never executed: the model receives a tool error for that call, and the OpenAI-compatible adapter sends the raw text back unquoted. A tool stopped by cancellation leaves its call without a result row.
+Tool-call arguments must be a JSON object to run. Text that is not valid JSON, and text that is a JSON string, are stored as a JSON string holding the raw text; other JSON is stored as is. Arguments that are not an object are never executed: the model receives a tool error for that call, and the OpenAI-compatible adapter sends a stored JSON string back as its raw text and any other value as its JSON text, so the model sees what it sent. A tool stopped by cancellation leaves its call without a result row.
 
 ## Mutation persistence
 

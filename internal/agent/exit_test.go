@@ -342,6 +342,24 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 				return store, r, err
 			},
 		},
+		{
+			name: "workflow evaluation error", wantStatus: StatusFailed, wantKind: KindConfig,
+			wantErr: func(err error) bool { return err != nil },
+			run: func(t *testing.T) (*memoryStore, Result, error) {
+				store := newState("w1")
+				// The shell outcome completes both actions, so their routes loop until the
+				// workflow's transition guard rejects the definition.
+				workflow := []byte(`{"id":"cycle","entry":"a","facts":{"go":false},"actions":{` +
+					`"a":{"allowedTools":["shell"],"outcomes":[{"when":{"tool":"shell"},"set":{"go":true}}],"completeWhen":{"fact":"go","equals":true},"routes":[{"to":"b"}]},` +
+					`"b":{"completeWhen":{"fact":"go","equals":true},"routes":[{"to":"a"}]},` +
+					`"c":{"terminal":true}}}`)
+				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+					return shellCall("t1"), nil
+				}}
+				r, err := (&Loop{Provider: provider, Store: store, Tools: fakeTools{}}).Run(context.Background(), "w1", Options{MaxSteps: 2, WorkflowJSON: workflow})
+				return store, r, err
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -431,14 +449,76 @@ func TestFinishFailureLeavesRunningRowAndNextRunRecovers(t *testing.T) {
 	}
 }
 
-func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.T) {
-	cases := map[string]string{
-		"truncated object": `{"command":`,
-		"plain text":       `rm -rf /tmp/x`,
-		"not an object":    `["a"]`,
+// A panic's terminal event follows Finish like every other exit's (design §4.1): it is
+// published once the row says failed and carries the panic's stack, and a failed Finish
+// publishes no session event.
+func TestPanicTerminalEventFollowsFinish(t *testing.T) {
+	type published struct {
+		event  Event
+		status string // the row's status when the event was published
 	}
-	for name, raw := range cases {
-		t.Run(name, func(t *testing.T) {
+	record := func(store *memoryStore, out *[]published) func(Event) {
+		return func(e Event) {
+			if strings.HasPrefix(e.Type, "session.") {
+				store.mu.Lock()
+				status := store.state.Status
+				store.mu.Unlock()
+				*out = append(*out, published{e, status})
+			}
+		}
+	}
+	exploding := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+		panic("provider exploded")
+	}}
+
+	store := newState("pe1")
+	var events []published
+	if _, err := (&Loop{Provider: exploding, Store: store, Tools: fakeTools{}, Emit: record(store, &events)}).Run(context.Background(), "pe1", Options{MaxSteps: 2}); err == nil || !strings.Contains(err.Error(), "provider exploded") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(events) != 1 || events[0].event.Type != "session.failed" || events[0].status != StatusFailed {
+		t.Fatalf("session events = %+v, want one session.failed published after the row says failed", events)
+	}
+	if stack, _ := events[0].event.Data["stack"].(string); !strings.Contains(stack, "exit_test.go") {
+		t.Fatalf("the terminal event must carry the stack of the panic, got %q", stack)
+	}
+
+	store = newState("pe2")
+	diskFull := errors.New("database or disk is full")
+	fs := &faultStore{memoryStore: store, failUpdate: func(p SessionPatch) error {
+		if p.Status != nil && *p.Status != StatusRunning {
+			return diskFull
+		}
+		return nil
+	}}
+	events = nil
+	result, err := (&Loop{Provider: exploding, Store: fs, Tools: fakeTools{}, Emit: record(store, &events)}).Run(context.Background(), "pe2", Options{MaxSteps: 2})
+	if err == nil || !strings.Contains(err.Error(), "provider exploded") || !errors.Is(err, diskFull) {
+		t.Fatalf("the error must carry the panic and the failed write, got %v", err)
+	}
+	if store.state.Status != StatusRunning || result.Status != StatusRunning {
+		t.Fatalf("a failed Finish must leave the row running: row=%q result=%q", store.state.Status, result.Status)
+	}
+	if len(events) != 0 {
+		t.Fatalf("session events published although Finish failed: %+v", events)
+	}
+}
+
+// Arguments that are not a JSON object never run the tool, get a tool error, and are
+// stored so that a JSON string always holds the model's raw text: text that is not valid
+// JSON and text that is itself a JSON string are both kept as a JSON string holding the
+// text, and other JSON is kept as is. Adapters rely on this to send the text back.
+func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.T) {
+	cases := []struct{ name, raw, stored string }{
+		{"truncated object", `{"command":`, `"{\"command\":"`},
+		{"plain text", `rm -rf /tmp/x`, `"rm -rf /tmp/x"`},
+		{"JSON string holding an object", `"{\"command\":\"x\"}"`, `"\"{\\\"command\\\":\\\"x\\\"}\""`},
+		{"null", `null`, `null`},
+		{"array", `["a"]`, `["a"]`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := tc.raw
 			store := newState("a1")
 			tools := &scriptTools{fn: func(context.Context, string, map[string]any) (protocol.ToolResult, error) {
 				return protocol.ToolResult{OK: true, Content: `{}`}, nil
@@ -463,15 +543,8 @@ func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.
 			if len(store.messages) != 4 {
 				t.Fatalf("messages = %+v", store.messages)
 			}
-			stored := store.messages[1].ToolCalls[0].Arguments
-			if !json.Valid(stored) {
-				t.Fatalf("stored arguments are not valid JSON: %s", stored)
-			}
-			if raw != `["a"]` {
-				var text string
-				if err := json.Unmarshal(stored, &text); err != nil || text != raw {
-					t.Fatalf("stored arguments = %s, want the raw text %q as a JSON string", stored, raw)
-				}
+			if stored := string(store.messages[1].ToolCalls[0].Arguments); stored != tc.stored {
+				t.Fatalf("stored arguments = %s, want %s", stored, tc.stored)
 			}
 			answer := store.messages[2]
 			if answer.Role != "tool" || answer.ToolCallID != "bad" || !strings.Contains(answer.Content, "invalid tool arguments") {

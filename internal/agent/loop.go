@@ -472,22 +472,30 @@ func (l *Loop) exit(ctx context.Context, state SessionState, usage protocol.Usag
 
 // panicExit turns a panic in the run into failed/panic. A panic before the
 // session row became "running" has nothing to finalize and only becomes an error.
+// Like every exit, the terminal event follows Finish; it also carries the stack.
 func (l *Loop) panicExit(ctx context.Context, started bool, state SessionState, usage protocol.Usage, recovered any) (Result, error) {
 	err := fmt.Errorf("panic: %v", recovered)
 	if !started {
 		return Result{}, err
 	}
-	l.emit("session.panic", state.ID, map[string]any{"error": err.Error(), "stack": string(debug.Stack())})
-	return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindPanic, Err: err})
+	stack := string(debug.Stack())
+	cause := ExitCause{Status: StatusFailed, Kind: KindPanic, Err: err}
+	if err := l.finish(ctx, state, usage, cause, nil); err != nil {
+		return finishFailure(state, usage, cause, err)
+	}
+	l.emit("session.failed", state.ID, map[string]any{"kind": cause.Kind, "error": err.Error(), "stack": stack})
+	return Result{SessionID: state.ID, Status: cause.Status, Usage: usage}, err
 }
 
-// preserveToolArguments keeps arguments that are not valid JSON as a JSON string
-// holding the raw text, so the assistant row can be stored and the model can be
-// shown its own text again. It copies the slice before changing it.
+// preserveToolArguments stores arguments that are not valid JSON, or are a JSON
+// string, as a JSON string holding the raw text, so the assistant row can be stored
+// and a stored JSON string always means "the model's raw text": adapters send that
+// text back unchanged. Other JSON is kept as is. It copies the slice before changing it.
 func preserveToolArguments(calls []protocol.ToolCall) []protocol.ToolCall {
 	var out []protocol.ToolCall
 	for i, call := range calls {
-		if len(call.Arguments) == 0 || json.Valid(call.Arguments) {
+		trimmed := bytes.TrimLeft(call.Arguments, " \t\r\n")
+		if len(call.Arguments) == 0 || (json.Valid(call.Arguments) && trimmed[0] != '"') {
 			continue
 		}
 		quoted, err := json.Marshal(string(call.Arguments))
@@ -506,7 +514,8 @@ func preserveToolArguments(calls []protocol.ToolCall) []protocol.ToolCall {
 }
 
 // parseToolArguments decodes tool call arguments, which must be a JSON object.
-// A JSON string is what preserveToolArguments stores for text that was not valid JSON.
+// A JSON string is what preserveToolArguments stores for raw text; it and every
+// other non-object value (null included) are rejected.
 func parseToolArguments(raw json.RawMessage) (map[string]any, error) {
 	args := map[string]any{}
 	if len(raw) == 0 {
