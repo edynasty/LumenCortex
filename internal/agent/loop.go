@@ -514,19 +514,16 @@ func preserveToolArguments(calls []protocol.ToolCall) []protocol.ToolCall {
 }
 
 // parseToolArguments decodes tool call arguments, which must be a JSON object.
-// A JSON string is what preserveToolArguments stores for raw text; it and every
-// other non-object value (null included) are rejected.
+// Every other top-level value (null, string, number, boolean, array) is rejected,
+// including the JSON string preserveToolArguments stores for raw text.
 func parseToolArguments(raw json.RawMessage) (map[string]any, error) {
-	args := map[string]any{}
 	if len(raw) == 0 {
-		return args, nil
+		return map[string]any{}, nil
 	}
-	var text string
-	if json.Unmarshal(raw, &text) == nil {
-		return args, errors.New("the arguments were not a JSON object; send one valid JSON object")
-	}
-	if err := json.Unmarshal(raw, &args); err != nil {
-		return args, err
+	var args map[string]any
+	// A null decodes into a nil map without an error.
+	if err := json.Unmarshal(raw, &args); err != nil || args == nil {
+		return map[string]any{}, errors.New("the arguments were not a JSON object; send one valid JSON object")
 	}
 	return args, nil
 }

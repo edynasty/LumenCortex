@@ -205,6 +205,8 @@ func TestToolArgumentTextReplaysExactlyThroughOpenAIAdapter(t *testing.T) {
 		{"double-encoded object", `"{\"path\":\".\"}"`, false},
 		{"null", `null`, false},
 		{"number", `42`, false},
+		{"exponent number", `-1.5e3`, false},
+		{"boolean", `true`, false},
 		{"array", `["."]`, false},
 	}
 	for _, tc := range cases {

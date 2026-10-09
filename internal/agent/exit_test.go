@@ -504,24 +504,42 @@ func TestPanicTerminalEventFollowsFinish(t *testing.T) {
 	}
 }
 
-// Arguments that are not a JSON object never run the tool, get a tool error, and are
-// stored so that a JSON string always holds the model's raw text: text that is not valid
-// JSON and text that is itself a JSON string are both kept as a JSON string holding the
-// text, and other JSON is kept as is. Adapters rely on this to send the text back.
+// Only a top-level JSON object runs the tool. Every other value, and text that is not
+// valid JSON, gets the same tool error and is never executed. Arguments are stored so
+// that a JSON string always holds the model's raw text: text that is not valid JSON and
+// text that is itself a JSON string are both kept as a JSON string holding the text, and
+// other JSON is kept as is. Adapters rely on this to send the text back.
 func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.T) {
-	cases := []struct{ name, raw, stored string }{
-		{"truncated object", `{"command":`, `"{\"command\":"`},
-		{"plain text", `rm -rf /tmp/x`, `"rm -rf /tmp/x"`},
-		{"JSON string holding an object", `"{\"command\":\"x\"}"`, `"\"{\\\"command\\\":\\\"x\\\"}\""`},
-		{"null", `null`, `null`},
-		{"array", `["a"]`, `["a"]`},
+	const rejected = `{"error":"invalid tool arguments: the arguments were not a JSON object; send one valid JSON object"}`
+	cases := []struct {
+		name, raw, stored string
+		executes          bool
+	}{
+		{"valid object", `{"command":"x"}`, `{"command":"x"}`, true},
+		{"empty object", `{}`, `{}`, true},
+		{"truncated object", `{"command":`, `"{\"command\":"`, false},
+		{"plain text", `rm -rf /tmp/x`, `"rm -rf /tmp/x"`, false},
+		{"JSON string", `"x"`, `"\"x\""`, false},
+		{"JSON string holding an object", `"{\"command\":\"x\"}"`, `"\"{\\\"command\\\":\\\"x\\\"}\""`, false},
+		{"null", `null`, `null`, false},
+		{"null with whitespace", ` null `, ` null `, false},
+		{"true", `true`, `true`, false},
+		{"false", `false`, `false`, false},
+		{"positive number", `42`, `42`, false},
+		{"negative number", `-7`, `-7`, false},
+		{"exponent number", `-1.5e3`, `-1.5e3`, false},
+		{"array", `["a"]`, `["a"]`, false},
+		{"array of objects", `[{"command":"x"}]`, `[{"command":"x"}]`, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			raw := tc.raw
 			store := newState("a1")
-			tools := &scriptTools{fn: func(context.Context, string, map[string]any) (protocol.ToolResult, error) {
-				return protocol.ToolResult{OK: true, Content: `{}`}, nil
+			tools := &scriptTools{fn: func(_ context.Context, _ string, args map[string]any) (protocol.ToolResult, error) {
+				if args == nil {
+					t.Error("the tool received nil arguments")
+				}
+				return protocol.ToolResult{OK: true, Content: `{"ran":true}`}, nil
 			}}
 			provider := &funcProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 				if n == 1 {
@@ -536,10 +554,14 @@ func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.
 				t.Fatal(err)
 			}
 			assertExit(t, store, result, StatusCompleted, "")
-			if tools.executed != 0 {
-				t.Fatalf("a call with invalid arguments was executed %d times", tools.executed)
+			want, wantContent := 0, rejected
+			if tc.executes {
+				want, wantContent = 1, `{"ran":true}`
 			}
-			// goal, assistant call, tool error, final answer
+			if tools.executed != want {
+				t.Fatalf("executed %d times, want %d", tools.executed, want)
+			}
+			// goal, assistant call, tool result, final answer
 			if len(store.messages) != 4 {
 				t.Fatalf("messages = %+v", store.messages)
 			}
@@ -547,11 +569,8 @@ func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.
 				t.Fatalf("stored arguments = %s, want %s", stored, tc.stored)
 			}
 			answer := store.messages[2]
-			if answer.Role != "tool" || answer.ToolCallID != "bad" || !strings.Contains(answer.Content, "invalid tool arguments") {
-				t.Fatalf("tool answer = %+v", answer)
-			}
-			if !json.Valid([]byte(answer.Content)) {
-				t.Fatalf("tool error is not valid JSON: %s", answer.Content)
+			if answer.Role != "tool" || answer.ToolCallID != "bad" || answer.Content != wantContent {
+				t.Fatalf("tool answer = %+v, want content %s", answer, wantContent)
 			}
 		})
 	}
