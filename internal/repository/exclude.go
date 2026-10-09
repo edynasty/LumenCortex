@@ -12,9 +12,20 @@ func (s *Service) EnsureLocalExclude(ctx context.Context, target string) error {
 	if err != nil {
 		return err
 	}
+	// git resolves symlinks when reporting the repository root, while the
+	// target may keep a symlinked prefix (macOS TMPDIR: /var → /private/var).
+	// Resolve both sides before Rel, or the pattern is silently skipped (F3).
 	target, err = filepath.Abs(target)
 	if err != nil {
 		return err
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(target); resolveErr == nil {
+		target = resolved
+	} else if !os.IsNotExist(resolveErr) {
+		return resolveErr
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(root); resolveErr == nil {
+		root = resolved
 	}
 	rel, err := filepath.Rel(root, target)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
