@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -195,6 +196,7 @@ const (
 	helperHold    = "hold"
 	helperOpen    = "open"
 	helperCrashAt = "crash-after-commit"
+	helperScrub   = "crash-in-scrub"
 )
 
 // TestHelperProcess is the child of the cross-process tests; it does nothing in a normal run.
@@ -202,6 +204,8 @@ const (
 //	hold:               Open (holding db.lock shared), report "held", sleep until killed.
 //	open:               Open, report "from to", Close, exit 0.
 //	crash-after-commit: migrate and die with exit 9 right after the first migration commits.
+//	crash-in-scrub:     run the backup scrub on the .partial named by the dir variable and die with
+//	                    exit 9 inside its transaction, leaving the hot rollback journal behind.
 func TestHelperProcess(t *testing.T) {
 	mode, dir := os.Getenv(helperEnv), os.Getenv(helperDirEnv)
 	if mode == "" {
@@ -209,6 +213,9 @@ func TestHelperProcess(t *testing.T) {
 	}
 	if mode == helperCrashAt {
 		testHookAfterCommit = func(int) { os.Exit(9) }
+	}
+	if mode == helperScrub {
+		crashInScrub(dir)
 	}
 	set, err := Embedded()
 	if err != nil {
@@ -414,6 +421,61 @@ func TestBackupPartialCleanup(t *testing.T) {
 	}
 	if got := backups(t, dir); len(got) != 1 || strings.HasSuffix(got[0], ".partial") {
 		t.Errorf("backups=%v, want exactly one durable backup and no .partial", got)
+	}
+}
+
+// crashInScrub performs scrubReasoning's write on partial with the same connection settings and dies
+// before the transaction commits, as a crash during the backup scrub does.
+func crashInScrub(partial string) {
+	db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(partial)+"?_journal_mode=DELETE&_synchronous=FULL")
+	if err != nil {
+		fmt.Println("error", err)
+		os.Exit(2)
+	}
+	db.SetMaxOpenConns(1)
+	for _, stmt := range []string{`PRAGMA secure_delete = ON`, `PRAGMA cache_size = 1`, `BEGIN`, scrubStatement} {
+		if _, err := db.Exec(stmt); err != nil {
+			fmt.Println("error", err)
+			os.Exit(2)
+		}
+	}
+	os.Exit(9)
+}
+
+// TestScrubCrashLeavesNoReasoning: a crash during the backup scrub leaves the .partial copy and its
+// hot rollback journal, which holds the original pages with the reasoning. The next migration must
+// delete both, so no file in backups/ keeps reasoning bytes.
+func TestScrubCrashLeavesNoReasoning(t *testing.T) {
+	dir := newFixture(t, fixtureGo)
+	bdir := filepath.Join(dir, "backups")
+	if err := os.MkdirAll(bdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	partial := filepath.Join(bdir, "lumencortex.db.v0.20200101T000000Z.partial")
+	mustExec(t, inspect(t, filepath.Join(dir, dbFile)), `VACUUM INTO '`+partial+`'`)
+	err := helper(t, helperScrub, partial).Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 9 {
+		t.Fatalf("helper: err=%v, want exit 9", err)
+	}
+	journal, err := os.ReadFile(partial + "-journal")
+	if err != nil || !bytes.Contains(journal, []byte(sentinel)) {
+		t.Fatalf("the crash left no journal holding the sentinel (err=%v); the test would prove nothing", err)
+	}
+
+	closeWS(t, open(t, dir, embeddedSet(t)))
+	got := backups(t, dir)
+	if len(got) != 1 || strings.Contains(got[0], ".partial") {
+		t.Errorf("backups=%v, want exactly one durable backup and nothing of the interrupted attempt", got)
+	}
+	for _, name := range got {
+		raw, err := os.ReadFile(filepath.Join(bdir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(raw, []byte(sentinel)) {
+			t.Errorf("reasoning bytes in backups/%s", name)
+		}
 	}
 }
 

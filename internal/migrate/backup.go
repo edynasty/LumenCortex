@@ -50,11 +50,11 @@ func backup(ctx context.Context, conn *sql.Conn, stateDir string, version int) e
 	}
 	final, partial := backupNames(backupDir, version)
 	if _, err := conn.ExecContext(ctx, `VACUUM INTO '`+strings.ReplaceAll(partial, "'", "''")+`'`); err != nil {
-		_ = os.Remove(partial)
+		removePartial(partial)
 		return fmt.Errorf("backup before schema change: %w", err)
 	}
 	if err := finishBackup(ctx, partial, final); err != nil {
-		_ = os.Remove(partial)
+		removePartial(partial)
 		return fmt.Errorf("backup before schema change: %w", err)
 	}
 	return syncDir(backupDir)
@@ -90,7 +90,20 @@ func backupNames(dir string, version int) (final, partial string) {
 	}
 }
 
-// removePartials deletes the *.partial files of interrupted backup attempts.
+// partialSuffixes name an interrupted backup attempt: the .partial copy and the files SQLite keeps
+// beside it while the scrub runs. A crash during the scrub leaves <partial>-journal, a hot rollback
+// journal that holds the original pages — reasoning included.
+var partialSuffixes = []string{".partial", ".partial-journal", ".partial-wal", ".partial-shm"}
+
+// removePartial deletes one backup attempt and its SQLite side files.
+func removePartial(partial string) {
+	for _, suffix := range partialSuffixes[1:] {
+		_ = os.Remove(strings.TrimSuffix(partial, ".partial") + suffix)
+	}
+	_ = os.Remove(partial)
+}
+
+// removePartials deletes every file of interrupted backup attempts (partialSuffixes).
 func removePartials(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -100,13 +113,23 @@ func removePartials(dir string) error {
 		return err
 	}
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".partial") {
-			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !os.IsNotExist(err) {
-				return err
-			}
+		if e.IsDir() || !hasPartialSuffix(e.Name()) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !os.IsNotExist(err) {
+			return err
 		}
 	}
 	return nil
+}
+
+func hasPartialSuffix(name string) bool {
+	for _, suffix := range partialSuffixes {
+		if strings.HasSuffix(name, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // scrubReasoning opens the .partial backup in rollback-journal mode and removes provider reasoning

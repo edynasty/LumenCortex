@@ -591,3 +591,92 @@ func TestLegacyNodeDatabaseIsRefusedUntouched(t *testing.T) {
 		check(t, err)
 	})
 }
+
+// hotWALCopy applies change to the database in dir through a connection that stays open, so the
+// frames remain in lumencortex.db-wal, and returns a copy of the database and its WAL taken in that
+// state: what a crashed owner leaves behind.
+func hotWALCopy(t *testing.T, dir string, change string) string {
+	t.Helper()
+	mustExec(t, inspect(t, filepath.Join(dir, dbFile)), change)
+	out := t.TempDir()
+	for _, name := range []string{dbFile, dbFile + "-wal"} {
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(out, name), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return out
+}
+
+// TestRefusalLeavesHotWALUntouched: a refused database whose previous owner crashed still has frames
+// in its WAL. The refusal must leave the main file and the WAL byte-identical; the last read-write
+// connection to close would instead checkpoint the frames into the main file and delete the WAL.
+func TestRefusalLeavesHotWALUntouched(t *testing.T) {
+	migrated := func(t *testing.T) string {
+		dir := newFixture(t, fixtureGo)
+		closeWS(t, open(t, dir, embeddedSet(t)))
+		return dir
+	}
+	cases := []struct {
+		name   string
+		dir    func(t *testing.T) string
+		refuse func(dir string) error
+		want   error
+	}{
+		{"node shared open", func(t *testing.T) string { return newFixtureWithWAL(t, fixtureNode) },
+			func(dir string) error { _, err := Open(context.Background(), dir, embeddedSet(t)); return err },
+			ErrLegacyNodeDatabase},
+		{"node exclusive upgrade", func(t *testing.T) string { return newFixtureWithWAL(t, fixtureNode) },
+			func(dir string) error {
+				_, _, err := upgradeLocked(context.Background(), filepath.Join(dir, dbFile), dir, embeddedSet(t))
+				return err
+			},
+			ErrLegacyNodeDatabase},
+		{"schema too new", func(t *testing.T) string { return hotWALCopy(t, migrated(t), `PRAGMA user_version = 9`) },
+			func(dir string) error { _, err := Open(context.Background(), dir, embeddedSet(t)); return err },
+			ErrSchemaTooNew},
+		{"downgrade to 0", func(t *testing.T) string {
+			return hotWALCopy(t, migrated(t), `INSERT INTO journal(at, event, payload_json) VALUES('2026-10-11T00:00:00Z', 'hot', '{}')`)
+		},
+			func(dir string) error {
+				_, _, err := Downgrade(context.Background(), dir, embeddedSet(t), 0)
+				return err
+			},
+			ErrNoDownMigration},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := tc.dir(t)
+			if st, err := os.Stat(filepath.Join(dir, dbFile+"-wal")); err != nil || st.Size() == 0 {
+				t.Fatalf("fixture has no WAL frames (stat: %v); the test would prove nothing", err)
+			}
+			hashes := fileHashes(t, dir, stateFiles...)
+			if err := tc.refuse(dir); !errors.Is(err, tc.want) {
+				t.Fatalf("err=%v, want %v", err, tc.want)
+			}
+			if got := fileHashes(t, dir, stateFiles...); !reflect.DeepEqual(got, hashes) {
+				t.Errorf("the refusal changed or removed the database or its WAL: %d of %d files left identical",
+					sameHashes(got, hashes), len(hashes))
+			}
+			if got := backups(t, dir); len(got) != 0 {
+				t.Errorf("backups=%v written for a refused database", got)
+			}
+			if _, err := os.Stat(filepath.Join(dir, pendingMarker)); !os.IsNotExist(err) {
+				t.Errorf("marker written for a refused database (stat: %v)", err)
+			}
+		})
+	}
+}
+
+func sameHashes(got, want map[string][32]byte) int {
+	n := 0
+	for k, h := range want {
+		if got[k] == h {
+			n++
+		}
+	}
+	return n
+}

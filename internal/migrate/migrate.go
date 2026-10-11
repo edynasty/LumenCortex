@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -203,6 +204,43 @@ func rejectLegacyNode(ctx context.Context, q querier, path string) error {
 	return nil
 }
 
+// checkVersion reads user_version and refuses what this binary must not touch: a newer schema
+// (ErrSchemaTooNew) and, below the latest version, a Node database (ErrLegacyNodeDatabase), so that a
+// refused file — main file and WAL — is left byte-identical. The last read-write connection to a WAL
+// database checkpoints the WAL into the main file and deletes it when it closes, so a WAL that exists
+// (frames a crashed owner left) is read through a read-only connection, which cannot. Without a WAL
+// file a read-write connection is used: a read-only one would create an empty -wal and -shm it cannot
+// remove, while a read-write one removes them on close and, with no frames, writes nothing. A missing
+// database file is version 0 with nothing to refuse.
+func checkVersion(ctx context.Context, path string, latest int) (int, error) {
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	source := fmt.Sprintf("file:%s?mode=ro&_busy_timeout=%d", filepath.ToSlash(path), busyTimeoutMS)
+	if _, err := os.Stat(path + "-wal"); errors.Is(err, fs.ErrNotExist) {
+		source = dsn(path)
+	}
+	db, err := sql.Open("sqlite3", source)
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	v, err := userVersion(ctx, db)
+	if err != nil {
+		return 0, err
+	}
+	switch {
+	case v > latest:
+		return v, fmt.Errorf("%w: have user_version %d, binary knows %d", ErrSchemaTooNew, v, latest)
+	case v < latest:
+		if err := rejectLegacyNode(ctx, db, path); err != nil {
+			return v, err
+		}
+	}
+	return v, nil
+}
+
 // useWAL puts the database in WAL mode, as core always has. It writes the header only when the file
 // is not WAL yet.
 func useWAL(ctx context.Context, q querier) error {
@@ -230,37 +268,30 @@ var testHookAfterCommit func(version int)
 // A database that is already current is only touched when checkpoint.pending says an earlier run
 // stopped before the rebuild that removes stripped reasoning from free space (see scrubKind).
 func upgradeLocked(ctx context.Context, path, stateDir string, set *Set) (from, to int, err error) {
-	db, err := openDB(path)
+	// Before the journal mode, the backup or any write: a newer or a Node database is refused untouched.
+	v, err := checkVersion(ctx, path, set.Latest())
 	if err != nil {
-		return 0, 0, err
-	}
-	defer db.Close()
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer conn.Close()
-
-	v, err := userVersion(ctx, conn)
-	if err != nil {
-		return 0, 0, err
-	}
-	if v > set.Latest() {
-		return v, v, fmt.Errorf("%w: have user_version %d, binary knows %d", ErrSchemaTooNew, v, set.Latest())
+		return v, v, err
 	}
 	pending, err := readMarker(stateDir)
 	if err != nil {
 		return v, v, err
 	}
-	if v == set.Latest() {
-		if pending == markerVacuum {
-			err = finishScrub(ctx, conn, stateDir, pending)
-		}
+	if v == set.Latest() && pending != markerVacuum {
+		return v, v, nil
+	}
+	db, err := openDB(path)
+	if err != nil {
 		return v, v, err
 	}
-	// Before the journal mode, the backup or any write: a Node database is refused untouched.
-	if err := rejectLegacyNode(ctx, conn, path); err != nil {
+	defer db.Close()
+	conn, err := db.Conn(ctx)
+	if err != nil {
 		return v, v, err
+	}
+	defer conn.Close()
+	if v == set.Latest() {
+		return v, v, finishScrub(ctx, conn, stateDir, pending)
 	}
 	if err := useWAL(ctx, conn); err != nil {
 		return v, v, err
@@ -392,24 +423,13 @@ func Downgrade(ctx context.Context, stateDir string, set *Set, to int) (from, no
 	}
 	defer lock.Release()
 
-	db, err := openDB(path)
+	// Validate the request before the read-write pool opens (checkVersion): a refused or no-op
+	// downgrade leaves the main file and the WAL byte-identical.
+	v, err := checkVersion(ctx, path, set.Latest())
 	if err != nil {
-		return 0, 0, err
-	}
-	defer db.Close()
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer conn.Close()
-
-	v, err := userVersion(ctx, conn)
-	if err != nil {
-		return 0, 0, err
+		return v, v, err
 	}
 	switch {
-	case v > set.Latest():
-		return v, v, fmt.Errorf("%w: have user_version %d, binary knows %d", ErrSchemaTooNew, v, set.Latest())
 	case to < 0 || to > v:
 		return v, v, fmt.Errorf("cannot downgrade to version %d: database is at version %d", to, v)
 	case to == v:
@@ -420,6 +440,17 @@ func Downgrade(ctx context.Context, stateDir string, set *Set, to int) (from, no
 			return v, v, fmt.Errorf("%w for version %04d (%s): database stays at version %d", ErrNoDownMigration, i, set.up[i-1].name, v)
 		}
 	}
+
+	db, err := openDB(path)
+	if err != nil {
+		return v, v, err
+	}
+	defer db.Close()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return v, v, err
+	}
+	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, `PRAGMA secure_delete = ON`); err != nil {
 		return v, v, err
 	}

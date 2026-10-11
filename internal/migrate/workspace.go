@@ -138,22 +138,18 @@ func openShared(ctx context.Context, path, stateDir string, set *Set, shared *ru
 		shared.Release()
 		return nil, v, need, err
 	}
+	// A newer or a Node database is refused, and an older one released for migration, before the
+	// read-write pool opens: its close would checkpoint and delete a WAL the refused file still has.
+	v, err := checkVersion(ctx, path, set.Latest())
+	if err != nil {
+		return fail(nil, v, needNothing, err)
+	}
+	if v < set.Latest() {
+		return fail(nil, v, needMigrate, nil)
+	}
 	db, err := openDB(path)
 	if err != nil {
-		return fail(nil, 0, needNothing, err)
-	}
-	v, err := userVersion(ctx, db)
-	if err != nil {
-		return fail(db, 0, needNothing, err)
-	}
-	switch {
-	case v > set.Latest():
-		return fail(db, v, needNothing, fmt.Errorf("%w: have user_version %d, binary knows %d", ErrSchemaTooNew, v, set.Latest()))
-	case v < set.Latest():
-		if err := rejectLegacyNode(ctx, db, path); err != nil {
-			return fail(db, v, needNothing, err)
-		}
-		return fail(db, v, needMigrate, nil)
+		return fail(nil, v, needNothing, err)
 	}
 	kind, err := readMarker(stateDir)
 	if err != nil {
