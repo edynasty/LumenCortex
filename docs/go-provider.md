@@ -40,6 +40,16 @@ result, err := engine.RunAgent(ctx, sessionID, provider, runtime.AgentOptions{
 })
 ```
 
+### Run ownership and host messages
+
+A session run has one owner across processes. `RunSupervisor.Start` and `Engine.RunAgent` take `<state>/runs/<session-id>.lock` (an advisory kernel lock released when the owner exits, `kill -9` included) and return `runtime.ErrRunHeld`, having written nothing, when another Engine in this or another process holds it. Session deletion (`Engine.DeleteSession`) and `Engine.ApproveWorkflowGate` take the same lock. `status = running` is not evidence of a live run: `runtime.Open` reconciles a running session only after it has taken that session's free lock.
+
+At every Start, after the lock and before anything is appended, core reconciles the transcript: unanswered tool calls at the tail get a runtime tool row (`origin: tool_interrupted`), and a session still marked `running` becomes `interrupted` with kind `stale_run_recovered`.
+
+Hosts add transcript rows only through `SessionOptions.Input` (the first row, written when the session is created; the goal when empty) and `AgentOptions.Input` (a user message appended by Start after Reconcile). `ApproveWorkflowGate` changes workflow state only; call Start afterwards to continue.
+
+Rows the runtime writes carry `origin` in their stored JSON (`tool_interrupted`, `completion_blocked`). Provider adapters never send it.
+
 For non-standard providers, prefer setting `Endpoint` to the exact chat-completions URL. `BaseURL` is also supported and appends `/chat/completions`.
 
 ## Preview CLI

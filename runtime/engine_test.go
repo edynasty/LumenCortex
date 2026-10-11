@@ -29,9 +29,6 @@ func TestEnginePersistsSessionAndStreamsEvents(t *testing.T) {
 	if info.Status != "created" {
 		t.Fatalf("new session status=%q, want created", info.Status)
 	}
-	if _, err := handle.AppendMessage(ctx, "user", map[string]string{"content": "hello"}); err != nil {
-		t.Fatal(err)
-	}
 	messages, err := handle.RecentMessages(ctx, 1)
 	if err != nil || len(messages) != 1 {
 		t.Fatalf("recent messages: len=%d err=%v", len(messages), err)

@@ -248,7 +248,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 				}
-				correction := protocol.Message{Role: "user", Content: "Workflow contract rejected completion: " + reason + ". Continue the current action and obtain the required evidence or gate approval."}
+				correction := protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked, Content: "Workflow contract rejected completion: " + reason + ". Continue the current action and obtain the required evidence or gate approval."}
 				if _, err := l.Store.AppendMessage(ctx, sessionID, correction); err != nil {
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 				}
@@ -266,7 +266,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 				}
-				correction := protocol.Message{Role: "user", Content: workUnitCompletionCorrection(remaining)}
+				correction := protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked, Content: workUnitCompletionCorrection(remaining)}
 				if _, err := l.Store.AppendMessage(ctx, sessionID, correction); err != nil {
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 				}
@@ -380,6 +380,16 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		})
 	}
 	return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindMaxSteps, Err: fmt.Errorf("agent reached max steps: %d", opts.MaxSteps)})
+}
+
+// CheckStart reports the validation errors a run start can detect before it
+// writes anything: an invalid or conflicting workflow or work-unit seed.
+func CheckStart(metadata map[string]any, opts Options) error {
+	if _, err := restoreWorkflow(metadata, opts.WorkflowJSON); err != nil {
+		return err
+	}
+	_, err := restoreWorkUnits(metadata, opts.WorkUnitsJSON)
+	return err
 }
 
 func (l *Loop) ensureInitialMessage(ctx context.Context, state SessionState) error {

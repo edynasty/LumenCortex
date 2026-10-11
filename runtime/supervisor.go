@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sort"
 	"sync"
@@ -13,7 +12,6 @@ import (
 )
 
 var (
-	ErrRunAlreadyActive     = errors.New("agent run is already active for this session")
 	ErrRunSupervisorClosed  = errors.New("run supervisor is closed")
 	ErrAgentLimitExceeded   = resource.ErrAgentLimitExceeded
 )
@@ -53,18 +51,22 @@ func NewRunSupervisor(engine *Engine) (*RunSupervisor, error) {
 	}, nil
 }
 
+// Start begins an agent run and returns once its goroutine has started.
+//
+//	take the run lock → Reconcile → validate → append opts.Input → loop
+//
+// When another Engine (in this process or another) holds the session's run lock,
+// including this supervisor's own active run, Start returns ErrRunHeld and writes
+// nothing. The lock is held until the run has persisted its terminal status, and
+// is released on every exit path.
 func (s *RunSupervisor) Start(
 	ctx context.Context,
 	sessionID string,
 	provider protocol.Provider,
 	opts AgentOptions,
-) (SessionInfo, error) {
+) (info SessionInfo, err error) {
 	if provider == nil {
 		return SessionInfo{}, errors.New("provider is required")
-	}
-	_, info, err := s.engine.Session(ctx, sessionID)
-	if err != nil {
-		return SessionInfo{}, err
 	}
 
 	s.mu.Lock()
@@ -72,15 +74,24 @@ func (s *RunSupervisor) Start(
 		s.mu.Unlock()
 		return SessionInfo{}, ErrRunSupervisorClosed
 	}
-	if _, ok := s.runs[sessionID]; ok {
-		s.mu.Unlock()
-		return SessionInfo{}, ErrRunAlreadyActive
+	s.mu.Unlock()
+
+	lock, err := s.engine.acquireRun(ctx, sessionID)
+	if err != nil {
+		return SessionInfo{}, err
 	}
 	releaseAgent, err := s.engine.resources.AcquireAgent()
 	if err != nil {
-		s.mu.Unlock()
+		_ = lock.Release()
 		return SessionInfo{}, err
 	}
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			releaseAgent()
+			_ = lock.Release()
+		}
+	}()
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	run := &managedRun{
@@ -89,16 +100,26 @@ func (s *RunSupervisor) Start(
 		startedAt:    time.Now().UTC(),
 		releaseAgent: releaseAgent,
 	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		cancel()
+		return SessionInfo{}, ErrRunSupervisorClosed
+	}
 	s.runs[sessionID] = run
 	s.mu.Unlock()
+	defer func() {
+		if !handedOff {
+			s.mu.Lock()
+			if s.runs[sessionID] == run {
+				delete(s.runs, sessionID)
+			}
+			s.mu.Unlock()
+			cancel()
+			close(run.done)
+		}
+	}()
 
-	info.Status = "running"
-	if info.Model == "" {
-		info.Model = provider.Model()
-	}
-	if info.Provider == "" && opts.ProviderName != "" {
-		info.Provider = opts.ProviderName
-	}
 	if !opts.disableSubagents && opts.subagents == nil {
 		opts.subagents = &subagentController{
 			supervisor: s,
@@ -107,30 +128,47 @@ func (s *RunSupervisor) Start(
 			parentOpts: opts,
 		}
 	}
+	prepared, err := s.engine.prepareRun(ctx, sessionID, provider, opts)
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	_, info, err = s.engine.Session(ctx, sessionID)
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	info.Status = "running"
+	handedOff = true
 
 	s.engine.events.publish("run.started", sessionID, map[string]any{
 		"startedAt": run.startedAt,
 	})
 
 	go func() {
-		_, runErr := s.engine.RunAgent(runCtx, sessionID, provider, opts)
+		var runErr error
+		// Cleanup order: the loop has already persisted the terminal status and
+		// published its terminal event; the lock is released before the run leaves
+		// the supervisor, so a host that sees the run stopped can Start again.
+		defer func() {
+			_ = lock.Release()
+			s.mu.Lock()
+			if current, ok := s.runs[sessionID]; ok && current == run {
+				delete(s.runs, sessionID)
+			}
+			s.mu.Unlock()
+			run.releaseAgent()
+			cancel()
+			close(run.done)
 
-		s.mu.Lock()
-		if current, ok := s.runs[sessionID]; ok && current == run {
-			delete(s.runs, sessionID)
-		}
-		s.mu.Unlock()
-		run.releaseAgent()
-		close(run.done)
-
-		data := map[string]any{}
-		if runErr != nil {
-			data["error"] = runErr.Error()
-		}
-		s.engine.events.publish("run.stopped", sessionID, data)
-		if opts.parentSessionID != "" {
-			s.engine.checkpointSubagentStop(opts.parentSessionID, sessionID, runErr)
-		}
+			data := map[string]any{}
+			if runErr != nil {
+				data["error"] = runErr.Error()
+			}
+			s.engine.events.publish("run.stopped", sessionID, data)
+			if opts.parentSessionID != "" {
+				s.engine.checkpointSubagentStop(opts.parentSessionID, sessionID, runErr)
+			}
+		}()
+		_, runErr = prepared.execute(runCtx)
 	}()
 
 	return info, nil
@@ -197,24 +235,4 @@ func (s *RunSupervisor) Close() {
 	for _, run := range runs {
 		<-run.done
 	}
-}
-
-
-func (e *Engine) RecoverStaleRuns(ctx context.Context) (int64, error) {
-	errorJSON, err := json.Marshal(map[string]any{
-		"message": "previous process ended while the agent run was active",
-		"kind":    "stale_run_recovered",
-		"at":      time.Now().UTC().Format(time.RFC3339Nano),
-	})
-	if err != nil {
-		return 0, err
-	}
-	count, err := e.store.InterruptRunning(ctx, errorJSON)
-	if err != nil {
-		return 0, err
-	}
-	if count > 0 {
-		e.events.publish("run.recovered_stale", "", map[string]any{"count": count})
-	}
-	return count, nil
 }

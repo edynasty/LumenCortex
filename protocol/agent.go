@@ -5,12 +5,25 @@ import (
 	"encoding/json"
 )
 
+// Origins of rows the runtime itself wrote to the transcript. Origin is a field
+// of the stored message JSON; provider adapters never send it.
+const (
+	// OriginToolInterrupted marks a tool row that reconciliation appended for a
+	// call whose result was never saved.
+	OriginToolInterrupted = "tool_interrupted"
+	// OriginCompletionBlocked marks a user row the completion gate appended when it
+	// refused the model's completion proposal.
+	OriginCompletionBlocked = "completion_blocked"
+)
+
 type Message struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content,omitempty"`
 	Name       string     `json:"name,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	// Origin is set only on rows the runtime wrote (see the Origin constants).
+	Origin string `json:"origin,omitempty"`
 }
 
 type ToolCall struct {

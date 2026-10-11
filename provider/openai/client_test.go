@@ -166,3 +166,24 @@ func TestToolCallArgumentsReturnToModelAsText(t *testing.T) {
 		}
 	}
 }
+
+// Origin marks rows the runtime wrote to the transcript. It is stored message
+// state, never a provider protocol field: neither the request body nor a message in
+// it may carry it.
+func TestRuntimeRowOriginIsNotSentToTheProvider(t *testing.T) {
+	history := []protocol.Message{
+		{Role: "user", Content: "goal"},
+		{Role: "assistant", ToolCalls: []protocol.ToolCall{{ID: "c1", Name: "shell", Arguments: json.RawMessage(`{}`)}}},
+		{Role: "tool", ToolCallID: "c1", Name: "shell", Content: "interrupted", Origin: protocol.OriginToolInterrupted},
+		{Role: "user", Content: "blocked", Origin: protocol.OriginCompletionBlocked},
+	}
+	for _, stream := range []bool{false, true} {
+		raw, err := json.Marshal(requestFromProtocol("m", protocol.ProviderRequest{Messages: history}, stream, ""))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "origin") || strings.Contains(string(raw), protocol.OriginToolInterrupted) {
+			t.Fatalf("stream=%v: origin reached the wire: %s", stream, raw)
+		}
+	}
+}

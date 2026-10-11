@@ -195,6 +195,9 @@ func TestLoopRejectsPrematureFinal(t *testing.T) {
 	for _, m := range store.messages {
 		if m.Role == "user" && len(m.Content) > 0 && m.Content[:min(8, len(m.Content))] == "Workflow" {
 			found = true
+			if m.Origin != protocol.OriginCompletionBlocked {
+				t.Fatalf("workflow correction origin=%q, want completion_blocked", m.Origin)
+			}
 		}
 	}
 	if !found {
@@ -482,6 +485,9 @@ func TestLoopWorkUnitBlocksPrematureFinalUntilEvidenceAndVerificationPass(t *tes
 	for _, message := range store.messages {
 		if message.Role == "user" && strings.Contains(message.Content, "Work Unit completion gate rejected") {
 			foundCorrection = true
+			if message.Origin != protocol.OriginCompletionBlocked {
+				t.Fatalf("work unit correction origin=%q, want completion_blocked", message.Origin)
+			}
 			break
 		}
 	}

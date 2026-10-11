@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,13 +18,19 @@ import (
 	"github.com/edynasty/LumenCortex/internal/mcp"
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/resource"
+	"github.com/edynasty/LumenCortex/internal/runlock"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/skills"
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/streambuf"
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 const GoRuntimePreviewVersion = "0.1.0-preview"
+
+// ErrRunHeld reports that another Engine, in this process or another, holds the
+// session's run lock. Nothing was written.
+var ErrRunHeld = errors.New("run is active in another process or engine")
 
 type Budget struct {
 	SoftBytes int64 `json:"softBytes"`
@@ -107,7 +114,10 @@ type ShellResult struct {
 }
 
 type SessionOptions struct {
-	Goal     string         `json:"goal"`
+	Goal string `json:"goal"`
+	// Input is the session's first transcript row, written in the transaction that
+	// creates the session. When empty the goal is the first row.
+	Input    string         `json:"input,omitempty"`
 	Provider string         `json:"provider,omitempty"`
 	Model    string         `json:"model,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
@@ -173,7 +183,7 @@ func Open(opts Options) (*Engine, error) {
 		worktreeRoot = filepath.Join(filepath.Dir(gitRoot), "."+filepath.Base(gitRoot)+".lumencortex-worktrees")
 		_ = repoService.EnsureLocalExclude(context.Background(), repoDir)
 	}
-	return &Engine{
+	engine := &Engine{
 		workspace:    workspace,
 		repoDir:      repoDir,
 		worktreeRoot: worktreeRoot,
@@ -193,7 +203,70 @@ func Open(opts Options) (*Engine, error) {
 			FailureThreshold: 3,
 			Cooldown: 30 * time.Second,
 		}),
-	}, nil
+	}
+	if err := engine.reconcileRunning(context.Background()); err != nil {
+		_ = engine.Close()
+		return nil, err
+	}
+	return engine, nil
+}
+
+// runDir is where the per-session run locks live, beside the database.
+func (e *Engine) runDir() string { return filepath.Join(e.repoDir, "runs") }
+
+// acquireRun takes the session's run lock without blocking. It returns
+// session.ErrNotFound for an unknown session and ErrRunHeld when the lock is held.
+func (e *Engine) acquireRun(ctx context.Context, sessionID string) (*runlock.Lock, error) {
+	if _, err := e.store.Get(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	lock, err := runlock.TryAcquire(e.runDir(), sessionID)
+	if errors.Is(err, runlock.ErrHeld) {
+		return nil, ErrRunHeld
+	}
+	return lock, err
+}
+
+// reconcileRunning reconciles every session whose durable status is "running"
+// and whose run lock is free: nobody is running it, so its status and tail gap
+// are residue of a dead process. A held lock means the run is live elsewhere and
+// the session is left alone.
+func (e *Engine) reconcileRunning(ctx context.Context) error {
+	ids, err := e.store.RunningSessionIDs(ctx)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		lock, err := runlock.TryAcquire(e.runDir(), id)
+		if errors.Is(err, runlock.ErrHeld) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		_, err = e.store.Reconcile(ctx, id)
+		err = errors.Join(err, lock.Release())
+		if err != nil {
+			return fmt.Errorf("reconcile session %s: %w", id, err)
+		}
+	}
+	return nil
+}
+
+// DeleteSession removes a session and its transcript. It takes the session's run
+// lock and returns ErrRunHeld while a run holds it.
+func (e *Engine) DeleteSession(ctx context.Context, sessionID string) error {
+	lock, err := e.acquireRun(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	err = e.store.Delete(ctx, sessionID)
+	if releaseErr := lock.Release(); err != nil || releaseErr != nil {
+		return errors.Join(err, releaseErr)
+	}
+	_ = runlock.Remove(e.runDir(), sessionID)
+	_ = e.store.Journal(ctx, "session.delete", map[string]any{"sessionId": sessionID})
+	return nil
 }
 
 func (e *Engine) Close() error {
@@ -254,7 +327,9 @@ func newSessionID() (string, error) {
 	return "session_" + hex.EncodeToString(buf), nil
 }
 
-// NewSession creates a session. opts.Metadata is host-owned: it cannot set the
+// NewSession creates a session and writes its first transcript row (opts.Input,
+// else the goal) in the same transaction. A goal that is empty after
+// strings.TrimSpace is rejected. opts.Metadata is host-owned: it cannot set the
 // core-owned keys runtime or subagent.
 func (e *Engine) NewSession(ctx context.Context, opts SessionOptions) (*SessionHandle, error) {
 	if opts.Metadata != nil {
@@ -271,7 +346,7 @@ func (e *Engine) NewSession(ctx context.Context, opts SessionOptions) (*SessionH
 
 // createSession is the core path: opts.Metadata may carry core-owned keys.
 func (e *Engine) createSession(ctx context.Context, opts SessionOptions) (*SessionHandle, error) {
-	if opts.Goal == "" {
+	if strings.TrimSpace(opts.Goal) == "" {
 		return nil, errors.New("session goal is required")
 	}
 	id, err := newSessionID()
@@ -291,7 +366,11 @@ func (e *Engine) createSession(ctx context.Context, opts SessionOptions) (*Sessi
 		ID: id, CreatedAt: now, UpdatedAt: now, Status: "created",
 		Provider: opts.Provider, Model: opts.Model, Goal: opts.Goal, Metadata: metadata,
 	}
-	if err := e.store.Create(ctx, v); err != nil {
+	first := opts.Input
+	if first == "" {
+		first = opts.Goal
+	}
+	if err := e.store.CreateWithMessage(ctx, v, protocol.Message{Role: "user", Content: first}); err != nil {
 		return nil, err
 	}
 	e.events.publish("session.start", id, map[string]any{"goal": opts.Goal})
@@ -325,14 +404,6 @@ func (e *Engine) ListSessions(ctx context.Context, limit, offset int) ([]Session
 		out = append(out, sessionInfo(item))
 	}
 	return out, nil
-}
-
-func (s *SessionHandle) AppendMessage(ctx context.Context, role string, payload any) (int64, error) {
-	seq, err := s.engine.store.AppendMessage(ctx, s.ID, role, payload)
-	if err == nil {
-		s.engine.events.publish("session.message", s.ID, map[string]any{"seq": seq, "role": role})
-	}
-	return seq, err
 }
 
 func (s *SessionHandle) RecentMessages(ctx context.Context, limit int) ([]Message, error) {

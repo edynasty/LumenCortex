@@ -17,8 +17,9 @@ func TestMessagePageLoadsNewestThenOlderWithoutOverlap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 250; i++ {
-		if _, err := handle.AppendMessage(context.Background(), "user", map[string]string{
+	// NewSession wrote seq 0; add rows 1..249 straight to the store.
+	for i := 1; i < 250; i++ {
+		if _, err := engine.store.AppendMessage(context.Background(), handle.ID, "user", map[string]string{
 			"content": fmt.Sprintf("message-%03d", i),
 		}); err != nil {
 			t.Fatal(err)

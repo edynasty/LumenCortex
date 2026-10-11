@@ -171,6 +171,14 @@ func normalizeJSON(raw json.RawMessage, fallback string) string {
 }
 
 func (s *Store) Create(ctx context.Context, v Session) error {
+	return insertSession(ctx, s.db, v)
+}
+
+type execer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func insertSession(ctx context.Context, db execer, v Session) error {
 	if v.CreatedAt.IsZero() {
 		v.CreatedAt = time.Now().UTC()
 	}
@@ -180,7 +188,7 @@ func (s *Store) Create(ctx context.Context, v Session) error {
 	if v.Status == "" {
 		v.Status = "running"
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := db.ExecContext(ctx, `
 INSERT INTO sessions(id, created_at, updated_at, status, provider, model, goal, metadata_json, final, usage_json, error_json)
 VALUES(?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))
 `, v.ID, v.CreatedAt.Format(time.RFC3339Nano), v.UpdatedAt.Format(time.RFC3339Nano), v.Status,

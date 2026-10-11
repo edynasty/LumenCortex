@@ -83,18 +83,3 @@ func (s *Store) Update(ctx context.Context, sessionID string, patch Patch) error
 	}
 	return nil
 }
-
-
-func (s *Store) InterruptRunning(ctx context.Context, errorJSON json.RawMessage) (int64, error) {
-	result, err := s.db.ExecContext(ctx, `
-UPDATE sessions
-SET status = 'interrupted',
-    updated_at = ?,
-    error_json = ?
-WHERE status = 'running'
-`, time.Now().UTC().Format(time.RFC3339Nano), normalizeJSON(errorJSON, "{}"))
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}

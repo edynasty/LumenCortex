@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/edynasty/LumenCortex/internal/agent"
 	"github.com/edynasty/LumenCortex/internal/cognition"
@@ -19,6 +20,10 @@ type ProviderBinding = agent.ProviderBinding
 type DecisionProvider = cognition.DecisionProvider
 
 type AgentOptions struct {
+	// Input is a user message appended to the session's transcript under the run
+	// lock, after Reconcile. It is the only way a host adds to an existing
+	// transcript.
+	Input               string          `json:"input,omitempty"`
 	ProviderName        string          `json:"providerName,omitempty"`
 	Policy              string          `json:"policy,omitempty"`
 	MaxSteps            int             `json:"maxSteps,omitempty"`
@@ -51,21 +56,62 @@ type AgentResult struct {
 	Workflow    any            `json:"workflow,omitempty"`
 }
 
+// RunAgent runs the agent loop to its exit on the calling goroutine. It holds the
+// session's run lock for the whole call and returns ErrRunHeld, having written
+// nothing, when another Engine holds it. RunSupervisor.Start is the asynchronous
+// entry point with the same contract.
 func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protocol.Provider, opts AgentOptions) (AgentResult, error) {
 	if provider == nil {
 		return AgentResult{}, errors.New("provider is required")
 	}
-	if _, _, err := e.Session(ctx, sessionID); err != nil {
+	lock, err := e.acquireRun(ctx, sessionID)
+	if err != nil {
 		return AgentResult{}, err
 	}
-	model := provider.Model()
-	identity := session.Patch{Model: &model}
-	if opts.ProviderName != "" {
-		providerName := opts.ProviderName
-		identity.Provider = &providerName
-	}
-	if err := e.store.Update(ctx, sessionID, identity); err != nil {
+	defer lock.Release()
+	run, err := e.prepareRun(ctx, sessionID, provider, opts)
+	if err != nil {
 		return AgentResult{}, err
+	}
+	return run.execute(ctx)
+}
+
+// preparedRun is a Start whose pre-run writes are done: the loop only has to execute.
+type preparedRun struct {
+	loop     agent.Loop
+	loopOpts agent.Options
+	sessionID string
+}
+
+func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
+	result, err := r.loop.Run(ctx, r.sessionID, r.loopOpts)
+	return AgentResult{
+		SessionID:   result.SessionID,
+		Status:      result.Status,
+		Final:       result.Final,
+		Usage:       result.Usage,
+		WaitingGate: result.WaitingGate,
+		Workflow:    result.Workflow,
+	}, err
+}
+
+// prepareRun is the Start sequence after the run lock is held:
+//
+//	Reconcile → validate and build → append Input → record the model identity
+//
+// Everything that can reject the Start happens before Input is appended, so a
+// rejected Start leaves no new transcript row. The loop then sets the session to
+// running and executes.
+func (e *Engine) prepareRun(ctx context.Context, sessionID string, provider protocol.Provider, opts AgentOptions) (*preparedRun, error) {
+	if _, err := e.store.Reconcile(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	if opts.Input != "" && strings.TrimSpace(opts.Input) == "" {
+		return nil, errors.New("input must not be blank")
+	}
+	state, err := agentStore{store: e.store}.Get(ctx, sessionID)
+	if err != nil {
+		return nil, err
 	}
 	policy := opts.Policy
 	if policy == "" {
@@ -73,7 +119,7 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 	}
 	agentWorkspace, err := e.agentWorkspace(ctx, sessionID)
 	if err != nil {
-		return AgentResult{}, err
+		return nil, err
 	}
 	runner := e.shell
 	if agentWorkspace != e.workspace {
@@ -98,15 +144,31 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 		Subagents: opts.subagents,
 	})
 	if err != nil {
-		return AgentResult{}, err
+		return nil, err
 	}
-	additionalSystemPrompt := ""
+	loopOpts := agent.Options{
+		MaxSteps:            opts.MaxSteps,
+		RecentMessages:      opts.RecentMessages,
+		MaxToolCallsPerStep: opts.MaxToolCallsPerStep,
+		ToolAllowlist:       opts.ToolAllowlist,
+		ToolDenylist:        opts.ToolDenylist,
+		SystemPrompt:        opts.SystemPrompt,
+		WorkflowJSON:        opts.Workflow,
+		WorkUnitsJSON:       opts.WorkUnits,
+		MaxTokens:           opts.MaxTokens,
+		Temperature:         opts.Temperature,
+		CognitionEnabled:    opts.CognitionEnabled,
+	}
+	if err := agent.CheckStart(state.Metadata, loopOpts); err != nil {
+		return nil, err
+	}
+
 	if e.skillRegistry != nil {
 		skillPrompt, loadedSkills, skillErr := e.skillRegistry.Prompt()
 		if skillErr != nil {
 			e.events.publish("skills.error", sessionID, map[string]any{"error": skillErr.Error()})
 		} else {
-			additionalSystemPrompt = skillPrompt
+			loopOpts.AdditionalSystemPrompt = skillPrompt
 			if len(loadedSkills) > 0 {
 				ids := make([]string, 0, len(loadedSkills))
 				for _, skill := range loadedSkills {
@@ -126,52 +188,51 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 		}
 	}
 
-	loop := agent.Loop{
-		Provider: provider,
-		ProviderName: opts.ProviderName,
-		ProviderChains: opts.CategoryProviders,
-		ProviderHealth: e.cognitionHealth,
-		DecisionLayer: decisionLayer,
-		Store:    agentStore{store: e.store},
-		Tools:    tools,
-		Emit: func(event agent.Event) {
-			e.events.publish(event.Type, event.SessionID, event.Data)
-			_ = e.store.Journal(context.Background(), event.Type, map[string]any{
-				"sessionId": event.SessionID,
-				"data":      event.Data,
-			})
-			if opts.parentSessionID != "" {
-				data := subagentEventData(event.Type, event.SessionID, event.Data)
-				e.events.publish("subagent.event", opts.parentSessionID, data)
-				_ = e.store.Journal(context.Background(), "subagent.event", map[string]any{
-					"sessionId": opts.parentSessionID,
-					"data":      data,
-				})
-			}
-		},
+	if opts.Input != "" {
+		seq, err := e.store.AppendMessage(ctx, sessionID, "user", protocol.Message{Role: "user", Content: opts.Input})
+		if err != nil {
+			return nil, err
+		}
+		e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user"})
 	}
-	result, err := loop.Run(ctx, sessionID, agent.Options{
-		MaxSteps:            opts.MaxSteps,
-		RecentMessages:      opts.RecentMessages,
-		MaxToolCallsPerStep: opts.MaxToolCallsPerStep,
-		ToolAllowlist:       opts.ToolAllowlist,
-		ToolDenylist:        opts.ToolDenylist,
-		SystemPrompt:        opts.SystemPrompt,
-		AdditionalSystemPrompt: additionalSystemPrompt,
-		WorkflowJSON:        opts.Workflow,
-		WorkUnitsJSON:       opts.WorkUnits,
-		MaxTokens:           opts.MaxTokens,
-		Temperature:         opts.Temperature,
-		CognitionEnabled:    opts.CognitionEnabled,
-	})
-	return AgentResult{
-		SessionID: result.SessionID,
-		Status: result.Status,
-		Final: result.Final,
-		Usage: result.Usage,
-		WaitingGate: result.WaitingGate,
-		Workflow: result.Workflow,
-	}, err
+	model := provider.Model()
+	identity := session.Patch{Model: &model}
+	if opts.ProviderName != "" {
+		providerName := opts.ProviderName
+		identity.Provider = &providerName
+	}
+	if err := e.store.Update(ctx, sessionID, identity); err != nil {
+		return nil, err
+	}
+
+	return &preparedRun{
+		sessionID: sessionID,
+		loopOpts:  loopOpts,
+		loop: agent.Loop{
+			Provider: provider,
+			ProviderName: opts.ProviderName,
+			ProviderChains: opts.CategoryProviders,
+			ProviderHealth: e.cognitionHealth,
+			DecisionLayer: decisionLayer,
+			Store:    agentStore{store: e.store},
+			Tools:    tools,
+			Emit: func(event agent.Event) {
+				e.events.publish(event.Type, event.SessionID, event.Data)
+				_ = e.store.Journal(context.Background(), event.Type, map[string]any{
+					"sessionId": event.SessionID,
+					"data":      event.Data,
+				})
+				if opts.parentSessionID != "" {
+					data := subagentEventData(event.Type, event.SessionID, event.Data)
+					e.events.publish("subagent.event", opts.parentSessionID, data)
+					_ = e.store.Journal(context.Background(), "subagent.event", map[string]any{
+						"sessionId": opts.parentSessionID,
+						"data":      data,
+					})
+				}
+			},
+		},
+	}, nil
 }
 
 func (e *Engine) WorkflowSummary(ctx context.Context, sessionID string) (any, error) {
@@ -213,7 +274,16 @@ func (e *Engine) WorkflowSummary(ctx context.Context, sessionID string) (any, er
 	return runtime.Summary(), nil
 }
 
+// ApproveWorkflowGate approves a human gate of the session's workflow. It takes
+// the session's run lock and returns ErrRunHeld while a run holds it. It changes
+// the workflow state only: the session's status stays (waiting_gate) and the host
+// continues with a Start.
 func (e *Engine) ApproveWorkflowGate(ctx context.Context, sessionID, gateID, actor string) (any, error) {
+	lock, err := e.acquireRun(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
 	current, err := e.store.Get(ctx, sessionID)
 	if err != nil {
 		return nil, err
@@ -253,21 +323,11 @@ func (e *Engine) ApproveWorkflowGate(ctx context.Context, sessionID, gateID, act
 	if err != nil {
 		return nil, err
 	}
-	status := "running"
-	if len(runtime.WaitingHumanGates()) > 0 {
-		status = "waiting_gate"
-	}
-	if runtime.CanFinish() {
-		status = "running"
-	}
 	workflowJSON, err := json.Marshal(runtime.Snapshot())
 	if err != nil {
 		return nil, err
 	}
 	if err := e.store.SetHostMetadataKey(ctx, sessionID, "workflow", workflowJSON); err != nil {
-		return nil, err
-	}
-	if err := e.store.Update(ctx, sessionID, session.Patch{Status: &status, ClearError: true}); err != nil {
 		return nil, err
 	}
 	e.events.publish("workflow.approved", sessionID, map[string]any{
