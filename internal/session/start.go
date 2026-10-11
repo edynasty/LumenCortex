@@ -30,15 +30,20 @@ type RunStart struct {
 //
 // All of it commits or none of it does, so a Start that fails leaves no new
 // transcript row and the session row as it was, and a Start that succeeds is
-// already running when the loop begins. It returns the seq of the Input row, or -1.
-func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) (inputSeq int64, err error) {
+// already running when the loop begins. It returns the session row as committed
+// (read inside the transaction, so the caller needs no read after the commit) and
+// the seq of the Input row, or -1.
+//
+// COMMIT runs without the caller's cancellation: once BeginRun returns, the commit
+// is known to have happened, and an error means it did not.
+func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) (Session, int64, error) {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
-		return -1, err
+		return Session{}, -1, err
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
-		return -1, err
+		return Session{}, -1, err
 	}
 	committed := false
 	defer func() {
@@ -50,25 +55,25 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 	var exists int
 	if err := conn.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE id = ?`, sessionID).Scan(&exists); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return -1, ErrNotFound
+			return Session{}, -1, ErrNotFound
 		}
-		return -1, err
+		return Session{}, -1, err
 	}
-	inputSeq = -1
+	inputSeq := int64(-1)
 	if start.Input != nil {
 		raw, err := json.Marshal(start.Input)
 		if err != nil {
-			return -1, err
+			return Session{}, -1, err
 		}
 		if err := conn.QueryRowContext(ctx,
 			`SELECT COALESCE(MAX(seq), -1) + 1 FROM session_messages WHERE session_id = ?`, sessionID,
 		).Scan(&inputSeq); err != nil {
-			return -1, err
+			return Session{}, -1, err
 		}
 		if _, err := conn.ExecContext(ctx,
 			`INSERT INTO session_messages(session_id, seq, role, json) VALUES(?, ?, ?, ?)`,
 			sessionID, inputSeq, start.Input.Role, string(raw)); err != nil {
-			return -1, err
+			return Session{}, -1, err
 		}
 	}
 	sets := `status = 'running', final = NULL, error_json = NULL, updated_at = ?`
@@ -83,11 +88,16 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 	}
 	args = append(args, sessionID)
 	if _, err := conn.ExecContext(ctx, `UPDATE sessions SET `+sets+` WHERE id = ?`, args...); err != nil {
-		return -1, err
+		return Session{}, -1, err
 	}
-	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
-		return -1, err
+	// Read the row that is about to commit; this is the last fallible step before it.
+	row, err := getSession(ctx, conn, sessionID)
+	if err != nil {
+		return Session{}, -1, err
+	}
+	if _, err := conn.ExecContext(context.WithoutCancel(ctx), `COMMIT`); err != nil {
+		return Session{}, -1, err
 	}
 	committed = true
-	return inputSeq, nil
+	return row, inputSeq, nil
 }

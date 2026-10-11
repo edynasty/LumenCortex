@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/edynasty/LumenCortex/protocol"
@@ -210,7 +211,7 @@ func TestBeginRunWritesInputIdentityAndRunningTogether(t *testing.T) {
 	}
 	gapRow(t, store, "s", "user", protocol.Message{Content: "goal"})
 
-	seq, err := store.BeginRun(context.Background(), "s", RunStart{
+	committed, seq, err := store.BeginRun(context.Background(), "s", RunStart{
 		Input: &protocol.Message{Role: "user", Content: "next"}, Provider: ptr("p"), Model: ptr("m"),
 	})
 	if err != nil || seq != 1 {
@@ -223,12 +224,15 @@ func TestBeginRunWritesInputIdentityAndRunningTogether(t *testing.T) {
 	if got.Status != "running" || got.Final != nil || len(got.Error) != 0 || got.Provider != "p" || got.Model != "m" {
 		t.Fatalf("session after BeginRun: %+v", got)
 	}
+	if !reflect.DeepEqual(committed, got) {
+		t.Fatalf("the row BeginRun returned differs from the committed row:\n%+v\n%+v", committed, got)
+	}
 	rows := rowsOf(t, store, "s")
 	if len(rows) != 2 || rows[1].Content != "next" || rows[1].Origin != "" {
 		t.Fatalf("rows = %+v", rows)
 	}
 
-	if _, err := store.BeginRun(context.Background(), "missing", RunStart{Input: &protocol.Message{Role: "user", Content: "x"}}); !errors.Is(err, ErrNotFound) {
+	if _, _, err := store.BeginRun(context.Background(), "missing", RunStart{Input: &protocol.Message{Role: "user", Content: "x"}}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("BeginRun on a missing session = %v, want ErrNotFound", err)
 	}
 }

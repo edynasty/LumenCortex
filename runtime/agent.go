@@ -81,6 +81,9 @@ type preparedRun struct {
 	loop     agent.Loop
 	loopOpts agent.Options
 	sessionID string
+	// info is the session as the Start transaction committed it: running, with the
+	// new identity and the previous outcome cleared.
+	info SessionInfo
 }
 
 func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
@@ -201,7 +204,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, provider prot
 		start.Input = &protocol.Message{Role: "user", Content: opts.Input}
 	}
 	loopOpts.Resumed = state.Status == "interrupted"
-	seq, err := e.store.BeginRun(ctx, sessionID, start)
+	committed, seq, err := e.store.BeginRun(ctx, sessionID, start)
 	if err != nil {
 		return nil, err
 	}
@@ -211,6 +214,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, provider prot
 
 	return &preparedRun{
 		sessionID: sessionID,
+		info:      sessionInfo(committed),
 		loopOpts:  loopOpts,
 		loop: agent.Loop{
 			Provider: provider,

@@ -53,7 +53,7 @@ func NewRunSupervisor(engine *Engine) (*RunSupervisor, error) {
 
 // Start begins an agent run and returns once its goroutine has started.
 //
-//	take the run lock → Reconcile → validate → append opts.Input → loop
+//	take the run lock → Reconcile → validate → Start transaction (opts.Input, identity, running) → loop
 //
 // When another Engine (in this process or another) holds the session's run lock,
 // including this supervisor's own active run, Start returns ErrRunHeld and writes
@@ -132,11 +132,10 @@ func (s *RunSupervisor) Start(
 	if err != nil {
 		return SessionInfo{}, err
 	}
-	_, info, err = s.engine.Session(ctx, sessionID)
-	if err != nil {
-		return SessionInfo{}, err
-	}
-	info.Status = "running"
+	// The Start transaction has committed: the session is durably running. Nothing
+	// fallible may sit between here and the goroutine that owns the run, so the
+	// returned info comes from the transaction itself.
+	info = prepared.info
 	handedOff = true
 
 	s.engine.events.publish("run.started", sessionID, map[string]any{

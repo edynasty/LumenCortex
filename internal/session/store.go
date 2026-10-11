@@ -198,12 +198,22 @@ VALUES(?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), NULLIF(
 }
 
 func (s *Store) Get(ctx context.Context, id string) (Session, error) {
+	return getSession(ctx, s.db, id)
+}
+
+// rowQuerier is the part of *sql.DB and *sql.Conn that a single-row read needs, so
+// the same read can run inside a transaction.
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func getSession(ctx context.Context, q rowQuerier, id string) (Session, error) {
 	var v Session
 	var created, updated string
 	var provider, model sql.NullString
 	var metadata string
 	var final, usage, errJSON sql.NullString
-	err := s.db.QueryRowContext(ctx, `
+	err := q.QueryRowContext(ctx, `
 SELECT id, created_at, updated_at, status, provider, model, goal, metadata_json, final, usage_json, error_json
 FROM sessions WHERE id = ?
 `, id).Scan(&v.ID, &created, &updated, &v.Status, &provider, &model, &v.Goal, &metadata, &final, &usage, &errJSON)
