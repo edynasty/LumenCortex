@@ -14,6 +14,7 @@ import {
   ProgressMonitor,
   ProviderHealthRegistry,
   SystemOneDecisionProvider,
+  buildDecisionQuestions,
   createDecisionProvider,
   loadCognitiveProfile
 } from '../src/cognitive-control.js';
