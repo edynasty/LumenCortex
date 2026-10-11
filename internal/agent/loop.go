@@ -48,29 +48,33 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 	}
 
 	var (
-		state   SessionState
-		usage   protocol.Usage
-		started bool // the session row says "running"; from here on every return goes through finish
+		state = SessionState{ID: sessionID}
+		usage protocol.Usage
 	)
+	// The host's Start transaction set the session to running before Run is called,
+	// so from here on every return goes through finish: the run owns one ExitCause.
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			result, err = l.panicExit(ctx, started, state, usage, recovered)
+			result, err = l.panicExit(ctx, true, state, usage, recovered)
 		}
 	}()
 
 	state, err = l.Store.Get(ctx, sessionID)
 	if err != nil {
-		return Result{}, err
+		return l.exit(ctx, SessionState{ID: sessionID}, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+	}
+	if state.Status != StatusRunning {
+		// Nothing was started, so there is no exit to record and nothing to overwrite.
+		return Result{}, fmt.Errorf("session %s is %q: Run needs a Start that has set it to running", sessionID, state.Status)
 	}
 	state.persisted = snapshotMetadata(state.Metadata)
-	wasInterrupted := state.Status == "interrupted"
 	wf, err := restoreWorkflow(state.Metadata, opts.WorkflowJSON)
 	if err != nil {
-		return Result{}, err
+		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindConfig, Err: err})
 	}
 	workUnits, err := restoreWorkUnits(state.Metadata, opts.WorkUnitsJSON)
 	if err != nil {
-		return Result{}, err
+		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindConfig, Err: err})
 	}
 	if workUnits == nil && opts.CognitionEnabled {
 		workUnits = cognition.NewWorkUnitManager(nil)
@@ -79,22 +83,16 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		state.Metadata = withWorkUnits(state.Metadata, workUnits)
 	}
 	if err := l.ensureInitialMessage(ctx, state); err != nil {
-		return Result{}, err
+		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 	}
 	usage = state.Usage
 	cognitiveProgress := restoreCognitiveProgress(state.Metadata)
 	router := cognition.Router{}
-	running := StatusRunning
-	state.Status = running
-	if err := l.Store.Update(ctx, sessionID, SessionPatch{Status: &running, ClearFinal: true, ClearError: true}); err != nil {
-		return Result{}, err
-	}
-	started = true
 	startStep, err := l.Store.NextStep(ctx, sessionID)
 	if err != nil {
 		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 	}
-	if wasInterrupted {
+	if opts.Resumed {
 		l.checkpoint(sessionID, "agent.resume", map[string]any{
 			"nextStep": startStep,
 		})

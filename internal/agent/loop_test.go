@@ -235,29 +235,9 @@ func TestLoopPersistsInterruptionOnCancellation(t *testing.T) {
 }
 
 
-func TestLoopClearsStaleFinalWhenRunStarts(t *testing.T) {
-	store := &memoryStore{
-		state: SessionState{ID: "continue", Goal: "continue", Status: "completed", Final: "old final", Metadata: map[string]any{}},
-		steps: map[int64]any{},
-	}
-	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "new final"}}}}
-	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
-	result, err := loop.Run(context.Background(), "continue", Options{MaxSteps: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Final != "new final" {
-		t.Fatalf("result final=%q", result.Final)
-	}
-	if store.state.Final != "new final" {
-		t.Fatalf("persisted final=%q", store.state.Final)
-	}
-}
-
-
 func TestLoopAddsAdditionalSystemPrompt(t *testing.T) {
 	store := &memoryStore{
-		state: SessionState{ID: "skills", Goal: "build", Status: "created", Metadata: map[string]any{}},
+		state: SessionState{ID: "skills", Goal: "build", Status: "running", Metadata: map[string]any{}},
 		steps: map[int64]any{},
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done"}}}}
@@ -287,7 +267,7 @@ func TestLoopAddsAdditionalSystemPrompt(t *testing.T) {
 
 func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
 	store := &memoryStore{
-		state: SessionState{ID: "deny", Goal: "test deny", Status: "created", Metadata: map[string]any{}},
+		state: SessionState{ID: "deny", Goal: "test deny", Status: "running", Metadata: map[string]any{}},
 		steps: map[int64]any{},
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
@@ -338,7 +318,7 @@ func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
 
 func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 	store := &memoryStore{
-		state: SessionState{ID: "deny", Goal: "do not shell", Status: "created", Metadata: map[string]any{}},
+		state: SessionState{ID: "deny", Goal: "do not shell", Status: "running", Metadata: map[string]any{}},
 		steps: map[int64]any{},
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
@@ -389,7 +369,7 @@ func TestLoopCognitiveRoutingPersistsPlanAndPassesReasoningEffort(t *testing.T) 
 		state: SessionState{
 			ID: "cognition",
 			Goal: "Debug a production database migration deadlock and verify the root cause",
-			Status: "created",
+			Status: "running",
 			Metadata: map[string]any{},
 		},
 		steps: map[int64]any{},
@@ -440,7 +420,7 @@ func TestLoopWorkUnitBlocksPrematureFinalUntilEvidenceAndVerificationPass(t *tes
 		state: SessionState{
 			ID: "work-units",
 			Goal: "repair the transaction bug",
-			Status: "created",
+			Status: "running",
 			Metadata: map[string]any{},
 		},
 		steps: map[int64]any{},
@@ -517,7 +497,7 @@ func TestLoopCognitiveSessionCanCreateWorkUnitsDynamically(t *testing.T) {
 		state: SessionState{
 			ID: "dynamic-work-unit",
 			Goal: "implement a bounded change",
-			Status: "created",
+			Status: "running",
 			Metadata: map[string]any{},
 		},
 		steps: map[int64]any{},
@@ -602,7 +582,7 @@ func TestLoopCategoryProviderChainFailoverAndCircuitSkip(t *testing.T) {
 		state: SessionState{
 			ID: "chain-1",
 			Goal: "Debug a production database migration deadlock",
-			Status: "created",
+			Status: "running",
 			Metadata: map[string]any{},
 		},
 		steps: map[int64]any{},
@@ -659,7 +639,7 @@ func TestLoopCategoryProviderChainFailoverAndCircuitSkip(t *testing.T) {
 		state: SessionState{
 			ID: "chain-2",
 			Goal: "Debug a production database migration deadlock",
-			Status: "created",
+			Status: "running",
 			Metadata: map[string]any{},
 		},
 		steps: map[int64]any{},
@@ -714,7 +694,7 @@ func TestLoopDecisionLayerControlsCategoryChainAndThinkEffort(t *testing.T) {
 		state: SessionState{
 			ID: "decision-route",
 			Goal: "update the release notes",
-			Status: "created",
+			Status: "running",
 			Metadata: map[string]any{},
 		},
 		steps: map[int64]any{},

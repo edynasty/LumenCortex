@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -200,3 +201,36 @@ func TestCreateWithMessageIsAtomic(t *testing.T) {
 		t.Fatalf("rows=%+v", rows)
 	}
 }
+
+func TestBeginRunWritesInputIdentityAndRunningTogether(t *testing.T) {
+	store := gapStore(t)
+	gapSession(t, store, "s", "completed", `{"kind":"cancelled","message":"m","at":"t"}`)
+	if err := store.Update(context.Background(), "s", Patch{Final: ptr("old final")}); err != nil {
+		t.Fatal(err)
+	}
+	gapRow(t, store, "s", "user", protocol.Message{Content: "goal"})
+
+	seq, err := store.BeginRun(context.Background(), "s", RunStart{
+		Input: &protocol.Message{Role: "user", Content: "next"}, Provider: ptr("p"), Model: ptr("m"),
+	})
+	if err != nil || seq != 1 {
+		t.Fatalf("BeginRun = %d, %v; want seq 1", seq, err)
+	}
+	got, err := store.Get(context.Background(), "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "running" || got.Final != nil || len(got.Error) != 0 || got.Provider != "p" || got.Model != "m" {
+		t.Fatalf("session after BeginRun: %+v", got)
+	}
+	rows := rowsOf(t, store, "s")
+	if len(rows) != 2 || rows[1].Content != "next" || rows[1].Origin != "" {
+		t.Fatalf("rows = %+v", rows)
+	}
+
+	if _, err := store.BeginRun(context.Background(), "missing", RunStart{Input: &protocol.Message{Role: "user", Content: "x"}}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("BeginRun on a missing session = %v, want ErrNotFound", err)
+	}
+}
+
+func ptr(s string) *string { return &s }

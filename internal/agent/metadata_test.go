@@ -36,7 +36,7 @@ func hostSetsKey(store *memoryStore, key string, value any) {
 
 func TestLoopMetadataWritesKeepHostKeysChangedDuringTheRun(t *testing.T) {
 	store := &memoryStore{
-		state: SessionState{ID: "s", Goal: "debug the failing migration and verify the fix", Status: "created",
+		state: SessionState{ID: "s", Goal: "debug the failing migration and verify the fix", Status: "running",
 			Metadata: map[string]any{"contextPaths": []any{"a.go"}}},
 		steps: map[int64]any{},
 	}
@@ -71,7 +71,7 @@ func TestLoopMetadataWritesKeepHostKeysChangedDuringTheRun(t *testing.T) {
 
 func TestLoopWritesNoMetadataWhenItOwnsNone(t *testing.T) {
 	store := &memoryStore{
-		state: SessionState{ID: "s", Goal: "plain", Status: "created", Metadata: map[string]any{"ui": map[string]any{"title": "t"}}},
+		state: SessionState{ID: "s", Goal: "plain", Status: "running", Metadata: map[string]any{"ui": map[string]any{"title": "t"}}},
 		steps: map[int64]any{},
 	}
 	loop := Loop{Provider: &hookProvider{}, Store: store, Tools: fakeTools{}}
@@ -85,7 +85,7 @@ func TestLoopWritesNoMetadataWhenItOwnsNone(t *testing.T) {
 
 func TestLoopDoesNotRewriteUnchangedLoopKeys(t *testing.T) {
 	store := &memoryStore{
-		state: SessionState{ID: "s", Goal: "plain", Status: "created", Metadata: map[string]any{}},
+		state: SessionState{ID: "s", Goal: "plain", Status: "running", Metadata: map[string]any{}},
 		steps: map[int64]any{},
 	}
 	loop := Loop{Provider: &hookProvider{}, Store: store, Tools: fakeTools{}}
@@ -112,7 +112,7 @@ func (s failingMetadataStore) SetMetadataKey(context.Context, string, string, js
 
 func TestLoopRecordsTerminalStatusWhenMetadataWriteFails(t *testing.T) {
 	mem := &memoryStore{
-		state: SessionState{ID: "s", Goal: "plain", Status: "created", Metadata: map[string]any{}},
+		state: SessionState{ID: "s", Goal: "plain", Status: "running", Metadata: map[string]any{}},
 		steps: map[int64]any{},
 	}
 	loop := Loop{Provider: &hookProvider{}, Store: failingMetadataStore{mem}, Tools: fakeTools{}}

@@ -87,7 +87,7 @@ func shellCall(id string) protocol.ProviderResponse {
 }
 
 func newState(id string) *memoryStore {
-	return &memoryStore{state: SessionState{ID: id, Goal: "goal", Status: "created", Metadata: map[string]any{}}, steps: map[int64]any{}}
+	return &memoryStore{state: SessionState{ID: id, Goal: "goal", Status: "running", Metadata: map[string]any{}}, steps: map[int64]any{}}
 }
 
 func assertExit(t *testing.T, store *memoryStore, result Result, wantStatus, wantKind string) {
@@ -573,5 +573,24 @@ func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.
 				t.Fatalf("tool answer = %+v, want content %s", answer, wantContent)
 			}
 		})
+	}
+}
+
+// Run never starts a session: Start's transaction does. A session that is not
+// running is refused without a single write, so Run cannot overwrite a status it
+// does not own.
+func TestRunRefusesASessionThatStartDidNotSetRunning(t *testing.T) {
+	store := newState("n1")
+	store.state.Status = "completed"
+	store.state.Final = "kept"
+	provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+		t.Fatal("the provider was called")
+		return protocol.ProviderResponse{}, nil
+	}}
+	if _, err := (&Loop{Provider: provider, Store: store, Tools: fakeTools{}}).Run(context.Background(), "n1", Options{MaxSteps: 2}); err == nil {
+		t.Fatal("Run accepted a session that is not running")
+	}
+	if store.state.Status != "completed" || store.state.Final != "kept" || len(store.messages) != 0 {
+		t.Fatalf("Run wrote to a session it does not own: %+v", store.state)
 	}
 }

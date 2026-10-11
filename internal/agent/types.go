@@ -73,6 +73,9 @@ type Options struct {
 	MaxTokens           int
 	Temperature         *float64
 	CognitionEnabled    bool
+	// Resumed reports that the session was interrupted before this Start; the run
+	// records an agent.resume checkpoint. Start sets it from the status it found.
+	Resumed bool
 }
 
 type Result struct {

@@ -97,11 +97,12 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 
 // prepareRun is the Start sequence after the run lock is held:
 //
-//	Reconcile → validate and build → append Input → record the model identity
+//	Reconcile → validate and build → one transaction (Input, identity, running)
 //
-// Everything that can reject the Start happens before Input is appended, so a
-// rejected Start leaves no new transcript row. The loop then sets the session to
-// running and executes.
+// Everything that can reject the Start happens before the transaction, and the
+// transaction is atomic, so a rejected or failed Start leaves no new transcript
+// row and the session row as it was. The loop starts on a session that is already
+// running.
 func (e *Engine) prepareRun(ctx context.Context, sessionID string, provider protocol.Provider, opts AgentOptions) (*preparedRun, error) {
 	if _, err := e.store.Reconcile(ctx, sessionID); err != nil {
 		return nil, err
@@ -188,21 +189,24 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, provider prot
 		}
 	}
 
-	if opts.Input != "" {
-		seq, err := e.store.AppendMessage(ctx, sessionID, "user", protocol.Message{Role: "user", Content: opts.Input})
-		if err != nil {
-			return nil, err
-		}
-		e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user"})
-	}
+	// Start's one durable write: Input, provider/model identity and the running
+	// transition commit together or not at all (§3.2). Nothing above it wrote.
 	model := provider.Model()
-	identity := session.Patch{Model: &model}
+	start := session.RunStart{Model: &model}
 	if opts.ProviderName != "" {
 		providerName := opts.ProviderName
-		identity.Provider = &providerName
+		start.Provider = &providerName
 	}
-	if err := e.store.Update(ctx, sessionID, identity); err != nil {
+	if opts.Input != "" {
+		start.Input = &protocol.Message{Role: "user", Content: opts.Input}
+	}
+	loopOpts.Resumed = state.Status == "interrupted"
+	seq, err := e.store.BeginRun(ctx, sessionID, start)
+	if err != nil {
 		return nil, err
+	}
+	if start.Input != nil {
+		e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user"})
 	}
 
 	return &preparedRun{
