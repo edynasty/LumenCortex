@@ -85,7 +85,7 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 		metadata["runtime"] = identity
 	}
 
-	handle, err := engine.NewSession(ctx, SessionOptions{
+	handle, err := engine.createSession(ctx, SessionOptions{
 		Goal:     goal,
 		Provider: parent.Provider,
 		Model:    parent.Model,

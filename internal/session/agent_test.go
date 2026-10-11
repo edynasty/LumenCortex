@@ -28,9 +28,8 @@ func TestAgentPatchAndNextStepDoNotRewriteHistory(t *testing.T) {
 		t.Fatalf("next=%d err=%v", next, err)
 	}
 	status := "interrupted"
-	metadata := json.RawMessage(`{"workflow":{"status":"running"}}`)
 	errJSON := json.RawMessage(`{"message":"boom"}`)
-	if err := store.Update(ctx, "s", Patch{Status: &status, Metadata: &metadata, Error: &errJSON}); err != nil {
+	if err := store.Update(ctx, "s", Patch{Status: &status, Error: &errJSON}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Update(ctx, "s", Patch{ClearError: true}); err != nil {

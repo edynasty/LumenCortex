@@ -249,7 +249,23 @@ func newSessionID() (string, error) {
 	return "session_" + hex.EncodeToString(buf), nil
 }
 
+// NewSession creates a session. opts.Metadata is host-owned: it cannot set the
+// core-owned keys runtime or subagent.
 func (e *Engine) NewSession(ctx context.Context, opts SessionOptions) (*SessionHandle, error) {
+	if opts.Metadata != nil {
+		raw, err := json.Marshal(opts.Metadata)
+		if err != nil {
+			return nil, err
+		}
+		if err := session.CheckHostMetadata(raw); err != nil {
+			return nil, err
+		}
+	}
+	return e.createSession(ctx, opts)
+}
+
+// createSession is the core path: opts.Metadata may carry core-owned keys.
+func (e *Engine) createSession(ctx context.Context, opts SessionOptions) (*SessionHandle, error) {
 	if opts.Goal == "" {
 		return nil, errors.New("session goal is required")
 	}

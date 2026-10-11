@@ -253,8 +253,6 @@ func (e *Engine) ApproveWorkflowGate(ctx context.Context, sessionID, gateID, act
 	if err != nil {
 		return nil, err
 	}
-	metadata["workflow"] = runtime.Snapshot()
-	metadataRaw, _ := json.Marshal(metadata)
 	status := "running"
 	if len(runtime.WaitingHumanGates()) > 0 {
 		status = "waiting_gate"
@@ -262,7 +260,14 @@ func (e *Engine) ApproveWorkflowGate(ctx context.Context, sessionID, gateID, act
 	if runtime.CanFinish() {
 		status = "running"
 	}
-	if err := e.store.Update(ctx, sessionID, session.Patch{Status: &status, Metadata: rawMessagePtr(metadataRaw), ClearError: true}); err != nil {
+	workflowJSON, err := json.Marshal(runtime.Snapshot())
+	if err != nil {
+		return nil, err
+	}
+	if err := e.store.SetHostMetadataKey(ctx, sessionID, "workflow", workflowJSON); err != nil {
+		return nil, err
+	}
+	if err := e.store.Update(ctx, sessionID, session.Patch{Status: &status, ClearError: true}); err != nil {
 		return nil, err
 	}
 	e.events.publish("workflow.approved", sessionID, map[string]any{
@@ -341,19 +346,16 @@ func (s agentStore) NextStep(ctx context.Context, id string) (int64, error) {
 	return s.store.NextStep(ctx, id)
 }
 
+func (s agentStore) SetMetadataKey(ctx context.Context, id, key string, value json.RawMessage) error {
+	return s.store.SetHostMetadataKey(ctx, id, key, value)
+}
+
 func (s agentStore) Update(ctx context.Context, id string, patch agent.SessionPatch) error {
 	value := session.Patch{
 		Status: patch.Status,
 		Final: patch.Final,
 		ClearFinal: patch.ClearFinal,
 		ClearError: patch.ClearError,
-	}
-	if patch.Metadata != nil {
-		raw, err := json.Marshal(patch.Metadata)
-		if err != nil {
-			return err
-		}
-		value.Metadata = rawMessagePtr(raw)
 	}
 	if patch.Usage != nil {
 		raw, err := json.Marshal(patch.Usage)

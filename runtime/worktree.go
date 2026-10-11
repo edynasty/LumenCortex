@@ -60,10 +60,6 @@ func (e *Engine) SessionRuntime(ctx context.Context, sessionID string) (SessionR
 }
 
 func (e *Engine) AttachWorktree(ctx context.Context, sessionID, base string) (SessionRuntime, error) {
-	current, err := e.store.Get(ctx, sessionID)
-	if err != nil {
-		return SessionRuntime{}, err
-	}
 	existing, err := e.SessionRuntime(ctx, sessionID)
 	if err != nil {
 		return SessionRuntime{}, err
@@ -102,19 +98,12 @@ func (e *Engine) AttachWorktree(ctx context.Context, sessionID, base string) (Se
 		identity.Branch = branch
 	}
 
-	metadata := map[string]any{}
-	if len(current.Metadata) > 0 {
-		if err := json.Unmarshal(current.Metadata, &metadata); err != nil {
-			return SessionRuntime{}, err
-		}
-	}
-	metadata["runtime"] = identity
-	raw, err := json.Marshal(metadata)
+	raw, err := json.Marshal(identity)
 	if err != nil {
+		_ = e.repo.GitRemoveWorktree(context.Background(), identity.Path, true)
 		return SessionRuntime{}, err
 	}
-	message := json.RawMessage(raw)
-	if err := e.store.Update(ctx, sessionID, session.Patch{Metadata: &message}); err != nil {
+	if err := e.store.SetCoreMetadataKey(ctx, sessionID, session.MetadataKeyRuntime, raw); err != nil {
 		_ = e.repo.GitRemoveWorktree(context.Background(), identity.Path, true)
 		return SessionRuntime{}, err
 	}
@@ -143,23 +132,7 @@ func (e *Engine) RemoveSessionWorktree(ctx context.Context, sessionID string, fo
 		return err
 	}
 
-	current, err := e.store.Get(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-	metadata := map[string]any{}
-	if len(current.Metadata) > 0 {
-		if err := json.Unmarshal(current.Metadata, &metadata); err != nil {
-			return err
-		}
-	}
-	delete(metadata, "runtime")
-	raw, err := json.Marshal(metadata)
-	if err != nil {
-		return err
-	}
-	message := json.RawMessage(raw)
-	if err := e.store.Update(ctx, sessionID, session.Patch{Metadata: &message}); err != nil {
+	if err := e.store.RemoveCoreMetadataKey(ctx, sessionID, session.MetadataKeyRuntime); err != nil {
 		return err
 	}
 	e.events.publish("worktree.removed", sessionID, map[string]any{"path": identity.Path})

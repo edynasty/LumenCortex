@@ -62,6 +62,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 	if err != nil {
 		return Result{}, err
 	}
+	state.persisted = snapshotMetadata(state.Metadata)
 	wasInterrupted := state.Status == "interrupted"
 	wf, err := restoreWorkflow(state.Metadata, opts.WorkflowJSON)
 	if err != nil {
@@ -255,7 +256,8 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				if workUnits != nil {
 					state.Metadata = withWorkUnits(state.Metadata, workUnits)
 				}
-				_ = l.Store.Update(ctx, sessionID, SessionPatch{Metadata: state.Metadata, Usage: &usage})
+				_ = l.flushMetadata(ctx, state)
+				_ = l.Store.Update(ctx, sessionID, SessionPatch{Usage: &usage})
 				l.emit("workflow.blocked_final", sessionID, map[string]any{"step": step, "reason": reason})
 				continue
 			}
@@ -269,7 +271,8 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 				}
 				state.Metadata = withWorkUnits(state.Metadata, workUnits)
-				_ = l.Store.Update(ctx, sessionID, SessionPatch{Metadata: state.Metadata, Usage: &usage})
+				_ = l.flushMetadata(ctx, state)
+				_ = l.Store.Update(ctx, sessionID, SessionPatch{Usage: &usage})
 				l.emit("work_unit.blocked_final", sessionID, map[string]any{"step": step, "remaining": remaining})
 				continue
 			}
@@ -364,7 +367,10 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
-		if err := l.Store.Update(ctx, sessionID, SessionPatch{Metadata: state.Metadata, Usage: &usage}); err != nil {
+		if err := l.flushMetadata(ctx, state); err != nil {
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+		}
+		if err := l.Store.Update(ctx, sessionID, SessionPatch{Usage: &usage}); err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		l.checkpoint(sessionID, "agent.safe", map[string]any{
@@ -435,14 +441,64 @@ func (l *Loop) finish(ctx context.Context, state SessionState, usage protocol.Us
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishTimeout)
 	defer cancel()
 	status := cause.Status
-	patch := SessionPatch{Status: &status, Metadata: state.Metadata, Usage: &usage}
+	patch := SessionPatch{Status: &status, Usage: &usage}
 	if cause.Status == StatusCompleted {
 		patch.Final = final
 		patch.ClearError = true
 	} else {
 		patch.Error = cause.errorData(time.Now())
 	}
-	return l.Store.Update(ctx, state.ID, patch)
+	// The terminal status is written even when the metadata flush fails.
+	flushErr := l.flushMetadata(ctx, state)
+	return errors.Join(flushErr, l.Store.Update(ctx, state.ID, patch))
+}
+
+// loopMetadataKeys are the legacy session metadata keys the loop writes until
+// Task State leaves metadata (M3.1). Any other key belongs to the host and is
+// never written by the loop.
+var loopMetadataKeys = []string{"workflow", "workUnits", "cognition"}
+
+// snapshotMetadata records the JSON of each loop-owned key as the store holds it.
+func snapshotMetadata(metadata map[string]any) map[string]json.RawMessage {
+	out := make(map[string]json.RawMessage, len(loopMetadataKeys))
+	for _, key := range loopMetadataKeys {
+		if value, ok := metadata[key]; ok {
+			if raw, err := json.Marshal(value); err == nil {
+				out[key] = raw
+			}
+		}
+	}
+	return out
+}
+
+// flushMetadata writes each loop-owned key whose value changed since it was
+// last read or written, one single-key patch per key. It never writes the whole
+// metadata object, so host keys changed during the run (ui, ...) are untouched.
+func (l *Loop) flushMetadata(ctx context.Context, state SessionState) error {
+	if state.persisted == nil {
+		return nil
+	}
+	var errs []error
+	for _, key := range loopMetadataKeys {
+		value, ok := state.Metadata[key]
+		if !ok {
+			continue
+		}
+		raw, err := json.Marshal(value)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("encode metadata %q: %w", key, err))
+			continue
+		}
+		if bytes.Equal(state.persisted[key], raw) {
+			continue
+		}
+		if err := l.Store.SetMetadataKey(ctx, state.ID, key, raw); err != nil {
+			errs = append(errs, fmt.Errorf("write metadata %q: %w", key, err))
+			continue
+		}
+		state.persisted[key] = raw
+	}
+	return errors.Join(errs...)
 }
 
 // finishFailure reports a run whose terminal write failed. The row still says

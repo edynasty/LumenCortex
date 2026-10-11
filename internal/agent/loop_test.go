@@ -20,6 +20,8 @@ type memoryStore struct {
 	messages []protocol.Message
 	steps    map[int64]any
 	cause    map[string]any // sessions.error_json as last written
+
+	metadataKeyWrites []string // keys passed to SetMetadataKey, in order
 }
 
 func (s *memoryStore) Get(context.Context, string) (SessionState, error) {
@@ -56,14 +58,23 @@ func (s *memoryStore) NextStep(context.Context, string) (int64, error) {
 	defer s.mu.Unlock()
 	return int64(len(s.steps)) + 1, nil
 }
+func (s *memoryStore) SetMetadataKey(_ context.Context, _ string, key string, value json.RawMessage) error {
+	var decoded any
+	if err := json.Unmarshal(value, &decoded); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.Metadata = cloneMetadata(s.state.Metadata)
+	s.state.Metadata[key] = decoded
+	s.metadataKeyWrites = append(s.metadataKeyWrites, key)
+	return nil
+}
 func (s *memoryStore) Update(_ context.Context, _ string, p SessionPatch) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if p.Status != nil {
 		s.state.Status = *p.Status
-	}
-	if p.Metadata != nil {
-		s.state.Metadata = p.Metadata
 	}
 	if p.ClearFinal {
 		s.state.Final = ""

@@ -15,11 +15,17 @@ type SessionState struct {
 	Metadata map[string]any
 	Final    string
 	Usage    protocol.Usage
+
+	// persisted holds, per loop-owned metadata key, the JSON last read from or
+	// written to the store. flushMetadata writes only keys that differ from it.
+	// Set by Loop.Run after Get; copies of the state share it.
+	persisted map[string]json.RawMessage
 }
 
+// SessionPatch changes session columns. Metadata is not part of it: it changes
+// only through Store.SetMetadataKey, one top-level key at a time.
 type SessionPatch struct {
 	Status     *string
-	Metadata   map[string]any
 	Final      *string
 	ClearFinal bool
 	Usage      *protocol.Usage
@@ -34,6 +40,9 @@ type Store interface {
 	AppendStep(context.Context, string, int64, any) error
 	NextStep(context.Context, string) (int64, error)
 	Update(context.Context, string, SessionPatch) error
+	// SetMetadataKey sets one top-level metadata key to the JSON value without
+	// touching any other key.
+	SetMetadataKey(ctx context.Context, sessionID, key string, value json.RawMessage) error
 }
 
 type CheckpointStore interface {

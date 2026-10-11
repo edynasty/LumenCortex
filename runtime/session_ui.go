@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-
-	"github.com/edynasty/LumenCortex/internal/session"
 )
 
 type SessionUIState struct {
@@ -54,16 +52,15 @@ func (e *Engine) UpdateSessionUI(ctx context.Context, sessionID string, patch Se
 	}
 
 	if ui.Title == "" && !ui.Pinned && !ui.Archived {
-		delete(metadata, "ui")
+		err = e.store.RemoveHostMetadataKey(ctx, sessionID, "ui")
 	} else {
-		metadata["ui"] = ui
+		var raw []byte
+		if raw, err = json.Marshal(ui); err != nil {
+			return SessionInfo{}, err
+		}
+		err = e.store.SetHostMetadataKey(ctx, sessionID, "ui", raw)
 	}
-	raw, err := json.Marshal(metadata)
 	if err != nil {
-		return SessionInfo{}, err
-	}
-	message := json.RawMessage(raw)
-	if err := e.store.Update(ctx, sessionID, session.Patch{Metadata: &message}); err != nil {
 		return SessionInfo{}, err
 	}
 	_, info, err := e.Session(ctx, sessionID)
