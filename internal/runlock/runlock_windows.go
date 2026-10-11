@@ -22,8 +22,16 @@ var (
 )
 
 func lockExclusive(f *os.File) error {
+	return lockFileEx(f, lockfileExclusiveLock|lockfileFailImmediately)
+}
+
+// lockShared omits LOCKFILE_EXCLUSIVE_LOCK: any number of handles may hold the
+// byte shared, and none while an exclusive handle holds it.
+func lockShared(f *os.File) error { return lockFileEx(f, lockfileFailImmediately) }
+
+func lockFileEx(f *os.File, flags uintptr) error {
 	var overlapped syscall.Overlapped
-	r, _, err := procLockFile.Call(f.Fd(), lockfileExclusiveLock|lockfileFailImmediately, 0, 1, 0, uintptr(unsafe.Pointer(&overlapped)))
+	r, _, err := procLockFile.Call(f.Fd(), flags, 0, 1, 0, uintptr(unsafe.Pointer(&overlapped)))
 	if r != 0 {
 		return nil
 	}

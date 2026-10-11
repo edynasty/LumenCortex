@@ -16,6 +16,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/cognition"
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/mcp"
+	"github.com/edynasty/LumenCortex/internal/migrate"
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/resource"
 	"github.com/edynasty/LumenCortex/internal/runlock"
@@ -31,6 +32,31 @@ const GoRuntimePreviewVersion = "0.1.0-preview"
 // ErrRunHeld reports that another Engine, in this process or another, holds the
 // session's run lock. Nothing was written.
 var ErrRunHeld = errors.New("run is active in another process or engine")
+
+// ErrSchemaTooNew reports that the workspace database was migrated by a newer binary. Open wrote
+// nothing; upgrade the binary, or run `db downgrade` with the newer one.
+var ErrSchemaTooNew = migrate.ErrSchemaTooNew
+
+// ErrDatabaseInUse reports that a schema change could not take the exclusive schema lock because
+// other processes kept the workspace open for the 30 s wait. Close them and retry.
+var ErrDatabaseInUse = migrate.ErrDatabaseInUse
+
+// DowngradeSchema returns the workspace database to schema version `to` with the numbered down
+// migrations, newest first, in one transaction, after the same exclusive schema lock and scrubbed
+// backup as an upgrade. The workspace must be closed everywhere: otherwise it fails with
+// ErrDatabaseInUse after 30 s. A version without a down migration is refused with the database
+// unchanged. It returns the version the database had and the one it has now.
+func DowngradeSchema(ctx context.Context, opts Options, to int) (from, now int, err error) {
+	_, repoDir, err := resolveDirs(opts)
+	if err != nil {
+		return 0, 0, err
+	}
+	set, err := migrate.Embedded()
+	if err != nil {
+		return 0, 0, err
+	}
+	return migrate.Downgrade(ctx, repoDir, set, to)
+}
 
 type Budget struct {
 	SoftBytes int64 `json:"softBytes"`
@@ -128,25 +154,44 @@ type SessionHandle struct {
 	ID     string `json:"id"`
 }
 
+// Open opens the workspace engine. It runs any pending schema migration and holds the schema lock
+// shared until Close; see OpenContext.
 func Open(opts Options) (*Engine, error) {
-	workspace := opts.Workspace
+	return OpenContext(context.Background(), opts)
+}
+
+// resolveDirs returns the absolute workspace and the state directory that holds the database.
+func resolveDirs(opts Options) (workspace, repoDir string, err error) {
+	workspace = opts.Workspace
 	if workspace == "" {
-		var err error
 		workspace, err = os.Getwd()
 		if err != nil {
-			return nil, err
+			return "", "", err
 		}
 	}
-	workspace, err := filepath.Abs(workspace)
+	workspace, err = filepath.Abs(workspace)
 	if err != nil {
-		return nil, err
+		return "", "", err
 	}
-	repoDir := opts.RepoDir
+	repoDir = opts.RepoDir
 	if repoDir == "" {
 		repoDir = filepath.Join(workspace, ".lumencortex")
 	}
+	return workspace, repoDir, nil
+}
+
+// OpenContext opens the workspace engine. Every Engine holds <state>/db.lock shared from Open to
+// Close, and an older schema is migrated first under the exclusive lock (backup, scrub, checkpoint).
+// ctx bounds the wait for that lock (at most 30 s) and cancels a migration in progress. It returns
+// ErrSchemaTooNew, writing nothing, for a database a newer binary migrated, and ErrDatabaseInUse when
+// other processes keep the workspace open for the whole wait.
+func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
+	workspace, repoDir, err := resolveDirs(opts)
+	if err != nil {
+		return nil, err
+	}
 	worktreeRoot := filepath.Join(filepath.Dir(workspace), "."+filepath.Base(workspace)+".lumencortex-worktrees")
-	store, err := session.Open(repoDir)
+	store, err := session.OpenContext(ctx, repoDir)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +249,7 @@ func Open(opts Options) (*Engine, error) {
 			Cooldown: 30 * time.Second,
 		}),
 	}
-	if err := engine.reconcileRunning(context.Background()); err != nil {
+	if err := engine.reconcileRunning(ctx); err != nil {
 		_ = engine.Close()
 		return nil, err
 	}

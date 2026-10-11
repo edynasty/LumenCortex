@@ -34,7 +34,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	engine, err := lcx.Open(lcx.Options{Workspace: workspace})
+	// `db` administers the schema itself, so it must run before an Engine holds db.lock shared or
+	// migrates the database.
+	if len(os.Args) > 1 && os.Args[1] == "db" {
+		return runDBCommand(ctx, lcx.Options{Workspace: workspace}, os.Args[2:])
+	}
+	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: workspace})
 	if err != nil {
 		return err
 	}

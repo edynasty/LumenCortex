@@ -43,6 +43,47 @@ func TestSameProcessExclusive(t *testing.T) {
 	}
 }
 
+// A shared lock admits other shared holders, even inside one process, and
+// conflicts with an exclusive holder in both directions.
+func TestSharedAndExclusiveConflict(t *testing.T) {
+	dir := t.TempDir()
+	a, err := TryAcquireShared(dir, "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := TryAcquireShared(dir, "db")
+	if err != nil {
+		t.Fatalf("second shared holder: %v", err)
+	}
+	if ex, err := TryAcquire(dir, "db"); !errors.Is(err, ErrHeld) {
+		t.Fatalf("exclusive while shared holders exist: lock=%v err=%v, want ErrHeld", ex, err)
+	}
+	if err := a.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if ex, err := TryAcquire(dir, "db"); !errors.Is(err, ErrHeld) {
+		t.Fatalf("exclusive while one shared holder remains: lock=%v err=%v, want ErrHeld", ex, err)
+	}
+	if err := b.Release(); err != nil {
+		t.Fatal(err)
+	}
+	ex, err := TryAcquire(dir, "db")
+	if err != nil {
+		t.Fatalf("exclusive after every shared holder left: %v", err)
+	}
+	if sh, err := TryAcquireShared(dir, "db"); !errors.Is(err, ErrHeld) {
+		t.Fatalf("shared while exclusive is held: lock=%v err=%v, want ErrHeld", sh, err)
+	}
+	if err := ex.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if sh, err := TryAcquireShared(dir, "db"); err != nil {
+		t.Fatalf("shared after the exclusive holder left: %v", err)
+	} else {
+		sh.Release()
+	}
+}
+
 func TestInvalidIDCreatesNothing(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "runs")
 	for _, id := range []string{"../x", "", strings.Repeat("a", 129), "a/b", "a.b", "a b"} {

@@ -9,8 +9,12 @@ import (
 	"syscall"
 )
 
-func lockExclusive(f *os.File) error {
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+func lockExclusive(f *os.File) error { return flock(f, syscall.LOCK_EX) }
+
+func lockShared(f *os.File) error { return flock(f, syscall.LOCK_SH) }
+
+func flock(f *os.File, how int) error {
+	if err := syscall.Flock(int(f.Fd()), how|syscall.LOCK_NB); err != nil {
 		if errors.Is(err, syscall.EWOULDBLOCK) {
 			return ErrHeld
 		}

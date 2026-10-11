@@ -4,12 +4,23 @@ import { DatabaseSync } from 'node:sqlite';
 
 const SCHEMA_VERSION = 3;
 
+export class MigratedDatabaseError extends Error {
+  constructor(file, userVersion) {
+    super(`${file} has been migrated to schema version ${userVersion} by the Go runtime (lcx-go / LumenCortex Desktop); the legacy Node runtime refuses to open it so it cannot write to a database it no longer owns. Use the Go runtime for this workspace.`);
+    this.name = 'MigratedDatabaseError';
+    this.code = 'LCX_DATABASE_MIGRATED';
+    this.file = file;
+    this.userVersion = userVersion;
+  }
+}
+
 export class LumenCortexDatabase {
   constructor(repositoryDir) {
     this.repositoryDir = path.resolve(repositoryDir);
     fs.mkdirSync(this.repositoryDir, { recursive: true });
     this.file = path.join(this.repositoryDir, 'lumencortex.db');
     this.db = new DatabaseSync(this.file);
+    this.#refuseMigrated();
     this.db.exec(`
       PRAGMA journal_mode = WAL;
       PRAGMA synchronous = NORMAL;
@@ -17,6 +28,24 @@ export class LumenCortexDatabase {
       PRAGMA busy_timeout = 5000;
     `);
     this.#schema();
+  }
+
+  // The Go runtime migrates this file and records the schema in PRAGMA user_version (>= 1). Node
+  // predates that runner and must not write to a migrated database, so this runs before any pragma
+  // that writes the header and before schema initialisation.
+  #refuseMigrated() {
+    let version;
+    try {
+      this.db.exec('PRAGMA busy_timeout = 5000');
+      version = Number(this.db.prepare('PRAGMA user_version').get().user_version);
+    } catch (error) {
+      this.db.close();
+      throw error;
+    }
+    if (version >= 1) {
+      this.db.close();
+      throw new MigratedDatabaseError(this.file, version);
+    }
   }
 
   #schema() {

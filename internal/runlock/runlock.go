@@ -32,13 +32,7 @@ type Lock struct{ f *os.File }
 // TryAcquire takes the lock for id without blocking. It returns ErrHeld when it
 // is held, and a validation error for an id outside ^[A-Za-z0-9_-]{1,128}$.
 func TryAcquire(dir, id string) (*Lock, error) {
-	if !validID.MatchString(id) {
-		return nil, fmt.Errorf("runlock: invalid id %q", id)
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
-	f, err := os.OpenFile(filepath.Join(dir, id+".lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	f, err := openLockFile(dir, id)
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +44,33 @@ func TryAcquire(dir, id string) (*Lock, error) {
 		_, _ = f.WriteAt([]byte(fmt.Sprintf("pid=%d at=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))), 0)
 	}
 	return &Lock{f: f}, nil
+}
+
+// TryAcquireShared takes the lock for id in shared mode without blocking. It
+// succeeds while every other holder is shared and returns ErrHeld while an
+// exclusive holder exists; an exclusive TryAcquire conflicts with every shared
+// holder. Any number of descriptors, in this process or others, may hold it at
+// once, so a shared holder never writes the lock file.
+func TryAcquireShared(dir, id string) (*Lock, error) {
+	f, err := openLockFile(dir, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := lockShared(f); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return &Lock{f: f}, nil
+}
+
+func openLockFile(dir, id string) (*os.File, error) {
+	if !validID.MatchString(id) {
+		return nil, fmt.Errorf("runlock: invalid id %q", id)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(filepath.Join(dir, id+".lock"), os.O_RDWR|os.O_CREATE, 0o600)
 }
 
 // Release unlocks and closes the descriptor. It is safe to call more than once.

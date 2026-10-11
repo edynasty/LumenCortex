@@ -5,20 +5,18 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/edynasty/LumenCortex/internal/migrate"
 )
-
-const schemaVersion = 1
 
 var ErrNotFound = errors.New("session not found")
 
 type Store struct {
 	db   *sql.DB
+	ws   *migrate.Workspace
 	path string
 }
 
@@ -49,119 +47,34 @@ type Step struct {
 	JSON      json.RawMessage `json:"json"`
 }
 
+// Open opens the workspace database under repositoryDir, running any pending schema migration first
+// (internal/migrate). The Store holds <repositoryDir>/db.lock shared until Close.
 func Open(repositoryDir string) (*Store, error) {
+	return OpenContext(context.Background(), repositoryDir)
+}
+
+// OpenContext is Open with a context that bounds the wait for db.lock and cancels a migration in
+// progress. It returns migrate.ErrSchemaTooNew for a database a newer binary migrated, and
+// migrate.ErrDatabaseInUse when other processes keep the database open too long for a migration.
+func OpenContext(ctx context.Context, repositoryDir string) (*Store, error) {
 	if err := os.MkdirAll(repositoryDir, 0o755); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(repositoryDir, "lumencortex.db")
-	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_foreign_keys=on&_journal_mode=WAL&_synchronous=NORMAL", filepath.ToSlash(path))
-	db, err := sql.Open("sqlite3", dsn)
+	set, err := migrate.Embedded()
 	if err != nil {
 		return nil, err
 	}
-	// One connection keeps SQLite memory bounded and avoids avoidable writer contention.
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	store := &Store{db: db, path: path}
-	if err := store.ensureSchema(context.Background()); err != nil {
-		db.Close()
+	ws, err := migrate.Open(ctx, repositoryDir, set)
+	if err != nil {
 		return nil, err
 	}
-	return store, nil
+	return &Store{db: ws.DB, ws: ws, path: filepath.Join(repositoryDir, "lumencortex.db")}, nil
 }
 
 func (s *Store) Path() string { return s.path }
-func (s *Store) Close() error { return s.db.Close() }
 
-func (s *Store) ensureSchema(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-PRAGMA foreign_keys = ON;
-PRAGMA busy_timeout = 5000;
-
-CREATE TABLE IF NOT EXISTS metadata (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS sessions (
-  id TEXT PRIMARY KEY,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  status TEXT NOT NULL,
-  provider TEXT,
-  model TEXT,
-  goal TEXT NOT NULL,
-  metadata_json TEXT NOT NULL,
-  final TEXT,
-  usage_json TEXT,
-  error_json TEXT
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC);
-
-CREATE TABLE IF NOT EXISTS session_messages (
-  session_id TEXT NOT NULL,
-  seq INTEGER NOT NULL,
-  role TEXT NOT NULL,
-  json TEXT NOT NULL,
-  PRIMARY KEY(session_id, seq),
-  FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS agent_steps (
-  session_id TEXT NOT NULL,
-  step INTEGER NOT NULL,
-  json TEXT NOT NULL,
-  PRIMARY KEY(session_id, step),
-  FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS journal (
-  seq INTEGER PRIMARY KEY AUTOINCREMENT,
-  at TEXT NOT NULL,
-  event TEXT NOT NULL,
-  payload_json TEXT NOT NULL
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_journal_event_at ON journal(event, at DESC);
-
-CREATE TABLE IF NOT EXISTS session_relations (
-  child_session_id TEXT PRIMARY KEY,
-  parent_session_id TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  metadata_json TEXT NOT NULL,
-  FOREIGN KEY(parent_session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-  FOREIGN KEY(child_session_id) REFERENCES sessions(id) ON DELETE CASCADE
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_session_relations_parent
-ON session_relations(parent_session_id, created_at);
-
-CREATE TABLE IF NOT EXISTS session_checkpoints (
-  session_id TEXT NOT NULL,
-  seq INTEGER NOT NULL,
-  at TEXT NOT NULL,
-  reason TEXT NOT NULL,
-  json TEXT NOT NULL,
-  PRIMARY KEY(session_id, seq),
-  FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_session_checkpoints_at
-ON session_checkpoints(session_id, at DESC);
-`)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.ExecContext(ctx, `
-INSERT INTO metadata(key, value) VALUES('schema_version', ?)
-ON CONFLICT(key) DO NOTHING
-`, fmt.Sprintf("%d", schemaVersion))
-	return err
-}
+// Close closes the database and releases the shared schema lock.
+func (s *Store) Close() error { return s.ws.Close() }
 
 func normalizeJSON(raw json.RawMessage, fallback string) string {
 	if len(raw) == 0 {

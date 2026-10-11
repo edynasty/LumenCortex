@@ -250,6 +250,16 @@ Important logical table groups:
 
 - `journal`.
 
+### Schema version and migration
+
+`PRAGMA user_version` is the only schema version. The Go runtime applies numbered migrations (`internal/migrate/sql/NNNN_*.sql`, currently `0001_v1.sql`) in order, each in one transaction that also sets `user_version`; a gap in the numbering opens no database. A database newer than the binary is refused with `ErrSchemaTooNew` and nothing is written.
+
+- `.lumencortex/db.lock` is the schema lock. Every open Engine holds it shared; a migration or downgrade holds it exclusive, so other processes must close the workspace first. Waits follow the caller's context and last at most 30 s, then `ErrDatabaseInUse`. The kernel drops the lock when a process dies. Per-session run locks are separate.
+- Before a change the runner writes `backups/lumencortex.db.v<N>.<UTC>` with `VACUUM INTO` (as `.partial` until complete). Provider reasoning (`reasoning`, `reasoning_content`) is removed from the copy with `secure_delete` before it is renamed, so no backup stores it. `.partial` leftovers are deleted under the exclusive lock.
+- `checkpoint.pending` is written and fsynced before the first migration. A database that held reasoning is rebuilt with `VACUUM` after the last migration, then the WAL is truncated (`wal_checkpoint(TRUNCATE)`); the marker is removed only when SQLite reports the checkpoint complete. A later Open under the exclusive lock finishes whatever a crash or a blocking reader left undone.
+- `lcx-go db downgrade --to <N>` takes the exclusive lock, backs up, and runs numbered `down/NNNN_*.down.sql` files newest first in one transaction. Version 1 has no down file: `--to 0` is refused and the database is unchanged.
+- The legacy Node runtime refuses a database whose `user_version` is 1 or greater, before it writes anything.
+
 ## Persistence data flow
 
 <p align="center">
