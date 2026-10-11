@@ -14,6 +14,8 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/edynasty/LumenCortex/internal/runlock"
 )
 
 func open(t *testing.T, stateDir string, set *Set) *Workspace {
@@ -38,7 +40,7 @@ func readBefore(t *testing.T, stateDir string) snapshot {
 	return take(t, db)
 }
 
-// TestUpgradeFixtures migrates the three pre-runner database kinds from version 0 to 1.
+// TestUpgradeFixtures migrates the supported pre-runner Go database kinds from version 0 to 1.
 func TestUpgradeFixtures(t *testing.T) {
 	for _, kind := range allFixtures {
 		t.Run(string(kind), func(t *testing.T) {
@@ -72,19 +74,16 @@ func TestUpgradeFixtures(t *testing.T) {
 			if n := qInt(t, db, `SELECT count(*) FROM metadata WHERE key='schema_version'`); n != 0 {
 				t.Errorf("schema_version rows=%d", n)
 			}
-			// Existing data, with only the reasoning keys removed, plus every unrelated table, intact.
+			// Existing data, with only the reasoning keys removed, intact.
 			after := take(t, db)
 			if !before.equal(after) {
 				t.Errorf("data changed beyond reasoning removal:\nbefore=%+v\nafter=%+v", before, after)
-			}
-			if kind == fixtureNode && len(before.foreignRows) < 10 {
-				t.Errorf("Node fixture has only %d foreign tables", len(before.foreignRows))
 			}
 			if n := qInt(t, db, `SELECT count(*) FROM session_messages WHERE json_type(json,'$.reasoning') IS NOT NULL OR json_type(json,'$.reasoning_content') IS NOT NULL`); n != 0 {
 				t.Errorf("%d rows keep reasoning keys", n)
 			}
 			afterTables := qStrings(t, db, `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
-			if kind != fixtureGo && reflect.DeepEqual(beforeTables, afterTables) {
+			if kind == fixtureDesktop && reflect.DeepEqual(beforeTables, afterTables) {
 				t.Errorf("%s fixture gained no tables; session_relations/session_checkpoints expected", kind)
 			}
 
@@ -182,7 +181,7 @@ func TestScrubStatementMatches0001(t *testing.T) {
 
 // TestReopenPerformsNoMigration: an up-to-date database opens without a backup, marker or write.
 func TestReopenPerformsNoMigration(t *testing.T) {
-	dir := newFixture(t, fixtureNode)
+	dir := newFixture(t, fixtureGo)
 	closeWS(t, open(t, dir, embeddedSet(t)))
 	before := fileHashes(t, dir, dbFile, dbFile+"-wal")
 	backupsBefore := backups(t, dir)
@@ -398,7 +397,7 @@ func TestDowngradeMechanism(t *testing.T) {
 	set := syntheticSet(t, up, down)
 
 	setup := func(t *testing.T) string {
-		dir := newFixture(t, fixtureNode)
+		dir := newFixture(t, fixtureGo)
 		closeWS(t, open(t, dir, set))
 		return dir
 	}
@@ -525,4 +524,70 @@ func TestDowngradeVersionOneToZeroIsRefused(t *testing.T) {
 	if uv := qInt(t, inspect(t, filepath.Join(dir, dbFile)), `PRAGMA user_version`); uv != 1 {
 		t.Errorf("user_version=%d", uv)
 	}
+}
+
+// TestLegacyNodeDatabaseIsRefusedUntouched: Node databases are not supported or migrated. Open fails
+// with ErrLegacyNodeDatabase before the journal mode, a backup, the marker or any migration touches
+// the file, and the Node graph, search and session data stay exactly as found.
+func TestLegacyNodeDatabaseIsRefusedUntouched(t *testing.T) {
+	dir := newFixture(t, fixtureNode)
+	path := filepath.Join(dir, dbFile)
+	hashes := fileHashes(t, dir, dbFile)
+	content := dumpAll(t, inspect(t, path))
+	if !strings.Contains(content, "graph_nodes") || !strings.Contains(content, "schema_version") {
+		t.Fatal("the Node fixture lacks Node tables; the test would prove nothing")
+	}
+
+	check := func(t *testing.T, err error) {
+		t.Helper()
+		if !errors.Is(err, ErrLegacyNodeDatabase) {
+			t.Fatalf("err=%v, want ErrLegacyNodeDatabase", err)
+		}
+		if !strings.Contains(err.Error(), "graph_nodes") {
+			t.Errorf("error does not name the Node tables: %v", err)
+		}
+		if got := fileHashes(t, dir, dbFile); !reflect.DeepEqual(got, hashes) {
+			t.Error("the refused Open changed the database file")
+		}
+		if got := dumpAll(t, inspect(t, path)); got != content {
+			t.Error("the refused Open changed the database content")
+		}
+		if uv := qInt(t, inspect(t, path), `PRAGMA user_version`); uv != 0 {
+			t.Errorf("user_version=%d, want 0", uv)
+		}
+		if got := backups(t, dir); len(got) != 0 {
+			t.Errorf("backups=%v written for a refused database", got)
+		}
+		if _, err := os.Stat(filepath.Join(dir, pendingMarker)); !os.IsNotExist(err) {
+			t.Errorf("marker written for a refused database (stat: %v)", err)
+		}
+	}
+
+	t.Run("shared open", func(t *testing.T) {
+		ws, err := Open(context.Background(), dir, embeddedSet(t))
+		if ws != nil {
+			ws.Close()
+		}
+		check(t, err)
+		// The shared lock was released: a refused Open must not block a later one.
+		lock, lerr := runlock.TryAcquire(dir, dbLockID)
+		if lerr != nil {
+			t.Fatalf("db.lock still held after the refused Open: %v", lerr)
+		}
+		lock.Release()
+	})
+	t.Run("refused without waiting for the exclusive lock", func(t *testing.T) {
+		shorten(t, 300*time.Millisecond, 0)
+		holder, err := runlock.TryAcquireShared(dir, dbLockID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer holder.Release()
+		_, err = Open(context.Background(), dir, embeddedSet(t))
+		check(t, err) // ErrLegacyNodeDatabase, not ErrDatabaseInUse
+	})
+	t.Run("exclusive upgrade path", func(t *testing.T) {
+		_, _, err := upgradeLocked(context.Background(), path, dir, embeddedSet(t))
+		check(t, err)
+	})
 }

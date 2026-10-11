@@ -150,6 +150,9 @@ func openShared(ctx context.Context, path, stateDir string, set *Set, shared *ru
 	case v > set.Latest():
 		return fail(db, v, needNothing, fmt.Errorf("%w: have user_version %d, binary knows %d", ErrSchemaTooNew, v, set.Latest()))
 	case v < set.Latest():
+		if err := rejectLegacyNode(ctx, db, path); err != nil {
+			return fail(db, v, needNothing, err)
+		}
 		return fail(db, v, needMigrate, nil)
 	}
 	kind, err := readMarker(stateDir)
@@ -172,7 +175,7 @@ func openShared(ctx context.Context, path, stateDir string, set *Set, shared *ru
 }
 
 // dropForeignSchemaVersion deletes a metadata.schema_version row. Migration 0001 removed it, so a row
-// that is back was written by a pre-runner binary (Node or an older core) that opened the migrated
+// that is back was written by a pre-runner binary (an older core, or the Node runtime) that opened the
 // database (R3). The row is never read as a version.
 func dropForeignSchemaVersion(ctx context.Context, db *sql.DB, path string) error {
 	var n int

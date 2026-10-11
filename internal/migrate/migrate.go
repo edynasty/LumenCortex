@@ -10,8 +10,12 @@
 //
 // Before any change the runner makes a versioned backup with VACUUM INTO, removes provider reasoning
 // from the copy, and only then renames it into place. During the change it keeps SQLite's
-// secure_delete on and a durable checkpoint.pending marker; after the last transaction it truncates
-// the WAL and removes the marker only when SQLite reports the checkpoint complete.
+// secure_delete on and a durable checkpoint.pending marker; after the last transaction it rebuilds the
+// file when it held reasoning, truncates the WAL and removes the marker only when SQLite reports the
+// checkpoint complete.
+//
+// Databases created by the legacy Node runtime are not supported: they are refused with
+// ErrLegacyNodeDatabase before the journal mode, the backup or any migration touches the file.
 package migrate
 
 import (
@@ -25,6 +29,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -37,6 +42,11 @@ var ErrSchemaTooNew = errors.New("database schema is newer than this binary")
 // LockWait. Opening needs it shared while a schema change runs; a schema change needs it exclusive
 // while any process has the workspace open. The caller closes the other processes and retries.
 var ErrDatabaseInUse = errors.New("database is open in another process; close it to change the schema")
+
+// ErrLegacyNodeDatabase means the file holds tables only the legacy Node runtime writes (graph,
+// cognitive Git, search). Node databases are not supported or migrated (design §6.1); the file is left
+// exactly as found.
+var ErrLegacyNodeDatabase = errors.New("database was created by the legacy Node runtime and is not supported")
 
 // ErrNoDownMigration means a requested downgrade crosses a version that has no down file.
 var ErrNoDownMigration = errors.New("no down migration")
@@ -171,6 +181,28 @@ func userVersion(ctx context.Context, q querier) (int, error) {
 	return v, nil
 }
 
+// legacyNodeTables are tables only the Node runtime creates (src/database.js). Go never writes them,
+// so any one of them marks a Node database.
+var legacyNodeTables = []string{
+	"cognitive_checkpoints", "cognitive_commits", "cognitive_refs", "graph_edges", "graph_nodes",
+	"node_fts", "repository_state", "search_documents", "symbols",
+}
+
+// rejectLegacyNode returns ErrLegacyNodeDatabase when the database holds a Node table. It only reads:
+// callers run it before the journal mode, a backup or any migration touches the file.
+func rejectLegacyNode(ctx context.Context, q querier, path string) error {
+	var found sql.NullString
+	query := `SELECT group_concat(name, ', ') FROM (SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('` +
+		strings.Join(legacyNodeTables, `', '`) + `') ORDER BY name)`
+	if err := q.QueryRowContext(ctx, query).Scan(&found); err != nil {
+		return err
+	}
+	if found.Valid && found.String != "" {
+		return fmt.Errorf("%w: %s has Node tables (%s); use a new state directory", ErrLegacyNodeDatabase, path, found.String)
+	}
+	return nil
+}
+
 // useWAL puts the database in WAL mode, as core always has. It writes the header only when the file
 // is not WAL yet.
 func useWAL(ctx context.Context, q querier) error {
@@ -224,6 +256,10 @@ func upgradeLocked(ctx context.Context, path, stateDir string, set *Set) (from, 
 		if pending == markerVacuum {
 			err = finishScrub(ctx, conn, stateDir, pending)
 		}
+		return v, v, err
+	}
+	// Before the journal mode, the backup or any write: a Node database is refused untouched.
+	if err := rejectLegacyNode(ctx, conn, path); err != nil {
 		return v, v, err
 	}
 	if err := useWAL(ctx, conn); err != nil {

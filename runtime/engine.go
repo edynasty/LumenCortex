@@ -37,6 +37,10 @@ var ErrRunHeld = errors.New("run is active in another process or engine")
 // nothing; upgrade the binary, or run `db downgrade` with the newer one.
 var ErrSchemaTooNew = migrate.ErrSchemaTooNew
 
+// ErrLegacyNodeDatabase reports that the workspace database was created by the legacy Node runtime.
+// Node databases are not supported or migrated; Open wrote nothing. Use a new state directory.
+var ErrLegacyNodeDatabase = migrate.ErrLegacyNodeDatabase
+
 // ErrDatabaseInUse reports that a schema change could not take the exclusive schema lock because
 // other processes kept the workspace open for the 30 s wait. Close them and retry.
 var ErrDatabaseInUse = migrate.ErrDatabaseInUse

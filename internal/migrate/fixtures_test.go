@@ -27,13 +27,9 @@ const sentinel = "HIDDEN-REASONING-SENTINEL"
 // longReasoning spans several pages so that overflow pages carry the sentinel too.
 var longReasoning = strings.Repeat("pad-", 6000) + sentinel + "-tail"
 
-// coreTables are the tables core owns; every other table is a foreign Node table the runner must
-// leave alone.
-var coreTables = map[string]bool{
-	"metadata": true, "sessions": true, "session_messages": true, "agent_steps": true, "journal": true,
-	"sqlite_sequence": true, "session_relations": true, "session_checkpoints": true,
-}
-
+// The migrated database kinds are those Go supports: the current core schema and the older
+// Desktop-pinned core, which lacks session_relations and session_checkpoints. fixtureNode is a legacy
+// Node database; it exists only to prove the runner refuses it untouched.
 type fixtureKind string
 
 const (
@@ -42,7 +38,7 @@ const (
 	fixtureNode    fixtureKind = "node"
 )
 
-var allFixtures = []fixtureKind{fixtureGo, fixtureDesktop, fixtureNode}
+var allFixtures = []fixtureKind{fixtureGo, fixtureDesktop}
 
 func schemaFile(kind fixtureKind) string {
 	return map[fixtureKind]string{fixtureGo: "go_schema.sql", fixtureDesktop: "desktop_schema.sql", fixtureNode: "node_schema.sql"}[kind]
@@ -108,10 +104,6 @@ VALUES(?, ?, ?, ?, 'p', 'm', ?, '{"ui":{"title":"keep"}}', NULL, NULL, NULL)`, i
 	session("s_done", "completed", "read the readme")
 	message("s_done", 0, "user", map[string]any{"role": "user", "content": "read the readme"})
 	toolCall := map[string]any{"id": "c1", "name": "read_file", "arguments": map[string]any{"path": "README.md"}}
-	if kind == fixtureNode {
-		// Node stores calls in the OpenAI wire shape; 0001 leaves them alone (a later migration normalizes).
-		toolCall = map[string]any{"id": "c1", "type": "function", "function": map[string]any{"name": "read_file", "arguments": `{"path":"README.md"}`}}
-	}
 	message("s_done", 1, "assistant", map[string]any{"role": "assistant", "content": "", "tool_calls": []any{toolCall}, "reasoning": "short " + sentinel})
 	message("s_done", 2, "tool", map[string]any{"role": "tool", "tool_call_id": "c1", "name": "read_file", "content": "# readme"})
 	message("s_done", 3, "assistant", map[string]any{"role": "assistant", "content": "done", "reasoning_content": longReasoning})
@@ -162,20 +154,17 @@ func withoutReasoning(t *testing.T, raw string) any {
 	return doc
 }
 
-// snapshot is everything a test compares before and after a migration.
+// snapshot is the Go-owned data a test compares before and after a migration.
 type snapshot struct {
-	sessions     []string
-	messages     map[string]any // "session/seq" -> JSON without reasoning keys
-	steps        []string
-	journal      []string
-	foreignRows  map[string]int // Node-only table -> row count
-	foreignDDL   map[string]string
-	foreignTexts []string
+	sessions []string
+	messages map[string]any // "session/seq" -> JSON without reasoning keys
+	steps    []string
+	journal  []string
 }
 
 func take(t *testing.T, db *sql.DB) snapshot {
 	t.Helper()
-	s := snapshot{messages: map[string]any{}, foreignRows: map[string]int{}, foreignDDL: map[string]string{}}
+	s := snapshot{messages: map[string]any{}}
 	s.sessions = qStrings(t, db, `SELECT id || '|' || status || '|' || goal || '|' || metadata_json FROM sessions ORDER BY id`)
 	rows, err := db.Query(`SELECT session_id, seq, json FROM session_messages ORDER BY session_id, seq`)
 	if err != nil {
@@ -192,28 +181,24 @@ func take(t *testing.T, db *sql.DB) snapshot {
 	rows.Close()
 	s.steps = qStrings(t, db, `SELECT session_id || '|' || step || '|' || json FROM agent_steps ORDER BY 1`)
 	s.journal = qStrings(t, db, `SELECT event || '|' || payload_json FROM journal ORDER BY seq`)
-	names := qStrings(t, db, `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
-	for _, name := range names {
-		if coreTables[name] {
-			continue
-		}
-		s.foreignRows[name] = qInt(t, db, `SELECT count(*) FROM "`+name+`"`)
-		s.foreignDDL[name] = qStrings(t, db, `SELECT sql FROM sqlite_master WHERE name = ?`, name)[0]
-		s.foreignTexts = append(s.foreignTexts, foreignContent(t, db, name))
-	}
 	return s
 }
 
-// foreignContent renders every row of a table the migration must leave alone, whatever its columns.
-func foreignContent(t *testing.T, db *sql.DB, table string) string {
+// dumpAll renders the schema and every row of every table, so a test can prove a database was left
+// exactly as found.
+func dumpAll(t *testing.T, db *sql.DB) string {
 	t.Helper()
-	cols := qStrings(t, db, `SELECT name FROM pragma_table_info(?) ORDER BY cid`, table)
-	parts := make([]string, len(cols))
-	for i, c := range cols {
-		parts[i] = `quote("` + c + `")`
+	out := qStrings(t, db, `SELECT type || '|' || name || '|' || coalesce(sql, '') FROM sqlite_master ORDER BY type, name`)
+	for _, table := range qStrings(t, db, `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`) {
+		cols := qStrings(t, db, `SELECT name FROM pragma_table_info(?) ORDER BY cid`, table)
+		parts := make([]string, len(cols))
+		for i, c := range cols {
+			parts[i] = `quote("` + c + `")`
+		}
+		out = append(out, table+":")
+		out = append(out, qStrings(t, db, `SELECT `+strings.Join(parts, `||'|'||`)+` FROM "`+table+`" ORDER BY 1`)...)
 	}
-	rows := qStrings(t, db, `SELECT `+strings.Join(parts, `||'|'||`)+` FROM "`+table+`" ORDER BY 1`)
-	return table + ":" + strings.Join(rows, "\n")
+	return strings.Join(out, "\n")
 }
 
 func (s snapshot) equal(o snapshot) bool { return reflect.DeepEqual(s, o) }

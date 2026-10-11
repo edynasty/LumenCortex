@@ -299,7 +299,7 @@ func TestSharedLockCrossProcess(t *testing.T) {
 func TestConcurrentProcessOpen(t *testing.T) {
 	const procs = 4
 	for r := range 3 {
-		dir := newFixture(t, fixtureNode)
+		dir := newFixture(t, fixtureGo)
 		cmds := make([]*exec.Cmd, procs)
 		outs := make([]*bytes.Buffer, procs)
 		for i := range procs {
@@ -460,7 +460,7 @@ func TestBackupFailureLeavesNoAcceptedBackup(t *testing.T) {
 // file or WAL.
 func TestCheckpointPendingMarker(t *testing.T) {
 	shorten(t, 5*time.Second, 50*time.Millisecond)
-	dir := newFixture(t, fixtureNode)
+	dir := newFixture(t, fixtureGo)
 	path := filepath.Join(dir, dbFile)
 
 	rdb := inspect(t, path)

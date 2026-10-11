@@ -134,3 +134,52 @@ func TestDowngradeSchemaRefusesWhileEngineIsOpen(t *testing.T) {
 		t.Fatal("DowngradeSchema succeeded while an Engine holds the workspace")
 	}
 }
+
+func TestOpenRefusesLegacyNodeDatabaseWithoutWriting(t *testing.T) {
+	workspace := t.TempDir()
+	stateDir := filepath.Join(workspace, ".lumencortex")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dbFile := filepath.Join(stateDir, "lumencortex.db")
+	db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(dbFile)+"?_journal_mode=WAL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT`,
+		`INSERT INTO metadata VALUES('schema_version', '3')`,
+		`CREATE TABLE graph_nodes (id TEXT PRIMARY KEY, json TEXT NOT NULL) STRICT`,
+		`INSERT INTO graph_nodes VALUES('n1', '{}')`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(dbFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Open(Options{Workspace: workspace}); !errors.Is(err, ErrLegacyNodeDatabase) {
+		t.Fatalf("Open of a Node database: %v, want ErrLegacyNodeDatabase", err)
+	}
+	after, err := os.ReadFile(dbFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Error("the refused Open wrote to the Node database")
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "backups")); !os.IsNotExist(err) {
+		t.Errorf("a backup directory exists for a refused database (stat: %v)", err)
+	}
+	if lock, err := runlock.TryAcquire(stateDir, "db"); err != nil {
+		t.Errorf("the refused Open kept db.lock: %v", err)
+	} else {
+		lock.Release()
+	}
+}

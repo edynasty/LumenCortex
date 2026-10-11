@@ -24,7 +24,7 @@ go run ./cmd/lcx-go session-new "inspect this repository"
 go run ./cmd/lcx-go sessions
 ```
 
-The preview writes to the same `.lumencortex/lumencortex.db` Session tables used by the Node implementation.
+The preview writes to the `.lumencortex/lumencortex.db` Session tables, migrated by `internal/migrate`. It does not open databases created by the Node implementation: those are refused untouched with `ErrLegacyNodeDatabase`, and Node refuses a database Go has migrated.
 
 ## Migration gate
 

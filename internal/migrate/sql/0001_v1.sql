@@ -1,12 +1,13 @@
 -- 0001_v1.sql: the schema that internal/session created before the migration runner existed.
--- Every statement is IF NOT EXISTS, so it is a no-op on databases created by Go and only adds
--- session_relations / session_checkpoints to databases created by Node or by an older Desktop-pinned core.
+-- Every statement is IF NOT EXISTS, so it is a no-op on databases created by a current Go core and only
+-- adds session_relations / session_checkpoints to databases created by an older Desktop-pinned core.
+-- Databases created by the legacy Node runtime are refused before this file runs (ErrLegacyNodeDatabase);
+-- they are not supported and never migrated.
 -- The runner sets PRAGMA user_version = 1 in the same transaction. From here on user_version is the only
 -- schema authority: the legacy metadata.schema_version row is deleted, so a row that reappears later was
--- written by a pre-runner binary (Node or an older Go core) and is reported as a foreign writer.
--- It also removes the provider reasoning Node stored in transcript rows: the first migrated version
--- already holds no hidden reasoning (AGENTS.md reasoning boundary; design README §6.3).
--- Tables this file does not name (Node's graph, search and embedding tables) are not touched.
+-- written by a pre-runner binary (an older Go core or the Node runtime) and is reported as a foreign writer.
+-- It also removes the provider reasoning that earlier cores stored in transcript rows: the first migrated
+-- version already holds no hidden reasoning (AGENTS.md reasoning boundary; design README §6.3).
 
 CREATE TABLE IF NOT EXISTS metadata (
   key TEXT PRIMARY KEY,

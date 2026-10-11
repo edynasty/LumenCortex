@@ -258,7 +258,8 @@ Important logical table groups:
 - Before a change the runner writes `backups/lumencortex.db.v<N>.<UTC>` with `VACUUM INTO` (as `.partial` until complete). Provider reasoning (`reasoning`, `reasoning_content`) is removed from the copy with `secure_delete` before it is renamed, so no backup stores it. `.partial` leftovers are deleted under the exclusive lock.
 - `checkpoint.pending` is written and fsynced before the first migration. A database that held reasoning is rebuilt with `VACUUM` after the last migration, then the WAL is truncated (`wal_checkpoint(TRUNCATE)`); the marker is removed only when SQLite reports the checkpoint complete. A later Open under the exclusive lock finishes whatever a crash or a blocking reader left undone.
 - `lcx-go db downgrade --to <N>` takes the exclusive lock, backs up, and runs numbered `down/NNNN_*.down.sql` files newest first in one transaction. Version 1 has no down file: `--to 0` is refused and the database is unchanged.
-- The legacy Node runtime refuses a database whose `user_version` is 1 or greater, before it writes anything.
+- Legacy Node databases are not supported and are never migrated. A database below the supported version that holds a table only the Node runtime creates (`graph_nodes`, `graph_edges`, `cognitive_commits`, `cognitive_refs`, `cognitive_checkpoints`, `repository_state`, `search_documents`, `symbols`, `node_fts`) is refused with `ErrLegacyNodeDatabase` before the journal mode, a backup, the marker or any migration touches it; start a new state directory. Go has no FTS5 support.
+- Until the Node runtime is removed, it refuses a database whose `user_version` is 1 or greater, before it writes anything, so it can never write to a database Go has migrated.
 
 ## Persistence data flow
 
