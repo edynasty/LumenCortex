@@ -241,6 +241,11 @@ func (e *Engine) Health() Health {
 
 func (e *Engine) Events(buffer int) (<-chan Event, func()) { return e.events.subscribe(buffer) }
 
+// EventStats returns the event bus counters (see EventStats). Publishing never
+// waits for a subscriber; a subscriber that cannot keep up loses its oldest events
+// and Dropped counts each loss.
+func (e *Engine) EventStats() EventStats { return e.events.stats() }
+
 func newSessionID() (string, error) {
 	buf := make([]byte, 12)
 	if _, err := rand.Read(buf); err != nil {

@@ -15,14 +15,39 @@ type Event struct {
 	Data      json.RawMessage `json:"data,omitempty"`
 }
 
+// EventStats is an immutable snapshot of the event bus counters. Counters only
+// grow; reading them never resets them.
+//
+//   - Published counts events accepted by publish while the bus was open: one per
+//     event, whatever the number of subscribers (zero included). Events published
+//     after Close are not accepted and are not counted.
+//   - Dropped counts lost deliveries, not affected events: each time publish had to
+//     discard an event because one subscriber's buffer was full, Dropped grows by
+//     one. When it makes room it discards that subscriber's oldest queued event;
+//     the new event is delivered. Two subscribers that both overflow on the same
+//     event add two. Events left unread in a buffer when a subscriber unsubscribes
+//     or the bus closes are not counted.
+//
+// Published and Dropped are read independently, so a snapshot taken during
+// concurrent publishing may show a Dropped that includes deliveries of an event
+// not yet reflected in Published.
+type EventStats struct {
+	Published uint64 `json:"published"`
+	Dropped   uint64 `json:"dropped"`
+}
+
 type subscriber struct {
 	ch chan Event
 }
 
+// eventBus fans events out to subscribers without ever waiting for one (I11).
+// publish performs only non-blocking channel operations under mu.
 type eventBus struct {
 	mu          sync.Mutex
 	nextSubID   uint64
 	nextEventID atomic.Uint64
+	published   atomic.Uint64
+	dropped     atomic.Uint64
 	subs        map[uint64]*subscriber
 	closed      bool
 }
@@ -68,23 +93,34 @@ func (b *eventBus) publish(eventType, sessionID string, payload any) Event {
 	if b.closed {
 		return e
 	}
+	b.published.Add(1)
 	for _, s := range b.subs {
 		select {
 		case s.ch <- e:
+			continue
 		default:
-			// Drop the oldest event for this subscriber rather than let a slow UI
-			// create unbounded runtime memory pressure.
-			select {
-			case <-s.ch:
-			default:
-			}
-			select {
-			case s.ch <- e:
-			default:
-			}
+		}
+		// The buffer is full. Discard this subscriber's oldest event rather than
+		// block the runtime or let a slow UI grow memory without bound. Only
+		// publish sends and the lock is held, so the retry below succeeds; the
+		// consumer may have drained the buffer meanwhile, in which case nothing
+		// was discarded.
+		select {
+		case <-s.ch:
+			b.dropped.Add(1)
+		default:
+		}
+		select {
+		case s.ch <- e:
+		default:
+			b.dropped.Add(1)
 		}
 	}
 	return e
+}
+
+func (b *eventBus) stats() EventStats {
+	return EventStats{Published: b.published.Load(), Dropped: b.dropped.Load()}
 }
 
 func (b *eventBus) close() {

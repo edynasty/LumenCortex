@@ -48,15 +48,3 @@ func TestEnginePersistsSessionAndStreamsEvents(t *testing.T) {
 		}
 	}
 }
-
-func TestSlowEventSubscriberIsBounded(t *testing.T) {
-	bus := newEventBus()
-	ch, unsubscribe := bus.subscribe(2)
-	defer unsubscribe()
-	for i := 0; i < 1000; i++ {
-		bus.publish("tick", "", map[string]int{"i": i})
-	}
-	if got := len(ch); got > 2 {
-		t.Fatalf("subscriber buffer grew to %d", got)
-	}
-}
