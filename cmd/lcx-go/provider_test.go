@@ -334,3 +334,32 @@ func TestCognitionBindingsIgnoreRemovedEnvironment(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+// A cognition entry without a baseURL used to reach LCX_BASE_URL. Now that the variable is not
+// read, such an entry would fall through to the OpenAI default URL and send its key and the
+// transcript there; while LCX_BASE_URL is set the binding must refuse instead and name the key.
+func TestCognitionBindingRefusesDefaultURLWhenRemovedBaseURLIsSet(t *testing.T) {
+	t.Setenv("LCX_BASE_URL", "http://127.0.0.1:9")
+	t.Setenv("LCX_PROBE_KEY", "local-secret")
+	spec := cognition.ModelSpec{Provider: "generic", Model: "m", APIKeyEnv: "LCX_PROBE_KEY"}
+	_, err := providerBindingFromSpec(spec)
+	if err == nil || !strings.Contains(err.Error(), `"baseURL"`) || !strings.Contains(err.Error(), "LCX_BASE_URL is no longer read") {
+		t.Fatalf("err=%v", err)
+	}
+	if strings.Contains(err.Error(), "local-secret") {
+		t.Fatalf("error leaks the key: %v", err)
+	}
+	// The entry's own baseURL, or a preset's, still applies.
+	spec.BaseURL = "http://127.0.0.1:9"
+	if _, err := providerBindingFromSpec(spec); err != nil {
+		t.Fatalf("own baseURL: %v", err)
+	}
+	if _, err := providerBindingFromSpec(cognition.ModelSpec{Provider: "groq"}); err != nil {
+		t.Fatalf("preset baseURL: %v", err)
+	}
+	// Without the removed variable the generic default is unchanged.
+	t.Setenv("LCX_BASE_URL", "")
+	if _, err := providerBindingFromSpec(cognition.ModelSpec{Provider: "generic", Model: "m"}); err != nil {
+		t.Fatalf("generic default: %v", err)
+	}
+}

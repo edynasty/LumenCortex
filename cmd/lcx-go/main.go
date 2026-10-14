@@ -574,6 +574,11 @@ func providerBindingFromSpec(spec cognition.ModelSpec) (lcx.ProviderBinding, err
 	if baseURL == "" {
 		baseURL = preset.BaseURL
 	}
+	if baseURL == "" && strings.TrimSpace(os.Getenv("LCX_BASE_URL")) != "" {
+		// The entry would fall through to the OpenAI default URL and send its key and the
+		// transcript there instead of where LCX_BASE_URL used to point.
+		return lcx.ProviderBinding{}, fmt.Errorf("provider %s has no baseURL: set \"baseURL\" in its cognition.json entry (LCX_BASE_URL is no longer read)", name)
+	}
 	apiKey := spec.APIKey
 	apiKeyEnv := strings.TrimSpace(spec.APIKeyEnv)
 	if apiKeyEnv == "" {
