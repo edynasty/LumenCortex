@@ -42,6 +42,55 @@ type ResolvedModel struct {
 	RequestTimeout time.Duration
 	IdleTimeout    time.Duration
 	Warnings       []Warning
+	// OutputSet reports that limit.output is configured. When false, Output is DefaultOutput and
+	// the runtime reserves it but sends no max_tokens (D4).
+	OutputSet bool
+}
+
+// ResolvedProvider is the connection settings of one catalog provider after merge and trust. Like
+// ResolvedModel it holds the name of the key's environment variable, never the key.
+type ResolvedProvider struct {
+	ID, Name string
+	BaseURL  string
+	Endpoint string
+	// APIKeyRef is the configured {env:NAME} reference, "" when the provider needs no key.
+	APIKeyRef string
+	// Headers are sent with every request; they may carry tokens and stay out of JSON.
+	Headers        map[string]string `json:"-"`
+	RequestTimeout time.Duration
+	IdleTimeout    time.Duration
+}
+
+// APIKeyEnv returns the environment variable that holds the key, "" when there is none.
+func (p ResolvedProvider) APIKeyEnv() string {
+	name, _ := EnvName(p.APIKeyRef)
+	return name
+}
+
+// APIKeySet reports whether the key's variable is set and non-empty.
+func (p ResolvedProvider) APIKeySet() bool {
+	name := p.APIKeyEnv()
+	return name != "" && os.Getenv(name) != ""
+}
+
+// ResolveAPIKey reads the key from the environment, with the semantics of ResolvedModel.ResolveAPIKey.
+func (p ResolvedProvider) ResolveAPIKey() (string, error) {
+	return resolveAPIKey(p.ID, "provider "+p.ID, p.APIKeyRef)
+}
+
+func resolveAPIKey(providerID, subject, ref string) (string, error) {
+	if ref == "" {
+		return "", nil
+	}
+	name, ok := EnvName(ref)
+	if !ok {
+		return "", fmt.Errorf("%w: apiKey of %s is not an {env:NAME} reference", ErrInvalidConfig, subject)
+	}
+	v := os.Getenv(name)
+	if v == "" {
+		return "", fmt.Errorf("provider %s: environment variable %s is not set", providerID, name)
+	}
+	return v, nil
 }
 
 // APIKeyEnv returns the environment variable that holds the key, "" when there is none.
@@ -60,18 +109,7 @@ func (m ResolvedModel) APIKeySet() bool {
 // and keep the result out of logs, errors and events. It returns "" without error when the
 // provider has no apiKey, and an error naming only the variable when it is unset.
 func (m ResolvedModel) ResolveAPIKey() (string, error) {
-	if m.APIKeyRef == "" {
-		return "", nil
-	}
-	name := m.APIKeyEnv()
-	if name == "" {
-		return "", fmt.Errorf("%w: apiKey of %s is not an {env:NAME} reference", ErrInvalidConfig, m.Ref)
-	}
-	v := os.Getenv(name)
-	if v == "" {
-		return "", fmt.Errorf("provider %s: environment variable %s is not set", m.ProviderID, name)
-	}
-	return v, nil
+	return resolveAPIKey(m.ProviderID, string(m.Ref), m.APIKeyRef)
 }
 
 // ModelInfo describes a catalog model for pickers. It carries no credential and no header.
@@ -111,6 +149,27 @@ func (c *Config) Catalog() []ModelInfo {
 	return out
 }
 
+// Provider returns the settings of one catalog provider, or ErrUnknownProvider. It reads the merged
+// catalog, so a workspace override that the trust rules dropped is not visible here.
+func (c *Config) Provider(id string) (ResolvedProvider, error) {
+	p, ok := c.providers[id]
+	if !ok {
+		return ResolvedProvider{}, fmt.Errorf("%w: %s", ErrUnknownProvider, id)
+	}
+	out := ResolvedProvider{ID: id, Name: orDefault(p.Name, id), IdleTimeout: DefaultIdleTimeout}
+	if s := p.Settings; s != nil {
+		out.BaseURL, out.Endpoint, out.APIKeyRef = s.BaseURL, s.Endpoint, s.APIKey
+		out.Headers = cloneSettings(*s).Headers
+		if s.TimeoutSeconds > 0 {
+			out.RequestTimeout = time.Duration(s.TimeoutSeconds) * time.Second
+		}
+		if s.IdleTimeoutSeconds > 0 {
+			out.IdleTimeout = time.Duration(s.IdleTimeoutSeconds) * time.Second
+		}
+	}
+	return out, nil
+}
+
 // Resolve returns the settings of one catalog model, or ErrUnknownModel.
 func (c *Config) Resolve(ref ModelRef) (ResolvedModel, error) {
 	pid, key, ok := ref.Split()
@@ -125,23 +184,19 @@ func (c *Config) Resolve(ref ModelRef) (ResolvedModel, error) {
 	if !ok {
 		return ResolvedModel{}, fmt.Errorf("%w: %s", ErrUnknownModel, ref)
 	}
+	prov, err := c.Provider(pid)
+	if err != nil {
+		return ResolvedModel{}, err
+	}
 
 	out := ResolvedModel{
-		Ref: ref, ProviderID: pid, ProviderName: orDefault(p.Name, pid),
+		Ref: ref, ProviderID: pid, ProviderName: prov.Name,
 		ModelKey: key, ModelName: orDefault(m.Name, key), ModelID: orDefault(m.ModelID, key),
 		Context: DefaultContext, Output: DefaultOutput,
 		ReasoningFormat: ReasoningNone, ToolCalling: true,
-		InputModalities: []string{"text"}, IdleTimeout: DefaultIdleTimeout,
-	}
-	if s := p.Settings; s != nil {
-		out.BaseURL, out.Endpoint, out.APIKeyRef = s.BaseURL, s.Endpoint, s.APIKey
-		out.Headers = cloneSettings(*s).Headers
-		if s.TimeoutSeconds > 0 {
-			out.RequestTimeout = time.Duration(s.TimeoutSeconds) * time.Second
-		}
-		if s.IdleTimeoutSeconds > 0 {
-			out.IdleTimeout = time.Duration(s.IdleTimeoutSeconds) * time.Second
-		}
+		InputModalities: []string{"text"},
+		BaseURL:         prov.BaseURL, Endpoint: prov.Endpoint, APIKeyRef: prov.APIKeyRef,
+		Headers: prov.Headers, RequestTimeout: prov.RequestTimeout, IdleTimeout: prov.IdleTimeout,
 	}
 	if m.Limit != nil && m.Limit.Context > 0 {
 		out.Context = m.Limit.Context
@@ -150,6 +205,7 @@ func (c *Config) Resolve(ref ModelRef) (ResolvedModel, error) {
 	}
 	if m.Limit != nil && m.Limit.Output > 0 {
 		out.Output = m.Limit.Output
+		out.OutputSet = true
 	} else {
 		out.Warnings = append(out.Warnings, limitWarning(ref, "limit.output", DefaultOutput))
 	}

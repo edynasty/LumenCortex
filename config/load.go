@@ -19,6 +19,9 @@ const (
 	WarnLegacyPath = "legacy_global_path"
 	// WarnDefaultLimit: a model has no limit.context or limit.output.
 	WarnDefaultLimit = "default_limit"
+	// WarnCognitionProfile: <workspace>/.lumencortex/cognition.json exists. Earlier builds read
+	// provider, category and health settings from it; they are ignored now.
+	WarnCognitionProfile = "cognition_profile"
 )
 
 // Warning is a structured, non-fatal finding. Hosts decide how to show it: Desktop turns an
@@ -162,6 +165,16 @@ func load(globalDir, workspace string) (*Config, error) {
 		return nil, err
 	}
 	c.eff.Warnings = append(c.eff.Warnings, LegacyWarnings(globalDir)...)
+	if c.eff.Workspace != "" {
+		old := filepath.Join(c.eff.Workspace, ".lumencortex", "cognition.json")
+		if info, err := os.Stat(old); err == nil && info.Mode().IsRegular() {
+			c.eff.Warnings = append(c.eff.Warnings, Warning{
+				Code: WarnCognitionProfile, Path: old,
+				Message: "found " + old + "; its provider, category and health settings are ignored. " +
+					"Configure models in lumencortex.json",
+			})
+		}
+	}
 	return c, nil
 }
 

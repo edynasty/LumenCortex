@@ -33,7 +33,12 @@ type Config struct {
 	MaxRetries       int
 	RetryBaseDelay   time.Duration
 	MaxResponseBytes int64
-	ReasoningFormat   string
+	ReasoningFormat  string
+	// RequestTimeout caps each HTTP attempt from send to the last byte; 0 means no cap.
+	RequestTimeout time.Duration
+	// IdleTimeout ends an attempt that receives nothing for this long: before the headers and
+	// between body reads. 0 means no idle cap.
+	IdleTimeout time.Duration
 }
 
 type Client struct {
@@ -46,7 +51,22 @@ type Client struct {
 	maxRetries       int
 	retryBaseDelay   time.Duration
 	maxResponseBytes int64
-	reasoningFormat   string
+	reasoningFormat  string
+	requestTimeout   time.Duration
+	idleTimeout      time.Duration
+}
+
+// TimeoutError reports an attempt that outlived its request or idle timeout. It deliberately has
+// no Unwrap: it must never be taken for the run's own cancellation, which is what a derived
+// context's context.Canceled would look like (design F2).
+type TimeoutError struct {
+	// Kind is "idle" or "request".
+	Kind  string
+	After time.Duration
+}
+
+func (e *TimeoutError) Error() string {
+	return fmt.Sprintf("provider %s timeout after %s", e.Kind, e.After)
 }
 
 // ErrNoEndpoint is returned by New when neither Endpoint nor BaseURL is set.
@@ -116,54 +136,162 @@ func New(cfg Config) (*Client, error) {
 		maxRetries:       maxRetries,
 		retryBaseDelay:   retryBaseDelay,
 		maxResponseBytes: maxResponseBytes,
-		reasoningFormat:   strings.TrimSpace(cfg.ReasoningFormat),
+		reasoningFormat:  strings.TrimSpace(cfg.ReasoningFormat),
+		requestTimeout:   cfg.RequestTimeout,
+		idleTimeout:      cfg.IdleTimeout,
 	}, nil
 }
 
 func (c *Client) Model() string { return c.model }
 
+// maxInAdapterRetryAfter is the longest Retry-After the adapter sleeps through. A provider that asks
+// for more is reported at once so the runtime can fail over; the health registry records the time.
+const maxInAdapterRetryAfter = 5 * time.Second
+
+// Complete sends one request, retrying availability errors with backoff. Every error it returns
+// is a *protocol.ProviderError: the adapter classifies, the loop only reads the class.
 func (c *Client) Complete(ctx context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 	var lastErr error
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return protocol.ProviderResponse{}, err
+			return protocol.ProviderResponse{}, &protocol.ProviderError{Class: protocol.ClassCancelled, Err: err}
 		}
 		response, err := c.completeOnce(ctx, req)
 		if err == nil {
 			return response, nil
 		}
 		lastErr = err
-		if attempt == c.maxRetries || !retryable(err) {
+		class, retryAfter := classify(ctx, err)
+		if class != protocol.ClassAvailability {
+			return protocol.ProviderResponse{}, &protocol.ProviderError{Class: class, RetryAfter: retryAfter, Err: err}
+		}
+		if attempt == c.maxRetries || retryAfter > maxInAdapterRetryAfter {
 			break
 		}
 		delay := c.retryBaseDelay << attempt
-		if delay > 5*time.Second {
-			delay = 5 * time.Second
+		if delay > maxInAdapterRetryAfter {
+			delay = maxInAdapterRetryAfter
 		}
-		var httpErr *HTTPError
-		if errors.As(err, &httpErr) && httpErr.RetryAfter > delay {
-			delay = httpErr.RetryAfter
+		if retryAfter > delay {
+			delay = retryAfter
 		}
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return protocol.ProviderResponse{}, ctx.Err()
+			return protocol.ProviderResponse{}, &protocol.ProviderError{Class: protocol.ClassCancelled, Err: ctx.Err()}
 		case <-timer.C:
 		}
 	}
-	return protocol.ProviderResponse{}, lastErr
+	class, retryAfter := classify(ctx, lastErr)
+	return protocol.ProviderResponse{}, &protocol.ProviderError{Class: class, RetryAfter: retryAfter, Err: lastErr}
+}
+
+// capacityMarkers are the fragments of a 400 body that say the request exceeded the model's context.
+var capacityMarkers = []string{"context_length_exceeded", "maximum context length", "context length exceeded", "prompt is too long", "too many tokens"}
+
+// classify maps one failed attempt to a class (design §4.5, in this order):
+//
+//  1. the run context is done → cancelled;
+//  2. a TimeoutError, a transport error or a malformed stream → availability;
+//  3. HTTP 413, or 400 whose body names a capacity marker → capacity;
+//  4. HTTP 401, 403 → auth;
+//  5. HTTP 408, 409, 429, 5xx → availability;
+//  6. any other status → bad_request.
+//
+// It also returns the provider's Retry-After, 0 when there is none.
+func classify(ctx context.Context, err error) (protocol.ErrorClass, time.Duration) {
+	if ctx.Err() != nil {
+		return protocol.ClassCancelled, 0
+	}
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		var bad *badRequestError
+		if errors.As(err, &bad) {
+			return protocol.ClassBadRequest, 0
+		}
+		return protocol.ClassAvailability, 0
+	}
+	code, body := httpErr.StatusCode, strings.ToLower(httpErr.Body)
+	switch {
+	case code == http.StatusRequestEntityTooLarge:
+		return protocol.ClassCapacity, httpErr.RetryAfter
+	case code == http.StatusBadRequest && containsAny(body, capacityMarkers):
+		return protocol.ClassCapacity, httpErr.RetryAfter
+	case code == http.StatusUnauthorized || code == http.StatusForbidden:
+		return protocol.ClassAuth, httpErr.RetryAfter
+	case code == http.StatusRequestTimeout || code == http.StatusConflict || code == http.StatusTooManyRequests || code >= 500:
+		return protocol.ClassAvailability, httpErr.RetryAfter
+	default:
+		return protocol.ClassBadRequest, httpErr.RetryAfter
+	}
+}
+
+func containsAny(s string, needles []string) bool {
+	for _, n := range needles {
+		if strings.Contains(s, n) {
+			return true
+		}
+	}
+	return false
+}
+
+// badRequestError is a request the adapter could not even build; retrying or failing over cannot help.
+type badRequestError struct{ err error }
+
+func (e *badRequestError) Error() string { return e.err.Error() }
+func (e *badRequestError) Unwrap() error { return e.err }
+
+// activityReader reports every read that returned bytes, which resets the idle timer.
+type activityReader struct {
+	r     io.Reader
+	touch func()
+}
+
+func (a activityReader) Read(p []byte) (int, error) {
+	n, err := a.r.Read(p)
+	if n > 0 {
+		a.touch()
+	}
+	return n, err
 }
 
 func (c *Client) completeOnce(ctx context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 	wireReq := requestFromProtocol(c.model, req, c.stream, c.reasoningFormat)
 	body, err := json.Marshal(wireReq)
 	if err != nil {
-		return protocol.ProviderResponse{}, err
+		return protocol.ProviderResponse{}, &badRequestError{err}
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
+	// The attempt gets its own cancellable context so a timeout can cancel it with a cause. The
+	// cause is read back below; the run context itself is never cancelled from here.
+	attemptCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	if c.requestTimeout > 0 {
+		timer := time.AfterFunc(c.requestTimeout, func() {
+			cancel(&TimeoutError{Kind: "request", After: c.requestTimeout})
+		})
+		defer timer.Stop()
+	}
+	touch := func() {}
+	if c.idleTimeout > 0 {
+		idle := time.AfterFunc(c.idleTimeout, func() {
+			cancel(&TimeoutError{Kind: "idle", After: c.idleTimeout})
+		})
+		defer idle.Stop()
+		touch = func() { idle.Reset(c.idleTimeout) }
+	}
+	// timeoutOr turns the error of a cancelled attempt into the timeout that cancelled it.
+	timeoutOr := func(err error) error {
+		var timeout *TimeoutError
+		if ctx.Err() == nil && errors.As(context.Cause(attemptCtx), &timeout) {
+			return timeout
+		}
+		return err
+	}
+
+	httpReq, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, c.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return protocol.ProviderResponse{}, err
+		return protocol.ProviderResponse{}, &badRequestError{err}
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
@@ -179,16 +307,24 @@ func (c *Client) completeOnce(ctx context.Context, req protocol.ProviderRequest)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return protocol.ProviderResponse{}, err
+		return protocol.ProviderResponse{}, timeoutOr(err)
 	}
 	defer resp.Body.Close()
+	touch()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return protocol.ProviderResponse{}, readHTTPError(resp)
+		return protocol.ProviderResponse{}, timeoutOr(readHTTPError(resp))
 	}
+	reader := activityReader{r: resp.Body, touch: touch}
+	var out protocol.ProviderResponse
 	if c.stream {
-		return c.readStream(resp.Body)
+		out, err = c.readStream(reader)
+	} else {
+		out, err = c.readJSON(reader)
 	}
-	return c.readJSON(resp.Body)
+	if err != nil {
+		return protocol.ProviderResponse{}, timeoutOr(err)
+	}
+	return out, nil
 }
 
 func (c *Client) readJSON(body io.Reader) (protocol.ProviderResponse, error) {
@@ -253,20 +389,6 @@ func readHTTPError(resp *http.Response) error {
 		Body:       strings.TrimSpace(string(raw)),
 		RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
 	}
-}
-
-func retryable(err error) bool {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return false
-	}
-	var httpErr *HTTPError
-	if errors.As(err, &httpErr) {
-		return httpErr.StatusCode == http.StatusRequestTimeout ||
-			httpErr.StatusCode == http.StatusConflict ||
-			httpErr.StatusCode == http.StatusTooManyRequests ||
-			httpErr.StatusCode >= 500
-	}
-	return true
 }
 
 func parseRetryAfter(value string) time.Duration {

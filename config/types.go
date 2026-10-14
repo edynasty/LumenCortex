@@ -187,6 +187,8 @@ var (
 	ErrConflict = errors.New("config file changed since it was read")
 	// ErrUnknownModel reports a model reference missing from the provider catalog.
 	ErrUnknownModel = errors.New("model is not in the provider catalog")
+	// ErrUnknownProvider reports a provider id missing from the provider catalog.
+	ErrUnknownProvider = errors.New("provider is not in the catalog")
 )
 
 var envRef = regexp.MustCompile(`^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$`)
