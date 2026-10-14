@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/edynasty/LumenCortex/main/docs/lumencortex.schema.json",
+  "model": "openrouter/sonnet",
+  "failover": [
+    "deepseek/chat"
+  ],
+  "checks": {
+    "go-test": {
+      "kind": "test",
+      "command": "go test ./...",
+      "timeoutSeconds": 600
+    },
+    "frontend-build": {
+      "kind": "build",
+      "command": "npm run build"
+    },
+    "config-schema": {
+      "kind": "schema",
+      "schema": "docs/lumencortex.schema.json",
+      "files": [
+        "lumencortex.json"
+      ]
+    }
+  }
+}

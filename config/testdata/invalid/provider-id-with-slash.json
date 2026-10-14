@@ -1,0 +1,16 @@
+{
+  "providers": {
+    "a/b": {
+      "package": "openai-compatible",
+      "settings": {
+        "baseURL": "https://api.example.com/v1",
+        "apiKey": "{env:EXAMPLE_KEY}"
+      },
+      "models": {
+        "m": {
+          "modelID": "m-1"
+        }
+      }
+    }
+  }
+}

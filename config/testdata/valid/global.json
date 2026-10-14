@@ -1,0 +1,118 @@
+{
+  "$schema": "https://raw.githubusercontent.com/edynasty/LumenCortex/main/docs/lumencortex.schema.json",
+  "model": "deepseek/chat",
+  "failover": [
+    "openrouter/sonnet",
+    "deepseek/coder"
+  ],
+  "subagentModel": "deepseek/coder",
+  "effort": {
+    "default": "medium",
+    "escalation": {
+      "sameFailure": 2,
+      "noProgressSteps": 6,
+      "max": "high"
+    }
+  },
+  "providers": {
+    "deepseek": {
+      "name": "DeepSeek",
+      "package": "openai-compatible",
+      "settings": {
+        "baseURL": "https://api.deepseek.com",
+        "apiKey": "{env:DEEPSEEK_API_KEY}",
+        "timeoutSeconds": 300,
+        "idleTimeoutSeconds": 60
+      },
+      "models": {
+        "chat": {
+          "name": "DeepSeek Chat",
+          "modelID": "deepseek-chat",
+          "limit": {
+            "context": 128000,
+            "output": 8192
+          },
+          "reasoning": {
+            "format": "deepseek",
+            "efforts": [
+              "none",
+              "high",
+              "max"
+            ],
+            "echo": "reasoning_content"
+          }
+        },
+        "coder": {
+          "name": "DeepSeek Coder",
+          "modelID": "deepseek-coder",
+          "limit": {
+            "context": 128000,
+            "output": 8192
+          },
+          "toolCalling": true,
+          "modalities": {
+            "input": [
+              "text"
+            ]
+          }
+        }
+      }
+    },
+    "openrouter": {
+      "name": "OpenRouter",
+      "package": "@ai-sdk/openai-compatible",
+      "settings": {
+        "baseURL": "https://openrouter.ai/api/v1",
+        "apiKey": "{env:OPENROUTER_API_KEY}",
+        "headers": {
+          "HTTP-Referer": "https://github.com/edynasty/LumenCortex",
+          "X-Title": "LumenCortex"
+        }
+      },
+      "models": {
+        "sonnet": {
+          "name": "Claude Sonnet (OpenRouter)",
+          "modelID": "anthropic/claude-sonnet-4",
+          "limit": {
+            "context": 200000,
+            "output": 16000
+          },
+          "reasoning": {
+            "format": "reasoning-object",
+            "efforts": [
+              "none",
+              "low",
+              "medium",
+              "high"
+            ],
+            "echo": "none"
+          },
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ]
+          }
+        },
+        "o3": {
+          "modelID": "openai/o3",
+          "limit": {
+            "context": 200000,
+            "output": 32000
+          },
+          "reasoning": {
+            "format": "reasoning-object",
+            "efforts": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "trustedWorkspaces": [
+    "/Users/example/src/app"
+  ]
+}

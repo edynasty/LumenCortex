@@ -1,0 +1,9 @@
+{
+  "model": "deepseek/chat",
+  "effort": {
+    "default": "medium",
+    "escalation": {
+      "sameFailure": 2
+    }
+  }
+}

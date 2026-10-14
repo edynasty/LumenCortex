@@ -1,0 +1,192 @@
+// Package config is the one reader and writer of lumencortex.json (design §4.8).
+//
+// The global file lives in GlobalDir, a workspace may add <workspace>/lumencortex.json, and both
+// follow docs/lumencortex.schema.json. Load merges them under the workspace trust rules (A8);
+// Save is the only way core writes either file. Secrets are never stored here: an API key is an
+// {env:NAME} reference that is resolved only when a provider client is built (I12).
+package config
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+)
+
+// ModelRef names a catalog model as "provider/model": exactly one '/'.
+type ModelRef string
+
+// Split returns the provider id and the model key.
+func (r ModelRef) Split() (provider, model string, ok bool) {
+	provider, model, ok = strings.Cut(string(r), "/")
+	if !ok || provider == "" || model == "" || strings.Contains(model, "/") {
+		return "", "", false
+	}
+	return provider, model, true
+}
+
+// Provider returns the provider id of the reference, or "" when it is malformed.
+func (r ModelRef) Provider() string { p, _, _ := r.Split(); return p }
+
+// Effort is the provider-neutral reasoning effort level.
+type Effort string
+
+// The effort levels, lowest first.
+const (
+	EffortNone   Effort = "none"
+	EffortLow    Effort = "low"
+	EffortMedium Effort = "medium"
+	EffortHigh   Effort = "high"
+	EffortMax    Effort = "max"
+)
+
+// PackageOpenAICompatible is the wire protocol every accepted Provider.Package value selects.
+const PackageOpenAICompatible = "openai-compatible"
+
+// Reasoning formats and echo modes of a model.
+const (
+	ReasoningNone        = "none"
+	ReasoningObject      = "reasoning-object"
+	ReasoningEffortField = "reasoning-effort"
+	ReasoningDeepSeek    = "deepseek"
+
+	ReasoningEchoNone    = "none"
+	ReasoningEchoContent = "reasoning_content"
+)
+
+// Check kinds.
+const (
+	CheckTest   = "test"
+	CheckBuild  = "build"
+	CheckSchema = "schema"
+)
+
+// File is one lumencortex.json document. A nil slice or map, a nil pointer and a zero number mean
+// "absent"; Failover is the exception: a non-nil empty slice is written as [] and overrides a
+// global failover list with none.
+type File struct {
+	Schema            string              `json:"$schema,omitempty"`
+	Model             ModelRef            `json:"model,omitempty"`
+	Failover          []ModelRef          `json:"failover,omitempty"`
+	SubagentModel     ModelRef            `json:"subagentModel,omitempty"`
+	Effort            *EffortPolicy       `json:"effort,omitempty"`
+	Providers         map[string]Provider `json:"providers,omitempty"`
+	Checks            map[string]Check    `json:"checks,omitempty"`
+	TrustedWorkspaces []string            `json:"trustedWorkspaces,omitempty"`
+}
+
+// MarshalJSON keeps an explicit empty failover list, which omitempty would drop.
+func (f File) MarshalJSON() ([]byte, error) {
+	type plain File
+	out := struct {
+		plain
+		Failover *[]ModelRef `json:"failover,omitempty"`
+	}{plain: plain(f)}
+	if f.Failover != nil {
+		out.Failover = &f.Failover
+	}
+	return json.Marshal(out)
+}
+
+// EffortPolicy is the reasoning effort policy. The escalation engine is M3.1; config only carries it.
+type EffortPolicy struct {
+	Default    Effort      `json:"default,omitempty"`
+	Escalation *Escalation `json:"escalation,omitempty"`
+}
+
+// Escalation raises effort while a run is stuck.
+type Escalation struct {
+	SameFailure     int    `json:"sameFailure"`
+	NoProgressSteps int    `json:"noProgressSteps"`
+	Max             Effort `json:"max"`
+}
+
+// Provider is one catalog provider.
+type Provider struct {
+	Name     string            `json:"name,omitempty"`
+	Package  string            `json:"package,omitempty"`
+	Settings *ProviderSettings `json:"settings,omitempty"`
+	Models   map[string]Model  `json:"models,omitempty"`
+}
+
+// ProviderSettings are the connection settings of a provider client.
+type ProviderSettings struct {
+	BaseURL            string            `json:"baseURL,omitempty"`
+	Endpoint           string            `json:"endpoint,omitempty"`
+	APIKey             string            `json:"apiKey,omitempty"` // {env:NAME}, never a literal key
+	Headers            map[string]string `json:"headers,omitempty"`
+	TimeoutSeconds     int               `json:"timeoutSeconds,omitempty"`
+	IdleTimeoutSeconds int               `json:"idleTimeoutSeconds,omitempty"`
+}
+
+// Model is one catalog model.
+type Model struct {
+	Name        string      `json:"name,omitempty"`
+	ModelID     string      `json:"modelID,omitempty"`
+	Limit       *Limit      `json:"limit,omitempty"`
+	Reasoning   *Reasoning  `json:"reasoning,omitempty"`
+	ToolCalling *bool       `json:"toolCalling,omitempty"`
+	Modalities  *Modalities `json:"modalities,omitempty"`
+}
+
+// Limit holds the token limits used by the context window builder.
+type Limit struct {
+	Context int `json:"context,omitempty"`
+	Output  int `json:"output,omitempty"`
+}
+
+// Reasoning describes how effort is sent and how reasoning output is handled.
+type Reasoning struct {
+	Format  string   `json:"format,omitempty"`
+	Efforts []Effort `json:"efforts,omitempty"`
+	Echo    string   `json:"echo,omitempty"`
+}
+
+// Modalities lists the accepted input modalities.
+type Modalities struct {
+	Input []string `json:"input,omitempty"`
+}
+
+// Check is an evaluator check. Running checks is M4.1; config validates and merges them.
+type Check struct {
+	Kind           string   `json:"kind"`
+	Command        string   `json:"command,omitempty"`
+	Schema         string   `json:"schema,omitempty"`
+	Files          []string `json:"files,omitempty"`
+	TimeoutSeconds int      `json:"timeoutSeconds,omitempty"`
+	Required       *bool    `json:"required,omitempty"`
+}
+
+// Errors returned by this package; match them with errors.Is.
+var (
+	// ErrInvalidConfig wraps every failure of a file to be valid configuration.
+	ErrInvalidConfig = errors.New("invalid configuration")
+	// ErrUntrustedOverride reports that a workspace that is not listed in the global
+	// trustedWorkspaces defined or changed something only a trusted workspace may. Load drops the
+	// entry and carries the error in the Warning.
+	ErrUntrustedOverride = errors.New("untrusted workspace may not define or change providers, checks or trust")
+	// ErrCredentialRedirect reports a workspace that changes a global provider's baseURL or
+	// endpoint without its own apiKey, which would send the global credential to a URL of the
+	// workspace's choosing. It makes the configuration invalid.
+	ErrCredentialRedirect = errors.New("workspace changes a global provider's baseURL/endpoint without its own apiKey")
+	// ErrConflict reports that Save found the file different from the one the caller read.
+	ErrConflict = errors.New("config file changed since it was read")
+	// ErrUnknownModel reports a model reference missing from the provider catalog.
+	ErrUnknownModel = errors.New("model is not in the provider catalog")
+)
+
+var envRef = regexp.MustCompile(`^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$`)
+
+// EnvName returns NAME for an {env:NAME} reference.
+func EnvName(ref string) (string, bool) {
+	m := envRef.FindStringSubmatch(ref)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
+
+func invalid(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", ErrInvalidConfig, fmt.Sprintf(format, args...))
+}

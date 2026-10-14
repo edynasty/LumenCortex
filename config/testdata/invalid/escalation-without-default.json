@@ -1,0 +1,10 @@
+{
+  "model": "deepseek/chat",
+  "effort": {
+    "escalation": {
+      "sameFailure": 2,
+      "noProgressSteps": 6,
+      "max": "high"
+    }
+  }
+}

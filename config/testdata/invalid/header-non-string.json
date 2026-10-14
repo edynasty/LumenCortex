@@ -1,0 +1,18 @@
+{
+  "providers": {
+    "p": {
+      "package": "openai-compatible",
+      "settings": {
+        "baseURL": "https://api.example.com/v1",
+        "headers": {
+          "X-Retries": 3
+        }
+      },
+      "models": {
+        "m": {
+          "modelID": "m-1"
+        }
+      }
+    }
+  }
+}

@@ -88,8 +88,6 @@ func TestAgentOptionsAutoEnableCognitionFromWorkspaceProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("LCX_MODEL", "fallback-model")
-	t.Setenv("LCX_BASE_URL", "http://127.0.0.1:11434/v1")
 	t.Setenv("LCX_COGNITION", "")
 	t.Setenv("LCX_COGNITION_PROFILE", "")
 	t.Setenv("LCX_WORKFLOW", "")

@@ -448,9 +448,9 @@ MIT
 
 The Go runtime can consume the same `.lumencortex/cognition.json` used by the Node reference runtime. When `LCX_COGNITION=true`, `LCX_COGNITION_PROFILE` is set, or a workspace profile exists, it enables the algorithmic Router, optional Jev/Laya-compatible or bounded-generative Decision routes, ordered Category provider chains, provider health circuits, dynamic Think effort, and persistent Work Units.
 
+The provider and model come from `lumencortex.json` ([Go provider configuration](docs/go-provider.md#configuration)); `cognition.json` category chains keep their own provider presets until M2.3.
+
 ```bash
-LCX_MODEL=your-fallback-model \
-LCX_BASE_URL=http://127.0.0.1:11434/v1 \
 LCX_COGNITION=true \
 lcx-go agent "debug the transaction path"
 

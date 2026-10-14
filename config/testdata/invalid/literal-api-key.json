@@ -1,0 +1,16 @@
+{
+  "providers": {
+    "p": {
+      "package": "openai-compatible",
+      "settings": {
+        "baseURL": "https://api.example.com/v1",
+        "apiKey": "sk-live-123"
+      },
+      "models": {
+        "m": {
+          "modelID": "m-1"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://raw.githubusercontent.com/edynasty/LumenCortex-Desktop/main/docs/lumencortex.schema.json",
+  "model": "deepseek/coder",
+  "providers": {
+    "deepseek": {
+      "name": "DeepSeek",
+      "package": "openai-compatible",
+      "settings": {
+        "baseURL": "https://api.deepseek.com/v1",
+        "apiKey": "{env:DEEPSEEK_API_KEY}"
+      },
+      "models": {
+        "coder": {
+          "name": "DeepSeek Coder",
+          "modelID": "deepseek-chat",
+          "limit": {
+            "context": 65536,
+            "output": 8192
+          }
+        },
+        "deepseek-reasoner": {
+          "name": "deepseek-reasoner",
+          "modelID": "deepseek-reasoner"
+        },
+        "ctx-only": {
+          "modelID": "deepseek-chat",
+          "limit": {
+            "context": 65536
+          }
+        }
+      }
+    },
+    "openrouter": {
+      "name": "OpenRouter",
+      "package": "openai-compatible",
+      "settings": {
+        "baseURL": "https://openrouter.ai/api/v1",
+        "apiKey": "{env:OPENROUTER_API_KEY}"
+      },
+      "models": {
+        "anthropic-claude-sonnet-4": {
+          "name": "anthropic/claude-sonnet-4",
+          "modelID": "anthropic/claude-sonnet-4"
+        }
+      }
+    },
+    "openai": {
+      "name": "OpenAI",
+      "package": "openai-compatible",
+      "settings": {
+        "baseURL": "https://api.openai.com/v1",
+        "apiKey": "{env:OPENAI_API_KEY}"
+      }
+    },
+    "custom": {
+      "name": "custom",
+      "package": "openai-compatible",
+      "settings": {
+        "endpoint": "https://example.com/v1/chat/completions"
+      },
+      "models": {
+        "m": {}
+      }
+    },
+    "demo": {
+      "settings": {
+        "baseURL": "https://project.example/v1"
+      },
+      "models": {
+        "project": {
+          "name": "Project",
+          "modelID": "project-model"
+        }
+      }
+    },
+    "legacy": {
+      "package": "@ai-sdk/openai-compatible",
+      "settings": {}
+    }
+  }
+}

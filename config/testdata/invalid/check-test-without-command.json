@@ -1,0 +1,7 @@
+{
+  "checks": {
+    "unit": {
+      "kind": "test"
+    }
+  }
+}

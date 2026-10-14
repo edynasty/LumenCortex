@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/edynasty/LumenCortex/main/docs/lumencortex.schema.json",
+  "title": "LumenCortex configuration",
+  "description": "One file format for the global catalog (~/.config/lumencortex/lumencortex.json) and the workspace override (<workspace>/lumencortex.json), read by core and edited by Desktop. Unknown keys are rejected.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "description": "Editor hint only; core ignores the value.",
+      "type": "string"
+    },
+    "model": {
+      "description": "Default model for new sessions as provider/model; resolved against providers after the workspace file is merged over the global file.",
+      "$ref": "#/$defs/modelRef"
+    },
+    "failover": {
+      "description": "Model refs tried, in order, after the session model within one request. Availability errors (408, 409, 429, 5xx, transport errors, idle timeout) move to the next entry; a context-length error moves only to an entry with a larger limit.context; auth and other 4xx errors never move. Models without tool calling or too small for the request are skipped. Absent → no failover.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/modelRef" },
+      "uniqueItems": true,
+      "maxItems": 8
+    },
+    "subagentModel": {
+      "description": "Model ref used for subagent sessions. Absent → subagents use the parent session's model.",
+      "$ref": "#/$defs/modelRef"
+    },
+    "effort": {
+      "description": "Reasoning effort policy. Absent → no reasoning parameter is sent (provider default) and no escalation.",
+      "dependentRequired": { "escalation": ["default"] },
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "description": "Effort requested on every request unless the user overrides it for a run. Absent → no reasoning parameter is sent (provider default). Per model the request is raised to the lowest level listed in reasoning.efforts that is not below it (the highest listed level if none is), then encoded by reasoning.format.",
+          "$ref": "#/$defs/effort"
+        },
+        "escalation": {
+          "description": "Raise effort while the run is stuck. Absent → escalation disabled. Requires default.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sameFailure", "noProgressSteps", "max"],
+          "properties": {
+            "sameFailure": {
+              "description": "One level up when the latest tool failure signature (tool name + normalized output) has occurred this many times in the session; two levels at twice the count. Counters reset when a work unit completes or a required check passes.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "noProgressSteps": {
+              "description": "One level up after this many consecutive failed tool results (any successful tool result resets the count); two levels at twice the count.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "max": {
+              "description": "Upper bound for escalated effort. Escalation never goes below default.",
+              "$ref": "#/$defs/effort"
+            }
+          }
+        }
+      }
+    },
+    "providers": {
+      "description": "Provider catalog keyed by provider id (the part before '/' in a model ref). In a workspace file this key is honoured only when the workspace is listed in the global trustedWorkspaces; entries then merge field by field over the global entry with the same id, and an entry that changes a global provider's baseURL or endpoint must set its own apiKey. Untrusted workspace entries are ignored with a warning.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[^/\\s]+$" },
+      "additionalProperties": { "$ref": "#/$defs/provider" }
+    },
+    "checks": {
+      "description": "Evaluator checks keyed by check id; core runs them and records eval_results with provenance 'runtime'. Global and workspace checks merge by id (workspace wins); workspace checks are honoured only for trusted workspaces and ignored with a warning otherwise.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+      "additionalProperties": { "$ref": "#/$defs/check" }
+    },
+    "trustedWorkspaces": {
+      "description": "Read from the global file only (ignored with a warning in a workspace file). A listed workspace (absolute path, compared after symlink resolution) may define providers and checks in its own lumencortex.json; any other workspace may only set model, failover, subagentModel and effort, and only to models of global providers.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(/|[A-Za-z]:[\\\\/])"
+      },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "modelRef": {
+      "description": "provider/model: provider id and model key, exactly one '/'.",
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$"
+    },
+    "effort": {
+      "description": "Provider-neutral reasoning effort level.",
+      "enum": ["none", "low", "medium", "high", "max"]
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Display name. Absent → the provider id is shown.",
+          "type": "string"
+        },
+        "package": {
+          "description": "Wire protocol. Only OpenAI-compatible chat completions are supported; all accepted values select the same client. Absent or empty → openai-compatible.",
+          "enum": ["", "openai-compatible", "@opencode/ai/providers/openai-compatible", "@ai-sdk/openai-compatible"]
+        },
+        "settings": {
+          "description": "Connection settings for the provider client.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "baseURL": {
+              "description": "API base URL; core sends to baseURL + /chat/completions when endpoint is absent.",
+              "type": "string",
+              "pattern": "^https?://"
+            },
+            "endpoint": {
+              "description": "Full chat completions URL; when set it wins over baseURL.",
+              "type": "string",
+              "pattern": "^https?://"
+            },
+            "apiKey": {
+              "description": "Environment reference {env:VAR_NAME}; core resolves it at request time. Literal keys are invalid.",
+              "type": "string",
+              "pattern": "^\\{env:[A-Za-z_][A-Za-z0-9_]*\\}$"
+            },
+            "headers": {
+              "description": "Extra HTTP headers sent with every request (e.g. OpenRouter HTTP-Referer/X-Title).",
+              "type": "object",
+              "maxProperties": 16,
+              "additionalProperties": { "type": "string" }
+            },
+            "timeoutSeconds": {
+              "description": "Whole-request cap in seconds. Absent → no cap; the idle timeout and run cancellation bound the request.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600
+            },
+            "idleTimeoutSeconds": {
+              "description": "Abort when no response bytes arrive for this many seconds (waiting for headers or between stream chunks); counts as an availability error. Absent → 120.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600
+            }
+          }
+        },
+        "models": {
+          "description": "Models keyed by model key (the part after '/' in a model ref).",
+          "type": "object",
+          "propertyNames": { "pattern": "^[^/]+$" },
+          "additionalProperties": { "$ref": "#/$defs/model" }
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Display name. Absent → the model key is shown.",
+          "type": "string"
+        },
+        "modelID": {
+          "description": "Upstream model id sent in the request 'model' field. Absent → the model key is sent.",
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "description": "Token limits used by the context window builder. Absent → runtime uses context 32768 / output 4096 and logs a warning.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "context": {
+              "description": "Context window in tokens. Absent → 32768 with a warning.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "output": {
+              "description": "Maximum output tokens reserved per request. Absent → 4096 with a warning.",
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "reasoning": {
+          "description": "How effort is sent and how reasoning output is handled. Absent → format none: no reasoning parameter is sent.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "description": "Request encoding of effort: none (never sent), reasoning-object ({reasoning:{effort}}), reasoning-effort (reasoning_effort field), deepseek (DeepSeek thinking parameters).",
+              "enum": ["none", "reasoning-object", "reasoning-effort", "deepseek"]
+            },
+            "efforts": {
+              "description": "Effort levels the model accepts. A requested effort is raised to the lowest listed level not below it, or lowered to the highest listed level when the request is above all of them. Absent → the effort is passed to reasoning.format unchanged.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/effort" },
+              "uniqueItems": true
+            },
+            "echo": {
+              "description": "reasoning_content: the adapter keeps the reasoning_content the model returns in run memory and sends it back with that model's assistant messages of the current tool turn (required by DeepSeek thinking mode with tools). It is never stored. none: the field is never sent back, for providers that reject it. Absent → reasoning_content when format is deepseek, otherwise none.",
+              "enum": ["none", "reasoning_content"]
+            }
+          }
+        },
+        "toolCalling": {
+          "description": "Whether the model accepts tool specs. Agent runs always send tools, so models with false are never chosen as session, subagent or failover model. Default true.",
+          "type": "boolean"
+        },
+        "modalities": {
+          "description": "Accepted input modalities. Absent → text only. Core never sends image parts to a model that does not list image.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "input": {
+              "description": "Input modalities the model accepts.",
+              "type": "array",
+              "items": { "enum": ["text", "image"] },
+              "uniqueItems": true,
+              "minItems": 1
+            }
+          }
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "description": "test/build run command in the workspace and pass on exit 0; schema validates files against schema.",
+          "enum": ["test", "build", "schema"]
+        },
+        "command": {
+          "description": "Shell command run from the workspace root (test/build).",
+          "type": "string",
+          "minLength": 1
+        },
+        "schema": {
+          "description": "Workspace-relative path of the JSON Schema used by a schema check.",
+          "type": "string"
+        },
+        "files": {
+          "description": "Workspace-relative files validated by a schema check.",
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "timeoutSeconds": {
+          "description": "Kill the check after this many seconds and record status error. Default 600.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "required": {
+          "description": "Whether a failing result blocks completion of the work unit. Default true.",
+          "type": "boolean"
+        }
+      },
+      "if": {
+        "properties": { "kind": { "const": "schema" } }
+      },
+      "then": { "properties": { "schema": true, "files": true }, "required": ["schema", "files"] },
+      "else": { "properties": { "command": true }, "required": ["command"] }
+    }
+  }
+}

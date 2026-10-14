@@ -56,10 +56,10 @@ For non-standard providers, prefer setting `Endpoint` to the exact chat-completi
 
 The preview CLI can now run the Go harness directly:
 
+The CLI takes its provider and model from `lumencortex.json` (see [Configuration](#configuration)):
+
 ```bash
-export LCX_ENDPOINT='https://your-provider.example/v1/chat/completions'
-export LCX_API_KEY='...'
-export LCX_MODEL='your-model'
+export DEEPSEEK_API_KEY='...'   # the variable the config's {env:DEEPSEEK_API_KEY} names
 export LCX_POLICY='workspace'
 
 go run ./cmd/lcx-go agent "inspect this repository and fix the failing test"
@@ -89,12 +89,10 @@ Set `LCX_EVENTS=true` to emit the bounded runtime event stream as JSON lines on 
 
 ### Useful preview environment variables
 
+`LCX_MODEL`, `LCX_ENDPOINT`, `LCX_BASE_URL`, `LCX_API_KEY` and `LCX_REASONING_FORMAT` are no longer read (M2.2). When one is set, the CLI prints the configuration key that replaces it: `model` and `providers.<provider>.models.<key>.modelID`, `providers.<provider>.settings.endpoint`, `.baseURL`, `.apiKey` (`"{env:NAME}"`) and `providers.<provider>.models.<key>.reasoning.format`.
+
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `LCX_MODEL` | model name sent to provider | required |
-| `LCX_ENDPOINT` | exact chat-completions endpoint | provider default when empty |
-| `LCX_BASE_URL` | API base URL; appends `/chat/completions` | OpenAI-compatible default |
-| `LCX_API_KEY` | bearer token | empty |
 | `LCX_POLICY` | `read-only`, `workspace`, or `full` | `read-only` |
 | `LCX_WORKFLOW` | Workflow Contract JSON path | none |
 | `LCX_MAX_STEPS` | maximum agent turns for this run | 24 |
@@ -105,6 +103,23 @@ Set `LCX_EVENTS=true` to emit the bounded runtime event stream as JSON lines on 
 | `LCX_DISABLE_STREAMING` | use one JSON response instead of SSE | false |
 | `LCX_DISABLE_RETRIES` | disable transient provider retries | false |
 
+## Configuration
+
+One schema, [`lumencortex.schema.json`](lumencortex.schema.json), describes both configuration files. Package `config` (`github.com/edynasty/LumenCortex/config`) is the only reader and writer:
+
+| File | Location |
+| --- | --- |
+| global `lumencortex.json`, `mcp.json`, `skills/` | `GlobalDir`: `$XDG_CONFIG_HOME/lumencortex` when `XDG_CONFIG_HOME` is an absolute path, else `~/.config/lumencortex`, on every OS |
+| workspace `lumencortex.json` | `<workspace>/lumencortex.json` |
+
+- `config.Load(workspace)` merges workspace over global: `model`, `subagentModel`, `failover` and `effort` replace; `providers` merge by id, field by field, with `headers` replacing the global set; `checks` merge by id. Unknown keys are errors.
+- Trust: only a workspace listed (absolute path, compared after symlink resolution) in the **global** `trustedWorkspaces` may define `providers` or `checks`. Any other workspace may set only `model`, `failover`, `subagentModel` and `effort`, and only to models of global providers. Everything else it sets is dropped and reported in `Effective().Warnings` (code `untrusted_override`, `errors.Is(w.Err, config.ErrUntrustedOverride)`), with the `trustedWorkspaces` entry to add. The CLI prints these warnings to stderr.
+- Credentials: `apiKey` must be `{env:NAME}`; literal keys are rejected on load and in `config.Save`. A workspace that changes a global provider's `baseURL` or `endpoint` must give its own `apiKey` (`config.ErrCredentialRedirect`), and a redirected provider never inherits the global `headers`. The variable is read only when the client is built (`ResolvedModel.ResolveAPIKey`).
+- `config.Save(path, file, expectedDigest)` validates against the schema, takes a per-file lock, compares the file's digest with `expectedDigest` (`config.ErrConflict`), writes a temporary file and renames it. The digest comes from `Document.Digest` of `ReadDocument`/`Config.Global()`/`Config.Workspace()`; `""` means the file did not exist.
+- Files in directories earlier builds used (`os.UserConfigDir()/lumencortex`, `~/.config/lumencortex` when not `GlobalDir`) are reported in `Effective().Warnings` (code `legacy_global_path`) with the path to move them to. They are not read, moved or deleted.
+
+Not yet consumed from the configuration (M2.3 and later): `failover`, `subagentModel`, `effort`, `checks`, per-model `limit`, `reasoning.efforts` and `idleTimeoutSeconds`. The CLI uses `model`, the provider's `baseURL`/`endpoint`, `apiKey`, `headers`, `timeoutSeconds` (whole-request cap), the model's `modelID` and `reasoning.format`.
+
 ## Security
 
-Do not put API keys in repository configuration or Session metadata. The preview CLI reads the key from the process environment and the provider only uses it to build the Authorization header.
+Do not put API keys in repository configuration or Session metadata. Configuration holds `{env:NAME}` references only; the CLI reads the key from the process environment and the provider only uses it to build the Authorization header.

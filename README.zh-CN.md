@@ -423,9 +423,9 @@ MIT
 
 Go runtime 现在可以直接读取与 Node reference runtime 相同的 `.lumencortex/cognition.json`。当设置 `LCX_COGNITION=true`、`LCX_COGNITION_PROFILE`，或 workspace 已存在 cognition profile 时，会启用 Algorithm Router、可选 Jev/Laya-compatible 或 bounded-generative Decision route、Category 模型链、provider circuit breaker、动态 Think effort 和 Persistent Work Units。
 
+Provider 与 model 来自 `lumencortex.json`（见 [docs/go-provider.md](docs/go-provider.md#configuration)）；`LCX_MODEL`、`LCX_BASE_URL` 等环境变量不再读取。`cognition.json` 的 Category 链在 M2.3 之前保留自己的 provider preset。
+
 ```bash
-LCX_MODEL=your-fallback-model \
-LCX_BASE_URL=http://127.0.0.1:11434/v1 \
 LCX_COGNITION=true \
 lcx-go agent "debug the transaction path"
 

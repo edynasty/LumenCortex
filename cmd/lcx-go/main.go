@@ -97,11 +97,11 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("agent: %w", err)
 		}
-		provider, err := providerFromEnv()
+		provider, model, err := providerFromConfig(workspace, os.Stderr)
 		if err != nil {
 			return err
 		}
-		h, err := engine.NewSession(ctx, lcx.SessionOptions{Goal: parsed.Goal, Provider: "openai-compatible", Model: provider.Model()})
+		h, err := engine.NewSession(ctx, lcx.SessionOptions{Goal: parsed.Goal, Provider: "openai-compatible", Model: model.ModelID})
 		if err != nil {
 			return err
 		}
@@ -123,7 +123,7 @@ func run() error {
 		if len(args) != 2 {
 			return fmt.Errorf("usage: lcx-go resume <session-id>")
 		}
-		provider, err := providerFromEnv()
+		provider, _, err := providerFromConfig(workspace, os.Stderr)
 		if err != nil {
 			return err
 		}
@@ -384,21 +384,6 @@ func runSkillsCommand(engine *lcx.Engine, args []string) error {
 	}
 }
 
-func providerFromEnv() (*openai.Client, error) {
-	model := strings.TrimSpace(os.Getenv("LCX_MODEL"))
-	if model == "" {
-		return nil, fmt.Errorf("LCX_MODEL is required for agent/resume")
-	}
-	return openai.New(openai.Config{
-		Endpoint:         strings.TrimSpace(os.Getenv("LCX_ENDPOINT")),
-		BaseURL:          strings.TrimSpace(os.Getenv("LCX_BASE_URL")),
-		APIKey:           os.Getenv("LCX_API_KEY"),
-		Model:            model,
-		ReasoningFormat:  strings.TrimSpace(os.Getenv("LCX_REASONING_FORMAT")),
-		DisableStreaming: envBool("LCX_DISABLE_STREAMING"),
-		DisableRetries:   envBool("LCX_DISABLE_RETRIES"),
-	})
-}
 
 func agentOptionsFromEnv(workspace string, engine *lcx.Engine) (lcx.AgentOptions, error) {
 	policy := strings.TrimSpace(os.Getenv("LCX_POLICY"))
@@ -508,6 +493,9 @@ func printJSON(v any) error {
 }
 
 
+// providerPreset is read only by the cognition.json consumers below (category chains, decision
+// providers, Governor). M2.3 deletes cognition.json with them and this table; the CLI's own
+// provider and model come from package config, not from here.
 type providerPreset struct {
 	BaseURL         string
 	APIKeyEnv       string
@@ -580,17 +568,11 @@ func providerBindingFromSpec(spec cognition.ModelSpec) (lcx.ProviderBinding, err
 		model = preset.DefaultModel
 	}
 	if model == "" {
-		model = strings.TrimSpace(os.Getenv("LCX_MODEL"))
-	}
-	if model == "" {
-		return lcx.ProviderBinding{}, fmt.Errorf("provider %s model is required", name)
+		return lcx.ProviderBinding{}, fmt.Errorf("provider %s model is required: set \"model\" in its cognition.json entry (LCX_MODEL is no longer read)", name)
 	}
 	baseURL := strings.TrimSpace(spec.BaseURL)
 	if baseURL == "" {
 		baseURL = preset.BaseURL
-	}
-	if baseURL == "" {
-		baseURL = strings.TrimSpace(os.Getenv("LCX_BASE_URL"))
 	}
 	apiKey := spec.APIKey
 	apiKeyEnv := strings.TrimSpace(spec.APIKeyEnv)

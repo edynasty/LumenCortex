@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/cognition"
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/mcp"
@@ -206,9 +207,11 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	}
 	globalMCPPath := ""
 	globalSkillRoot := ""
-	if userConfigDir, configErr := os.UserConfigDir(); configErr == nil && userConfigDir != "" {
-		globalMCPPath = filepath.Join(userConfigDir, "lumencortex", "mcp.json")
-		globalSkillRoot = filepath.Join(userConfigDir, "lumencortex", "skills")
+	// F9: the one global directory, the same on every OS. Files in directories earlier builds
+	// used are reported by config.Load and are not read.
+	if globalDir, dirErr := config.GlobalDir(); dirErr == nil {
+		globalMCPPath = filepath.Join(globalDir, config.MCPFileName)
+		globalSkillRoot = filepath.Join(globalDir, config.SkillsDirName)
 	}
 	mcpRegistry, err := mcp.NewLayeredRegistry(
 		workspace,
