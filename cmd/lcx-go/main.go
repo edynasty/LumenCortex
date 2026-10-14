@@ -609,7 +609,7 @@ func providerBindingFromSpec(spec cognition.ModelSpec) (lcx.ProviderBinding, err
 		DisableRetries: envBool("LCX_DISABLE_RETRIES"),
 	})
 	if err != nil {
-		return lcx.ProviderBinding{}, err
+		return lcx.ProviderBinding{}, fmt.Errorf("cognition provider %s: %w", name, err)
 	}
 	return lcx.ProviderBinding{Name: name, Provider: provider}, nil
 }

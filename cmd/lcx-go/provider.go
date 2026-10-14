@@ -76,7 +76,7 @@ func newProvider(m config.ResolvedModel) (*openai.Client, error) {
 	if m.RequestTimeout > 0 {
 		httpClient = &http.Client{Timeout: m.RequestTimeout}
 	}
-	return openai.New(openai.Config{
+	client, err := openai.New(openai.Config{
 		Endpoint:         m.Endpoint,
 		BaseURL:          m.BaseURL,
 		APIKey:           key,
@@ -87,4 +87,8 @@ func newProvider(m config.ResolvedModel) (*openai.Client, error) {
 		DisableStreaming: envBool("LCX_DISABLE_STREAMING"),
 		DisableRetries:   envBool("LCX_DISABLE_RETRIES"),
 	})
+	if err != nil {
+		return nil, fmt.Errorf("model %s (provider %s): %w", m.Ref, m.ProviderID, err)
+	}
+	return client, nil
 }

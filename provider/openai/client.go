@@ -17,7 +17,6 @@ import (
 )
 
 const (
-	defaultBaseURL          = "https://api.openai.com/v1"
 	defaultMaxResponseBytes = int64(8 << 20)
 	defaultRetryBaseDelay   = 500 * time.Millisecond
 )
@@ -50,6 +49,9 @@ type Client struct {
 	reasoningFormat   string
 }
 
+// ErrNoEndpoint is returned by New when neither Endpoint nor BaseURL is set.
+var ErrNoEndpoint = errors.New("provider has no endpoint or baseURL: set providers.<id>.settings.baseURL or endpoint")
+
 type HTTPError struct {
 	StatusCode int
 	Status     string
@@ -72,7 +74,9 @@ func New(cfg Config) (*Client, error) {
 	if endpoint == "" {
 		base := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 		if base == "" {
-			base = defaultBaseURL
+			// There is no default URL: a client without a destination would otherwise send its
+			// credential and the transcript to a host the operator never named.
+			return nil, ErrNoEndpoint
 		}
 		endpoint = base + "/chat/completions"
 	}

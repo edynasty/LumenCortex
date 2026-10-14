@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,7 @@ import (
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/cognition"
 	"github.com/edynasty/LumenCortex/protocol"
+	"github.com/edynasty/LumenCortex/provider/openai"
 )
 
 // TestMain lets the integration tests run the real entry point: the test binary re-executes
@@ -357,9 +359,59 @@ func TestCognitionBindingRefusesDefaultURLWhenRemovedBaseURLIsSet(t *testing.T) 
 	if _, err := providerBindingFromSpec(cognition.ModelSpec{Provider: "groq"}); err != nil {
 		t.Fatalf("preset baseURL: %v", err)
 	}
-	// Without the removed variable the generic default is unchanged.
+	// Without the removed variable an entry with no baseURL is still refused: there is no default
+	// URL for its key and transcript to fall through to.
 	t.Setenv("LCX_BASE_URL", "")
-	if _, err := providerBindingFromSpec(cognition.ModelSpec{Provider: "generic", Model: "m"}); err != nil {
-		t.Fatalf("generic default: %v", err)
+	_, err = providerBindingFromSpec(cognition.ModelSpec{Provider: "generic", Model: "m", APIKeyEnv: "LCX_PROBE_KEY"})
+	if err == nil || !errors.Is(err, openai.ErrNoEndpoint) || strings.Contains(err.Error(), "local-secret") {
+		t.Fatalf("generic without baseURL: %v", err)
+	}
+}
+
+// A provider with an apiKey but no baseURL/endpoint must be refused before any request: the old
+// adapter default sent the key and the transcript to api.openai.com (M2.2 review F1). The real
+// entry point runs with every proxy variable pointing at a recording server, so a request to any
+// host, including api.openai.com, would be recorded.
+func TestProviderWithoutDestinationIsRefusedBeforeAnyRequest(t *testing.T) {
+	trap := newFakeProvider(t)
+	globalFile, ws := cliEnv(t)
+	writeConfig(t, globalFile, `{
+	  "model": "nodest/m",
+	  "providers": {"nodest": {
+	    "settings": {"apiKey": "{env:NODEST_KEY}"},
+	    "models": {"m": {"modelID": "upstream", "limit": {"context": 4000, "output": 500}}}
+	  }}
+	}`)
+	t.Setenv("NODEST_KEY", "nodest-secret")
+
+	if _, _, err := providerFromConfig(ws, &bytes.Buffer{}); err == nil || !errors.Is(err, openai.ErrNoEndpoint) ||
+		!strings.Contains(err.Error(), "nodest/m") || strings.Contains(err.Error(), "nodest-secret") {
+		t.Fatalf("providerFromConfig: %v", err)
+	}
+
+	run := func(args ...string) (string, string, error) {
+		cmd := exec.Command(os.Args[0], args...)
+		cmd.Dir = ws
+		cmd.Env = append(os.Environ(), "LCX_TEST_RUN_MAIN=1",
+			"HTTPS_PROXY="+trap.URL, "https_proxy="+trap.URL, "HTTP_PROXY="+trap.URL, "http_proxy="+trap.URL, "ALL_PROXY="+trap.URL)
+		var out, errb bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &out, &errb
+		err := cmd.Run()
+		return out.String(), errb.String(), err
+	}
+	_, errOut, err := run("agent", "transcript-sentinel-goal")
+	if err == nil || !strings.Contains(errOut, "no endpoint or baseURL") || strings.Contains(errOut, "nodest-secret") {
+		t.Fatalf("agent: err=%v stderr=%s", err, errOut)
+	}
+	if reqs := trap.requests(); len(reqs) != 0 {
+		t.Fatalf("a request left the process: %+v", reqs)
+	}
+	// The refusal precedes run start: no session was created.
+	out, errOut, err := run("sessions")
+	if err != nil || strings.Contains(out, "transcript-sentinel-goal") {
+		t.Fatalf("sessions: err=%v out=%s stderr=%s", err, out, errOut)
+	}
+	if _, _, err := run("resume", "no-such-session"); err == nil || len(trap.requests()) != 0 {
+		t.Fatalf("resume must refuse too: err=%v requests=%d", err, len(trap.requests()))
 	}
 }

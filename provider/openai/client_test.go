@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,32 @@ import (
 
 	"github.com/edynasty/LumenCortex/protocol"
 )
+
+// There is no default URL: a client without an endpoint or baseURL is refused at construction, so
+// its key and the transcript can never reach a host nobody configured.
+func TestNewRequiresEndpointOrBaseURL(t *testing.T) {
+	for name, cfg := range map[string]Config{
+		"empty":      {Model: "m", APIKey: "sk-secret"},
+		"blank":      {Model: "m", APIKey: "sk-secret", BaseURL: "  /", Endpoint: " "},
+		"only-trail": {Model: "m", APIKey: "sk-secret", BaseURL: "///"},
+	} {
+		client, err := New(cfg)
+		if !errors.Is(err, ErrNoEndpoint) || client != nil {
+			t.Fatalf("%s: client=%v err=%v", name, client, err)
+		}
+		if strings.Contains(err.Error(), "sk-secret") {
+			t.Fatalf("%s: error leaks the key: %v", name, err)
+		}
+	}
+	for name, cfg := range map[string]Config{
+		"baseURL":  {Model: "m", BaseURL: "http://127.0.0.1:1/v1"},
+		"endpoint": {Model: "m", Endpoint: "http://127.0.0.1:1/x"},
+	} {
+		if _, err := New(cfg); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
 
 func TestStreamingToolCallAssembly(t *testing.T) {
 	var sawAuth string
