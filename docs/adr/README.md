@@ -43,3 +43,4 @@ Use [0000-template.md](0000-template.md) as the starting point.
 - [0001 — Go runtime migration](0001-go-runtime-migration.md)
 - [0002 — Bounded-memory runtime invariants](0002-bounded-memory-runtime.md)
 - [0003 — Adaptive cognitive control plane](0003-adaptive-cognitive-control-plane.md)
+- [0004 — M2.3 model runtime cutover decisions (D1–D6)](0004-m23-model-runtime-decisions.md)
