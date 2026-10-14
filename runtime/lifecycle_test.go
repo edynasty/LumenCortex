@@ -149,7 +149,7 @@ func TestInvalidToolArgumentsDoNotStrandRun(t *testing.T) {
 		second = req
 		return protocol.ProviderResponse{Message: protocol.Message{Content: "retry later"}}, nil
 	}}
-	result, err := engine.RunAgent(context.Background(), handle.ID, provider, AgentOptions{Policy: "workspace", MaxSteps: 3})
+	result, err := engine.runAgentWith(context.Background(), handle.ID, provider, AgentOptions{Policy: "workspace", MaxSteps: 3})
 	if err != nil {
 		t.Fatalf("RunAgent: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestToolArgumentTextReplaysExactlyThroughOpenAIAdapter(t *testing.T) {
 			engine := openTestEngine(t)
 			handle := newTestSession(t, engine, "list the workspace")
 
-			result, err := engine.RunAgent(context.Background(), handle.ID, client, AgentOptions{MaxSteps: 3})
+			result, err := engine.runAgentWith(context.Background(), handle.ID, client, AgentOptions{MaxSteps: 3})
 			if err != nil || result.Status != "completed" {
 				t.Fatalf("result = %+v, err = %v", result, err)
 			}
@@ -321,7 +321,7 @@ func TestCancelDuringShellSleepEndsInterruptedCancelled(t *testing.T) {
 			{ID: "sleep-1", Name: "shell", Arguments: json.RawMessage(`{"command":"echo ready && exec sleep 5"}`)},
 		}}, FinishReason: "tool_calls"}, nil
 	}}
-	if _, err := supervisor.Start(context.Background(), handle.ID, provider, AgentOptions{Policy: "full", MaxSteps: 3}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, provider, AgentOptions{Policy: "full", MaxSteps: 3}); err != nil {
 		t.Fatal(err)
 	}
 	waitForEventWith(t, events, "tool.output", "ready")
@@ -368,7 +368,7 @@ func TestPanicFinalizesRunAsFailed(t *testing.T) {
 	exploding := &exitProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 		panic("provider exploded")
 	}}
-	if _, err := supervisor.Start(context.Background(), handle.ID, exploding, AgentOptions{MaxSteps: 2}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, exploding, AgentOptions{MaxSteps: 2}); err != nil {
 		t.Fatal(err)
 	}
 	waitUntilIdle(t, supervisor, handle.ID, 10*time.Second)
@@ -386,7 +386,7 @@ func TestPanicFinalizesRunAsFailed(t *testing.T) {
 	}
 
 	// failed is "start after a change": the next Start clears the cause and completes.
-	if _, err := supervisor.Start(context.Background(), handle.ID, completingProvider("fine now"), AgentOptions{MaxSteps: 2}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, completingProvider("fine now"), AgentOptions{MaxSteps: 2}); err != nil {
 		t.Fatal(err)
 	}
 	waitUntilIdle(t, supervisor, handle.ID, 10*time.Second)
@@ -422,7 +422,7 @@ BEGIN SELECT RAISE(ABORT, 'database or disk is full (injected)'); END`); err != 
 	}
 
 	blocking := &blockingProvider{started: make(chan struct{})}
-	if _, err := supervisor.Start(context.Background(), handle.ID, blocking, AgentOptions{MaxSteps: 2}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, blocking, AgentOptions{MaxSteps: 2}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -445,7 +445,7 @@ BEGIN SELECT RAISE(ABORT, 'database or disk is full (injected)'); END`); err != 
 	if _, err := side.Exec(`DROP TRIGGER inject_finish_failure`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := supervisor.Start(context.Background(), handle.ID, completingProvider("second run"), AgentOptions{MaxSteps: 2}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, completingProvider("second run"), AgentOptions{MaxSteps: 2}); err != nil {
 		t.Fatalf("Start after a failed Finish: %v", err)
 	}
 	waitUntilIdle(t, supervisor, handle.ID, 10*time.Second)

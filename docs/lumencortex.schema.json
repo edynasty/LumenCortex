@@ -111,7 +111,7 @@
           "additionalProperties": false,
           "properties": {
             "baseURL": {
-              "description": "API base URL; core sends to baseURL + /chat/completions when endpoint is absent.",
+              "description": "API base URL; core sends to baseURL + /chat/completions when endpoint is absent. Either baseURL or endpoint is required to run a model: there is no default URL, and a model whose provider has neither is refused before any request.",
               "type": "string",
               "pattern": "^https?://"
             },

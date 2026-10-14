@@ -26,19 +26,33 @@ Provider response size is bounded independently from Session history. Session hi
 ## Go API
 
 ```go
-provider, err := openai.New(openai.Config{
-    Endpoint: "https://example.invalid/v1/chat/completions",
-    APIKey:   os.Getenv("API_KEY"),
-    Model:    "model-name",
+engine, err := runtime.Open(runtime.Options{
+    Workspace: workspace,
+    // Optional: build the client of each resolved catalog model yourself. The default is
+    // openai.FromModel, which reads the model's apiKey variable and requires a baseURL or endpoint.
+    ProviderFactory: func(m config.ResolvedModel) (protocol.Provider, error) { /* ... */ },
 })
-if err != nil {
-    return err
-}
 
-result, err := engine.RunAgent(ctx, sessionID, provider, runtime.AgentOptions{
-    Policy: "workspace",
+result, err := engine.RunAgent(ctx, sessionID, runtime.AgentOptions{
+    Policy:   "workspace",
+    ModelRef: "local/m", // optional; empty keeps the session's pinned model
+    Effort:   "high",    // optional; none|low|medium|high|max
 })
 ```
+
+`Engine.RunAgent` and `RunSupervisor.Start` take no provider. The model comes from the configuration (`lumencortex.json`):
+
+| Rule logged | When | Effect on `sessions.model_ref` |
+| --- | --- | --- |
+| `model.user` | `AgentOptions.ModelRef` differs from the pinned model | written |
+| `model.session` | the session is pinned and no different model was requested | none |
+| `model.default` | the session has no pin (a new session, or one created before migration 0002) | the configured `model` is written |
+
+Changing the global `model` therefore never moves an existing session. `failover` never writes the pin; a child session starts on `subagentModel`, else its parent's pin (never the model that last answered the parent). The Start builds a client for the session model and every `failover` model before it writes anything (`ErrUnknownModel`, `ErrModelWithoutToolCalling`, `ErrInvalidEffort`, a missing key variable or a missing `baseURL`/`endpoint` all leave the session as it was).
+
+Each step record in `agent_steps.json` carries a `decisions` list (`model.*`, `model.candidates`, `effort.*`, `failover.<class>`); every entry holds the inputs its rule read and recomputes to its output with `agent.ReplayDecision`.
+
+Provider errors are classified by the adapter as `protocol.ProviderError{Class, RetryAfter}`: `auth` and `bad_request` end the run as `failed` and never fail over; `capacity` fails over only to a candidate with a larger context; `availability` (HTTP 408/409/429/5xx, transport errors, request and idle timeouts) fails over to the next candidate and marks the model unavailable in the Engine's in-memory registry for `Retry-After` or 30 seconds. The adapter waits at most five seconds for a `Retry-After`. A cancelled run is `interrupted`, never failed over. `max_tokens` is sent only when `AgentOptions.MaxTokens` or the model's `limit.output` is set.
 
 ### Run ownership and host messages
 
@@ -118,7 +132,7 @@ One schema, [`lumencortex.schema.json`](lumencortex.schema.json), describes both
 - `config.Save(path, file, expectedDigest)` validates against the schema, takes a per-file lock, compares the file's digest with `expectedDigest` (`config.ErrConflict`), writes a temporary file and renames it. The digest comes from `Document.Digest` of `ReadDocument`/`Config.Global()`/`Config.Workspace()`; `""` means the file did not exist.
 - Files in directories earlier builds used (`os.UserConfigDir()/lumencortex`, `~/.config/lumencortex` when not `GlobalDir`) are reported in `Effective().Warnings` (code `legacy_global_path`) with the path to move them to. They are not read, moved or deleted.
 
-Not yet consumed from the configuration (M2.3 and later): `failover`, `subagentModel`, `effort`, `checks`, per-model `limit`, `reasoning.efforts` and `idleTimeoutSeconds`. The CLI uses `model`, the provider's `baseURL`/`endpoint`, `apiKey`, `headers`, `timeoutSeconds` (whole-request cap), the model's `modelID` and `reasoning.format`.
+Consumed by the runtime: `model`, `failover`, `subagentModel`, `effort.default`, the provider's `baseURL`/`endpoint` (one of them is required: there is no default URL), `apiKey`, `headers`, `timeoutSeconds` (whole-request cap), `idleTimeoutSeconds`, and per model `modelID`, `limit`, `toolCalling` and `reasoning.format`/`efforts`. Not yet consumed: `effort.escalation` (accepted and ignored until M3.1), `checks`, `reasoning.echo` (M3.2).
 
 ## Security
 

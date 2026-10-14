@@ -8,15 +8,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/toolset"
-	"github.com/edynasty/LumenCortex/protocol"
 )
 
 const (
 	MaxConcurrentSubagentsPerParent = 4
-	MaxSubagentTreeDepth             = 4
-	MaxSubagentTreeNodes             = 100
+	MaxSubagentTreeDepth            = 4
+	MaxSubagentTreeNodes            = 100
 )
 
 var ErrSubagentLimitExceeded = errors.New("subagent concurrency limit exceeded for parent session")
@@ -44,7 +44,7 @@ type SubagentWaitResult struct {
 type subagentController struct {
 	supervisor *RunSupervisor
 	parentID   string
-	provider   protocol.Provider
+	// The child's provider is built by the Engine from its model reference.
 	parentOpts AgentOptions
 }
 
@@ -85,10 +85,19 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 		metadata["runtime"] = identity
 	}
 
+	// The child's model is config subagentModel, else the parent's pinned model: never the model
+	// that answered the parent's last request after a failover (design §4.5).
+	cfg, err := config.Load(engine.workspace)
+	if err != nil {
+		return nil, err
+	}
+	childRef := cfg.Effective().SubagentModel
+	if childRef == "" {
+		childRef = config.ModelRef(parent.ModelRef)
+	}
+
 	handle, err := engine.createSession(ctx, SessionOptions{
 		Goal:     goal,
-		Provider: parent.Provider,
-		Model:    parent.Model,
 		Metadata: metadata,
 	})
 	if err != nil {
@@ -111,8 +120,8 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 		"goal":           goal,
 	})
 
-	childOpts := c.childOptions()
-	if _, err := c.supervisor.Start(ctx, handle.ID, c.provider, childOpts); err != nil {
+	childOpts := c.childOptions(childRef)
+	if _, err := c.supervisor.Start(ctx, handle.ID, childOpts); err != nil {
 		status := "interrupted"
 		errorRaw, _ := json.Marshal(map[string]any{
 			"kind":    "subagent_start_failed",
@@ -184,7 +193,7 @@ func (c *subagentController) Wait(ctx context.Context, childSessionID string, ti
 	return SubagentWaitResult{Node: node}, nil
 }
 
-func (c *subagentController) childOptions() AgentOptions {
+func (c *subagentController) childOptions(childRef config.ModelRef) AgentOptions {
 	maxSteps := c.parentOpts.MaxSteps
 	if maxSteps <= 0 || maxSteps > 12 {
 		maxSteps = 12
@@ -198,13 +207,14 @@ func (c *subagentController) childOptions() AgentOptions {
 		maxCalls = 6
 	}
 	return AgentOptions{
-		ProviderName:        c.parentOpts.ProviderName,
+		ModelRef:            childRef,
+		Effort:              c.parentOpts.Effort,
 		Policy:              toolset.PolicyReadOnly,
 		MaxSteps:            maxSteps,
 		RecentMessages:      recent,
 		MaxToolCallsPerStep: maxCalls,
 		ToolDenylist:        append([]string(nil), c.parentOpts.ToolDenylist...),
-		SystemPrompt: "You are a focused read-only LumenCortex subagent. Investigate the assigned goal using repository search, file reads, Git inspection, and language services. Do not modify files, run shell commands, or spawn additional agents. Return concise evidence and actionable findings to the parent task.",
+		SystemPrompt:        "You are a focused read-only LumenCortex subagent. Investigate the assigned goal using repository search, file reads, Git inspection, and language services. Do not modify files, run shell commands, or spawn additional agents. Return concise evidence and actionable findings to the parent task.",
 		MaxTokens:           c.parentOpts.MaxTokens,
 		Temperature:         c.parentOpts.Temperature,
 		parentSessionID:     c.parentID,

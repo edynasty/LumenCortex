@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,7 +17,6 @@ import (
 	"testing"
 
 	"github.com/edynasty/LumenCortex/config"
-	"github.com/edynasty/LumenCortex/internal/cognition"
 	"github.com/edynasty/LumenCortex/protocol"
 	"github.com/edynasty/LumenCortex/provider/openai"
 )
@@ -125,6 +125,24 @@ func complete(t *testing.T, p interface {
 	}
 }
 
+// clientFromConfig is what the CLI does for a new session before it creates one: preflight, then the
+// default model's client. It returns the resolved model and a client for direct requests.
+func clientFromConfig(workspace string, warn io.Writer) (protocol.Provider, config.ResolvedModel, error) {
+	if err := preflight(workspace, warn, true); err != nil {
+		return nil, config.ResolvedModel{}, err
+	}
+	cfg, err := config.Load(workspace)
+	if err != nil {
+		return nil, config.ResolvedModel{}, err
+	}
+	model, err := cfg.Resolve(cfg.Effective().Model)
+	if err != nil {
+		return nil, config.ResolvedModel{}, err
+	}
+	client, err := providerFactory(model)
+	return client, model, err
+}
+
 func TestProviderFromConfigBuildsTheConfiguredClient(t *testing.T) {
 	srv := newFakeProvider(t)
 	globalFile, ws := cliEnv(t)
@@ -132,7 +150,7 @@ func TestProviderFromConfigBuildsTheConfiguredClient(t *testing.T) {
 	t.Setenv("LOCAL_TEST_KEY", "key-from-env")
 
 	var warn bytes.Buffer
-	client, model, err := providerFromConfig(ws, &warn)
+	client, model, err := clientFromConfig(ws, &warn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +187,7 @@ func TestUntrustedWorkspaceCannotRedirectCredentialsThroughTheCLI(t *testing.T) 
 	t.Setenv("LOCAL_TEST_KEY", "global-secret")
 
 	var warn bytes.Buffer
-	client, model, err := providerFromConfig(ws, &warn)
+	client, model, err := clientFromConfig(ws, &warn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +221,7 @@ func TestTrustedWorkspaceRedirectWithoutOwnKeyFailsTheCLI(t *testing.T) {
 	writeConfig(t, filepath.Join(ws, config.FileName), fmt.Sprintf(`{"providers": {"local": {"settings": {"baseURL": %q}}}}`, evil.URL))
 	t.Setenv("LOCAL_TEST_KEY", "global-secret")
 
-	_, _, err := providerFromConfig(ws, &bytes.Buffer{})
+	_, _, err := clientFromConfig(ws, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), config.ErrCredentialRedirect.Error()) {
 		t.Fatalf("err=%v", err)
 	}
@@ -222,7 +240,7 @@ func TestRemovedEnvironmentPresetsAreNotReadAndAreExplained(t *testing.T) {
 	t.Setenv("LCX_REASONING_FORMAT", "deepseek")
 
 	var warn bytes.Buffer
-	_, _, err := providerFromConfig(ws, &warn)
+	_, _, err := clientFromConfig(ws, &warn)
 	if err == nil || !strings.Contains(err.Error(), "no model is configured") {
 		t.Fatalf("err=%v", err)
 	}
@@ -246,20 +264,20 @@ func TestProviderFromConfigErrors(t *testing.T) {
 	// A missing key variable names the variable only.
 	writeConfig(t, globalFile, globalFor(srv.URL, ""))
 	t.Setenv("LOCAL_TEST_KEY", "")
-	if _, _, err := providerFromConfig(ws, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "LOCAL_TEST_KEY") {
+	if _, _, err := clientFromConfig(ws, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "LOCAL_TEST_KEY") {
 		t.Fatalf("unset key: %v", err)
 	}
 
 	// A literal key is invalid configuration and never echoed.
 	writeConfig(t, globalFile, strings.Replace(globalFor(srv.URL, ""), "{env:LOCAL_TEST_KEY}", "sk-literal-LEAK", 1))
-	_, _, err := providerFromConfig(ws, &bytes.Buffer{})
+	_, _, err := clientFromConfig(ws, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "invalid configuration") || strings.Contains(err.Error(), "LEAK") {
 		t.Fatalf("literal key: %v", err)
 	}
 
 	// A model that is not in the catalog.
 	writeConfig(t, globalFile, strings.Replace(globalFor(srv.URL, ""), `"model": "local/m"`, `"model": "local/nope"`, 1))
-	if _, _, err := providerFromConfig(ws, &bytes.Buffer{}); err == nil {
+	if _, _, err := clientFromConfig(ws, &bytes.Buffer{}); err == nil {
 		t.Fatal("unknown model accepted")
 	}
 }
@@ -307,12 +325,27 @@ func TestCLIAgentAndResumeUseUnifiedConfig(t *testing.T) {
 		}
 	}
 
-	// resume builds its client from the same configuration: without it, it fails with the diagnostic.
+	// resume continues on the model the session is pinned to, not on the configured default: a
+	// global model change does not move the session.
+	other := strings.Replace(globalFor(srv.URL, ""), `"model": "local/m"`, `"model": "local/other"`, 1)
+	other = strings.Replace(other, `"models": {"m":`, `"models": {"other": {"modelID": "other-upstream"}, "m":`, 1)
+	writeConfig(t, globalFile, other)
+	before := len(srv.requests())
+	out, errOut, err = run("resume", result.SessionID)
+	if err != nil {
+		t.Fatalf("resume: %v\nstdout=%s\nstderr=%s", err, out, errOut)
+	}
+	for _, r := range srv.requests()[before:] {
+		if r.Body["model"] != "upstream-model" {
+			t.Fatalf("resume left the pinned model: %+v", r)
+		}
+	}
+	// With the pinned model gone from the catalog, resume refuses at Start and names the cause.
 	if err := os.Remove(globalFile); err != nil {
 		t.Fatal(err)
 	}
 	_, errOut, err = run("resume", result.SessionID)
-	if err == nil || !strings.Contains(errOut, "no model is configured") || !strings.Contains(errOut, "lumencortex.json") {
+	if err == nil || !strings.Contains(errOut, "not in the provider catalog") {
 		t.Fatalf("resume without config: err=%v stderr=%s", err, errOut)
 	}
 	// With the removed presets set instead, the CLI still refuses and names the replacements.
@@ -323,48 +356,6 @@ func TestCLIAgentAndResumeUseUnifiedConfig(t *testing.T) {
 	cmd.Stderr = &eb
 	if err := cmd.Run(); err == nil || !strings.Contains(eb.String(), "providers.<provider>.settings.baseURL") {
 		t.Fatalf("legacy env run: %v\n%s", err, eb.String())
-	}
-}
-
-// Until M2.3 deletes cognition.json, its bindings keep their own presets but no longer fall back
-// to the removed LCX_MODEL / LCX_BASE_URL variables.
-func TestCognitionBindingsIgnoreRemovedEnvironment(t *testing.T) {
-	t.Setenv("LCX_MODEL", "legacy-model")
-	t.Setenv("LCX_BASE_URL", "http://127.0.0.1:9")
-	_, err := providerBindingFromSpec(cognition.ModelSpec{Provider: "generic"})
-	if err == nil || !strings.Contains(err.Error(), "LCX_MODEL is no longer read") {
-		t.Fatalf("err=%v", err)
-	}
-}
-
-// A cognition entry without a baseURL used to reach LCX_BASE_URL. Now that the variable is not
-// read, such an entry would fall through to the OpenAI default URL and send its key and the
-// transcript there; while LCX_BASE_URL is set the binding must refuse instead and name the key.
-func TestCognitionBindingRefusesDefaultURLWhenRemovedBaseURLIsSet(t *testing.T) {
-	t.Setenv("LCX_BASE_URL", "http://127.0.0.1:9")
-	t.Setenv("LCX_PROBE_KEY", "local-secret")
-	spec := cognition.ModelSpec{Provider: "generic", Model: "m", APIKeyEnv: "LCX_PROBE_KEY"}
-	_, err := providerBindingFromSpec(spec)
-	if err == nil || !strings.Contains(err.Error(), `"baseURL"`) || !strings.Contains(err.Error(), "LCX_BASE_URL is no longer read") {
-		t.Fatalf("err=%v", err)
-	}
-	if strings.Contains(err.Error(), "local-secret") {
-		t.Fatalf("error leaks the key: %v", err)
-	}
-	// The entry's own baseURL, or a preset's, still applies.
-	spec.BaseURL = "http://127.0.0.1:9"
-	if _, err := providerBindingFromSpec(spec); err != nil {
-		t.Fatalf("own baseURL: %v", err)
-	}
-	if _, err := providerBindingFromSpec(cognition.ModelSpec{Provider: "groq"}); err != nil {
-		t.Fatalf("preset baseURL: %v", err)
-	}
-	// Without the removed variable an entry with no baseURL is still refused: there is no default
-	// URL for its key and transcript to fall through to.
-	t.Setenv("LCX_BASE_URL", "")
-	_, err = providerBindingFromSpec(cognition.ModelSpec{Provider: "generic", Model: "m", APIKeyEnv: "LCX_PROBE_KEY"})
-	if err == nil || !errors.Is(err, openai.ErrNoEndpoint) || strings.Contains(err.Error(), "local-secret") {
-		t.Fatalf("generic without baseURL: %v", err)
 	}
 }
 
@@ -384,7 +375,7 @@ func TestProviderWithoutDestinationIsRefusedBeforeAnyRequest(t *testing.T) {
 	}`)
 	t.Setenv("NODEST_KEY", "nodest-secret")
 
-	if _, _, err := providerFromConfig(ws, &bytes.Buffer{}); err == nil || !errors.Is(err, openai.ErrNoEndpoint) ||
+	if _, _, err := clientFromConfig(ws, &bytes.Buffer{}); err == nil || !errors.Is(err, openai.ErrNoEndpoint) ||
 		!strings.Contains(err.Error(), "nodest/m") || strings.Contains(err.Error(), "nodest-secret") {
 		t.Fatalf("providerFromConfig: %v", err)
 	}
@@ -413,5 +404,30 @@ func TestProviderWithoutDestinationIsRefusedBeforeAnyRequest(t *testing.T) {
 	}
 	if _, _, err := run("resume", "no-such-session"); err == nil || len(trap.requests()) != 0 {
 		t.Fatalf("resume must refuse too: err=%v requests=%d", err, len(trap.requests()))
+	}
+}
+
+// D1: the Governor's curator is the configured default model, built only on request. Without a
+// configured model it refuses and names the file to edit; no request is made either way.
+func TestGovernorCuratorUsesTheConfiguredDefaultModel(t *testing.T) {
+	srv := newFakeProvider(t)
+	globalFile, ws := cliEnv(t)
+	writeConfig(t, globalFile, globalFor(srv.URL, ""))
+	t.Setenv("LOCAL_TEST_KEY", "curator-key")
+
+	curator, err := governorCurator(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if curator.Provider.Model() != "upstream-model" || curator.MaxTokens != curatorMaxTokens || curator.ReasoningEffort != curatorEffort {
+		t.Fatalf("curator=%+v model=%s", curator, curator.Provider.Model())
+	}
+	if len(srv.requests()) != 0 {
+		t.Fatal("building the curator made a request")
+	}
+
+	writeConfig(t, globalFile, `{"providers": {}}`)
+	if _, err := governorCurator(ws); err == nil || !strings.Contains(err.Error(), "--curator needs a configured model") || !strings.Contains(err.Error(), config.FileName) {
+		t.Fatalf("err=%v", err)
 	}
 }

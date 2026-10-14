@@ -84,7 +84,7 @@ func TestInterruptedRunResumesFromPersistedSafeBoundaryWithoutToolReplay(t *test
 	provider := &checkpointProvider{secondStarted: make(chan struct{})}
 	done := make(chan error, 1)
 	go func() {
-		_, runErr := engine.RunAgent(ctx, handle.ID, provider, AgentOptions{
+		_, runErr := engine.runAgentWith(ctx, handle.ID, provider, AgentOptions{
 			Policy:         "read-only",
 			MaxSteps:       4,
 			RecentMessages: 16,
@@ -127,7 +127,7 @@ func TestInterruptedRunResumesFromPersistedSafeBoundaryWithoutToolReplay(t *test
 		t.Fatalf("safe checkpoints=%#v", checkpoints)
 	}
 
-	if _, err := engine.RunAgent(context.Background(), handle.ID, &resumeProvider{}, AgentOptions{
+	if _, err := engine.runAgentWith(context.Background(), handle.ID, &resumeProvider{}, AgentOptions{
 		Policy:         "read-only",
 		MaxSteps:       2,
 		RecentMessages: 16,

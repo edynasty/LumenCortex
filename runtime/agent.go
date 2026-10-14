@@ -6,8 +6,8 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
-	"github.com/edynasty/LumenCortex/internal/cognition"
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
@@ -16,15 +16,18 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
-type ProviderBinding = agent.ProviderBinding
-type DecisionProvider = cognition.DecisionProvider
-
 type AgentOptions struct {
 	// Input is a user message appended to the session's transcript under the run
 	// lock, after Reconcile. It is the only way a host adds to an existing
 	// transcript.
-	Input               string          `json:"input,omitempty"`
-	ProviderName        string          `json:"providerName,omitempty"`
+	Input string `json:"input,omitempty"`
+	// ModelRef selects the session's model. When it differs from the session's pinned model it
+	// re-pins the session (rule model.user); empty keeps the pinned model, or pins the
+	// configured default on a session that has none.
+	ModelRef config.ModelRef `json:"modelRef,omitempty"`
+	// Effort overrides the configured default reasoning effort for this run: "" (the default),
+	// none, low, medium, high or max.
+	Effort              config.Effort   `json:"effort,omitempty"`
 	Policy              string          `json:"policy,omitempty"`
 	MaxSteps            int             `json:"maxSteps,omitempty"`
 	RecentMessages      int             `json:"recentMessages,omitempty"`
@@ -37,9 +40,6 @@ type AgentOptions struct {
 	MaxTokens           int             `json:"maxTokens,omitempty"`
 	Temperature         *float64        `json:"temperature,omitempty"`
 	CognitionEnabled    bool            `json:"cognitionEnabled,omitempty"`
-	CategoryProviders   map[string][]ProviderBinding `json:"-"`
-	DecisionProviders   []DecisionProvider `json:"-"`
-	DecisionPolicy      string             `json:"-"`
 
 	subagents        toolset.SubagentController
 	parentSessionID  string
@@ -60,16 +60,13 @@ type AgentResult struct {
 // session's run lock for the whole call and returns ErrRunHeld, having written
 // nothing, when another Engine holds it. RunSupervisor.Start is the asynchronous
 // entry point with the same contract.
-func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protocol.Provider, opts AgentOptions) (AgentResult, error) {
-	if provider == nil {
-		return AgentResult{}, errors.New("provider is required")
-	}
+func (e *Engine) RunAgent(ctx context.Context, sessionID string, opts AgentOptions) (AgentResult, error) {
 	lock, err := e.acquireRun(ctx, sessionID)
 	if err != nil {
 		return AgentResult{}, err
 	}
 	defer lock.Release()
-	run, err := e.prepareRun(ctx, sessionID, provider, opts)
+	run, err := e.prepareRun(ctx, sessionID, opts)
 	if err != nil {
 		return AgentResult{}, err
 	}
@@ -78,8 +75,8 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, provider protoc
 
 // preparedRun is a Start whose pre-run writes are done: the loop only has to execute.
 type preparedRun struct {
-	loop     agent.Loop
-	loopOpts agent.Options
+	loop      agent.Loop
+	loopOpts  agent.Options
 	sessionID string
 	// info is the session as the Start transaction committed it: running, with the
 	// new identity and the previous outcome cleared.
@@ -106,12 +103,20 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 // transaction is atomic, so a rejected or failed Start leaves no new transcript
 // row and the session row as it was. The loop starts on a session that is already
 // running.
-func (e *Engine) prepareRun(ctx context.Context, sessionID string, provider protocol.Provider, opts AgentOptions) (*preparedRun, error) {
+func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOptions) (*preparedRun, error) {
 	if _, err := e.store.Reconcile(ctx, sessionID); err != nil {
 		return nil, err
 	}
 	if opts.Input != "" && strings.TrimSpace(opts.Input) == "" {
 		return nil, errors.New("input must not be blank")
+	}
+	row, err := e.store.Get(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	plan, err := e.planModels(opts.ModelRef, config.ModelRef(row.ModelRef), opts.Effort)
+	if err != nil {
+		return nil, err
 	}
 	state, err := agentStore{store: e.store}.Get(ctx, sessionID)
 	if err != nil {
@@ -141,10 +146,10 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, provider prot
 	}
 	tools, err := toolset.New(toolset.Options{
 		Workspace: agentWorkspace,
-		Policy: policy,
-		Shell: runner,
-		LSP: lspManager,
-		MCP: mcpRegistry,
+		Policy:    policy,
+		Shell:     runner,
+		LSP:       lspManager,
+		MCP:       mcpRegistry,
 		Subagents: opts.subagents,
 	})
 	if err != nil {
@@ -162,6 +167,11 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, provider prot
 		MaxTokens:           opts.MaxTokens,
 		Temperature:         opts.Temperature,
 		CognitionEnabled:    opts.CognitionEnabled,
+		Session:             plan.session,
+		Failover:            plan.failover,
+		EffortDefault:       plan.effort,
+		Effort:              opts.Effort,
+		Decisions:           []agent.Decision{plan.decision},
 	}
 	if err := agent.CheckStart(state.Metadata, loopOpts); err != nil {
 		return nil, err
@@ -183,22 +193,12 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, provider prot
 		}
 	}
 
-	var decisionLayer *cognition.DecisionLayer
-	if len(opts.DecisionProviders) > 0 {
-		decisionLayer = &cognition.DecisionLayer{
-			Providers: opts.DecisionProviders,
-			Policy: opts.DecisionPolicy,
-			Health: e.cognitionHealth,
-		}
-	}
-
-	// Start's one durable write: Input, provider/model identity and the running
+	// Start's one durable write: Input, the session model identity and the running
 	// transition commit together or not at all (§3.2). Nothing above it wrote.
-	model := provider.Model()
-	start := session.RunStart{Model: &model}
-	if opts.ProviderName != "" {
-		providerName := opts.ProviderName
-		start.Provider = &providerName
+	start := session.RunStart{Provider: &plan.resolved.ProviderID, Model: &plan.resolved.ModelID}
+	if agent.WritesModelRef(plan.rule) {
+		ref := string(plan.session)
+		start.ModelRef = &ref
 	}
 	if opts.Input != "" {
 		start.Input = &protocol.Message{Role: "user", Content: opts.Input}
@@ -217,13 +217,10 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, provider prot
 		info:      sessionInfo(committed),
 		loopOpts:  loopOpts,
 		loop: agent.Loop{
-			Provider: provider,
-			ProviderName: opts.ProviderName,
-			ProviderChains: opts.CategoryProviders,
-			ProviderHealth: e.cognitionHealth,
-			DecisionLayer: decisionLayer,
-			Store:    agentStore{store: e.store},
-			Tools:    tools,
+			Models: plan.models,
+			Health: e.health,
+			Store:  agentStore{store: e.store},
+			Tools:  tools,
 			Emit: func(event agent.Event) {
 				e.events.publish(event.Type, event.SessionID, event.Data)
 				_ = e.store.Journal(context.Background(), event.Type, map[string]any{
@@ -420,8 +417,8 @@ func (s agentStore) SetMetadataKey(ctx context.Context, id, key string, value js
 
 func (s agentStore) Update(ctx context.Context, id string, patch agent.SessionPatch) error {
 	value := session.Patch{
-		Status: patch.Status,
-		Final: patch.Final,
+		Status:     patch.Status,
+		Final:      patch.Final,
 		ClearFinal: patch.ClearFinal,
 		ClearError: patch.ClearError,
 	}

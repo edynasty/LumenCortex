@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/resource"
+	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/toolset"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -46,31 +47,35 @@ func (p *multiBlockingProvider) Complete(ctx context.Context, _ protocol.Provide
 	return protocol.ProviderResponse{}, ctx.Err()
 }
 
-func newParentSession(t *testing.T, engine *Engine) string {
+// newParentSession creates a session pinned to a catalog model backed by p, as a started parent is.
+// Children inherit that model.
+func newParentSession(t *testing.T, engine *Engine, p protocol.Provider) string {
 	t.Helper()
-	handle, err := engine.NewSession(context.Background(), SessionOptions{
-		Goal:     "parent task",
-		Provider: "test-provider",
-		Model:    "test-model",
-	})
+	ref := bind(engine, p)
+	id, err := newSessionID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return handle.ID
+	now := time.Now().UTC()
+	v := session.Session{ID: id, CreatedAt: now, UpdatedAt: now, Status: "created", Goal: "parent task", ModelRef: string(ref), Metadata: json.RawMessage("{}")}
+	if err := engine.store.CreateWithMessage(context.Background(), v, protocol.Message{Role: "user", Content: "parent task"}); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func TestSubagentChildOptionsAreReadOnlyAndNonRecursive(t *testing.T) {
 	controller := &subagentController{
 		parentID: "parent",
 		parentOpts: AgentOptions{
-			ProviderName:        "provider",
+			
 			Policy:              toolset.PolicyFull,
 			MaxSteps:            100,
 			RecentMessages:      100,
 			MaxToolCallsPerStep: 100,
 		},
 	}
-	opts := controller.childOptions()
+	opts := controller.childOptions("test/b0")
 	if opts.Policy != toolset.PolicyReadOnly {
 		t.Fatalf("policy=%q", opts.Policy)
 	}
@@ -104,13 +109,12 @@ func TestSubagentControllerEnforcesFourActiveChildren(t *testing.T) {
 	}
 	defer supervisor.Close()
 
-	parentID := newParentSession(t, engine)
 	provider := &multiBlockingProvider{}
+	parentID := newParentSession(t, engine, provider)
 	controller := &subagentController{
 		supervisor: supervisor,
 		parentID:   parentID,
-		provider:   provider,
-		parentOpts: AgentOptions{ProviderName: "test-provider"},
+		parentOpts: AgentOptions{},
 	}
 
 	children := make([]string, 0, MaxConcurrentSubagentsPerParent)
@@ -165,10 +169,10 @@ func TestSubagentUsesGlobalMaxAgentsBudget(t *testing.T) {
 	}
 	defer supervisor.Close()
 
-	parentID := newParentSession(t, engine)
 	parentProvider := &multiBlockingProvider{started: make(chan struct{})}
-	if _, err := supervisor.Start(context.Background(), parentID, parentProvider, AgentOptions{
-		ProviderName: "test-provider",
+	parentID := newParentSession(t, engine, parentProvider)
+	if _, err := supervisor.startWith(context.Background(), parentID, parentProvider, AgentOptions{
+		
 		Policy:       toolset.PolicyReadOnly,
 	}); err != nil {
 		t.Fatal(err)
@@ -182,8 +186,7 @@ func TestSubagentUsesGlobalMaxAgentsBudget(t *testing.T) {
 	controller := &subagentController{
 		supervisor: supervisor,
 		parentID:   parentID,
-		provider:   &multiBlockingProvider{},
-		parentOpts: AgentOptions{ProviderName: "test-provider"},
+		parentOpts: AgentOptions{},
 	}
 	first, err := controller.Spawn(context.Background(), "first child")
 	if err != nil {
@@ -219,15 +222,14 @@ func TestSubagentPersistsRelationEventsAndCheckpoints(t *testing.T) {
 	}
 	defer supervisor.Close()
 
-	parentID := newParentSession(t, engine)
+	parentID := newParentSession(t, engine, &finalProvider{})
 	events, unsubscribe := engine.Events(64)
 	defer unsubscribe()
 
 	controller := &subagentController{
 		supervisor: supervisor,
 		parentID:   parentID,
-		provider:   &finalProvider{},
-		parentOpts: AgentOptions{ProviderName: "test-provider"},
+		parentOpts: AgentOptions{},
 	}
 	value, err := controller.Spawn(context.Background(), "finish quickly")
 	if err != nil {
@@ -348,10 +350,10 @@ func TestTopLevelAgentGetsSpawnToolButChildCannotRecurse(t *testing.T) {
 	}
 	defer supervisor.Close()
 
-	parentID := newParentSession(t, engine)
 	provider := &spawnToolProvider{}
-	if _, err := supervisor.Start(context.Background(), parentID, provider, AgentOptions{
-		ProviderName: "spawn-provider",
+	parentID := newParentSession(t, engine, provider)
+	if _, err := supervisor.startWith(context.Background(), parentID, provider, AgentOptions{
+		
 		Policy:       toolset.PolicyReadOnly,
 		MaxSteps:     4,
 	}); err != nil {
@@ -410,12 +412,11 @@ func TestWaitSubagentReturnsCompletedResult(t *testing.T) {
 	}
 	defer supervisor.Close()
 
-	parentID := newParentSession(t, engine)
+	parentID := newParentSession(t, engine, &finalProvider{})
 	controller := &subagentController{
 		supervisor: supervisor,
 		parentID:   parentID,
-		provider:   &finalProvider{},
-		parentOpts: AgentOptions{ProviderName: "test-provider"},
+		parentOpts: AgentOptions{},
 	}
 	value, err := controller.Spawn(context.Background(), "finish for wait")
 	if err != nil {
@@ -445,12 +446,11 @@ func TestWaitSubagentTimeoutReturnsActiveNode(t *testing.T) {
 	}
 	defer supervisor.Close()
 
-	parentID := newParentSession(t, engine)
+	parentID := newParentSession(t, engine, &multiBlockingProvider{})
 	controller := &subagentController{
 		supervisor: supervisor,
 		parentID:   parentID,
-		provider:   &multiBlockingProvider{},
-		parentOpts: AgentOptions{ProviderName: "test-provider"},
+		parentOpts: AgentOptions{},
 	}
 	value, err := controller.Spawn(context.Background(), "block for timeout")
 	if err != nil {
@@ -483,13 +483,12 @@ func TestWaitSubagentRejectsForeignChild(t *testing.T) {
 	}
 	defer supervisor.Close()
 
-	parentA := newParentSession(t, engine)
-	parentB := newParentSession(t, engine)
+	parentA := newParentSession(t, engine, &finalProvider{})
+	parentB := newParentSession(t, engine, &finalProvider{})
 	controllerA := &subagentController{
 		supervisor: supervisor,
 		parentID:   parentA,
-		provider:   &multiBlockingProvider{},
-		parentOpts: AgentOptions{ProviderName: "test-provider"},
+		parentOpts: AgentOptions{},
 	}
 	value, err := controllerA.Spawn(context.Background(), "belongs to A")
 	if err != nil {
@@ -499,8 +498,7 @@ func TestWaitSubagentRejectsForeignChild(t *testing.T) {
 	controllerB := &subagentController{
 		supervisor: supervisor,
 		parentID:   parentB,
-		provider:   &multiBlockingProvider{},
-		parentOpts: AgentOptions{ProviderName: "test-provider"},
+		parentOpts: AgentOptions{},
 	}
 	if _, err := controllerB.Wait(context.Background(), child.SessionID, time.Second); err == nil {
 		t.Fatal("expected foreign child wait rejection")

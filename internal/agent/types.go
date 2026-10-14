@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -61,18 +62,28 @@ type Event struct {
 }
 
 type Options struct {
-	MaxSteps            int
-	RecentMessages      int
-	MaxToolCallsPerStep int
-	ToolAllowlist       []string
-	ToolDenylist        []string
-	SystemPrompt        string
+	MaxSteps               int
+	RecentMessages         int
+	MaxToolCallsPerStep    int
+	ToolAllowlist          []string
+	ToolDenylist           []string
+	SystemPrompt           string
 	AdditionalSystemPrompt string
-	WorkflowJSON        []byte
-	WorkUnitsJSON       []byte
-	MaxTokens           int
-	Temperature         *float64
-	CognitionEnabled    bool
+	WorkflowJSON           []byte
+	WorkUnitsJSON          []byte
+	MaxTokens              int
+	Temperature            *float64
+	CognitionEnabled       bool
+	// Session is the model the run starts on and Failover the config list that follows it; both
+	// must be keys of Loop.Models. EffortDefault is the configured default and Effort the per-run
+	// override ("" for none).
+	Session       config.ModelRef
+	Failover      []config.ModelRef
+	EffortDefault config.Effort
+	Effort        config.Effort
+	// Decisions are the decisions made before the loop started (the Start's model resolution). The
+	// first step record of the run carries them.
+	Decisions []Decision
 	// Resumed reports that the session was interrupted before this Start; the run
 	// records an agent.resume checkpoint. Start sets it from the status it found.
 	Resumed bool
@@ -103,6 +114,10 @@ const (
 	KindMaxSteps             = "max_steps"
 	KindEmptyResponse        = "empty_response"
 	KindProviderAvailability = "provider:availability"
+	KindProviderCapacity     = "provider:capacity"
+	KindProviderAuth         = "provider:auth"
+	KindProviderBadRequest   = "provider:bad_request"
+	KindWindowOverflow       = "window_overflow"
 	KindWorkflowGate         = "workflow_gate"
 	KindConfig               = "config"
 	KindStorage              = "storage"
@@ -135,15 +150,17 @@ func (c ExitCause) returnErr() error {
 }
 
 type stepRecord struct {
-	Step         int64            `json:"step"`
-	FinishReason string           `json:"finishReason,omitempty"`
-	Content      string           `json:"content,omitempty"`
-	Provider     string           `json:"provider,omitempty"`
-	Model        string           `json:"model,omitempty"`
-	ToolCalls    []toolCallRecord `json:"toolCalls,omitempty"`
-	Workflow     any              `json:"workflow,omitempty"`
-	WorkUnit     any              `json:"workUnit,omitempty"`
-	Cognition    any              `json:"cognition,omitempty"`
+	Step         int64  `json:"step"`
+	FinishReason string `json:"finishReason,omitempty"`
+	Content      string `json:"content,omitempty"`
+	Provider     string `json:"provider,omitempty"`
+	Model        string `json:"model,omitempty"`
+	// ModelRef is the catalog reference of the model that answered.
+	ModelRef  config.ModelRef  `json:"modelRef,omitempty"`
+	Decisions []Decision       `json:"decisions,omitempty"`
+	ToolCalls []toolCallRecord `json:"toolCalls,omitempty"`
+	Workflow  any              `json:"workflow,omitempty"`
+	WorkUnit  any              `json:"workUnit,omitempty"`
 }
 
 type toolCallRecord struct {

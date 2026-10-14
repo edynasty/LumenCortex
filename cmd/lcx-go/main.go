@@ -3,19 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/edynasty/LumenCortex/internal/cognition"
-	"github.com/edynasty/LumenCortex/provider/openai"
 	lcx "github.com/edynasty/LumenCortex/runtime"
 )
 
@@ -39,7 +35,7 @@ func run() error {
 	if len(os.Args) > 1 && os.Args[1] == "db" {
 		return runDBCommand(ctx, lcx.Options{Workspace: workspace}, os.Args[2:])
 	}
-	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: workspace})
+	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: workspace, ProviderFactory: providerFactory})
 	if err != nil {
 		return err
 	}
@@ -97,11 +93,10 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("agent: %w", err)
 		}
-		provider, model, err := providerFromConfig(workspace, os.Stderr)
-		if err != nil {
+		if err := preflight(workspace, os.Stderr, true); err != nil {
 			return err
 		}
-		h, err := engine.NewSession(ctx, lcx.SessionOptions{Goal: parsed.Goal, Provider: "openai-compatible", Model: model.ModelID})
+		h, err := engine.NewSession(ctx, lcx.SessionOptions{Goal: parsed.Goal})
 		if err != nil {
 			return err
 		}
@@ -110,11 +105,11 @@ func run() error {
 				return err
 			}
 		}
-		agentOpts, err := agentOptionsFromEnv(workspace, engine)
+		agentOpts, err := agentOptionsFromEnv(workspace)
 		if err != nil {
 			return err
 		}
-		result, err := engine.RunAgent(ctx, h.ID, provider, agentOpts)
+		result, err := engine.RunAgent(ctx, h.ID, agentOpts)
 		if err != nil {
 			return err
 		}
@@ -123,15 +118,15 @@ func run() error {
 		if len(args) != 2 {
 			return fmt.Errorf("usage: lcx-go resume <session-id>")
 		}
-		provider, _, err := providerFromConfig(workspace, os.Stderr)
+		if err := preflight(workspace, os.Stderr, false); err != nil {
+			return err
+		}
+		agentOpts, err := agentOptionsFromEnv(workspace)
 		if err != nil {
 			return err
 		}
-		agentOpts, err := agentOptionsFromEnv(workspace, engine)
-		if err != nil {
-			return err
-		}
-		result, err := engine.RunAgent(ctx, args[1], provider, agentOpts)
+		// The session runs on its pinned model; the Engine reads it from the session row.
+		result, err := engine.RunAgent(ctx, args[1], agentOpts)
 		if err != nil {
 			return err
 		}
@@ -139,10 +134,6 @@ func run() error {
 	case "governor":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: lcx-go governor <analyze|plan|validate> [plan.json]")
-		}
-		profile, err := cognition.LoadConfig(workspace, strings.TrimSpace(os.Getenv("LCX_COGNITION_PROFILE")))
-		if err != nil {
-			return err
 		}
 		switch args[1] {
 		case "analyze":
@@ -152,9 +143,16 @@ func run() error {
 			}
 			return printJSON(analysis)
 		case "plan":
-			curator, err := governorCuratorFromConfig(profile)
-			if err != nil {
-				return err
+			var curator *cognition.LLMGovernorCurator
+			switch {
+			case len(args) == 2:
+			case len(args) == 3 && args[2] == "--curator":
+				var err error
+				if curator, err = governorCurator(workspace); err != nil {
+					return err
+				}
+			default:
+				return fmt.Errorf("usage: lcx-go governor plan [--curator]")
 			}
 			result, err := engine.GovernorPlan(ctx, curator, cognition.GovernorAnalyzeOptions{})
 			if err != nil {
@@ -385,7 +383,7 @@ func runSkillsCommand(engine *lcx.Engine, args []string) error {
 }
 
 
-func agentOptionsFromEnv(workspace string, engine *lcx.Engine) (lcx.AgentOptions, error) {
+func agentOptionsFromEnv(workspace string) (lcx.AgentOptions, error) {
 	policy := strings.TrimSpace(os.Getenv("LCX_POLICY"))
 	if policy == "" {
 		policy = "read-only"
@@ -411,7 +409,6 @@ func agentOptionsFromEnv(workspace string, engine *lcx.Engine) (lcx.AgentOptions
 		}
 	}
 	opts := lcx.AgentOptions{
-		ProviderName: "openai-compatible",
 		Policy: policy,
 		MaxSteps: maxSteps,
 		MaxTokens: maxTokens,
@@ -425,32 +422,6 @@ func agentOptionsFromEnv(workspace string, engine *lcx.Engine) (lcx.AgentOptions
 	defaultProfile := filepath.Join(workspace, ".lumencortex", "cognition.json")
 	_, defaultProfileErr := os.Stat(defaultProfile)
 	opts.CognitionEnabled = envBool("LCX_COGNITION") || profilePath != "" || defaultProfileErr == nil
-	if !opts.CognitionEnabled {
-		return opts, nil
-	}
-
-	config, err := cognition.LoadConfig(workspace, profilePath)
-	if err != nil {
-		return lcx.AgentOptions{}, fmt.Errorf("load cognition profile: %w", err)
-	}
-	if engine != nil {
-		engine.ConfigureCognitionHealth(lcx.CognitionHealthOptions{
-			FailureThreshold: config.Health.FailureThreshold,
-			CooldownMS: config.Health.CooldownMS,
-		})
-	}
-
-	categoryProviders, err := categoryProvidersFromConfig(config)
-	if err != nil {
-		return lcx.AgentOptions{}, err
-	}
-	decisionProviders, err := decisionProvidersFromConfig(config)
-	if err != nil {
-		return lcx.AgentOptions{}, err
-	}
-	opts.CategoryProviders = categoryProviders
-	opts.DecisionProviders = decisionProviders
-	opts.DecisionPolicy = config.Decision.Policy
 	return opts, nil
 }
 
@@ -493,246 +464,3 @@ func printJSON(v any) error {
 }
 
 
-// providerPreset is read only by the cognition.json consumers below (category chains, decision
-// providers, Governor). M2.3 deletes cognition.json with them and this table; the CLI's own
-// provider and model come from package config, not from here.
-type providerPreset struct {
-	BaseURL         string
-	APIKeyEnv       string
-	DefaultModel    string
-	ReasoningFormat string
-	Headers         map[string]string
-}
-
-var cognitiveProviderPresets = map[string]providerPreset{
-	"openrouter": {
-		BaseURL: "https://openrouter.ai/api/v1",
-		APIKeyEnv: "OPENROUTER_API_KEY",
-		DefaultModel: "openrouter/free",
-		ReasoningFormat: "reasoning-object",
-		Headers: map[string]string{
-			"HTTP-Referer": "https://github.com/edynasty/LumenCortex",
-			"X-Title": "LumenCortex",
-		},
-	},
-	"openrouter-deepseek-free": {
-		BaseURL: "https://openrouter.ai/api/v1",
-		APIKeyEnv: "OPENROUTER_API_KEY",
-		DefaultModel: "deepseek/deepseek-v4-flash-0731:free",
-		ReasoningFormat: "reasoning-object",
-		Headers: map[string]string{
-			"HTTP-Referer": "https://github.com/edynasty/LumenCortex",
-			"X-Title": "LumenCortex DeepSeek Free",
-		},
-	},
-	"groq": {
-		BaseURL: "https://api.groq.com/openai/v1",
-		APIKeyEnv: "GROQ_API_KEY",
-		DefaultModel: "openai/gpt-oss-120b",
-		ReasoningFormat: "reasoning-effort",
-	},
-	"deepseek": {
-		BaseURL: "https://api.deepseek.com",
-		APIKeyEnv: "DEEPSEEK_API_KEY",
-		DefaultModel: "deepseek-flash",
-		ReasoningFormat: "deepseek",
-	},
-	"generic": {},
-}
-
-func categoryProvidersFromConfig(config cognition.Config) (map[string][]lcx.ProviderBinding, error) {
-	out := map[string][]lcx.ProviderBinding{}
-	for category, entry := range config.Categories {
-		for _, spec := range entry.Models {
-			binding, err := providerBindingFromSpec(spec)
-			if err != nil {
-				return nil, fmt.Errorf("category %s: %w", category, err)
-			}
-			out[category] = append(out[category], binding)
-		}
-	}
-	return out, nil
-}
-
-func providerBindingFromSpec(spec cognition.ModelSpec) (lcx.ProviderBinding, error) {
-	name := strings.TrimSpace(spec.Provider)
-	if name == "" {
-		name = "generic"
-	}
-	preset, ok := cognitiveProviderPresets[name]
-	if !ok {
-		return lcx.ProviderBinding{}, fmt.Errorf("unknown provider %q", name)
-	}
-	model := strings.TrimSpace(spec.Model)
-	if model == "" {
-		model = preset.DefaultModel
-	}
-	if model == "" {
-		return lcx.ProviderBinding{}, fmt.Errorf("provider %s model is required: set \"model\" in its cognition.json entry (LCX_MODEL is no longer read)", name)
-	}
-	baseURL := strings.TrimSpace(spec.BaseURL)
-	if baseURL == "" {
-		baseURL = preset.BaseURL
-	}
-	if baseURL == "" && strings.TrimSpace(os.Getenv("LCX_BASE_URL")) != "" {
-		// The entry would fall through to the OpenAI default URL and send its key and the
-		// transcript there instead of where LCX_BASE_URL used to point.
-		return lcx.ProviderBinding{}, fmt.Errorf("provider %s has no baseURL: set \"baseURL\" in its cognition.json entry (LCX_BASE_URL is no longer read)", name)
-	}
-	apiKey := spec.APIKey
-	apiKeyEnv := strings.TrimSpace(spec.APIKeyEnv)
-	if apiKeyEnv == "" {
-		apiKeyEnv = preset.APIKeyEnv
-	}
-	if apiKey == "" && apiKeyEnv != "" {
-		apiKey = os.Getenv(apiKeyEnv)
-	}
-	headers := map[string]string{}
-	for key, value := range preset.Headers {
-		headers[key] = value
-	}
-	for key, value := range spec.Headers {
-		headers[key] = value
-	}
-	var httpClient *http.Client
-	if spec.TimeoutMS > 0 {
-		httpClient = &http.Client{Timeout: time.Duration(spec.TimeoutMS) * time.Millisecond}
-	}
-	provider, err := openai.New(openai.Config{
-		BaseURL: baseURL,
-		APIKey: apiKey,
-		Model: model,
-		Headers: headers,
-		HTTPClient: httpClient,
-		ReasoningFormat: preset.ReasoningFormat,
-		DisableStreaming: envBool("LCX_DISABLE_STREAMING"),
-		DisableRetries: envBool("LCX_DISABLE_RETRIES"),
-	})
-	if err != nil {
-		return lcx.ProviderBinding{}, fmt.Errorf("cognition provider %s: %w", name, err)
-	}
-	return lcx.ProviderBinding{Name: name, Provider: provider}, nil
-}
-
-func decisionProvidersFromConfig(config cognition.Config) ([]lcx.DecisionProvider, error) {
-	out := []lcx.DecisionProvider{}
-	for _, spec := range config.Decision.Providers {
-		provider, err := decisionProviderFromSpec(spec)
-		if err != nil {
-			return nil, err
-		}
-		if provider != nil {
-			out = append(out, provider)
-		}
-	}
-	return out, nil
-}
-
-func decisionProviderFromSpec(spec cognition.DecisionProviderSpec) (lcx.DecisionProvider, error) {
-	kind := strings.ToLower(strings.TrimSpace(spec.Type))
-	if kind == "" {
-		kind = "systemone"
-	}
-	if kind == "algorithm" {
-		return nil, nil
-	}
-	if kind == "generative" || kind == "llm" || kind == "model" {
-		providerName := strings.TrimSpace(spec.Provider)
-		if providerName == "" || providerName == "generative" || providerName == "llm" || providerName == "model" {
-			return nil, errors.New("generative decision provider requires an execution provider name")
-		}
-		binding, err := providerBindingFromSpec(cognition.ModelSpec{
-			Provider: providerName,
-			Model: spec.Model,
-			BaseURL: spec.BaseURL,
-			APIKey: spec.APIKey,
-			APIKeyEnv: spec.APIKeyEnv,
-			TimeoutMS: spec.TimeoutMS,
-			Headers: spec.Headers,
-		})
-		if err != nil {
-			return nil, err
-		}
-		temperature := 0.0
-		if spec.Temperature != nil {
-			temperature = *spec.Temperature
-		}
-		return cognition.NewGenerativeDecisionProvider(cognition.GenerativeDecisionConfig{
-			Name: spec.Name,
-			Provider: binding.Provider,
-			MaxTokens: spec.MaxTokens,
-			ReasoningEffort: spec.ReasoningEffort,
-			Temperature: temperature,
-			ConfidenceScale: spec.ConfidenceScale,
-			ConfidenceCap: spec.ConfidenceCap,
-			ScoreScale: spec.ScoreScale,
-		})
-	}
-	apiKey := spec.APIKey
-	apiKeyEnv := strings.TrimSpace(spec.APIKeyEnv)
-	if apiKeyEnv == "" {
-		switch kind {
-		case "jev":
-			apiKeyEnv = "TYPESAFE_API_KEY"
-		case "laya":
-			apiKeyEnv = "LAYA_API_KEY"
-		}
-	}
-	if apiKey == "" && apiKeyEnv != "" {
-		apiKey = os.Getenv(apiKeyEnv)
-	}
-	cfg := cognition.SystemOneConfig{
-		Name: spec.Name,
-		BaseURL: spec.BaseURL,
-		APIKey: apiKey,
-		Model: spec.Model,
-		Headers: spec.Headers,
-	}
-	if spec.TimeoutMS > 0 {
-		cfg.Timeout = time.Duration(spec.TimeoutMS) * time.Millisecond
-	}
-	switch kind {
-	case "jev":
-		return cognition.NewJevDecisionProvider(cfg)
-	case "laya":
-		return cognition.NewLayaDecisionProvider(cfg)
-	case "systemone":
-		return cognition.NewSystemOneProvider(cfg)
-	default:
-		return nil, fmt.Errorf("unknown decision provider type %q", kind)
-	}
-}
-
-
-func governorCuratorFromConfig(config cognition.Config) (*cognition.LLMGovernorCurator, error) {
-	governor := config.Governor
-	if governor == nil || !governor.Enabled {
-		return nil, nil
-	}
-	if strings.TrimSpace(governor.Provider) == "" || strings.TrimSpace(governor.Model) == "" {
-		return nil, fmt.Errorf("enabled Governor requires provider and model")
-	}
-	binding, err := providerBindingFromSpec(cognition.ModelSpec{
-		Provider: governor.Provider,
-		Model: governor.Model,
-		BaseURL: governor.BaseURL,
-		TimeoutMS: governor.TimeoutMS,
-		Headers: governor.Headers,
-	})
-	if err != nil {
-		return nil, err
-	}
-	maxTokens := governor.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = 6000
-	}
-	effort := strings.TrimSpace(governor.ReasoningEffort)
-	if effort == "" {
-		effort = "high"
-	}
-	return &cognition.LLMGovernorCurator{
-		Provider: binding.Provider,
-		MaxTokens: maxTokens,
-		ReasoningEffort: effort,
-	}, nil
-}

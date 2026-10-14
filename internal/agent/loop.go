@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"runtime/debug"
 	"strings"
 	"time"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/cognition"
+	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/internal/workflow"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -20,19 +21,22 @@ const defaultSystemPrompt = `You are LumenCortex Agent, an autonomous coding age
 Inspect before editing. Use tools until the requested outcome is implemented and verified. Keep changes scoped. Do not claim completion without evidence. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates.`
 
 type Loop struct {
-	Provider       protocol.Provider
-	ProviderName   string
-	ProviderChains map[string][]ProviderBinding
-	ProviderHealth *cognition.HealthRegistry
-	DecisionLayer  *cognition.DecisionLayer
-	Store          Store
-	Tools          Tools
-	Emit           func(Event)
+	// Models holds the catalog models the run may use, keyed by reference: the session model and
+	// every failover reference that has tool calling, each with the client built for it.
+	Models map[config.ModelRef]Model
+	// Health is the Engine's registry; nil gets a private one.
+	Health *Health
+	Store  Store
+	Tools  Tools
+	Emit   func(Event)
 }
 
 func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result Result, err error) {
-	if l.Provider == nil || l.Store == nil || l.Tools == nil {
-		return Result{}, errors.New("provider, store, and tools are required")
+	if len(l.Models) == 0 || l.Store == nil || l.Tools == nil {
+		return Result{}, errors.New("models, store, and tools are required")
+	}
+	if l.Health == nil {
+		l.Health = NewHealth(nil)
 	}
 	if opts.MaxSteps <= 0 {
 		opts.MaxSteps = 24
@@ -87,7 +91,6 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 	}
 	usage = state.Usage
 	cognitiveProgress := restoreCognitiveProgress(state.Metadata)
-	router := cognition.Router{}
 	startStep, err := l.Store.NextStep(ctx, sessionID)
 	if err != nil {
 		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
@@ -112,7 +115,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			}
 			l.checkpoint(sessionID, "agent.safe", map[string]any{
 				"phase": "waiting_gate",
-				"step": step,
+				"step":  step,
 				"gates": gates,
 			})
 			l.emit("workflow.gate_waiting", sessionID, map[string]any{"step": step, "gates": gates})
@@ -129,81 +132,22 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		}
 		specs = filterDeniedTools(specs, opts.ToolDenylist)
 		activeWorkUnit, _ := currentWorkUnit(workUnits)
-		var cognitivePlan *cognition.Plan
-		if opts.CognitionEnabled {
-			input := cognition.Input{
-				Goal: state.Goal,
-				Progress: cognitiveProgress,
-			}
-			if activeWorkUnit != nil {
-				input.Focus = activeWorkUnit.Goal
-			}
-			if l.DecisionLayer != nil {
-				decision, decisionErr := l.DecisionLayer.Decide(ctx, cognition.DecisionRequest{
-					State: input,
-					Questions: cognition.DefaultDecisionQuestions(),
-				})
-				if decisionErr != nil {
-					return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindProviderAvailability, Err: decisionErr})
-				}
-				input.Signals = decision.Signals
-				state.Metadata = withDecisionSummary(state.Metadata, decision, step)
-				l.emit("decision.complete", sessionID, map[string]any{
-					"step": step,
-					"signals": decision.Signals,
-					"results": len(decision.Results),
-					"errors": decision.Errors,
-				})
-			}
-			plan := router.Route(input)
-			cognitivePlan = &plan
-			state.Metadata = withCognition(state.Metadata, cognitiveProgress, plan, step)
-			l.emit("cognition.route", sessionID, map[string]any{
-				"step": step,
-				"category": plan.Category,
-				"think": plan.Think,
-				"effort": plan.Effort,
-				"thinkScore": plan.ThinkScore,
-				"retrieval": plan.Retrieval,
-				"reasons": plan.Reasons,
-			})
-		}
-		messages, err := l.buildMessages(ctx, sessionID, opts, wf, cognitivePlan, workUnits)
+		messages, err := l.buildMessages(ctx, sessionID, opts, wf, workUnits)
 		if err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
-		reasoningEffort := ""
-		if cognitivePlan != nil {
-			reasoningEffort = string(cognition.EffortNone)
-			if cognitivePlan.Think {
-				reasoningEffort = string(cognitivePlan.Effort)
-			}
+		base := window.Estimate(messages) + window.Estimate(specs)
+		cands, candidatesDecision := l.candidates(opts, base)
+		stepDecisions := append(append([]Decision(nil), opts.Decisions...), candidatesDecision)
+		if len(cands) == 0 {
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindWindowOverflow,
+				Err: fmt.Errorf("no model can take this request: it needs about %d tokens before the reply, and no candidate of %s has the context, tool calling and health for it", base, refList(append([]config.ModelRef{opts.Session}, opts.Failover...)))})
 		}
-		category := "general"
-		if cognitivePlan != nil && strings.TrimSpace(cognitivePlan.Category) != "" {
-			category = cognitivePlan.Category
+		answered, cause := l.send(ctx, sessionID, step, opts, cands, messages, specs, &usage, &stepDecisions)
+		if cause != nil {
+			return l.exit(ctx, state, usage, *cause)
 		}
-		requestMaxTokens := opts.MaxTokens
-		if cognitivePlan != nil && cognitivePlan.Think {
-			requestMaxTokens = adjustedMaxTokens(opts.MaxTokens, cognitivePlan.Effort)
-		}
-		usage.Requests++
-		attempt, err := l.completeWithProviderChain(
-			ctx,
-			sessionID,
-			step,
-			category,
-			protocol.ProviderRequest{
-				Messages: messages, Tools: specs, ToolChoice: "auto", Temperature: opts.Temperature,
-				MaxTokens: requestMaxTokens, ReasoningEffort: reasoningEffort,
-			},
-			len(messages),
-			specs,
-		)
-		if err != nil {
-			return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindProviderAvailability, Err: err})
-		}
-		response := attempt.Response
+		response := answered.Response
 		addUsage(&usage, response.Usage)
 		assistant := response.Message
 		assistant.Role = "assistant"
@@ -218,22 +162,21 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		record := stepRecord{
-			Step: step,
+			Step:         step,
 			FinishReason: response.FinishReason,
-			Content: assistant.Content,
-			Provider: attempt.Binding.Name,
-			Model: attempt.Binding.Provider.Model(),
+			Content:      assistant.Content,
+			Provider:     answered.Model.ProviderID,
+			Model:        answered.Model.ModelID,
+			ModelRef:     answered.Model.Ref,
+			Decisions:    stepDecisions,
 		}
 		if activeWorkUnit != nil {
 			record.WorkUnit = map[string]any{
-				"id": activeWorkUnit.ID,
-				"goal": activeWorkUnit.Goal,
+				"id":     activeWorkUnit.ID,
+				"goal":   activeWorkUnit.Goal,
 				"status": activeWorkUnit.Status,
-				"risk": activeWorkUnit.Risk,
+				"risk":   activeWorkUnit.Risk,
 			}
-		}
-		if cognitivePlan != nil {
-			record.Cognition = *cognitivePlan
 		}
 
 		if len(calls) == 0 {
@@ -243,7 +186,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			if wf != nil && !wf.CanFinish() {
 				reason := wf.BlockReason()
 				record.Workflow = wf.Summary()
-				if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
+				if err := l.recordStep(ctx, sessionID, step, record, &opts); err != nil {
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 				}
 				correction := protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked, Content: "Workflow contract rejected completion: " + reason + ". Continue the current action and obtain the required evidence or gate approval."}
@@ -261,7 +204,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			}
 			if workUnits != nil && len(workUnits.Incomplete()) > 0 {
 				remaining := workUnits.Incomplete()
-				if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
+				if err := l.recordStep(ctx, sessionID, step, record, &opts); err != nil {
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 				}
 				correction := protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked, Content: workUnitCompletionCorrection(remaining)}
@@ -279,7 +222,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				record.Workflow = wf.Summary()
 				state.Metadata = withWorkflow(state.Metadata, wf)
 			}
-			if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
+			if err := l.recordStep(ctx, sessionID, step, record, &opts); err != nil {
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 			}
 			cause := ExitCause{Status: StatusCompleted}
@@ -346,13 +289,13 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 			}
 			l.checkpoint(sessionID, "agent.safe", map[string]any{
-				"phase": "tool_result",
-				"step": step,
+				"phase":      "tool_result",
+				"step":       step,
 				"toolCallId": call.ID,
-				"tool": call.Name,
+				"tool":       call.Name,
 				"messageSeq": messageSeq,
-				"ok": toolResult.OK,
-				"denied": toolResult.Denied,
+				"ok":         toolResult.OK,
+				"denied":     toolResult.Denied,
 			})
 			record.ToolCalls = append(record.ToolCalls, toolCallRecord{ID: call.ID, Name: call.Name, Args: args, OK: toolResult.OK, Denied: toolResult.Denied})
 		}
@@ -362,7 +305,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		if workUnits != nil {
 			state.Metadata = withWorkUnits(state.Metadata, workUnits)
 		}
-		if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
+		if err := l.recordStep(ctx, sessionID, step, record, &opts); err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		if err := l.flushMetadata(ctx, state); err != nil {
@@ -372,12 +315,22 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		l.checkpoint(sessionID, "agent.safe", map[string]any{
-			"phase": "step_complete",
-			"step": step,
+			"phase":    "step_complete",
+			"step":     step,
 			"nextStep": step + 1,
 		})
 	}
 	return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindMaxSteps, Err: fmt.Errorf("agent reached max steps: %d", opts.MaxSteps)})
+}
+
+// recordStep appends the step record and, once the first one of the run is written, drops the
+// Start's decisions from opts: only the first step record carries them.
+func (l *Loop) recordStep(ctx context.Context, sessionID string, step int64, record stepRecord, opts *Options) error {
+	if err := l.Store.AppendStep(ctx, sessionID, step, record); err != nil {
+		return err
+	}
+	opts.Decisions = nil
+	return nil
 }
 
 // CheckStart reports the validation errors a run start can detect before it
@@ -401,7 +354,7 @@ func (l *Loop) ensureInitialMessage(ctx context.Context, state SessionState) err
 	return err
 }
 
-func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options, wf *workflow.Runtime, cognitivePlan *cognition.Plan, workUnits *cognition.WorkUnitManager) ([]protocol.Message, error) {
+func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options, wf *workflow.Runtime, workUnits *cognition.WorkUnitManager) ([]protocol.Message, error) {
 	recent, err := l.Store.RecentMessages(ctx, sessionID, opts.RecentMessages)
 	if err != nil {
 		return nil, err
@@ -412,9 +365,6 @@ func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options
 	}
 	if wf != nil {
 		messages = append(messages, protocol.Message{Role: "system", Content: wf.Prompt()})
-	}
-	if cognitivePlan != nil {
-		messages = append(messages, protocol.Message{Role: "system", Content: cognitivePrompt(*cognitivePlan)})
 	}
 	if workUnits != nil {
 		messages = append(messages, protocol.Message{Role: "system", Content: workUnitPrompt(workUnits)})
@@ -520,7 +470,7 @@ func finishFailure(state SessionState, usage protocol.Usage, cause ExitCause, er
 // terminal event. A storage or provider error that arrives with the run context
 // already cancelled is the cancellation, not a failure.
 func (l *Loop) exit(ctx context.Context, state SessionState, usage protocol.Usage, cause ExitCause) (Result, error) {
-	if ctx.Err() != nil && (cause.Kind == KindStorage || cause.Kind == KindProviderAvailability) {
+	if ctx.Err() != nil && (cause.Kind == KindStorage || strings.HasPrefix(cause.Kind, "provider:")) {
 		cause = ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()}
 	}
 	if err := l.finish(ctx, state, usage, cause, nil); err != nil {
@@ -690,7 +640,6 @@ func addUsage(total *protocol.Usage, value protocol.Usage) {
 	}
 }
 
-
 func filterDeniedTools(specs []protocol.ToolSpec, deny []string) []protocol.ToolSpec {
 	if len(deny) == 0 {
 		return specs
@@ -715,7 +664,6 @@ func filterDeniedTools(specs []protocol.ToolSpec, deny []string) []protocol.Tool
 	return out
 }
 
-
 func restoreCognitiveProgress(metadata map[string]any) cognition.Progress {
 	if metadata == nil {
 		return cognition.Progress{}
@@ -735,33 +683,6 @@ func restoreCognitiveProgress(metadata map[string]any) cognition.Progress {
 		return cognition.Progress{}
 	}
 	return envelope.Progress
-}
-
-func withCognition(metadata map[string]any, progress cognition.Progress, plan cognition.Plan, step int64) map[string]any {
-	out := cloneMetadata(metadata)
-	envelope := map[string]any{}
-	if current, ok := out["cognition"].(map[string]any); ok {
-		for key, value := range current {
-			envelope[key] = value
-		}
-	}
-	history, _ := envelope["history"].([]any)
-	history = append(history, map[string]any{
-		"step": step,
-		"category": plan.Category,
-		"think": plan.Think,
-		"effort": plan.Effort,
-		"thinkScore": plan.ThinkScore,
-		"retrieval": plan.Retrieval,
-		"reasons": plan.Reasons,
-	})
-	if len(history) > 64 {
-		history = history[len(history)-64:]
-	}
-	envelope["history"] = history
-	envelope["progress"] = progress
-	out["cognition"] = envelope
-	return out
 }
 
 func withCognitionProgress(metadata map[string]any, progress cognition.Progress) map[string]any {
@@ -784,20 +705,6 @@ func cloneMetadata(metadata map[string]any) map[string]any {
 	}
 	return out
 }
-
-func cognitivePrompt(plan cognition.Plan) string {
-	if !plan.Think {
-		return fmt.Sprintf(
-			"Cognitive policy: category=%s; deliberate Think is not required. Stay focused and verify the next concrete action.",
-			plan.Category,
-		)
-	}
-	return fmt.Sprintf(
-		"Cognitive policy: category=%s; Think is active; reasoning effort=%s. Deliberate before acting, identify missing evidence, and verify the chosen path.",
-		plan.Category, plan.Effort,
-	)
-}
-
 
 func restoreWorkUnits(metadata map[string]any, supplied []byte) (*cognition.WorkUnitManager, error) {
 	if metadata != nil {
@@ -845,44 +752,44 @@ func currentWorkUnit(manager *cognition.WorkUnitManager) (*cognition.WorkUnit, e
 func workUnitToolSpecs() []protocol.ToolSpec {
 	return []protocol.ToolSpec{
 		{
-			Name: "work_unit_list",
+			Name:        "work_unit_list",
 			Description: "Inspect persistent Work Units for this Agent session.",
-			Permission: "read",
-			Parameters: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
+			Permission:  "read",
+			Parameters:  map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
 		},
 		{
-			Name: "work_unit_create",
+			Name:        "work_unit_create",
 			Description: "Create a persistent Work Unit. Work Units cannot choose providers, models, Categories or reasoning effort.",
-			Permission: "read",
+			Permission:  "read",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"id": map[string]any{"type": "string"},
-					"goal": map[string]any{"type": "string"},
-					"description": map[string]any{"type": "string"},
-					"risk": map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "critical"}},
+					"id":                map[string]any{"type": "string"},
+					"goal":              map[string]any{"type": "string"},
+					"description":       map[string]any{"type": "string"},
+					"risk":              map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "critical"}},
 					"required_evidence": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-					"verification": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-					"depends_on": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"verification":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"depends_on":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 				},
-				"required": []string{"goal"},
+				"required":             []string{"goal"},
 				"additionalProperties": false,
 			},
 		},
 		{
-			Name: "work_unit_update",
+			Name:        "work_unit_update",
 			Description: "Update Work Unit status, evidence and verification. Completion is gated by required evidence and passed checks.",
-			Permission: "read",
+			Permission:  "read",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"id": map[string]any{"type": "string"},
-					"status": map[string]any{"type": "string", "enum": []string{"pending", "active", "blocked", "verifying", "completed", "failed", "cancelled"}},
-					"summary": map[string]any{"type": "string"},
-					"evidence": map[string]any{"type": "array"},
+					"id":                   map[string]any{"type": "string"},
+					"status":               map[string]any{"type": "string", "enum": []string{"pending", "active", "blocked", "verifying", "completed", "failed", "cancelled"}},
+					"summary":              map[string]any{"type": "string"},
+					"evidence":             map[string]any{"type": "array"},
 					"verification_results": map[string]any{"type": "array"},
 				},
-				"required": []string{"id"},
+				"required":             []string{"id"},
 				"additionalProperties": false,
 			},
 		},
@@ -1013,47 +920,4 @@ func workUnitCompletionCorrection(units []cognition.WorkUnit) string {
 		parts = append(parts, fmt.Sprintf("%s[%s]: %s", unit.ID, unit.Status, unit.Goal))
 	}
 	return "Work Unit completion gate rejected final completion. Remaining units: " + strings.Join(parts, "; ") + ". Use work_unit_update to satisfy evidence/verification and complete them before finishing."
-}
-
-
-func withDecisionSummary(metadata map[string]any, summary cognition.DecisionSummary, step int64) map[string]any {
-	out := cloneMetadata(metadata)
-	envelope := map[string]any{}
-	if current, ok := out["cognition"].(map[string]any); ok {
-		for key, value := range current {
-			envelope[key] = value
-		}
-	}
-	providers := make([]map[string]any, 0, len(summary.Results))
-	for _, result := range summary.Results {
-		providers = append(providers, map[string]any{
-			"source": result.Source,
-			"model": result.Model,
-		})
-	}
-	envelope["lastDecision"] = map[string]any{
-		"step": step,
-		"signals": summary.Signals,
-		"providers": providers,
-		"errors": summary.Errors,
-	}
-	out["cognition"] = envelope
-	return out
-}
-
-
-func adjustedMaxTokens(base int, effort cognition.Effort) int {
-	if base <= 0 {
-		return base
-	}
-	multiplier := 1.0
-	switch effort {
-	case cognition.EffortMedium:
-		multiplier = 1.15
-	case cognition.EffortHigh:
-		multiplier = 1.5
-	case cognition.EffortMax:
-		multiplier = 2
-	}
-	return int(math.Ceil(float64(base) * multiplier))
 }

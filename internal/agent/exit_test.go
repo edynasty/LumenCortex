@@ -133,7 +133,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 				store := newState("c1")
 				ctx, cancel := context.WithCancel(context.Background())
 				cancel()
-				r, err := (&Loop{Provider: cancelProvider{}, Store: store, Tools: fakeTools{}}).Run(ctx, "c1", Options{MaxSteps: 2})
+				r, err := (&Loop{Models: testModels(cancelProvider{}), Store: store, Tools: fakeTools{}}).Run(ctx, "c1", Options{Session: testRef, MaxSteps: 2})
 				return store, r, err
 			},
 		},
@@ -148,7 +148,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 					<-ctx.Done()
 					return protocol.ProviderResponse{}, ctx.Err()
 				}}
-				r, err := (&Loop{Provider: provider, Store: store, Tools: fakeTools{}}).Run(ctx, "c2", Options{MaxSteps: 2})
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(ctx, "c2", Options{Session: testRef, MaxSteps: 2})
 				return store, r, err
 			},
 		},
@@ -167,7 +167,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 					return shellCall("t1"), nil
 				}}
-				r, err := (&Loop{Provider: provider, Store: store, Tools: tools}).Run(ctx, "c3", Options{MaxSteps: 3})
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: tools}).Run(ctx, "c3", Options{Session: testRef, MaxSteps: 3})
 				for _, m := range store.messages {
 					if m.Role == "tool" {
 						t.Errorf("the output of a tool stopped by cancellation must not be saved as a result: %+v", m)
@@ -190,7 +190,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 					return shellCall("t1"), nil
 				}}
-				r, err := (&Loop{Provider: provider, Store: store, Tools: tools}).Run(ctx, "c4", Options{MaxSteps: 3})
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: tools}).Run(ctx, "c4", Options{Session: testRef, MaxSteps: 3})
 				return store, r, err
 			},
 		},
@@ -205,7 +205,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 					cancel() // the run is cancelled after the answer arrived; saving it fails with the context error
 					return shellCall("t1"), nil
 				}}
-				r, err := (&Loop{Provider: provider, Store: fs, Tools: fakeTools{}}).Run(ctx, "c5", Options{MaxSteps: 3})
+				r, err := (&Loop{Models: testModels(provider), Store: fs, Tools: fakeTools{}}).Run(ctx, "c5", Options{Session: testRef, MaxSteps: 3})
 				return store, r, err
 			},
 		},
@@ -217,7 +217,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 					return shellCall("t"), nil
 				}}
-				r, err := (&Loop{Provider: provider, Store: store, Tools: fakeTools{}}).Run(context.Background(), "m1", Options{MaxSteps: 1})
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "m1", Options{Session: testRef, MaxSteps: 1})
 				return store, r, err
 			},
 		},
@@ -229,7 +229,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 					return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant"}}, nil
 				}}
-				r, err := (&Loop{Provider: provider, Store: store, Tools: fakeTools{}}).Run(context.Background(), "e1", Options{MaxSteps: 2})
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "e1", Options{Session: testRef, MaxSteps: 2})
 				return store, r, err
 			},
 		},
@@ -241,7 +241,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 					return protocol.ProviderResponse{}, errors.New("upstream down")
 				}}
-				r, err := (&Loop{Provider: provider, Store: store, Tools: fakeTools{}}).Run(context.Background(), "p1", Options{MaxSteps: 2})
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "p1", Options{Session: testRef, MaxSteps: 2})
 				return store, r, err
 			},
 		},
@@ -259,7 +259,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 					return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}}, nil
 				}}
-				r, err := (&Loop{Provider: provider, Store: fs, Tools: fakeTools{}}).Run(context.Background(), "s1", Options{MaxSteps: 2})
+				r, err := (&Loop{Models: testModels(provider), Store: fs, Tools: fakeTools{}}).Run(context.Background(), "s1", Options{Session: testRef, MaxSteps: 2})
 				return store, r, err
 			},
 		},
@@ -277,7 +277,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 					return shellCall("t1"), nil
 				}}
-				r, err := (&Loop{Provider: provider, Store: fs, Tools: fakeTools{}}).Run(context.Background(), "s2", Options{MaxSteps: 2})
+				r, err := (&Loop{Models: testModels(provider), Store: fs, Tools: fakeTools{}}).Run(context.Background(), "s2", Options{Session: testRef, MaxSteps: 2})
 				return store, r, err
 			},
 		},
@@ -292,7 +292,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 					return shellCall("t1"), nil
 				}}
-				r, err := (&Loop{Provider: provider, Store: store, Tools: tools}).Run(context.Background(), "k1", Options{MaxSteps: 2})
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: tools}).Run(context.Background(), "k1", Options{Session: testRef, MaxSteps: 2})
 				return store, r, err
 			},
 		},
@@ -306,7 +306,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 					cancel()
 					panic("provider exploded")
 				}}
-				r, err := (&Loop{Provider: provider, Store: store, Tools: fakeTools{}}).Run(ctx, "k2", Options{MaxSteps: 2})
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(ctx, "k2", Options{Session: testRef, MaxSteps: 2})
 				return store, r, err
 			},
 		},
@@ -318,7 +318,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 					return protocol.ProviderResponse{Message: protocol.Message{Content: "all done"}}, nil
 				}}
-				r, err := (&Loop{Provider: provider, Store: store, Tools: fakeTools{}}).Run(context.Background(), "d1", Options{MaxSteps: 2})
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "d1", Options{Session: testRef, MaxSteps: 2})
 				if store.state.Final != "all done" {
 					t.Errorf("final = %q", store.state.Final)
 				}
@@ -335,7 +335,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 					t.Error("the provider must not be called while a human gate is pending")
 					return protocol.ProviderResponse{}, errors.New("unexpected call")
 				}}
-				r, err := (&Loop{Provider: provider, Store: store, Tools: fakeTools{}}).Run(context.Background(), "g1", Options{MaxSteps: 2, WorkflowJSON: workflow})
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "g1", Options{Session: testRef, MaxSteps: 2, WorkflowJSON: workflow})
 				if !r.WaitingGate {
 					t.Errorf("result.WaitingGate = false")
 				}
@@ -356,7 +356,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 					return shellCall("t1"), nil
 				}}
-				r, err := (&Loop{Provider: provider, Store: store, Tools: fakeTools{}}).Run(context.Background(), "w1", Options{MaxSteps: 2, WorkflowJSON: workflow})
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "w1", Options{Session: testRef, MaxSteps: 2, WorkflowJSON: workflow})
 				return store, r, err
 			},
 		},
@@ -381,7 +381,7 @@ func TestFinishIgnoresRunCancellationAndHasItsOwnDeadline(t *testing.T) {
 		<-ctx.Done()
 		return protocol.ProviderResponse{}, ctx.Err()
 	}}
-	if _, err := (&Loop{Provider: provider, Store: fs, Tools: fakeTools{}}).Run(ctx, "f1", Options{MaxSteps: 2}); !errors.Is(err, context.Canceled) {
+	if _, err := (&Loop{Models: testModels(provider), Store: fs, Tools: fakeTools{}}).Run(ctx, "f1", Options{Session: testRef, MaxSteps: 2}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
 	if len(fs.terminalCtxs) != 1 {
@@ -422,7 +422,7 @@ func TestFinishFailureLeavesRunningRowAndNextRunRecovers(t *testing.T) {
 		<-ctx.Done()
 		return protocol.ProviderResponse{}, ctx.Err()
 	}}
-	result, err := (&Loop{Provider: blocking, Store: fs, Tools: fakeTools{}, Emit: emit}).Run(ctx, "ff1", Options{MaxSteps: 2})
+	result, err := (&Loop{Models: testModels(blocking), Store: fs, Tools: fakeTools{}, Emit: emit}).Run(ctx, "ff1", Options{Session: testRef, MaxSteps: 2})
 	if !errors.Is(err, context.Canceled) || !errors.Is(err, diskFull) {
 		t.Fatalf("the error must carry the exit cause and the failed write, got %v", err)
 	}
@@ -439,7 +439,7 @@ func TestFinishFailureLeavesRunningRowAndNextRunRecovers(t *testing.T) {
 	completing := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 		return protocol.ProviderResponse{Message: protocol.Message{Content: "recovered"}}, nil
 	}}
-	result, err = (&Loop{Provider: completing, Store: fs, Tools: fakeTools{}, Emit: emit}).Run(context.Background(), "ff1", Options{MaxSteps: 2})
+	result, err = (&Loop{Models: testModels(completing), Store: fs, Tools: fakeTools{}, Emit: emit}).Run(context.Background(), "ff1", Options{Session: testRef, MaxSteps: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,7 +473,7 @@ func TestPanicTerminalEventFollowsFinish(t *testing.T) {
 
 	store := newState("pe1")
 	var events []published
-	if _, err := (&Loop{Provider: exploding, Store: store, Tools: fakeTools{}, Emit: record(store, &events)}).Run(context.Background(), "pe1", Options{MaxSteps: 2}); err == nil || !strings.Contains(err.Error(), "provider exploded") {
+	if _, err := (&Loop{Models: testModels(exploding), Store: store, Tools: fakeTools{}, Emit: record(store, &events)}).Run(context.Background(), "pe1", Options{Session: testRef, MaxSteps: 2}); err == nil || !strings.Contains(err.Error(), "provider exploded") {
 		t.Fatalf("err = %v", err)
 	}
 	if len(events) != 1 || events[0].event.Type != "session.failed" || events[0].status != StatusFailed {
@@ -492,7 +492,7 @@ func TestPanicTerminalEventFollowsFinish(t *testing.T) {
 		return nil
 	}}
 	events = nil
-	result, err := (&Loop{Provider: exploding, Store: fs, Tools: fakeTools{}, Emit: record(store, &events)}).Run(context.Background(), "pe2", Options{MaxSteps: 2})
+	result, err := (&Loop{Models: testModels(exploding), Store: fs, Tools: fakeTools{}, Emit: record(store, &events)}).Run(context.Background(), "pe2", Options{Session: testRef, MaxSteps: 2})
 	if err == nil || !strings.Contains(err.Error(), "provider exploded") || !errors.Is(err, diskFull) {
 		t.Fatalf("the error must carry the panic and the failed write, got %v", err)
 	}
@@ -549,7 +549,7 @@ func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.
 				}
 				return protocol.ProviderResponse{Message: protocol.Message{Content: "fixed it"}}, nil
 			}}
-			result, err := (&Loop{Provider: provider, Store: store, Tools: tools}).Run(context.Background(), "a1", Options{MaxSteps: 3})
+			result, err := (&Loop{Models: testModels(provider), Store: store, Tools: tools}).Run(context.Background(), "a1", Options{Session: testRef, MaxSteps: 3})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -587,7 +587,7 @@ func TestRunRefusesASessionThatStartDidNotSetRunning(t *testing.T) {
 		t.Fatal("the provider was called")
 		return protocol.ProviderResponse{}, nil
 	}}
-	if _, err := (&Loop{Provider: provider, Store: store, Tools: fakeTools{}}).Run(context.Background(), "n1", Options{MaxSteps: 2}); err == nil {
+	if _, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "n1", Options{Session: testRef, MaxSteps: 2}); err == nil {
 		t.Fatal("Run accepted a session that is not running")
 	}
 	if store.state.Status != "completed" || store.state.Final != "kept" || len(store.messages) != 0 {

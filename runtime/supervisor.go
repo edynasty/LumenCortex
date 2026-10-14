@@ -8,12 +8,11 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/resource"
-	"github.com/edynasty/LumenCortex/protocol"
 )
 
 var (
-	ErrRunSupervisorClosed  = errors.New("run supervisor is closed")
-	ErrAgentLimitExceeded   = resource.ErrAgentLimitExceeded
+	ErrRunSupervisorClosed = errors.New("run supervisor is closed")
+	ErrAgentLimitExceeded  = resource.ErrAgentLimitExceeded
 )
 
 type ActiveRun struct {
@@ -62,12 +61,8 @@ func NewRunSupervisor(engine *Engine) (*RunSupervisor, error) {
 func (s *RunSupervisor) Start(
 	ctx context.Context,
 	sessionID string,
-	provider protocol.Provider,
 	opts AgentOptions,
 ) (info SessionInfo, err error) {
-	if provider == nil {
-		return SessionInfo{}, errors.New("provider is required")
-	}
 
 	s.mu.Lock()
 	if s.closed {
@@ -124,11 +119,10 @@ func (s *RunSupervisor) Start(
 		opts.subagents = &subagentController{
 			supervisor: s,
 			parentID:   sessionID,
-			provider:   provider,
 			parentOpts: opts,
 		}
 	}
-	prepared, err := s.engine.prepareRun(ctx, sessionID, provider, opts)
+	prepared, err := s.engine.prepareRun(ctx, sessionID, opts)
 	if err != nil {
 		return SessionInfo{}, err
 	}

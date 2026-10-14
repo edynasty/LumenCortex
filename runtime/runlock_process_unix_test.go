@@ -44,7 +44,7 @@ func TestHelperHoldRun(t *testing.T) {
 			{ID: "kill-1", Name: "shell", Arguments: json.RawMessage(`{"command":"echo ready && exec sleep 20"}`)},
 		}}, FinishReason: "tool_calls"}, nil
 	}}
-	if _, err := supervisor.Start(context.Background(), os.Getenv(holderSessionEnv), provider, AgentOptions{Policy: "full", MaxSteps: 3}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), os.Getenv(holderSessionEnv), provider, AgentOptions{Policy: "full", MaxSteps: 3}); err != nil {
 		os.Stdout.WriteString("error " + err.Error() + "\n")
 		os.Exit(3)
 	}
@@ -100,7 +100,7 @@ func TestKillHolderMidToolThenResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer supervisor.Close()
-	if _, err := supervisor.Start(context.Background(), handle.ID, completingProvider("x"), AgentOptions{Input: "must not land"}); !errors.Is(err, ErrRunHeld) {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, completingProvider("x"), AgentOptions{Input: "must not land"}); !errors.Is(err, ErrRunHeld) {
 		t.Fatalf("Start against a run held by another process: err=%v, want ErrRunHeld", err)
 	}
 	if _, err := engine.ApproveWorkflowGate(context.Background(), handle.ID, "ship", "alice"); !errors.Is(err, ErrRunHeld) {
@@ -155,7 +155,7 @@ func TestKillHolderMidToolThenResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resumeSupervisor.Close()
-	if _, err := resumeSupervisor.Start(context.Background(), handle.ID, resumed, AgentOptions{Input: "carry on", MaxSteps: 3}); err != nil {
+	if _, err := resumeSupervisor.startWith(context.Background(), handle.ID, resumed, AgentOptions{Input: "carry on", MaxSteps: 3}); err != nil {
 		t.Fatal(err)
 	}
 	waitUntilIdle(t, resumeSupervisor, handle.ID, 5*time.Second)

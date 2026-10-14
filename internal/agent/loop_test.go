@@ -1,16 +1,14 @@
 package agent
 
 import (
-	"strings"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
-	"time"
 
-	"github.com/edynasty/LumenCortex/internal/cognition"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -161,8 +159,8 @@ func TestLoopWorkflowAndBoundedRecentMessages(t *testing.T) {
 		{Message: protocol.Message{Content: "done"}},
 	}}
 	workflow := []byte(`{"id":"wf","entry":"diagnose","facts":{"failed":false,"changed":false,"passed":false},"actions":{"diagnose":{"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","notEquals":0},"set":{"failed":true}}],"routes":[{"to":"repair","when":{"fact":"failed","equals":true}}]},"repair":{"allowedTools":["apply_patch"],"outcomes":[{"when":{"tool":"apply_patch","ok":true},"set":{"changed":true}}],"completeWhen":{"fact":"changed","equals":true},"routes":[{"to":"verify"}]},"verify":{"terminal":true,"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","equals":0},"set":{"passed":true}}],"completeWhen":{"fact":"passed","equals":true}}}}`)
-	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
-	result, err := loop.Run(context.Background(), "s1", Options{RecentMessages: 6, MaxSteps: 8, WorkflowJSON: workflow})
+	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
+	result, err := loop.Run(context.Background(), "s1", Options{Session: testRef, RecentMessages: 6, MaxSteps: 8, WorkflowJSON: workflow})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,8 +181,8 @@ func TestLoopRejectsPrematureFinal(t *testing.T) {
 	store := &memoryStore{state: SessionState{ID: "s2", Goal: "verify", Status: "running", Metadata: map[string]any{}}, steps: map[int64]any{}}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done too early"}}, {Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "shell", `{"command":"test-pass"}`)}}}, {Message: protocol.Message{Content: "done"}}}}
 	workflow := []byte(`{"id":"wf","facts":{"passed":false},"actions":{"verify":{"terminal":true,"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","equals":0},"set":{"passed":true}}],"completeWhen":{"fact":"passed","equals":true}}}}`)
-	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
-	result, err := loop.Run(context.Background(), "s2", Options{RecentMessages: 6, MaxSteps: 5, WorkflowJSON: workflow})
+	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
+	result, err := loop.Run(context.Background(), "s2", Options{Session: testRef, RecentMessages: 6, MaxSteps: 5, WorkflowJSON: workflow})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,8 +222,8 @@ func TestLoopPersistsInterruptionOnCancellation(t *testing.T) {
 	store := &memoryStore{state: SessionState{ID: "cancel", Goal: "wait", Status: "running", Metadata: map[string]any{}}, steps: map[int64]any{}}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	loop := Loop{Provider: cancelProvider{}, Store: store, Tools: fakeTools{}}
-	_, err := loop.Run(ctx, "cancel", Options{MaxSteps: 2})
+	loop := Loop{Models: testModels(cancelProvider{}), Store: store, Tools: fakeTools{}}
+	_, err := loop.Run(ctx, "cancel", Options{Session: testRef, MaxSteps: 2})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err=%v", err)
 	}
@@ -234,16 +232,16 @@ func TestLoopPersistsInterruptionOnCancellation(t *testing.T) {
 	}
 }
 
-
 func TestLoopAddsAdditionalSystemPrompt(t *testing.T) {
 	store := &memoryStore{
 		state: SessionState{ID: "skills", Goal: "build", Status: "running", Metadata: map[string]any{}},
 		steps: map[int64]any{},
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done"}}}}
-	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
+	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
 	_, err := loop.Run(context.Background(), "skills", Options{
-		MaxSteps: 2,
+		Session:                testRef,
+		MaxSteps:               2,
 		AdditionalSystemPrompt: "Skill instruction: use repository conventions.",
 	})
 	if err != nil {
@@ -264,7 +262,6 @@ func TestLoopAddsAdditionalSystemPrompt(t *testing.T) {
 	}
 }
 
-
 func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
 	store := &memoryStore{
 		state: SessionState{ID: "deny", Goal: "test deny", Status: "running", Metadata: map[string]any{}},
@@ -281,12 +278,13 @@ func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
 			FinishReason: "tool_calls",
 		},
 		{
-			Message: protocol.Message{Role: "assistant", Content: "done"},
+			Message:      protocol.Message{Role: "assistant", Content: "done"},
 			FinishReason: "stop",
 		},
 	}}
-	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
+	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
 	result, err := loop.Run(context.Background(), "deny", Options{
+		Session:      testRef,
 		MaxSteps:     2,
 		ToolDenylist: []string{"shell"},
 	})
@@ -315,7 +313,6 @@ func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
 	}
 }
 
-
 func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 	store := &memoryStore{
 		state: SessionState{ID: "deny", Goal: "do not shell", Status: "running", Metadata: map[string]any{}},
@@ -329,12 +326,13 @@ func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 			FinishReason: "tool_calls",
 		},
 		{
-			Message: protocol.Message{Content: "done"},
+			Message:      protocol.Message{Content: "done"},
 			FinishReason: "stop",
 		},
 	}}
-	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
+	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
 	result, err := loop.Run(context.Background(), "deny", Options{
+		Session:      testRef,
 		MaxSteps:     3,
 		ToolDenylist: []string{"shell"},
 	})
@@ -363,64 +361,12 @@ func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 	}
 }
 
-
-func TestLoopCognitiveRoutingPersistsPlanAndPassesReasoningEffort(t *testing.T) {
-	store := &memoryStore{
-		state: SessionState{
-			ID: "cognition",
-			Goal: "Debug a production database migration deadlock and verify the root cause",
-			Status: "running",
-			Metadata: map[string]any{},
-		},
-		steps: map[int64]any{},
-	}
-	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
-		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
-	}}
-	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
-	result, err := loop.Run(context.Background(), "cognition", Options{
-		MaxSteps: 2,
-		CognitionEnabled: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Status != "completed" {
-		t.Fatalf("result=%#v", result)
-	}
-	if len(provider.seen) != 1 {
-		t.Fatalf("requests=%d", len(provider.seen))
-	}
-	req := provider.seen[0]
-	if req.ReasoningEffort == "" || req.ReasoningEffort == "none" {
-		t.Fatalf("expected active reasoning effort, got %q", req.ReasoningEffort)
-	}
-	foundPolicy := false
-	for _, message := range req.Messages {
-		if message.Role == "system" && strings.Contains(message.Content, "Cognitive policy:") {
-			foundPolicy = true
-		}
-	}
-	if !foundPolicy {
-		t.Fatalf("missing cognitive policy prompt: %#v", req.Messages)
-	}
-	cognitive, ok := store.state.Metadata["cognition"].(map[string]any)
-	if !ok {
-		t.Fatalf("missing persisted cognition metadata: %#v", store.state.Metadata)
-	}
-	history, ok := cognitive["history"].([]any)
-	if !ok || len(history) != 1 {
-		t.Fatalf("cognition history=%#v", cognitive["history"])
-	}
-}
-
-
 func TestLoopWorkUnitBlocksPrematureFinalUntilEvidenceAndVerificationPass(t *testing.T) {
 	store := &memoryStore{
 		state: SessionState{
-			ID: "work-units",
-			Goal: "repair the transaction bug",
-			Status: "running",
+			ID:       "work-units",
+			Goal:     "repair the transaction bug",
+			Status:   "running",
 			Metadata: map[string]any{},
 		},
 		steps: map[int64]any{},
@@ -441,7 +387,7 @@ func TestLoopWorkUnitBlocksPrematureFinalUntilEvidenceAndVerificationPass(t *tes
 		},
 		{Message: protocol.Message{Content: "all work units complete"}, FinishReason: "stop"},
 	}}
-	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
+	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
 	workUnits := []byte(`{"workUnits":[{
 		"id":"repair",
 		"goal":"repair the transaction bug",
@@ -449,7 +395,8 @@ func TestLoopWorkUnitBlocksPrematureFinalUntilEvidenceAndVerificationPass(t *tes
 		"verification":["focused test"]
 	}]}`)
 	result, err := loop.Run(context.Background(), "work-units", Options{
-		MaxSteps: 5,
+		Session:       testRef,
+		MaxSteps:      5,
 		WorkUnitsJSON: workUnits,
 	})
 	if err != nil {
@@ -495,9 +442,9 @@ func TestLoopWorkUnitBlocksPrematureFinalUntilEvidenceAndVerificationPass(t *tes
 func TestLoopCognitiveSessionCanCreateWorkUnitsDynamically(t *testing.T) {
 	store := &memoryStore{
 		state: SessionState{
-			ID: "dynamic-work-unit",
-			Goal: "implement a bounded change",
-			Status: "running",
+			ID:       "dynamic-work-unit",
+			Goal:     "implement a bounded change",
+			Status:   "running",
 			Metadata: map[string]any{},
 		},
 		steps: map[int64]any{},
@@ -517,9 +464,10 @@ func TestLoopCognitiveSessionCanCreateWorkUnitsDynamically(t *testing.T) {
 		},
 		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
 	}}
-	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
+	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
 	result, err := loop.Run(context.Background(), "dynamic-work-unit", Options{
-		MaxSteps: 5,
+		Session:          testRef,
+		MaxSteps:         5,
 		CognitionEnabled: true,
 	})
 	if err != nil {
@@ -544,223 +492,4 @@ func containsString(values []string, target string) bool {
 		}
 	}
 	return false
-}
-
-
-type chainProvider struct {
-	model       string
-	fail        bool
-	calls       int
-	lastRequest protocol.ProviderRequest
-}
-
-func (p *chainProvider) Model() string { return p.model }
-
-func (p *chainProvider) Complete(_ context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
-	p.calls++
-	p.lastRequest = req
-	if p.fail {
-		return protocol.ProviderResponse{}, errors.New("provider unavailable")
-	}
-	return protocol.ProviderResponse{
-		Message: protocol.Message{Content: "done via " + p.model},
-		FinishReason: "stop",
-	}, nil
-}
-
-func TestLoopCategoryProviderChainFailoverAndCircuitSkip(t *testing.T) {
-	health := cognition.NewHealthRegistry(cognition.HealthConfig{
-		FailureThreshold: 1,
-		Cooldown: time.Hour,
-	})
-	bad := &chainProvider{model: "bad-model", fail: true}
-	good := &chainProvider{model: "good-model"}
-	fallback := &chainProvider{model: "fallback-model"}
-
-	events := []Event{}
-	store := &memoryStore{
-		state: SessionState{
-			ID: "chain-1",
-			Goal: "Debug a production database migration deadlock",
-			Status: "running",
-			Metadata: map[string]any{},
-		},
-		steps: map[int64]any{},
-	}
-	loop := Loop{
-		Provider: fallback,
-		ProviderName: "fallback",
-		ProviderChains: map[string][]ProviderBinding{
-			"deep": {
-				{Name: "primary", Provider: bad},
-				{Name: "secondary", Provider: good},
-			},
-		},
-		ProviderHealth: health,
-		Store: store,
-		Tools: fakeTools{},
-		Emit: func(event Event) { events = append(events, event) },
-	}
-
-	result, err := loop.Run(context.Background(), "chain-1", Options{
-		MaxSteps: 2,
-		CognitionEnabled: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Final != "done via good-model" {
-		t.Fatalf("result=%#v", result)
-	}
-	if bad.calls != 1 || good.calls != 1 || fallback.calls != 0 {
-		t.Fatalf("calls bad=%d good=%d fallback=%d", bad.calls, good.calls, fallback.calls)
-	}
-	if health.Available("model:primary:bad-model") {
-		t.Fatal("expected failed primary provider circuit to be open")
-	}
-	failovers := 0
-	for _, event := range events {
-		if event.Type == "provider.failover" {
-			failovers++
-		}
-	}
-	if failovers != 1 {
-		t.Fatalf("provider failovers=%d events=%#v", failovers, events)
-	}
-	step, ok := store.steps[1].(stepRecord)
-	if !ok {
-		t.Fatalf("step=%#v", store.steps[1])
-	}
-	if step.Provider != "secondary" || step.Model != "good-model" {
-		t.Fatalf("provider trace=%#v", step)
-	}
-
-	store2 := &memoryStore{
-		state: SessionState{
-			ID: "chain-2",
-			Goal: "Debug a production database migration deadlock",
-			Status: "running",
-			Metadata: map[string]any{},
-		},
-		steps: map[int64]any{},
-	}
-	loop.Store = store2
-	result, err = loop.Run(context.Background(), "chain-2", Options{
-		MaxSteps: 2,
-		CognitionEnabled: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Final != "done via good-model" {
-		t.Fatalf("result2=%#v", result)
-	}
-	if bad.calls != 1 {
-		t.Fatalf("circuit-open primary should have been skipped, calls=%d", bad.calls)
-	}
-	if good.calls != 2 {
-		t.Fatalf("secondary calls=%d", good.calls)
-	}
-}
-
-
-type agentDecisionStub struct{}
-
-func (agentDecisionStub) Name() string  { return "decision-stub" }
-func (agentDecisionStub) Model() string { return "system-one-test" }
-
-func (agentDecisionStub) Decide(context.Context, cognition.DecisionRequest) (cognition.DecisionResult, error) {
-	return cognition.DecisionResult{
-		Source: "decision-stub",
-		Model: "system-one-test",
-		Signals: cognition.Signals{
-			Category: "writing",
-			CategoryConfidence: 0.95,
-			NeedThink: 0.9,
-			HasNeedThink: true,
-			Retrieval: "historical",
-		},
-	}, nil
-}
-
-func TestLoopDecisionLayerControlsCategoryChainAndThinkEffort(t *testing.T) {
-	health := cognition.NewHealthRegistry(cognition.HealthConfig{
-		FailureThreshold: 2,
-		Cooldown: time.Minute,
-	})
-	writer := &chainProvider{model: "writer-model"}
-	fallback := &chainProvider{model: "fallback-model"}
-	store := &memoryStore{
-		state: SessionState{
-			ID: "decision-route",
-			Goal: "update the release notes",
-			Status: "running",
-			Metadata: map[string]any{},
-		},
-		steps: map[int64]any{},
-	}
-	loop := Loop{
-		Provider: fallback,
-		ProviderName: "fallback",
-		ProviderChains: map[string][]ProviderBinding{
-			"writing": {
-				{Name: "writer", Provider: writer},
-			},
-		},
-		ProviderHealth: health,
-		DecisionLayer: &cognition.DecisionLayer{
-			Providers: []cognition.DecisionProvider{agentDecisionStub{}},
-			Health: health,
-		},
-		Store: store,
-		Tools: fakeTools{},
-	}
-	result, err := loop.Run(context.Background(), "decision-route", Options{
-		MaxSteps: 2,
-		CognitionEnabled: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Final != "done via writer-model" {
-		t.Fatalf("result=%#v", result)
-	}
-	if writer.calls != 1 || fallback.calls != 0 {
-		t.Fatalf("calls writer=%d fallback=%d", writer.calls, fallback.calls)
-	}
-	if writer.lastRequest.ReasoningEffort == "" || writer.lastRequest.ReasoningEffort == "none" {
-		t.Fatalf("reasoning effort=%q", writer.lastRequest.ReasoningEffort)
-	}
-	step, ok := store.steps[1].(stepRecord)
-	if !ok || step.Provider != "writer" || step.Model != "writer-model" {
-		t.Fatalf("step=%#v", store.steps[1])
-	}
-	cognitionMeta, ok := store.state.Metadata["cognition"].(map[string]any)
-	if !ok {
-		t.Fatalf("metadata=%#v", store.state.Metadata)
-	}
-	if _, ok := cognitionMeta["lastDecision"]; !ok {
-		t.Fatalf("lastDecision missing: %#v", cognitionMeta)
-	}
-}
-
-
-func TestAdjustedMaxTokensMatchesNodeThinkEffortPolicy(t *testing.T) {
-	cases := []struct {
-		effort cognition.Effort
-		want   int
-	}{
-		{cognition.EffortLow, 1000},
-		{cognition.EffortMedium, 1150},
-		{cognition.EffortHigh, 1500},
-		{cognition.EffortMax, 2000},
-	}
-	for _, tc := range cases {
-		if got := adjustedMaxTokens(1000, tc.effort); got != tc.want {
-			t.Fatalf("effort=%s got=%d want=%d", tc.effort, got, tc.want)
-		}
-	}
-	if got := adjustedMaxTokens(0, cognition.EffortMax); got != 0 {
-		t.Fatalf("unbounded max tokens changed: %d", got)
-	}
 }

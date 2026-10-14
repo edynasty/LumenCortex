@@ -554,3 +554,13 @@ func governorTrim(value string, max int) string {
 	if len(value) <= max { return value }
 	return value[:max]
 }
+
+func clamp01(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
+}

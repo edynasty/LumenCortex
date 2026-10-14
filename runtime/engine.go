@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
-	"github.com/edynasty/LumenCortex/internal/cognition"
+	"github.com/edynasty/LumenCortex/internal/agent"
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/mcp"
 	"github.com/edynasty/LumenCortex/internal/migrate"
@@ -22,8 +22,8 @@ import (
 	"github.com/edynasty/LumenCortex/internal/resource"
 	"github.com/edynasty/LumenCortex/internal/runlock"
 	"github.com/edynasty/LumenCortex/internal/session"
-	"github.com/edynasty/LumenCortex/internal/skills"
 	"github.com/edynasty/LumenCortex/internal/shell"
+	"github.com/edynasty/LumenCortex/internal/skills"
 	"github.com/edynasty/LumenCortex/internal/streambuf"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -73,51 +73,55 @@ type Options struct {
 	Workspace string
 	RepoDir   string
 	Budget    Budget
+	// ProviderFactory builds the client of a catalog model before a run starts. nil uses the
+	// OpenAI-compatible adapter (openai.FromModel).
+	ProviderFactory ProviderFactory
 }
 
 type Engine struct {
-	workspace string
-	repoDir      string
-	worktreeRoot string
-	store        *session.Store
-	resources *resource.Manager
-	repo      *repository.Service
-	events    *eventBus
-	shell       *shell.Runner
-	lspMu       sync.Mutex
-	lspManagers map[string]*lsp.Manager
-	mcpRegistry  *mcp.Registry
+	workspace     string
+	repoDir       string
+	worktreeRoot  string
+	store         *session.Store
+	resources     *resource.Manager
+	repo          *repository.Service
+	events        *eventBus
+	shell         *shell.Runner
+	lspMu         sync.Mutex
+	lspManagers   map[string]*lsp.Manager
+	mcpRegistry   *mcp.Registry
 	skillRegistry *skills.Registry
-	cognitionHealth *cognition.HealthRegistry
-}
-
-type CognitionHealthOptions struct {
-	FailureThreshold int   `json:"failureThreshold,omitempty"`
-	CooldownMS       int64 `json:"cooldownMs,omitempty"`
+	// health is the model health registry: one per Engine, advisory, never persisted.
+	health          *agent.Health
+	providerFactory ProviderFactory
 }
 
 type Health struct {
-	Version   string `json:"version"`
-	Workspace string `json:"workspace"`
-	Database  string `json:"database"`
-	Budget    Budget `json:"budget"`
-	UsedBytes    int64 `json:"usedBytes"`
-	ActiveAgents int   `json:"activeAgents"`
-	Pressure     bool  `json:"pressure"`
+	Version      string `json:"version"`
+	Workspace    string `json:"workspace"`
+	Database     string `json:"database"`
+	Budget       Budget `json:"budget"`
+	UsedBytes    int64  `json:"usedBytes"`
+	ActiveAgents int    `json:"activeAgents"`
+	Pressure     bool   `json:"pressure"`
 }
 
 type SessionInfo struct {
-	ID        string          `json:"id"`
-	CreatedAt time.Time       `json:"createdAt"`
-	UpdatedAt time.Time       `json:"updatedAt"`
-	Status    string          `json:"status"`
-	Provider  string          `json:"provider,omitempty"`
-	Model     string          `json:"model,omitempty"`
-	Goal      string          `json:"goal"`
-	Metadata  json.RawMessage `json:"metadata,omitempty"`
-	Final     *string         `json:"final,omitempty"`
-	Usage     json.RawMessage `json:"usage,omitempty"`
-	Error     json.RawMessage `json:"error,omitempty"`
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	Status    string    `json:"status"`
+	Provider  string    `json:"provider,omitempty"`
+	Model     string    `json:"model,omitempty"`
+	// ModelRef is the catalog reference ("<provider>/<model>") the session is pinned to, empty
+	// before the first Start of a session created by an older build. Provider and Model are
+	// the provider id and upstream model id of the last Start, for display.
+	ModelRef string          `json:"modelRef,omitempty"`
+	Goal     string          `json:"goal"`
+	Metadata json.RawMessage `json:"metadata,omitempty"`
+	Final    *string         `json:"final,omitempty"`
+	Usage    json.RawMessage `json:"usage,omitempty"`
+	Error    json.RawMessage `json:"error,omitempty"`
 }
 
 type Message struct {
@@ -149,8 +153,6 @@ type SessionOptions struct {
 	// Input is the session's first transcript row, written in the transaction that
 	// creates the session. When empty the goal is the first row.
 	Input    string         `json:"input,omitempty"`
-	Provider string         `json:"provider,omitempty"`
-	Model    string         `json:"model,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
@@ -235,26 +237,28 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		worktreeRoot = filepath.Join(filepath.Dir(gitRoot), "."+filepath.Base(gitRoot)+".lumencortex-worktrees")
 		_ = repoService.EnsureLocalExclude(context.Background(), repoDir)
 	}
+	factory := opts.ProviderFactory
+	if factory == nil {
+		factory = defaultProviderFactory
+	}
 	engine := &Engine{
 		workspace:    workspace,
 		repoDir:      repoDir,
 		worktreeRoot: worktreeRoot,
-		store:     store,
+		store:        store,
 		resources: resource.New(resource.Budget{
 			SoftBytes: opts.Budget.SoftBytes,
 			HardBytes: opts.Budget.HardBytes,
 			MaxAgents: opts.Budget.MaxAgents,
 		}),
-		repo:      repoService,
-		events:    newEventBus(),
-		shell:       shell.New(workspace),
-		lspManagers: make(map[string]*lsp.Manager),
-		mcpRegistry:   mcpRegistry,
-		skillRegistry: skillRegistry,
-		cognitionHealth: cognition.NewHealthRegistry(cognition.HealthConfig{
-			FailureThreshold: 3,
-			Cooldown: 30 * time.Second,
-		}),
+		repo:            repoService,
+		events:          newEventBus(),
+		shell:           shell.New(workspace),
+		lspManagers:     make(map[string]*lsp.Manager),
+		mcpRegistry:     mcpRegistry,
+		skillRegistry:   skillRegistry,
+		health:          agent.NewHealth(nil),
+		providerFactory: factory,
 	}
 	if err := engine.reconcileRunning(ctx); err != nil {
 		_ = engine.Close()
@@ -339,15 +343,6 @@ func (e *Engine) Close() error {
 	return e.store.Close()
 }
 
-func (e *Engine) ConfigureCognitionHealth(opts CognitionHealthOptions) {
-	cooldown := time.Duration(opts.CooldownMS) * time.Millisecond
-	e.cognitionHealth = cognition.NewHealthRegistry(cognition.HealthConfig{
-		FailureThreshold: opts.FailureThreshold,
-		Cooldown: cooldown,
-		CooldownMS: opts.CooldownMS,
-	})
-}
-
 func (e *Engine) Health() Health {
 	return Health{
 		Version:   GoRuntimePreviewVersion,
@@ -416,7 +411,7 @@ func (e *Engine) createSession(ctx context.Context, opts SessionOptions) (*Sessi
 	now := time.Now().UTC()
 	v := session.Session{
 		ID: id, CreatedAt: now, UpdatedAt: now, Status: "created",
-		Provider: opts.Provider, Model: opts.Model, Goal: opts.Goal, Metadata: metadata,
+		Goal: opts.Goal, Metadata: metadata,
 	}
 	first := opts.Input
 	if first == "" {
@@ -433,7 +428,7 @@ func (e *Engine) createSession(ctx context.Context, opts SessionOptions) (*Sessi
 func sessionInfo(v session.Session) SessionInfo {
 	return SessionInfo{
 		ID: v.ID, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, Status: v.Status,
-		Provider: v.Provider, Model: v.Model, Goal: v.Goal, Metadata: v.Metadata,
+		Provider: v.Provider, Model: v.Model, ModelRef: v.ModelRef, Goal: v.Goal, Metadata: v.Metadata,
 		Final: v.Final, Usage: v.Usage, Error: v.Error,
 	}
 }

@@ -89,7 +89,7 @@ error_json = '{"kind":"cancelled","message":"old","at":"2026-01-01T00:00:00Z"}',
 		}
 	}}, "model-beta"}
 
-	info, err := supervisor.Start(ctx, handle.ID, provider, AgentOptions{Input: "next task", ProviderName: "beta", MaxSteps: 2})
+	info, err := supervisor.startWith(ctx, handle.ID, provider, AgentOptions{Input: "next task", MaxSteps: 2})
 	if err != nil {
 		// The bug's shape: Start failed after the commit. Say which half-state it left.
 		var status string
@@ -103,10 +103,10 @@ error_json = '{"kind":"cancelled","message":"old","at":"2026-01-01T00:00:00Z"}',
 	}
 
 	// The returned info is the committed state.
-	if info.Status != "running" || info.Provider != "beta" || info.Model != "model-beta" || info.Final != nil || len(info.Error) != 0 {
+	if info.Status != "running" || info.Provider != "test" || info.Model != "b0" || info.ModelRef != "test/b0" || info.Final != nil || len(info.Error) != 0 {
 		t.Fatalf("Start returned %+v, want the committed running state with the previous outcome cleared", info)
 	}
-	if stored, _ := sessionState(t, engine, handle.ID); stored.Status != "running" || stored.Provider != "beta" || stored.Model != "model-beta" || stored.Final != nil || len(stored.Error) != 0 {
+	if stored, _ := sessionState(t, engine, handle.ID); stored.Status != "running" || stored.Provider != "test" || stored.Model != "b0" || stored.ModelRef != "test/b0" || stored.Final != nil || len(stored.Error) != 0 {
 		t.Fatalf("stored session %+v", stored)
 	}
 	rows := transcript(t, handle)
@@ -130,7 +130,7 @@ error_json = '{"kind":"cancelled","message":"old","at":"2026-01-01T00:00:00Z"}',
 		t.Fatal(err)
 	}
 	defer otherSupervisor.Close()
-	if _, err := otherSupervisor.Start(context.Background(), handle.ID, completingProvider("x"), AgentOptions{Input: "refused"}); !errors.Is(err, ErrRunHeld) {
+	if _, err := otherSupervisor.startWith(context.Background(), handle.ID, completingProvider("x"), AgentOptions{Input: "refused"}); !errors.Is(err, ErrRunHeld) {
 		t.Fatalf("Start from another Engine during the run: %v, want ErrRunHeld", err)
 	}
 	if got := len(transcript(t, handle)); got != len(rows) {

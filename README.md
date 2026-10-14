@@ -446,9 +446,7 @@ MIT
 
 ### Go cognitive-control preview
 
-The Go runtime can consume the same `.lumencortex/cognition.json` used by the Node reference runtime. When `LCX_COGNITION=true`, `LCX_COGNITION_PROFILE` is set, or a workspace profile exists, it enables the algorithmic Router, optional Jev/Laya-compatible or bounded-generative Decision routes, ordered Category provider chains, provider health circuits, dynamic Think effort, and persistent Work Units.
-
-The provider and model come from `lumencortex.json` ([Go provider configuration](docs/go-provider.md#configuration)); `cognition.json` category chains keep their own provider presets until M2.3.
+The Go runtime no longer reads `.lumencortex/cognition.json` (M2.3): the Decision Layer, Laya/Jev providers, Category provider chains, the Router, provider presets and the circuit-breaker configuration were removed. Models, failover and effort come from `lumencortex.json` ([Go provider configuration](docs/go-provider.md#configuration)). `LCX_COGNITION=true`, `LCX_COGNITION_PROFILE` or a workspace `cognition.json` still turns the cognition switch on (Progress and Work Units) until M3.1; the file's contents are not read. `lcx-go governor plan` is deterministic; `lcx-go governor plan --curator` asks the configured default model for one JSON plan.
 
 ```bash
 LCX_COGNITION=true \

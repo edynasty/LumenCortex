@@ -35,7 +35,7 @@ func startBlockedRun(t *testing.T, engine *Engine, sessionID string) *RunSupervi
 		t.Fatal(err)
 	}
 	t.Cleanup(supervisor.Close)
-	if _, err := supervisor.Start(context.Background(), sessionID, blockedProvider(), AgentOptions{MaxSteps: 2}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), sessionID, blockedProvider(), AgentOptions{MaxSteps: 2}); err != nil {
 		t.Fatal(err)
 	}
 	return supervisor
@@ -117,11 +117,11 @@ func TestEngineCannotRecoverOrClobberARunHeldElsewhere(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer otherSupervisor.Close()
-	_, err = otherSupervisor.Start(context.Background(), handle.ID, completingProvider("x"), AgentOptions{Input: "must not be appended"})
+	_, err = otherSupervisor.startWith(context.Background(), handle.ID, completingProvider("x"), AgentOptions{Input: "must not be appended"})
 	if !errors.Is(err, ErrRunHeld) {
 		t.Fatalf("Start over a held run: err=%v, want ErrRunHeld", err)
 	}
-	if _, err := other.RunAgent(context.Background(), handle.ID, completingProvider("x"), AgentOptions{Input: "nor this"}); !errors.Is(err, ErrRunHeld) {
+	if _, err := other.runAgentWith(context.Background(), handle.ID, completingProvider("x"), AgentOptions{Input: "nor this"}); !errors.Is(err, ErrRunHeld) {
 		t.Fatalf("RunAgent over a held run: err=%v, want ErrRunHeld", err)
 	}
 	if got := rowCount(t, handle); got != before {
@@ -136,7 +136,7 @@ func TestSecondStartOnTheSameSupervisorIsErrRunHeld(t *testing.T) {
 	engine := openTestEngine(t)
 	handle := newTestSession(t, engine, "g")
 	supervisor := startBlockedRun(t, engine, handle.ID)
-	_, err := supervisor.Start(context.Background(), handle.ID, completingProvider("x"), AgentOptions{Input: "second"})
+	_, err := supervisor.startWith(context.Background(), handle.ID, completingProvider("x"), AgentOptions{Input: "second"})
 	if !errors.Is(err, ErrRunHeld) {
 		t.Fatalf("err=%v, want ErrRunHeld", err)
 	}
@@ -169,7 +169,7 @@ func TestDeleteSessionRemovesRowsAndLockFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer supervisor.Close()
-	if _, err := supervisor.Start(context.Background(), handle.ID, completingProvider("done"), AgentOptions{}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, completingProvider("done"), AgentOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitUntilIdle(t, supervisor, handle.ID, 5*time.Second)
@@ -217,7 +217,7 @@ func TestRunLockIsReleasedOnEveryExitPath(t *testing.T) {
 			handle := newTestSession(t, engine, name)
 			events, unsubscribe := engine.Events(256)
 			defer unsubscribe()
-			if _, err := supervisor.Start(context.Background(), handle.ID, tc.provider, AgentOptions{MaxSteps: 2}); err != nil {
+			if _, err := supervisor.startWith(context.Background(), handle.ID, tc.provider, AgentOptions{MaxSteps: 2}); err != nil {
 				t.Fatal(err)
 			}
 			if tc.cancel {
@@ -249,7 +249,7 @@ func TestStartAppendsNothingWhenValidationFails(t *testing.T) {
 		{Input: "follow-up", Workflow: json.RawMessage(`{not json`)},
 	}
 	for _, opts := range bad {
-		if _, err := supervisor.Start(context.Background(), handle.ID, completingProvider("x"), opts); err == nil {
+		if _, err := supervisor.startWith(context.Background(), handle.ID, completingProvider("x"), opts); err == nil {
 			t.Fatalf("Start accepted %+v", opts)
 		}
 	}
@@ -257,7 +257,7 @@ func TestStartAppendsNothingWhenValidationFails(t *testing.T) {
 		t.Fatalf("a rejected Start appended rows: %d", got)
 	}
 	// The failed Starts released the lock.
-	if _, err := supervisor.Start(context.Background(), handle.ID, completingProvider("x"), AgentOptions{Input: "ok"}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, completingProvider("x"), AgentOptions{Input: "ok"}); err != nil {
 		t.Fatalf("Start after rejected Starts: %v", err)
 	}
 	waitUntilIdle(t, supervisor, handle.ID, 5*time.Second)
@@ -307,7 +307,7 @@ func TestNewSessionWritesExactlyTheFirstRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer supervisor.Close()
-	if _, err := supervisor.Start(ctx, byInput.ID, completingProvider("done"), AgentOptions{}); err != nil {
+	if _, err := supervisor.startWith(ctx, byInput.ID, completingProvider("done"), AgentOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitUntilIdle(t, supervisor, byInput.ID, 5*time.Second)
@@ -336,7 +336,7 @@ func TestCancelDuringToolThenStartWithInputLeavesAPairedTranscript(t *testing.T)
 			{ID: "sleep-1", Name: "shell", Arguments: json.RawMessage(`{"command":"echo ready && exec sleep 5"}`)},
 		}}, FinishReason: "tool_calls"}, nil
 	}}
-	if _, err := supervisor.Start(context.Background(), handle.ID, cancelled, AgentOptions{Policy: "full", MaxSteps: 3}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, cancelled, AgentOptions{Policy: "full", MaxSteps: 3}); err != nil {
 		t.Fatal(err)
 	}
 	waitForEventWith(t, events, "tool.output", "ready")
@@ -353,7 +353,7 @@ func TestCancelDuringToolThenStartWithInputLeavesAPairedTranscript(t *testing.T)
 		sent = req.Messages
 		return protocol.ProviderResponse{Message: protocol.Message{Content: "continued"}}, nil
 	}}
-	if _, err := supervisor.Start(context.Background(), handle.ID, followUp, AgentOptions{Input: "now just list the files", MaxSteps: 3}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, followUp, AgentOptions{Input: "now just list the files", MaxSteps: 3}); err != nil {
 		t.Fatal(err)
 	}
 	waitUntilIdle(t, supervisor, handle.ID, 5*time.Second)
@@ -445,7 +445,7 @@ func TestApprovalLeavesStatusAloneAndStartContinues(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer supervisor.Close()
-	if _, err := supervisor.Start(context.Background(), handle.ID, completingProvider("shipped"), AgentOptions{MaxSteps: 2}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, completingProvider("shipped"), AgentOptions{MaxSteps: 2}); err != nil {
 		t.Fatal(err)
 	}
 	waitUntilIdle(t, supervisor, handle.ID, 5*time.Second)

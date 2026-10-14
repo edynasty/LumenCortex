@@ -50,7 +50,7 @@ func TestF1UIMetadataSurvivesRunMetadataWrites(t *testing.T) {
 		return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}, nil
 	}}
 
-	result, err := engine.RunAgent(context.Background(), handle.ID, provider, AgentOptions{MaxSteps: 2, CognitionEnabled: true})
+	result, err := engine.runAgentWith(context.Background(), handle.ID, provider, AgentOptions{MaxSteps: 2, CognitionEnabled: true})
 	if err != nil || result.Status != "completed" {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
@@ -63,9 +63,6 @@ func TestF1UIMetadataSurvivesRunMetadataWrites(t *testing.T) {
 		t.Fatalf("contextPaths=%#v", metadata["contextPaths"])
 	}
 	if _, ok := metadata["workUnits"]; !ok {
-		t.Fatalf("the run's own metadata was not written: %#v", metadata)
-	}
-	if _, ok := metadata["cognition"]; !ok {
 		t.Fatalf("the run's own metadata was not written: %#v", metadata)
 	}
 }
@@ -85,7 +82,7 @@ func waitingGateSession(t *testing.T, engine *Engine) *SessionHandle {
 		t.Error("the provider must not be called while a gate is pending")
 		return protocol.ProviderResponse{}, errors.New("unexpected call")
 	}}
-	result, err := engine.RunAgent(context.Background(), handle.ID, provider, AgentOptions{MaxSteps: 2, Workflow: json.RawMessage(humanGateWorkflow)})
+	result, err := engine.runAgentWith(context.Background(), handle.ID, provider, AgentOptions{MaxSteps: 2, Workflow: json.RawMessage(humanGateWorkflow)})
 	if err != nil || result.Status != "waiting_gate" {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
@@ -229,8 +226,8 @@ func TestSubagentSessionKeepsCoreMetadata(t *testing.T) {
 	}
 	defer supervisor.Close()
 
-	parentID := newParentSession(t, engine)
-	controller := &subagentController{supervisor: supervisor, parentID: parentID, provider: &finalProvider{}, parentOpts: AgentOptions{ProviderName: "test-provider"}}
+	parentID := newParentSession(t, engine, &finalProvider{})
+	controller := &subagentController{supervisor: supervisor, parentID: parentID, parentOpts: AgentOptions{}}
 	value, err := controller.Spawn(context.Background(), "finish quickly")
 	if err != nil {
 		t.Fatal(err)

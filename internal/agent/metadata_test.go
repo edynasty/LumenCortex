@@ -42,9 +42,9 @@ func TestLoopMetadataWritesKeepHostKeysChangedDuringTheRun(t *testing.T) {
 	}
 	ui := map[string]any{"title": "Renamed during run"}
 	provider := &hookProvider{before: func() { hostSetsKey(store, "ui", ui) }}
-	loop := Loop{Provider: provider, Store: store, Tools: fakeTools{}}
+	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
 
-	result, err := loop.Run(context.Background(), "s", Options{MaxSteps: 2, CognitionEnabled: true})
+	result, err := loop.Run(context.Background(), "s", Options{Session: testRef, MaxSteps: 2, CognitionEnabled: true})
 	if err != nil || result.Status != StatusCompleted {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
@@ -55,10 +55,8 @@ func TestLoopMetadataWritesKeepHostKeysChangedDuringTheRun(t *testing.T) {
 	if got := store.state.Metadata["contextPaths"]; !reflect.DeepEqual(got, []any{"a.go"}) {
 		t.Fatalf("contextPaths after the run = %#v", got)
 	}
-	// The run did write its own keys, and only those.
-	if _, ok := store.state.Metadata["cognition"]; !ok {
-		t.Fatalf("cognition not persisted: %#v", store.state.Metadata)
-	}
+	// The run did write its own keys, and only those. The routing plan that used to be stored under
+	// "cognition" every step is gone (M2.3); Progress is written once a tool result is observed.
 	if _, ok := store.state.Metadata["workUnits"]; !ok {
 		t.Fatalf("workUnits not persisted: %#v", store.state.Metadata)
 	}
@@ -74,8 +72,8 @@ func TestLoopWritesNoMetadataWhenItOwnsNone(t *testing.T) {
 		state: SessionState{ID: "s", Goal: "plain", Status: "running", Metadata: map[string]any{"ui": map[string]any{"title": "t"}}},
 		steps: map[int64]any{},
 	}
-	loop := Loop{Provider: &hookProvider{}, Store: store, Tools: fakeTools{}}
-	if _, err := loop.Run(context.Background(), "s", Options{MaxSteps: 2}); err != nil {
+	loop := Loop{Models: testModels(&hookProvider{}), Store: store, Tools: fakeTools{}}
+	if _, err := loop.Run(context.Background(), "s", Options{Session: testRef, MaxSteps: 2}); err != nil {
 		t.Fatal(err)
 	}
 	if len(store.metadataKeyWrites) != 0 {
@@ -88,8 +86,8 @@ func TestLoopDoesNotRewriteUnchangedLoopKeys(t *testing.T) {
 		state: SessionState{ID: "s", Goal: "plain", Status: "running", Metadata: map[string]any{}},
 		steps: map[int64]any{},
 	}
-	loop := Loop{Provider: &hookProvider{}, Store: store, Tools: fakeTools{}}
-	if _, err := loop.Run(context.Background(), "s", Options{MaxSteps: 2, CognitionEnabled: true}); err != nil {
+	loop := Loop{Models: testModels(&hookProvider{}), Store: store, Tools: fakeTools{}}
+	if _, err := loop.Run(context.Background(), "s", Options{Session: testRef, MaxSteps: 2, CognitionEnabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	seen := map[string]int{}
@@ -115,8 +113,8 @@ func TestLoopRecordsTerminalStatusWhenMetadataWriteFails(t *testing.T) {
 		state: SessionState{ID: "s", Goal: "plain", Status: "running", Metadata: map[string]any{}},
 		steps: map[int64]any{},
 	}
-	loop := Loop{Provider: &hookProvider{}, Store: failingMetadataStore{mem}, Tools: fakeTools{}}
-	result, err := loop.Run(context.Background(), "s", Options{MaxSteps: 2, CognitionEnabled: true})
+	loop := Loop{Models: testModels(&hookProvider{}), Store: failingMetadataStore{mem}, Tools: fakeTools{}}
+	result, err := loop.Run(context.Background(), "s", Options{Session: testRef, MaxSteps: 2, CognitionEnabled: true})
 	if err == nil {
 		t.Fatalf("expected an error, result=%#v", result)
 	}

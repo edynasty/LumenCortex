@@ -28,6 +28,7 @@ type startSnapshot struct {
 	Status   string
 	Provider string
 	Model    string
+	ModelRef string
 	Final    string
 	Cause    string
 	Rows     []protocol.Message
@@ -36,7 +37,7 @@ type startSnapshot struct {
 func snapshotStart(t *testing.T, engine *Engine, handle *SessionHandle) startSnapshot {
 	t.Helper()
 	info, _ := sessionState(t, engine, handle.ID)
-	snap := startSnapshot{Status: info.Status, Provider: info.Provider, Model: info.Model, Cause: string(info.Error), Rows: transcript(t, handle)}
+	snap := startSnapshot{Status: info.Status, Provider: info.Provider, Model: info.Model, ModelRef: info.ModelRef, Cause: string(info.Error), Rows: transcript(t, handle)}
 	if info.Final != nil {
 		snap.Final = *info.Final
 	}
@@ -53,7 +54,7 @@ func TestFailedStartTransactionLeavesNoTraceAndReleasesTheLock(t *testing.T) {
 			name: "completed run with a final answer",
 			setup: func(t *testing.T, engine *Engine, supervisor *RunSupervisor, id string) {
 				provider := modelProvider{completingProvider("first answer"), "model-alpha"}
-				if _, err := supervisor.Start(context.Background(), id, provider, AgentOptions{ProviderName: "alpha", MaxSteps: 2}); err != nil {
+				if _, err := supervisor.startWith(context.Background(), id, provider, AgentOptions{MaxSteps: 2}); err != nil {
 					t.Fatal(err)
 				}
 				waitUntilIdle(t, supervisor, id, 10*time.Second)
@@ -64,7 +65,7 @@ func TestFailedStartTransactionLeavesNoTraceAndReleasesTheLock(t *testing.T) {
 			name: "cancelled run with a stored cause",
 			setup: func(t *testing.T, engine *Engine, supervisor *RunSupervisor, id string) {
 				blocking := &blockingProvider{started: make(chan struct{})}
-				if _, err := supervisor.Start(context.Background(), id, blocking, AgentOptions{ProviderName: "alpha", MaxSteps: 2}); err != nil {
+				if _, err := supervisor.startWith(context.Background(), id, blocking, AgentOptions{MaxSteps: 2}); err != nil {
 					t.Fatal(err)
 				}
 				select {
@@ -89,8 +90,8 @@ func TestFailedStartTransactionLeavesNoTraceAndReleasesTheLock(t *testing.T) {
 			defer supervisor.Close()
 			tc.setup(t, engine, supervisor, handle.ID)
 			before := snapshotStart(t, engine, handle)
-			if before.Status != tc.want || before.Provider != "alpha" {
-				t.Fatalf("setup left status=%q provider=%q", before.Status, before.Provider)
+			if before.Status != tc.want || before.Provider != "test" || before.ModelRef != "test/b0" {
+				t.Fatalf("setup left status=%q provider=%q modelRef=%q", before.Status, before.Provider, before.ModelRef)
 			}
 
 			// The failing statement is the status update, the last one of the
@@ -107,7 +108,7 @@ BEGIN SELECT RAISE(ABORT, 'database or disk is full (injected)'); END`); err != 
 			}
 
 			provider := modelProvider{completingProvider("never runs"), "model-beta"}
-			_, err = supervisor.Start(context.Background(), handle.ID, provider, AgentOptions{Input: "follow-up", ProviderName: "beta", MaxSteps: 2})
+			_, err = supervisor.startWith(context.Background(), handle.ID, provider, AgentOptions{Input: "follow-up", MaxSteps: 2})
 			if err == nil || !strings.Contains(err.Error(), "injected") {
 				t.Fatalf("Start err = %v, want the injected storage failure", err)
 			}
@@ -130,12 +131,12 @@ BEGIN SELECT RAISE(ABORT, 'database or disk is full (injected)'); END`); err != 
 				t.Fatal(err)
 			}
 			provider = modelProvider{completingProvider("second answer"), "model-beta"}
-			if _, err := supervisor.Start(context.Background(), handle.ID, provider, AgentOptions{Input: "follow-up", ProviderName: "beta", MaxSteps: 2}); err != nil {
+			if _, err := supervisor.startWith(context.Background(), handle.ID, provider, AgentOptions{Input: "follow-up", MaxSteps: 2}); err != nil {
 				t.Fatalf("Start after the failed Start: %v", err)
 			}
 			waitUntilIdle(t, supervisor, handle.ID, 10*time.Second)
 			final := snapshotStart(t, engine, handle)
-			if final.Status != "completed" || final.Provider != "beta" || final.Model != "model-beta" || final.Final != "second answer" || final.Cause != "" {
+			if final.Status != "completed" || final.Provider != "test" || final.Model != "b2" || final.Final != "second answer" || final.Cause != "" {
 				t.Fatalf("second Start: %+v", final)
 			}
 			follow := 0
@@ -163,7 +164,7 @@ func TestSuccessfulStartCommitsInputAndRunningBeforeTheLoop(t *testing.T) {
 	defer supervisor.Close()
 
 	first := modelProvider{completingProvider("done"), "model-alpha"}
-	if _, err := supervisor.Start(context.Background(), handle.ID, first, AgentOptions{ProviderName: "alpha", MaxSteps: 2}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, first, AgentOptions{MaxSteps: 2}); err != nil {
 		t.Fatal(err)
 	}
 	waitUntilIdle(t, supervisor, handle.ID, 10*time.Second)
@@ -180,7 +181,7 @@ func TestSuccessfulStartCommitsInputAndRunningBeforeTheLoop(t *testing.T) {
 		}
 		return protocol.ProviderResponse{Message: protocol.Message{Content: "second"}}, nil
 	}}
-	if _, err := supervisor.Start(context.Background(), handle.ID, modelProvider{probe, "model-beta"}, AgentOptions{Input: "next task", ProviderName: "beta", MaxSteps: 2}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, modelProvider{probe, "model-beta"}, AgentOptions{Input: "next task", MaxSteps: 2}); err != nil {
 		t.Fatal(err)
 	}
 	waitUntilIdle(t, supervisor, handle.ID, 10*time.Second)
@@ -188,8 +189,10 @@ func TestSuccessfulStartCommitsInputAndRunningBeforeTheLoop(t *testing.T) {
 	if seen.Status != "running" || seen.Final != "" || seen.Cause != "" {
 		t.Fatalf("at the first provider call: status=%q final=%q cause=%q, want running with the previous outcome cleared", seen.Status, seen.Final, seen.Cause)
 	}
-	if seen.Provider != "beta" || seen.Model != "model-beta" {
-		t.Fatalf("at the first provider call the identity is %s/%s, want beta/model-beta", seen.Provider, seen.Model)
+	// The second Start names a different model than the one the session is pinned to (rule
+	// model.user), so the identity and the pin move together with Input and running.
+	if seen.Provider != "test" || seen.Model != "b1" || seen.ModelRef != "test/b1" {
+		t.Fatalf("at the first provider call the identity is %s/%s (%s), want test/b1 (test/b1)", seen.Provider, seen.Model, seen.ModelRef)
 	}
 	if seenAt == 0 || seen.Rows[seenAt-1].Role != "user" || seen.Rows[seenAt-1].Content != "next task" {
 		raw, _ := json.Marshal(seen.Rows)

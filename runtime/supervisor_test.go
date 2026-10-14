@@ -42,8 +42,8 @@ func TestRunSupervisorOwnsActiveRunLifecycle(t *testing.T) {
 	defer supervisor.Close()
 
 	provider := &blockingProvider{started: make(chan struct{})}
-	started, err := supervisor.Start(context.Background(), handle.ID, provider, AgentOptions{
-		ProviderName: "blocking-provider",
+	started, err := supervisor.startWith(context.Background(), handle.ID, provider, AgentOptions{
+		
 		Policy:       "read-only",
 	})
 	if err != nil {
@@ -67,7 +67,7 @@ func TestRunSupervisorOwnsActiveRunLifecycle(t *testing.T) {
 		t.Fatalf("runs=%#v", runs)
 	}
 
-	if _, err := supervisor.Start(context.Background(), handle.ID, provider, AgentOptions{}); !errors.Is(err, ErrRunHeld) {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, provider, AgentOptions{}); !errors.Is(err, ErrRunHeld) {
 		t.Fatalf("duplicate start err=%v", err)
 	}
 	if !supervisor.Cancel(handle.ID) {
@@ -108,7 +108,7 @@ func TestRunSupervisorCloseCancelsOwnedRuns(t *testing.T) {
 	}
 
 	provider := &blockingProvider{started: make(chan struct{})}
-	if _, err := supervisor.Start(context.Background(), handle.ID, provider, AgentOptions{Policy: "read-only"}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, provider, AgentOptions{Policy: "read-only"}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -125,7 +125,7 @@ func TestRunSupervisorCloseCancelsOwnedRuns(t *testing.T) {
 	if supervisor.Active(handle.ID) {
 		t.Fatal("run remained active after supervisor close")
 	}
-	if _, err := supervisor.Start(context.Background(), handle.ID, provider, AgentOptions{}); !errors.Is(err, ErrRunSupervisorClosed) {
+	if _, err := supervisor.startWith(context.Background(), handle.ID, provider, AgentOptions{}); !errors.Is(err, ErrRunSupervisorClosed) {
 		t.Fatalf("start after close err=%v", err)
 	}
 }
@@ -159,7 +159,7 @@ func TestRunSupervisorEnforcesMaxAgentsAndReusesReleasedSlots(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
-		if _, err := supervisor.Start(context.Background(), handles[i].ID, providers[i], AgentOptions{Policy: "read-only"}); err != nil {
+		if _, err := supervisor.startWith(context.Background(), handles[i].ID, providers[i], AgentOptions{Policy: "read-only"}); err != nil {
 			t.Fatal(err)
 		}
 		select {
@@ -172,7 +172,7 @@ func TestRunSupervisorEnforcesMaxAgentsAndReusesReleasedSlots(t *testing.T) {
 		t.Fatalf("active agents=%d want=2", got)
 	}
 
-	if _, err := supervisor.Start(context.Background(), handles[2].ID, providers[2], AgentOptions{Policy: "read-only"}); !errors.Is(err, ErrAgentLimitExceeded) {
+	if _, err := supervisor.startWith(context.Background(), handles[2].ID, providers[2], AgentOptions{Policy: "read-only"}); !errors.Is(err, ErrAgentLimitExceeded) {
 		t.Fatalf("third start err=%v", err)
 	}
 
@@ -187,7 +187,7 @@ func TestRunSupervisorEnforcesMaxAgentsAndReusesReleasedSlots(t *testing.T) {
 		t.Fatalf("active agents after cancel=%d want=1", got)
 	}
 
-	if _, err := supervisor.Start(context.Background(), handles[2].ID, providers[2], AgentOptions{Policy: "read-only"}); err != nil {
+	if _, err := supervisor.startWith(context.Background(), handles[2].ID, providers[2], AgentOptions{Policy: "read-only"}); err != nil {
 		t.Fatalf("start after release: %v", err)
 	}
 }

@@ -3,11 +3,11 @@ package main
 import (
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/protocol"
 	"github.com/edynasty/LumenCortex/provider/openai"
 )
 
@@ -21,13 +21,24 @@ var removedProviderEnv = []struct{ name, replacement string }{
 	{"LCX_REASONING_FORMAT", `providers.<provider>.models.<key>.reasoning.format`},
 }
 
-// providerFromConfig resolves the session model from the unified configuration (global file,
-// then <workspace>/lumencortex.json under the trust rules) and builds its client. Warnings go to
-// warn: dropped workspace entries with the trustedWorkspaces entry that would enable them, legacy
-// global files, and removed environment variables with their replacement keys.
-//
-// The API key is read from its {env:NAME} variable here and goes only into the client.
-func providerFromConfig(workspace string, warn io.Writer) (*openai.Client, config.ResolvedModel, error) {
+// providerFactory is the Engine's ProviderFactory for the CLI: the OpenAI-compatible adapter, with
+// the two debugging switches the CLI has always offered. It is the only place that reads an API
+// key from the environment (through ResolvedModel.ResolveAPIKey).
+func providerFactory(m config.ResolvedModel) (protocol.Provider, error) {
+	return openai.FromModel(m, openai.Options{
+		DisableStreaming: envBool("LCX_DISABLE_STREAMING"),
+		DisableRetries:   envBool("LCX_DISABLE_RETRIES"),
+	})
+}
+
+// preflight reads the configuration the way the Engine will at Start, prints its warnings to warn
+// (dropped workspace entries with the trustedWorkspaces entry that would enable them, legacy
+// files, removed environment variables with their replacement keys, a leftover cognition.json),
+// and, when newSession is true, checks that the configured default model can start: it is set, in
+// the catalog, tool-capable, and its client can be built. Nothing is sent and nothing is written,
+// so a refusal leaves no session behind. A resumed session runs on its pinned model, which only
+// the Engine can read, so resume skips the model check and the Engine refuses at Start.
+func preflight(workspace string, warn io.Writer, newSession bool) error {
 	var set []string
 	for _, v := range removedProviderEnv {
 		if os.Getenv(v.name) != "" {
@@ -37,11 +48,14 @@ func providerFromConfig(workspace string, warn io.Writer) (*openai.Client, confi
 	}
 	cfg, err := config.Load(workspace)
 	if err != nil {
-		return nil, config.ResolvedModel{}, err
+		return err
 	}
 	eff := cfg.Effective()
 	for _, w := range eff.Warnings {
 		fmt.Fprintf(warn, "lcx-go: warning: %s\n", w.Message)
+	}
+	if !newSession {
+		return nil
 	}
 	if eff.Model == "" {
 		msg := fmt.Sprintf(`no model is configured: set "model" (provider/model) and the provider in %s`,
@@ -49,46 +63,18 @@ func providerFromConfig(workspace string, warn io.Writer) (*openai.Client, confi
 		if len(set) > 0 {
 			msg += fmt.Sprintf("; the environment variables %v are no longer read", set)
 		}
-		return nil, config.ResolvedModel{}, fmt.Errorf("%s", msg)
+		return fmt.Errorf("%s", msg)
 	}
 	model, err := cfg.Resolve(eff.Model)
 	if err != nil {
-		return nil, config.ResolvedModel{}, err
+		return err
 	}
 	for _, w := range model.Warnings {
 		fmt.Fprintf(warn, "lcx-go: warning: %s\n", w.Message)
 	}
-	client, err := newProvider(model)
-	if err != nil {
-		return nil, config.ResolvedModel{}, err
+	if !model.ToolCalling {
+		return fmt.Errorf("model %s does not support tool calling", model.Ref)
 	}
-	return client, model, nil
-}
-
-// newProvider builds the OpenAI-compatible client for one resolved model. It is the only place
-// that resolves the API key from the environment.
-func newProvider(m config.ResolvedModel) (*openai.Client, error) {
-	key, err := m.ResolveAPIKey()
-	if err != nil {
-		return nil, err
-	}
-	var httpClient *http.Client
-	if m.RequestTimeout > 0 {
-		httpClient = &http.Client{Timeout: m.RequestTimeout}
-	}
-	client, err := openai.New(openai.Config{
-		Endpoint:         m.Endpoint,
-		BaseURL:          m.BaseURL,
-		APIKey:           key,
-		Model:            m.ModelID,
-		Headers:          m.Headers,
-		HTTPClient:       httpClient,
-		ReasoningFormat:  m.ReasoningFormat,
-		DisableStreaming: envBool("LCX_DISABLE_STREAMING"),
-		DisableRetries:   envBool("LCX_DISABLE_RETRIES"),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("model %s (provider %s): %w", m.Ref, m.ProviderID, err)
-	}
-	return client, nil
+	_, err = providerFactory(model)
+	return err
 }
