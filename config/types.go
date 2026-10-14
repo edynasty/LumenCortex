@@ -63,8 +63,8 @@ const (
 )
 
 // File is one lumencortex.json document. A nil slice or map, a nil pointer and a zero number mean
-// "absent"; Failover is the exception: a non-nil empty slice is written as [] and overrides a
-// global failover list with none.
+// "absent". Failover and ProviderSettings.Headers are the exceptions: a non-nil empty value is
+// written as [] or {} and replaces the global list or header set with none.
 type File struct {
 	Schema            string              `json:"$schema,omitempty"`
 	Model             ModelRef            `json:"model,omitempty"`
@@ -118,6 +118,19 @@ type ProviderSettings struct {
 	Headers            map[string]string `json:"headers,omitempty"`
 	TimeoutSeconds     int               `json:"timeoutSeconds,omitempty"`
 	IdleTimeoutSeconds int               `json:"idleTimeoutSeconds,omitempty"`
+}
+
+// MarshalJSON keeps an explicit empty headers set, which omitempty would drop.
+func (s ProviderSettings) MarshalJSON() ([]byte, error) {
+	type plain ProviderSettings
+	out := struct {
+		plain
+		Headers *map[string]string `json:"headers,omitempty"`
+	}{plain: plain(s)}
+	if s.Headers != nil {
+		out.Headers = &s.Headers
+	}
+	return json.Marshal(out)
 }
 
 // Model is one catalog model.

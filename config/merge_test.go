@@ -280,6 +280,42 @@ func TestRedirectedProviderDoesNotInheritGlobalHeaders(t *testing.T) {
 	}
 }
 
+// headers replace the global set (§4.8), so an explicit empty set clears it: a trusted workspace
+// can stop sending inherited, possibly credential-bearing headers. The {} survives Save and Load.
+func TestExplicitEmptyHeadersClearGlobalHeaders(t *testing.T) {
+	global := &ProviderSettings{BaseURL: "https://openrouter.ai/api/v1", Headers: map[string]string{"X-Org-Token": "t"}}
+	got, err := MergeProviderSettings(global, ProviderSettings{Headers: map[string]string{}}, true)
+	if err != nil || len(got.Headers) != 0 {
+		t.Fatalf("explicit {}: %+v %v", got.Headers, err)
+	}
+	// Absent headers still inherit.
+	if got, _ := MergeProviderSettings(global, ProviderSettings{}, true); got.Headers["X-Org-Token"] != "t" {
+		t.Fatalf("absent: %+v", got.Headers)
+	}
+
+	c, ws, err := loaded(t, trustSelf, `{"providers": {"openrouter": {"settings": {"headers": {}}}}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := c.Resolve("openrouter/sonnet"); len(m.Headers) != 0 {
+		t.Fatalf("loaded {} kept global headers: %v", m.Headers)
+	}
+	doc := c.Workspace()
+	if _, err := Save(doc.Path, doc.File, doc.Digest); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(readFile(t, doc.Path), `"headers": {}`) {
+		t.Fatalf("Save dropped the explicit {}: %s", readFile(t, doc.Path))
+	}
+	c, err = Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := c.Resolve("openrouter/sonnet"); len(m.Headers) != 0 {
+		t.Fatalf("after Save and Load the global headers came back: %v", m.Headers)
+	}
+}
+
 func TestTrustedModelReferencesMustResolve(t *testing.T) {
 	for _, ws := range []string{
 		`{"model": "nobody/x"}`,

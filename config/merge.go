@@ -10,7 +10,7 @@ import (
 // provider exists only in the workspace). Only a trusted workspace may do so: an untrusted one gets
 // ErrUntrustedOverride, and the loader drops the entry with a warning.
 //
-// Fields merge one by one; a non-empty headers set replaces the global set. Changing baseURL or
+// Fields merge one by one; a headers set, even an empty one, replaces the global set. Changing baseURL or
 // endpoint, which would send the global credential elsewhere, needs the workspace's own apiKey, a
 // reference different from the global one, or ErrCredentialRedirect results. A redirected provider
 // never inherits the global headers, which may carry credentials too.
@@ -39,7 +39,7 @@ func MergeProviderSettings(global *ProviderSettings, ws ProviderSettings, truste
 	if ws.APIKey != "" {
 		out.APIKey = ws.APIKey
 	}
-	if len(ws.Headers) > 0 {
+	if ws.Headers != nil {
 		out.Headers = maps.Clone(ws.Headers)
 	}
 	if ws.TimeoutSeconds != 0 {
