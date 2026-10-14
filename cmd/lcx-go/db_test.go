@@ -51,7 +51,8 @@ func stateHash(t *testing.T, stateDir string) [32]byte {
 }
 
 // TestDowngradeToZeroIsRefusedWithoutChanges: version 1 has no down migration, so `db downgrade
-// --to 0` fails and the database, WAL and backups are byte-for-byte what they were.
+// --to 0` fails from version 2 before the backup, and the database, WAL and backups are
+// byte-for-byte what they were.
 func TestDowngradeToZeroIsRefusedWithoutChanges(t *testing.T) {
 	root := t.TempDir()
 	engine, err := lcx.Open(lcx.Options{Workspace: root})
@@ -74,7 +75,7 @@ func TestDowngradeToZeroIsRefusedWithoutChanges(t *testing.T) {
 	if stateHash(t, stateDir) != before {
 		t.Error("the refused downgrade changed the database, WAL or backups")
 	}
-	// The workspace still opens at version 1.
+	// The workspace still opens at the latest version.
 	reopened, err := lcx.Open(lcx.Options{Workspace: root})
 	if err != nil {
 		t.Fatalf("Open after a refused downgrade: %v", err)
@@ -82,7 +83,7 @@ func TestDowngradeToZeroIsRefusedWithoutChanges(t *testing.T) {
 	reopened.Close()
 }
 
-// TestDowngradeNoopAtCurrentVersion: --to equal to the current version changes nothing.
+// TestDowngradeNoopAtCurrentVersion: --to equal to the current version (2) changes nothing.
 func TestDowngradeNoopAtCurrentVersion(t *testing.T) {
 	root := t.TempDir()
 	engine, err := lcx.Open(lcx.Options{Workspace: root})
@@ -92,12 +93,39 @@ func TestDowngradeNoopAtCurrentVersion(t *testing.T) {
 	engine.Close()
 	stateDir := filepath.Join(root, ".lumencortex")
 	before := stateHash(t, stateDir)
-	from, now, err := lcx.DowngradeSchema(context.Background(), lcx.Options{Workspace: root}, 1)
-	if err != nil || from != 1 || now != 1 {
+	from, now, err := lcx.DowngradeSchema(context.Background(), lcx.Options{Workspace: root}, 2)
+	if err != nil || from != 2 || now != 2 {
 		t.Fatalf("from=%d now=%d err=%v", from, now, err)
 	}
 	if stateHash(t, stateDir) != before {
 		t.Error("a no-op downgrade changed the database")
+	}
+}
+
+// TestDowngradeToOneDropsModelRef: `db downgrade --to 1` removes sessions.model_ref and the
+// workspace then opens again (and re-upgrades) with the pins gone.
+func TestDowngradeToOneThenReopenReupgrades(t *testing.T) {
+	root := t.TempDir()
+	engine, err := lcx.Open(lcx.Options{Workspace: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := engine.NewSession(context.Background(), lcx.SessionOptions{Goal: "keep me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.Close()
+
+	if err := runDBCommand(context.Background(), lcx.Options{Workspace: root}, []string{"downgrade", "--to", "1"}); err != nil {
+		t.Fatalf("downgrade --to 1: %v", err)
+	}
+	reopened, err := lcx.Open(lcx.Options{Workspace: root})
+	if err != nil {
+		t.Fatalf("Open after the downgrade: %v", err)
+	}
+	defer reopened.Close()
+	if _, info, err := reopened.Session(context.Background(), h.ID); err != nil || info.Goal != "keep me" || info.ModelRef != "" {
+		t.Fatalf("session after the cycle: %+v %v", info, err)
 	}
 }
 

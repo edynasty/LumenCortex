@@ -18,6 +18,10 @@ type RunStart struct {
 	// an empty string clears the column.
 	Provider *string
 	Model    *string
+	// ModelRef pins the session to a catalog model when non-nil. The runtime sets it for an
+	// explicit change (model.user) and for the first Start of a session that has no pin
+	// (model.default); a continuation on the pinned model leaves it nil.
+	ModelRef *string
 }
 
 // BeginRun is the Start transaction. The caller holds the session's run lock and
@@ -85,6 +89,10 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 	if start.Model != nil {
 		sets += `, model = NULLIF(?, '')`
 		args = append(args, *start.Model)
+	}
+	if start.ModelRef != nil {
+		sets += `, model_ref = NULLIF(?, '')`
+		args = append(args, *start.ModelRef)
 	}
 	args = append(args, sessionID)
 	if _, err := conn.ExecContext(ctx, `UPDATE sessions SET `+sets+` WHERE id = ?`, args...); err != nil {

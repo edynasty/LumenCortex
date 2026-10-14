@@ -48,7 +48,7 @@ func TestUpgradeFixtures(t *testing.T) {
 			before := readBefore(t, dir)
 			beforeTables := qStrings(t, inspect(t, filepath.Join(dir, dbFile)), `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
 
-			ws := open(t, dir, embeddedSet(t))
+			ws := open(t, dir, v1Set(t))
 			defer closeWS(t, ws)
 			if ws.From != 0 || ws.To != 1 {
 				t.Fatalf("From=%d To=%d, want 0 -> 1", ws.From, ws.To)
@@ -120,7 +120,7 @@ func TestNoReasoningAtRest(t *testing.T) {
 			if hits := filesWithSentinel(t, dir); len(hits) == 0 {
 				t.Fatal("fixture does not contain the sentinel; the test would prove nothing")
 			}
-			ws := open(t, dir, embeddedSet(t))
+			ws := open(t, dir, v1Set(t))
 			if hits := filesWithSentinel(t, dir); len(hits) != 0 {
 				t.Errorf("reasoning bytes in %v while the workspace is open", hits)
 			}
@@ -182,11 +182,11 @@ func TestScrubStatementMatches0001(t *testing.T) {
 // TestReopenPerformsNoMigration: an up-to-date database opens without a backup, marker or write.
 func TestReopenPerformsNoMigration(t *testing.T) {
 	dir := newFixture(t, fixtureGo)
-	closeWS(t, open(t, dir, embeddedSet(t)))
+	closeWS(t, open(t, dir, v1Set(t)))
 	before := fileHashes(t, dir, dbFile, dbFile+"-wal")
 	backupsBefore := backups(t, dir)
 
-	ws := open(t, dir, embeddedSet(t))
+	ws := open(t, dir, v1Set(t))
 	if ws.From != 1 || ws.To != 1 {
 		t.Errorf("From=%d To=%d, want 1 -> 1", ws.From, ws.To)
 	}
@@ -203,7 +203,7 @@ func TestReopenPerformsNoMigration(t *testing.T) {
 // TestFreshDatabaseMigratesWithoutBackup: an empty state directory gets schema 1, nothing to back up.
 func TestFreshDatabaseMigratesWithoutBackup(t *testing.T) {
 	dir := t.TempDir()
-	ws := open(t, dir, embeddedSet(t))
+	ws := open(t, dir, v1Set(t))
 	defer closeWS(t, ws)
 	if ws.From != 0 || ws.To != 1 || qInt(t, ws.DB, `PRAGMA user_version`) != 1 {
 		t.Fatalf("From=%d To=%d", ws.From, ws.To)
@@ -231,7 +231,7 @@ func TestSchemaTooNewWritesNothing(t *testing.T) {
 			filesBefore := listDir(t, dir)
 			hashBefore := fileHashes(t, dir, dbFile)
 
-			_, err = Open(context.Background(), dir, embeddedSet(t))
+			_, err = Open(context.Background(), dir, v1Set(t))
 			if !errors.Is(err, ErrSchemaTooNew) {
 				t.Fatalf("Open err=%v, want ErrSchemaTooNew", err)
 			}
@@ -247,7 +247,7 @@ func TestSchemaTooNewWritesNothing(t *testing.T) {
 				}
 			}
 			// The lock was released: a downgrade attempt reaches the version check instead of timing out.
-			if _, _, err := Downgrade(context.Background(), dir, embeddedSet(t), 0); !errors.Is(err, ErrSchemaTooNew) {
+			if _, _, err := Downgrade(context.Background(), dir, v1Set(t), 0); !errors.Is(err, ErrSchemaTooNew) {
 				t.Errorf("Downgrade of a too-new database: %v, want ErrSchemaTooNew", err)
 			}
 			if got := fileHashes(t, dir, dbFile); !reflect.DeepEqual(got, hashBefore) {
@@ -277,8 +277,8 @@ func TestLoadRejectsGapsAndOrphans(t *testing.T) {
 			}
 		})
 	}
-	if set := embeddedSet(t); set.Latest() != 1 {
-		t.Errorf("embedded Latest=%d, M2.1 ships exactly 0001", set.Latest())
+	if set := embeddedSet(t); set.Latest() != 2 {
+		t.Errorf("embedded Latest=%d, M2.3 ships 0001 and 0002", set.Latest())
 	}
 }
 
@@ -342,7 +342,7 @@ WITH RECURSIVE c(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM c WHERE i < 4000000
 		t.Error("the cancelled migration's table survived")
 	}
 	// The lock was released, so a plain Open at the embedded version works at once.
-	closeWS(t, open(t, dir, embeddedSet(t)))
+	closeWS(t, open(t, dir, v1Set(t)))
 }
 
 // TestReappearedSchemaVersionIsRemovedAndNeverAuthority: a pre-runner binary that opens a migrated
@@ -350,7 +350,7 @@ WITH RECURSIVE c(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM c WHERE i < 4000000
 // changes the schema version the runner uses.
 func TestReappearedSchemaVersionIsRemovedAndNeverAuthority(t *testing.T) {
 	dir := newFixture(t, fixtureGo)
-	closeWS(t, open(t, dir, embeddedSet(t)))
+	closeWS(t, open(t, dir, v1Set(t)))
 
 	db := inspect(t, filepath.Join(dir, dbFile))
 	mustExec(t, db, `INSERT INTO metadata(key, value) VALUES('schema_version', '99')`)
@@ -360,7 +360,7 @@ func TestReappearedSchemaVersionIsRemovedAndNeverAuthority(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(old) })
 
-	ws := open(t, dir, embeddedSet(t))
+	ws := open(t, dir, v1Set(t))
 	if ws.From != 1 || ws.To != 1 {
 		t.Errorf("a schema_version=99 row changed the version: From=%d To=%d", ws.From, ws.To)
 	}
@@ -373,7 +373,7 @@ func TestReappearedSchemaVersionIsRemovedAndNeverAuthority(t *testing.T) {
 	}
 
 	logs.Reset()
-	closeWS(t, open(t, dir, embeddedSet(t)))
+	closeWS(t, open(t, dir, v1Set(t)))
 	if logs.Len() != 0 {
 		t.Errorf("warning repeated without a new foreign write: %q", logs.String())
 	}
@@ -507,11 +507,11 @@ func TestDowngradeMechanism(t *testing.T) {
 // TestDowngradeVersionOneToZeroIsRefused is the shipped M2.1 case: version 1 has no down migration.
 func TestDowngradeVersionOneToZeroIsRefused(t *testing.T) {
 	dir := newFixture(t, fixtureGo)
-	closeWS(t, open(t, dir, embeddedSet(t)))
+	closeWS(t, open(t, dir, v1Set(t)))
 	hashes := fileHashes(t, dir, dbFile, dbFile+"-wal")
 	backupsBefore := backups(t, dir)
 
-	_, _, err := Downgrade(context.Background(), dir, embeddedSet(t), 0)
+	_, _, err := Downgrade(context.Background(), dir, v1Set(t), 0)
 	if !errors.Is(err, ErrNoDownMigration) {
 		t.Fatalf("err=%v, want ErrNoDownMigration", err)
 	}
@@ -564,7 +564,7 @@ func TestLegacyNodeDatabaseIsRefusedUntouched(t *testing.T) {
 	}
 
 	t.Run("shared open", func(t *testing.T) {
-		ws, err := Open(context.Background(), dir, embeddedSet(t))
+		ws, err := Open(context.Background(), dir, v1Set(t))
 		if ws != nil {
 			ws.Close()
 		}
@@ -583,11 +583,11 @@ func TestLegacyNodeDatabaseIsRefusedUntouched(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer holder.Release()
-		_, err = Open(context.Background(), dir, embeddedSet(t))
+		_, err = Open(context.Background(), dir, v1Set(t))
 		check(t, err) // ErrLegacyNodeDatabase, not ErrDatabaseInUse
 	})
 	t.Run("exclusive upgrade path", func(t *testing.T) {
-		_, _, err := upgradeLocked(context.Background(), path, dir, embeddedSet(t))
+		_, _, err := upgradeLocked(context.Background(), path, dir, v1Set(t))
 		check(t, err)
 	})
 }
@@ -617,7 +617,7 @@ func hotWALCopy(t *testing.T, dir string, change string) string {
 func TestRefusalLeavesHotWALUntouched(t *testing.T) {
 	migrated := func(t *testing.T) string {
 		dir := newFixture(t, fixtureGo)
-		closeWS(t, open(t, dir, embeddedSet(t)))
+		closeWS(t, open(t, dir, v1Set(t)))
 		return dir
 	}
 	cases := []struct {
@@ -627,22 +627,22 @@ func TestRefusalLeavesHotWALUntouched(t *testing.T) {
 		want   error
 	}{
 		{"node shared open", func(t *testing.T) string { return newFixtureWithWAL(t, fixtureNode) },
-			func(dir string) error { _, err := Open(context.Background(), dir, embeddedSet(t)); return err },
+			func(dir string) error { _, err := Open(context.Background(), dir, v1Set(t)); return err },
 			ErrLegacyNodeDatabase},
 		{"node exclusive upgrade", func(t *testing.T) string { return newFixtureWithWAL(t, fixtureNode) },
 			func(dir string) error {
-				_, _, err := upgradeLocked(context.Background(), filepath.Join(dir, dbFile), dir, embeddedSet(t))
+				_, _, err := upgradeLocked(context.Background(), filepath.Join(dir, dbFile), dir, v1Set(t))
 				return err
 			},
 			ErrLegacyNodeDatabase},
 		{"schema too new", func(t *testing.T) string { return hotWALCopy(t, migrated(t), `PRAGMA user_version = 9`) },
-			func(dir string) error { _, err := Open(context.Background(), dir, embeddedSet(t)); return err },
+			func(dir string) error { _, err := Open(context.Background(), dir, v1Set(t)); return err },
 			ErrSchemaTooNew},
 		{"downgrade to 0", func(t *testing.T) string {
 			return hotWALCopy(t, migrated(t), `INSERT INTO journal(at, event, payload_json) VALUES('2026-10-11T00:00:00Z', 'hot', '{}')`)
 		},
 			func(dir string) error {
-				_, _, err := Downgrade(context.Background(), dir, embeddedSet(t), 0)
+				_, _, err := Downgrade(context.Background(), dir, v1Set(t), 0)
 				return err
 			},
 			ErrNoDownMigration},

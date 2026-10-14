@@ -319,6 +319,14 @@ func embeddedSet(t *testing.T) *Set {
 	return set
 }
 
+// v1Set is the frozen 0001-only set. The runner-mechanics tests (locks, backups, crash recovery,
+// atomicity) use it so they stay independent of how many migrations the product has shipped; the
+// shipped schema itself is exercised through embeddedSet.
+func v1Set(t *testing.T) *Set {
+	t.Helper()
+	return syntheticSet(t, nil, nil)
+}
+
 // syntheticSet is 0001 plus extra migrations, for tests of the runner itself.
 func syntheticSet(t *testing.T, up map[string]string, down map[string]string) *Set {
 	t.Helper()

@@ -37,7 +37,7 @@ func TestLockWaitIsThirtySeconds(t *testing.T) {
 func TestSharedHolderBlocksUpgrade(t *testing.T) {
 	shorten(t, 200*time.Millisecond, 0)
 	dir := newFixture(t, fixtureGo)
-	holder := open(t, dir, embeddedSet(t))
+	holder := open(t, dir, v1Set(t))
 	hashes := fileHashes(t, dir, stateFiles...)
 	backupsBefore := backups(t, dir)
 	next := syntheticSet(t, upSet2, downSet2)
@@ -96,7 +96,7 @@ func TestSharedHolderBlocksDowngrade(t *testing.T) {
 // TestSharedOpensCoexist: a second Open of an up-to-date database succeeds while the first is open.
 func TestSharedOpensCoexist(t *testing.T) {
 	dir := newFixture(t, fixtureGo)
-	set := embeddedSet(t)
+	set := v1Set(t)
 	w1 := open(t, dir, set)
 	w2 := open(t, dir, set)
 	if w1.From != 0 || w1.To != 1 || w2.From != 1 || w2.To != 1 {
@@ -110,7 +110,7 @@ func TestSharedOpensCoexist(t *testing.T) {
 // promptly and writes nothing, even though LockWait is far from expiring.
 func TestWaitHonorsContext(t *testing.T) {
 	dir := newFixture(t, fixtureGo)
-	holder := open(t, dir, embeddedSet(t))
+	holder := open(t, dir, v1Set(t))
 	defer closeWS(t, holder)
 	hashes := fileHashes(t, dir, stateFiles...)
 	next := syntheticSet(t, upSet2, downSet2)
@@ -148,7 +148,7 @@ func TestConcurrentOpen(t *testing.T) {
 	const rounds, openers = 15, 4
 	for r := range rounds {
 		dir := newFixture(t, fixtureGo)
-		set := embeddedSet(t)
+		set := v1Set(t)
 		start := make(chan struct{})
 		ws := make([]*Workspace, openers)
 		errs := make([]error, openers)
@@ -193,6 +193,7 @@ func TestConcurrentOpen(t *testing.T) {
 const (
 	helperEnv     = "LCX_MIGRATE_HELPER"
 	helperDirEnv  = "LCX_MIGRATE_HELPER_DIR"
+	helperSetEnv  = "LCX_MIGRATE_HELPER_SET"
 	helperHold    = "hold"
 	helperOpen    = "open"
 	helperCrashAt = "crash-after-commit"
@@ -217,7 +218,13 @@ func TestHelperProcess(t *testing.T) {
 	if mode == helperScrub {
 		crashInScrub(dir)
 	}
-	set, err := Embedded()
+	// The mechanics tests run the helper against the frozen 0001 set; the process-concurrency test
+	// asks for the shipped schema.
+	set := v1Set(t)
+	var err error
+	if os.Getenv(helperSetEnv) == "embedded" {
+		set, err = Embedded()
+	}
 	if err != nil {
 		fmt.Println("error", err)
 		os.Exit(2)
@@ -246,7 +253,7 @@ func TestHelperProcess(t *testing.T) {
 func helper(t *testing.T, mode, dir string) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProcess$", "-test.count=1")
-	cmd.Env = append(os.Environ(), helperEnv+"="+mode, helperDirEnv+"="+dir)
+	cmd.Env = append(os.Environ(), helperEnv+"="+mode, helperDirEnv+"="+dir, helperSetEnv+"=v1")
 	cmd.Stderr = os.Stderr
 	return cmd
 }
@@ -256,7 +263,7 @@ func helper(t *testing.T, mode, dir string) *exec.Cmd {
 func TestSharedLockCrossProcess(t *testing.T) {
 	shorten(t, 300*time.Millisecond, 0)
 	dir := newFixture(t, fixtureGo)
-	closeWS(t, open(t, dir, embeddedSet(t)))
+	closeWS(t, open(t, dir, v1Set(t)))
 
 	cmd := helper(t, helperHold, dir)
 	out, err := cmd.StdoutPipe()
@@ -311,6 +318,7 @@ func TestConcurrentProcessOpen(t *testing.T) {
 		outs := make([]*bytes.Buffer, procs)
 		for i := range procs {
 			cmds[i] = helper(t, helperOpen, dir)
+			cmds[i].Env = append(cmds[i].Env, helperSetEnv+"=embedded") // the last value wins
 			outs[i] = &bytes.Buffer{}
 			cmds[i].Stdout = outs[i]
 		}
@@ -323,7 +331,7 @@ func TestConcurrentProcessOpen(t *testing.T) {
 			if err := c.Wait(); err != nil {
 				t.Errorf("round %d process %d: %v: %s", r, i, err, outs[i])
 			}
-			if !strings.HasPrefix(outs[i].String(), "opened ") || !strings.HasSuffix(strings.TrimSpace(outs[i].String()), " 1") {
+			if !strings.HasPrefix(outs[i].String(), "opened ") || !strings.HasSuffix(strings.TrimSpace(outs[i].String()), fmt.Sprintf(" %d", embeddedSet(t).Latest())) {
 				t.Errorf("round %d process %d said %q", r, i, outs[i])
 			}
 		}
@@ -359,7 +367,7 @@ func TestCrashAfterCommitIsRecovered(t *testing.T) {
 		t.Fatalf("user_version=%d after the crash, want 1 (the migration committed)", uv)
 	}
 
-	ws := open(t, dir, embeddedSet(t))
+	ws := open(t, dir, v1Set(t))
 	if ws.From != 1 || ws.To != 1 {
 		t.Errorf("recovery open From=%d To=%d, want 1 -> 1", ws.From, ws.To)
 	}
@@ -381,19 +389,19 @@ func TestRecoveryDefersToSharedHolders(t *testing.T) {
 	if err := cmd.Run(); err == nil {
 		t.Fatal("helper should have crashed")
 	}
-	first := open(t, dir, embeddedSet(t)) // takes the exclusive lock, completes the rebuild
+	first := open(t, dir, v1Set(t)) // takes the exclusive lock, completes the rebuild
 	if _, err := os.Stat(filepath.Join(dir, pendingMarker)); !os.IsNotExist(err) {
 		t.Fatalf("marker left after the recovery open (stat: %v)", err)
 	}
 	closeWS(t, first)
 
 	// Recreate the marker while a holder keeps db.lock shared.
-	holder := open(t, dir, embeddedSet(t))
+	holder := open(t, dir, v1Set(t))
 	defer closeWS(t, holder)
 	if err := createMarker(dir, markerVacuum); err != nil {
 		t.Fatal(err)
 	}
-	second, err := Open(context.Background(), dir, embeddedSet(t))
+	second, err := Open(context.Background(), dir, v1Set(t))
 	if err != nil {
 		t.Fatalf("Open with a pending rebuild and a shared holder: %v", err)
 	}
@@ -415,7 +423,7 @@ func TestBackupPartialCleanup(t *testing.T) {
 	if err := os.WriteFile(planted, []byte(sentinel), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	closeWS(t, open(t, dir, embeddedSet(t)))
+	closeWS(t, open(t, dir, v1Set(t)))
 	if _, err := os.Stat(planted); !os.IsNotExist(err) {
 		t.Errorf("planted .partial survived the migration (stat err=%v)", err)
 	}
@@ -463,7 +471,7 @@ func TestScrubCrashLeavesNoReasoning(t *testing.T) {
 		t.Fatalf("the crash left no journal holding the sentinel (err=%v); the test would prove nothing", err)
 	}
 
-	closeWS(t, open(t, dir, embeddedSet(t)))
+	closeWS(t, open(t, dir, v1Set(t)))
 	got := backups(t, dir)
 	if len(got) != 1 || strings.Contains(got[0], ".partial") {
 		t.Errorf("backups=%v, want exactly one durable backup and nothing of the interrupted attempt", got)
@@ -492,7 +500,7 @@ func TestBackupFailureLeavesNoAcceptedBackup(t *testing.T) {
 	}
 	t.Cleanup(func() { testHookAfterVACUUM = nil })
 
-	if _, err := Open(context.Background(), dir, embeddedSet(t)); !errors.Is(err, boom) {
+	if _, err := Open(context.Background(), dir, v1Set(t)); !errors.Is(err, boom) {
 		t.Fatalf("Open with a failing backup: err=%v, want the injected error", err)
 	}
 	if !sawPartial {
@@ -509,7 +517,7 @@ func TestBackupFailureLeavesNoAcceptedBackup(t *testing.T) {
 	}
 
 	testHookAfterVACUUM = nil
-	ws := open(t, dir, embeddedSet(t))
+	ws := open(t, dir, v1Set(t))
 	closeWS(t, ws)
 	if got := backups(t, dir); len(got) != 1 || strings.HasSuffix(got[0], ".partial") {
 		t.Errorf("backups after recovery=%v, want exactly one durable backup", got)
@@ -535,7 +543,7 @@ func TestCheckpointPendingMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ws := open(t, dir, embeddedSet(t))
+	ws := open(t, dir, v1Set(t))
 	if ws.From != 0 || ws.To != 1 {
 		t.Fatalf("From=%d To=%d", ws.From, ws.To)
 	}
@@ -551,7 +559,7 @@ func TestCheckpointPendingMarker(t *testing.T) {
 	if err := tx.Rollback(); err != nil {
 		t.Fatal(err)
 	}
-	ws = open(t, dir, embeddedSet(t))
+	ws = open(t, dir, v1Set(t))
 	if ws.From != 1 || ws.To != 1 {
 		t.Errorf("From=%d To=%d, want 1 -> 1", ws.From, ws.To)
 	}
@@ -580,7 +588,7 @@ func TestReasoningInLegacyWALIsTruncated(t *testing.T) {
 			bystander := inspect(t, filepath.Join(dir, dbFile))
 			qInt(t, bystander, `SELECT count(*) FROM sessions`)
 
-			ws := open(t, dir, embeddedSet(t))
+			ws := open(t, dir, v1Set(t))
 			if ws.From != 0 || ws.To != 1 {
 				t.Fatalf("From=%d To=%d", ws.From, ws.To)
 			}
