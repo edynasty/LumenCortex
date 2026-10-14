@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/runlock"
@@ -99,11 +98,17 @@ func Save(path string, cfg File, expectedDigest string) (string, error) {
 	return Digest(raw), nil
 }
 
-// lockSave takes the per-file save lock. The lock file lives in the user's temporary directory,
-// named by the hash of the target path, so it never appears in a workspace or the config directory.
+// lockSave takes the per-file save lock. The lock file lives in the user's cache directory, named
+// by the hash of the target path, so it never appears in a workspace or the config directory. It
+// is not the shared temporary directory, where another local user could create the lock
+// directory first and plant files or symlinks in it.
 func lockSave(path string) (func(), error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return nil, fmt.Errorf("config save: lock: %w", err)
+	}
 	sum := sha256.Sum256([]byte(path))
-	dir := filepath.Join(os.TempDir(), "lumencortex-config-locks-"+strconv.Itoa(os.Getuid()))
+	dir := filepath.Join(cache, appDirName, "config-locks")
 	id := hex.EncodeToString(sum[:16])
 	deadline := time.Now().Add(saveLockWait)
 	for {

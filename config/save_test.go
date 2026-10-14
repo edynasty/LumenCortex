@@ -1,10 +1,13 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -241,5 +244,38 @@ func TestSaveKeepsExplicitEmptyFailover(t *testing.T) {
 	doc, err := ReadDocument(path)
 	if err != nil || doc.File.Failover == nil {
 		t.Fatalf("doc=%+v err=%v", doc.File, err)
+	}
+}
+
+// The shared temporary directory (/tmp on Linux) is writable by every local user, who can create
+// a predictable lock directory first and plant files in it. Save must take its lock somewhere
+// private to the user, so a planted lock symlink is never followed and cannot block it.
+func TestSaveLockIsNotInTheSharedTempDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on Windows")
+	}
+	env(t)
+	shared := canon(t, t.TempDir())
+	t.Setenv("TMPDIR", shared)
+	path := filepath.Join(canon(t, t.TempDir()), FileName)
+
+	// What another user can prepare: the directory, world-writable, and a symlink named after the
+	// lock of path pointing at a file the victim can create.
+	squat := filepath.Join(shared, "lumencortex-config-locks-"+strconv.Itoa(os.Getuid()))
+	if err := os.Mkdir(squat, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chmod(squat, 0o777)
+	sum := sha256.Sum256([]byte(path))
+	victim := filepath.Join(canon(t, t.TempDir()), "planted")
+	if err := os.Symlink(victim, filepath.Join(squat, hex.EncodeToString(sum[:16])+".lock")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Save(path, sample("p/a"), ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(victim); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Save followed a lock symlink planted in the shared temp directory: %v", err)
 	}
 }
