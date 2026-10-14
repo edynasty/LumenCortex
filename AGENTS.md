@@ -144,6 +144,18 @@ For lifecycle, persistence, recovery, and concurrency changes:
 
 Do not infer correctness from implementation shape alone; use executable regression tests.
 
+## Durable reports and handoffs
+
+For substantial architecture/design reviews, implementation milestones, security audits, migration acceptance, and cross-repository handoffs, agents MUST write and maintain a readable Markdown report in the project files. A chat-only completion report is insufficient.
+
+- Use the existing canonical document when one exists. Otherwise use a descriptive path such as `docs/reports/<task>-<date>.md` (repository-specific work) or `../LumenCortex-architecture-audit/design/handoffs/<task>-<date>.md` (cross-repository design). Do not create redundant competing sources of truth.
+- Start the document when the task begins and update it as verified evidence, decisions, and progress become available; do not wait until the final chat response.
+- Record scope and exact baseline/commits; status (planned/implemented/validated/blocked); findings with severity and evidence; decisions (distinguish proposed from owner-approved); changes and affected files; tests actually run and results; unverified/platform limits; unresolved risks; next actions and handoff dependencies. Omit sections that are genuinely inapplicable.
+- Link to source code, tests, authoritative design and verification artifacts rather than copying large sections. Never put credentials, hidden model reasoning, raw private agent traces, or secret-bearing log output in reports.
+- Keep the report in sync with corrections. Final chat output SHOULD be a concise summary with the exact report path, commit state, and open blockers, not a substitute for the document.
+- When the report is inside a Git repository, include it in the task's commit without staging unrelated changes. If its directory is not version-controlled, disclose that limitation explicitly and retain the exact local path.
+- A brief chat summary is sufficient for trivial questions and tiny edits unless the user explicitly requests a document.
+
 ## Required validation
 
 At minimum, for affected Core Go code run the relevant focused tests during development, then:
