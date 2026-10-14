@@ -487,8 +487,10 @@ func decodeDecision(d Decision, in, out any) error {
 }
 
 // VerifyStep checks one agent_steps.json record (I7, I14): every decision replays, and the model that
-// answered (modelRef) is the first candidate or the target of a logged failover. A record without a
-// modelRef (written before the decision log) is not checked.
+// answered (modelRef) is the first candidate or the target of a logged failover. A failover must move
+// within the candidate list the step logged, and when the record carries the Start's model decision,
+// the candidate list must start from the model that decision resolved. A record without a modelRef
+// (written before the decision log) is not checked.
 func VerifyStep(raw json.RawMessage) error {
 	var step struct {
 		Step      int64           `json:"step"`
@@ -501,26 +503,45 @@ func VerifyStep(raw json.RawMessage) error {
 	if step.ModelRef == "" {
 		return nil
 	}
-	var current config.ModelRef
+	var current, resolved config.ModelRef
+	var logged []config.ModelRef
 	for i, d := range step.Decisions {
 		if err := ReplayDecision(d); err != nil {
 			return fmt.Errorf("step %d decision %d: %w", step.Step, i, err)
 		}
 		switch {
 		case d.Rule == RuleModelCandidates:
+			var in candidatesInputs
 			var out candidatesOutput
-			if err := json.Unmarshal(d.Output, &out); err != nil {
+			if err := decodeDecision(d, &in, &out); err != nil {
 				return err
+			}
+			if resolved != "" && in.Session != resolved {
+				return fmt.Errorf("step %d: candidates start from %s, but the Start resolved %s", step.Step, in.Session, resolved)
 			}
 			if len(out.Candidates) == 0 {
 				return fmt.Errorf("step %d: model answered although no candidate was logged", step.Step)
 			}
-			current = out.Candidates[0]
+			logged, current = out.Candidates, out.Candidates[0]
+		case d.Kind == DecisionModel:
+			var in modelInputs
+			var out modelOutput
+			if err := decodeDecision(d, &in, &out); err != nil {
+				return err
+			}
+			resolved = out.Ref
 		case d.Kind == DecisionFailover:
 			var in failoverInputs
 			var out failoverOutput
 			if err := decodeDecision(d, &in, &out); err != nil {
 				return err
+			}
+			refs := make([]config.ModelRef, len(in.Candidates))
+			for j, c := range in.Candidates {
+				refs[j] = c.Ref
+			}
+			if !slices.Equal(refs, logged) {
+				return fmt.Errorf("step %d: failover over %v, but the step logged candidates %v", step.Step, refs, logged)
 			}
 			if out.Next < 0 || out.Next >= len(in.Candidates) {
 				return fmt.Errorf("step %d: logged failover to index %d of %d", step.Step, out.Next, len(in.Candidates))

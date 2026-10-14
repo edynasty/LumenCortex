@@ -63,6 +63,7 @@ type stepEntry struct {
 	Step      int64            `json:"step"`
 	ModelRef  config.ModelRef  `json:"modelRef"`
 	Decisions []agent.Decision `json:"decisions"`
+	raw       json.RawMessage
 }
 
 func steps(t *testing.T, engine *Engine, id string) []stepEntry {
@@ -85,6 +86,7 @@ func steps(t *testing.T, engine *Engine, id string) []stepEntry {
 		}
 		var entry stepEntry
 		decodeJSON(t, []byte(raw), &entry)
+		entry.raw = json.RawMessage(raw)
 		out = append(out, entry)
 	}
 	return out
@@ -98,14 +100,13 @@ func rules(entry stepEntry) []string {
 	return out
 }
 
-// replayAll recomputes every logged decision from its recorded inputs (I7).
-func replayAll(t *testing.T, entries []stepEntry) {
+// verifyTrace checks every step record with agent.VerifyStep: each logged decision recomputes from
+// its recorded inputs (I7), and the model that answered is reached through logged moves (I14).
+func verifyTrace(t *testing.T, entries []stepEntry) {
 	t.Helper()
 	for _, entry := range entries {
-		for _, d := range entry.Decisions {
-			if err := agent.ReplayDecision(d); err != nil {
-				t.Errorf("step %d %s does not replay: %v", entry.Step, d.Rule, err)
-			}
+		if err := agent.VerifyStep(entry.raw); err != nil {
+			t.Errorf("step %d: %v\n%s", entry.Step, err, entry.raw)
 		}
 	}
 }
@@ -168,7 +169,7 @@ func TestSessionPinningAcrossConfigurationChanges(t *testing.T) {
 	if got := rules(all[len(all)-1])[0]; got != agent.RuleModelUser {
 		t.Fatalf("third run's model rule = %s, want %s", got, agent.RuleModelUser)
 	}
-	replayAll(t, all)
+	verifyTrace(t, all)
 }
 
 // Availability failover answers from the next candidate, records every decision, leaves the pinned
@@ -218,7 +219,7 @@ func TestAvailabilityFailoverKeepsPinAndChildInheritsIt(t *testing.T) {
 	if got := rules(entries[0]); !reflect.DeepEqual(got, want) {
 		t.Fatalf("decision trace %v, want %v", got, want)
 	}
-	replayAll(t, entries)
+	verifyTrace(t, entries)
 
 	// The child inherits sessions.model_ref (a), not the model that answered the parent (b).
 	controller := &subagentController{supervisor: supervisor, parentID: handle.ID, parentOpts: AgentOptions{}}
@@ -236,6 +237,7 @@ func TestAvailabilityFailoverKeepsPinAndChildInheritsIt(t *testing.T) {
 	if len(childSteps) == 0 || rules(childSteps[0])[0] != agent.RuleModelUser {
 		t.Fatalf("child steps=%+v, want its model logged as %s", childSteps, agent.RuleModelUser)
 	}
+	verifyTrace(t, childSteps)
 }
 
 // subagentModel overrides the parent's pin for children.
@@ -289,7 +291,7 @@ func TestCapacityFailoverNeedsALargerContext(t *testing.T) {
 	if got := rules(entries[0]); !strings.Contains(strings.Join(got, ","), agent.RuleFailoverPrefix+"capacity") {
 		t.Fatalf("trace %v lacks the capacity failover", got)
 	}
-	replayAll(t, entries)
+	verifyTrace(t, entries)
 
 	// Nothing larger: the run fails and says why.
 	useGlobalConfig(t, modelConfig(`"failover": ["test/b"]`))

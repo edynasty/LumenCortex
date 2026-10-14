@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -492,4 +495,89 @@ func containsString(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+// outageProvider fails its first request with an availability error carrying retryAfter, then
+// answers from script.
+type outageProvider struct {
+	scriptedProvider
+	retryAfter time.Duration
+	failed     bool
+}
+
+func (p *outageProvider) Complete(ctx context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+	if !p.failed {
+		p.failed = true
+		return protocol.ProviderResponse{}, &protocol.ProviderError{Class: protocol.ClassAvailability, RetryAfter: p.retryAfter, Err: errors.New("overloaded")}
+	}
+	return p.scriptedProvider.Complete(ctx, req)
+}
+
+// I14 across steps: after an availability failover the next step's candidate list leaves the failed
+// model out and says why, every step record replays and traces to the model that answered, the
+// provider's Retry-After sets how long the model stays out, and a later success clears the mark.
+func TestLoopFailoverTraceAcrossStepsAndHealth(t *testing.T) {
+	const a, b = config.ModelRef("test/a"), config.ModelRef("test/b")
+	now := time.Unix(1_000_000, 0)
+	health := NewHealth(func() time.Time { return now })
+	pa := &outageProvider{retryAfter: time.Hour}
+	pb := &scriptedProvider{responses: []protocol.ProviderResponse{
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c1", "shell", `{"command":"ok"}`)}}, FinishReason: "tool_calls"},
+		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
+	}}
+	store := &memoryStore{state: SessionState{ID: "trace", Goal: "trace", Status: "running", Metadata: map[string]any{}}, steps: map[int64]any{}}
+	loop := Loop{Models: map[config.ModelRef]Model{a: testModel(a, pa), b: testModel(b, pb)}, Health: health, Store: store, Tools: fakeTools{}}
+	_, _, startDecision := ModelDecision("", a, a, "sha256:cfg")
+	result, err := loop.Run(context.Background(), "trace", Options{Session: a, Failover: []config.ModelRef{b}, MaxSteps: 4, Decisions: []Decision{startDecision}})
+	if err != nil || result.Status != StatusCompleted || result.Final != "done" {
+		t.Fatalf("result %+v err %v", result, err)
+	}
+	if len(store.steps) != 2 {
+		t.Fatalf("steps=%d, want 2", len(store.steps))
+	}
+	for step := int64(1); step <= 2; step++ {
+		raw, err := json.Marshal(store.steps[step])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := VerifyStep(raw); err != nil {
+			t.Fatalf("step %d: %v\n%s", step, err, raw)
+		}
+		rec := store.steps[step].(stepRecord)
+		if rec.ModelRef != b {
+			t.Fatalf("step %d answered by %s, want %s", step, rec.ModelRef, b)
+		}
+	}
+	second := store.steps[2].(stepRecord)
+	var in candidatesInputs
+	var out candidatesOutput
+	if err := decodeDecision(second.Decisions[0], &in, &out); err != nil || second.Decisions[0].Rule != RuleModelCandidates {
+		t.Fatalf("step 2 starts with %s (%v), want %s", second.Decisions[0].Rule, err, RuleModelCandidates)
+	}
+	if in.Session != a || !slices.Equal(in.Unavailable, []config.ModelRef{a}) || !slices.Equal(out.Candidates, []config.ModelRef{b}) {
+		t.Fatalf("step 2 candidates: session %s unavailable %v -> %v", in.Session, in.Unavailable, out.Candidates)
+	}
+
+	// The model stays out for the hour the provider asked for, not the 30 s default.
+	now = now.Add(31 * time.Minute)
+	if health.Available(a) {
+		t.Fatal("the provider's Retry-After was not recorded: the model came back after the default window")
+	}
+	now = now.Add(30 * time.Minute)
+	if !health.Available(a) {
+		t.Fatal("the model is still out after its Retry-After")
+	}
+
+	// A success clears a mark that has not expired. With every candidate marked, the registry is
+	// advisory and the run still uses a; its answer must clear a.
+	health.Fail(a, time.Hour)
+	pa.scriptedProvider.responses = []protocol.ProviderResponse{{Message: protocol.Message{Content: "a is back"}, FinishReason: "stop"}}
+	store2 := &memoryStore{state: SessionState{ID: "back", Goal: "back", Status: "running", Metadata: map[string]any{}}, steps: map[int64]any{}}
+	loop.Store = store2
+	if r, err := loop.Run(context.Background(), "back", Options{Session: a, MaxSteps: 2}); err != nil || r.Final != "a is back" {
+		t.Fatalf("result %+v err %v", r, err)
+	}
+	if !health.Available(a) {
+		t.Fatal("a success did not clear the model's mark")
+	}
 }

@@ -292,6 +292,60 @@ func TestDecisionReplay(t *testing.T) {
 	}
 }
 
+// I14: a step record passes VerifyStep only when the model that answered is reached from the Start's
+// model and the logged candidate list through logged failover moves.
+func TestVerifyStepEnforcesTheI14Trace(t *testing.T) {
+	models := catalog(
+		Candidate{Ref: "p/a", Context: 8000, Output: 1000, ToolCalling: true},
+		Candidate{Ref: "p/b", Context: 8000, Output: 1000, ToolCalling: true},
+		Candidate{Ref: "p/c", Context: 64000, Output: 1000, ToolCalling: true},
+		Candidate{Ref: "p/x", Context: 64000, Output: 1000, ToolCalling: true},
+	)
+	_, _, model := ModelDecision("", "p/a", "p/d", "sha256:cfg")
+	cands, candidates := CandidatesDecision("p/a", []config.ModelRef{"p/b"}, models, 100, 0, nil)
+	_, effort := EffortDecision("", "", nil)
+	_, failover := FailoverDecision(cands, 0, protocol.ClassAvailability)
+	// A failover over a list the step never logged: p/x was not a candidate.
+	_, offList := FailoverDecision([]Candidate{models["p/a"], models["p/x"]}, 0, protocol.ClassAvailability)
+	// Candidates computed from a model the Start did not resolve.
+	_, wrongSession := CandidatesDecision("p/c", nil, models, 100, 0, nil)
+	// The same move logged twice: the second leaves p/a while the run is already on p/b.
+	fromA := failover
+	forged := candidates
+	forged.Output = json.RawMessage(`{"candidates":["p/b"]}`)
+
+	record := func(answered config.ModelRef, ds ...Decision) json.RawMessage {
+		raw, err := json.Marshal(stepRecord{Step: 1, ModelRef: answered, Decisions: ds})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	cases := []struct {
+		name string
+		raw  json.RawMessage
+		ok   bool
+	}{
+		{"first candidate answers", record("p/a", model, candidates, effort), true},
+		{"logged failover answers", record("p/b", model, candidates, effort, failover, effort), true},
+		{"later step without the Start decision", record("p/a", candidates, effort), true},
+		{"record without modelRef is not checked", record(""), true},
+		{"answered by a model without a logged move", record("p/b", model, candidates, effort), false},
+		{"failover over an unlogged candidate list", record("p/x", model, candidates, effort, offList, effort), false},
+		{"candidates from a model the Start did not resolve", record("p/c", model, wrongSession, effort), false},
+		{"failover from a model the run was not on", record("p/b", model, candidates, effort, failover, effort, fromA, effort), false},
+		{"failover before any candidate list", record("p/b", model, failover, effort), false},
+		{"no candidate list", record("p/a", model, effort), false},
+		{"forged decision", record("p/b", model, forged, effort), false},
+	}
+	for _, c := range cases {
+		err := VerifyStep(c.raw)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: VerifyStep = %v, want ok=%v", c.name, err, c.ok)
+		}
+	}
+}
+
 func containsFold(s, sub string) bool {
 	return len(sub) > 0 && len(s) >= len(sub) && (func() bool {
 		for i := 0; i+len(sub) <= len(s); i++ {
