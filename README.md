@@ -496,7 +496,7 @@ Agent tools expose the same rename/code-action path. Workspace edits are prevali
 
 The Go runtime can isolate a Session in a managed Git worktree. Agent tools, shell, LSP and repository operations use that session workspace; safe handoff/apply checks dirty targets and overlapping files before bringing committed work back.
 
-Only the session that created a worktree owns it; read-only subagents borrow it and can only unbind. Runs and host writes hold a cross-process lease on the worktree, so remove, discard, apply and deletion fail with `ErrWorktreeBusy` while it is in use. Removal and session deletion refuse by default when the worktree has uncommitted changes, unapplied commits or uncertain ownership; `--keep-branch` keeps the branch, and `--discard` destroys only the HEAD and status digest that `worktree inspect` printed ([ADR-0005](docs/adr/0005-session-worktree-ownership-and-deletion.md)).
+Only the session that created a worktree owns it; read-only subagents borrow it and can only unbind. Runs and host writes hold a cross-process lease on the worktree, so remove, discard, apply and deletion fail with `ErrWorktreeBusy` while it is in use; concurrent applies are serialized on the main checkout. Removal and session deletion refuse by default when the worktree has uncommitted changes, unapplied commits, ignored files (such as `.env` or `node_modules/`, which `git worktree remove` would delete) or uncertain ownership; `--keep-branch` keeps the branch, and `--discard` destroys only the state (HEAD and status digest) that `worktree inspect` printed ([ADR-0005](docs/adr/0005-session-worktree-ownership-and-deletion.md)).
 
 ```bash
 lcx-go worktree attach <session-id> [base]

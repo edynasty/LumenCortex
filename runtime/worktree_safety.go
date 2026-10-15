@@ -25,6 +25,7 @@ var (
 	ErrWorktreeMissing      = errors.New("session worktree directory is missing")
 	ErrDiscardStale         = errors.New("session worktree changed since the discard was authorized")
 	ErrSessionHasDependents = errors.New("session has descendant sessions that need explicit handling")
+	ErrWorktreeIgnored      = errors.New("session worktree has ignored files that removal would delete")
 )
 
 // Worktree roles of a bound session.
@@ -68,7 +69,14 @@ type WorktreeInspection struct {
 	Head string `json:"head,omitempty"`
 	// TargetHead is the main checkout's HEAD that UnappliedCommits is measured against.
 	TargetHead       string   `json:"targetHead,omitempty"`
-	DirtyFiles       []string `json:"dirtyFiles,omitempty"`
+	DirtyFiles []string `json:"dirtyFiles,omitempty"`
+	// IgnoredFiles are ignored entries ("dir/" for a fully ignored directory) that git
+	// reports clean but removing the directory deletes: build output, dependencies,
+	// local configuration such as .env. IgnoredTruncated: the list is a prefix.
+	IgnoredFiles     []string `json:"ignoredFiles,omitempty"`
+	IgnoredTruncated bool     `json:"ignoredTruncated,omitempty"`
+	// StatusDigest covers the dirty and ignored listings and the size, mode and mtime
+	// of every listed path.
 	StatusDigest     string   `json:"statusDigest,omitempty"`
 	UnappliedCommits []string `json:"unappliedCommits,omitempty"`
 	// Uncertain says why ownership could not be established.
@@ -77,11 +85,13 @@ type WorktreeInspection struct {
 
 // WorktreeCleanup selects what a removal may do beyond the safe default.
 type WorktreeCleanup struct {
-	// KeepBranch removes a clean worktree directory but keeps its branch, and for an
-	// uncertain binding leaves the disk untouched.
+	// KeepBranch removes the worktree directory, including its ignored files, when it
+	// has no uncommitted changes, and keeps its branch; for an uncertain binding it
+	// leaves the disk untouched.
 	KeepBranch bool `json:"keepBranch,omitempty"`
-	// Discard authorizes destroying uncommitted changes and unapplied commits. It is
-	// honoured only while the worktree still has the inspected HEAD and status.
+	// Discard authorizes destroying uncommitted changes, ignored files and unapplied
+	// commits. It is honoured only while the worktree still has the inspected HEAD and
+	// status digest.
 	Discard *WorktreeDiscard `json:"discard,omitempty"`
 }
 
@@ -103,6 +113,8 @@ type WorktreeCleanupResult struct {
 	Discarded        bool   `json:"discarded,omitempty"`
 	// Commits are the unapplied commits that were kept on the branch or discarded.
 	Commits []string `json:"commits,omitempty"`
+	// IgnoredFiles are the ignored entries deleted with the directory.
+	IgnoredFiles []string `json:"ignoredFiles,omitempty"`
 }
 
 // WorktreeRefusal is a cleanup the safe default refused. Err is one of the
@@ -119,6 +131,8 @@ func (r *WorktreeRefusal) Error() string {
 		return fmt.Sprintf("%v: %d file(s) in %s, e.g. %s", r.Err, len(in.DirtyFiles), in.Path, strings.Join(firstN(in.DirtyFiles, 5), ", "))
 	case errors.Is(r.Err, ErrWorktreeUnapplied):
 		return fmt.Sprintf("%v: %d commit(s) on %s; keep the branch or discard explicitly", r.Err, len(in.UnappliedCommits), in.Branch)
+	case errors.Is(r.Err, ErrWorktreeIgnored):
+		return fmt.Sprintf("%v: %d entr(ies) in %s, e.g. %s; keep the branch or discard explicitly", r.Err, len(in.IgnoredFiles), in.Path, strings.Join(firstN(in.IgnoredFiles, 5), ", "))
 	case errors.Is(r.Err, ErrWorktreeOwnership):
 		return fmt.Sprintf("%v: %s (%s)", r.Err, in.Uncertain, in.Path)
 	default:
@@ -265,6 +279,7 @@ func (e *Engine) inspectWorktree(ctx context.Context, sessionID string, identity
 			return out, err
 		}
 		out.DirtyFiles, out.StatusDigest = status.Files, status.Digest
+		out.IgnoredFiles, out.IgnoredTruncated = status.Ignored, status.IgnoredTruncated
 	} else {
 		out.Registered = registered != nil
 		out.Head = branchHead
@@ -355,11 +370,18 @@ func planCleanup(in WorktreeInspection, opts WorktreeCleanup) (cleanupPlan, erro
 		return refuse(ErrWorktreeDirty)
 	case len(in.UnappliedCommits) > 0 && !opts.KeepBranch:
 		return refuse(ErrWorktreeUnapplied)
+	case len(in.IgnoredFiles) > 0 && !opts.KeepBranch:
+		// git worktree remove deletes ignored files without --force; the safe default
+		// destroys nothing git cannot restore (ADR-0005 §5).
+		return refuse(ErrWorktreeIgnored)
 	case opts.KeepBranch:
 		plan.result.BranchKept = in.BranchExists
 		plan.result.Commits = in.UnappliedCommits
 	default:
 		plan.deleteBranch = in.BranchExists
+	}
+	if plan.remove {
+		plan.result.IgnoredFiles = in.IgnoredFiles
 	}
 	return plan, nil
 }

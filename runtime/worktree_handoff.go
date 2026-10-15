@@ -7,7 +7,12 @@ import (
 	"sort"
 
 	"github.com/edynasty/LumenCortex/internal/repository"
+	"github.com/edynasty/LumenCortex/internal/runlock"
 )
+
+// targetCheckoutLeaseID names the lease that serializes writes Apply makes to the
+// main checkout.
+const targetCheckoutLeaseID = "target_checkout"
 
 type WorktreeHandoffPlan struct {
 	SessionID        string         `json:"sessionId"`
@@ -141,6 +146,18 @@ func (e *Engine) ApplySessionWorktree(ctx context.Context, sessionID string) (Wo
 		}
 		defer lease.Release()
 	}
+	// The cherry-pick writes the main checkout, which no source lease covers. One
+	// exclusive target lease serializes Applies across sessions and processes, so the
+	// plan is computed and executed against the same target HEAD and a failed pick
+	// never aborts another Apply's sequence.
+	target, err := runlock.TryAcquire(e.runDir(), targetCheckoutLeaseID)
+	if errors.Is(err, runlock.ErrHeld) {
+		return WorktreeApplyResult{}, fmt.Errorf("%w: another apply is updating the main checkout", ErrWorktreeBusy)
+	}
+	if err != nil {
+		return WorktreeApplyResult{}, err
+	}
+	defer target.Release()
 	plan, err := e.WorktreeHandoffPlan(ctx, sessionID)
 	if err != nil {
 		return WorktreeApplyResult{}, err

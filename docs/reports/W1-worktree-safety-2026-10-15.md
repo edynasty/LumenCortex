@@ -83,3 +83,26 @@ Results:
 ## Next
 
 W2 (Desktop, paired): bump the Core pin, add a delete/remove dialog on `InspectSessionWorktree`, and drop the in-process guard. Then M3.1 per the review roadmap.
+
+## Follow-up (W2 safety review, 2026-10-15)
+
+Reviewed before the Desktop integration (W2). Separate Core commit on top of `1d9cc6b`.
+
+| Finding | Severity | Evidence | Fix |
+|---|---|---|---|
+| `git worktree remove` without `--force` deletes ignored files (`.env`, `node_modules/`) of a worktree that `git status --porcelain` reports clean. W1's default cleanup and `KeepBranch` therefore deleted local configuration without listing it. The discard digest did not cover it. | High (silent loss of local config) | Shell experiment: clean status, removal succeeded, `.env` gone | Inspection lists ignored entries (collapsed `dir/`, capped). The default refuses with `ErrWorktreeIgnored`. `KeepBranch`/`Discard` remove them, and the result lists them |
+| The discard digest hashed git's listing only, so editing an already-dirty file after inspection did not make the discard stale. This contradicted "destroys only what was shown". | Medium | Code reading; regression test | Digest adds size, mode and mtime of every listed path |
+| Concurrent `ApplySessionWorktree` from independent sessions were not serialized on the main checkout. 36 of 40 single-commit pairs failed with raw `index.lock`/sequencer errors. The loser's failure path ran `git cherry-pick --abort`, which can abort the winner's sequence. Plans were computed against a moving target HEAD. | High (lost or aborted applies) | Throwaway probe with 40 rounds (removed) | Exclusive `target_checkout` lease from plan through pick (`ErrWorktreeBusy`). `GitCherryPick` refuses when an operation is already in progress, so its abort only undoes its own pick |
+
+New tests:
+
+- `TestIgnoredFilesStopTheSafeDefault`;
+- `TestDiscardIsStaleAfterAListedFileIsEdited`;
+- `TestConcurrentAppliesAreSerializedOnTheTarget`: every failure is `ErrWorktreeBusy`, the retry applies, and the checkout ends with exactly 7 commits and clean;
+- `TestApplyRefusesWhileTheTargetIsLeased`;
+- `TestApplyDoesNotAbortAnotherCherryPick`.
+
+**Residual:**
+
+- Local-runtime runs do not take the target lease; Apply's target-dirty check is their guard.
+- The mtime granularity limit in ADR-0005 still applies.

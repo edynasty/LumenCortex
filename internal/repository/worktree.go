@@ -1,10 +1,13 @@
 package repository
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -86,16 +89,25 @@ func (s *Service) GitRemoveWorktree(ctx context.Context, path string, force bool
 	return err
 }
 
-// WorktreeStatus is the uncommitted state of a working tree: the dirty paths
-// (tracked and untracked, not ignored) and a digest of git's full status output,
-// which changes whenever any of them changes.
+// WorktreeStatus is the uncommitted state of a working tree:
+//   - Files: the dirty paths (tracked and untracked, not ignored);
+//   - Ignored: the ignored entries, a fully ignored directory as one "dir/" entry,
+//     which `git worktree remove` deletes although git reports the tree clean;
+//   - Digest: covers both git listings plus the size, mode and mtime of every listed
+//     path, so it changes when a listed file is edited, not only when the list does.
 type WorktreeStatus struct {
-	Files  []string `json:"files"`
-	Digest string   `json:"digest"`
+	Files   []string `json:"files"`
+	Ignored []string `json:"ignored"`
+	// IgnoredTruncated: git listed more ignored entries than MaxStatusBytes holds;
+	// Ignored is a prefix.
+	IgnoredTruncated bool   `json:"ignoredTruncated,omitempty"`
+	Digest           string `json:"digest"`
 }
 
-// GitWorktreeStatus reads the status of the service's working tree. A status larger
-// than MaxStatusBytes is an error: a partial list cannot prove what would be lost.
+// GitWorktreeStatus reads the status of the service's working tree. A dirty listing
+// larger than MaxStatusBytes is an error: a partial list cannot prove what would be
+// lost. An over-long ignored listing is kept as a prefix; any ignored entry already
+// stops the safe default.
 func (s *Service) GitWorktreeStatus(ctx context.Context) (WorktreeStatus, error) {
 	raw, truncated, err := runBounded(ctx, s.workspace, MaxStatusBytes, "git", "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
@@ -104,11 +116,42 @@ func (s *Service) GitWorktreeStatus(ctx context.Context) (WorktreeStatus, error)
 	if truncated {
 		return WorktreeStatus{}, errors.New("worktree status exceeded runtime limit")
 	}
-	sum := sha256.Sum256(raw)
-	out := WorktreeStatus{Files: []string{}, Digest: "sha256:" + hex.EncodeToString(sum[:])}
+	// Traditional mode with normal untracked listing collapses an ignored directory
+	// into one entry, so node_modules stays one line.
+	ignoredRaw, ignoredTruncated, err := runBounded(ctx, s.workspace, MaxStatusBytes, "git", "status", "--porcelain=v1", "-z", "--ignored=traditional", "--untracked-files=normal")
+	if err != nil {
+		return WorktreeStatus{}, err
+	}
+	if ignoredTruncated {
+		// Drop the entry the limit cut in half.
+		if i := bytes.LastIndexByte(ignoredRaw, 0); i >= 0 {
+			ignoredRaw = ignoredRaw[:i+1]
+		} else {
+			ignoredRaw = nil
+		}
+	}
+	out := WorktreeStatus{Files: []string{}, Ignored: []string{}, IgnoredTruncated: ignoredTruncated}
 	for _, file := range parseStatus(raw) {
 		out.Files = append(out.Files, file.Path)
 	}
+	for _, file := range parseStatus(ignoredRaw) {
+		if file.Index == "!" {
+			out.Ignored = append(out.Ignored, file.Path)
+		}
+	}
+	hash := sha256.New()
+	hash.Write(raw)
+	hash.Write([]byte{0, 0})
+	hash.Write(ignoredRaw)
+	for _, path := range append(append([]string(nil), out.Files...), out.Ignored...) {
+		fmt.Fprintf(hash, "\x00%s\x00", path)
+		if info, err := os.Lstat(filepath.Join(s.workspace, filepath.FromSlash(strings.TrimSuffix(path, "/")))); err == nil {
+			fmt.Fprintf(hash, "%d:%o:%d", info.Size(), info.Mode(), info.ModTime().UnixNano())
+		} else {
+			hash.Write([]byte("absent"))
+		}
+	}
+	out.Digest = "sha256:" + hex.EncodeToString(hash.Sum(nil))
 	return out, nil
 }
 

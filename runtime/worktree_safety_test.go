@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/runlock"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -691,5 +693,189 @@ func TestConcurrentWorktreeUseAndDeletion(t *testing.T) {
 	}
 	if pathExists(identity.Path) || branchExists(root, identity.Branch) {
 		t.Fatal("the worktree survived the deletion")
+	}
+}
+
+// ignoredWorktree attaches a worktree to a repository that ignores .env and
+// node_modules/, and creates both in it: git reports the worktree clean.
+func ignoredWorktree(t *testing.T) (*Engine, string, *SessionHandle, SessionRuntime) {
+	t.Helper()
+	engine, root := worktreeEngine(t)
+	commitIn(t, root, ".gitignore", ".env\nnode_modules/\n")
+	handle, identity := attachedSession(t, engine, "ignored")
+	if err := os.WriteFile(filepath.Join(identity.Path, ".env"), []byte("TOKEN=local\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(identity.Path, "node_modules", "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(identity.Path, "node_modules", "pkg", "index.js"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return engine, root, handle, identity
+}
+
+// git worktree remove deletes ignored files of a worktree git reports clean; the
+// safe default must refuse and report them.
+func TestIgnoredFilesStopTheSafeDefault(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("default refuses and lists them", func(t *testing.T) {
+		engine, _, handle, identity := ignoredWorktree(t)
+		for _, attempt := range []func() error{
+			func() error { _, err := engine.RemoveSessionWorktree(ctx, handle.ID, WorktreeCleanup{}); return err },
+			func() error { _, err := engine.DeleteSession(ctx, handle.ID, WorktreeCleanup{}); return err },
+		} {
+			r := refusal(t, attempt(), ErrWorktreeIgnored)
+			if len(r.Inspection.DirtyFiles) != 0 || !slices.Equal(r.Inspection.IgnoredFiles, []string{".env", "node_modules/"}) {
+				t.Fatalf("dirty=%v ignored=%v", r.Inspection.DirtyFiles, r.Inspection.IgnoredFiles)
+			}
+		}
+		if !pathExists(filepath.Join(identity.Path, ".env")) {
+			t.Fatal("a refused cleanup deleted the ignored .env")
+		}
+	})
+
+	t.Run("keep branch removes them explicitly", func(t *testing.T) {
+		engine, root, handle, identity := ignoredWorktree(t)
+		result, err := engine.RemoveSessionWorktree(ctx, handle.ID, WorktreeCleanup{KeepBranch: true})
+		if err != nil || !result.DirectoryRemoved || !slices.Equal(result.IgnoredFiles, []string{".env", "node_modules/"}) {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+		if pathExists(identity.Path) || !branchExists(root, identity.Branch) {
+			t.Fatal("KeepBranch must remove the directory and keep the branch")
+		}
+	})
+
+	t.Run("discard is stale after an ignored file changes", func(t *testing.T) {
+		engine, root, handle, identity := ignoredWorktree(t)
+		in, err := engine.InspectSessionWorktree(ctx, handle.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(identity.Path, ".env"), []byte("TOKEN=edited-after-inspection\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err = engine.DeleteSession(ctx, handle.ID, WorktreeCleanup{Discard: &WorktreeDiscard{ExpectHead: in.Head, ExpectStatusDigest: in.StatusDigest}})
+		refusal(t, err, ErrDiscardStale)
+		result := discardWorktree(t, engine, handle.ID)
+		if !result.Discarded || !result.DirectoryRemoved || len(result.IgnoredFiles) != 2 || branchExists(root, identity.Branch) {
+			t.Fatalf("result=%+v", result)
+		}
+	})
+}
+
+// The discard digest covers file state, not only git's listing: editing a file that
+// was already dirty when inspected makes the authorization stale.
+func TestDiscardIsStaleAfterAListedFileIsEdited(t *testing.T) {
+	ctx := context.Background()
+	engine, _ := worktreeEngine(t)
+	handle, identity := attachedSession(t, engine, "edit")
+	draft := filepath.Join(identity.Path, "draft.txt")
+	if err := os.WriteFile(draft, []byte("first\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in, err := engine.InspectSessionWorktree(ctx, handle.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(draft, []byte("first, then more work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = engine.RemoveSessionWorktree(ctx, handle.ID, WorktreeCleanup{Discard: &WorktreeDiscard{ExpectHead: in.Head, ExpectStatusDigest: in.StatusDigest}})
+	refusal(t, err, ErrDiscardStale)
+	if body, _ := os.ReadFile(draft); string(body) != "first, then more work\n" {
+		t.Fatal("a stale discard destroyed the newer edit")
+	}
+}
+
+// Apply writes the main checkout. Concurrent Applies from independent sessions are
+// serialized by the target lease: each either applies or fails with ErrWorktreeBusy
+// before touching git, never with git's own lock errors, and a retry applies it.
+func TestConcurrentAppliesAreSerializedOnTheTarget(t *testing.T) {
+	ctx := context.Background()
+	for round := range 8 {
+		engine, root := worktreeEngine(t)
+		var ids []string
+		for i := range 2 {
+			handle, identity := attachedSession(t, engine, fmt.Sprint("apply ", i))
+			for c := range 3 {
+				commitIn(t, identity.Path, fmt.Sprintf("s%d_%d.txt", i, c), "x\n")
+			}
+			ids = append(ids, handle.ID)
+		}
+		errs := make([]error, len(ids))
+		var wg sync.WaitGroup
+		for i, id := range ids {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, errs[i] = engine.ApplySessionWorktree(ctx, id)
+			}()
+		}
+		wg.Wait()
+		for i, err := range errs {
+			if err == nil {
+				continue
+			}
+			if !errors.Is(err, ErrWorktreeBusy) {
+				t.Fatalf("round %d: apply %d failed outside the contract: %v", round, i, err)
+			}
+			if _, err := engine.ApplySessionWorktree(ctx, ids[i]); err != nil {
+				t.Fatalf("round %d: retry of apply %d: %v", round, i, err)
+			}
+		}
+		if got := strings.Count(gitIn(t, root, "log", "--oneline"), "\n") + 1; got != 1+6 { // initial commit and both sessions' picks
+			t.Fatalf("round %d: main has %d commits:\n%s", round, got, gitIn(t, root, "log", "--oneline"))
+		}
+		if status := gitIn(t, root, "status", "--porcelain"); status != "" {
+			t.Fatalf("round %d: main checkout left dirty: %q", round, status)
+		}
+	}
+}
+
+// A held target lease refuses Apply before any git command runs.
+func TestApplyRefusesWhileTheTargetIsLeased(t *testing.T) {
+	ctx := context.Background()
+	engine, root := worktreeEngine(t)
+	handle, identity := attachedSession(t, engine, "apply")
+	commitIn(t, identity.Path, "feature.txt", "x\n")
+	before := gitIn(t, root, "rev-parse", "HEAD")
+
+	peer := openEngineAt(t, root)
+	held, err := runlock.TryAcquire(peer.runDir(), targetCheckoutLeaseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.ApplySessionWorktree(ctx, handle.ID); !errors.Is(err, ErrWorktreeBusy) {
+		t.Fatalf("apply while the target is leased: err=%v, want ErrWorktreeBusy", err)
+	}
+	if gitIn(t, root, "rev-parse", "HEAD") != before {
+		t.Fatal("a refused apply moved the main checkout")
+	}
+	if err := held.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.ApplySessionWorktree(ctx, handle.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A git operation already in progress in the main checkout (here another process's
+// cherry-pick) is refused untouched: Apply's failure path must not abort it.
+func TestApplyDoesNotAbortAnotherCherryPick(t *testing.T) {
+	ctx := context.Background()
+	engine, root := worktreeEngine(t)
+	handle, identity := attachedSession(t, engine, "apply")
+	commitIn(t, identity.Path, "feature.txt", "x\n")
+	marker := filepath.Join(root, ".git", "CHERRY_PICK_HEAD")
+	if err := os.WriteFile(marker, []byte(gitIn(t, root, "rev-parse", "HEAD")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.ApplySessionWorktree(ctx, handle.ID); err == nil || !strings.Contains(err.Error(), "in progress") {
+		t.Fatalf("apply during another cherry-pick: err=%v", err)
+	}
+	if !pathExists(marker) {
+		t.Fatal("Apply aborted a cherry-pick it did not start")
 	}
 }

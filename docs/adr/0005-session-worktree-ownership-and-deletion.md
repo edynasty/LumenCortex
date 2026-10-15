@@ -1,6 +1,6 @@
 # ADR-0005: Session worktree ownership, leases and deletion
 
-- **Status:** Accepted (owner decisions D5 and Decision 3, 2026-10-15); implemented by W1
+- **Status:** Accepted (owner decisions D5 and Decision 3, 2026-10-15); implemented by W1, amended by the W1 follow-up (ignored files, discard digest, target lease for Apply)
 - **Date:** 2026-10-15
 - **Owners:** project owner
 - **Supersedes:** none. Amends design §4.2, §4.3, §7 and §8.2 (adds W1/W2 ahead of M3.1)
@@ -51,6 +51,14 @@ Ownership is re-checked against Git under the exclusive lease, before anything d
 - It is deleted only after the owner session is deleted. A later process that opens a stale descriptor finds no directory and no session, and fails.
 - flock locks belong to the open file description and are released on process death, `kill -9` included (`internal/runlock`).
 
+**Target checkout lease.** Apply writes the main checkout, which no worktree lease covers. Apply therefore also takes an exclusive `runlock` with id `target_checkout`, from before the plan until after the cherry-pick. A held lease → `ErrWorktreeBusy` before any git command runs.
+
+Without it, concurrent Applies from independent sessions collided on git's `index.lock` or sequencer: 36 of 40 probe pairs failed with raw git errors. The loser's failure path ran `git cherry-pick --abort`, which can abort the winner's sequence.
+
+`GitCherryPick` refuses when the checkout already has a cherry-pick, revert, merge or rebase in progress, so its abort only ever undoes a pick it started.
+
+Runs in the main workspace (local runtime) do not take this lease. Apply's target-dirty check is their only guard.
+
 ### 3. Run lock
 
 `AttachWorktree`, `RemoveSessionWorktree`, `ApplySessionWorktree` and `DeleteSession` take the session's run lock (`ErrRunHeld`) before the lease.
@@ -62,7 +70,9 @@ Ownership is re-checked against Git under the exclusive lease, before anything d
 - role and owner; path and branch;
 - whether the directory exists and is registered;
 - HEAD: the worktree's HEAD, or the branch tip when the directory is missing;
-- the dirty files, including untracked ones, with a status digest (SHA-256 of `git status --porcelain=v1 -z --untracked-files=all`);
+- the dirty files, including untracked ones;
+- the ignored entries that removing the directory would delete, with a fully ignored directory as one `dir/` entry (`git status --ignored=traditional --untracked-files=normal`);
+- a status digest: SHA-256 over both git listings plus the size, mode and mtime of every listed path. Editing a file that was already listed therefore also makes a discard stale;
 - the unapplied commits.
 
 **Unapplied commits** are `git cherry <main checkout HEAD> <worktree HEAD>`: commits whose patch is not in the main checkout's current HEAD. This is deliberately conservative: work applied only to another branch counts as unapplied.
@@ -78,8 +88,9 @@ Applies to `RemoveSessionWorktree` (the session stays, unbound) and to `DeleteSe
 
 | Owner's worktree | default | `KeepBranch` | `Discard` (matching) |
 |---|---|---|---|
-| clean, no unapplied commits | remove directory, delete branch | remove directory, keep branch | remove directory, delete branch |
+| clean, no unapplied commits, no ignored entries | remove directory, delete branch | remove directory, keep branch | remove directory, delete branch |
 | unapplied commits | `ErrWorktreeUnapplied` | remove directory, keep branch | force remove, delete branch |
+| ignored entries (`.env`, `node_modules/`, build output) | `ErrWorktreeIgnored` | remove directory with them, keep branch | force remove, delete branch |
 | dirty (tracked or untracked) | `ErrWorktreeDirty` | `ErrWorktreeDirty` | force remove, delete branch |
 | directory missing, branch absent | prune | prune | prune |
 | directory missing, branch has unapplied commits | `ErrWorktreeUnapplied` | prune, keep branch | prune, delete branch |
@@ -87,7 +98,7 @@ Applies to `RemoveSessionWorktree` (the session stays, unbound) and to `DeleteSe
 | uncertain ownership | `ErrWorktreeOwnership` | touch nothing on disk; unbind/delete; report the retained path | `ErrWorktreeOwnership` |
 | borrower | unbind only | unbind only | `ErrWorktreeBorrowed` |
 
-Refusals are typed errors (`*WorktreeRefusal`) that carry the inspection (files, commits, HEAD, digest), so a host can show what to do next.
+Refusals are typed errors (`*WorktreeRefusal`) that carry the inspection (files, ignored entries, commits, HEAD, digest), so a host can show what to do next. When several rows apply, the first refusal in the order dirty → unapplied → ignored is returned, and the inspection lists all of them. Results list the ignored entries that were deleted.
 
 ### 6. Child sessions (owner Decision 3)
 
@@ -123,14 +134,16 @@ A `Discard` interrupted after the directory was removed needs a fresh authorizat
 
 ## Invariants
 
-- No Core operation removes a worktree directory or branch that holds uncommitted changes or unapplied commits, except under a `Discard` whose expected state matches the state found under the exclusive lease.
+- No Core operation removes a worktree directory or branch that holds uncommitted changes, unapplied commits or ignored files, except under an explicit `KeepBranch` (which keeps the commits on the branch and is refused for uncommitted changes) or a `Discard` whose expected state matches the state found under the exclusive lease. The safe default never destroys anything Git cannot restore.
+- At most one Apply writes the main checkout at a time, across sessions and processes.
 - No borrower or uncertain binding causes removal of a worktree directory or branch.
 - No worktree is removed, discarded or applied while any agent run or worktree-writing host operation, in any process, holds its lease.
 - Deletion never removes a running, worktree-owning or non-subagent descendant.
 
 ## Limits
 
-- `git worktree remove` also deletes **ignored** files in the worktree (build output, local `.env`). They are neither dirty nor committed, which is ordinary Git behaviour.
+- `git worktree remove` deletes **ignored** files without `--force`, although `git status` reports the tree clean. Core therefore lists them and refuses the default. `KeepBranch` and `Discard` remove them, and the list is capped at `MaxStatusBytes` (`IgnoredTruncated`).
+- The digest uses mtime and size; an edit within the filesystem's mtime granularity that keeps the size is not detected.
 - A worktree is **not an operating-system sandbox**. The lease coordinates LumenCortex processes; it cannot stop an external process or a user editing the directory. Trusted commands such as `shell` and evaluator checks run with the user's filesystem and network access.
 - The "unapplied" test compares against the main checkout's current HEAD only.
 - flock on network filesystems is unreliable (design R2).

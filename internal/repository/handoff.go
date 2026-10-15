@@ -3,6 +3,9 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -91,9 +94,17 @@ func (s *Service) GitChangedFilesBetween(ctx context.Context, base, head string)
 	return nonEmptyLines(string(raw)), nil
 }
 
+// GitCherryPick applies commits to the checkout. A failed pick is aborted, which is
+// safe only for a sequence this call started: an operation already in progress
+// (another process's cherry-pick, revert, merge or rebase) is refused untouched.
 func (s *Service) GitCherryPick(ctx context.Context, commits []string) (GitActionResult, error) {
 	if len(commits) == 0 {
 		return GitActionResult{}, errors.New("at least one commit is required")
+	}
+	if op, err := s.operationInProgress(ctx); err != nil {
+		return GitActionResult{}, err
+	} else if op != "" {
+		return GitActionResult{}, fmt.Errorf("a git %s is in progress in the checkout", op)
 	}
 	args := append([]string{"cherry-pick"}, commits...)
 	raw, truncated, err := runBounded(ctx, s.workspace, MaxHandoffBytes, "git", args...)
@@ -102,6 +113,39 @@ func (s *Service) GitCherryPick(ctx context.Context, commits []string) (GitActio
 		return GitActionResult{Output: string(raw), Truncated: truncated}, err
 	}
 	return GitActionResult{Output: string(raw), Truncated: truncated}, nil
+}
+
+// operationInProgress names the git operation in progress in the checkout, or "".
+func (s *Service) operationInProgress(ctx context.Context) (string, error) {
+	markers := []struct{ path, op string }{
+		{"sequencer", "cherry-pick or revert"},
+		{"CHERRY_PICK_HEAD", "cherry-pick"},
+		{"REVERT_HEAD", "revert"},
+		{"MERGE_HEAD", "merge"},
+		{"rebase-merge", "rebase"},
+		{"rebase-apply", "rebase"},
+	}
+	args := []string{"rev-parse"}
+	for _, marker := range markers {
+		args = append(args, "--git-path", marker.path)
+	}
+	raw, _, err := runBounded(ctx, s.workspace, 16<<10, "git", args...)
+	if err != nil {
+		return "", err
+	}
+	paths := nonEmptyLines(string(raw))
+	if len(paths) != len(markers) {
+		return "", fmt.Errorf("git rev-parse --git-path returned %d paths, want %d", len(paths), len(markers))
+	}
+	for i, path := range paths {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(s.workspace, path)
+		}
+		if _, err := os.Lstat(path); err == nil {
+			return markers[i].op, nil
+		}
+	}
+	return "", nil
 }
 
 func nonEmptyLines(raw string) []string {
