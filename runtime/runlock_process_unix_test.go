@@ -62,33 +62,7 @@ func TestKillHolderMidToolThenResume(t *testing.T) {
 	workspace := t.TempDir()
 	engine := openEngineAt(t, workspace)
 	handle := newTestSession(t, engine, "long task")
-
-	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperHoldRun$", "-test.count=1")
-	cmd.Env = append(os.Environ(), holderWorkspaceEnv+"="+workspace, holderSessionEnv+"="+handle.ID)
-	cmd.Stderr = os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
-
-	line := make(chan string, 1)
-	go func() {
-		text, _ := bufio.NewReader(out).ReadString('\n')
-		line <- text
-	}()
-	select {
-	case text := <-line:
-		if text != "held\n" {
-			t.Fatalf("holder said %q", text)
-		}
-	case <-time.After(60 * time.Second):
-		t.Fatal("holder did not report a run mid-tool")
-	}
+	cmd := startHolder(t, workspace, handle.ID)
 
 	// The holder owns the run: it is durably running and this process cannot touch it.
 	held := rowCount(t, handle)
@@ -106,7 +80,7 @@ func TestKillHolderMidToolThenResume(t *testing.T) {
 	if _, err := engine.ApproveWorkflowGate(context.Background(), handle.ID, "ship", "alice"); !errors.Is(err, ErrRunHeld) {
 		t.Fatalf("ApproveWorkflowGate: err=%v, want ErrRunHeld", err)
 	}
-	if err := engine.DeleteSession(context.Background(), handle.ID); !errors.Is(err, ErrRunHeld) {
+	if _, err := engine.DeleteSession(context.Background(), handle.ID, WorktreeCleanup{}); !errors.Is(err, ErrRunHeld) {
 		t.Fatalf("DeleteSession: err=%v, want ErrRunHeld", err)
 	}
 	peer := openEngineAt(t, workspace) // Open must skip the held session
@@ -117,14 +91,7 @@ func TestKillHolderMidToolThenResume(t *testing.T) {
 		t.Fatalf("transcript changed while another process held the run: %d -> %d", held, got)
 	}
 
-	// kill -9: no deferred cleanup runs in the holder.
-	if err := cmd.Process.Signal(syscall.SIGKILL); err != nil {
-		t.Fatal(err)
-	}
-	_ = cmd.Wait()
-	if status, _ := cmd.ProcessState.Sys().(syscall.WaitStatus); !status.Signaled() || status.Signal() != syscall.SIGKILL {
-		t.Fatalf("holder was not killed by SIGKILL: %v", cmd.ProcessState)
-	}
+	killHolder(t, cmd)
 	if info, _ := sessionState(t, engine, handle.ID); info.Status != "running" {
 		t.Fatalf("status = %q: the dead holder left the row running", info.Status)
 	}
@@ -163,5 +130,93 @@ func TestKillHolderMidToolThenResume(t *testing.T) {
 	assertPaired(t, transcript(t, handle))
 	if info, _ := sessionState(t, reopened, handle.ID); info.Status != "completed" {
 		t.Fatalf("status = %q, want completed", info.Status)
+	}
+}
+
+// startHolder runs TestHelperHoldRun in a child process and returns once its run is
+// mid-tool.
+func startHolder(t *testing.T, workspace, sessionID string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperHoldRun$", "-test.count=1")
+	cmd.Env = append(os.Environ(), holderWorkspaceEnv+"="+workspace, holderSessionEnv+"="+sessionID)
+	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
+
+	line := make(chan string, 1)
+	go func() {
+		text, _ := bufio.NewReader(out).ReadString('\n')
+		line <- text
+	}()
+	select {
+	case text := <-line:
+		if text != "held\n" {
+			t.Fatalf("holder said %q", text)
+		}
+	case <-time.After(60 * time.Second):
+		t.Fatal("holder did not report a run mid-tool")
+	}
+	return cmd
+}
+
+// killHolder sends SIGKILL, so no deferred cleanup runs in the holder.
+func killHolder(t *testing.T, cmd *exec.Cmd) {
+	t.Helper()
+	if err := cmd.Process.Signal(syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd.Wait()
+	if status, _ := cmd.ProcessState.Sys().(syscall.WaitStatus); !status.Signaled() || status.Signal() != syscall.SIGKILL {
+		t.Fatalf("holder was not killed by SIGKILL: %v", cmd.ProcessState)
+	}
+}
+
+// ADR-0005 §2 across processes: a run in another process holds the worktree lease,
+// so no Engine here can take it exclusively. kill -9 frees it with the run lock, and
+// the reconciled session's worktree can then be removed.
+func TestKilledHolderReleasesTheWorktreeLease(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	workspace := t.TempDir()
+	initGitRepo(t, workspace)
+	engine := openEngineAt(t, workspace)
+	handle := newTestSession(t, engine, "long task in a worktree")
+	identity, err := engine.AttachWorktree(context.Background(), handle.ID, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := startHolder(t, workspace, handle.ID)
+
+	peer := openEngineAt(t, workspace)
+	if _, err := peer.acquireWorktreeLease(identity.Path, true); !errors.Is(err, ErrWorktreeBusy) {
+		t.Fatalf("exclusive lease while another process runs there: err=%v, want ErrWorktreeBusy", err)
+	}
+	if _, err := peer.RemoveSessionWorktree(context.Background(), handle.ID, WorktreeCleanup{}); !errors.Is(err, ErrRunHeld) {
+		t.Fatalf("remove while another process runs: err=%v, want ErrRunHeld", err)
+	}
+
+	killHolder(t, cmd)
+	lease, err := peer.acquireWorktreeLease(identity.Path, true)
+	if err != nil {
+		t.Fatalf("the dead holder's lease was not freed: %v", err)
+	}
+	if err := lease.Release(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := openEngineAt(t, workspace)
+	result, err := reopened.RemoveSessionWorktree(context.Background(), handle.ID, WorktreeCleanup{})
+	if err != nil || !result.DirectoryRemoved {
+		t.Fatalf("remove after the holder died: result=%+v err=%v", result, err)
+	}
+	if _, err := os.Stat(identity.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("worktree survived: %v", err)
 	}
 }

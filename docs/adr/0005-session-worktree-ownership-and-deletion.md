@@ -1,93 +1,163 @@
 # ADR-0005: Session worktree ownership, leases and deletion
 
-- **Status:** Accepted (owner decision D5, 2026-10-15); not yet implemented
+- **Status:** Accepted (owner decisions D5 and Decision 3, 2026-10-15); implemented by W1
 - **Date:** 2026-10-15
 - **Owners:** project owner
-- **Supersedes:** none. Amends design §4.2, §4.3 and §8.2 (adds PRs W1/W2 ahead of M3.1)
+- **Supersedes:** none. Amends design §4.2, §4.3, §7 and §8.2 (adds W1/W2 ahead of M3.1)
 - **Superseded by:** none
 
 ## Context
 
-The architecture review (`../../../LumenCortex-architecture-audit/design/handoffs/product-architecture-review-2026-10-15.md`) verified four defects against the public `runtime` API at `2c5fe7b`. The probes are in `../../../LumenCortex-architecture-audit/design/verify/product-review-2026-10-15/`.
+The architecture review (`../../../LumenCortex-architecture-audit/design/handoffs/product-architecture-review-2026-10-15.md`) verified the following against the public `runtime` API at `2c5fe7b`. The probes are in `../../../LumenCortex-architecture-audit/design/verify/product-review-2026-10-15/`.
 
 - **P1:** `DeleteSession` leaves the worktree directory and its `lumencortex/<id>` branch behind.
-- **P2:** `RemoveSessionWorktree` deletes the worktree of a running session. Only Desktop guards this, and only for runs in its own process.
-- **P4:** a read-only subagent copies its parent's `runtime` binding (`runtime/subagents.go` L84-86). `RemoveSessionWorktree(child)` then deletes the **parent's** worktree, and the parent stays bound to a missing path.
-- **P5:** a parent run can end while its child still runs in the parent's worktree. The parent's run lock is then free, so the run lock alone cannot protect a worktree that someone else is using.
+- **P2:** `RemoveSessionWorktree` deletes the worktree of a running session. Only Desktop guards against this, and only for runs in its own process.
+- **P4:** a read-only subagent copies its parent's `runtime` binding. `RemoveSessionWorktree(child)` then deletes the parent's worktree, and the parent stays bound to a missing path.
+- **P5:** a parent run ends while its child keeps running in the parent's worktree. The parent's run lock no longer protects that worktree.
 
 ## Decision
 
-1. **Owner and borrower.**
-   - The `runtime` core key gains `owner` (a session id).
-   - `AttachWorktree` writes `owner = session`. A child that shares its parent's worktree writes `owner = parent`; it is a **borrower**.
-   - A row without `owner` is the owner's only if its path is `<worktreeRoot>/<session id>`, `git worktree list` registers that path, and the branch matches.
-   - Any other row has **uncertain ownership**.
-   - Only the owner may remove, apply or discard. A borrower may only unbind.
+### 1. Owner, borrower, uncertain
 
-2. **Worktree lease.**
-   - One `runlock` file per owned worktree, with id `wt_<owner id>`.
-   - Every run whose workspace is a worktree holds it **shared** from Start to exit. That covers the owner and every borrower.
-   - Destructive or applying operations hold it **exclusive**: remove, apply, discard, and deleting the owner.
-   - A held lease → `ErrWorktreeBusy`; nothing is written.
-   - Lock order: `db.lock` → run lock → lease, all non-blocking.
-   - flock semantics are already tested (`internal/runlock`), so the lease works across processes and is released after `kill -9`.
+The `runtime` core key gains `owner`. A session's role for its bound worktree is:
 
-3. **Run lock.** `AttachWorktree`, `RemoveSessionWorktree`, `ApplySessionWorktree` and `DeleteSession` take the session's run lock (`ErrRunHeld`) before the lease. Desktop's in-process guard is deleted.
+- **owner**: `owner` equals the session id. For rows written before W1 (no `owner`), the worktree directory name equals the session id.
+- **borrower**: `owner` names another session. For older rows, the directory name is the id of another session bound to the same path.
+- **uncertain**: anything else.
 
-4. **Deletion**: `DeleteSession(ctx, id, DeleteOptions)`. The zero value is the safe default.
+Rules by role:
 
-   | Worktree state (owner) | default | `KeepBranch` | `Discard{ExpectHead, ExpectStatusDigest}` |
-   |---|---|---|---|
-   | none, or borrower | delete the session | same | same |
-   | clean, every commit applied (`git cherry` empty) | remove directory and branch, delete the session | same | same |
-   | unapplied commits | refuse with `ErrWorktreeUnapplied` (commits listed) | remove the directory, **keep the branch**, delete the session; result and journal name the branch | force remove; delete the branch |
-   | uncommitted or untracked changes | refuse with `ErrWorktreeDirty` (files listed) | refuse (a branch cannot hold uncommitted work) | force remove; delete the branch |
-   | directory missing | refuse if the branch has unapplied commits; otherwise prune and delete | prune, keep the branch, delete | prune and delete the branch |
-   | uncertain ownership | refuse with `ErrWorktreeOwnership` | delete the session, touch nothing on disk, report the path | refuse |
+- `AttachWorktree` writes `owner = session`.
+- A read-only subagent copies its parent's binding with the parent's owner.
+- Only the owner may remove, discard or apply. A borrower may only unbind (`ErrWorktreeBorrowed` for discard and apply).
 
-   - **Discard authorization.** `Discard` is a separate, explicit option. Core performs it only if the worktree's HEAD and a digest of its `git status --porcelain` still equal what the host showed the user, so a confirmation never destroys work the user did not see.
-   - **Subtree deletion.** Deleting a session deletes its child sessions (`subagent`, later `execution`) in the same operation. Each child obeys this matrix; if any child refuses, nothing is deleted. Today the relation rows cascade and the child sessions are orphaned.
+Ownership is re-checked against Git under the exclusive lease, before anything destructive. If the directory exists, `git worktree list` must register it with the bound branch. Otherwise the worktree is **uncertain**: unregistered, a different branch, or a detached HEAD.
 
-5. **Missing worktree at Start.** A bound path that does not exist → `ErrWorktreeMissing` (path, branch). The host offers to recreate it from the branch, or to detach.
+### 2. Worktree lease
 
-6. **Independence.** Resolution, archival and worktree cleanup stay separate operations. Nothing is cleaned up automatically.
+- **The lock.** A `runlock` file in the run directory, id `wt_<worktree directory name>`. The directory name is a session id, because every managed worktree is `<worktreeRoot>/<owner id>`.
+- **Shared holders**, for the whole operation:
+  - every agent run whose workspace is a worktree: owner or borrower, `Start` or `RunAgent`;
+  - host operations that write in the worktree: `RunShell`, and the session Git stage/unstage/revert/commit operations.
+- **Exclusive holders**: remove, discard, apply, and the deletion of the owner.
+- A held lease → `ErrWorktreeBusy`; nothing has been written.
+- **Lock order:** `db.lock` → session run lock(s) → lease. Every acquisition is non-blocking, so no deadlock is possible.
+- The binding is re-read and the directory is checked **after** the lease is acquired. A holder therefore never acts on a worktree that was removed while it was waiting.
+
+**Lease file lifecycle**
+
+- The file is created on first use.
+- It is kept across remove and re-attach.
+- It is deleted only after the owner session is deleted. A later process that opens a stale descriptor finds no directory and no session, and fails.
+- flock locks belong to the open file description and are released on process death, `kill -9` included (`internal/runlock`).
+
+### 3. Run lock
+
+`AttachWorktree`, `RemoveSessionWorktree`, `ApplySessionWorktree` and `DeleteSession` take the session's run lock (`ErrRunHeld`) before the lease.
+
+### 4. Inspection and authorization
+
+`InspectSessionWorktree(ctx, id)` is a read without locks. It returns:
+
+- role and owner; path and branch;
+- whether the directory exists and is registered;
+- HEAD: the worktree's HEAD, or the branch tip when the directory is missing;
+- the dirty files, including untracked ones, with a status digest (SHA-256 of `git status --porcelain=v1 -z --untracked-files=all`);
+- the unapplied commits.
+
+**Unapplied commits** are `git cherry <main checkout HEAD> <worktree HEAD>`: commits whose patch is not in the main checkout's current HEAD. This is deliberately conservative: work applied only to another branch counts as unapplied.
+
+**Options**: `WorktreeCleanup{KeepBranch bool; Discard *WorktreeDiscard{ExpectHead, ExpectStatusDigest}}`.
+
+- `KeepBranch` and `Discard` are mutually exclusive.
+- `Discard` is performed only if a fresh inspection under the exclusive lease returns the same HEAD and digest; otherwise → `ErrDiscardStale`. A confirmation therefore never destroys work the user was not shown.
+
+### 5. Cleanup matrix
+
+Applies to `RemoveSessionWorktree` (the session stays, unbound) and to `DeleteSession` (the session is deleted).
+
+| Owner's worktree | default | `KeepBranch` | `Discard` (matching) |
+|---|---|---|---|
+| clean, no unapplied commits | remove directory, delete branch | remove directory, keep branch | remove directory, delete branch |
+| unapplied commits | `ErrWorktreeUnapplied` | remove directory, keep branch | force remove, delete branch |
+| dirty (tracked or untracked) | `ErrWorktreeDirty` | `ErrWorktreeDirty` | force remove, delete branch |
+| directory missing, branch absent | prune | prune | prune |
+| directory missing, branch has unapplied commits | `ErrWorktreeUnapplied` | prune, keep branch | prune, delete branch |
+| directory missing, branch applied | prune, delete branch | prune, keep branch | prune, delete branch |
+| uncertain ownership | `ErrWorktreeOwnership` | touch nothing on disk; unbind/delete; report the retained path | `ErrWorktreeOwnership` |
+| borrower | unbind only | unbind only | `ErrWorktreeBorrowed` |
+
+Refusals are typed errors (`*WorktreeRefusal`) that carry the inspection (files, commits, HEAD, digest), so a host can show what to do next.
+
+### 6. Child sessions (owner Decision 3)
+
+There is no blanket cascade. Deleting a session classifies its descendants (`session_relations`):
+
+- **Temporary**: deleted together with the session. A descendant is temporary when its relation kind is `subagent`, its run lock is free, and it has no worktree or only borrows one. Read-only subagents cannot hold independent work.
+- **Every other descendant**: the deletion is refused with `*DependentsError` (`ErrSessionHasDependents`), listing each session and its reason: `running`, `owns_worktree`, `uncertain_worktree`, or `independent` (another relation kind, such as a future execution task). Nothing has been written.
+
+The user handles a dependent explicitly: finish it, or clean it up or delete it on its own. Retained execution tasks keep their own rows and provenance.
+
+### 7. Execution and partial failure
+
+SQLite, Git and the filesystem cannot be updated atomically, and deletion does not claim to be all-or-nothing. It runs in phases:
+
+1. **Locks:** the run locks of the session and its temporary descendants, then the exclusive lease. Any conflict → error; nothing written.
+2. **Preflight:** a fresh inspection, the descendant classification, the matrix and the discard check. Any refusal → typed error; nothing written.
+3. **Disk:**
+   - stop the LSP and MCP processes for the path;
+   - `git worktree remove` (`--force` only for a matching `Discard`), or `git worktree prune` when the directory is missing;
+   - delete the branch when the plan says so.
+4. **Database:** one transaction that deletes the session and its temporary descendants (`DeleteSession`), or removes the `runtime` key (`RemoveSessionWorktree`).
+5. Journal entry; lock files removed (`DeleteSession`); locks released.
+
+**Recovery.** Disk work precedes the database write, so a failure or crash in step 3 or 4 leaves the session row in place, bound to a worktree that is missing or partly cleaned. `Start` reports `ErrWorktreeMissing`. Retrying the same operation converges through the "directory missing" rows of the matrix.
+
+A `Discard` interrupted after the directory was removed needs a fresh authorization: the status digest of a missing directory differs from the one the user confirmed. The retry is shown the branch and its commits before anything else is destroyed.
+
+### 8. Missing worktree
+
+- If a bound directory does not exist, `Start`, `RunAgent` and other uses of the session workspace return `*WorktreeMissingError` (`ErrWorktreeMissing`). The error carries the path, the branch and whether the branch still exists.
+- The host can detach with `RemoveSessionWorktree`, whose matrix protects a branch that has unapplied commits.
+- Recreating the directory from the branch is not part of W1.
 
 ## Invariants
 
-- No Core operation removes a worktree directory or branch that holds uncommitted changes or unapplied commits without `Discard`, and only when the state still matches the expected state.
-- No borrower can remove, apply or discard.
-- No worktree is removed, applied or discarded while any run, in any process, uses it.
+- No Core operation removes a worktree directory or branch that holds uncommitted changes or unapplied commits, except under a `Discard` whose expected state matches the state found under the exclusive lease.
+- No borrower or uncertain binding causes removal of a worktree directory or branch.
+- No worktree is removed, discarded or applied while any agent run or worktree-writing host operation, in any process, holds its lease.
+- Deletion never removes a running, worktree-owning or non-subagent descendant.
+
+## Limits
+
+- `git worktree remove` also deletes **ignored** files in the worktree (build output, local `.env`). They are neither dirty nor committed, which is ordinary Git behaviour.
+- A worktree is **not an operating-system sandbox**. The lease coordinates LumenCortex processes; it cannot stop an external process or a user editing the directory. Trusted commands such as `shell` and evaluator checks run with the user's filesystem and network access.
+- The "unapplied" test compares against the main checkout's current HEAD only.
+- flock on network filesystems is unreliable (design R2).
 
 ## Alternatives considered
 
-- **Run lock only:** insufficient, because of P5 (a borrower runs after the owner's run has ended).
-- **Keep the branch by default:** rejected by the owner; the default refuses, and keeping the branch is an explicit choice.
-- **Reference counts in SQLite:** a crash leaves counts stale. Kernel locks release on process death.
+- **Run lock only:** insufficient, because a borrower can run after the owner's run has ended (P5).
+- **Keep the branch by default:** rejected by the owner. Retention is the explicit `KeepBranch`.
+- **Cascade deletion to all descendants:** rejected by the owner (Decision 3).
+- **Reference counts in SQLite:** a crash leaves the counts stale, whereas kernel locks are released on process death.
 
 ## Consequences
 
-- `DeleteSession` changes signature; Desktop W2 is paired.
-- The CLI gains `--keep-branch` and `--discard` (the latter needs a confirmation that shows the state).
-- Two lock files per worktree session. `runlock.Remove` deletes both on session deletion.
+- `RemoveSessionWorktree` and `DeleteSession` take `WorktreeCleanup` and return results. Desktop W2 is paired: a delete/remove dialog built on `InspectSessionWorktree`, and removal of Desktop's in-process guard.
+- New CLI commands: `lcx-go worktree inspect`, `worktree remove [--keep-branch | --discard HEAD DIGEST]` and `session-delete` with the same flags.
+- No schema change. `owner` is a field inside the existing `runtime` core key, and older rows are classified by the rule in §1.
 
-## Persistence / compatibility impact
+## Validation (W1)
 
-- No schema change. `owner` is a new field inside the existing `runtime` core metadata key.
-- Rows without it are classified by the derivation rule in Decision 1.
+Tests use real temporary Git repositories:
 
-## Validation plan (W1 must pass)
-
-Probes P1, P2 and P4 inverted. Then:
-
-- the full deletion matrix, each cell, including missing directory and uncertain ownership;
-- a borrower running after the owner ended → owner remove and delete return `ErrWorktreeBusy`;
-- a lease held by a second `Engine` and by a subprocess → busy; after that subprocess is killed with `kill -9` → free;
-- `Discard` with a stale expected HEAD or status → refused;
-- subtree deletion where one child refuses → nothing deleted;
+- P1, P2 and P4 inverted;
+- every cell of the matrix, including the missing directory, uncertain ownership and a stale discard;
+- a borrower holding the lease after the owner's run ended → busy;
+- a lease held by a second `Engine` and by a separate process → busy, then free after `kill -9`;
+- descendant classification;
+- retry after a partial cleanup;
 - `ErrWorktreeMissing` at Start.
 
-Then `go test -count=1 ./...`, `go build ./...`, `go vet ./...`.
-
-## Documentation impact
-
-Design §4.2/§4.3/§7 and the §8.2 rows W1/W2 (amended by reference in the design header); `docs/agent-runtime.md` worktree section in W1.
+Then `go test -count=1 ./...`, `go build ./...` and `go vet ./...`.

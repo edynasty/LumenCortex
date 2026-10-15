@@ -1,6 +1,6 @@
 # ADR-0006: Task context, resolution and conversational execution
 
-- **Status:** Accepted with conditions (owner decisions D1′, D2, D3, D4, 2026-10-15). D3/D4 implementation is gated on the validation items below
+- **Status:** Accepted (owner decisions D1′–D4 and final Decisions 1–4, 2026-10-15). D3/D4 implementation is gated on the validation items below
 - **Date:** 2026-10-15
 - **Owners:** project owner
 - **Supersedes:** none. Amends design §4.4, §4.7, §4.9, I10 and §8.2 (M3.1, M4.1 scope; adds C1–C3)
@@ -96,14 +96,14 @@ It also verified the following:
   - work units seeded from the task;
   - verification through evaluator checks, which run as runtime processes from trusted config.
 
-  Shell access for a task child is out of scope, because Core cannot confine it.
+  Direct shell for a task child is out of the initial scope because Core cannot confine it. This is a restriction on the model's tools, not process isolation: trusted evaluator commands still run with the user's filesystem and network access, and a worktree is not an OS sandbox. A future shell capability requires a real sandbox and its own decision.
 - **`propose`.** The tool records a proposal in Task State and returns `approval_required`. `StartProposedTask(parent, proposalID)` starts exactly that proposal. It runs under the parent's run lock and needs no model round-trip.
 - **`isolated`.** The tool starts the child directly.
 - **Ownership and lifecycle.**
   - Children obey the per-parent limit of 4 and run under their own run lock and worktree lease (ADR-0005).
   - `Cancel(parent)` does not cancel children. The host's "Stop" cancels the subtree (`SubagentTree` + `Cancel`).
   - Supervisor close interrupts them (P6), Reconcile marks them `interrupted`, and resuming is an explicit Start of the child.
-  - Deleting the parent deletes the subtree under the ADR-0005 matrix.
+  - Deleting the parent never destroys an execution task: ADR-0005 §6 refuses with `ErrSessionHasDependents` until the task is cleaned up or deleted on its own, so retained tasks keep their worktree, branch, results and provenance.
 - **Result delivery.**
   - At the parent's Start, under its run lock and in the BeginRun transaction, Core appends one runtime row with origin `task_result` for each child whose terminal transcript seq is newer than the delivery cursor stored in the parent's Task State. The row carries status, final answer, open units, check verdicts and the handoff summary. The cursor advances in the same transaction.
   - That gives exactly-once delivery per terminal transition. A crash before commit delivers on the next Start.

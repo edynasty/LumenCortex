@@ -38,8 +38,8 @@ func TestWorktreeConflictsDetectOverlappingChangedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.RemoveSessionWorktree(context.Background(), first.ID, true)
-	defer engine.RemoveSessionWorktree(context.Background(), second.ID, true)
+	defer discardWorktreeQuietly(engine, first.ID)
+	defer discardWorktreeQuietly(engine, second.ID)
 
 	for _, path := range []string{firstRuntime.Path, secondRuntime.Path} {
 		if err := os.WriteFile(filepath.Join(path, "README.md"), []byte("changed\n"), 0o644); err != nil {

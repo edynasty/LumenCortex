@@ -66,6 +66,11 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, opts AgentOptio
 		return AgentResult{}, err
 	}
 	defer lock.Release()
+	_, lease, err := e.leaseWorkspace(ctx, sessionID)
+	if err != nil {
+		return AgentResult{}, err
+	}
+	defer lease.Release()
 	run, err := e.prepareRun(ctx, sessionID, opts)
 	if err != nil {
 		return AgentResult{}, err

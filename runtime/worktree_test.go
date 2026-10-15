@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -110,9 +111,12 @@ func TestSessionWorktreeLifecycleAndAgentWorkspace(t *testing.T) {
 		t.Fatalf("main workspace unexpectedly contains shell output: %v", err)
 	}
 
-	if err := engine.RemoveSessionWorktree(context.Background(), handle.ID, true); err != nil {
-		t.Fatal(err)
+	// The worktree is dirty: the default refuses, and only a discard of the inspected
+	// state removes it (ADR-0005).
+	if _, err := engine.RemoveSessionWorktree(context.Background(), handle.ID, WorktreeCleanup{}); !errors.Is(err, ErrWorktreeDirty) {
+		t.Fatalf("removing a dirty worktree: err=%v, want ErrWorktreeDirty", err)
 	}
+	discardWorktree(t, engine, handle.ID)
 	after, err := engine.SessionRuntime(context.Background(), handle.ID)
 	if err != nil {
 		t.Fatal(err)

@@ -191,19 +191,31 @@ func (s *Store) CreateWithMessage(ctx context.Context, v Session, first protocol
 	return tx.Commit()
 }
 
-// Delete removes the session; its messages, steps, relations and checkpoints
-// follow by cascade. The caller holds the session's run lock.
-func (s *Store) Delete(ctx context.Context, sessionID string) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, sessionID)
-	if err != nil {
-		return err
-	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
+// Delete removes the sessions in one transaction; their messages, steps, relations
+// and checkpoints follow by cascade. The first id is the session being deleted: it
+// must exist (else ErrNotFound); the rest are descendants deleted with it. The caller
+// holds the run lock of every id.
+func (s *Store) Delete(ctx context.Context, sessionIDs ...string) error {
+	if len(sessionIDs) == 0 {
 		return ErrNotFound
 	}
-	return nil
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for i, id := range sessionIDs {
+		result, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, id)
+		if err != nil {
+			return err
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 && i == 0 {
+			return ErrNotFound
+		}
+	}
+	return tx.Commit()
 }

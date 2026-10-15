@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 
 	"github.com/edynasty/LumenCortex/internal/repository"
@@ -110,7 +111,36 @@ func (e *Engine) WorktreeHandoffPlan(ctx context.Context, sessionID string) (Wor
 	return plan, nil
 }
 
+// ApplySessionWorktree cherry-picks the worktree's unapplied commits onto the main
+// checkout. Only the owner may apply (ErrWorktreeBorrowed, ErrWorktreeOwnership); it
+// takes the session's run lock (ErrRunHeld) and the worktree's exclusive lease
+// (ErrWorktreeBusy), so no run or host write is using the worktree meanwhile.
 func (e *Engine) ApplySessionWorktree(ctx context.Context, sessionID string) (WorktreeApplyResult, error) {
+	lock, err := e.acquireRun(ctx, sessionID)
+	if err != nil {
+		return WorktreeApplyResult{}, err
+	}
+	defer lock.Release()
+	identity, err := e.SessionRuntime(ctx, sessionID)
+	if err != nil {
+		return WorktreeApplyResult{}, err
+	}
+	if identity.Kind == RuntimeWorktree {
+		role, _, reason, err := e.worktreeRole(ctx, sessionID, identity)
+		switch {
+		case err != nil:
+			return WorktreeApplyResult{}, err
+		case role == WorktreeBorrower:
+			return WorktreeApplyResult{}, ErrWorktreeBorrowed
+		case role == WorktreeUncertain:
+			return WorktreeApplyResult{}, fmt.Errorf("%w: %s", ErrWorktreeOwnership, reason)
+		}
+		lease, err := e.acquireWorktreeLease(identity.Path, true)
+		if err != nil {
+			return WorktreeApplyResult{}, err
+		}
+		defer lease.Release()
+	}
 	plan, err := e.WorktreeHandoffPlan(ctx, sessionID)
 	if err != nil {
 		return WorktreeApplyResult{}, err

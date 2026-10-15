@@ -473,13 +473,17 @@ LSP WorkspaceEdit 中针对文件的 create/rename/delete 已支持，并带有 
 
 Go runtime 已支持显式的 Session Git Worktree 隔离：Agent 工具、Shell、LSP 与 Repository 操作会切到该 Session 的 managed worktree；handoff/apply 前会检查目标工作区脏状态和重叠文件冲突。
 
+只有创建 worktree 的 Session 是 owner；只读 subagent 是 borrower，只能解绑。运行和宿主写操作持有跨进程的 worktree lease，worktree 使用中时 remove、discard、apply 和删除都会返回 `ErrWorktreeBusy`。默认情况下，worktree 有未提交改动、未应用提交或归属不确定时，移除和删除 Session 会被拒绝；`--keep-branch` 保留分支，`--discard` 只销毁 `worktree inspect` 打印的 HEAD 与 status digest 对应的状态（[ADR-0005](docs/adr/0005-session-worktree-ownership-and-deletion.md)）。
+
 ```bash
 lcx-go worktree attach <session-id> [base]
 lcx-go worktree status <session-id>
+lcx-go worktree inspect <session-id>
 lcx-go worktree plan <session-id>
 lcx-go worktree apply <session-id> --yes
 lcx-go worktree conflicts
-lcx-go worktree remove <session-id> [--force]
+lcx-go worktree remove <session-id> [--keep-branch | --discard <head> <status-digest>]
+lcx-go session-delete <session-id> [--keep-branch | --discard <head> <status-digest>]
 ```
 
 Go runtime 同时已有 global/project 分层 Skills，并会把启用的 Skill 注入 Agent system prompt：

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -83,7 +84,21 @@ func TestGoCLIWorktreeCommandsExposeSessionIsolation(t *testing.T) {
 		t.Fatalf("expected apply --yes guard, got %v", err)
 	}
 
-	if err := runWorktreeCommand(context.Background(), engine, []string{"remove", handle.ID, "--force"}); err != nil {
+	// --force is gone: removal of unsaved work needs a discard of the inspected state.
+	if err := runWorktreeCommand(context.Background(), engine, []string{"remove", handle.ID, "--force"}); err == nil {
+		t.Fatal("the removed --force flag was accepted")
+	}
+	if err := os.WriteFile(filepath.Join(runtime.Path, "draft.txt"), []byte("unsaved\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runWorktreeCommand(context.Background(), engine, []string{"remove", handle.ID}); !errors.Is(err, lcx.ErrWorktreeDirty) {
+		t.Fatalf("remove of a dirty worktree: err=%v, want ErrWorktreeDirty", err)
+	}
+	inspected, err := engine.InspectSessionWorktree(context.Background(), handle.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runWorktreeCommand(context.Background(), engine, []string{"remove", handle.ID, "--discard", inspected.Head, inspected.StatusDigest}); err != nil {
 		t.Fatal(err)
 	}
 	after, err := engine.SessionRuntime(context.Background(), handle.ID)

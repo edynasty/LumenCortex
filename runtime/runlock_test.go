@@ -153,7 +153,7 @@ func TestApprovalAndDeleteDuringARunAreErrRunHeld(t *testing.T) {
 	if _, err := engine.ApproveWorkflowGate(context.Background(), handle.ID, "ship", "alice"); !errors.Is(err, ErrRunHeld) {
 		t.Fatalf("ApproveWorkflowGate during a run: err=%v, want ErrRunHeld", err)
 	}
-	if err := engine.DeleteSession(context.Background(), handle.ID); !errors.Is(err, ErrRunHeld) {
+	if _, err := engine.DeleteSession(context.Background(), handle.ID, WorktreeCleanup{}); !errors.Is(err, ErrRunHeld) {
 		t.Fatalf("DeleteSession during a run: err=%v, want ErrRunHeld", err)
 	}
 	if _, _, err := engine.Session(context.Background(), handle.ID); err != nil {
@@ -178,7 +178,7 @@ func TestDeleteSessionRemovesRowsAndLockFile(t *testing.T) {
 		t.Fatalf("a finished run should leave its lock file: %v", err)
 	}
 
-	if err := engine.DeleteSession(context.Background(), handle.ID); err != nil {
+	if _, err := engine.DeleteSession(context.Background(), handle.ID, WorktreeCleanup{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := engine.Session(context.Background(), handle.ID); !errors.Is(err, session.ErrNotFound) {
@@ -187,7 +187,7 @@ func TestDeleteSessionRemovesRowsAndLockFile(t *testing.T) {
 	if _, err := os.Stat(lockFile); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("lock file survived the delete: %v", err)
 	}
-	if err := engine.DeleteSession(context.Background(), handle.ID); !errors.Is(err, session.ErrNotFound) {
+	if _, err := engine.DeleteSession(context.Background(), handle.ID, WorktreeCleanup{}); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("second delete: err=%v, want ErrNotFound", err)
 	}
 }

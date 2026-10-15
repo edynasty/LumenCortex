@@ -75,6 +75,19 @@ func run() error {
 			return err
 		}
 		return printJSON(items)
+	case "session-delete":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: lcx-go session-delete <session-id> %s", cleanupUsage)
+		}
+		opts, err := parseCleanupFlags(args[2:])
+		if err != nil {
+			return err
+		}
+		result, err := engine.DeleteSession(ctx, args[1], opts)
+		if err != nil {
+			return err
+		}
+		return printJSON(result)
 	case "shell":
 		if len(args) < 3 {
 			return fmt.Errorf("usage: lcx-go shell <session-id> <command>")
@@ -199,7 +212,7 @@ func run() error {
 	case "skills":
 		return runSkillsCommand(engine, args[1:])
 	default:
-		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, shell, agent, resume, governor, approve, worktree, skills)", args[0])
+		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, session-delete, shell, agent, resume, governor, approve, worktree, skills)", args[0])
 	}
 }
 
@@ -252,7 +265,7 @@ func parseAgentCommandArgs(args []string) (agentCommandArgs, error) {
 
 func runWorktreeCommand(ctx context.Context, engine *lcx.Engine, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: lcx-go worktree <status|attach|plan|apply|remove|conflicts> ...")
+		return fmt.Errorf("usage: lcx-go worktree <status|inspect|attach|plan|apply|remove|conflicts> ...")
 	}
 	switch args[0] {
 	case "status":
@@ -260,6 +273,15 @@ func runWorktreeCommand(ctx context.Context, engine *lcx.Engine, args []string) 
 			return fmt.Errorf("usage: lcx-go worktree status <session-id>")
 		}
 		result, err := engine.SessionRuntime(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		return printJSON(result)
+	case "inspect":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: lcx-go worktree inspect <session-id>")
+		}
+		result, err := engine.InspectSessionWorktree(ctx, args[1])
 		if err != nil {
 			return err
 		}
@@ -299,14 +321,18 @@ func runWorktreeCommand(ctx context.Context, engine *lcx.Engine, args []string) 
 		}
 		return printJSON(result)
 	case "remove":
-		if len(args) < 2 || len(args) > 3 || (len(args) == 3 && args[2] != "--force") {
-			return fmt.Errorf("usage: lcx-go worktree remove <session-id> [--force]")
+		if len(args) < 2 {
+			return fmt.Errorf("usage: lcx-go worktree remove <session-id> %s", cleanupUsage)
 		}
-		force := len(args) == 3 && args[2] == "--force"
-		if err := engine.RemoveSessionWorktree(ctx, args[1], force); err != nil {
+		opts, err := parseCleanupFlags(args[2:])
+		if err != nil {
 			return err
 		}
-		return printJSON(map[string]any{"removed": true, "sessionId": args[1], "force": force})
+		result, err := engine.RemoveSessionWorktree(ctx, args[1], opts)
+		if err != nil {
+			return err
+		}
+		return printJSON(result)
 	case "conflicts":
 		if len(args) != 1 {
 			return fmt.Errorf("usage: lcx-go worktree conflicts")
@@ -317,8 +343,24 @@ func runWorktreeCommand(ctx context.Context, engine *lcx.Engine, args []string) 
 		}
 		return printJSON(result)
 	default:
-		return fmt.Errorf("unknown worktree command %q (supported: status, attach, plan, apply, remove, conflicts)", args[0])
+		return fmt.Errorf("unknown worktree command %q (supported: status, inspect, attach, plan, apply, remove, conflicts)", args[0])
 	}
+}
+
+const cleanupUsage = "[--keep-branch | --discard <head> <status-digest>]"
+
+// parseCleanupFlags reads the ADR-0005 cleanup options. --discard repeats the head
+// and status digest printed by `worktree inspect`, so it destroys only what was shown.
+func parseCleanupFlags(args []string) (lcx.WorktreeCleanup, error) {
+	switch {
+	case len(args) == 0:
+		return lcx.WorktreeCleanup{}, nil
+	case len(args) == 1 && args[0] == "--keep-branch":
+		return lcx.WorktreeCleanup{KeepBranch: true}, nil
+	case len(args) == 3 && args[0] == "--discard":
+		return lcx.WorktreeCleanup{Discard: &lcx.WorktreeDiscard{ExpectHead: args[1], ExpectStatusDigest: args[2]}}, nil
+	}
+	return lcx.WorktreeCleanup{}, fmt.Errorf("expected %s", cleanupUsage)
 }
 
 func runSkillsCommand(engine *lcx.Engine, args []string) error {

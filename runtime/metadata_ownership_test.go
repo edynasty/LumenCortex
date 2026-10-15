@@ -202,7 +202,7 @@ func TestWorktreeBindingKeepsHostMetadata(t *testing.T) {
 	}
 
 	renameUI(t, engine, handle.ID, "While attached")
-	if err := engine.RemoveSessionWorktree(context.Background(), handle.ID, true); err != nil {
+	if _, err := engine.RemoveSessionWorktree(context.Background(), handle.ID, WorktreeCleanup{}); err != nil {
 		t.Fatal(err)
 	}
 	metadata = metadataMap(t, engine, handle.ID)

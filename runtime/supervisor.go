@@ -75,8 +75,16 @@ func (s *RunSupervisor) Start(
 	if err != nil {
 		return SessionInfo{}, err
 	}
+	// The worktree lease (ADR-0005 §2) is held from here until the run has left the
+	// supervisor, so no process can remove the worktree while the run uses it.
+	_, lease, err := s.engine.leaseWorkspace(ctx, sessionID)
+	if err != nil {
+		_ = lock.Release()
+		return SessionInfo{}, err
+	}
 	releaseAgent, err := s.engine.resources.AcquireAgent()
 	if err != nil {
+		_ = lease.Release()
 		_ = lock.Release()
 		return SessionInfo{}, err
 	}
@@ -84,6 +92,7 @@ func (s *RunSupervisor) Start(
 	defer func() {
 		if !handedOff {
 			releaseAgent()
+			_ = lease.Release()
 			_ = lock.Release()
 		}
 	}()
@@ -142,6 +151,7 @@ func (s *RunSupervisor) Start(
 		// published its terminal event; the lock is released before the run leaves
 		// the supervisor, so a host that sees the run stopped can Start again.
 		defer func() {
+			_ = lease.Release()
 			_ = lock.Release()
 			s.mu.Lock()
 			if current, ok := s.runs[sessionID]; ok && current == run {

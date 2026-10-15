@@ -22,6 +22,10 @@ type SessionRuntime struct {
 	Branch string `json:"branch,omitempty"`
 	Base   string `json:"base,omitempty"`
 	Head   string `json:"head,omitempty"`
+	// Owner is the session that created the worktree and alone may remove, discard or
+	// apply it. A read-only subagent shares its parent's worktree as a borrower. Rows
+	// written before W1 have none; worktreeRole derives it (ADR-0005 §1).
+	Owner string `json:"owner,omitempty"`
 }
 
 func (e *Engine) SessionRuntime(ctx context.Context, sessionID string) (SessionRuntime, error) {
@@ -59,7 +63,14 @@ func (e *Engine) SessionRuntime(ctx context.Context, sessionID string) (SessionR
 	return identity, nil
 }
 
+// AttachWorktree creates the session's own worktree and binds the session to it. It
+// takes the session's run lock (ErrRunHeld while a run holds it).
 func (e *Engine) AttachWorktree(ctx context.Context, sessionID, base string) (SessionRuntime, error) {
+	lock, err := e.acquireRun(ctx, sessionID)
+	if err != nil {
+		return SessionRuntime{}, err
+	}
+	defer lock.Release()
 	existing, err := e.SessionRuntime(ctx, sessionID)
 	if err != nil {
 		return SessionRuntime{}, err
@@ -93,6 +104,7 @@ func (e *Engine) AttachWorktree(ctx context.Context, sessionID, base string) (Se
 		Branch: worktree.Branch,
 		Base:   base,
 		Head:   worktree.Head,
+		Owner:  sessionID,
 	}
 	if identity.Branch == "" {
 		identity.Branch = branch
@@ -113,31 +125,6 @@ func (e *Engine) AttachWorktree(ctx context.Context, sessionID, base string) (Se
 	return identity, nil
 }
 
-func (e *Engine) RemoveSessionWorktree(ctx context.Context, sessionID string, force bool) error {
-	identity, err := e.SessionRuntime(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-	if identity.Kind != RuntimeWorktree {
-		return nil
-	}
-	if err := e.validateManagedWorktreePath(identity.Path); err != nil {
-		return err
-	}
-	e.stopLSPWorkspace(identity.Path)
-	if e.mcpRegistry != nil {
-		e.mcpRegistry.StopWorkspace(identity.Path)
-	}
-	if err := e.repo.GitRemoveWorktree(ctx, identity.Path, force); err != nil {
-		return err
-	}
-
-	if err := e.store.RemoveCoreMetadataKey(ctx, sessionID, session.MetadataKeyRuntime); err != nil {
-		return err
-	}
-	e.events.publish("worktree.removed", sessionID, map[string]any{"path": identity.Path})
-	return nil
-}
 
 func (e *Engine) agentWorkspace(ctx context.Context, sessionID string) (string, error) {
 	identity, err := e.SessionRuntime(ctx, sessionID)
@@ -151,6 +138,14 @@ func (e *Engine) agentWorkspace(ctx context.Context, sessionID string) (string, 
 		return "", err
 	}
 	info, err := os.Stat(identity.Path)
+	if errors.Is(err, os.ErrNotExist) {
+		missing := &WorktreeMissingError{SessionID: sessionID, Path: identity.Path, Branch: identity.Branch}
+		if identity.Branch != "" {
+			head, branchErr := e.repo.GitBranchHead(ctx, identity.Branch)
+			missing.BranchExists = branchErr == nil && head != ""
+		}
+		return "", missing
+	}
 	if err != nil {
 		return "", err
 	}

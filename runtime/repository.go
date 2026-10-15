@@ -63,6 +63,23 @@ func (e *Engine) sessionRepository(ctx context.Context, sessionID string) (*repo
 	return repository.New(workspace)
 }
 
+// writeSessionRepository runs fn against the session's repository while holding
+// the worktree's shared lease, so removal, discard and apply wait for the write.
+func (e *Engine) writeSessionRepository(ctx context.Context, sessionID string, fn func(*repository.Service) (GitActionResult, error)) (GitActionResult, error) {
+	workspace, lease, err := e.leaseWorkspace(ctx, sessionID)
+	if err != nil {
+		return GitActionResult{}, err
+	}
+	defer lease.Release()
+	repoService := e.repo
+	if workspace != e.workspace {
+		if repoService, err = repository.New(workspace); err != nil {
+			return GitActionResult{}, err
+		}
+	}
+	return fn(repoService)
+}
+
 func (e *Engine) SessionSearchText(ctx context.Context, sessionID, query, path string, limit int) (SearchResult, error) {
 	repoService, err := e.sessionRepository(ctx, sessionID)
 	if err != nil {
@@ -96,35 +113,19 @@ func (e *Engine) SessionGitDiff(ctx context.Context, sessionID, path string, sta
 }
 
 func (e *Engine) SessionGitStage(ctx context.Context, sessionID, path string) (GitActionResult, error) {
-	repoService, err := e.sessionRepository(ctx, sessionID)
-	if err != nil {
-		return GitActionResult{}, err
-	}
-	return repoService.GitStage(ctx, path)
+	return e.writeSessionRepository(ctx, sessionID, func(r *repository.Service) (GitActionResult, error) { return r.GitStage(ctx, path) })
 }
 
 func (e *Engine) SessionGitUnstage(ctx context.Context, sessionID, path string) (GitActionResult, error) {
-	repoService, err := e.sessionRepository(ctx, sessionID)
-	if err != nil {
-		return GitActionResult{}, err
-	}
-	return repoService.GitUnstage(ctx, path)
+	return e.writeSessionRepository(ctx, sessionID, func(r *repository.Service) (GitActionResult, error) { return r.GitUnstage(ctx, path) })
 }
 
 func (e *Engine) SessionGitRevert(ctx context.Context, sessionID, path string) (GitActionResult, error) {
-	repoService, err := e.sessionRepository(ctx, sessionID)
-	if err != nil {
-		return GitActionResult{}, err
-	}
-	return repoService.GitRevert(ctx, path)
+	return e.writeSessionRepository(ctx, sessionID, func(r *repository.Service) (GitActionResult, error) { return r.GitRevert(ctx, path) })
 }
 
 func (e *Engine) SessionGitCommit(ctx context.Context, sessionID, message string) (GitActionResult, error) {
-	repoService, err := e.sessionRepository(ctx, sessionID)
-	if err != nil {
-		return GitActionResult{}, err
-	}
-	return repoService.GitCommit(ctx, message)
+	return e.writeSessionRepository(ctx, sessionID, func(r *repository.Service) (GitActionResult, error) { return r.GitCommit(ctx, message) })
 }
 
 func (e *Engine) SessionGitPush(ctx context.Context, sessionID string) (GitActionResult, error) {

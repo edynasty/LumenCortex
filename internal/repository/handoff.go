@@ -46,14 +46,20 @@ func (s *Service) GitCommitsBetween(ctx context.Context, base, head string) ([]s
 	return nonEmptyLines(string(raw)), nil
 }
 
+// GitUnappliedCommits lists the commits of source whose patch is not in target
+// (git cherry). A non-empty base limits the comparison to commits after base.
 func (s *Service) GitUnappliedCommits(ctx context.Context, target, source, base string) ([]string, error) {
 	target = strings.TrimSpace(target)
 	source = strings.TrimSpace(source)
 	base = strings.TrimSpace(base)
-	if target == "" || source == "" || base == "" {
-		return nil, errors.New("target, source, and base commits are required")
+	if target == "" || source == "" {
+		return nil, errors.New("target and source commits are required")
 	}
-	raw, truncated, err := runBounded(ctx, s.workspace, MaxHandoffBytes, "git", "cherry", target, source, base)
+	args := []string{"cherry", target, source}
+	if base != "" {
+		args = append(args, base)
+	}
+	raw, truncated, err := runBounded(ctx, s.workspace, MaxHandoffBytes, "git", args...)
 	if err != nil {
 		return nil, err
 	}

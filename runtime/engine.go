@@ -309,22 +309,6 @@ func (e *Engine) reconcileRunning(ctx context.Context) error {
 	return nil
 }
 
-// DeleteSession removes a session and its transcript. It takes the session's run
-// lock and returns ErrRunHeld while a run holds it.
-func (e *Engine) DeleteSession(ctx context.Context, sessionID string) error {
-	lock, err := e.acquireRun(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-	err = e.store.Delete(ctx, sessionID)
-	if releaseErr := lock.Release(); err != nil || releaseErr != nil {
-		return errors.Join(err, releaseErr)
-	}
-	_ = runlock.Remove(e.runDir(), sessionID)
-	_ = e.store.Journal(ctx, "session.delete", map[string]any{"sessionId": sessionID})
-	return nil
-}
-
 func (e *Engine) Close() error {
 	e.events.close()
 	e.lspMu.Lock()
@@ -481,10 +465,11 @@ func (s *SessionHandle) RunShell(ctx context.Context, command string) (ShellResu
 		return ShellResult{}, errors.New("shell command is required")
 	}
 	s.engine.events.publish("tool.start", s.ID, map[string]any{"name": "shell", "command": command})
-	workspace, err := s.engine.agentWorkspace(ctx, s.ID)
+	workspace, lease, err := s.engine.leaseWorkspace(ctx, s.ID)
 	if err != nil {
 		return ShellResult{}, err
 	}
+	defer lease.Release()
 	runner := s.engine.shell
 	if workspace != s.engine.workspace {
 		runner = shell.New(workspace)

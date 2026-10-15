@@ -41,7 +41,7 @@ func TestWorktreeHandoffPlanBlocksDirtyAndAppliesSafeCommits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.RemoveSessionWorktree(context.Background(), handle.ID, true)
+	defer discardWorktreeQuietly(engine, handle.ID)
 
 	plan, err := engine.WorktreeHandoffPlan(context.Background(), handle.ID)
 	if err != nil {
@@ -116,7 +116,7 @@ func TestWorktreeHandoffBlocksDirtyTargetAndOverlappingCommittedFiles(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer engine.RemoveSessionWorktree(context.Background(), handle.ID, true)
+	defer discardWorktreeQuietly(engine, handle.ID)
 
 	if err := os.WriteFile(filepath.Join(identity.Path, "README.md"), []byte("worktree\n"), 0o644); err != nil {
 		t.Fatal(err)

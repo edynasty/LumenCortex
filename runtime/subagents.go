@@ -82,6 +82,13 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 		},
 	}
 	if identity.Kind == RuntimeWorktree {
+		// The child borrows its parent's worktree (ADR-0005 §1): it may run there, under
+		// the shared lease, but never remove, discard or apply it.
+		_, owner, _, err := engine.worktreeRole(ctx, c.parentID, identity)
+		if err != nil {
+			return nil, err
+		}
+		identity.Owner = owner
 		metadata["runtime"] = identity
 	}
 

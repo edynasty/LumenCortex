@@ -176,6 +176,10 @@ func (s *Service) GitStatus(ctx context.Context) (GitStatus, error) {
 	if err != nil {
 		return GitStatus{}, err
 	}
+	return GitStatus{Files: parseStatus(raw)}, nil
+}
+
+func parseStatus(raw []byte) []GitFileStatus {
 	parts := bytes.Split(raw, []byte{0})
 	files := make([]GitFileStatus, 0, len(parts))
 	for i := 0; i < len(parts); i++ {
@@ -193,7 +197,7 @@ func (s *Service) GitStatus(ctx context.Context) (GitStatus, error) {
 			files = append(files, GitFileStatus{Path: filepath.ToSlash(path), Index: index, Worktree: worktree})
 		}
 	}
-	return GitStatus{Files: files}, nil
+	return files
 }
 
 func (s *Service) GitDiff(ctx context.Context, relative string, staged bool) (GitDiff, error) {
