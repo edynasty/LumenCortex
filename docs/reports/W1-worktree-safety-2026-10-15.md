@@ -1,6 +1,6 @@
 # W1 — Session worktree safety (2026-10-15)
 
-- **Status:** implemented and validated locally; committed, not pushed.
+- **Status:** implemented, validated and pushed (`1d9cc6b`, follow-up `156fdff` on `origin/main`). Paired Desktop W2 is integrated and published.
 - **Baseline:** Core `38387cf`. Go 1.26.5, git 2.54.0, macOS arm64.
 - **Contract:** [ADR-0005](../adr/0005-session-worktree-ownership-and-deletion.md) (owner Decisions 2–4, 2026-10-15); [ADR-0006](../adr/0006-task-context-resolution-and-conversational-execution.md) aligned (execution-child shell scope, retained tasks block parent deletion).
 - **Origin:** probes P1, P2, P4, P5 of the product architecture review (`../LumenCortex-architecture-audit/design/handoffs/product-architecture-review-2026-10-15.md`, outside version control).
@@ -82,7 +82,7 @@ Results:
 
 ## Next
 
-W2 (Desktop, paired): implemented on Desktop branch `feat/w2-worktree-integration` (`8537300`), validated against this Core through a local `go.work`; report: Desktop `docs/reports/W2-desktop-worktree-integration-2026-10-15.md`. The Desktop Core pin requires `1d9cc6b` and `156fdff` to be pushed first. Then M3.1 per the review roadmap.
+W2 (Desktop, paired) is integrated into Desktop `main` and pushed (`804f4ee`). Desktop pins this Core at `v0.0.0-20261015092833-156fdff946e4`; report: Desktop `docs/reports/W2-desktop-worktree-integration-2026-10-15.md`. Then M3.1 per the review roadmap.
 
 ## Follow-up (W2 safety review, 2026-10-15)
 
