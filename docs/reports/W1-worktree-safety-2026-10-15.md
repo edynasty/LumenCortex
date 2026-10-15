@@ -82,7 +82,7 @@ Results:
 
 ## Next
 
-W2 (Desktop, paired): bump the Core pin, add a delete/remove dialog on `InspectSessionWorktree`, and drop the in-process guard. Then M3.1 per the review roadmap.
+W2 (Desktop, paired): implemented on Desktop branch `feat/w2-worktree-integration` (`8537300`), validated against this Core through a local `go.work`; report: Desktop `docs/reports/W2-desktop-worktree-integration-2026-10-15.md`. The Desktop Core pin requires `1d9cc6b` and `156fdff` to be pushed first. Then M3.1 per the review roadmap.
 
 ## Follow-up (W2 safety review, 2026-10-15)
 
