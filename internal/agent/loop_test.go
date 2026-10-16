@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -22,7 +23,12 @@ type memoryStore struct {
 	steps    map[int64]any
 	cause    map[string]any // sessions.error_json as last written
 
-	metadataKeyWrites []string // keys passed to SetMetadataKey, in order
+	// ts is the newest Task State version (Version 0: none); reasons lists the reason of every
+	// version written, in order. inbox holds queued host edits. putErr fails every Task State write.
+	ts      taskstate.State
+	reasons []string
+	inbox   []taskstate.QueuedEdit
+	putErr  error
 }
 
 func (s *memoryStore) Get(context.Context, string) (SessionState, error) {
@@ -30,20 +36,28 @@ func (s *memoryStore) Get(context.Context, string) (SessionState, error) {
 	defer s.mu.Unlock()
 	return s.state, nil
 }
-func (s *memoryStore) RecentMessages(_ context.Context, _ string, limit int) ([]protocol.Message, error) {
+func (s *memoryStore) RecentMessages(_ context.Context, _ string, fromSeq int64, limit int) ([]protocol.Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	start := len(s.messages) - limit
-	if start < 0 {
-		start = 0
+	start := max(len(s.messages)-limit, int(fromSeq), 0)
+	if start > len(s.messages) {
+		start = len(s.messages)
 	}
 	return append([]protocol.Message(nil), s.messages[start:]...), nil
 }
-func (s *memoryStore) AppendMessage(_ context.Context, _ string, m protocol.Message) (int64, error) {
+func (s *memoryStore) AppendMessage(_ context.Context, _ string, m protocol.Message, change *TaskStateChange) (int64, int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var version int64
+	if change != nil {
+		v, err := s.putLocked(*change)
+		if err != nil {
+			return 0, 0, err
+		}
+		version = v
+	}
 	s.messages = append(s.messages, m)
-	return int64(len(s.messages) - 1), nil
+	return int64(len(s.messages) - 1), version, nil
 }
 func (s *memoryStore) AppendStep(_ context.Context, _ string, step int64, v any) error {
 	s.mu.Lock()
@@ -59,17 +73,68 @@ func (s *memoryStore) NextStep(context.Context, string) (int64, error) {
 	defer s.mu.Unlock()
 	return int64(len(s.steps)) + 1, nil
 }
-func (s *memoryStore) SetMetadataKey(_ context.Context, _ string, key string, value json.RawMessage) error {
-	var decoded any
-	if err := json.Unmarshal(value, &decoded); err != nil {
-		return err
-	}
+func (s *memoryStore) TaskState(context.Context, string) (taskstate.State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.state.Metadata = cloneMetadata(s.state.Metadata)
-	s.state.Metadata[key] = decoded
-	s.metadataKeyWrites = append(s.metadataKeyWrites, key)
-	return nil
+	return s.ts.Clone(), nil
+}
+func (s *memoryStore) InboxEdits(context.Context, string) ([]taskstate.QueuedEdit, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]taskstate.QueuedEdit(nil), s.inbox...), nil
+}
+func (s *memoryStore) PutTaskState(_ context.Context, _ string, change TaskStateChange) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.putLocked(change)
+}
+
+// putLocked applies the store's rules: base must be the newest version, the write stores a copy and
+// consumes the applied edits.
+func (s *memoryStore) putLocked(change TaskStateChange) (int64, error) {
+	if s.putErr != nil {
+		return 0, s.putErr
+	}
+	if change.Next.Version != s.ts.Version {
+		return 0, fmt.Errorf("task state conflict: base %d, newest %d", change.Next.Version, s.ts.Version)
+	}
+	next := change.Next.Clone()
+	next.Version = s.ts.Version + 1
+	s.ts = next
+	s.reasons = append(s.reasons, change.Reason)
+	if change.InboxThrough > 0 {
+		kept := s.inbox[:0]
+		for _, e := range s.inbox {
+			if e.Seq > change.InboxThrough {
+				kept = append(kept, e)
+			}
+		}
+		s.inbox = kept
+	}
+	return next.Version, nil
+}
+
+// queue adds a host edit as the runtime's EditTaskState would.
+func (s *memoryStore) queue(e taskstate.Edit) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seq := int64(len(s.inbox)) + 1
+	if n := len(s.inbox); n > 0 {
+		seq = s.inbox[n-1].Seq + 1
+	}
+	s.inbox = append(s.inbox, taskstate.QueuedEdit{Seq: seq, At: time.Now().UTC(), Edit: e})
+}
+
+// seed stores the workflow and work-unit seeds as version 1, as a Start would.
+func (s *memoryStore) seed(t *testing.T, workflowJSON, workUnitsJSON []byte) {
+	t.Helper()
+	next := s.ts.Clone()
+	if _, err := next.Seed(workflowJSON, workUnitsJSON); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutTaskState(context.Background(), s.state.ID, TaskStateChange{Reason: taskstate.ReasonStart, Next: next}); err != nil {
+		t.Fatal(err)
+	}
 }
 func (s *memoryStore) Update(_ context.Context, _ string, p SessionPatch) error {
 	s.mu.Lock()
@@ -151,7 +216,7 @@ func call(id, name, args string) protocol.ToolCall {
 }
 
 func TestLoopWorkflowAndBoundedRecentMessages(t *testing.T) {
-	store := &memoryStore{state: SessionState{ID: "s1", Goal: "fix it", Status: "running", Metadata: map[string]any{}}, steps: map[int64]any{}}
+	store := &memoryStore{state: SessionState{ID: "s1", Goal: "fix it", Status: "running"}, steps: map[int64]any{}}
 	for i := 0; i < 100; i++ {
 		store.messages = append(store.messages, protocol.Message{Role: "user", Content: fmt.Sprintf("old-%d", i)})
 	}
@@ -163,7 +228,8 @@ func TestLoopWorkflowAndBoundedRecentMessages(t *testing.T) {
 	}}
 	workflow := []byte(`{"id":"wf","entry":"diagnose","facts":{"failed":false,"changed":false,"passed":false},"actions":{"diagnose":{"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","notEquals":0},"set":{"failed":true}}],"routes":[{"to":"repair","when":{"fact":"failed","equals":true}}]},"repair":{"allowedTools":["apply_patch"],"outcomes":[{"when":{"tool":"apply_patch","ok":true},"set":{"changed":true}}],"completeWhen":{"fact":"changed","equals":true},"routes":[{"to":"verify"}]},"verify":{"terminal":true,"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","equals":0},"set":{"passed":true}}],"completeWhen":{"fact":"passed","equals":true}}}}`)
 	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
-	result, err := loop.Run(context.Background(), "s1", Options{Session: testRef, RecentMessages: 6, MaxSteps: 8, WorkflowJSON: workflow})
+	store.seed(t, workflow, nil)
+	result, err := loop.Run(context.Background(), "s1", Options{Session: testRef, RecentMessages: 6, MaxSteps: 8})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,11 +247,12 @@ func TestLoopWorkflowAndBoundedRecentMessages(t *testing.T) {
 }
 
 func TestLoopRejectsPrematureFinal(t *testing.T) {
-	store := &memoryStore{state: SessionState{ID: "s2", Goal: "verify", Status: "running", Metadata: map[string]any{}}, steps: map[int64]any{}}
+	store := &memoryStore{state: SessionState{ID: "s2", Goal: "verify", Status: "running"}, steps: map[int64]any{}}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done too early"}}, {Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "shell", `{"command":"test-pass"}`)}}}, {Message: protocol.Message{Content: "done"}}}}
 	workflow := []byte(`{"id":"wf","facts":{"passed":false},"actions":{"verify":{"terminal":true,"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","equals":0},"set":{"passed":true}}],"completeWhen":{"fact":"passed","equals":true}}}}`)
 	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
-	result, err := loop.Run(context.Background(), "s2", Options{Session: testRef, RecentMessages: 6, MaxSteps: 5, WorkflowJSON: workflow})
+	store.seed(t, workflow, nil)
+	result, err := loop.Run(context.Background(), "s2", Options{Session: testRef, RecentMessages: 6, MaxSteps: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +289,7 @@ func (cancelProvider) Complete(ctx context.Context, _ protocol.ProviderRequest) 
 }
 
 func TestLoopPersistsInterruptionOnCancellation(t *testing.T) {
-	store := &memoryStore{state: SessionState{ID: "cancel", Goal: "wait", Status: "running", Metadata: map[string]any{}}, steps: map[int64]any{}}
+	store := &memoryStore{state: SessionState{ID: "cancel", Goal: "wait", Status: "running"}, steps: map[int64]any{}}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	loop := Loop{Models: testModels(cancelProvider{}), Store: store, Tools: fakeTools{}}
@@ -237,7 +304,7 @@ func TestLoopPersistsInterruptionOnCancellation(t *testing.T) {
 
 func TestLoopAddsAdditionalSystemPrompt(t *testing.T) {
 	store := &memoryStore{
-		state: SessionState{ID: "skills", Goal: "build", Status: "running", Metadata: map[string]any{}},
+		state: SessionState{ID: "skills", Goal: "build", Status: "running"},
 		steps: map[int64]any{},
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done"}}}}
@@ -267,7 +334,7 @@ func TestLoopAddsAdditionalSystemPrompt(t *testing.T) {
 
 func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
 	store := &memoryStore{
-		state: SessionState{ID: "deny", Goal: "test deny", Status: "running", Metadata: map[string]any{}},
+		state: SessionState{ID: "deny", Goal: "test deny", Status: "running"},
 		steps: map[int64]any{},
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
@@ -318,7 +385,7 @@ func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
 
 func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 	store := &memoryStore{
-		state: SessionState{ID: "deny", Goal: "do not shell", Status: "running", Metadata: map[string]any{}},
+		state: SessionState{ID: "deny", Goal: "do not shell", Status: "running"},
 		steps: map[int64]any{},
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
@@ -366,12 +433,7 @@ func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 
 func TestLoopWorkUnitBlocksPrematureFinalUntilEvidenceAndVerificationPass(t *testing.T) {
 	store := &memoryStore{
-		state: SessionState{
-			ID:       "work-units",
-			Goal:     "repair the transaction bug",
-			Status:   "running",
-			Metadata: map[string]any{},
-		},
+		state: SessionState{ID: "work-units", Goal: "repair the transaction bug", Status: "running"},
 		steps: map[int64]any{},
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
@@ -397,11 +459,8 @@ func TestLoopWorkUnitBlocksPrematureFinalUntilEvidenceAndVerificationPass(t *tes
 		"requiredEvidence":["production path"],
 		"verification":["focused test"]
 	}]}`)
-	result, err := loop.Run(context.Background(), "work-units", Options{
-		Session:       testRef,
-		MaxSteps:      5,
-		WorkUnitsJSON: workUnits,
-	})
+	store.seed(t, nil, workUnits)
+	result, err := loop.Run(context.Background(), "work-units", Options{Session: testRef, MaxSteps: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,32 +483,17 @@ func TestLoopWorkUnitBlocksPrematureFinalUntilEvidenceAndVerificationPass(t *tes
 	if !foundCorrection {
 		t.Fatalf("missing Work Unit completion correction: %#v", store.messages)
 	}
-	raw, err := json.Marshal(store.state.Metadata["workUnits"])
-	if err != nil {
-		t.Fatal(err)
+	if store.ts.WorkUnits == nil || store.ts.WorkUnits.Items["repair"].Status != taskstate.WorkCompleted {
+		t.Fatalf("stored work units=%#v", store.ts.WorkUnits)
 	}
-	var persisted map[string]any
-	if err := json.Unmarshal(raw, &persisted); err != nil {
-		t.Fatal(err)
-	}
-	items, ok := persisted["items"].(map[string]any)
-	if !ok {
-		t.Fatalf("persisted work units=%#v", persisted)
-	}
-	repair, ok := items["repair"].(map[string]any)
-	if !ok || repair["status"] != "completed" {
-		t.Fatalf("repair unit=%#v", items["repair"])
+	if !slices.Contains(store.reasons, taskstate.ReasonToolPrefix+"work_unit_update") {
+		t.Fatalf("the completion was not committed with its tool row: reasons=%v", store.reasons)
 	}
 }
 
-func TestLoopCognitiveSessionCanCreateWorkUnitsDynamically(t *testing.T) {
+func TestLoopCanCreateWorkUnitsWithoutASeed(t *testing.T) {
 	store := &memoryStore{
-		state: SessionState{
-			ID:       "dynamic-work-unit",
-			Goal:     "implement a bounded change",
-			Status:   "running",
-			Metadata: map[string]any{},
-		},
+		state: SessionState{ID: "dynamic-work-unit", Goal: "implement a bounded change", Status: "running"},
 		steps: map[int64]any{},
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
@@ -468,11 +512,7 @@ func TestLoopCognitiveSessionCanCreateWorkUnitsDynamically(t *testing.T) {
 		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
 	}}
 	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
-	result, err := loop.Run(context.Background(), "dynamic-work-unit", Options{
-		Session:          testRef,
-		MaxSteps:         5,
-		CognitionEnabled: true,
-	})
+	result, err := loop.Run(context.Background(), "dynamic-work-unit", Options{Session: testRef, MaxSteps: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -525,7 +565,7 @@ func TestLoopFailoverTraceAcrossStepsAndHealth(t *testing.T) {
 		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c1", "shell", `{"command":"ok"}`)}}, FinishReason: "tool_calls"},
 		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
 	}}
-	store := &memoryStore{state: SessionState{ID: "trace", Goal: "trace", Status: "running", Metadata: map[string]any{}}, steps: map[int64]any{}}
+	store := &memoryStore{state: SessionState{ID: "trace", Goal: "trace", Status: "running"}, steps: map[int64]any{}}
 	loop := Loop{Models: map[config.ModelRef]Model{a: testModel(a, pa), b: testModel(b, pb)}, Health: health, Store: store, Tools: fakeTools{}}
 	_, _, startDecision := ModelDecision("", a, a, "sha256:cfg")
 	result, err := loop.Run(context.Background(), "trace", Options{Session: a, Failover: []config.ModelRef{b}, MaxSteps: 4, Decisions: []Decision{startDecision}})
@@ -572,7 +612,7 @@ func TestLoopFailoverTraceAcrossStepsAndHealth(t *testing.T) {
 	// advisory and the run still uses a; its answer must clear a.
 	health.Fail(a, time.Hour)
 	pa.scriptedProvider.responses = []protocol.ProviderResponse{{Message: protocol.Message{Content: "a is back"}, FinishReason: "stop"}}
-	store2 := &memoryStore{state: SessionState{ID: "back", Goal: "back", Status: "running", Metadata: map[string]any{}}, steps: map[int64]any{}}
+	store2 := &memoryStore{state: SessionState{ID: "back", Goal: "back", Status: "running"}, steps: map[int64]any{}}
 	loop.Store = store2
 	if r, err := loop.Run(context.Background(), "back", Options{Session: a, MaxSteps: 2}); err != nil || r.Final != "a is back" {
 		t.Fatalf("result %+v err %v", r, err)

@@ -42,16 +42,16 @@ func (s *faultStore) Update(ctx context.Context, id string, p SessionPatch) erro
 	return s.memoryStore.Update(ctx, id, p)
 }
 
-func (s *faultStore) AppendMessage(ctx context.Context, id string, m protocol.Message) (int64, error) {
+func (s *faultStore) AppendMessage(ctx context.Context, id string, m protocol.Message, change *TaskStateChange) (int64, int64, error) {
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if s.failAppend != nil {
 		if err := s.failAppend(m); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	}
-	return s.memoryStore.AppendMessage(ctx, id, m)
+	return s.memoryStore.AppendMessage(ctx, id, m, change)
 }
 
 // scriptTools runs fn for every tool call; the tool set is a single "shell" tool.
@@ -86,8 +86,10 @@ func shellCall(id string) protocol.ProviderResponse {
 	return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call(id, "shell", `{"command":"x"}`)}}}
 }
 
+// newState is a running session as NewSession leaves it: the goal is the first transcript row.
 func newState(id string) *memoryStore {
-	return &memoryStore{state: SessionState{ID: id, Goal: "goal", Status: "running", Metadata: map[string]any{}}, steps: map[int64]any{}}
+	return &memoryStore{state: SessionState{ID: id, Goal: "goal", Status: "running"}, steps: map[int64]any{},
+		messages: []protocol.Message{{Role: "user", Content: "goal"}}}
 }
 
 func assertExit(t *testing.T, store *memoryStore, result Result, wantStatus, wantKind string) {
@@ -335,7 +337,8 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 					t.Error("the provider must not be called while a human gate is pending")
 					return protocol.ProviderResponse{}, errors.New("unexpected call")
 				}}
-				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "g1", Options{Session: testRef, MaxSteps: 2, WorkflowJSON: workflow})
+				store.seed(t, workflow, nil)
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "g1", Options{Session: testRef, MaxSteps: 2})
 				if !r.WaitingGate {
 					t.Errorf("result.WaitingGate = false")
 				}
@@ -356,7 +359,8 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 					return shellCall("t1"), nil
 				}}
-				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "w1", Options{Session: testRef, MaxSteps: 2, WorkflowJSON: workflow})
+				store.seed(t, workflow, nil)
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "w1", Options{Session: testRef, MaxSteps: 2})
 				return store, r, err
 			},
 		},
@@ -590,7 +594,7 @@ func TestRunRefusesASessionThatStartDidNotSetRunning(t *testing.T) {
 	if _, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "n1", Options{Session: testRef, MaxSteps: 2}); err == nil {
 		t.Fatal("Run accepted a session that is not running")
 	}
-	if store.state.Status != "completed" || store.state.Final != "kept" || len(store.messages) != 0 {
+	if store.state.Status != "completed" || store.state.Final != "kept" || len(store.messages) != 1 || len(store.reasons) != 0 {
 		t.Fatalf("Run wrote to a session it does not own: %+v", store.state)
 	}
 }

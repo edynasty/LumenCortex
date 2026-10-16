@@ -38,6 +38,8 @@ type modelPlan struct {
 	failover []config.ModelRef
 	models   map[config.ModelRef]agent.Model
 	effort   config.Effort
+	// escalation is the configured effort escalation, nil for none (design §4.5).
+	escalation *config.Escalation
 }
 
 // planModels resolves the session model and the failover list and builds the required clients
@@ -71,6 +73,7 @@ func (e *Engine) planModels(requested, stored config.ModelRef, effort config.Eff
 	plan := &modelPlan{
 		session: ref, resolved: resolved, rule: rule, decision: decision,
 		failover: eff.Failover, models: map[config.ModelRef]agent.Model{}, effort: eff.EffortDefault,
+		escalation: eff.Escalation,
 	}
 	for _, candidate := range append([]config.ModelRef{ref}, eff.Failover...) {
 		if _, done := plan.models[candidate]; done {

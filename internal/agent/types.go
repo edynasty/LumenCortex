@@ -6,25 +6,19 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
 type SessionState struct {
-	ID       string
-	Goal     string
-	Status   string
-	Metadata map[string]any
-	Final    string
-	Usage    protocol.Usage
-
-	// persisted holds, per loop-owned metadata key, the JSON last read from or
-	// written to the store. flushMetadata writes only keys that differ from it.
-	// Set by Loop.Run after Get; copies of the state share it.
-	persisted map[string]json.RawMessage
+	ID     string
+	Goal   string
+	Status string
+	Final  string
+	Usage  protocol.Usage
 }
 
-// SessionPatch changes session columns. Metadata is not part of it: it changes
-// only through Store.SetMetadataKey, one top-level key at a time.
+// SessionPatch changes session columns.
 type SessionPatch struct {
 	Status     *string
 	Final      *string
@@ -34,16 +28,30 @@ type SessionPatch struct {
 	ClearError bool
 }
 
+// TaskStateChange is the Task State version a write commits: Next.Version is its base, and the store
+// writes base+1 with Reason. InboxThrough, when positive, consumes the inbox edits Next applied.
+type TaskStateChange struct {
+	Reason       string
+	Next         taskstate.State
+	InboxThrough int64
+}
+
 type Store interface {
 	Get(context.Context, string) (SessionState, error)
-	RecentMessages(context.Context, string, int) ([]protocol.Message, error)
-	AppendMessage(context.Context, string, protocol.Message) (int64, error)
+	// RecentMessages returns the newest limit rows whose seq is at least fromSeq, oldest first.
+	RecentMessages(ctx context.Context, sessionID string, fromSeq int64, limit int) ([]protocol.Message, error)
+	// AppendMessage appends one row and, when change is non-nil, the Task State version the row
+	// caused, in one transaction. It returns the row's seq and the new version (0 without a change).
+	AppendMessage(ctx context.Context, sessionID string, m protocol.Message, change *TaskStateChange) (int64, int64, error)
 	AppendStep(context.Context, string, int64, any) error
 	NextStep(context.Context, string) (int64, error)
 	Update(context.Context, string, SessionPatch) error
-	// SetMetadataKey sets one top-level metadata key to the JSON value without
-	// touching any other key.
-	SetMetadataKey(ctx context.Context, sessionID, key string, value json.RawMessage) error
+	// TaskState returns the newest Task State version (version 0 when there is none).
+	TaskState(ctx context.Context, sessionID string) (taskstate.State, error)
+	// InboxEdits returns the session's queued host edits in order.
+	InboxEdits(ctx context.Context, sessionID string) ([]taskstate.QueuedEdit, error)
+	// PutTaskState writes change on its own and returns the new version.
+	PutTaskState(ctx context.Context, sessionID string, change TaskStateChange) (int64, error)
 }
 
 type CheckpointStore interface {
@@ -69,17 +77,15 @@ type Options struct {
 	ToolDenylist           []string
 	SystemPrompt           string
 	AdditionalSystemPrompt string
-	WorkflowJSON           []byte
-	WorkUnitsJSON          []byte
 	MaxTokens              int
 	Temperature            *float64
-	CognitionEnabled       bool
 	// Session is the model the run starts on and Failover the config list that follows it; both
-	// must be keys of Loop.Models. EffortDefault is the configured default and Effort the per-run
-	// override ("" for none).
+	// must be keys of Loop.Models. EffortDefault is the configured default, Escalation the configured
+	// escalation (nil for none) and Effort the per-run override ("" for none).
 	Session       config.ModelRef
 	Failover      []config.ModelRef
 	EffortDefault config.Effort
+	Escalation    *config.Escalation
 	Effort        config.Effort
 	// Decisions are the decisions made before the loop started (the Start's model resolution). The
 	// first step record of the run carries them.
@@ -161,6 +167,8 @@ type stepRecord struct {
 	ToolCalls []toolCallRecord `json:"toolCalls,omitempty"`
 	Workflow  any              `json:"workflow,omitempty"`
 	WorkUnit  any              `json:"workUnit,omitempty"`
+	// TaskState is the Task State version the step ended on.
+	TaskState int64 `json:"taskStateVersion,omitempty"`
 }
 
 type toolCallRecord struct {

@@ -198,29 +198,8 @@ SELECT id FROM sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?
 }
 
 func (s *Store) AppendMessage(ctx context.Context, sessionID, role string, payload any) (int64, error) {
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return 0, err
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-	var seq int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), -1) + 1 FROM session_messages WHERE session_id = ?`, sessionID).Scan(&seq); err != nil {
-		return 0, err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO session_messages(session_id, seq, role, json) VALUES(?, ?, ?, ?)`, sessionID, seq, role, string(raw)); err != nil {
-		return 0, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at = ? WHERE id = ?`, time.Now().UTC().Format(time.RFC3339Nano), sessionID); err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return seq, nil
+	seq, _, err := s.AppendMessageTaskState(ctx, sessionID, role, payload, nil)
+	return seq, err
 }
 
 func (s *Store) MessagesBefore(ctx context.Context, sessionID string, beforeSeq int64, limit int) ([]Message, error) {
@@ -264,13 +243,19 @@ WHERE session_id = ?`
 }
 
 func (s *Store) RecentMessages(ctx context.Context, sessionID string, limit int) ([]Message, error) {
+	return s.RecentMessagesFrom(ctx, sessionID, 0, limit)
+}
+
+// RecentMessagesFrom returns the newest limit rows whose seq is at least fromSeq, oldest first. The
+// request window reads from the Task State's windowStartSeq.
+func (s *Store) RecentMessagesFrom(ctx context.Context, sessionID string, fromSeq int64, limit int) ([]Message, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT session_id, seq, role, json FROM session_messages
-WHERE session_id = ? ORDER BY seq DESC LIMIT ?
-`, sessionID, limit)
+WHERE session_id = ? AND seq >= ? ORDER BY seq DESC LIMIT ?
+`, sessionID, fromSeq, limit)
 	if err != nil {
 		return nil, err
 	}

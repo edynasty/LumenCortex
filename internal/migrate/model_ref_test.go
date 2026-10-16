@@ -80,7 +80,7 @@ func TestModelRefDowngradeToVersionOne(t *testing.T) {
 	}
 
 	from, now, err := Downgrade(context.Background(), dir, set, 1)
-	if err != nil || from != 2 || now != 1 {
+	if err != nil || from != set.Latest() || now != 1 {
 		t.Fatalf("Downgrade: from=%d now=%d err=%v", from, now, err)
 	}
 	db := inspect(t, path)
@@ -104,7 +104,7 @@ func TestModelRefDowngradeToVersionOne(t *testing.T) {
 	// Upgrading again re-adds the column, empty: the pins were lost with the downgrade.
 	ws = open(t, dir, set)
 	defer closeWS(t, ws)
-	if ws.From != 1 || ws.To != 2 {
+	if ws.From != 1 || ws.To != set.Latest() {
 		t.Fatalf("re-upgrade From=%d To=%d", ws.From, ws.To)
 	}
 	if n := qInt(t, ws.DB, `SELECT count(*) FROM sessions WHERE model_ref IS NOT NULL`); n != 0 {
@@ -130,8 +130,8 @@ func TestDowngradeFromLatestToZeroIsRefusedBeforeBackup(t *testing.T) {
 	if got := backups(t, dir); !reflect.DeepEqual(got, backupsBefore) {
 		t.Errorf("backups %v -> %v", backupsBefore, got)
 	}
-	if uv := qInt(t, inspect(t, filepath.Join(dir, dbFile)), `PRAGMA user_version`); uv != 2 {
-		t.Errorf("user_version=%d, want 2", uv)
+	if uv := qInt(t, inspect(t, filepath.Join(dir, dbFile)), `PRAGMA user_version`); uv != set.Latest() {
+		t.Errorf("user_version=%d, want %d", uv, set.Latest())
 	}
 }
 
@@ -192,7 +192,7 @@ func TestFailedModelRefMigrationRollsBackAndRecovers(t *testing.T) {
 	}
 	ws := open(t, dir, embeddedSet(t))
 	defer closeWS(t, ws)
-	if ws.From != 1 || ws.To != 2 {
+	if ws.From != 1 || ws.To != embeddedSet(t).Latest() {
 		t.Errorf("recovery From=%d To=%d", ws.From, ws.To)
 	}
 }

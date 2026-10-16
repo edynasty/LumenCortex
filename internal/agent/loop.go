@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
-	"github.com/edynasty/LumenCortex/internal/cognition"
+	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/internal/workflow"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -29,6 +29,36 @@ type Loop struct {
 	Store  Store
 	Tools  Tools
 	Emit   func(Event)
+	// Workspace reports whether the session has work pending application (its owned worktree is
+	// dirty or holds commits not yet applied) and the workspace refs a resolution would rest on. The
+	// evidence rule reads it when a run completes; nil means nothing pending and no refs.
+	Workspace func(context.Context) (pendingApplication bool, refs []string, err error)
+}
+
+// run is the Task State a run works on: the run's current state, the workflow and work units decoded
+// from it, and the JSON of the version the store holds. ts.Version is always that stored version; a
+// change not yet written is the difference between ts and saved.
+type run struct {
+	ts    taskstate.State
+	wf    *workflow.Runtime
+	units *taskstate.WorkUnitManager
+	saved json.RawMessage
+}
+
+// change returns the write that stores the run's unsaved Task State, or nil when nothing changed.
+func (r *run) change(reason string) (*TaskStateChange, error) {
+	raw, err := r.ts.Encode()
+	if err != nil || bytes.Equal(raw, r.saved) {
+		return nil, err
+	}
+	return &TaskStateChange{Reason: reason, Next: r.ts}, nil
+}
+
+// stored records that change was written as version.
+func (r *run) stored(change *TaskStateChange, version int64) {
+	raw, _ := change.Next.Encode()
+	r.saved = raw
+	r.ts.Version = version
 }
 
 func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result Result, err error) {
@@ -71,26 +101,20 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		// Nothing was started, so there is no exit to record and nothing to overwrite.
 		return Result{}, fmt.Errorf("session %s is %q: Run needs a Start that has set it to running", sessionID, state.Status)
 	}
-	state.persisted = snapshotMetadata(state.Metadata)
-	wf, err := restoreWorkflow(state.Metadata, opts.WorkflowJSON)
+	usage = state.Usage
+	ts, err := l.Store.TaskState(ctx, sessionID)
 	if err != nil {
-		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindConfig, Err: err})
-	}
-	workUnits, err := restoreWorkUnits(state.Metadata, opts.WorkUnitsJSON)
-	if err != nil {
-		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindConfig, Err: err})
-	}
-	if workUnits == nil && opts.CognitionEnabled {
-		workUnits = cognition.NewWorkUnitManager(nil)
-	}
-	if workUnits != nil {
-		state.Metadata = withWorkUnits(state.Metadata, workUnits)
-	}
-	if err := l.ensureInitialMessage(ctx, state); err != nil {
 		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 	}
-	usage = state.Usage
-	cognitiveProgress := restoreCognitiveProgress(state.Metadata)
+	wf, err := ts.RestoreWorkflow()
+	if err != nil {
+		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindConfig, Err: err})
+	}
+	saved, err := ts.Encode()
+	if err != nil {
+		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+	}
+	r := &run{ts: ts, wf: wf, units: ts.Units(), saved: saved}
 	startStep, err := l.Store.NextStep(ctx, sessionID)
 	if err != nil {
 		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
@@ -106,9 +130,12 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
 		}
 		step := startStep + int64(turn)
-		if wf != nil && len(wf.WaitingHumanGates()) > 0 {
-			gates := wf.WaitingHumanGates()
-			state.Metadata = withWorkflow(state.Metadata, wf)
+		// Host edits queued since the last step become visible before this step's request is built.
+		if err := l.applyInbox(ctx, sessionID, r); err != nil {
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+		}
+		if r.wf != nil && len(r.wf.WaitingHumanGates()) > 0 {
+			gates := r.wf.WaitingHumanGates()
 			cause := ExitCause{Status: StatusWaitingGate, Kind: KindWorkflowGate, Err: errors.New("workflow human gate is pending")}
 			if err := l.finish(ctx, state, usage, cause, nil); err != nil {
 				return finishFailure(state, usage, cause, err)
@@ -119,20 +146,19 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				"gates": gates,
 			})
 			l.emit("workflow.gate_waiting", sessionID, map[string]any{"step": step, "gates": gates})
-			return Result{SessionID: sessionID, Status: StatusWaitingGate, Usage: usage, WaitingGate: true, Workflow: wf.Summary()}, nil
+			return Result{SessionID: sessionID, Status: StatusWaitingGate, Usage: usage, WaitingGate: true, Workflow: r.wf.Summary()}, nil
 		}
 
 		allowlist := opts.ToolAllowlist
-		if wf != nil {
-			allowlist = wf.EffectiveAllowlist(allowlist)
+		if r.wf != nil {
+			allowlist = r.wf.EffectiveAllowlist(allowlist)
 		}
 		specs := l.Tools.Specs(allowlist)
-		if workUnits != nil {
-			specs = append(specs, filterWorkUnitSpecs(allowlist)...)
-		}
+		specs = append(specs, filterTaskToolSpecs(allowlist)...)
 		specs = filterDeniedTools(specs, opts.ToolDenylist)
-		activeWorkUnit, _ := currentWorkUnit(workUnits)
-		messages, err := l.buildMessages(ctx, sessionID, opts, wf, workUnits)
+		activeWorkUnit, _ := r.units.EnsureActive()
+		r.ts.SetUnits(r.units)
+		messages, err := l.buildMessages(ctx, sessionID, opts, state.Goal, r)
 		if err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
@@ -143,7 +169,8 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindWindowOverflow,
 				Err: fmt.Errorf("no model can take this request: it needs about %d tokens before the reply, and no candidate of %s has the context, tool calling and health for it", base, refList(append([]config.ModelRef{opts.Session}, opts.Failover...)))})
 		}
-		answered, cause := l.send(ctx, sessionID, step, opts, cands, messages, specs, &usage, &stepDecisions)
+		stall := Stall{SameFailure: r.ts.Progress.SameFailureCount, NoProgressSteps: r.ts.Progress.NoProgressSteps}
+		answered, cause := l.send(ctx, sessionID, step, opts, stall, r.ts.Version, cands, messages, specs, &usage, &stepDecisions)
 		if cause != nil {
 			return l.exit(ctx, state, usage, *cause)
 		}
@@ -158,7 +185,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		}
 		calls = preserveToolArguments(calls)
 		assistant.ToolCalls = calls
-		if _, err := l.Store.AppendMessage(ctx, sessionID, assistant); err != nil {
+		if _, _, err := l.Store.AppendMessage(ctx, sessionID, assistant, nil); err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		record := stepRecord{
@@ -183,74 +210,63 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			if strings.TrimSpace(assistant.Content) == "" {
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindEmptyResponse, Err: errors.New("model returned neither tool calls nor final content")})
 			}
-			if wf != nil && !wf.CanFinish() {
-				reason := wf.BlockReason()
-				record.Workflow = wf.Summary()
-				if err := l.recordStep(ctx, sessionID, step, record, &opts); err != nil {
-					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
-				}
-				correction := protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked, Content: "Workflow contract rejected completion: " + reason + ". Continue the current action and obtain the required evidence or gate approval."}
-				if _, err := l.Store.AppendMessage(ctx, sessionID, correction); err != nil {
-					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
-				}
-				state.Metadata = withWorkflow(state.Metadata, wf)
-				if workUnits != nil {
-					state.Metadata = withWorkUnits(state.Metadata, workUnits)
-				}
-				_ = l.flushMetadata(ctx, state)
-				_ = l.Store.Update(ctx, sessionID, SessionPatch{Usage: &usage})
+			var correction string
+			switch {
+			case r.wf != nil && !r.wf.CanFinish():
+				reason := r.wf.BlockReason()
+				correction = "Workflow contract rejected completion: " + reason + ". Continue the current action and obtain the required evidence or gate approval."
 				l.emit("workflow.blocked_final", sessionID, map[string]any{"step": step, "reason": reason})
-				continue
-			}
-			if workUnits != nil && len(workUnits.Incomplete()) > 0 {
-				remaining := workUnits.Incomplete()
-				if err := l.recordStep(ctx, sessionID, step, record, &opts); err != nil {
-					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
-				}
-				correction := protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked, Content: workUnitCompletionCorrection(remaining)}
-				if _, err := l.Store.AppendMessage(ctx, sessionID, correction); err != nil {
-					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
-				}
-				state.Metadata = withWorkUnits(state.Metadata, workUnits)
-				_ = l.flushMetadata(ctx, state)
-				_ = l.Store.Update(ctx, sessionID, SessionPatch{Usage: &usage})
+			case len(r.units.Incomplete()) > 0:
+				remaining := r.units.Incomplete()
+				correction = workUnitCompletionCorrection(remaining)
 				l.emit("work_unit.blocked_final", sessionID, map[string]any{"step": step, "remaining": remaining})
-				continue
 			}
-			final := assistant.Content
-			if wf != nil {
-				record.Workflow = wf.Summary()
-				state.Metadata = withWorkflow(state.Metadata, wf)
+			if correction == "" {
+				l.latchEvidence(ctx, sessionID, r)
 			}
+			if err := l.flush(ctx, sessionID, r, taskstate.ReasonStep); err != nil {
+				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+			}
+			record.Workflow = workflowSummary(r.wf)
+			record.TaskState = r.ts.Version
 			if err := l.recordStep(ctx, sessionID, step, record, &opts); err != nil {
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 			}
+			if correction != "" {
+				if _, _, err := l.Store.AppendMessage(ctx, sessionID, protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked, Content: correction}, nil); err != nil {
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+				}
+				if err := l.Store.Update(ctx, sessionID, SessionPatch{Usage: &usage}); err != nil {
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+				}
+				continue
+			}
+			final := assistant.Content
 			cause := ExitCause{Status: StatusCompleted}
 			if err := l.finish(ctx, state, usage, cause, &final); err != nil {
 				return finishFailure(state, usage, cause, err)
 			}
 			l.emit("session.complete", sessionID, map[string]any{"step": step})
-			return Result{SessionID: sessionID, Status: StatusCompleted, Final: final, Usage: usage, Workflow: workflowSummary(wf)}, nil
+			return Result{SessionID: sessionID, Status: StatusCompleted, Final: final, Usage: usage, Workflow: workflowSummary(r.wf)}, nil
 		}
 
 		for _, call := range calls {
 			args, argsErr := parseToolArguments(call.Arguments)
 			if argsErr != nil {
 				rejected := protocol.ToolResult{OK: false, Content: toolErrorContent("invalid tool arguments: " + argsErr.Error())}
-				if _, err := l.persistToolResult(ctx, sessionID, call, args, rejected); err != nil {
+				if _, err := l.persistToolResult(ctx, sessionID, call, rejected, nil, r); err != nil {
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 				}
 				continue
 			}
-			denied := !containsTool(specs, call.Name) || (wf != nil && !wf.IsToolAllowed(call.Name))
+			denied := !containsTool(specs, call.Name) || (r.wf != nil && !r.wf.IsToolAllowed(call.Name))
 			var toolResult protocol.ToolResult
 			if denied {
 				toolResult = protocol.ToolResult{OK: false, Denied: true, Permission: "workflow", Content: "tool is not allowed in the current working set"}
 			} else {
 				l.emit("tool.start", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "args": args})
-				if workUnits != nil && isWorkUnitTool(call.Name) {
-					toolResult = executeWorkUnitTool(workUnits, call.Name, args)
-					state.Metadata = withWorkUnits(state.Metadata, workUnits)
+				if isTaskTool(call.Name) {
+					toolResult = executeTaskTool(r, call.Name, args, time.Now().UTC())
 				} else {
 					toolResult, err = l.Tools.Execute(ctx, call.Name, args, func(output protocol.ToolOutput) {
 						l.emit("tool.output", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "stream": output.Stream, "chunk": output.Chunk})
@@ -264,15 +280,16 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					if err != nil {
 						toolResult = protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, err.Error())}
 					}
+					if toolResult.OK && toolResult.MutatesWorkspace {
+						// A successful change to the workspace is a new obligation.
+						r.ts.Reopen(time.Now().UTC())
+					}
 				}
 			}
 			l.emit("tool.end", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "ok": toolResult.OK, "denied": toolResult.Denied})
-			if opts.CognitionEnabled {
-				cognitiveProgress.ObserveTool(call.Name, toolResult.OK, toolResult.Content)
-				state.Metadata = withCognitionProgress(state.Metadata, cognitiveProgress)
-			}
-			if wf != nil {
-				update, wfErr := wf.ObserveTool(workflow.ToolObservation{Tool: call.Name, Args: args, Result: map[string]any{"ok": toolResult.OK, "denied": toolResult.Denied, "permission": toolResult.Permission, "content": toolResult.Content}, Step: step})
+			r.ts.Progress.ObserveTool(call.Name, toolResult.OK, toolResult.Content)
+			if r.wf != nil {
+				update, wfErr := r.wf.ObserveTool(workflow.ToolObservation{Tool: call.Name, Args: args, Result: map[string]any{"ok": toolResult.OK, "denied": toolResult.Denied, "permission": toolResult.Permission, "content": toolResult.Content}, Step: step})
 				if wfErr != nil {
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindConfig, Err: wfErr})
 				}
@@ -282,9 +299,14 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				if update.Transition != nil {
 					l.emit("workflow.transition", sessionID, map[string]any{"step": step, "from": update.Transition.From, "to": update.Transition.To, "reason": update.Transition.Reason})
 				}
-				state.Metadata = withWorkflow(state.Metadata, wf)
+				r.ts.SetWorkflow(r.wf)
 			}
-			messageSeq, err := l.persistToolResult(ctx, sessionID, call, args, toolResult)
+			// The Task State change this result caused commits with its row (design §4.4).
+			change, err := r.change(taskstate.ReasonToolPrefix + call.Name)
+			if err != nil {
+				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+			}
+			messageSeq, err := l.persistToolResult(ctx, sessionID, call, toolResult, change, r)
 			if err != nil {
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 			}
@@ -299,16 +321,12 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			})
 			record.ToolCalls = append(record.ToolCalls, toolCallRecord{ID: call.ID, Name: call.Name, Args: args, OK: toolResult.OK, Denied: toolResult.Denied})
 		}
-		if wf != nil {
-			record.Workflow = wf.Summary()
-		}
-		if workUnits != nil {
-			state.Metadata = withWorkUnits(state.Metadata, workUnits)
-		}
-		if err := l.recordStep(ctx, sessionID, step, record, &opts); err != nil {
+		if err := l.flush(ctx, sessionID, r, taskstate.ReasonStep); err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
-		if err := l.flushMetadata(ctx, state); err != nil {
+		record.Workflow = workflowSummary(r.wf)
+		record.TaskState = r.ts.Version
+		if err := l.recordStep(ctx, sessionID, step, record, &opts); err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		if err := l.Store.Update(ctx, sessionID, SessionPatch{Usage: &usage}); err != nil {
@@ -333,29 +351,67 @@ func (l *Loop) recordStep(ctx context.Context, sessionID string, step int64, rec
 	return nil
 }
 
-// CheckStart reports the validation errors a run start can detect before it
-// writes anything: an invalid or conflicting workflow or work-unit seed.
-func CheckStart(metadata map[string]any, opts Options) error {
-	if _, err := restoreWorkflow(metadata, opts.WorkflowJSON); err != nil {
+// applyInbox applies the host edits queued since the last read (ADR-0006 D1′): one Task State version
+// with reason "user" that also consumes them. Edits never touch the workflow or work units.
+func (l *Loop) applyInbox(ctx context.Context, sessionID string, r *run) error {
+	edits, err := l.Store.InboxEdits(ctx, sessionID)
+	if err != nil || len(edits) == 0 {
 		return err
 	}
-	_, err := restoreWorkUnits(metadata, opts.WorkUnitsJSON)
-	return err
+	r.ts.Apply(edits)
+	change := &TaskStateChange{Reason: taskstate.ReasonUser, Next: r.ts, InboxThrough: edits[len(edits)-1].Seq}
+	if err := l.putTaskState(ctx, sessionID, r, change); err != nil {
+		return err
+	}
+	l.emit("task_state.edits_applied", sessionID, map[string]any{"version": r.ts.Version, "edits": len(edits)})
+	return nil
 }
 
-func (l *Loop) ensureInitialMessage(ctx context.Context, state SessionState) error {
-	messages, err := l.Store.RecentMessages(ctx, state.ID, 1)
+// latchEvidence applies the evidence rule to the run's state when a run completes (ADR-0006 D2): an
+// open thread with no obligation left and positive acceptance evidence becomes done. A workspace that
+// cannot be inspected latches nothing. The caller writes the change.
+func (l *Loop) latchEvidence(ctx context.Context, sessionID string, r *run) {
+	ev := taskstate.Evidence{}
+	if r.wf != nil {
+		ev.Workflow, ev.WorkflowCanFinish, ev.GatePending = true, r.wf.CanFinish(), len(r.wf.PendingGates()) > 0
+	}
+	if l.Workspace != nil {
+		pending, refs, err := l.Workspace(ctx)
+		if err != nil {
+			l.emit("task_state.evidence_unavailable", sessionID, map[string]any{"error": err.Error()})
+			return
+		}
+		ev.PendingApplication, ev.Refs = pending, refs
+	}
+	if r.ts.AutoDone(ev, time.Now().UTC()) {
+		l.emit("task_state.resolved", sessionID, map[string]any{"state": r.ts.Resolution.State, "by": r.ts.Resolution.By})
+	}
+}
+
+// flush writes the run's unsaved Task State on its own, if any.
+func (l *Loop) flush(ctx context.Context, sessionID string, r *run, reason string) error {
+	change, err := r.change(reason)
+	if err != nil || change == nil {
+		return err
+	}
+	return l.putTaskState(ctx, sessionID, r, change)
+}
+
+// putTaskState writes change on its own; the run's state then carries the stored version.
+func (l *Loop) putTaskState(ctx context.Context, sessionID string, r *run, change *TaskStateChange) error {
+	version, err := l.Store.PutTaskState(ctx, sessionID, *change)
 	if err != nil {
 		return err
 	}
-	if len(messages) == 0 && strings.TrimSpace(state.Goal) != "" {
-		_, err = l.Store.AppendMessage(ctx, state.ID, protocol.Message{Role: "user", Content: state.Goal})
-	}
-	return err
+	r.stored(change, version)
+	l.emit("task_state.changed", sessionID, map[string]any{"version": version, "reason": change.Reason})
+	return nil
 }
 
-func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options, wf *workflow.Runtime, workUnits *cognition.WorkUnitManager) ([]protocol.Message, error) {
-	recent, err := l.Store.RecentMessages(ctx, sessionID, opts.RecentMessages)
+// buildMessages is System, then the Task State block, then the newest rows at or after the window
+// start.
+func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options, goal string, r *run) ([]protocol.Message, error) {
+	recent, err := l.Store.RecentMessages(ctx, sessionID, r.ts.WindowStartSeq, opts.RecentMessages)
 	if err != nil {
 		return nil, err
 	}
@@ -363,18 +419,23 @@ func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options
 	if strings.TrimSpace(opts.AdditionalSystemPrompt) != "" {
 		messages = append(messages, protocol.Message{Role: "system", Content: opts.AdditionalSystemPrompt})
 	}
-	if wf != nil {
-		messages = append(messages, protocol.Message{Role: "system", Content: wf.Prompt()})
-	}
-	if workUnits != nil {
-		messages = append(messages, protocol.Message{Role: "system", Content: workUnitPrompt(workUnits)})
-	}
+	messages = append(messages, protocol.Message{Role: "user", Content: taskstate.Render(goal, r.ts, r.wf)})
 	messages = append(messages, recent...)
 	return messages, nil
 }
 
-func (l *Loop) persistToolResult(ctx context.Context, sessionID string, call protocol.ToolCall, args map[string]any, result protocol.ToolResult) (int64, error) {
-	return l.Store.AppendMessage(ctx, sessionID, protocol.Message{Role: "tool", ToolCallID: call.ID, Name: call.Name, Content: result.Content})
+// persistToolResult appends a tool row and, when change is non-nil, the Task State version it caused,
+// in one transaction; the run's state then carries the stored version.
+func (l *Loop) persistToolResult(ctx context.Context, sessionID string, call protocol.ToolCall, result protocol.ToolResult, change *TaskStateChange, r *run) (int64, error) {
+	seq, version, err := l.Store.AppendMessage(ctx, sessionID, protocol.Message{Role: "tool", ToolCallID: call.ID, Name: call.Name, Content: result.Content}, change)
+	if err != nil {
+		return 0, err
+	}
+	if change != nil {
+		r.stored(change, version)
+		l.emit("task_state.changed", sessionID, map[string]any{"version": version, "reason": change.Reason})
+	}
+	return seq, nil
 }
 
 func (l *Loop) checkpoint(sessionID, reason string, payload any) {
@@ -406,57 +467,7 @@ func (l *Loop) finish(ctx context.Context, state SessionState, usage protocol.Us
 	} else {
 		patch.Error = cause.errorData(time.Now())
 	}
-	// The terminal status is written even when the metadata flush fails.
-	flushErr := l.flushMetadata(ctx, state)
-	return errors.Join(flushErr, l.Store.Update(ctx, state.ID, patch))
-}
-
-// loopMetadataKeys are the legacy session metadata keys the loop writes until
-// Task State leaves metadata (M3.1). Any other key belongs to the host and is
-// never written by the loop.
-var loopMetadataKeys = []string{"workflow", "workUnits", "cognition"}
-
-// snapshotMetadata records the JSON of each loop-owned key as the store holds it.
-func snapshotMetadata(metadata map[string]any) map[string]json.RawMessage {
-	out := make(map[string]json.RawMessage, len(loopMetadataKeys))
-	for _, key := range loopMetadataKeys {
-		if value, ok := metadata[key]; ok {
-			if raw, err := json.Marshal(value); err == nil {
-				out[key] = raw
-			}
-		}
-	}
-	return out
-}
-
-// flushMetadata writes each loop-owned key whose value changed since it was
-// last read or written, one single-key patch per key. It never writes the whole
-// metadata object, so host keys changed during the run (ui, ...) are untouched.
-func (l *Loop) flushMetadata(ctx context.Context, state SessionState) error {
-	if state.persisted == nil {
-		return nil
-	}
-	var errs []error
-	for _, key := range loopMetadataKeys {
-		value, ok := state.Metadata[key]
-		if !ok {
-			continue
-		}
-		raw, err := json.Marshal(value)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("encode metadata %q: %w", key, err))
-			continue
-		}
-		if bytes.Equal(state.persisted[key], raw) {
-			continue
-		}
-		if err := l.Store.SetMetadataKey(ctx, state.ID, key, raw); err != nil {
-			errs = append(errs, fmt.Errorf("write metadata %q: %w", key, err))
-			continue
-		}
-		state.persisted[key] = raw
-	}
-	return errors.Join(errs...)
+	return l.Store.Update(ctx, state.ID, patch)
 }
 
 // finishFailure reports a run whose terminal write failed. The row still says
@@ -553,58 +564,6 @@ func (l *Loop) emit(kind, sessionID string, data map[string]any) {
 	}
 }
 
-func restoreWorkflow(metadata map[string]any, supplied []byte) (*workflow.Runtime, error) {
-	var persisted *workflow.Snapshot
-	if metadata != nil {
-		if rawValue, ok := metadata["workflow"]; ok {
-			raw, err := json.Marshal(rawValue)
-			if err != nil {
-				return nil, err
-			}
-			var snap workflow.Snapshot
-			if err := json.Unmarshal(raw, &snap); err != nil {
-				return nil, err
-			}
-			persisted = &snap
-		}
-	}
-	var suppliedDef *workflow.Definition
-	var err error
-	if len(supplied) > 0 {
-		suppliedDef, err = workflow.Parse(supplied)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if persisted == nil && suppliedDef == nil {
-		return nil, nil
-	}
-	if persisted != nil {
-		if persisted.Definition == nil {
-			return nil, errors.New("persisted workflow is missing its definition")
-		}
-		if suppliedDef != nil {
-			left, _ := json.Marshal(persisted.Definition)
-			right, _ := json.Marshal(suppliedDef)
-			if !bytes.Equal(left, right) {
-				return nil, errors.New("workflow definition differs from the contract persisted in this session")
-			}
-		}
-		return workflow.New(persisted.Definition, &workflow.State{CurrentAction: persisted.CurrentAction, Facts: persisted.Facts, FactSources: persisted.FactSources, History: persisted.History, Status: persisted.Status})
-	}
-	return workflow.New(suppliedDef, nil)
-}
-
-func withWorkflow(metadata map[string]any, wf *workflow.Runtime) map[string]any {
-	out := map[string]any{}
-	for key, value := range metadata {
-		out[key] = value
-	}
-	if wf != nil {
-		out["workflow"] = wf.Snapshot()
-	}
-	return out
-}
 
 func workflowSummary(wf *workflow.Runtime) any {
 	if wf == nil {
@@ -664,260 +623,3 @@ func filterDeniedTools(specs []protocol.ToolSpec, deny []string) []protocol.Tool
 	return out
 }
 
-func restoreCognitiveProgress(metadata map[string]any) cognition.Progress {
-	if metadata == nil {
-		return cognition.Progress{}
-	}
-	rawValue, ok := metadata["cognition"]
-	if !ok {
-		return cognition.Progress{}
-	}
-	raw, err := json.Marshal(rawValue)
-	if err != nil {
-		return cognition.Progress{}
-	}
-	var envelope struct {
-		Progress cognition.Progress `json:"progress"`
-	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return cognition.Progress{}
-	}
-	return envelope.Progress
-}
-
-func withCognitionProgress(metadata map[string]any, progress cognition.Progress) map[string]any {
-	out := cloneMetadata(metadata)
-	envelope := map[string]any{}
-	if current, ok := out["cognition"].(map[string]any); ok {
-		for key, value := range current {
-			envelope[key] = value
-		}
-	}
-	envelope["progress"] = progress
-	out["cognition"] = envelope
-	return out
-}
-
-func cloneMetadata(metadata map[string]any) map[string]any {
-	out := map[string]any{}
-	for key, value := range metadata {
-		out[key] = value
-	}
-	return out
-}
-
-func restoreWorkUnits(metadata map[string]any, supplied []byte) (*cognition.WorkUnitManager, error) {
-	if metadata != nil {
-		if rawValue, ok := metadata["workUnits"]; ok {
-			raw, err := json.Marshal(rawValue)
-			if err != nil {
-				return nil, err
-			}
-			var state cognition.WorkUnitState
-			if err := json.Unmarshal(raw, &state); err != nil {
-				return nil, err
-			}
-			return cognition.NewWorkUnitManager(&state), nil
-		}
-	}
-	if len(supplied) == 0 {
-		return nil, nil
-	}
-	units, err := cognition.ParseWorkUnits(supplied)
-	if err != nil {
-		return nil, err
-	}
-	manager := cognition.NewWorkUnitManager(nil)
-	if err := manager.Seed(units); err != nil {
-		return nil, err
-	}
-	return manager, nil
-}
-
-func withWorkUnits(metadata map[string]any, manager *cognition.WorkUnitManager) map[string]any {
-	out := cloneMetadata(metadata)
-	if manager != nil {
-		out["workUnits"] = manager.Snapshot()
-	}
-	return out
-}
-
-func currentWorkUnit(manager *cognition.WorkUnitManager) (*cognition.WorkUnit, error) {
-	if manager == nil {
-		return nil, nil
-	}
-	return manager.EnsureActive()
-}
-
-func workUnitToolSpecs() []protocol.ToolSpec {
-	return []protocol.ToolSpec{
-		{
-			Name:        "work_unit_list",
-			Description: "Inspect persistent Work Units for this Agent session.",
-			Permission:  "read",
-			Parameters:  map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
-		},
-		{
-			Name:        "work_unit_create",
-			Description: "Create a persistent Work Unit. Work Units cannot choose providers, models, Categories or reasoning effort.",
-			Permission:  "read",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"id":                map[string]any{"type": "string"},
-					"goal":              map[string]any{"type": "string"},
-					"description":       map[string]any{"type": "string"},
-					"risk":              map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "critical"}},
-					"required_evidence": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-					"verification":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-					"depends_on":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-				},
-				"required":             []string{"goal"},
-				"additionalProperties": false,
-			},
-		},
-		{
-			Name:        "work_unit_update",
-			Description: "Update Work Unit status, evidence and verification. Completion is gated by required evidence and passed checks.",
-			Permission:  "read",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"id":                   map[string]any{"type": "string"},
-					"status":               map[string]any{"type": "string", "enum": []string{"pending", "active", "blocked", "verifying", "completed", "failed", "cancelled"}},
-					"summary":              map[string]any{"type": "string"},
-					"evidence":             map[string]any{"type": "array"},
-					"verification_results": map[string]any{"type": "array"},
-				},
-				"required":             []string{"id"},
-				"additionalProperties": false,
-			},
-		},
-	}
-}
-
-func filterWorkUnitSpecs(allow []string) []protocol.ToolSpec {
-	specs := workUnitToolSpecs()
-	if allow == nil {
-		return specs
-	}
-	allowed := map[string]bool{}
-	for _, name := range allow {
-		allowed[name] = true
-	}
-	out := make([]protocol.ToolSpec, 0, len(specs))
-	for _, spec := range specs {
-		if allowed[spec.Name] {
-			out = append(out, spec)
-		}
-	}
-	return out
-}
-
-func isWorkUnitTool(name string) bool {
-	return name == "work_unit_list" || name == "work_unit_create" || name == "work_unit_update"
-}
-
-func executeWorkUnitTool(manager *cognition.WorkUnitManager, name string, args map[string]any) protocol.ToolResult {
-	var payload any
-	var err error
-
-	switch name {
-	case "work_unit_list":
-		active, activeErr := manager.EnsureActive()
-		if activeErr != nil {
-			err = activeErr
-			break
-		}
-		payload = map[string]any{"active": active, "units": manager.List()}
-	case "work_unit_create":
-		raw, marshalErr := json.Marshal([]any{args})
-		if marshalErr != nil {
-			err = marshalErr
-			break
-		}
-		units, parseErr := cognition.ParseWorkUnits(raw)
-		if parseErr != nil || len(units) != 1 {
-			err = parseErr
-			if err == nil {
-				err = errors.New("invalid work unit")
-			}
-			break
-		}
-		var unit cognition.WorkUnit
-		unit, err = manager.Add(units[0])
-		if err == nil {
-			payload = map[string]any{"unit": unit, "active": manager.Current()}
-		}
-	case "work_unit_update":
-		id := strings.TrimSpace(fmt.Sprint(args["id"]))
-		if id == "" {
-			err = errors.New("work_unit_update requires id")
-			break
-		}
-		patch := cognition.WorkUnitPatch{}
-		if value, ok := args["status"]; ok {
-			status := cognition.WorkUnitStatus(strings.TrimSpace(fmt.Sprint(value)))
-			patch.Status = &status
-		}
-		if value, ok := args["summary"]; ok {
-			summary := fmt.Sprint(value)
-			patch.Summary = &summary
-		}
-		if value, ok := args["evidence"]; ok {
-			raw, _ := json.Marshal(value)
-			var items []cognition.EvidenceRef
-			if decodeErr := json.Unmarshal(raw, &items); decodeErr != nil {
-				err = decodeErr
-				break
-			}
-			patch.Evidence = &items
-		}
-		if value, ok := args["verification_results"]; ok {
-			raw, _ := json.Marshal(value)
-			var items []cognition.VerificationResult
-			if decodeErr := json.Unmarshal(raw, &items); decodeErr != nil {
-				err = decodeErr
-				break
-			}
-			patch.VerificationResults = &items
-		}
-		var unit cognition.WorkUnit
-		unit, err = manager.Update(id, patch)
-		if err == nil {
-			active, _ := manager.EnsureActive()
-			payload = map[string]any{"unit": unit, "active": active, "remaining": manager.Incomplete()}
-		}
-	default:
-		err = fmt.Errorf("unknown Work Unit tool: %s", name)
-	}
-
-	if err != nil {
-		raw, _ := json.Marshal(map[string]any{"error": err.Error()})
-		return protocol.ToolResult{OK: false, Content: string(raw)}
-	}
-	raw, _ := json.Marshal(payload)
-	return protocol.ToolResult{OK: true, Content: string(raw)}
-}
-
-func workUnitPrompt(manager *cognition.WorkUnitManager) string {
-	active, _ := manager.EnsureActive()
-	var b strings.Builder
-	b.WriteString("Persistent Work Units are active. They constrain goals/evidence/verification and never choose providers/models/Categories.\n")
-	if active != nil {
-		fmt.Fprintf(&b, "Current Work Unit: %s — %s\n", active.ID, active.Goal)
-	}
-	for _, unit := range manager.List() {
-		fmt.Fprintf(&b, "- %s [%s/%s] %s\n", unit.ID, unit.Status, unit.Risk, unit.Goal)
-	}
-	b.WriteString("Use work_unit_update to record evidence/verification and complete the active unit before final completion.")
-	return b.String()
-}
-
-func workUnitCompletionCorrection(units []cognition.WorkUnit) string {
-	var parts []string
-	for _, unit := range units {
-		parts = append(parts, fmt.Sprintf("%s[%s]: %s", unit.ID, unit.Status, unit.Goal))
-	}
-	return "Work Unit completion gate rejected final completion. Remaining units: " + strings.Join(parts, "; ") + ". Use work_unit_update to satisfy evidence/verification and complete them before finishing."
-}

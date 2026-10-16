@@ -35,7 +35,7 @@ func renameUI(t *testing.T, engine *Engine, id, title string) {
 }
 
 // F1: a UI patch made while a run is active used to be lost when the run wrote
-// its own metadata: {"ui":{"title":"Renamed during run"}} during the run, {} after it.
+// its own metadata. Since M3.1 the run keeps its state in Task State and writes no metadata.
 func TestF1UIMetadataSurvivesRunMetadataWrites(t *testing.T) {
 	engine := openTestEngine(t)
 	handle, err := engine.NewSession(context.Background(), SessionOptions{
@@ -50,7 +50,7 @@ func TestF1UIMetadataSurvivesRunMetadataWrites(t *testing.T) {
 		return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}, nil
 	}}
 
-	result, err := engine.runAgentWith(context.Background(), handle.ID, provider, AgentOptions{MaxSteps: 2, CognitionEnabled: true})
+	result, err := engine.runAgentWith(context.Background(), handle.ID, provider, AgentOptions{MaxSteps: 2})
 	if err != nil || result.Status != "completed" {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
@@ -62,8 +62,8 @@ func TestF1UIMetadataSurvivesRunMetadataWrites(t *testing.T) {
 	if !reflect.DeepEqual(metadata["contextPaths"], []any{"a.go"}) {
 		t.Fatalf("contextPaths=%#v", metadata["contextPaths"])
 	}
-	if _, ok := metadata["workUnits"]; !ok {
-		t.Fatalf("the run's own metadata was not written: %#v", metadata)
+	if len(metadata) != 2 {
+		t.Fatalf("the run wrote metadata: %#v", metadata)
 	}
 }
 
@@ -89,14 +89,15 @@ func waitingGateSession(t *testing.T, engine *Engine) *SessionHandle {
 	return handle
 }
 
-// approvedGateIn reports whether the persisted workflow snapshot records the
+// approvedGateIn reports whether the newest Task State's workflow records the
 // human gate "ship" as approved (fact approved == true).
 func approvedGateIn(t *testing.T, engine *Engine, id string) bool {
 	t.Helper()
-	snapshot, _ := metadataMap(t, engine, id)["workflow"].(map[string]any)
-	facts, _ := snapshot["facts"].(map[string]any)
-
-	return facts["approved"] == true
+	state, err := engine.loadTaskState(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state.Workflow != nil && state.Workflow.Facts["approved"] == true
 }
 
 func TestApprovalAndUIRenameBothSurvive(t *testing.T) {

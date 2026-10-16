@@ -83,7 +83,7 @@ func TestDowngradeToZeroIsRefusedWithoutChanges(t *testing.T) {
 	reopened.Close()
 }
 
-// TestDowngradeNoopAtCurrentVersion: --to equal to the current version (2) changes nothing.
+// TestDowngradeNoopAtCurrentVersion: --to equal to the current version (3) changes nothing.
 func TestDowngradeNoopAtCurrentVersion(t *testing.T) {
 	root := t.TempDir()
 	engine, err := lcx.Open(lcx.Options{Workspace: root})
@@ -93,8 +93,8 @@ func TestDowngradeNoopAtCurrentVersion(t *testing.T) {
 	engine.Close()
 	stateDir := filepath.Join(root, ".lumencortex")
 	before := stateHash(t, stateDir)
-	from, now, err := lcx.DowngradeSchema(context.Background(), lcx.Options{Workspace: root}, 2)
-	if err != nil || from != 2 || now != 2 {
+	from, now, err := lcx.DowngradeSchema(context.Background(), lcx.Options{Workspace: root}, 3)
+	if err != nil || from != 3 || now != 3 {
 		t.Fatalf("from=%d now=%d err=%v", from, now, err)
 	}
 	if stateHash(t, stateDir) != before {

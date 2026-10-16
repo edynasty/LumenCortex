@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -118,7 +117,7 @@ func run() error {
 				return err
 			}
 		}
-		agentOpts, err := agentOptionsFromEnv(workspace)
+		agentOpts, err := agentOptionsFromEnv()
 		if err != nil {
 			return err
 		}
@@ -134,7 +133,7 @@ func run() error {
 		if err := preflight(workspace, os.Stderr, false); err != nil {
 			return err
 		}
-		agentOpts, err := agentOptionsFromEnv(workspace)
+		agentOpts, err := agentOptionsFromEnv()
 		if err != nil {
 			return err
 		}
@@ -425,7 +424,7 @@ func runSkillsCommand(engine *lcx.Engine, args []string) error {
 }
 
 
-func agentOptionsFromEnv(workspace string) (lcx.AgentOptions, error) {
+func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 	policy := strings.TrimSpace(os.Getenv("LCX_POLICY"))
 	if policy == "" {
 		policy = "read-only"
@@ -450,21 +449,15 @@ func agentOptionsFromEnv(workspace string) (lcx.AgentOptions, error) {
 			return lcx.AgentOptions{}, fmt.Errorf("read LCX_WORK_UNITS %q: %w", path, err)
 		}
 	}
-	opts := lcx.AgentOptions{
-		Policy: policy,
-		MaxSteps: maxSteps,
-		MaxTokens: maxTokens,
-		RecentMessages: recentMessages,
+	return lcx.AgentOptions{
+		Policy:              policy,
+		MaxSteps:            maxSteps,
+		MaxTokens:           maxTokens,
+		RecentMessages:      recentMessages,
 		MaxToolCallsPerStep: maxToolCalls,
-		Workflow: workflow,
-		WorkUnits: workUnits,
-	}
-
-	profilePath := strings.TrimSpace(os.Getenv("LCX_COGNITION_PROFILE"))
-	defaultProfile := filepath.Join(workspace, ".lumencortex", "cognition.json")
-	_, defaultProfileErr := os.Stat(defaultProfile)
-	opts.CognitionEnabled = envBool("LCX_COGNITION") || profilePath != "" || defaultProfileErr == nil
-	return opts, nil
+		Workflow:            workflow,
+		WorkUnits:           workUnits,
+	}, nil
 }
 
 func streamEvents(engine *lcx.Engine) func() {

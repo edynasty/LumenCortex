@@ -1,4 +1,4 @@
-package cognition
+package taskstate
 
 import (
 	"crypto/sha256"
@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// Progress counts repeated failures across a run. It is the only part of the earlier routing
-// control that remains: Task State replaces it in M3.1.
+// Progress counts repeated tool failures across a session (design §4.4). Only the runtime updates
+// it, from tool outcomes and (M4.1) evaluator results.
 type Progress struct {
 	SameFailureCount   int            `json:"sameFailureCount,omitempty"`
 	MaxRepeatedFailure int            `json:"maxRepeatedFailure,omitempty"`
@@ -33,6 +33,13 @@ func (p *Progress) ObserveTool(name string, ok bool, content string) {
 	if p.SameFailureCount > p.MaxRepeatedFailure {
 		p.MaxRepeatedFailure = p.SameFailureCount
 	}
+}
+
+// ResetStall clears the stall counters after verifiable progress (a work unit completed, or from M4.1
+// a required check passed), so escalated effort returns to the default. MaxRepeatedFailure stays as
+// session history.
+func (p *Progress) ResetStall() {
+	p.SameFailureCount, p.NoProgressSteps, p.LastFailure, p.Failures = 0, 0, "", nil
 }
 
 var (

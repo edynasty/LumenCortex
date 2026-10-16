@@ -70,6 +70,8 @@ func (l *Loop) send(
 	sessionID string,
 	step int64,
 	opts Options,
+	stall Stall,
+	taskStateVersion int64,
 	cands []Candidate,
 	messages []protocol.Message,
 	specs []protocol.ToolSpec,
@@ -79,7 +81,7 @@ func (l *Loop) send(
 	for i := 0; ; {
 		cand := cands[i]
 		m := l.Models[cand.Ref]
-		sent, effortDecision := EffortDecision(opts.EffortDefault, opts.Effort, m.Efforts)
+		sent, effortDecision := EffortDecision(opts.EffortDefault, opts.Effort, opts.Escalation, stall, taskStateVersion, m.Efforts)
 		*decisions = append(*decisions, effortDecision)
 		// max_tokens is what the caller asked for, else what the model's configuration says, else
 		// nothing: the effective default only reserves capacity (D4). It is never scaled by effort.

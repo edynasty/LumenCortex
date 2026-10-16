@@ -12,44 +12,6 @@ import (
 	lcx "github.com/edynasty/LumenCortex/runtime"
 )
 
-func TestAgentOptionsAutoEnableCognitionFromWorkspaceProfile(t *testing.T) {
-	root := t.TempDir()
-	dir := filepath.Join(root, ".lumencortex")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	raw := []byte(`{
-		"decision":{
-			"providers":[{"type":"laya","baseURL":"http://127.0.0.1:8000"}]
-		},
-		"categories":{
-			"general":{
-				"default":true,
-				"models":[{"provider":"generic","model":"local-fast","baseURL":"http://127.0.0.1:11434/v1"}]
-			}
-		},
-		"health":{"failureThreshold":4,"cooldownMs":12000}
-	}`)
-	if err := os.WriteFile(filepath.Join(dir, "cognition.json"), raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("LCX_COGNITION", "")
-	t.Setenv("LCX_COGNITION_PROFILE", "")
-	t.Setenv("LCX_WORKFLOW", "")
-	t.Setenv("LCX_WORK_UNITS", "")
-
-	// The CognitionEnabled switch is unchanged until M3.1; the profile's contents are not read.
-	opts, err := agentOptionsFromEnv(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !opts.CognitionEnabled {
-		t.Fatal("a workspace cognition.json should still enable the cognition switch")
-	}
-}
-
-
 func TestGoCLIWorktreeCommandsExposeSessionIsolation(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")

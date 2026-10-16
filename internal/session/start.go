@@ -22,6 +22,9 @@ type RunStart struct {
 	// explicit change (model.user) and for the first Start of a session that has no pin
 	// (model.default); a continuation on the pinned model leaves it nil.
 	ModelRef *string
+	// TaskState is the Start's Task State version (reason "start": seeds from the run options and
+	// the queued inbox edits it applied), when the Start changes Task State.
+	TaskState *TaskStateWrite
 }
 
 // BeginRun is the Start transaction. The caller holds the session's run lock and
@@ -30,6 +33,7 @@ type RunStart struct {
 //
 //   - appends Input as a user row, when there is one;
 //   - writes the provider/model identity;
+//   - writes the Start's Task State version and consumes the inbox edits it applied;
 //   - sets status = running and clears the previous cause and final.
 //
 // All of it commits or none of it does, so a Start that fails leaves no new
@@ -97,6 +101,11 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 	args = append(args, sessionID)
 	if _, err := conn.ExecContext(ctx, `UPDATE sessions SET `+sets+` WHERE id = ?`, args...); err != nil {
 		return Session{}, -1, err
+	}
+	if start.TaskState != nil {
+		if _, err := putTaskState(ctx, conn, sessionID, *start.TaskState); err != nil {
+			return Session{}, -1, err
+		}
 	}
 	// Read the row that is about to commit; this is the last fallible step before it.
 	row, err := getSession(ctx, conn, sessionID)

@@ -35,6 +35,8 @@ const (
 	RuleModelCandidates = "model.candidates" // the ordered, filtered candidate list of one step
 	RuleEffortOverride  = "effort.override"  // AgentOptions.Effort
 	RuleEffortDefault   = "effort.default"   // config default
+	RuleEffortEscalated = "effort.escalated" // config default raised while progress shows a stall
+	RuleEffortCapped    = "effort.capped"    // a stall would escalate, but escalation.max allows no higher level
 	RuleFailoverPrefix  = "failover."
 )
 
@@ -174,13 +176,39 @@ func effortIndex(e config.Effort) int { return slices.Index(effortOrder, e) }
 // ValidEffort reports whether e may be requested: "" (use the default) or one of the five levels.
 func ValidEffort(e config.Effort) bool { return e == "" || effortIndex(e) >= 0 }
 
-// EffortFor is the only effort rule: the per-run override when set, else the configured default.
-// "" means "send no reasoning parameter". Escalation arrives with Task State progress in M3.1.
-func EffortFor(def, override config.Effort) (config.Effort, string) {
+// Stall is the part of Task State progress the effort rule reads.
+type Stall struct {
+	SameFailure     int `json:"sameFailure"`
+	NoProgressSteps int `json:"noProgressSteps"`
+}
+
+// EffortFor is the only effort rule (design §4.5, A6). "" means "send no reasoning parameter". The
+// per-run override wins. Otherwise the configured default is escalated one level once the same failure
+// repeats esc.SameFailure times or esc.NoProgressSteps steps pass without progress, two levels at twice
+// either threshold, never above esc.Max; progress resets the stall and with it the effort.
+func EffortFor(def, override config.Effort, esc *config.Escalation, stall Stall) (config.Effort, string) {
 	if override != "" {
 		return override, RuleEffortOverride
 	}
-	return def, RuleEffortDefault
+	if def == "" || esc == nil {
+		return def, RuleEffortDefault
+	}
+	reached := func(count, threshold int) bool { return threshold > 0 && count >= threshold }
+	levels := 0
+	if reached(stall.SameFailure, esc.SameFailure) || reached(stall.NoProgressSteps, esc.NoProgressSteps) {
+		levels = 1
+	}
+	if reached(stall.SameFailure, 2*esc.SameFailure) || reached(stall.NoProgressSteps, 2*esc.NoProgressSteps) {
+		levels = 2
+	}
+	if levels == 0 {
+		return def, RuleEffortDefault
+	}
+	idx := min(effortIndex(def)+levels, effortIndex(esc.Max))
+	if idx <= effortIndex(def) {
+		return def, RuleEffortCapped
+	}
+	return effortOrder[idx], RuleEffortEscalated
 }
 
 // ClampEffort fits a requested effort to one model's reasoning.efforts: the lowest listed level not
@@ -308,9 +336,13 @@ type candidatesOutput struct {
 }
 
 type effortInputs struct {
-	Default  config.Effort   `json:"default"`
-	Override config.Effort   `json:"override"`
-	Efforts  []config.Effort `json:"efforts"`
+	Default    config.Effort      `json:"default"`
+	Override   config.Effort      `json:"override"`
+	Escalation *config.Escalation `json:"escalation,omitempty"`
+	Stall      Stall              `json:"stall"`
+	// TaskState is the Task State version the stall was read from, for tracing.
+	TaskState int64 `json:"taskStateVersion"`
+	Efforts    []config.Effort    `json:"efforts"`
 }
 
 type effortOutput struct {
@@ -395,11 +427,11 @@ func availableExcept(unavailable []config.ModelRef) func(config.ModelRef) bool {
 }
 
 // EffortDecision applies EffortFor and ClampEffort for one candidate and records both.
-func EffortDecision(def, override config.Effort, supported []config.Effort) (config.Effort, Decision) {
-	requested, rule := EffortFor(def, override)
+func EffortDecision(def, override config.Effort, esc *config.Escalation, stall Stall, taskState int64, supported []config.Effort) (config.Effort, Decision) {
+	requested, rule := EffortFor(def, override, esc, stall)
 	sent := ClampEffort(requested, supported)
 	return sent, newDecision(DecisionEffort, rule,
-		effortInputs{Default: def, Override: override, Efforts: sliceOrEmpty(supported)},
+		effortInputs{Default: def, Override: override, Escalation: esc, Stall: stall, TaskState: taskState, Efforts: sliceOrEmpty(supported)},
 		effortOutput{Requested: requested, Sent: sent})
 }
 
@@ -450,7 +482,7 @@ func ReplayDecision(d Decision) error {
 		if err := decodeDecision(d, &in, &out); err != nil {
 			return err
 		}
-		requested, rule := EffortFor(in.Default, in.Override)
+		requested, rule := EffortFor(in.Default, in.Override, in.Escalation, in.Stall)
 		sent := ClampEffort(requested, in.Efforts)
 		if rule != d.Rule || requested != out.Requested || sent != out.Sent {
 			return fmt.Errorf("effort decision: recomputed %q/%q via %s, logged %q/%q via %s",

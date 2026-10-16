@@ -11,8 +11,8 @@ import (
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
+	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/internal/toolset"
-	"github.com/edynasty/LumenCortex/internal/workflow"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -39,7 +39,6 @@ type AgentOptions struct {
 	WorkUnits           json.RawMessage `json:"workUnits,omitempty"`
 	MaxTokens           int             `json:"maxTokens,omitempty"`
 	Temperature         *float64        `json:"temperature,omitempty"`
-	CognitionEnabled    bool            `json:"cognitionEnabled,omitempty"`
 
 	subagents        toolset.SubagentController
 	parentSessionID  string
@@ -127,6 +126,11 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err != nil {
 		return nil, err
 	}
+	// The seeds are validated here, before anything is written.
+	taskState, err := e.startTaskState(ctx, sessionID, opts)
+	if err != nil {
+		return nil, err
+	}
 	policy := opts.Policy
 	if policy == "" {
 		policy = toolset.PolicyReadOnly
@@ -167,19 +171,14 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		ToolAllowlist:       opts.ToolAllowlist,
 		ToolDenylist:        opts.ToolDenylist,
 		SystemPrompt:        opts.SystemPrompt,
-		WorkflowJSON:        opts.Workflow,
-		WorkUnitsJSON:       opts.WorkUnits,
 		MaxTokens:           opts.MaxTokens,
 		Temperature:         opts.Temperature,
-		CognitionEnabled:    opts.CognitionEnabled,
 		Session:             plan.session,
 		Failover:            plan.failover,
 		EffortDefault:       plan.effort,
+		Escalation:          plan.escalation,
 		Effort:              opts.Effort,
 		Decisions:           []agent.Decision{plan.decision},
-	}
-	if err := agent.CheckStart(state.Metadata, loopOpts); err != nil {
-		return nil, err
 	}
 
 	if e.skillRegistry != nil {
@@ -198,9 +197,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		}
 	}
 
-	// Start's one durable write: Input, the session model identity and the running
-	// transition commit together or not at all (§3.2). Nothing above it wrote.
-	start := session.RunStart{Provider: &plan.resolved.ProviderID, Model: &plan.resolved.ModelID}
+	// Start's one durable write: Input, the session model identity, the Start's Task State version and
+	// the running transition commit together or not at all (§3.2). Nothing above it wrote.
+	start := session.RunStart{Provider: &plan.resolved.ProviderID, Model: &plan.resolved.ModelID, TaskState: taskState}
 	if agent.WritesModelRef(plan.rule) {
 		ref := string(plan.session)
 		start.ModelRef = &ref
@@ -222,10 +221,11 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		info:      sessionInfo(committed),
 		loopOpts:  loopOpts,
 		loop: agent.Loop{
-			Models: plan.models,
-			Health: e.health,
-			Store:  agentStore{store: e.store},
-			Tools:  tools,
+			Models:    plan.models,
+			Health:    e.health,
+			Store:     agentStore{store: e.store},
+			Tools:     tools,
+			Workspace: e.agentWorkspaceEvidence(sessionID),
 			Emit: func(event agent.Event) {
 				e.events.publish(event.Type, event.SessionID, event.Data)
 				_ = e.store.Journal(context.Background(), event.Type, map[string]any{
@@ -245,105 +245,56 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	}, nil
 }
 
+// WorkflowSummary returns the summary of the workflow in the session's newest Task State, nil when it
+// has none.
 func (e *Engine) WorkflowSummary(ctx context.Context, sessionID string) (any, error) {
-	current, err := e.store.Get(ctx, sessionID)
+	if _, err := e.store.Get(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	state, err := e.loadTaskState(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	metadata := map[string]any{}
-	if len(current.Metadata) > 0 {
-		if err := json.Unmarshal(current.Metadata, &metadata); err != nil {
-			return nil, err
-		}
-	}
-	rawSnapshot, ok := metadata["workflow"]
-	if !ok {
-		return nil, nil
-	}
-	raw, err := json.Marshal(rawSnapshot)
-	if err != nil {
+	wf, err := state.RestoreWorkflow()
+	if err != nil || wf == nil {
 		return nil, err
 	}
-	var snapshot workflow.Snapshot
-	if err := json.Unmarshal(raw, &snapshot); err != nil {
-		return nil, err
-	}
-	if snapshot.Definition == nil {
-		return nil, errors.New("persisted workflow has no definition")
-	}
-	runtime, err := workflow.New(snapshot.Definition, &workflow.State{
-		CurrentAction: snapshot.CurrentAction,
-		Facts:         snapshot.Facts,
-		FactSources:   snapshot.FactSources,
-		History:       snapshot.History,
-		Status:        snapshot.Status,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return runtime.Summary(), nil
+	return wf.Summary(), nil
 }
 
 // ApproveWorkflowGate approves a human gate of the session's workflow. It takes
-// the session's run lock and returns ErrRunHeld while a run holds it. It changes
-// the workflow state only: the session's status stays (waiting_gate) and the host
-// continues with a Start.
+// the session's run lock and returns ErrRunHeld while a run holds it. It writes
+// the next Task State version (reason user) only: the session's status stays
+// (waiting_gate) and the host continues with a Start.
 func (e *Engine) ApproveWorkflowGate(ctx context.Context, sessionID, gateID, actor string) (any, error) {
 	lock, err := e.acquireRun(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	defer lock.Release()
-	current, err := e.store.Get(ctx, sessionID)
+	state, err := e.loadTaskState(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	metadata := map[string]any{}
-	if len(current.Metadata) > 0 {
-		if err := json.Unmarshal(current.Metadata, &metadata); err != nil {
-			return nil, err
-		}
-	}
-	rawSnapshot, ok := metadata["workflow"]
-	if !ok {
-		return nil, errors.New("session has no active workflow")
-	}
-	raw, err := json.Marshal(rawSnapshot)
+	wf, err := state.RestoreWorkflow()
 	if err != nil {
 		return nil, err
 	}
-	var snapshot workflow.Snapshot
-	if err := json.Unmarshal(raw, &snapshot); err != nil {
-		return nil, err
+	if wf == nil {
+		return nil, errNoWorkflow
 	}
-	if snapshot.Definition == nil {
-		return nil, errors.New("persisted workflow has no definition")
-	}
-	runtime, err := workflow.New(snapshot.Definition, &workflow.State{
-		CurrentAction: snapshot.CurrentAction,
-		Facts:         snapshot.Facts,
-		FactSources:   snapshot.FactSources,
-		History:       snapshot.History,
-		Status:        snapshot.Status,
-	})
+	transition, err := wf.Approve(gateID, actor)
 	if err != nil {
 		return nil, err
 	}
-	transition, err := runtime.Approve(gateID, actor)
-	if err != nil {
-		return nil, err
-	}
-	workflowJSON, err := json.Marshal(runtime.Snapshot())
-	if err != nil {
-		return nil, err
-	}
-	if err := e.store.SetHostMetadataKey(ctx, sessionID, "workflow", workflowJSON); err != nil {
+	state.SetWorkflow(wf)
+	if _, err := e.putTaskState(ctx, sessionID, taskstate.ReasonUser, state, 0); err != nil {
 		return nil, err
 	}
 	e.events.publish("workflow.approved", sessionID, map[string]any{
-		"gate": gateID, "actor": actor, "transition": transition, "workflow": runtime.Summary(),
+		"gate": gateID, "actor": actor, "transition": transition, "workflow": wf.Summary(),
 	})
-	return runtime.Summary(), nil
+	return wf.Summary(), nil
 }
 
 func rawMessagePtr(value []byte) *json.RawMessage {
@@ -360,12 +311,6 @@ func (s agentStore) Get(ctx context.Context, id string) (agent.SessionState, err
 	if err != nil {
 		return agent.SessionState{}, err
 	}
-	metadata := map[string]any{}
-	if len(value.Metadata) > 0 {
-		if err := json.Unmarshal(value.Metadata, &metadata); err != nil {
-			return agent.SessionState{}, err
-		}
-	}
 	usage := protocol.Usage{}
 	if len(value.Usage) > 0 {
 		_ = json.Unmarshal(value.Usage, &usage)
@@ -374,14 +319,11 @@ func (s agentStore) Get(ctx context.Context, id string) (agent.SessionState, err
 	if value.Final != nil {
 		final = *value.Final
 	}
-	return agent.SessionState{
-		ID: value.ID, Goal: value.Goal, Status: value.Status,
-		Metadata: metadata, Final: final, Usage: usage,
-	}, nil
+	return agent.SessionState{ID: value.ID, Goal: value.Goal, Status: value.Status, Final: final, Usage: usage}, nil
 }
 
-func (s agentStore) RecentMessages(ctx context.Context, id string, limit int) ([]protocol.Message, error) {
-	items, err := s.store.RecentMessages(ctx, id, limit)
+func (s agentStore) RecentMessages(ctx context.Context, id string, fromSeq int64, limit int) ([]protocol.Message, error) {
+	items, err := s.store.RecentMessagesFrom(ctx, id, fromSeq, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -399,8 +341,12 @@ func (s agentStore) RecentMessages(ctx context.Context, id string, limit int) ([
 	return out, nil
 }
 
-func (s agentStore) AppendMessage(ctx context.Context, id string, message protocol.Message) (int64, error) {
-	return s.store.AppendMessage(ctx, id, message.Role, message)
+func (s agentStore) AppendMessage(ctx context.Context, id string, message protocol.Message, change *agent.TaskStateChange) (int64, int64, error) {
+	write, err := agentTaskStateChange(change)
+	if err != nil {
+		return 0, 0, err
+	}
+	return s.store.AppendMessageTaskState(ctx, id, message.Role, message, write)
 }
 
 func (s agentStore) AppendStep(ctx context.Context, id string, step int64, value any) error {
@@ -416,8 +362,28 @@ func (s agentStore) NextStep(ctx context.Context, id string) (int64, error) {
 	return s.store.NextStep(ctx, id)
 }
 
-func (s agentStore) SetMetadataKey(ctx context.Context, id, key string, value json.RawMessage) error {
-	return s.store.SetHostMetadataKey(ctx, id, key, value)
+func (s agentStore) TaskState(ctx context.Context, id string) (taskstate.State, error) {
+	row, err := s.store.LatestTaskState(ctx, id)
+	if err != nil {
+		return taskstate.State{}, err
+	}
+	return taskstate.Decode(row.Version, row.JSON)
+}
+
+func (s agentStore) InboxEdits(ctx context.Context, id string) ([]taskstate.QueuedEdit, error) {
+	rows, err := s.store.InboxEdits(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return queuedEdits(rows), nil
+}
+
+func (s agentStore) PutTaskState(ctx context.Context, id string, change agent.TaskStateChange) (int64, error) {
+	write, err := agentTaskStateChange(&change)
+	if err != nil {
+		return 0, err
+	}
+	return s.store.PutTaskState(ctx, id, *write)
 }
 
 func (s agentStore) Update(ctx context.Context, id string, patch agent.SessionPatch) error {
