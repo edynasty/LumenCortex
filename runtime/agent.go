@@ -262,6 +262,37 @@ func (e *Engine) WorkflowSummary(ctx context.Context, sessionID string) (any, er
 	return wf.Summary(), nil
 }
 
+// TaskStateSnapshot returns the full Task State for inspection, including
+// work units, references, progress, and resolution.
+func (e *Engine) TaskStateSnapshot(ctx context.Context, sessionID string) (map[string]any, error) {
+	if _, err := e.store.Get(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	state, err := e.loadTaskState(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Convert to map for JSON serialization
+	result := make(map[string]any)
+	result["version"] = state.Version
+	result["brief"] = state.Brief
+	result["references"] = state.References
+	result["resolution"] = state.Resolution
+	result["progress"] = state.Progress
+	result["windowStartSeq"] = state.WindowStartSeq
+	
+	if state.WorkUnits != nil {
+		result["workUnits"] = state.WorkUnits
+	}
+	
+	if wf, err := state.RestoreWorkflow(); err == nil && wf != nil {
+		result["workflow"] = wf.Summary()
+	}
+	
+	return result, nil
+}
+
 // ApproveWorkflowGate approves a human gate of the session's workflow. It takes
 // the session's run lock and returns ErrRunHeld while a run holds it. It writes
 // the next Task State version (reason user) only: the session's status stays
