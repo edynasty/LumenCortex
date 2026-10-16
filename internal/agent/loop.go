@@ -38,11 +38,24 @@ type Loop struct {
 // run is the Task State a run works on: the run's current state, the workflow and work units decoded
 // from it, and the JSON of the version the store holds. ts.Version is always that stored version; a
 // change not yet written is the difference between ts and saved.
+// run is the Task State a run works on: the run's current state, the workflow and work units decoded
+// from it, the JSON of the version the store holds, and run-memory echo tracking.
+// ts.Version is always that stored version; a change not yet written is the difference between ts and saved.
+// echo maps seq → (producing model ref, echo data) for assistant messages in the current window.
+// producingModel tracks the model ref that produced each assistant message, used for turn boundaries.
 type run struct {
-	ts    taskstate.State
-	wf    *workflow.Runtime
-	units *taskstate.WorkUnitManager
-	saved json.RawMessage
+	ts             taskstate.State
+	wf             *workflow.Runtime
+	units          *taskstate.WorkUnitManager
+	saved          json.RawMessage
+	echo           map[int64]echoEntry    // seq → echo for current window assistant messages
+	producingModel map[int64]config.ModelRef // seq → model ref for all observed assistant messages
+}
+
+// echoEntry holds the echo data and the model that produced it.
+type echoEntry struct {
+	ModelRef config.ModelRef
+	Tokens   int // adapter-reported size
 }
 
 // change returns the write that stores the run's unsaved Task State, or nil when nothing changed.
@@ -114,7 +127,14 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 	if err != nil {
 		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 	}
-	r := &run{ts: ts, wf: wf, units: ts.Units(), saved: saved}
+	r := &run{
+		ts:             ts,
+		wf:             wf,
+		units:          ts.Units(),
+		saved:          saved,
+		echo:           make(map[int64]echoEntry),
+		producingModel: make(map[int64]config.ModelRef),
+	}
 	startStep, err := l.Store.NextStep(ctx, sessionID)
 	if err != nil {
 		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
@@ -158,17 +178,45 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		specs = filterDeniedTools(specs, opts.ToolDenylist)
 		activeWorkUnit, _ := r.units.EnsureActive()
 		r.ts.SetUnits(r.units)
-		messages, err := l.buildMessages(ctx, sessionID, opts, state.Goal, r)
+		
+		// Get candidates and first candidate's budget for window building
+		// We use a minimal base estimate to filter candidates, then build window with first candidate
+		toolTokens := window.Estimate(specs)
+		system := []protocol.Message{{Role: "system", Content: opts.SystemPrompt}}
+		if strings.TrimSpace(opts.AdditionalSystemPrompt) != "" {
+			system = append(system, protocol.Message{Role: "system", Content: opts.AdditionalSystemPrompt})
+		}
+		stateMsg := protocol.Message{Role: "user", Content: taskstate.Render(state.Goal, r.ts, r.wf)}
+		baseFixed := window.Estimate(system) + window.Estimate(stateMsg) + toolTokens
+		
+		// Estimate newest group for candidate filtering (§3.3 step 4)
+		newestGroup, err := l.newestGroupTokens(ctx, sessionID, r.ts.WindowStartSeq)
 		if err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
-		base := window.Estimate(messages) + window.Estimate(specs)
+		base := baseFixed + newestGroup
+		
 		cands, candidatesDecision := l.candidates(opts, base)
 		stepDecisions := append(append([]Decision(nil), opts.Decisions...), candidatesDecision)
 		if len(cands) == 0 {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindWindowOverflow,
 				Err: fmt.Errorf("no model can take this request: it needs about %d tokens before the reply, and no candidate of %s has the context, tool calling and health for it", base, refList(append([]config.ModelRef{opts.Session}, opts.Failover...)))})
 		}
+		
+		// Build window with first candidate's budget
+		firstCand := cands[0]
+		firstModel := l.Models[firstCand.Ref]
+		budget := window.Budget{
+			Context: firstModel.Context,
+			Output:  firstModel.Output,
+			Margin:  firstModel.Context * 5 / 100, // 5% margin per design §3.2
+		}
+		
+		messages, firstSeq, err := l.buildMessages(ctx, sessionID, opts, state.Goal, r, budget, toolTokens)
+		if err != nil {
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindWindowOverflow, Err: err})
+		}
+		_ = firstSeq // TODO: use for window decision logging
 		stall := Stall{SameFailure: r.ts.Progress.SameFailureCount, NoProgressSteps: r.ts.Progress.NoProgressSteps}
 		answered, cause := l.send(ctx, sessionID, step, opts, stall, r.ts.Version, cands, messages, specs, &usage, &stepDecisions)
 		if cause != nil {
@@ -410,18 +458,53 @@ func (l *Loop) putTaskState(ctx context.Context, sessionID string, r *run, chang
 
 // buildMessages is System, then the Task State block, then the newest rows at or after the window
 // start.
-func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options, goal string, r *run) ([]protocol.Message, error) {
-	recent, err := l.Store.RecentMessages(ctx, sessionID, r.ts.WindowStartSeq, opts.RecentMessages)
+func (l *Loop) buildMessages(ctx context.Context, sessionID string, opts Options, goal string, r *run, budget window.Budget, toolTokens int) ([]protocol.Message, int64, error) {
+	// Load transcript from windowStartSeq onward
+	messages, err := l.Store.RecentMessages(ctx, sessionID, r.ts.WindowStartSeq, -1) // -1 = all from start
 	if err != nil {
-		return nil, err
+		return nil, -1, err
 	}
-	messages := []protocol.Message{{Role: "system", Content: opts.SystemPrompt}}
+
+	// Convert to window entries with echo token counts
+	transcript := make([]window.Entry, 0, len(messages))
+	for i, msg := range messages {
+		seq := r.ts.WindowStartSeq + int64(i)
+		echoTokens := 0
+		if entry, ok := r.echo[seq]; ok {
+			echoTokens = entry.Tokens
+		}
+		transcript = append(transcript, window.Entry{
+			Seq:        seq,
+			Msg:        msg,
+			EchoTokens: echoTokens,
+		})
+	}
+
+	// Build system messages
+	system := []protocol.Message{{Role: "system", Content: opts.SystemPrompt}}
 	if strings.TrimSpace(opts.AdditionalSystemPrompt) != "" {
-		messages = append(messages, protocol.Message{Role: "system", Content: opts.AdditionalSystemPrompt})
+		system = append(system, protocol.Message{Role: "system", Content: opts.AdditionalSystemPrompt})
 	}
-	messages = append(messages, protocol.Message{Role: "user", Content: taskstate.Render(goal, r.ts, r.wf)})
-	messages = append(messages, recent...)
-	return messages, nil
+
+
+	// Build Task State message
+	stateMsg := protocol.Message{Role: "user", Content: taskstate.Render(goal, r.ts, r.wf), Origin: "task_state"}
+
+	// Construct window input
+	input := window.Input{
+		System:     system,
+		State:      stateMsg,
+		Transcript: transcript,
+		ToolTokens: toolTokens,
+	}
+
+	// Build the window
+	result, err := window.Build(input, budget)
+	if err != nil {
+		return nil, -1, err
+	}
+
+	return result.Messages, result.FirstSeq, nil
 }
 
 // persistToolResult appends a tool row and, when change is non-nil, the Task State version it caused,
@@ -621,5 +704,45 @@ func filterDeniedTools(specs []protocol.ToolSpec, deny []string) []protocol.Tool
 		out = append(out, spec)
 	}
 	return out
+}
+
+// newestGroupTokens estimates the token cost of the newest group in the transcript (newest user
+// message or newest assistant + its tool results). Returns 0 if the transcript is empty.
+func (l *Loop) newestGroupTokens(ctx context.Context, sessionID string, windowStartSeq int64) (int, error) {
+	// Fetch messages from windowStartSeq onward
+	messages, err := l.Store.RecentMessages(ctx, sessionID, windowStartSeq, -1)
+	if err != nil {
+		return 0, err
+	}
+	if len(messages) == 0 {
+		return 0, nil
+	}
+	
+	// Convert to entries (no echo for base estimation per design)
+	entries := make([]window.Entry, len(messages))
+	for i, msg := range messages {
+		entries[i] = window.Entry{
+			Seq:        windowStartSeq + int64(i),
+			Msg:        msg,
+			EchoTokens: 0, // base excludes echo per §3.3 step 4
+		}
+	}
+	
+	// Split into groups
+	groups, err := window.Groups(entries)
+	if err != nil {
+		return 0, err
+	}
+	if len(groups) == 0 {
+		return 0, nil
+	}
+	
+	// Estimate newest (last) group
+	newest := groups[len(groups)-1]
+	tokens := 0
+	for _, e := range newest {
+		tokens += window.Estimate(e.Msg)
+	}
+	return tokens, nil
 }
 
