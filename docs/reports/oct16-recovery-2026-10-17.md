@@ -87,6 +87,6 @@ Not run: live-provider runs (no verified endpoint used); Wails desktop smoke.
 
 - ~~M3.2 §4.6~~ — closed by the M3.2 §4.6 commit after `32c3f62`; decisions and evidence in [M3-M4-runtime-2026-10-15.md](M3-M4-runtime-2026-10-15.md#m32-46-decisions-reasoning-echo-resume-and-turn-rows).
 - `window.default_context` decision for models without `limit.context` (the loop only sees effective limits).
-- M3.3 (Desktop), M4.1, M4.2 not started. Desktop still pins core `156fdff`; M3.3 moves the pin and drops `recentMessages` from `frontend/src/app/agent-config.ts` / `internal/backend/runtime.go`.
+- ~~M3.3 (Desktop)~~: done in Desktop `28ea69a`, which pins core `977363a` (M3.2 plus exported `TaskReferenceEdit`/`TaskResolveEdit`) and drops `recentMessages`. Report: `../LumenCortex-Desktop/docs/reports/M3.3-desktop-task-state-2026-10-17.md`. M4.1, M4.2 not started.
 - Owner decision: delete the superseded Demo documents listed above on `design/ui-demo`.
 - Nothing pushed.
