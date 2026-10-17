@@ -18,6 +18,13 @@ import (
 // boundary, else the next Start does.
 type TaskStateEdit = taskstate.Edit
 
+// TaskReferenceEdit and TaskResolveEdit are the Reference and Resolve parts of a TaskStateEdit, named
+// here so a host outside this module can build them.
+type (
+	TaskReferenceEdit = taskstate.ReferenceEdit
+	TaskResolveEdit   = taskstate.ResolveEdit
+)
+
 // TaskStateInfo is the host view of a session's Task State: the newest stored version with the queued
 // edits applied in memory, so an idle thread shows its edits before any run applies them.
 type TaskStateInfo struct {
