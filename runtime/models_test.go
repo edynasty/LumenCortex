@@ -564,6 +564,47 @@ func TestMaxTokensIsSentOnlyWhenRequestedOrConfigured(t *testing.T) {
 	}
 }
 
+// Design §5, R5: a model without limit.context is budgeted on 32 768 tokens, and every request built on
+// that default logs rule window.default_context, which replays from its inputs. A configured context
+// logs nothing.
+func TestDefaultContextIsLoggedPerRequest(t *testing.T) {
+	configured := strings.Replace(modelConfig(""), `"a": {"modelID": "a", "limit": {"context": 8000, "output": 1000}}`,
+		`"a": {"modelID": "a", "limit": {"context": 8000, "output": 1000}}, "e": {"modelID": "e", "limit": {"output": 1000}}`, 1)
+	useGlobalConfig(t, configured)
+	engine := openTestEngine(t)
+	bindRef(engine, "a", &answering{final: "a"})
+	bindRef(engine, "e", &answering{final: "e"})
+	count := func(entries []stepEntry) (n int, context int) {
+		for _, entry := range entries {
+			for _, d := range entry.Decisions {
+				if d.Rule == agent.RuleWindowDefaultContext {
+					n++
+					var out struct{ Context int }
+					decodeJSON(t, d.Output, &out)
+					context = out.Context
+				}
+			}
+		}
+		return n, context
+	}
+
+	h := newTestSession(t, engine, "default context")
+	run(t, engine, h.ID, AgentOptions{ModelRef: "test/e"})
+	run(t, engine, h.ID, AgentOptions{Input: "again"})
+	entries := steps(t, engine, h.ID)
+	if n, context := count(entries); n != len(entries) || n != 2 || context != config.DefaultContext {
+		t.Fatalf("default_context logged %d times over %d requests (context %d), want once per request with %d",
+			n, len(entries), context, config.DefaultContext)
+	}
+	verifyTrace(t, entries)
+
+	h2 := newTestSession(t, engine, "configured context")
+	run(t, engine, h2.ID, AgentOptions{ModelRef: "test/a"})
+	if n, _ := count(steps(t, engine, h2.ID)); n != 0 {
+		t.Fatalf("a configured limit.context logged window.default_context %d times", n)
+	}
+}
+
 // Options.ProviderFactory is how a host injects clients: it is called once per model the Start may
 // use, with the resolved settings, before the run transaction.
 func TestOptionsProviderFactoryBuildsEveryRequiredClientBeforeTheStart(t *testing.T) {

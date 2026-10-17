@@ -45,6 +45,9 @@ type ResolvedModel struct {
 	// OutputSet reports that limit.output is configured. When false, Output is DefaultOutput and
 	// the runtime reserves it but sends no max_tokens (D4).
 	OutputSet bool
+	// ContextSet reports that limit.context is configured. When false, Context is DefaultContext and
+	// the runtime logs rule window.default_context with every request it budgets on it (design §5).
+	ContextSet bool
 }
 
 // ResolvedProvider is the connection settings of one catalog provider after merge and trust. Like
@@ -200,6 +203,7 @@ func (c *Config) Resolve(ref ModelRef) (ResolvedModel, error) {
 	}
 	if m.Limit != nil && m.Limit.Context > 0 {
 		out.Context = m.Limit.Context
+		out.ContextSet = true
 	} else {
 		out.Warnings = append(out.Warnings, limitWarning(ref, "limit.context", DefaultContext))
 	}

@@ -87,7 +87,7 @@ func (e *Engine) planModels(requested, stored config.ModelRef, effort config.Eff
 		}
 		built := agent.Model{
 			Ref: candidate, ProviderID: m.ProviderID, ModelID: m.ModelID,
-			Context: m.Context, Output: m.Output, OutputSet: m.OutputSet,
+			Context: m.Context, DefaultContext: !m.ContextSet, Output: m.Output, OutputSet: m.OutputSet,
 			ToolCalling: m.ToolCalling, Efforts: m.Efforts,
 		}
 		if m.ToolCalling {

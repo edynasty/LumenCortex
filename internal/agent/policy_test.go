@@ -287,7 +287,8 @@ func TestDecisionReplay(t *testing.T) {
 	if next != 1 {
 		t.Fatalf("next=%d", next)
 	}
-	for _, d := range []Decision{model, candidates, effort, failover} {
+	defaultContext := DefaultContextDecision("p/a", config.DefaultContext)
+	for _, d := range []Decision{model, candidates, effort, failover, defaultContext} {
 		if err := ReplayDecision(d); err != nil {
 			t.Errorf("%s: %v", d.Rule, err)
 		}
@@ -297,6 +298,11 @@ func TestDecisionReplay(t *testing.T) {
 	forged.Output = json.RawMessage(`{"candidates":["p/b"]}`)
 	if ReplayDecision(forged) == nil {
 		t.Fatal("a forged candidate list replayed clean")
+	}
+	forged = defaultContext
+	forged.Output = json.RawMessage(`{"context":8000}`)
+	if ReplayDecision(forged) == nil {
+		t.Fatal("a default context other than config.DefaultContext replayed clean")
 	}
 	forged = effort
 	forged.Output = json.RawMessage(`{"requested":"low","sent":"medium"}`)

@@ -17,14 +17,17 @@ type Model struct {
 	Ref config.ModelRef
 	// ProviderID and ModelID are the provider id and upstream model id, recorded in the step
 	// record for display.
-	ProviderID  string
-	ModelID     string
-	Context     int
-	Output      int
-	OutputSet   bool
-	ToolCalling bool
-	Efforts     []config.Effort
-	Client      protocol.Provider
+	ProviderID string
+	ModelID    string
+	Context    int
+	// DefaultContext reports that Context is config.DefaultContext because the model configures no
+	// limit.context; every request budgeted on it logs rule window.default_context (design §5).
+	DefaultContext bool
+	Output         int
+	OutputSet      bool
+	ToolCalling    bool
+	Efforts        []config.Effort
+	Client         protocol.Provider
 }
 
 // attempt is the request that answered a step and the window it was built from.
@@ -107,6 +110,9 @@ func (l *Loop) send(
 			l.emit("session.message", sessionID, map[string]any{"step": step, "seq": seq, "role": "user", "origin": protocol.OriginTurn})
 		}
 		b := r.budget(cand, opts.MaxTokens, fixed)
+		if m.DefaultContext {
+			*decisions = append(*decisions, DefaultContextDecision(cand.Ref, cand.Context))
+		}
 		built, err := window.Build(in, b)
 		if errors.Is(err, window.ErrUnpaired) {
 			return attempt{}, &ExitCause{Status: StatusFailed, Kind: KindTranscriptUnpaired, Err: err}

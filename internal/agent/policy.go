@@ -43,6 +43,9 @@ const (
 	RuleFailoverPrefix  = "failover."
 	// RuleWindowDropped: older transcript groups were left out to fit the candidate's budget (§5).
 	RuleWindowDropped = "window.dropped"
+	// RuleWindowDefaultContext: the model configures no limit.context, so the request is budgeted on
+	// config.DefaultContext (32 768 tokens); logged with every such request (design §5, R5).
+	RuleWindowDefaultContext = "window.default_context"
 	// RuleWindowCapacityRetry: after a capacity rejection the transcript budget is halved for the
 	// one retry on the same model, and stays so for that model until the run ends (§5).
 	RuleWindowCapacityRetry = "window.capacity_retry"
@@ -453,6 +456,32 @@ func FailoverDecision(cands []Candidate, failed int, class protocol.ErrorClass) 
 		failoverOutput{Next: next})
 }
 
+// EffectiveContext is the context a request is budgeted on: the configured limit.context, else
+// config.DefaultContext with rule window.default_context (design §5). configured is 0 when absent.
+func EffectiveContext(configured int) (int, string) {
+	if configured > 0 {
+		return configured, ""
+	}
+	return config.DefaultContext, RuleWindowDefaultContext
+}
+
+type defaultContextInputs struct {
+	Ref config.ModelRef `json:"ref"`
+	// Configured is the model's limit.context; 0 because it is absent.
+	Configured int `json:"configured"`
+}
+
+type defaultContextOutput struct {
+	Context int `json:"context"`
+}
+
+// DefaultContextDecision records that a request to ref is budgeted on the default context because the
+// model configures no limit.context; context is the value the budget used.
+func DefaultContextDecision(ref config.ModelRef, context int) Decision {
+	return newDecision(DecisionWindow, RuleWindowDefaultContext,
+		defaultContextInputs{Ref: ref}, defaultContextOutput{Context: context})
+}
+
 type windowBudget struct {
 	Context int `json:"context"`
 	Output  int `json:"output"`
@@ -591,6 +620,15 @@ func ReplayDecision(d Decision) error {
 		if rule != d.Rule || requested != out.Requested || sent != out.Sent {
 			return fmt.Errorf("effort decision: recomputed %q/%q via %s, logged %q/%q via %s",
 				requested, sent, rule, out.Requested, out.Sent, d.Rule)
+		}
+	case d.Kind == DecisionWindow && d.Rule == RuleWindowDefaultContext:
+		var in defaultContextInputs
+		var out defaultContextOutput
+		if err := decodeDecision(d, &in, &out); err != nil {
+			return err
+		}
+		if context, rule := EffectiveContext(in.Configured); rule != d.Rule || context != out.Context {
+			return fmt.Errorf("%s: recomputed context %d via %q, logged %d", d.Rule, context, rule, out.Context)
 		}
 	case d.Kind == DecisionFailover:
 		var in failoverInputs
