@@ -1,6 +1,6 @@
 # October 16 recovery: audit and rework of work produced 2026-10-16 (2026-10-17)
 
-Status: **implemented and validated locally** — audit complete; Core corrections and Desktop revert committed locally (not pushed); Demo cleanup awaits the owner.
+Status: **implemented and validated locally** — audit complete; Core corrections and Desktop revert committed locally (not pushed); Demo superseded documents deleted on owner decision (`aca4b88`).
 
 ## Scope and baseline
 
@@ -67,7 +67,7 @@ Desktop: `70c187d` reverts `b5e9551` and `5072573`. Owner's dirty and untracked 
 
 Design directory (not version-controlled): the four `design/handoffs/*-2026-10-16.md` files got a "Superseded (2026-10-17)" banner pointing here; content otherwise unchanged.
 
-Demo: not modified.
+Demo: not modified during the audit. Afterwards, on the owner's decision (2026-10-17), `aca4b88` on `design/ui-demo` deleted the five listed documents and the root `PHASE1-COMPLETE.md` (also superseded, missed in the list above); the screenshots were kept.
 
 ## Validation
 
@@ -88,5 +88,5 @@ Not run: live-provider runs (no verified endpoint used); Wails desktop smoke.
 - ~~M3.2 §4.6~~ — closed by the M3.2 §4.6 commit after `32c3f62`; decisions and evidence in [M3-M4-runtime-2026-10-15.md](M3-M4-runtime-2026-10-15.md#m32-46-decisions-reasoning-echo-resume-and-turn-rows).
 - `window.default_context` decision for models without `limit.context` (the loop only sees effective limits).
 - ~~M3.3 (Desktop)~~: done in Desktop `28ea69a`, which pins core `977363a` (M3.2 plus exported `TaskReferenceEdit`/`TaskResolveEdit`) and drops `recentMessages`. Report: `../LumenCortex-Desktop/docs/reports/M3.3-desktop-task-state-2026-10-17.md`. M4.1, M4.2 not started.
-- Owner decision: delete the superseded Demo documents listed above on `design/ui-demo`.
+- ~~Owner decision: delete the superseded Demo documents~~: done in Demo `aca4b88` (documents only; screenshots kept).
 - Nothing pushed.
