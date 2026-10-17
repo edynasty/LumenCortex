@@ -1,6 +1,6 @@
 # ADR-0006: Task context, resolution and conversational execution
 
-- **Status:** Accepted (owner decisions D1′–D4 and final Decisions 1–4, 2026-10-15). D3/D4 implementation is gated on the validation items below
+- **Status:** Accepted (owner decisions D1′–D4 and final Decisions 1–4, 2026-10-15). D3/D4 implementation is gated on the validation items below. D3 is implemented as C1 (2026-10-18, local); see [the C1 report](../reports/C1-interactive-2026-10-18.md), including one implementation-level decision for owner review (required checks after a turn that changed the workspace).
 - **Date:** 2026-10-15
 - **Owners:** project owner
 - **Supersedes:** none. Amends design §4.4, §4.7, §4.9, I10 and §8.2 (M3.1, M4.1 scope; adds C1–C3)

@@ -92,6 +92,11 @@ type Options struct {
 	// Resumed reports that the session was interrupted before this Start; the run
 	// records an agent.resume checkpoint. Start sets it from the status it found.
 	Resumed bool
+	// Interactive marks a conversation turn (ADR-0006 D3). Without a host workflow, a text answer then
+	// ends the run completed: open work units and unpassed required checks stay obligations of the
+	// thread instead of blocking the answer. A run that changed the workspace still has its required
+	// checks decided before it ends. A host workflow keeps the whole completion gate.
+	Interactive bool
 }
 
 type Result struct {

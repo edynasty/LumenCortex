@@ -18,8 +18,27 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
-const defaultSystemPrompt = `You are LumenCortex Agent, an autonomous coding agent.
-Inspect before editing. Use tools until the requested outcome is implemented and verified. Keep changes scoped. Do not claim completion without evidence. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates.`
+// The two run purposes (ADR-0006 D3). A task run works until its outcome is achieved and verified; a
+// conversation turn answers, and its end is not the end of the task.
+const (
+	taskPrompt = `You are LumenCortex Agent, an autonomous coding agent.
+Inspect before editing. Use tools until the requested outcome is achieved and verified. Keep changes scoped. Do not claim completion without evidence. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates.`
+	conversationPrompt = `You are LumenCortex Agent, a coding agent in a conversation with the user.
+Answer questions and discuss plans directly; use tools when they make an answer accurate. Change the workspace only when the user asks for a change, inspect before editing, and keep changes scoped. Your reply ends this turn, not the task: open work units and required checks stay open until evidence or the user resolves them, so say what is left instead of claiming it is done. Do not claim completion without evidence. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates; the turn ends only when the workflow can finish.`
+)
+
+// SystemPrompt is a run's default system prompt: its purpose, a conversation turn or a task, followed by
+// authority, the host's statement of what the run may do ("" for none). A host prompt replaces it.
+func SystemPrompt(interactive bool, authority string) string {
+	prompt := taskPrompt
+	if interactive {
+		prompt = conversationPrompt
+	}
+	if authority = strings.TrimSpace(authority); authority != "" {
+		prompt += "\n" + authority
+	}
+	return prompt
+}
 
 type Loop struct {
 	// Models holds the catalog models the run may use, keyed by reference: the session model and
@@ -51,6 +70,8 @@ type run struct {
 	wf    *workflow.Runtime
 	units *taskstate.WorkUnitManager
 	saved json.RawMessage
+	// mutated: a tool call of this run changed the workspace successfully.
+	mutated bool
 	runTranscript
 }
 
@@ -84,7 +105,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		opts.MaxToolCallsPerStep = 8
 	}
 	if opts.SystemPrompt == "" {
-		opts.SystemPrompt = defaultSystemPrompt
+		opts.SystemPrompt = SystemPrompt(opts.Interactive, "")
 	}
 
 	var (
@@ -242,6 +263,18 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				reason := r.wf.BlockReason()
 				correction = "Workflow contract rejected completion: " + reason + ". Continue the current action and obtain the required evidence or gate approval."
 				l.emit("workflow.blocked_final", sessionID, map[string]any{"step": step, "reason": reason})
+			case opts.Interactive && r.wf == nil:
+				// A conversation turn without a host workflow ends with its answer (ADR-0006 D3): the run
+				// completed, the task did not. Open work units and unpassed required checks stay
+				// obligations that keep the thread open, and no correction is appended. A turn that changed
+				// the workspace still has its required checks decided, so the evidence rule below sees
+				// results for the new state; a question-only turn runs none and latches only on results
+				// already stored.
+				if r.mutated {
+					if _, cause := l.requiredChecks(ctx); cause != nil {
+						return l.exit(ctx, state, usage, *cause)
+					}
+				}
 			case len(r.units.Incomplete()) > 0:
 				remaining := r.units.Incomplete()
 				correction = workUnitCompletionCorrection(remaining)
@@ -328,6 +361,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					if toolResult.OK && toolResult.MutatesWorkspace {
 						// A successful change to the workspace is a new obligation.
 						r.ts.Reopen(time.Now().UTC())
+						r.mutated = true
 					}
 				}
 			}

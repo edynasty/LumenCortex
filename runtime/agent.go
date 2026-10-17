@@ -38,6 +38,11 @@ type AgentOptions struct {
 	WorkUnits           json.RawMessage `json:"workUnits,omitempty"`
 	MaxTokens           int             `json:"maxTokens,omitempty"`
 	Temperature         *float64        `json:"temperature,omitempty"`
+	// Interactive marks a conversation turn (ADR-0006 D3): without a host workflow, a text answer ends
+	// the run completed and leaves open work units and checks to the thread's resolution; a run that
+	// changed the workspace still has its required checks decided. The default, false, keeps the full
+	// completion gate. Subagent runs are never interactive.
+	Interactive bool `json:"interactive,omitempty"`
 
 	subagents        toolset.SubagentController
 	parentSessionID  string
@@ -168,12 +173,19 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		return nil, err
 	}
 	checks := runChecks{ev: ev, specs: plan.checks}
+	// Execution tasks and read-only subagents are never interactive (ADR-0006 D3): a child run works its
+	// goal to the completion gate whatever its options say.
+	interactive := opts.Interactive && opts.parentSessionID == ""
+	systemPrompt := opts.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = agent.SystemPrompt(interactive, policyAuthority(policy))
+	}
 	loopOpts := agent.Options{
 		MaxSteps:            opts.MaxSteps,
 		MaxToolCallsPerStep: opts.MaxToolCallsPerStep,
 		ToolAllowlist:       opts.ToolAllowlist,
 		ToolDenylist:        opts.ToolDenylist,
-		SystemPrompt:        opts.SystemPrompt,
+		SystemPrompt:        systemPrompt,
 		MaxTokens:           opts.MaxTokens,
 		Temperature:         opts.Temperature,
 		Session:             plan.session,
@@ -182,6 +194,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Escalation:          plan.escalation,
 		Effort:              opts.Effort,
 		Decisions:           []agent.Decision{plan.decision},
+		Interactive:         interactive,
 	}
 
 	if e.skillRegistry != nil {
@@ -250,6 +263,19 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 			},
 		},
 	}, nil
+}
+
+// policyAuthority states what a run under policy may do, for the default system prompt. toolset.New has
+// already rejected any other policy.
+func policyAuthority(policy string) string {
+	switch policy {
+	case toolset.PolicyFull:
+		return "This run can read and edit files in the workspace and run shell commands."
+	case toolset.PolicyWorkspace:
+		return "This run can read and edit files in the workspace; it cannot run shell commands."
+	default:
+		return "This run is read-only: it can read, search and inspect the workspace but cannot change files or run commands. Describe a needed change instead of making it."
+	}
 }
 
 // WorkflowSummary returns the summary of the workflow in the session's newest Task State, nil when it
