@@ -399,7 +399,7 @@ func TestCapacityRetryHalvesTranscript(t *testing.T) {
 	if err != nil || rejected.Dropped != 0 {
 		t.Fatalf("first build: res=%+v err=%v", rejected, err)
 	}
-	fixed := fixedTokens(in)
+	fixed := Fixed(in)
 	retry, err := Build(in, CapacityRetry(in, b, rejected))
 	if err != nil {
 		t.Fatalf("retry build: %v", err)

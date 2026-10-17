@@ -431,7 +431,6 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 	}
 	maxSteps := envInt("LCX_MAX_STEPS", 24)
 	maxTokens := envInt("LCX_MAX_TOKENS", 0)
-	recentMessages := envInt("LCX_RECENT_MESSAGES", 8)
 	maxToolCalls := envInt("LCX_MAX_TOOL_CALLS_PER_STEP", 8)
 	var workflow []byte
 	if path := strings.TrimSpace(os.Getenv("LCX_WORKFLOW")); path != "" {
@@ -453,7 +452,6 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 		Policy:              policy,
 		MaxSteps:            maxSteps,
 		MaxTokens:           maxTokens,
-		RecentMessages:      recentMessages,
 		MaxToolCallsPerStep: maxToolCalls,
 		Workflow:            workflow,
 		WorkUnits:           workUnits,

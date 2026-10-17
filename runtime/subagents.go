@@ -205,10 +205,6 @@ func (c *subagentController) childOptions(childRef config.ModelRef) AgentOptions
 	if maxSteps <= 0 || maxSteps > 12 {
 		maxSteps = 12
 	}
-	recent := c.parentOpts.RecentMessages
-	if recent <= 0 || recent > 8 {
-		recent = 8
-	}
 	maxCalls := c.parentOpts.MaxToolCallsPerStep
 	if maxCalls <= 0 || maxCalls > 6 {
 		maxCalls = 6
@@ -218,7 +214,6 @@ func (c *subagentController) childOptions(childRef config.ModelRef) AgentOptions
 		Effort:              c.parentOpts.Effort,
 		Policy:              toolset.PolicyReadOnly,
 		MaxSteps:            maxSteps,
-		RecentMessages:      recent,
 		MaxToolCallsPerStep: maxCalls,
 		ToolDenylist:        append([]string(nil), c.parentOpts.ToolDenylist...),
 		SystemPrompt:        "You are a focused read-only LumenCortex subagent. Investigate the assigned goal using repository search, file reads, Git inspection, and language services. Do not modify files, run shell commands, or spawn additional agents. Return concise evidence and actionable findings to the parent task.",

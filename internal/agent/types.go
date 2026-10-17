@@ -38,8 +38,8 @@ type TaskStateChange struct {
 
 type Store interface {
 	Get(context.Context, string) (SessionState, error)
-	// RecentMessages returns the newest limit rows whose seq is at least fromSeq, oldest first.
-	RecentMessages(ctx context.Context, sessionID string, fromSeq int64, limit int) ([]protocol.Message, error)
+	// Transcript calls fn with every row whose seq is at least fromSeq, oldest first.
+	Transcript(ctx context.Context, sessionID string, fromSeq int64, fn func(seq int64, m protocol.Message) error) error
 	// AppendMessage appends one row and, when change is non-nil, the Task State version the row
 	// caused, in one transaction. It returns the row's seq and the new version (0 without a change).
 	AppendMessage(ctx context.Context, sessionID string, m protocol.Message, change *TaskStateChange) (int64, int64, error)
@@ -71,7 +71,6 @@ type Event struct {
 
 type Options struct {
 	MaxSteps               int
-	RecentMessages         int
 	MaxToolCallsPerStep    int
 	ToolAllowlist          []string
 	ToolDenylist           []string
@@ -124,6 +123,7 @@ const (
 	KindProviderAuth         = "provider:auth"
 	KindProviderBadRequest   = "provider:bad_request"
 	KindWindowOverflow       = "window_overflow"
+	KindTranscriptUnpaired   = "transcript_unpaired"
 	KindWorkflowGate         = "workflow_gate"
 	KindConfig               = "config"
 	KindStorage              = "storage"
@@ -169,6 +169,16 @@ type stepRecord struct {
 	WorkUnit  any              `json:"workUnit,omitempty"`
 	// TaskState is the Task State version the step ended on.
 	TaskState int64 `json:"taskStateVersion,omitempty"`
+	// Window summarizes the request that was answered (design §5).
+	Window *windowSummary `json:"window,omitempty"`
+}
+
+// windowSummary is the request window of one step: the oldest transcript row it held (-1 for none),
+// the groups left out, oldest first, and its estimated tokens.
+type windowSummary struct {
+	FirstSeq int64 `json:"firstSeq"`
+	Dropped  int   `json:"dropped"`
+	Tokens   int   `json:"tokens"`
 }
 
 type toolCallRecord struct {

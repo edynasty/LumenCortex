@@ -524,8 +524,9 @@ func TestHiddenReasoningIsNeverPersisted(t *testing.T) {
 			t.Fatalf("hidden reasoning is in %s", filepath.Base(store+suffix))
 		}
 	}
-	// The effort the run asked for did reach the wire, so the test exercised the request path.
-	if len(bodies) == 0 || !strings.Contains(bodies[0], `"reasoning_effort":"high"`) {
+	// The effort the run asked for did reach the wire, and the second request's window carried the
+	// first answer, so the test exercised the request and window paths.
+	if len(bodies) != 2 || !strings.Contains(bodies[0], `"reasoning_effort":"high"`) || !strings.Contains(bodies[1], "visible answer") {
 		t.Fatalf("request bodies: %v", bodies)
 	}
 }

@@ -30,7 +30,6 @@ type AgentOptions struct {
 	Effort              config.Effort   `json:"effort,omitempty"`
 	Policy              string          `json:"policy,omitempty"`
 	MaxSteps            int             `json:"maxSteps,omitempty"`
-	RecentMessages      int             `json:"recentMessages,omitempty"`
 	MaxToolCallsPerStep int             `json:"maxToolCallsPerStep,omitempty"`
 	ToolAllowlist       []string        `json:"toolAllowlist,omitempty"`
 	ToolDenylist        []string        `json:"toolDenylist,omitempty"`
@@ -166,7 +165,6 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	}
 	loopOpts := agent.Options{
 		MaxSteps:            opts.MaxSteps,
-		RecentMessages:      opts.RecentMessages,
 		MaxToolCallsPerStep: opts.MaxToolCallsPerStep,
 		ToolAllowlist:       opts.ToolAllowlist,
 		ToolDenylist:        opts.ToolDenylist,
@@ -262,37 +260,6 @@ func (e *Engine) WorkflowSummary(ctx context.Context, sessionID string) (any, er
 	return wf.Summary(), nil
 }
 
-// TaskStateSnapshot returns the full Task State for inspection, including
-// work units, references, progress, and resolution.
-func (e *Engine) TaskStateSnapshot(ctx context.Context, sessionID string) (map[string]any, error) {
-	if _, err := e.store.Get(ctx, sessionID); err != nil {
-		return nil, err
-	}
-	state, err := e.loadTaskState(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	
-	// Convert to map for JSON serialization
-	result := make(map[string]any)
-	result["version"] = state.Version
-	result["brief"] = state.Brief
-	result["references"] = state.References
-	result["resolution"] = state.Resolution
-	result["progress"] = state.Progress
-	result["windowStartSeq"] = state.WindowStartSeq
-	
-	if state.WorkUnits != nil {
-		result["workUnits"] = state.WorkUnits
-	}
-	
-	if wf, err := state.RestoreWorkflow(); err == nil && wf != nil {
-		result["workflow"] = wf.Summary()
-	}
-	
-	return result, nil
-}
-
 // ApproveWorkflowGate approves a human gate of the session's workflow. It takes
 // the session's run lock and returns ErrRunHeld while a run holds it. It writes
 // the next Task State version (reason user) only: the session's status stays
@@ -353,23 +320,17 @@ func (s agentStore) Get(ctx context.Context, id string) (agent.SessionState, err
 	return agent.SessionState{ID: value.ID, Goal: value.Goal, Status: value.Status, Final: final, Usage: usage}, nil
 }
 
-func (s agentStore) RecentMessages(ctx context.Context, id string, fromSeq int64, limit int) ([]protocol.Message, error) {
-	items, err := s.store.RecentMessagesFrom(ctx, id, fromSeq, limit)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]protocol.Message, 0, len(items))
-	for _, item := range items {
+func (s agentStore) Transcript(ctx context.Context, id string, fromSeq int64, fn func(int64, protocol.Message) error) error {
+	return s.store.EachMessageFrom(ctx, id, fromSeq, func(item session.Message) error {
 		var message protocol.Message
 		if err := json.Unmarshal(item.JSON, &message); err != nil {
-			return nil, err
+			return err
 		}
 		if message.Role == "" {
 			message.Role = item.Role
 		}
-		out = append(out, message)
-	}
-	return out, nil
+		return fn(item.Seq, message)
+	})
 }
 
 func (s agentStore) AppendMessage(ctx context.Context, id string, message protocol.Message, change *agent.TaskStateChange) (int64, int64, error) {

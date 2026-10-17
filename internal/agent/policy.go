@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -24,6 +25,7 @@ const (
 	DecisionModel    = "model"
 	DecisionEffort   = "effort"
 	DecisionFailover = "failover"
+	DecisionWindow   = "window"
 )
 
 // Rule ids of decisions. The pure function that applies a rule returns its id; an id never changes
@@ -38,6 +40,11 @@ const (
 	RuleEffortEscalated = "effort.escalated" // config default raised while progress shows a stall
 	RuleEffortCapped    = "effort.capped"    // a stall would escalate, but escalation.max allows no higher level
 	RuleFailoverPrefix  = "failover."
+	// RuleWindowDropped: older transcript groups were left out to fit the candidate's budget (§5).
+	RuleWindowDropped = "window.dropped"
+	// RuleWindowCapacityRetry: after a capacity rejection the transcript budget is halved for the
+	// one retry on the same model, and stays so for that model until the run ends (§5).
+	RuleWindowCapacityRetry = "window.capacity_retry"
 )
 
 // DefaultUnhealthyFor is how long a model stays out of the candidate list after an availability
@@ -341,8 +348,8 @@ type effortInputs struct {
 	Escalation *config.Escalation `json:"escalation,omitempty"`
 	Stall      Stall              `json:"stall"`
 	// TaskState is the Task State version the stall was read from, for tracing.
-	TaskState int64 `json:"taskStateVersion"`
-	Efforts    []config.Effort    `json:"efforts"`
+	TaskState int64           `json:"taskStateVersion"`
+	Efforts   []config.Effort `json:"efforts"`
 }
 
 type effortOutput struct {
@@ -443,6 +450,57 @@ func FailoverDecision(cands []Candidate, failed int, class protocol.ErrorClass) 
 		failoverOutput{Next: next})
 }
 
+type windowBudget struct {
+	Context int `json:"context"`
+	Output  int `json:"output"`
+	Margin  int `json:"margin"`
+}
+
+type windowDroppedInputs struct {
+	Ref    config.ModelRef `json:"ref"`
+	Budget windowBudget    `json:"budget"`
+	// Fixed is the estimate of System, Task State block and tool specs.
+	Fixed int `json:"fixed"`
+	// Groups counts the groups from windowStartSeq on; Costs are the costs Select examined, newest first.
+	Groups int   `json:"groups"`
+	Costs  []int `json:"costs"`
+}
+
+type windowDroppedOutput struct {
+	Included int `json:"included"`
+	Dropped  int `json:"dropped"`
+}
+
+// WindowDroppedDecision records the window of one request that left groups out. groups is the
+// number of groups from windowStartSeq on, including those the run no longer keeps in memory.
+func WindowDroppedDecision(ref config.ModelRef, b window.Budget, fixed, groups int, costs []int) Decision {
+	included := window.Select(costs, b.Context-b.Output-b.Margin-fixed)
+	return newDecision(DecisionWindow, RuleWindowDropped,
+		windowDroppedInputs{Ref: ref, Budget: windowBudget(b), Fixed: fixed, Groups: groups, Costs: sliceOrEmpty(costs)},
+		windowDroppedOutput{Included: included, Dropped: groups - included})
+}
+
+type capacityRetryInputs struct {
+	Ref      config.ModelRef `json:"ref"`
+	Budget   windowBudget    `json:"budget"`
+	Fixed    int             `json:"fixed"`
+	Rejected int             `json:"rejectedTokens"`
+}
+
+type capacityRetryOutput struct {
+	Margin int `json:"margin"`
+}
+
+// CapacityRetryDecision computes the budget of the retry after the provider rejected, as too long, a
+// request of rejected estimated tokens built under b, and records it.
+func CapacityRetryDecision(ref config.ModelRef, b window.Budget, fixed, rejected int) (window.Budget, Decision) {
+	retry := b
+	retry.Margin = window.RetryMargin(b, fixed, rejected)
+	return retry, newDecision(DecisionWindow, RuleWindowCapacityRetry,
+		capacityRetryInputs{Ref: ref, Budget: windowBudget(b), Fixed: fixed, Rejected: rejected},
+		capacityRetryOutput{Margin: retry.Margin})
+}
+
 // ReplayDecision recomputes one logged decision from its recorded inputs with the same pure functions
 // and reports any difference from the recorded rule and output (I7).
 func ReplayDecision(d Decision) error {
@@ -501,6 +559,29 @@ func ReplayDecision(d Decision) error {
 		next := Failover(cands, in.Failed, in.Class)
 		if d.Rule != RuleFailoverPrefix+string(in.Class) || next != out.Next {
 			return fmt.Errorf("failover decision: recomputed next=%d for %s, logged next=%d via %s", next, in.Class, out.Next, d.Rule)
+		}
+	case d.Kind == DecisionWindow && d.Rule == RuleWindowDropped:
+		var in windowDroppedInputs
+		var out windowDroppedOutput
+		if err := decodeDecision(d, &in, &out); err != nil {
+			return err
+		}
+		got := WindowDroppedDecision(in.Ref, window.Budget(in.Budget), in.Fixed, in.Groups, in.Costs)
+		var want windowDroppedOutput
+		if err := json.Unmarshal(got.Output, &want); err != nil {
+			return err
+		}
+		if want != out {
+			return fmt.Errorf("%s: recomputed %+v, logged %+v", d.Rule, want, out)
+		}
+	case d.Kind == DecisionWindow && d.Rule == RuleWindowCapacityRetry:
+		var in capacityRetryInputs
+		var out capacityRetryOutput
+		if err := decodeDecision(d, &in, &out); err != nil {
+			return err
+		}
+		if margin := window.RetryMargin(window.Budget(in.Budget), in.Fixed, in.Rejected); margin != out.Margin {
+			return fmt.Errorf("%s: recomputed margin %d, logged %d", d.Rule, margin, out.Margin)
 		}
 	default:
 		return fmt.Errorf("unknown decision kind %q rule %q", d.Kind, d.Rule)

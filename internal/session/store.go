@@ -242,20 +242,15 @@ WHERE session_id = ?`
 	return out, nil
 }
 
+// RecentMessages returns the newest limit rows, oldest first.
 func (s *Store) RecentMessages(ctx context.Context, sessionID string, limit int) ([]Message, error) {
-	return s.RecentMessagesFrom(ctx, sessionID, 0, limit)
-}
-
-// RecentMessagesFrom returns the newest limit rows whose seq is at least fromSeq, oldest first. The
-// request window reads from the Task State's windowStartSeq.
-func (s *Store) RecentMessagesFrom(ctx context.Context, sessionID string, fromSeq int64, limit int) ([]Message, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT session_id, seq, role, json FROM session_messages
-WHERE session_id = ? AND seq >= ? ORDER BY seq DESC LIMIT ?
-`, sessionID, fromSeq, limit)
+WHERE session_id = ? ORDER BY seq DESC LIMIT ?
+`, sessionID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -274,6 +269,31 @@ WHERE session_id = ? AND seq >= ? ORDER BY seq DESC LIMIT ?
 		out[i], out[j] = out[j], out[i]
 	}
 	return out, rows.Err()
+}
+
+// EachMessageFrom calls fn with every row whose seq is at least fromSeq, oldest first. The request
+// window reads the transcript from the Task State's windowStartSeq this way, one row at a time.
+func (s *Store) EachMessageFrom(ctx context.Context, sessionID string, fromSeq int64, fn func(Message) error) error {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT session_id, seq, role, json FROM session_messages
+WHERE session_id = ? AND seq >= ? ORDER BY seq
+`, sessionID, fromSeq)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var m Message
+		var raw []byte
+		if err := rows.Scan(&m.SessionID, &m.Seq, &m.Role, &raw); err != nil {
+			return err
+		}
+		m.JSON = raw
+		if err := fn(m); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }
 
 func (s *Store) AppendStep(ctx context.Context, sessionID string, step int64, payload any) error {

@@ -38,6 +38,11 @@ type Result struct {
 	FirstSeq int64 // seq of the oldest included transcript entry; -1 if none
 	Dropped  int   // whole groups left out (oldest first)
 	Tokens   int   // Σ System + State + ToolTokens + included groups
+	// Available is the transcript budget and Costs the token cost of each group Select examined,
+	// newest first: the included groups and, when one did not fit, that group. With Dropped they are
+	// the inputs of the window.dropped decision.
+	Available int
+	Costs     []int
 }
 
 var (
@@ -97,13 +102,35 @@ func Groups(t []Entry) ([][]Entry, error) {
 	return groups, nil
 }
 
-// fixedTokens is the part of every request outside the transcript budget: System, State and tool specs.
-func fixedTokens(in Input) int {
+// Fixed is the part of every request outside the transcript budget: System, State and tool specs.
+func Fixed(in Input) int {
 	fixed := in.ToolTokens + Estimate(in.State)
 	for _, m := range in.System {
 		fixed += Estimate(m)
 	}
 	return fixed
+}
+
+// GroupTokens is the token cost of one group: its rows and their run-memory echo.
+func GroupTokens(g []Entry) int {
+	cost := 0
+	for _, e := range g {
+		cost += Estimate(e.Msg) + e.EchoTokens
+	}
+	return cost
+}
+
+// Select returns how many groups, taken newest first from costs (newest first), fit in available:
+// selection stops at the first group that does not fit, so the result is a contiguous suffix.
+func Select(costs []int, available int) int {
+	used := 0
+	for k, cost := range costs {
+		if used+cost > available {
+			return k
+		}
+		used += cost
+	}
+	return len(costs)
 }
 
 // CapacityRetry is the budget for the one retry on the same model after the provider rejected, as too
@@ -112,9 +139,13 @@ func fixedTokens(in Input) int {
 // at most half of the transcript tokens the rejected request held; Build reports ErrOverflow when the
 // newest group alone exceeds that.
 func CapacityRetry(in Input, b Budget, rejected Result) Budget {
-	fixed := fixedTokens(in)
-	b.Margin = b.Context - b.Output - fixed - (rejected.Tokens-fixed)/2
+	b.Margin = RetryMargin(b, Fixed(in), rejected.Tokens)
 	return b
+}
+
+// RetryMargin is the margin that leaves at most half of the rejected request's transcript tokens.
+func RetryMargin(b Budget, fixed, rejectedTokens int) int {
+	return b.Context - b.Output - fixed - (rejectedTokens-fixed)/2
 }
 
 // Build assembles one request. available = Context − Output − Margin −
@@ -126,27 +157,27 @@ func Build(in Input, b Budget) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	fixed := fixedTokens(in)
+	fixed := Fixed(in)
 	available := b.Context - b.Output - b.Margin - fixed
 	if available < 0 {
 		return Result{}, fmt.Errorf("%w: fixed prefix %d tokens exceeds budget by %d", ErrOverflow, fixed, -available)
 	}
-	used, first := 0, len(groups)
+	costs := make([]int, 0, len(groups))
+	used := 0
 	for k := len(groups) - 1; k >= 0; k-- {
-		cost := 0
-		for _, e := range groups[k] {
-			cost += Estimate(e.Msg) + e.EchoTokens
-		}
+		cost := GroupTokens(groups[k])
+		costs = append(costs, cost)
 		if used+cost > available {
 			break
 		}
 		used += cost
-		first = k
 	}
-	if len(groups) > 0 && first == len(groups) {
+	included := Select(costs, available)
+	if len(groups) > 0 && included == 0 {
 		return Result{}, fmt.Errorf("%w: newest group does not fit in %d available tokens", ErrOverflow, available)
 	}
-	res := Result{FirstSeq: -1, Dropped: first, Tokens: fixed + used}
+	first := len(groups) - included
+	res := Result{FirstSeq: -1, Dropped: first, Tokens: fixed + used, Available: available, Costs: costs}
 	res.Messages = make([]protocol.Message, 0, len(in.System)+1+len(in.Transcript))
 	res.Messages = append(res.Messages, in.System...)
 	res.Messages = append(res.Messages, in.State)

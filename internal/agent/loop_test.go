@@ -36,14 +36,16 @@ func (s *memoryStore) Get(context.Context, string) (SessionState, error) {
 	defer s.mu.Unlock()
 	return s.state, nil
 }
-func (s *memoryStore) RecentMessages(_ context.Context, _ string, fromSeq int64, limit int) ([]protocol.Message, error) {
+func (s *memoryStore) Transcript(_ context.Context, _ string, fromSeq int64, fn func(int64, protocol.Message) error) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	start := max(len(s.messages)-limit, int(fromSeq), 0)
-	if start > len(s.messages) {
-		start = len(s.messages)
+	rows := append([]protocol.Message(nil), s.messages...)
+	s.mu.Unlock()
+	for seq := max(fromSeq, 0); seq < int64(len(rows)); seq++ {
+		if err := fn(seq, rows[seq]); err != nil {
+			return err
+		}
 	}
-	return append([]protocol.Message(nil), s.messages[start:]...), nil
+	return nil
 }
 func (s *memoryStore) AppendMessage(_ context.Context, _ string, m protocol.Message, change *TaskStateChange) (int64, int64, error) {
 	s.mu.Lock()
@@ -215,10 +217,12 @@ func call(id, name, args string) protocol.ToolCall {
 	return protocol.ToolCall{ID: id, Name: name, Arguments: json.RawMessage(args)}
 }
 
-func TestLoopWorkflowAndBoundedRecentMessages(t *testing.T) {
+// Every request carries the transcript from windowStartSeq, newest rows included, cut to the budget
+// by whole groups: the 100 old user rows do not all fit the small model, the rows the run wrote do.
+func TestLoopWorkflowAndWindowedTranscript(t *testing.T) {
 	store := &memoryStore{state: SessionState{ID: "s1", Goal: "fix it", Status: "running"}, steps: map[int64]any{}}
-	for i := 0; i < 100; i++ {
-		store.messages = append(store.messages, protocol.Message{Role: "user", Content: fmt.Sprintf("old-%d", i)})
+	for i := range 100 {
+		store.messages = append(store.messages, protocol.Message{Role: "user", Content: fmt.Sprintf("old-%d %s", i, strings.Repeat("x", 200))})
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
 		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "shell", `{"command":"test-fail"}`)}}},
@@ -227,22 +231,43 @@ func TestLoopWorkflowAndBoundedRecentMessages(t *testing.T) {
 		{Message: protocol.Message{Content: "done"}},
 	}}
 	workflow := []byte(`{"id":"wf","entry":"diagnose","facts":{"failed":false,"changed":false,"passed":false},"actions":{"diagnose":{"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","notEquals":0},"set":{"failed":true}}],"routes":[{"to":"repair","when":{"fact":"failed","equals":true}}]},"repair":{"allowedTools":["apply_patch"],"outcomes":[{"when":{"tool":"apply_patch","ok":true},"set":{"changed":true}}],"completeWhen":{"fact":"changed","equals":true},"routes":[{"to":"verify"}]},"verify":{"terminal":true,"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","equals":0},"set":{"passed":true}}],"completeWhen":{"fact":"passed","equals":true}}}}`)
-	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
+	model := testModel(testRef, provider)
+	model.Context, model.Output = 6000, 1000
+	loop := Loop{Models: map[config.ModelRef]Model{testRef: model}, Store: store, Tools: fakeTools{}}
 	store.seed(t, workflow, nil)
-	result, err := loop.Run(context.Background(), "s1", Options{Session: testRef, RecentMessages: 6, MaxSteps: 8})
+	result, err := loop.Run(context.Background(), "s1", Options{Session: testRef, MaxSteps: 8})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Status != "completed" || result.Final != "done" {
 		t.Fatalf("result=%#v", result)
 	}
+	if len(provider.seen) != 4 {
+		t.Fatalf("requests=%d", len(provider.seen))
+	}
 	for i, req := range provider.seen {
-		if len(req.Messages) > 8 {
-			t.Fatalf("request %d has %d messages", i, len(req.Messages))
+		transcript := req.Messages[2:] // System, Task State block
+		if len(transcript) == 0 || len(transcript) >= 100+2*i {
+			t.Fatalf("request %d holds %d transcript rows, want the newest rows cut to the budget", i, len(transcript))
+		}
+		newest := store.messages[100+2*i-1]
+		if got := transcript[len(transcript)-1]; got.Role != newest.Role || got.Content != newest.Content {
+			t.Fatalf("request %d ends with %+v, want the newest stored row %+v", i, got, newest)
+		}
+		if i > 0 && transcript[len(transcript)-2].Role != "assistant" {
+			t.Fatalf("request %d: tool result without its assistant row: %+v", i, transcript[len(transcript)-2:])
 		}
 	}
-	if len(provider.seen) < 4 {
-		t.Fatalf("requests=%d", len(provider.seen))
+	record := store.steps[1].(stepRecord)
+	if record.Window == nil || record.Window.Dropped == 0 || record.Window.FirstSeq <= 0 {
+		t.Fatalf("step window = %+v, want old groups dropped", record.Window)
+	}
+	raw, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyStep(raw); err != nil {
+		t.Fatalf("%v\n%s", err, raw)
 	}
 }
 
@@ -252,7 +277,7 @@ func TestLoopRejectsPrematureFinal(t *testing.T) {
 	workflow := []byte(`{"id":"wf","facts":{"passed":false},"actions":{"verify":{"terminal":true,"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","equals":0},"set":{"passed":true}}],"completeWhen":{"fact":"passed","equals":true}}}}`)
 	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
 	store.seed(t, workflow, nil)
-	result, err := loop.Run(context.Background(), "s2", Options{Session: testRef, RecentMessages: 6, MaxSteps: 5})
+	result, err := loop.Run(context.Background(), "s2", Options{Session: testRef, MaxSteps: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,6 +295,11 @@ func TestLoopRejectsPrematureFinal(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("missing workflow correction message")
+	}
+	// The model sees the correction: the next request ends with it.
+	next := provider.seen[1].Messages
+	if last := next[len(next)-1]; last.Origin != protocol.OriginCompletionBlocked {
+		t.Fatalf("request after the blocked final ends with %+v, want the correction", last)
 	}
 }
 

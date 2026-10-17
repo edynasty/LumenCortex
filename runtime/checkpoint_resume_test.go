@@ -85,9 +85,8 @@ func TestInterruptedRunResumesFromPersistedSafeBoundaryWithoutToolReplay(t *test
 	done := make(chan error, 1)
 	go func() {
 		_, runErr := engine.runAgentWith(ctx, handle.ID, provider, AgentOptions{
-			Policy:         "read-only",
-			MaxSteps:       4,
-			RecentMessages: 16,
+			Policy:   "read-only",
+			MaxSteps: 4,
 		})
 		done <- runErr
 	}()
@@ -128,9 +127,8 @@ func TestInterruptedRunResumesFromPersistedSafeBoundaryWithoutToolReplay(t *test
 	}
 
 	if _, err := engine.runAgentWith(context.Background(), handle.ID, &resumeProvider{}, AgentOptions{
-		Policy:         "read-only",
-		MaxSteps:       2,
-		RecentMessages: 16,
+		Policy:   "read-only",
+		MaxSteps: 2,
 	}); err != nil {
 		t.Fatal(err)
 	}

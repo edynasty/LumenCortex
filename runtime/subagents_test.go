@@ -68,10 +68,8 @@ func TestSubagentChildOptionsAreReadOnlyAndNonRecursive(t *testing.T) {
 	controller := &subagentController{
 		parentID: "parent",
 		parentOpts: AgentOptions{
-			
 			Policy:              toolset.PolicyFull,
 			MaxSteps:            100,
-			RecentMessages:      100,
 			MaxToolCallsPerStep: 100,
 		},
 	}
@@ -88,7 +86,7 @@ func TestSubagentChildOptionsAreReadOnlyAndNonRecursive(t *testing.T) {
 	if opts.parentSessionID != "parent" {
 		t.Fatalf("parent=%q", opts.parentSessionID)
 	}
-	if opts.MaxSteps != 12 || opts.RecentMessages != 8 || opts.MaxToolCallsPerStep != 6 {
+	if opts.MaxSteps != 12 || opts.MaxToolCallsPerStep != 6 {
 		t.Fatalf("bounded child options=%#v", opts)
 	}
 }

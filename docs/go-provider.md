@@ -110,7 +110,6 @@ Set `LCX_EVENTS=true` to emit the bounded runtime event stream as JSON lines on 
 | `LCX_POLICY` | `read-only`, `workspace`, or `full` | `read-only` |
 | `LCX_WORKFLOW` | Workflow Contract JSON path | none |
 | `LCX_MAX_STEPS` | maximum agent turns for this run | 24 |
-| `LCX_RECENT_MESSAGES` | recent Session messages exposed per request | 8 |
 | `LCX_MAX_TOOL_CALLS_PER_STEP` | bounded tool fanout per turn | 8 |
 | `LCX_MAX_TOKENS` | provider output-token request limit | provider default |
 | `LCX_EVENTS` | print runtime events to stderr | false |
