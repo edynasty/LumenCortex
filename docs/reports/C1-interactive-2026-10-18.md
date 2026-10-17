@@ -1,6 +1,6 @@
 # C1 Interactive turns (2026-10-18)
 
-Status: **implemented and validated locally; not pushed.** Core and Desktop are committed to local `main`. Desktop pins the unpublished Core C1 commit.
+Status: **implemented and validated locally; not pushed.** Core `04f371c` (code, tests, ADR status, this report); Desktop `da19017` (pinned to `04f371c`). Desktop pins an unpublished Core commit.
 
 ## Scope and authority
 
