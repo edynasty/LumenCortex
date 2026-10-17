@@ -23,6 +23,15 @@ var ErrNoFingerprint = evaluator.ErrNoFingerprint
 // ErrArtifactNotFound reports an artifact hash the session does not hold.
 var ErrArtifactNotFound = session.ErrArtifactNotFound
 
+// CheckSpec, CheckResult, CheckEnv and CheckArtifactData name the evaluator's types for hosts, which
+// cannot import internal packages. They are aliases: the values are the evaluator's own.
+type (
+	CheckSpec         = evaluator.Spec
+	CheckResult       = evaluator.Result
+	CheckEnv          = evaluator.Env
+	CheckArtifactData = session.Artifact
+)
+
 // sessionEvaluator returns the evaluator for the session's workspace: its worktree when it has one.
 func (e *Engine) sessionEvaluator(ctx context.Context, sessionID string) (*evaluator.Evaluator, error) {
 	workspace, err := e.agentWorkspace(ctx, sessionID)
@@ -160,10 +169,10 @@ var _ agent.Checks = runChecks{}
 // CheckInfo is one configured check as a host shows it: its spec, whether a stored result satisfies it
 // at the current fingerprint (and that result), and the newest result at any fingerprint.
 type CheckInfo struct {
-	Spec      evaluator.Spec    `json:"spec"`
-	Satisfied bool              `json:"satisfied"`
-	Deciding  *evaluator.Result `json:"deciding,omitempty"`
-	Newest    *evaluator.Result `json:"newest,omitempty"`
+	Spec      CheckSpec    `json:"spec"`
+	Satisfied bool         `json:"satisfied"`
+	Deciding  *CheckResult `json:"deciding,omitempty"`
+	Newest    *CheckResult `json:"newest,omitempty"`
 }
 
 // ChecksInfo is a session's checks against its workspace's current state. Env.Head is "" outside git:
@@ -171,7 +180,7 @@ type CheckInfo struct {
 // dropped, such as an untrusted workspace's.
 type ChecksInfo struct {
 	SessionID string           `json:"sessionId"`
-	Env       evaluator.Env    `json:"env"`
+	Env       CheckEnv         `json:"env"`
 	Checks    []CheckInfo      `json:"checks"`
 	Warnings  []config.Warning `json:"warnings,omitempty"`
 }
@@ -209,7 +218,7 @@ func (e *Engine) SessionChecks(ctx context.Context, sessionID string) (ChecksInf
 
 // CheckResults pages the session's check results, newest first: those with seq below beforeSeq
 // (-1 for the newest page, as for MessagePage), at most limit (default 50, at most 200).
-func (e *Engine) CheckResults(ctx context.Context, sessionID string, beforeSeq int64, limit int) ([]evaluator.Result, error) {
+func (e *Engine) CheckResults(ctx context.Context, sessionID string, beforeSeq int64, limit int) ([]CheckResult, error) {
 	if limit > 200 {
 		limit = 200
 	}
@@ -220,7 +229,7 @@ func (e *Engine) CheckResults(ctx context.Context, sessionID string, beforeSeq i
 	if err != nil {
 		return nil, err
 	}
-	out := make([]evaluator.Result, 0, len(rows))
+	out := make([]CheckResult, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, evaluator.FromRow(row))
 	}
@@ -229,7 +238,7 @@ func (e *Engine) CheckResults(ctx context.Context, sessionID string, beforeSeq i
 
 // CheckArtifact returns one artifact of the session: a check's log or the diff a non-passing result
 // covers.
-func (e *Engine) CheckArtifact(ctx context.Context, sessionID, hash string) (session.Artifact, error) {
+func (e *Engine) CheckArtifact(ctx context.Context, sessionID, hash string) (CheckArtifactData, error) {
 	return e.store.Artifact(ctx, sessionID, strings.TrimSpace(hash))
 }
 
@@ -239,7 +248,7 @@ func (e *Engine) CheckArtifact(ctx context.Context, sessionID, hash string) (ses
 //
 // Acceptance is evidence, not a resolution: the thread is latched done at the next run end or Apply
 // that finds no obligation left (ADR-0006 D2).
-func (e *Engine) AcceptCheck(ctx context.Context, sessionID, checkID, actor string) (evaluator.Result, error) {
+func (e *Engine) AcceptCheck(ctx context.Context, sessionID, checkID, actor string) (CheckResult, error) {
 	specs, _, err := e.effectiveChecks()
 	if err != nil {
 		return evaluator.Result{}, err
