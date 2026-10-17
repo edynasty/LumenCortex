@@ -34,6 +34,10 @@ type Config struct {
 	RetryBaseDelay   time.Duration
 	MaxResponseBytes int64
 	ReasoningFormat  string
+	// ReasoningEcho is config reasoning.echo: "reasoning_content" returns the model's reasoning_content
+	// as the response's Echo and sends a request's Echo back on its assistant messages; anything else
+	// drops it (design §4.6).
+	ReasoningEcho string
 	// RequestTimeout caps each HTTP attempt from send to the last byte; 0 means no cap.
 	RequestTimeout time.Duration
 	// IdleTimeout ends an attempt that receives nothing for this long: before the headers and
@@ -52,6 +56,7 @@ type Client struct {
 	retryBaseDelay   time.Duration
 	maxResponseBytes int64
 	reasoningFormat  string
+	echo             string
 	requestTimeout   time.Duration
 	idleTimeout      time.Duration
 }
@@ -137,6 +142,7 @@ func New(cfg Config) (*Client, error) {
 		retryBaseDelay:   retryBaseDelay,
 		maxResponseBytes: maxResponseBytes,
 		reasoningFormat:  strings.TrimSpace(cfg.ReasoningFormat),
+		echo:             strings.TrimSpace(cfg.ReasoningEcho),
 		requestTimeout:   cfg.RequestTimeout,
 		idleTimeout:      cfg.IdleTimeout,
 	}, nil
@@ -257,7 +263,7 @@ func (a activityReader) Read(p []byte) (int, error) {
 }
 
 func (c *Client) completeOnce(ctx context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
-	wireReq := requestFromProtocol(c.model, req, c.stream, c.reasoningFormat)
+	wireReq := requestFromProtocol(c.model, req, c.stream, c.reasoningFormat, c.echo)
 	body, err := json.Marshal(wireReq)
 	if err != nil {
 		return protocol.ProviderResponse{}, &badRequestError{err}
@@ -340,7 +346,7 @@ func (c *Client) readJSON(body io.Reader) (protocol.ProviderResponse, error) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return protocol.ProviderResponse{}, err
 	}
-	return decoded.toProtocol()
+	return decoded.toProtocol(c.echo)
 }
 
 func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
@@ -378,7 +384,7 @@ func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 			return protocol.ProviderResponse{}, err
 		}
 	}
-	return builder.result(), nil
+	return builder.result(c.echo), nil
 }
 
 func readHTTPError(resp *http.Response) error {

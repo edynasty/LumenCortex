@@ -174,9 +174,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			ToolTokens: window.Estimate(specs),
 		}
 		fixed := window.Fixed(in)
-		base := fixed
+		base := fixed // §3.3 step 4: the newest group counts without echo
 		if len(groups) > 0 {
-			base += window.GroupTokens(groups[len(groups)-1])
+			for _, e := range groups[len(groups)-1] {
+				base += window.Estimate(e.Msg)
+			}
 		}
 		cands, candidatesDecision := l.candidates(opts, base)
 		stepDecisions := append(append([]Decision(nil), opts.Decisions...), candidatesDecision)
@@ -204,7 +206,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		if err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
-		r.appendRow(seq, assistant)
+		r.appendAssistant(seq, assistant, answered.Model.Ref, response.Echo)
 		record := stepRecord{
 			Step:         step,
 			FinishReason: response.FinishReason,

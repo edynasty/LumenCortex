@@ -64,8 +64,8 @@ func TestStreamingToolCallAssembly(t *testing.T) {
 		t.Fatal(err)
 	}
 	response, err := client.Complete(context.Background(), protocol.ProviderRequest{
-		Messages: []protocol.Message{{Role: "user", Content: "fix it"}},
-		Tools: []protocol.ToolSpec{{Name: "shell", Parameters: map[string]any{"type": "object"}}},
+		Messages:   []protocol.Message{{Role: "user", Content: "fix it"}},
+		Tools:      []protocol.ToolSpec{{Name: "shell", Parameters: map[string]any{"type": "object"}}},
 		ToolChoice: "auto",
 	})
 	if err != nil {
@@ -147,24 +147,23 @@ func TestResponseBudget(t *testing.T) {
 	}
 }
 
-
 func TestReasoningWireFormats(t *testing.T) {
-	object := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "high"}, false, "reasoning-object")
+	object := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "high"}, false, "reasoning-object", "")
 	if object.Reasoning == nil || object.Reasoning.Effort != "high" || object.ReasoningEffort != "" {
 		t.Fatalf("reasoning-object=%#v", object)
 	}
 
-	groq := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "max"}, false, "reasoning-effort")
+	groq := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "max"}, false, "reasoning-effort", "")
 	if groq.ReasoningEffort != "high" || groq.Reasoning != nil {
 		t.Fatalf("reasoning-effort=%#v", groq)
 	}
 
-	deepseek := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "none"}, false, "deepseek")
+	deepseek := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "none"}, false, "deepseek", "")
 	if deepseek.ReasoningEffort != "none" || deepseek.Thinking == nil || deepseek.Thinking.Type != "disabled" {
 		t.Fatalf("deepseek none=%#v", deepseek)
 	}
 
-	generic := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "high"}, false, "")
+	generic := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "high"}, false, "", "")
 	if generic.Reasoning != nil || generic.ReasoningEffort != "" || generic.Thinking != nil {
 		t.Fatalf("generic should not inject reasoning fields: %#v", generic)
 	}
@@ -181,7 +180,7 @@ func TestToolCallArgumentsReturnToModelAsText(t *testing.T) {
 		{ID: "null", Name: "read_file", Arguments: json.RawMessage(`null`)},
 		{ID: "empty", Name: "list_dir"},
 	}}}
-	wire := requestFromProtocol("m", protocol.ProviderRequest{Messages: history}, false, "")
+	wire := requestFromProtocol("m", protocol.ProviderRequest{Messages: history}, false, "", "")
 	got := map[string]string{}
 	for _, call := range wire.Messages[0].ToolCalls {
 		got[call.ID] = call.Function.Arguments
@@ -205,7 +204,7 @@ func TestRuntimeRowOriginIsNotSentToTheProvider(t *testing.T) {
 		{Role: "user", Content: "blocked", Origin: protocol.OriginCompletionBlocked},
 	}
 	for _, stream := range []bool{false, true} {
-		raw, err := json.Marshal(requestFromProtocol("m", protocol.ProviderRequest{Messages: history}, stream, ""))
+		raw, err := json.Marshal(requestFromProtocol("m", protocol.ProviderRequest{Messages: history}, stream, "", ""))
 		if err != nil {
 			t.Fatal(err)
 		}

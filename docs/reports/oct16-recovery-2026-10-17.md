@@ -85,7 +85,7 @@ Not run: live-provider runs (no verified endpoint used); Wails desktop smoke.
 
 ## Open items
 
-- M3.2 §4.6: echo run memory, adapter `Echo`, resume and turn rows, `TestEchoNeverSerialized`, `TestNeedsTurnBoundary`, §4.6 regression set.
+- ~~M3.2 §4.6~~ — closed by the M3.2 §4.6 commit after `32c3f62`; decisions and evidence in [M3-M4-runtime-2026-10-15.md](M3-M4-runtime-2026-10-15.md#m32-46-decisions-reasoning-echo-resume-and-turn-rows).
 - `window.default_context` decision for models without `limit.context` (the loop only sees effective limits).
 - M3.3 (Desktop), M4.1, M4.2 not started. Desktop still pins core `156fdff`; M3.3 moves the pin and drops `recentMessages` from `frontend/src/app/agent-config.ts` / `internal/backend/runtime.go`.
 - Owner decision: delete the superseded Demo documents listed above on `design/ui-demo`.

@@ -62,7 +62,11 @@ At every Start, after the lock and before anything is appended, core reconciles 
 
 Hosts add transcript rows only through `SessionOptions.Input` (the first row, written when the session is created; the goal when empty) and `AgentOptions.Input` (a user message appended by Start after Reconcile). `ApproveWorkflowGate` changes workflow state only; call Start afterwards to continue.
 
-Rows the runtime writes carry `origin` in their stored JSON (`tool_interrupted`, `completion_blocked`). Provider adapters never send it.
+Rows the runtime writes carry `origin` in their stored JSON (`tool_interrupted`, `completion_blocked`, `resume`, `turn`). Provider adapters never send it.
+
+A turn never spans runs or models (design §4.6). A Start without `Input` whose newest row is not a user row appends a `resume` user row in the Start transaction. Before each request the loop appends a `turn` user row, and logs a `turn.boundary` decision, when an assistant row after the last user row was not produced by the target model in this run (failover mid-turn).
+
+Reasoning echo: with `reasoning.echo: reasoning_content` (the default for `reasoning.format: deepseek`, otherwise `none`) the OpenAI-compatible adapter returns the response's `reasoning_content` as an opaque `protocol.Echo` and sends it back on the current turn's assistant messages, only to the model that produced it. Echo lives in run memory only: it has no JSON, text or log form, is never written to a row, step record, event or checkpoint, and is gone when the run returns. A resumed run therefore starts a new turn and sends none.
 
 For non-standard providers, prefer setting `Endpoint` to the exact chat-completions URL. `BaseURL` is also supported and appends `/chat/completions`.
 
@@ -131,7 +135,7 @@ One schema, [`lumencortex.schema.json`](lumencortex.schema.json), describes both
 - `config.Save(path, file, expectedDigest)` validates against the schema, takes a per-file lock, compares the file's digest with `expectedDigest` (`config.ErrConflict`), writes a temporary file and renames it. The digest comes from `Document.Digest` of `ReadDocument`/`Config.Global()`/`Config.Workspace()`; `""` means the file did not exist.
 - Files in directories earlier builds used (`os.UserConfigDir()/lumencortex`, `~/.config/lumencortex` when not `GlobalDir`) are reported in `Effective().Warnings` (code `legacy_global_path`) with the path to move them to. They are not read, moved or deleted.
 
-Consumed by the runtime: `model`, `failover`, `subagentModel`, `effort.default`, the provider's `baseURL`/`endpoint` (one of them is required: there is no default URL), `apiKey`, `headers`, `timeoutSeconds` (whole-request cap), `idleTimeoutSeconds`, and per model `modelID`, `limit`, `toolCalling` and `reasoning.format`/`efforts`. Not yet consumed: `effort.escalation` (accepted and ignored until M3.1), `checks`, `reasoning.echo` (M3.2).
+Consumed by the runtime: `model`, `failover`, `subagentModel`, `effort.default`, the provider's `baseURL`/`endpoint` (one of them is required: there is no default URL), `apiKey`, `headers`, `timeoutSeconds` (whole-request cap), `idleTimeoutSeconds`, `effort.escalation`, and per model `modelID`, `limit`, `toolCalling` and `reasoning.format`/`efforts`/`echo`. Not yet consumed: `checks` (M4.1).
 
 ## Security
 

@@ -14,6 +14,18 @@ const (
 	// OriginCompletionBlocked marks a user row the completion gate appended when it
 	// refused the model's completion proposal.
 	OriginCompletionBlocked = "completion_blocked"
+	// OriginResume marks the user row Start appends when a run begins after a row that is not a
+	// user row, so a turn never spans runs (design §3.2, §4.6).
+	OriginResume = "resume"
+	// OriginTurn marks the user row the loop appends before a request to a model that did not
+	// produce, in this run, an assistant row of the current turn, so a turn never spans models.
+	OriginTurn = "turn"
+)
+
+// Contents of the runtime rows that open a new turn. They are user rows the model reads.
+const (
+	ResumeContent = "[runtime] A new run continues this session. The transcript and the Task State above are the state of the work; continue from there."
+	TurnContent   = "[runtime] The model answering changed in the middle of a turn. The transcript and the Task State above are the state of the work; continue from there."
 )
 
 type Message struct {
@@ -67,12 +79,18 @@ type ProviderRequest struct {
 	Temperature     *float64   `json:"temperature,omitempty"`
 	MaxTokens       int        `json:"maxTokens,omitempty"`
 	ReasoningEffort string     `json:"reasoningEffort,omitempty"`
+	// Echo is aligned with Messages: Echo[i], when not zero, goes back with Messages[i]. It is nil or
+	// as long as Messages. Only the loop fills it, and only for the current turn's assistant
+	// messages produced by the model the request goes to (design §4.6).
+	Echo []Echo `json:"-"`
 }
 
 type ProviderResponse struct {
 	Message      Message `json:"message"`
 	Usage        Usage   `json:"usage"`
 	FinishReason string  `json:"finishReason,omitempty"`
+	// Echo is what the adapter needs back with Message in the rest of this turn; zero when none.
+	Echo Echo `json:"-"`
 }
 
 type Provider interface {

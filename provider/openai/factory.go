@@ -17,8 +17,7 @@ type Options struct {
 }
 
 // FromModel builds the client for one resolved catalog model. It is the only place that reads the
-// API key from the environment. It never carries the model's reasoning echo setting: echo is
-// provider-private state the adapter boundary reserves for M3.2.
+// API key from the environment.
 func FromModel(m config.ResolvedModel, o Options) (*Client, error) {
 	key, err := m.ResolveAPIKey()
 	if err != nil {
@@ -32,6 +31,7 @@ func FromModel(m config.ResolvedModel, o Options) (*Client, error) {
 		Headers:          m.Headers,
 		HTTPClient:       o.HTTPClient,
 		ReasoningFormat:  m.ReasoningFormat,
+		ReasoningEcho:    m.ReasoningEcho,
 		DisableStreaming: o.DisableStreaming,
 		DisableRetries:   o.DisableRetries,
 		RequestTimeout:   m.RequestTimeout,

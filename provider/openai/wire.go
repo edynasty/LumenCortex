@@ -8,15 +8,16 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
 type chatRequest struct {
-	Model         string        `json:"model"`
-	Messages      []wireMessage `json:"messages"`
-	Tools         []wireTool    `json:"tools,omitempty"`
-	ToolChoice    any           `json:"tool_choice,omitempty"`
-	Temperature  *float64      `json:"temperature,omitempty"`
+	Model           string            `json:"model"`
+	Messages        []wireMessage     `json:"messages"`
+	Tools           []wireTool        `json:"tools,omitempty"`
+	ToolChoice      any               `json:"tool_choice,omitempty"`
+	Temperature     *float64          `json:"temperature,omitempty"`
 	MaxTokens       int               `json:"max_tokens,omitempty"`
 	Reasoning       *reasoningOptions `json:"reasoning,omitempty"`
 	ReasoningEffort string            `json:"reasoning_effort,omitempty"`
@@ -43,6 +44,9 @@ type wireMessage struct {
 	Name       string         `json:"name,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
 	ToolCalls  []wireToolCall `json:"tool_calls,omitempty"`
+	// ReasoningContent is read from responses into the response's Echo and written back only from a
+	// request's Echo; it never reaches a protocol.Message.
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 type wireToolCall struct {
@@ -68,7 +72,7 @@ type wireToolFunction struct {
 }
 
 type chatResponse struct {
-	Choices []choice `json:"choices"`
+	Choices []choice  `json:"choices"`
 	Usage   wireUsage `json:"usage"`
 }
 
@@ -94,9 +98,10 @@ type streamChoice struct {
 }
 
 type streamDelta struct {
-	Role      string           `json:"role,omitempty"`
-	Content   string           `json:"content,omitempty"`
-	ToolCalls []streamToolCall `json:"tool_calls,omitempty"`
+	Role             string           `json:"role,omitempty"`
+	Content          string           `json:"content,omitempty"`
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	ToolCalls        []streamToolCall `json:"tool_calls,omitempty"`
 }
 
 type streamToolCall struct {
@@ -106,9 +111,12 @@ type streamToolCall struct {
 	Function wireFunction `json:"function"`
 }
 
-func requestFromProtocol(model string, req protocol.ProviderRequest, stream bool, reasoningFormat string) chatRequest {
+// echoReasoningContent is the reasoning.echo mode, and the Echo kind, that carries reasoning_content.
+const echoReasoningContent = config.ReasoningEchoContent
+
+func requestFromProtocol(model string, req protocol.ProviderRequest, stream bool, reasoningFormat, echo string) chatRequest {
 	messages := make([]wireMessage, 0, len(req.Messages))
-	for _, message := range req.Messages {
+	for i, message := range req.Messages {
 		wire := wireMessage{
 			Role: message.Role, Content: message.Content, Name: message.Name, ToolCallID: message.ToolCallID,
 		}
@@ -122,12 +130,16 @@ func requestFromProtocol(model string, req protocol.ProviderRequest, stream bool
 				Function: wireFunction{Name: call.Name, Arguments: args},
 			})
 		}
+		// The loop puts echo only on current-turn assistant messages of this model (design §4.6).
+		if echo == echoReasoningContent && message.Role == "assistant" && i < len(req.Echo) && req.Echo[i].Kind() == echoReasoningContent {
+			wire.ReasoningContent = string(req.Echo[i].Data())
+		}
 		messages = append(messages, wire)
 	}
 	tools := make([]wireTool, 0, len(req.Tools))
 	for _, spec := range req.Tools {
 		tools = append(tools, wireTool{
-			Type: "function",
+			Type:     "function",
 			Function: wireToolFunction{Name: spec.Name, Description: spec.Description, Parameters: spec.Parameters},
 		})
 	}
@@ -160,7 +172,16 @@ func wireArguments(raw json.RawMessage) string {
 	return string(raw)
 }
 
-func (r chatResponse) toProtocol() (protocol.ProviderResponse, error) {
+// responseEcho is the Echo of a response's reasoning_content under the echo mode; zero when the mode
+// does not echo or the model returned none. Its token size is estimated like the window's (§5).
+func responseEcho(echo, reasoning string) protocol.Echo {
+	if echo != echoReasoningContent || reasoning == "" {
+		return protocol.Echo{}
+	}
+	return protocol.NewEcho(echoReasoningContent, []byte(reasoning), (len(reasoning)+2)/3+4)
+}
+
+func (r chatResponse) toProtocol(echo string) (protocol.ProviderResponse, error) {
 	if len(r.Choices) == 0 {
 		return protocol.ProviderResponse{}, errors.New("provider response contained no choices")
 	}
@@ -169,13 +190,14 @@ func (r chatResponse) toProtocol() (protocol.ProviderResponse, error) {
 		return protocol.ProviderResponse{}, err
 	}
 	return protocol.ProviderResponse{
-		Message: message,
+		Message:      message,
 		FinishReason: r.Choices[0].FinishReason,
 		Usage: protocol.Usage{
-			PromptTokens: r.Usage.PromptTokens,
+			PromptTokens:     r.Usage.PromptTokens,
 			CompletionTokens: r.Usage.CompletionTokens,
-			TotalTokens: r.Usage.TotalTokens,
+			TotalTokens:      r.Usage.TotalTokens,
 		},
+		Echo: responseEcho(echo, r.Choices[0].Message.ReasoningContent),
 	}, nil
 }
 
@@ -198,6 +220,7 @@ func (m wireMessage) toProtocol() (protocol.Message, error) {
 
 type streamBuilder struct {
 	content      strings.Builder
+	reasoning    strings.Builder
 	toolCalls    map[int]*partialToolCall
 	finishReason string
 	usage        wireUsage
@@ -224,6 +247,12 @@ func (b *streamBuilder) apply(event streamResponse) error {
 				return err
 			}
 			b.content.WriteString(choice.Delta.Content)
+		}
+		if choice.Delta.ReasoningContent != "" {
+			if err := b.reserve(len(choice.Delta.ReasoningContent)); err != nil {
+				return err
+			}
+			b.reasoning.WriteString(choice.Delta.ReasoningContent)
 		}
 		for _, call := range choice.Delta.ToolCalls {
 			if b.toolCalls == nil {
@@ -265,7 +294,7 @@ func (b *streamBuilder) reserve(size int) error {
 	return nil
 }
 
-func (b *streamBuilder) result() protocol.ProviderResponse {
+func (b *streamBuilder) result(echo string) protocol.ProviderResponse {
 	message := protocol.Message{Role: "assistant", Content: b.content.String()}
 	if len(b.toolCalls) > 0 {
 		indexes := make([]int, 0, len(b.toolCalls))
@@ -285,16 +314,16 @@ func (b *streamBuilder) result() protocol.ProviderResponse {
 		}
 	}
 	return protocol.ProviderResponse{
-		Message: message,
+		Message:      message,
 		FinishReason: b.finishReason,
 		Usage: protocol.Usage{
-			PromptTokens: b.usage.PromptTokens,
+			PromptTokens:     b.usage.PromptTokens,
 			CompletionTokens: b.usage.CompletionTokens,
-			TotalTokens: b.usage.TotalTokens,
+			TotalTokens:      b.usage.TotalTokens,
 		},
+		Echo: responseEcho(echo, b.reasoning.String()),
 	}
 }
-
 
 func applyReasoning(out *chatRequest, format, effort string) {
 	effort = strings.ToLower(strings.TrimSpace(effort))

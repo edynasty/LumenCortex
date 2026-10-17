@@ -26,6 +26,7 @@ const (
 	DecisionEffort   = "effort"
 	DecisionFailover = "failover"
 	DecisionWindow   = "window"
+	DecisionTurn     = "turn"
 )
 
 // Rule ids of decisions. The pure function that applies a rule returns its id; an id never changes
@@ -45,6 +46,8 @@ const (
 	// RuleWindowCapacityRetry: after a capacity rejection the transcript budget is halved for the
 	// one retry on the same model, and stays so for that model until the run ends (§5).
 	RuleWindowCapacityRetry = "window.capacity_retry"
+	// RuleTurnBoundary: NeedsTurnBoundary held before a request, so a runtime row opened a new turn (§4.6).
+	RuleTurnBoundary = "turn.boundary"
 )
 
 // DefaultUnhealthyFor is how long a model stays out of the candidate list after an availability
@@ -501,6 +504,49 @@ func CapacityRetryDecision(ref config.ModelRef, b window.Budget, fixed, rejected
 		capacityRetryOutput{Margin: retry.Margin})
 }
 
+// TurnRow is what the turn rule reads from one row after the last user row.
+type TurnRow struct {
+	Role string `json:"role"`
+	// Producer is the model that produced an assistant row in this run; "" when this run did not.
+	Producer config.ModelRef `json:"producer,omitempty"`
+}
+
+// NeedsTurnBoundary is the turn rule of design §4.6: a turn never spans runs or models. Before a
+// request to target it holds when the newest row is not a user row and an assistant row after the
+// last user row was not produced by target in this run. rows are the rows after the last user row.
+// Once a boundary row is appended, every current-turn assistant message was produced by target in
+// this run, so its echo, if the adapter returned one, is in run memory.
+func NeedsTurnBoundary(rows []TurnRow, target config.ModelRef) bool {
+	if len(rows) == 0 || rows[len(rows)-1].Role == "user" {
+		return false
+	}
+	for i := len(rows) - 1; i >= 0 && rows[i].Role != "user"; i-- {
+		if rows[i].Role == "assistant" && rows[i].Producer != target {
+			return true
+		}
+	}
+	return false
+}
+
+type turnInputs struct {
+	Rows   []TurnRow       `json:"rows"`
+	Target config.ModelRef `json:"target"`
+}
+
+type turnOutput struct {
+	Origin string `json:"origin"`
+}
+
+// TurnBoundary applies the turn rule before a request to target. When a boundary is due it returns
+// true and the decision that records the runtime "turn" row the loop appends. The "resume" row of a
+// run that starts after a non-user row is Start's (§3.2), so the loop only ever writes "turn" rows.
+func TurnBoundary(rows []TurnRow, target config.ModelRef) (bool, Decision) {
+	if !NeedsTurnBoundary(rows, target) {
+		return false, Decision{}
+	}
+	return true, newDecision(DecisionTurn, RuleTurnBoundary, turnInputs{Rows: rows, Target: target}, turnOutput{Origin: protocol.OriginTurn})
+}
+
 // ReplayDecision recomputes one logged decision from its recorded inputs with the same pure functions
 // and reports any difference from the recorded rule and output (I7).
 func ReplayDecision(d Decision) error {
@@ -582,6 +628,15 @@ func ReplayDecision(d Decision) error {
 		}
 		if margin := window.RetryMargin(window.Budget(in.Budget), in.Fixed, in.Rejected); margin != out.Margin {
 			return fmt.Errorf("%s: recomputed margin %d, logged %d", d.Rule, margin, out.Margin)
+		}
+	case d.Kind == DecisionTurn:
+		var in turnInputs
+		var out turnOutput
+		if err := decodeDecision(d, &in, &out); err != nil {
+			return err
+		}
+		if due, _ := TurnBoundary(in.Rows, in.Target); d.Rule != RuleTurnBoundary || !due || out.Origin != protocol.OriginTurn {
+			return fmt.Errorf("turn decision: recomputed due=%v, logged %q via %s", due, out.Origin, d.Rule)
 		}
 	default:
 		return fmt.Errorf("unknown decision kind %q rule %q", d.Kind, d.Rule)

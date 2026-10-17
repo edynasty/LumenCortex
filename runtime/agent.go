@@ -210,8 +210,11 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err != nil {
 		return nil, err
 	}
-	if start.Input != nil {
+	switch {
+	case start.Input != nil:
 		e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user"})
+	case seq >= 0:
+		e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user", "origin": protocol.OriginResume})
 	}
 
 	return &preparedRun{

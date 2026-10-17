@@ -92,6 +92,20 @@ func (l *Loop) send(
 	for i := 0; ; {
 		cand := cands[i]
 		m := l.Models[cand.Ref]
+		// Turn rule (§4.6): a turn never spans runs or models. The turn row is a user row, its own
+		// group, and commits before the request so a crash leaves it in place.
+		if due, decision := TurnBoundary(r.turnRows(), cand.Ref); due {
+			row := protocol.Message{Role: "user", Origin: protocol.OriginTurn, Content: protocol.TurnContent}
+			seq, _, err := l.Store.AppendMessage(ctx, sessionID, row, nil)
+			if err != nil {
+				return attempt{}, &ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err}
+			}
+			r.appendRow(seq, row)
+			in.Transcript = r.transcript
+			groups++
+			*decisions = append(*decisions, decision)
+			l.emit("session.message", sessionID, map[string]any{"step": step, "seq": seq, "role": "user", "origin": protocol.OriginTurn})
+		}
 		b := r.budget(cand, opts.MaxTokens, fixed)
 		built, err := window.Build(in, b)
 		if errors.Is(err, window.ErrUnpaired) {
@@ -127,6 +141,7 @@ func (l *Loop) send(
 		req := protocol.ProviderRequest{
 			Messages: built.Messages, Tools: specs, ToolChoice: "auto", Temperature: opts.Temperature,
 			MaxTokens: maxTokens, ReasoningEffort: string(sent),
+			Echo: r.requestEcho(built, cand.Ref),
 		}
 		usage.Requests++
 		l.emit("llm.request", sessionID, map[string]any{

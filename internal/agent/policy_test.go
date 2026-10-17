@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -314,6 +316,128 @@ func TestDecisionReplay(t *testing.T) {
 	for _, forbidden := range []string{"thinking", "reasoning_content", "scratch", "chain"} {
 		if json.Valid(raw) && containsFold(string(raw), forbidden) {
 			t.Errorf("decision log mentions %q: %s", forbidden, raw)
+		}
+	}
+}
+
+// §4.6 turn rule, the reference cases of design verify/go/contracts: a turn never spans runs or
+// models. Producer "" is an assistant row this run did not produce (an earlier run's).
+func TestNeedsTurnBoundary(t *testing.T) {
+	const a, b config.ModelRef = "p/a", "p/b"
+	u, tl := TurnRow{Role: "user"}, TurnRow{Role: "tool"}
+	asst := func(m config.ModelRef) TurnRow { return TurnRow{Role: "assistant", Producer: m} }
+	cases := []struct {
+		name   string
+		rows   []TurnRow
+		target config.ModelRef
+		want   bool
+	}{
+		{"empty", nil, a, false},
+		{"newest is user", []TurnRow{u}, a, false},
+		{"same model, same run", []TurnRow{u, asst(a), tl, asst(a), tl}, a, false},
+		{"failover mid-turn", []TurnRow{u, asst(a), tl}, b, true},
+		{"resume after tool rows", []TurnRow{u, asst(""), tl}, a, true},
+		{"resume after a final answer", []TurnRow{u, asst("")}, a, true},
+		{"other model only in an earlier turn", []TurnRow{u, asst(b), u, asst(a), tl}, a, false},
+		{"boundary already appended", []TurnRow{u, asst(a), tl, u}, b, false},
+	}
+	for _, c := range cases {
+		if got := NeedsTurnBoundary(c.rows, c.target); got != c.want {
+			t.Errorf("%s: NeedsTurnBoundary=%v want %v", c.name, got, c.want)
+		}
+	}
+	// The decision records a "turn" row (the "resume" row is Start's) and replays; a decision logged
+	// for rows that need no boundary does not.
+	due, d := TurnBoundary([]TurnRow{u, asst(a), tl}, b)
+	if !due {
+		t.Fatal("failover mid-turn: no boundary")
+	}
+	if err := ReplayDecision(d); err != nil {
+		t.Fatal(err)
+	}
+	forged := d
+	forged.Inputs = json.RawMessage(`{"rows":[{"role":"user"},{"role":"assistant","producer":"p/b"},{"role":"tool"}],"target":"p/b"}`)
+	if ReplayDecision(forged) == nil {
+		t.Fatal("a turn decision for rows that need no boundary replayed clean")
+	}
+	if due, d := TurnBoundary([]TurnRow{u, asst(a), tl}, a); due || d.Rule != "" {
+		t.Fatalf("no boundary due, got %v %+v", due, d)
+	}
+}
+
+// Run memory (§4.6): a request carries echo only for current-turn assistant rows its target
+// produced in this run, aligned with the request's messages; a user row ends the turn, drops its echo
+// and stops counting it toward the window.
+func TestRunMemoryEchoScope(t *testing.T) {
+	const a, b config.ModelRef = "p/a", "p/b"
+	// A window of n messages (system and Task State first) whose transcript rows start at first.
+	built := func(n int, first int64) window.Result {
+		return window.Result{Messages: make([]protocol.Message, n), FirstSeq: first}
+	}
+	r := &run{}
+	r.appendRow(1, protocol.Message{Role: "user", Content: "q"})
+	call := protocol.Message{Role: "assistant", ToolCalls: []protocol.ToolCall{{ID: "c", Name: "read"}}}
+	r.appendAssistant(2, call, a, protocol.NewEcho("k", []byte("E"), 7))
+	r.appendRow(3, protocol.Message{Role: "tool", ToolCallID: "c", Content: "r"})
+
+	// All three rows: system, Task State, user, assistant, tool.
+	echo := r.requestEcho(built(5, 1), a)
+	if len(echo) != 5 || string(echo[3].Data()) != "E" || !echo[2].IsZero() || !echo[4].IsZero() {
+		t.Fatalf("echo to the producing model misaligned: %v", echo)
+	}
+	// A window that dropped the user row: system, Task State, assistant, tool.
+	if echo := r.requestEcho(built(4, 2), a); len(echo) != 4 || string(echo[2].Data()) != "E" {
+		t.Fatalf("echo misaligned in a window from seq 2: %v", echo)
+	}
+	if got := r.requestEcho(built(5, 1), b); got != nil {
+		t.Fatalf("another model received the echo: %v", got)
+	}
+	if r.transcript[1].EchoTokens != 7 {
+		t.Fatalf("echo tokens %d, want 7 while the row is in the current turn", r.transcript[1].EchoTokens)
+	}
+
+	r.appendRow(4, protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked, Content: "not done"})
+	if got := r.requestEcho(built(6, 1), a); got != nil {
+		t.Fatalf("a request after a user row carries the previous turn's echo: %v", got)
+	}
+	if r.transcript[1].EchoTokens != 0 {
+		t.Fatalf("the previous turn's echo still counts %d tokens", r.transcript[1].EchoTokens)
+	}
+	if rows := r.turnRows(); len(rows) != 0 {
+		t.Fatalf("turn rows after a user row: %v", rows)
+	}
+}
+
+// Long run memory (§4.6): one turn of many tool steps keeps echo only for rows still in memory; the
+// groups no window can include take their echo with them, so memory is bounded by the window.
+func TestRunMemoryBoundedByWindow(t *testing.T) {
+	r := &run{}
+	r.appendRow(0, protocol.Message{Role: "user", Content: "q"})
+	big := strings.Repeat("x", 3000)
+	for i := int64(1); i < 400; i += 2 {
+		id := fmt.Sprint("c", i)
+		r.appendAssistant(i, protocol.Message{Role: "assistant", ToolCalls: []protocol.ToolCall{{ID: id, Name: "read"}}},
+			"p/a", protocol.NewEcho("k", []byte(big), 1000))
+		r.appendRow(i+1, protocol.Message{Role: "tool", ToolCallID: id, Content: big})
+	}
+	if _, err := r.groups(8000); err != nil {
+		t.Fatal(err)
+	}
+	if r.trimmed == 0 {
+		t.Fatal("nothing was trimmed; the test does not exercise the bound")
+	}
+	assistants := 0
+	for _, e := range r.transcript {
+		if e.Msg.Role == "assistant" {
+			assistants++
+		}
+	}
+	if len(r.turn) != assistants {
+		t.Fatalf("run memory holds %d echoes for %d assistant rows in memory", len(r.turn), assistants)
+	}
+	for seq := range r.turn {
+		if seq < r.transcript[0].Seq {
+			t.Fatalf("run memory holds echo of trimmed row %d", seq)
 		}
 	}
 }

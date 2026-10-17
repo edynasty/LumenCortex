@@ -12,7 +12,8 @@ import (
 
 // RunStart is the durable write set of a Start, applied by BeginRun.
 type RunStart struct {
-	// Input is appended as the next user row when non-nil.
+	// Input is appended as the next user row when non-nil. Without it, a transcript whose newest row
+	// is not a user row gets a runtime resume row instead, so a turn never spans runs (design §3.2, §4.6).
 	Input *protocol.Message
 	// Provider and Model replace the session's provider/model identity when non-nil;
 	// an empty string clears the column.
@@ -31,7 +32,7 @@ type RunStart struct {
 // has already reconciled the transcript and validated everything that can reject
 // the Start. In one BEGIN IMMEDIATE transaction it
 //
-//   - appends Input as a user row, when there is one;
+//   - appends Input as a user row, when there is one, else a resume row after a non-user newest row;
 //   - writes the provider/model identity;
 //   - writes the Start's Task State version and consumes the inbox edits it applied;
 //   - sets status = running and clears the previous cause and final.
@@ -40,7 +41,7 @@ type RunStart struct {
 // transcript row and the session row as it was, and a Start that succeeds is
 // already running when the loop begins. It returns the session row as committed
 // (read inside the transaction, so the caller needs no read after the commit) and
-// the seq of the Input row, or -1.
+// the seq of the row it appended (Input or resume), or -1.
 //
 // COMMIT runs without the caller's cancellation: once BeginRun returns, the commit
 // is known to have happened, and an error means it did not.
@@ -68,19 +69,27 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 		return Session{}, -1, err
 	}
 	inputSeq := int64(-1)
-	if start.Input != nil {
-		raw, err := json.Marshal(start.Input)
+	var newestRole sql.NullString
+	if err := conn.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(seq), -1) + 1, (SELECT role FROM session_messages WHERE session_id = ? ORDER BY seq DESC LIMIT 1)
+		 FROM session_messages WHERE session_id = ?`, sessionID, sessionID,
+	).Scan(&inputSeq, &newestRole); err != nil {
+		return Session{}, -1, err
+	}
+	appended := start.Input
+	if appended == nil && newestRole.Valid && newestRole.String != "user" {
+		appended = &protocol.Message{Role: "user", Origin: protocol.OriginResume, Content: protocol.ResumeContent}
+	}
+	if appended == nil {
+		inputSeq = -1
+	} else {
+		raw, err := json.Marshal(appended)
 		if err != nil {
-			return Session{}, -1, err
-		}
-		if err := conn.QueryRowContext(ctx,
-			`SELECT COALESCE(MAX(seq), -1) + 1 FROM session_messages WHERE session_id = ?`, sessionID,
-		).Scan(&inputSeq); err != nil {
 			return Session{}, -1, err
 		}
 		if _, err := conn.ExecContext(ctx,
 			`INSERT INTO session_messages(session_id, seq, role, json) VALUES(?, ?, ?, ?)`,
-			sessionID, inputSeq, start.Input.Role, string(raw)); err != nil {
+			sessionID, inputSeq, appended.Role, string(raw)); err != nil {
 			return Session{}, -1, err
 		}
 	}
