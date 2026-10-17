@@ -30,7 +30,15 @@ type Runner struct {
 	Workspace string
 	HeadBytes int
 	TailBytes int
+	// Reap kills the command's process group when the shell exits, so nothing the command started in
+	// the background outlives it. Evaluator checks set it; the agent's shell tool does not, so a
+	// detached `server > log &` keeps running. Cancellation and timeout kill the group either way.
+	Reap bool
 }
+
+// waitDelay bounds how long Run waits, after the shell exited or was killed, for background processes
+// to close stdout and stderr; the pipes are then closed and Run returns.
+const waitDelay = 2 * time.Second
 
 func New(workspace string) *Runner {
 	return &Runner{Workspace: workspace, HeadBytes: 8 << 10, TailBytes: 24 << 10}
@@ -65,8 +73,18 @@ func (r *Runner) Run(ctx context.Context, command string, onChunk func(StreamEve
 	cmd.Dir = r.Workspace
 	cmd.Stdout = chunkWriter{bounded: stdout, stream: "stdout", onChunk: onChunk}
 	cmd.Stderr = chunkWriter{bounded: stderr, stream: "stderr", onChunk: onChunk}
+	cmd.WaitDelay = waitDelay
+	startGroup(cmd)
 
 	err := cmd.Run()
+	if r.Reap || ctx.Err() != nil {
+		_ = killGroup(cmd)
+	}
+	// The shell exited successfully but a background process kept the pipes open past waitDelay: the
+	// command's own result stands.
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
+	}
 	result := Result{
 		Command:   command,
 		ExitCode:  0,
