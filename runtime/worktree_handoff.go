@@ -8,6 +8,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/runlock"
+	"github.com/edynasty/LumenCortex/internal/taskstate"
 )
 
 // targetCheckoutLeaseID names the lease that serializes writes Apply makes to the
@@ -179,6 +180,9 @@ func (e *Engine) ApplySessionWorktree(ctx context.Context, sessionID string) (Wo
 		"commits": len(plan.Commits),
 		"targetHead": head,
 	})
+	// Applying discharges pending application only; the thread is latched done only if that was the
+	// last obligation and there is acceptance evidence (ADR-0006 D2).
+	e.latchEvidence(ctx, sessionID, taskstate.ReasonApply)
 	return WorktreeApplyResult{Plan: plan, Action: action, TargetHead: head}, nil
 }
 

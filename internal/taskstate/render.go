@@ -111,27 +111,25 @@ func renderUnits(b *strings.Builder, m *WorkUnitManager) {
 			marker = "*"
 		}
 		fmt.Fprintf(b, "%s %s [%s/%s] %s", marker, u.ID, u.Status, u.Risk, truncate(u.Goal, 512))
-		if len(u.Verification) > 0 {
-			passed := map[string]bool{}
-			for _, v := range u.VerificationResults {
-				if v.Status == "passed" {
-					passed[strings.TrimSpace(v.Check)] = true
-				}
+		if len(u.Checks) > 0 {
+			status := map[string]string{}
+			for _, r := range u.CheckResults {
+				status[r.Check] = r.Status
 			}
-			parts := make([]string, 0, len(u.Verification))
-			for _, check := range u.Verification {
-				status := "pending"
-				if passed[check] {
-					status = "passed"
+			parts := make([]string, 0, len(u.Checks))
+			for _, check := range u.Checks {
+				s := status[check]
+				if s == "" {
+					s = "pending"
 				}
-				parts = append(parts, check+": "+status)
+				parts = append(parts, check+": "+s)
 			}
 			fmt.Fprintf(b, " (checks: %s)", strings.Join(parts, ", "))
 		}
 		b.WriteString("\n")
 	}
 	if len(open) > 0 {
-		b.WriteString("Use work_unit_update to record evidence and complete units; the active unit is marked *.\n")
+		b.WriteString("Use work_unit_update to record evidence and complete units; completing a unit runs its checks. The active unit is marked *.\n")
 	}
 }
 

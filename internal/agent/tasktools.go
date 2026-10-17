@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -41,25 +43,26 @@ func taskToolSpecs() []protocol.ToolSpec {
 					"description":       map[string]any{"type": "string"},
 					"risk":              map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "critical"}},
 					"required_evidence": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-					"verification":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-					"depends_on":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"checks": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
+						"description": "Ids of configured checks this unit must pass. Completing the unit runs them; only their results count."},
+					"depends_on": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 				},
 				"required":             []string{"goal"},
 				"additionalProperties": false,
 			},
 		},
 		{
-			Name:        toolWorkUnitUpdate,
-			Description: "Update Work Unit status, evidence and verification. Completion is gated by required evidence and passed checks.",
-			Permission:  "read",
+			Name: toolWorkUnitUpdate,
+			Description: "Update Work Unit status, summary and evidence. Setting status completed runs the unit's checks through the runtime evaluator; " +
+				"the unit completes only if all of them pass. Check results cannot be written by this tool.",
+			Permission: "read",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"id":                   map[string]any{"type": "string"},
-					"status":               map[string]any{"type": "string", "enum": []string{"pending", "active", "blocked", "verifying", "completed", "failed", "cancelled"}},
-					"summary":              map[string]any{"type": "string"},
-					"evidence":             map[string]any{"type": "array"},
-					"verification_results": map[string]any{"type": "array"},
+					"id":       map[string]any{"type": "string"},
+					"status":   map[string]any{"type": "string", "enum": []string{"pending", "active", "blocked", "verifying", "completed", "failed", "cancelled"}},
+					"summary":  map[string]any{"type": "string"},
+					"evidence": map[string]any{"type": "array"},
 				},
 				"required":             []string{"id"},
 				"additionalProperties": false,
@@ -113,20 +116,41 @@ func isTaskTool(name string) bool {
 
 // executeTaskTool applies one task tool to the run's state. A created unit is a new obligation and
 // reopens a resolved thread; a completed unit is progress and resets the stall; a unit the model
-// cancels is noted, so the evidence rule does not take it as acceptance.
-func executeTaskTool(r *run, name string, args map[string]any, at time.Time) protocol.ToolResult {
-	payload, err := runTaskTool(r, name, args, at)
-	if err != nil {
-		return protocol.ToolResult{OK: false, Content: toolErrorContent(err.Error())}
+// cancels is noted, so the evidence rule does not take it as acceptance. The ExitCause is non-nil
+// only when deciding a unit's checks was cancelled or failed: the run then ends.
+func executeTaskTool(ctx context.Context, checks Checks, r *run, name string, args map[string]any, at time.Time) (protocol.ToolResult, *ExitCause) {
+	payload, err := runTaskTool(ctx, checks, r, name, args, at)
+	var refused *toolRefusal
+	switch {
+	case errors.As(err, &refused):
+		raw, _ := json.Marshal(refused.payload)
+		return protocol.ToolResult{OK: false, Content: string(raw)}, nil
+	case errors.As(err, new(*checkFailure)):
+		cause := checkFailureExit(ctx, errors.Unwrap(err))
+		return protocol.ToolResult{}, &cause
+	case err != nil:
+		return protocol.ToolResult{OK: false, Content: toolErrorContent(err.Error())}, nil
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return protocol.ToolResult{OK: false, Content: toolErrorContent(err.Error())}
+		return protocol.ToolResult{OK: false, Content: toolErrorContent(err.Error())}, nil
 	}
-	return protocol.ToolResult{OK: true, Content: string(raw)}
+	return protocol.ToolResult{OK: true, Content: string(raw)}, nil
 }
 
-func runTaskTool(r *run, name string, args map[string]any, at time.Time) (any, error) {
+// toolRefusal is a task tool call that did not take effect in full but changed the state: its payload
+// is the tool result.
+type toolRefusal struct{ payload map[string]any }
+
+func (r *toolRefusal) Error() string { return fmt.Sprint(r.payload["error"]) }
+
+// checkFailure is a failure to decide checks; it ends the run.
+type checkFailure struct{ err error }
+
+func (c *checkFailure) Error() string { return c.err.Error() }
+func (c *checkFailure) Unwrap() error { return c.err }
+
+func runTaskTool(ctx context.Context, checks Checks, r *run, name string, args map[string]any, at time.Time) (any, error) {
 	switch name {
 	case toolWorkUnitList:
 		active, err := r.units.EnsureActive()
@@ -147,6 +171,9 @@ func runTaskTool(r *run, name string, args map[string]any, at time.Time) (any, e
 		if len(units) != 1 {
 			return nil, errors.New("invalid work unit")
 		}
+		if err := knownChecks(checks, units[0].Checks); err != nil {
+			return nil, err
+		}
 		unit, err := r.units.Add(units[0])
 		if err != nil {
 			return nil, err
@@ -155,7 +182,7 @@ func runTaskTool(r *run, name string, args map[string]any, at time.Time) (any, e
 		r.ts.Reopen(at)
 		return map[string]any{"unit": unit, "active": r.units.Current()}, nil
 	case toolWorkUnitUpdate:
-		return updateWorkUnit(r, args)
+		return updateWorkUnit(ctx, checks, r, args)
 	case toolReferenceSuggest:
 		kind, _ := args["kind"].(string)
 		target, _ := args["target"].(string)
@@ -169,7 +196,34 @@ func runTaskTool(r *run, name string, args map[string]any, at time.Time) (any, e
 	return nil, fmt.Errorf("unknown task tool: %s", name)
 }
 
-func updateWorkUnit(r *run, args map[string]any) (any, error) {
+// knownChecks refuses check ids the configuration does not define, so a unit cannot list a check that
+// could never be decided.
+func knownChecks(checks Checks, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if checks == nil {
+		return errors.New("no checks are configured for this run")
+	}
+	all, _ := checks.Configured()
+	for _, id := range ids {
+		if !slices.Contains(all, id) {
+			return fmt.Errorf("check %q is not configured; configured checks: %s", id, strings.Join(all, ", "))
+		}
+	}
+	return nil
+}
+
+// updateArgs are the only arguments work_unit_update takes; any other key, a check result included,
+// is refused.
+var updateArgs = map[string]bool{"id": true, "status": true, "summary": true, "evidence": true}
+
+func updateWorkUnit(ctx context.Context, checks Checks, r *run, args map[string]any) (any, error) {
+	for key := range args {
+		if !updateArgs[key] {
+			return nil, fmt.Errorf("%s cannot set %s: check results come only from the runtime evaluator", toolWorkUnitUpdate, key)
+		}
+	}
 	id := strings.TrimSpace(fmt.Sprint(args["id"]))
 	if args["id"] == nil || id == "" {
 		return nil, fmt.Errorf("%s requires id", toolWorkUnitUpdate)
@@ -190,12 +244,38 @@ func updateWorkUnit(r *run, args map[string]any) (any, error) {
 		}
 		patch.Evidence = &items
 	}
-	if value, ok := args["verification_results"]; ok {
-		var items []taskstate.VerificationResult
-		if err := remarshal(value, &items); err != nil {
-			return nil, err
+	current, ok := r.units.State.Items[id]
+	if !ok {
+		return nil, fmt.Errorf("unknown work unit: %s", id)
+	}
+	// Completing a unit with checks decides them first (design §4.4). The verdicts are recorded on the
+	// unit whether or not they pass, and the tool result carries them.
+	var verdicts []verdictView
+	if patch.Status != nil && *patch.Status == taskstate.WorkCompleted && current.Status != taskstate.WorkCompleted && len(current.Checks) > 0 {
+		if checks == nil {
+			return nil, fmt.Errorf("work unit %s has checks, but this run cannot decide checks", id)
 		}
-		patch.VerificationResults = &items
+		decided, err := checks.Decide(ctx, current.Checks, id)
+		if err != nil {
+			return nil, &checkFailure{err: err}
+		}
+		verdicts = verdictViews(decided)
+		results := unitChecks(decided)
+		patch.CheckResults = &results
+		if len(failing(decided)) > 0 {
+			recorded := patch
+			recorded.Status = nil
+			unit, err := r.units.Update(id, recorded)
+			if err != nil {
+				return nil, err
+			}
+			r.ts.SetUnits(r.units)
+			return nil, &toolRefusal{payload: map[string]any{
+				"error":    fmt.Sprintf("work unit %s was not completed: %s", id, strings.Join(unit.FailingChecks(), ", ")),
+				"unit":     unit,
+				"verdicts": verdicts,
+			}}
+		}
 	}
 	unit, err := r.units.Update(id, patch)
 	if err != nil {
@@ -209,7 +289,11 @@ func updateWorkUnit(r *run, args map[string]any) (any, error) {
 	}
 	active, _ := r.units.EnsureActive()
 	r.ts.SetUnits(r.units)
-	return map[string]any{"unit": unit, "active": active, "remaining": r.units.Incomplete()}, nil
+	out := map[string]any{"unit": unit, "active": active, "remaining": r.units.Incomplete()}
+	if verdicts != nil {
+		out["verdicts"] = verdicts
+	}
+	return out, nil
 }
 
 func remarshal(value any, out any) error {
@@ -226,5 +310,5 @@ func workUnitCompletionCorrection(units []taskstate.WorkUnit) string {
 		parts = append(parts, fmt.Sprintf("%s[%s]: %s", unit.ID, unit.Status, unit.Goal))
 	}
 	return "Work Unit completion gate rejected final completion. Remaining units: " + strings.Join(parts, "; ") +
-		". Use work_unit_update to satisfy evidence/verification and complete them before finishing."
+		". Use work_unit_update to record evidence and complete them; completing a unit runs its checks."
 }

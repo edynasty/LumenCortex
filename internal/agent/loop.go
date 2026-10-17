@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/evaluator"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/internal/workflow"
@@ -29,10 +30,15 @@ type Loop struct {
 	Store  Store
 	Tools  Tools
 	Emit   func(Event)
-	// Workspace reports whether the session has work pending application (its owned worktree is
-	// dirty or holds commits not yet applied) and the workspace refs a resolution would rest on. The
-	// evidence rule reads it when a run completes; nil means nothing pending and no refs.
-	Workspace func(context.Context) (pendingApplication bool, refs []string, err error)
+	// Evidence returns what the evidence rule reads beyond the run's own state: whether the session
+	// has work pending application (its owned worktree is dirty or holds commits not yet applied),
+	// the required checks and whether each is satisfied at the current fingerprint, and the workspace
+	// refs a resolution would rest on. The loop fills in the workflow's verdicts. nil means nothing
+	// pending, no checks and no refs.
+	Evidence func(context.Context) (taskstate.Evidence, error)
+	// Checks decides configured checks: the completion gate's required checks and a completing unit's
+	// checks (design §4.7). nil means no checks are configured.
+	Checks Checks
 }
 
 // run is the Task State a run works on: the run's current state, the workflow and work units decoded
@@ -240,6 +246,16 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				remaining := r.units.Incomplete()
 				correction = workUnitCompletionCorrection(remaining)
 				l.emit("work_unit.blocked_final", sessionID, map[string]any{"step": step, "remaining": remaining})
+			default:
+				// The completion gate's last condition: every required check decided passed (§4.7).
+				failed, cause := l.requiredChecks(ctx)
+				if cause != nil {
+					return l.exit(ctx, state, usage, *cause)
+				}
+				if len(failed) > 0 {
+					correction = checksCorrection(failed)
+					l.emit("checks.blocked_final", sessionID, map[string]any{"step": step, "checks": verdictViews(failed)})
+				}
 			}
 			if correction == "" {
 				l.latchEvidence(ctx, sessionID, r)
@@ -289,7 +305,13 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			} else {
 				l.emit("tool.start", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "args": args})
 				if isTaskTool(call.Name) {
-					toolResult = executeTaskTool(r, call.Name, args, time.Now().UTC())
+					var cause *ExitCause
+					toolResult, cause = executeTaskTool(ctx, l.Checks, r, call.Name, args, time.Now().UTC())
+					if cause != nil {
+						// Deciding a unit's checks was cancelled or failed: the call stays
+						// unanswered and the run ends.
+						return l.exit(ctx, state, usage, *cause)
+					}
 				} else {
 					toolResult, err = l.Tools.Execute(ctx, call.Name, args, func(output protocol.ToolOutput) {
 						l.emit("tool.output", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "stream": output.Stream, "chunk": output.Chunk})
@@ -391,24 +413,41 @@ func (l *Loop) applyInbox(ctx context.Context, sessionID string, r *run) error {
 }
 
 // latchEvidence applies the evidence rule to the run's state when a run completes (ADR-0006 D2): an
-// open thread with no obligation left and positive acceptance evidence becomes done. A workspace that
-// cannot be inspected latches nothing. The caller writes the change.
+// open thread with no obligation left and positive acceptance evidence becomes done. Evidence that
+// cannot be read latches nothing. The caller writes the change.
 func (l *Loop) latchEvidence(ctx context.Context, sessionID string, r *run) {
 	ev := taskstate.Evidence{}
-	if r.wf != nil {
-		ev.Workflow, ev.WorkflowCanFinish, ev.GatePending = true, r.wf.CanFinish(), len(r.wf.PendingGates()) > 0
-	}
-	if l.Workspace != nil {
-		pending, refs, err := l.Workspace(ctx)
-		if err != nil {
+	if l.Evidence != nil {
+		var err error
+		if ev, err = l.Evidence(ctx); err != nil {
 			l.emit("task_state.evidence_unavailable", sessionID, map[string]any{"error": err.Error()})
 			return
 		}
-		ev.PendingApplication, ev.Refs = pending, refs
+	}
+	if r.wf != nil {
+		ev.Workflow, ev.WorkflowCanFinish, ev.GatePending = true, r.wf.CanFinish(), len(r.wf.PendingGates()) > 0
 	}
 	if r.ts.AutoDone(ev, time.Now().UTC()) {
 		l.emit("task_state.resolved", sessionID, map[string]any{"state": r.ts.Resolution.State, "by": r.ts.Resolution.By})
 	}
+}
+
+// requiredChecks decides the configured required checks for the completion gate and returns those
+// that did not pass, or the exit when deciding was cancelled or failed.
+func (l *Loop) requiredChecks(ctx context.Context) ([]evaluator.Verdict, *ExitCause) {
+	if l.Checks == nil {
+		return nil, nil
+	}
+	_, required := l.Checks.Configured()
+	if len(required) == 0 {
+		return nil, nil
+	}
+	verdicts, err := l.Checks.Decide(ctx, required, "")
+	if err != nil {
+		cause := checkFailureExit(ctx, err)
+		return nil, &cause
+	}
+	return failing(verdicts), nil
 }
 
 // flush writes the run's unsaved Task State on its own, if any.

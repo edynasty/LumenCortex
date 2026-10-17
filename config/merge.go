@@ -63,6 +63,10 @@ func (c *Config) merge() error {
 	if checks == nil {
 		checks = map[string]Check{}
 	}
+	for id, check := range checks {
+		check.Source = CheckSourceGlobal
+		checks[id] = check
+	}
 	model, subagent := g.Model, g.SubagentModel
 	failover := slices.Clone(g.Failover)
 	effort := cloneEffortPolicy(g.Effort)
@@ -101,7 +105,9 @@ func (c *Config) merge() error {
 			drop("checks."+id, "check "+id)
 			continue
 		}
-		checks[id] = cloneCheck(w.Checks[id])
+		check := cloneCheck(w.Checks[id])
+		check.Source = CheckSourceWorkspace
+		checks[id] = check
 	}
 
 	// An untrusted workspace may only choose among the models of global providers. Providers is

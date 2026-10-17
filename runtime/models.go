@@ -6,6 +6,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
+	"github.com/edynasty/LumenCortex/internal/evaluator"
 	"github.com/edynasty/LumenCortex/protocol"
 	"github.com/edynasty/LumenCortex/provider/openai"
 )
@@ -29,7 +30,8 @@ func defaultProviderFactory(m config.ResolvedModel) (protocol.Provider, error) {
 	return openai.FromModel(m, openai.Options{})
 }
 
-// modelPlan is everything a Start decides about models before it writes anything.
+// modelPlan is everything a Start decides from configuration before it writes anything: models, and
+// the checks the run decides (one load, so the gate and the evidence rule see the same checks).
 type modelPlan struct {
 	session  config.ModelRef
 	resolved config.ResolvedModel
@@ -40,6 +42,9 @@ type modelPlan struct {
 	effort   config.Effort
 	// escalation is the configured effort escalation, nil for none (design §4.5).
 	escalation *config.Escalation
+	// checks are the effective configuration's checks (design §4.7); untrusted workspace checks are
+	// already dropped by config.
+	checks []evaluator.Spec
 }
 
 // planModels resolves the session model and the failover list and builds the required clients
@@ -73,7 +78,7 @@ func (e *Engine) planModels(requested, stored config.ModelRef, effort config.Eff
 	plan := &modelPlan{
 		session: ref, resolved: resolved, rule: rule, decision: decision,
 		failover: eff.Failover, models: map[config.ModelRef]agent.Model{}, effort: eff.EffortDefault,
-		escalation: eff.Escalation,
+		escalation: eff.Escalation, checks: evaluator.Specs(eff.Checks),
 	}
 	for _, candidate := range append([]config.ModelRef{ref}, eff.Failover...) {
 		if _, done := plan.models[candidate]; done {

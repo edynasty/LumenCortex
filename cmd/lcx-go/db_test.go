@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -83,7 +84,22 @@ func TestDowngradeToZeroIsRefusedWithoutChanges(t *testing.T) {
 	reopened.Close()
 }
 
-// TestDowngradeNoopAtCurrentVersion: --to equal to the current version (3) changes nothing.
+// schemaVersion reads the database's user_version read-only.
+func schemaVersion(t *testing.T, stateDir string) int {
+	t.Helper()
+	db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(filepath.Join(stateDir, "lumencortex.db"))+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+// TestDowngradeNoopAtCurrentVersion: --to equal to the current version changes nothing.
 func TestDowngradeNoopAtCurrentVersion(t *testing.T) {
 	root := t.TempDir()
 	engine, err := lcx.Open(lcx.Options{Workspace: root})
@@ -92,10 +108,11 @@ func TestDowngradeNoopAtCurrentVersion(t *testing.T) {
 	}
 	engine.Close()
 	stateDir := filepath.Join(root, ".lumencortex")
+	current := schemaVersion(t, stateDir)
 	before := stateHash(t, stateDir)
-	from, now, err := lcx.DowngradeSchema(context.Background(), lcx.Options{Workspace: root}, 3)
-	if err != nil || from != 3 || now != 3 {
-		t.Fatalf("from=%d now=%d err=%v", from, now, err)
+	from, now, err := lcx.DowngradeSchema(context.Background(), lcx.Options{Workspace: root}, current)
+	if err != nil || from != current || now != current {
+		t.Fatalf("from=%d now=%d err=%v, want both %d", from, now, err, current)
 	}
 	if stateHash(t, stateDir) != before {
 		t.Error("a no-op downgrade changed the database")

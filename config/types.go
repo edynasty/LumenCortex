@@ -161,7 +161,8 @@ type Modalities struct {
 	Input []string `json:"input,omitempty"`
 }
 
-// Check is an evaluator check. Running checks is M4.1; config validates and merges them.
+// Check is an evaluator check (design §4.7); internal/evaluator runs it. Absent TimeoutSeconds means
+// DefaultCheckTimeout, absent Required means true.
 type Check struct {
 	Kind           string   `json:"kind"`
 	Command        string   `json:"command,omitempty"`
@@ -169,7 +170,21 @@ type Check struct {
 	Files          []string `json:"files,omitempty"`
 	TimeoutSeconds int      `json:"timeoutSeconds,omitempty"`
 	Required       *bool    `json:"required,omitempty"`
+	// Source is the file the effective check came from, CheckSourceGlobal or CheckSourceWorkspace. Merge
+	// sets it; it is never read from or written to a file.
+	Source string `json:"-"`
 }
+
+// Check sources and defaults.
+const (
+	CheckSourceGlobal    = "global"
+	CheckSourceWorkspace = "workspace"
+	// DefaultCheckTimeout applies when a check sets no timeoutSeconds.
+	DefaultCheckTimeout = 600
+)
+
+// IsRequired reports whether a failing result of the check blocks completion; absent means true.
+func (c Check) IsRequired() bool { return c.Required == nil || *c.Required }
 
 // Errors returned by this package; match them with errors.Is.
 var (

@@ -252,7 +252,13 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 	if _, err := store.db.Exec(`INSERT INTO task_states (session_id, version, created_at, reason, json) VALUES (?, 1, ?, 'test', ?)`, "s1", now, string(state1JSON)); err != nil {
 		t.Fatal(err)
 	}
-
+	// An evaluator result and its artifact (0004): the down migration drops both tables and nothing else.
+	if _, err := store.db.Exec(`INSERT INTO artifacts (session_id, hash, kind, size, created_at, data) VALUES ('s1', 'sha256:' || printf('%064d', 0), 'log', 2, ?, X'6f6b')`, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO eval_results (session_id, seq, check_id, kind, status, provenance, fingerprint, artifacts_json, at) VALUES ('s1', 1, 'go-test', 'test', 'passed', 'runtime', 'h+@local#00', '[]', ?)`, now); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
@@ -277,7 +283,33 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		}
 	}
 
+	checkVersion(4)
+	hasTable := func(name string) bool {
+		t.Helper()
+		db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(filepath.Join(statedir, "lumencortex.db"))+"?mode=ro")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		var n int
+		if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, name).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n == 1
+	}
+
+	// Downgrade 4→3: evaluator tables go, Task State stays.
+	set4, err := migrate.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := migrate.Downgrade(context.Background(), statedir, set4, 3); err != nil {
+		t.Fatal(err)
+	}
 	checkVersion(3)
+	if hasTable("eval_results") || hasTable("artifacts") || !hasTable("task_states") {
+		t.Fatalf("after 4→3: eval_results=%v artifacts=%v task_states=%v", hasTable("eval_results"), hasTable("artifacts"), hasTable("task_states"))
+	}
 
 	// Downgrade 3→2
 
@@ -344,13 +376,16 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Upgrade 1→2→3
+	// Upgrade 1→2→3→4
 	store, err = Open(statedir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	checkVersion(3)
+	checkVersion(4)
+	if !hasTable("eval_results") || !hasTable("artifacts") {
+		t.Fatal("re-upgrade did not recreate the evaluator tables")
+	}
 
 	// Check that progress is still valid
 	ts, err := store.LatestTaskState(context.Background(), "s1")

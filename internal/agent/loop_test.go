@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/evaluator"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -461,63 +462,197 @@ func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 	}
 }
 
-func TestLoopWorkUnitBlocksPrematureFinalUntilEvidenceAndVerificationPass(t *testing.T) {
+// fakeChecks is a Checks whose verdicts come from per-check queues of statuses; an empty queue passes.
+type fakeChecks struct {
+	all, required []string
+	queue         map[string][]string
+	err           error
+	calls         []string // "<workUnitID>:<ids>"
+	seq           int64
+}
+
+func (f *fakeChecks) Configured() ([]string, []string) { return f.all, f.required }
+
+func (f *fakeChecks) Decide(ctx context.Context, ids []string, unit string) ([]evaluator.Verdict, error) {
+	f.calls = append(f.calls, unit+":"+strings.Join(ids, ","))
+	if f.err != nil {
+		return nil, f.err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]evaluator.Verdict, 0, len(ids))
+	for _, id := range ids {
+		status := evaluator.StatusPassed
+		if q := f.queue[id]; len(q) > 0 {
+			status, f.queue[id] = q[0], q[1:]
+		}
+		if !slices.Contains(f.all, id) {
+			status = evaluator.StatusError
+		}
+		f.seq++
+		out = append(out, evaluator.Verdict{
+			Result: evaluator.Result{Check: id, Kind: evaluator.KindTest, Status: status, Provenance: evaluator.ProvenanceRuntime,
+				Seq: f.seq, Artifacts: []string{"sha256:" + strings.Repeat("a", 64)}},
+			Passed: status == evaluator.StatusPassed,
+			Tail:   "FAIL TestTransaction (" + status + ")",
+		})
+	}
+	return out, nil
+}
+
+// I8 at the loop: work_unit_update cannot carry a check result; completing a unit decides its checks
+// through the evaluator, records the verdicts on the unit, and completes it only when all pass.
+func TestWorkUnitChecksAreDecidedByTheEvaluator(t *testing.T) {
 	store := &memoryStore{
 		state: SessionState{ID: "work-units", Goal: "repair the transaction bug", Status: "running"},
 		steps: map[int64]any{},
 	}
+	complete := `{"id":"repair","status":"completed","summary":"verified","evidence":[{"requirement":"production path","ref":"service.go:42"}]}`
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
 		{Message: protocol.Message{Content: "done too early"}, FinishReason: "stop"},
-		{
-			Message: protocol.Message{ToolCalls: []protocol.ToolCall{
-				call("wu-update", "work_unit_update", `{
-					"id":"repair",
-					"status":"completed",
-					"summary":"verified",
-					"evidence":[{"requirement":"production path","ref":"service.go:42"}],
-					"verification_results":[{"check":"focused test","status":"passed","detail":"ok"}]
-				}`),
-			}},
-			FinishReason: "tool_calls",
-		},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("forged", "work_unit_update",
+			`{"id":"repair","status":"completed","verification_results":[{"check":"focused","status":"passed"}]}`)}}, FinishReason: "tool_calls"},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("first", "work_unit_update", complete)}}, FinishReason: "tool_calls"},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("second", "work_unit_update", complete)}}, FinishReason: "tool_calls"},
 		{Message: protocol.Message{Content: "all work units complete"}, FinishReason: "stop"},
 	}}
-	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
-	workUnits := []byte(`{"workUnits":[{
-		"id":"repair",
-		"goal":"repair the transaction bug",
-		"requiredEvidence":["production path"],
-		"verification":["focused test"]
-	}]}`)
-	store.seed(t, nil, workUnits)
-	result, err := loop.Run(context.Background(), "work-units", Options{Session: testRef, MaxSteps: 5})
+	checks := &fakeChecks{all: []string{"focused"}, queue: map[string][]string{"focused": {evaluator.StatusFailed}}}
+	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}, Checks: checks}
+	store.seed(t, nil, []byte(`{"workUnits":[{"id":"repair","goal":"repair the transaction bug",
+		"requiredEvidence":["production path"],"checks":["focused"]}]}`))
+	result, err := loop.Run(context.Background(), "work-units", Options{Session: testRef, MaxSteps: 6})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "completed" || result.Final != "all work units complete" {
+	if result.Status != StatusCompleted || result.Final != "all work units complete" {
 		t.Fatalf("result=%#v", result)
 	}
-	if len(provider.seen) != 3 {
-		t.Fatalf("requests=%d", len(provider.seen))
-	}
-	foundCorrection := false
-	for _, message := range store.messages {
-		if message.Role == "user" && strings.Contains(message.Content, "Work Unit completion gate rejected") {
-			foundCorrection = true
-			if message.Origin != protocol.OriginCompletionBlocked {
-				t.Fatalf("work unit correction origin=%q, want completion_blocked", message.Origin)
+	toolRow := func(id string) protocol.Message {
+		for _, m := range store.messages {
+			if m.Role == "tool" && m.ToolCallID == id {
+				return m
 			}
-			break
+		}
+		t.Fatalf("no result for %s", id)
+		return protocol.Message{}
+	}
+	if forged := toolRow("forged"); !strings.Contains(forged.Content, "cannot set verification_results") {
+		t.Fatalf("a model-written check result was not refused: %s", forged.Content)
+	}
+	if first := toolRow("first"); !strings.Contains(first.Content, `"verdicts"`) || !strings.Contains(first.Content, "focused: failed") {
+		t.Fatalf("a failing verdict did not refuse completion with the verdicts: %s", first.Content)
+	}
+	if second := toolRow("second"); !strings.Contains(second.Content, `"passed":true`) {
+		t.Fatalf("passing completion lacks its verdict: %s", second.Content)
+	}
+	if want := []string{"repair:focused", "repair:focused"}; !slices.Equal(checks.calls, want) {
+		t.Fatalf("evaluator calls=%v, want %v (the forged call must not run checks)", checks.calls, want)
+	}
+	unit := store.ts.WorkUnits.Items["repair"]
+	if unit.Status != taskstate.WorkCompleted || len(unit.CheckResults) != 1 || unit.CheckResults[0].Status != evaluator.StatusPassed || unit.CheckResults[0].Seq != 2 {
+		t.Fatalf("unit=%+v", unit)
+	}
+	blocked := 0
+	for _, m := range store.messages {
+		if m.Origin == protocol.OriginCompletionBlocked && strings.Contains(m.Content, "Work Unit completion gate rejected") {
+			blocked++
 		}
 	}
-	if !foundCorrection {
-		t.Fatalf("missing Work Unit completion correction: %#v", store.messages)
+	if blocked != 1 {
+		t.Fatalf("completion_blocked rows=%d, want 1", blocked)
 	}
-	if store.ts.WorkUnits == nil || store.ts.WorkUnits.Items["repair"].Status != taskstate.WorkCompleted {
-		t.Fatalf("stored work units=%#v", store.ts.WorkUnits)
+
+	// Without an evaluator a unit's checks cannot be decided, so it cannot complete; an unconfigured
+	// check cannot be listed.
+	store2 := &memoryStore{state: SessionState{ID: "no-eval", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+	store2.seed(t, nil, []byte(`{"workUnits":[{"id":"u","goal":"g","checks":["focused"]}]}`))
+	provider2 := &scriptedProvider{responses: []protocol.ProviderResponse{
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
+			call("c", "work_unit_update", `{"id":"u","status":"completed"}`),
+			call("n", "work_unit_create", `{"goal":"other","checks":["nope"]}`),
+		}}, FinishReason: "tool_calls"},
+		{Message: protocol.Message{Content: "stop"}, FinishReason: "stop"},
+	}}
+	// The unit cannot complete, so the gate keeps refusing the final answer until the step limit.
+	result2, _ := (&Loop{Models: testModels(provider2), Store: store2, Tools: fakeTools{}}).Run(context.Background(), "no-eval", Options{Session: testRef, MaxSteps: 2})
+	if result2.Status != StatusInterrupted || store2.cause["kind"] != KindMaxSteps {
+		t.Fatalf("status=%s cause=%v, want interrupted/max_steps", result2.Status, store2.cause)
 	}
-	if !slices.Contains(store.reasons, taskstate.ReasonToolPrefix+"work_unit_update") {
-		t.Fatalf("the completion was not committed with its tool row: reasons=%v", store.reasons)
+	if store2.ts.WorkUnits.Items["u"].Status == taskstate.WorkCompleted || len(store2.ts.WorkUnits.Order) != 1 {
+		t.Fatalf("units=%+v", store2.ts.WorkUnits)
+	}
+}
+
+// The completion gate decides every required check (design §4.7): a failing one appends a
+// completion_blocked row naming the check, its status, artifacts and output tail, and the run goes on;
+// once it passes the run completes. Optional checks are not decided by the gate.
+func TestCompletionGateDecidesRequiredChecks(t *testing.T) {
+	store := &memoryStore{state: SessionState{ID: "gate", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
+		{Message: protocol.Message{Content: "done, fixed"}, FinishReason: "stop"},
+	}}
+	checks := &fakeChecks{all: []string{"go-test", "lint"}, required: []string{"go-test"},
+		queue: map[string][]string{"go-test": {evaluator.StatusFailed}, "lint": {evaluator.StatusFailed, evaluator.StatusFailed}}}
+	result, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}, Checks: checks}).
+		Run(context.Background(), "gate", Options{Session: testRef, MaxSteps: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != StatusCompleted || result.Final != "done, fixed" {
+		t.Fatalf("result=%+v", result)
+	}
+	if want := []string{":go-test", ":go-test"}; !slices.Equal(checks.calls, want) {
+		t.Fatalf("gate decided %v, want only the required check twice", checks.calls)
+	}
+	var blocked string
+	for _, m := range store.messages {
+		if m.Origin == protocol.OriginCompletionBlocked {
+			blocked = m.Content
+		}
+	}
+	for _, want := range []string{"go-test: failed", "sha256:aaaa", "FAIL TestTransaction"} {
+		if !strings.Contains(blocked, want) {
+			t.Fatalf("completion_blocked row lacks %q:\n%s", want, blocked)
+		}
+	}
+}
+
+// Deciding checks is part of the run: cancellation interrupts it and an evaluator store failure ends
+// it failed/storage. Neither counts as a check outcome.
+func TestCheckDecisionFailuresEndTheRun(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    error
+		status string
+		kind   string
+	}{
+		{"cancelled", context.Canceled, StatusInterrupted, KindCancelled},
+		{"store", fmt.Errorf("%w: disk full", evaluator.ErrStore), StatusFailed, KindStorage},
+		{"workspace", errors.New("git diff: not a repository"), StatusFailed, KindConfig},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			for _, viaUnit := range []bool{false, true} {
+				store := &memoryStore{state: SessionState{ID: "f", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+				first := protocol.ProviderResponse{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}
+				if viaUnit {
+					store.seed(t, nil, []byte(`{"workUnits":[{"id":"u","goal":"g","checks":["go-test"]}]}`))
+					first = protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
+						call("c", "work_unit_update", `{"id":"u","status":"completed"}`)}}, FinishReason: "tool_calls"}
+				}
+				checks := &fakeChecks{all: []string{"go-test"}, required: []string{"go-test"}, err: c.err}
+				result, _ := (&Loop{Models: testModels(&scriptedProvider{responses: []protocol.ProviderResponse{first}}), Store: store,
+					Tools: fakeTools{}, Checks: checks}).Run(context.Background(), "f", Options{Session: testRef, MaxSteps: 3})
+				if result.Status != c.status || store.cause == nil || store.cause["kind"] != c.kind {
+					t.Fatalf("viaUnit=%v: status=%s cause=%v, want %s/%s", viaUnit, result.Status, store.cause, c.status, c.kind)
+				}
+				if viaUnit && store.ts.WorkUnits.Items["u"].Status == taskstate.WorkCompleted {
+					t.Fatal("a failed decision completed the unit")
+				}
+			}
+		})
 	}
 }
 

@@ -26,27 +26,34 @@ type EvidenceRef struct {
 	Summary     string `json:"summary,omitempty"`
 }
 
-type VerificationResult struct {
-	Check  string `json:"check"`
-	Status string `json:"status"`
-	Detail string `json:"detail,omitempty"`
+// UnitCheck is the evaluator's verdict on one of a unit's checks, written by the runtime when the unit
+// was last asked to complete (design §4.4, I8). Seq is the eval_results row that decided it.
+type UnitCheck struct {
+	Check      string `json:"check"`
+	Status     string `json:"status"`
+	Provenance string `json:"provenance,omitempty"`
+	Seq        int64  `json:"seq,omitempty"`
 }
 
 type WorkUnit struct {
-	ID                  string               `json:"id"`
-	Goal                string               `json:"goal"`
-	Description         string               `json:"description,omitempty"`
-	Status              WorkUnitStatus       `json:"status"`
-	Risk                string               `json:"risk"`
-	RequiredEvidence    []string             `json:"requiredEvidence,omitempty"`
-	Verification        []string             `json:"verification,omitempty"`
-	DependsOn           []string             `json:"dependsOn,omitempty"`
-	Evidence            []EvidenceRef        `json:"evidence,omitempty"`
-	VerificationResults []VerificationResult `json:"verificationResults,omitempty"`
-	Summary             string               `json:"summary,omitempty"`
-	CreatedAt           time.Time            `json:"createdAt"`
-	UpdatedAt           time.Time            `json:"updatedAt"`
-	CompletedAt         *time.Time           `json:"completedAt,omitempty"`
+	ID               string         `json:"id"`
+	Goal             string         `json:"goal"`
+	Description      string         `json:"description,omitempty"`
+	Status           WorkUnitStatus `json:"status"`
+	Risk             string         `json:"risk"`
+	RequiredEvidence []string       `json:"requiredEvidence,omitempty"`
+	// Checks are ids of configured checks. Completing the unit decides each of them through the
+	// evaluator; the unit completes only if all pass.
+	Checks    []string      `json:"checks,omitempty"`
+	DependsOn []string      `json:"dependsOn,omitempty"`
+	Evidence  []EvidenceRef `json:"evidence,omitempty"`
+	// CheckResults are the evaluator's verdicts on Checks. Only the runtime writes them; no tool
+	// argument or seed can.
+	CheckResults []UnitCheck `json:"checkResults,omitempty"`
+	Summary      string      `json:"summary,omitempty"`
+	CreatedAt    time.Time   `json:"createdAt"`
+	UpdatedAt    time.Time   `json:"updatedAt"`
+	CompletedAt  *time.Time  `json:"completedAt,omitempty"`
 }
 
 type WorkUnitState struct {
@@ -104,6 +111,12 @@ func ParseWorkUnits(raw []byte) ([]WorkUnit, error) {
 		for _, forbidden := range []string{"model", "models", "provider", "category", "reasoningEffort", "reasoning_effort"} {
 			if _, exists := obj[forbidden]; exists {
 				return nil, fmt.Errorf("work units cannot select %s", forbidden)
+			}
+		}
+		// Check results come only from the evaluator (I8); a unit lists configured check ids in checks.
+		for _, forbidden := range []string{"checkResults", "check_results", "verificationResults", "verification_results", "verification"} {
+			if _, exists := obj[forbidden]; exists {
+				return nil, fmt.Errorf("work units cannot set %s: list configured check ids in checks; the evaluator decides them", forbidden)
 			}
 		}
 		normalized, err := json.Marshal(normalizeWorkUnitJSON(obj))
@@ -173,7 +186,8 @@ func (m *WorkUnitManager) Seed(units []WorkUnit) error {
 	for _, unit := range units {
 		unit.DependsOn = uniqueStrings(unit.DependsOn)
 		unit.RequiredEvidence = uniqueStrings(unit.RequiredEvidence)
-		unit.Verification = uniqueStrings(unit.Verification)
+		unit.Checks = uniqueStrings(unit.Checks)
+		unit.CheckResults = nil
 		m.State.Order = append(m.State.Order, unit.ID)
 		m.State.Items[unit.ID] = unit
 	}
@@ -234,8 +248,12 @@ func (m *WorkUnitManager) Add(unit WorkUnit) (WorkUnit, error) {
 			return WorkUnit{}, fmt.Errorf("work unit %s depends on unknown unit: %s", unit.ID, dep)
 		}
 	}
+	if terminalWorkStatus(unit.Status) {
+		return WorkUnit{}, fmt.Errorf("work unit %s cannot be created %s", unit.ID, unit.Status)
+	}
 	unit.RequiredEvidence = uniqueStrings(unit.RequiredEvidence)
-	unit.Verification = uniqueStrings(unit.Verification)
+	unit.Checks = uniqueStrings(unit.Checks)
+	unit.CheckResults = nil
 	now := m.now().UTC()
 	if unit.CreatedAt.IsZero() {
 		unit.CreatedAt = now
@@ -296,8 +314,8 @@ func (m *WorkUnitManager) Update(id string, patch WorkUnitPatch) (WorkUnit, erro
 	if patch.Evidence != nil {
 		unit.Evidence = append([]EvidenceRef(nil), (*patch.Evidence)...)
 	}
-	if patch.VerificationResults != nil {
-		unit.VerificationResults = append([]VerificationResult(nil), (*patch.VerificationResults)...)
+	if patch.CheckResults != nil {
+		unit.CheckResults = append([]UnitCheck(nil), (*patch.CheckResults)...)
 	}
 	if patch.Status != nil && *patch.Status != unit.Status {
 		if !allowedWorkTransition(unit.Status, *patch.Status) {
@@ -338,13 +356,17 @@ func (m *WorkUnitManager) Snapshot() WorkUnitState {
 	return cloneWorkUnitState(m.State)
 }
 
+// WorkUnitPatch changes a unit. CheckResults is set by the runtime from evaluator verdicts only; the
+// work_unit_update tool never fills it from its arguments.
 type WorkUnitPatch struct {
-	Status              *WorkUnitStatus
-	Summary             *string
-	Evidence            *[]EvidenceRef
-	VerificationResults *[]VerificationResult
+	Status       *WorkUnitStatus
+	Summary      *string
+	Evidence     *[]EvidenceRef
+	CheckResults *[]UnitCheck
 }
 
+// completionReady: the unit's required evidence is recorded and every listed check has a passed
+// evaluator verdict. A check without a verdict never counts as passed.
 func completionReady(unit WorkUnit) error {
 	evidence := map[string]bool{}
 	for _, item := range unit.Evidence {
@@ -355,18 +377,30 @@ func completionReady(unit WorkUnit) error {
 			return fmt.Errorf("work unit %s missing required evidence: %s", unit.ID, required)
 		}
 	}
-	passed := map[string]bool{}
-	for _, item := range unit.VerificationResults {
-		if item.Status == "passed" {
-			passed[strings.TrimSpace(item.Check)] = true
-		}
-	}
-	for _, check := range unit.Verification {
-		if !passed[check] {
-			return fmt.Errorf("work unit %s missing passed verification: %s", unit.ID, check)
-		}
+	if failing := unit.FailingChecks(); len(failing) > 0 {
+		return fmt.Errorf("work unit %s has checks that did not pass: %s", unit.ID, strings.Join(failing, ", "))
 	}
 	return nil
+}
+
+// FailingChecks lists the unit's checks without a passed verdict, as "id: status" ("id: pending" when
+// the check was never decided for the unit).
+func (u WorkUnit) FailingChecks() []string {
+	status := map[string]string{}
+	for _, r := range u.CheckResults {
+		status[r.Check] = r.Status
+	}
+	var out []string
+	for _, check := range u.Checks {
+		s := status[check]
+		if s == "" {
+			s = "pending"
+		}
+		if s != "passed" {
+			out = append(out, check+": "+s)
+		}
+	}
+	return out
 }
 
 func allowedWorkTransition(from, to WorkUnitStatus) bool {
@@ -443,8 +477,6 @@ func normalizeWorkUnitJSON(obj map[string]any) map[string]any {
 			out["requiredEvidence"] = value
 		case "depends_on":
 			out["dependsOn"] = value
-		case "verification_results":
-			out["verificationResults"] = value
 		default:
 			out[key] = value
 		}

@@ -163,6 +163,11 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err != nil {
 		return nil, err
 	}
+	ev, err := e.sessionEvaluator(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	checks := runChecks{ev: ev, specs: plan.checks}
 	loopOpts := agent.Options{
 		MaxSteps:            opts.MaxSteps,
 		MaxToolCallsPerStep: opts.MaxToolCallsPerStep,
@@ -222,11 +227,12 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		info:      sessionInfo(committed),
 		loopOpts:  loopOpts,
 		loop: agent.Loop{
-			Models:    plan.models,
-			Health:    e.health,
-			Store:     agentStore{store: e.store},
-			Tools:     tools,
-			Workspace: e.agentWorkspaceEvidence(sessionID),
+			Models:   plan.models,
+			Health:   e.health,
+			Store:    agentStore{store: e.store},
+			Tools:    tools,
+			Evidence: e.runEvidence(sessionID, checks),
+			Checks:   checks,
 			Emit: func(event agent.Event) {
 				e.events.publish(event.Type, event.SessionID, event.Data)
 				_ = e.store.Journal(context.Background(), event.Type, map[string]any{

@@ -323,6 +323,7 @@ All providers use the same tool-calling Agent Loop.
 | Governor scheduler | Implemented opt-in baseline: revision/cooldown pressure gate, persistent pending plan, stale-plan rejection, explicit apply |
 | Cortex Epochs | Implemented baseline (durable marker + Cognitive Git commit/revert) |
 | Go cognitive control plane | Implemented baseline (Router, Jev/Laya-compatible Decision Layer, Category chains, Think effort, health, Work Units, shared profile) |
+| Go evaluator | Implemented (M4.1): configured checks run in the session's workspace; `runtime`/`human:*` results at the workspace fingerprint decide the completion gate, work-unit completion and evidence auto-done; logs and diffs are content-addressed artifacts |
 | Go Graph Governor | Partial: Analyzer/Curator/Validator + read-only shared SQLite snapshot; mutation/apply remains Node-only |
 
 ## SQLite consistency model

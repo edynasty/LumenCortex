@@ -140,7 +140,9 @@ func TestAutoDoneNeedsEvidenceAndNoObligation(t *testing.T) {
 		}
 		store.seed(t, wf, wu)
 		loop := &Loop{Models: testModels(&scriptedProvider{responses: script}), Store: store, Tools: fakeTools{},
-			Workspace: func(context.Context) (bool, []string, error) { return pending, []string{"head:abc"}, nil }}
+			Evidence: func(context.Context) (taskstate.Evidence, error) {
+				return taskstate.Evidence{PendingApplication: pending, Refs: []string{"head:abc"}}, nil
+			}}
 		if _, err := loop.Run(context.Background(), "auto", Options{Session: testRef, MaxSteps: 4}); err != nil {
 			t.Fatal(err)
 		}

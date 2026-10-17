@@ -482,7 +482,9 @@ func TestHiddenReasoningIsNeverPersisted(t *testing.T) {
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	defer server.Close()
-	useGlobalConfig(t, fmt.Sprintf(`{"model": "test/a", "providers": {"test": {"settings": {"baseURL": %q},
+	// A required check makes the completion gate write eval_results and artifacts (M4.1), so the scan
+	// below covers those tables too.
+	useGlobalConfig(t, fmt.Sprintf(`{"model": "test/a", "checks": {"ok": {"kind": "test", "command": "echo checked"}}, "providers": {"test": {"settings": {"baseURL": %q},
 	  "models": {"a": {"modelID": "a", "reasoning": {"format": "deepseek", "efforts": ["low", "high"], "echo": "reasoning_content"}}}}}}`, server.URL))
 	workspace := t.TempDir()
 	engine, err := Open(Options{Workspace: workspace})
@@ -502,6 +504,9 @@ func TestHiddenReasoningIsNeverPersisted(t *testing.T) {
 		t.Fatalf("second result %+v", r2)
 	}
 	unsubscribe()
+	if results, err := engine.CheckResults(context.Background(), handle.ID, -1, 0); err != nil || len(results) != 2 || len(results[0].Artifacts) != 1 {
+		t.Fatalf("the gate did not record check results: %+v err=%v", results, err)
+	}
 	var eventJSON []string
 	for len(events) > 0 {
 		raw, _ := json.Marshal(<-events)

@@ -40,24 +40,35 @@ const (
 	ObligationWorkUnits          = "work_units"
 	ObligationGate               = "gate"
 	ObligationWorkflow           = "workflow"
+	ObligationChecks             = "checks"
 	ObligationPendingApplication = "pending_application"
 )
 
-// Evidence is what the rules read beyond the state itself: the workflow runtime's verdicts and the
-// workspace, which only the runtime can inspect.
+// Evidence is what the rules read beyond the state itself: the workflow runtime's verdicts, the
+// evaluator's stored results and the workspace, which only the runtime can inspect.
 type Evidence struct {
 	// Workflow: a host workflow is active. WorkflowCanFinish and GatePending are its verdicts.
 	Workflow          bool
 	WorkflowCanFinish bool
 	GatePending       bool
+	// Checks are the configured required checks and whether each has a satisfying stored result at
+	// the workspace's current fingerprint (design §4.7). Outside git none is ever satisfied.
+	Checks []CheckEvidence
 	// PendingApplication: the session's owned worktree is dirty or has commits not yet applied.
 	PendingApplication bool
 	// Refs are the workspace refs a latch rests on, e.g. "head:<sha>".
 	Refs []string
 }
 
-// Obligations lists what keeps the thread open, in a stable order. M4.1 adds required checks; execution
-// tasks arrive with C2.
+// CheckEvidence is one required check. Ref names the result that satisfies it, e.g.
+// "check:go-test@eval:12", and is empty when none does.
+type CheckEvidence struct {
+	ID        string `json:"id"`
+	Satisfied bool   `json:"satisfied"`
+	Ref       string `json:"ref,omitempty"`
+}
+
+// Obligations lists what keeps the thread open, in a stable order. Execution tasks arrive with C2.
 func (s State) Obligations(e Evidence) []string {
 	var out []string
 	if s.WorkUnits != nil && len(s.Units().Incomplete()) > 0 {
@@ -69,16 +80,57 @@ func (s State) Obligations(e Evidence) []string {
 	if e.Workflow && !e.WorkflowCanFinish {
 		out = append(out, ObligationWorkflow)
 	}
+	for _, c := range e.Checks {
+		if !c.Satisfied {
+			out = append(out, ObligationChecks)
+			break
+		}
+	}
 	if e.PendingApplication {
 		out = append(out, ObligationPendingApplication)
 	}
 	return out
 }
 
-// accepted reports positive acceptance evidence. Before M4.1 the only evidence is a host workflow that
-// can finish; a model's cancellation since the last reopen never counts.
+// accepted reports positive acceptance evidence (ADR-0006 D2): a host workflow that can finish; every
+// required check satisfied at the current fingerprint; or every work unit completed with passing
+// evaluator verdicts. A model's cancellation since the last reopen never counts, and neither does
+// applying changes on its own.
 func (s State) accepted(e Evidence) bool {
-	return e.Workflow && e.WorkflowCanFinish && len(s.Resolution.CancelledUnits) == 0
+	if len(s.Resolution.CancelledUnits) > 0 {
+		return false
+	}
+	return (e.Workflow && e.WorkflowCanFinish) || checksAccepted(e.Checks) || s.unitsAccepted()
+}
+
+func checksAccepted(checks []CheckEvidence) bool {
+	if len(checks) == 0 {
+		return false
+	}
+	for _, c := range checks {
+		if !c.Satisfied {
+			return false
+		}
+	}
+	return true
+}
+
+// unitsAccepted: there are units, every one completed, and each completed with checks that all have a
+// passed evaluator verdict. A unit completed without checks rests on the model's word alone.
+func (s State) unitsAccepted() bool {
+	if s.WorkUnits == nil {
+		return false
+	}
+	units := s.Units().List()
+	if len(units) == 0 {
+		return false
+	}
+	for _, u := range units {
+		if u.Status != WorkCompleted || len(u.Checks) == 0 || len(u.FailingChecks()) > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // AutoDone latches done (by evidence) when the thread is open, no obligation remains and there is
@@ -87,10 +139,14 @@ func (s *State) AutoDone(e Evidence, at time.Time) bool {
 	if s.Resolution.State != ResolutionOpen || len(s.Obligations(e)) > 0 || !s.accepted(e) {
 		return false
 	}
-	refs := slices.Clone(e.Refs)
+	var refs []string
 	if s.Workflow != nil && s.Workflow.Definition != nil {
-		refs = append([]string{fmt.Sprintf("workflow:%s@%s", s.Workflow.Definition.ID, s.Workflow.CurrentAction)}, refs...)
+		refs = append(refs, fmt.Sprintf("workflow:%s@%s", s.Workflow.Definition.ID, s.Workflow.CurrentAction))
 	}
+	for _, c := range e.Checks {
+		refs = append(refs, c.Ref)
+	}
+	refs = append(refs, e.Refs...)
 	s.Resolution = Resolution{State: ResolutionDone, By: ByEvidence, Actor: "runtime", At: &at, Refs: refs}
 	return true
 }

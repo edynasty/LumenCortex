@@ -162,8 +162,8 @@ func (e *Engine) putTaskState(ctx context.Context, sessionID, reason string, sta
 	return version, nil
 }
 
-// taskEvidence is what the resolution rules read beyond the state: the stored workflow's verdicts and
-// the session's workspace.
+// taskEvidence is what the resolution rules read beyond the state: the stored workflow's verdicts, the
+// session's workspace and its required checks under the effective configuration.
 func (e *Engine) taskEvidence(ctx context.Context, sessionID string, state taskstate.State) (taskstate.Evidence, error) {
 	ev := taskstate.Evidence{}
 	wf, err := state.RestoreWorkflow()
@@ -178,7 +178,56 @@ func (e *Engine) taskEvidence(ctx context.Context, sessionID string, state tasks
 		return ev, err
 	}
 	ev.PendingApplication, ev.Refs = pending, refs
+	specs, _, err := e.effectiveChecks()
+	if err != nil {
+		return ev, err
+	}
+	evaluator, err := e.sessionEvaluator(ctx, sessionID)
+	if err != nil {
+		return ev, err
+	}
+	if ev.Checks, err = checkEvidence(ctx, evaluator, specs); err != nil {
+		return ev, err
+	}
 	return ev, nil
+}
+
+// latchEvidence applies the evidence rule outside a run (ADR-0006 D2), after an Apply: the caller
+// holds the run lock. Queued host edits are applied first, so a user's resolution is never overridden,
+// and are consumed only when a version is written. A failure is reported as an event: the operation
+// that triggered the latch has already succeeded.
+func (e *Engine) latchEvidence(ctx context.Context, sessionID, reason string) {
+	fail := func(err error) {
+		e.events.publish("task_state.evidence_unavailable", sessionID, map[string]any{"reason": reason, "error": err.Error()})
+	}
+	state, err := e.loadTaskState(ctx, sessionID)
+	if err != nil {
+		fail(err)
+		return
+	}
+	edits, err := e.inboxEdits(ctx, sessionID)
+	if err != nil {
+		fail(err)
+		return
+	}
+	state.Apply(edits)
+	ev, err := e.taskEvidence(ctx, sessionID, state)
+	if err != nil {
+		fail(err)
+		return
+	}
+	if !state.AutoDone(ev, time.Now().UTC()) {
+		return
+	}
+	var through int64
+	if len(edits) > 0 {
+		through = edits[len(edits)-1].Seq
+	}
+	if _, err := e.putTaskState(ctx, sessionID, reason, state, through); err != nil {
+		fail(err)
+		return
+	}
+	e.events.publish("task_state.resolved", sessionID, map[string]any{"state": state.Resolution.State, "by": state.Resolution.By})
 }
 
 // workspaceEvidence reports whether the session has work pending application — its owned worktree is
@@ -205,13 +254,6 @@ func (e *Engine) workspaceEvidence(ctx context.Context, sessionID string) (bool,
 		return false, nil, nil
 	}
 	return false, []string{"head:" + head}, nil
-}
-
-// agentWorkspaceEvidence adapts workspaceEvidence to the loop.
-func (e *Engine) agentWorkspaceEvidence(sessionID string) func(context.Context) (bool, []string, error) {
-	return func(ctx context.Context) (bool, []string, error) {
-		return e.workspaceEvidence(ctx, sessionID)
-	}
 }
 
 // startTaskState builds the Start's Task State version (design §4.4, ADR-0006 D1′): the workflow and

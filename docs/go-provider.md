@@ -135,7 +135,7 @@ One schema, [`lumencortex.schema.json`](lumencortex.schema.json), describes both
 - `config.Save(path, file, expectedDigest)` validates against the schema, takes a per-file lock, compares the file's digest with `expectedDigest` (`config.ErrConflict`), writes a temporary file and renames it. The digest comes from `Document.Digest` of `ReadDocument`/`Config.Global()`/`Config.Workspace()`; `""` means the file did not exist.
 - Files in directories earlier builds used (`os.UserConfigDir()/lumencortex`, `~/.config/lumencortex` when not `GlobalDir`) are reported in `Effective().Warnings` (code `legacy_global_path`) with the path to move them to. They are not read, moved or deleted.
 
-Consumed by the runtime: `model`, `failover`, `subagentModel`, `effort.default`, the provider's `baseURL`/`endpoint` (one of them is required: there is no default URL), `apiKey`, `headers`, `timeoutSeconds` (whole-request cap), `idleTimeoutSeconds`, `effort.escalation`, and per model `modelID`, `limit`, `toolCalling` and `reasoning.format`/`efforts`/`echo`. Not yet consumed: `checks` (M4.1).
+Consumed by the runtime: `model`, `failover`, `subagentModel`, `effort.default`, the provider's `baseURL`/`endpoint` (one of them is required: there is no default URL), `apiKey`, `headers`, `timeoutSeconds` (whole-request cap), `idleTimeoutSeconds`, `effort.escalation`, per model `modelID`, `limit`, `toolCalling` and `reasoning.format`/`efforts`/`echo`, and `checks` (the evaluator: completion gate, work-unit checks and the evidence rule; an untrusted workspace's checks are dropped with a `checks.<id>` warning).
 
 ## Security
 
