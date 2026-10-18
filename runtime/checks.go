@@ -157,6 +157,9 @@ func (e *Engine) runEvidence(sessionID string, checks runChecks) func(context.Co
 			return ev, err
 		}
 		ev.PendingApplication, ev.Refs = pending, refs
+		if ev.Tasks, err = e.executionEvidence(ctx, sessionID); err != nil {
+			return ev, err
+		}
 		if ev.Checks, err = checkEvidence(ctx, checks.ev, checks.specs); err != nil {
 			return ev, err
 		}

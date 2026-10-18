@@ -179,6 +179,9 @@ func (e *Engine) taskEvidence(ctx context.Context, sessionID string, state tasks
 		return ev, err
 	}
 	ev.PendingApplication, ev.Refs = pending, refs
+	if ev.Tasks, err = e.executionEvidence(ctx, sessionID); err != nil {
+		return ev, err
+	}
 	specs, _, err := e.effectiveChecks()
 	if err != nil {
 		return ev, err
@@ -255,6 +258,27 @@ func (e *Engine) workspaceEvidence(ctx context.Context, sessionID string) (bool,
 		return false, nil, nil
 	}
 	return false, []string{"head:" + head}, nil
+}
+
+// executionEvidence lists the session's execution children with their stored run status: an open one
+// is an obligation and an unsuccessful one blocks the evidence rule (ADR-0006 D2).
+func (e *Engine) executionEvidence(ctx context.Context, sessionID string) ([]taskstate.TaskEvidence, error) {
+	relations, err := e.store.ChildRelations(ctx, sessionID, MaxSubagentTreeNodes)
+	if err != nil {
+		return nil, err
+	}
+	var out []taskstate.TaskEvidence
+	for _, r := range relations {
+		if r.Kind != RelationExecution {
+			continue
+		}
+		child, err := e.store.Get(ctx, r.ChildSessionID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, taskstate.TaskEvidence{SessionID: child.ID, Status: child.Status})
+	}
+	return out, nil
 }
 
 // startTaskState builds the Start's Task State version (design §4.4, ADR-0006 D1′, D4): the workflow

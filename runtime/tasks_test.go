@@ -475,6 +475,10 @@ func TestIsolatedTaskOutlivesTheParentAndStopsOnlyWithTheSubtree(t *testing.T) {
 	if rows := taskResultRows(t, engine, parent); len(rows) != 0 {
 		t.Fatalf("a running child was delivered: %+v", rows)
 	}
+	// An execution child that runs keeps the parent open (ADR-0006 D2) and is not "ready for review".
+	if info, err := engine.TaskState(ctx, parent); err != nil || !contains(info.Obligations, taskstate.ObligationTasks) || info.ReadyForReview {
+		t.Fatalf("parent view while its task runs = %+v, %v", info, err)
+	}
 
 	cancelled, err := supervisor.CancelSubtree(ctx, parent)
 	if err != nil || len(cancelled) != 1 || cancelled[0] != child {
@@ -485,6 +489,10 @@ func TestIsolatedTaskOutlivesTheParentAndStopsOnlyWithTheSubtree(t *testing.T) {
 	rows := taskResultRows(t, engine, parent)
 	if len(rows) != 1 || rows[0].Status != "interrupted" || rows[0].TaskID != tasks[0].ID {
 		t.Fatalf("rows after stop = %+v", rows)
+	}
+	// An interrupted child is no longer an obligation, but it blocks acceptance: ready for review.
+	if info, err := engine.TaskState(ctx, parent); err != nil || contains(info.Obligations, taskstate.ObligationTasks) || !info.ReadyForReview {
+		t.Fatalf("parent view after its task stopped = %+v, %v", info, err)
 	}
 
 	// The host resumes the child explicitly, asking for full authority and delegation.

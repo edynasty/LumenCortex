@@ -57,6 +57,11 @@ func TestEvidenceRuleAcceptanceSources(t *testing.T) {
 		{"units completed with passing verdicts", unitsState(t, "passed"), Evidence{}, true, nil, false},
 		{"units completed without checks are the model's word", unitsState(t, ""), Evidence{}, false, nil, true},
 		{"a cancelled unit blocks check acceptance", State{Resolution: Resolution{CancelledUnits: []string{"x"}}}, Evidence{Checks: []CheckEvidence{sat}}, false, nil, true},
+		{"a running execution task is an obligation", State{}, Evidence{Checks: []CheckEvidence{sat}, Tasks: []TaskEvidence{{SessionID: "c", Status: "running"}}}, false, []string{ObligationTasks}, false},
+		{"a task waiting at a gate is an obligation", State{}, Evidence{Tasks: []TaskEvidence{{SessionID: "c", Status: "waiting_gate"}}}, false, []string{ObligationTasks}, false},
+		{"an interrupted task blocks acceptance", State{}, Evidence{Checks: []CheckEvidence{sat}, Tasks: []TaskEvidence{{SessionID: "c", Status: "interrupted"}}}, false, nil, true},
+		{"a failed task blocks acceptance", State{}, Evidence{Checks: []CheckEvidence{sat}, Tasks: []TaskEvidence{{SessionID: "c", Status: "failed"}}}, false, nil, true},
+		{"a completed task leaves check acceptance", State{}, Evidence{Checks: []CheckEvidence{sat}, Tasks: []TaskEvidence{{SessionID: "c", Status: "completed"}}}, true, nil, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

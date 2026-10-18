@@ -42,6 +42,8 @@ const (
 	ObligationWorkflow           = "workflow"
 	ObligationChecks             = "checks"
 	ObligationPendingApplication = "pending_application"
+	// ObligationTasks: an execution child still runs or waits at a gate.
+	ObligationTasks = "tasks"
 )
 
 // Evidence is what the rules read beyond the state itself: the workflow runtime's verdicts, the
@@ -56,8 +58,27 @@ type Evidence struct {
 	Checks []CheckEvidence
 	// PendingApplication: the session's owned worktree is dirty or has commits not yet applied.
 	PendingApplication bool
+	// Tasks are the session's execution children with their run status (ADR-0006 D4).
+	Tasks []TaskEvidence
 	// Refs are the workspace refs a latch rests on, e.g. "head:<sha>".
 	Refs []string
+}
+
+// TaskEvidence is one execution child of the session and its run status.
+type TaskEvidence struct {
+	SessionID string `json:"sessionId"`
+	Status    string `json:"status"`
+}
+
+// open: the child has not ended, or it waits at a gate for the user. completed, failed and
+// interrupted are the run statuses in which a child has stopped without needing anything.
+func (t TaskEvidence) open() bool {
+	return t.Status != "completed" && t.Status != "failed" && t.Status != "interrupted"
+}
+
+// unsuccessful: the child ended without completing; its parent is not accepted on evidence (D2).
+func (t TaskEvidence) unsuccessful() bool {
+	return t.Status == "failed" || t.Status == "interrupted"
 }
 
 // CheckEvidence is one required check. Ref names the result that satisfies it, e.g.
@@ -68,7 +89,7 @@ type CheckEvidence struct {
 	Ref       string `json:"ref,omitempty"`
 }
 
-// Obligations lists what keeps the thread open, in a stable order. Execution tasks arrive with C2.
+// Obligations lists what keeps the thread open, in a stable order.
 func (s State) Obligations(e Evidence) []string {
 	var out []string
 	if s.WorkUnits != nil && len(s.Units().Incomplete()) > 0 {
@@ -89,16 +110,27 @@ func (s State) Obligations(e Evidence) []string {
 	if e.PendingApplication {
 		out = append(out, ObligationPendingApplication)
 	}
+	for _, task := range e.Tasks {
+		if task.open() {
+			out = append(out, ObligationTasks)
+			break
+		}
+	}
 	return out
 }
 
 // accepted reports positive acceptance evidence (ADR-0006 D2): a host workflow that can finish; every
 // required check satisfied at the current fingerprint; or every work unit completed with passing
-// evaluator verdicts. A model's cancellation since the last reopen never counts, and neither does
-// applying changes on its own.
+// evaluator verdicts. A model's cancellation since the last reopen never counts, neither does
+// applying changes on its own, and an execution child that failed or was interrupted blocks it.
 func (s State) accepted(e Evidence) bool {
 	if len(s.Resolution.CancelledUnits) > 0 {
 		return false
+	}
+	for _, task := range e.Tasks {
+		if task.unsuccessful() {
+			return false
+		}
 	}
 	return (e.Workflow && e.WorkflowCanFinish) || checksAccepted(e.Checks) || s.unitsAccepted()
 }

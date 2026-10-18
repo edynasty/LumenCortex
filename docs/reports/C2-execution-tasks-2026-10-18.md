@@ -22,6 +22,7 @@ Status: **implemented and validated locally; not pushed.** Core `7a060af` (code,
 | Lifecycle | Per-parent limit 4 counts running children of both kinds, including ones recorded `running` by another process. `Cancel(parent)` reaches no child. `RunSupervisor.CancelSubtree(ctx, id)` cancels the session and every descendant this supervisor runs. Close and Reconcile are unchanged generic paths (children end `interrupted`). Deleting the parent is refused with `ErrSessionHasDependents` (ADR-0005 §6, existing). `SubagentTree` lists both kinds with `kind`. | `runtime/tasks.go`, `runtime/subagents.go`, `runtime/worktree_safety.go` |
 | Delivery | At each parent Start, under its run lock: one `task_result` row (`protocol.TaskResultHeader` + JSON) per execution child in a terminal status (`completed`, `failed`, `interrupted`, `waiting_gate`) whose mark (newest transcript seq, status) differs from Task State `taskResults`. Rows are appended before the input and replace the resume row. Rows, cursor and the rest of the Start commit in the one `BeginRun` transaction. Row content: task id, status, error kind/message, final answer ≤4 KiB, open units (≤20), checks at the worktree's current state, handoff (branch, path, base, head, dirty files ≤20 + count, unapplied commits). An unreadable worktree or checks are reported in the row, not as a Start failure. | `runtime/tasks.go` `taskResults`, `runtime/taskstate.go` `startTaskState`, `internal/session/start.go` |
 | Context | The Task State block lists the newest 10 tasks with their state. | `internal/taskstate/render.go` |
+| Parent resolution (correction, found during C3) | Each execution child of the session is resolution evidence: one that has not ended or waits at a gate is the obligation `tasks`; one that ended `failed` or `interrupted` blocks the evidence latch, so the parent shows "ready for review" instead of latching done (ADR-0006 D2 "open execution tasks", "does not latch when a child failed"). Read from the child relations and the children's stored status, in both the run-end latch and the host view. | `internal/taskstate/resolution.go` `TaskEvidence`, `ObligationTasks`; `runtime/taskstate.go` `executionEvidence` |
 
 New observable surface: `protocol.OriginTaskResult`, `protocol.TaskResultHeader`; events `task.started`, `task.delivered`; checkpoint `task.started`. No schema migration: Task State fields are additive JSON; relations already existed.
 
@@ -117,6 +118,13 @@ After delivery the parent resolution stays `open` with obligation `checks`: the 
 | same with the fix | pass |
 | `go build ./...`, `go vet ./...` | pass |
 | `go test -count=1 ./...` | all packages pass except one run of `provider/openai` `TestIdleAndRequestTimeouts/request_cap_while_chunks_keep_arriving` (timing, under full-suite load); it passes 5/5 in isolation with and without the fix and does not touch tool schemas |
+
+## Finding: a running execution task did not keep the parent open (C2 defect, fixed separately)
+
+- **Severity:** medium. ADR-0006 D2 lists "open execution tasks" as an obligation and says the latch does not fire when a child failed; `taskstate.Obligations` had no such case (its comment read "Execution tasks arrive with C2"). Effect: while a child ran, the parent's host view had no obligation and `readyForReview: true` (no required checks), and with satisfied required checks the run-end latch could set the parent `done` while its task still ran or after it failed.
+- **Evidence:** `TestIsolatedTaskOutlivesTheParentAndStopsOnlyWithTheSubtree`, extended, fails without the evidence wiring: `Obligations:[] ReadyForReview:true` with task `t1` `started` and its child running.
+- **Fix:** see the "Parent resolution" row above. `TestEvidenceRuleAcceptanceSources` gains five cases (running → `tasks`; `waiting_gate` → `tasks`; `interrupted`/`failed` → no latch, ready for review; `completed` → check acceptance unchanged); the isolated test checks the parent view while the child runs (`tasks`, not ready) and after Stop (no `tasks`, ready for review). `go build`, `go vet`, `go test -count=1 ./...`: pass.
+- **Not changed:** proposals that were never started are not obligations: the user has not authorised them.
 
 ## Not covered
 
