@@ -121,7 +121,7 @@ After delivery the parent resolution stays `open` with obligation `checks`: the 
 ## Not covered
 
 - Supervisor `Close` → children `interrupted`, and Reconcile of a crashed child, are the existing generic paths (P6 probe, existing reconcile tests). No C2-specific test re-proves them.
-- The shared limit of 4 is exercised by the existing subagent limit test through the shared `activeChildren`. No test fills the limit with execution children.
+- The shared limit of 4 with execution children is now covered by `TestExecutionChildrenAndSubagentsShareTheParentLimit` (added during C3 integration): four running execution children refuse a fifth `StartProposedTask` with `ErrSubagentLimitExceeded` and a `spawn_subagent` with the same error, and leave the fifth proposal `proposed` with no child; `CancelSubtree` of one child stops only it, and the freed slot admits the waiting proposal. The mutation `>=` → `>` in `startExecutionTask` fails it.
 - Runs held by another process are not reachable by `CancelSubtree`, as documented.
 
 ## Risks and open items

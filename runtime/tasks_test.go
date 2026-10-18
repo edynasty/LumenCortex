@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -500,4 +501,126 @@ func TestIsolatedTaskOutlivesTheParentAndStopsOnlyWithTheSubtree(t *testing.T) {
 	if len(rows) != 2 || rows[1].Status == "interrupted" || rows[1].Final != "resumed" {
 		t.Fatalf("rows after resume = %+v", rows)
 	}
+}
+
+// limitFake proposes one task per "propose" turn, spawns a read-only subagent on a "spawn" turn and
+// keeps every execution child running until its run is cancelled.
+type limitFake struct {
+	mu      sync.Mutex
+	turns   int
+	results map[string]string
+}
+
+func (p *limitFake) Model() string { return "limit-fake" }
+func (p *limitFake) Complete(ctx context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+	if isChildRequest(req) {
+		<-ctx.Done()
+		return protocol.ProviderResponse{}, ctx.Err()
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	last := req.Messages[len(req.Messages)-1]
+	if last.Role == "tool" {
+		p.results[last.ToolCallID] = last.Content
+		return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", Content: "noted"}, FinishReason: "stop"}, nil
+	}
+	switch {
+	case last.Role == "user" && last.Content == "propose":
+		p.turns++
+		id := fmt.Sprintf("start-%d", p.turns)
+		return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", ToolCalls: []protocol.ToolCall{
+			call(id, "start_task", fmt.Sprintf(`{"objective":"%s task %d"}`, childMarker, p.turns)),
+		}}, FinishReason: "tool_calls"}, nil
+	case last.Role == "user" && last.Content == "spawn":
+		return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", ToolCalls: []protocol.ToolCall{
+			call("spawn", "spawn_subagent", `{"goal":"read the README"}`),
+		}}, FinishReason: "tool_calls"}, nil
+	}
+	return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", Content: "parent answer"}, FinishReason: "stop"}, nil
+}
+
+func (p *limitFake) result(id string) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.results[id]
+}
+
+// Approved decision 5: read-only subagents and execution children share the per-parent limit of 4.
+// A start beyond it is refused without leaving a child, worktree or started record behind, and a slot
+// freed by a subtree Stop admits the waiting proposal.
+func TestExecutionChildrenAndSubagentsShareTheParentLimit(t *testing.T) {
+	root, _ := taskRepo(t)
+	engine, supervisor := openTaskEngine(t, root)
+	defer engine.Close()
+	defer supervisor.Close()
+	ctx := context.Background()
+	fake := &limitFake{results: map[string]string{}}
+	parent := newParentSession(t, engine, fake)
+
+	for i := 0; i < MaxConcurrentSubagentsPerParent+1; i++ {
+		startAndWait(t, supervisor, parent, "propose", DelegationPropose)
+	}
+	tasks := taskStateOf(t, engine, parent).Tasks
+	if len(tasks) != MaxConcurrentSubagentsPerParent+1 {
+		t.Fatalf("proposals = %+v", tasks)
+	}
+	children := make([]string, 0, MaxConcurrentSubagentsPerParent)
+	for _, task := range tasks[:MaxConcurrentSubagentsPerParent] {
+		started, err := supervisor.StartProposedTask(ctx, parent, task.ID)
+		if err != nil {
+			t.Fatalf("StartProposedTask(%s): %v", task.ID, err)
+		}
+		children = append(children, started.SessionID)
+	}
+	for _, child := range children {
+		if !supervisor.Active(child) {
+			t.Fatalf("child %s is not running", child)
+		}
+	}
+
+	waiting := tasks[MaxConcurrentSubagentsPerParent]
+	if _, err := supervisor.StartProposedTask(ctx, parent, waiting.ID); !errors.Is(err, ErrSubagentLimitExceeded) {
+		t.Fatalf("fifth execution child err = %v", err)
+	}
+	// A read-only subagent counts against the same four running execution children.
+	startAndWait(t, supervisor, parent, "spawn", DelegationPropose)
+	if got := fake.result("spawn"); !strings.Contains(got, ErrSubagentLimitExceeded.Error()) {
+		t.Fatalf("spawn_subagent beyond the limit = %q", got)
+	}
+	tree, err := supervisor.SubagentTree(ctx, parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tree) != MaxConcurrentSubagentsPerParent {
+		t.Fatalf("tree after refused starts = %+v", tree)
+	}
+	for _, node := range tree {
+		if node.Kind != RelationExecution {
+			t.Fatalf("refused start left a %s child: %+v", node.Kind, node)
+		}
+	}
+	for _, task := range taskStateOf(t, engine, parent).Tasks {
+		if task.ID == waiting.ID && (task.State != taskstate.TaskProposed || task.SessionID != "") {
+			t.Fatalf("refused proposal changed: %+v", task)
+		}
+	}
+
+	// Stopping one child's subtree frees exactly one slot.
+	if cancelled, err := supervisor.CancelSubtree(ctx, children[0]); err != nil || len(cancelled) != 1 || cancelled[0] != children[0] {
+		t.Fatalf("CancelSubtree(child) = %v, %v", cancelled, err)
+	}
+	waitInactive(t, supervisor, children[0])
+	for _, child := range children[1:] {
+		if !supervisor.Active(child) {
+			t.Fatalf("stopping one child stopped sibling %s", child)
+		}
+	}
+	started, err := supervisor.StartProposedTask(ctx, parent, waiting.ID)
+	if err != nil {
+		t.Fatalf("proposal after a freed slot: %v", err)
+	}
+	if _, err := supervisor.CancelSubtree(ctx, parent); err != nil {
+		t.Fatal(err)
+	}
+	waitInactive(t, supervisor, append(children, started.SessionID)...)
 }
