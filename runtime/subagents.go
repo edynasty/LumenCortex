@@ -22,16 +22,18 @@ const (
 var ErrSubagentLimitExceeded = errors.New("subagent concurrency limit exceeded for parent session")
 
 type SubagentNode struct {
-	SessionID       string         `json:"sessionId"`
-	ParentSessionID string         `json:"parentSessionId,omitempty"`
-	Goal            string         `json:"goal"`
-	Status          string         `json:"status"`
-	Final           string         `json:"final,omitempty"`
-	Active          bool           `json:"active"`
-	CreatedAt       time.Time      `json:"createdAt"`
-	UpdatedAt       time.Time      `json:"updatedAt"`
-	Runtime         SessionRuntime `json:"runtime"`
-	Children        []SubagentNode `json:"children,omitempty"`
+	SessionID       string `json:"sessionId"`
+	ParentSessionID string `json:"parentSessionId,omitempty"`
+	// Kind is the relation: RelationSubagent or RelationExecution.
+	Kind      string         `json:"kind"`
+	Goal      string         `json:"goal"`
+	Status    string         `json:"status"`
+	Final     string         `json:"final,omitempty"`
+	Active    bool           `json:"active"`
+	CreatedAt time.Time      `json:"createdAt"`
+	UpdatedAt time.Time      `json:"updatedAt"`
+	Runtime   SessionRuntime `json:"runtime"`
+	Children  []SubagentNode `json:"children,omitempty"`
 }
 
 type SessionCheckpoint = session.Checkpoint
@@ -58,7 +60,7 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 	}
 	engine := c.supervisor.engine
 
-	activeChildren, err := c.activeChildren(ctx)
+	activeChildren, err := c.supervisor.activeChildren(ctx, c.parentID)
 	if err != nil {
 		return nil, err
 	}
@@ -66,10 +68,6 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 		return nil, ErrSubagentLimitExceeded
 	}
 
-	parent, err := engine.store.Get(ctx, c.parentID)
-	if err != nil {
-		return nil, err
-	}
 	identity, err := engine.SessionRuntime(ctx, c.parentID)
 	if err != nil {
 		return nil, err
@@ -92,15 +90,9 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 		metadata["runtime"] = identity
 	}
 
-	// The child's model is config subagentModel, else the parent's pinned model: never the model
-	// that answered the parent's last request after a failover (design §4.5).
-	cfg, err := config.Load(engine.workspace)
+	childRef, err := engine.childModelRef(ctx, c.parentID)
 	if err != nil {
 		return nil, err
-	}
-	childRef := cfg.Effective().SubagentModel
-	if childRef == "" {
-		childRef = config.ModelRef(parent.ModelRef)
 	}
 
 	handle, err := engine.createSession(ctx, SessionOptions{
@@ -117,7 +109,7 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 	if err := engine.store.AddRelation(ctx, session.Relation{
 		ParentSessionID: c.parentID,
 		ChildSessionID:  handle.ID,
-		Kind:            "subagent",
+		Kind:            RelationSubagent,
 		Metadata:        relationMetadata,
 	}); err != nil {
 		return nil, err
@@ -165,7 +157,7 @@ func (c *subagentController) Wait(ctx context.Context, childSessionID string, ti
 	if err != nil {
 		return nil, err
 	}
-	if relation.Kind != "subagent" || relation.ParentSessionID != c.parentID {
+	if relation.Kind != RelationSubagent || relation.ParentSessionID != c.parentID {
 		return nil, errors.New("subagent does not belong to this parent session")
 	}
 	if timeout <= 0 {
@@ -225,20 +217,6 @@ func (c *subagentController) childOptions(childRef config.ModelRef) AgentOptions
 	}
 }
 
-func (c *subagentController) activeChildren(ctx context.Context) (int, error) {
-	relations, err := c.supervisor.engine.store.ChildRelations(ctx, c.parentID, 100)
-	if err != nil {
-		return 0, err
-	}
-	count := 0
-	for _, relation := range relations {
-		if relation.Kind == "subagent" && c.supervisor.Active(relation.ChildSessionID) {
-			count++
-		}
-	}
-	return count, nil
-}
-
 func (c *subagentController) summary(ctx context.Context, childID string) (SubagentNode, error) {
 	value, err := c.supervisor.engine.store.Get(ctx, childID)
 	if err != nil {
@@ -254,6 +232,7 @@ func (c *subagentController) summary(ctx context.Context, childID string) (Subag
 	}
 	return SubagentNode{
 		SessionID:       value.ID,
+		Kind:            RelationSubagent,
 		ParentSessionID: c.parentID,
 		Goal:            value.Goal,
 		Status:          value.Status,
@@ -274,13 +253,15 @@ func (s *RunSupervisor) HasActiveSubagents(ctx context.Context, parentSessionID 
 		return false, err
 	}
 	for _, relation := range relations {
-		if relation.Kind == "subagent" && s.Active(relation.ChildSessionID) {
+		if relation.Kind == RelationSubagent && s.Active(relation.ChildSessionID) {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
+// SubagentTree lists a session's children, read-only subagents and execution tasks (Kind), with their
+// own children, bounded by MaxSubagentTreeDepth and MaxSubagentTreeNodes.
 func (s *RunSupervisor) SubagentTree(ctx context.Context, parentSessionID string) ([]SubagentNode, error) {
 	if s == nil || s.engine == nil {
 		return nil, ErrRunSupervisorClosed
@@ -299,7 +280,7 @@ func (s *RunSupervisor) subagentChildren(ctx context.Context, parentSessionID st
 	}
 	out := make([]SubagentNode, 0, len(relations))
 	for _, relation := range relations {
-		if relation.Kind != "subagent" || *remaining <= 0 {
+		if (relation.Kind != RelationSubagent && relation.Kind != RelationExecution) || *remaining <= 0 {
 			continue
 		}
 		value, err := s.engine.store.Get(ctx, relation.ChildSessionID)
@@ -316,6 +297,7 @@ func (s *RunSupervisor) subagentChildren(ctx context.Context, parentSessionID st
 		}
 		(*remaining)--
 		node := SubagentNode{
+			Kind:            relation.Kind,
 			SessionID:       value.ID,
 			ParentSessionID: parentSessionID,
 			Goal:            value.Goal,

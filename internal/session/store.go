@@ -271,6 +271,13 @@ WHERE session_id = ? ORDER BY seq DESC LIMIT ?
 	return out, rows.Err()
 }
 
+// NewestMessageSeq is the seq of the session's newest transcript row, -1 when it has none.
+func (s *Store) NewestMessageSeq(ctx context.Context, sessionID string) (int64, error) {
+	var seq int64
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), -1) FROM session_messages WHERE session_id = ?`, sessionID).Scan(&seq)
+	return seq, err
+}
+
 // EachMessageFrom calls fn with every row whose seq is at least fromSeq, oldest first. The request
 // window reads the transcript from the Task State's windowStartSeq this way, one row at a time.
 func (s *Store) EachMessageFrom(ctx context.Context, sessionID string, fromSeq int64, fn func(Message) error) error {

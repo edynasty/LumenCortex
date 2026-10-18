@@ -47,6 +47,10 @@ type State struct {
 	// WindowStartSeq is the lowest transcript seq a request may use. Only migration 0003 and a
 	// context reset move it, and never backwards.
 	WindowStartSeq int64 `json:"windowStartSeq"`
+	// Tasks are the execution tasks the thread proposed or started (tasks.go).
+	Tasks []Task `json:"tasks,omitempty"`
+	// TaskResults is the task_result delivery cursor: the delivered mark of each execution child.
+	TaskResults map[string]TaskMark `json:"taskResults,omitempty"`
 }
 
 // Decode reads one stored version. Empty raw is the empty state of a session without a version.

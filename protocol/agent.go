@@ -20,12 +20,18 @@ const (
 	// OriginTurn marks the user row the loop appends before a request to a model that did not
 	// produce, in this run, an assistant row of the current turn, so a turn never spans models.
 	OriginTurn = "turn"
+	// OriginTaskResult marks the user row Start appends for each execution task whose terminal
+	// transition the thread has not seen (ADR-0006 D4). Its content is TaskResultHeader, a newline and
+	// the result's JSON.
+	OriginTaskResult = "task_result"
 )
 
 // Contents of the runtime rows that open a new turn. They are user rows the model reads.
 const (
 	ResumeContent = "[runtime] A new run continues this session. The transcript and the Task State above are the state of the work; continue from there."
 	TurnContent   = "[runtime] The model answering changed in the middle of a turn. The transcript and the Task State above are the state of the work; continue from there."
+	// TaskResultHeader leads a task_result row; the result's JSON follows on the next line.
+	TaskResultHeader = "[runtime] An execution task of this thread reached a terminal state. This reports its recorded state; it is not a user message."
 )
 
 type Message struct {

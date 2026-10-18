@@ -75,6 +75,10 @@ func (s *RunSupervisor) Start(
 	if err != nil {
 		return SessionInfo{}, err
 	}
+	if opts, err = s.engine.constrainExecutionChild(ctx, sessionID, opts); err != nil {
+		_ = lock.Release()
+		return SessionInfo{}, err
+	}
 	// The worktree lease (ADR-0005 §2) is held from here until the run has left the
 	// supervisor, so no process can remove the worktree while the run uses it.
 	_, lease, err := s.engine.leaseWorkspace(ctx, sessionID)
@@ -130,6 +134,9 @@ func (s *RunSupervisor) Start(
 			parentID:   sessionID,
 			parentOpts: opts,
 		}
+	}
+	if opts.Delegation == DelegationIsolated && opts.parentSessionID == "" && opts.tasks == nil {
+		opts.tasks = &taskStarter{supervisor: s, parentID: sessionID, parentOpts: opts}
 	}
 	prepared, err := s.engine.prepareRun(ctx, sessionID, opts)
 	if err != nil {

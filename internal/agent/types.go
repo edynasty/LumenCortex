@@ -63,6 +63,24 @@ type Tools interface {
 	Execute(context.Context, string, map[string]any, func(protocol.ToolOutput)) (protocol.ToolResult, error)
 }
 
+// Delegation grants (Options.Delegation).
+const (
+	DelegationNone     = ""
+	DelegationPropose  = "propose"
+	DelegationIsolated = "isolated"
+)
+
+// ValidDelegation reports whether d is a known grant; "none" is accepted as DelegationNone.
+func ValidDelegation(d string) bool {
+	return d == DelegationNone || d == "none" || d == DelegationPropose || d == DelegationIsolated
+}
+
+// TaskStarter starts an execution task for delegation isolated: a child session that runs the
+// objective on its own. It returns the child's session id and a summary for the tool result.
+type TaskStarter interface {
+	StartTask(ctx context.Context, objective string) (sessionID string, detail any, err error)
+}
+
 type Event struct {
 	Type      string
 	SessionID string
@@ -97,6 +115,11 @@ type Options struct {
 	// thread instead of blocking the answer. A run that changed the workspace still has its required
 	// checks decided before it ends. A host workflow keeps the whole completion gate.
 	Interactive bool
+	// Delegation grants the start_task tool (ADR-0006 D4): DelegationNone (the default) registers no
+	// such tool, DelegationPropose records proposals the user starts, DelegationIsolated starts
+	// execution tasks through Loop.Tasks. It is independent of the run's tool policy and is checked
+	// again when the tool executes.
+	Delegation string
 }
 
 type Result struct {

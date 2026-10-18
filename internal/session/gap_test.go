@@ -211,11 +211,11 @@ func TestBeginRunWritesInputIdentityAndRunningTogether(t *testing.T) {
 	}
 	gapRow(t, store, "s", "user", protocol.Message{Content: "goal"})
 
-	committed, seq, err := store.BeginRun(context.Background(), "s", RunStart{
+	committed, seqs, err := store.BeginRun(context.Background(), "s", RunStart{
 		Input: &protocol.Message{Role: "user", Content: "next"}, Provider: ptr("p"), Model: ptr("m"),
 	})
-	if err != nil || seq != 1 {
-		t.Fatalf("BeginRun = %d, %v; want seq 1", seq, err)
+	if err != nil || !reflect.DeepEqual(seqs, []int64{1}) {
+		t.Fatalf("BeginRun = %v, %v; want seqs [1]", seqs, err)
 	}
 	got, err := store.Get(context.Background(), "s")
 	if err != nil {
@@ -234,6 +234,20 @@ func TestBeginRunWritesInputIdentityAndRunningTogether(t *testing.T) {
 
 	if _, _, err := store.BeginRun(context.Background(), "missing", RunStart{Input: &protocol.Message{Role: "user", Content: "x"}}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("BeginRun on a missing session = %v, want ErrNotFound", err)
+	}
+
+	// Results come before Input; after an assistant row they make the resume row unnecessary.
+	gapRow(t, store, "s", "assistant", protocol.Message{Content: "answer"})
+	result := protocol.Message{Role: "user", Origin: protocol.OriginTaskResult, Content: "r"}
+	if _, seqs, err := store.BeginRun(context.Background(), "s", RunStart{Results: []protocol.Message{result, result}}); err != nil || !reflect.DeepEqual(seqs, []int64{3, 4}) {
+		t.Fatalf("BeginRun with results = %v, %v; want [3 4]", seqs, err)
+	}
+	if _, seqs, err := store.BeginRun(context.Background(), "s", RunStart{Results: []protocol.Message{result}, Input: &protocol.Message{Role: "user", Content: "q"}}); err != nil || !reflect.DeepEqual(seqs, []int64{5, 6}) {
+		t.Fatalf("BeginRun with results and input = %v, %v; want [5 6]", seqs, err)
+	}
+	rows = rowsOf(t, store, "s")
+	if len(rows) != 7 || rows[3].Origin != protocol.OriginTaskResult || rows[4].Origin != protocol.OriginTaskResult || rows[5].Origin != protocol.OriginTaskResult || rows[6].Content != "q" {
+		t.Fatalf("rows = %+v", rows)
 	}
 }
 

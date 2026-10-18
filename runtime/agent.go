@@ -43,8 +43,14 @@ type AgentOptions struct {
 	// changed the workspace still has its required checks decided. The default, false, keeps the full
 	// completion gate. Subagent runs are never interactive.
 	Interactive bool `json:"interactive,omitempty"`
+	// Delegation grants the start_task tool (ADR-0006 D4): "" or "none" (the default) registers none,
+	// "propose" records proposals the user starts with RunSupervisor.StartProposedTask, "isolated"
+	// starts execution tasks directly and needs RunSupervisor.Start. It is independent of Policy: a
+	// read-only conversation starts write-capable tasks only with this grant. Children never hold it.
+	Delegation string `json:"delegation,omitempty"`
 
 	subagents        toolset.SubagentController
+	tasks            agent.TaskStarter
 	parentSessionID  string
 	disableSubagents bool
 	disableMCP       bool
@@ -69,6 +75,9 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, opts AgentOptio
 		return AgentResult{}, err
 	}
 	defer lock.Release()
+	if opts, err = e.constrainExecutionChild(ctx, sessionID, opts); err != nil {
+		return AgentResult{}, err
+	}
 	_, lease, err := e.leaseWorkspace(ctx, sessionID)
 	if err != nil {
 		return AgentResult{}, err
@@ -130,8 +139,20 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err != nil {
 		return nil, err
 	}
-	// The seeds are validated here, before anything is written.
-	taskState, err := e.startTaskState(ctx, sessionID, opts)
+	delegation, err := normalizeDelegation(opts.Delegation)
+	if err != nil {
+		return nil, err
+	}
+	if opts.parentSessionID != "" {
+		// A child's authority is at most its parent's grant, and no child delegates further (I10).
+		delegation = agent.DelegationNone
+	}
+	if delegation == agent.DelegationIsolated && opts.tasks == nil {
+		return nil, errors.New("delegation isolated starts tasks that outlive the run: start the run with RunSupervisor.Start")
+	}
+	// The seeds are validated here, before anything is written; the task results of the parent's
+	// execution children are read here and commit with their cursor in the Start transaction.
+	taskState, results, err := e.startTaskState(ctx, sessionID, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -195,6 +216,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Effort:              opts.Effort,
 		Decisions:           []agent.Decision{plan.decision},
 		Interactive:         interactive,
+		Delegation:          delegation,
 	}
 
 	if e.skillRegistry != nil {
@@ -215,7 +237,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 
 	// Start's one durable write: Input, the session model identity, the Start's Task State version and
 	// the running transition commit together or not at all (§3.2). Nothing above it wrote.
-	start := session.RunStart{Provider: &plan.resolved.ProviderID, Model: &plan.resolved.ModelID, TaskState: taskState}
+	start := session.RunStart{Provider: &plan.resolved.ProviderID, Model: &plan.resolved.ModelID, TaskState: taskState, Results: results}
 	if agent.WritesModelRef(plan.rule) {
 		ref := string(plan.session)
 		start.ModelRef = &ref
@@ -224,15 +246,22 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		start.Input = &protocol.Message{Role: "user", Content: opts.Input}
 	}
 	loopOpts.Resumed = state.Status == "interrupted"
-	committed, seq, err := e.store.BeginRun(ctx, sessionID, start)
+	committed, seqs, err := e.store.BeginRun(ctx, sessionID, start)
 	if err != nil {
 		return nil, err
 	}
-	switch {
-	case start.Input != nil:
-		e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user"})
-	case seq >= 0:
-		e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user", "origin": protocol.OriginResume})
+	for i, seq := range seqs {
+		switch {
+		case i < len(results):
+			e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user", "origin": protocol.OriginTaskResult})
+		case start.Input != nil:
+			e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user"})
+		default:
+			e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user", "origin": protocol.OriginResume})
+		}
+	}
+	if len(results) > 0 {
+		e.events.publish("task.delivered", sessionID, map[string]any{"count": len(results)})
 	}
 
 	return &preparedRun{
@@ -246,6 +275,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 			Tools:    tools,
 			Evidence: e.runEvidence(sessionID, checks),
 			Checks:   checks,
+			Tasks:    taskStarterFor(delegation, opts.tasks),
 			Emit: func(event agent.Event) {
 				e.events.publish(event.Type, event.SessionID, event.Data)
 				_ = e.store.Journal(context.Background(), event.Type, map[string]any{

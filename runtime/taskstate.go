@@ -11,6 +11,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/agent"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 // TaskStateEdit is one host edit of Task State (ADR-0006 D1′/D2): exactly one of Brief, Reference and
@@ -256,43 +257,48 @@ func (e *Engine) workspaceEvidence(ctx context.Context, sessionID string) (bool,
 	return false, []string{"head:" + head}, nil
 }
 
-// startTaskState builds the Start's Task State version (design §4.4, ADR-0006 D1′): the workflow and
-// work-unit seeds, each only while the state holds none, then the queued edits. A seed is a new
-// obligation and reopens a resolved thread. It returns nil when nothing changes, and rejects an invalid
-// or conflicting seed before anything is written.
-func (e *Engine) startTaskState(ctx context.Context, sessionID string, opts AgentOptions) (*session.TaskStateWrite, error) {
+// startTaskState builds the Start's Task State version (design §4.4, ADR-0006 D1′, D4): the workflow
+// and work-unit seeds, each only while the state holds none, then the queued edits, then the delivery
+// cursor of the task_result rows it returns. A seed is a new obligation and reopens a resolved thread.
+// It returns a nil write when nothing changes, and rejects an invalid or conflicting seed before
+// anything is written.
+func (e *Engine) startTaskState(ctx context.Context, sessionID string, opts AgentOptions) (*session.TaskStateWrite, []protocol.Message, error) {
 	state, err := e.loadTaskState(ctx, sessionID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	stored, err := state.Encode()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	seeded, err := state.Seed(opts.Workflow, opts.WorkUnits)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if seeded {
 		state.Reopen(time.Now().UTC())
 	}
 	edits, err := e.inboxEdits(ctx, sessionID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var through int64
 	if len(edits) > 0 {
 		state.Apply(edits)
 		through = edits[len(edits)-1].Seq
 	}
+	results, err := e.taskResults(ctx, sessionID, &state)
+	if err != nil {
+		return nil, nil, err
+	}
 	raw, err := state.Encode()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if through == 0 && bytes.Equal(raw, stored) {
-		return nil, nil
+		return nil, nil, nil
 	}
-	return &session.TaskStateWrite{Base: state.Version, Reason: taskstate.ReasonStart, JSON: raw, InboxThrough: through}, nil
+	return &session.TaskStateWrite{Base: state.Version, Reason: taskstate.ReasonStart, JSON: raw, InboxThrough: through}, results, nil
 }
 
 // agentTaskStateChange converts the loop's change to the store's write.

@@ -58,6 +58,8 @@ type Loop struct {
 	// Checks decides configured checks: the completion gate's required checks and a completing unit's
 	// checks (design §4.7). nil means no checks are configured.
 	Checks Checks
+	// Tasks starts execution tasks for Options.Delegation isolated; nil disables that grant.
+	Tasks TaskStarter
 }
 
 // run is the Task State a run works on: the run's current state, the workflow and work units decoded
@@ -185,6 +187,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		}
 		specs := l.Tools.Specs(allowlist)
 		specs = append(specs, filterTaskToolSpecs(allowlist)...)
+		specs = append(specs, l.delegationSpecs(opts.Delegation, allowlist)...)
 		specs = filterDeniedTools(specs, opts.ToolDenylist)
 		activeWorkUnit, _ := r.units.EnsureActive()
 		r.ts.SetUnits(r.units)
@@ -337,7 +340,14 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				toolResult = protocol.ToolResult{OK: false, Denied: true, Permission: "workflow", Content: "tool is not allowed in the current working set"}
 			} else {
 				l.emit("tool.start", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "args": args})
-				if isTaskTool(call.Name) {
+				if call.Name == toolStartTask {
+					toolResult = l.startTask(ctx, r, opts.Delegation, args, time.Now().UTC())
+					if ctx.Err() != nil {
+						// Cancelled while starting: the call stays unanswered and the run ends. A child
+						// that did start is still delivered through its relation.
+						return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()})
+					}
+				} else if isTaskTool(call.Name) {
 					var cause *ExitCause
 					toolResult, cause = executeTaskTool(ctx, l.Checks, r, call.Name, args, time.Now().UTC())
 					if cause != nil {

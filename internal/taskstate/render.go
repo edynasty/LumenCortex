@@ -55,6 +55,10 @@ func Render(goal string, s State, wf *workflow.Runtime) string {
 		renderUnits(&b, s.Units())
 	}
 
+	if len(s.Tasks) > 0 {
+		renderTasks(&b, s.Tasks)
+	}
+
 	if s.Progress.SameFailureCount >= 2 {
 		fmt.Fprintf(&b, "\nRepeated failure: the same tool failure has occurred %d times. Change the approach instead of repeating it.\n", s.Progress.SameFailureCount)
 	}
@@ -130,6 +134,21 @@ func renderUnits(b *strings.Builder, m *WorkUnitManager) {
 	}
 	if len(open) > 0 {
 		b.WriteString("Use work_unit_update to record evidence and complete units; completing a unit runs its checks. The active unit is marked *.\n")
+	}
+}
+
+// maxRenderedTasks bounds the execution tasks the block lists: the newest ones, in order.
+const maxRenderedTasks = 10
+
+func renderTasks(b *strings.Builder, tasks []Task) {
+	fmt.Fprintf(b, "\nExecution tasks: %d.\n", len(tasks))
+	start := max(0, len(tasks)-maxRenderedTasks)
+	for _, t := range tasks[start:] {
+		state := "proposed, waiting for the user to start it"
+		if t.State == TaskStarted {
+			state = "started as " + t.SessionID + "; its result arrives as a task_result row"
+		}
+		fmt.Fprintf(b, "- %s (%s): %s\n", t.ID, state, truncate(t.Objective, 256))
 	}
 }
 

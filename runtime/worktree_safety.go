@@ -592,7 +592,7 @@ func (e *Engine) temporaryDescendants(ctx context.Context, sessionID string) ([]
 		}
 		for _, relation := range relations {
 			child := relation.ChildSessionID
-			if relation.Kind != "subagent" {
+			if relation.Kind != RelationSubagent {
 				dependents = append(dependents, SessionDependent{SessionID: child, Kind: relation.Kind, Reason: "independent"})
 				continue
 			}
