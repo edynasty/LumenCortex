@@ -1,6 +1,6 @@
 # C2 Execution tasks and delegation (2026-10-18)
 
-Status: **implemented and validated locally; not pushed.** Core commit: see `git log` for the C2 commit after `7883722`. Desktop is unchanged (C3 is the paired Desktop item).
+Status: **implemented and validated locally; not pushed.** Core `7a060af` (code, tests, ADR status, this report); this hash line is a follow-up commit. Desktop is unchanged (C3 is the paired Desktop item).
 
 ## Scope and authority
 
