@@ -176,6 +176,13 @@ func (s *Set) registerBuiltins() {
 	}
 }
 func str() map[string]any { return map[string]any{"type": "string"} }
+
+// obj builds an object schema. JSON Schema requires "required" to be an array of strings when present,
+// so a schema without required properties omits the member rather than emitting null.
 func obj(props map[string]any, required ...string) map[string]any {
-	return map[string]any{"type": "object", "properties": props, "required": required, "additionalProperties": false}
+	schema := map[string]any{"type": "object", "properties": props, "additionalProperties": false}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return schema
 }

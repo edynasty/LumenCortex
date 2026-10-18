@@ -84,26 +84,52 @@ A throwaway program, outside the repositories, ran the real runtime with `Intera
 
 15/15 as expected. The probe needed a tool allowlist because of the finding below.
 
-## Finding: three tool schemas are rejected by the local endpoint (pre-existing, not C2)
+## Finding: three tool schemas are rejected by the local endpoint (pre-existing, not C2) — fixed separately
 
 - **Severity:** high for that endpoint. Every request carrying Core's default tool set fails with `provider:bad_request` (HTTP 400 "Invalid tool definition"), with or without `start_task`.
 - **Evidence:** a one-tool-per-request bisection shows `git_diff`, `git_status` and `list_subagents` are rejected; all other tools, `start_task` included, are accepted. Those are the tools whose schemas have no required field. `internal/toolset/toolset.go` `obj(props, required ...string)` stores the nil variadic as `"required": null`, which is not valid JSON Schema.
-- **Impact on C2:** an execution child's `workspace` tool set includes `git_diff`/`git_status`, so on this endpoint a child cannot run. That is why no real-model `StartProposedTask` run was possible.
-- **Not fixed here.** It is outside C2. Recommended separate fix: emit `[]` or omit `required`, plus a toolset test that every spec's schema has no `null` member.
+- **Impact on C2:** an execution child's `workspace` tool set includes `git_diff`/`git_status`, so on this endpoint a child could not run.
+- **Fix (separate commit, see below):** `obj` omits `required` when no property is required. `internal/agent/schema_test.go` `TestRequestToolSchemasAreValidJSONSchema` runs the loop with a real `toolset.Set` (policy `full`, LSP tools, subagent tools) under `propose` and `isolated`, takes the tools of the actual provider request, marshals each `Parameters` as the OpenAI adapter sends it, and fails on any `null` member, a non-object root, or a `required` that is not a non-empty list of unique declared properties (recursing through `properties` and `items`). It names `git_status`, `git_diff`, `list_subagents`, `start_task` and the LSP/task tools so a set that silently loses one fails too. Before the fix it fails with exactly the three schemas above; after it passes.
+
+### Live run after the fix (`local/deepseek-v4.1-flash`, no allowlist)
+
+A throwaway program outside the repositories (`/tmp/lc-c2-probe`, not committed) ran the real runtime through `RunSupervisor` with an HTTP transport that records each request's tool names, null-bearing schemas and HTTP status. Global config in a temporary `XDG_CONFIG_HOME`; key through `{env:}` only; one required check `greeting` (`grep -q 'hello from task' notes.txt`) in a fresh git repo. Input: "change notes.txt so that it contains a second line … hello from task", `Interactive`, no `ToolAllowlist`.
+
+| Request tool set | Tools | Null-bearing schemas | HTTP |
+|---|---|---|---|
+| parent, `Policy full` + `propose` | 18 (all builtins incl. `shell`, `git_*`, subagent and task tools, `start_task`) | 0 | 200 |
+| parent, `Policy read-only` + grant | 14 (incl. `git_diff`, `git_status`, `list_subagents`, `start_task`) | 0 | 200 |
+| execution child (`workspace`) | 13 (incl. `git_diff`, `git_status`, `write_file`; no `shell`/spawn/`start_task`) | 0 | 200 |
+
+No 4xx response in any run.
+
+| Run | Result |
+|---|---|
+| `propose`, read-only parent | proposal `t1` with a self-contained objective, `approval_required`, no child; `StartProposedTask` → `execution` child in its own worktree at HEAD; a second `StartProposedTask` → "already started"; resolution stays `open`. Child `completed`: worktree `notes.txt` = `first line\nhello from task\n`, main checkout unchanged and clean. Next parent Start: one `task_result` row (`completed`, check `greeting` required/satisfied/`passed`/runtime, handoff branch/base/head, `dirtyFiles: [notes.txt]`, `unappliedCommits: 0`); the model reported it as done in the worktree, not in the main checkout. Third Start: still one row. Events `task.started`, `task.delivered` |
+| `propose`, `Policy full` parent | 1 run: the model answered without proposing (it held write tools itself); 1 run: proposed, child completed the same way |
+| `isolated`, read-only parent | 4 runs: 3 started the child from the tool call and gave the same result and single delivery as above; 1 answered with the plan without calling `start_task` (model choice; no error) |
+
+After delivery the parent resolution stays `open` with obligation `checks`: the required check is not satisfied in the parent's own workspace, because the change is still only in the child's worktree. That is the D2 rule, not a defect.
+
+| Check (schema fix tree) | Result |
+|---|---|
+| `TestRequestToolSchemasAreValidJSONSchema` with the old `obj` | fails: `git_diff`, `git_status`, `list_subagents` `$.required is null` |
+| same with the fix | pass |
+| `go build ./...`, `go vet ./...` | pass |
+| `go test -count=1 ./...` | all packages pass except one run of `provider/openai` `TestIdleAndRequestTimeouts/request_cap_while_chunks_keep_arriving` (timing, under full-suite load); it passes 5/5 in isolation with and without the fix and does not touch tool schemas |
 
 ## Not covered
 
 - Supervisor `Close` → children `interrupted`, and Reconcile of a crashed child, are the existing generic paths (P6 probe, existing reconcile tests). No C2-specific test re-proves them.
 - The shared limit of 4 is exercised by the existing subagent limit test through the shared `activeChildren`. No test fills the limit with execution children.
 - Runs held by another process are not reachable by `CancelSubtree`, as documented.
-- No real-model execution-child run (see the finding).
 
 ## Risks and open items
 
 - **Publication:** local only. Desktop does not pin this commit. C3 must bump the pin and adapt to `SubagentNode.Kind` and the new options.
-- **Owner review:** the five implementation-level decisions above.
+- **Owner review:** the five implementation-level decisions above were accepted by the owner (2026-10-18).
 - **Evaluator commands are not sandboxed** (ADR D4): trusted checks still run with user filesystem and network access in the child's worktree.
 
 ## Next
 
-C3 (Desktop): the grant line per thread, proposal cards with Start (`StartProposedTask`), task cards from `task_result` rows and `SubagentTree`, and subtree Stop (`CancelSubtree`). Separately: fix the `required: null` schemas (finding above), then rerun the probe without an allowlist and add one real-model execution-child run.
+C3 (Desktop): the grant line per thread, proposal cards with Start (`StartProposedTask`), task cards from `task_result` rows and `SubagentTree`, and subtree Stop (`CancelSubtree`). The `required: null` schemas are fixed and the real-model execution-child run is recorded above.
