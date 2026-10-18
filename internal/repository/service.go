@@ -179,6 +179,33 @@ func (s *Service) GitStatus(ctx context.Context) (GitStatus, error) {
 	return GitStatus{Files: parseStatus(raw)}, nil
 }
 
+// WorkspaceState is a cheap token of the workspace as the evaluator's fingerprint sees it: HEAD, the
+// porcelain status (tracked changes and untracked files, ignored files excluded) and the size and
+// modification time of every listed path, so an edit to a file that is already dirty changes it too.
+// Two equal tokens mean nothing a check fingerprint covers changed in between. ok is false when the
+// state cannot be read whole (outside git, a git error, a status larger than MaxStatusBytes); callers
+// then assume a change.
+func (s *Service) WorkspaceState(ctx context.Context) (token string, ok bool) {
+	head, _, err := runBounded(ctx, s.workspace, 256, "git", "rev-parse", "--verify", "-q", "HEAD")
+	if err != nil {
+		return "", false
+	}
+	raw, truncated, err := runBounded(ctx, s.workspace, MaxStatusBytes, "git", "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	if err != nil || truncated {
+		return "", false
+	}
+	var b strings.Builder
+	b.Write(bytes.TrimSpace(head))
+	b.WriteByte(0)
+	b.Write(raw)
+	for _, f := range parseStatus(raw) {
+		if info, err := os.Lstat(filepath.Join(s.workspace, filepath.FromSlash(f.Path))); err == nil {
+			fmt.Fprintf(&b, "\x00%s\x00%d\x00%d", f.Path, info.Size(), info.ModTime().UnixNano())
+		}
+	}
+	return b.String(), true
+}
+
 func parseStatus(raw []byte) []GitFileStatus {
 	parts := bytes.Split(raw, []byte{0})
 	files := make([]GitFileStatus, 0, len(parts))

@@ -188,3 +188,48 @@ func TestInteractiveTurnThatEditsDecidesChecksWithTheEvaluator(t *testing.T) {
 		t.Fatalf("a question turn changed the resolution: %+v", r)
 	}
 }
+
+// C1 correction: a conversation turn whose shell command only reads (`git status`) neither reopens a
+// thread the user resolved nor decides checks; a shell command that writes a file does both.
+func TestInteractiveReadOnlyShellKeepsTheResolution(t *testing.T) {
+	useChecks(t, `{"status": {"kind": "test", "command": "test -f ok.txt"}}`)
+	engine, _ := gitEngine(t)
+	ctx := context.Background()
+	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "look around"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.EditTaskState(ctx, handle.ID, TaskStateEdit{Resolve: &TaskResolveEdit{State: taskstate.ResolutionDone, Actor: "owner"}}); err != nil {
+		t.Fatal(err)
+	}
+	turn := func(command string) {
+		t.Helper()
+		p := &exitProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+			if n == 1 {
+				args, _ := json.Marshal(map[string]string{"command": command})
+				return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{{ID: "s1", Name: "shell", Arguments: args}}}, FinishReason: "tool_calls"}, nil
+			}
+			return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}, nil
+		}}
+		if r, err := engine.runAgentWith(ctx, handle.ID, p, AgentOptions{Interactive: true, Policy: "full", Input: command, MaxSteps: 3}); err != nil || r.Status != "completed" {
+			t.Fatalf("%q: %+v err=%v", command, r, err)
+		}
+	}
+
+	turn("git status && git log --oneline")
+	if results, _ := engine.CheckResults(ctx, handle.ID, -1, 0); len(results) != 0 {
+		t.Fatalf("a read-only shell turn decided checks: %+v", results)
+	}
+	if r := taskResolution(t, engine, handle.ID).State.Resolution; r.State != taskstate.ResolutionDone || r.By != taskstate.ByUser {
+		t.Fatalf("a read-only shell turn reopened the user's resolution: %+v", r)
+	}
+
+	turn("echo ok > ok.txt")
+	results, err := engine.CheckResults(ctx, handle.ID, -1, 0)
+	if err != nil || len(results) != 1 || results[0].Status != "passed" {
+		t.Fatalf("a writing shell turn's checks: %+v err=%v", results, err)
+	}
+	if r := taskResolution(t, engine, handle.ID).State.Resolution; r.By != taskstate.ByEvidence {
+		t.Fatalf("a writing shell turn kept the user's resolution: %+v", r)
+	}
+}

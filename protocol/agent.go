@@ -53,11 +53,13 @@ type ToolSpec struct {
 }
 
 type ToolResult struct {
-	OK               bool   `json:"ok"`
-	Denied           bool   `json:"denied,omitempty"`
-	Permission       string `json:"permission,omitempty"`
-	Content          string `json:"content"`
-	MutatesWorkspace bool   `json:"mutatesWorkspace,omitempty"`
+	OK         bool   `json:"ok"`
+	Denied     bool   `json:"denied,omitempty"`
+	Permission string `json:"permission,omitempty"`
+	Content    string `json:"content"`
+	// MutatesWorkspace: this call changed the workspace, or may have when the tool cannot tell. It is
+	// set whatever OK says: a failed command can still have changed files.
+	MutatesWorkspace bool `json:"mutatesWorkspace,omitempty"`
 }
 
 type ToolOutput struct {

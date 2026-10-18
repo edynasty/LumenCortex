@@ -358,8 +358,8 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					if err != nil {
 						toolResult = protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, err.Error())}
 					}
-					if toolResult.OK && toolResult.MutatesWorkspace {
-						// A successful change to the workspace is a new obligation.
+					if toolResult.MutatesWorkspace {
+						// A change to the workspace is a new obligation, whether or not the call succeeded.
 						r.ts.Reopen(time.Now().UTC())
 						r.mutated = true
 					}

@@ -26,15 +26,17 @@ The loop's completion gate (`internal/agent/loop.go`, the `len(calls) == 0` bran
 - **Subagents:** Core forces `Interactive` off for every child run (`opts.parentSessionID != ""`), whatever the options say. Execution tasks (C2) will be children too.
 - **System prompt:** `agent.SystemPrompt(interactive, authority)` is the one default. It states the run's purpose: a task run works until the outcome is achieved and verified; a conversation turn answers, changes the workspace only when asked, and says what is left. The runtime appends the authority of the run's `Policy` (read-only / workspace / full). A host `SystemPrompt` still replaces it. The task wording changed from "implemented" to "achieved", and every run now gets the authority sentence.
 
-### Implementation-level decision for owner review
+### Decision: required checks after a turn that changed the workspace (owner-approved 2026-10-18)
 
-**Required checks after an interactive turn that changed the workspace.**
-
-- **Rule:** an interactive turn decides the required checks before it ends if one of its tool calls succeeded with `MutatesWorkspace` (the same condition that reopens a resolved thread). It never appends a correction.
+- **Rule:** an interactive turn decides the required checks before it ends if one of its tool calls reported `MutatesWorkspace` (the same condition that reopens a resolved thread). It never appends a correction.
 - **Not in D3:** D3 says only that no continuation is appended. Deciding checks follows from "preserve M4": Desktop sends no host workflow and has no "run checks" operation, so without this every Desktop thread would stop producing check results unless the model completes a unit.
 - **Why not decide at every turn:** `Decide` reuses only passing results (`internal/evaluator/run.go`). Deciding at every turn end would re-run a failing suite after each question.
-- **Cost:** `shell` is `MutatesWorkspace` for any command, so a turn that ran a shell command also triggers the checks.
-- **Alternative:** decide nothing at interactive turn ends. Then checks run only through unit completion or a future host "run checks" operation.
+- **Correction (owner request, same day):** `shell` first reported `MutatesWorkspace` for every successful command, so `git status` re-ran checks and reopened a thread the user had resolved. Now:
+  - `shell` compares `repository.Service.WorkspaceState` before and after the command. The token is HEAD, `git status --porcelain=v1 --untracked-files=all` (ignored files excluded, as in the evaluator fingerprint), and the size and mtime of every listed path.
+  - A change is reported whatever the exit code.
+  - Outside git, after a git error, or with a status over `MaxStatusBytes`, the command counts as a change.
+  - The loop reopens on `MutatesWorkspace` alone, no longer on `OK && MutatesWorkspace`. The write tools set the flag only on success.
+  - Cost: two `git rev-parse` + `git status` calls per `shell` call, nothing on other tools.
 
 ## Changes
 
@@ -62,6 +64,8 @@ No schema change, no new table, event, decision kind or run status.
 | `TestInteractiveConversationAcrossTurns` (runtime) | two turns with an open unit and required check: Task State, resolution and obligations carry over; no checks run; the reasoning echo is sent back only within its tool turn and not in the next turn; no sentinel in any table, WAL, backup or event; next turn carries Task State and previous answer; a later non-interactive Start on the same session gets the full gate and the task prompt |
 | `TestSubagentRunsAreNeverInteractive` (runtime) | a child with `Interactive: true` is still gated |
 | `TestInteractiveTurnThatEditsDecidesChecksWithTheEvaluator` (runtime) | git workspace: `write_file` turn → real evaluator `runtime` pass → done by evidence with the result's ref; next question decides nothing and keeps the resolution |
+| `TestShellReportsOnlyActualWorkspaceChanges` (toolset, correction) | real git repo: `git status`/`log`/`diff`, `cat`, `ls`, `exit 1` and writes to an ignored file are not changes; writes, an edit to an already dirty file, a new untracked file, a commit and a failing command that wrote are; outside git every command counts as a change |
+| `TestInteractiveReadOnlyShellKeepsTheResolution` (runtime, correction) | a user-resolved thread: a `git status` turn decides no check and keeps `done/user`; an `echo > ok.txt` turn decides the check and the evidence rule re-resolves it |
 
 Mutation checks, each reverted:
 
@@ -90,7 +94,7 @@ Mutation checks, each reverted:
 
 - **Publication:** Core C1 and Desktop C1 are local. Desktop pins the unpublished Core commit; publish Core first.
 - **Desktop status label:** Desktop shows `completed` as the run status. With C1 this means "turn ended", not "task done". The Task tab already shows resolution and obligations (M3.3). Relabelling belongs to C3.
-- **Shell cost:** a conversation turn using `shell` triggers the required checks once at its end (see the decision above).
+- **Shell detection limits:** a command that rewrites a dirty file with the same size within the same mtime tick is not seen. Changes to ignored files are not seen, consistent with check fingerprints, which ignore them too.
 
 ## Next
 

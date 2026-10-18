@@ -15,6 +15,9 @@ func (s *Set) runShell(ctx context.Context, args map[string]any, onOutput func(p
 	if command == "" {
 		return protocol.ToolResult{}, errors.New("shell command is required")
 	}
+	// A command changed the workspace only if its state differs afterwards. When the state cannot be read
+	// either time, the command counts as a change.
+	before, known := s.repository.WorkspaceState(ctx)
 	result, err := s.shell.Run(ctx, command, func(chunk shell.StreamEvent) {
 		if onOutput != nil {
 			onOutput(protocol.ToolOutput{Stream: chunk.Stream, Chunk: string(chunk.Chunk)})
@@ -41,9 +44,14 @@ func (s *Set) runShell(ctx context.Context, args map[string]any, onOutput func(p
 			"truncated": result.Stderr.Truncated,
 		},
 	})
+	changed := true
+	if known {
+		after, ok := s.repository.WorkspaceState(ctx)
+		changed = !ok || after != before
+	}
 	return protocol.ToolResult{
-		OK: result.ExitCode == 0 && !result.Cancelled,
-		Content: string(content),
-		MutatesWorkspace: true,
+		OK:               result.ExitCode == 0 && !result.Cancelled,
+		Content:          string(content),
+		MutatesWorkspace: changed,
 	}, nil
 }
