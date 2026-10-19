@@ -114,8 +114,10 @@ type Effective struct {
 	SubagentModel ModelRef
 	Failover      []ModelRef
 	EffortDefault Effort
-	Escalation    *Escalation
-	Checks        map[string]Check
+	// Auto is effort.auto with its defaults applied, nil when the configuration has no such object.
+	Auto       *AutoEffortPolicy
+	Escalation *Escalation
+	Checks     map[string]Check
 	// Warnings lists ignored workspace entries and legacy files, in a stable order.
 	Warnings []Warning
 }
@@ -217,6 +219,10 @@ func (c *Config) Effective() Effective {
 	if e.Escalation != nil {
 		esc := *e.Escalation
 		e.Escalation = &esc
+	}
+	if e.Auto != nil {
+		auto := *e.Auto
+		e.Auto = &auto
 	}
 	e.Checks = cloneChecks(e.Checks)
 	e.Warnings = append([]Warning(nil), e.Warnings...)

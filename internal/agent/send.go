@@ -136,7 +136,7 @@ func (l *Loop) send(
 		if built.Dropped+r.trimmed > 0 {
 			*decisions = append(*decisions, WindowDroppedDecision(cand.Ref, b, fixed, groups+r.trimmed, built.Costs))
 		}
-		sent, effortDecision := EffortDecision(opts.EffortDefault, opts.Effort, opts.Escalation, stall, taskStateVersion, m.Efforts)
+		sent, effortDecision := EffortDecision(opts.EffortDefault, opts.Effort, opts.Escalation, stall, taskStateVersion, m.Efforts, opts.EffortAutoCeiling)
 		*decisions = append(*decisions, effortDecision)
 		// max_tokens is what the caller asked for, else what the model's configuration says, else
 		// nothing: the effective default only reserves capacity (D4). It is never scaled by effort.

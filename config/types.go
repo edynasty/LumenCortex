@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // ModelRef names a catalog model as "provider/model": exactly one '/'.
@@ -41,6 +42,20 @@ const (
 	EffortHigh   Effort = "high"
 	EffortMax    Effort = "max"
 )
+
+// EffortAuto asks the runtime to classify a user turn's difficulty and resolve one of the five
+// levels above before the first request. It is a request value, not a level: EffortFor and
+// ClampEffort never see it.
+const EffortAuto Effort = "auto"
+
+// IsLevel reports whether e is one of the five concrete effort levels. "" and "auto" are not.
+func (e Effort) IsLevel() bool {
+	switch e {
+	case EffortNone, EffortLow, EffortMedium, EffortHigh, EffortMax:
+		return true
+	}
+	return false
+}
 
 // PackageOpenAICompatible is the wire protocol every accepted Provider.Package value selects.
 const PackageOpenAICompatible = "openai-compatible"
@@ -116,10 +131,38 @@ func (f File) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
-// EffortPolicy is the reasoning effort policy. The escalation engine is M3.1; config only carries it.
+// EffortPolicy is the reasoning effort policy. Default may be "auto": each Start then resolves a
+// concrete level from Auto's judge (or the heuristic fallback) before its first request.
 type EffortPolicy struct {
 	Default    Effort      `json:"default,omitempty"`
+	Auto       *AutoEffort `json:"auto,omitempty"`
 	Escalation *Escalation `json:"escalation,omitempty"`
+}
+
+// AutoEffort configures the auto effort resolver. Absent Model means the deterministic heuristic
+// classifier only; absent Max means "high"; absent TimeoutSeconds means 8.
+type AutoEffort struct {
+	// Model is the judge model ref (provider/model). It classifies each user turn; a judge failure,
+	// timeout or unusable answer falls back to the heuristic.
+	Model ModelRef `json:"model,omitempty"`
+	// Max is the ceiling: the classifier's level is never resolved above it.
+	Max Effort `json:"max,omitempty"`
+	// TimeoutSeconds bounds one judge request.
+	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
+}
+
+// Auto effort defaults.
+const (
+	DefaultAutoMax     = EffortHigh
+	DefaultAutoTimeout = 8
+)
+
+// AutoEffortPolicy is effort.auto with its defaults applied.
+type AutoEffortPolicy struct {
+	Model ModelRef
+	Max   Effort
+	// Timeout bounds one judge request.
+	Timeout time.Duration
 }
 
 // Escalation raises effort while a run is stuck.

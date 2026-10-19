@@ -1,0 +1,28 @@
+{
+  "effort": {
+    "default": "auto",
+    "auto": {
+      "model": "deepseek/chat",
+      "max": "medium",
+      "timeoutSeconds": 3
+    },
+    "escalation": {
+      "sameFailure": 2,
+      "noProgressSteps": 6,
+      "max": "high"
+    }
+  },
+  "providers": {
+    "deepseek": {
+      "settings": {
+        "baseURL": "https://api.deepseek.com",
+        "apiKey": "{env:DEEPSEEK_API_KEY}"
+      },
+      "models": {
+        "chat": {
+          "modelID": "deepseek-chat"
+        }
+      }
+    }
+  }
+}

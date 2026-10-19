@@ -32,8 +32,29 @@
       "additionalProperties": false,
       "properties": {
         "default": {
-          "description": "Effort requested on every request unless the user overrides it for a run. Absent → no reasoning parameter is sent (provider default). Per model the request is raised to the lowest level listed in reasoning.efforts that is not below it (the highest listed level if none is), then encoded by reasoning.format.",
-          "$ref": "#/$defs/effort"
+          "description": "Effort requested on every request unless the user overrides it for a run. Absent → no reasoning parameter is sent (provider default). \"auto\" resolves one concrete level per user turn from effort.auto before the first request; the resolved level is that run's default and escalation still raises it. Per model the request is raised to the lowest level listed in reasoning.efforts that is not below it (the highest listed level if none is), then encoded by reasoning.format.",
+          "$ref": "#/$defs/effortRequest"
+        },
+        "auto": {
+          "description": "Auto effort resolver, used when effort.default or a run's effort is \"auto\". A judge model classifies each user turn (new input plus the previous request and last reply, truncated) into none|low|medium|high|max; a judge failure, timeout, unusable answer or absent model falls back to a deterministic heuristic. The result is capped at max, then fitted to each candidate's reasoning.efforts; a candidate whose list offers nothing at or below max sends no reasoning parameter (rule effort.auto_unavailable).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "model": {
+              "description": "Judge model as provider/model. Absent → the heuristic classifier only. The judge call is one non-streaming request with no tools; it is not added to the transcript.",
+              "$ref": "#/$defs/modelRef"
+            },
+            "max": {
+              "description": "Ceiling for the classified level. Absent → high.",
+              "$ref": "#/$defs/effort"
+            },
+            "timeoutSeconds": {
+              "description": "Bound on one judge request. Absent → 8.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60
+            }
+          }
         },
         "escalation": {
           "description": "Raise effort while the run is stuck. Absent → escalation disabled. Requires default.",
@@ -74,7 +95,7 @@
       "additionalProperties": { "$ref": "#/$defs/check" }
     },
     "trustedWorkspaces": {
-      "description": "Read from the global file only (ignored with a warning in a workspace file). A listed workspace (absolute path, compared after symlink resolution) may define providers and checks in its own lumencortex.json; any other workspace may only set model, failover, subagentModel and effort, and only to models of global providers.",
+      "description": "Read from the global file only (ignored with a warning in a workspace file). A listed workspace (absolute path, compared after symlink resolution) may define providers and checks in its own lumencortex.json; any other workspace may only set model, failover, subagentModel and effort (including effort.auto.model, which must name a model of a global provider), and only to models of global providers.",
       "type": "array",
       "items": {
         "type": "string",
@@ -92,6 +113,10 @@
     "effort": {
       "description": "Provider-neutral reasoning effort level.",
       "enum": ["none", "low", "medium", "high", "max"]
+    },
+    "effortRequest": {
+      "description": "Effort request: a concrete level, or \"auto\" to classify each user turn before the first request.",
+      "enum": ["none", "low", "medium", "high", "max", "auto"]
     },
     "provider": {
       "type": "object",

@@ -3,6 +3,7 @@ package runtime
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
@@ -23,8 +24,8 @@ var (
 	ErrUnknownModel = config.ErrUnknownModel
 	// ErrModelWithoutToolCalling reports a session model whose configuration sets toolCalling: false.
 	ErrModelWithoutToolCalling = errors.New("model does not support tool calling")
-	// ErrInvalidEffort reports an effort outside none, low, medium, high, max.
-	ErrInvalidEffort = errors.New("effort must be one of none, low, medium, high, max")
+	// ErrInvalidEffort reports an effort outside none, low, medium, high, max, auto.
+	ErrInvalidEffort = errors.New("effort must be one of none, low, medium, high, max, auto")
 )
 
 func defaultProviderFactory(m config.ResolvedModel) (protocol.Provider, error) {
@@ -43,9 +44,20 @@ type modelPlan struct {
 	effort   config.Effort
 	// escalation is the configured effort escalation, nil for none (design §4.5).
 	escalation *config.Escalation
+	// auto is the auto effort resolver's configuration with defaults applied. It is always set;
+	// the judge client is built only when a Start actually resolves auto.
+	auto *autoPlan
 	// checks are the effective configuration's checks (design §4.7); untrusted workspace checks are
 	// already dropped by config.
 	checks []evaluator.Spec
+}
+
+// autoPlan is the resolved effort.auto settings of one Start. judge is zero when no judge model is
+// configured or it is not in the catalog; the heuristic then decides.
+type autoPlan struct {
+	max     config.Effort
+	timeout time.Duration
+	judge   config.ResolvedModel
 }
 
 // planModels resolves the session model and the failover list and builds the required clients
@@ -56,7 +68,7 @@ type modelPlan struct {
 // unset: a configuration that would only break during the first outage is refused up front. A
 // failover model without tool calling is kept for the decision log but gets no client.
 func (e *Engine) planModels(requested, stored config.ModelRef, effort config.Effort) (*modelPlan, error) {
-	if !agent.ValidEffort(effort) {
+	if !agent.ValidEffortRequest(effort) {
 		return nil, fmt.Errorf("%w: %q", ErrInvalidEffort, effort)
 	}
 	cfg, err := config.Load(e.workspace)
@@ -64,6 +76,9 @@ func (e *Engine) planModels(requested, stored config.ModelRef, effort config.Eff
 		return nil, err
 	}
 	eff := cfg.Effective()
+	if !agent.ValidEffortRequest(eff.EffortDefault) {
+		return nil, fmt.Errorf("%w: configured default %q", ErrInvalidEffort, eff.EffortDefault)
+	}
 	ref, rule, decision := agent.ModelDecision(requested, stored, eff.Model,
 		config.Digest([]byte(cfg.Global().Digest+"\n"+cfg.Workspace().Digest)))
 	if ref == "" {
@@ -76,10 +91,21 @@ func (e *Engine) planModels(requested, stored config.ModelRef, effort config.Eff
 	if !resolved.ToolCalling {
 		return nil, fmt.Errorf("%w: %s", ErrModelWithoutToolCalling, ref)
 	}
+	auto := &autoPlan{max: config.DefaultAutoMax, timeout: time.Duration(config.DefaultAutoTimeout) * time.Second}
+	if eff.Auto != nil {
+		auto.max, auto.timeout = eff.Auto.Max, eff.Auto.Timeout
+		if eff.Auto.Model != "" {
+			judge, err := cfg.Resolve(eff.Auto.Model)
+			if err != nil {
+				return nil, fmt.Errorf("effort.auto model %s: %w", eff.Auto.Model, err)
+			}
+			auto.judge = judge
+		}
+	}
 	plan := &modelPlan{
 		session: ref, resolved: resolved, rule: rule, decision: decision,
 		failover: eff.Failover, models: map[config.ModelRef]agent.Model{}, effort: eff.EffortDefault,
-		escalation: eff.Escalation, checks: evaluator.Specs(eff.Checks),
+		escalation: eff.Escalation, auto: auto, checks: evaluator.Specs(eff.Checks),
 	}
 	for _, candidate := range append([]config.ModelRef{ref}, eff.Failover...) {
 		if _, done := plan.models[candidate]; done {

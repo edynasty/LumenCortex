@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/cognition"
 	lcx "github.com/edynasty/LumenCortex/runtime"
 )
@@ -423,7 +424,6 @@ func runSkillsCommand(engine *lcx.Engine, args []string) error {
 	}
 }
 
-
 func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 	policy := strings.TrimSpace(os.Getenv("LCX_POLICY"))
 	if policy == "" {
@@ -453,6 +453,7 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 		MaxSteps:            maxSteps,
 		MaxTokens:           maxTokens,
 		MaxToolCallsPerStep: maxToolCalls,
+		Effort:              config.Effort(strings.TrimSpace(os.Getenv("LCX_EFFORT"))),
 		Workflow:            workflow,
 		WorkUnits:           workUnits,
 	}, nil
@@ -495,5 +496,3 @@ func printJSON(v any) error {
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
 }
-
-

@@ -26,7 +26,8 @@ type AgentOptions struct {
 	// configured default on a session that has none.
 	ModelRef config.ModelRef `json:"modelRef,omitempty"`
 	// Effort overrides the configured default reasoning effort for this run: "" (the default),
-	// none, low, medium, high or max.
+	// none, low, medium, high, max, or auto (classify this turn before its first request; the
+	// resolved level then acts as the run's default and escalation still raises it).
 	Effort              config.Effort   `json:"effort,omitempty"`
 	Policy              string          `json:"policy,omitempty"`
 	MaxSteps            int             `json:"maxSteps,omitempty"`
@@ -201,6 +202,28 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if systemPrompt == "" {
 		systemPrompt = agent.SystemPrompt(interactive, policyAuthority(policy))
 	}
+	// Auto effort is resolved once per Start, under the run lock and before the Start transaction:
+	// the previous request and last reply are in the transcript, and a cancelled judge call leaves
+	// no new row or running session behind.
+	runEffort := opts.Effort
+	if runEffort == "" {
+		runEffort = plan.effort
+	}
+	var auto *autoResolution
+	if runEffort == config.EffortAuto {
+		resolved, err := e.resolveAutoEffort(ctx, sessionID, opts.Input, plan.auto)
+		if err != nil {
+			return nil, err
+		}
+		auto = &resolved
+	}
+	effortDefault, effortOverride, effortCeiling := plan.effort, opts.Effort, config.Effort("")
+	decisions := []agent.Decision{plan.decision}
+	if auto != nil {
+		effortDefault, effortOverride = auto.level, ""
+		effortCeiling = auto.ceiling
+		decisions = append(decisions, auto.decision)
+	}
 	loopOpts := agent.Options{
 		MaxSteps:            opts.MaxSteps,
 		MaxToolCallsPerStep: opts.MaxToolCallsPerStep,
@@ -211,10 +234,11 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Temperature:         opts.Temperature,
 		Session:             plan.session,
 		Failover:            plan.failover,
-		EffortDefault:       plan.effort,
+		EffortDefault:       effortDefault,
 		Escalation:          plan.escalation,
-		Effort:              opts.Effort,
-		Decisions:           []agent.Decision{plan.decision},
+		Effort:              effortOverride,
+		EffortAutoCeiling:   effortCeiling,
+		Decisions:           decisions,
 		Interactive:         interactive,
 		Delegation:          delegation,
 	}

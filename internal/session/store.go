@@ -303,6 +303,21 @@ WHERE session_id = ? AND seq >= ? ORDER BY seq
 	return rows.Err()
 }
 
+// LatestStep returns the newest step record's JSON for a session, nil when it has none.
+func (s *Store) LatestStep(ctx context.Context, sessionID string) (json.RawMessage, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx, `
+SELECT json FROM agent_steps WHERE session_id = ? ORDER BY step DESC LIMIT 1
+`, sessionID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(raw), nil
+}
+
 func (s *Store) AppendStep(ctx context.Context, sessionID string, step int64, payload any) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {

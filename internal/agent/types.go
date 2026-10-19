@@ -104,6 +104,10 @@ type Options struct {
 	EffortDefault config.Effort
 	Escalation    *config.Escalation
 	Effort        config.Effort
+	// EffortAutoCeiling is effort.auto.max when this run's level was resolved from auto, "" when
+	// it was not. A candidate whose reasoning.efforts offers nothing at or below it sends no
+	// reasoning parameter (rule effort.auto_unavailable).
+	EffortAutoCeiling config.Effort
 	// Decisions are the decisions made before the loop started (the Start's model resolution). The
 	// first step record of the run carries them.
 	Decisions []Decision

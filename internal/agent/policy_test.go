@@ -282,7 +282,7 @@ func TestDecisionReplay(t *testing.T) {
 	)
 	_, _, model := ModelDecision("", "p/a", "p/d", "sha256:cfg")
 	cands, candidates := CandidatesDecision("p/a", []config.ModelRef{"p/b", "p/notools"}, models, 2000, 0, []config.ModelRef{})
-	_, effort := EffortDecision("low", "", &config.Escalation{SameFailure: 2, NoProgressSteps: 6, Max: "max"}, Stall{SameFailure: 2}, 7, []config.Effort{"medium", "max"})
+	_, effort := EffortDecision("low", "", &config.Escalation{SameFailure: 2, NoProgressSteps: 6, Max: "max"}, Stall{SameFailure: 2}, 7, []config.Effort{"medium", "max"}, "")
 	next, failover := FailoverDecision(cands, 0, protocol.ClassCapacity)
 	if next != 1 {
 		t.Fatalf("next=%d", next)
@@ -459,7 +459,7 @@ func TestVerifyStepEnforcesTheI14Trace(t *testing.T) {
 	)
 	_, _, model := ModelDecision("", "p/a", "p/d", "sha256:cfg")
 	cands, candidates := CandidatesDecision("p/a", []config.ModelRef{"p/b"}, models, 100, 0, nil)
-	_, effort := EffortDecision("", "", nil, Stall{}, 0, nil)
+	_, effort := EffortDecision("", "", nil, Stall{}, 0, nil, "")
 	_, failover := FailoverDecision(cands, 0, protocol.ClassAvailability)
 	// A failover over a list the step never logged: p/x was not a candidate.
 	_, offList := FailoverDecision([]Candidate{models["p/a"], models["p/x"]}, 0, protocol.ClassAvailability)

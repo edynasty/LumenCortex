@@ -73,7 +73,7 @@ engine, err := runtime.Open(runtime.Options{
 result, err := engine.RunAgent(ctx, sessionID, runtime.AgentOptions{
     Policy:   "workspace",
     ModelRef: "local/m", // optional; empty keeps the session's pinned model
-    Effort:   "high",    // optional; none|low|medium|high|max
+    Effort:   "auto",    // optional; none|low|medium|high|max|auto
 })
 ```
 
@@ -87,7 +87,54 @@ result, err := engine.RunAgent(ctx, sessionID, runtime.AgentOptions{
 
 Changing the global `model` therefore never moves an existing session. `failover` never writes the pin; a child session starts on `subagentModel`, else its parent's pin (never the model that last answered the parent). The Start builds a client for the session model and every `failover` model before it writes anything (`ErrUnknownModel`, `ErrModelWithoutToolCalling`, `ErrInvalidEffort`, a missing key variable or a missing `baseURL`/`endpoint` all leave the session as it was).
 
-Each step record in `agent_steps.json` carries a `decisions` list (`model.*`, `model.candidates`, `effort.*`, `failover.<class>`); every entry holds the inputs its rule read and recomputes to its output with `agent.ReplayDecision`.
+Each step record in `agent_steps.json` carries a `decisions` list (`model.*`, `model.candidates`, `effort.*`, `failover.<class>`); every entry holds the inputs its rule read and recomputes to its output with `agent.ReplayDecision`. `effort.auto` is the exception: its classifier input (the user and assistant text) is deliberately not persisted, so replay checks the decision's invariants (a known source, a concrete level at or below the ceiling, a non-negative input length) instead of re-running the classification.
+
+### Auto effort
+
+`effort.default: "auto"` or `AgentOptions.Effort: "auto"` resolves one concrete level per Start (one user turn), under the run lock and before the first request. An explicit concrete override wins; `auto` is an override value like any other. The resolved level is that run's default, so `effort.escalation` still raises it while the run is stuck (up to `escalation.max`) and `ClampEffort` still fits it to each candidate's `reasoning.efforts`.
+
+Configuration:
+
+```json
+{
+  "effort": {
+    "default": "auto",
+    "auto": {
+      "model": "local/judge",   // optional; absent → heuristic only
+      "max": "high",            // optional; default high; classifier result is capped here
+      "timeoutSeconds": 8       // optional; default 8, 1..60
+    }
+  }
+}
+```
+
+The classifier reads the turn's new input plus the previous substantive user request and the last assistant reply, each truncated to 2000 characters, so follow-ups such as "continue" are judged in context. With a judge model, one non-streaming, tool-less request goes through the normal provider factory (both wire protocols); it asks for a short JSON answer `{"level":"none|low|medium|high|max"}`, tolerates a fenced or bare level, and is bounded by `timeoutSeconds` and the run context. The judge call is not a transcript row, not a step, and writes no message; only the `effort.auto` decision is recorded. A cancelled run cancels the judge and writes nothing. A resumed turn with no new input reuses the level its earlier run recorded (`reused: true`) instead of calling the judge again.
+
+A judge failure, timeout, unusable answer or absent model falls back to the deterministic heuristic. The decision records `source` (`judge` or `heuristic`) and `fallbackReason` (a class only: `no_model`, `timeout`, `unparsable`, `error`, or the adapter's error class); it never records the input text, the assistant text or the judge's reply.
+
+Heuristic rules (deterministic; score → level):
+
+| Signal | Contribution |
+| --- | --- |
+| length ≥ 600 characters | +1 |
+| length ≥ 1500 characters | +2 instead of +1 |
+| a fenced code block (```` ``` ````) | +1 |
+| a stack trace / compiler-error marker (`panic:`, `Traceback`, `goroutine N [`, `FAIL`, `error TS…`, `at …(file:line:col)`) | +1 |
+| a file reference (`path/to/file.go`, `*.ts`, …) | +1 |
+| numbered or bulleted items | +1 step |
+| a sequence word (`then`, `after that`, `first`, …) | +1 step |
+| ≥ 2 distinct imperative verbs (`fix`, `refactor`, `migrate`, `run`, …) | +1 step |
+| ≥ 4 distinct imperative verbs | +2 steps instead of +1 |
+| 3 or more steps | +2 |
+| ≥ 3 distinct imperative verbs | +2 |
+| question-only (ends with `?`, ≤ 240 characters, no code/stack/file/list/imperative signal) | −1 |
+| short continuation (`continue`, `go on`, `proceed`, …) | the previous request's level |
+
+`score ≥ 3` → `high`, `score ≥ 1` → `medium`, otherwise `low`; the heuristic never returns `none` or `max`. A ceiling of `none` or `low` is therefore honored conservatively.
+
+Per candidate, the capped level is fitted with `ClampEffort`. If the candidate's non-empty `reasoning.efforts` list has no level at or below `effort.auto.max`, no reasoning parameter is sent to it and the step logs rule `effort.auto_unavailable`. A model with no `efforts` list keeps the level (the provider decides). The ceiling bounds the classifier's result; an escalated level may still be fitted to the model's nearest supported level, as before.
+
+The decision log carries `effort.auto` in the first step record of the run (inputs: source, fallback class, input length, ceiling, judge model ref, `reused`; output: the resolved level) and, per request, `effort.default`/`effort.override`/`effort.escalated`/`effort.capped` or `effort.auto_unavailable`.
 
 Provider errors are classified by the adapter as `protocol.ProviderError{Class, RetryAfter}`: `auth` and `bad_request` end the run as `failed` and never fail over; `capacity` fails over only to a candidate with a larger context; `availability` (HTTP 408/409/429/5xx, transport errors, request and idle timeouts) fails over to the next candidate and marks the model unavailable in the Engine's in-memory registry for `Retry-After` or 30 seconds. The adapter waits at most five seconds for a `Retry-After`. A cancelled run is `interrupted`, never failed over. `max_tokens` is sent only when `AgentOptions.MaxTokens` or the model's `limit.output` is set
 (chat-completions; the Anthropic adapter always sends one because the API requires it).
@@ -168,12 +215,12 @@ One schema, [`lumencortex.schema.json`](lumencortex.schema.json), describes both
 | workspace `lumencortex.json` | `<workspace>/lumencortex.json` |
 
 - `config.Load(workspace)` merges workspace over global: `model`, `subagentModel`, `failover` and `effort` replace; `providers` merge by id, field by field, with `headers` replacing the global set (an explicit `"headers": {}` clears it); `checks` merge by id. Unknown keys are errors.
-- Trust: only a workspace listed (absolute path, compared after symlink resolution) in the **global** `trustedWorkspaces` may define `providers` or `checks`. Any other workspace may set only `model`, `failover`, `subagentModel` and `effort`, and only to models of global providers. Everything else it sets is dropped and reported in `Effective().Warnings` (code `untrusted_override`, `errors.Is(w.Err, config.ErrUntrustedOverride)`), with the `trustedWorkspaces` entry to add. The CLI prints these warnings to stderr.
+- Trust: only a workspace listed (absolute path, compared after symlink resolution) in the **global** `trustedWorkspaces` may define `providers` or `checks`. Any other workspace may set only `model`, `failover`, `subagentModel` and `effort`, and only to models of global providers. `effort.auto.model` is a model reference too: an untrusted workspace may name only a global provider's model; otherwise the judge model is dropped with a warning and the heuristic classifier applies. Everything else a workspace sets is dropped and reported in `Effective().Warnings` (code `untrusted_override`, `errors.Is(w.Err, config.ErrUntrustedOverride)`), with the `trustedWorkspaces` entry to add. The CLI prints these warnings to stderr.
 - Credentials: `apiKey` must be `{env:NAME}`; literal keys are rejected on load and in `config.Save`. A workspace that changes a global provider's `baseURL` or `endpoint` must give its own `apiKey` (`config.ErrCredentialRedirect`), and a redirected provider never inherits the global `headers`. The variable is read only when the client is built (`ResolvedModel.ResolveAPIKey`).
 - `config.Save(path, file, expectedDigest)` validates against the schema, takes a per-file lock, compares the file's digest with `expectedDigest` (`config.ErrConflict`), writes a temporary file and renames it. The digest comes from `Document.Digest` of `ReadDocument`/`Config.Global()`/`Config.Workspace()`; `""` means the file did not exist.
 - Files in directories earlier builds used (`os.UserConfigDir()/lumencortex`, `~/.config/lumencortex` when not `GlobalDir`) are reported in `Effective().Warnings` (code `legacy_global_path`) with the path to move them to. They are not read, moved or deleted.
 
-Consumed by the runtime: `model`, `failover`, `subagentModel`, `effort.default`, the provider's `baseURL`/`endpoint` (one of them is required: there is no default URL), `apiKey`, `headers`, `timeoutSeconds` (whole-request cap), `idleTimeoutSeconds`, `effort.escalation`, per model `modelID`, `limit`, `toolCalling` and `reasoning.format`/`efforts`/`echo`, and `checks` (the evaluator: completion gate, work-unit checks and the evidence rule; an untrusted workspace's checks are dropped with a `checks.<id>` warning).
+Consumed by the runtime: `model`, `failover`, `subagentModel`, `effort.default` (including `auto`), `effort.auto` (`model`, `max`, `timeoutSeconds`), the provider's `baseURL`/`endpoint` (one of them is required: there is no default URL), `apiKey`, `headers`, `timeoutSeconds` (whole-request cap), `idleTimeoutSeconds`, `effort.escalation`, per model `modelID`, `limit`, `toolCalling` and `reasoning.format`/`efforts`/`echo`, and `checks` (the evaluator: completion gate, work-unit checks and the evidence rule; an untrusted workspace's checks are dropped with a `checks.<id>` warning).
 
 ## Security
 

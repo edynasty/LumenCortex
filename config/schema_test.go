@@ -15,7 +15,7 @@ import (
 // S2: every reference example is valid and every bad case fails at the reference keyword and path.
 func TestSchemaValidFixtures(t *testing.T) {
 	files, _ := filepath.Glob("testdata/valid/*.json")
-	if len(files) != 5 {
+	if len(files) != 6 {
 		t.Fatalf("valid fixtures=%v", files)
 	}
 	for _, f := range files {
@@ -62,6 +62,9 @@ func TestSchemaInvalidFixtures(t *testing.T) {
 		"escalation-without-default":  {"dependentRequired", "/effort"},
 		"escalation-incomplete":       {"required", "/effort/escalation"},
 		"package-unknown":             {"enum", "/providers/p/package"},
+		"auto-max-unknown":            {"enum", "/effort/auto/max"},
+		"auto-timeout-out-of-range":   {"maximum", "/effort/auto/timeoutSeconds"},
+		"auto-model-no-slash":         {"pattern", "/effort/auto/model"},
 	}
 	files, _ := filepath.Glob("testdata/invalid/*.json")
 	if len(files) != len(want) {
@@ -113,6 +116,7 @@ func TestUnknownKeysRejectedAtEveryLevel(t *testing.T) {
 	cases := map[string]string{
 		"root":        `{"models": {}}`,
 		"effort":      `{"effort": {"default": "low", "extra": 1}}`,
+		"effort-auto": `{"effort": {"auto": {"model": "a/b", "budget": 1}}}`,
 		"escalation":  `{"effort": {"default": "low", "escalation": {"sameFailure": 1, "noProgressSteps": 1, "max": "high", "x": 1}}}`,
 		"provider":    `{"providers": {"p": {"endpoint": "https://x"}}}`,
 		"settings":    `{"providers": {"p": {"settings": {"apikey": "{env:K}"}}}}`,
@@ -153,6 +157,9 @@ func TestGoValidationMatchesSchema(t *testing.T) {
 		{Checks: map[string]Check{"C": {Kind: CheckTest, Command: "x"}}},
 		{Effort: &EffortPolicy{Escalation: &Escalation{SameFailure: 1, NoProgressSteps: 1, Max: EffortHigh}}},
 		{Effort: &EffortPolicy{Default: "extreme"}},
+		{Effort: &EffortPolicy{Auto: &AutoEffort{Max: "ultra"}}},
+		{Effort: &EffortPolicy{Auto: &AutoEffort{TimeoutSeconds: 61}}},
+		{Effort: &EffortPolicy{Auto: &AutoEffort{Model: "noslash"}}},
 	}
 	for i, f := range bad {
 		verr := Validate(f)

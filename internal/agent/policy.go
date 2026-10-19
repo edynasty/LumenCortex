@@ -40,7 +40,14 @@ const (
 	RuleEffortDefault   = "effort.default"   // config default
 	RuleEffortEscalated = "effort.escalated" // config default raised while progress shows a stall
 	RuleEffortCapped    = "effort.capped"    // a stall would escalate, but escalation.max allows no higher level
-	RuleFailoverPrefix  = "failover."
+	// RuleEffortAuto: the Start resolved "auto" to one concrete level for this run, before the first
+	// request. The classifier input text is deliberately not persisted; the decision records only
+	// its source, length, ceiling, judge ref and result.
+	RuleEffortAuto = "effort.auto"
+	// RuleEffortAutoUnavailable: the candidate's reasoning.efforts list offers nothing at or below
+	// effort.auto.max, so no reasoning parameter is sent to it.
+	RuleEffortAutoUnavailable = "effort.auto_unavailable"
+	RuleFailoverPrefix        = "failover."
 	// RuleWindowDropped: older transcript groups were left out to fit the candidate's budget (§5).
 	RuleWindowDropped = "window.dropped"
 	// RuleWindowDefaultContext: the model configures no limit.context, so the request is budgeted on
@@ -186,8 +193,14 @@ var effortOrder = []config.Effort{config.EffortNone, config.EffortLow, config.Ef
 
 func effortIndex(e config.Effort) int { return slices.Index(effortOrder, e) }
 
-// ValidEffort reports whether e may be requested: "" (use the default) or one of the five levels.
+// ValidEffort reports whether e is a concrete level or "" (use the default). "auto" is not a level.
 func ValidEffort(e config.Effort) bool { return e == "" || effortIndex(e) >= 0 }
+
+// ValidEffortRequest reports whether e may be configured or requested: "" (use the default), one of
+// the five levels, or "auto" (resolve one level before the run's first request).
+func ValidEffortRequest(e config.Effort) bool {
+	return e == "" || e == config.EffortAuto || effortIndex(e) >= 0
+}
 
 // Stall is the part of Task State progress the effort rule reads.
 type Stall struct {
@@ -244,6 +257,37 @@ func ClampEffort(e config.Effort, supported []config.Effort) config.Effort {
 		return highest
 	}
 	return up
+}
+
+// CappedAutoEffort applies the auto ceiling to a classified level: min(level, ceiling). A ceiling
+// that is not a concrete level means the documented default, high; a level that is not concrete
+// resolves to "" (send no reasoning parameter).
+func CappedAutoEffort(level, ceiling config.Effort) config.Effort {
+	if !ceiling.IsLevel() {
+		ceiling = config.DefaultAutoMax
+	}
+	if !level.IsLevel() {
+		return ""
+	}
+	if effortIndex(level) > effortIndex(ceiling) {
+		return ceiling
+	}
+	return level
+}
+
+// effortAtOrBelow reports whether supported lists at least one concrete level no higher than
+// ceiling.
+func effortAtOrBelow(supported []config.Effort, ceiling config.Effort) bool {
+	limit := effortIndex(ceiling)
+	if limit < 0 {
+		return true // no valid ceiling: no restriction
+	}
+	for _, s := range supported {
+		if idx := effortIndex(s); idx >= 0 && idx <= limit {
+			return true
+		}
+	}
+	return false
 }
 
 // Health is the model health registry: one map per Engine from model reference to the time the model
@@ -356,6 +400,9 @@ type effortInputs struct {
 	// TaskState is the Task State version the stall was read from, for tracing.
 	TaskState int64           `json:"taskStateVersion"`
 	Efforts   []config.Effort `json:"efforts"`
+	// Ceiling is effort.auto.max when this run's effort came from auto, "" otherwise. A candidate
+	// whose efforts list offers nothing at or below it sends no reasoning parameter.
+	Ceiling config.Effort `json:"ceiling,omitempty"`
 }
 
 type effortOutput struct {
@@ -439,12 +486,19 @@ func availableExcept(unavailable []config.ModelRef) func(config.ModelRef) bool {
 	return func(ref config.ModelRef) bool { return !slices.Contains(unavailable, ref) }
 }
 
-// EffortDecision applies EffortFor and ClampEffort for one candidate and records both.
-func EffortDecision(def, override config.Effort, esc *config.Escalation, stall Stall, taskState int64, supported []config.Effort) (config.Effort, Decision) {
+// EffortDecision applies EffortFor and ClampEffort for one candidate and records both. autoCeiling
+// is effort.auto.max when the run's level was resolved from auto, "" otherwise: a candidate whose
+// efforts list offers nothing at or below the ceiling sends no reasoning parameter and logs
+// rule effort.auto_unavailable.
+func EffortDecision(def, override config.Effort, esc *config.Escalation, stall Stall, taskState int64, supported []config.Effort, autoCeiling config.Effort) (config.Effort, Decision) {
 	requested, rule := EffortFor(def, override, esc, stall)
 	sent := ClampEffort(requested, supported)
+	if autoCeiling != "" && len(supported) > 0 && !effortAtOrBelow(supported, autoCeiling) {
+		sent = ""
+		rule = RuleEffortAutoUnavailable
+	}
 	return sent, newDecision(DecisionEffort, rule,
-		effortInputs{Default: def, Override: override, Escalation: esc, Stall: stall, TaskState: taskState, Efforts: sliceOrEmpty(supported)},
+		effortInputs{Default: def, Override: override, Escalation: esc, Stall: stall, TaskState: taskState, Efforts: sliceOrEmpty(supported), Ceiling: autoCeiling},
 		effortOutput{Requested: requested, Sent: sent})
 }
 
@@ -609,6 +663,26 @@ func ReplayDecision(d Decision) error {
 			return fmt.Errorf("model decision: recomputed %s via %s (write=%v), logged %s via %s (write=%v)",
 				ref, rule, WritesModelRef(rule), out.Ref, d.Rule, out.Write)
 		}
+	case d.Kind == DecisionEffort && d.Rule == RuleEffortAuto:
+		var in autoInputs
+		var out autoOutput
+		if err := decodeDecision(d, &in, &out); err != nil {
+			return err
+		}
+		// The classifier's input text is not persisted, so replay checks the decision's invariants
+		// instead of recomputing the classification (see docs/go-provider.md).
+		if in.Source != AutoSourceJudge && in.Source != AutoSourceHeuristic {
+			return fmt.Errorf("%s: source %q", d.Rule, in.Source)
+		}
+		if in.InputLength < 0 {
+			return fmt.Errorf("%s: negative input length %d", d.Rule, in.InputLength)
+		}
+		if !in.Ceiling.IsLevel() || !out.Level.IsLevel() {
+			return fmt.Errorf("%s: ceiling %q, level %q", d.Rule, in.Ceiling, out.Level)
+		}
+		if effortIndex(out.Level) > effortIndex(in.Ceiling) {
+			return fmt.Errorf("%s: level %q is above ceiling %q", d.Rule, out.Level, in.Ceiling)
+		}
 	case d.Kind == DecisionEffort:
 		var in effortInputs
 		var out effortOutput
@@ -617,6 +691,10 @@ func ReplayDecision(d Decision) error {
 		}
 		requested, rule := EffortFor(in.Default, in.Override, in.Escalation, in.Stall)
 		sent := ClampEffort(requested, in.Efforts)
+		if in.Ceiling != "" && len(in.Efforts) > 0 && !effortAtOrBelow(in.Efforts, in.Ceiling) {
+			sent = ""
+			rule = RuleEffortAutoUnavailable
+		}
 		if rule != d.Rule || requested != out.Requested || sent != out.Sent {
 			return fmt.Errorf("effort decision: recomputed %q/%q via %s, logged %q/%q via %s",
 				requested, sent, rule, out.Requested, out.Sent, d.Rule)

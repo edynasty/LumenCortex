@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"time"
 )
 
 // MergeProviderSettings applies a workspace provider's settings over the global ones (nil when the
@@ -135,9 +136,20 @@ func (c *Config) merge() error {
 	}
 	if w.Effort != nil {
 		effort = cloneEffortPolicy(w.Effort)
+		// An untrusted workspace may choose only among the models of global providers, like
+		// subagentModel and failover. An auto judge it names elsewhere is ignored (the heuristic
+		// classifier still applies).
+		if effort.Auto != nil && effort.Auto.Model != "" && !trusted && !hasModel(providers, effort.Auto.Model) {
+			drop("effort.auto.model", "effort.auto.model "+string(effort.Auto.Model))
+			effort.Auto.Model = ""
+		}
 	}
 
-	for _, ref := range append([]ModelRef{model, subagent}, failover...) {
+	refs := append([]ModelRef{model, subagent}, failover...)
+	if effort != nil && effort.Auto != nil && effort.Auto.Model != "" {
+		refs = append(refs, effort.Auto.Model)
+	}
+	for _, ref := range refs {
 		if ref != "" && !hasModel(providers, ref) {
 			return fmt.Errorf("%w: model reference %q: %w", ErrInvalidConfig, ref, ErrUnknownModel)
 		}
@@ -148,6 +160,7 @@ func (c *Config) merge() error {
 	if effort != nil {
 		c.eff.EffortDefault = effort.Default
 		c.eff.Escalation = effort.Escalation
+		c.eff.Auto = resolvedAutoPolicy(effort.Auto)
 	}
 	c.eff.Checks = checks
 	return nil
@@ -278,6 +291,25 @@ func cloneFile(f File) File {
 	return out
 }
 
+// resolvedAutoPolicy applies the documented defaults to effort.auto: a high ceiling, an 8 second
+// judge timeout, clamped to the schema's 1..60 range. A ceiling that is not a concrete level falls
+// back to high; the schema rejects it before it gets here.
+func resolvedAutoPolicy(a *AutoEffort) *AutoEffortPolicy {
+	if a == nil {
+		return nil
+	}
+	ceiling := a.Max
+	if !ceiling.IsLevel() {
+		ceiling = DefaultAutoMax
+	}
+	seconds := a.TimeoutSeconds
+	if seconds <= 0 {
+		seconds = DefaultAutoTimeout
+	}
+	seconds = min(max(seconds, 1), 60)
+	return &AutoEffortPolicy{Model: a.Model, Max: ceiling, Timeout: time.Duration(seconds) * time.Second}
+}
+
 func cloneEffortPolicy(p *EffortPolicy) *EffortPolicy {
 	if p == nil {
 		return nil
@@ -286,6 +318,10 @@ func cloneEffortPolicy(p *EffortPolicy) *EffortPolicy {
 	if p.Escalation != nil {
 		e := *p.Escalation
 		out.Escalation = &e
+	}
+	if p.Auto != nil {
+		a := *p.Auto
+		out.Auto = &a
 	}
 	return &out
 }
