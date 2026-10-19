@@ -94,8 +94,13 @@ type Options struct {
 	ToolDenylist           []string
 	SystemPrompt           string
 	AdditionalSystemPrompt string
-	MaxTokens              int
-	Temperature            *float64
+	// Instructions is host-supplied guidance for this run only, appended as the last system message
+	// after SystemPrompt and AdditionalSystemPrompt (skills). It is plain text: it cannot replace the
+	// default prompt or change the policy, authority, permissions or tool set the run was built with,
+	// and the loop never persists it as session authority.
+	Instructions string
+	MaxTokens    int
+	Temperature  *float64
 	// Session is the model the run starts on and Failover the config list that follows it; both
 	// must be keys of Loop.Models. EffortDefault is the configured default, Escalation the configured
 	// escalation (nil for none) and Effort the per-run override ("" for none).

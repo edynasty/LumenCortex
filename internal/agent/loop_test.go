@@ -786,3 +786,22 @@ func TestLoopFailoverTraceAcrossStepsAndHealth(t *testing.T) {
 		t.Fatal("a success did not clear the model's mark")
 	}
 }
+
+func TestLoopOrdersSkillsPromptThenInstructions(t *testing.T) {
+	store := &memoryStore{state: SessionState{ID: "order", Goal: "build", Status: "running"}, steps: map[int64]any{}}
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done"}}}}
+	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
+	_, err := loop.Run(context.Background(), "order", Options{
+		Session:                testRef,
+		MaxSteps:               2,
+		AdditionalSystemPrompt: "skills",
+		Instructions:           "instructions",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := provider.seen[0].Messages
+	if len(messages) < 4 || messages[0].Role != "system" || messages[1].Content != "skills" || messages[2].Content != "instructions" {
+		t.Fatalf("system prefix=%#v", messages)
+	}
+}

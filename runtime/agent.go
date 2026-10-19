@@ -28,17 +28,24 @@ type AgentOptions struct {
 	// Effort overrides the configured default reasoning effort for this run: "" (the default),
 	// none, low, medium, high, max, or auto (classify this turn before its first request; the
 	// resolved level then acts as the run's default and escalation still raises it).
-	Effort              config.Effort   `json:"effort,omitempty"`
-	Policy              string          `json:"policy,omitempty"`
-	MaxSteps            int             `json:"maxSteps,omitempty"`
-	MaxToolCallsPerStep int             `json:"maxToolCallsPerStep,omitempty"`
-	ToolAllowlist       []string        `json:"toolAllowlist,omitempty"`
-	ToolDenylist        []string        `json:"toolDenylist,omitempty"`
-	SystemPrompt        string          `json:"systemPrompt,omitempty"`
-	Workflow            json.RawMessage `json:"workflow,omitempty"`
-	WorkUnits           json.RawMessage `json:"workUnits,omitempty"`
-	MaxTokens           int             `json:"maxTokens,omitempty"`
-	Temperature         *float64        `json:"temperature,omitempty"`
+	Effort              config.Effort `json:"effort,omitempty"`
+	Policy              string        `json:"policy,omitempty"`
+	MaxSteps            int           `json:"maxSteps,omitempty"`
+	MaxToolCallsPerStep int           `json:"maxToolCallsPerStep,omitempty"`
+	ToolAllowlist       []string      `json:"toolAllowlist,omitempty"`
+	ToolDenylist        []string      `json:"toolDenylist,omitempty"`
+	SystemPrompt        string        `json:"systemPrompt,omitempty"`
+	// Instructions are additional system instructions the host supplies for this Start. Core appends
+	// them as the last system message, after the default system prompt and the skills prompt; they
+	// never replace the default prompt and cannot change the policy, authority, permissions or tool
+	// set the run was built with. They are plain text, bounded by MaxInstructionsBytes and valid
+	// UTF-8; Core records only their SHA-256 and length in the decision log and never persists them
+	// as session authority, so the host must send them with every Start that wants them.
+	Instructions string          `json:"instructions,omitempty"`
+	Workflow     json.RawMessage `json:"workflow,omitempty"`
+	WorkUnits    json.RawMessage `json:"workUnits,omitempty"`
+	MaxTokens    int             `json:"maxTokens,omitempty"`
+	Temperature  *float64        `json:"temperature,omitempty"`
 	// Interactive marks a conversation turn (ADR-0006 D3): without a host workflow, a text answer ends
 	// the run completed and leaves open work units and checks to the thread's resolution; a run that
 	// changed the workspace still has its required checks decided. The default, false, keeps the full
@@ -127,6 +134,11 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	}
 	if opts.Input != "" && strings.TrimSpace(opts.Input) == "" {
 		return nil, errors.New("input must not be blank")
+	}
+	// Instructions are validated before anything is written: a refused Start leaves no row behind.
+	instructionsDigest, instructionsLength, err := validateInstructions(opts.Instructions)
+	if err != nil {
+		return nil, err
 	}
 	row, err := e.store.Get(ctx, sessionID)
 	if err != nil {
@@ -224,12 +236,16 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		effortCeiling = auto.ceiling
 		decisions = append(decisions, auto.decision)
 	}
+	if instructionsLength > 0 {
+		decisions = append(decisions, instructionsDecision(instructionsDigest, instructionsLength))
+	}
 	loopOpts := agent.Options{
 		MaxSteps:            opts.MaxSteps,
 		MaxToolCallsPerStep: opts.MaxToolCallsPerStep,
 		ToolAllowlist:       opts.ToolAllowlist,
 		ToolDenylist:        opts.ToolDenylist,
 		SystemPrompt:        systemPrompt,
+		Instructions:        opts.Instructions,
 		MaxTokens:           opts.MaxTokens,
 		Temperature:         opts.Temperature,
 		Session:             plan.session,

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +28,8 @@ const (
 	DecisionFailover = "failover"
 	DecisionWindow   = "window"
 	DecisionTurn     = "turn"
+	// DecisionInstructions records that host instructions were appended to the run's system prefix.
+	DecisionInstructions = "instructions"
 )
 
 // Rule ids of decisions. The pure function that applies a rule returns its id; an id never changes
@@ -58,7 +61,14 @@ const (
 	RuleWindowCapacityRetry = "window.capacity_retry"
 	// RuleTurnBoundary: NeedsTurnBoundary held before a request, so a runtime row opened a new turn (§4.6).
 	RuleTurnBoundary = "turn.boundary"
+	// RuleInstructionsAppended: AgentOptions.Instructions were appended as the last system message of
+	// every request in this run. The decision records a digest and length, never the text.
+	RuleInstructionsAppended = "instructions.appended"
 )
+
+// MaxInstructionsBytes bounds AgentOptions.Instructions: extra guidance is a few paragraphs, not a
+// second system prompt. A longer value is refused before anything is written.
+const MaxInstructionsBytes = 16 << 10
 
 // DefaultUnhealthyFor is how long a model stays out of the candidate list after an availability
 // failure that carried no Retry-After.
@@ -371,6 +381,17 @@ type modelInputs struct {
 type modelOutput struct {
 	Ref   config.ModelRef `json:"ref"`
 	Write bool            `json:"write"`
+}
+
+// instructionsInputs is what the instructions decision records: a digest and a length, never the
+// text, so the decision log cannot become a second copy of what the user typed.
+type instructionsInputs struct {
+	SHA256 string `json:"sha256"`
+	Length int    `json:"length"`
+}
+
+type instructionsOutput struct {
+	Appended bool `json:"appended"`
 }
 
 type candidateLimits struct {
@@ -744,6 +765,26 @@ func ReplayDecision(d Decision) error {
 		}
 		if margin := window.RetryMargin(window.Budget(in.Budget), in.Fixed, in.Rejected); margin != out.Margin {
 			return fmt.Errorf("%s: recomputed margin %d, logged %d", d.Rule, margin, out.Margin)
+		}
+	case d.Kind == DecisionInstructions:
+		var in instructionsInputs
+		var out instructionsOutput
+		if err := decodeDecision(d, &in, &out); err != nil {
+			return err
+		}
+		// The text is deliberately not persisted, so replay checks the decision's invariants: a
+		// lowercase hex SHA-256, a length within the bound, and that it was appended.
+		if len(in.SHA256) != 64 {
+			return fmt.Errorf("%s: digest %q is not a SHA-256", d.Rule, in.SHA256)
+		}
+		if _, err := hex.DecodeString(in.SHA256); err != nil {
+			return fmt.Errorf("%s: digest %q is not hex", d.Rule, in.SHA256)
+		}
+		if in.Length < 0 || in.Length > MaxInstructionsBytes {
+			return fmt.Errorf("%s: length %d is outside 0..%d", d.Rule, in.Length, MaxInstructionsBytes)
+		}
+		if d.Rule != RuleInstructionsAppended || !out.Appended {
+			return fmt.Errorf("%s: rule %q appended=%v", d.Kind, d.Rule, out.Appended)
 		}
 	case d.Kind == DecisionTurn:
 		var in turnInputs

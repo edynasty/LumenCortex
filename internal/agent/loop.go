@@ -514,11 +514,15 @@ func (l *Loop) putTaskState(ctx context.Context, sessionID string, r *run, chang
 	return nil
 }
 
-// systemMessages is the request's fixed system prefix.
+// systemMessages is the request's fixed system prefix: the default prompt, the skills prompt and
+// the host's instructions, in that order. Instructions never replace or precede the default prompt.
 func systemMessages(opts Options) []protocol.Message {
 	system := []protocol.Message{{Role: "system", Content: opts.SystemPrompt}}
 	if strings.TrimSpace(opts.AdditionalSystemPrompt) != "" {
 		system = append(system, protocol.Message{Role: "system", Content: opts.AdditionalSystemPrompt})
+	}
+	if strings.TrimSpace(opts.Instructions) != "" {
+		system = append(system, protocol.Message{Role: "system", Content: opts.Instructions})
 	}
 	return system
 }
