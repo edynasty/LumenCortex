@@ -1,0 +1,22 @@
+{
+  "providers": {
+    "anthropic": {
+      "package": "anthropic-messages",
+      "settings": {
+        "baseURL": "https://api.anthropic.com",
+        "apiKey": "{env:ANTHROPIC_API_KEY}"
+      },
+      "models": {
+        "sonnet": {
+          "limit": {
+            "context": 200000,
+            "output": 8192
+          },
+          "reasoning": {
+            "efforts": ["low", "medium", "high"]
+          }
+        }
+      }
+    }
+  }
+}

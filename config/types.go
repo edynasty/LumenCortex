@@ -45,6 +45,32 @@ const (
 // PackageOpenAICompatible is the wire protocol every accepted Provider.Package value selects.
 const PackageOpenAICompatible = "openai-compatible"
 
+// PackageAnthropicMessages selects the Anthropic Messages wire protocol.
+const PackageAnthropicMessages = "anthropic-messages"
+
+// legacyPackages are the package ids earlier builds accepted; they select the openai-compatible
+// client, as the schema documents.
+var legacyPackages = map[string]bool{
+	"@opencode/ai/providers/openai-compatible": true,
+	"@ai-sdk/openai-compatible":                true,
+}
+
+// NormalizePackage maps a Provider.Package value to the wire protocol it selects: "" and the
+// legacy ids become openai-compatible, anthropic-messages stays itself. Any other value is
+// ErrInvalidConfig naming the accepted values.
+func NormalizePackage(pkg string) (string, error) {
+	switch {
+	case pkg == "" || pkg == PackageOpenAICompatible:
+		return PackageOpenAICompatible, nil
+	case legacyPackages[pkg]:
+		return PackageOpenAICompatible, nil
+	case pkg == PackageAnthropicMessages:
+		return PackageAnthropicMessages, nil
+	default:
+		return "", fmt.Errorf("%w: package %q is not one of %s, %s", ErrInvalidConfig, pkg, PackageOpenAICompatible, PackageAnthropicMessages)
+	}
+}
+
 // Reasoning formats and echo modes of a model.
 const (
 	ReasoningNone        = "none"

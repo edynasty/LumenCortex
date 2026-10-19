@@ -23,7 +23,10 @@ type ResolvedModel struct {
 	ModelKey     string
 	ModelName    string
 	// ModelID is the upstream id sent in the request's model field.
-	ModelID  string
+	ModelID string
+	// Package is the provider's wire protocol, normalized (NormalizePackage): it selects the
+	// adapter the provider package dispatcher builds.
+	Package  string
 	BaseURL  string
 	Endpoint string
 	// APIKeyRef is the configured {env:NAME} or {secret:NAME} reference, "" when the provider needs no key.
@@ -53,6 +56,9 @@ type ResolvedModel struct {
 // ResolvedModel it holds the apiKey reference, never the key.
 type ResolvedProvider struct {
 	ID, Name string
+	// Package is the provider's wire protocol, normalized (NormalizePackage): it selects the
+	// adapter the provider package dispatcher builds.
+	Package  string
 	BaseURL  string
 	Endpoint string
 	// APIKeyRef is the configured {env:NAME} or {secret:NAME} reference, "" when the provider needs no key.
@@ -149,7 +155,11 @@ func (c *Config) Provider(id string) (ResolvedProvider, error) {
 	if !ok {
 		return ResolvedProvider{}, fmt.Errorf("%w: %s", ErrUnknownProvider, id)
 	}
-	out := ResolvedProvider{ID: id, Name: orDefault(p.Name, id), IdleTimeout: DefaultIdleTimeout}
+	pkg, err := NormalizePackage(p.Package)
+	if err != nil {
+		return ResolvedProvider{}, fmt.Errorf("provider %s: %w", id, err)
+	}
+	out := ResolvedProvider{ID: id, Name: orDefault(p.Name, id), Package: pkg, IdleTimeout: DefaultIdleTimeout}
 	if s := p.Settings; s != nil {
 		out.BaseURL, out.Endpoint, out.APIKeyRef = s.BaseURL, s.Endpoint, s.APIKey
 		out.Headers = cloneSettings(*s).Headers
@@ -188,6 +198,7 @@ func (c *Config) Resolve(ref ModelRef) (ResolvedModel, error) {
 		Context: DefaultContext, Output: DefaultOutput,
 		ReasoningFormat: ReasoningNone, ToolCalling: true,
 		InputModalities: []string{"text"},
+		Package:         prov.Package,
 		BaseURL:         prov.BaseURL, Endpoint: prov.Endpoint, APIKeyRef: prov.APIKeyRef,
 		Headers: prov.Headers, RequestTimeout: prov.RequestTimeout, IdleTimeout: prov.IdleTimeout,
 	}

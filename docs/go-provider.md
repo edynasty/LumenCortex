@@ -1,12 +1,20 @@
-# Go OpenAI-compatible provider
+# Go providers
 
-The Go preview runtime includes a bounded OpenAI-compatible Chat Completions provider at:
+The Go preview runtime includes two wire adapters and a package dispatcher that selects one per
+catalog provider:
 
 ```text
-github.com/edynasty/LumenCortex/provider/openai
+github.com/edynasty/LumenCortex/provider          # dispatcher: FromModel, Options
+github.com/edynasty/LumenCortex/provider/openai    # OpenAI-compatible chat completions
+github.com/edynasty/LumenCortex/provider/anthropic # Anthropic Messages
 ```
 
-It is intended for OpenAI-compatible gateways, local vLLM servers, and providers that expose compatible chat-completions requests.
+`provider.FromModel(m, provider.Options{})` is the Engine's default `ProviderFactory`: it reads the
+provider's `package` from `lumencortex.json` and builds the matching adapter. `openai-compatible`
+(absent, empty and the legacy ids included) selects the chat-completions client for OpenAI-compatible
+gateways, local vLLM servers and compatible providers; `anthropic-messages` selects the Anthropic
+Messages client. Any other package value is refused by `config` (schema and `NormalizePackage`)
+and by the dispatcher.
 
 ## Runtime properties
 
@@ -23,13 +31,42 @@ The provider is designed for long-running agent sessions:
 
 Provider response size is bounded independently from Session history. Session history remains SQLite-backed and the Agent Loop only loads its recent working window.
 
+## Anthropic Messages adapter
+
+`package: "anthropic-messages"` selects `provider/anthropic`. Differences from the chat-completions
+adapter, all inside the adapter:
+
+- authentication is `x-api-key` plus `anthropic-version: 2023-06-01`; configured `headers` override
+  any default, the version included, and no `Authorization` bearer is ever sent;
+- the endpoint is `endpoint`, else `baseURL` + `/v1/messages`;
+- system messages become the top-level `system`; tool rows become `tool_result` blocks of one user
+  message (consecutive results and a following user row merge, in order); assistant tool calls
+  become `tool_use` blocks. A protocol tool row carries no success flag, so `is_error` is omitted
+  rather than guessed - the result text states failures;
+- `max_tokens` is required by the API, so it is always sent: the run's value, else the model's
+  `limit.output`, else 4096;
+- reasoning effort maps to the `thinking` parameter (low/medium/high/max = 1024/4096/8192/16384
+  budget tokens, clamped to `max_tokens` - 1024; none omits it; a `max_tokens` below 2048 leaves
+  no legal budget and thinking is omitted). While thinking is on, `temperature` is dropped and a
+  forced `tool_choice` is downgraded to `auto`, as the API requires;
+- thinking and redacted_thinking blocks come back as an opaque `protocol.Echo` (kind
+  `anthropic-thinking`) and are resent byte for byte on the current turn's assistant rows, only
+  within the active tool flow. They are run memory: never a row, step record, event, log line or
+  recovery state (design §4.6);
+- prompt caching usage (`cache_creation_input_tokens`, `cache_read_input_tokens`) has no protocol
+  `Usage` field and is dropped;
+- errors map to the same classes as the chat-completions adapter: 401/403 auth, 400 with a capacity
+  marker or 413 capacity, 408/409/429/5xx/529 availability, anything else bad request; a mid-stream
+  `error` event classifies by its error type; the API key never appears in an error text.
+
+
 ## Go API
 
 ```go
 engine, err := runtime.Open(runtime.Options{
     Workspace: workspace,
     // Optional: build the client of each resolved catalog model yourself. The default is
-    // openai.FromModel, which reads the model's apiKey variable and requires a baseURL or endpoint.
+    // provider.FromModel, which selects the adapter by the provider's package.
     ProviderFactory: func(m config.ResolvedModel) (protocol.Provider, error) { /* ... */ },
 })
 
@@ -52,7 +89,8 @@ Changing the global `model` therefore never moves an existing session. `failover
 
 Each step record in `agent_steps.json` carries a `decisions` list (`model.*`, `model.candidates`, `effort.*`, `failover.<class>`); every entry holds the inputs its rule read and recomputes to its output with `agent.ReplayDecision`.
 
-Provider errors are classified by the adapter as `protocol.ProviderError{Class, RetryAfter}`: `auth` and `bad_request` end the run as `failed` and never fail over; `capacity` fails over only to a candidate with a larger context; `availability` (HTTP 408/409/429/5xx, transport errors, request and idle timeouts) fails over to the next candidate and marks the model unavailable in the Engine's in-memory registry for `Retry-After` or 30 seconds. The adapter waits at most five seconds for a `Retry-After`. A cancelled run is `interrupted`, never failed over. `max_tokens` is sent only when `AgentOptions.MaxTokens` or the model's `limit.output` is set.
+Provider errors are classified by the adapter as `protocol.ProviderError{Class, RetryAfter}`: `auth` and `bad_request` end the run as `failed` and never fail over; `capacity` fails over only to a candidate with a larger context; `availability` (HTTP 408/409/429/5xx, transport errors, request and idle timeouts) fails over to the next candidate and marks the model unavailable in the Engine's in-memory registry for `Retry-After` or 30 seconds. The adapter waits at most five seconds for a `Retry-After`. A cancelled run is `interrupted`, never failed over. `max_tokens` is sent only when `AgentOptions.MaxTokens` or the model's `limit.output` is set
+(chat-completions; the Anthropic adapter always sends one because the API requires it).
 
 ### Run ownership and host messages
 

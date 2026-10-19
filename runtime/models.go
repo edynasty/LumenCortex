@@ -8,12 +8,13 @@ import (
 	"github.com/edynasty/LumenCortex/internal/agent"
 	"github.com/edynasty/LumenCortex/internal/evaluator"
 	"github.com/edynasty/LumenCortex/protocol"
-	"github.com/edynasty/LumenCortex/provider/openai"
+	"github.com/edynasty/LumenCortex/provider"
 )
 
 // ProviderFactory builds the provider client of one resolved catalog model. The Engine calls it
 // before a run starts, once per model the run may use. Options.ProviderFactory replaces the
-// default, which is openai.FromModel.
+// default, which is provider.FromModel: it selects the adapter by the provider's package
+// (openai-compatible, anthropic-messages).
 type ProviderFactory func(config.ResolvedModel) (protocol.Provider, error)
 
 var (
@@ -27,7 +28,7 @@ var (
 )
 
 func defaultProviderFactory(m config.ResolvedModel) (protocol.Provider, error) {
-	return openai.FromModel(m, openai.Options{})
+	return provider.FromModel(m, provider.Options{})
 }
 
 // modelPlan is everything a Start decides from configuration before it writes anything: models, and

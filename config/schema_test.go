@@ -15,7 +15,7 @@ import (
 // S2: every reference example is valid and every bad case fails at the reference keyword and path.
 func TestSchemaValidFixtures(t *testing.T) {
 	files, _ := filepath.Glob("testdata/valid/*.json")
-	if len(files) != 4 {
+	if len(files) != 5 {
 		t.Fatalf("valid fixtures=%v", files)
 	}
 	for _, f := range files {
@@ -61,6 +61,7 @@ func TestSchemaInvalidFixtures(t *testing.T) {
 		"nested-model-key-with-slash": {"pattern", "/providers/p/models/org~1model"},
 		"escalation-without-default":  {"dependentRequired", "/effort"},
 		"escalation-incomplete":       {"required", "/effort/escalation"},
+		"package-unknown":             {"enum", "/providers/p/package"},
 	}
 	files, _ := filepath.Glob("testdata/invalid/*.json")
 	if len(files) != len(want) {

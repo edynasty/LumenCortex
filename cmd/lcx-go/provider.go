@@ -8,7 +8,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/protocol"
-	"github.com/edynasty/LumenCortex/provider/openai"
+	"github.com/edynasty/LumenCortex/provider"
 )
 
 // removedProviderEnv maps the provider and model environment variables the CLI used before M2.2 to
@@ -21,12 +21,12 @@ var removedProviderEnv = []struct{ name, replacement string }{
 	{"LCX_REASONING_FORMAT", `providers.<provider>.models.<key>.reasoning.format`},
 }
 
-// providerFactory is the Engine's ProviderFactory for the CLI: the [OI]-compatible adapter, with
-// the two debugging switches the CLI has always offered. It is the only place that reads an API
-// key from the environment (through ResolvedModel.ResolveAPIKey): the CLI passes no credential
+// providerFactory is the Engine's ProviderFactory for the CLI: the package dispatcher, with the
+// two debugging switches the CLI has always offered. It is the only place that reads an API key
+// from the environment (through ResolvedModel.ResolveAPIKey): the CLI passes no credential
 // resolver, so it is env-only and a {secret:NAME} reference is refused before any request.
 func providerFactory(m config.ResolvedModel) (protocol.Provider, error) {
-	return openai.FromModel(m, openai.Options{
+	return provider.FromModel(m, provider.Options{
 		DisableStreaming: envBool("LCX_DISABLE_STREAMING"),
 		DisableRetries:   envBool("LCX_DISABLE_RETRIES"),
 	})

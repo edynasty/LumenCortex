@@ -102,8 +102,8 @@
           "type": "string"
         },
         "package": {
-          "description": "Wire protocol. Only OpenAI-compatible chat completions are supported; all accepted values select the same client. Absent or empty → openai-compatible.",
-          "enum": ["", "openai-compatible", "@opencode/ai/providers/openai-compatible", "@ai-sdk/openai-compatible"]
+          "description": "Wire protocol. openai-compatible (absent, empty and the legacy ids included) selects the chat-completions client; anthropic-messages selects the Anthropic Messages client.",
+          "enum": ["", "openai-compatible", "anthropic-messages", "@opencode/ai/providers/openai-compatible", "@ai-sdk/openai-compatible"]
         },
         "settings": {
           "description": "Connection settings for the provider client.",
@@ -111,7 +111,7 @@
           "additionalProperties": false,
           "properties": {
             "baseURL": {
-              "description": "API base URL; core sends to baseURL + /chat/completions when endpoint is absent. Either baseURL or endpoint is required to run a model: there is no default URL, and a model whose provider has neither is refused before any request.",
+              "description": "API base URL; core appends the package's path when endpoint is absent (/chat/completions for openai-compatible, /v1/messages for anthropic-messages). Either baseURL or endpoint is required to run a model: there is no default URL, and a model whose provider has neither is refused before any request.",
               "type": "string",
               "pattern": "^https?://"
             },
