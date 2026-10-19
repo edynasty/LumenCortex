@@ -2,19 +2,21 @@
 
 Date: 2026-10-19
 Repo: LumenCortex Core (`~/IdeaProjects/me/LumenCortex`), branch `main`, local only.
-Scope owner: CoreCredentials (config credential API, openai factory wiring, CLI env-only preflight, schema, security doc).
+Scope owner: CoreCredentials (config credential API + file credential store, provider Options wiring, CLI preflight, schema, security doc).
+Stage 1 commit `465eda7` (references + resolver contract); stage 2 commit: the file-backed store below (owner decision: no macOS Keychain — API keys are `{env:NAME}` references, `{secret:NAME}` references into the file store, or nothing).
 
 ## Scope
 
 - `config`: `CredentialResolver` contract, `SecretName`, `ErrCredentialNotFound`, resolver-aware
-  `ResolveAPIKey`/`APIKeySet` on `ResolvedModel` and `ResolvedProvider`, schema/testdata/tests.
-- `provider/openai`: `Options.Credentials`, `FromModel` resolves through it.
-- `cmd/lcx-go`: env-only (nil resolver), preflight refuses `{secret:NAME}` with a clear diagnostic.
-- `docs/security-and-trust.md`: external-credentials section updated (the doc's own rule requires it).
-- Not mine (deferred to CoreProtocol): `provider` dispatcher package, `provider/anthropic`,
-  `Provider.Package` constant/validation/enum, Desktop Keychain resolver.
+  `ResolveAPIKey`/`APIKeySet` on `ResolvedModel` and `ResolvedProvider`, and the pure-Go
+  cross-platform `FileCredentialStore` (`config/credstore.go`).
+- `provider` Options (`provider.Options.Credentials`, `openai`/`anthropic` adapters forward it;
+  the dispatcher is CoreProtocol's, landed as `7b8c690`).
+- `cmd/lcx-go`: resolves `{secret:NAME}` through the default file store; preflight reports an
+  unresolvable reference naming only the reference and the store file.
+- `docs/security-and-trust.md`: external-credentials section (the doc's own rule requires it).
 
-## Contract (as consumed by CoreProtocol, DesktopPlatform, Desktop)
+## Reference contract
 
 `lumencortex.json` `providers.<id>.settings.apiKey` accepts, everywhere `{env:NAME}` was accepted
 (load, merge, save, schema validation, credential-redirect trust rule):
@@ -42,67 +44,117 @@ misbehaving store cannot leak a value). `APIKeySet(r)` is `resolve succeeded and
 `Catalog()` passes nil, so catalog `ModelInfo` stays env-only knowledge (`apiKeyEnv` empty,
 `apiKeySet` false for secret refs).
 
-Provider constructors: `openai.Options{..., Credentials config.CredentialResolver}`;
-`openai.FromModel(m, o)` calls `m.ResolveAPIKey(o.Credentials)`. `runtime`'s default factory passes
-an empty `Options` (nil resolver, env-only) and needs no change.
+## The file-backed credential store (`config/credstore.go`)
+
+```go
+func DefaultCredentialStorePath() (string, error)            // GlobalDir/credentials.json (XDG-aware, config/dir.go)
+func NewFileCredentialStore(path string) *FileCredentialStore
+func (s *FileCredentialStore) Set(name, secret string) error // replace; validates name and value
+func (s *FileCredentialStore) Get(name string) (string, error) // missing => wraps ErrCredentialNotFound
+func (s *FileCredentialStore) Delete(name string) error      // idempotent
+func (s *FileCredentialStore) Has(name string) bool
+func (s *FileCredentialStore) Names() ([]string, error)      // sorted; names only, never values
+func (s *FileCredentialStore) Resolve(name string) (string, error) // = Get; CredentialResolver
+func (s *FileCredentialStore) Path() string
+```
+
+Properties, all regression-tested in `config/credstore_test.go`:
+
+- **Trust level, honestly stated**: not encrypted at rest; protected by file permissions
+  (0600) and the user account — the same trust level as an environment variable. Never
+  exported, logged or sent to frontends; no API returns all values.
+- **Permissions**: written 0600 through a temporary file that is chmod'ed before the rename;
+  the directory is created 0700, and a loosened directory (group/other bits) is repaired by
+  stripping those bits — owner bits are never widened. Every read verifies the file mode and
+  fails closed on anything but 0600 (`credential store %s has mode %04o, want %04o: refusing to
+  read it; run chmod 0600 %s`) — the error names the path and modes, never content. A loose file
+  also fails the write (the merge refuses to read it). Windows skips mode checks.
+- **Atomicity**: temporary file in the same directory, fsync, rename, directory fsync (the
+  `save.go` pattern; `syncDir`). A failed write removes the temporary file and leaves the old
+  value intact — asserted with a 0500 directory (the write fails, the old secret survives, no
+  `.credentials.json.tmp-*` remains).
+- **Concurrency**: writers hold the per-file advisory run lock (`internal/runlock`, like
+  `Save`), keyed by the resolved path in the user cache dir; the run lock belongs to the open
+  file description, so goroutines and processes conflict alike, and the kernel releases it when
+  the holder dies. Readers need no lock: the rename makes every read see the complete old or new
+  file. `TestFileCredentialStoreConcurrentSetsLoseNothing` runs 4 writers × 8 names through two
+  store instances on one path and loses none, with a concurrent reader never seeing a torn file.
+- **Validation**: names must fit the `SecretName` rules; values non-empty and ≤ 8 KiB. Both fail
+  before anything is touched, naming the name (never the value).
+- **Corruption**: unparseable JSON (or a non-object) is an error naming the file, never its
+  bytes — asserted with a file whose broken content embeds the planted secret.
+- **Redaction**: the struct holds only the path, so `%v`/`%+v`/`%#v`/JSON of the store cannot
+  carry a value; `TestFileCredentialStoreNeverLeaksValues` plants
+  `sk-store-NEVER-PRINT-13579` and asserts absence across every failure mode's error text.
+
+## CLI (cross-platform, one store with Desktop)
+
+`cmd/lcx-go` builds its providers with `provider.Options{Credentials: cliCredentials()}`, where
+`cliCredentials()` is the default `FileCredentialStore` when `DefaultCredentialStorePath()` is
+known (else nil: environment-only). `{env:NAME}` keeps its unset-variable diagnostic. Preflight
+builds the client and, when the error wraps `config.ErrCredentialNotFound`, appends the store
+file location — the message names only the reference and the path
+(`provider p: secret "NAME": credential not found; store it in the credential file
+…/lumencortex/credentials.json`). A missing store file is an empty store: the reference is
+simply not found. `TestSecretReferenceResolvesThroughTheCredentialFile` covers the refusal (no
+request, no value) and the stored case (the request authenticates with the stored value).
 
 ## Redaction guarantees and regression coverage
 
-No error, warning, log line, ModelInfo/ProviderInfo JSON, config export or event may contain a
-secret value; errors name only the reference. Tests plant
-`sk-secret-NEVER-PRINT-9876543210` / `sk-secret-NEVER-PRINT-246810` through a test-only fake
-resolver (Core ships no implementation) and assert absence in:
+No error, warning, log line, ModelInfo/ProviderInfo JSON, config export, event or store dump may
+contain a secret value; errors name only the reference. Tests plant distinctive values through a
+test-only fake resolver (stage 1) and through the real file store (stage 2):
 
 - `config/credentials_test.go`: `TestResolverErrorsNeverCarryTheSecretValue` (not-found, foreign
   resolver error, empty value, nil resolver), `TestSecretValueExposure` (JSON + `%+v` of Catalog,
   Effective, ResolvedModel, ResolvedProvider, warnings), `TestNilResolverWithSecretRefNamesOnlyTheReference`,
-  `TestEachReferencePicksExactlyOneSource` (env ref never consults the resolver; secret ref never
-  reads the environment), `TestSecretReferenceResolvesThroughTheCredentialResolver`
-  (incl. same-named env var must not win), `TestSecretReferenceShapes` (bad names rejected),
-  `TestSaveRoundTripsASecretReference`, `TestCredentialRedirectTreatsSecretReferencesLikeEnvReferences`
-  (unit merge cases + end-to-end Load with a trusted workspace).
+  `TestEachReferencePicksExactlyOneSource`, `TestSecretReferenceResolvesThroughTheCredentialResolver`
+  (incl. same-named env var must not win), `TestSecretReferenceShapes`,
+  `TestSaveRoundTripsASecretReference`, `TestCredentialRedirectTreatsSecretReferencesLikeEnvReferences`.
+- `config/credstore_test.go`: the store properties above, plus value-absence in every error.
 - `provider/openai/factory_test.go`: `TestFromModelSecretFailuresNameOnlyTheReference` — includes
   the client build failing *after* successful resolution (`ErrNoEndpoint`) with the key still
   absent from the error; `TestFromModelResolvesSecretReferencesThroughCredentials` proves the
   resolver value reaches the `Authorization` header.
-- `cmd/lcx-go/provider_test.go`: `TestSecretReferenceIsRefusedWithAClearDiagnostic`.
-- Removing the redaction (e.g. wrapping the resolver's error text, or echoing values) fails these
-  tests.
-
-## CLI (env-only, non-macOS safe)
-
-`cmd/lcx-go` passes no resolver. Preflight detects `config.SecretName(model.APIKeyRef)` before
-building a client and refuses with a message that names the model, the reference and the
-`{env:NAME}` way out; no request is made. Unset env refs keep their existing diagnostic.
+- `cmd/lcx-go/provider_test.go`: `TestSecretReferenceResolvesThroughTheCredentialFile`.
+- Removing any redaction (wrapping a resolver's error text, echoing values, printing the store)
+  fails these tests.
 
 ## Files
 
-- `config/credentials.go` (new), `config/resolve.go`, `config/types.go`, `config/schema_test.go`,
-  `config/secrets_test.go`, `config/credentials_test.go` (new),
-  `config/testdata/valid/secret-ref.json` (new), `config/testdata/invalid/secret-ref-bad-shape.json` (new),
-  `docs/lumencortex.schema.json` (apiKey pattern + description; the embedded copy in `docs/embed.go`
-  is the same file, verified by `TestSchemaFileIsTheEmbeddedOne`),
-  `provider/openai/factory.go`, `provider/openai/factory_test.go` (new),
-  `cmd/lcx-go/provider.go`, `cmd/lcx-go/provider_test.go`,
-  `docs/security-and-trust.md`, this report.
+Stage 1 (`465eda7` + `42d617c`): `config/credentials.go`, `config/resolve.go`, `config/types.go`,
+`config/schema_test.go`, `config/secrets_test.go`, `config/credentials_test.go`,
+`config/testdata/valid/secret-ref.json`, `config/testdata/invalid/secret-ref-bad-shape.json`,
+`docs/lumencortex.schema.json` (embedded copy is the same file, `TestSchemaFileIsTheEmbeddedOne`),
+`provider/openai/factory.go` + `factory_test.go`, `cmd/lcx-go/provider.go` + `provider_test.go`,
+`docs/security-and-trust.md`, `config/save.go` (comment).
+
+Stage 2 (file store): `config/credstore.go` (new), `config/credstore_test.go` (new),
+`config/credentials.go` (doc: the store, no Keychain), `cmd/lcx-go/provider.go` (store wiring +
+preflight), `cmd/lcx-go/provider_test.go` (file-store test replaces the env-only refusal),
+`docs/security-and-trust.md`, this report.
 
 ## Validation
 
-Commands run in Core (results below): `go build ./...`, `go vet ./...`, `go test -count=1 ./...`.
-Focused: `go test -count=1 ./config/ ./provider/openai/ ./cmd/lcx-go/` — all ok.
+Commands run in Core: `go build ./...`, `go vet ./...`, `go test -count=1 ./...` — all green at
+each commit (the stage 2 run covers `config`, `cmd/lcx-go`, `provider/openai` focused first).
 Pre-existing gofmt findings in `cmd/lcx-go/main.go`/`main_test.go` are not this task's files.
 
 ## Decisions
 
-- No `config.EnvResolver` chain helper was needed: nil resolver already means env-only, which is
-  the only mode the CLI has (kept minimal per task).
-- `Catalog()`/`ModelInfo` intentionally unchanged: without a resolver a secret ref cannot be
-  confirmed, so `apiKeySet` is false there; the Desktop passes its resolver where it matters
-  (client build) — owner-approved contract shape, presentation is Desktop's call.
+- No `config.EnvResolver` chain helper: nil resolver already means env-only; the CLI now uses the
+  file store, and `{env:NAME}` stays the zero-dependency option.
+- `Catalog()`/`ModelInfo` unchanged: catalog entries stay env-only knowledge; a host with a
+  resolver decides presentation (Desktop's call).
+- File-mode fail-closed, directory-mode repair: a loosened file may already have been read, so
+  core refuses it (read and write) until the user chmods it back; a loosened directory is
+  repaired by stripping group/other bits on write. Owner bits are never widened.
+- The store file is `GlobalDir/credentials.json`, one JSON object; bounded by `maxFileBytes`
+  (1 MiB) on read, values bounded to 8 KiB on write.
 
 ## Handoffs
 
-- CoreProtocol: build against this commit; dispatcher calls `ResolveAPIKey(r)` forms; `cmd/lcx-go`
-  and `config` testdata touched here — re-read before editing (`schema_test.go` counts fixtures).
-- DesktopPlatform/Desktop: implement `config.CredentialResolver` over the Keychain and pass it via
-  `openai.Options.Credentials` (or the dispatcher's Options once it lands).
+- CoreProtocol: dispatcher already forwards `Credentials` (their `7b8c690`); no further work.
+- Desktop: pass `config.NewFileCredentialStore(path)` — or better, the same default
+  `config.DefaultCredentialStorePath()` — as `provider.Options.Credentials` so Desktop and the
+  CLI share one store. There is no Keychain; the store is file-permission protected.

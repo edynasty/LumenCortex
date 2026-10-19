@@ -11,13 +11,12 @@ import (
 // not hold. It is matched with errors.Is.
 var ErrCredentialNotFound = errors.New("credential not found")
 
-// CredentialResolver resolves {secret:NAME} references when a provider client is built. Core stays
-// OS-agnostic and ships no store: hosts pass their implementation (the macOS Keychain lives in
-// Desktop) through the provider Options, and the CLI passes none.
-//
-// Resolve returns an error wrapping ErrCredentialNotFound when NAME is absent. The error text of a
-// conforming implementation never contains the secret's value; resolveAPIKey nevertheless drops the
-// resolver's text and names only the reference, so a misbehaving store cannot leak through.
+// CredentialResolver resolves {secret:NAME} references when a provider client is built. Core's
+// FileCredentialStore is the file-backed implementation the CLI and Desktop share; a host with its
+// own store can pass that instead. Resolve returns an error wrapping ErrCredentialNotFound when
+// NAME is absent. The error text of a conforming implementation never contains the secret's
+// value; resolveAPIKey nevertheless drops the resolver's text and names only the reference, so a
+// misbehaving store cannot leak through.
 type CredentialResolver interface {
 	Resolve(name string) (string, error)
 }

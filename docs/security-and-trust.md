@@ -190,9 +190,11 @@ Cognitive Git versions cognitive state, not the real workspace filesystem.
 
 ### External credentials
 
-Provider credentials are references in lumencortex.json, never values: `apiKey` is `{env:NAME}`, read from the process environment, or `{secret:NAME}`, resolved through the host's `config.CredentialResolver` when a provider client is built. Literal keys are rejected by the schema.
+Provider credentials are references in lumencortex.json, never values: `apiKey` is `{env:NAME}`, read from the process environment, or `{secret:NAME}`, resolved when a provider client is built. Literal keys are rejected by the schema.
 
-Core stays OS-agnostic and ships no secret store; the macOS Keychain implementation lives in the Desktop host, and the CLI passes no resolver and is env-only. A secret name is the only credential detail that may appear in diagnostics: no error, warning, event, ModelInfo/ProviderInfo JSON or config export ever carries a secret value, and a resolver's own error text is dropped in favor of one that names only the reference. The workspace trust rules treat a secret reference exactly like an environment reference: redirecting a global provider's baseURL or endpoint requires the workspace's own apiKey, of either form, and the merged provider never inherits the global headers.
+`{secret:NAME}` values live in Core's file-backed credential store (`config.FileCredentialStore`): one JSON file of name to value at GlobalDir/credentials.json, shared by the CLI and Desktop. The store is not a secrets manager and is not encrypted at rest: it is protected by file permissions (0600 in a 0700 directory, verified fail-closed on every read) and the user account, the same trust level as an environment variable. Writers are serialized by an advisory lock and replace the file atomically (temporary file, fsync, rename). The store is never exported, logged or sent to a frontend, and no API returns every value.
+
+A secret name is the only credential detail that may appear in diagnostics: no error, warning, event, ModelInfo/ProviderInfo JSON or config export ever carries a secret value, and a resolver's own error text is dropped in favor of one that names only the reference. The workspace trust rules treat a secret reference exactly like an environment reference: redirecting a global provider's baseURL or endpoint requires the workspace's own apiKey, of either form, and the merged provider never inherits the global headers.
 
 ### Untrusted repository content
 

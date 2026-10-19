@@ -282,19 +282,43 @@ func TestProviderFromConfigErrors(t *testing.T) {
 	}
 }
 
-// A {secret:NAME} reference is refused with a message that names only the reference: the CLI has
-// no secret store, and no request is made either way.
-func TestSecretReferenceIsRefusedWithAClearDiagnostic(t *testing.T) {
+// A {secret:NAME} reference resolves through the default file credential store: the stored value
+// authenticates the request, and when the store does not hold it the refusal names only the
+// reference and the file.
+func TestSecretReferenceResolvesThroughTheCredentialFile(t *testing.T) {
 	srv := newFakeProvider(t)
 	globalFile, ws := cliEnv(t)
 	writeConfig(t, globalFile, strings.Replace(globalFor(srv.URL, ""), "{env:LOCAL_TEST_KEY}", "{secret:lcx.local-key}", 1))
+	store := config.NewFileCredentialStore(filepath.Join(filepath.Dir(globalFile), config.CredentialStoreFileName))
 
+	// Not stored: a clear refusal that names the reference and the file, and nothing is sent.
 	_, _, err := clientFromConfig(ws, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "{secret:lcx.local-key}") || !strings.Contains(err.Error(), "{env:NAME}") {
+	if err == nil || !strings.Contains(err.Error(), "lcx.local-key") || !strings.Contains(err.Error(), config.CredentialStoreFileName) {
 		t.Fatalf("err=%v", err)
+	}
+	if strings.Contains(err.Error(), "file-store-key") {
+		t.Fatalf("err leaks the value: %v", err)
 	}
 	if len(srv.requests()) != 0 {
 		t.Fatal("request left for an unresolvable secret")
+	}
+
+	// Stored: the request carries the stored value.
+	if err := store.Set("lcx.local-key", "file-store-key"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Delete("lcx.local-key") })
+	client, model, err := clientFromConfig(ws, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	complete(t, client)
+	reqs := srv.requests()
+	if len(reqs) != 1 || reqs[0].Auth != "Bearer file-store-key" {
+		t.Fatalf("auth=%+v", reqs)
+	}
+	if model.APIKeyRef != "{secret:lcx.local-key}" {
+		t.Fatalf("ref=%q", model.APIKeyRef)
 	}
 }
 

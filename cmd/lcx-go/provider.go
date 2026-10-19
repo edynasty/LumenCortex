@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,14 +23,26 @@ var removedProviderEnv = []struct{ name, replacement string }{
 }
 
 // providerFactory is the Engine's ProviderFactory for the CLI: the package dispatcher, with the
-// two debugging switches the CLI has always offered. It is the only place that reads an API key
-// from the environment (through ResolvedModel.ResolveAPIKey): the CLI passes no credential
-// resolver, so it is env-only and a {secret:NAME} reference is refused before any request.
+// two debugging switches the CLI has always offered. {env:NAME} references read the environment;
+// {secret:NAME} references read the default file credential store, so the CLI and Desktop share
+// one store. It is the only place an API key is resolved.
 func providerFactory(m config.ResolvedModel) (protocol.Provider, error) {
 	return provider.FromModel(m, provider.Options{
 		DisableStreaming: envBool("LCX_DISABLE_STREAMING"),
 		DisableRetries:   envBool("LCX_DISABLE_RETRIES"),
+		Credentials:      cliCredentials(),
 	})
+}
+
+// cliCredentials is the default credential store when its location is known, else nil: an
+// environment-only CLI. A missing store file is an empty store, so a secret reference simply
+// resolves to not-found.
+func cliCredentials() config.CredentialResolver {
+	path, err := config.DefaultCredentialStorePath()
+	if err != nil {
+		return nil
+	}
+	return config.NewFileCredentialStore(path)
 }
 
 // preflight reads the configuration the way the Engine will at Start, prints its warnings to warn
@@ -76,12 +89,13 @@ func preflight(workspace string, warn io.Writer, newSession bool) error {
 	if !model.ToolCalling {
 		return fmt.Errorf("model %s does not support tool calling", model.Ref)
 	}
-	// The CLI has no secret store, so a secret reference is reported here instead of as a resolver
-	// failure inside the factory: the message names the reference and the way out, nothing else.
-	if name, ok := config.SecretName(model.APIKeyRef); ok {
-		return fmt.Errorf("model %s uses apiKey {secret:%s}: lcx-go reads no secret store; set providers.%s.settings.apiKey to \"{env:NAME}\" naming the variable that holds the key",
-			model.Ref, name, model.ProviderID)
-	}
 	_, err = providerFactory(model)
+	if errors.Is(err, config.ErrCredentialNotFound) {
+		// The reference and the store file, nothing else: the resolution error already names only
+		// the reference, so the file location is appended for the way out.
+		if path, perr := config.DefaultCredentialStorePath(); perr == nil {
+			return fmt.Errorf("%w; store it in the credential file %s", err, path)
+		}
+	}
 	return err
 }
