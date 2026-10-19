@@ -62,23 +62,23 @@ func TestEnvReferenceResolutionAndExposure(t *testing.T) {
 		t.Fatal(err)
 	}
 	ds, _ := c.Resolve("deepseek/chat")
-	if ds.APIKeyRef != "{env:DEEPSEEK_API_KEY}" || ds.APIKeyEnv() != "DEEPSEEK_API_KEY" || !ds.APIKeySet() {
+	if ds.APIKeyRef != "{env:DEEPSEEK_API_KEY}" || ds.APIKeyEnv() != "DEEPSEEK_API_KEY" || !ds.APIKeySet(nil) {
 		t.Fatalf("deepseek=%+v", ds)
 	}
-	key, err := ds.ResolveAPIKey()
+	key, err := ds.ResolveAPIKey(nil)
 	if err != nil || key != literalKey {
 		t.Fatalf("key=%q err=%v", key, err)
 	}
 	// An unset variable is an error that names the variable and nothing else.
 	or, _ := c.Resolve("openrouter/sonnet")
-	if or.APIKeySet() {
+	if or.APIKeySet(nil) {
 		t.Fatal("empty variable reported as set")
 	}
-	if _, err := or.ResolveAPIKey(); err == nil || !strings.Contains(err.Error(), "OPENROUTER_API_KEY") {
+	if _, err := or.ResolveAPIKey(nil); err == nil || !strings.Contains(err.Error(), "OPENROUTER_API_KEY") {
 		t.Fatalf("unset: %v", err)
 	}
 	// A provider without apiKey needs none.
-	if k, err := (ResolvedModel{}).ResolveAPIKey(); k != "" || err != nil {
+	if k, err := (ResolvedModel{}).ResolveAPIKey(nil); k != "" || err != nil {
 		t.Fatalf("no key: %q %v", k, err)
 	}
 

@@ -121,9 +121,9 @@
               "pattern": "^https?://"
             },
             "apiKey": {
-              "description": "Environment reference {env:VAR_NAME}; core resolves it at request time. Literal keys are invalid.",
+              "description": "Credential reference: {env:VAR_NAME} reads the process environment, {secret:NAME} is resolved by the host's credential store (Core's CredentialResolver); core resolves it when a provider client is built. Literal keys are invalid.",
               "type": "string",
-              "pattern": "^\\{env:[A-Za-z_][A-Za-z0-9_]*\\}$"
+              "pattern": "^\\{(env:[A-Za-z_][A-Za-z0-9_]*|secret:[A-Za-z0-9][A-Za-z0-9._-]{0,127})\\}$"
             },
             "headers": {
               "description": "Extra HTTP headers sent with every request (e.g. OpenRouter HTTP-Referer/X-Title).",

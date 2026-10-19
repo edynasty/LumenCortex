@@ -190,7 +190,9 @@ Cognitive Git versions cognitive state, not the real workspace filesystem.
 
 ### External credentials
 
-Provider/MCP credentials are process/environment concerns. The runtime should not be described as a secrets manager.
+Provider credentials are references in lumencortex.json, never values: `apiKey` is `{env:NAME}`, read from the process environment, or `{secret:NAME}`, resolved through the host's `config.CredentialResolver` when a provider client is built. Literal keys are rejected by the schema.
+
+Core stays OS-agnostic and ships no secret store; the macOS Keychain implementation lives in the Desktop host, and the CLI passes no resolver and is env-only. A secret name is the only credential detail that may appear in diagnostics: no error, warning, event, ModelInfo/ProviderInfo JSON or config export ever carries a secret value, and a resolver's own error text is dropped in favor of one that names only the reference. The workspace trust rules treat a secret reference exactly like an environment reference: redirecting a global provider's baseURL or endpoint requires the workspace's own apiKey, of either form, and the merged provider never inherits the global headers.
 
 ### Untrusted repository content
 

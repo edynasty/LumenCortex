@@ -15,7 +15,7 @@ import (
 // S2: every reference example is valid and every bad case fails at the reference keyword and path.
 func TestSchemaValidFixtures(t *testing.T) {
 	files, _ := filepath.Glob("testdata/valid/*.json")
-	if len(files) != 3 {
+	if len(files) != 4 {
 		t.Fatalf("valid fixtures=%v", files)
 	}
 	for _, f := range files {
@@ -49,6 +49,7 @@ func TestSchemaInvalidFixtures(t *testing.T) {
 	// plus a propertyNames error; this validator reports the property).
 	want := map[string][2]string{
 		"literal-api-key":             {"pattern", "/providers/p/settings/apiKey"},
+		"secret-ref-bad-shape":        {"pattern", "/providers/p/settings/apiKey"},
 		"model-ref-no-slash":          {"pattern", "/model"},
 		"unknown-root-key":            {"additionalProperties", ""},
 		"baseurl-camelcase":           {"additionalProperties", "/providers/p/settings"},

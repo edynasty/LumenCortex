@@ -3,7 +3,8 @@
 // The global file lives in GlobalDir, a workspace may add <workspace>/lumencortex.json, and both
 // follow docs/lumencortex.schema.json. Load merges them under the workspace trust rules (A8);
 // Save is the only way core writes either file. Secrets are never stored here: an API key is an
-// {env:NAME} reference that is resolved only when a provider client is built (I12).
+// {env:NAME} reference read from the process environment or a {secret:NAME} reference resolved
+// through the host's CredentialResolver when a provider client is built (I12).
 package config
 
 import (
@@ -114,7 +115,7 @@ type Provider struct {
 type ProviderSettings struct {
 	BaseURL            string            `json:"baseURL,omitempty"`
 	Endpoint           string            `json:"endpoint,omitempty"`
-	APIKey             string            `json:"apiKey,omitempty"` // {env:NAME}, never a literal key
+	APIKey             string            `json:"apiKey,omitempty"` // {env:NAME} or {secret:NAME}, never a literal key
 	Headers            map[string]string `json:"headers,omitempty"`
 	TimeoutSeconds     int               `json:"timeoutSeconds,omitempty"`
 	IdleTimeoutSeconds int               `json:"idleTimeoutSeconds,omitempty"`

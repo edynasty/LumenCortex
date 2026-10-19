@@ -14,12 +14,16 @@ type Options struct {
 	HTTPClient       *http.Client
 	DisableStreaming bool
 	DisableRetries   bool
+	// Credentials resolves {secret:NAME} apiKey references. A nil Credentials leaves the factory
+	// environment-only, the CLI's mode.
+	Credentials config.CredentialResolver
 }
 
 // FromModel builds the client for one resolved catalog model. It is the only place that reads the
-// API key from the environment.
+// API key, from the environment for {env:NAME} references and from the Credentials resolver for
+// {secret:NAME} references.
 func FromModel(m config.ResolvedModel, o Options) (*Client, error) {
-	key, err := m.ResolveAPIKey()
+	key, err := m.ResolveAPIKey(o.Credentials)
 	if err != nil {
 		return nil, err
 	}

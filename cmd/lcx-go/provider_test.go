@@ -282,6 +282,22 @@ func TestProviderFromConfigErrors(t *testing.T) {
 	}
 }
 
+// A {secret:NAME} reference is refused with a message that names only the reference: the CLI has
+// no secret store, and no request is made either way.
+func TestSecretReferenceIsRefusedWithAClearDiagnostic(t *testing.T) {
+	srv := newFakeProvider(t)
+	globalFile, ws := cliEnv(t)
+	writeConfig(t, globalFile, strings.Replace(globalFor(srv.URL, ""), "{env:LOCAL_TEST_KEY}", "{secret:lcx.local-key}", 1))
+
+	_, _, err := clientFromConfig(ws, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "{secret:lcx.local-key}") || !strings.Contains(err.Error(), "{env:NAME}") {
+		t.Fatalf("err=%v", err)
+	}
+	if len(srv.requests()) != 0 {
+		t.Fatal("request left for an unresolvable secret")
+	}
+}
+
 // The real entry point: `lcx-go agent` and `lcx-go resume` take the provider, model, key and
 // headers from lumencortex.json and run to completion against a scripted server.
 func TestCLIAgentAndResumeUseUnifiedConfig(t *testing.T) {

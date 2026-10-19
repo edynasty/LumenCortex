@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"slices"
 	"time"
 )
@@ -15,8 +14,8 @@ const (
 )
 
 // ResolvedModel is the settings for one catalog model with every default applied. It holds the
-// name of the API key's environment variable, never the key: ResolveAPIKey reads the variable when
-// a provider client is built.
+// apiKey reference, never the key: ResolveAPIKey reads the environment or the CredentialResolver
+// when a provider client is built.
 type ResolvedModel struct {
 	Ref          ModelRef
 	ProviderID   string
@@ -27,7 +26,7 @@ type ResolvedModel struct {
 	ModelID  string
 	BaseURL  string
 	Endpoint string
-	// APIKeyRef is the configured {env:NAME} reference, "" when the provider needs no key.
+	// APIKeyRef is the configured {env:NAME} or {secret:NAME} reference, "" when the provider needs no key.
 	APIKeyRef string
 	// Headers are sent with every request. They are configuration, not a secret store, but may
 	// carry tokens, so they are kept out of JSON.
@@ -51,12 +50,12 @@ type ResolvedModel struct {
 }
 
 // ResolvedProvider is the connection settings of one catalog provider after merge and trust. Like
-// ResolvedModel it holds the name of the key's environment variable, never the key.
+// ResolvedModel it holds the apiKey reference, never the key.
 type ResolvedProvider struct {
 	ID, Name string
 	BaseURL  string
 	Endpoint string
-	// APIKeyRef is the configured {env:NAME} reference, "" when the provider needs no key.
+	// APIKeyRef is the configured {env:NAME} or {secret:NAME} reference, "" when the provider needs no key.
 	APIKeyRef string
 	// Headers are sent with every request; they may carry tokens and stay out of JSON.
 	Headers        map[string]string `json:"-"`
@@ -70,30 +69,18 @@ func (p ResolvedProvider) APIKeyEnv() string {
 	return name
 }
 
-// APIKeySet reports whether the key's variable is set and non-empty.
-func (p ResolvedProvider) APIKeySet() bool {
-	name := p.APIKeyEnv()
-	return name != "" && os.Getenv(name) != ""
+// APIKeySet reports whether the key is available: the variable of an {env:NAME} reference is set,
+// or the CredentialResolver can resolve a {secret:NAME} reference. A nil resolver knows only the
+// environment, so a secret reference reports false.
+func (p ResolvedProvider) APIKeySet(r CredentialResolver) bool {
+	v, err := p.ResolveAPIKey(r)
+	return err == nil && v != ""
 }
 
-// ResolveAPIKey reads the key from the environment, with the semantics of ResolvedModel.ResolveAPIKey.
-func (p ResolvedProvider) ResolveAPIKey() (string, error) {
-	return resolveAPIKey(p.ID, "provider "+p.ID, p.APIKeyRef)
-}
-
-func resolveAPIKey(providerID, subject, ref string) (string, error) {
-	if ref == "" {
-		return "", nil
-	}
-	name, ok := EnvName(ref)
-	if !ok {
-		return "", fmt.Errorf("%w: apiKey of %s is not an {env:NAME} reference", ErrInvalidConfig, subject)
-	}
-	v := os.Getenv(name)
-	if v == "" {
-		return "", fmt.Errorf("provider %s: environment variable %s is not set", providerID, name)
-	}
-	return v, nil
+// ResolveAPIKey reads the key from the environment or the resolver, with the semantics of
+// ResolvedModel.ResolveAPIKey.
+func (p ResolvedProvider) ResolveAPIKey(r CredentialResolver) (string, error) {
+	return resolveAPIKey(p.ID, "provider "+p.ID, p.APIKeyRef, r)
 }
 
 // APIKeyEnv returns the environment variable that holds the key, "" when there is none.
@@ -102,17 +89,20 @@ func (m ResolvedModel) APIKeyEnv() string {
 	return name
 }
 
-// APIKeySet reports whether the key's variable is set and non-empty; it is what hosts may show.
-func (m ResolvedModel) APIKeySet() bool {
-	name := m.APIKeyEnv()
-	return name != "" && os.Getenv(name) != ""
+// APIKeySet reports whether the key is available; it is what hosts may show. With a nil resolver
+// only environment references can be confirmed.
+func (m ResolvedModel) APIKeySet(r CredentialResolver) bool {
+	v, err := m.ResolveAPIKey(r)
+	return err == nil && v != ""
 }
 
-// ResolveAPIKey reads the key from the environment. Call it only while building a provider client
-// and keep the result out of logs, errors and events. It returns "" without error when the
-// provider has no apiKey, and an error naming only the variable when it is unset.
-func (m ResolvedModel) ResolveAPIKey() (string, error) {
-	return resolveAPIKey(m.ProviderID, string(m.Ref), m.APIKeyRef)
+// ResolveAPIKey reads the key from the environment or the resolver. Call it only while building a
+// provider client and keep the result out of logs, errors and events. It returns "" without error
+// when the provider has no apiKey, and errors that name only the reference when it cannot be
+// resolved. Each reference picks exactly one source: {env:NAME} reads the environment, {secret:NAME}
+// reads r, and a nil r with a secret reference is an error naming only the reference.
+func (m ResolvedModel) ResolveAPIKey(r CredentialResolver) (string, error) {
+	return resolveAPIKey(m.ProviderID, string(m.Ref), m.APIKeyRef, r)
 }
 
 // ModelInfo describes a catalog model for pickers. It carries no credential and no header.
@@ -145,7 +135,7 @@ func (c *Config) Catalog() []ModelInfo {
 				Ref: m.Ref, ProviderName: m.ProviderName, ModelName: m.ModelName, ModelID: m.ModelID,
 				Context: m.Context, Output: m.Output, ToolCalling: m.ToolCalling,
 				InputModalities: m.InputModalities, ReasoningFormat: m.ReasoningFormat, Efforts: m.Efforts,
-				APIKeyEnv: m.APIKeyEnv(), APIKeySet: m.APIKeySet(),
+				APIKeyEnv: m.APIKeyEnv(), APIKeySet: m.APIKeySet(nil),
 			})
 		}
 	}

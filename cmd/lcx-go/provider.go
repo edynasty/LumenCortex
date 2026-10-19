@@ -21,9 +21,10 @@ var removedProviderEnv = []struct{ name, replacement string }{
 	{"LCX_REASONING_FORMAT", `providers.<provider>.models.<key>.reasoning.format`},
 }
 
-// providerFactory is the Engine's ProviderFactory for the CLI: the OpenAI-compatible adapter, with
+// providerFactory is the Engine's ProviderFactory for the CLI: the [OI]-compatible adapter, with
 // the two debugging switches the CLI has always offered. It is the only place that reads an API
-// key from the environment (through ResolvedModel.ResolveAPIKey).
+// key from the environment (through ResolvedModel.ResolveAPIKey): the CLI passes no credential
+// resolver, so it is env-only and a {secret:NAME} reference is refused before any request.
 func providerFactory(m config.ResolvedModel) (protocol.Provider, error) {
 	return openai.FromModel(m, openai.Options{
 		DisableStreaming: envBool("LCX_DISABLE_STREAMING"),
@@ -74,6 +75,12 @@ func preflight(workspace string, warn io.Writer, newSession bool) error {
 	}
 	if !model.ToolCalling {
 		return fmt.Errorf("model %s does not support tool calling", model.Ref)
+	}
+	// The CLI has no secret store, so a secret reference is reported here instead of as a resolver
+	// failure inside the factory: the message names the reference and the way out, nothing else.
+	if name, ok := config.SecretName(model.APIKeyRef); ok {
+		return fmt.Errorf("model %s uses apiKey {secret:%s}: lcx-go reads no secret store; set providers.%s.settings.apiKey to \"{env:NAME}\" naming the variable that holds the key",
+			model.Ref, name, model.ProviderID)
 	}
 	_, err = providerFactory(model)
 	return err
