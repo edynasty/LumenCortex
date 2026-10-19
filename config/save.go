@@ -14,8 +14,8 @@ import (
 	"github.com/edynasty/LumenCortex/internal/runlock"
 )
 
-// filePerm is the mode of a saved file. It holds {env:NAME} references and headers, not keys, but
-// headers may carry tokens, so it is private to the user.
+// filePerm is the mode of a saved file. It holds {env:NAME}/{secret:NAME} references and headers,
+// not keys, but headers may carry tokens, so it is private to the user.
 const (
 	filePerm = 0o600
 	dirPerm  = 0o700
