@@ -37,10 +37,11 @@ const (
 const (
 	RuleModelUser       = "model.user"       // AgentOptions.ModelRef differs from sessions.model_ref; written to it
 	RuleModelSession    = "model.session"    // sessions.model_ref
+	RuleModelAgent      = "model.agent"      // the first model of the agent's own list; written to sessions.model_ref
 	RuleModelDefault    = "model.default"    // the config model; written to sessions.model_ref
 	RuleModelCandidates = "model.candidates" // the ordered, filtered candidate list of one step
 	RuleEffortOverride  = "effort.override"  // AgentOptions.Effort
-	RuleEffortDefault   = "effort.default"   // config default
+	RuleEffortDefault   = "effort.default"   // the candidate's default: its list entry, else the agent's, else config
 	RuleEffortEscalated = "effort.escalated" // config default raised while progress shows a stall
 	RuleEffortCapped    = "effort.capped"    // a stall would escalate, but escalation.max allows no higher level
 	// RuleEffortAuto: the Start resolved "auto" to one concrete level for this run, before the first
@@ -61,40 +62,52 @@ const (
 	RuleWindowCapacityRetry = "window.capacity_retry"
 	// RuleTurnBoundary: NeedsTurnBoundary held before a request, so a runtime row opened a new turn (§4.6).
 	RuleTurnBoundary = "turn.boundary"
-	// RuleInstructionsAppended: AgentOptions.Instructions were appended as the last system message of
+	// RuleInstructionsAppended: the agent's instructions were appended as the last system message of
 	// every request in this run. The decision records a digest and length, never the text.
 	RuleInstructionsAppended = "instructions.appended"
 )
 
-// MaxInstructionsBytes bounds AgentOptions.Instructions: extra guidance is a few paragraphs, not a
-// second system prompt. A longer value is refused before anything is written.
+// MaxInstructionsBytes bounds an agent's instructions: extra guidance is a few paragraphs, not a
+// second system prompt (config.MaxAgentInstructions).
 const MaxInstructionsBytes = 16 << 10
 
 // DefaultUnhealthyFor is how long a model stays out of the candidate list after an availability
 // failure that carried no Retry-After.
 const DefaultUnhealthyFor = 30 * time.Second
 
-// ResolveModelRef picks the model a Start runs on and names the rule (design §4.5):
+// ResolveModelRef picks the model a Start runs on and names the rule (design §4.5, ADR-0009):
 //
-//	requested differs from stored  → model.user    (re-pins the session)
-//	otherwise stored is set        → model.session
-//	otherwise                      → model.default (config model; pins a session that has none)
+//	requested differs from stored, or the agent switched → model.user    (re-pins the session)
+//	the agent switched and has its own list            → model.agent   (its first model)
+//	the agent switched                                  → model.default (config model)
+//	otherwise stored is set                             → model.session
+//	otherwise the agent has its own list                → model.agent
+//	otherwise                                           → model.default (config model; pins a session that has none)
 //
-// The result is "" only when all three inputs are empty; the caller fails Start with ErrUnknownModel
-// for that and for a reference outside the catalog. It never reads or writes anything.
-func ResolveModelRef(requested, stored, def config.ModelRef) (config.ModelRef, string) {
+// agentFirst is the first model of the resolved agent's own list, "" when it inherits one; switched is
+// AgentSwitched. The result is "" only when nothing applies; the caller fails Start with
+// ErrUnknownModel for that and for a reference outside the catalog. It never reads or writes anything.
+func ResolveModelRef(requested, stored, agentFirst, def config.ModelRef, switched bool) (config.ModelRef, string) {
 	switch {
-	case requested != "" && requested != stored:
+	case requested != "" && (requested != stored || switched):
 		return requested, RuleModelUser
+	case switched && agentFirst != "":
+		return agentFirst, RuleModelAgent
+	case switched:
+		return def, RuleModelDefault
 	case stored != "":
 		return stored, RuleModelSession
+	case agentFirst != "":
+		return agentFirst, RuleModelAgent
 	default:
 		return def, RuleModelDefault
 	}
 }
 
 // WritesModelRef reports whether a model rule persists its result to sessions.model_ref.
-func WritesModelRef(rule string) bool { return rule == RuleModelUser || rule == RuleModelDefault }
+func WritesModelRef(rule string) bool {
+	return rule == RuleModelUser || rule == RuleModelAgent || rule == RuleModelDefault
+}
 
 // Candidate holds the effective limits of one model: config limit.context / limit.output, else
 // 32 768 / 4 096.
@@ -372,10 +385,14 @@ type Decision struct {
 }
 
 type modelInputs struct {
-	Requested    config.ModelRef `json:"requested"`
-	Stored       config.ModelRef `json:"stored"`
-	Default      config.ModelRef `json:"default"`
-	ConfigDigest string          `json:"configDigest"`
+	Requested config.ModelRef `json:"requested"`
+	Stored    config.ModelRef `json:"stored"`
+	// AgentFirst and AgentSwitched are absent in records written before ADR-0009, which replay as
+	// an agent without its own list that did not switch.
+	AgentFirst    config.ModelRef `json:"agentFirst,omitempty"`
+	AgentSwitched bool            `json:"agentSwitched,omitempty"`
+	Default       config.ModelRef `json:"default"`
+	ConfigDigest  string          `json:"configDigest"`
 }
 
 type modelOutput struct {
@@ -460,10 +477,10 @@ func newDecision(kind, rule string, inputs, output any) Decision {
 
 // ModelDecision records a Start's model resolution. configDigest identifies the configuration the
 // default and the catalog were read from.
-func ModelDecision(requested, stored, def config.ModelRef, configDigest string) (config.ModelRef, string, Decision) {
-	ref, rule := ResolveModelRef(requested, stored, def)
+func ModelDecision(requested, stored, agentFirst, def config.ModelRef, switched bool, configDigest string) (config.ModelRef, string, Decision) {
+	ref, rule := ResolveModelRef(requested, stored, agentFirst, def, switched)
 	return ref, rule, newDecision(DecisionModel, rule,
-		modelInputs{Requested: requested, Stored: stored, Default: def, ConfigDigest: configDigest},
+		modelInputs{Requested: requested, Stored: stored, AgentFirst: agentFirst, AgentSwitched: switched, Default: def, ConfigDigest: configDigest},
 		modelOutput{Ref: ref, Write: WritesModelRef(rule)})
 }
 
@@ -679,7 +696,7 @@ func ReplayDecision(d Decision) error {
 		if err := decodeDecision(d, &in, &out); err != nil {
 			return err
 		}
-		ref, rule := ResolveModelRef(in.Requested, in.Stored, in.Default)
+		ref, rule := ResolveModelRef(in.Requested, in.Stored, in.AgentFirst, in.Default, in.AgentSwitched)
 		if rule != d.Rule || ref != out.Ref || WritesModelRef(rule) != out.Write {
 			return fmt.Errorf("model decision: recomputed %s via %s (write=%v), logged %s via %s (write=%v)",
 				ref, rule, WritesModelRef(rule), out.Ref, d.Rule, out.Write)
@@ -765,6 +782,10 @@ func ReplayDecision(d Decision) error {
 		}
 		if margin := window.RetryMargin(window.Budget(in.Budget), in.Fixed, in.Rejected); margin != out.Margin {
 			return fmt.Errorf("%s: recomputed margin %d, logged %d", d.Rule, margin, out.Margin)
+		}
+	case d.Kind == DecisionAgent:
+		if err := replayAgent(d); err != nil {
+			return err
 		}
 	case d.Kind == DecisionInstructions:
 		var in instructionsInputs

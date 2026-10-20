@@ -377,7 +377,6 @@ func (e *Engine) taskUnits(objective string) (json.RawMessage, error) {
 func executionOptions(parent AgentOptions, ref config.ModelRef, units json.RawMessage, parentID string) AgentOptions {
 	return AgentOptions{
 		ModelRef:            ref,
-		Effort:              parent.Effort,
 		Policy:              toolset.PolicyWorkspace,
 		MaxSteps:            parent.MaxSteps,
 		MaxToolCallsPerStep: parent.MaxToolCallsPerStep,
@@ -386,6 +385,7 @@ func executionOptions(parent AgentOptions, ref config.ModelRef, units json.RawMe
 		MaxTokens:           parent.MaxTokens,
 		Temperature:         parent.Temperature,
 		parentSessionID:     parentID,
+		childAgent:          config.AgentWorker,
 		disableSubagents:    true,
 		disableMCP:          true,
 	}
@@ -409,6 +409,7 @@ func (e *Engine) constrainExecutionChild(ctx context.Context, sessionID string, 
 	opts.Delegation = ""
 	opts.Interactive = false
 	opts.parentSessionID = relation.ParentSessionID
+	opts.childAgent = config.AgentWorker
 	opts.disableSubagents = true
 	opts.disableMCP = true
 	opts.subagents = nil

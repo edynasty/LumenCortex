@@ -94,25 +94,29 @@ type Options struct {
 	ToolDenylist           []string
 	SystemPrompt           string
 	AdditionalSystemPrompt string
-	// Instructions is host-supplied guidance for this run only, appended as the last system message
-	// after SystemPrompt and AdditionalSystemPrompt (skills). It is plain text: it cannot replace the
+	// Instructions are the agent's instructions (ADR-0009), appended as the last system message after
+	// SystemPrompt and AdditionalSystemPrompt (skills). They are plain text: they cannot replace the
 	// default prompt or change the policy, authority, permissions or tool set the run was built with,
-	// and the loop never persists it as session authority.
+	// and the loop never persists them.
 	Instructions string
 	MaxTokens    int
 	Temperature  *float64
-	// Session is the model the run starts on and Failover the config list that follows it; both
-	// must be keys of Loop.Models. EffortDefault is the configured default, Escalation the configured
-	// escalation (nil for none) and Effort the per-run override ("" for none).
+	// Session is the model the run starts on and Failover the agent's list that follows it; both
+	// must be keys of Loop.Models. EffortDefault is the default of a candidate CandidateEfforts does
+	// not name, Escalation the configured escalation (nil for none) and Effort the per-run override
+	// ("" for none), which wins over every candidate's default.
 	Session       config.ModelRef
 	Failover      []config.ModelRef
 	EffortDefault config.Effort
 	Escalation    *config.Escalation
 	Effort        config.Effort
-	// EffortAutoCeiling is effort.auto.max when this run's level was resolved from auto, "" when
-	// it was not. A candidate whose reasoning.efforts offers nothing at or below it sends no
+	// EffortAutoCeiling is effort.auto.max when EffortDefault was resolved from auto, "" when it
+	// was not. A candidate whose reasoning.efforts offers nothing at or below it sends no
 	// reasoning parameter (rule effort.auto_unavailable).
 	EffortAutoCeiling config.Effort
+	// CandidateEfforts are the candidates whose default differs from EffortDefault: an agent list
+	// entry with its own effort (ADR-0009), auto already resolved.
+	CandidateEfforts map[config.ModelRef]CandidateEffort
 	// Decisions are the decisions made before the loop started (the Start's model resolution). The
 	// first step record of the run carries them.
 	Decisions []Decision
@@ -129,6 +133,13 @@ type Options struct {
 	// execution tasks through Loop.Tasks. It is independent of the run's tool policy and is checked
 	// again when the tool executes.
 	Delegation string
+}
+
+// CandidateEffort is one candidate's default effort and, when that default was resolved from auto,
+// the auto ceiling that applies to it.
+type CandidateEffort struct {
+	Default     config.Effort
+	AutoCeiling config.Effort
 }
 
 type Result struct {

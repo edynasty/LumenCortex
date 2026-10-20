@@ -198,7 +198,6 @@ func (c *subagentController) childOptions(childRef config.ModelRef) AgentOptions
 	}
 	return AgentOptions{
 		ModelRef:            childRef,
-		Effort:              c.parentOpts.Effort,
 		Policy:              toolset.PolicyReadOnly,
 		MaxSteps:            maxSteps,
 		MaxToolCallsPerStep: maxCalls,
@@ -207,6 +206,7 @@ func (c *subagentController) childOptions(childRef config.ModelRef) AgentOptions
 		MaxTokens:           c.parentOpts.MaxTokens,
 		Temperature:         c.parentOpts.Temperature,
 		parentSessionID:     c.parentID,
+		childAgent:          config.AgentExplore,
 		disableSubagents:    true,
 		disableMCP:          true,
 	}

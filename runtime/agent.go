@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,31 +22,30 @@ type AgentOptions struct {
 	// lock, after Reconcile. It is the only way a host adds to an existing
 	// transcript.
 	Input string `json:"input,omitempty"`
+	// Agent selects the catalog agent (ADR-0009). When it differs from the session's pinned agent it
+	// re-pins the session (rule agent.user) and, unless ModelRef names a model, re-pins the model to
+	// the agent's first one; empty keeps the pinned agent, or pins "agent" on a session that has
+	// none. The agent's ceilings cap Policy and Delegation, and its instructions are appended to the
+	// system prompt. Child runs ignore it: their agent is fixed when they are created.
+	Agent string `json:"agent,omitempty"`
 	// ModelRef selects the session's model. When it differs from the session's pinned model it
-	// re-pins the session (rule model.user); empty keeps the pinned model, or pins the
-	// configured default on a session that has none.
+	// re-pins the session (rule model.user); empty keeps the pinned model, or pins the agent's first
+	// model (else the configured default) on a session that has none.
 	ModelRef config.ModelRef `json:"modelRef,omitempty"`
 	// Effort overrides the configured default reasoning effort for this run: "" (the default),
 	// none, low, medium, high, max, or auto (classify this turn before its first request; the
 	// resolved level then acts as the run's default and escalation still raises it).
-	Effort              config.Effort `json:"effort,omitempty"`
-	Policy              string        `json:"policy,omitempty"`
-	MaxSteps            int           `json:"maxSteps,omitempty"`
-	MaxToolCallsPerStep int           `json:"maxToolCallsPerStep,omitempty"`
-	ToolAllowlist       []string      `json:"toolAllowlist,omitempty"`
-	ToolDenylist        []string      `json:"toolDenylist,omitempty"`
-	SystemPrompt        string        `json:"systemPrompt,omitempty"`
-	// Instructions are additional system instructions the host supplies for this Start. Core appends
-	// them as the last system message, after the default system prompt and the skills prompt; they
-	// never replace the default prompt and cannot change the policy, authority, permissions or tool
-	// set the run was built with. They are plain text, bounded by MaxInstructionsBytes and valid
-	// UTF-8; Core records only their SHA-256 and length in the decision log and never persists them
-	// as session authority, so the host must send them with every Start that wants them.
-	Instructions string          `json:"instructions,omitempty"`
-	Workflow     json.RawMessage `json:"workflow,omitempty"`
-	WorkUnits    json.RawMessage `json:"workUnits,omitempty"`
-	MaxTokens    int             `json:"maxTokens,omitempty"`
-	Temperature  *float64        `json:"temperature,omitempty"`
+	Effort              config.Effort   `json:"effort,omitempty"`
+	Policy              string          `json:"policy,omitempty"`
+	MaxSteps            int             `json:"maxSteps,omitempty"`
+	MaxToolCallsPerStep int             `json:"maxToolCallsPerStep,omitempty"`
+	ToolAllowlist       []string        `json:"toolAllowlist,omitempty"`
+	ToolDenylist        []string        `json:"toolDenylist,omitempty"`
+	SystemPrompt        string          `json:"systemPrompt,omitempty"`
+	Workflow            json.RawMessage `json:"workflow,omitempty"`
+	WorkUnits           json.RawMessage `json:"workUnits,omitempty"`
+	MaxTokens           int             `json:"maxTokens,omitempty"`
+	Temperature         *float64        `json:"temperature,omitempty"`
 	// Interactive marks a conversation turn (ADR-0006 D3): without a host workflow, a text answer ends
 	// the run completed and leaves open work units and checks to the thread's resolution; a run that
 	// changed the workspace still has its required checks decided. The default, false, keeps the full
@@ -57,7 +57,10 @@ type AgentOptions struct {
 	// read-only conversation starts write-capable tasks only with this grant. Children never hold it.
 	Delegation string `json:"delegation,omitempty"`
 
-	subagents        toolset.SubagentController
+	subagents toolset.SubagentController
+	// childAgent is a child run's default agent: explore for a read-only subagent, worker for an
+	// execution task. "" for a thread.
+	childAgent       string
 	tasks            agent.TaskStarter
 	parentSessionID  string
 	disableSubagents bool
@@ -135,20 +138,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if opts.Input != "" && strings.TrimSpace(opts.Input) == "" {
 		return nil, errors.New("input must not be blank")
 	}
-	// Instructions are validated before anything is written: a refused Start leaves no row behind.
-	instructionsDigest, instructionsLength, err := validateInstructions(opts.Instructions)
-	if err != nil {
-		return nil, err
-	}
 	row, err := e.store.Get(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	plan, err := e.planModels(opts.ModelRef, config.ModelRef(row.ModelRef), opts.Effort)
-	if err != nil {
-		return nil, err
-	}
-	state, err := agentStore{store: e.store}.Get(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +146,38 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err != nil {
 		return nil, err
 	}
-	if opts.parentSessionID != "" {
+	policy := opts.Policy
+	if policy == "" {
+		policy = toolset.PolicyReadOnly
+	}
+	child := opts.parentSessionID != ""
+	defaultAgent, parentAgent := config.AgentDefault, ""
+	if child {
+		// A child of unknown kind gets the read-only explore agent: the least authority.
+		defaultAgent = cmp.Or(opts.childAgent, config.AgentExplore)
+		// The parent's agent only supplies a list to inherit; without a parent row the child falls
+		// back through failover.
+		parent, err := e.store.Get(ctx, opts.parentSessionID)
+		if err != nil && !errors.Is(err, session.ErrNotFound) {
+			return nil, err
+		}
+		parentAgent = parent.AgentID
+	}
+	plan, err := e.planModels(startRequest{
+		model: opts.ModelRef, storedModel: config.ModelRef(row.ModelRef), effort: opts.Effort,
+		agent: strings.TrimSpace(opts.Agent), storedAgent: row.AgentID, defaultAgent: defaultAgent, child: child, parentAgent: parentAgent,
+		grant: agent.AgentGrant{Policy: policy, Delegation: delegation},
+	})
+	if err != nil {
+		return nil, err
+	}
+	// The agent's ceilings only narrow what the host granted (ADR-0009).
+	policy, delegation = plan.grant.Policy, plan.grant.Delegation
+	state, err := agentStore{store: e.store}.Get(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if child {
 		// A child's authority is at most its parent's grant, and no child delegates further (I10).
 		delegation = agent.DelegationNone
 	}
@@ -168,10 +189,6 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	taskState, results, err := e.startTaskState(ctx, sessionID, opts)
 	if err != nil {
 		return nil, err
-	}
-	policy := opts.Policy
-	if policy == "" {
-		policy = toolset.PolicyReadOnly
 	}
 	agentWorkspace, err := e.agentWorkspace(ctx, sessionID)
 	if err != nil {
@@ -217,27 +234,36 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	// Auto effort is resolved once per Start, under the run lock and before the Start transaction:
 	// the previous request and last reply are in the transcript, and a cancelled judge call leaves
 	// no new row or running session behind.
-	runEffort := opts.Effort
-	if runEffort == "" {
-		runEffort = plan.effort
+	effortDefault, effortOverride, effortCeiling := plan.effort, opts.Effort, config.Effort("")
+	decisions := []agent.Decision{plan.agentDecision, plan.decision}
+	var candidateEfforts map[config.ModelRef]agent.CandidateEffort
+	if opts.Effort == "" {
+		candidateEfforts = make(map[config.ModelRef]agent.CandidateEffort, len(plan.effortFor))
+		for ref, e := range plan.effortFor {
+			candidateEfforts[ref] = agent.CandidateEffort{Default: e}
+		}
 	}
-	var auto *autoResolution
-	if runEffort == config.EffortAuto {
-		resolved, err := e.resolveAutoEffort(ctx, sessionID, opts.Input, plan.auto)
+	if plan.needsAuto(opts.Effort) {
+		auto, err := e.resolveAutoEffort(ctx, sessionID, opts.Input, plan.auto)
 		if err != nil {
 			return nil, err
 		}
-		auto = &resolved
-	}
-	effortDefault, effortOverride, effortCeiling := plan.effort, opts.Effort, config.Effort("")
-	decisions := []agent.Decision{plan.decision}
-	if auto != nil {
-		effortDefault, effortOverride = auto.level, ""
-		effortCeiling = auto.ceiling
 		decisions = append(decisions, auto.decision)
+		if opts.Effort == config.EffortAuto {
+			// An auto override applies the one level to every candidate.
+			effortOverride, effortDefault, effortCeiling, candidateEfforts = "", auto.level, auto.ceiling, nil
+		}
+		if effortDefault == config.EffortAuto {
+			effortDefault, effortCeiling = auto.level, auto.ceiling
+		}
+		for ref, c := range candidateEfforts {
+			if c.Default == config.EffortAuto {
+				candidateEfforts[ref] = agent.CandidateEffort{Default: auto.level, AutoCeiling: auto.ceiling}
+			}
+		}
 	}
-	if instructionsLength > 0 {
-		decisions = append(decisions, instructionsDecision(instructionsDigest, instructionsLength))
+	if text := plan.instructions; strings.TrimSpace(text) != "" {
+		decisions = append(decisions, instructionsDecision(text))
 	}
 	loopOpts := agent.Options{
 		MaxSteps:            opts.MaxSteps,
@@ -245,7 +271,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		ToolAllowlist:       opts.ToolAllowlist,
 		ToolDenylist:        opts.ToolDenylist,
 		SystemPrompt:        systemPrompt,
-		Instructions:        opts.Instructions,
+		Instructions:        plan.instructions,
 		MaxTokens:           opts.MaxTokens,
 		Temperature:         opts.Temperature,
 		Session:             plan.session,
@@ -254,6 +280,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Escalation:          plan.escalation,
 		Effort:              effortOverride,
 		EffortAutoCeiling:   effortCeiling,
+		CandidateEfforts:    candidateEfforts,
 		Decisions:           decisions,
 		Interactive:         interactive,
 		Delegation:          delegation,
@@ -281,6 +308,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if agent.WritesModelRef(plan.rule) {
 		ref := string(plan.session)
 		start.ModelRef = &ref
+	}
+	if agent.WritesAgent(plan.agentRule) {
+		start.AgentID = &plan.agentID
 	}
 	if opts.Input != "" {
 		start.Input = &protocol.Message{Role: "user", Content: opts.Input}

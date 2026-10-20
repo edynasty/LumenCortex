@@ -29,7 +29,10 @@ type Session struct {
 	Model     string    `json:"model,omitempty"`
 	// ModelRef is the catalog reference ("<provider>/<model>") the session is pinned to. Provider
 	// and Model above are the provider id and upstream model id of the last Start.
-	ModelRef string          `json:"modelRef,omitempty"`
+	ModelRef string `json:"modelRef,omitempty"`
+	// AgentID is the catalog agent the session runs (ADR-0009), "" for a session no Start has
+	// pinned yet (created before migration 0005, or never started).
+	AgentID  string          `json:"agentId,omitempty"`
 	Goal     string          `json:"goal"`
 	Metadata json.RawMessage `json:"metadata,omitempty"`
 	Final    *string         `json:"final,omitempty"`
@@ -105,10 +108,10 @@ func insertSession(ctx context.Context, db execer, v Session) error {
 		v.Status = "running"
 	}
 	_, err := db.ExecContext(ctx, `
-INSERT INTO sessions(id, created_at, updated_at, status, provider, model, model_ref, goal, metadata_json, final, usage_json, error_json)
-VALUES(?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))
+INSERT INTO sessions(id, created_at, updated_at, status, provider, model, model_ref, agent_id, goal, metadata_json, final, usage_json, error_json)
+VALUES(?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))
 `, v.ID, v.CreatedAt.Format(time.RFC3339Nano), v.UpdatedAt.Format(time.RFC3339Nano), v.Status,
-		v.Provider, v.Model, v.ModelRef, v.Goal, normalizeJSON(v.Metadata, "{}"), v.Final,
+		v.Provider, v.Model, v.ModelRef, v.AgentID, v.Goal, normalizeJSON(v.Metadata, "{}"), v.Final,
 		normalizeJSON(v.Usage, ""), normalizeJSON(v.Error, ""))
 	return err
 }
@@ -126,13 +129,13 @@ type rowQuerier interface {
 func getSession(ctx context.Context, q rowQuerier, id string) (Session, error) {
 	var v Session
 	var created, updated string
-	var provider, model, modelRef sql.NullString
+	var provider, model, modelRef, agentID sql.NullString
 	var metadata string
 	var final, usage, errJSON sql.NullString
 	err := q.QueryRowContext(ctx, `
-SELECT id, created_at, updated_at, status, provider, model, model_ref, goal, metadata_json, final, usage_json, error_json
+SELECT id, created_at, updated_at, status, provider, model, model_ref, agent_id, goal, metadata_json, final, usage_json, error_json
 FROM sessions WHERE id = ?
-`, id).Scan(&v.ID, &created, &updated, &v.Status, &provider, &model, &modelRef, &v.Goal, &metadata, &final, &usage, &errJSON)
+`, id).Scan(&v.ID, &created, &updated, &v.Status, &provider, &model, &modelRef, &agentID, &v.Goal, &metadata, &final, &usage, &errJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, ErrNotFound
 	}
@@ -144,6 +147,7 @@ FROM sessions WHERE id = ?
 	v.Provider = provider.String
 	v.Model = model.String
 	v.ModelRef = modelRef.String
+	v.AgentID = agentID.String
 	v.Metadata = json.RawMessage(metadata)
 	if final.Valid {
 		v.Final = &final.String

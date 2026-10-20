@@ -141,8 +141,8 @@ func TestSessionPinningAcrossConfigurationChanges(t *testing.T) {
 		t.Fatalf("first Start did not pin the default: %+v", info)
 	}
 	first := steps(t, engine, handle.ID)
-	if got := rules(first[0]); got[0] != agent.RuleModelDefault {
-		t.Fatalf("first decision %v, want %s", got, agent.RuleModelDefault)
+	if got := rules(first[0]); got[0] != agent.RuleAgentDefault || got[1] != agent.RuleModelDefault {
+		t.Fatalf("first decisions %v, want %s then %s", got, agent.RuleAgentDefault, agent.RuleModelDefault)
 	}
 
 	// The global default moves to b. The session stays on a.
@@ -154,7 +154,7 @@ func TestSessionPinningAcrossConfigurationChanges(t *testing.T) {
 		t.Fatalf("a changed default moved the session: %+v (a=%d b=%d)", info, pa.calls.Load(), pb.calls.Load())
 	}
 	all := steps(t, engine, handle.ID)
-	if got := rules(all[len(all)-1])[0]; got != agent.RuleModelSession {
+	if got := modelRule(all[len(all)-1]); got != agent.RuleModelSession {
 		t.Fatalf("second run's model rule = %s, want %s", got, agent.RuleModelSession)
 	}
 
@@ -166,7 +166,7 @@ func TestSessionPinningAcrossConfigurationChanges(t *testing.T) {
 		t.Fatalf("explicit model did not re-pin: %+v", info)
 	}
 	all = steps(t, engine, handle.ID)
-	if got := rules(all[len(all)-1])[0]; got != agent.RuleModelUser {
+	if got := modelRule(all[len(all)-1]); got != agent.RuleModelUser {
 		t.Fatalf("third run's model rule = %s, want %s", got, agent.RuleModelUser)
 	}
 	verifyTrace(t, all)
@@ -215,7 +215,7 @@ func TestAvailabilityFailoverKeepsPinAndChildInheritsIt(t *testing.T) {
 	if len(entries) != 1 || entries[0].ModelRef != "test/b" {
 		t.Fatalf("steps=%+v, want one step answered by test/b", entries)
 	}
-	want := []string{agent.RuleModelDefault, agent.RuleModelCandidates, agent.RuleEffortDefault, agent.RuleFailoverPrefix + "availability", agent.RuleEffortDefault}
+	want := []string{agent.RuleAgentDefault, agent.RuleModelDefault, agent.RuleModelCandidates, agent.RuleEffortDefault, agent.RuleFailoverPrefix + "availability", agent.RuleEffortDefault}
 	if got := rules(entries[0]); !reflect.DeepEqual(got, want) {
 		t.Fatalf("decision trace %v, want %v", got, want)
 	}
@@ -234,7 +234,7 @@ func TestAvailabilityFailoverKeepsPinAndChildInheritsIt(t *testing.T) {
 		t.Fatalf("child model_ref=%q, want the parent's pin test/a", child.ModelRef)
 	}
 	childSteps := steps(t, engine, childID)
-	if len(childSteps) == 0 || rules(childSteps[0])[0] != agent.RuleModelUser {
+	if len(childSteps) == 0 || modelRule(childSteps[0]) != agent.RuleModelUser {
 		t.Fatalf("child steps=%+v, want its model logged as %s", childSteps, agent.RuleModelUser)
 	}
 	verifyTrace(t, childSteps)

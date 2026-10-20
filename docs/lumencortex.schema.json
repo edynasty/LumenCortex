@@ -174,7 +174,7 @@
           "$ref": "#/$defs/effortRequest"
         },
         "models": {
-          "description": "Ordered model candidates: the first is the model a new session pins, the rest are tried in order after the pinned model under the failover rules. Absent → inherit: conversations use model + failover, children their parent's effective list.",
+          "description": "Ordered model candidates: the first is the model a new session pins, the rest are tried in order after the pinned model under the failover rules. Absent → inherit: a conversation pins model and falls back through failover; a child uses its parent's effective list.",
           "type": "array",
           "minItems": 1,
           "maxItems": 8,

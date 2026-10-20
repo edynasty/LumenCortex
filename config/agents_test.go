@@ -181,9 +181,6 @@ func TestAgentCatalogDefaultsAndReferences(t *testing.T) {
 	if reviewer.Name != "reviewer" || reviewer.Delegation != DelegationNone || !reviewer.SpawnEligible() {
 		t.Fatalf("reviewer=%+v", reviewer)
 	}
-	if !slices.Equal(e.DefaultModels(), []AgentModel{{Model: "deepseek/chat"}, {Model: "openrouter/sonnet"}}) {
-		t.Fatalf("default list=%v", e.DefaultModels())
-	}
 
 	for name, agents := range map[string]string{
 		"unknown model":            `{"x": {"models": [{"model": "deepseek/missing"}]}}`,

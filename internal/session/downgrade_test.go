@@ -221,7 +221,7 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Upgrade to latest (4)
+	// Upgrade to latest (5)
 	store, err := Open(statedir)
 	if err != nil {
 		t.Fatal(err)
@@ -233,6 +233,7 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		Status:   "running",
 		Provider: "p",
 		Model:    "m",
+		AgentID:  "explore",
 		Metadata: json.RawMessage(`{}`),
 	}); err != nil {
 		t.Fatal(err)
@@ -283,7 +284,7 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		}
 	}
 
-	checkVersion(4)
+	checkVersion(5)
 	hasTable := func(name string) bool {
 		t.Helper()
 		db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(filepath.Join(statedir, "lumencortex.db"))+"?mode=ro")
@@ -298,11 +299,34 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		return n == 1
 	}
 
-	// Downgrade 4→3: evaluator tables go, Task State stays.
+	hasColumn := func(table, column string) bool {
+		t.Helper()
+		db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(filepath.Join(statedir, "lumencortex.db"))+"?mode=ro")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		var n int
+		if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n == 1
+	}
+
+	// Downgrade 5→4: the session agent column goes, the session row and everything else stays.
 	set4, err := migrate.Embedded()
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, _, err := migrate.Downgrade(context.Background(), statedir, set4, 4); err != nil {
+		t.Fatal(err)
+	}
+	checkVersion(4)
+	if hasColumn("sessions", "agent_id") || !hasColumn("sessions", "model_ref") || !hasTable("eval_results") {
+		t.Fatalf("after 5→4: agent_id=%v model_ref=%v eval_results=%v", hasColumn("sessions", "agent_id"), hasColumn("sessions", "model_ref"), hasTable("eval_results"))
+	}
+
+	// Downgrade 4→3: evaluator tables go, Task State stays.
 	if _, _, err := migrate.Downgrade(context.Background(), statedir, set4, 3); err != nil {
 		t.Fatal(err)
 	}
@@ -376,15 +400,19 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Upgrade 1→2→3→4
+	// Upgrade 1→2→3→4→5
 	store, err = Open(statedir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	checkVersion(4)
-	if !hasTable("eval_results") || !hasTable("artifacts") {
-		t.Fatal("re-upgrade did not recreate the evaluator tables")
+	checkVersion(5)
+	if !hasTable("eval_results") || !hasTable("artifacts") || !hasColumn("sessions", "agent_id") {
+		t.Fatal("re-upgrade did not recreate the evaluator tables and the agent column")
+	}
+	// The re-added column starts empty: the session gets the default agent on its next Start.
+	if s1, err := store.Get(context.Background(), "s1"); err != nil || s1.AgentID != "" {
+		t.Fatalf("s1 after re-upgrade: %+v, %v", s1, err)
 	}
 
 	// Check that progress is still valid

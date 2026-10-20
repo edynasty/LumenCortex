@@ -732,7 +732,7 @@ func TestLoopFailoverTraceAcrossStepsAndHealth(t *testing.T) {
 	}}
 	store := &memoryStore{state: SessionState{ID: "trace", Goal: "trace", Status: "running"}, steps: map[int64]any{}}
 	loop := Loop{Models: map[config.ModelRef]Model{a: testModel(a, pa), b: testModel(b, pb)}, Health: health, Store: store, Tools: fakeTools{}}
-	_, _, startDecision := ModelDecision("", a, a, "sha256:cfg")
+	_, _, startDecision := ModelDecision("", a, "", a, false, "sha256:cfg")
 	result, err := loop.Run(context.Background(), "trace", Options{Session: a, Failover: []config.ModelRef{b}, MaxSteps: 4, Decisions: []Decision{startDecision}})
 	if err != nil || result.Status != StatusCompleted || result.Final != "done" {
 		t.Fatalf("result %+v err %v", result, err)

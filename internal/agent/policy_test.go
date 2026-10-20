@@ -18,26 +18,94 @@ import (
 
 func TestResolveModelRefPrecedence(t *testing.T) {
 	cases := []struct {
-		name                   string
-		requested, stored, def config.ModelRef
-		want                   config.ModelRef
-		rule                   string
-		writes                 bool
+		name                               string
+		requested, stored, agentFirst, def config.ModelRef
+		switched                           bool
+		want                               config.ModelRef
+		rule                               string
+		writes                             bool
 	}{
-		{"explicit change pins", "p/b", "p/a", "p/d", "p/b", RuleModelUser, true},
-		{"explicit change on an unpinned session", "p/b", "", "p/d", "p/b", RuleModelUser, true},
-		{"same as the pin keeps it", "p/a", "p/a", "p/d", "p/a", RuleModelSession, false},
-		{"pin wins over the default", "", "p/a", "p/d", "p/a", RuleModelSession, false},
-		{"unpinned session takes and pins the default", "", "", "p/d", "p/d", RuleModelDefault, true},
-		{"nothing at all is empty, for the caller to refuse", "", "", "", "", RuleModelDefault, true},
+		{"explicit change pins", "p/b", "p/a", "", "p/d", false, "p/b", RuleModelUser, true},
+		{"explicit change on an unpinned session", "p/b", "", "", "p/d", false, "p/b", RuleModelUser, true},
+		{"same as the pin keeps it", "p/a", "p/a", "", "p/d", false, "p/a", RuleModelSession, false},
+		{"pin wins over the default", "", "p/a", "", "p/d", false, "p/a", RuleModelSession, false},
+		{"unpinned session takes and pins the default", "", "", "", "p/d", false, "p/d", RuleModelDefault, true},
+		{"nothing at all is empty, for the caller to refuse", "", "", "", "", false, "", RuleModelDefault, true},
+		// ADR-0009: the agent's list.
+		{"pin wins over the agent's list", "", "p/a", "p/l", "p/d", false, "p/a", RuleModelSession, false},
+		{"unpinned session takes the agent's first model", "", "", "p/l", "p/d", false, "p/l", RuleModelAgent, true},
+		{"agent switch re-pins to its first model", "", "p/a", "p/l", "p/d", true, "p/l", RuleModelAgent, true},
+		{"agent switch to one without a list re-pins the default", "", "p/a", "", "p/d", true, "p/d", RuleModelDefault, true},
+		{"explicit model wins over an agent switch", "p/b", "p/a", "p/l", "p/d", true, "p/b", RuleModelUser, true},
+		{"explicit model equal to the pin still wins over a switch", "p/a", "p/a", "p/l", "p/d", true, "p/a", RuleModelUser, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, rule := ResolveModelRef(c.requested, c.stored, c.def)
+			got, rule := ResolveModelRef(c.requested, c.stored, c.agentFirst, c.def, c.switched)
 			if got != c.want || rule != c.rule || WritesModelRef(rule) != c.writes {
 				t.Fatalf("got %q via %s (writes=%v), want %q via %s (writes=%v)", got, rule, WritesModelRef(rule), c.want, c.rule, c.writes)
 			}
+			// The decision replays, including from a record that carries the agent inputs.
+			_, _, d := ModelDecision(c.requested, c.stored, c.agentFirst, c.def, c.switched, "sha256:cfg")
+			if err := ReplayDecision(d); err != nil {
+				t.Fatal(err)
+			}
 		})
+	}
+}
+
+func TestResolveAgentAndCeilings(t *testing.T) {
+	for _, c := range []struct {
+		requested, stored, def, want, rule string
+		switched                           bool
+	}{
+		{"", "", "agent", "agent", RuleAgentDefault, false},
+		{"ask", "", "agent", "ask", RuleAgentUser, false}, // a legacy session gets an agent without moving its pin
+		{"ask", "ask", "agent", "ask", RuleAgentSession, false},
+		{"", "ask", "agent", "ask", RuleAgentSession, false},
+		{"docs", "ask", "agent", "docs", RuleAgentUser, true},
+	} {
+		id, rule := ResolveAgent(c.requested, c.stored, c.def)
+		if id != c.want || rule != c.rule || AgentSwitched(c.stored, id) != c.switched {
+			t.Errorf("%+v: got %s via %s switched=%v", c, id, rule, AgentSwitched(c.stored, id))
+		}
+	}
+	for _, c := range [][3]string{
+		{"full", "read-only", "read-only"}, {"read-only", "full", "read-only"}, {"workspace", "workspace", "workspace"},
+		{"full", "", "full"}, {"full", "workspace", "workspace"},
+	} {
+		if got := CapPolicy(c[0], c[1]); got != c[2] {
+			t.Errorf("CapPolicy(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
+		}
+	}
+	for _, c := range [][3]string{
+		{DelegationIsolated, "none", DelegationNone}, {DelegationIsolated, "propose", DelegationPropose},
+		{DelegationPropose, "isolated", DelegationPropose}, {DelegationNone, "isolated", DelegationNone}, {DelegationIsolated, "", DelegationIsolated},
+	} {
+		if got := CapDelegation(c[0], c[1]); got != c[2] {
+			t.Errorf("CapDelegation(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
+		}
+	}
+	lookup := func(id string) (AgentCeilings, bool) {
+		if id == "ask" {
+			return AgentCeilings{Policy: "read-only", Delegation: "none", Digest: "sha256:x"}, true
+		}
+		return AgentCeilings{}, false
+	}
+	_, _, grant, d, err := AgentDecision("ask", "", "agent", AgentGrant{Policy: "full", Delegation: DelegationIsolated}, lookup)
+	if err != nil || grant != (AgentGrant{Policy: "read-only", Delegation: DelegationNone}) {
+		t.Fatalf("grant=%+v err=%v", grant, err)
+	}
+	if err := ReplayDecision(d); err != nil {
+		t.Fatal(err)
+	}
+	// A tampered record does not replay.
+	d.Output = []byte(`{"agent":"ask","write":true,"policy":"full","delegation":"isolated"}`)
+	if err := ReplayDecision(d); err == nil {
+		t.Fatal("a widened logged grant replayed")
+	}
+	if _, _, _, _, err := AgentDecision("", "gone", "agent", AgentGrant{}, lookup); err == nil {
+		t.Fatal("an agent missing from the catalog resolved")
 	}
 }
 
@@ -280,7 +348,7 @@ func TestDecisionReplay(t *testing.T) {
 		Candidate{Ref: "p/b", Context: 64000, Output: 4096, ToolCalling: true},
 		Candidate{Ref: "p/notools", Context: 64000, Output: 4096, ToolCalling: false},
 	)
-	_, _, model := ModelDecision("", "p/a", "p/d", "sha256:cfg")
+	_, _, model := ModelDecision("", "p/a", "", "p/d", false, "sha256:cfg")
 	cands, candidates := CandidatesDecision("p/a", []config.ModelRef{"p/b", "p/notools"}, models, 2000, 0, []config.ModelRef{})
 	_, effort := EffortDecision("low", "", &config.Escalation{SameFailure: 2, NoProgressSteps: 6, Max: "max"}, Stall{SameFailure: 2}, 7, []config.Effort{"medium", "max"}, "")
 	next, failover := FailoverDecision(cands, 0, protocol.ClassCapacity)
@@ -457,7 +525,7 @@ func TestVerifyStepEnforcesTheI14Trace(t *testing.T) {
 		Candidate{Ref: "p/c", Context: 64000, Output: 1000, ToolCalling: true},
 		Candidate{Ref: "p/x", Context: 64000, Output: 1000, ToolCalling: true},
 	)
-	_, _, model := ModelDecision("", "p/a", "p/d", "sha256:cfg")
+	_, _, model := ModelDecision("", "p/a", "", "p/d", false, "sha256:cfg")
 	cands, candidates := CandidatesDecision("p/a", []config.ModelRef{"p/b"}, models, 100, 0, nil)
 	_, effort := EffortDecision("", "", nil, Stall{}, 0, nil, "")
 	_, failover := FailoverDecision(cands, 0, protocol.ClassAvailability)

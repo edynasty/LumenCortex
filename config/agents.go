@@ -409,15 +409,3 @@ func (e Effective) Agent(id string) (AgentInfo, bool) {
 	a.Models = slices.Clone(a.Models)
 	return a, true
 }
-
-// DefaultModels is the default candidate list: model, then failover. Agents without their own list
-// inherit it for conversations.
-func (e Effective) DefaultModels() []AgentModel {
-	var out []AgentModel
-	for _, ref := range append([]ModelRef{e.Model}, e.Failover...) {
-		if ref != "" && !slices.ContainsFunc(out, func(m AgentModel) bool { return m.Model == ref }) {
-			out = append(out, AgentModel{Model: ref})
-		}
-	}
-	return out
-}

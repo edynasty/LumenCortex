@@ -122,7 +122,9 @@ type SessionInfo struct {
 	// ModelRef is the catalog reference ("<provider>/<model>") the session is pinned to, empty
 	// before the first Start of a session created by an older build. Provider and Model are
 	// the provider id and upstream model id of the last Start, for display.
-	ModelRef string          `json:"modelRef,omitempty"`
+	ModelRef string `json:"modelRef,omitempty"`
+	// Agent is the catalog agent the session is pinned to (ADR-0009), empty before its first Start.
+	Agent    string          `json:"agent,omitempty"`
 	Goal     string          `json:"goal"`
 	Metadata json.RawMessage `json:"metadata,omitempty"`
 	Final    *string         `json:"final,omitempty"`
@@ -440,7 +442,7 @@ func (e *Engine) createSession(ctx context.Context, opts SessionOptions) (*Sessi
 func sessionInfo(v session.Session) SessionInfo {
 	return SessionInfo{
 		ID: v.ID, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, Status: v.Status,
-		Provider: v.Provider, Model: v.Model, ModelRef: v.ModelRef, Goal: v.Goal, Metadata: v.Metadata,
+		Provider: v.Provider, Model: v.Model, ModelRef: v.ModelRef, Agent: v.AgentID, Goal: v.Goal, Metadata: v.Metadata,
 		Final: v.Final, Usage: v.Usage, Error: v.Error,
 	}
 }

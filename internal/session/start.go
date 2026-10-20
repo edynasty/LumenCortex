@@ -20,9 +20,12 @@ type RunStart struct {
 	Provider *string
 	Model    *string
 	// ModelRef pins the session to a catalog model when non-nil. The runtime sets it for an
-	// explicit change (model.user) and for the first Start of a session that has no pin
-	// (model.default); a continuation on the pinned model leaves it nil.
+	// explicit change (model.user), an agent switch or first pin from the agent's list (model.agent)
+	// and the first Start of a session that has no pin (model.default); a continuation on the
+	// pinned model leaves it nil.
 	ModelRef *string
+	// AgentID pins the session to a catalog agent when non-nil (rules agent.user and agent.default).
+	AgentID *string
 	// TaskState is the Start's Task State version (reason "start": seeds from the run options and
 	// the queued inbox edits it applied), when the Start changes Task State.
 	TaskState *TaskStateWrite
@@ -115,6 +118,10 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 	if start.ModelRef != nil {
 		sets += `, model_ref = NULLIF(?, '')`
 		args = append(args, *start.ModelRef)
+	}
+	if start.AgentID != nil {
+		sets += `, agent_id = NULLIF(?, '')`
+		args = append(args, *start.AgentID)
 	}
 	args = append(args, sessionID)
 	if _, err := conn.ExecContext(ctx, `UPDATE sessions SET `+sets+` WHERE id = ?`, args...); err != nil {

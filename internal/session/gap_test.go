@@ -212,7 +212,7 @@ func TestBeginRunWritesInputIdentityAndRunningTogether(t *testing.T) {
 	gapRow(t, store, "s", "user", protocol.Message{Content: "goal"})
 
 	committed, seqs, err := store.BeginRun(context.Background(), "s", RunStart{
-		Input: &protocol.Message{Role: "user", Content: "next"}, Provider: ptr("p"), Model: ptr("m"),
+		Input: &protocol.Message{Role: "user", Content: "next"}, Provider: ptr("p"), Model: ptr("m"), AgentID: ptr("explore"),
 	})
 	if err != nil || !reflect.DeepEqual(seqs, []int64{1}) {
 		t.Fatalf("BeginRun = %v, %v; want seqs [1]", seqs, err)
@@ -221,11 +221,19 @@ func TestBeginRunWritesInputIdentityAndRunningTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != "running" || got.Final != nil || len(got.Error) != 0 || got.Provider != "p" || got.Model != "m" {
+	if got.Status != "running" || got.Final != nil || len(got.Error) != 0 || got.Provider != "p" || got.Model != "m" || got.AgentID != "explore" {
 		t.Fatalf("session after BeginRun: %+v", got)
 	}
 	if !reflect.DeepEqual(committed, got) {
 		t.Fatalf("the row BeginRun returned differs from the committed row:\n%+v\n%+v", committed, got)
+	}
+	// A Start without an agent leaves the pin; an id outside the column's CHECK rolls back the whole
+	// Start, the input row included.
+	if _, _, err := store.BeginRun(context.Background(), "s", RunStart{AgentID: ptr("Not An Id"), Input: &protocol.Message{Role: "user", Content: "x"}}); err == nil {
+		t.Fatal("BeginRun accepted an invalid agent id")
+	}
+	if again, _ := store.Get(context.Background(), "s"); again.AgentID != "explore" || len(rowsOf(t, store, "s")) != 2 {
+		t.Fatalf("a failed BeginRun changed the session: %+v", again)
 	}
 	rows := rowsOf(t, store, "s")
 	if len(rows) != 2 || rows[1].Content != "next" || rows[1].Origin != "" {

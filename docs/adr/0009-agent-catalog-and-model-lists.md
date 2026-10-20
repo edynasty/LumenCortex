@@ -1,6 +1,6 @@
 # ADR-0009: Agent catalog and per-agent model lists
 
-- **Status:** Accepted (owner direction 2026-10-20: one Core-owned agent system, built-in and user-defined agents, per-agent ordered model candidates with effort and fallback, no separate model roles). Phase A1 (catalog, config only) is implemented; A2 and A3 follow under this record.
+- **Status:** Accepted (owner direction 2026-10-20: one Core-owned agent system, built-in and user-defined agents, per-agent ordered model candidates with effort and fallback, no separate model roles). Phases A1 (catalog, config only) and A2 Core (thread agents, lists, ceilings) are implemented; A2 Desktop and A3 follow under this record.
 - **Date:** 2026-10-20
 - **Owners:** project owner
 - **Supersedes:** the `subagentModel` configuration key; Desktop's `agents.json` profiles (retired when Desktop moves onto the Core catalog in A2)
@@ -28,7 +28,7 @@ The owner also requires that each agent has its own ordered model candidates wit
 
    Up to 16 custom agents. A delegation agent must cap `policy` at `read-only` (eligible for `spawn_subagent`) or `workspace` (eligible for `start_task`) and must have a `description`, because the model chooses delegation agents by that text. Delegation agents never hold a delegation grant. No Planner or Reviewer built-in: neither has distinct behaviour today (a reviewer needs read access to a task's worktree first).
 
-3. **One list concept.** An agent's `models` list *is* its failover chain. Top-level `model` + `failover` remain and form the **default list** that an agent without its own list inherits (conversations) — children without their own list inherit the parent's effective list. No model roles.
+3. **One list concept.** An agent's `models` list *is* its failover chain. Top-level `model` + `failover` remain the default for an agent without its own list: `model` pins a new session and `failover` follows the pinned model, exactly as before agents had lists (so a session pinned to another model never needs the default model's credentials). Children without their own list inherit the parent's effective list. No model roles.
 
 4. **Trust.** A trusted workspace may add or replace custom agents (whole) and override built-ins field by field. An untrusted workspace may set only `models` and `effort` of an agent that already exists, and only to models of global providers; any other agent entry is dropped with `untrusted_override`. This is the rule `model` and `failover` already follow.
 
@@ -53,6 +53,6 @@ The owner also requires that each agent has its own ordered model candidates wit
 
 ## Phases
 
-- **A1 (implemented):** schema, types, built-ins, validation, trust merge, `Effective.Agents`/`Agent`/`DefaultModels`, `subagentModel` retirement and migration, children's model from `explore`/`worker`. Report: [`docs/reports/agent-catalog-2026-10-20.md`](../reports/agent-catalog-2026-10-20.md).
-- **A2:** thread agents, candidate lists with per-entry effort, ceilings, `agent` decision, `Instructions` removed; Desktop on the Core catalog.
+- **A1 (implemented):** schema, types, built-ins, validation, trust merge, `Effective.Agents`/`Agent`, `subagentModel` retirement and migration, children's model from `explore`/`worker`. Report: [`docs/reports/agent-catalog-2026-10-20.md`](../reports/agent-catalog-2026-10-20.md).
+- **A2:** thread agents, candidate lists with per-entry effort, ceilings, `agent` decision, `Instructions` removed (Core implemented, same report); Desktop on the Core catalog (pending).
 - **A3:** agent choice in `spawn_subagent`/`start_task`.

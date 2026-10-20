@@ -449,6 +449,7 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 		}
 	}
 	return lcx.AgentOptions{
+		Agent:               strings.TrimSpace(os.Getenv("LCX_AGENT")),
 		Policy:              policy,
 		MaxSteps:            maxSteps,
 		MaxTokens:           maxTokens,
