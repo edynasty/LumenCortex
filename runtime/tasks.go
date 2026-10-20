@@ -1,11 +1,13 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -66,6 +68,8 @@ type ExecutionTask struct {
 type TaskResult struct {
 	TaskID    string `json:"taskId,omitempty"`
 	SessionID string `json:"sessionId"`
+	// Agent is the catalog agent the child ran (ADR-0009 A3).
+	Agent     string `json:"agent,omitempty"`
 	Objective string `json:"objective"`
 	Status    string `json:"status"`
 	ErrorKind string `json:"errorKind,omitempty"`
@@ -133,8 +137,8 @@ type taskStarter struct {
 	parentOpts AgentOptions
 }
 
-func (t *taskStarter) StartTask(ctx context.Context, objective string) (string, any, error) {
-	task, err := t.supervisor.startExecutionTask(ctx, t.parentID, objective, "", t.parentOpts)
+func (t *taskStarter) StartTask(ctx context.Context, objective, agentID string) (string, any, error) {
+	task, err := t.supervisor.startExecutionTask(ctx, t.parentID, objective, "", agentID, t.parentOpts)
 	if err != nil {
 		return "", nil, err
 	}
@@ -180,10 +184,14 @@ func (s *RunSupervisor) StartProposedTask(ctx context.Context, parentID, taskID 
 		return ExecutionTask{}, err
 	}
 	var started ExecutionTask
+	// The proposal's agent and the proposing run's bounds apply: the user's Start authorizes exactly
+	// what was proposed. A proposal recorded before agents existed runs worker without bounds.
+	agentID := cmp.Or(task.Agent, config.AgentWorker)
+	bounds := proposalBounds(task.Bounds)
 	if child != "" {
-		started, err = s.resumeUnstartedTask(ctx, parentID, child, taskID)
+		started, err = s.resumeUnstartedTask(ctx, parentID, child, taskID, agentID, bounds)
 	} else {
-		started, err = s.startExecutionTask(ctx, parentID, task.Objective, taskID, AgentOptions{})
+		started, err = s.startExecutionTask(ctx, parentID, task.Objective, taskID, agentID, bounds)
 	}
 	if err != nil {
 		return ExecutionTask{}, err
@@ -220,8 +228,17 @@ func (e *Engine) proposalChild(ctx context.Context, parentID, taskID string) (st
 	return "", nil
 }
 
+// proposalBounds are the run options a proposal's recorded bounds stand for.
+func proposalBounds(b *taskstate.TaskBounds) AgentOptions {
+	if b == nil {
+		return AgentOptions{}
+	}
+	return AgentOptions{MaxSteps: b.MaxSteps, MaxToolCallsPerStep: b.MaxToolCallsPerStep, MaxTokens: b.MaxTokens,
+		ToolDenylist: slices.Clone(b.ToolDenylist)}
+}
+
 // resumeUnstartedTask completes an earlier start of child: a child that never ran is started now.
-func (s *RunSupervisor) resumeUnstartedTask(ctx context.Context, parentID, child, taskID string) (ExecutionTask, error) {
+func (s *RunSupervisor) resumeUnstartedTask(ctx context.Context, parentID, child, taskID, agentID string, parentOpts AgentOptions) (ExecutionTask, error) {
 	row, err := s.engine.store.Get(ctx, child)
 	if err != nil {
 		return ExecutionTask{}, err
@@ -231,11 +248,14 @@ func (s *RunSupervisor) resumeUnstartedTask(ctx context.Context, parentID, child
 		if err != nil {
 			return ExecutionTask{}, err
 		}
-		ref, err := s.engine.childModelRef(ctx, parentID, config.AgentWorker)
+		if err := s.engine.delegationAgent(agentID, config.AgentInfo.TaskEligible); err != nil {
+			return ExecutionTask{}, err
+		}
+		ref, err := s.engine.childModelRef(ctx, parentID, agentID)
 		if err != nil {
 			return ExecutionTask{}, err
 		}
-		if _, err := s.Start(ctx, child, executionOptions(AgentOptions{}, ref, units, parentID)); err != nil {
+		if _, err := s.Start(ctx, child, executionOptions(parentOpts, ref, units, parentID, agentID)); err != nil {
 			return ExecutionTask{}, err
 		}
 	}
@@ -245,12 +265,17 @@ func (s *RunSupervisor) resumeUnstartedTask(ctx context.Context, parentID, child
 // startExecutionTask creates and starts one execution child of parentID. It refuses beyond
 // concurrency.maxChildrenPerParent running children. If anything fails before the child's first run
 // has started, the child is removed with its fresh worktree and branch: no partial task is left behind.
-func (s *RunSupervisor) startExecutionTask(ctx context.Context, parentID, objective, taskID string, parentOpts AgentOptions) (ExecutionTask, error) {
+func (s *RunSupervisor) startExecutionTask(ctx context.Context, parentID, objective, taskID, agentID string, parentOpts AgentOptions) (ExecutionTask, error) {
 	objective, err := taskstate.ValidTaskObjective(objective)
 	if err != nil {
 		return ExecutionTask{}, err
 	}
 	e := s.engine
+	// Checked before the session and worktree exist: an ineligible agent leaves nothing behind.
+	agentID = cmp.Or(strings.TrimSpace(agentID), config.AgentWorker)
+	if err := e.delegationAgent(agentID, config.AgentInfo.TaskEligible); err != nil {
+		return ExecutionTask{}, err
+	}
 	if err := s.checkChildLimit(ctx, parentID); err != nil {
 		return ExecutionTask{}, err
 	}
@@ -262,7 +287,7 @@ func (s *RunSupervisor) startExecutionTask(ctx context.Context, parentID, object
 	if err != nil {
 		return ExecutionTask{}, err
 	}
-	ref, err := e.childModelRef(ctx, parentID, config.AgentWorker)
+	ref, err := e.childModelRef(ctx, parentID, agentID)
 	if err != nil {
 		return ExecutionTask{}, err
 	}
@@ -284,16 +309,16 @@ func (s *RunSupervisor) startExecutionTask(ctx context.Context, parentID, object
 		e.discardUnstartedTask(child, SessionRuntime{})
 		return ExecutionTask{}, err
 	}
-	relationMeta, _ := json.Marshal(map[string]any{"taskId": taskID, "base": base})
+	relationMeta, _ := json.Marshal(map[string]any{"taskId": taskID, "base": base, "agent": agentID})
 	if err := e.store.AddRelation(ctx, session.Relation{ParentSessionID: parentID, ChildSessionID: child, Kind: RelationExecution, Metadata: relationMeta}); err != nil {
 		e.discardUnstartedTask(child, identity)
 		return ExecutionTask{}, err
 	}
-	if _, err := s.Start(ctx, child, executionOptions(parentOpts, ref, units, parentID)); err != nil {
+	if _, err := s.Start(ctx, child, executionOptions(parentOpts, ref, units, parentID, agentID)); err != nil {
 		e.discardUnstartedTask(child, identity)
 		return ExecutionTask{}, err
 	}
-	payload := map[string]any{"childSessionId": child, "taskId": taskID, "base": base, "branch": identity.Branch}
+	payload := map[string]any{"childSessionId": child, "taskId": taskID, "base": base, "branch": identity.Branch, "agent": agentID}
 	_, _ = e.store.AppendCheckpoint(context.Background(), parentID, "task.started", payload)
 	e.events.publish("task.started", parentID, payload)
 	return e.executionTask(ctx, parentID, child, taskID)
@@ -373,8 +398,8 @@ func (e *Engine) taskUnits(objective string) (json.RawMessage, error) {
 // executionOptions are an execution child's run options. The child's authority is fixed here, not by
 // the host: Policy workspace (file tools confined to its worktree, no shell), no MCP, no spawn, no
 // delegation, never interactive. Step and output bounds, effort and the tool denylist come from the
-// parent run when there is one.
-func executionOptions(parent AgentOptions, ref config.ModelRef, units json.RawMessage, parentID string) AgentOptions {
+// parent run when there is one. agentID is the agent the child runs, pinned by its first Start.
+func executionOptions(parent AgentOptions, ref config.ModelRef, units json.RawMessage, parentID, agentID string) AgentOptions {
 	return AgentOptions{
 		ModelRef:            ref,
 		Policy:              toolset.PolicyWorkspace,
@@ -385,7 +410,7 @@ func executionOptions(parent AgentOptions, ref config.ModelRef, units json.RawMe
 		MaxTokens:           parent.MaxTokens,
 		Temperature:         parent.Temperature,
 		parentSessionID:     parentID,
-		childAgent:          config.AgentWorker,
+		childAgent:          agentID,
 		disableSubagents:    true,
 		disableMCP:          true,
 	}
@@ -409,7 +434,9 @@ func (e *Engine) constrainExecutionChild(ctx context.Context, sessionID string, 
 	opts.Delegation = ""
 	opts.Interactive = false
 	opts.parentSessionID = relation.ParentSessionID
-	opts.childAgent = config.AgentWorker
+	// The launcher's agent (unexported: never a host's) is kept for the first Start; later Starts run
+	// the agent the child pinned, which outranks this default.
+	opts.childAgent = cmp.Or(opts.childAgent, config.AgentWorker)
 	opts.disableSubagents = true
 	opts.disableMCP = true
 	opts.subagents = nil
@@ -523,7 +550,7 @@ func (e *Engine) taskResults(ctx context.Context, parentID string, state *taskst
 // taskResult reads one child's result. Storage errors fail the Start; a worktree or checks that
 // cannot be read are reported in the result instead.
 func (e *Engine) taskResult(ctx context.Context, parent taskstate.State, relation session.Relation, child session.Session) (TaskResult, error) {
-	out := TaskResult{SessionID: child.ID, Objective: truncateBytes(child.Goal, 512), Status: child.Status, Checks: []TaskResultCheck{}}
+	out := TaskResult{SessionID: child.ID, Agent: child.AgentID, Objective: truncateBytes(child.Goal, 512), Status: child.Status, Checks: []TaskResultCheck{}}
 	for _, t := range parent.Tasks {
 		if t.SessionID == child.ID {
 			out.TaskID = t.ID

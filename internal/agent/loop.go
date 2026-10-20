@@ -187,7 +187,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		}
 		specs := l.Tools.Specs(allowlist)
 		specs = append(specs, filterTaskToolSpecs(allowlist)...)
-		specs = append(specs, l.delegationSpecs(opts.Delegation, allowlist)...)
+		specs = append(specs, l.delegationSpecs(opts.Delegation, allowlist, opts.TaskAgents)...)
 		specs = filterDeniedTools(specs, opts.ToolDenylist)
 		activeWorkUnit, _ := r.units.EnsureActive()
 		r.ts.SetUnits(r.units)
@@ -341,7 +341,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			} else {
 				l.emit("tool.start", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "args": args})
 				if call.Name == toolStartTask {
-					toolResult = l.startTask(ctx, r, opts.Delegation, args, time.Now().UTC())
+					toolResult = l.startTask(ctx, r, opts, args, time.Now().UTC())
 					if ctx.Err() != nil {
 						// Cancelled while starting: the call stays unanswered and the run ends. A child
 						// that did start is still delivered through its relation.

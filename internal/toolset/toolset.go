@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/mcp"
 	"github.com/edynasty/LumenCortex/internal/repository"
@@ -30,17 +31,21 @@ type Options struct {
 	LSP       *lsp.Manager
 	MCP       *mcp.Registry
 	Subagents SubagentController
+	// SubagentAgents are the catalog agents spawn_subagent may run (ADR-0009 A3): delegation use,
+	// read-only ceiling. They form the tool's agent enum; empty offers no agent parameter (explore runs).
+	SubagentAgents []config.AgentInfo
 }
 type Set struct {
-	workspace     string
-	realWorkspace string
-	policy        string
-	shell         *shell.Runner
-	repository    *repository.Service
-	lsp           *lsp.Manager
-	mcp           *mcp.Registry
-	subagents     SubagentController
-	tools         map[string]tool
+	workspace      string
+	realWorkspace  string
+	policy         string
+	shell          *shell.Runner
+	repository     *repository.Service
+	lsp            *lsp.Manager
+	mcp            *mcp.Registry
+	subagents      SubagentController
+	subagentAgents []config.AgentInfo
+	tools          map[string]tool
 }
 type tool struct {
 	spec    protocol.ToolSpec
@@ -86,7 +91,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }

@@ -223,7 +223,7 @@ func TestAvailabilityFailoverKeepsPinAndChildInheritsIt(t *testing.T) {
 
 	// The child inherits sessions.model_ref (a), not the model that answered the parent (b).
 	controller := &subagentController{supervisor: supervisor, parentID: handle.ID, parentOpts: AgentOptions{}}
-	value, err := controller.Spawn(context.Background(), "inspect")
+	value, err := controller.Spawn(context.Background(), "inspect", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestChildUsesTheExploreAgentModelWhenConfigured(t *testing.T) {
 		t.Fatalf("parent %+v", r)
 	}
 	controller := &subagentController{supervisor: supervisor, parentID: handle.ID, parentOpts: AgentOptions{Effort: "low"}}
-	value, err := controller.Spawn(context.Background(), "inspect")
+	value, err := controller.Spawn(context.Background(), "inspect", "")
 	if err != nil {
 		t.Fatal(err)
 	}

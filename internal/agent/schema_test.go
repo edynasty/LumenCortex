@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/toolset"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -15,13 +16,15 @@ import (
 
 type schemaSubagents struct{}
 
-func (schemaSubagents) Spawn(context.Context, string) (any, error)               { return nil, nil }
+func (schemaSubagents) Spawn(context.Context, string, string) (any, error)       { return nil, nil }
 func (schemaSubagents) List(context.Context) (any, error)                        { return nil, nil }
 func (schemaSubagents) Wait(context.Context, string, time.Duration) (any, error) { return nil, nil }
 
 type schemaStarter struct{}
 
-func (schemaStarter) StartTask(context.Context, string) (string, any, error) { return "", nil, nil }
+func (schemaStarter) StartTask(context.Context, string, string) (string, any, error) {
+	return "", nil, nil
+}
 
 // Every tool a request carries has a parameter schema an endpoint that validates JSON Schema accepts:
 // an object schema, no null anywhere, and "required" either absent or a non-empty list of declared
@@ -32,7 +35,11 @@ func TestRequestToolSchemasAreValidJSONSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tools, err := toolset.New(toolset.Options{Workspace: workspace, Policy: toolset.PolicyFull, LSP: manager, Subagents: schemaSubagents{}})
+	// Both delegation tools carry their agent enum, so its schema is checked too.
+	spawnAgents := []config.AgentInfo{{ID: config.AgentExplore, Description: "Reads."}, {ID: "audit", Description: "Audits."}}
+	taskAgents := []config.AgentInfo{{ID: config.AgentWorker, Description: "Edits."}}
+	tools, err := toolset.New(toolset.Options{Workspace: workspace, Policy: toolset.PolicyFull, LSP: manager, Subagents: schemaSubagents{},
+		SubagentAgents: spawnAgents})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +47,8 @@ func TestRequestToolSchemasAreValidJSONSchema(t *testing.T) {
 		t.Run(delegation, func(t *testing.T) {
 			provider := &scriptedProvider{responses: []protocol.ProviderResponse{answer("ok")}}
 			loop := &Loop{Models: testModels(provider), Store: newState("p"), Tools: tools, Tasks: schemaStarter{}}
-			if _, err := loop.Run(context.Background(), "p", Options{Session: testRef, MaxSteps: 2, Interactive: true, Delegation: delegation}); err != nil {
+			opts := Options{Session: testRef, MaxSteps: 2, Interactive: true, Delegation: delegation, TaskAgents: taskAgents}
+			if _, err := loop.Run(context.Background(), "p", opts); err != nil {
 				t.Fatal(err)
 			}
 			if len(provider.seen) == 0 {

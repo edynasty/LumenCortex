@@ -229,7 +229,7 @@ func TestSubagentSessionKeepsCoreMetadata(t *testing.T) {
 
 	parentID := newParentSession(t, engine, &finalProvider{})
 	controller := &subagentController{supervisor: supervisor, parentID: parentID, parentOpts: AgentOptions{}}
-	value, err := controller.Spawn(context.Background(), "finish quickly")
+	value, err := controller.Spawn(context.Background(), "finish quickly", "")
 	if err != nil {
 		t.Fatal(err)
 	}

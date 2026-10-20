@@ -399,6 +399,18 @@ func cloneAgentInfos(in []AgentInfo) []AgentInfo {
 	return out
 }
 
+// DelegationAgents are the catalog agents eligible says a launch kind may run, in catalog order:
+// SpawnEligible for spawn_subagent, TaskEligible for start_task (ADR-0009 A3).
+func (e Effective) DelegationAgents(eligible func(AgentInfo) bool) []AgentInfo {
+	var out []AgentInfo
+	for _, a := range e.Agents {
+		if eligible(a) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // Agent returns the catalog agent with id.
 func (e Effective) Agent(id string) (AgentInfo, bool) {
 	i := slices.IndexFunc(e.Agents, func(a AgentInfo) bool { return a.ID == id })

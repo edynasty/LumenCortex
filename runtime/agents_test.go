@@ -416,7 +416,7 @@ func TestChildInheritsParentListButNotEffortOverride(t *testing.T) {
 	}
 
 	controller := &subagentController{supervisor: supervisor, parentID: handle.ID, parentOpts: parentOpts}
-	value, err := controller.Spawn(context.Background(), "inspect")
+	value, err := controller.Spawn(context.Background(), "inspect", "")
 	if err != nil {
 		t.Fatal(err)
 	}

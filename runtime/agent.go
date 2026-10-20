@@ -215,6 +215,8 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		LSP:       lspManager,
 		MCP:       mcpRegistry,
 		Subagents: opts.subagents,
+		// Children get no spawn tool, so the list matters only to a thread's run.
+		SubagentAgents: plan.spawnAgents,
 	})
 	if err != nil {
 		return nil, err
@@ -284,6 +286,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Decisions:           decisions,
 		Interactive:         interactive,
 		Delegation:          delegation,
+		TaskAgents:          plan.taskAgents,
 	}
 
 	if e.skillRegistry != nil {

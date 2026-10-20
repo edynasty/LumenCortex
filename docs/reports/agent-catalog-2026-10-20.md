@@ -1,8 +1,8 @@
-# Agent catalog and model lists — phases A1 and A2 Core (2026-10-20)
+# Agent catalog and model lists — phases A1, A2 Core and A3 (2026-10-20)
 
 - **Scope:** ADR-0009 phase A1, Core only: the `agents` configuration key, built-ins, validation, trust merge, the merged catalog view, and the retirement of `subagentModel`. No run consumes thread agents, ceilings or per-candidate effort yet (A2), and children cannot choose an agent yet (A3).
 - **Baseline:** Core `efe9b66` (ADR-0008 concurrency); A1 committed as `bfed40c`.
-- **Status:** A1 and A2 Core implemented and validated locally; not pushed. A2 Core committed as `8998c25`; A2 Desktop (Agents page and composer on the Core catalog, `agents.json` import, `subagentModel` migration) committed as Desktop `c82a039`, report in that repo at `docs/reports/agent-catalog-desktop-2026-10-20.md`.
+- **Status:** A1 and A2 Core implemented and validated locally; not pushed. A2 Core committed as `8998c25`; A2 Desktop (Agents page and composer on the Core catalog, `agents.json` import, `subagentModel` migration) committed as Desktop `c82a039`, report in that repo at `docs/reports/agent-catalog-desktop-2026-10-20.md`. `lcx-go agents` committed as `67ad2ca`. A3 implemented and validated (section below).
 - **Design:** [ADR-0009](../adr/0009-agent-catalog-and-model-lists.md); handoff `../LumenCortex-architecture-audit/design/handoffs/agent-architecture-2026-10-20.md` (not version-controlled).
 
 ## Changes
@@ -74,6 +74,36 @@ Run on this change: `go test -count=1 ./...` (all 24 packages ok; `runtime` re-r
 
 Compatibility: **breaking for hosts** — `AgentOptions.Instructions` no longer exists (Desktop is the only caller and moves in the paired A2 Desktop change). Databases upgrade to user_version 5; `Downgrade` to 4 drops the column. A new thread's behaviour without `Agent` is the built-in `agent` with no ceiling, i.e. the previous behaviour.
 
+## A3 — agent choice in the delegation tools
+
+- `internal/toolset/subagents.go`: `AgentCatalogLines`, `AgentIDs`, `AgentParameter`; `Options.SubagentAgents` builds `spawn_subagent`'s optional `agent` enum (default `explore`) and description lines; an id outside the enum errors before `SubagentController.Spawn(ctx, goal, agentID)` is called.
+- `internal/agent/delegation.go`: `Options.TaskAgents` does the same for `start_task` (default `worker`); `TaskStarter.StartTask(ctx, objective, agentID)`. Under `propose`, the proposal records the agent and `taskstate.TaskBounds` (max steps, tool calls per step, max tokens, denylist) of the proposing run, which fixes A-F8 (a user-started proposal ran without the parent's bounds).
+- `config.Effective.DelegationAgents(eligible)`; `modelPlan.spawnAgents/taskAgents` read once per Start with the rest of the configuration.
+- `runtime`: `Engine.delegationAgent` re-checks the agent against the configuration of that moment in `subagentController.Spawn`, `startExecutionTask` and `resumeUnstartedTask`, before any session, relation or worktree exists (`ErrUnknownAgent`, new `ErrAgentUseMismatch`). The launcher passes the agent as the child's default agent; the child's first Start pins it, and later Starts (host resume, Reconcile) run the pin. **Bug found by the new test and fixed:** `constrainExecutionChild` overwrote the launcher's agent with `worker` on the first Start; it now keeps a launcher-set value (unexported, never host-supplied).
+- Checkpoints `subagent.spawn`, `task.started`, event `subagent.spawned` and relation metadata carry `agent`; `SubagentNode.Agent`, `TaskResult.Agent` (delivered to the parent model in the `task_result` row) report it.
+- `ErrUnknownAgent` is now `agent.ErrAgentNotInCatalog` (one sentinel; message `agent is not in the catalog: "id"`), committed with `lcx-go agents` in `67ad2ca`.
+
+Tests (new): `runtime/delegation_agents_test.go`:
+- `TestDelegationToolsOfferOnlyEligibleAgents`: acceptance 1.
+- `TestSpawnRunsTheChosenAgentAndResumeKeepsIt`: acceptance 2 and 5. The child pins `audit`, runs its model, and gets its instructions after the launch prompt with no write tool. Ineligible and unknown ids start nothing. After a crash, Reconcile and a host resume asking `full`, the child still runs `audit` read-only.
+- `TestStartTaskRefusesAnIneligibleAgent`: acceptance 3. A tool error lists the valid ids; no session, worktree or Task State entry is created.
+- `TestProposalRecordsAgentAndParentBounds`: acceptance 4. The child gets `max_tokens` 500 and the denylist. The tree and `task_result` name `fixer`. A proposal whose agent became read-only is refused at Start without creating a worktree.
+- `TestChildRunsItsAgentEffortNotTheThreadOverride`: the handoff's A3 extra. The thread asks `max`; the child of `explore {effort: low}` sends `low`.
+
+`internal/toolset/subagents_test.go`:
+- `TestSpawnSubagentRunsOnlyEligibleAgents`.
+- `TestAgentCatalogLinesAreBounded`: acceptance 6. A full catalog of 16 maximal read-only delegation agents measures exactly the bound, 16 × (5 + 40 + 280) bytes plus the `explore` line, which is under 6 KiB.
+
+`internal/agent/schema_test.go` now validates both enums' JSON Schema.
+
+Not run: the advisory selection probe on a real model (acceptance "plus one advisory selection probe") needs an owner-approved model and cost; not executed.
+
+Hidden reasoning: the new Task State fields hold a catalog id and numeric/denylist bounds copied from run options; nothing model-written beyond the enum-checked id. `TestProposedTaskRunsConfinedAndDeliversItsResultOnce` (child reasoning never in the database) passes unchanged.
+
+Run on this change: `go test -count=1 ./...` (all packages ok), `go build ./...`, `go vet ./...` clean. `gofmt -l` lists only files not touched here (pre-existing).
+
+Compatibility: Go API — `toolset.SubagentController.Spawn` and `agent.TaskStarter.StartTask` gain an `agentID` parameter (in-repo implementations only). Wire — tool calls without `agent` behave as before; Task State and read-model fields are additive and omitted when empty; proposals recorded before A3 start `worker` without bounds, as before.
+
 ## Open
 
-- A3 per ADR-0009. Neither repo is pushed; Desktop `c82a039` pins Core `8998c25`, so Core must be pushed first for a clean Desktop module download. N3 (auth-error failover) stays a separate owner decision.
+- Neither repo is pushed; Desktop `c82a039` pins Core `8998c25`, so Core must be pushed first for a clean Desktop module download. N3 (auth-error failover) stays a separate owner decision.

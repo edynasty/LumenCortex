@@ -32,6 +32,9 @@ var (
 	ErrUnknownAgent = agent.ErrAgentNotInCatalog
 	// ErrAgentNotForConversation reports a requested agent whose use is delegation only.
 	ErrAgentNotForConversation = errors.New("agent runs only as a delegated child")
+	// ErrAgentUseMismatch reports a delegation agent the launch kind may not run (ADR-0009 A3):
+	// spawn_subagent runs read-only delegation agents, start_task workspace ones.
+	ErrAgentUseMismatch = errors.New("agent cannot run this kind of child")
 )
 
 func defaultProviderFactory(m config.ResolvedModel) (protocol.Provider, error) {
@@ -81,6 +84,9 @@ type modelPlan struct {
 	// checks are the effective configuration's checks (design §4.7); untrusted workspace checks are
 	// already dropped by config.
 	checks []evaluator.Spec
+	// spawnAgents and taskAgents are the catalog agents spawn_subagent and start_task may run
+	// (ADR-0009 A3): the tools' agent enums.
+	spawnAgents, taskAgents []config.AgentInfo
 }
 
 // autoPlan is the resolved effort.auto settings of one Start. judge is zero when no judge model is
@@ -169,6 +175,8 @@ func (e *Engine) planModels(req startRequest) (*modelPlan, error) {
 		session: ref, resolved: resolved, rule: rule, decision: decision,
 		models: map[config.ModelRef]agent.Model{}, effort: eff.EffortDefault, effortFor: map[config.ModelRef]config.Effort{},
 		escalation: eff.Escalation, auto: auto, checks: evaluator.Specs(eff.Checks),
+		spawnAgents: eff.DelegationAgents(config.AgentInfo.SpawnEligible),
+		taskAgents:  eff.DelegationAgents(config.AgentInfo.TaskEligible),
 	}
 	if def.Effort != "" {
 		plan.effort = def.Effort
@@ -219,4 +227,22 @@ func (p *modelPlan) needsAuto(override config.Effort) bool {
 		}
 	}
 	return false
+}
+
+// delegationAgent checks, against the configuration as it is now, that agentID may run a child of the
+// launch kind eligible describes. It is the launch's last check before a child exists: the tool's
+// enum was built at the parent's Start and a proposal may be started much later.
+func (e *Engine) delegationAgent(agentID string, eligible func(config.AgentInfo) bool) error {
+	cfg, err := config.Load(e.workspace)
+	if err != nil {
+		return err
+	}
+	a, ok := cfg.Effective().Agent(agentID)
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrUnknownAgent, agentID)
+	}
+	if !eligible(a) {
+		return fmt.Errorf("%w: %s", ErrAgentUseMismatch, agentID)
+	}
+	return nil
 }

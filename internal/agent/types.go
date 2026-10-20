@@ -78,7 +78,8 @@ func ValidDelegation(d string) bool {
 // TaskStarter starts an execution task for delegation isolated: a child session that runs the
 // objective on its own. It returns the child's session id and a summary for the tool result.
 type TaskStarter interface {
-	StartTask(ctx context.Context, objective string) (sessionID string, detail any, err error)
+	// agentID is the catalog agent the child runs; the loop has checked it against Options.TaskAgents.
+	StartTask(ctx context.Context, objective, agentID string) (sessionID string, detail any, err error)
 }
 
 type Event struct {
@@ -133,6 +134,9 @@ type Options struct {
 	// execution tasks through Loop.Tasks. It is independent of the run's tool policy and is checked
 	// again when the tool executes.
 	Delegation string
+	// TaskAgents are the catalog agents start_task may run (ADR-0009 A3): delegation use, workspace
+	// ceiling. They form the tool's agent enum; an empty list offers no agent parameter (worker runs).
+	TaskAgents []config.AgentInfo
 }
 
 // CandidateEffort is one candidate's default effort and, when that default was resolved from auto,

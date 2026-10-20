@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,7 +25,9 @@ type SubagentNode struct {
 	SessionID       string `json:"sessionId"`
 	ParentSessionID string `json:"parentSessionId,omitempty"`
 	// Kind is the relation: RelationSubagent or RelationExecution.
-	Kind      string         `json:"kind"`
+	Kind string `json:"kind"`
+	// Agent is the catalog agent the child pinned at its first Start (ADR-0009 A3), "" before it.
+	Agent     string         `json:"agent,omitempty"`
 	Goal      string         `json:"goal"`
 	Status    string         `json:"status"`
 	Final     string         `json:"final,omitempty"`
@@ -49,7 +52,7 @@ type subagentController struct {
 	parentOpts AgentOptions
 }
 
-func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error) {
+func (c *subagentController) Spawn(ctx context.Context, goal, agentID string) (any, error) {
 	goal = strings.TrimSpace(goal)
 	if goal == "" {
 		return nil, errors.New("subagent goal is required")
@@ -58,6 +61,10 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 		return nil, ErrRunSupervisorClosed
 	}
 	engine := c.supervisor.engine
+	agentID = cmp.Or(strings.TrimSpace(agentID), config.AgentExplore)
+	if err := engine.delegationAgent(agentID, config.AgentInfo.SpawnEligible); err != nil {
+		return nil, err
+	}
 
 	if err := c.supervisor.checkChildLimit(ctx, c.parentID); err != nil {
 		return nil, err
@@ -85,7 +92,7 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 		metadata["runtime"] = identity
 	}
 
-	childRef, err := engine.childModelRef(ctx, c.parentID, config.AgentExplore)
+	childRef, err := engine.childModelRef(ctx, c.parentID, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +106,8 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 	}
 
 	relationMetadata, _ := json.Marshal(map[string]any{
-		"mode": "read-only",
+		"mode":  "read-only",
+		"agent": agentID,
 	})
 	if err := engine.store.AddRelation(ctx, session.Relation{
 		ParentSessionID: c.parentID,
@@ -112,9 +120,10 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 	_, _ = engine.store.AppendCheckpoint(context.Background(), c.parentID, "subagent.spawn", map[string]any{
 		"childSessionId": handle.ID,
 		"goal":           goal,
+		"agent":          agentID,
 	})
 
-	childOpts := c.childOptions(childRef)
+	childOpts := c.childOptions(childRef, agentID)
 	if _, err := c.supervisor.Start(ctx, handle.ID, childOpts); err != nil {
 		status := "interrupted"
 		errorRaw, _ := json.Marshal(map[string]any{
@@ -135,6 +144,7 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 	engine.events.publish("subagent.spawned", c.parentID, map[string]any{
 		"childSessionId": handle.ID,
 		"goal":           goal,
+		"agent":          agentID,
 	})
 	return c.summary(ctx, handle.ID)
 }
@@ -187,7 +197,9 @@ func (c *subagentController) Wait(ctx context.Context, childSessionID string, ti
 	return SubagentWaitResult{Node: node}, nil
 }
 
-func (c *subagentController) childOptions(childRef config.ModelRef) AgentOptions {
+// childOptions are a read-only child's run options. The launch fixes the authority (read-only, no
+// MCP, no spawn); agentID is the agent it runs, pinned by its first Start.
+func (c *subagentController) childOptions(childRef config.ModelRef, agentID string) AgentOptions {
 	maxSteps := c.parentOpts.MaxSteps
 	if maxSteps <= 0 || maxSteps > 12 {
 		maxSteps = 12
@@ -206,7 +218,7 @@ func (c *subagentController) childOptions(childRef config.ModelRef) AgentOptions
 		MaxTokens:           c.parentOpts.MaxTokens,
 		Temperature:         c.parentOpts.Temperature,
 		parentSessionID:     c.parentID,
-		childAgent:          config.AgentExplore,
+		childAgent:          agentID,
 		disableSubagents:    true,
 		disableMCP:          true,
 	}
@@ -228,6 +240,7 @@ func (c *subagentController) summary(ctx context.Context, childID string) (Subag
 	return SubagentNode{
 		SessionID:       value.ID,
 		Kind:            RelationSubagent,
+		Agent:           value.AgentID,
 		ParentSessionID: c.parentID,
 		Goal:            value.Goal,
 		Status:          value.Status,
@@ -293,6 +306,7 @@ func (s *RunSupervisor) subagentChildren(ctx context.Context, parentSessionID st
 		(*remaining)--
 		node := SubagentNode{
 			Kind:            relation.Kind,
+			Agent:           value.AgentID,
 			SessionID:       value.ID,
 			ParentSessionID: parentSessionID,
 			Goal:            value.Goal,

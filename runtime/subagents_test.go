@@ -29,7 +29,7 @@ func (p *finalProvider) Model() string {
 
 func (p *finalProvider) Complete(context.Context, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 	return protocol.ProviderResponse{
-		Message: protocol.Message{Role: "assistant", Content: "subagent done"},
+		Message:      protocol.Message{Role: "assistant", Content: "subagent done"},
 		FinishReason: "stop",
 	}, nil
 }
@@ -75,7 +75,7 @@ func TestSubagentChildOptionsAreReadOnlyAndNonRecursive(t *testing.T) {
 			MaxToolCallsPerStep: 100,
 		},
 	}
-	opts := controller.childOptions("test/b0")
+	opts := controller.childOptions("test/b0", "explore")
 	if opts.Policy != toolset.PolicyReadOnly {
 		t.Fatalf("policy=%q", opts.Policy)
 	}
@@ -123,7 +123,7 @@ func TestSubagentControllerEnforcesConfiguredChildLimit(t *testing.T) {
 		parentOpts: AgentOptions{},
 	}
 	spawn := func(goal string) (string, error) {
-		value, err := controller.Spawn(context.Background(), goal)
+		value, err := controller.Spawn(context.Background(), goal, "")
 		if err != nil {
 			return "", err
 		}
@@ -193,8 +193,8 @@ func TestSubagentUsesGlobalMaxAgentsBudget(t *testing.T) {
 	parentProvider := &multiBlockingProvider{started: make(chan struct{})}
 	parentID := newParentSession(t, engine, parentProvider)
 	if _, err := supervisor.startWith(context.Background(), parentID, parentProvider, AgentOptions{
-		
-		Policy:       toolset.PolicyReadOnly,
+
+		Policy: toolset.PolicyReadOnly,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -209,13 +209,13 @@ func TestSubagentUsesGlobalMaxAgentsBudget(t *testing.T) {
 		parentID:   parentID,
 		parentOpts: AgentOptions{},
 	}
-	first, err := controller.Spawn(context.Background(), "first child")
+	first, err := controller.Spawn(context.Background(), "first child", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	firstNode := first.(SubagentNode)
 
-	if _, err := controller.Spawn(context.Background(), "second child"); !errors.Is(err, resource.ErrAgentLimitExceeded) {
+	if _, err := controller.Spawn(context.Background(), "second child", ""); !errors.Is(err, resource.ErrAgentLimitExceeded) {
 		t.Fatalf("second child err=%v", err)
 	}
 
@@ -252,7 +252,7 @@ func TestSubagentPersistsRelationEventsAndCheckpoints(t *testing.T) {
 		parentID:   parentID,
 		parentOpts: AgentOptions{},
 	}
-	value, err := controller.Spawn(context.Background(), "finish quickly")
+	value, err := controller.Spawn(context.Background(), "finish quickly", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,6 @@ func TestSubagentPersistsRelationEventsAndCheckpoints(t *testing.T) {
 		}
 	}
 }
-
 
 type spawnToolProvider struct {
 	mu             sync.Mutex
@@ -374,9 +373,9 @@ func TestTopLevelAgentGetsSpawnToolButChildCannotRecurse(t *testing.T) {
 	provider := &spawnToolProvider{}
 	parentID := newParentSession(t, engine, provider)
 	if _, err := supervisor.startWith(context.Background(), parentID, provider, AgentOptions{
-		
-		Policy:       toolset.PolicyReadOnly,
-		MaxSteps:     4,
+
+		Policy:   toolset.PolicyReadOnly,
+		MaxSteps: 4,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +419,6 @@ func TestTopLevelAgentGetsSpawnToolButChildCannotRecurse(t *testing.T) {
 	}
 }
 
-
 func TestWaitSubagentReturnsCompletedResult(t *testing.T) {
 	engine, err := Open(Options{Workspace: t.TempDir(), Budget: Budget{MaxAgents: 4}})
 	if err != nil {
@@ -439,7 +437,7 @@ func TestWaitSubagentReturnsCompletedResult(t *testing.T) {
 		parentID:   parentID,
 		parentOpts: AgentOptions{},
 	}
-	value, err := controller.Spawn(context.Background(), "finish for wait")
+	value, err := controller.Spawn(context.Background(), "finish for wait", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,7 +471,7 @@ func TestWaitSubagentTimeoutReturnsActiveNode(t *testing.T) {
 		parentID:   parentID,
 		parentOpts: AgentOptions{},
 	}
-	value, err := controller.Spawn(context.Background(), "block for timeout")
+	value, err := controller.Spawn(context.Background(), "block for timeout", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +509,7 @@ func TestWaitSubagentRejectsForeignChild(t *testing.T) {
 		parentID:   parentA,
 		parentOpts: AgentOptions{},
 	}
-	value, err := controllerA.Spawn(context.Background(), "belongs to A")
+	value, err := controllerA.Spawn(context.Background(), "belongs to A", "")
 	if err != nil {
 		t.Fatal(err)
 	}

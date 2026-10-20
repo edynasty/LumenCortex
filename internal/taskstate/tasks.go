@@ -33,10 +33,23 @@ type Task struct {
 	ID        string `json:"id"`
 	Objective string `json:"objective"`
 	State     string `json:"state"`
+	// Agent is the catalog agent the child runs (ADR-0009 A3), "" in records written before it.
+	Agent string `json:"agent,omitempty"`
 	// SessionID is the child session, once started.
 	SessionID  string     `json:"sessionId,omitempty"`
 	ProposedAt *time.Time `json:"proposedAt,omitempty"`
 	StartedAt  *time.Time `json:"startedAt,omitempty"`
+	// Bounds are the proposing run's step, output and tool bounds: the user's later Start of a
+	// proposal applies them, as a directly started task inherits them from its parent run.
+	Bounds *TaskBounds `json:"bounds,omitempty"`
+}
+
+// TaskBounds are the run bounds a proposed task inherits from the run that proposed it.
+type TaskBounds struct {
+	MaxSteps            int      `json:"maxSteps,omitempty"`
+	MaxToolCallsPerStep int      `json:"maxToolCallsPerStep,omitempty"`
+	MaxTokens           int      `json:"maxTokens,omitempty"`
+	ToolDenylist        []string `json:"toolDenylist,omitempty"`
 }
 
 // TaskMark identifies one terminal transition of a child: its newest transcript seq and its status.
@@ -59,17 +72,18 @@ func ValidTaskObjective(objective string) (string, error) {
 	return objective, nil
 }
 
-// ProposeTask records a task that waits for the user's Start.
-func (s *State) ProposeTask(objective string, at time.Time) (Task, error) {
-	return s.addTask(objective, TaskProposed, "", at)
+// ProposeTask records a task that waits for the user's Start, with the agent it will run and the
+// proposing run's bounds.
+func (s *State) ProposeTask(objective, agent string, bounds *TaskBounds, at time.Time) (Task, error) {
+	return s.addTask(objective, agent, TaskProposed, "", bounds, at)
 }
 
 // AddStartedTask records a task that was started directly (delegation isolated).
-func (s *State) AddStartedTask(objective, sessionID string, at time.Time) (Task, error) {
-	return s.addTask(objective, TaskStarted, sessionID, at)
+func (s *State) AddStartedTask(objective, agent, sessionID string, at time.Time) (Task, error) {
+	return s.addTask(objective, agent, TaskStarted, sessionID, nil, at)
 }
 
-func (s *State) addTask(objective, state, sessionID string, at time.Time) (Task, error) {
+func (s *State) addTask(objective, agent, state, sessionID string, bounds *TaskBounds, at time.Time) (Task, error) {
 	objective, err := ValidTaskObjective(objective)
 	if err != nil {
 		return Task{}, err
@@ -78,7 +92,7 @@ func (s *State) addTask(objective, state, sessionID string, at time.Time) (Task,
 		return Task{}, ErrTooManyTasks
 	}
 	at = at.UTC()
-	t := Task{ID: fmt.Sprintf("t%d", len(s.Tasks)+1), Objective: objective, State: state, SessionID: sessionID}
+	t := Task{ID: fmt.Sprintf("t%d", len(s.Tasks)+1), Objective: objective, Agent: agent, State: state, SessionID: sessionID, Bounds: bounds}
 	if state == TaskProposed {
 		t.ProposedAt = &at
 	} else {
