@@ -106,4 +106,5 @@ Compatibility: Go API — `toolset.SubagentController.Spawn` and `agent.TaskStar
 
 ## Open
 
-- Neither repo is pushed; Desktop `c82a039` pins Core `8998c25`, so Core must be pushed first for a clean Desktop module download. N3 (auth-error failover) stays a separate owner decision.
+- Neither repo is pushed; Desktop `1714459` pins Core `6935aa2` (A3; it also renders the fallback notice and task agents), so Core must be pushed first for a clean Desktop module download.
+- A3 advisory selection probe on a real model: needs an owner-approved model; not run. N3 (auth-error failover) stays a separate owner decision.
