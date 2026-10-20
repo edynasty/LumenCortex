@@ -96,7 +96,16 @@ Tests (new): `runtime/delegation_agents_test.go`:
 
 `internal/agent/schema_test.go` now validates both enums' JSON Schema.
 
-Not run: the advisory selection probe on a real model (acceptance "plus one advisory selection probe") needs an owner-approved model and cost; not executed.
+Real-model selection probe (2026-10-21, owner-authorised `local/deepseek-v4.1-flash`): `internal/realmodel/selection_test.go`, build tag `realmodel`, run with `LCX_REAL_MODEL=local/deepseek-v4.1-flash go test -tags realmodel -count=1 -run RealModelAgentSelection -v ./internal/realmodel`. It uses a fixture Go repository and a private global configuration that has only the model's provider entry (the apiKey reference is copied, the value is never read by the test). The configuration defines three specialists that differ only by description: `usage-tracer` (read-only), `go-test-fixer` and `docs-editor` (workspace). Each scenario ran twice as an interactive thread with `delegation: isolated`, effort `low` and 12 steps. **8/8 matched**:
+
+| Scenario | Expected | Chosen (×2) | Children |
+|---|---|---|---|
+| find every call site of `settings.Load` | `spawn_subagent` `usage-tracer` | `usage-tracer`, `usage-tracer` | completed, pinned `usage-tracer`, listed `settings/settings.go:6` and the call sites |
+| fix the failing calc tests as a task | `start_task` `go-test-fixer` | `go-test-fixer`, `go-test-fixer` | completed in their worktrees; `Mul` fixed to `a * b` |
+| add a README Usage section as a task | `start_task` `docs-editor` | `docs-editor`, `docs-editor` | completed; only `README.md` changed |
+| summarise `go.mod` (no specialist fits) | `spawn_subagent` default | `explore`, `explore` (named explicitly) | completed |
+
+Observed limit: the probe's `go-test-fixer` had a `workspace` ceiling, which cannot run shell commands. One child reported that it could not run `go test` itself. An agent that must run tests needs `policy: full` (the `worker` built-in has no cap).
 
 Hidden reasoning: the new Task State fields hold a catalog id and numeric/denylist bounds copied from run options; nothing model-written beyond the enum-checked id. `TestProposedTaskRunsConfinedAndDeliversItsResultOnce` (child reasoning never in the database) passes unchanged.
 
@@ -107,4 +116,4 @@ Compatibility: Go API — `toolset.SubagentController.Spawn` and `agent.TaskStar
 ## Open
 
 - Neither repo is pushed; Desktop `1714459` pins Core `6935aa2` (A3; it also renders the fallback notice and task agents), so Core must be pushed first for a clean Desktop module download.
-- A3 advisory selection probe on a real model: needs an owner-approved model; not run. N3 (auth-error failover) stays a separate owner decision.
+- A3 real-model selection probe: run, 8/8 (see A3 above). N3 (auth-error failover) stays a separate owner decision.
