@@ -21,6 +21,8 @@ const (
 	toolWorkUnitCreate   = "work_unit_create"
 	toolWorkUnitUpdate   = "work_unit_update"
 	toolReferenceSuggest = "reference_suggest"
+	toolNoteWrite        = "note_write"
+	toolNoteRemove       = "note_remove"
 )
 
 func taskToolSpecs() []protocol.ToolSpec {
@@ -84,6 +86,36 @@ func taskToolSpecs() []protocol.ToolSpec {
 				"additionalProperties": false,
 			},
 		},
+		{
+			Name: toolNoteWrite,
+			Description: "Record a short note in this thread's Task State, where it stays after older messages leave the context window: " +
+				"a root cause, a decision and its reason, an approach that failed, a measured fact. Notes are shown to you and the user " +
+				"on every turn and to later threads through read_thread and recall. Write what you verified, not plans or summaries of " +
+				"the conversation. Give id to replace one of your notes.",
+			Permission: "read",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id":   map[string]any{"type": "string", "description": "an existing note of yours to replace; omit to add one"},
+					"text": map[string]any{"type": "string", "description": fmt.Sprintf("the note, at most %d bytes", taskstate.MaxNoteTextBytes)},
+					"cites": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": taskstate.MaxNoteCites,
+						"description": "workspace-relative files the note is about; a later reader is told when one has changed since"},
+				},
+				"required":             []string{"text"},
+				"additionalProperties": false,
+			},
+		},
+		{
+			Name:        toolNoteRemove,
+			Description: "Remove one of your notes from this thread's Task State, e.g. one that turned out wrong. Notes the user wrote cannot be removed.",
+			Permission:  "read",
+			Parameters: map[string]any{
+				"type":                 "object",
+				"properties":           map[string]any{"id": map[string]any{"type": "string"}},
+				"required":             []string{"id"},
+				"additionalProperties": false,
+			},
+		},
 	}
 }
 
@@ -108,7 +140,7 @@ func filterTaskToolSpecs(allow []string) []protocol.ToolSpec {
 
 func isTaskTool(name string) bool {
 	switch name {
-	case toolWorkUnitList, toolWorkUnitCreate, toolWorkUnitUpdate, toolReferenceSuggest:
+	case toolWorkUnitList, toolWorkUnitCreate, toolWorkUnitUpdate, toolReferenceSuggest, toolNoteWrite, toolNoteRemove:
 		return true
 	}
 	return false
@@ -118,8 +150,8 @@ func isTaskTool(name string) bool {
 // reopens a resolved thread; a completed unit is progress and resets the stall; a unit the model
 // cancels is noted, so the evidence rule does not take it as acceptance. The ExitCause is non-nil
 // only when deciding a unit's checks was cancelled or failed: the run then ends.
-func executeTaskTool(ctx context.Context, checks Checks, r *run, name string, args map[string]any, at time.Time) (protocol.ToolResult, *ExitCause) {
-	payload, err := runTaskTool(ctx, checks, r, name, args, at)
+func (l *Loop) executeTaskTool(ctx context.Context, r *run, name string, args map[string]any, at time.Time) (protocol.ToolResult, *ExitCause) {
+	payload, err := l.runTaskTool(ctx, r, name, args, at)
 	var refused *toolRefusal
 	switch {
 	case errors.As(err, &refused):
@@ -150,7 +182,8 @@ type checkFailure struct{ err error }
 func (c *checkFailure) Error() string { return c.err.Error() }
 func (c *checkFailure) Unwrap() error { return c.err }
 
-func runTaskTool(ctx context.Context, checks Checks, r *run, name string, args map[string]any, at time.Time) (any, error) {
+func (l *Loop) runTaskTool(ctx context.Context, r *run, name string, args map[string]any, at time.Time) (any, error) {
+	checks := l.Checks
 	switch name {
 	case toolWorkUnitList:
 		active, err := r.units.EnsureActive()
@@ -192,8 +225,63 @@ func runTaskTool(ctx context.Context, checks Checks, r *run, name string, args m
 			return nil, err
 		}
 		return map[string]any{"reference": ref, "added": added}, nil
+	case toolNoteWrite:
+		return l.writeNote(ctx, r, args, at)
+	case toolNoteRemove:
+		id, _ := args["id"].(string)
+		if err := r.ts.RemoveNote(strings.TrimSpace(id)); err != nil {
+			return nil, err
+		}
+		return map[string]any{"removed": id, "notes": len(r.ts.Notes)}, nil
 	}
 	return nil, fmt.Errorf("unknown task tool: %s", name)
+}
+
+// writeNote validates the note, records the blob of each cited path through Loop.Cite, and adds or
+// replaces the note. A path Cite cannot resolve refuses the note.
+func (l *Loop) writeNote(ctx context.Context, r *run, args map[string]any, at time.Time) (any, error) {
+	for key := range args {
+		if key != "id" && key != "text" && key != "cites" {
+			return nil, fmt.Errorf("note_write takes id, text and cites; not %q", key)
+		}
+	}
+	text, _ := args["text"].(string)
+	text, err := taskstate.NormalizeNoteText(text)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	if raw, ok := args["cites"]; ok && raw != nil {
+		list, ok := raw.([]any)
+		if !ok {
+			return nil, errors.New("cites must be an array of paths")
+		}
+		for _, item := range list {
+			p, ok := item.(string)
+			if !ok {
+				return nil, errors.New("cites must be an array of paths")
+			}
+			paths = append(paths, p)
+		}
+	}
+	if paths, err = taskstate.NormalizeCitePaths(paths); err != nil {
+		return nil, err
+	}
+	var cites []taskstate.Cite
+	if len(paths) > 0 {
+		if l.Cite == nil {
+			return nil, errors.New("this run cannot cite paths; write the note without cites")
+		}
+		if cites, err = l.Cite(ctx, paths); err != nil {
+			return nil, err
+		}
+	}
+	id, _ := args["id"].(string)
+	note, err := r.ts.WriteNote(strings.TrimSpace(id), text, cites, at)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"note": note, "notes": len(r.ts.Notes), "max": taskstate.MaxNotes}, nil
 }
 
 // knownChecks refuses check ids the configuration does not define, so a unit cannot list a check that

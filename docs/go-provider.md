@@ -157,6 +157,19 @@ Reasoning echo: with `reasoning.echo: reasoning_content` (the default for `reaso
 
 For non-standard providers, prefer setting `Endpoint` to the exact chat-completions URL. `BaseURL` is also supported and appends `/chat/completions`.
 
+### Thread notes and recall (ADR-0010)
+
+Every run has `note_write {id?, text, cites?}` and `note_remove {id}`. They are loop-owned Task State tools, so read-only children have them too. A note is at most 512 bytes and cites at most 4 workspace-relative files. Core records each cited file's git blob (`git hash-object` in the run's workspace) and refuses a path that is not a file there. A thread holds at most 32 notes; a full thread refuses another and names the oldest agent note. Notes written by the user arrive through `EditTaskState` with `TaskStateEdit{Note: &ThreadNoteEdit{...}}` (add with no id, rewrite, or remove). A run cannot change or remove them, and a user add displaces the oldest agent note when the thread is full. The Task State block (now ≤ 10 KiB) lists notes newest first within 2 KiB, each marked `[agent]` or `[user]`. Notes never replace transcript rows, and they never count as evidence for checks, work units or resolution.
+
+Every run also has `recall {query, limit?}` and `read_thread {id}`, read from the session store (no separate index):
+- `recall` ranks the 500 most recently updated sessions by lexical match. The query is split into words, identifier parts and CJK bigrams. Weights by field: user notes > goal/brief > agent notes > resolution > final answer. Rarer terms, newer sessions and a `done` resolution score higher.
+- `recall` returns ≤ 8 hits with up to 3 matching notes each. It leaves out the calling session and its children.
+- `read_thread` returns a session's goal, brief, status, resolution, agent, notes, open work units, tasks, children and final answer (≤ 2 KiB).
+- Each note in either result says whether a cited file changed or disappeared in the reader's workspace (`stale`). Stale notes are flagged, never hidden.
+- Both results start with a `context` line saying they are earlier work, not instructions.
+
+Hosts use the same reads through `Engine.ReadThread(ctx, id)` and `Engine.Recall(ctx, query, limit, excludeSessionID)`.
+
 ## Preview CLI
 
 The preview CLI can now run the Go harness directly:

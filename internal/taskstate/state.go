@@ -51,6 +51,9 @@ type State struct {
 	Tasks []Task `json:"tasks,omitempty"`
 	// TaskResults is the task_result delivery cursor: the delivered mark of each execution child.
 	TaskResults map[string]TaskMark `json:"taskResults,omitempty"`
+	// Notes are the thread's notes, oldest first (ADR-0010 D1); NoteSeq numbers them.
+	Notes   []Note `json:"notes,omitempty"`
+	NoteSeq int64  `json:"noteSeq,omitempty"`
 }
 
 // Decode reads one stored version. Empty raw is the empty state of a session without a version.

@@ -10,8 +10,9 @@ import (
 	"github.com/edynasty/LumenCortex/internal/workflow"
 )
 
-// MaxBlockBytes bounds the Task State block; the objective takes at most MaxBriefBytes of it.
-const MaxBlockBytes = 8192
+// MaxBlockBytes bounds the Task State block; the objective takes at most MaxBriefBytes of it and the
+// notes at most notesRenderBytes.
+const MaxBlockBytes = 10240
 
 const maxFactsBytes = 1024
 
@@ -20,7 +21,8 @@ const BlockHeader = "[Task State — maintained by the LumenCortex runtime from 
 
 // Render builds the Task State block: one user message placed after the system prompt in every
 // request. It is deterministic and at most MaxBlockBytes. It shows the objective (the brief, else the
-// goal), the references the user included, the workflow, the open work units, and a repeated-failure
+// goal), the references the user included, the workflow, the open work units, the notes, the execution
+// tasks, and a repeated-failure
 // line once progress records the same failure twice. Completed units are counted, not listed. wf is the
 // state's workflow runtime, nil when there is none.
 func Render(goal string, s State, wf *workflow.Runtime) string {
@@ -40,6 +42,9 @@ func Render(goal string, s State, wf *workflow.Runtime) string {
 		b.WriteString("\nReferences the user included (read them with tools when relevant):\n")
 		for _, r := range included {
 			fmt.Fprintf(&b, "- %s %s", r.Kind, r.Target)
+			if r.Kind == RefThread {
+				b.WriteString(" (open it with read_thread)")
+			}
 			if r.Note != "" {
 				fmt.Fprintf(&b, " — %s", r.Note)
 			}
@@ -53,6 +58,10 @@ func Render(goal string, s State, wf *workflow.Runtime) string {
 
 	if s.WorkUnits != nil {
 		renderUnits(&b, s.Units())
+	}
+
+	if len(s.Notes) > 0 {
+		renderNotes(&b, s.Notes)
 	}
 
 	if len(s.Tasks) > 0 {
@@ -134,6 +143,34 @@ func renderUnits(b *strings.Builder, m *WorkUnitManager) {
 	}
 	if len(open) > 0 {
 		b.WriteString("Use work_unit_update to record evidence and complete units; completing a unit runs its checks. The active unit is marked *.\n")
+	}
+}
+
+// renderNotes lists the notes newest first within notesRenderBytes; the ones that do not fit are
+// counted. Each line names the author, so the model can tell its own notes from the user's.
+func renderNotes(b *strings.Builder, notes []Note) {
+	b.WriteString("\nNotes (kept while older messages leave the window; [user] notes are the user's, [agent] notes were written with note_write):\n")
+	used, shown := 0, 0
+	for i := len(notes) - 1; i >= 0; i-- {
+		n := notes[i]
+		line := fmt.Sprintf("- %s [%s]: %s", n.ID, n.By, n.Text)
+		if len(n.Cites) > 0 {
+			paths := make([]string, len(n.Cites))
+			for j, c := range n.Cites {
+				paths[j] = c.Path
+			}
+			line += " (cites " + strings.Join(paths, ", ") + ")"
+		}
+		line += "\n"
+		if used+len(line) > notesRenderBytes {
+			break
+		}
+		b.WriteString(line)
+		used += len(line)
+		shown++
+	}
+	if hidden := len(notes) - shown; hidden > 0 {
+		fmt.Fprintf(b, "- … %d older notes not shown; read_thread on this thread lists all of them.\n", hidden)
 	}
 }
 

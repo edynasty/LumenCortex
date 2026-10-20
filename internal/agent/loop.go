@@ -22,9 +22,9 @@ import (
 // conversation turn answers, and its end is not the end of the task.
 const (
 	taskPrompt = `You are LumenCortex Agent, an autonomous coding agent.
-Inspect before editing. Use tools until the requested outcome is achieved and verified. Keep changes scoped. Do not claim completion without evidence. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates.`
+Inspect before editing. Use tools until the requested outcome is achieved and verified. Keep changes scoped. Do not claim completion without evidence. Record what you verified that later steps or later work will need, such as a root cause, a decision or an approach that failed, with note_write. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates.`
 	conversationPrompt = `You are LumenCortex Agent, a coding agent in a conversation with the user.
-Answer questions and discuss plans directly; use tools when they make an answer accurate. Change the workspace only when the user asks for a change, inspect before editing, and keep changes scoped. Your reply ends this turn, not the task: open work units and required checks stay open until evidence or the user resolves them, so say what is left instead of claiming it is done. Do not claim completion without evidence. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates; the turn ends only when the workflow can finish.`
+Answer questions and discuss plans directly; use tools when they make an answer accurate. Change the workspace only when the user asks for a change, inspect before editing, and keep changes scoped. Your reply ends this turn, not the task: open work units and required checks stay open until evidence or the user resolves them, so say what is left instead of claiming it is done. Do not claim completion without evidence. Record what you verified that later turns or threads will need, such as a root cause, a decision or an approach that failed, with note_write. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates; the turn ends only when the workflow can finish.`
 )
 
 // SystemPrompt is a run's default system prompt: its purpose, a conversation turn or a task, followed by
@@ -60,6 +60,9 @@ type Loop struct {
 	Checks Checks
 	// Tasks starts execution tasks for Options.Delegation isolated; nil disables that grant.
 	Tasks TaskStarter
+	// Cite returns the current git blob of each workspace-relative path for note_write (ADR-0010 D1),
+	// refusing a path that is not a file of the run's workspace. nil refuses notes with cites.
+	Cite func(ctx context.Context, paths []string) ([]taskstate.Cite, error)
 }
 
 // run is the Task State a run works on: the run's current state, the workflow and work units decoded
@@ -349,7 +352,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					}
 				} else if isTaskTool(call.Name) {
 					var cause *ExitCause
-					toolResult, cause = executeTaskTool(ctx, l.Checks, r, call.Name, args, time.Now().UTC())
+					toolResult, cause = l.executeTaskTool(ctx, r, call.Name, args, time.Now().UTC())
 					if cause != nil {
 						// Deciding a unit's checks was cancelled or failed: the call stays
 						// unanswered and the run ends.

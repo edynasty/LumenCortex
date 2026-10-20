@@ -14,8 +14,8 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
-// TaskStateEdit is one host edit of Task State (ADR-0006 D1′/D2): exactly one of Brief, Reference and
-// Resolve. Edits are queued without the run lock; a running loop applies them at its next step
+// TaskStateEdit is one host edit of Task State (ADR-0006 D1′/D2, ADR-0010 D1): exactly one of Brief,
+// Reference, Resolve and Note. Edits are queued without the run lock; a running loop applies them at its next step
 // boundary, else the next Start does.
 type TaskStateEdit = taskstate.Edit
 
@@ -74,6 +74,17 @@ func (e *Engine) TaskState(ctx context.Context, sessionID string) (TaskStateInfo
 func (e *Engine) EditTaskState(ctx context.Context, sessionID string, edit TaskStateEdit) (TaskStateInfo, error) {
 	if err := edit.Validate(); err != nil {
 		return TaskStateInfo{}, err
+	}
+	if edit.Note != nil && !edit.Note.Remove && edit.Note.ID == "" {
+		// A user note is always kept (an agent note makes room), so the only refusal is a thread whose
+		// notes are all the user's; checked here because applying an edit cannot fail.
+		current, err := e.TaskState(ctx, sessionID)
+		if err != nil {
+			return TaskStateInfo{}, err
+		}
+		if current.State.UserNotes() >= taskstate.MaxNotes {
+			return TaskStateInfo{}, fmt.Errorf("%w: the thread already has %d notes written by the user", taskstate.ErrTooManyNotes, taskstate.MaxNotes)
+		}
 	}
 	raw, err := json.Marshal(edit)
 	if err != nil {

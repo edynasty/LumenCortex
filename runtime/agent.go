@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
 	"github.com/edynasty/LumenCortex/internal/lsp"
+	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
@@ -217,6 +219,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Subagents: opts.subagents,
 		// Children get no spawn tool, so the list matters only to a thread's run.
 		SubagentAgents: plan.spawnAgents,
+		Threads:        threadReader{engine: e, sessionID: sessionID, workspace: agentWorkspace},
 	})
 	if err != nil {
 		return nil, err
@@ -349,6 +352,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 			Evidence: e.runEvidence(sessionID, checks),
 			Checks:   checks,
 			Tasks:    taskStarterFor(delegation, opts.tasks),
+			Cite:     citeIn(agentWorkspace),
 			Emit: func(event agent.Event) {
 				e.events.publish(event.Type, event.SessionID, event.Data)
 				_ = e.store.Journal(context.Background(), event.Type, map[string]any{
@@ -538,4 +542,27 @@ func (s agentStore) Update(ctx context.Context, id string, patch agent.SessionPa
 		value.Error = rawMessagePtr(raw)
 	}
 	return s.store.Update(ctx, id, value)
+}
+
+// citeIn records the current blob of each path a note cites, in the run's workspace (its worktree for
+// a session that owns one). A path that is not a file there refuses the note (ADR-0010 D1).
+func citeIn(workspace string) func(context.Context, []string) ([]taskstate.Cite, error) {
+	return func(ctx context.Context, paths []string) ([]taskstate.Cite, error) {
+		repo, err := repository.New(workspace)
+		if err != nil {
+			return nil, err
+		}
+		blobs, err := repo.FileBlobs(ctx, paths)
+		if err != nil {
+			return nil, err
+		}
+		cites := make([]taskstate.Cite, 0, len(paths))
+		for _, p := range paths {
+			if blobs[p] == "" {
+				return nil, fmt.Errorf("cited path %q is not a file in this workspace", p)
+			}
+			cites = append(cites, taskstate.Cite{Path: p, Blob: blobs[p]})
+		}
+		return cites, nil
+	}
 }

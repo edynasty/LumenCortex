@@ -34,6 +34,8 @@ type Options struct {
 	// SubagentAgents are the catalog agents spawn_subagent may run (ADR-0009 A3): delegation use,
 	// read-only ceiling. They form the tool's agent enum; empty offers no agent parameter (explore runs).
 	SubagentAgents []config.AgentInfo
+	// Threads backs read_thread and recall (ADR-0010 D3); nil offers neither.
+	Threads ThreadReader
 }
 type Set struct {
 	workspace      string
@@ -45,6 +47,7 @@ type Set struct {
 	mcp            *mcp.Registry
 	subagents      SubagentController
 	subagentAgents []config.AgentInfo
+	threads        ThreadReader
 	tools          map[string]tool
 }
 type tool struct {
@@ -91,7 +94,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -179,6 +182,7 @@ func (s *Set) registerBuiltins() {
 	if s.subagents != nil {
 		s.registerSubagentTools()
 	}
+	s.registerThreadTools()
 }
 func str() map[string]any { return map[string]any{"type": "string"} }
 

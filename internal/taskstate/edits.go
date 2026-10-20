@@ -17,6 +17,7 @@ type Edit struct {
 	Brief     *string        `json:"brief,omitempty"`
 	Reference *ReferenceEdit `json:"reference,omitempty"`
 	Resolve   *ResolveEdit   `json:"resolve,omitempty"`
+	Note      *NoteEdit      `json:"note,omitempty"`
 }
 
 // ReferenceEdit includes, excludes or removes one reference as the user.
@@ -74,8 +75,14 @@ func (e Edit) Validate() error {
 			return err
 		}
 	}
+	if e.Note != nil {
+		set++
+		if err := e.Note.validate(); err != nil {
+			return err
+		}
+	}
 	if set != 1 {
-		return errors.New("an edit sets exactly one of brief, reference or resolve")
+		return errors.New("an edit sets exactly one of brief, reference, resolve or note")
 	}
 	return nil
 }
@@ -104,6 +111,8 @@ func (s *State) Apply(edits []QueuedEdit) {
 			s.setReference(*e.Reference, at)
 		case e.Resolve != nil:
 			s.resolve(e.Resolve.State, strings.TrimSpace(e.Resolve.Actor), at)
+		case e.Note != nil:
+			s.setNote(*e.Note, at)
 		}
 	}
 }
