@@ -231,7 +231,7 @@ func (s *RunSupervisor) resumeUnstartedTask(ctx context.Context, parentID, child
 		if err != nil {
 			return ExecutionTask{}, err
 		}
-		ref, err := s.engine.childModelRef(ctx, parentID)
+		ref, err := s.engine.childModelRef(ctx, parentID, config.AgentWorker)
 		if err != nil {
 			return ExecutionTask{}, err
 		}
@@ -262,7 +262,7 @@ func (s *RunSupervisor) startExecutionTask(ctx context.Context, parentID, object
 	if err != nil {
 		return ExecutionTask{}, err
 	}
-	ref, err := e.childModelRef(ctx, parentID)
+	ref, err := e.childModelRef(ctx, parentID, config.AgentWorker)
 	if err != nil {
 		return ExecutionTask{}, err
 	}
@@ -337,8 +337,9 @@ func committedHead(ctx context.Context, workspace string) (string, error) {
 	return head, nil
 }
 
-// childModelRef is a child's model: config subagentModel, else the parent's pinned model (design §4.5).
-func (e *Engine) childModelRef(ctx context.Context, parentID string) (config.ModelRef, error) {
+// childModelRef is a child's model: the first model of the child agent's own list, else the
+// parent's pinned model (design §4.5, ADR-0009).
+func (e *Engine) childModelRef(ctx context.Context, parentID, agentID string) (config.ModelRef, error) {
 	parent, err := e.store.Get(ctx, parentID)
 	if err != nil {
 		return "", err
@@ -347,8 +348,8 @@ func (e *Engine) childModelRef(ctx context.Context, parentID string) (config.Mod
 	if err != nil {
 		return "", err
 	}
-	if ref := cfg.Effective().SubagentModel; ref != "" {
-		return ref, nil
+	if a, ok := cfg.Effective().Agent(agentID); ok && len(a.Models) > 0 {
+		return a.Models[0].Model, nil
 	}
 	return config.ModelRef(parent.ModelRef), nil
 }

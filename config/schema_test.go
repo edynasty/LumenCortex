@@ -65,6 +65,10 @@ func TestSchemaInvalidFixtures(t *testing.T) {
 		"auto-max-unknown":            {"enum", "/effort/auto/max"},
 		"auto-timeout-out-of-range":   {"maximum", "/effort/auto/timeoutSeconds"},
 		"auto-model-no-slash":         {"pattern", "/effort/auto/model"},
+		"agent-id-pattern":            {"pattern", "/agents/Bad_ID"},
+		"agent-models-empty":          {"minItems", "/agents/x/models"},
+		"agent-use-unknown":           {"enum", "/agents/x/use"},
+		"agent-unknown-field":         {"additionalProperties", "/agents/x"},
 	}
 	files, _ := filepath.Glob("testdata/invalid/*.json")
 	if len(files) != len(want) {

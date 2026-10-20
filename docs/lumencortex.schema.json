@@ -21,10 +21,6 @@
       "uniqueItems": true,
       "maxItems": 8
     },
-    "subagentModel": {
-      "description": "Model ref used for subagent sessions. Absent → subagents use the parent session's model.",
-      "$ref": "#/$defs/modelRef"
-    },
     "effort": {
       "description": "Reasoning effort policy. Absent → no reasoning parameter is sent (provider default) and no escalation.",
       "dependentRequired": { "escalation": ["default"] },
@@ -82,6 +78,13 @@
         }
       }
     },
+    "agents": {
+      "description": "Agent catalog (ADR-0009). An agent is a named run preset: instructions, an ordered list of model candidates with their effort, and an authority ceiling. Built-ins: ask (conversation, read-only, no delegation), agent (conversation, the default, no cap), explore (spawn_subagent default, read-only) and worker (start_task default, workspace); a built-in accepts only instructions, effort and models. Up to 16 custom agents. A trusted workspace may add or replace custom agents and override built-ins; any other workspace may set only models and effort of an existing agent, to models of global providers.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]{0,39}$" },
+      "maxProperties": 20,
+      "additionalProperties": { "$ref": "#/$defs/agent" }
+    },
     "concurrency": {
       "description": "Agent concurrency of one LumenCortex process. Read from the global file only (ignored with a warning in a workspace file): it bounds the machine's resources, not one project's. Read at every run start, so a change applies to the next run; running agents are never stopped by a lower limit. A start beyond a limit is refused at once, never queued.",
       "type": "object",
@@ -114,7 +117,7 @@
       "additionalProperties": { "$ref": "#/$defs/check" }
     },
     "trustedWorkspaces": {
-      "description": "Read from the global file only (ignored with a warning in a workspace file). A listed workspace (absolute path, compared after symlink resolution) may define providers and checks in its own lumencortex.json; any other workspace may only set model, failover, subagentModel and effort (including effort.auto.model, which must name a model of a global provider), and only to models of global providers.",
+      "description": "Read from the global file only (ignored with a warning in a workspace file). A listed workspace (absolute path, compared after symlink resolution) may define providers, checks and agents in its own lumencortex.json; any other workspace may only set model, failover, effort (including effort.auto.model, which must name a model of a global provider) and the models and effort of existing agents, and only to models of global providers.",
       "type": "array",
       "items": {
         "type": "string",
@@ -132,6 +135,64 @@
     "effort": {
       "description": "Provider-neutral reasoning effort level.",
       "enum": ["none", "low", "medium", "high", "max"]
+    },
+    "agent": {
+      "description": "One agent. Absent fields keep the built-in's fixed value or the custom default.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Display name, unique regardless of case. Absent → the id.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "description": {
+          "description": "When to use the agent. The model selects delegation agents by this text, so it is required for them. At most 280 bytes.",
+          "type": "string",
+          "maxLength": 280
+        },
+        "use": {
+          "description": "conversation: runs threads the user starts; delegation: runs only as a child (spawn_subagent when policy is read-only, start_task when workspace); both. Absent → conversation.",
+          "enum": ["conversation", "delegation", "both"]
+        },
+        "policy": {
+          "description": "Ceiling of the run's tool policy: the run gets the lower of the grant and this. Absent → full (no cap). An agent used for delegation must set read-only or workspace.",
+          "enum": ["read-only", "workspace", "full"]
+        },
+        "delegation": {
+          "description": "Ceiling of a conversation's start_task grant: none, propose or isolated. Absent → isolated (no cap). Not allowed for delegation-only agents: children never delegate.",
+          "enum": ["none", "propose", "isolated"]
+        },
+        "instructions": {
+          "description": "Plain text appended as the last system message of every request the agent makes. It cannot change tools, policy or delegation. At most 16 KiB.",
+          "type": "string",
+          "maxLength": 16384
+        },
+        "effort": {
+          "description": "Default effort of every candidate without its own. Absent → effort.default. A thread's per-run override still wins; children never inherit it.",
+          "$ref": "#/$defs/effortRequest"
+        },
+        "models": {
+          "description": "Ordered model candidates: the first is the model a new session pins, the rest are tried in order after the pinned model under the failover rules. Absent → inherit: conversations use model + failover, children their parent's effective list.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/agentModel" }
+        }
+      }
+    },
+    "agentModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model"],
+      "properties": {
+        "model": { "$ref": "#/$defs/modelRef" },
+        "effort": {
+          "description": "Effort for this candidate. Absent → the agent's effort, then effort.default.",
+          "$ref": "#/$defs/effortRequest"
+        }
+      }
     },
     "effortRequest": {
       "description": "Effort request: a concrete level, or \"auto\" to classify each user turn before the first request.",

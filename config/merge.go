@@ -68,7 +68,7 @@ func (c *Config) merge() error {
 		check.Source = CheckSourceGlobal
 		checks[id] = check
 	}
-	model, subagent := g.Model, g.SubagentModel
+	model := g.Model
 	failover := slices.Clone(g.Failover)
 	effort := cloneEffortPolicy(g.Effort)
 
@@ -129,13 +129,7 @@ func (c *Config) merge() error {
 			drop("model", "model "+string(w.Model))
 		}
 	}
-	if w.SubagentModel != "" {
-		if trusted || hasModel(providers, w.SubagentModel) {
-			subagent = w.SubagentModel
-		} else {
-			drop("subagentModel", "subagentModel "+string(w.SubagentModel))
-		}
-	}
+	agentDefs, agentSources := c.mergeAgents(providers, drop)
 	if w.Failover != nil {
 		if trusted || allModels(providers, w.Failover) {
 			failover = slices.Clone(w.Failover)
@@ -146,7 +140,7 @@ func (c *Config) merge() error {
 	if w.Effort != nil {
 		effort = cloneEffortPolicy(w.Effort)
 		// An untrusted workspace may choose only among the models of global providers, like
-		// subagentModel and failover. An auto judge it names elsewhere is ignored (the heuristic
+		// failover and agent models. An auto judge it names elsewhere is ignored (the heuristic
 		// classifier still applies).
 		if effort.Auto != nil && effort.Auto.Model != "" && !trusted && !hasModel(providers, effort.Auto.Model) {
 			drop("effort.auto.model", "effort.auto.model "+string(effort.Auto.Model))
@@ -154,7 +148,7 @@ func (c *Config) merge() error {
 		}
 	}
 
-	refs := append([]ModelRef{model, subagent}, failover...)
+	refs := append([]ModelRef{model}, failover...)
 	if effort != nil && effort.Auto != nil && effort.Auto.Model != "" {
 		refs = append(refs, effort.Auto.Model)
 	}
@@ -163,9 +157,13 @@ func (c *Config) merge() error {
 			return fmt.Errorf("%w: model reference %q: %w", ErrInvalidConfig, ref, ErrUnknownModel)
 		}
 	}
+	agents, err := agentCatalog(agentDefs, agentSources, providers)
+	if err != nil {
+		return err
+	}
 
 	c.providers = providers
-	c.eff.Model, c.eff.SubagentModel, c.eff.Failover = model, subagent, failover
+	c.eff.Model, c.eff.Failover, c.eff.Agents = model, failover, agents
 	if effort != nil {
 		c.eff.EffortDefault = effort.Default
 		c.eff.Escalation = effort.Escalation
@@ -294,6 +292,7 @@ func cloneFile(f File) File {
 	out := f
 	out.Failover = slices.Clone(f.Failover)
 	out.Effort = cloneEffortPolicy(f.Effort)
+	out.Agents = cloneAgents(f.Agents)
 	if f.Concurrency != nil {
 		limits := *f.Concurrency
 		out.Concurrency = &limits

@@ -48,3 +48,4 @@ Use [0000-template.md](0000-template.md) as the starting point.
 - [0006 — Task context, resolution and conversational execution](0006-task-context-resolution-and-conversational-execution.md)
 - [0007 — Cognitive layer status and growth path](0007-cognitive-layer-status.md)
 - [0008 — Configurable agent concurrency](0008-configurable-agent-concurrency.md)
+- [0009 — Agent catalog and per-agent model lists](0009-agent-catalog-and-model-lists.md)

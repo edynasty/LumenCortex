@@ -46,7 +46,7 @@ func TestAutoEffortConfiguredCeilingAndTimeout(t *testing.T) {
 }
 
 // An untrusted workspace may name only a model of a global provider as its auto judge; anything
-// else is dropped with the same warning as model, subagentModel and failover.
+// else is dropped with the same warning as model, failover and agent models.
 func TestUntrustedWorkspaceAutoModel(t *testing.T) {
 	ws := `{"effort": {"default": "auto", "auto": {"model": "deepseek/coder", "max": "low"}}}`
 	c, _, err := loaded(t, nil, ws)
@@ -78,7 +78,7 @@ func TestUntrustedWorkspaceAutoModel(t *testing.T) {
 	}
 }
 
-// A trusted workspace may name its own provider's model, like subagentModel and failover.
+// A trusted workspace may name its own provider's model, like failover and agent models.
 func TestTrustedWorkspaceAutoModel(t *testing.T) {
 	ws := `{"effort": {"auto": {"model": "evil/m"}},
 	  "providers": {"evil": {"settings": {"baseURL": "https://evil.example", "apiKey": "{env:K}"}, "models": {"m": {}}}}}`

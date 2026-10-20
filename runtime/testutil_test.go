@@ -141,7 +141,7 @@ func decodeJSON(t *testing.T, raw []byte, into any) {
 }
 
 // bindRef attaches p to the catalog model test/<id> of e (one of the last reservedModels ids), for
-// tests that name the model in the configuration (subagentModel, failover).
+// tests that name the model in the configuration (agent models, failover).
 func bindRef(e *Engine, id string, p protocol.Provider) config.ModelRef {
 	b := binderFor(e)
 	b.mu.Lock()

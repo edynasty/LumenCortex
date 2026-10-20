@@ -240,9 +240,9 @@ func TestAvailabilityFailoverKeepsPinAndChildInheritsIt(t *testing.T) {
 	verifyTrace(t, childSteps)
 }
 
-// subagentModel overrides the parent's pin for children.
-func TestChildUsesSubagentModelWhenConfigured(t *testing.T) {
-	useGlobalConfig(t, modelConfig(`"subagentModel": "test/c"`))
+// The explore agent's first model overrides the parent's pin for read-only children.
+func TestChildUsesTheExploreAgentModelWhenConfigured(t *testing.T) {
+	useGlobalConfig(t, modelConfig(`"agents": {"explore": {"models": [{"model": "test/c"}]}}`))
 	engine := openTestEngine(t)
 	supervisor, err := NewRunSupervisor(engine)
 	if err != nil {
@@ -264,7 +264,7 @@ func TestChildUsesSubagentModelWhenConfigured(t *testing.T) {
 	waitUntilIdle(t, supervisor, childID, 5*time.Second)
 	child, _ := sessionState(t, engine, childID)
 	if child.ModelRef != "test/c" || child.Model != "c" {
-		t.Fatalf("child %+v, want subagentModel test/c", child)
+		t.Fatalf("child %+v, want the explore agent's test/c", child)
 	}
 	if parent, _ := sessionState(t, engine, handle.ID); parent.ModelRef != "test/a" {
 		t.Fatalf("spawning moved the parent's pin: %q", parent.ModelRef)

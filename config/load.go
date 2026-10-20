@@ -111,10 +111,12 @@ type Effective struct {
 	// Workspace is the workspace directory after symlink resolution, "" when none was given.
 	Workspace string
 	// Trusted reports whether Workspace is listed in the global trustedWorkspaces.
-	Trusted       bool
-	Model         ModelRef
-	SubagentModel ModelRef
-	Failover      []ModelRef
+	Trusted  bool
+	Model    ModelRef
+	Failover []ModelRef
+	// Agents is the merged agent catalog: the built-ins (ask, agent, explore, worker) first, then
+	// the custom agents by id.
+	Agents        []AgentInfo
 	EffortDefault Effort
 	// Auto is effort.auto with its defaults applied, nil when the configuration has no such object.
 	Auto       *AutoEffortPolicy
@@ -220,6 +222,7 @@ func (c *Config) Workspace() Document { return cloneDocument(c.workspace) }
 func (c *Config) Effective() Effective {
 	e := c.eff
 	e.Failover = append([]ModelRef(nil), e.Failover...)
+	e.Agents = cloneAgentInfos(e.Agents)
 	if e.Escalation != nil {
 		esc := *e.Escalation
 		e.Escalation = &esc

@@ -111,8 +111,8 @@ type File struct {
 	Schema            string              `json:"$schema,omitempty"`
 	Model             ModelRef            `json:"model,omitempty"`
 	Failover          []ModelRef          `json:"failover,omitempty"`
-	SubagentModel     ModelRef            `json:"subagentModel,omitempty"`
 	Effort            *EffortPolicy       `json:"effort,omitempty"`
+	Agents            map[string]Agent    `json:"agents,omitempty"`
 	Concurrency       *Concurrency        `json:"concurrency,omitempty"`
 	Providers         map[string]Provider `json:"providers,omitempty"`
 	Checks            map[string]Check    `json:"checks,omitempty"`

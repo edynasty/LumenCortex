@@ -81,6 +81,12 @@ func Parse(raw []byte) (File, error) {
 	if err != nil {
 		return File{}, err
 	}
+	// A retired key gets its replacement named, not the schema's generic unknown-property error.
+	if obj, ok := generic.(map[string]any); ok {
+		if _, retired := obj["subagentModel"]; retired {
+			return File{}, fmt.Errorf("%w: %w", ErrInvalidConfig, ErrSubagentModelRetired)
+		}
+	}
 	if err := validateGeneric(generic); err != nil {
 		return File{}, err
 	}
@@ -89,6 +95,9 @@ func Parse(raw []byte) (File, error) {
 	var f File
 	if err := dec.Decode(&f); err != nil {
 		return File{}, decodeError(err)
+	}
+	if err := validateAgents(f.Agents); err != nil {
+		return File{}, err
 	}
 	return f, nil
 }
@@ -103,7 +112,10 @@ func Validate(f File) error {
 	if err != nil {
 		return err
 	}
-	return validateGeneric(generic)
+	if err := validateGeneric(generic); err != nil {
+		return err
+	}
+	return validateAgents(f.Agents)
 }
 
 func decodeGeneric(raw []byte) (any, error) {

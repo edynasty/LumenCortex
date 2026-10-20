@@ -5,7 +5,24 @@
     "openrouter/sonnet",
     "deepseek/coder"
   ],
-  "subagentModel": "deepseek/coder",
+  "agents": {
+    "agent": {
+      "effort": "auto",
+      "models": [
+        {"model": "deepseek/chat", "effort": "high"},
+        {"model": "openrouter/sonnet"}
+      ]
+    },
+    "explore": {"effort": "low", "models": [{"model": "deepseek/coder"}]},
+    "security-review": {
+      "name": "Security review",
+      "description": "Audits a change for injection, authorization and secret handling.",
+      "use": "delegation",
+      "policy": "read-only",
+      "instructions": "Report findings with file and line.",
+      "models": [{"model": "openrouter/sonnet", "effort": "max"}]
+    }
+  },
   "effort": {
     "default": "medium",
     "escalation": {

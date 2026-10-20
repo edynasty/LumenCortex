@@ -85,7 +85,7 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 		metadata["runtime"] = identity
 	}
 
-	childRef, err := engine.childModelRef(ctx, c.parentID)
+	childRef, err := engine.childModelRef(ctx, c.parentID, config.AgentExplore)
 	if err != nil {
 		return nil, err
 	}

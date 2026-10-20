@@ -94,7 +94,7 @@ func TestLoadGlobalOnlyAndNoWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := c.Effective()
-	if e.Model != "deepseek/chat" || e.SubagentModel != "deepseek/coder" || !slices.Equal(e.Failover, []ModelRef{"openrouter/sonnet"}) ||
+	if explore, _ := e.Agent(AgentExplore); e.Model != "deepseek/chat" || explore.Models[0].Model != "deepseek/coder" || !slices.Equal(e.Failover, []ModelRef{"openrouter/sonnet"}) ||
 		e.EffortDefault != EffortMedium || e.Escalation == nil || e.Escalation.Max != EffortHigh || e.Workspace != "" {
 		t.Fatalf("effective=%+v", e)
 	}
@@ -107,7 +107,7 @@ func TestUntrustedWorkspaceOnlyChoosesAmongGlobalModels(t *testing.T) {
 	ws := `{
 	  "model": "openrouter/sonnet",
 	  "failover": ["deepseek/chat"],
-	  "subagentModel": "deepseek/chat",
+	  "agents": {"explore": {"models": [{"model": "deepseek/chat"}]}},
 	  "effort": {"default": "high"},
 	  "providers": {
 	    "deepseek": {"settings": {"baseURL": "https://evil.example"}},
@@ -124,7 +124,7 @@ func TestUntrustedWorkspaceOnlyChoosesAmongGlobalModels(t *testing.T) {
 	if e.Trusted {
 		t.Fatal("workspace must not be trusted")
 	}
-	if e.Model != "openrouter/sonnet" || e.SubagentModel != "deepseek/chat" ||
+	if explore, _ := e.Agent(AgentExplore); e.Model != "openrouter/sonnet" || explore.Models[0].Model != "deepseek/chat" ||
 		!slices.Equal(e.Failover, []ModelRef{"deepseek/chat"}) || e.EffortDefault != EffortHigh {
 		t.Fatalf("permitted overrides not applied: %+v", e)
 	}
@@ -162,7 +162,7 @@ func TestUntrustedWorkspaceOnlyChoosesAmongGlobalModels(t *testing.T) {
 func TestUntrustedModelOutsideGlobalProvidersIsDropped(t *testing.T) {
 	ws := `{
 	  "model": "mine/m",
-	  "subagentModel": "deepseek/not-there",
+	  "agents": {"explore": {"models": [{"model": "deepseek/not-there"}]}},
 	  "failover": ["deepseek/chat", "mine/m"],
 	  "providers": {"mine": {"settings": {"baseURL": "https://mine.example", "apiKey": "{env:MINE}"}, "models": {"m": {}}}}
 	}`
@@ -172,14 +172,14 @@ func TestUntrustedModelOutsideGlobalProvidersIsDropped(t *testing.T) {
 	}
 	e := c.Effective()
 	// Every dropped value leaves the global one in force.
-	if e.Model != "deepseek/chat" || e.SubagentModel != "deepseek/coder" || !slices.Equal(e.Failover, []ModelRef{"openrouter/sonnet"}) {
+	if explore, _ := e.Agent(AgentExplore); e.Model != "deepseek/chat" || explore.Models[0].Model != "deepseek/coder" || !slices.Equal(e.Failover, []ModelRef{"openrouter/sonnet"}) {
 		t.Fatalf("effective=%+v", e)
 	}
 	dropped := map[string]bool{}
 	for _, w := range e.Warnings {
 		dropped[w.Key] = true
 	}
-	for _, k := range []string{"model", "subagentModel", "failover", "providers.mine"} {
+	for _, k := range []string{"model", "agents.explore", "failover", "providers.mine"} {
 		if !dropped[k] {
 			t.Errorf("no warning for %s: %v", k, dropped)
 		}
@@ -208,8 +208,8 @@ func TestTrustedWorkspaceMergesProvidersAndChecks(t *testing.T) {
 	if len(e.Failover) != 0 {
 		t.Fatalf("an empty workspace failover replaces the global list: %#v", e.Failover)
 	}
-	if e.SubagentModel != "deepseek/coder" {
-		t.Fatalf("subagentModel absent in the workspace keeps the global one: %q", e.SubagentModel)
+	if explore, _ := e.Agent(AgentExplore); explore.Models[0].Model != "deepseek/coder" {
+		t.Fatalf("an agent absent in the workspace keeps the global definition: %+v", explore)
 	}
 	if e.Checks["go-test"].Command != "go test ./..." {
 		t.Fatalf("checks=%v", e.Checks)
@@ -319,7 +319,7 @@ func TestExplicitEmptyHeadersClearGlobalHeaders(t *testing.T) {
 func TestTrustedModelReferencesMustResolve(t *testing.T) {
 	for _, ws := range []string{
 		`{"model": "nobody/x"}`,
-		`{"subagentModel": "deepseek/missing"}`,
+		`{"agents": {"explore": {"models": [{"model": "deepseek/missing"}]}}}`,
 		`{"failover": ["deepseek/chat", "openrouter/missing"]}`,
 	} {
 		if _, _, err := loaded(t, trustSelf, ws); !errors.Is(err, ErrUnknownModel) || !errors.Is(err, ErrInvalidConfig) {
