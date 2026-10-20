@@ -453,6 +453,46 @@ func TestWorkspaceEqualToGlobalDirIsNotAnOverride(t *testing.T) {
 	}
 }
 
+// Concurrency bounds the machine: only the global file sets it. A workspace value is ignored with a
+// global_only warning even when the workspace is trusted; an absent field takes its default.
+func TestConcurrencyIsReadFromTheGlobalFileOnly(t *testing.T) {
+	_, globalDir := env(t)
+	ws := canon(t, t.TempDir())
+	writeFile(t, filepath.Join(globalDir, FileName),
+		`{"concurrency": {"maxAgents": 6}, "trustedWorkspaces": [`+quote(ws)+`]}`)
+	writeFile(t, filepath.Join(ws, FileName), `{"concurrency": {"maxAgents": 16, "maxChildrenPerParent": 8}}`)
+	c, err := Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eff := c.Effective()
+	if !eff.Trusted {
+		t.Fatal("workspace not trusted")
+	}
+	if want := (Concurrency{MaxAgents: 6, MaxChildrenPerParent: DefaultMaxChildrenPerParent}); eff.Concurrency != want {
+		t.Fatalf("concurrency=%+v want %+v", eff.Concurrency, want)
+	}
+	if len(eff.Warnings) != 1 || eff.Warnings[0].Code != WarnGlobalOnly || eff.Warnings[0].Key != "concurrency" {
+		t.Fatalf("warnings=%+v", eff.Warnings)
+	}
+}
+
+func TestConcurrencyOutsideItsBoundsIsInvalid(t *testing.T) {
+	for _, raw := range []string{
+		`{"concurrency": {"maxAgents": 0}}`,
+		`{"concurrency": {"maxAgents": 17}}`,
+		`{"concurrency": {"maxChildrenPerParent": 9}}`,
+		`{"concurrency": {"queue": true}}`,
+	} {
+		if _, err := Parse([]byte(raw)); !errors.Is(err, ErrInvalidConfig) {
+			t.Errorf("Parse(%s) err=%v", raw, err)
+		}
+	}
+	if _, err := Save(filepath.Join(t.TempDir(), FileName), File{Concurrency: &Concurrency{MaxAgents: MaxMaxAgents + 1}}, ""); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("Save accepted maxAgents above the bound: %v", err)
+	}
+}
+
 func TestMalformedFilesAreErrorsNamingThePath(t *testing.T) {
 	_, globalDir := env(t)
 	ws := canon(t, t.TempDir())

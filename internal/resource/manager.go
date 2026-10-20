@@ -2,6 +2,7 @@ package resource
 
 import (
 	"errors"
+	"fmt"
 	"sync/atomic"
 )
 
@@ -16,8 +17,12 @@ type Budget struct {
 	MaxAgents int   `json:"maxAgents"`
 }
 
+// Manager accounts the bounded in-process working memory and the running agents of one Engine.
+// The agent limit may change while agents run (SetMaxAgents): a lower limit never stops a running
+// agent, it only refuses new ones until enough have finished.
 type Manager struct {
 	budget       Budget
+	maxAgents    atomic.Int64
 	used         atomic.Int64
 	activeAgents atomic.Int64
 }
@@ -33,15 +38,30 @@ func New(b Budget) *Manager {
 		b.HardBytes = b.SoftBytes
 	}
 	if b.MaxAgents <= 0 {
-		b.MaxAgents = 3
+		b.MaxAgents = 4
 	}
-	return &Manager{budget: b}
+	m := &Manager{budget: b}
+	m.maxAgents.Store(int64(b.MaxAgents))
+	return m
 }
 
-func (m *Manager) Budget() Budget      { return m.budget }
+// Budget reports the budget with the agent limit currently in force.
+func (m *Manager) Budget() Budget {
+	b := m.budget
+	b.MaxAgents = m.MaxAgents()
+	return b
+}
+func (m *Manager) MaxAgents() int      { return int(m.maxAgents.Load()) }
 func (m *Manager) UsedBytes() int64    { return m.used.Load() }
 func (m *Manager) ActiveAgents() int   { return int(m.activeAgents.Load()) }
 func (m *Manager) UnderPressure() bool { return m.used.Load() >= m.budget.SoftBytes }
+
+// SetMaxAgents changes the agent limit for later AcquireAgent calls; n <= 0 is ignored.
+func (m *Manager) SetMaxAgents(n int) {
+	if n > 0 {
+		m.maxAgents.Store(int64(n))
+	}
+}
 
 // Reserve accounts bounded in-process working memory. It is deliberately explicit:
 // disk-backed session/history bytes should not be reserved here.
@@ -66,12 +86,12 @@ func (m *Manager) Reserve(bytes int64) (func(), error) {
 	}
 }
 
-
+// AcquireAgent takes one agent slot or fails at once with ErrAgentLimitExceeded; it never waits.
 func (m *Manager) AcquireAgent() (func(), error) {
 	for {
 		current := m.activeAgents.Load()
-		if current >= int64(m.budget.MaxAgents) {
-			return nil, ErrAgentLimitExceeded
+		if limit := m.maxAgents.Load(); current >= limit {
+			return nil, fmt.Errorf("%w (%d running, limit %d)", ErrAgentLimitExceeded, current, limit)
 		}
 		if m.activeAgents.CompareAndSwap(current, current+1) {
 			var released atomic.Bool

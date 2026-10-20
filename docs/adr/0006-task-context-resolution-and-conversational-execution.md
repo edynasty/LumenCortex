@@ -100,7 +100,7 @@ It also verified the following:
 - **`propose`.** The tool records a proposal in Task State and returns `approval_required`. `StartProposedTask(parent, proposalID)` starts exactly that proposal. It runs under the parent's run lock and needs no model round-trip.
 - **`isolated`.** The tool starts the child directly.
 - **Ownership and lifecycle.**
-  - Children obey the per-parent limit of 4 and run under their own run lock and worktree lease (ADR-0005).
+  - Children obey the per-parent limit (4 when decided; configurable as `concurrency.maxChildrenPerParent`, default 3, since [ADR-0008](0008-configurable-agent-concurrency.md)) and run under their own run lock and worktree lease (ADR-0005).
   - `Cancel(parent)` does not cancel children. The host's "Stop" cancels the subtree (`SubagentTree` + `Cancel`).
   - Supervisor close interrupts them (P6), Reconcile marks them `interrupted`, and resuming is an explicit Start of the child.
   - Deleting the parent never destroys an execution task: ADR-0005 §6 refuses with `ErrSessionHasDependents` until the task is cleaned up or deleted on its own, so retained tasks keep their worktree, branch, results and provenance.

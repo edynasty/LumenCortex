@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -86,7 +87,9 @@ func (s *RunSupervisor) Start(
 		_ = lock.Release()
 		return SessionInfo{}, err
 	}
-	releaseAgent, err := s.engine.resources.AcquireAgent()
+	// The limits are read at every Start, so a saved change applies to the next run. A lower limit
+	// never stops a running agent; a Start beyond it is refused at once, never queued (ADR-0008).
+	releaseAgent, err := s.acquireAgent()
 	if err != nil {
 		_ = lease.Release()
 		_ = lock.Release()
@@ -182,6 +185,31 @@ func (s *RunSupervisor) Start(
 	}()
 
 	return info, nil
+}
+
+func (s *RunSupervisor) acquireAgent() (func(), error) {
+	if _, err := s.engine.concurrency(); err != nil {
+		return nil, err
+	}
+	return s.engine.resources.AcquireAgent()
+}
+
+// checkChildLimit refuses another child of parentID once its running children, of both kinds,
+// reach concurrency.maxChildrenPerParent.
+func (s *RunSupervisor) checkChildLimit(ctx context.Context, parentID string) error {
+	limits, err := s.engine.concurrency()
+	if err != nil {
+		return err
+	}
+	active, err := s.activeChildren(ctx, parentID)
+	if err != nil {
+		return err
+	}
+	if active >= limits.MaxChildrenPerParent {
+		return fmt.Errorf("%w (%d running, limit %d): let a running child finish (wait_subagent waits for a read-only one), then retry",
+			ErrSubagentLimitExceeded, active, limits.MaxChildrenPerParent)
+	}
+	return nil
 }
 
 func (s *RunSupervisor) Cancel(sessionID string) bool {

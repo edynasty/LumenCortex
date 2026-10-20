@@ -22,6 +22,8 @@ const (
 	// WarnCognitionProfile: <workspace>/.lumencortex/cognition.json exists. Earlier builds read
 	// provider, category and health settings from it; they are ignored now.
 	WarnCognitionProfile = "cognition_profile"
+	// WarnGlobalOnly: a workspace file set a key that is read from the global file only.
+	WarnGlobalOnly = "global_only"
 )
 
 // Warning is a structured, non-fatal finding. Hosts decide how to show it: Desktop turns an
@@ -117,7 +119,9 @@ type Effective struct {
 	// Auto is effort.auto with its defaults applied, nil when the configuration has no such object.
 	Auto       *AutoEffortPolicy
 	Escalation *Escalation
-	Checks     map[string]Check
+	// Concurrency is the global file's concurrency with its defaults applied.
+	Concurrency Concurrency
+	Checks      map[string]Check
 	// Warnings lists ignored workspace entries and legacy files, in a stable order.
 	Warnings []Warning
 }

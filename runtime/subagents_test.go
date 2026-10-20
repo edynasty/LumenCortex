@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -91,11 +93,17 @@ func TestSubagentChildOptionsAreReadOnlyAndNonRecursive(t *testing.T) {
 	}
 }
 
-func TestSubagentControllerEnforcesFourActiveChildren(t *testing.T) {
-	engine, err := Open(Options{
-		Workspace: t.TempDir(),
-		Budget:    Budget{MaxAgents: 8},
-	})
+// withConcurrency is the fixture catalog with a global concurrency object.
+func withConcurrency(maxAgents, maxChildren int) string {
+	return strings.Replace(boundCatalog("test/b0"), "{",
+		fmt.Sprintf(`{"concurrency": {"maxAgents": %d, "maxChildrenPerParent": %d}, `, maxAgents, maxChildren), 1)
+}
+
+// The per-parent limit is read from the global configuration at every spawn: a raised limit admits
+// the next child of a parent that is already running, without reopening the Engine.
+func TestSubagentControllerEnforcesConfiguredChildLimit(t *testing.T) {
+	useGlobalConfig(t, withConcurrency(8, 2))
+	engine, err := Open(Options{Workspace: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,29 +122,44 @@ func TestSubagentControllerEnforcesFourActiveChildren(t *testing.T) {
 		parentID:   parentID,
 		parentOpts: AgentOptions{},
 	}
+	spawn := func(goal string) (string, error) {
+		value, err := controller.Spawn(context.Background(), goal)
+		if err != nil {
+			return "", err
+		}
+		return value.(SubagentNode).SessionID, nil
+	}
 
-	children := make([]string, 0, MaxConcurrentSubagentsPerParent)
-	for i := 0; i < MaxConcurrentSubagentsPerParent; i++ {
-		value, err := controller.Spawn(context.Background(), "inspect focused area")
+	var children []string
+	for i := 0; i < 2; i++ {
+		child, err := spawn("inspect focused area")
 		if err != nil {
 			t.Fatalf("spawn %d: %v", i, err)
 		}
-		node, ok := value.(SubagentNode)
-		if !ok {
-			t.Fatalf("spawn result type=%T", value)
-		}
-		children = append(children, node.SessionID)
+		children = append(children, child)
 	}
-	if _, err := controller.Spawn(context.Background(), "one too many"); !errors.Is(err, ErrSubagentLimitExceeded) {
-		t.Fatalf("fifth spawn err=%v", err)
+	_, err = spawn("one too many")
+	if !errors.Is(err, ErrSubagentLimitExceeded) || !strings.Contains(err.Error(), "2 running, limit 2") {
+		t.Fatalf("third spawn err=%v", err)
+	}
+
+	// Saving a higher limit applies to the next spawn of the same running parent.
+	useGlobalConfig(t, withConcurrency(8, 3))
+	third, err := spawn("admitted after the change")
+	if err != nil {
+		t.Fatalf("spawn after raising the limit: %v", err)
+	}
+	children = append(children, third)
+	if _, err := spawn("one too many again"); !errors.Is(err, ErrSubagentLimitExceeded) {
+		t.Fatalf("fourth spawn err=%v", err)
 	}
 
 	tree, err := supervisor.SubagentTree(context.Background(), parentID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tree) != MaxConcurrentSubagentsPerParent {
-		t.Fatalf("tree=%#v", tree)
+	if len(tree) != 3 {
+		t.Fatalf("refused spawns created sessions: tree=%#v", tree)
 	}
 	for _, node := range tree {
 		if !node.Active || node.Runtime.Kind != RuntimeLocal {

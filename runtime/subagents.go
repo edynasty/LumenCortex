@@ -14,9 +14,8 @@ import (
 )
 
 const (
-	MaxConcurrentSubagentsPerParent = 4
-	MaxSubagentTreeDepth            = 4
-	MaxSubagentTreeNodes            = 100
+	MaxSubagentTreeDepth = 4
+	MaxSubagentTreeNodes = 100
 )
 
 var ErrSubagentLimitExceeded = errors.New("subagent concurrency limit exceeded for parent session")
@@ -60,12 +59,8 @@ func (c *subagentController) Spawn(ctx context.Context, goal string) (any, error
 	}
 	engine := c.supervisor.engine
 
-	activeChildren, err := c.supervisor.activeChildren(ctx, c.parentID)
-	if err != nil {
+	if err := c.supervisor.checkChildLimit(ctx, c.parentID); err != nil {
 		return nil, err
-	}
-	if activeChildren >= MaxConcurrentSubagentsPerParent {
-		return nil, ErrSubagentLimitExceeded
 	}
 
 	identity, err := engine.SessionRuntime(ctx, c.parentID)

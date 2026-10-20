@@ -243,20 +243,16 @@ func (s *RunSupervisor) resumeUnstartedTask(ctx context.Context, parentID, child
 }
 
 // startExecutionTask creates and starts one execution child of parentID. It refuses beyond
-// MaxConcurrentSubagentsPerParent active children. If anything fails before the child's first run has
-// started, the child is removed with its fresh worktree and branch: no partial task is left behind.
+// concurrency.maxChildrenPerParent running children. If anything fails before the child's first run
+// has started, the child is removed with its fresh worktree and branch: no partial task is left behind.
 func (s *RunSupervisor) startExecutionTask(ctx context.Context, parentID, objective, taskID string, parentOpts AgentOptions) (ExecutionTask, error) {
 	objective, err := taskstate.ValidTaskObjective(objective)
 	if err != nil {
 		return ExecutionTask{}, err
 	}
 	e := s.engine
-	active, err := s.activeChildren(ctx, parentID)
-	if err != nil {
+	if err := s.checkChildLimit(ctx, parentID); err != nil {
 		return ExecutionTask{}, err
-	}
-	if active >= MaxConcurrentSubagentsPerParent {
-		return ExecutionTask{}, ErrSubagentLimitExceeded
 	}
 	parentRuntime, err := e.SessionRuntime(ctx, parentID)
 	if err != nil {

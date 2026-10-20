@@ -82,6 +82,25 @@
         }
       }
     },
+    "concurrency": {
+      "description": "Agent concurrency of one LumenCortex process. Read from the global file only (ignored with a warning in a workspace file): it bounds the machine's resources, not one project's. Read at every run start, so a change applies to the next run; running agents are never stopped by a lower limit. A start beyond a limit is refused at once, never queued.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxAgents": {
+          "description": "Agent runs executing at once in this process: conversation threads and their child agents together. Absent → 4.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "maxChildrenPerParent": {
+          "description": "Child agents (read-only subagents and execution tasks together) one session may have running at once. Children also count against maxAgents. Absent → 3.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        }
+      }
+    },
     "providers": {
       "description": "Provider catalog keyed by provider id (the part before '/' in a model ref). In a workspace file this key is honoured only when the workspace is listed in the global trustedWorkspaces; entries then merge field by field over the global entry with the same id, and an entry that changes a global provider's baseURL or endpoint must set its own apiKey. Untrusted workspace entries are ignored with a warning.",
       "type": "object",

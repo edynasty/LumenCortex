@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -63,6 +64,8 @@ func DowngradeSchema(ctx context.Context, opts Options, to int) (from, now int, 
 	return migrate.Downgrade(ctx, repoDir, set, to)
 }
 
+// Budget bounds one Engine's resources. MaxAgents > 0 is a host override: it replaces the
+// configuration's concurrency.maxAgents for this Engine's lifetime (tests, embedded hosts).
 type Budget struct {
 	SoftBytes int64 `json:"softBytes"`
 	HardBytes int64 `json:"hardBytes"`
@@ -94,6 +97,9 @@ type Engine struct {
 	// health is the model health registry: one per Engine, advisory, never persisted.
 	health          *agent.Health
 	providerFactory ProviderFactory
+	// fixedMaxAgents is set when the host passed Budget.MaxAgents: the configuration's
+	// concurrency.maxAgents is then not applied.
+	fixedMaxAgents bool
 }
 
 type Health struct {
@@ -249,8 +255,9 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		resources: resource.New(resource.Budget{
 			SoftBytes: opts.Budget.SoftBytes,
 			HardBytes: opts.Budget.HardBytes,
-			MaxAgents: opts.Budget.MaxAgents,
+			MaxAgents: cmp.Or(opts.Budget.MaxAgents, config.DefaultMaxAgents),
 		}),
+		fixedMaxAgents:  opts.Budget.MaxAgents > 0,
 		repo:            repoService,
 		events:          newEventBus(),
 		shell:           shell.New(workspace),
@@ -327,20 +334,41 @@ func (e *Engine) Close() error {
 	return e.store.Close()
 }
 
+// Health reports the Engine's state. The agent limit is the configured one when the configuration
+// loads, else the limit the last run start applied.
 func (e *Engine) Health() Health {
+	_, _ = e.concurrency()
+	budget := e.resources.Budget()
 	return Health{
 		Version:   GoRuntimePreviewVersion,
 		Workspace: e.workspace,
 		Database:  e.store.Path(),
 		Budget: Budget{
-			SoftBytes: e.resources.Budget().SoftBytes,
-			HardBytes: e.resources.Budget().HardBytes,
-			MaxAgents: e.resources.Budget().MaxAgents,
+			SoftBytes: budget.SoftBytes,
+			HardBytes: budget.HardBytes,
+			MaxAgents: budget.MaxAgents,
 		},
 		UsedBytes:    e.resources.UsedBytes(),
 		ActiveAgents: e.resources.ActiveAgents(),
 		Pressure:     e.resources.UnderPressure(),
 	}
+}
+
+// concurrency reads the concurrency limits in force now and applies the process limit to the
+// resource manager, so a saved change takes effect at the next run start without reopening the
+// Engine. A host-fixed Budget.MaxAgents wins over the configuration.
+func (e *Engine) concurrency() (config.Concurrency, error) {
+	cfg, err := config.Load(e.workspace)
+	if err != nil {
+		return config.Concurrency{}, err
+	}
+	limits := cfg.Effective().Concurrency
+	if e.fixedMaxAgents {
+		limits.MaxAgents = e.resources.MaxAgents()
+	} else {
+		e.resources.SetMaxAgents(limits.MaxAgents)
+	}
+	return limits, nil
 }
 
 func (e *Engine) Events(buffer int) (<-chan Event, func()) { return e.events.subscribe(buffer) }

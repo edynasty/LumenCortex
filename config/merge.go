@@ -83,6 +83,15 @@ func (c *Config) merge() error {
 				c.workspace.Path, c.global.Path),
 		})
 	}
+	// Concurrency bounds this machine's resources: a project file never changes it, trusted or not.
+	if w.Concurrency != nil {
+		c.eff.Warnings = append(c.eff.Warnings, Warning{
+			Code: WarnGlobalOnly, Path: c.workspace.Path, Key: "concurrency",
+			Message: fmt.Sprintf("ignored concurrency in %s: concurrency limits are read from the global file %s only",
+				c.workspace.Path, c.global.Path),
+		})
+	}
+	c.eff.Concurrency = g.Concurrency.Limits()
 
 	for _, id := range sortedKeys(w.Providers) {
 		if !trusted {
@@ -285,6 +294,10 @@ func cloneFile(f File) File {
 	out := f
 	out.Failover = slices.Clone(f.Failover)
 	out.Effort = cloneEffortPolicy(f.Effort)
+	if f.Concurrency != nil {
+		limits := *f.Concurrency
+		out.Concurrency = &limits
+	}
 	out.Providers = cloneProviders(f.Providers)
 	out.Checks = cloneChecks(f.Checks)
 	out.TrustedWorkspaces = slices.Clone(f.TrustedWorkspaces)

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -553,10 +554,11 @@ func (p *limitFake) result(id string) string {
 	return p.results[id]
 }
 
-// Approved decision 5: read-only subagents and execution children share the per-parent limit of 4.
-// A start beyond it is refused without leaving a child, worktree or started record behind, and a slot
-// freed by a subtree Stop admits the waiting proposal.
+// Approved decision 5: read-only subagents and execution children share the per-parent limit
+// (concurrency.maxChildrenPerParent, default 3). A start beyond it is refused without leaving a child,
+// worktree or started record behind, and a slot freed by a subtree Stop admits the waiting proposal.
 func TestExecutionChildrenAndSubagentsShareTheParentLimit(t *testing.T) {
+	const limit = config.DefaultMaxChildrenPerParent
 	root, _ := taskRepo(t)
 	engine, supervisor := openTaskEngine(t, root)
 	defer engine.Close()
@@ -565,15 +567,15 @@ func TestExecutionChildrenAndSubagentsShareTheParentLimit(t *testing.T) {
 	fake := &limitFake{results: map[string]string{}}
 	parent := newParentSession(t, engine, fake)
 
-	for i := 0; i < MaxConcurrentSubagentsPerParent+1; i++ {
+	for i := 0; i < limit+1; i++ {
 		startAndWait(t, supervisor, parent, "propose", DelegationPropose)
 	}
 	tasks := taskStateOf(t, engine, parent).Tasks
-	if len(tasks) != MaxConcurrentSubagentsPerParent+1 {
+	if len(tasks) != limit+1 {
 		t.Fatalf("proposals = %+v", tasks)
 	}
-	children := make([]string, 0, MaxConcurrentSubagentsPerParent)
-	for _, task := range tasks[:MaxConcurrentSubagentsPerParent] {
+	children := make([]string, 0, limit)
+	for _, task := range tasks[:limit] {
 		started, err := supervisor.StartProposedTask(ctx, parent, task.ID)
 		if err != nil {
 			t.Fatalf("StartProposedTask(%s): %v", task.ID, err)
@@ -586,11 +588,11 @@ func TestExecutionChildrenAndSubagentsShareTheParentLimit(t *testing.T) {
 		}
 	}
 
-	waiting := tasks[MaxConcurrentSubagentsPerParent]
+	waiting := tasks[limit]
 	if _, err := supervisor.StartProposedTask(ctx, parent, waiting.ID); !errors.Is(err, ErrSubagentLimitExceeded) {
-		t.Fatalf("fifth execution child err = %v", err)
+		t.Fatalf("execution child beyond the limit err = %v", err)
 	}
-	// A read-only subagent counts against the same four running execution children.
+	// A read-only subagent counts against the same running execution children.
 	startAndWait(t, supervisor, parent, "spawn", DelegationPropose)
 	if got := fake.result("spawn"); !strings.Contains(got, ErrSubagentLimitExceeded.Error()) {
 		t.Fatalf("spawn_subagent beyond the limit = %q", got)
@@ -599,7 +601,7 @@ func TestExecutionChildrenAndSubagentsShareTheParentLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tree) != MaxConcurrentSubagentsPerParent {
+	if len(tree) != limit {
 		t.Fatalf("tree after refused starts = %+v", tree)
 	}
 	for _, node := range tree {

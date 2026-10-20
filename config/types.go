@@ -113,6 +113,7 @@ type File struct {
 	Failover          []ModelRef          `json:"failover,omitempty"`
 	SubagentModel     ModelRef            `json:"subagentModel,omitempty"`
 	Effort            *EffortPolicy       `json:"effort,omitempty"`
+	Concurrency       *Concurrency        `json:"concurrency,omitempty"`
 	Providers         map[string]Provider `json:"providers,omitempty"`
 	Checks            map[string]Check    `json:"checks,omitempty"`
 	TrustedWorkspaces []string            `json:"trustedWorkspaces,omitempty"`
@@ -129,6 +130,38 @@ func (f File) MarshalJSON() ([]byte, error) {
 		out.Failover = &f.Failover
 	}
 	return json.Marshal(out)
+}
+
+// Concurrency bounds the agent runs of one process. It is read from the global file only. A zero
+// field means "absent": the default applies.
+type Concurrency struct {
+	MaxAgents            int `json:"maxAgents,omitempty"`
+	MaxChildrenPerParent int `json:"maxChildrenPerParent,omitempty"`
+}
+
+// Concurrency defaults and schema bounds. Parent plus a full set of children fits the default
+// process limit, so one thread can use all of its child slots on its own.
+const (
+	DefaultMaxAgents            = 4
+	DefaultMaxChildrenPerParent = 3
+	MaxMaxAgents                = 16
+	MaxMaxChildrenPerParent     = 8
+)
+
+// Limits returns c with its defaults applied; a nil c is all defaults. Values outside the schema
+// bounds never reach here: Parse and Save validate the file.
+func (c *Concurrency) Limits() Concurrency {
+	out := Concurrency{MaxAgents: DefaultMaxAgents, MaxChildrenPerParent: DefaultMaxChildrenPerParent}
+	if c == nil {
+		return out
+	}
+	if c.MaxAgents > 0 {
+		out.MaxAgents = c.MaxAgents
+	}
+	if c.MaxChildrenPerParent > 0 {
+		out.MaxChildrenPerParent = c.MaxChildrenPerParent
+	}
+	return out
 }
 
 // EffortPolicy is the reasoning effort policy. Default may be "auto": each Start then resolves a
