@@ -29,7 +29,7 @@ var (
 	// ErrUnknownAgent reports an agent id that is not in the catalog: requested by the host, or
 	// pinned by a session whose agent was since removed. The host offers its agent picker; nothing
 	// was written. A removed agent never falls back to another one, which could widen authority.
-	ErrUnknownAgent = errors.New("agent is not in the catalog")
+	ErrUnknownAgent = agent.ErrAgentNotInCatalog
 	// ErrAgentNotForConversation reports a requested agent whose use is delegation only.
 	ErrAgentNotForConversation = errors.New("agent runs only as a delegated child")
 )
@@ -120,7 +120,7 @@ func (e *Engine) planModels(req startRequest) (*modelPlan, error) {
 			return agent.AgentCeilings{Policy: a.Policy, Delegation: a.Delegation, Digest: a.Digest}, ok
 		})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnknownAgent, err)
+		return nil, err
 	}
 	def, _ := eff.Agent(agentID)
 	if agentRule == agent.RuleAgentUser && !def.ForConversation() {

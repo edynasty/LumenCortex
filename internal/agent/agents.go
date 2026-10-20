@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
@@ -107,11 +108,18 @@ type AgentGrant struct {
 // AgentDecision records a Start's agent resolution and the authority its ceilings leave. lookup
 // returns the ceilings of the resolved id, false when the catalog has no such agent; the caller then
 // refuses the Start (ErrUnknownAgent) and nothing is logged.
+// ErrAgentNotInCatalog reports an agent id the catalog does not define: requested, or pinned by a
+// session whose agent was since removed.
+var ErrAgentNotInCatalog = errors.New("agent is not in the catalog")
+
 func AgentDecision(requested, stored, def string, grant AgentGrant, lookup func(string) (AgentCeilings, bool)) (string, string, AgentGrant, Decision, error) {
 	id, rule := ResolveAgent(requested, stored, def)
 	ceil, ok := lookup(id)
 	if !ok {
-		return "", "", AgentGrant{}, Decision{}, fmt.Errorf("agent %q is not in the catalog", id)
+		if rule == RuleAgentSession {
+			return "", "", AgentGrant{}, Decision{}, fmt.Errorf("%w: %q, pinned by the session", ErrAgentNotInCatalog, id)
+		}
+		return "", "", AgentGrant{}, Decision{}, fmt.Errorf("%w: %q", ErrAgentNotInCatalog, id)
 	}
 	out := AgentGrant{Policy: CapPolicy(grant.Policy, ceil.Policy), Delegation: CapDelegation(grant.Delegation, ceil.Delegation)}
 	return id, rule, out, newDecision(DecisionAgent, rule,

@@ -211,9 +211,44 @@ func run() error {
 		return runWorktreeCommand(ctx, engine, args[1:])
 	case "skills":
 		return runSkillsCommand(engine, args[1:])
+	case "agents":
+		return listAgents(workspace)
 	default:
-		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, session-delete, shell, agent, resume, governor, approve, worktree, skills)", args[0])
+		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, session-delete, shell, agent, resume, governor, approve, worktree, skills, agents)", args[0])
 	}
+}
+
+// agentListing is one row of `lcx-go agents`: what LCX_AGENT can name and what the agent may do.
+// Instructions are reported by size; they are configuration the user already has.
+type agentListing struct {
+	ID                string              `json:"id"`
+	Name              string              `json:"name"`
+	Use               config.AgentUse     `json:"use"`
+	Policy            string              `json:"policy"`
+	Delegation        string              `json:"delegation"`
+	Effort            config.Effort       `json:"effort,omitempty"`
+	Models            []config.AgentModel `json:"models,omitempty"`
+	InstructionsBytes int                 `json:"instructionsBytes,omitempty"`
+	Builtin           bool                `json:"builtin"`
+	Source            string              `json:"source"`
+	Digest            string              `json:"digest"`
+}
+
+// listAgents prints the merged agent catalog (ADR-0009) of the workspace.
+func listAgents(workspace string) error {
+	cfg, err := config.Load(workspace)
+	if err != nil {
+		return err
+	}
+	agents := cfg.Effective().Agents
+	out := make([]agentListing, 0, len(agents))
+	for _, a := range agents {
+		out = append(out, agentListing{
+			ID: a.ID, Name: a.Name, Use: a.Use, Policy: a.Policy, Delegation: a.Delegation, Effort: a.Effort,
+			Models: a.Models, InstructionsBytes: len(a.Instructions), Builtin: a.Builtin, Source: a.Source, Digest: a.Digest,
+		})
+	}
+	return printJSON(out)
 }
 
 type agentCommandArgs struct {

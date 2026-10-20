@@ -52,7 +52,7 @@ Run on this change: `go test -count=1 ./...` (all packages ok), `go build ./...`
 | Start | `AgentOptions.Agent`; `planModels(startRequest)` resolves agent → model → candidates `[pin] + list` (child without a list: parent agent's list, else `failover`) → efforts; auto is resolved once when any candidate needs it; `ErrUnknownAgent` (also a removed pinned agent — never a silent fallback), `ErrAgentNotForConversation`; `SessionInfo.Agent` | `runtime/agent.go`, `runtime/models.go`, `runtime/engine.go` |
 | Children | default agent `explore` (subagent) / `worker` (execution task, also on host resume); no longer inherit the thread's effort override; delegation stays none | `runtime/subagents.go`, `runtime/tasks.go` |
 | Instructions | `AgentOptions.Instructions`, `InstructionsError` and sentinels removed; the agent's instructions are appended and logged as digest + length (`instructions.appended`) | `runtime/instructions.go` |
-| CLI / docs | `LCX_AGENT`; run semantics paragraph | `cmd/lcx-go/main.go`, `docs/go-provider.md` |
+| CLI / docs | `LCX_AGENT`; `lcx-go agents` prints the merged catalog (instructions by size); run semantics paragraph | `cmd/lcx-go/main.go`, `docs/go-provider.md` |
 
 Tests (new, `runtime/agents_test.go`, renamed from `instructions_test.go`):
 

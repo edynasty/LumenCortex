@@ -199,7 +199,7 @@ Set `LCX_EVENTS=true` to emit the bounded runtime event stream as JSON lines on 
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `LCX_POLICY` | `read-only`, `workspace`, or `full`; the agent's ceiling can only narrow it | `read-only` |
-| `LCX_AGENT` | catalog agent of this run; re-pins the session's agent (ADR-0009) | the session's agent, else `agent` |
+| `LCX_AGENT` | catalog agent of this run; re-pins the session's agent (ADR-0009); `lcx-go agents` lists the merged catalog | the session's agent, else `agent` |
 | `LCX_WORKFLOW` | Workflow Contract JSON path | none |
 | `LCX_MAX_STEPS` | maximum agent turns for this run | 24 |
 | `LCX_MAX_TOOL_CALLS_PER_STEP` | bounded tool fanout per turn | 8 |
