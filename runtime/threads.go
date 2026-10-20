@@ -18,6 +18,16 @@ import (
 // note of the thread (ADR-0010 D1).
 type ThreadNoteEdit = taskstate.NoteEdit
 
+// MaxThreadNotes and MaxThreadNoteBytes bound a thread's notes and one note's text, so a host can
+// explain a refusal while the user types; Core validates again.
+const (
+	MaxThreadNotes     = taskstate.MaxNotes
+	MaxThreadNoteBytes = taskstate.MaxNoteTextBytes
+)
+
+// ErrTooManyNotes: the thread already holds MaxThreadNotes notes written by the user.
+var ErrTooManyNotes = taskstate.ErrTooManyNotes
+
 // RecallHit is one recall result; ThreadNote is a note with its freshness (ADR-0010 D3, D4).
 type (
 	RecallHit  = threadctx.Hit
