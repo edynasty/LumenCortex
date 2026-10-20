@@ -1,6 +1,6 @@
 # ADR-0009: Agent catalog and per-agent model lists
 
-- **Status:** Accepted (owner direction 2026-10-20: one Core-owned agent system, built-in and user-defined agents, per-agent ordered model candidates with effort and fallback, no separate model roles). Phases A1 (catalog, config only) and A2 Core (thread agents, lists, ceilings) are implemented; A2 Desktop and A3 follow under this record.
+- **Status:** Accepted (owner direction 2026-10-20: one Core-owned agent system, built-in and user-defined agents, per-agent ordered model candidates with effort and fallback, no separate model roles). Phases A1 (catalog, config only) and A2 (thread agents, lists, ceilings; Desktop on the catalog) are implemented; A3 follows under this record.
 - **Date:** 2026-10-20
 - **Owners:** project owner
 - **Supersedes:** the `subagentModel` configuration key; Desktop's `agents.json` profiles (retired when Desktop moves onto the Core catalog in A2)
@@ -54,5 +54,5 @@ The owner also requires that each agent has its own ordered model candidates wit
 ## Phases
 
 - **A1 (implemented):** schema, types, built-ins, validation, trust merge, `Effective.Agents`/`Agent`, `subagentModel` retirement and migration, children's model from `explore`/`worker`. Report: [`docs/reports/agent-catalog-2026-10-20.md`](../reports/agent-catalog-2026-10-20.md).
-- **A2:** thread agents, candidate lists with per-entry effort, ceilings, `agent` decision, `Instructions` removed (Core implemented, same report); Desktop on the Core catalog (pending).
+- **A2:** thread agents, candidate lists with per-entry effort, ceilings, `agent` decision, `Instructions` removed (Core implemented, same report); Desktop on the Core catalog (implemented, Desktop `c82a039`, report `docs/reports/agent-catalog-desktop-2026-10-20.md`).
 - **A3:** agent choice in `spawn_subagent`/`start_task`.

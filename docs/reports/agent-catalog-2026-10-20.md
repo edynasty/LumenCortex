@@ -2,7 +2,7 @@
 
 - **Scope:** ADR-0009 phase A1, Core only: the `agents` configuration key, built-ins, validation, trust merge, the merged catalog view, and the retirement of `subagentModel`. No run consumes thread agents, ceilings or per-candidate effort yet (A2), and children cannot choose an agent yet (A3).
 - **Baseline:** Core `efe9b66` (ADR-0008 concurrency); A1 committed as `bfed40c`.
-- **Status:** A1 and A2 Core implemented and validated locally; not pushed. A2 Desktop (Agents page and composer on the Core catalog, `agents.json` import) follows against this Core.
+- **Status:** A1 and A2 Core implemented and validated locally; not pushed. A2 Core committed as `8998c25`; A2 Desktop (Agents page and composer on the Core catalog, `agents.json` import, `subagentModel` migration) committed as Desktop `c82a039`, report in that repo at `docs/reports/agent-catalog-desktop-2026-10-20.md`.
 - **Design:** [ADR-0009](../adr/0009-agent-catalog-and-model-lists.md); handoff `../LumenCortex-architecture-audit/design/handoffs/agent-architecture-2026-10-20.md` (not version-controlled).
 
 ## Changes
@@ -76,4 +76,4 @@ Compatibility: **breaking for hosts** — `AgentOptions.Instructions` no longer 
 
 ## Open
 
-- A2 Desktop, then A3 per ADR-0009. N3 (auth-error failover) stays a separate owner decision.
+- A3 per ADR-0009. Neither repo is pushed; Desktop `c82a039` pins Core `8998c25`, so Core must be pushed first for a clean Desktop module download. N3 (auth-error failover) stays a separate owner decision.
