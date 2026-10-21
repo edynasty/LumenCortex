@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -164,8 +165,9 @@ func TestNotesReachLaterThreadsThroughRecallAndReadThread(t *testing.T) {
 	assertNoSentinelAtRest(t, path)
 }
 
-// The user's notes go through the inbox: a host adds, rewrites and removes them, and a thread full of
-// the user's notes refuses another before anything is queued.
+// The user's notes go through the inbox: a host adds, rewrites and removes them; the id the preview
+// shows is the one the note keeps after a run applies the inbox, even when the run wrote its own note
+// first; and concurrent adds to a nearly full thread let exactly one through.
 func TestHostNoteEdits(t *testing.T) {
 	useGlobalConfig(t, modelConfig(""))
 	engine, _ := gitEngine(t)
@@ -179,15 +181,49 @@ func TestHostNoteEdits(t *testing.T) {
 		t.Fatalf("after add: %+v", info)
 	}
 	id := info.State.Notes[0].ID
-	if info, err = engine.EditTaskState(ctx, handle.ID, TaskStateEdit{Note: &ThreadNoteEdit{ID: id, Remove: true}}); err != nil || len(info.State.Notes) != 0 {
-		t.Fatalf("after remove: %+v %v", info.State.Notes, err)
+	if !strings.HasPrefix(id, taskstate.UserNoteIDPrefix) {
+		t.Fatalf("user note id %q", id)
 	}
-	for i := 0; i < taskstate.MaxNotes; i++ {
+	p := &threadProvider{responses: []protocol.ProviderResponse{
+		toolCalls(tc("n", "note_write", `{"text":"agent fact"}`)),
+		{Message: protocol.Message{Role: "assistant", Content: "ok"}, FinishReason: "stop"},
+	}}
+	bindRef(engine, "a", p)
+	if r := run(t, engine, handle.ID, AgentOptions{MaxSteps: 3}); r.Status != "completed" {
+		t.Fatalf("run %+v", r)
+	}
+	if info, err = engine.TaskState(ctx, handle.ID); err != nil || info.PendingEdits != 0 || len(info.State.Notes) != 2 {
+		t.Fatalf("after the run: %+v %v", info, err)
+	}
+	if info, err = engine.EditTaskState(ctx, handle.ID, TaskStateEdit{Note: &ThreadNoteEdit{ID: id, Remove: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(info.State.Notes) != 1 || info.State.Notes[0].Text != "agent fact" {
+		t.Fatalf("removing the previewed id: %+v", info.State.Notes)
+	}
+	for i := 0; i < taskstate.MaxNotes-1; i++ {
 		if _, err := engine.EditTaskState(ctx, handle.ID, TaskStateEdit{Note: &ThreadNoteEdit{Text: "fact"}}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := engine.EditTaskState(ctx, handle.ID, TaskStateEdit{Note: &ThreadNoteEdit{Text: "one too many"}}); err == nil {
-		t.Fatal("a 33rd user note was queued")
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	accepted := 0
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := engine.EditTaskState(ctx, handle.ID, TaskStateEdit{Note: &ThreadNoteEdit{Text: "race"}}); err == nil {
+				mu.Lock()
+				accepted++
+				mu.Unlock()
+			} else if !errors.Is(err, ErrTooManyNotes) {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if accepted != 1 {
+		t.Fatalf("%d concurrent adds accepted at %d user notes, want 1", accepted, taskstate.MaxNotes-1)
 	}
 }

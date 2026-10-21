@@ -71,6 +71,59 @@ func TestNoteLimitsAndUserEdits(t *testing.T) {
 	}
 }
 
+// A user add queued with its id keeps that id, whatever a run writes before the inbox is applied: a
+// removal by that id removes the user's note, never the run's newer one, and a replayed add is not
+// applied twice.
+func TestQueuedUserNoteIDIsStable(t *testing.T) {
+	var s State
+	at := time.Unix(0, 0).UTC()
+	for i := 0; i < 3; i++ {
+		if _, err := s.WriteNote("", "earlier", nil, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add := QueuedEdit{At: at, Edit: Edit{Note: &NoteEdit{ID: "u1a2b", Text: "user fact", Create: true}}}
+	remove := QueuedEdit{At: at, Edit: Edit{Note: &NoteEdit{ID: "u1a2b", Remove: true}}}
+	// The run writes before the queued add and removal are applied.
+	agent, err := s.WriteNote("", "agent fact", nil, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Apply([]QueuedEdit{add, add})
+	if s.noteIndex("u1a2b") < 0 || len(s.Notes) != 5 {
+		t.Fatalf("after add (applied twice): %+v", s.Notes)
+	}
+	s.Apply([]QueuedEdit{remove})
+	if s.noteIndex("u1a2b") >= 0 || s.noteIndex(agent.ID) < 0 {
+		t.Fatalf("removal hit the wrong note: %+v", s.Notes)
+	}
+	for _, bad := range []NoteEdit{{ID: "n9", Text: "x", Create: true}, {ID: "u", Text: "x", Create: true}, {ID: "u-1", Text: "x", Create: true}, {ID: "u1", Remove: true, Create: true}} {
+		if err := (Edit{Note: &bad}).Validate(); err == nil {
+			t.Fatalf("edit %+v validated", bad)
+		}
+	}
+}
+
+// The newest note is shown even when it cites four maximal paths; only older notes are counted.
+func TestRenderShowsTheNewestNoteWithLongCites(t *testing.T) {
+	var s State
+	at := time.Unix(0, 0).UTC()
+	if _, err := s.WriteNote("", "older", nil, at); err != nil {
+		t.Fatal(err)
+	}
+	cites := make([]Cite, 4)
+	for i := range cites {
+		cites[i] = Cite{Path: strings.Repeat(string(rune('a'+i)), 1000) + ".go"}
+	}
+	if _, err := s.WriteNote("", strings.Repeat("n", MaxNoteTextBytes), cites, at); err != nil {
+		t.Fatal(err)
+	}
+	block := Render("goal", s, nil)
+	if !strings.Contains(block, "- n2 [agent]") {
+		t.Fatalf("newest note not shown:\n%s", block)
+	}
+}
+
 func TestNormalizeCitePaths(t *testing.T) {
 	got, err := NormalizeCitePaths([]string{"./a/b.go", "a/b.go", "c\\d.go"})
 	if err != nil || len(got) != 2 || got[0] != "a/b.go" || got[1] != "c/d.go" {

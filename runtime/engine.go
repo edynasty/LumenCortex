@@ -82,15 +82,17 @@ type Options struct {
 }
 
 type Engine struct {
-	workspace     string
-	repoDir       string
-	worktreeRoot  string
-	store         *session.Store
-	resources     *resource.Manager
-	repo          *repository.Service
-	events        *eventBus
-	shell         *shell.Runner
-	lspMu         sync.Mutex
+	workspace    string
+	repoDir      string
+	worktreeRoot string
+	store        *session.Store
+	resources    *resource.Manager
+	repo         *repository.Service
+	events       *eventBus
+	shell        *shell.Runner
+	lspMu        sync.Mutex
+	// noteMu makes the user-note limit check and the queueing of the add one step in this Engine.
+	noteMu        sync.Mutex
 	lspManagers   map[string]*lsp.Manager
 	mcpRegistry   *mcp.Registry
 	skillRegistry *skills.Registry

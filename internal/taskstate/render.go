@@ -159,7 +159,9 @@ func renderNotes(b *strings.Builder, notes []Note) {
 			for j, c := range n.Cites {
 				paths[j] = c.Path
 			}
-			line += " (cites " + strings.Join(paths, ", ") + ")"
+			// Paths may be up to 1 KiB each; the cut keeps every line well under the notes budget, so
+			// the newest note is always shown and only older ones are counted.
+			line += " (cites " + truncate(strings.Join(paths, ", "), maxRenderedCitesBytes) + ")"
 		}
 		line += "\n"
 		if used+len(line) > notesRenderBytes {
@@ -173,6 +175,9 @@ func renderNotes(b *strings.Builder, notes []Note) {
 		fmt.Fprintf(b, "- … %d older notes not shown; read_thread on this thread lists all of them.\n", hidden)
 	}
 }
+
+// maxRenderedCitesBytes bounds the cites part of one rendered note line.
+const maxRenderedCitesBytes = 256
 
 // maxRenderedTasks bounds the execution tasks the block lists: the newest ones, in order.
 const maxRenderedTasks = 10

@@ -160,23 +160,46 @@ func (s State) UserNotes() int {
 	return count
 }
 
-// NoteEdit is the user's note edit: add (ID empty), replace the text of any note (it becomes the
-// user's), or remove any note.
+// NoteEdit is the user's note edit: add, replace the text of any note (it becomes the user's), or remove
+// any note. An add is queued with Create and the id the note will have, so the id a host sees in the
+// preview is the id the note keeps; it never names another note, whatever a run writes in between.
+// An add without an id (ID empty, no Create) gets one from the thread's counter when applied.
 type NoteEdit struct {
 	ID     string `json:"id,omitempty"`
 	Text   string `json:"text,omitempty"`
 	Remove bool   `json:"remove,omitempty"`
+	Create bool   `json:"create,omitempty"`
 }
+
+// UserNoteIDPrefix starts the ids of notes the user adds; a run's notes are "n<seq>", so the two never
+// collide.
+const UserNoteIDPrefix = "u"
 
 func (e NoteEdit) validate() error {
 	if e.Remove {
-		if e.ID == "" || e.Text != "" {
+		if e.ID == "" || e.Text != "" || e.Create {
 			return errors.New("a note removal names the note and no text")
 		}
 		return nil
 	}
+	if e.Create && !validUserNoteID(e.ID) {
+		return fmt.Errorf("a created note needs an id %s<1-32 letters or digits>", UserNoteIDPrefix)
+	}
 	_, err := NormalizeNoteText(e.Text)
 	return err
+}
+
+func validUserNoteID(id string) bool {
+	rest, ok := strings.CutPrefix(id, UserNoteIDPrefix)
+	if !ok || rest == "" || len(rest) > 32 {
+		return false
+	}
+	for _, r := range rest {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'z') {
+			return false
+		}
+	}
+	return true
 }
 
 // setNote applies a user note edit. Adding to a full thread drops the oldest agent note; when every
@@ -193,12 +216,15 @@ func (s *State) setNote(e NoteEdit, at time.Time) {
 		return
 	}
 	text, _ := NormalizeNoteText(e.Text)
-	if i >= 0 {
+	if e.Create {
+		if i >= 0 {
+			return // applied already
+		}
+	} else if i >= 0 {
 		// The user's text replaces the note; its cites were the agent's evidence for other text.
 		s.Notes[i] = Note{ID: e.ID, Text: text, By: ByUser, At: at}
 		return
-	}
-	if e.ID != "" {
+	} else if e.ID != "" {
 		return // the note was removed in between
 	}
 	if len(s.Notes) >= MaxNotes {
@@ -209,5 +235,9 @@ func (s *State) setNote(e NoteEdit, at time.Time) {
 		j := s.noteIndex(oldest)
 		s.Notes = append(s.Notes[:j:j], s.Notes[j+1:]...)
 	}
-	s.Notes = append(s.Notes, Note{ID: s.nextNoteID(), Text: text, By: ByUser, At: at})
+	id := e.ID
+	if id == "" {
+		id = s.nextNoteID()
+	}
+	s.Notes = append(s.Notes, Note{ID: id, Text: text, By: ByUser, At: at})
 }

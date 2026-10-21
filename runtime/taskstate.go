@@ -3,6 +3,8 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,9 +77,20 @@ func (e *Engine) EditTaskState(ctx context.Context, sessionID string, edit TaskS
 	if err := edit.Validate(); err != nil {
 		return TaskStateInfo{}, err
 	}
-	if edit.Note != nil && !edit.Note.Remove && edit.Note.ID == "" {
-		// A user note is always kept (an agent note makes room), so the only refusal is a thread whose
-		// notes are all the user's; checked here because applying an edit cannot fail.
+	if n := edit.Note; n != nil && !n.Remove && n.ID == "" {
+		// The add gets its final id now, so the id the preview shows is the one the note keeps
+		// (taskstate.NoteEdit). A user note is always kept (an agent note makes room), so the only
+		// refusal is a thread whose notes are all the user's; checked here because applying an edit
+		// cannot fail, and under noteMu so two adds cannot both pass it.
+		buf := make([]byte, 8)
+		if _, err := rand.Read(buf); err != nil {
+			return TaskStateInfo{}, err
+		}
+		add := *n
+		add.ID, add.Create = taskstate.UserNoteIDPrefix+hex.EncodeToString(buf), true
+		edit.Note = &add
+		e.noteMu.Lock()
+		defer e.noteMu.Unlock()
 		current, err := e.TaskState(ctx, sessionID)
 		if err != nil {
 			return TaskStateInfo{}, err
