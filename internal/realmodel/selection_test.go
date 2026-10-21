@@ -31,6 +31,18 @@ import (
 
 const authorisedRealModel = "local/deepseek-v4.1-flash"
 
+// The user's real global directory and credential store, resolved once before any test points
+// XDG_CONFIG_HOME at a private directory: a later realModelEnv call must not resolve them under the
+// previous call's private directory.
+var realDirs = sync.OnceValues(func() ([2]string, error) {
+	globalDir, err := config.GlobalDir()
+	if err != nil {
+		return [2]string{}, err
+	}
+	credPath, err := config.DefaultCredentialStorePath()
+	return [2]string{globalDir, credPath}, err
+})
+
 // realModelEnv prepares a private global configuration naming the authorised model and the given
 // agents, trusting the workspaces. It returns the provider factory that resolves the model's key.
 func realModelEnv(t *testing.T, agents map[string]any, workspaces ...string) lcx.ProviderFactory {
@@ -42,14 +54,11 @@ func realModelEnv(t *testing.T, agents map[string]any, workspaces ...string) lcx
 	if ref != authorisedRealModel {
 		t.Fatalf("LCX_REAL_MODEL=%q: only %s is authorised for real-model probes", ref, authorisedRealModel)
 	}
-	globalDir, err := config.GlobalDir()
+	dirs, err := realDirs()
 	if err != nil {
 		t.Fatal(err)
 	}
-	credPath, err := config.DefaultCredentialStorePath()
-	if err != nil {
-		t.Fatal(err)
-	}
+	globalDir, credPath := dirs[0], dirs[1]
 	raw, err := os.ReadFile(filepath.Join(globalDir, config.FileName))
 	if err != nil {
 		t.Fatal(err)

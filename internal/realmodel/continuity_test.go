@@ -302,17 +302,24 @@ func TestRealModelContinuity(t *testing.T) {
 					rec.RelevantNoteHasKey = rec.RelevantNoteHasKey || notes.hasKey[name]
 				}
 				records = append(records, rec)
+				saveRecords(t, records)
 				t.Logf("rep=%d task=%s arm=%s success=%v (%s) status=%s req=%d prompt=%d recalls=%d reads=%d rank=%d tools=%v",
 					rep, task.name, arm, rec.Success, rec.Detail, rec.Status, rec.Requests, rec.Prompt, rec.Recalls, rec.Reads, rec.RelevantRank, rec.Tools)
 			}
 		}
 	}
 	summarize(t, records)
-	if out := os.Getenv("LCX_EVAL_OUT"); out != "" {
-		raw, _ := json.MarshalIndent(records, "", "  ")
-		if err := os.WriteFile(out, raw, 0o644); err != nil {
-			t.Fatal(err)
-		}
+}
+
+// saveRecords rewrites LCX_EVAL_OUT with every record so far, so an aborted run keeps its data.
+func saveRecords(t *testing.T, records []evalRecord) {
+	out := os.Getenv("LCX_EVAL_OUT")
+	if out == "" {
+		return
+	}
+	raw, _ := json.MarshalIndent(records, "", "  ")
+	if err := os.WriteFile(out, raw, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
