@@ -164,12 +164,13 @@ func TestMigrateSubagentModel(t *testing.T) {
 func TestAgentCatalogDefaultsAndReferences(t *testing.T) {
 	e, err := loadedGlobal(t, withAgents(`{
 	  "reviewer": {"description": "Reviews.", "use": "delegation", "policy": "read-only", "effort": "high"},
+	  "helper": {"description": "Helps.", "use": "both", "policy": "workspace"},
 	  "docs": {"name": "Docs writer", "instructions": "Write docs.", "models": [{"model": "openrouter/sonnet", "effort": "low"}, {"model": "deepseek/chat"}]}
 	}`), nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := agentIDs(e); !slices.Equal(got, []string{"ask", "agent", "explore", "worker", "docs", "reviewer"}) {
+	if got := agentIDs(e); !slices.Equal(got, []string{"ask", "agent", "explore", "worker", "docs", "helper", "reviewer"}) {
 		t.Fatalf("catalog order=%v", got)
 	}
 	docs, _ := e.Agent("docs")
@@ -180,6 +181,10 @@ func TestAgentCatalogDefaultsAndReferences(t *testing.T) {
 	reviewer, _ := e.Agent("reviewer")
 	if reviewer.Name != "reviewer" || reviewer.Delegation != DelegationNone || !reviewer.SpawnEligible() {
 		t.Fatalf("reviewer=%+v", reviewer)
+	}
+	// An agent that can run as a child never delegates, also when it runs a conversation (ADR-0009 §2).
+	if helper, _ := e.Agent("helper"); helper.Delegation != DelegationNone || !helper.ForConversation() {
+		t.Fatalf("helper=%+v", helper)
 	}
 
 	for name, agents := range map[string]string{

@@ -79,7 +79,7 @@ const DefaultUnhealthyFor = 30 * time.Second
 //
 //	requested differs from stored, or the agent switched → model.user    (re-pins the session)
 //	the agent switched and has its own list            → model.agent   (its first model)
-//	the agent switched                                  → model.default (config model)
+//	the agent switched and a config model is set        → model.default (config model)
 //	otherwise stored is set                             → model.session
 //	otherwise the agent has its own list                → model.agent
 //	otherwise                                           → model.default (config model; pins a session that has none)
@@ -93,7 +93,7 @@ func ResolveModelRef(requested, stored, agentFirst, def config.ModelRef, switche
 		return requested, RuleModelUser
 	case switched && agentFirst != "":
 		return agentFirst, RuleModelAgent
-	case switched:
+	case switched && def != "":
 		return def, RuleModelDefault
 	case stored != "":
 		return stored, RuleModelSession

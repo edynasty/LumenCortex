@@ -36,6 +36,7 @@ func TestResolveModelRefPrecedence(t *testing.T) {
 		{"unpinned session takes the agent's first model", "", "", "p/l", "p/d", false, "p/l", RuleModelAgent, true},
 		{"agent switch re-pins to its first model", "", "p/a", "p/l", "p/d", true, "p/l", RuleModelAgent, true},
 		{"agent switch to one without a list re-pins the default", "", "p/a", "", "p/d", true, "p/d", RuleModelDefault, true},
+		{"agent switch with no list and no default keeps the pin", "", "p/a", "", "", true, "p/a", RuleModelSession, false},
 		{"explicit model wins over an agent switch", "p/b", "p/a", "p/l", "p/d", true, "p/b", RuleModelUser, true},
 		{"explicit model equal to the pin still wins over a switch", "p/a", "p/a", "p/l", "p/d", true, "p/a", RuleModelUser, true},
 	}

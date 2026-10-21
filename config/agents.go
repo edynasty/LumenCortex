@@ -330,7 +330,9 @@ func agentCatalog(defs map[string]Agent, sources map[string]string, providers ma
 			info.Policy = PolicyFull
 		}
 		switch {
-		case info.Use == AgentUseDelegation:
+		case info.Use != AgentUseConversation:
+			// An agent that can run as a delegated child never delegates further (ADR-0009 §2), in a
+			// conversation too; validateAgents refuses a delegation field on it.
 			info.Delegation = DelegationNone
 		case info.Delegation == "":
 			info.Delegation = DelegationIsolated

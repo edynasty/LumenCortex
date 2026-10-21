@@ -222,7 +222,9 @@ func TestSpawnRunsTheChosenAgentAndResumeKeepsIt(t *testing.T) {
 	}
 	resumed := &recordingProvider{final: "resumed"}
 	bindRef(engine, "b63", resumed)
-	if _, err := supervisor.Start(ctx, childID, AgentOptions{Input: "continue", Policy: "full", Delegation: DelegationIsolated, MaxSteps: 2}); err != nil {
+	// The host asks for full policy, delegation and the full-authority "agent" (what a client sends
+	// when it shows a child like a thread); the child keeps its agent and read-only authority.
+	if _, err := supervisor.Start(ctx, childID, AgentOptions{Input: "continue", Policy: "full", Delegation: DelegationIsolated, Agent: config.AgentDefault, MaxSteps: 2}); err != nil {
 		t.Fatal(err)
 	}
 	waitUntilIdle(t, supervisor, childID, 5*time.Second)

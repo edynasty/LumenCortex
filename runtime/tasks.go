@@ -416,10 +416,12 @@ func executionOptions(parent AgentOptions, ref config.ModelRef, units json.RawMe
 	}
 }
 
-// constrainExecutionChild applies an execution child's fixed authority to a Start of that child: an
-// explicit resume by the host keeps the model, step bounds and input it asks for, but never a wider
-// policy, MCP, spawn tools or delegation. Other sessions are unchanged.
-func (e *Engine) constrainExecutionChild(ctx context.Context, sessionID string, opts AgentOptions) (AgentOptions, error) {
+// constrainChild applies a child's fixed authority to a Start of that child: an explicit resume by the
+// host keeps the model, step bounds and input it asks for, but never a wider policy, MCP, spawn tools or
+// delegation, and never another agent (the requested one is ignored, as for every child). A spawn
+// child stays read-only; an execution child stays at workspace in its worktree. Other sessions are
+// unchanged.
+func (e *Engine) constrainChild(ctx context.Context, sessionID string, opts AgentOptions) (AgentOptions, error) {
 	relation, err := e.store.ParentRelation(ctx, sessionID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return opts, nil
@@ -427,16 +429,21 @@ func (e *Engine) constrainExecutionChild(ctx context.Context, sessionID string, 
 	if err != nil {
 		return opts, err
 	}
-	if relation.Kind != RelationExecution {
+	switch relation.Kind {
+	case RelationExecution:
+		opts.Policy = toolset.PolicyWorkspace
+		// The launcher's agent (unexported: never a host's) is kept for the first Start; later
+		// Starts run the agent the child pinned, which outranks this default.
+		opts.childAgent = cmp.Or(opts.childAgent, config.AgentWorker)
+	case RelationSubagent:
+		opts.Policy = toolset.PolicyReadOnly
+		opts.childAgent = cmp.Or(opts.childAgent, config.AgentExplore)
+	default:
 		return opts, nil
 	}
-	opts.Policy = toolset.PolicyWorkspace
 	opts.Delegation = ""
 	opts.Interactive = false
 	opts.parentSessionID = relation.ParentSessionID
-	// The launcher's agent (unexported: never a host's) is kept for the first Start; later Starts run
-	// the agent the child pinned, which outranks this default.
-	opts.childAgent = cmp.Or(opts.childAgent, config.AgentWorker)
 	opts.disableSubagents = true
 	opts.disableMCP = true
 	opts.subagents = nil

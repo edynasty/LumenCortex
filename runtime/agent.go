@@ -88,7 +88,7 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, opts AgentOptio
 		return AgentResult{}, err
 	}
 	defer lock.Release()
-	if opts, err = e.constrainExecutionChild(ctx, sessionID, opts); err != nil {
+	if opts, err = e.constrainChild(ctx, sessionID, opts); err != nil {
 		return AgentResult{}, err
 	}
 	_, lease, err := e.leaseWorkspace(ctx, sessionID)

@@ -76,7 +76,7 @@ func (s *RunSupervisor) Start(
 	if err != nil {
 		return SessionInfo{}, err
 	}
-	if opts, err = s.engine.constrainExecutionChild(ctx, sessionID, opts); err != nil {
+	if opts, err = s.engine.constrainChild(ctx, sessionID, opts); err != nil {
 		_ = lock.Release()
 		return SessionInfo{}, err
 	}
