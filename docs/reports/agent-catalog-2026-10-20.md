@@ -128,4 +128,4 @@ Run: `go test -count=1 ./...`, `go build ./...`, `go vet ./...` all pass on `3e4
 ## Open
 
 - Neither repo is pushed. Desktop now pins Core `3e4f418` (the ADR-0010 work and the review fixes), so Core must be pushed first for a clean Desktop module download.
-- A3 real-model selection probe: run, 8/8 (see A3 above). N3 (auth-error failover) stays a separate owner decision.
+- A3 real-model selection probe: run, 8/8 (see A3 above). Native Desktop run (packaged app, isolated `XDG_CONFIG_HOME`, same model): a thread on `agent` chose the custom read-only `auditor` on its own, and the child ran pinned and read-only. Recorded in the Desktop report `docs/reports/agent-catalog-desktop-2026-10-20.md` § Native A3 run. N3 (auth-error failover) stays a separate owner decision.

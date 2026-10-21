@@ -1,7 +1,10 @@
 # Context continuity: thread notes, read_thread, recall (ADR-0010)
 
 - **Date:** 2026-10-21
-- **Scope:** Core: B1 (notes, `read_thread`) and B2 (`recall`) of ADR-0010, their review fixes, and B3, the continuity evaluation. Desktop: the Notes section, "Remember" and the Core pin, recorded in the Desktop report.
+- **Scope:** Core: B1 (notes, `read_thread`) and B2 (`recall`) of ADR-0010, their review fixes, and B3, the continuity evaluation. Desktop, recorded in the Desktop report `docs/reports/context-notes-desktop-2026-10-21.md`:
+  - the Task pane Notes section, "Remember" and the Core pin (`7b7f894`);
+  - the Context page notes with Core freshness and Forget (`f91df45`), which use the existing `Engine.ReadThread` and `EditTaskState` with no Core change;
+  - a native run of the packaged app (`b1beb59`).
 - **Baseline:** Core `82e6b71` (A3 probe), Desktop `1714459`. Core after this work: `3e4f418`.
 - **Status:** B1/B2 Core implemented, reviewed and validated locally. B3 ran and passed its gate, so `recall`/`read_thread` stay on by default (ADR-0010 D6). Not pushed.
 - **Authority:** [ADR-0010](../adr/0010-thread-notes-and-recall.md), [ADR-0007](../adr/0007-cognitive-layer-status.md). Proposal: `../LumenCortex-architecture-audit/design/handoffs/agent-architecture-2026-10-20.md` §4 (not version-controlled).
