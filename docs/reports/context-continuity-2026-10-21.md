@@ -37,6 +37,37 @@
   - `runtime/threads_test.go`: an end-to-end run through the Engine and SQLite; recall and read_thread across threads; stale after a change and after removal; C1 sentinel absent at rest; C5 checked in the system prompt; host edits and limit.
 - `go test -count=1 ./...`, `go build ./...` and `go vet ./...`: pass.
 
+## B3 continuity evaluation
+
+**Pre-registered before any run (2026-10-21).** Harness: `internal/realmodel/continuity_test.go` (build tag `realmodel`), model `local/deepseek-v4.1-flash` only.
+
+- **History** (built once per repeat on the real model): 7 interactive threads, 10 turns in total. In each one the user states facts or decisions that never reach the repository: the staging host and token variable, a sync.Map decision after a mutex deadlock, a counter naming convention, the release branch naming (an old convention, later superseded), plus two distractors. The history is copied once per (task, arm), so both arms read the same store.
+- **Tasks (thread B):** `deploy`, `cache`, `metrics` and `release` need the history. `control` does not.
+- **Arms:**
+  - arm 1 `window`: window, Task State and notes, with `recall`/`read_thread` denied through `ToolDenylist`;
+  - arm 2 `recall`: the same, plus both tools.
+- **Grading:** deterministic checks of files and of `go build`/`go test` output, never a model.
+- **Gate:** the tools stay on by default only if all three hold. Otherwise they become opt-in.
+  1. Arm 2's success over the four history tasks exceeds arm 1's by at least 2 runs across all repeats.
+  2. Arm 2's `control` success is not lower than arm 1's.
+  3. Arm 2's mean prompt tokens per B run are ≤ 1.5× arm 1's (the token budget).
+- **Secondary, not gating:**
+  - recall relevant@1 and @3;
+  - whether the history threads wrote notes carrying the key fact, which measures notes alone;
+  - whether `release` picks the superseded convention.
+- **Repeats:** 3. A pilot run that only checks the harness mechanics is reported separately and does not count.
+
+**Pilots (mechanics only; not counted).** Both ran `deploy` and `control` with one repeat.
+
+1. Pilot 1 surfaced two harness defects, which are fixed:
+   - `MessagePage(…, 0, …)` reads seq < 0, so the recorded tool list was empty. The harness now passes `-1`.
+   - The default policy is read-only, so thread B could not write. B threads now run with `Policy: "full"` in their private fixture.
+2. Pilot 2 confirmed the mechanics: `control` passed in both arms, and writes and tools were recorded. It also showed two behaviours:
+   - History notes captured the key fact for `deploy`, `cache` and `metrics`. For `release-old` the thread wrote no note. For `release-new` the note recorded the check but not the new convention.
+   - In the `recall` arm the model never called `recall`, so `deploy` failed in both arms. The model guessed the host.
+
+   Before the counted run, the `recall` tool description gained one sentence: facts from earlier conversations are often not in the repository, so call `recall` before guessing one or when a task may continue earlier work. A denied tool is not offered at all, so arm 1 is unaffected. This is the only change between the pilots and the counted run.
+
 ## Open
 
 - B3 continuity evaluation (ADR-0010 D6) decides whether `recall`/`read_thread` stay on by default.

@@ -22,8 +22,10 @@ func (s *Set) registerThreadTools() {
 	s.add(protocol.ToolSpec{
 		Name: "recall",
 		Description: "Search earlier threads and tasks of this workspace for what they decided, tried, abandoned or found: " +
-			"matches their objectives, notes, resolutions and final answers. Use it when the task may continue or repeat earlier " +
-			"work. Returns up to 8 threads with matching notes; open one with read_thread.",
+			"matches their objectives, notes, resolutions and final answers. Facts the user gave in earlier conversations " +
+			"(hosts, variable names, conventions, decisions, approaches that failed) are often not in the repository; " +
+			"call recall before you guess or invent such a fact, and at the start of a task that may continue earlier work. " +
+			"Returns up to 8 threads with matching notes; open one with read_thread.",
 		Permission: "read",
 		Parameters: obj(map[string]any{
 			"query": map[string]any{"type": "string", "description": "words to match: names, identifiers, error text, topics"},

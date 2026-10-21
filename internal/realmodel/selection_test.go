@@ -32,8 +32,8 @@ import (
 const authorisedRealModel = "local/deepseek-v4.1-flash"
 
 // realModelEnv prepares a private global configuration naming the authorised model and the given
-// agents, trusting workspace. It returns the provider factory that resolves the model's key.
-func realModelEnv(t *testing.T, workspace string, agents map[string]any) lcx.ProviderFactory {
+// agents, trusting the workspaces. It returns the provider factory that resolves the model's key.
+func realModelEnv(t *testing.T, agents map[string]any, workspaces ...string) lcx.ProviderFactory {
 	t.Helper()
 	ref := os.Getenv("LCX_REAL_MODEL")
 	if ref == "" {
@@ -74,10 +74,13 @@ func realModelEnv(t *testing.T, workspace string, agents map[string]any) lcx.Pro
 	if err := os.MkdirAll(filepath.Join(private, "lumencortex"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if workspaces == nil {
+		workspaces = []string{}
+	}
 	doc := map[string]any{
 		"model":             ref,
 		"providers":         map[string]any{providerID: entry},
-		"trustedWorkspaces": []string{workspace},
+		"trustedWorkspaces": workspaces,
 	}
 	if len(agents) > 0 {
 		doc["agents"] = agents
@@ -249,7 +252,7 @@ func TestRealModelAgentSelection(t *testing.T) {
 		for i := 0; i < repeats; i++ {
 			t.Run(fmt.Sprintf("%s/%d", sc.name, i), func(t *testing.T) {
 				repo := fixtureRepo(t, calcFixture)
-				factory := realModelEnv(t, repo, probeAgents)
+				factory := realModelEnv(t, probeAgents, repo)
 				calls, children, status := runProbeThread(t, repo, factory, sc.prompt)
 				ok := false
 				for _, c := range calls {
