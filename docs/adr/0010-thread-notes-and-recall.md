@@ -58,6 +58,8 @@ A second table would create a second source of truth. It would also need an exac
 
 6. **Gate.** B3 (ADR-0007 §3) runs on `local/deepseek-v4.1-flash` and compares arm 1 (window + Task State + notes) with arm 2 (+ `recall` and `read_thread`). The tools stay enabled by default only if arm 2 beats arm 1 on continuation success without a token cost above the budget fixed before the run. Otherwise they become opt-in, and the result is recorded here.
 
+   **Result (2026-10-21): the tools stay enabled by default.** In the counted run (3 repeats), arm 2 succeeded on 10 of 12 history tasks and arm 1 on 0 of 12. `control` passed 3 of 3 in both arms, and arm 2's mean prompt tokens were 1.07× arm 1's (budget 1.5×). The run is reported in [the continuity report](../reports/context-continuity-2026-10-21.md#b3-continuity-evaluation). Arm 1 cannot reach other threads at all, so the run shows that a cross-thread path is needed and that `recall` provides one within budget. It does not compare `recall` with any other cross-thread design.
+
 ## Alternatives rejected
 
 - **A context agent that summarises threads into memory.** It costs a model call per capture, and it makes model text the stored truth, which ADR-0007 rules out (proposal §2.2).

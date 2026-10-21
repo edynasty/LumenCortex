@@ -113,7 +113,19 @@ Run on this change: `go test -count=1 ./...` (all packages ok), `go build ./...`
 
 Compatibility: Go API — `toolset.SubagentController.Spawn` and `agent.TaskStarter.StartTask` gain an `agentID` parameter (in-repo implementations only). Wire — tool calls without `agent` behave as before; Task State and read-model fields are additive and omitted when empty; proposals recorded before A3 start `worker` without bounds, as before.
 
+## Review fixes (2026-10-21, `0771892`)
+
+Two independent reviews (Core and Desktop) found three Core defects. All are fixed:
+
+| Finding | Fix | Regression test |
+|---|---|---|
+| A host Start of a **spawn** child could pass `Agent`, policy and delegation: `constrainExecutionChild` covered execution children only, so a client showing a child as a thread re-pinned it to `agent` with full authority (Desktop review finding 5) | `constrainChild` covers both kinds. A spawn child stays read-only with its pinned agent (default `explore`), and an execution child stays at workspace (default `worker`). The requested agent is ignored for both | `runtime.TestSpawnRunsTheChosenAgentAndResumeKeepsIt`: a host resume asks for `full`, `isolated` and `Agent: "agent"`, and the child keeps `audit`, its model and read-only tools (fails before the fix) |
+| A `use: both` agent loaded with `delegation: isolated`, though an agent that can run as a child never delegates (ADR-0009 §2), and `validateAgents` refused saving it back | `agentCatalog` gives every agent with `use` other than `conversation` `delegation: none` | `config.TestAgentCatalogDefaultsAndReferences` (`helper`, `use: both`) |
+| An agent switch to an agent with no list, while no config model was set, resolved to "" and failed Start, though the session had a pinned model | `ResolveModelRef` keeps the pin (`model.session`) in that case | `agent.TestResolveModelRefPrecedence` "agent switch with no list and no default keeps the pin" |
+
+Run: `go test -count=1 ./...`, `go build ./...`, `go vet ./...` all pass on `3e4f418`.
+
 ## Open
 
-- Neither repo is pushed; Desktop `1714459` pins Core `6935aa2` (A3; it also renders the fallback notice and task agents), so Core must be pushed first for a clean Desktop module download.
+- Neither repo is pushed. Desktop now pins Core `3e4f418` (the ADR-0010 work and the review fixes), so Core must be pushed first for a clean Desktop module download.
 - A3 real-model selection probe: run, 8/8 (see A3 above). N3 (auth-error failover) stays a separate owner decision.

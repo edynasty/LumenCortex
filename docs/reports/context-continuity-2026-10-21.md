@@ -1,9 +1,9 @@
 # Context continuity: thread notes, read_thread, recall (ADR-0010)
 
 - **Date:** 2026-10-21
-- **Scope:** Core: B1 (notes, `read_thread`) and B2 (`recall`) of ADR-0010. Desktop: the Notes section and Core pin, recorded in the Desktop report. B3: the continuity evaluation, recorded below when it has run.
-- **Baseline:** Core `82e6b71` (A3 probe), Desktop `1714459`.
-- **Status:** B1/B2 Core implemented and validated locally; not pushed.
+- **Scope:** Core: B1 (notes, `read_thread`) and B2 (`recall`) of ADR-0010, their review fixes, and B3, the continuity evaluation. Desktop: the Notes section, "Remember" and the Core pin, recorded in the Desktop report.
+- **Baseline:** Core `82e6b71` (A3 probe), Desktop `1714459`. Core after this work: `3e4f418`.
+- **Status:** B1/B2 Core implemented, reviewed and validated locally. B3 ran and passed its gate, so `recall`/`read_thread` stay on by default (ADR-0010 D6). Not pushed.
 - **Authority:** [ADR-0010](../adr/0010-thread-notes-and-recall.md), [ADR-0007](../adr/0007-cognitive-layer-status.md). Proposal: `../LumenCortex-architecture-audit/design/handoffs/agent-architecture-2026-10-20.md` §4 (not version-controlled).
 
 ## Decisions taken against the proposal
@@ -27,6 +27,20 @@
 - `internal/toolset/threads.go`: `recall` and `read_thread`, registered when a `ThreadReader` is given; the runtime always gives one.
 - `runtime/threads.go`: `Engine.ReadThread`, `Engine.Recall`, and the per-run reader, which checks freshness in the run's own workspace and leaves out the run's own subtree from recall. `runtime/taskstate.go`: a user note add is refused up front when 32 user notes exist.
 - Docs: ADR-0010; `docs/go-provider.md` "Thread notes and recall".
+
+### Review fixes (`ec267bd`; harness `3e4f418`)
+
+An independent review of `82e6b71..b908ae6` found five Core defects and two harness defects. All are fixed:
+
+| Finding | Fix | Regression test |
+|---|---|---|
+| A user note's id was assigned when the inbox applied, so the id a host saw could later name a different note, such as a run's note written in between | `EditTaskState` gives a user add its final id (`u<hex>`, never colliding with a run's `n<seq>`) when it is queued (`NoteEdit.Create`); applying it twice is a no-op | `taskstate.TestQueuedUserNoteIDIsStable`, `runtime.TestHostNoteEdits` (removing the previewed id after a run wrote its own note) |
+| The 32-user-note check and the queueing were two steps, so concurrent adds could pass it together | one `Engine.noteMu` section covers both | `runtime.TestHostNoteEdits` (8 concurrent adds at 31 notes: exactly one accepted) |
+| `FileBlobs` followed a symlinked directory out of the workspace, and hashed any file regardless of size | each path resolves under the workspace's real path; only regular files ≤ 4 MiB are hashed | `repository.TestFileBlobsOnlyHashFilesInsideTheWorkspace` |
+| One unreadable cited file failed every cite in the batch | a failed batch is retried per file; that file alone gets no blob | `repository.TestFileBlobsOneUnreadableFileDoesNotFailTheRest` |
+| Four 1 KiB cite paths made a note's line larger than the notes budget, so the newest note was not rendered | the cites part of a line is cut at 256 B | `taskstate.TestRenderShowsTheNewestNoteWithLongCites` (fails before the fix) |
+| Harness: the session database sat inside the evaluated workspace, so a B run's shell could read the history | each workspace's state lives at `<workspace>.state` (`Options.RepoDir`); tool calls naming it are counted as `stateAccess` | counted run: `stateAccess` 0 of 30 |
+| Harness: graders matched comments, for example `// not sync.Mutex` | the cache and release graders strip Go and shell comments | — |
 
 ## Tests run
 
@@ -66,9 +80,43 @@
    - History notes captured the key fact for `deploy`, `cache` and `metrics`. For `release-old` the thread wrote no note. For `release-new` the note recorded the check but not the new convention.
    - In the `recall` arm the model never called `recall`, so `deploy` failed in both arms. The model guessed the host.
 
-   Before the counted run, the `recall` tool description gained one sentence: facts from earlier conversations are often not in the repository, so call `recall` before guessing one or when a task may continue earlier work. A denied tool is not offered at all, so arm 1 is unaffected. This is the only change between the pilots and the counted run.
+   Before the counted run, the `recall` tool description gained one sentence: facts from earlier conversations are often not in the repository, so call `recall` before guessing one or when a task may continue earlier work. A denied tool is not offered at all, so arm 1 is unaffected. This is the only change to what the model sees between the pilots and the counted run. The harness changed as listed below.
+
+**Attempts.** The counted run is the third attempt. Both earlier attempts are kept (`/tmp/b3-aborted.log`, `/tmp/b3-aborted2.{json,log}`, not version-controlled) and are not counted:
+
+1. Repeat 0 completed. Repeat 1 failed while building its history: each repeat resolved the configuration directories again under the private test home, so the local model's credential was not found. Fixed in `ebe469b`, which resolves them once and saves the records after every run.
+2. This attempt was stopped after its first record, because the review found the two harness defects above. Both bias the comparison: the state was reachable from arm 1, and the grading read comments. Fixed in `3e4f418`.
+
+**Counted run (Core `3e4f418`, 3 repeats, 30 B runs, 26 min).** Records: `/tmp/b3-run.json` (not version-controlled).
+
+| Task | Arm 1 `window` | Arm 2 `recall` |
+|---|---|---|
+| deploy | 0/3 | 3/3 |
+| cache | 0/3 | 1/3 |
+| metrics | 0/3 | 3/3 |
+| release | 0/3 | 3/3 |
+| **history tasks** | **0/12** | **10/12** |
+| control | 3/3 | 3/3 |
+| mean prompt tokens, all runs | 60 602 | 64 700 (1.07×) |
+
+Gate:
+
+1. Arm 2 beats arm 1 by 10 runs (at least 2 needed): **met**.
+2. `control` is equal: **met**.
+3. Tokens are 1.07× (at most 1.5×): **met**.
+
+So `recall`/`read_thread` stay on by default, recorded in ADR-0010 D6.
+
+Secondary measures:
+
+- **Recall use.** Arm 2 called `recall` in 12 of 12 history runs and in 1 of 3 `control` runs. The relevant thread ranked first in 11 of 12 and within the top 3 in 12 of 12. `read_thread` opened the relevant thread in 6 of 12; in the rest, the snippet was enough.
+- **Notes alone.** History threads wrote 4, 6 and 6 notes per repeat. A relevant history note carried the key fact in 10 of 12 (task, repeat) pairs; both misses are in repeat 0 (`cache`, `release`). Arm 1 has no path to other threads' notes (notes are per thread, ADR-0007 arm 1), so these notes reach thread B only through `recall`/`read_thread`.
+- **Superseded convention.** `release` chose the retired `release/v…` branch in 0 of 6 runs.
+- **Failures.** In arm 2, `cache` failed twice (repeats 1 and 2). Recall ranked the relevant thread first and its note carried the sync.Map decision, but the model kept a mutex. The tool surfaced the fact, and the model did not follow it. In arm 1, one `metrics` run ended `interrupted` at the step limit; it is counted as a failure.
+
+**Reading the result.** Arm 1 cannot reach another thread, so its 0/12 is the expected floor. The run shows two things: continuation across threads needs a cross-thread path, and `recall` provides one at 7% more prompt tokens. It does not compare `recall` with other cross-thread designs, such as per-turn injection. It covers one model only.
 
 ## Open
 
-- B3 continuity evaluation (ADR-0010 D6) decides whether `recall`/`read_thread` stay on by default.
+- `cache` arm 2 failures: the decision was retrieved and not applied. Whether to word the recall snippet as a decision, rather than a fact, is a separate change that a new run would have to measure.
 - `docs/agent-runtime.md` still describes the Node-era subagent and graph tools. It is outside this change and unchanged.
