@@ -193,7 +193,7 @@ var continuityTasks = []continuityTask{
 		prompt:   "Make cache.Cache in cache/cache.go safe for concurrent use.",
 		relevant: []string{"cache"},
 		grade: func(t *testing.T, dir, _ string) (bool, string) {
-			s := fileText(dir, "cache/cache.go")
+			s := goCode(fileText(dir, "cache/cache.go"))
 			built, out := goBuild(dir)
 			syncMap := strings.Contains(s, "sync.Map")
 			mutex := regexp.MustCompile(`sync\.(RW)?Mutex`).MatchString(s)
@@ -216,7 +216,7 @@ var continuityTasks = []continuityTask{
 		prompt:   "Write scripts/cut_release.sh that creates and pushes the release branch for version 1.5.0 from main.",
 		relevant: []string{"release-new", "release-old"},
 		grade: func(t *testing.T, dir, _ string) (bool, string) {
-			s := fileText(dir, "scripts/cut_release.sh")
+			s := shellCode(fileText(dir, "scripts/cut_release.sh"))
 			current := strings.Contains(s, "rel-1.5.0") || strings.Contains(s, "rel-$") || strings.Contains(s, "rel-${")
 			retired := strings.Contains(s, "release/v")
 			return current && !retired, fmt.Sprintf("current=%v retired=%v", current, retired)
@@ -242,6 +242,21 @@ func firstLine(s string) string {
 	return s
 }
 
+// goCode and shellCode drop comments, so a grader checks what the code does, not what a comment
+// mentions (a run that read the history may explain the retired choice in a comment).
+var (
+	goComments    = regexp.MustCompile(`(?s)/\*.*?\*/|//[^\n]*`)
+	shellComments = regexp.MustCompile(`(?m)(^|\s)#[^\n]*`)
+)
+
+func goCode(s string) string    { return goComments.ReplaceAllString(s, "") }
+func shellCode(s string) string { return shellComments.ReplaceAllString(s, "$1") }
+
+// stateDir is where a workspace's session store lives in the evaluation: outside the workspace, so a
+// B run's shell cannot read the history database next to the code (arm 1 must not reach the history
+// except through what the arm offers).
+func stateDir(workspace string) string { return workspace + ".state" }
+
 // evalRecord is one B run.
 type evalRecord struct {
 	Repeat     int      `json:"repeat"`
@@ -265,6 +280,8 @@ type evalRecord struct {
 	HistoryNotes       int     `json:"historyNotes"`
 	RelevantNotes      int     `json:"relevantNotes"`
 	RelevantNoteHasKey bool    `json:"relevantNoteHasKey"`
+	// StateAccess: a tool call named the session state (a path with "lumencortex" or ".state").
+	StateAccess bool `json:"stateAccess"`
 }
 
 func TestRealModelContinuity(t *testing.T) {
@@ -293,6 +310,9 @@ func TestRealModelContinuity(t *testing.T) {
 				dir := filepath.Join(parent, task.name+"-"+arm)
 				if out, err := exec.Command("cp", "-a", base, dir).CombinedOutput(); err != nil {
 					t.Fatalf("copy history: %v %s", err, out)
+				}
+				if out, err := exec.Command("cp", "-a", stateDir(base), stateDir(dir)).CombinedOutput(); err != nil {
+					t.Fatalf("copy history state: %v %s", err, out)
 				}
 				rec := runContinuityTask(t, dir, factory, task, arm, ids)
 				rec.Repeat = rep
@@ -343,7 +363,7 @@ var historyKeys = map[string]*regexp.Regexp{
 func buildHistory(t *testing.T, repo string, factory lcx.ProviderFactory) (map[string]string, historyNotes) {
 	t.Helper()
 	ctx := context.Background()
-	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: repo, ProviderFactory: factory})
+	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: repo, RepoDir: stateDir(repo), ProviderFactory: factory})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,7 +425,7 @@ func waitIdle(t *testing.T, supervisor *lcx.RunSupervisor, id string, within tim
 func runContinuityTask(t *testing.T, dir string, factory lcx.ProviderFactory, task continuityTask, arm string, ids map[string]string) evalRecord {
 	t.Helper()
 	ctx := context.Background()
-	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: dir, ProviderFactory: factory})
+	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: dir, RepoDir: stateDir(dir), ProviderFactory: factory})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,6 +474,9 @@ func runContinuityTask(t *testing.T, dir string, factory lcx.ProviderFactory, ta
 		for _, c := range msg.ToolCalls {
 			calls[c.ID] = c.Name
 			rec.Tools = append(rec.Tools, c.Name)
+			if args := string(c.Arguments); strings.Contains(args, "lumencortex") || strings.Contains(args, ".state") {
+				rec.StateAccess = true
+			}
 			if c.Name == "read_thread" {
 				var args struct {
 					ID string `json:"id"`
