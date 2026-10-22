@@ -149,7 +149,7 @@ At every Start, after the lock and before anything is appended, core reconciles 
 
 Hosts add transcript rows only through `SessionOptions.Input` (the first row, written when the session is created; the goal when empty) and `AgentOptions.Input` (a user message appended by Start after Reconcile). `ApproveWorkflowGate` changes workflow state only; call Start afterwards to continue.
 
-Rows the runtime writes carry `origin` in their stored JSON (`tool_interrupted`, `completion_blocked`, `resume`, `turn`). Provider adapters never send it.
+Rows the runtime writes carry `origin` in their stored JSON (`tool_interrupted`, `completion_blocked`, `resume`, `turn`, `task_result`; an OMP import writes `imported`, `imported_notice` and `imported_marker`, ADR-0011). Provider adapters never send it.
 
 A turn never spans runs or models (design §4.6). A Start without `Input` whose newest row is not a user row appends a `resume` user row in the Start transaction. Before each request the loop appends a `turn` user row, and logs a `turn.boundary` decision, when an assistant row after the last user row was not produced by the target model in this run (failover mid-turn).
 

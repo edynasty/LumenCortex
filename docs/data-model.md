@@ -137,6 +137,12 @@ Persisted Session data includes:
 - final/error status,
 - Workflow snapshot when active.
 
+Core-owned keys of `metadata` (hosts cannot write them): `runtime` (worktree binding), `subagent`
+(child provenance: `parentSessionId`, `mode`) and `import` (provenance of a session an OMP import
+created: source, OMP session id, path, SHA-256 and size of the imported bytes, conversion counts;
+ADR-0011). An imported session is an ordinary idle session; its transcript ends with an `imported`
+row and carries no hidden reasoning.
+
 ## Workflow snapshot
 
 Stored under `session.metadata.workflow`:

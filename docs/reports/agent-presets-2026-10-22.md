@@ -1,16 +1,15 @@
 # Agent presets and built-in child prompts (ADR-0009 A4)
 
 - **Date:** 2026-10-22
-- **Status:** implemented and validated in Core and Desktop (uncommitted; the coordinator commits)
+- **Status:** implemented and validated in Core and Desktop; committed locally (Core `ff07185`), not pushed
 - **Baseline:** Core `7033dea`; Desktop `afd0c51`
 - **Scope:** Core built-in explore/worker prompts, compiled-in specialist presets, one-time
   oh-my-pi `modelRoles` conversion, licensing notice, Desktop preset entry point.
 - **Non-goals:** no new built-in agent ids, no `lumencortex.json` schema change, no runtime
   "model roles" system, no per-agent tool allowlists, no session-import work.
 
-> Workspace note: the Core worktree also contains another agent's in-progress session-importer
-> changes (`internal/session/metadata.go`, `protocol/agent.go`). They are not part of this change
-> and were not touched; the file list below is the preset change only.
+> The OMP session importer was developed alongside (ADR-0011,
+> `docs/reports/omp-session-import-2026-10-22.md`); it is a separate change.
 
 ## Decisions
 
