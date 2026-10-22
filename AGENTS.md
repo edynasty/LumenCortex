@@ -170,6 +170,12 @@ If the active migration item names stricter or additional checks in the approved
 
 When a test cannot be run in the current environment, report that limitation explicitly rather than treating it as passed.
 
+## Workspace backlog policy
+
+When working from this LumenCortex workspace, also read the parent workspace instructions at `../AGENTS.md` and consult `../TODO.md` for cross-repository backlog items. If those files are absent in a standalone checkout, continue to follow this repository's instructions.
+
+The workspace TODO is a backlog, not an order to execute every item. Do not assume all TODOs must be completed now, and do not expand a focused task into finishing the entire backlog. Work on items selected by the user, required by the active task, or necessary to resolve a genuine blocker or safety/data-loss risk. Keep unrelated polish and future improvements deferred with a realistic P2/P3 priority. Add newly discovered out-of-scope improvements to the shared backlog instead of implementing them opportunistically. Mark items done only with supporting evidence.
+
 ## Definition of done
 
 A change is complete only when:
