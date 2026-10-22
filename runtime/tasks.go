@@ -395,6 +395,19 @@ func (e *Engine) taskUnits(objective string) (json.RawMessage, error) {
 	return json.Marshal(map[string]any{"workUnits": []map[string]any{{"id": "task", "goal": objective, "checks": checks}}})
 }
 
+// workerPrompt is the fixed prompt of an execution child (the worker agent). It adapts oh-my-pi's
+// task prompt (THIRD_PARTY_NOTICES.md) and keeps the default task duties: inspect, verify, record
+// durable findings, obey a Workflow Contract. The authority sentence is appended here because the
+// child sets its own prompt, which replaces agent.SystemPrompt's default.
+const workerPrompt = `You are a LumenCortex execution worker with one assigned objective.
+- Hyperfocus the objective; never deviate or add scope.
+- Inspect before editing. Prefer editing existing files; do not create documentation files unless the objective asks for one.
+- Avoid full-file reads: read the sections the objective names.
+- Keep changes scoped to the objective, and verify with evidence before claiming completion.
+- Record what later steps need, such as a root cause, a decision or an approach that failed, with note_write.
+- When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates.
+- Your final message is the minimum useful result for the parent: what changed with paths, what you verified, and anything left.`
+
 // executionOptions are an execution child's run options. The child's authority is fixed here, not by
 // the host: Policy workspace (file tools confined to its worktree, no shell), no MCP, no spawn, no
 // delegation, never interactive. Step and output bounds, effort and the tool denylist come from the
@@ -407,6 +420,7 @@ func executionOptions(parent AgentOptions, ref config.ModelRef, units json.RawMe
 		MaxToolCallsPerStep: parent.MaxToolCallsPerStep,
 		ToolDenylist:        append([]string(nil), parent.ToolDenylist...),
 		WorkUnits:           units,
+		SystemPrompt:        workerPrompt + "\n" + policyAuthority(toolset.PolicyWorkspace),
 		MaxTokens:           parent.MaxTokens,
 		Temperature:         parent.Temperature,
 		parentSessionID:     parentID,

@@ -197,6 +197,18 @@ func (c *subagentController) Wait(ctx context.Context, childSessionID string, ti
 	return SubagentWaitResult{Node: node}, nil
 }
 
+// explorePrompt is the fixed prompt of a read-only child (the explore agent). The launch, not the
+// model, fixes the authority: no writes, no shell, no spawning. The handoff format adapts oh-my-pi's
+// scout prompt; see THIRD_PARTY_NOTICES.md.
+const explorePrompt = `You are a focused read-only LumenCortex subagent. Investigate the assigned goal and report findings another agent can use without re-reading everything.
+- Never modify files, run shell commands or spawn agents. Read, search, inspect Git and query language services only.
+- Use search_text, find_files, read_file, list_dir, git_status, git_diff and lsp_* tools. Open with a search for any behaviour you can describe.
+- Issue independent searches in parallel, within the per-step call limit; this is a short investigation.
+- If a search is empty, try at least one alternate strategy (different pattern, broader path, another tool) before concluding something is absent.
+- Infer thoroughness from the goal and default to medium. Quick: targeted lookups, key files only. Medium: follow imports, read critical sections. Thorough: trace dependencies, tests and types.
+- Never read a whole large file: read the sections that matter.
+- End with a compact markdown handoff: **Summary** (findings and conclusions, brief); **Files** (each as path:start-end and what it holds); **Architecture** (how the pieces connect, brief); **Report** only when the goal asks for a report, table or enumeration: the complete deliverable, never a summary of it.`
+
 // childOptions are a read-only child's run options. The launch fixes the authority (read-only, no
 // MCP, no spawn); agentID is the agent it runs, pinned by its first Start.
 func (c *subagentController) childOptions(childRef config.ModelRef, agentID string) AgentOptions {
@@ -214,7 +226,7 @@ func (c *subagentController) childOptions(childRef config.ModelRef, agentID stri
 		MaxSteps:            maxSteps,
 		MaxToolCallsPerStep: maxCalls,
 		ToolDenylist:        append([]string(nil), c.parentOpts.ToolDenylist...),
-		SystemPrompt:        "You are a focused read-only LumenCortex subagent. Investigate the assigned goal using repository search, file reads, Git inspection, and language services. Do not modify files, run shell commands, or spawn additional agents. Return concise evidence and actionable findings to the parent task.",
+		SystemPrompt:        explorePrompt,
 		MaxTokens:           c.parentOpts.MaxTokens,
 		Temperature:         c.parentOpts.Temperature,
 		parentSessionID:     c.parentID,

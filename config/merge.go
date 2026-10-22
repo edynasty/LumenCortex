@@ -164,6 +164,8 @@ func (c *Config) merge() error {
 
 	c.providers = providers
 	c.eff.Model, c.eff.Failover, c.eff.Agents = model, failover, agents
+	// Preset conversion needs the merged catalog; building it here keeps one source for a load.
+	c.eff.Catalog = c.Catalog()
 	if effort != nil {
 		c.eff.EffortDefault = effort.Default
 		c.eff.Escalation = effort.Escalation

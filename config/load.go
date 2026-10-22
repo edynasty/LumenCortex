@@ -116,7 +116,10 @@ type Effective struct {
 	Failover []ModelRef
 	// Agents is the merged agent catalog: the built-ins (ask, agent, explore, worker) first, then
 	// the custom agents by id.
-	Agents        []AgentInfo
+	Agents []AgentInfo
+	// Catalog is the merged provider catalog, sorted by reference: the models a model reference may
+	// name. Preset conversion filters the oh-my-pi roles with it.
+	Catalog       []ModelInfo
 	EffortDefault Effort
 	// Auto is effort.auto with its defaults applied, nil when the configuration has no such object.
 	Auto       *AutoEffortPolicy
@@ -223,6 +226,7 @@ func (c *Config) Effective() Effective {
 	e := c.eff
 	e.Failover = append([]ModelRef(nil), e.Failover...)
 	e.Agents = cloneAgentInfos(e.Agents)
+	e.Catalog = cloneModelInfos(e.Catalog)
 	if e.Escalation != nil {
 		esc := *e.Escalation
 		e.Escalation = &esc

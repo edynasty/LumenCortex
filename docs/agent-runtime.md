@@ -207,6 +207,24 @@ MCP tools are also dynamically added to normal agent runs unless `--no-mcp` is s
 
 Subagents are isolated durable Agent sessions with a focused system prompt and a restricted tool working set.
 
+Two child prompts are built in and not editable (they are part of the harness, adapted from
+oh-my-pi under MIT — see `THIRD_PARTY_NOTICES.md`):
+
+- **Explore** (read-only child): the launch forbids writes, shell and spawning; the prompt asks for
+  parallel searches within the per-step call limit, one alternate strategy before concluding
+  something is absent, inferred thoroughness (quick/medium/thorough, default medium), and a compact
+  markdown handoff: Summary, Files as `path:start-end`, Architecture, and a full Report only when the
+  goal asks for one.
+- **Worker** (execution child): one bounded objective in its own worktree, edit existing files,
+  verify with evidence, record durable findings with `note_write`, obey an active Workflow Contract,
+  and end with the minimum useful result for the parent. The workspace authority sentence is part of
+  this prompt.
+
+Specialists are ordinary catalog agents: `config.AgentPresets()` returns compiled-in definitions
+(reviewer, security-reviewer, sonic, thread-historian) that an editor copies into
+`lumencortex.json`; `config.ResolveAgentPresets` fills their model lists from the oh-my-pi
+`modelRoles` once, as plain LC lists.
+
 ```text
 Main Agent
    |

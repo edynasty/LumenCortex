@@ -236,6 +236,16 @@ func (c *Config) Resolve(ref ModelRef) (ResolvedModel, error) {
 	return out, nil
 }
 
+func cloneModelInfos(in []ModelInfo) []ModelInfo {
+	out := make([]ModelInfo, len(in))
+	for i, m := range in {
+		m.Efforts = slices.Clone(m.Efforts)
+		m.InputModalities = slices.Clone(m.InputModalities)
+		out[i] = m
+	}
+	return out
+}
+
 func limitWarning(ref ModelRef, key string, def int) Warning {
 	return Warning{
 		Code: WarnDefaultLimit, Key: string(ref) + "." + key,
