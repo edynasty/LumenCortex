@@ -131,6 +131,41 @@ Desktop shows the catalog (Settings → Plugins): name, id, version, API version
 built-in flag, state, last error and failure count, and an enable switch that calls
 `SetPluginEnabled`. The import sheet lists the running import sources and works for any of them.
 
+### D9 — Execution limits of in-process plugins (review 2026-10-22)
+
+Probed on `9581de1` (throwaway tests, not kept): a hook handler that ignores its context returned
+control to Core after its 10 ms timeout but kept running for its full 200 ms, also after its plugin
+was disabled; a `Start` that sleeps 300 ms delays `StartAll` (and so `Engine` open) by 300 ms; a
+cancelled open context leaves the plugins after the current one `registered` (not started).
+
+What Core guarantees today:
+
+- A panic in any call Core makes into plugin code is recovered; the plugin is marked `failed`, its
+  hooks and subscriptions are removed, and Core continues.
+- A plugin never receives a store handle, transaction, Engine, credential or tool runner; an
+  import bundle is validated and written by Core. A misbehaving import source can return wrong
+  history, which validation bounds (roles, origins, pairing, sizes), but cannot write the database.
+- Hook timeouts bound how long an import waits, and fail-open/fail-closed decides the outcome.
+
+What it does not guarantee:
+
+- **No process isolation.** Plugins share Core's memory, file system and network authority. A
+  panic in a goroutine the plugin started itself, an `os.Exit`, unbounded memory or CPU use, or a
+  deadlock in shared code affects the whole process.
+- **No termination.** A timed-out hook, or one still running when its plugin is stopped, is not
+  killed; Go cannot stop a goroutine.
+- **No lifecycle deadline.** `Start`, `Stop` and capability methods (`ListSessions`,
+  `LoadSession`) run under the caller's context only.
+- **In-flight calls finish.** Disabling removes hooks and subscriptions for later operations; a
+  dispatch that already copied the hook list still runs it once.
+
+Consequence: only built-in plugins and plugins the embedding host compiles in are supported.
+Loading third-party code requires an out-of-process protocol with deadlines and kill, explicit
+grants and an OS authority boundary (TODO PLUGIN-002); lifecycle and source-call deadlines for
+in-process plugins are TODO PLUGIN-003. Neither blocks the current built-in use: the OMP source
+does not start goroutines, `Start` returns immediately, and it checks cancellation between the
+sessions of a tree (one large file is read to the end once started).
+
 ## Invariants
 
 - Core opens even when every non-essential plugin fails.

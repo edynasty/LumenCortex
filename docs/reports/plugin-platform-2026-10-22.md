@@ -51,8 +51,11 @@ ADR-0011 id literal).
 
 ## Limitations
 
-- In-process plugins are trusted code; a hook that ignores its context keeps running after its
-  timeout (it cannot be killed). External process plugins: TODO PLUGIN-002.
+- In-process plugins are trusted code with Core's full authority; there is no process isolation
+  (ADR-0012 D9). A hook that ignores its context keeps running after its timeout and after its
+  plugin is disabled (measured: control returned at 11 ms, handler ran its full 200 ms). `Start`,
+  `Stop` and source calls have no Core deadline (a 300 ms `Start` delayed `StartAll` by 300 ms).
+  Lifecycle/source deadlines: TODO PLUGIN-003; external process plugins: TODO PLUGIN-002.
 - Enablement is per user (global dir), applied to other open Engines on their next open.
 - Event delivery stays best-effort; no durable outbox.
 - Codex and Pi sources are not implemented; the contract and the fake-source test show they need

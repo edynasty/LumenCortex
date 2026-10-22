@@ -8,7 +8,18 @@
 // derives ids, checks idempotency and writes it.
 //
 // In-process plugins run with the authority of the Core process. This package is not a sandbox;
-// it is for built-in and host-integrated code the host already trusts.
+// it is for built-in and host-integrated code the host already trusts. In particular:
+//
+//   - Core recovers a panic in a call it makes into the plugin (Manifest, Start, Stop, a hook, a
+//     capability method) and marks the plugin failed. A panic in a goroutine the plugin starts
+//     itself is not recovered and ends the process.
+//   - Start, Stop and capability methods have no Core-imposed deadline: they get the caller's
+//     context and must return promptly. A Start that blocks delays Engine open.
+//   - A hook timeout ends Core's wait, not the handler: a handler that ignores its context keeps
+//     running in its goroutine, also after its plugin is stopped or disabled. Handlers must honour
+//     ctx.Done().
+//   - Stopping or disabling a plugin closes its event streams and removes its hooks; a call
+//     already in flight finishes. Stop must release anything the plugin started.
 package pluginapi
 
 import (
