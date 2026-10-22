@@ -88,17 +88,30 @@ type Event struct {
 	Data      map[string]any
 }
 
+// SystemLayer is one system message of the run's prefix, between the base prompt and the agent's
+// instructions: a labelled piece of the system prompt with the source it came from (ADR-0013). Text
+// is the whole message, label included, so what a run sends is exactly what Engine.EffectivePrompt
+// reports for the same run.
+type SystemLayer struct {
+	// Kind is the layer's role: "global-instructions", "project-instructions" or "skills".
+	Kind string
+	// Source names where the text came from: a file path, or the skill roots.
+	Source string
+	Text   string
+}
+
+// Options is a run's fixed inputs.
 type Options struct {
-	MaxSteps               int
-	MaxToolCallsPerStep    int
-	ToolAllowlist          []string
-	ToolDenylist           []string
-	SystemPrompt           string
-	AdditionalSystemPrompt string
+	MaxSteps            int
+	MaxToolCallsPerStep int
+	ToolAllowlist       []string
+	ToolDenylist        []string
+	SystemPrompt        string
+	SystemLayers        []SystemLayer
 	// Instructions are the agent's instructions (ADR-0009), appended as the last system message after
-	// SystemPrompt and AdditionalSystemPrompt (skills). They are plain text: they cannot replace the
-	// default prompt or change the policy, authority, permissions or tool set the run was built with,
-	// and the loop never persists them.
+	// SystemPrompt and SystemLayers (the instruction files and the skills prompt). They are plain
+	// text: they cannot replace the default prompt or change the policy, authority, permissions or
+	// tool set the run was built with, and the loop never persists them.
 	Instructions string
 	MaxTokens    int
 	Temperature  *float64

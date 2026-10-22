@@ -333,7 +333,8 @@ func TestLoopPersistsInterruptionOnCancellation(t *testing.T) {
 	}
 }
 
-func TestLoopAddsAdditionalSystemPrompt(t *testing.T) {
+// Each system layer is one system message after the base prompt; a blank layer adds nothing.
+func TestLoopAddsSystemLayers(t *testing.T) {
 	store := &memoryStore{
 		state: SessionState{ID: "skills", Goal: "build", Status: "running"},
 		steps: map[int64]any{},
@@ -341,9 +342,12 @@ func TestLoopAddsAdditionalSystemPrompt(t *testing.T) {
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done"}}}}
 	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
 	_, err := loop.Run(context.Background(), "skills", Options{
-		Session:                testRef,
-		MaxSteps:               2,
-		AdditionalSystemPrompt: "Skill instruction: use repository conventions.",
+		Session:  testRef,
+		MaxSteps: 2,
+		SystemLayers: []SystemLayer{
+			{Kind: "project-instructions", Source: "/ws/AGENTS.md", Text: "Skill instruction: use repository conventions."},
+			{Kind: "skills", Source: "skills", Text: "   "},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -359,7 +363,10 @@ func TestLoopAddsAdditionalSystemPrompt(t *testing.T) {
 		t.Fatalf("system messages=%#v", messages[:2])
 	}
 	if messages[1].Content != "Skill instruction: use repository conventions." {
-		t.Fatalf("additional prompt=%q", messages[1].Content)
+		t.Fatalf("layer=%q", messages[1].Content)
+	}
+	if messages[2].Role == "system" && messages[2].Content == "   " {
+		t.Fatalf("a blank layer was sent: %#v", messages)
 	}
 }
 
@@ -787,21 +794,33 @@ func TestLoopFailoverTraceAcrossStepsAndHealth(t *testing.T) {
 	}
 }
 
-func TestLoopOrdersSkillsPromptThenInstructions(t *testing.T) {
+// The system prefix is ordered: the base prompt, the global instructions, the project instructions,
+// the skills prompt, then the agent's instructions (ADR-0013).
+func TestLoopOrdersSystemLayersThenInstructions(t *testing.T) {
 	store := &memoryStore{state: SessionState{ID: "order", Goal: "build", Status: "running"}, steps: map[int64]any{}}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done"}}}}
 	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
 	_, err := loop.Run(context.Background(), "order", Options{
-		Session:                testRef,
-		MaxSteps:               2,
-		AdditionalSystemPrompt: "skills",
-		Instructions:           "instructions",
+		Session:  testRef,
+		MaxSteps: 2,
+		SystemLayers: []SystemLayer{
+			{Kind: "global-instructions", Source: "global", Text: "global instructions"},
+			{Kind: "project-instructions", Source: "project", Text: "project instructions"},
+			{Kind: "skills", Source: "skills", Text: "skills"},
+		},
+		Instructions: "instructions",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	messages := provider.seen[0].Messages
-	if len(messages) < 4 || messages[0].Role != "system" || messages[1].Content != "skills" || messages[2].Content != "instructions" {
+	want := []string{"", "global instructions", "project instructions", "skills", "instructions"}
+	if len(messages) < len(want) {
 		t.Fatalf("system prefix=%#v", messages)
+	}
+	for i, content := range want {
+		if messages[i].Role != "system" || (content != "" && messages[i].Content != content) {
+			t.Fatalf("system prefix=%#v", messages)
+		}
 	}
 }

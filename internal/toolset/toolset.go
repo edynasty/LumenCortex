@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/lsp"
@@ -123,6 +124,49 @@ func (s *Set) Specs(allow []string) []protocol.ToolSpec {
 	}
 	return out
 }
+
+// CatalogTool is one registered tool with its origin: "builtin", "lsp", or "mcp:<serverID>".
+type CatalogTool struct {
+	Spec   protocol.ToolSpec
+	Source string
+}
+
+// Catalog returns every registered tool with its origin, sorted by name, before the policy and
+// allowlist filters: the whole universe a step's tool list is drawn from. A prompt report uses it to
+// name the tools a policy or an allowlist withholds, so the report explains the run rather than only
+// listing what survived the filters.
+func (s *Set) Catalog() []CatalogTool {
+	servers := map[string]string{}
+	if s.mcp != nil {
+		if bindings, err := s.mcp.AgentTools(s.workspace); err == nil {
+			for _, binding := range bindings {
+				servers[binding.Name] = binding.ServerID
+			}
+		}
+	}
+	names := make([]string, 0, len(s.tools))
+	for name := range s.tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]CatalogTool, 0, len(names))
+	for _, name := range names {
+		source := "builtin"
+		switch server, ok := servers[name]; {
+		case ok:
+			source = "mcp:" + server
+		case strings.HasPrefix(name, "mcp__"):
+			// Registered by an MCP server that has since stopped: its server is no longer named by
+			// the registry, but the tool is still of that kind.
+			source = "mcp"
+		case strings.HasPrefix(name, "lsp_"):
+			source = "lsp"
+		}
+		out = append(out, CatalogTool{Spec: s.tools[name].spec, Source: source})
+	}
+	return out
+}
+
 func (s *Set) Execute(ctx context.Context, name string, args map[string]any, onOutput func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	t, ok := s.tools[name]
 	if !ok {

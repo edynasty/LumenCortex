@@ -188,10 +188,13 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		if r.wf != nil {
 			allowlist = r.wf.EffectiveAllowlist(allowlist)
 		}
-		specs := l.Tools.Specs(allowlist)
-		specs = append(specs, filterTaskToolSpecs(allowlist)...)
-		specs = append(specs, l.delegationSpecs(opts.Delegation, allowlist, opts.TaskAgents)...)
-		specs = filterDeniedTools(specs, opts.ToolDenylist)
+		specs := StepSpecs(l.Tools, StepToolsInput{
+			Allowlist:  allowlist,
+			Denylist:   opts.ToolDenylist,
+			Delegation: opts.Delegation,
+			Tasks:      l.Tasks != nil,
+			TaskAgents: opts.TaskAgents,
+		})
 		activeWorkUnit, _ := r.units.EnsureActive()
 		r.ts.SetUnits(r.units)
 		// The request window (design §3.3 steps 4-6, §5): System, the Task State block and the newest
@@ -517,12 +520,17 @@ func (l *Loop) putTaskState(ctx context.Context, sessionID string, r *run, chang
 	return nil
 }
 
-// systemMessages is the request's fixed system prefix: the default prompt, the skills prompt and
-// the host's instructions, in that order. Instructions never replace or precede the default prompt.
+// systemMessages is the request's fixed system prefix: the default prompt, then each labelled layer
+// in order (the global instructions, the project instructions, the skills prompt), then the agent's
+// instructions. Instructions never replace or precede the default prompt, and every layer is a
+// message of its own so the model can attribute it to its source.
 func systemMessages(opts Options) []protocol.Message {
 	system := []protocol.Message{{Role: "system", Content: opts.SystemPrompt}}
-	if strings.TrimSpace(opts.AdditionalSystemPrompt) != "" {
-		system = append(system, protocol.Message{Role: "system", Content: opts.AdditionalSystemPrompt})
+	for _, layer := range opts.SystemLayers {
+		if strings.TrimSpace(layer.Text) == "" {
+			continue
+		}
+		system = append(system, protocol.Message{Role: "system", Content: layer.Text})
 	}
 	if strings.TrimSpace(opts.Instructions) != "" {
 		system = append(system, protocol.Message{Role: "system", Content: opts.Instructions})

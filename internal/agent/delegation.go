@@ -18,24 +18,27 @@ import (
 // is open to read-only runs, this one only to a run granted delegation.
 const toolStartTask = "start_task"
 
-// delegationGranted reports the grant a run actually holds: isolated needs a TaskStarter.
-func (l *Loop) delegationGranted(delegation string) string {
+// grantFor reports the grant a run holds: delegation isolated needs a task starter, which a run
+// started outside a supervisor does not have.
+func grantFor(delegation string, tasks bool) string {
 	switch {
 	case delegation == DelegationPropose:
 		return DelegationPropose
-	case delegation == DelegationIsolated && l.Tasks != nil:
+	case delegation == DelegationIsolated && tasks:
 		return DelegationIsolated
 	}
 	return DelegationNone
 }
 
-// delegationSpecs is start_task's spec under the run's grant, none without one or when the allowlist
-// excludes it. agents are the catalog agents start_task may run (workspace ceiling, delegation use).
-func (l *Loop) delegationSpecs(delegation string, allow []string, agents []config.AgentInfo) []protocol.ToolSpec {
-	grant := l.delegationGranted(delegation)
-	if grant == DelegationNone || (allow != nil && !slices.Contains(allow, toolStartTask)) {
-		return nil
-	}
+// delegationGranted reports the grant a run actually holds: isolated needs a TaskStarter.
+func (l *Loop) delegationGranted(delegation string) string {
+	return grantFor(delegation, l.Tasks != nil)
+}
+
+// delegationSpec is start_task's spec under grant, whether or not the run offers it: the prompt
+// report names the tool a missing grant withholds. agents are the catalog agents start_task may run
+// (workspace ceiling, delegation use).
+func delegationSpec(grant string, agents []config.AgentInfo) protocol.ToolSpec {
 	description := "Propose an execution task: an autonomous run in its own git worktree, based on the committed HEAD, " +
 		"with file read and edit tools but no shell, that works the objective until the configured checks pass. " +
 		"The call only records the proposal and returns approval_required; the user decides whether to start it. " +
@@ -53,7 +56,7 @@ func (l *Loop) delegationSpecs(delegation string, allow []string, agents []confi
 		description += " Agents that can run it:" + toolset.AgentCatalogLines(agents)
 		properties["agent"] = toolset.AgentParameter(agents, config.AgentWorker)
 	}
-	return []protocol.ToolSpec{{
+	return protocol.ToolSpec{
 		Name:        toolStartTask,
 		Description: description,
 		Permission:  "delegate",
@@ -63,7 +66,16 @@ func (l *Loop) delegationSpecs(delegation string, allow []string, agents []confi
 			"required":             []string{"objective"},
 			"additionalProperties": false,
 		},
-	}}
+	}
+}
+
+// delegationSpecs is start_task's spec under the run's grant, none without one or when the allowlist
+// excludes it.
+func delegationSpecs(granted string, allow []string, agents []config.AgentInfo) []protocol.ToolSpec {
+	if granted == DelegationNone || (allow != nil && !slices.Contains(allow, toolStartTask)) {
+		return nil
+	}
+	return []protocol.ToolSpec{delegationSpec(granted, agents)}
 }
 
 // startTask executes start_task. The grant is checked again here, whatever the specs offered: without
