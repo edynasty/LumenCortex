@@ -307,3 +307,22 @@ func TestListAndResolvePath(t *testing.T) {
 		t.Fatalf("symlink escape accepted: %v", err)
 	}
 }
+
+// A retried turn without calls is dropped; one with a call whose result was recorded stays, so the
+// result keeps its call.
+func TestConvertRetriedTurnWithRecordedCallStays(t *testing.T) {
+	msg := func(m Message) Entry { return Entry{Type: "message", Message: &m} }
+	s := &Session{Path: "x", Entries: []Entry{
+		msg(Message{Role: "user", Content: json.RawMessage(`"go"`)}),
+		msg(Message{Role: "assistant", Content: json.RawMessage(`[{"type":"text","text":"partial"}]`), RetryRecovery: json.RawMessage(`{}`)}),
+		msg(Message{Role: "assistant", Content: json.RawMessage(`[{"type":"toolCall","id":"c1","name":"read","arguments":{}}]`), RetryRecovery: json.RawMessage(`{}`)}),
+		msg(Message{Role: "toolResult", ToolCallID: "c1", Content: json.RawMessage(`[{"type":"text","text":"ran"}]`)}),
+	}}
+	conv, err := Convert(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conv.Stats.RetriedTurns != 1 || conv.Stats.OrphanResults != 0 || conv.Stats.ToolResults != 1 || len(conv.Messages) != 4 {
+		t.Fatalf("stats %+v rows %d", conv.Stats, len(conv.Messages))
+	}
+}

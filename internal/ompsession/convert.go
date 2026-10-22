@@ -36,8 +36,8 @@ type Stats struct {
 	Notices int `json:"notices"`
 	Markers int `json:"markers"`
 	// ThinkingBlocks are hidden-reasoning blocks left out; HiddenMessages are developer/system
-	// reminders and notices OMP did not display; RetriedTurns are assistant turns OMP replaced by a
-	// retry or that carried no visible text or call.
+	// reminders and notices OMP did not display; RetriedTurns are assistant turns without calls that
+	// OMP replaced by a retry or that carried no visible text.
 	ThinkingBlocks int `json:"thinkingBlocks"`
 	HiddenMessages int `json:"hiddenMessages"`
 	RetriedTurns   int `json:"retriedTurns"`
@@ -230,7 +230,9 @@ func (c *converter) assistant(m *Message) {
 		}
 	}
 	content := strings.Join(text, "\n")
-	if len(m.RetryRecovery) > 0 || (strings.TrimSpace(content) == "" && len(calls) == 0) {
+	// OMP replaced a retried turn by its retry. One with calls stays: its calls may have run, and a
+	// recorded result must keep the call it answers.
+	if len(calls) == 0 && (len(m.RetryRecovery) > 0 || strings.TrimSpace(content) == "") {
 		c.out.Stats.RetriedTurns++
 		return
 	}
