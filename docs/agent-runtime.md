@@ -157,43 +157,55 @@ The same capabilities are exposed to the Agent Loop as tools.
 
 ## MCP
 
-Configure MCP servers in:
-
-```text
-.lumencortex/mcp.json
-```
-
-Example stdio server:
+MCP servers are stdio processes configured in the global `mcp.json` (`<GlobalDir>/mcp.json`) and in
+the project `<workspace>/.lumencortex/mcp.json`:
 
 ```json
 {
   "servers": {
     "dbx": {
-      "transport": "stdio",
       "command": "dbx-mcp",
-      "args": []
+      "args": [],
+      "protocolMode": "legacy"
     }
   }
 }
 ```
 
-Example HTTP server:
+`command` and `args` name the server process, `protocolMode` selects legacy `initialize` or modern
+stateless discovery (default `legacy`), `disabled` keeps an entry without starting it, and the
+optional `tools` map overrides tool permissions (below). A project entry with the same id as a
+global entry overrides it while the workspace is trusted.
 
-```json
-{
-  "servers": {
-    "remote": {
-      "transport": "http",
-      "url": "https://example.test/mcp",
-      "headers": {
-        "Authorization": "Bearer ..."
-      }
-    }
-  }
-}
-```
+### Project configuration and trust
 
-LumenCortex supports modern stateless MCP discovery and legacy initialize fallback, plus both HTTP and stdio transports.
+`<workspace>/.lumencortex/mcp.json` is a project input: it is used only while the workspace is
+listed in the global `trustedWorkspaces` (ADR-0013). Trust is evaluated on every start and every
+tool listing, against the Engine workspace and never against a session worktree.
+
+- A server defined only by the project file of an untrusted workspace cannot start: `MCPStart`
+  returns `ErrUntrustedWorkspace` and no process is created.
+- While untrusted the project file is ignored entirely. An id it shadows resolves to its global
+  entry, and that global entry is what the listing shows, so starting it is not a silent
+  substitution. A project-only id is listed with `scope: "project"` and `blockedByTrust: true`.
+- Withdrawing trust while a project server runs hides its tools from runs (`MCPTools` omits them)
+  and refuses new calls, without killing the process.
+- The global `mcp.json` is user-owned and is never gated.
+
+### Tool permissions
+
+Each MCP tool is exposed to runs with a permission:
+
+- a tool the server annotates with `readOnlyHint: true` is `read`; anything else is `exec`;
+- an entry in the server's `tools` map overrides that per tool, for example
+  `{"tools": {"query": {"permission": "read"}}}`. The value must be `read`, `write` or `exec`;
+  anything else is a configuration error that names the key.
+- An override is honoured only from the global file, or from the project file of a trusted
+  workspace, so a project file cannot claim read-only access its server does not declare.
+
+Read-only runs (Ask) see `read` tools only, workspace runs also see `write`, and `exec` needs the
+full policy. `MCPTools` reports the effective `permission` and its `permissionSource` (`annotation`
+or `override`) for each tool.
 
 ```bash
 lcx mcp status

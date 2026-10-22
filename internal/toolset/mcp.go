@@ -15,9 +15,14 @@ func (s *Set) registerMCPTools() {
 	}
 	for _, binding := range bindings {
 		binding := binding
-		permission := "exec"
-		if binding.ReadOnly {
-			permission = "read"
+		// AgentTools resolves the effective permission: the server annotation, or a user override
+		// from a global or trusted-project entry (ADR-0013). Anything unannotated stays exec.
+		permission := binding.Permission
+		if permission == "" {
+			permission = "exec"
+			if binding.ReadOnly {
+				permission = "read"
+			}
 		}
 		description := binding.Description
 		if description == "" {

@@ -11,6 +11,11 @@ type MCPConfig = mcp.Config
 type MCPStatus = mcp.Status
 type MCPAgentTool = mcp.AgentTool
 
+// ErrUntrustedWorkspace reports that the operation needs a trusted workspace: the MCP server is
+// defined by the project mcp.json of a workspace the user has not listed in trustedWorkspaces
+// (ADR-0013). Nothing was started.
+var ErrUntrustedWorkspace = mcp.ErrUntrustedProject
+
 func (e *Engine) MCPConfigs() []MCPConfig {
 	if e.mcpRegistry == nil {
 		return []MCPConfig{}

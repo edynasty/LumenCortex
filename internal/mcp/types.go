@@ -1,6 +1,9 @@
 package mcp
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
 
 const (
 	ProtocolLegacy = "2025-11-25"
@@ -20,6 +23,24 @@ const (
 	ModeModern ProtocolMode = "modern"
 )
 
+// ErrUntrustedProject reports that a server is defined by the project mcp.json of a workspace the
+// user has not trusted (ADR-0013). Nothing was started.
+var ErrUntrustedProject = errors.New("mcp server is defined by the project configuration of an untrusted workspace")
+
+// Permissions an MCP tool is exposed with. A server-declared readOnlyHint makes its tools read;
+// anything else is exec. Config.Tools overrides that per tool.
+const (
+	PermissionRead  = "read"
+	PermissionWrite = "write"
+	PermissionExec  = "exec"
+)
+
+// Where AgentTool.Permission came from.
+const (
+	PermissionSourceAnnotation = "annotation"
+	PermissionSourceOverride   = "override"
+)
+
 type Config struct {
 	ID           string       `json:"id"`
 	Name         string       `json:"name,omitempty"`
@@ -28,6 +49,18 @@ type Config struct {
 	Workspace    string       `json:"workspace,omitempty"`
 	ProtocolMode ProtocolMode `json:"protocolMode,omitempty"`
 	Disabled     bool         `json:"disabled,omitempty"`
+	// Tools overrides the permission of individual tools of this server, keyed by the tool name the
+	// server reports. An override is honoured only when the entry is user-owned: from the global
+	// file, or from the project file of a trusted workspace.
+	Tools map[string]ToolConfig `json:"tools,omitempty"`
+	// Scope and BlockedByTrust describe a listed configuration; they are never persisted.
+	Scope          string `json:"scope,omitempty"`
+	BlockedByTrust bool   `json:"blockedByTrust,omitempty"`
+}
+
+// ToolConfig is one entry of Config.Tools.
+type ToolConfig struct {
+	Permission string `json:"permission,omitempty"`
 }
 
 type Tool struct {
@@ -64,6 +97,11 @@ type Status struct {
 	PendingRequests int          `json:"pendingRequests"`
 	Tools           int          `json:"tools"`
 	LastError       string       `json:"lastError,omitempty"`
+	// Scope is the file the running configuration came from, and BlockedByTrust reports that the
+	// process belongs to the project file of an untrusted workspace: it keeps running, but its
+	// tools are not exposed to any run.
+	Scope          string `json:"scope,omitempty"`
+	BlockedByTrust bool   `json:"blockedByTrust,omitempty"`
 }
 
 type rpcError struct {

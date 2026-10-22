@@ -243,6 +243,17 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		_ = store.Close()
 		return nil, err
 	}
+	// ADR-0013: the project mcp.json is a project input. The check runs on every start and every
+	// tool listing, against the Engine workspace and never a session worktree, so withdrawing trust
+	// blocks a project server without reopening the workspace. A configuration that does not load is
+	// not trusted.
+	mcpRegistry.SetProjectTrust(func() bool {
+		cfg, err := config.Load(workspace)
+		if err != nil {
+			return false
+		}
+		return cfg.Effective().Trusted
+	})
 	skillRegistry, err := skills.NewRegistry(
 		globalSkillRoot,
 		filepath.Join(workspace, ".lumencortex", "skills"),
