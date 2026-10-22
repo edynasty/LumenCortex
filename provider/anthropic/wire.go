@@ -11,11 +11,21 @@
 // Mapping notes, kept honest to what the protocol carries:
 //   - max_tokens is required by the API, so the adapter always sends one: the request's MaxTokens,
 //     else the model's resolved output limit (config.DefaultOutput when unconfigured).
-//   - reasoning effort maps to the thinking parameter: none or empty omits it; low, medium, high
-//     and max map to budgets of 1024, 4096, 8192 and 16384 tokens, clamped to max_tokens minus
-//     1024. A max_tokens below 2048 leaves no legal budget, so thinking is omitted. While thinking
-//     is on the adapter omits temperature (the API allows only 1) and downgrades tool_choice to
-//     auto (the API allows only auto or none).
+//   - reasoning is encoded by the model's reasoning.format (config.ResolvedModel.ReasoningFormat),
+//     because thinking mode is a property of the model, not of a family of models.
+//   - format "" (the package default, also what a model that declares no format resolves to) is the
+//     budget encoding: reasoning effort maps to the thinking parameter. none or empty omits it; low,
+//     medium, high and max map to budgets of 1024, 4096, 8192 and 16384 tokens, clamped to
+//     max_tokens minus 1024. A max_tokens below 2048 leaves no legal budget, so thinking is
+//     omitted. While thinking is on the adapter omits temperature (the API allows only 1) and
+//     downgrades tool_choice to auto (the API allows only auto or none).
+//   - format "adaptive" is adaptive thinking, for models that refuse the budget encoding: low,
+//     medium, high and max become output_config.effort with thinking type adaptive; none, an empty
+//     effort or an unknown level send neither parameter, so the model decides how much to think.
+//     These models refuse a non-default temperature even without a level and refuse disabled
+//     thinking, so temperature is always omitted and tool_choice is always downgraded to auto.
+//   - any other format is refused before a request is sent: a format this adapter does not
+//     implement would otherwise be silently ignored, sending a request the model rejects.
 //   - a protocol tool row has no success flag, so tool_result blocks carry the result text only:
 //     is_error is omitted rather than guessed, and the text (which states failures) says it anyway.
 //   - prompt caching usage (cache_creation_input_tokens, cache_read_input_tokens) has no protocol
@@ -54,15 +64,16 @@ var thinkingBudgets = map[string]int{
 const minThinkingBudget = 1024
 
 type messagesRequest struct {
-	Model       string          `json:"model"`
-	MaxTokens   int             `json:"max_tokens"`
-	System      json.RawMessage `json:"system,omitempty"`
-	Messages    []wireMessage   `json:"messages"`
-	Tools       []wireTool      `json:"tools,omitempty"`
-	ToolChoice  json.RawMessage `json:"tool_choice,omitempty"`
-	Temperature *float64        `json:"temperature,omitempty"`
-	Thinking    *thinkingConfig `json:"thinking,omitempty"`
-	Stream      bool            `json:"stream,omitempty"`
+	Model        string          `json:"model"`
+	MaxTokens    int             `json:"max_tokens"`
+	System       json.RawMessage `json:"system,omitempty"`
+	Messages     []wireMessage   `json:"messages"`
+	Tools        []wireTool      `json:"tools,omitempty"`
+	ToolChoice   json.RawMessage `json:"tool_choice,omitempty"`
+	Temperature  *float64        `json:"temperature,omitempty"`
+	Thinking     *thinkingConfig `json:"thinking,omitempty"`
+	OutputConfig *outputConfig   `json:"output_config,omitempty"`
+	Stream       bool            `json:"stream,omitempty"`
 }
 
 type wireMessage struct {
@@ -76,9 +87,16 @@ type wireTool struct {
 	InputSchema map[string]any `json:"input_schema"`
 }
 
+// thinkingConfig is the thinking parameter: budget_tokens for the budget encoding (type enabled),
+// nothing else for adaptive thinking (type adaptive).
 type thinkingConfig struct {
 	Type         string `json:"type"`
-	BudgetTokens int    `json:"budget_tokens"`
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
+}
+
+// outputConfig carries the effort level of adaptive thinking.
+type outputConfig struct {
+	Effort string `json:"effort"`
 }
 
 type textBlock struct {
@@ -105,10 +123,15 @@ type systemBlock struct {
 }
 
 // requestFromProtocol builds the Messages API request. defaultMaxTokens is the max_tokens sent
-// when the request carries none.
-func requestFromProtocol(model string, req protocol.ProviderRequest, stream bool, defaultMaxTokens int) (messagesRequest, error) {
+// when the request carries none; reasoningFormat is the model's reasoning.format ("" is the package
+// default, the budget encoding).
+func requestFromProtocol(model string, req protocol.ProviderRequest, stream bool, defaultMaxTokens int, reasoningFormat string) (messagesRequest, error) {
 	if len(req.Messages) == 0 {
 		return messagesRequest{}, &badRequestError{errors.New("request has no messages")}
+	}
+	format, err := normalizeReasoningFormat(reasoningFormat)
+	if err != nil {
+		return messagesRequest{}, err
 	}
 	var system []string
 	type merged struct {
@@ -193,16 +216,34 @@ func requestFromProtocol(model string, req protocol.ProviderRequest, stream bool
 		return messagesRequest{}, err
 	}
 	temperature := req.Temperature
-	if budget, ok := thinkingBudget(req.ReasoningEffort, maxTokens); ok {
-		out.Thinking = &thinkingConfig{Type: "enabled", BudgetTokens: budget}
-		// The API allows only temperature 1 while thinking; the request's temperature is dropped
-		// instead of silently sending a value that would be refused.
-		temperature = nil
-		// The API allows only auto or none while thinking; a forced choice is downgraded to auto.
+	// A forced choice is downgraded to auto while the model thinks: the API allows only auto or
+	// none then.
+	downgradeChoice := func() {
 		if choiceName == "any" {
 			toolChoice = mustJSON(struct {
 				Type string `json:"type"`
 			}{Type: "auto"})
+		}
+	}
+	switch format {
+	case config.ReasoningAdaptive:
+		// Adaptive thinking: the model decides how much to think, and a level the run asks for is
+		// sent as output_config.effort. Every model that requires adaptive thinking refuses a
+		// non-default temperature, with or without a level, so temperature is always dropped; and
+		// no level (none, or no effort at all) sends neither parameter, leaving the decision to the
+		// model.
+		out.Thinking, out.OutputConfig = adaptiveThinking(req.ReasoningEffort)
+		temperature = nil
+		// An adaptive model may think on its own, so the API's restriction applies whether or not a
+		// level is sent.
+		downgradeChoice()
+	default: // the budget encoding, the package default
+		if budget, ok := thinkingBudget(req.ReasoningEffort, maxTokens); ok {
+			out.Thinking = &thinkingConfig{Type: "enabled", BudgetTokens: budget}
+			// The API allows only temperature 1 while thinking; the request's temperature is
+			// dropped instead of silently sending a value that would be refused.
+			temperature = nil
+			downgradeChoice()
 		}
 	}
 	out.ToolChoice = toolChoice
@@ -262,6 +303,35 @@ func wireToolChoice(choice string) (json.RawMessage, string, error) {
 		}{Type: "any"}), "any", nil
 	default:
 		return nil, "", &badRequestError{fmt.Errorf("tool choice %q is not one of auto, required, none", choice)}
+	}
+}
+
+// normalizeReasoningFormat maps a model's reasoning.format to the encoding this adapter sends:
+// "" (the package default) is the budget encoding, config.ReasoningAdaptive is adaptive thinking.
+// Any other value is refused. A format this adapter does not implement (the openai-compatible
+// ones) must not be silently ignored: that is how a model requiring adaptive thinking kept getting
+// budget requests and answered HTTP 400.
+func normalizeReasoningFormat(format string) (string, error) {
+	switch format = strings.ToLower(strings.TrimSpace(format)); format {
+	case "", config.ReasoningAdaptive:
+		return format, nil
+	default:
+		return "", &badRequestError{fmt.Errorf("reasoning format %q is not one the anthropic-messages adapter implements (accepted: \"\" and %q)",
+			format, config.ReasoningAdaptive)}
+	}
+}
+
+// adaptiveThinking maps a reasoning effort to the adaptive thinking parameters: low, medium, high
+// and max become output_config.effort. none, an empty effort and an unknown level send neither
+// parameter, so the model decides how much to think. (Config validation keeps none out of an
+// adaptive model's efforts list; this is what happens when it arrives anyway, e.g. from a model
+// with no efforts list.)
+func adaptiveThinking(effort string) (*thinkingConfig, *outputConfig) {
+	switch effort = strings.ToLower(strings.TrimSpace(effort)); effort {
+	case "low", "medium", "high", "max":
+		return &thinkingConfig{Type: "adaptive"}, &outputConfig{Effort: effort}
+	default:
+		return nil, nil
 	}
 }
 

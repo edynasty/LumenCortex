@@ -26,7 +26,8 @@ type Options struct {
 // {secret:NAME} references.
 //
 // The model's resolved Output is the max_tokens the adapter sends when a request carries none
-// (the API requires the field); with no configured limit that is config.DefaultOutput.
+// (the API requires the field); with no configured limit that is config.DefaultOutput. Its
+// resolved ReasoningFormat selects the thinking encoding: the budget default, or adaptive.
 func FromModel(m config.ResolvedModel, o Options) (*Client, error) {
 	key, err := m.ResolveAPIKey(o.Credentials)
 	if err != nil {
@@ -42,6 +43,7 @@ func FromModel(m config.ResolvedModel, o Options) (*Client, error) {
 		DisableStreaming: o.DisableStreaming,
 		DisableRetries:   o.DisableRetries,
 		MaxTokensDefault: m.Output,
+		ReasoningFormat:  m.ReasoningFormat,
 		RequestTimeout:   m.RequestTimeout,
 		IdleTimeout:      m.IdleTimeout,
 	})

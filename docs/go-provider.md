@@ -45,10 +45,20 @@ adapter, all inside the adapter:
   rather than guessed - the result text states failures;
 - `max_tokens` is required by the API, so it is always sent: the run's value, else the model's
   `limit.output`, else 4096;
-- reasoning effort maps to the `thinking` parameter (low/medium/high/max = 1024/4096/8192/16384
-  budget tokens, clamped to `max_tokens` - 1024; none omits it; a `max_tokens` below 2048 leaves
-  no legal budget and thinking is omitted). While thinking is on, `temperature` is dropped and a
-  forced `tool_choice` is downgraded to `auto`, as the API requires;
+- thinking is encoded by the model's `reasoning.format`, because the accepted encoding is a property
+  of the model and not of a family of models (ADR-0004 amendment, 2026-10-22):
+  - `""` (the package default, and what a model that declares no format resolves to) is the budget
+    encoding: reasoning effort maps to the `thinking` parameter (low/medium/high/max =
+    1024/4096/8192/16384 budget tokens, clamped to `max_tokens` - 1024; none omits it; a
+    `max_tokens` below 2048 leaves no legal budget and thinking is omitted). While thinking is on,
+    `temperature` is dropped and a forced `tool_choice` is downgraded to `auto`, as the API requires;
+  - `"adaptive"` is adaptive thinking, for models that refuse the budget encoding: low/medium/high/max
+    are sent as `output_config: {effort}` with `thinking: {type: "adaptive"}`; none, an empty effort
+    and an unknown level send neither parameter, so the model decides how much to think. These
+    models refuse a non-default `temperature` even without a level and refuse `thinking: disabled`,
+    so `temperature` is always dropped and a forced `tool_choice` is always downgraded to `auto`;
+  - any other value is refused before a request is sent (`bad_request`), rather than silently
+    ignored: a model that requires adaptive thinking answers HTTP 400 to a budget request;
 - thinking and redacted_thinking blocks come back as an opaque `protocol.Echo` (kind
   `anthropic-thinking`) and are resent byte for byte on the current turn's assistant rows, only
   within the active tool flow. They are run memory: never a row, step record, event, log line or
@@ -238,6 +248,17 @@ One schema, [`lumencortex.schema.json`](lumencortex.schema.json), describes both
 - `subagentModel` is retired: a file that sets it fails to load with `config.ErrSubagentModelRetired`, which names the replacement. `config.MigrateSubagentModel(path)` rewrites such a file (the model becomes the `explore` and `worker` list unless the file already gives one) through `Save` with the read digest.
 - Global only: `concurrency` bounds the machine, so it is read from the global file alone; a workspace file that sets it, trusted or not, is reported with code `global_only` and ignored. `Effective().Concurrency` carries the global values with their defaults applied.
 - Credentials: `apiKey` must be `{env:NAME}`; literal keys are rejected on load and in `config.Save`. A workspace that changes a global provider's `baseURL` or `endpoint` must give its own `apiKey` (`config.ErrCredentialRedirect`), and a redirected provider never inherits the global `headers`. The variable is read only when the client is built (`ResolvedModel.ResolveAPIKey`).
+- Reasoning formats are per package: `reasoning.format` must be a value the provider's `package`
+  implements, and `config.ReasoningFormats(pkg)` returns them, the package default `""` first.
+  `openai-compatible` accepts `""`, `none`, `reasoning-object`, `reasoning-effort` and `deepseek`;
+  `anthropic-messages` accepts `""` (the budget encoding: effort becomes `thinking.budget_tokens`)
+  and `adaptive` (effort becomes `output_config.effort` with `thinking.type: adaptive`). A model
+  that declares no format resolves to its package's default: `none` for `openai-compatible`, the
+  budget encoding for `anthropic-messages`. A value the package does not implement, and `none` in an
+  `adaptive` model's `efforts` (adaptive thinking cannot be turned off; `ClampEffort` would raise it
+  to the lowest listed level anyway), fail the load with `config.ErrInvalidConfig` naming the key.
+  The check runs on the merged catalog, so a trusted workspace that changes the package a global
+  model's format is checked against is caught as well.
 - `config.Save(path, file, expectedDigest)` validates against the schema, takes a per-file lock, compares the file's digest with `expectedDigest` (`config.ErrConflict`), writes a temporary file and renames it. The digest comes from `Document.Digest` of `ReadDocument`/`Config.Global()`/`Config.Workspace()`; `""` means the file did not exist.
 - Files in directories earlier builds used (`os.UserConfigDir()/lumencortex`, `~/.config/lumencortex` when not `GlobalDir`) are reported in `Effective().Warnings` (code `legacy_global_path`) with the path to move them to. They are not read, moved or deleted.
 

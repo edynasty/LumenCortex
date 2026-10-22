@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -88,5 +89,52 @@ func TestFromModelUsesResolvedSettings(t *testing.T) {
 	t.Setenv("FROM_MODEL_KEY", "k-ant-123")
 	if _, err := FromModel(m, Options{}); !errors.Is(err, ErrNoEndpoint) {
 		t.Fatalf("no endpoint: %v", err)
+	}
+}
+
+// The factory carries the model's resolved reasoning.format to the client: an adaptive model sends
+// adaptive thinking, a model that declares no format keeps the budget default, and a format this
+// adapter does not implement (an openai-compatible one) is refused before a request is sent.
+func TestFromModelCarriesTheReasoningFormat(t *testing.T) {
+	var body map[string]any
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		body = nil
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		fmt.Fprint(w, `{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{}}`)
+	}))
+	defer server.Close()
+	complete := func(format, effort string) error {
+		m := config.ResolvedModel{Ref: "p/m", ProviderID: "p", ModelID: "m", BaseURL: server.URL, ReasoningFormat: format}
+		client, err := FromModel(m, Options{DisableStreaming: true, DisableRetries: true})
+		if err != nil {
+			return err
+		}
+		req := request()
+		req.ReasoningEffort = effort
+		_, err = client.Complete(context.Background(), req)
+		return err
+	}
+
+	if err := complete(config.ReasoningAdaptive, "high"); err != nil {
+		t.Fatal(err)
+	}
+	thinking, _ := body["thinking"].(map[string]any)
+	if thinking["type"] != "adaptive" || body["output_config"].(map[string]any)["effort"] != "high" {
+		t.Fatalf("adaptive body=%v", body)
+	}
+	if err := complete("", "high"); err != nil {
+		t.Fatal(err)
+	}
+	if thinking, _ := body["thinking"].(map[string]any); thinking["type"] != "enabled" {
+		t.Fatalf("default body=%v, want the budget encoding", body)
+	}
+	sent := hits.Load()
+	if err := complete(config.ReasoningNone, "high"); err == nil {
+		t.Fatal("the openai-compatible format was accepted")
+	}
+	if hits.Load() != sent {
+		t.Fatalf("a refused format still sent %d request(s)", hits.Load()-sent)
 	}
 }

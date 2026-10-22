@@ -39,6 +39,10 @@ type Config struct {
 	// MaxTokensDefault is the max_tokens sent when a request carries none (the API requires the
 	// field): the model's resolved output limit. 0 means config.DefaultOutput.
 	MaxTokensDefault int
+	// ReasoningFormat is the model's reasoning.format: "" (the package default) is the budget
+	// encoding, config.ReasoningAdaptive is adaptive thinking. Any other value is refused when a
+	// request is built.
+	ReasoningFormat string
 	// RequestTimeout caps each HTTP attempt from send to the last byte; 0 means no cap.
 	RequestTimeout time.Duration
 	// IdleTimeout ends an attempt that receives nothing for this long: before the headers and
@@ -57,6 +61,7 @@ type Client struct {
 	retryBaseDelay   time.Duration
 	maxResponseBytes int64
 	maxTokensDefault int
+	reasoningFormat  string
 	requestTimeout   time.Duration
 	idleTimeout      time.Duration
 }
@@ -143,6 +148,7 @@ func New(cfg Config) (*Client, error) {
 		retryBaseDelay:   retryBaseDelay,
 		maxResponseBytes: maxResponseBytes,
 		maxTokensDefault: maxTokensDefault,
+		reasoningFormat:  strings.TrimSpace(cfg.ReasoningFormat),
 		requestTimeout:   cfg.RequestTimeout,
 		idleTimeout:      cfg.IdleTimeout,
 	}, nil
@@ -283,7 +289,7 @@ func (a activityReader) Read(p []byte) (int, error) {
 }
 
 func (c *Client) completeOnce(ctx context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
-	wireReq, err := requestFromProtocol(c.model, req, c.stream, c.maxTokensDefault)
+	wireReq, err := requestFromProtocol(c.model, req, c.stream, c.maxTokensDefault, c.reasoningFormat)
 	if err != nil {
 		return protocol.ProviderResponse{}, err
 	}

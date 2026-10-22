@@ -61,3 +61,44 @@ D7 (build required provider clients before the run transaction) was already deci
 - The sibling target design and handoff should identify D1–D6 as owner-approved.
 - The implementation/audit reports retain historical evidence and link to this approval.
 - Next milestone is Desktop M2.4. Its acceptance must include `ErrInvalidEffort` error mapping and pinning behavior on Continue.
+
+## Amendment 2026-10-22: the reasoning format is declared per model (PROVIDER-001)
+
+- **Status:** accepted in phase 0, work package P0-A. D1–D6 are unchanged; this amendment records how
+  one provider-neutral key, `reasoning.format`, selects a thinking encoding.
+- **Evidence:** probes of the owner's Anthropic-protocol gateway on 2026-10-22 with the owner's own
+  credentials (no key or model id is recorded here). Models that require adaptive thinking answer
+  `thinking: {type: "enabled", budget_tokens}` with HTTP 400 ("requires adaptive thinking") and answer
+  `thinking: {type: "disabled"}` with HTTP 400 as well; `thinking: {type: "adaptive"}` with
+  `output_config: {effort}` and omitting `thinking` are accepted. Models of the same family differ:
+  both encodings are accepted by some, only adaptive by others. Every probed Claude model rejects a
+  non-default `temperature` ("temperature is deprecated"), with or without thinking. `xhigh` is
+  accepted as an effort but is not one of LC's five levels.
+- **Decision:** the thinking encoding is a property of the model, declared by the existing
+  `reasoning.format` key. `anthropic-messages` accepts `""` (the package default: the budget encoding,
+  so requests of a model that declares no format stay byte-identical to earlier builds) and
+  `"adaptive"` (levels low/medium/high/max become `thinking: {type: "adaptive"}` plus
+  `output_config: {effort}`; no level sends neither parameter; `temperature` is never sent and a
+  forced `tool_choice` is downgraded to `auto`). `none` is not a format of that package: an adaptive
+  model has no off switch, so `config` refuses `none` in an adaptive model's `efforts`. A format a
+  package does not implement is `config.ErrInvalidConfig` naming the key, and the adapter refuses it
+  as a bad request before sending, because silently ignoring the key is what sent the request that
+  produced the 400. `config.ReasoningFormats(pkg)` publishes the accepted values per package, the
+  package default first, for hosts that build an editor.
+- **Alternatives rejected:** inferring the encoding from the model id or its family. The evidence
+  above shows the requirement differs within one family, a gateway may alias ids, and a new model
+  would silently receive the wrong encoding. Defaulting every Claude model to adaptive was rejected
+  too: it changes the thinking semantics of models that already work with budgets and would silently
+  drop a level's budget guarantee. Adding `xhigh` as a sixth effort level is deferred (PROVIDER-003):
+  it changes the effort enum, the chat-completions mapping, `ClampEffort` and the Desktop effort
+  picker together.
+- **Boundary:** `provider/anthropic` (request building, client, factory), `config` (format table,
+  merged-catalog validation, resolved default), `docs/go-provider.md` and the
+  `reasoning.format` enum of `docs/lumencortex.schema.json`. Task State, persistence, routing,
+  failover and reasoning echo are untouched.
+- **Validation:** the budget encoding is pinned by a golden test whose bytes were captured from the
+  adapter before the change (streamed and not); table tests cover adaptive × {"", none, low, medium,
+  high, max} with a request temperature and a forced tool choice; a client test shows the format
+  reaching the wire on both paths; config tests cover unknown formats, `none` in adaptive `efforts`,
+  the accepted configurations and a workspace that changes the package the format is checked
+  against. No real model endpoint was called by the tests.

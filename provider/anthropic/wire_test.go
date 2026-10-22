@@ -1,10 +1,13 @@
 package anthropic
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -17,10 +20,17 @@ func decodeRequest(t *testing.T, raw []byte) map[string]any {
 	return out
 }
 
-// wireBody marshals the request the adapter would send, as a decoded object for assertions.
+// wireBody marshals the request the adapter would send, as a decoded object for assertions, for a
+// model that declares no reasoning.format (the budget default).
 func wireBody(t *testing.T, req protocol.ProviderRequest, defaultMaxTokens int) (map[string]any, error) {
 	t.Helper()
-	wire, err := requestFromProtocol("claude-test", req, false, defaultMaxTokens)
+	return wireBodyFormat(t, req, defaultMaxTokens, "")
+}
+
+// wireBodyFormat is wireBody with an explicit reasoning.format.
+func wireBodyFormat(t *testing.T, req protocol.ProviderRequest, defaultMaxTokens int, format string) (map[string]any, error) {
+	t.Helper()
+	wire, err := requestFromProtocol("claude-test", req, false, defaultMaxTokens, format)
 	if err != nil {
 		return nil, err
 	}
@@ -236,13 +246,165 @@ func TestRequestRefusesImpossibleConversations(t *testing.T) {
 		}, Echo: []protocol.Echo{protocol.Echo{}, protocol.NewEcho(echoThinking, []byte(`{"not":"an array"}`), 1)}},
 	}
 	for name, req := range cases {
-		if _, err := requestFromProtocol("m", req, false, 4096); err == nil {
+		if _, err := requestFromProtocol("m", req, false, 4096, ""); err == nil {
 			t.Fatalf("%s: accepted", name)
 		}
 	}
 	// The echo that is not a block array names what it refused.
-	_, err := requestFromProtocol("m", cases["bad echo"], false, 4096)
+	_, err := requestFromProtocol("m", cases["bad echo"], false, 4096, "")
 	if err == nil || !strings.Contains(err.Error(), "thinking echo") {
 		t.Fatalf("bad echo error: %v", err)
+	}
+}
+
+// budgetRequest is the request the golden below pins: budget-format thinking with everything else
+// the adapter can send (system, thinking echo, tool_use, tool_result, tools, a forced tool choice,
+// a temperature and a max_tokens that clamps the budget).
+func budgetRequest() protocol.ProviderRequest {
+	temperature := 0.2
+	return protocol.ProviderRequest{
+		Messages: []protocol.Message{
+			{Role: "system", Content: "you are careful"},
+			{Role: "user", Content: "fix the test"},
+			{Role: "assistant", Content: "running it", ToolCalls: []protocol.ToolCall{
+				{ID: "call-1", Name: "shell", Arguments: json.RawMessage(`{"command":"go test ./..."}`)},
+			}},
+			{Role: "tool", ToolCallID: "call-1", Content: "FAIL"},
+			{Role: "user", Content: "try again"},
+		},
+		Tools: []protocol.ToolSpec{{Name: "shell", Description: "run a command", Parameters: map[string]any{
+			"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}},
+		}}},
+		ToolChoice:      "required",
+		Temperature:     &temperature,
+		MaxTokens:       4096,
+		ReasoningEffort: "high",
+		Echo: []protocol.Echo{{}, {}, protocol.NewEcho(echoThinking,
+			[]byte(`[{"type":"thinking","thinking":"hm","signature":"sig"}]`), 4)},
+	}
+}
+
+// budgetGolden is the exact body budgetRequest produces. It was captured from the adapter before
+// adaptive thinking was added: the default reasoning format is the budget encoding, and a model
+// that declares no format must keep sending the same bytes.
+const budgetGolden = `{"model":"claude-test","max_tokens":4096,"system":"you are careful","messages":[{"role":"user","content":[{"type":"text","text":"fix the test"}]},{"role":"assistant","content":[{"type":"thinking","thinking":"hm","signature":"sig"},{"type":"text","text":"running it"},{"type":"tool_use","id":"call-1","name":"shell","input":{"command":"go test ./..."}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call-1","content":"FAIL"},{"type":"text","text":"try again"}]}],"tools":[{"name":"shell","description":"run a command","input_schema":{"properties":{"command":{"type":"string"}},"type":"object"}}],"tool_choice":{"type":"auto"},"thinking":{"type":"enabled","budget_tokens":3072}}`
+
+// The budget format is byte-for-byte what earlier builds sent, streamed and not: the adaptive
+// support must not reorder, rename or drop a field of an existing request.
+func TestBudgetFormatRequestBytesUnchanged(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		wire, err := requestFromProtocol("claude-test", budgetRequest(), stream, 8192, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := json.Marshal(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := budgetGolden
+		if stream {
+			want = strings.Replace(want, `"thinking":{"type":"enabled","budget_tokens":3072}`,
+				`"thinking":{"type":"enabled","budget_tokens":3072},"stream":true`, 1)
+		}
+		if string(raw) != want {
+			t.Fatalf("stream=%v: budget request changed:\n got %s\nwant %s", stream, raw, want)
+		}
+	}
+}
+
+// Adaptive thinking is the encoding of an adaptive model: a level the run asks for becomes
+// output_config.effort with thinking type adaptive, and no level sends neither parameter. These
+// models refuse a non-default temperature, so it is dropped whether or not a level is sent, and a
+// forced tool choice is downgraded. Streamed and non-streamed requests carry the same parameters.
+func TestAdaptiveReasoningFormat(t *testing.T) {
+	temperature := 0.2
+	for _, stream := range []bool{false, true} {
+		for effort, wantEffort := range map[string]string{
+			"":       "",
+			"none":   "",
+			"low":    "low",
+			"medium": "medium",
+			"high":   "high",
+			"max":    "max",
+		} {
+			wire, err := requestFromProtocol("claude-test", protocol.ProviderRequest{
+				Messages:        []protocol.Message{{Role: "user", Content: "hi"}},
+				Tools:           []protocol.ToolSpec{{Name: "shell"}},
+				ToolChoice:      "required",
+				Temperature:     &temperature,
+				ReasoningEffort: effort,
+			}, stream, 4096, config.ReasoningAdaptive)
+			if err != nil {
+				t.Fatalf("stream=%v effort=%q: %v", stream, effort, err)
+			}
+			raw, err := json.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := decodeRequest(t, raw)
+			name := fmt.Sprintf("stream=%v effort=%q", stream, effort)
+			if _, sent := body["temperature"]; sent {
+				t.Fatalf("%s: temperature sent: %s", name, raw)
+			}
+			if got := body["stream"] == true; got != stream {
+				t.Fatalf("%s: stream=%v", name, got)
+			}
+			if choice := body["tool_choice"].(map[string]any); choice["type"] != "auto" {
+				t.Fatalf("%s: tool_choice=%v, want the downgraded auto", name, choice)
+			}
+			thinking, hasThinking := body["thinking"].(map[string]any)
+			output, hasOutput := body["output_config"].(map[string]any)
+			if wantEffort == "" {
+				if hasThinking || hasOutput {
+					t.Fatalf("%s: thinking/output_config sent for no level: %s", name, raw)
+				}
+				continue
+			}
+			if !hasThinking || thinking["type"] != "adaptive" {
+				t.Fatalf("%s: thinking=%v, want type adaptive", name, body["thinking"])
+			}
+			if _, budget := thinking["budget_tokens"]; budget {
+				t.Fatalf("%s: adaptive thinking sent a budget: %s", name, raw)
+			}
+			if !hasOutput || output["effort"] != wantEffort {
+				t.Fatalf("%s: output_config=%v, want effort %q", name, body["output_config"], wantEffort)
+			}
+		}
+	}
+	// The same request under the budget format still sends a budget and no output_config: the two
+	// encodings differ on the wire, not only in the resolved format.
+	body := mustBody(t, protocol.ProviderRequest{
+		Messages:        []protocol.Message{{Role: "user", Content: "hi"}},
+		ReasoningEffort: "high",
+	}, 4096)
+	thinking := body["thinking"].(map[string]any)
+	// 8192 clamped to max_tokens - 1024.
+	if thinking["type"] != "enabled" || thinking["budget_tokens"] != float64(3072) {
+		t.Fatalf("budget thinking=%v", thinking)
+	}
+	if _, sent := body["output_config"]; sent {
+		t.Fatalf("budget request sent output_config: %v", body["output_config"])
+	}
+}
+
+// A reasoning.format this adapter does not implement is refused before a request is built: silently
+// ignoring it is what made a model that requires adaptive thinking answer HTTP 400.
+func TestUnimplementedReasoningFormatIsRefused(t *testing.T) {
+	req := protocol.ProviderRequest{Messages: []protocol.Message{{Role: "user", Content: "hi"}}}
+	for _, format := range []string{"deepseek", "reasoning-object", "reasoning-effort", "none"} {
+		_, err := requestFromProtocol("m", req, false, 4096, format)
+		if err == nil {
+			t.Fatalf("format %q accepted", format)
+		}
+		if !strings.Contains(err.Error(), "reasoning format") || !strings.Contains(err.Error(), "adaptive") {
+			t.Fatalf("format %q: error %v does not name the accepted values", format, err)
+		}
+		if class, _ := classify(context.Background(), err); class != protocol.ClassBadRequest {
+			t.Fatalf("format %q: class %v, want bad_request", format, class)
+		}
+	}
+	// Case and surrounding space do not matter: a hand-built Config may spell the format either way.
+	if _, err := requestFromProtocol("m", req, false, 4096, " Adaptive "); err != nil {
+		t.Fatalf("adaptive with space/case: %v", err)
 	}
 }

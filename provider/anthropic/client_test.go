@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -359,5 +360,77 @@ func TestIdleAndRequestTimeouts(t *testing.T) {
 				t.Fatalf("a TimeoutError must not unwrap to a context error: %v", err)
 			}
 		})
+	}
+}
+
+// The reasoning format is a property of the model, so it reaches the wire on both paths: an adaptive
+// model's request carries thinking type adaptive and output_config.effort, streamed and not, and
+// never the temperature the request holds.
+func TestReasoningFormatReachesTheWire(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		var body map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if !stream {
+				fmt.Fprint(w, `{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+				return
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1}}}\n\n")
+			fmt.Fprint(w, "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n")
+			fmt.Fprint(w, "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n")
+			fmt.Fprint(w, "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n")
+			fmt.Fprint(w, "data: {\"type\":\"message_stop\"}\n\n")
+		}))
+		defer server.Close()
+
+		client, err := New(Config{
+			BaseURL: server.URL, Model: "m", DisableStreaming: !stream, DisableRetries: true,
+			ReasoningFormat: config.ReasoningAdaptive,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		temperature := 0.2
+		req := request()
+		req.Temperature, req.ReasoningEffort = &temperature, "medium"
+		if _, err := client.Complete(context.Background(), req); err != nil {
+			t.Fatalf("stream=%v: %v", stream, err)
+		}
+		if _, sent := body["temperature"]; sent {
+			t.Fatalf("stream=%v: temperature sent: %v", stream, body["temperature"])
+		}
+		thinking, _ := body["thinking"].(map[string]any)
+		if thinking["type"] != "adaptive" {
+			t.Fatalf("stream=%v: thinking=%v", stream, body["thinking"])
+		}
+		output, _ := body["output_config"].(map[string]any)
+		if output["effort"] != "medium" {
+			t.Fatalf("stream=%v: output_config=%v", stream, body["output_config"])
+		}
+	}
+}
+
+// An unimplemented format fails the request before it is sent: nothing reaches the provider, and the
+// error is a bad request, so the runtime does not retry or fail over for it.
+func TestUnimplementedReasoningFormatSendsNothing(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		fmt.Fprint(w, `{"content":[]}`)
+	}))
+	defer server.Close()
+
+	client, err := New(Config{BaseURL: server.URL, Model: "m", DisableRetries: true, ReasoningFormat: "deepseek"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Complete(context.Background(), request())
+	var providerErr *protocol.ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Class != protocol.ClassBadRequest {
+		t.Fatalf("err=%v, want a bad-request ProviderError", err)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("%d requests reached the server", hits.Load())
 	}
 }
