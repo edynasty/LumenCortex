@@ -96,6 +96,13 @@ func echoWorkspace(t *testing.T) string {
 // every backup, for the sentinel.
 func assertNoSentinelAtRest(t *testing.T, dbPath string) {
 	t.Helper()
+	assertNoTextAtRest(t, dbPath, []string{echoSentinel})
+}
+
+// assertNoTextAtRest checks every table of the closed database, its WAL and shared memory, and every
+// backup, for each of texts.
+func assertNoTextAtRest(t *testing.T, dbPath string, texts []string) {
+	t.Helper()
 	db, err := sql.Open("sqlite3", "file:"+dbPath+"?mode=ro")
 	if err != nil {
 		t.Fatal(err)
@@ -130,12 +137,15 @@ func assertNoSentinelAtRest(t *testing.T, dbPath string) {
 				t.Fatal(err)
 			}
 			scanned++
-			if text := fmt.Sprint(values...); strings.Contains(text, echoSentinel) {
-				t.Errorf("table %s holds the echo sentinel: %s", name, text)
-			}
+			text := fmt.Sprint(values...)
 			for _, v := range values {
-				if b, ok := v.([]byte); ok && bytes.Contains(b, []byte(echoSentinel)) {
-					t.Errorf("table %s holds the echo sentinel", name)
+				if b, ok := v.([]byte); ok {
+					text += string(b)
+				}
+			}
+			for _, sentinel := range texts {
+				if strings.Contains(text, sentinel) {
+					t.Errorf("table %s holds %s", name, sentinel)
 				}
 			}
 		}
@@ -152,8 +162,10 @@ func assertNoSentinelAtRest(t *testing.T, dbPath string) {
 		if err != nil {
 			continue
 		}
-		if bytes.Contains(raw, []byte(echoSentinel)) {
-			t.Errorf("%s holds the echo sentinel", filepath.Base(f))
+		for _, sentinel := range texts {
+			if bytes.Contains(raw, []byte(sentinel)) {
+				t.Errorf("%s holds %s", filepath.Base(f), sentinel)
+			}
 		}
 	}
 }

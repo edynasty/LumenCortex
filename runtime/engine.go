@@ -393,7 +393,7 @@ func newSessionID() (string, error) {
 // NewSession creates a session and writes its first transcript row (opts.Input,
 // else the goal) in the same transaction. A goal that is empty after
 // strings.TrimSpace is rejected. opts.Metadata is host-owned: it cannot set the
-// core-owned keys runtime or subagent.
+// core-owned keys runtime, subagent or import.
 func (e *Engine) NewSession(ctx context.Context, opts SessionOptions) (*SessionHandle, error) {
 	if opts.Metadata != nil {
 		raw, err := json.Marshal(opts.Metadata)

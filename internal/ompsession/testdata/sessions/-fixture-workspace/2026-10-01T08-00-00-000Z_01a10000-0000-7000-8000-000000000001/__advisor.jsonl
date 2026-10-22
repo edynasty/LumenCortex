@@ -1,0 +1,4 @@
+{"type":"session","version":3,"id":"01a10000-0000-7000-8000-0000000000c4","timestamp":"2026-10-01T08:00:20.000Z","cwd":"/fixture/workspace","parentSession":"x"}
+{"type":"session_init","id":"c41","parentId":null,"timestamp":"2026-10-01T08:00:20.000Z","systemPrompt":["SYSTEM_PROMPT_SENTINEL"],"task":"advise","tools":["read"],"agent":"advisor","modelRole":"smol","readOnly":true}
+{"type":"message","id":"c42","parentId":"c41","timestamp":"2026-10-01T08:00:21.000Z","message":{"role":"user","content":"advise","attribution":"agent","timestamp":1}}
+{"type":"message","id":"c43","parentId":"c42","timestamp":"2026-10-01T08:00:22.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"SECRET_THINKING_SENTINEL child"},{"type":"text","text":"ADVISOR_TEXT"}],"api":"x","provider":"prov","model":"small","usage":{},"stopReason":"stop","timestamp":2}}

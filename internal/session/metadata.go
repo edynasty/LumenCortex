@@ -17,6 +17,9 @@ const (
 	MetadataKeyRuntime = "runtime"
 	// MetadataKeySubagent is written once when a child session is created.
 	MetadataKeySubagent = "subagent"
+	// MetadataKeyImport is the provenance of a session an import created (ADR-0011), written once
+	// with the session.
+	MetadataKeyImport = "import"
 )
 
 var (
@@ -32,7 +35,7 @@ var metadataKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
 
 // IsCoreMetadataKey reports whether key is one of the core-owned metadata keys.
 func IsCoreMetadataKey(key string) bool {
-	return key == MetadataKeyRuntime || key == MetadataKeySubagent
+	return key == MetadataKeyRuntime || key == MetadataKeySubagent || key == MetadataKeyImport
 }
 
 // CheckHostMetadata rejects session metadata that sets a core-owned key. It
@@ -75,7 +78,7 @@ func (s *Store) RemoveHostMetadataKey(ctx context.Context, sessionID, key string
 	return s.removeMetadataKey(ctx, sessionID, key)
 }
 
-// SetCoreMetadataKey sets one core-owned metadata key (runtime or subagent).
+// SetCoreMetadataKey sets one core-owned metadata key (runtime, subagent or import).
 func (s *Store) SetCoreMetadataKey(ctx context.Context, sessionID, key string, value json.RawMessage) error {
 	if !IsCoreMetadataKey(key) {
 		return fmt.Errorf("%w: %q is not a core key", ErrInvalidMetadataKey, key)
@@ -83,7 +86,7 @@ func (s *Store) SetCoreMetadataKey(ctx context.Context, sessionID, key string, v
 	return s.setMetadataKey(ctx, sessionID, key, value)
 }
 
-// RemoveCoreMetadataKey removes one core-owned metadata key (runtime or subagent).
+// RemoveCoreMetadataKey removes one core-owned metadata key (runtime, subagent or import).
 func (s *Store) RemoveCoreMetadataKey(ctx context.Context, sessionID, key string) error {
 	if !IsCoreMetadataKey(key) {
 		return fmt.Errorf("%w: %q is not a core key", ErrInvalidMetadataKey, key)

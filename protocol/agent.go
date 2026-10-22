@@ -24,6 +24,15 @@ const (
 	// transition the thread has not seen (ADR-0006 D4). Its content is TaskResultHeader, a newline and
 	// the result's JSON.
 	OriginTaskResult = "task_result"
+	// OriginImported marks the user row an import appends after a transcript it copied from another
+	// runtime (ADR-0011): it tells the model that the rows above are history LumenCortex did not run.
+	OriginImported = "imported"
+	// OriginImportedNotice marks a user row copied from a notice the source runtime showed to the
+	// user and the model (a background result, an incoming message). Its content names the notice.
+	OriginImportedNotice = "imported_notice"
+	// OriginImportedMarker marks a user row an import wrote where the source recorded an event it does
+	// not copy: a context compaction or a return from another branch.
+	OriginImportedMarker = "imported_marker"
 )
 
 // Contents of the runtime rows that open a new turn. They are user rows the model reads.
@@ -32,6 +41,8 @@ const (
 	TurnContent   = "[runtime] The model answering changed in the middle of a turn. The transcript and the Task State above are the state of the work; continue from there."
 	// TaskResultHeader leads a task_result row; the result's JSON follows on the next line.
 	TaskResultHeader = "[runtime] An execution task of this thread reached a terminal state. This reports its recorded state; it is not a user message."
+	// ImportedContent is the content of the OriginImported row.
+	ImportedContent = "[runtime] The messages above were imported from a session of another agent runtime. They are history: their tool calls ran there, against the workspace as it was then, and nothing above was executed by LumenCortex. Their tool names are that runtime's: call only the tools offered now. Re-check the current workspace before relying on them."
 )
 
 type Message struct {

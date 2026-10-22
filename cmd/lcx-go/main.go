@@ -213,8 +213,10 @@ func run() error {
 		return runSkillsCommand(engine, args[1:])
 	case "agents":
 		return listAgents(workspace)
+	case "omp":
+		return runOMPCommand(ctx, engine, args[1:])
 	default:
-		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, session-delete, shell, agent, resume, governor, approve, worktree, skills, agents)", args[0])
+		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, session-delete, shell, agent, resume, governor, approve, worktree, skills, agents, omp)", args[0])
 	}
 }
 
