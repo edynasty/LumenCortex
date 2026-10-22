@@ -73,7 +73,8 @@ D7 (build required provider clients before the run transaction) was already deci
   `output_config: {effort}` and omitting `thinking` are accepted. Models of the same family differ:
   both encodings are accepted by some, only adaptive by others. Every probed Claude model rejects a
   non-default `temperature` ("temperature is deprecated"), with or without thinking. `xhigh` is
-  accepted as an effort but is not one of LC's five levels.
+  accepted as an effort but is not one of LC's five levels (it is since 2026-10-23: the ladder
+  became none, minimal, low, medium, high, xhigh, max, and adaptive thinking sends xhigh as-is).
 - **Decision:** the thinking encoding is a property of the model, declared by the existing
   `reasoning.format` key. `anthropic-messages` accepts `""` (the package default: the budget encoding,
   so requests of a model that declares no format stay byte-identical to earlier builds) and

@@ -78,6 +78,11 @@ func TestReasoningFormatIsValidatedPerPackage(t *testing.T) {
 			reasoningDoc(PackageAnthropicMessages, ReasoningAdaptive, "none", "low"),
 			"providers.p.models.m.reasoning.efforts[0]",
 		},
+		// Adaptive thinking's effort has no minimal; the error names the index and the accepted levels.
+		"minimal in adaptive efforts": {
+			reasoningDoc(PackageAnthropicMessages, ReasoningAdaptive, "low", "minimal"),
+			"providers.p.models.m.reasoning.efforts[1]: \"minimal\" is not accepted with reasoning.format \"adaptive\" (accepted: low, medium, high, xhigh, max)",
+		},
 	} {
 		_, err := loadReasoning(t, c.doc)
 		if !errors.Is(err, ErrInvalidConfig) || !strings.Contains(err.Error(), c.key) {

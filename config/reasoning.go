@@ -40,13 +40,38 @@ func defaultReasoningFormat(pkg string) string {
 	return ReasoningNone
 }
 
-// validateReasoning checks every model's reasoning.format against its provider's package and, for
-// an adaptive model, that efforts cannot ask for no thinking.
+// adaptiveEfforts are the levels adaptive thinking's output_config.effort accepts: it has no "off"
+// (none) and no minimal.
+var adaptiveEfforts = []Effort{EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax}
+
+// ReasoningEfforts returns the effort levels a model of the provider package may list under the
+// given reasoning.format, lowest first: adaptive thinking accepts low … max, every other format
+// accepts every level (its adapter maps or sends them). nil for a package or format this build
+// does not accept. The caller owns the copy.
+func ReasoningEfforts(pkg, format string) []Effort {
+	normalized, err := NormalizePackage(pkg)
+	if err != nil {
+		return nil
+	}
+	format = strings.ToLower(strings.TrimSpace(format))
+	if !slices.Contains(reasoningFormats[normalized], format) {
+		return nil
+	}
+	if format == ReasoningAdaptive {
+		return slices.Clone(adaptiveEfforts)
+	}
+	return EffortLevels()
+}
+
+// ValidateProviderReasoning checks every model's reasoning.format against its provider's package
+// and its reasoning.efforts against what that format accepts (ReasoningEfforts). Load runs it on
+// the merged catalog; a host that edits providers runs it before saving, so it never writes a
+// file Load would refuse.
 //
-// It runs on the merged catalog, after a trusted workspace's providers are applied: the package a
-// model's format is checked against may come from the global file while the model entry, the
-// format or the package itself comes from the workspace file.
-func validateReasoning(providers map[string]Provider) error {
+// On load it runs after a trusted workspace's providers are applied: the package a model's
+// format is checked against may come from the global file while the model entry, the format or
+// the package itself comes from the workspace file.
+func ValidateProviderReasoning(providers map[string]Provider) error {
 	for _, pid := range sortedKeys(providers) {
 		p := providers[pid]
 		pkg, err := NormalizePackage(p.Package)
@@ -65,17 +90,31 @@ func validateReasoning(providers map[string]Provider) error {
 				return fmt.Errorf("%w: providers.%s.models.%s.reasoning.format: %q is not accepted by package %s (accepted: %s)",
 					ErrInvalidConfig, pid, key, r.Format, pkg, reasoningFormatList(pkg))
 			}
-			if format == ReasoningAdaptive {
-				if i := slices.Index(r.Efforts, EffortNone); i >= 0 {
+			accepted := ReasoningEfforts(pkg, format)
+			for i, e := range r.Efforts {
+				if slices.Contains(accepted, e) {
+					continue
+				}
+				if format == ReasoningAdaptive && e == EffortNone {
 					return fmt.Errorf("%w: providers.%s.models.%s.reasoning.efforts[%d]: %q is not accepted with reasoning.format %q, "+
 						"because adaptive thinking cannot be turned off; remove the level (a model with no efforts list sends no thinking "+
 						"parameter when the run asks for none)",
 						ErrInvalidConfig, pid, key, i, EffortNone, ReasoningAdaptive)
 				}
+				return fmt.Errorf("%w: providers.%s.models.%s.reasoning.efforts[%d]: %q is not accepted with reasoning.format %q (accepted: %s)",
+					ErrInvalidConfig, pid, key, i, e, r.Format, effortList(accepted))
 			}
 		}
 	}
 	return nil
+}
+
+func effortList(levels []Effort) string {
+	parts := make([]string, len(levels))
+	for i, e := range levels {
+		parts[i] = string(e)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // reasoningFormatList renders a package's accepted formats for an error or a doc: the default is

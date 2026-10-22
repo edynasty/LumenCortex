@@ -35,7 +35,7 @@ type AgentOptions struct {
 	// model (else the configured default) on a session that has none.
 	ModelRef config.ModelRef `json:"modelRef,omitempty"`
 	// Effort overrides the configured default reasoning effort for this run: "" (the default),
-	// none, low, medium, high, max, or auto (classify this turn before its first request; the
+	// none, minimal, low, medium, high, xhigh, max, or auto (classify this turn before its first request; the
 	// resolved level then acts as the run's default and escalation still raises it).
 	Effort              config.Effort   `json:"effort,omitempty"`
 	Policy              string          `json:"policy,omitempty"`

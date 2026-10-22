@@ -14,14 +14,15 @@
 //   - reasoning is encoded by the model's reasoning.format (config.ResolvedModel.ReasoningFormat),
 //     because thinking mode is a property of the model, not of a family of models.
 //   - format "" (the package default, also what a model that declares no format resolves to) is the
-//     budget encoding: reasoning effort maps to the thinking parameter. none or empty omits it; low,
-//     medium, high and max map to budgets of 1024, 4096, 8192 and 16384 tokens, clamped to
-//     max_tokens minus 1024. A max_tokens below 2048 leaves no legal budget, so thinking is
-//     omitted. While thinking is on the adapter omits temperature (the API allows only 1) and
-//     downgrades tool_choice to auto (the API allows only auto or none).
+//     budget encoding: reasoning effort maps to the thinking parameter. none or empty omits it;
+//     minimal and low, medium, high, xhigh and max map to budgets of 1024, 4096, 8192, 12288 and
+//     16384 tokens, clamped to max_tokens minus 1024. A max_tokens below 2048 leaves no legal
+//     budget, so thinking is omitted. While thinking is on the adapter omits temperature (the API
+//     allows only 1) and downgrades tool_choice to auto (the API allows only auto or none).
 //   - format "adaptive" is adaptive thinking, for models that refuse the budget encoding: low,
-//     medium, high and max become output_config.effort with thinking type adaptive; none, an empty
-//     effort or an unknown level send neither parameter, so the model decides how much to think.
+//     medium, high, xhigh and max become output_config.effort with thinking type adaptive; none,
+//     an empty effort or an unknown level (minimal) send neither parameter, so the model decides
+//     how much to think.
 //     These models refuse a non-default temperature even without a level and refuse disabled
 //     thinking, so temperature is always omitted and tool_choice is always downgraded to auto.
 //   - any other format is refused before a request is sent: a format this adapter does not
@@ -54,10 +55,12 @@ const defaultAnthropicVersion = "2023-06-01"
 
 // thinkingBudgets maps the provider-neutral effort levels to thinking budget tokens.
 var thinkingBudgets = map[string]int{
-	"low":    1024,
-	"medium": 4096,
-	"high":   8192,
-	"max":    16384,
+	"minimal": 1024,
+	"low":     1024,
+	"medium":  4096,
+	"high":    8192,
+	"xhigh":   12288,
+	"max":     16384,
 }
 
 // minThinkingBudget is the smallest budget the API accepts.
@@ -321,14 +324,14 @@ func normalizeReasoningFormat(format string) (string, error) {
 	}
 }
 
-// adaptiveThinking maps a reasoning effort to the adaptive thinking parameters: low, medium, high
-// and max become output_config.effort. none, an empty effort and an unknown level send neither
+// adaptiveThinking maps a reasoning effort to the adaptive thinking parameters: low, medium, high,
+// xhigh and max become output_config.effort. none, an empty effort and an unknown level send neither
 // parameter, so the model decides how much to think. (Config validation keeps none out of an
 // adaptive model's efforts list; this is what happens when it arrives anyway, e.g. from a model
 // with no efforts list.)
 func adaptiveThinking(effort string) (*thinkingConfig, *outputConfig) {
 	switch effort = strings.ToLower(strings.TrimSpace(effort)); effort {
-	case "low", "medium", "high", "max":
+	case "low", "medium", "high", "xhigh", "max":
 		return &thinkingConfig{Type: "adaptive"}, &outputConfig{Effort: effort}
 	default:
 		return nil, nil
@@ -342,7 +345,7 @@ func thinkingBudget(effort string, maxTokens int) (int, bool) {
 	switch effort {
 	case "", "none":
 		return 0, false
-	case "low", "medium", "high", "max":
+	case "minimal", "low", "medium", "high", "xhigh", "max":
 		budget := thinkingBudgets[effort]
 		if budget > maxTokens-minThinkingBudget {
 			budget = maxTokens - minThinkingBudget

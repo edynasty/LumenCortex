@@ -24,8 +24,8 @@ var (
 	ErrUnknownModel = config.ErrUnknownModel
 	// ErrModelWithoutToolCalling reports a session model whose configuration sets toolCalling: false.
 	ErrModelWithoutToolCalling = errors.New("model does not support tool calling")
-	// ErrInvalidEffort reports an effort outside none, low, medium, high, max, auto.
-	ErrInvalidEffort = errors.New("effort must be one of none, low, medium, high, max, auto")
+	// ErrInvalidEffort reports an effort outside the concrete levels and auto.
+	ErrInvalidEffort = errors.New("effort must be one of none, minimal, low, medium, high, xhigh, max, auto")
 	// ErrUnknownAgent reports an agent id that is not in the catalog: requested by the host, or
 	// pinned by a session whose agent was since removed. The host offers its agent picker; nothing
 	// was written. A removed agent never falls back to another one, which could widen authority.

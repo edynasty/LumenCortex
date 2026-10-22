@@ -320,12 +320,14 @@ func TestAdaptiveReasoningFormat(t *testing.T) {
 	temperature := 0.2
 	for _, stream := range []bool{false, true} {
 		for effort, wantEffort := range map[string]string{
-			"":       "",
-			"none":   "",
-			"low":    "low",
-			"medium": "medium",
-			"high":   "high",
-			"max":    "max",
+			"":        "",
+			"none":    "",
+			"low":     "low",
+			"medium":  "medium",
+			"high":    "high",
+			"xhigh":   "xhigh",
+			"max":     "max",
+			"minimal": "",
 		} {
 			wire, err := requestFromProtocol("claude-test", protocol.ProviderRequest{
 				Messages:        []protocol.Message{{Role: "user", Content: "hi"}},
@@ -406,5 +408,21 @@ func TestUnimplementedReasoningFormatIsRefused(t *testing.T) {
 	// Case and surrounding space do not matter: a hand-built Config may spell the format either way.
 	if _, err := requestFromProtocol("m", req, false, 4096, " Adaptive "); err != nil {
 		t.Fatalf("adaptive with space/case: %v", err)
+	}
+}
+
+// Every concrete level above none has a budget, and the budgets never shrink as the level rises,
+// so a request clamped up the ladder never thinks less.
+func TestThinkingBudgetFollowsTheLadder(t *testing.T) {
+	previous := 0
+	for _, level := range config.EffortLevels()[1:] {
+		budget, ok := thinkingBudget(string(level), 64000)
+		if !ok || budget < previous {
+			t.Fatalf("%s: budget=%d ok=%v, previous=%d", level, budget, ok, previous)
+		}
+		previous = budget
+	}
+	if _, ok := thinkingBudget("none", 64000); ok {
+		t.Fatal("none must send no thinking")
 	}
 }

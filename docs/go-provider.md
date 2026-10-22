@@ -48,13 +48,13 @@ adapter, all inside the adapter:
 - thinking is encoded by the model's `reasoning.format`, because the accepted encoding is a property
   of the model and not of a family of models (ADR-0004 amendment, 2026-10-22):
   - `""` (the package default, and what a model that declares no format resolves to) is the budget
-    encoding: reasoning effort maps to the `thinking` parameter (low/medium/high/max =
-    1024/4096/8192/16384 budget tokens, clamped to `max_tokens` - 1024; none omits it; a
+    encoding: reasoning effort maps to the `thinking` parameter (minimal/low/medium/high/xhigh/max =
+    1024/1024/4096/8192/12288/16384 budget tokens, clamped to `max_tokens` - 1024; none omits it; a
     `max_tokens` below 2048 leaves no legal budget and thinking is omitted). While thinking is on,
     `temperature` is dropped and a forced `tool_choice` is downgraded to `auto`, as the API requires;
-  - `"adaptive"` is adaptive thinking, for models that refuse the budget encoding: low/medium/high/max
+  - `"adaptive"` is adaptive thinking, for models that refuse the budget encoding: low/medium/high/xhigh/max
     are sent as `output_config: {effort}` with `thinking: {type: "adaptive"}`; none, an empty effort
-    and an unknown level send neither parameter, so the model decides how much to think. These
+    and a level adaptive thinking lacks (minimal) send neither parameter, so the model decides how much to think. These
     models refuse a non-default `temperature` even without a level and refuse `thinking: disabled`,
     so `temperature` is always dropped and a forced `tool_choice` is always downgraded to `auto`;
   - any other value is refused before a request is sent (`bad_request`), rather than silently
@@ -254,9 +254,16 @@ One schema, [`lumencortex.schema.json`](lumencortex.schema.json), describes both
   `anthropic-messages` accepts `""` (the budget encoding: effort becomes `thinking.budget_tokens`)
   and `adaptive` (effort becomes `output_config.effort` with `thinking.type: adaptive`). A model
   that declares no format resolves to its package's default: `none` for `openai-compatible`, the
-  budget encoding for `anthropic-messages`. A value the package does not implement, and `none` in an
-  `adaptive` model's `efforts` (adaptive thinking cannot be turned off; `ClampEffort` would raise it
-  to the lowest listed level anyway), fail the load with `config.ErrInvalidConfig` naming the key.
+  budget encoding for `anthropic-messages`. A value the package does not implement, and an `efforts`
+  level the format does not accept (`config.ReasoningEfforts(pkg, format)`: `adaptive` accepts only
+  low, medium, high, xhigh and max, because adaptive thinking cannot be turned off and has no
+  minimal), fail the load with `config.ErrInvalidConfig` naming the key; a host that edits
+  providers runs the same check, `config.ValidateProviderReasoning`, before saving.
+- Effort levels, lowest first: none, minimal, low, medium, high, xhigh, max (`config.EffortLevels()`),
+  plus the request value `auto`. A model's `reasoning.efforts` lists the levels its endpoint accepts
+  and `ClampEffort` fits every request to it. `reasoning-object` and `reasoning-effort` send the
+  level verbatim (`reasoning-effort` sends nothing for none; before 0.1.2 it sent max as high);
+  `deepseek` folds minimal to low, medium to high and xhigh to max.
   The check runs on the merged catalog, so a trusted workspace that changes the package a global
   model's format is checked against is caught as well.
 - `config.Save(path, file, expectedDigest)` validates against the schema, takes a per-file lock, compares the file's digest with `expectedDigest` (`config.ErrConflict`), writes a temporary file and renames it. The digest comes from `Document.Digest` of `ReadDocument`/`Config.Global()`/`Config.Workspace()`; `""` means the file did not exist.

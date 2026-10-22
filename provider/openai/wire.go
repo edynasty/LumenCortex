@@ -325,36 +325,36 @@ func (b *streamBuilder) result(echo string) protocol.ProviderResponse {
 	}
 }
 
+// applyReasoning encodes a reasoning effort for the model's reasoning.format. reasoning-object and
+// reasoning-effort send every level verbatim: the model's reasoning.efforts list is what declares
+// the levels its endpoint accepts, and ClampEffort has already fitted the request to it. deepseek
+// accepts none, low, high and max, so the levels between are folded onto them.
 func applyReasoning(out *chatRequest, format, effort string) {
 	effort = strings.ToLower(strings.TrimSpace(effort))
-	if effort == "" {
+	if !config.Effort(effort).IsLevel() {
 		return
 	}
 	switch strings.ToLower(strings.TrimSpace(format)) {
-	case "reasoning-object":
-		switch effort {
-		case "none", "low", "medium", "high", "max":
-			out.Reasoning = &reasoningOptions{Effort: effort}
-		}
-	case "reasoning-effort":
-		if effort == "max" {
-			effort = "high"
-		}
-		switch effort {
-		case "low", "medium", "high":
+	case config.ReasoningObject:
+		out.Reasoning = &reasoningOptions{Effort: effort}
+	case config.ReasoningEffortField:
+		if effort != string(config.EffortNone) {
 			out.ReasoningEffort = effort
 		}
-	case "deepseek":
-		if effort == "medium" {
-			effort = "high"
-		}
-		switch effort {
-		case "none":
+	case config.ReasoningDeepSeek:
+		switch config.Effort(effort) {
+		case config.EffortNone:
 			out.ReasoningEffort = effort
 			out.Thinking = &thinkingOptions{Type: "disabled"}
-		case "low", "high", "max":
-			out.ReasoningEffort = effort
-			out.Thinking = &thinkingOptions{Type: "enabled"}
+			return
+		case config.EffortMinimal:
+			effort = string(config.EffortLow)
+		case config.EffortMedium:
+			effort = string(config.EffortHigh)
+		case config.EffortXHigh:
+			effort = string(config.EffortMax)
 		}
+		out.ReasoningEffort = effort
+		out.Thinking = &thinkingOptions{Type: "enabled"}
 	}
 }

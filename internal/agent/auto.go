@@ -41,7 +41,8 @@ const AutoContextLimit = 2000
 
 const (
 	autoJudgeMaxTokens = 64
-	// autoJudgePrompt states the rubric; the levels are the same five config accepts.
+	// autoJudgePrompt states the rubric over five coarse levels of config's ladder; ClampEffort
+	// then fits the capped level to the model's reasoning.efforts (e.g. high to xhigh).
 	autoJudgePrompt = `You classify how much reasoning effort a coding-agent turn needs.
 Reply with exactly one JSON object and nothing else: {"level":"none|low|medium|high|max"}.
 - none: no reasoning; a trivial acknowledgement or a single lookup.
@@ -160,14 +161,14 @@ func truncateRunes(s string, limit int) string {
 	return string([]rune(s)[:limit]) + "…"
 }
 
-// JudgeEffort is the reasoning effort of the judge request: none when the model lists it, else low
-// when it lists that, else "" (send no reasoning parameter). The judge is a small classification
+// JudgeEffort is the reasoning effort of the judge request: the first of none, minimal and low the
+// model lists, else "" (send no reasoning parameter). The judge is a small classification
 // call and must not spend a large reasoning budget.
 func JudgeEffort(supported []config.Effort) string {
 	if len(supported) == 0 {
 		return string(config.EffortNone)
 	}
-	for _, want := range []config.Effort{config.EffortNone, config.EffortLow} {
+	for _, want := range []config.Effort{config.EffortNone, config.EffortMinimal, config.EffortLow} {
 		if slices.Contains(supported, want) {
 			return string(want)
 		}

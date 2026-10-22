@@ -102,7 +102,7 @@ func TestOMPRoleModelsConvertsRoles(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string][]AgentModel{
-		"slow": {{Model: "test/a", Effort: EffortHigh}, {Model: "test/b", Effort: EffortMax}},
+		"slow": {{Model: "test/a", Effort: EffortHigh}, {Model: "test/b", Effort: EffortXHigh}},
 		"smol": {{Model: "test/b"}},
 		"fast": {{Model: "test/plain"}},
 		"lead": {{Model: "test/a", Effort: EffortLow}},

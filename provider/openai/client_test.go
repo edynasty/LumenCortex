@@ -153,14 +153,25 @@ func TestReasoningWireFormats(t *testing.T) {
 		t.Fatalf("reasoning-object=%#v", object)
 	}
 
-	groq := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "max"}, false, "reasoning-effort", "")
-	if groq.ReasoningEffort != "high" || groq.Reasoning != nil {
-		t.Fatalf("reasoning-effort=%#v", groq)
+	// reasoning-effort sends each level verbatim: the model's efforts list declares what the
+	// endpoint accepts (OMP sends the same levels to the same gateways). none sends nothing.
+	for effort, want := range map[string]string{"minimal": "minimal", "high": "high", "xhigh": "xhigh", "max": "max", "none": "", "ultra": ""} {
+		got := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: effort}, false, "reasoning-effort", "")
+		if got.ReasoningEffort != want || got.Reasoning != nil {
+			t.Fatalf("reasoning-effort %s=%#v, want %q", effort, got, want)
+		}
 	}
 
 	deepseek := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "none"}, false, "deepseek", "")
 	if deepseek.ReasoningEffort != "none" || deepseek.Thinking == nil || deepseek.Thinking.Type != "disabled" {
 		t.Fatalf("deepseek none=%#v", deepseek)
+	}
+	// DeepSeek accepts none, low, high and max: the levels between fold onto them.
+	for effort, want := range map[string]string{"minimal": "low", "medium": "high", "xhigh": "max", "max": "max"} {
+		got := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: effort}, false, "deepseek", "")
+		if got.ReasoningEffort != want || got.Thinking == nil || got.Thinking.Type != "enabled" {
+			t.Fatalf("deepseek %s=%#v, want %q", effort, got, want)
+		}
 	}
 
 	generic := requestFromProtocol("m", protocol.ProviderRequest{ReasoningEffort: "high"}, false, "", "")

@@ -134,7 +134,7 @@
     },
     "effort": {
       "description": "Provider-neutral reasoning effort level.",
-      "enum": ["none", "low", "medium", "high", "max"]
+      "enum": ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
     },
     "agent": {
       "description": "One agent. Absent fields keep the built-in's fixed value or the custom default.",
@@ -196,7 +196,7 @@
     },
     "effortRequest": {
       "description": "Effort request: a concrete level, or \"auto\" to classify each user turn before the first request.",
-      "enum": ["none", "low", "medium", "high", "max", "auto"]
+      "enum": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "auto"]
     },
     "provider": {
       "type": "object",
@@ -298,7 +298,7 @@
               "enum": ["", "none", "reasoning-object", "reasoning-effort", "deepseek", "adaptive"]
             },
             "efforts": {
-              "description": "Effort levels the model accepts. A requested effort is raised to the lowest listed level not below it, or lowered to the highest listed level when the request is above all of them. Absent → the effort is passed to reasoning.format unchanged. With format adaptive the list must not contain none: adaptive thinking cannot be turned off.",
+              "description": "Effort levels the model accepts. A requested effort is raised to the lowest listed level not below it, or lowered to the highest listed level when the request is above all of them. Absent → the effort is passed to reasoning.format unchanged. With format adaptive the list may hold only low, medium, high, xhigh and max: adaptive thinking cannot be turned off and has no minimal.",
               "type": "array",
               "items": { "$ref": "#/$defs/effort" },
               "uniqueItems": true

@@ -43,11 +43,11 @@ var ompEfforts = map[string]Effort{
 	"auto":    EffortAuto,
 	"off":     EffortNone,
 	"none":    EffortNone,
-	"minimal": EffortLow,
+	"minimal": EffortMinimal,
 	"low":     EffortLow,
 	"medium":  EffortMedium,
 	"high":    EffortHigh,
-	"xhigh":   EffortMax,
+	"xhigh":   EffortXHigh,
 	"max":     EffortMax,
 }
 

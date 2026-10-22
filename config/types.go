@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -34,28 +35,32 @@ func (r ModelRef) Provider() string { p, _, _ := r.Split(); return p }
 // Effort is the provider-neutral reasoning effort level.
 type Effort string
 
-// The effort levels, lowest first.
+// The effort levels, lowest first: the OpenAI reasoning_effort ladder (none, minimal … xhigh,
+// max), which also covers Anthropic adaptive thinking (low … max). No single endpoint accepts every
+// level: a model's reasoning.efforts lists the ones it accepts, ReasoningEfforts bounds that list
+// per reasoning.format, and ClampEffort fits a request to it.
 const (
-	EffortNone   Effort = "none"
-	EffortLow    Effort = "low"
-	EffortMedium Effort = "medium"
-	EffortHigh   Effort = "high"
-	EffortMax    Effort = "max"
+	EffortNone    Effort = "none"
+	EffortMinimal Effort = "minimal"
+	EffortLow     Effort = "low"
+	EffortMedium  Effort = "medium"
+	EffortHigh    Effort = "high"
+	EffortXHigh   Effort = "xhigh"
+	EffortMax     Effort = "max"
 )
 
-// EffortAuto asks the runtime to classify a user turn's difficulty and resolve one of the five
+var effortLevels = []Effort{EffortNone, EffortMinimal, EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax}
+
+// EffortLevels returns the concrete effort levels, lowest first. The caller owns the copy.
+func EffortLevels() []Effort { return slices.Clone(effortLevels) }
+
+// EffortAuto asks the runtime to classify a user turn's difficulty and resolve one of the
 // levels above before the first request. It is a request value, not a level: EffortFor and
 // ClampEffort never see it.
 const EffortAuto Effort = "auto"
 
-// IsLevel reports whether e is one of the five concrete effort levels. "" and "auto" are not.
-func (e Effort) IsLevel() bool {
-	switch e {
-	case EffortNone, EffortLow, EffortMedium, EffortHigh, EffortMax:
-		return true
-	}
-	return false
-}
+// IsLevel reports whether e is one of the concrete effort levels. "" and "auto" are not.
+func (e Effort) IsLevel() bool { return slices.Contains(effortLevels, e) }
 
 // PackageOpenAICompatible is the wire protocol every accepted Provider.Package value selects.
 const PackageOpenAICompatible = "openai-compatible"

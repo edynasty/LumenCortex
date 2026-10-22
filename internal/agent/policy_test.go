@@ -275,6 +275,9 @@ func TestClampEffort(t *testing.T) {
 		{"above everything clamps to the highest", "max", []config.Effort{"low", "high"}, "high"},
 		{"unordered list", "low", []config.Effort{"max", "medium"}, "medium"},
 		{"none is a level", "none", []config.Effort{"low", "high"}, "low"},
+		{"xhigh sits between high and max", "xhigh", []config.Effort{"low", "high", "max"}, "max"},
+		{"max above an xhigh ceiling", "max", []config.Effort{"medium", "xhigh"}, "xhigh"},
+		{"minimal sits between none and low", "minimal", []config.Effort{"none", "low"}, "low"},
 	}
 	for _, c := range cases {
 		if got := ClampEffort(c.e, c.supported); got != c.want {

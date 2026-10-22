@@ -212,7 +212,7 @@ func Failover(cands []Candidate, failed int, class protocol.ErrorClass) int {
 	return -1
 }
 
-var effortOrder = []config.Effort{config.EffortNone, config.EffortLow, config.EffortMedium, config.EffortHigh, config.EffortMax}
+var effortOrder = config.EffortLevels()
 
 func effortIndex(e config.Effort) int { return slices.Index(effortOrder, e) }
 
@@ -220,7 +220,7 @@ func effortIndex(e config.Effort) int { return slices.Index(effortOrder, e) }
 func ValidEffort(e config.Effort) bool { return e == "" || effortIndex(e) >= 0 }
 
 // ValidEffortRequest reports whether e may be configured or requested: "" (use the default), one of
-// the five levels, or "auto" (resolve one level before the run's first request).
+// the concrete levels, or "auto" (resolve one level before the run's first request).
 func ValidEffortRequest(e config.Effort) bool {
 	return e == "" || e == config.EffortAuto || effortIndex(e) >= 0
 }
