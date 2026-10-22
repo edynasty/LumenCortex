@@ -176,6 +176,13 @@ When working from this LumenCortex workspace, also read the parent workspace ins
 
 The workspace TODO is a backlog, not an order to execute every item. Do not assume all TODOs must be completed now, and do not expand a focused task into finishing the entire backlog. Work on items selected by the user, required by the active task, or necessary to resolve a genuine blocker or safety/data-loss risk. Keep unrelated polish and future improvements deferred with a realistic P2/P3 priority. Add newly discovered out-of-scope improvements to the shared backlog instead of implementing them opportunistically. Mark items done only with supporting evidence.
 
+## Core module release contract
+
+- **Version agreement.** `runtime.GoRuntimePreviewVersion` (`runtime/engine.go`) is the runtime API version. A Core release tag is `v` + its numeric core, so `0.1.0-preview` ships with tag `v0.1.0`. `scripts/release-check.sh` fails when a tag on HEAD disagrees, and `--mode release` requires a stable `vX.Y.Z` tag on the exact commit.
+- **Gate.** `scripts/release-check.sh --mode release` requires a clean working tree (no tracked or untracked, non-ignored changes), the exact tag on HEAD, and runs `go mod verify`, `go build ./...`, `go vet ./...`, `go test -count=1 ./...`. `--mode local` is the pre-commit check; `--allow-dirty` is local-only.
+- Core is consumed by Desktop as a Go module. Publish the Core commit and its SemVer tag before updating Desktop's module pin. Desktop release candidates must resolve the pinned version from the remote without `replace` or a workspace-local override.
+- Do not create/push tags or publish releases without explicit owner authorization. `.github/workflows/release.yml` runs the same release check on the tag. See `../LumenCortex-Desktop/docs/release-process.md` for the cross-repository sequence.
+
 ## Definition of done
 
 A change is complete only when:

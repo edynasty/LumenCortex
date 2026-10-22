@@ -1,0 +1,35 @@
+name: Core release
+
+# A Core tag vX.Y.Z publishes the Go module consumed by Desktop. The tag must agree with
+# runtime.GoRuntimePreviewVersion and point at a clean, tested commit; Desktop pins the tag only
+# after it is published. scripts/release-check.sh is the same gate used locally.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: core-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.x"
+          cache: true
+      - name: Release check (tag, version, Go tests)
+        run: scripts/release-check.sh --mode release
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
