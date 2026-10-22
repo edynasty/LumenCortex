@@ -57,3 +57,29 @@ The owner also requires that each agent has its own ordered model candidates wit
 - **A2:** thread agents, candidate lists with per-entry effort, ceilings, `agent` decision, `Instructions` removed (Core implemented, same report); Desktop on the Core catalog (implemented, Desktop `c82a039`, report `docs/reports/agent-catalog-desktop-2026-10-20.md`).
 - **A3 (implemented):** `spawn_subagent {goal, agent?}` and `start_task {objective, agent?}` carry a closed enum of the eligible agents (`SpawnEligible`: delegation use, read-only ceiling; `TaskEligible`: delegation use, workspace ceiling) and list them as `- id: description` lines. An id outside the enum is a tool error that starts nothing. The launcher checks the agent again against the configuration of that moment (`ErrUnknownAgent`, `ErrAgentUseMismatch`) before any session or worktree exists. The child pins the agent on its first Start; a resume runs the pin. A proposal records `tasks[].agent` and the proposing run's step, output and denylist bounds (`tasks[].bounds`), which `StartProposedTask` applies. `SubagentNode.agent` and `TaskResult.agent` report it. Same report; Desktop `1714459` shows the agent on task cards and the fallback notice.
 - **A4 (implemented):** built-in child prompts and editable presets. The explore child's system prompt carries the scout handoff (Summary / Files / Architecture / Report) and the worker child's carries the task duties plus its workspace authority; both are fixed by the launch and are not editable. `config.AgentPresets()` returns four compiled-in specialists (reviewer, security-reviewer, sonic, thread-historian) that become ordinary catalog entries once saved; `config.ResolveAgentPresets` and `config.OMPRoleModels` convert the oh-my-pi `modelRoles` into plain model lists (effort mapped, unknown, duplicate, over-limit and non-tool-calling candidates handled), so OMP is a one-time import and never a second routing system. Desktop lists the presets on the Agents page and opens an unsaved draft from one. Report: [`docs/reports/agent-presets-2026-10-22.md`](../reports/agent-presets-2026-10-22.md).
+
+## Amendment 2026-10-22: the assembled prompt is Core's, and it is public
+
+The effective prompt is Core-assembled and exposed; the host displays it and never rebuilds it
+(ADR-0013, P0-C/P0-D):
+
+- `prepareRun` assembles one system prefix per run, in this order: the base prompt (purpose plus
+  authority, or a host prompt) → the global instruction file → the project instruction file (only in a
+  trusted workspace) → the skills prompt → the agent's `instructions`. Each layer but the base prompt
+  and the agent's instructions is a labelled system message of its own, so the model can attribute it.
+- The tool list of a step is produced by one function, `agent.StepSpecs` (toolset tools with the
+  policy and allowlist applied, then the task tools, then `start_task`, minus the denylist), and the
+  loop sends exactly it.
+- `Engine.EffectivePrompt(ctx, EffectivePromptRequest)` reports the same layers and tools for the same
+  inputs, plus the Task State block and every tool the step withholds with the filter that withheld it
+  (`policy`, `allowlist`, `denylist`, `delegation`). It has no side effects: no run lock, no
+  reconciliation, no automatic effort, no provider client, no row written.
+- A contract test runs a real run against a recording provider and asserts that the system messages
+  and tool specs it sends are exactly the report's included layers and tools.
+
+**The Ask role.** `ask`'s description and the read-only authority sentence now state what a read-only
+run can actually do: read, search and inspect the workspace, read Skills, use MCP tools marked
+read-only, and record notes and work units; it cannot change project files or run commands, and it
+describes a needed change instead. The earlier text ("without changing anything", "cannot change
+files") contradicted the task tools a read-only run holds. The conversation prompt's restraint is
+unchanged, and the ceilings still narrow whatever a host grants.

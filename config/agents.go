@@ -184,7 +184,7 @@ func (a AgentInfo) TaskEligible() bool { return a.ForDelegation() && a.Policy ==
 // builtinAgents are the fixed fields of the built-ins, in catalog order.
 var builtinAgents = []AgentInfo{
 	{ID: AgentAsk, Name: "Ask", Use: AgentUseConversation, Policy: PolicyReadOnly, Delegation: DelegationNone,
-		Description: "Answers questions about the workspace without changing anything."},
+		Description: "Answers questions and helps plan: reads, searches and inspects the workspace, reads Skills, uses read-only MCP tools, and records notes and work units. It cannot change project files or run commands."},
 	{ID: AgentDefault, Name: "Agent", Use: AgentUseConversation, Policy: PolicyFull, Delegation: DelegationIsolated,
 		Description: "Works on the task with the access the thread grants."},
 	{ID: AgentExplore, Name: "Explore", Use: AgentUseDelegation, Policy: PolicyReadOnly, Delegation: DelegationNone,

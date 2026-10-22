@@ -157,11 +157,62 @@ Current hardening includes:
 
 However, shell commands with `full` policy remain powerful host-level execution.
 
+## Workspace trust
+
+The workspace is not one trust domain. The user's own inputs are configuration the user wrote; a
+workspace's inputs are repository content, and whoever can commit to the repository controls them
+(ADR-0013).
+
+**The rule.** Trust is `config.Effective.Trusted`: the Engine workspace, canonicalized (symlinks
+resolved), compared for **equality** — never as a prefix — against `trustedWorkspaces` in the global
+file `<GlobalDir>/lumencortex.json`. Nothing else grants it: a workspace file cannot name itself
+trusted (such an entry is dropped with `untrusted_override`), and a subdirectory of a trusted
+workspace is not trusted. Trust is read per run and per MCP call from the Engine workspace, never
+cached on the Engine, so an edit to the global file applies to the next run.
+
+**What it gates.**
+
+| Input | Path | Untrusted workspace |
+|---|---|---|
+| Skills | `<workspace>/.lumencortex/skills/*` | not read; `skills.loaded` names the withheld ids |
+| MCP servers | `<workspace>/.lumencortex/mcp.json` | ignored; a project-only server is refused (`ErrUntrustedProject`) and nothing is spawned |
+| Project instructions | `<workspace>/AGENTS.md`, else `CLAUDE.md` | not read; the effective prompt reports it as withheld |
+| Providers, checks, agents | `<workspace>/lumencortex.json` | dropped with `untrusted_override` |
+
+**What it never gates.** `<GlobalDir>/AGENTS.md`, `<GlobalDir>/skills` and the global `mcp.json` are
+the user's own configuration and are read in every workspace.
+
+**Read from the Engine workspace, not the worktree.** Configuration, instruction files and skills come
+from the directory the Engine was opened on, even when a session runs in its own worktree. An agent
+therefore cannot edit the instructions that govern it and have the edit apply to the same run.
+
+**Instruction files.** One global file and, in a trusted workspace, one project file (`AGENTS.md`, or
+`CLAUDE.md` when there is no `AGENTS.md`), each capped at 64 KiB: a longer file is truncated with a
+visible warning rather than refused. A project file that is a symlink resolving outside the workspace,
+or that is not a regular file, is refused. Subdirectory `AGENTS.md` files are not read.
+
+**No self-elevation.** A project can only narrow what it gets:
+
+- its `mcp.json` entries are ignored while the workspace is untrusted, so a project server cannot
+  declare its own tools read-only to reach a read-only run;
+- an MCP tool permission override (`tools: {"<name>": {"permission": "read"}}`) applies only from the
+  global file or from a trusted project; an untrusted project's override is ignored and the server's
+  own `readOnlyHint` annotation decides;
+- its skills and instructions are not read at all.
+
+**Visible, not inferred.** `Engine.EffectivePrompt` returns the trust flag, every prompt layer with
+`included` and the reason it was withheld, and every tool with the filter that withheld it (`policy`,
+`allowlist`, `denylist`, `delegation`). A host displays that; it never re-implements the rule.
+
+**Residual risk (SECURITY-002).** A repository can commit `.lumencortex/`, including
+`lumencortex.db`. Core opens the state database from that path without checking its provenance, so a
+repository that ships a database is trusted to have produced it. Not mitigated yet (P2).
+
 ## MCP trust boundary
 
 MCP tools are external integrations.
 
-Read-only annotations can reduce permission requirements, but external systems remain outside the LumenCortex workspace trust boundary.
+Read-only annotations can reduce permission requirements, but external systems remain outside the LumenCortex workspace trust boundary. An annotation is declared by the server itself; a project server's tools reach a run only when the workspace is trusted (see Workspace trust).
 
 Do not assume an MCP server is safe merely because its schema is valid.
 
