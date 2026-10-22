@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -56,17 +55,8 @@ func (s *Service) hashable(realWorkspace, p string) bool {
 	if err != nil || abs == s.workspace {
 		return false
 	}
-	info, err := os.Lstat(abs)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > MaxBlobFileBytes {
-		return false
-	}
-	// Lstat sees only the last element; a symlinked directory on the way may lead outside.
-	real, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return false
-	}
-	rel, err := filepath.Rel(realWorkspace, real)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+	_, info, ok := confinedFile(realWorkspace, abs)
+	return ok && info.Size() <= MaxBlobFileBytes
 }
 
 func (s *Service) hashObjects(ctx context.Context, files []string) ([]string, bool) {

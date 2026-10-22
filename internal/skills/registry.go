@@ -189,10 +189,25 @@ func (r *Registry) SetEnabled(scope, id string, enabled bool) error {
 	return saveState(r.statePath(scope), state)
 }
 
-func (r *Registry) Prompt() (string, []Skill, error) {
-	items, err := r.rawEffective()
+// Prompt returns the skills prompt of a run and the skills it carries. A project-scope skill is
+// included only when opts.IncludeProject says the workspace is trusted; the project skills withheld
+// for that reason are returned so the caller can report them.
+func (r *Registry) Prompt(opts PromptOptions) (PromptResult, error) {
+	items, err := r.rawEffective(opts.IncludeProject)
 	if err != nil {
-		return "", nil, err
+		return PromptResult{}, err
+	}
+	result := PromptResult{}
+	if !opts.IncludeProject {
+		project, err := r.scanRoot(r.projectRoot, ScopeProject)
+		if err != nil {
+			return PromptResult{}, err
+		}
+		state, err := loadState(r.statePath(ScopeProject))
+		if err != nil {
+			return PromptResult{}, err
+		}
+		result.Withheld = sortedSkills(applyScopeState(project, state))
 	}
 	ids := make([]string, 0, len(items))
 	for id := range items {
@@ -201,7 +216,6 @@ func (r *Registry) Prompt() (string, []Skill, error) {
 	sort.Strings(ids)
 
 	var b strings.Builder
-	used := make([]Skill, 0)
 	for _, id := range ids {
 		item := items[id]
 		if !item.Enabled || item.Error != "" {
@@ -219,15 +233,22 @@ func (r *Registry) Prompt() (string, []Skill, error) {
 			content = content[:remaining]
 		}
 		b.WriteString(content)
-		used = append(used, item.Skill)
+		result.Included = append(result.Included, item.Skill)
 		if b.Len() >= MaxPromptBytes {
 			break
 		}
 	}
 	if b.Len() == 0 {
-		return "", used, nil
+		return result, nil
 	}
-	return "The following LumenCortex Skills are enabled for this workspace. Treat them as task-specific development instructions unless they conflict with higher-priority instructions." + b.String(), used, nil
+	result.Text = "The following LumenCortex Skills are enabled for this workspace. Treat them as task-specific development instructions unless they conflict with higher-priority instructions." + b.String()
+	return result, nil
+}
+
+// Roots returns the global and project skill directories, "" for a scope this registry does not
+// have. It is how a prompt layer names where its text came from.
+func (r *Registry) Roots() (globalRoot, projectRoot string) {
+	return r.globalRoot, r.projectRoot
 }
 
 func (r *Registry) rawScope(scope string) (map[string]rawSkill, error) {
@@ -253,20 +274,24 @@ func (r *Registry) rawScope(scope string) (map[string]rawSkill, error) {
 		}
 		return applyScopeState(items, state), nil
 	case ScopeEffective, "":
-		return r.rawEffective()
+		return r.rawEffective(true)
 	default:
 		return nil, errors.New("unknown skill scope")
 	}
 }
 
-func (r *Registry) rawEffective() (map[string]rawSkill, error) {
+// rawEffective merges the scopes by id, project overriding global. includeProject false merges the
+// global scope only: it is the prompt of a run in an untrusted workspace (ADR-0013).
+func (r *Registry) rawEffective(includeProject bool) (map[string]rawSkill, error) {
 	global, err := r.scanRoot(r.globalRoot, ScopeGlobal)
 	if err != nil {
 		return nil, err
 	}
-	project, err := r.scanRoot(r.projectRoot, ScopeProject)
-	if err != nil {
-		return nil, err
+	project := map[string]rawSkill{}
+	if includeProject {
+		if project, err = r.scanRoot(r.projectRoot, ScopeProject); err != nil {
+			return nil, err
+		}
 	}
 	globalState, err := loadState(r.statePath(ScopeGlobal))
 	if err != nil {
