@@ -289,16 +289,16 @@
           }
         },
         "reasoning": {
-          "description": "How effort is sent and how reasoning output is handled. Absent → format none: no reasoning parameter is sent.",
+          "description": "How effort is sent and how reasoning output is handled. Absent → the provider package's default format: none for openai-compatible (no reasoning parameter is sent) and the budget encoding for anthropic-messages.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "format": {
-              "description": "Request encoding of effort: none (never sent), reasoning-object ({reasoning:{effort}}), reasoning-effort (reasoning_effort field), deepseek (DeepSeek thinking parameters).",
-              "enum": ["none", "reasoning-object", "reasoning-effort", "deepseek"]
+              "description": "Request encoding of effort. The value must be one the provider package implements: none (never sent), reasoning-object ({reasoning:{effort}}), reasoning-effort (reasoning_effort field) and deepseek (DeepSeek thinking parameters) for openai-compatible; adaptive (thinking type adaptive with output_config.effort, for models that refuse the budget encoding) for anthropic-messages. Empty or absent selects the package default. A value the package does not implement is a configuration error; config.ReasoningFormats lists them per package.",
+              "enum": ["", "none", "reasoning-object", "reasoning-effort", "deepseek", "adaptive"]
             },
             "efforts": {
-              "description": "Effort levels the model accepts. A requested effort is raised to the lowest listed level not below it, or lowered to the highest listed level when the request is above all of them. Absent → the effort is passed to reasoning.format unchanged.",
+              "description": "Effort levels the model accepts. A requested effort is raised to the lowest listed level not below it, or lowered to the highest listed level when the request is above all of them. Absent → the effort is passed to reasoning.format unchanged. With format adaptive the list must not contain none: adaptive thinking cannot be turned off.",
               "type": "array",
               "items": { "$ref": "#/$defs/effort" },
               "uniqueItems": true

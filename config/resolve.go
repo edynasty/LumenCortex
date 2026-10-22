@@ -35,6 +35,8 @@ type ResolvedModel struct {
 	// carry tokens, so they are kept out of JSON.
 	Headers         map[string]string `json:"-"`
 	Context, Output int
+	// ReasoningFormat is the model's reasoning.format, resolved to the provider package's default
+	// when the model declares none ("" for anthropic-messages, "none" for openai-compatible).
 	ReasoningFormat string
 	ReasoningEcho   string
 	Efforts         []Effort
@@ -196,7 +198,7 @@ func (c *Config) Resolve(ref ModelRef) (ResolvedModel, error) {
 		Ref: ref, ProviderID: pid, ProviderName: prov.Name,
 		ModelKey: key, ModelName: orDefault(m.Name, key), ModelID: orDefault(m.ModelID, key),
 		Context: DefaultContext, Output: DefaultOutput,
-		ReasoningFormat: ReasoningNone, ToolCalling: true,
+		ReasoningFormat: defaultReasoningFormat(prov.Package), ToolCalling: true,
 		InputModalities: []string{"text"},
 		Package:         prov.Package,
 		BaseURL:         prov.BaseURL, Endpoint: prov.Endpoint, APIKeyRef: prov.APIKeyRef,

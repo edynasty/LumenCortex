@@ -110,6 +110,11 @@ func (c *Config) merge() error {
 		}
 		providers[id] = merged
 	}
+	// Reasoning formats are checked on the merged catalog: the package, the model entry and the
+	// format itself may each come from a different document.
+	if err := validateReasoning(providers); err != nil {
+		return err
+	}
 	for _, id := range sortedKeys(w.Checks) {
 		if !trusted {
 			drop("checks."+id, "check "+id)

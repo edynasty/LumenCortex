@@ -92,6 +92,10 @@ const (
 	ReasoningObject      = "reasoning-object"
 	ReasoningEffortField = "reasoning-effort"
 	ReasoningDeepSeek    = "deepseek"
+	// ReasoningAdaptive asks for adaptive thinking (anthropic-messages): the model decides how much
+	// to think, and effort is sent as output_config.effort. Only the anthropic-messages package
+	// accepts it.
+	ReasoningAdaptive = "adaptive"
 
 	ReasoningEchoNone    = "none"
 	ReasoningEchoContent = "reasoning_content"
