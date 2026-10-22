@@ -53,3 +53,7 @@ Use [0000-template.md](0000-template.md) as the starting point.
 - [0011 — OMP session import](0011-omp-session-import.md)
 - [0012 — Core plugin platform and session import sources](0012-core-plugin-platform.md)
 - [0013 — Project inputs and workspace trust](0013-project-inputs-and-workspace-trust.md)
+
+## Proposed decisions
+
+- [0014 — Per-call approval for a tool call above the run's ceiling](0014-per-call-approval-above-the-ceiling.md)
