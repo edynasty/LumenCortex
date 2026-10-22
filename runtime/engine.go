@@ -31,7 +31,7 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
-const GoRuntimePreviewVersion = "0.1.0-preview"
+const GoRuntimePreviewVersion = "0.1.1-preview"
 
 // ErrRunHeld reports that another Engine, in this process or another, holds the
 // session's run lock. Nothing was written.
