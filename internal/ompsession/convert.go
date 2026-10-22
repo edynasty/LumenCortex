@@ -13,6 +13,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/window"
+	"github.com/edynasty/LumenCortex/pluginapi"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -24,37 +25,7 @@ const MaxRowBytes = 256 << 10
 const maxGoalRunes = 200
 
 // Stats counts what a conversion copied, changed and left out.
-type Stats struct {
-	// Rows is the number of LumenCortex transcript rows written.
-	Rows              int `json:"rows"`
-	UserMessages      int `json:"userMessages"`
-	AssistantMessages int `json:"assistantMessages"`
-	ToolCalls         int `json:"toolCalls"`
-	ToolResults       int `json:"toolResults"`
-	// Notices are visible OMP notices copied as imported_notice rows; Markers are compaction and
-	// branch-return markers.
-	Notices int `json:"notices"`
-	Markers int `json:"markers"`
-	// ThinkingBlocks are hidden-reasoning blocks left out; HiddenMessages are developer/system
-	// reminders and notices OMP did not display; RetriedTurns are assistant turns without calls that
-	// OMP replaced by a retry or that carried no visible text.
-	ThinkingBlocks int `json:"thinkingBlocks"`
-	HiddenMessages int `json:"hiddenMessages"`
-	RetriedTurns   int `json:"retriedTurns"`
-	// Images are image blocks replaced by a text placeholder.
-	Images int `json:"images"`
-	// Compactions and BranchReturns are the source events written as markers (their summaries are
-	// not copied).
-	Compactions   int `json:"compactions"`
-	BranchReturns int `json:"branchReturns"`
-	// InterruptedCalls got a tool_interrupted result because the source recorded none;
-	// OrphanResults answered no open call and were left out; DuplicateCalls repeated an id in one
-	// turn and were left out.
-	InterruptedCalls int `json:"interruptedCalls"`
-	OrphanResults    int `json:"orphanResults"`
-	DuplicateCalls   int `json:"duplicateCalls"`
-	TruncatedRows    int `json:"truncatedRows"`
-}
+type Stats = pluginapi.ImportStats
 
 // Conversion is a session's visible history as LumenCortex rows.
 type Conversion struct {
@@ -85,9 +56,9 @@ func NormalizeToolCallID(id string) string {
 }
 
 // Convert turns the active branch of s into a transcript that window.Groups accepts: user rows,
-// assistant rows with their calls, and exactly one tool row per call directly after its turn. It
-// ends with the OriginImported row. Nothing is executed: a call the source never answered gets the
-// tool_interrupted row reconciliation writes.
+// assistant rows with their calls, and exactly one tool row per call directly after its turn.
+// Nothing is executed: a call the source never answered gets the tool_interrupted row
+// reconciliation writes. Core appends the trailing imported row when it writes the session.
 func Convert(s *Session) (Conversion, error) {
 	c := converter{}
 	for i := range s.Entries {
@@ -95,9 +66,6 @@ func Convert(s *Session) (Conversion, error) {
 	}
 	c.out.OpenToolCalls = len(c.open) > len(c.answered)
 	c.closeTurn()
-	c.out.Messages = append(c.out.Messages, protocol.Message{
-		Role: "user", Content: protocol.ImportedContent, Origin: protocol.OriginImported,
-	})
 	c.out.Stats.Rows = len(c.out.Messages)
 
 	c.out.CreatedAt = parseTime(s.Header.Timestamp, s.ModTime)

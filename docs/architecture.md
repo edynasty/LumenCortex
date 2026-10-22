@@ -78,6 +78,17 @@ When no Workflow Contract is active, the same cognitive/execution loop runs with
 
 The detailed state machine is maintained in [Agent execution flow](execution-flow.md).
 
+### Plugin and extension platform (ADR-0012)
+
+`pluginapi` is the public contract for in-process extensions (versioned manifest, typed
+capabilities, `Host`); `runtime.PluginRegistry` owns registration, lifecycle, persisted enablement
+(`<GlobalDir>/plugins.json`), panic and failure isolation and diagnostics (`Engine.Plugins`). A
+plugin reaches Core only through `Host`: listeners observe the bounded event stream, and the
+`BeforeSessionImport` hook may refuse an import under an explicit order, timeout and failure policy.
+Session import is the first capability: a source plugin (built-in: OMP) reads and converts; Core
+validates the bundle, derives ids, deduplicates, writes provenance and the trailing imported row,
+and persists the tree in one transaction. Plugins are trusted in-process code, not a sandbox.
+
 ## Target cognitive control plane
 
 The next architecture stage separates adaptive cognition into five roles:

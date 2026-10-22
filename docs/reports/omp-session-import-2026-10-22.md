@@ -11,9 +11,9 @@
 
 | Capability | State |
 |---|---|
-| List OMP sessions of this workspace (or all) with an "imported" marker | `Engine.OMPSessions`, `lcx-go omp list [--all] [--query] [--limit]` |
-| Preview what an import writes, with warnings, without writing | `Engine.PreviewOMPSession`, `lcx-go omp preview <file>` |
-| Import a session and its subagent sessions as native sessions | `Engine.ImportOMPSession`, `lcx-go omp import <file>` |
+| List OMP sessions of this workspace (or all) with an "imported" marker | `Engine.ListImportSessions("omp", …)`, `lcx-go import list omp [--all] [--query] [--limit]` (was `Engine.OMPSessions`, `lcx-go omp list` before ADR-0012) |
+| Preview what an import writes, with warnings, without writing | `Engine.PreviewImport("omp", …)`, `lcx-go import preview omp <file>` |
+| Import a session and its subagent sessions as native sessions | `Engine.ImportSession("omp", …)`, `lcx-go import run omp <file>` |
 | Continue an imported conversation | ordinary Start (`RunAgent`, Desktop composer) |
 | Re-import safely | same ids; reports `alreadyImported`, and `sourceChanged` when the file changed |
 
@@ -38,7 +38,7 @@
 | Core metadata key `import` | `internal/session/metadata.go`, `runtime/engine.go` (comment) |
 | Atomic multi-session insert, `ErrSessionExists` | `internal/session/import.go` |
 | OMP reader (snapshot, branch resolution, subagent discovery), converter, listing and path guard | `internal/ompsession/{source,convert,list}.go` |
-| Engine API, provenance, warnings, event/journal `session.imported` | `runtime/omp_import.go` |
+| Engine API, provenance, warnings, event/journal `session.imported` | `runtime/session_import.go` (generic since ADR-0012); OMP source plugin `internal/ompsession/plugin.go` |
 | CLI | `cmd/lcx-go/omp.go`, `cmd/lcx-go/main.go` |
 | At-rest scan helper generalized to several texts | `runtime/echo_test.go` |
 | Docs | ADR-0011, ADR index, `docs/data-model.md`, `docs/go-provider.md` |

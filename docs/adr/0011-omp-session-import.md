@@ -4,7 +4,7 @@
 - **Date:** 2026-10-22
 - **Owners:** project owner
 - **Supersedes:** none
-- **Superseded by:** none
+- **Superseded by:** ADR-0012 D5 for the surfaces (D12) only
 
 ## Context
 
@@ -115,9 +115,12 @@ over 64 MiB fails the read; malformed records are counted and skipped.
 directory imports with the `workspace_mismatch` warning, because its paths and results describe
 that directory.
 
-**D12 — Surfaces.** `Engine.OMPSessions`, `Engine.PreviewOMPSession`, `Engine.ImportOMPSession`
-(event and journal `session.imported`), and `lcx-go omp list|preview|import`. Desktop lists,
-previews and imports through these, then opens the session in its thread view.
+**D12 — Surfaces.** *Superseded by ADR-0012 D5.* The OMP reader is now the built-in import source
+plugin `omp-import` (`internal/ompsession.Plugin`, source id `omp`), and Core's generic pipeline
+(`Engine.ImportSources`, `ListImportSessions`, `PreviewImport`, `ImportSession`; `lcx-go import
+…`) does the validation, ids, provenance, trailing `imported` row and transaction described here.
+Native ids are unchanged. Desktop lists, previews and imports through the generic surface, then
+opens the session in its thread view.
 
 ## Invariants
 

@@ -5,15 +5,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/edynasty/LumenCortex/pluginapi"
 )
 
-type Event struct {
-	Seq       uint64          `json:"seq"`
-	At        time.Time       `json:"at"`
-	Type      string          `json:"type"`
-	SessionID string          `json:"sessionId,omitempty"`
-	Data      json.RawMessage `json:"data,omitempty"`
-}
+// Event is a Core notification. Plugins receive the same type through pluginapi.Host.
+type Event = pluginapi.Event
 
 // EventStats is an immutable snapshot of the event bus counters. Counters only
 // grow; reading them never resets them.

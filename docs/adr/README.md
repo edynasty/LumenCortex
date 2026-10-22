@@ -51,3 +51,4 @@ Use [0000-template.md](0000-template.md) as the starting point.
 - [0009 — Agent catalog and per-agent model lists](0009-agent-catalog-and-model-lists.md)
 - [0010 — Thread notes and recall over the session store](0010-thread-notes-and-recall.md)
 - [0011 — OMP session import](0011-omp-session-import.md)
+- [0012 — Core plugin platform and session import sources](0012-core-plugin-platform.md)

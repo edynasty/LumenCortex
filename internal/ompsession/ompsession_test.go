@@ -109,7 +109,6 @@ func TestConvertKeepsVisibleHistoryOnly(t *testing.T) {
 		{"user", "", "Also update the docs."},
 		{"assistant", "", "Fixed the off-by-one; tests pass."},
 		{"tool", protocol.OriginToolInterrupted, "run ended before the tool result was saved; re-check workspace state before repeating side effects"},
-		{"user", protocol.OriginImported, protocol.ImportedContent},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("rows %d, want %d: %+v", len(got), len(want), got)
@@ -322,7 +321,7 @@ func TestConvertRetriedTurnWithRecordedCallStays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if conv.Stats.RetriedTurns != 1 || conv.Stats.OrphanResults != 0 || conv.Stats.ToolResults != 1 || len(conv.Messages) != 4 {
+	if conv.Stats.RetriedTurns != 1 || conv.Stats.OrphanResults != 0 || conv.Stats.ToolResults != 1 || len(conv.Messages) != 3 {
 		t.Fatalf("stats %+v rows %d", conv.Stats, len(conv.Messages))
 	}
 }

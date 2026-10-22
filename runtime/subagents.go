@@ -26,6 +26,8 @@ type SubagentNode struct {
 	ParentSessionID string `json:"parentSessionId,omitempty"`
 	// Kind is the relation: RelationSubagent or RelationExecution.
 	Kind string `json:"kind"`
+	// Mode describes the child relation's execution provenance (for example, "imported").
+	Mode string `json:"mode,omitempty"`
 	// Agent is the catalog agent the child pinned at its first Start (ADR-0009 A3), "" before it.
 	Agent     string         `json:"agent,omitempty"`
 	Goal      string         `json:"goal"`
@@ -315,9 +317,14 @@ func (s *RunSupervisor) subagentChildren(ctx context.Context, parentSessionID st
 		if value.Final != nil {
 			final = *value.Final
 		}
+		var relationMeta struct {
+			Mode string `json:"mode"`
+		}
+		_ = json.Unmarshal(relation.Metadata, &relationMeta)
 		(*remaining)--
 		node := SubagentNode{
 			Kind:            relation.Kind,
+			Mode:            relationMeta.Mode,
 			Agent:           value.AgentID,
 			SessionID:       value.ID,
 			ParentSessionID: parentSessionID,

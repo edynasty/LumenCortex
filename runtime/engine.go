@@ -19,6 +19,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/mcp"
 	"github.com/edynasty/LumenCortex/internal/migrate"
+	"github.com/edynasty/LumenCortex/internal/ompsession"
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/resource"
 	"github.com/edynasty/LumenCortex/internal/runlock"
@@ -26,6 +27,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/skills"
 	"github.com/edynasty/LumenCortex/internal/streambuf"
+	"github.com/edynasty/LumenCortex/pluginapi"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -76,6 +78,9 @@ type Options struct {
 	Workspace string
 	RepoDir   string
 	Budget    Budget
+	// Plugins are host-supplied in-process extensions, registered after the built-in ones and started
+	// with them (ADR-0012). A plugin that fails to start is marked failed; Open still succeeds.
+	Plugins []pluginapi.Plugin
 	// ProviderFactory builds the client of a catalog model before a run starts. nil uses the
 	// OpenAI-compatible adapter (openai.FromModel).
 	ProviderFactory ProviderFactory
@@ -89,6 +94,8 @@ type Engine struct {
 	resources    *resource.Manager
 	repo         *repository.Service
 	events       *eventBus
+	plugins      *PluginRegistry
+	hooks        *hookDispatcher
 	shell        *shell.Runner
 	lspMu        sync.Mutex
 	// noteMu makes the user-note limit check and the queueing of the add one step in this Engine.
@@ -219,11 +226,13 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	}
 	globalMCPPath := ""
 	globalSkillRoot := ""
+	pluginStatePath := ""
 	// F9: the one global directory, the same on every OS. Files in directories earlier builds
 	// used are reported by config.Load and are not read.
 	if globalDir, dirErr := config.GlobalDir(); dirErr == nil {
 		globalMCPPath = filepath.Join(globalDir, config.MCPFileName)
 		globalSkillRoot = filepath.Join(globalDir, config.SkillsDirName)
+		pluginStatePath = filepath.Join(globalDir, PluginStateFileName)
 	}
 	mcpRegistry, err := mcp.NewLayeredRegistry(
 		workspace,
@@ -271,6 +280,19 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		health:          agent.NewHealth(nil),
 		providerFactory: factory,
 	}
+	engine.hooks = newHookDispatcher(engine.events)
+	engine.plugins = newPluginRegistry(engine.events, engine.hooks, pluginStatePath)
+	if err := engine.plugins.Register(ompsession.Plugin{}, true); err != nil {
+		_ = engine.Close()
+		return nil, err
+	}
+	for _, plugin := range opts.Plugins {
+		if err := engine.plugins.Register(plugin, false); err != nil {
+			_ = engine.Close()
+			return nil, err
+		}
+	}
+	engine.plugins.StartAll(ctx)
 	if err := engine.reconcileRunning(ctx); err != nil {
 		_ = engine.Close()
 		return nil, err
@@ -321,6 +343,10 @@ func (e *Engine) reconcileRunning(ctx context.Context) error {
 }
 
 func (e *Engine) Close() error {
+	var closeErr error
+	if e.plugins != nil {
+		closeErr = errors.Join(closeErr, e.plugins.StopAll(context.Background()))
+	}
 	e.events.close()
 	e.lspMu.Lock()
 	managers := make([]*lsp.Manager, 0, len(e.lspManagers))
@@ -335,7 +361,16 @@ func (e *Engine) Close() error {
 	if e.mcpRegistry != nil {
 		_ = e.mcpRegistry.Close()
 	}
-	return e.store.Close()
+	return errors.Join(closeErr, e.store.Close())
+}
+
+// Plugins lists the registered extensions with their enablement, state and failures (ADR-0012).
+func (e *Engine) Plugins() PluginCatalog { return e.plugins.Catalog() }
+
+// SetPluginEnabled records a plugin's enablement for every workspace and applies it to this Engine
+// now. Other open Engines apply it when they next open.
+func (e *Engine) SetPluginEnabled(ctx context.Context, id string, enabled bool) error {
+	return e.plugins.SetEnabled(ctx, id, enabled)
 }
 
 // Health reports the Engine's state. The agent limit is the configured one when the configuration
