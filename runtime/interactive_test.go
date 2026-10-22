@@ -96,7 +96,9 @@ func TestInteractiveConversationAcrossTurns(t *testing.T) {
 			t.Fatalf("the second turn's request lacks %q", want)
 		}
 	}
-	if system := next.messages[0].Content; !strings.Contains(system, "Your reply ends this turn, not the task") || !strings.Contains(system, "cannot change files") {
+	if system := next.messages[0].Content; !strings.Contains(system, "Your reply ends this turn, not the task") ||
+		!strings.Contains(system, "cannot change project files or run commands") ||
+		!strings.Contains(system, "record notes and plan work units") {
 		t.Fatalf("system prompt of a read-only conversation turn: %q", system)
 	}
 

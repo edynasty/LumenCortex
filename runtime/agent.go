@@ -292,20 +292,28 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		TaskAgents:          plan.taskAgents,
 	}
 
-	if e.skillRegistry != nil {
-		skillPrompt, loadedSkills, skillErr := e.skillRegistry.Prompt()
-		if skillErr != nil {
-			e.events.publish("skills.error", sessionID, map[string]any{"error": skillErr.Error()})
-		} else {
-			loopOpts.AdditionalSystemPrompt = skillPrompt
-			if len(loadedSkills) > 0 {
-				ids := make([]string, 0, len(loadedSkills))
-				for _, skill := range loadedSkills {
-					ids = append(ids, skill.ID)
-				}
-				e.events.publish("skills.loaded", sessionID, map[string]any{"skills": ids})
-			}
+	// The system prefix is assembled once, from this Start's configuration: the base prompt, the
+	// instruction files (project ones only in a trusted workspace), the skills and the agent's
+	// instructions (ADR-0013). Engine.EffectivePrompt reports the same layers for the same inputs.
+	prompt := assemblePrompt(promptInput{
+		workspace: e.workspace, globalDir: plan.globalDir, trusted: plan.trusted,
+		base:              systemPrompt,
+		agentID:           plan.agentID,
+		agentSource:       plan.agentSource,
+		agentInstructions: plan.instructions,
+		skills:            e.skillRegistry,
+	})
+	loopOpts.SystemLayers = systemLayers(prompt.Layers)
+	if prompt.SkillsErr != nil {
+		e.events.publish("skills.error", sessionID, map[string]any{"error": prompt.SkillsErr.Error()})
+	} else if len(prompt.Skills.Included) > 0 || len(prompt.Skills.Withheld) > 0 {
+		data := map[string]any{"skills": skillIDs(prompt.Skills.Included)}
+		if len(prompt.Skills.Withheld) > 0 {
+			// A project skill is repository content: it is read only in a trusted workspace (ADR-0013).
+			data["excluded"] = skillIDs(prompt.Skills.Withheld)
+			data["reason"] = "untrusted workspace"
 		}
+		e.events.publish("skills.loaded", sessionID, data)
 	}
 
 	// Start's one durable write: Input, the session model identity, the Start's Task State version and
@@ -381,7 +389,7 @@ func policyAuthority(policy string) string {
 	case toolset.PolicyWorkspace:
 		return "This run can read and edit files in the workspace; it cannot run shell commands."
 	default:
-		return "This run is read-only: it can read, search and inspect the workspace but cannot change files or run commands. Describe a needed change instead of making it."
+		return "This run is read-only: it can read, search and inspect the workspace, read Skills, use MCP tools marked read-only, and record notes and plan work units; it cannot change project files or run commands. Describe a needed change instead of making it."
 	}
 }
 

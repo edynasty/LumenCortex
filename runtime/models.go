@@ -87,6 +87,13 @@ type modelPlan struct {
 	// spawnAgents and taskAgents are the catalog agents spawn_subagent and start_task may run
 	// (ADR-0009 A3): the tools' agent enums.
 	spawnAgents, taskAgents []config.AgentInfo
+	// trusted, globalDir and agentSource are what this Start's configuration says about the Engine
+	// workspace: its trust (ADR-0013), the user's global directory, and where the agent's definition
+	// came from. They come from this Start's load, never from a cached Engine flag, so a trust change
+	// applies to the next run.
+	trusted     bool
+	globalDir   string
+	agentSource string
 }
 
 // autoPlan is the resolved effort.auto settings of one Start. judge is zero when no judge model is
@@ -177,6 +184,9 @@ func (e *Engine) planModels(req startRequest) (*modelPlan, error) {
 		escalation: eff.Escalation, auto: auto, checks: evaluator.Specs(eff.Checks),
 		spawnAgents: eff.DelegationAgents(config.AgentInfo.SpawnEligible),
 		taskAgents:  eff.DelegationAgents(config.AgentInfo.TaskEligible),
+		trusted:     eff.Trusted,
+		globalDir:   eff.GlobalDir,
+		agentSource: def.Source,
 	}
 	if def.Effort != "" {
 		plan.effort = def.Effort
