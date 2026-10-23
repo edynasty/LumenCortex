@@ -9,6 +9,8 @@ import (
 type SearchMatch = repository.SearchMatch
 type SearchResult = repository.SearchResult
 type FileResult = repository.FileResult
+type DirEntry = repository.DirEntry
+type DirListing = repository.DirListing
 type GitFileStatus = repository.GitFileStatus
 type GitStatus = repository.GitStatus
 type GitDiff = repository.GitDiff
@@ -20,6 +22,10 @@ func (e *Engine) SearchText(ctx context.Context, query, path string, limit int) 
 
 func (e *Engine) FindFiles(ctx context.Context, pattern, path string, limit int) (FileResult, error) {
 	return e.repo.FindFiles(ctx, pattern, path, limit)
+}
+
+func (e *Engine) ListDir(ctx context.Context, path string) (DirListing, error) {
+	return e.repo.ListDir(ctx, path)
 }
 
 func (e *Engine) GitStatus(ctx context.Context) (GitStatus, error) {
@@ -94,6 +100,16 @@ func (e *Engine) SessionFindFiles(ctx context.Context, sessionID, pattern, path 
 		return FileResult{}, err
 	}
 	return repoService.FindFiles(ctx, pattern, path, limit)
+}
+
+// SessionListDir lists one directory of the session's checkout: the workspace for a local
+// session, the session's worktree for an isolated one.
+func (e *Engine) SessionListDir(ctx context.Context, sessionID, path string) (DirListing, error) {
+	repoService, err := e.sessionRepository(ctx, sessionID)
+	if err != nil {
+		return DirListing{}, err
+	}
+	return repoService.ListDir(ctx, path)
 }
 
 func (e *Engine) SessionGitStatus(ctx context.Context, sessionID string) (GitStatus, error) {
