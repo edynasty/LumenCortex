@@ -174,13 +174,20 @@ cached on the Engine, so an edit to the global file applies to the next run.
 
 | Input | Path | Untrusted workspace |
 |---|---|---|
-| Skills | `<workspace>/.lumencortex/skills/*` | not read; `skills.loaded` names the withheld ids |
+| Skills | `<workspace>/.lumencortex/skills/*`, `<workspace>/.agents/skills/*`, `<workspace>/.claude/skills/*` | not read; `skills.loaded` names the withheld ids |
 | MCP servers | `<workspace>/.lumencortex/mcp.json` | ignored; a project-only server is refused (`ErrUntrustedProject`) and nothing is spawned |
 | Project instructions | `<workspace>/AGENTS.md`, else `CLAUDE.md` | not read; the effective prompt reports it as withheld |
 | Providers, checks, agents | `<workspace>/lumencortex.json` | dropped with `untrusted_override` |
 
-**What it never gates.** `<GlobalDir>/AGENTS.md`, `<GlobalDir>/skills` and the global `mcp.json` are
-the user's own configuration and are read in every workspace.
+**What it never gates.** `<GlobalDir>/AGENTS.md`, the global skill roots (`<GlobalDir>/skills`,
+`~/.agents/skills`, `~/.claude/skills`) and the global `mcp.json` are the user's own configuration
+and are read in every workspace.
+
+**Skills are read in place and loaded on demand (ADR-0015).** Skills in another tool's root, or
+behind a symbolic link, are never written, copied or deleted; their enablement lives in
+LumenCortex's `skills-state.json`. The prompt carries only a catalog of ids and descriptions;
+`read_skill` returns a listed skill's files, confined (also through links) to the directory the
+skill resolves to, text only and bounded.
 
 **Read from the Engine workspace, not the worktree.** Configuration, instruction files and skills come
 from the directory the Engine was opened on, even when a session runs in its own worktree. An agent

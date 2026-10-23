@@ -22,13 +22,26 @@ import (
 )
 
 // TestMain lets the integration tests run the real entry point: the test binary re-executes
-// itself as lcx-go when LCX_TEST_RUN_MAIN is set.
+// itself as lcx-go when LCX_TEST_RUN_MAIN is set. The package runs against a private home, so no
+// test reads or writes the user's configuration, credentials or installed skills.
 func TestMain(m *testing.M) {
 	if os.Getenv("LCX_TEST_RUN_MAIN") == "1" {
 		main()
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	home, err := os.MkdirTemp("", "lcx-cli-test-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	for _, name := range []string{"HOME", "USERPROFILE"} {
+		os.Setenv(name, home)
+	}
+	os.Setenv("AppData", filepath.Join(home, "AppData"))
+	os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
+	code := m.Run()
+	_ = os.RemoveAll(home)
+	os.Exit(code)
 }
 
 type recorded struct {

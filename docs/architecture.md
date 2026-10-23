@@ -312,7 +312,7 @@ All providers use the same tool-calling Agent Loop.
 | Focused Subagents | Implemented |
 | Multi-session parallel runner | Implemented (safe read parallel; write parallel explicit opt-in) |
 | TUI | Implemented (direct launch, Session switching, live events, Ctrl+C active-run cancellation) |
-| Skills | Implemented baseline in Node + Go: global/project layering, enable state, Agent prompt injection, Node Subagent propagation, CLI management |
+| Skills | Implemented in Go: global/project scopes over LumenCortex, `.agents` and `.claude` roots read in place (links followed, conflicts reported), enable state, a catalog in the system prompt with on-demand `read_skill` (ADR-0015), CLI management |
 | Vision / browser | Planned |
 | Attention propagation | Implemented |
 | Ephemeral attention cut under token budget | Implemented |

@@ -225,13 +225,13 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		return nil, err
 	}
 	globalMCPPath := ""
-	globalSkillRoot := ""
+	skillGlobalDir := ""
 	pluginStatePath := ""
 	// F9: the one global directory, the same on every OS. Files in directories earlier builds
 	// used are reported by config.Load and are not read.
 	if globalDir, dirErr := config.GlobalDir(); dirErr == nil {
 		globalMCPPath = filepath.Join(globalDir, config.MCPFileName)
-		globalSkillRoot = filepath.Join(globalDir, config.SkillsDirName)
+		skillGlobalDir = globalDir
 		pluginStatePath = filepath.Join(globalDir, PluginStateFileName)
 	}
 	mcpRegistry, err := mcp.NewLayeredRegistry(
@@ -254,10 +254,11 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		}
 		return cfg.Effective().Trusted
 	})
-	skillRegistry, err := skills.NewRegistry(
-		globalSkillRoot,
-		filepath.Join(workspace, ".lumencortex", "skills"),
-	)
+	// Skills come from LumenCortex's own directories and, read in place, from the cross-agent ones
+	// other tools install into (~/.agents/skills, ~/.claude/skills and the workspace's).
+	home, _ := os.UserHomeDir()
+	globalSkills, projectSkills := skills.DefaultRoots(skillGlobalDir, home, workspace)
+	skillRegistry, err := skills.NewRegistry(globalSkills, projectSkills)
 	if err != nil {
 		_ = mcpRegistry.Close()
 		_ = store.Close()

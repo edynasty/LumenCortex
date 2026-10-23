@@ -210,6 +210,25 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if opts.disableMCP {
 		mcpRegistry = nil
 	}
+	// Execution tasks and read-only subagents are never interactive (ADR-0006 D3): a child run works its
+	// goal to the completion gate whatever its options say.
+	interactive := opts.Interactive && opts.parentSessionID == ""
+	systemPrompt := opts.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = agent.SystemPrompt(interactive, policyAuthority(policy))
+	}
+	// The system prefix is assembled once, from this Start's configuration: the base prompt, the
+	// instruction files (project ones only in a trusted workspace), the skills catalog and the
+	// agent's instructions (ADR-0013). Engine.EffectivePrompt reports the same layers for the same
+	// inputs. It comes before the toolset because read_skill serves exactly the skills it lists.
+	prompt := assemblePrompt(promptInput{
+		workspace: e.workspace, globalDir: plan.globalDir, trusted: plan.trusted,
+		base:              systemPrompt,
+		agentID:           plan.agentID,
+		agentSource:       plan.agentSource,
+		agentInstructions: plan.instructions,
+		skills:            e.skillRegistry,
+	})
 	tools, err := toolset.New(toolset.Options{
 		Workspace: agentWorkspace,
 		Policy:    policy,
@@ -220,6 +239,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		// Children get no spawn tool, so the list matters only to a thread's run.
 		SubagentAgents: plan.spawnAgents,
 		Threads:        threadReader{engine: e, sessionID: sessionID, workspace: agentWorkspace},
+		Skills:         newSkillReader(prompt.Skills.Included),
 	})
 	if err != nil {
 		return nil, err
@@ -229,13 +249,6 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		return nil, err
 	}
 	checks := runChecks{ev: ev, specs: plan.checks}
-	// Execution tasks and read-only subagents are never interactive (ADR-0006 D3): a child run works its
-	// goal to the completion gate whatever its options say.
-	interactive := opts.Interactive && opts.parentSessionID == ""
-	systemPrompt := opts.SystemPrompt
-	if systemPrompt == "" {
-		systemPrompt = agent.SystemPrompt(interactive, policyAuthority(policy))
-	}
 	// Auto effort is resolved once per Start, under the run lock and before the Start transaction:
 	// the previous request and last reply are in the transcript, and a cancelled judge call leaves
 	// no new row or running session behind.
@@ -292,17 +305,6 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		TaskAgents:          plan.taskAgents,
 	}
 
-	// The system prefix is assembled once, from this Start's configuration: the base prompt, the
-	// instruction files (project ones only in a trusted workspace), the skills and the agent's
-	// instructions (ADR-0013). Engine.EffectivePrompt reports the same layers for the same inputs.
-	prompt := assemblePrompt(promptInput{
-		workspace: e.workspace, globalDir: plan.globalDir, trusted: plan.trusted,
-		base:              systemPrompt,
-		agentID:           plan.agentID,
-		agentSource:       plan.agentSource,
-		agentInstructions: plan.instructions,
-		skills:            e.skillRegistry,
-	})
 	loopOpts.SystemLayers = systemLayers(prompt.Layers)
 	if prompt.SkillsErr != nil {
 		e.events.publish("skills.error", sessionID, map[string]any{"error": prompt.SkillsErr.Error()})

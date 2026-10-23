@@ -37,6 +37,8 @@ type Options struct {
 	SubagentAgents []config.AgentInfo
 	// Threads backs read_thread and recall (ADR-0010 D3); nil offers neither.
 	Threads ThreadReader
+	// Skills backs read_skill; nil (a run whose catalog offers no skill) does not offer it.
+	Skills SkillReader
 }
 type Set struct {
 	workspace      string
@@ -49,6 +51,7 @@ type Set struct {
 	subagents      SubagentController
 	subagentAgents []config.AgentInfo
 	threads        ThreadReader
+	skills         SkillReader
 	tools          map[string]tool
 }
 type tool struct {
@@ -95,7 +98,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -227,6 +230,7 @@ func (s *Set) registerBuiltins() {
 		s.registerSubagentTools()
 	}
 	s.registerThreadTools()
+	s.registerSkillTools()
 }
 func str() map[string]any { return map[string]any{"type": "string"} }
 

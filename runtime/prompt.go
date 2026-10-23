@@ -210,13 +210,14 @@ func skillsLayer(registry *skills.Registry, trusted bool) (PromptLayer, skills.P
 		layer.Warning = "the skills could not be read: " + err.Error()
 		return layer, skills.PromptResult{}, err
 	}
-	globalRoot, projectRoot := registry.Roots()
-	sources := make([]string, 0, 2)
-	if globalRoot != "" {
-		sources = append(sources, globalRoot)
+	sources := make([]string, 0, 6)
+	for _, root := range registry.Roots(skills.ScopeGlobal) {
+		sources = append(sources, root.Path)
 	}
-	if trusted && projectRoot != "" {
-		sources = append(sources, projectRoot)
+	if trusted {
+		for _, root := range registry.Roots(skills.ScopeProject) {
+			sources = append(sources, root.Path)
+		}
 		layer.Scope = scopeProject
 	}
 	layer.Source = strings.Join(sources, ", ")
@@ -395,7 +396,7 @@ func (e *Engine) EffectivePrompt(ctx context.Context, req EffectivePromptRequest
 	if wf != nil {
 		allowlist = wf.EffectiveAllowlist(allowlist)
 	}
-	tools, err := e.promptTools(workspace, policy, child, sessionID, req.Subagents, eff.DelegationAgents(config.AgentInfo.SpawnEligible))
+	tools, err := e.promptTools(workspace, policy, child, sessionID, req.Subagents, eff.DelegationAgents(config.AgentInfo.SpawnEligible), newSkillReader(prompt.Skills.Included))
 	if err != nil {
 		return EffectivePromptResult{}, err
 	}
@@ -417,7 +418,7 @@ func (e *Engine) EffectivePrompt(ctx context.Context, req EffectivePromptRequest
 // promptTools builds the toolset a run of the session would have, without starting anything: no MCP
 // server is launched and no provider client is built. The toolset only registers what is already
 // running, which is exactly what a run would see.
-func (e *Engine) promptTools(workspace, policy string, child bool, sessionID string, subagents bool, spawnAgents []config.AgentInfo) (*toolset.Set, error) {
+func (e *Engine) promptTools(workspace, policy string, child bool, sessionID string, subagents bool, spawnAgents []config.AgentInfo, skillTools toolset.SkillReader) (*toolset.Set, error) {
 	runner := e.shell
 	if workspace != e.workspace {
 		runner = shell.New(workspace)
@@ -451,6 +452,7 @@ func (e *Engine) promptTools(workspace, policy string, child bool, sessionID str
 		Subagents:      controller,
 		SubagentAgents: spawnAgents,
 		Threads:        threads,
+		Skills:         skillTools,
 	})
 }
 
