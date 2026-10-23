@@ -87,6 +87,8 @@ func TestPluginRegistryRejectsInvalidManifests(t *testing.T) {
 	registry, _, _ := newTestRegistry(t)
 	badVersion := probeManifest("bad-version")
 	badVersion.APIVersion++
+	badIcon := probeManifest("bad-icon")
+	badIcon.Icon = "../logo.svg"
 	cases := map[string]struct {
 		plugin pluginapi.Plugin
 		want   error
@@ -96,6 +98,7 @@ func TestPluginRegistryRejectsInvalidManifests(t *testing.T) {
 		"duplicate capability":      {&pluginProbe{manifest: probeManifest("dup", pluginapi.CapabilityEvents, pluginapi.CapabilityEvents)}, nil},
 		"bad id":                    {&pluginProbe{manifest: probeManifest("Bad ID")}, nil},
 		"undeclared implementation": {&pluginProbe{manifest: probeManifest("fake-source", pluginapi.CapabilitySessionImport)}, nil},
+		"icon is not a name":        {&pluginProbe{manifest: badIcon}, nil},
 	}
 	for name, tc := range cases {
 		err := registry.Register(tc.plugin, false)
@@ -103,7 +106,9 @@ func TestPluginRegistryRejectsInvalidManifests(t *testing.T) {
 			t.Errorf("%s: Register error = %v, want %v", name, err, tc.want)
 		}
 	}
-	if err := registry.Register(&pluginProbe{manifest: probeManifest("valid")}, false); err != nil {
+	withIcon := probeManifest("valid")
+	withIcon.Icon = "import"
+	if err := registry.Register(&pluginProbe{manifest: withIcon}, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := registry.Register(&pluginProbe{manifest: probeManifest("valid")}, false); err == nil {

@@ -35,7 +35,10 @@ const PluginStateFileName = "plugins.json"
 // maxPluginStateBytes bounds the plugin state file.
 const maxPluginStateBytes = 64 << 10
 
-var pluginIDPattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`)
+var (
+	pluginIDPattern   = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`)
+	pluginIconPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+)
 
 // knownCapabilities are the capabilities this Core understands. A manifest that declares another
 // one was built for a different contract and is refused.
@@ -123,6 +126,10 @@ func validatePluginManifest(m pluginapi.Manifest) (pluginapi.Manifest, error) {
 	m.Name = strings.TrimSpace(m.Name)
 	m.Version = strings.TrimSpace(m.Version)
 	m.Description = strings.TrimSpace(m.Description)
+	m.Icon = strings.TrimSpace(m.Icon)
+	if m.Icon != "" && !pluginIconPattern.MatchString(m.Icon) {
+		return pluginapi.Manifest{}, fmt.Errorf("plugin %s: icon %q must match [a-z][a-z0-9-] and be at most 32 bytes", m.ID, m.Icon)
+	}
 	m.Capabilities = slices.Clone(m.Capabilities)
 	if !pluginIDPattern.MatchString(m.ID) {
 		return pluginapi.Manifest{}, fmt.Errorf("plugin id %q must match [a-z][a-z0-9._-] and be at most 64 bytes", m.ID)

@@ -45,10 +45,14 @@ const (
 // Manifest is a plugin's declaration. ID is stable across versions ([a-z][a-z0-9._-], at most 64
 // bytes); Version is the plugin's own version; APIVersion is the pluginapi version it was built for.
 type Manifest struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Version      string   `json:"version"`
-	Description  string   `json:"description,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Description string `json:"description,omitempty"`
+	// Icon is an optional semantic icon name for hosts that show the plugin ("import", "history",
+	// …): lowercase letters, digits and dashes, at most 32 bytes. A host maps the names it knows to
+	// its own glyphs and shows a generic one for any other; Core ships no images.
+	Icon         string   `json:"icon,omitempty"`
 	APIVersion   int      `json:"apiVersion"`
 	Capabilities []string `json:"capabilities"`
 }

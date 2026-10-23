@@ -32,6 +32,7 @@ func (Plugin) Manifest() pluginapi.Manifest {
 	return pluginapi.Manifest{
 		ID: "omp-import", Name: "OMP session import", Version: "1.0.0",
 		Description:  "Reads oh-my-pi (OMP) JSONL sessions read-only and imports their visible history, including subagent sessions.",
+		Icon:         "import",
 		APIVersion:   pluginapi.APIVersion,
 		Capabilities: []string{pluginapi.CapabilitySessionImport},
 	}

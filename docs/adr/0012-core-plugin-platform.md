@@ -131,6 +131,12 @@ Desktop shows the catalog (Settings → Plugins): name, id, version, API version
 built-in flag, state, last error and failure count, and an enable switch that calls
 `SetPluginEnabled`. The import sheet lists the running import sources and works for any of them.
 
+Addendum 2026-10-23: a manifest may name an optional `icon` (`[a-z][a-z0-9-]`, at most 32 bytes,
+validated at registration; additive, `APIVersion` stays 1). It is a semantic name, not an image:
+the host maps names it knows to its own glyphs and shows a generic one otherwise. The OMP source
+declares `import`. Desktop's plugin entries (a rail page and pinned rail buttons) are derived from
+capabilities in Desktop; Core carries no UI contribution model.
+
 ### D9 — Execution limits of in-process plugins (review 2026-10-22)
 
 Probed on `9581de1` (throwaway tests, not kept): a hook handler that ignores its context returned
