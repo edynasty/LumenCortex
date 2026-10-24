@@ -263,9 +263,27 @@ Important logical table groups:
 
 - `journal`.
 
+### Request provenance and approvals (schema v6, ADR-0018)
+
+- `request_envelopes` — one row per provider request (`admitted` → `answered | failed | unknown`): ids,
+  purpose, bounded visible-part refs, epochs and digests, never a body. Cascades with its Session.
+- `derived_origins` — dependency edges (`kind = message | file | child_session | artifact`) and side-effect
+  execution records (`kind = execution`);
+  the execution row carries `admitted` → `completed | failed | outcome_unknown` and `lineage_complete`.
+  Cascades with the consumer Session; source columns are plain references, so deleting a source keeps the edge.
+- `source_fences` — host-owned revocation tombstones; no foreign key, so they survive Session deletion.
+- `check_approvals` — host-owned approvals of check definitions and constraint bindings; no foreign key.
+- `eval_results` gains nullable `episode_id`, `pre_fingerprint`, `post_fingerprint`, `spec_digest`,
+  `approval_epoch`, `episode_status`; legacy rows keep NULL and never satisfy a gate.
+
+Legacy sessions are not backfilled: they hold no envelope or edge and never read as complete lineage.
+`run_id` columns are nullable and absent from `sessions`; the runtime draws the id per Start. `Store.Reconcile`
+settles admitted requests to `unknown` and admitted executions to `outcome_unknown` (`lineage_complete = 0`),
+idempotently and without executing or resending anything.
+
 ### Schema version and migration
 
-`PRAGMA user_version` is the only schema version. The Go runtime applies numbered migrations (`internal/migrate/sql/NNNN_*.sql`, currently `0001_v1.sql`) in order, each in one transaction that also sets `user_version`; a gap in the numbering opens no database. A database newer than the binary is refused with `ErrSchemaTooNew` and nothing is written.
+`PRAGMA user_version` is the only schema version. The Go runtime applies numbered migrations (`internal/migrate/sql/NNNN_*.sql`, currently `0001_v1.sql` through `0006_provenance_and_approvals.sql`) in order, each in one transaction that also sets `user_version`; a gap in the numbering opens no database. A database newer than the binary is refused with `ErrSchemaTooNew` and nothing is written.
 
 - `<state>/db.lock` is the schema lock. Every open Engine holds it shared; a migration or downgrade holds it exclusive, so other processes must close the workspace first. Waits follow the caller's context and last at most 30 s, then `ErrDatabaseInUse`. The kernel drops the lock when a process dies. Per-session run locks are separate.
 - Before a change the runner writes `backups/lumencortex.db.v<N>.<UTC>` with `VACUUM INTO` (as `.partial` until complete). Provider reasoning (`reasoning`, `reasoning_content`) is removed from the copy with `secure_delete` before it is renamed, so no backup stores it. Leftovers of an interrupted attempt — the `.partial` copy and the `.partial-journal` (or `-wal`/`-shm`) a crash during the scrub leaves, which still holds the original pages — are deleted under the exclusive lock.
