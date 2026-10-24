@@ -119,6 +119,22 @@ func putTaskState(ctx context.Context, q querier, sessionID string, w TaskStateW
 	return version, nil
 }
 
+// appendMessageRow inserts one transcript row at the session's next seq and touches updated_at. It runs
+// on the caller's transaction or connection and takes no other lock.
+func appendMessageRow(ctx context.Context, q querier, sessionID, role string, raw []byte) (int64, error) {
+	var seq int64
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), -1) + 1 FROM session_messages WHERE session_id = ?`, sessionID).Scan(&seq); err != nil {
+		return 0, err
+	}
+	if _, err := q.ExecContext(ctx, `INSERT INTO session_messages(session_id, seq, role, json) VALUES(?, ?, ?, ?)`, sessionID, seq, role, string(raw)); err != nil {
+		return 0, err
+	}
+	if _, err := q.ExecContext(ctx, `UPDATE sessions SET updated_at = ? WHERE id = ?`, now(), sessionID); err != nil {
+		return 0, err
+	}
+	return seq, nil
+}
+
 // AppendMessageTaskState appends one transcript row and, when w is non-nil, the Task State version the
 // row caused, in one transaction (design §4.4). It returns the row's seq and the new version (0 when w
 // is nil).
@@ -132,14 +148,8 @@ func (s *Store) AppendMessageTaskState(ctx context.Context, sessionID, role stri
 		return 0, 0, err
 	}
 	defer tx.Rollback()
-	var seq int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), -1) + 1 FROM session_messages WHERE session_id = ?`, sessionID).Scan(&seq); err != nil {
-		return 0, 0, err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO session_messages(session_id, seq, role, json) VALUES(?, ?, ?, ?)`, sessionID, seq, role, string(raw)); err != nil {
-		return 0, 0, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at = ? WHERE id = ?`, time.Now().UTC().Format(time.RFC3339Nano), sessionID); err != nil {
+	seq, err := appendMessageRow(ctx, tx, sessionID, role, raw)
+	if err != nil {
 		return 0, 0, err
 	}
 	var version int64
