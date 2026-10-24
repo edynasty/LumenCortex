@@ -49,7 +49,7 @@ func (s *Set) applyPatch(_ context.Context, args map[string]any, _ func(protocol
 			if len(item.Edits) == 0 {
 				return protocol.ToolResult{}, fmt.Errorf("update requires edits: %s", relative)
 			}
-			originalBytes, err := os.ReadFile(file)
+			originalBytes, err := s.readChecked(file)
 			if err != nil {
 				return protocol.ToolResult{}, err
 			}
@@ -79,7 +79,7 @@ func (s *Set) applyPatch(_ context.Context, args map[string]any, _ func(protocol
 			if info.Size() > maxEditBytes {
 				return protocol.ToolResult{}, fmt.Errorf("delete target exceeds 4 MiB rollback limit: %s", relative)
 			}
-			originalBytes, err := os.ReadFile(file)
+			originalBytes, err := s.readChecked(file)
 			if err != nil {
 				return protocol.ToolResult{}, err
 			}
@@ -94,16 +94,19 @@ func (s *Set) applyPatch(_ context.Context, args map[string]any, _ func(protocol
 		var err error
 		switch item.operation {
 		case "delete":
-			err = os.Remove(item.file)
+			// Remove acts on a name, so the path is validated again right before it.
+			if _, _, err = s.resolve(item.file, false); err == nil {
+				err = os.Remove(item.file)
+			}
 		default:
 			if mkdirErr := os.MkdirAll(filepath.Dir(item.file), 0o755); mkdirErr != nil {
 				err = mkdirErr
 			} else {
-				err = os.WriteFile(item.file, []byte(item.next), 0o644)
+				err = s.writeChecked(item.file, []byte(item.next))
 			}
 		}
 		if err != nil {
-			rollbackPlans(applied)
+			s.rollbackPlans(applied)
 			return protocol.ToolResult{}, err
 		}
 		applied = append(applied, item)
@@ -121,7 +124,7 @@ func (s *Set) applyPatch(_ context.Context, args map[string]any, _ func(protocol
 	return protocol.ToolResult{OK: true, Content: string(content), MutatesWorkspace: true}, nil
 }
 
-func rollbackPlans(plans []plan) {
+func (s *Set) rollbackPlans(plans []plan) {
 	for i := len(plans) - 1; i >= 0; i-- {
 		item := plans[i]
 		switch item.operation {
@@ -129,7 +132,7 @@ func rollbackPlans(plans []plan) {
 			_ = os.Remove(item.file)
 		case "update", "delete":
 			_ = os.MkdirAll(filepath.Dir(item.file), 0o755)
-			_ = os.WriteFile(item.file, []byte(item.original), 0o644)
+			_ = s.writeChecked(item.file, []byte(item.original))
 		}
 	}
 }

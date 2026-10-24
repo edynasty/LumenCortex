@@ -240,6 +240,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		SubagentAgents: plan.spawnAgents,
 		Threads:        threadReader{engine: e, sessionID: sessionID, workspace: agentWorkspace},
 		Skills:         newSkillReader(prompt.Skills.Included),
+		Protected:      e.protected,
 	})
 	if err != nil {
 		return nil, err

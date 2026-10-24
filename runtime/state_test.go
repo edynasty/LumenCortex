@@ -20,6 +20,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/edynasty/LumenCortex/internal/runlock"
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 // ADR-0016 at the Engine: where state lives, what it is bound to, and what is refused. Every test
@@ -646,4 +647,66 @@ func mustLock(t *testing.T, dir, id string) *runlock.Lock {
 		t.Fatal(err)
 	}
 	return lock
+}
+
+// The Engine hands its state to the tool set of every run: a model that asks write_file for the
+// database through a symlink or a hard link is refused, in both modes, and an ordinary file in the
+// same step is written.
+func TestAgentFileToolsCannotReachTheEnginesState(t *testing.T) {
+	isolatedState(t)
+	for _, mode := range []StateMode{StateExternal, StateLegacy} {
+		workspace := newWorkspace(t)
+		if mode == StateLegacy {
+			legacyState(t, workspace, "old")
+		}
+		engine := openWorkspace(t, workspace)
+		if engine.StateInfo().Mode != mode {
+			t.Fatalf("%s: opened as %+v", mode, engine.StateInfo())
+		}
+		database := filepath.Join(engine.StateInfo().Path, "lumencortex.db")
+		if err := os.Symlink(database, filepath.Join(workspace, "soft.db")); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		if err := os.Link(database, filepath.Join(workspace, "hard.db")); err != nil {
+			t.Fatal(err)
+		}
+		handle := newTestSession(t, engine, "reach for the database")
+		call := func(id, path, content string) protocol.ToolCall {
+			args, _ := json.Marshal(map[string]string{"path": path, "content": content})
+			return protocol.ToolCall{ID: id, Name: "write_file", Arguments: args}
+		}
+		provider := &exitProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+			if n == 1 {
+				return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
+					call("soft", "soft.db", "clobbered"), call("hard", "hard.db", "clobbered"),
+					call("abs", database, "clobbered"), call("ok", "ok.txt", "fine"),
+				}}, FinishReason: "tool_calls"}, nil
+			}
+			return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}}, nil
+		}}
+		if _, err := engine.runAgentWith(context.Background(), handle.ID, provider, AgentOptions{Policy: "workspace", MaxSteps: 3}); err != nil {
+			t.Fatalf("%s: RunAgent: %v", mode, err)
+		}
+		results := map[string]string{}
+		for _, row := range transcript(t, handle) {
+			if row.Role == "tool" {
+				results[row.ToolCallID] = row.Content
+			}
+		}
+		for _, id := range []string{"soft", "hard", "abs"} {
+			if !strings.Contains(results[id], "LumenCortex state") && !strings.Contains(results[id], "escapes workspace") {
+				t.Errorf("%s: write_file %s was not refused: %q", mode, id, results[id])
+			}
+		}
+		if strings.Contains(results["ok"], "error") {
+			t.Errorf("%s: the ordinary write failed: %q", mode, results["ok"])
+		}
+		if raw, err := os.ReadFile(filepath.Join(workspace, "ok.txt")); err != nil || string(raw) != "fine" {
+			t.Errorf("%s: ok.txt = %q, %v", mode, raw, err)
+		}
+		head, err := os.ReadFile(database)
+		if err != nil || !bytes.HasPrefix(head, []byte("SQLite format 3\x00")) {
+			t.Errorf("%s: the database was overwritten: %.20q, %v", mode, head, err)
+		}
+	}
 }

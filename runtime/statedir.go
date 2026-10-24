@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/edynasty/LumenCortex/internal/session"
+	"github.com/edynasty/LumenCortex/internal/toolset"
 )
 
 // ErrStateBindingMismatch reports that the workspace database is bound to a different workspace, or
@@ -243,6 +244,17 @@ func locateState(ctx context.Context, opts Options) (string, stateLocation, erro
 		return workspace, loc, loc.refuseCarried(ctx)
 	}
 	return workspace, loc, nil
+}
+
+// protected is the state the file tools must not reach: this workspace's external state directory,
+// the directory in use when Options.RepoDir named another one, and the state files an earlier build
+// keeps in <workspace>/.lumencortex, which stay protected after the external state took over.
+func (l stateLocation) protected() toolset.Protected {
+	trees := []string{l.external}
+	if l.Mode == StateExternal && l.Path != l.external {
+		trees = append(trees, l.Path)
+	}
+	return toolset.Protected{Trees: trees, Legacy: l.legacy}
 }
 
 // refuseCarried returns ErrRepositoryCarriedState when the chosen database is tracked by Git.

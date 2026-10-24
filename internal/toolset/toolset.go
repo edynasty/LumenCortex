@@ -39,6 +39,8 @@ type Options struct {
 	Threads ThreadReader
 	// Skills backs read_skill; nil (a run whose catalog offers no skill) does not offer it.
 	Skills SkillReader
+	// Protected is the state the file tools refuse to reach (ADR-0016). The zero value protects nothing.
+	Protected Protected
 }
 type Set struct {
 	workspace      string
@@ -52,6 +54,7 @@ type Set struct {
 	subagentAgents []config.AgentInfo
 	threads        ThreadReader
 	skills         SkillReader
+	protected      Protected
 	tools          map[string]tool
 }
 type tool struct {
@@ -98,7 +101,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }

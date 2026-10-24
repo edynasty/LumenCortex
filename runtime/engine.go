@@ -27,6 +27,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/skills"
 	"github.com/edynasty/LumenCortex/internal/streambuf"
+	"github.com/edynasty/LumenCortex/internal/toolset"
 	"github.com/edynasty/LumenCortex/pluginapi"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -92,6 +93,7 @@ type Engine struct {
 	workspace    string
 	repoDir      string
 	state        StateInfo
+	protected    toolset.Protected
 	worktreeRoot string
 	store        *session.Store
 	resources    *resource.Manager
@@ -270,6 +272,7 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		workspace:    workspace,
 		repoDir:      repoDir,
 		state:        loc.StateInfo,
+		protected:    loc.protected(),
 		worktreeRoot: worktreeRoot,
 		store:        store,
 		resources: resource.New(resource.Budget{
