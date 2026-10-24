@@ -3,6 +3,8 @@ package runtime
 import (
 	"cmp"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -125,16 +127,34 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 	}, err
 }
 
+// newRunID is a 128-bit random run identity in lower-case hex.
+func newRunID() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("run id: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
+}
+
 // prepareRun is the Start sequence after the run lock is held:
 //
-//	Reconcile → validate and build → one transaction (Input, identity, running)
+//	Reconcile → run id → validate and build → one transaction (Input, identity, running)
 //
 // Everything that can reject the Start happens before the transaction, and the
 // transaction is atomic, so a rejected or failed Start leaves no new transcript
 // row and the session row as it was. The loop starts on a session that is already
 // running.
+//
+// The run's identity (runID) is drawn right after Reconcile and before anything that can call a model
+// (the Auto-effort judge): a fresh 128-bit random value per Start, kept in memory and passed to the
+// loop as agent.Options.RunID. It is never written to sessions; request and execution rows carry it
+// as a nullable column, and a restart, a takeover or a new Start is a new run.
 func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOptions) (*preparedRun, error) {
 	if _, err := e.store.Reconcile(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	runID, err := newRunID()
+	if err != nil {
 		return nil, err
 	}
 	if opts.Input != "" && strings.TrimSpace(opts.Input) == "" {
@@ -304,6 +324,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Interactive:         interactive,
 		Delegation:          delegation,
 		TaskAgents:          plan.taskAgents,
+		RunID:               runID,
 	}
 
 	loopOpts.SystemLayers = systemLayers(prompt.Layers)

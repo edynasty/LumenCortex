@@ -137,6 +137,10 @@ type Options struct {
 	// Resumed reports that the session was interrupted before this Start; the run
 	// records an agent.resume checkpoint. Start sets it from the status it found.
 	Resumed bool
+	// RunID identifies this run: a 128-bit random hex value drawn by the runtime's Start after Reconcile.
+	// It lives in memory for the run's lifetime and is the nullable run_id column of request and
+	// execution rows; it is not a session field. "" means the caller supplied none.
+	RunID string
 	// Interactive marks a conversation turn (ADR-0006 D3). Without a host workflow, a text answer then
 	// ends the run completed: open work units and unpassed required checks stay obligations of the
 	// thread instead of blocking the answer. A run that changed the workspace still has its required
