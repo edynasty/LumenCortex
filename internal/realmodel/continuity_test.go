@@ -17,6 +17,7 @@ package realmodel_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -27,6 +28,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/edynasty/LumenCortex/protocol"
 	lcx "github.com/edynasty/LumenCortex/runtime"
@@ -252,6 +255,21 @@ var (
 func goCode(s string) string    { return goComments.ReplaceAllString(s, "") }
 func shellCode(s string) string { return shellComments.ReplaceAllString(s, "$1") }
 
+// unbindState removes the workspace binding from a copied state directory. The copy is opened for a
+// different workspace than the one that wrote it, which the binding refuses (ADR-0016); the
+// evaluation wants exactly that copy, as a database that predates the binding.
+func unbindState(t *testing.T, dir string) {
+	t.Helper()
+	db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(filepath.Join(dir, "lumencortex.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`DELETE FROM metadata WHERE key = 'workspace_binding'`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // stateDir is where a workspace's session store lives in the evaluation: outside the workspace, so a
 // B run's shell cannot read the history database next to the code (arm 1 must not reach the history
 // except through what the arm offers).
@@ -314,6 +332,7 @@ func TestRealModelContinuity(t *testing.T) {
 				if out, err := exec.Command("cp", "-a", stateDir(base), stateDir(dir)).CombinedOutput(); err != nil {
 					t.Fatalf("copy history state: %v %s", err, out)
 				}
+				unbindState(t, stateDir(dir))
 				rec := runContinuityTask(t, dir, factory, task, arm, ids)
 				rec.Repeat = rep
 				rec.HistoryNotes = notes.total

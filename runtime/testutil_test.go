@@ -17,24 +17,38 @@ import (
 // boundModels is how many models the fixture catalog holds: one per provider a test binds to an Engine.
 const boundModels = 64
 
-// TestMain points the whole package at a private configuration directory, so no test reads the
-// developer's lumencortex.json, mcp.json or skills, and installs a global catalog of boundModels
+// testHomeEnv carries the private home of the test process to the helper processes it starts.
+const testHomeEnv = "LCX_TEST_HOME"
+
+// TestMain points the whole package at a private home, configuration and state directory, so no
+// test reads the developer's lumencortex.json, mcp.json or skills nor writes a state database
+// under the developer's ~/.local/state, and installs a global catalog of boundModels
 // models, test/b0 ... test/b63, each with a baseURL that is never contacted: the Engine's
-// ProviderFactory returns the bound fake instead.
+// ProviderFactory returns the bound fake instead. A helper process the tests start (an Engine in
+// its own process) finds the parent's home in LCX_TEST_HOME and shares it: the workspace's state
+// lives there, so a private home of its own would show the helper another, empty state.
 func TestMain(m *testing.M) {
-	home, err := os.MkdirTemp("", "lcx-runtime-test-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	if resolved, err := filepath.EvalSymlinks(home); err == nil {
-		home = resolved
+	home, owner := os.Getenv(testHomeEnv), false
+	if home == "" {
+		var err error
+		if home, err = os.MkdirTemp("", "lcx-runtime-test-"); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if resolved, err := filepath.EvalSymlinks(home); err == nil {
+			home = resolved
+		}
+		os.Setenv(testHomeEnv, home)
+		owner = true
 	}
 	for _, name := range []string{"HOME", "USERPROFILE"} {
 		os.Setenv(name, home)
 	}
 	os.Setenv("AppData", filepath.Join(home, "AppData"))
 	os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
+	if owner { // a helper keeps the state root its parent test chose
+		os.Setenv("XDG_STATE_HOME", filepath.Join(home, "xdg-state"))
+	}
 	for _, name := range []string{"LCX_MODEL", "LCX_ENDPOINT", "LCX_BASE_URL", "LCX_API_KEY", "LCX_REASONING_FORMAT"} {
 		os.Unsetenv(name)
 	}
@@ -47,7 +61,9 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	code := m.Run()
-	os.RemoveAll(home)
+	if owner {
+		os.RemoveAll(home)
+	}
 	os.Exit(code)
 }
 
@@ -148,4 +164,15 @@ func bindRef(e *Engine, id string, p protocol.Provider) config.ModelRef {
 	b.providers[id] = p
 	b.mu.Unlock()
 	return config.ModelRef("test/" + id)
+}
+
+// stateDirFor is the directory that holds the state of workspace, as an Engine opened on it would
+// choose it now. It creates nothing.
+func stateDirFor(t *testing.T, workspace string) string {
+	t.Helper()
+	_, loc, err := locateState(context.Background(), Options{Workspace: workspace})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return loc.Path
 }

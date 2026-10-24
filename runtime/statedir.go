@@ -12,7 +12,14 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/edynasty/LumenCortex/internal/session"
 )
+
+// ErrStateBindingMismatch reports that the workspace database is bound to a different workspace, or
+// that a database of a schema that always carries a binding has none (ADR-0016). Open ran the schema
+// migration first and wrote nothing after it.
+var ErrStateBindingMismatch = session.ErrStateBindingMismatch
 
 // ErrRepositoryCarriedState reports that <workspace>/.lumencortex/lumencortex.db is tracked by Git,
 // so it came with a clone rather than from this machine's runs and is not trusted as state
@@ -322,3 +329,7 @@ func gitProbeEnv() []string {
 	}
 	return append(env, "LC_ALL=C")
 }
+
+// StateInfo reports which state this Engine opened: its mode, directory, the workspace it is bound
+// to, and a legacy database that still exists beside the external state.
+func (e *Engine) StateInfo() StateInfo { return e.state }

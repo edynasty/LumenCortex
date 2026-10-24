@@ -32,7 +32,7 @@ func setUserVersion(t *testing.T, stateDir string, v int) {
 
 func TestEngineHoldsSchemaLockSharedUntilClose(t *testing.T) {
 	workspace := t.TempDir()
-	stateDir := filepath.Join(workspace, ".lumencortex")
+	stateDir := stateDirFor(t, workspace)
 	engine, err := Open(Options{Workspace: workspace})
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestEngineHoldsSchemaLockSharedUntilClose(t *testing.T) {
 
 func TestOpenRefusesNewerSchemaWithoutWriting(t *testing.T) {
 	workspace := t.TempDir()
-	stateDir := filepath.Join(workspace, ".lumencortex")
+	stateDir := stateDirFor(t, workspace)
 	engine, err := Open(Options{Workspace: workspace})
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +96,7 @@ func TestOpenRefusesNewerSchemaWithoutWriting(t *testing.T) {
 
 func TestOpenContextCancelsWaitForSchemaLock(t *testing.T) {
 	workspace := t.TempDir()
-	stateDir := filepath.Join(workspace, ".lumencortex")
+	stateDir := stateDirFor(t, workspace)
 	engine, err := Open(Options{Workspace: workspace})
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestDowngradeSchemaRefusesWhileEngineIsOpen(t *testing.T) {
 
 func TestOpenRefusesLegacyNodeDatabaseWithoutWriting(t *testing.T) {
 	workspace := t.TempDir()
-	stateDir := filepath.Join(workspace, ".lumencortex")
+	stateDir := stateDirFor(t, workspace)
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
