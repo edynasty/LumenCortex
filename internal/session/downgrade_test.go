@@ -221,7 +221,7 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Upgrade to latest (5)
+	// Upgrade to latest (6)
 	store, err := Open(statedir)
 	if err != nil {
 		t.Fatal(err)
@@ -284,7 +284,7 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		}
 	}
 
-	checkVersion(5)
+	checkVersion(6)
 	hasTable := func(name string) bool {
 		t.Helper()
 		db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(filepath.Join(statedir, "lumencortex.db"))+"?mode=ro")
@@ -311,6 +311,21 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 			t.Fatal(err)
 		}
 		return n == 1
+	}
+
+	// Downgrade 6→5: provenance/approval tables and the six eval_results columns go; the evaluator row,
+	// its table and every older object stay.
+	set6, err := migrate.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := migrate.Downgrade(context.Background(), statedir, set6, 5); err != nil {
+		t.Fatal(err)
+	}
+	checkVersion(5)
+	if hasTable("request_envelopes") || hasTable("derived_origins") || hasTable("source_fences") || hasTable("check_approvals") ||
+		hasColumn("eval_results", "episode_id") || !hasTable("eval_results") || !hasColumn("sessions", "agent_id") {
+		t.Fatal("after 6→5 the v6 objects remain or a v5 object is gone")
 	}
 
 	// Downgrade 5→4: the session agent column goes, the session row and everything else stays.
@@ -400,13 +415,13 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Upgrade 1→2→3→4→5
+	// Upgrade 1→2→3→4→5→6
 	store, err = Open(statedir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	checkVersion(5)
+	checkVersion(6)
 	if !hasTable("eval_results") || !hasTable("artifacts") || !hasColumn("sessions", "agent_id") {
 		t.Fatal("re-upgrade did not recreate the evaluator tables and the agent column")
 	}

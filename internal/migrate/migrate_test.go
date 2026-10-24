@@ -277,8 +277,8 @@ func TestLoadRejectsGapsAndOrphans(t *testing.T) {
 			}
 		})
 	}
-	if set := embeddedSet(t); set.Latest() != 5 {
-		t.Errorf("embedded Latest=%d, ADR-0009 ships 0001 through 0005", set.Latest())
+	if set := embeddedSet(t); set.Latest() != 6 {
+		t.Errorf("embedded Latest=%d, ADR-0018 ships 0001 through 0006", set.Latest())
 	}
 }
 
