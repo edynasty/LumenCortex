@@ -19,6 +19,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
+	"github.com/edynasty/LumenCortex/internal/migrate"
 	"github.com/edynasty/LumenCortex/internal/runlock"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -79,7 +80,8 @@ func createdState(t *testing.T, workspace, goal string) string {
 }
 
 // legacyState writes what an earlier build left: <workspace>/.lumencortex/lumencortex.db with one
-// session and no workspace binding. It opens through RepoDir, then removes the binding row.
+// session, a schema before 6 and no workspace binding. It opens through RepoDir, downgrades the
+// database to schema 5 (the last one an earlier build wrote) and removes the binding row.
 func legacyState(t *testing.T, workspace, goal string) string {
 	t.Helper()
 	dir := filepath.Join(workspace, ".lumencortex")
@@ -91,6 +93,13 @@ func legacyState(t *testing.T, workspace, goal string) string {
 		t.Fatal(err)
 	}
 	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	set, err := migrate.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := migrate.Downgrade(context.Background(), dir, set, 5); err != nil {
 		t.Fatal(err)
 	}
 	execSQL(t, dir, `DELETE FROM metadata WHERE key = 'workspace_binding'`)

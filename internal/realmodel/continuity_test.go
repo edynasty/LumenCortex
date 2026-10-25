@@ -31,6 +31,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
+	"github.com/edynasty/LumenCortex/internal/migrate"
 	"github.com/edynasty/LumenCortex/protocol"
 	lcx "github.com/edynasty/LumenCortex/runtime"
 )
@@ -255,11 +256,19 @@ var (
 func goCode(s string) string    { return goComments.ReplaceAllString(s, "") }
 func shellCode(s string) string { return shellComments.ReplaceAllString(s, "$1") }
 
-// unbindState removes the workspace binding from a copied state directory. The copy is opened for a
-// different workspace than the one that wrote it, which the binding refuses (ADR-0016); the
-// evaluation wants exactly that copy, as a database that predates the binding.
+// unbindState turns a copied state directory into a database that predates the binding: schema 5
+// and no binding row. The copy is opened for a different workspace than the one that wrote it, which
+// the binding refuses (ADR-0016); a schema-6 database without a binding is refused too, so the copy is
+// downgraded first and adopted (and bound) by the next open.
 func unbindState(t *testing.T, dir string) {
 	t.Helper()
+	set, err := migrate.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := migrate.Downgrade(context.Background(), dir, set, 5); err != nil {
+		t.Fatal(err)
+	}
 	db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(filepath.Join(dir, "lumencortex.db")))
 	if err != nil {
 		t.Fatal(err)
