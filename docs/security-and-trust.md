@@ -133,6 +133,26 @@ This is separate from cognitive Evidence and intentionally simpler.
 
 Workspace tools reject traversal outside the workspace.
 
+### Protected state (ADR-0016)
+
+`read_file`, `list_dir`, `write_file`, `replace_in_file` and `apply_patch` refuse LumenCortex's own
+state with `ErrProtectedPath`: the workspace's external state directory (and an explicit
+`Options.RepoDir`), and, in `<workspace>/.lumencortex`, `lumencortex.db*`, `db.lock`, `bind.lock`,
+`runs/`, `backups/`, `checkpoint.pending*` and `legacy-state-*`. Project configuration beside them
+(`mcp.json`, `skills/`, `cognition.json`) is not protected.
+
+The guard follows the real path, so absolute and relative spellings, `..` and symbolic links are
+refused. It then compares file identity (device and inode, or the Windows file index) of the path
+and of the open descriptor, so a hard link, a case or Unicode spelling the file system folds, and a
+path swapped between validation and open are refused too. A refused write leaves the file as it
+was.
+
+**This is not an OS-level isolation boundary.** `shell` runs with the user's permissions and can
+read or overwrite the database, so a run that is allowed `full` policy can still bypass the file-tool
+guard. `search_text`, `find_files` and the git tools are not guarded, and a swap of a parent
+directory between `apply_patch`'s last check and its `os.Remove` of a delete is not closed. Treat
+the state as protected from the file tools only; run untrusted work in a policy without `shell`.
+
 Workflow dotted paths reject dangerous segments:
 
 - `__proto__`,
@@ -211,9 +231,15 @@ or that is not a regular file, is refused. Subdirectory `AGENTS.md` files are no
 `included` and the reason it was withheld, and every tool with the filter that withheld it (`policy`,
 `allowlist`, `denylist`, `delegation`). A host displays that; it never re-implements the rule.
 
-**Residual risk (SECURITY-002).** A repository can commit `.lumencortex/`, including
-`lumencortex.db`. Core opens the state database from that path without checking its provenance, so a
-repository that ships a database is trusted to have produced it. Not mitigated yet (P2).
+**Repository-carried state (SECURITY-002, ADR-0016).** The state database no longer lives in the
+workspace by default: Core keeps it in `$XDG_STATE_HOME/lumencortex/workspaces/<name>-<hash>` (or
+`~/.local/state/…`) and binds it to the canonical workspace path in `metadata.workspace_binding`. A
+database bound to another workspace is refused with `ErrStateBindingMismatch`. An earlier build's
+`<workspace>/.lumencortex/lumencortex.db` that `git ls-files` reports as tracked is refused with
+`ErrRepositoryCarriedState`, and a repository in which that probe fails refuses the open instead of
+adopting the file. An untracked legacy database is opened in place (`StateInfo().Mode == "legacy"`),
+not moved. A legacy database that is untracked but arrived by other means (a copy, an archive) has
+no binding, is adopted as this workspace's, and is not proven to be local.
 
 ## MCP trust boundary
 
