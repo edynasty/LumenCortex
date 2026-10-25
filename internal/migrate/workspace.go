@@ -49,8 +49,9 @@ func (w *Workspace) Close() error {
 //     processes kept db.lock is ErrDatabaseInUse.
 //
 // Concurrent opens of one old database all succeed: one migrates under the exclusive lock, the
-// others then see the latest version under the shared lock. The stateDir must exist.
-func Open(ctx context.Context, stateDir string, set *Set) (*Workspace, error) {
+// others then see the latest version under the shared lock. The stateDir must exist. hooks run in
+// the transaction of the migration they name (StepHook).
+func Open(ctx context.Context, stateDir string, set *Set, hooks ...StepHook) (*Workspace, error) {
 	path := filepath.Join(stateDir, dbFile)
 	deadline := time.Now().Add(LockWait)
 	from := -1
@@ -84,7 +85,7 @@ func Open(ctx context.Context, stateDir string, set *Set) (*Workspace, error) {
 
 		ex, err := runlock.TryAcquire(stateDir, dbLockID)
 		if err == nil {
-			mfrom, _, merr := upgradeLocked(ctx, path, stateDir, set)
+			mfrom, _, merr := upgradeLocked(ctx, path, stateDir, set, hooks...)
 			if from < 0 {
 				from = mfrom
 			}

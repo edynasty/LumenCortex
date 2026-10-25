@@ -63,6 +63,11 @@ func Open(repositoryDir string) (*Store, error) {
 // progress. It returns migrate.ErrSchemaTooNew for a database a newer binary migrated, and
 // migrate.ErrDatabaseInUse when other processes keep the database open too long for a migration.
 func OpenContext(ctx context.Context, repositoryDir string) (*Store, error) {
+	return openStore(ctx, repositoryDir)
+}
+
+// openStore is OpenContext with migration step hooks (migrate.StepHook).
+func openStore(ctx context.Context, repositoryDir string, hooks ...migrate.StepHook) (*Store, error) {
 	if err := os.MkdirAll(repositoryDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -70,7 +75,7 @@ func OpenContext(ctx context.Context, repositoryDir string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	ws, err := migrate.Open(ctx, repositoryDir, set)
+	ws, err := migrate.Open(ctx, repositoryDir, set, hooks...)
 	if err != nil {
 		return nil, err
 	}

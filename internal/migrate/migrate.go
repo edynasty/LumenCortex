@@ -267,7 +267,7 @@ var testHookAfterCommit func(version int)
 //
 // A database that is already current is only touched when checkpoint.pending says an earlier run
 // stopped before the rebuild that removes stripped reasoning from free space (see scrubKind).
-func upgradeLocked(ctx context.Context, path, stateDir string, set *Set) (from, to int, err error) {
+func upgradeLocked(ctx context.Context, path, stateDir string, set *Set, hooks ...StepHook) (from, to int, err error) {
 	// Before the journal mode, the backup or any write: a newer or a Node database is refused untouched.
 	v, err := checkVersion(ctx, path, set.Latest())
 	if err != nil {
@@ -320,7 +320,7 @@ func upgradeLocked(ctx context.Context, path, stateDir string, set *Set) (from, 
 		}
 	}()
 	for _, m := range set.up[v:] {
-		if err := runStep(ctx, conn, m.sql, m.name, m.version); err != nil {
+		if err := runStep(ctx, conn, m.sql, m.name, m.version, hooks); err != nil {
 			return v, cur, err
 		}
 		cur = m.version
@@ -377,14 +377,32 @@ func finishScrub(ctx context.Context, conn *sql.Conn, stateDir string, kind mark
 	return checkpointAndClearMarker(ctx, conn, stateDir)
 }
 
-// runStep executes one migration body and sets user_version in a single transaction.
-func runStep(ctx context.Context, conn *sql.Conn, body, name string, version int) error {
+// StepHook runs inside the transaction of the migration that reaches Version, after its body and
+// before user_version is set, so whatever it writes commits with that version or not at all. An error
+// rolls the step back. It runs only when that migration runs.
+type StepHook struct {
+	Version int
+	Run     func(ctx context.Context, conn *sql.Conn) error
+}
+
+// runStep executes one migration body, the hooks of its version, and sets user_version in a single
+// transaction.
+func runStep(ctx context.Context, conn *sql.Conn, body, name string, version int, hooks []StepHook) error {
 	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
 		return err
 	}
 	if _, err := conn.ExecContext(ctx, body); err != nil {
 		rollback(conn)
 		return fmt.Errorf("migration %s: %w", name, err)
+	}
+	for _, hook := range hooks {
+		if hook.Version != version {
+			continue
+		}
+		if err := hook.Run(ctx, conn); err != nil {
+			rollback(conn)
+			return fmt.Errorf("migration %s: %w", name, err)
+		}
 	}
 	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, version)); err != nil {
 		rollback(conn)

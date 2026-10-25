@@ -61,15 +61,32 @@ func OpenBound(ctx context.Context, stateDir string, want Binding) (*Store, erro
 		return nil, err
 	}
 	defer lock.Release()
-	store, err := OpenContext(ctx, stateDir)
+	// The migration that creates schema 6 writes the binding in its own transaction: from then on a
+	// database without one is refused, so the two must commit together. An open that stops after it
+	// (crash, cancellation) leaves a bound database, not one every later open refuses.
+	store, err := openStore(ctx, stateDir, migrate.StepHook{
+		Version: bindingRequiredFromVersion,
+		Run: func(ctx context.Context, conn *sql.Conn) error {
+			return insertBinding(ctx, conn, want)
+		},
+	})
 	if err != nil {
 		return nil, err
+	}
+	if testHookAfterMigrate != nil {
+		if err := testHookAfterMigrate(); err != nil {
+			return nil, errors.Join(err, store.Close())
+		}
 	}
 	if err := ensureBinding(ctx, store.db, store.ws.From, want); err != nil {
 		return nil, errors.Join(err, store.Close())
 	}
 	return store, nil
 }
+
+// testHookAfterMigrate, when non-nil, runs after OpenBound migrated the database and before it
+// verifies the binding; an error stops the open there, as a crash or a cancellation would.
+var testHookAfterMigrate func() error
 
 // lockBinding takes bind.lock exclusively, waiting up to migrate.LockWait.
 func lockBinding(ctx context.Context, stateDir string) (*runlock.Lock, error) {
@@ -105,18 +122,9 @@ func ensureBinding(ctx context.Context, db *sql.DB, from int, want Binding) erro
 			return fmt.Errorf("%w: schema %d has no %s row, so this database was not created by LumenCortex for %s",
 				ErrStateBindingMismatch, from, BindingKey, want.CanonicalPath)
 		}
-		record, err := json.Marshal(bindingRecord{
-			CanonicalPath: want.CanonicalPath,
-			CreatedAt:     time.Now().UTC().Format(time.RFC3339Nano),
-			CoreVersion:   want.CoreVersion,
-		})
-		if err != nil {
-			return err
-		}
 		// A row written since the read, by a process that does not take bind.lock, wins.
-		if _, err := db.ExecContext(ctx,
-			`INSERT INTO metadata(key, value) VALUES(?, ?) ON CONFLICT(key) DO NOTHING`, BindingKey, string(record)); err != nil {
-			return fmt.Errorf("write workspace binding: %w", err)
+		if err := insertBinding(ctx, db, want); err != nil {
+			return err
 		}
 		if have, found, err = readBinding(ctx, db); err != nil {
 			return err
@@ -127,6 +135,23 @@ func ensureBinding(ctx context.Context, db *sql.DB, from int, want Binding) erro
 	}
 	if have.CanonicalPath != want.CanonicalPath {
 		return fmt.Errorf("%w: it is bound to %s, not %s", ErrStateBindingMismatch, have.CanonicalPath, want.CanonicalPath)
+	}
+	return nil
+}
+
+// insertBinding writes want as the binding unless a binding row exists; an existing row is kept.
+func insertBinding(ctx context.Context, db execer, want Binding) error {
+	record, err := json.Marshal(bindingRecord{
+		CanonicalPath: want.CanonicalPath,
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		CoreVersion:   want.CoreVersion,
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO metadata(key, value) VALUES(?, ?) ON CONFLICT(key) DO NOTHING`, BindingKey, string(record)); err != nil {
+		return fmt.Errorf("write workspace binding: %w", err)
 	}
 	return nil
 }

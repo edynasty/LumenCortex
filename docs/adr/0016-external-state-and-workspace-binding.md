@@ -52,8 +52,12 @@ in use). Hosts and the CLI do not pass `RepoDir`.
 
 ### D2 — The state database is bound to its workspace
 
-After the schema migration, `metadata.workspace_binding` holds `{canonicalPath, createdAt,
-coreVersion}`. No numbered migration is needed: `metadata` exists since schema 1.
+`metadata.workspace_binding` holds `{canonicalPath, createdAt, coreVersion}`. No numbered migration is
+needed: `metadata` exists since schema 1. The migration that creates schema 6 writes the row in its own
+transaction (`migrate.StepHook`), so schema 6 and the binding commit together: an open that stops after
+that migration (crash, cancellation, a failed read) leaves a bound database, never one the rule below
+refuses. A database already at schema ≤ 5 that is opened without migrating does not exist for this
+binary, so every adoption goes through that transaction.
 
 - Binding for another workspace, or an unreadable row: `ErrStateBindingMismatch`. The row is not
   rewritten and no new database replaces the refused one.
@@ -129,9 +133,10 @@ directory for the final `os.Remove` of a patch delete.
 - Moving or renaming a workspace starts with an empty history. A legacy workspace that moves with its
   `.lumencortex` directory is refused by the binding until it is rebound; there is no rebinding
   command yet.
-- A crash between the migration that creates schema 6 and the binding write leaves a database that
-  the ≥ 6 rule refuses; the window is the time of one `INSERT`, and the recovery is to delete that
-  new, empty external directory.
+- (Closed in the G0a/T1-S1 joint gate.) An open interrupted between the schema-6 migration and a
+  separate binding write used to leave a database every later open refused, including an upgraded
+  legacy database with its history; the binding is now part of the schema-6 transaction
+  (`TestInterruptedOpenAfterMigrationStillBinds`).
 - Every Open takes `bind.lock` and, for a legacy or `RepoDir` database inside a repository, runs one
   `git` process.
 
