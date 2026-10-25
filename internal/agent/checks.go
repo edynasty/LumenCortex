@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/edynasty/LumenCortex/internal/evaluator"
+	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 )
 
@@ -17,16 +18,20 @@ type Checks interface {
 	Configured() (all, required []string)
 	// Decide decides the checks in order. A fresh result is stored with workUnitID. An id that is not
 	// configured yields a non-passing error verdict without running anything. The error is the caller's
-	// cancellation or an evaluator failure, never a check's outcome.
+	// cancellation, session.ErrFenced when the session is fenced (nothing ran), or an evaluator failure,
+	// never a check's outcome.
 	Decide(ctx context.Context, ids []string, workUnitID string) ([]evaluator.Verdict, error)
 }
 
-// checkFailureExit maps an evaluator failure to the run's exit: cancellation interrupts it, a store
-// failure is storage, anything else (the workspace could not be inspected) is config.
+// checkFailureExit maps an evaluator failure to the run's exit: cancellation interrupts it, a fence ends
+// it as fenced, a store failure is storage, anything else (the workspace could not be inspected) is
+// config.
 func checkFailureExit(ctx context.Context, err error) ExitCause {
 	switch {
 	case ctx.Err() != nil || errors.Is(err, context.Canceled):
 		return ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err}
+	case errors.Is(err, session.ErrFenced):
+		return ExitCause{Status: StatusFailed, Kind: KindFenced, Err: err}
 	case errors.Is(err, evaluator.ErrStore):
 		return ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err}
 	default:

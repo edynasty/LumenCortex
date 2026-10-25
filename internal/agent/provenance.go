@@ -88,11 +88,14 @@ func HostStateEdges(before, after taskstate.State) []session.DerivedEdge {
 	return edges
 }
 
-// Subagent tools whose result carries child sessions (internal/toolset/subagents.go).
+// Tools whose result carries other sessions: the subagent tools (internal/toolset/subagents.go) and the
+// thread tools (internal/toolset/threads.go).
 const (
-	toolWaitSubagent   = "wait_subagent"
-	toolListSubagents  = "list_subagents"
-	maxSubagentSources = session.MaxEdgesPerCommit
+	toolWaitSubagent  = "wait_subagent"
+	toolListSubagents = "list_subagents"
+	toolReadThread    = "read_thread"
+	toolRecall        = "recall"
+	maxResultSources  = session.MaxEdgesPerCommit
 )
 
 // subagentNode is the part of a subagent tool result the edges need: spawn_subagent returns a node,
@@ -102,11 +105,26 @@ type subagentNode struct {
 	Children  []subagentNode `json:"children,omitempty"`
 }
 
-// subagentChildren returns the child sessions a successful subagent tool result names: the spawned
-// child, the waited child, or every listed child (depth first). Anything else names none. ok is false
-// when the result could not be read or held more children than one commit stores, so what is recorded
-// is incomplete.
-func subagentChildren(name string, result protocol.ToolResult) (children []string, ok bool) {
+// threadResult is the part of a thread tool result the edges need: read_thread returns the thread and
+// its children (a child's goal is its content, unless it is withdrawn), recall {"hits": [...]}.
+type threadResult struct {
+	ID       string `json:"id"`
+	Children []struct {
+		ID        string `json:"id"`
+		Withdrawn bool   `json:"withdrawn"`
+	} `json:"children"`
+	Withdrawn bool `json:"withdrawn"`
+	Hits      []struct {
+		ID string `json:"id"`
+	} `json:"hits"`
+}
+
+// resultSessions returns the sessions whose content a successful tool result carries: the spawned,
+// waited or listed children of a subagent tool (depth first), the thread read_thread returned and its
+// listed children, or every thread recall found. own, the reading session, is never a source of itself.
+// Anything else names none. ok is false when the result could not be read or held more sessions than
+// one commit stores, so what is recorded is incomplete.
+func resultSessions(name, own string, result protocol.ToolResult) (sessions []string, ok bool) {
 	if !result.OK {
 		return nil, true
 	}
@@ -134,41 +152,67 @@ func subagentChildren(name string, result protocol.ToolResult) (children []strin
 		walk = func(nodes []subagentNode) {
 			for _, n := range nodes {
 				if n.SessionID != "" {
-					children = append(children, n.SessionID)
+					sessions = append(sessions, n.SessionID)
 				}
 				walk(n.Children)
 			}
 		}
 		walk(nodes)
-		if len(children) > maxSubagentSources {
-			return children[:maxSubagentSources], false
+	case toolReadThread, toolRecall:
+		var t threadResult
+		if err := json.Unmarshal([]byte(result.Content), &t); err != nil {
+			return nil, false
 		}
-		return children, true
+		if name == toolReadThread {
+			if t.ID == "" {
+				return nil, false
+			}
+			if !t.Withdrawn && t.ID != own {
+				sessions = append(sessions, t.ID)
+			}
+			for _, c := range t.Children {
+				if !c.Withdrawn && c.ID != "" && c.ID != own {
+					sessions = append(sessions, c.ID)
+				}
+			}
+		}
+		for _, h := range t.Hits {
+			if h.ID != "" && h.ID != own {
+				sessions = append(sessions, h.ID)
+			}
+		}
+	default:
+		return nil, true
 	}
-	return nil, true
+	if len(sessions) > maxResultSources {
+		return sessions[:maxResultSources], false
+	}
+	return sessions, true
 }
 
-// subagentEdges are the edges a subagent tool result makes: spawn_subagent's child session derives from
-// the request that spawned it; the tool row of wait_subagent or list_subagents derives from every child
-// it reports, as of the child's newest transcript seq read now (an upper bound of what the row shows).
-// A child seq that cannot be read leaves that edge without a seq, which the Store stores incomplete.
-func (l *Loop) subagentEdges(ctx context.Context, call protocol.ToolCall, result protocol.ToolResult, requestID string, lineage bool) []session.DerivedEdge {
-	children, ok := subagentChildren(call.Name, result)
+// sessionResultEdges are the edges a tool result carrying other sessions makes (resultSessions):
+// spawn_subagent's child session derives from the request that spawned it; the tool row of any other
+// such tool derives from every session it carries, as of that session's newest transcript seq read now
+// (an upper bound of what the row shows). These are the edges a revocation of one of those sessions
+// finds this one by, and a commit after that revocation is refused by. A seq that cannot be read
+// leaves that edge without a seq, which the Store stores incomplete.
+func (l *Loop) sessionResultEdges(ctx context.Context, sessionID string, call protocol.ToolCall, result protocol.ToolResult, requestID string, lineage bool) []session.DerivedEdge {
+	sources, ok := resultSessions(call.Name, sessionID, result)
 	var edges []session.DerivedEdge
-	for _, child := range children {
+	for _, source := range sources {
 		if call.Name == toolSpawnSubagent {
 			edges = append(edges, session.DerivedEdge{
-				Kind: "child_session", TargetRef: sessionRef(child), SourceKind: session.SourceRequest, SourceRef: requestID,
+				Kind: "child_session", TargetRef: sessionRef(source), SourceKind: session.SourceRequest, SourceRef: requestID,
 				OriginClass: session.OriginAgentGen, LineageComplete: lineage && ok,
 			})
 			continue
 		}
-		from := sessionRef(child)
-		if seq, err := l.Store.NewestMessageSeq(ctx, child); err == nil && seq >= 0 {
-			from = sessionAtRef(child, seq)
+		from := sessionRef(source)
+		if seq, err := l.Store.NewestMessageSeq(ctx, source); err == nil && seq >= 0 {
+			from = sessionAtRef(source, seq)
 		}
 		edges = append(edges, session.DerivedEdge{
-			Kind: "message", TargetRef: toolRowRef(requestID, call.ID), SourceKind: session.SourceSession, SourceRef: child,
+			Kind: "message", TargetRef: toolRowRef(requestID, call.ID), SourceKind: session.SourceSession, SourceRef: source,
 			OriginClass: session.OriginAgentGen, DerivedFrom: from, LineageComplete: ok,
 		})
 	}

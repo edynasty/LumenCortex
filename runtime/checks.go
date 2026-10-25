@@ -102,10 +102,13 @@ func checkEvidence(ctx context.Context, ev *evaluator.Evaluator, specs []evaluat
 	return out, nil
 }
 
-// runChecks is agent.Checks over one session's evaluator and the run's check specs.
+// runChecks is agent.Checks over one session's evaluator and the run's check specs. store and
+// sessionID let Decide refuse to run anything once the session is fenced (T3-S1).
 type runChecks struct {
-	ev    *evaluator.Evaluator
-	specs []evaluator.Spec
+	ev        *evaluator.Evaluator
+	specs     []evaluator.Spec
+	store     *session.Store
+	sessionID string
 }
 
 func (c runChecks) Configured() (all, req []string) {
@@ -119,8 +122,18 @@ func (c runChecks) Configured() (all, req []string) {
 }
 
 // Decide decides the configured ids against one snapshot, in order; an id that is not configured
-// yields an error verdict and nothing runs or is stored for it.
+// yields an error verdict and nothing runs or is stored for it. In a fenced session nothing runs: a
+// check is a command with effects, and a revocation stops the session's next one (session.ErrFenced).
 func (c runChecks) Decide(ctx context.Context, ids []string, workUnitID string) ([]evaluator.Verdict, error) {
+	if c.store != nil {
+		fenced, err := c.store.SessionFenced(ctx, c.sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if fenced {
+			return nil, session.ErrFenced
+		}
+	}
 	var specs []evaluator.Spec
 	for _, id := range ids {
 		if s, ok := findSpec(c.specs, id); ok {

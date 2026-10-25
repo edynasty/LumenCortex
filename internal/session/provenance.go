@@ -247,10 +247,18 @@ func sessionFence(ctx context.Context, q rowQuerier, sessionID string) (epoch in
 }
 
 // SourceScopeRef is the scope_ref a source-scoped fence uses for the source (kind, ref): the cited
-// side of an edge. T3 writes fences with it; edges are checked against it on commit.
+// side of an edge. Edges are checked against it on commit.
 func SourceScopeRef(kind, ref string) string { return kind + ":" + ref }
 
+// sourceFenced reports whether the source an edge cites is fenced: a source-scoped fence on it, or,
+// for a session source, a fence on that session. A revocation fences every session it reaches (T3-S1),
+// so an edge that cites one of them and commits after it - read before, committed after - is refused.
 func sourceFenced(ctx context.Context, q rowQuerier, kind, ref string) (bool, error) {
+	if kind == SourceSession {
+		if _, fenced, err := sessionFence(ctx, q, ref); err != nil || fenced {
+			return fenced, err
+		}
+	}
 	var one int
 	err := q.QueryRowContext(ctx,
 		`SELECT 1 FROM source_fences WHERE scope_kind = 'source' AND scope_ref = ? LIMIT 1`, SourceScopeRef(kind, ref)).Scan(&one)

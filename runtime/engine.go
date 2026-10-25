@@ -114,6 +114,10 @@ type Engine struct {
 	// fixedMaxAgents is set when the host passed Budget.MaxAgents: the configuration's
 	// concurrency.maxAgents is then not applied.
 	fixedMaxAgents bool
+	// runs are the loops executing in this Engine now, by session; a revocation cancels the ones it
+	// fences and waits for them (revoke.go). runsMu guards it.
+	runsMu sync.Mutex
+	runs   map[string]*trackedRun
 }
 
 type Health struct {

@@ -107,6 +107,7 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, opts AgentOptio
 
 // preparedRun is a Start whose pre-run writes are done: the loop only has to execute.
 type preparedRun struct {
+	engine    *Engine
 	loop      agent.Loop
 	loopOpts  agent.Options
 	sessionID string
@@ -115,7 +116,11 @@ type preparedRun struct {
 	info SessionInfo
 }
 
+// execute runs the loop as a tracked run of the Engine, so that a revocation in this process can
+// cancel it and wait for it to end (T3-S1).
 func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
+	ctx, done := r.engine.trackRun(ctx, r.sessionID)
+	defer done()
 	result, err := r.loop.Run(ctx, r.sessionID, r.loopOpts)
 	return AgentResult{
 		SessionID:   result.SessionID,
@@ -275,7 +280,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err != nil {
 		return nil, err
 	}
-	checks := runChecks{ev: ev, specs: plan.checks}
+	checks := runChecks{ev: ev, specs: plan.checks, store: e.store, sessionID: sessionID}
 	// Auto effort is resolved once per Start, under the run lock and before the Start transaction:
 	// the previous request and last reply are in the transcript, and a cancelled judge call leaves
 	// no new row or running session behind.
@@ -379,6 +384,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	}
 
 	return &preparedRun{
+		engine:    e,
 		sessionID: sessionID,
 		info:      sessionInfo(committed),
 		loopOpts:  loopOpts,

@@ -431,7 +431,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				r.ts.SetWorkflow(r.wf)
 			}
 			// The Task State change this result caused commits with its row (design §4.4), with the
-			// edges of the entries it wrote and of the children a subagent tool reported (T1-S5).
+			// edges of the entries it wrote and of the sessions a subagent or thread tool carried (T1-S5, T3-S1).
 			change, err := r.change(taskstate.ReasonToolPrefix + call.Name)
 			if err != nil {
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
@@ -443,7 +443,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				}
 				edges = append(edges, modelStateEdges(before, change.Next, answered.RequestID, answered.Lineage)...)
 			}
-			edges = append(edges, l.subagentEdges(ctx, call, toolResult, answered.RequestID, answered.Lineage)...)
+			edges = append(edges, l.sessionResultEdges(ctx, sessionID, call, toolResult, answered.RequestID, answered.Lineage)...)
 			messageSeq, err := l.persistToolResult(ctx, sessionID, opts.RunID, call, toolResult, change, post, edges, r)
 			if err != nil {
 				return l.exit(ctx, state, usage, *storeExit(err))
