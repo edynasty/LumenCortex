@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/edynasty/LumenCortex/protocol"
@@ -43,6 +44,11 @@ type RunStart struct {
 //   - writes the Start's Task State version and consumes the inbox edits it applied;
 //   - sets status = running and clears the previous cause and final.
 //
+// A fence on the session that no Start has projected refuses it with ErrFenced (ADR-0018 admission
+// read, one indexed read): the transaction is the Start's linearization point with a revocation, so
+// a revocation committed after the Start projected the thread's fences - while it decided its
+// constraints or resolved its effort - leaves no running session and no Task State version behind.
+//
 // All of it commits or none of it does, so a Start that fails leaves no new
 // transcript row and the session row as it was, and a Start that succeeds is
 // already running when the loop begins. It returns the session row as committed
@@ -78,6 +84,11 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 			return Session{}, nil, ErrNotFound
 		}
 		return Session{}, nil, err
+	}
+	if _, fenced, err := consumerFence(ctx, conn, sessionID); err != nil {
+		return Session{}, nil, err
+	} else if fenced {
+		return Session{}, nil, fmt.Errorf("%w: revoked before the Start committed", ErrFenced)
 	}
 	next := int64(0)
 	var newestRole sql.NullString

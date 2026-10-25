@@ -169,6 +169,10 @@ The read paths fail closed:
 - `CommitToolResult` with a fenced session or a fenced edge source stores no message, Task State or edge,
   settles the execution (lineage 0), commits that and returns `ErrFenced`. The transcript then ends in a
   tool-call gap that Reconcile closes with the interrupted-tool row.
+- `BeginRun` (the Start transaction) on a session with a fence no Start has projected writes nothing and
+  returns `ErrFenced` (added 2026-10-26): a revocation committed after the Start projected the thread -
+  while it decided its constraints (T4-S3) or resolved its effort - leaves no running session and no Task
+  State version behind (`TestRevocationBeforeTheStartTransactionRefusesTheStart`).
 
 So a revoked source cannot be revived by a new record. T3-S1 may refine the fenced branches; it cannot loosen
 the terminal states.

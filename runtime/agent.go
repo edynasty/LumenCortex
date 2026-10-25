@@ -378,6 +378,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		start.Input = &protocol.Message{Role: "user", Content: opts.Input}
 	}
 	loopOpts.Resumed = state.Status == "interrupted"
+	if testHookBeforeBeginRun != nil {
+		testHookBeforeBeginRun()
+	}
 	committed, seqs, err := e.store.BeginRun(ctx, sessionID, start)
 	if err != nil {
 		return nil, err
@@ -552,6 +555,9 @@ var (
 	testHookAfterExecAdmit   func()
 	testHookBeforeToolCommit func()
 	testHookAfterToolCommit  func()
+	// testHookBeforeBeginRun runs after the Start decided and projected everything, just before the
+	// Start transaction.
+	testHookBeforeBeginRun func()
 )
 
 func (s agentStore) AdmitExecution(ctx context.Context, a session.ExecutionAdmission) error {
