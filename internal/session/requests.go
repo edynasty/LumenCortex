@@ -119,6 +119,15 @@ func (a RequestAdmission) validate() error {
 	if a.Purpose == PurposeMain && a.FirstSeq == nil {
 		return invalid("a main request records its transcript window")
 	}
+	if a.Purpose == PurposeAutoEffort && a.FirstSeq != nil {
+		// DATA §6 CR-AJ-1: a judge's input is either one stored row or a pending digest, never both.
+		if *a.FirstSeq != *a.LastSeq {
+			return invalid("an auto_effort request names one stored input row, not %d..%d", *a.FirstSeq, *a.LastSeq)
+		}
+		if a.PendingInputDigest != "" {
+			return invalid("an auto_effort request names its input by a stored row or a pending digest, not both")
+		}
+	}
 	if err := checkDigest("pending input digest", a.PendingInputDigest); err != nil {
 		return err
 	}
@@ -438,6 +447,40 @@ func (s *Store) Request(ctx context.Context, requestID string) (RequestEnvelope,
 	e.LineageComplete = complete == 1
 	e.CreatedAt, e.UpdatedAt = parseTime(created), parseTime(updated)
 	return e, nil
+}
+
+// RequestsExposing returns, in admission order, the ids of the session's requests that may have
+// carried the transcript row seq to a provider: a main request whose window covers it, an
+// auto_effort judge that saw it as context or as its stored input, or a judge whose pending input
+// had contentDigest (the "sha256:<hex>" of the row's text; "" skips that match). A failed request
+// was never sent and exposes nothing. A digest that matches a duplicate text over-reports, which is
+// the safe direction (DATA §6 CR-AJ-1).
+func (s *Store) RequestsExposing(ctx context.Context, sessionID string, seq int64, contentDigest string) ([]string, error) {
+	if contentDigest != "" {
+		if err := checkDigest("content digest", contentDigest); err != nil {
+			return nil, err
+		}
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT request_id FROM request_envelopes
+		WHERE session_id = ? AND state <> ?
+		  AND ((first_seq IS NOT NULL AND first_seq <= ? AND ? <= last_seq)
+		    OR prev_user_seq = ? OR last_assistant_seq = ?
+		    OR (? <> '' AND pending_input_digest = ?))
+		ORDER BY created_at, request_id`,
+		sessionID, string(RequestFailed), seq, seq, seq, seq, contentDigest, contentDigest)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func int64Ptr(n sql.NullInt64) *int64 {

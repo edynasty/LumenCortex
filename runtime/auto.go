@@ -42,6 +42,9 @@ type autoTurn struct {
 	// pendingInputDigest is the digest of newInput when BeginRun has not stored it yet, and "" when
 	// newInput is already a transcript row.
 	pendingInputDigest string
+	// inputSeq is the seq of newInput when it is already a transcript row (a fresh session's goal),
+	// and nil otherwise. At most one of inputSeq and pendingInputDigest is set (DATA §6 CR-AJ-1).
+	inputSeq *int64
 }
 
 // resolveAutoEffort resolves "auto" for one Start. It runs under the run lock before the Start
@@ -168,10 +171,13 @@ func (e *Engine) admitAutoJudge(ctx context.Context, sessionID, runID string, tu
 	adm := session.RequestAdmission{
 		RequestID: id, SessionID: sessionID, RunID: runID, Purpose: session.PurposeAutoEffort,
 		PrevUserSeq: turn.prevUserSeq, LastAssistantSeq: turn.lastAssistantSeq,
+		// The judge's input is named by exactly one pointer: the stored row as a one-row window, or
+		// the digest of the input BeginRun has not stored yet. A turn without new input has neither.
+		FirstSeq: turn.inputSeq, LastSeq: turn.inputSeq,
 		PendingInputDigest: turn.pendingInputDigest,
-		// The judge request has no Task State, system layer or tool: its context is the two seqs,
-		// and its input is either the digest above or the turn's stored user row.
-		LineageComplete: true,
+		// The judge request has no Task State, system layer or tool: its context is the two seqs. An
+		// input that no pointer names makes the envelope incomplete rather than claim a full lineage.
+		LineageComplete: turn.newInput == "" || turn.inputSeq != nil || turn.pendingInputDigest != "",
 	}
 	if _, err := e.store.AdmitRequest(ctx, adm); err != nil {
 		return "", err
@@ -266,8 +272,10 @@ func classifyTurn(rows []session.Message, input string) (autoTurn, error) {
 		return turn, nil
 	}
 	// A fresh session writes its goal as the first user row; it is this turn's input, already
-	// stored, so there is no pending input.
+	// stored, so there is no pending input and the envelope names that row.
 	turn.newInput = messages[lastUser].content
+	inputSeq := messages[lastUser].seq
+	turn.inputSeq = &inputSeq
 	turn.prevUser = ""
 	turn.prevUserSeq = nil
 	if previousUser >= 0 {
