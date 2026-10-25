@@ -74,10 +74,13 @@ type Hit struct {
 
 // NoteHit is a note as a reader sees it, with each cite's freshness.
 type NoteHit struct {
-	ID    string     `json:"id"`
-	By    string     `json:"by"`
-	Text  string     `json:"text"`
-	Cites []CiteView `json:"cites,omitempty"`
+	ID   string `json:"id"`
+	By   string `json:"by"`
+	Text string `json:"text"`
+	// NeedsReview marks the user's rewrite of agent text: Cites are then the agent's sources it
+	// replaced, to re-check, and the text is not an independent user decision (plan T1-S5).
+	NeedsReview bool       `json:"needsReview,omitempty"`
+	Cites       []CiteView `json:"cites,omitempty"`
 	// Stale is true when any cited file changed or is gone in the reader's workspace (ADR-0010 D4).
 	Stale bool `json:"stale,omitempty"`
 }
@@ -107,12 +110,13 @@ type field struct {
 func fields(t Thread) []field {
 	out := []field{{wObjective, t.Goal + "\n" + t.Brief, -1}}
 	for i, n := range t.Notes {
+		// A user rewrite of agent text ranks as agent text: the user chose the wording, not the facts.
 		w := wAgentNote
-		if n.By == taskstate.ByUser {
+		if n.By == taskstate.ByUser && !n.NeedsReview() {
 			w = wUserNote
 		}
 		text := n.Text
-		for _, c := range n.Cites {
+		for _, c := range n.Sources() {
 			text += " " + c.Path
 		}
 		out = append(out, field{w, text, i})
@@ -241,18 +245,19 @@ func topNotes(notes []taskstate.Note, scores map[int]float64) []NoteHit {
 
 // NoteView is a note as a reader sees it; freshness is filled in by the caller (MarkStale).
 func NoteView(n taskstate.Note) NoteHit {
-	v := NoteHit{ID: n.ID, By: n.By, Text: n.Text}
-	for _, c := range n.Cites {
+	v := NoteHit{ID: n.ID, By: n.By, Text: n.Text, NeedsReview: n.NeedsReview()}
+	for _, c := range n.Sources() {
 		v.Cites = append(v.Cites, CiteView{Path: c.Path})
 	}
 	return v
 }
 
 // MarkStale sets each cite's freshness from the reader's current blobs: a cite is stale when its path
-// is not a file now (blob "") or its blob differs from the recorded one (ADR-0010 D4).
+// is not a file now (blob "") or its blob differs from the recorded one (ADR-0010 D4). The path+blob
+// rule is the read-only currency check later readers reuse (plan T1-S5 step 4).
 func MarkStale(v *NoteHit, n taskstate.Note, current map[string]string) {
 	v.Stale = false
-	for i, c := range n.Cites {
+	for i, c := range n.Sources() {
 		if i >= len(v.Cites) {
 			break
 		}

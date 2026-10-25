@@ -97,9 +97,11 @@ const (
 	SourceSession = "session"
 	SourceFile    = "file"
 	SourceCheck   = "check"
+	// SourceMessage names an entry or row of the same session, such as a Task State entry ref.
+	SourceMessage = "message"
 )
 
-var knownSourceKinds = map[string]bool{SourceRequest: true, SourceSession: true, SourceFile: true, SourceCheck: true, "message": true, "artifact": true, "execution": true}
+var knownSourceKinds = map[string]bool{SourceRequest: true, SourceSession: true, SourceFile: true, SourceCheck: true, SourceMessage: true, "artifact": true, "execution": true}
 
 var (
 	idRE     = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)

@@ -48,6 +48,9 @@ func Render(goal string, s State, wf *workflow.Runtime) string {
 			if r.Note != "" {
 				fmt.Fprintf(&b, " — %s", r.Note)
 			}
+			if r.NeedsReview() {
+				b.WriteString(" (taken over from an agent suggestion: needs review)")
+			}
 			b.WriteString("\n")
 		}
 	}
@@ -149,19 +152,34 @@ func renderUnits(b *strings.Builder, m *WorkUnitManager) {
 // renderNotes lists the notes newest first within notesRenderBytes; the ones that do not fit are
 // counted. Each line names the author, so the model can tell its own notes from the user's.
 func renderNotes(b *strings.Builder, notes []Note) {
-	b.WriteString("\nNotes (kept while older messages leave the window; [user] notes are the user's, [agent] notes were written with note_write):\n")
+	b.WriteString("\nNotes (kept while older messages leave the window; [user] notes are the user's, [agent] notes were written with note_write")
+	for _, n := range notes {
+		if n.NeedsReview() {
+			b.WriteString(", [user edit of agent text, needs review] notes are the user's wording of agent text: re-check their sources before relying on them")
+			break
+		}
+	}
+	b.WriteString("):\n")
 	used, shown := 0, 0
 	for i := len(notes) - 1; i >= 0; i-- {
 		n := notes[i]
-		line := fmt.Sprintf("- %s [%s]: %s", n.ID, n.By, n.Text)
-		if len(n.Cites) > 0 {
-			paths := make([]string, len(n.Cites))
-			for j, c := range n.Cites {
+		by := n.By
+		if n.NeedsReview() {
+			by = "user edit of agent text, needs review"
+		}
+		line := fmt.Sprintf("- %s [%s]: %s", n.ID, by, n.Text)
+		label, cites := "cites", n.Cites
+		if len(cites) == 0 && len(n.Review) > 0 {
+			label, cites = "review", n.Review
+		}
+		if len(cites) > 0 {
+			paths := make([]string, len(cites))
+			for j, c := range cites {
 				paths[j] = c.Path
 			}
 			// Paths may be up to 1 KiB each; the cut keeps every line well under the notes budget, so
 			// the newest note is always shown and only older ones are counted.
-			line += " (cites " + truncate(strings.Join(paths, ", "), maxRenderedCitesBytes) + ")"
+			line += " (" + label + " " + truncate(strings.Join(paths, ", "), maxRenderedCitesBytes) + ")"
 		}
 		line += "\n"
 		if used+len(line) > notesRenderBytes {

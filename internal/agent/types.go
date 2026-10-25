@@ -30,14 +30,19 @@ type SessionPatch struct {
 }
 
 // TaskStateChange is the Task State version a write commits: Next.Version is its base, and the store
-// writes base+1 with Reason. InboxThrough, when positive, consumes the inbox edits Next applied.
+// writes base+1 with Reason. InboxThrough, when positive, consumes the inbox edits Next applied. Edges
+// are the derived edges of the entries the version introduces, committed with it (HostStateEdges).
 type TaskStateChange struct {
 	Reason       string
 	Next         taskstate.State
 	InboxThrough int64
+	Edges        []session.DerivedEdge
 }
 
 type Store interface {
+	// NewestMessageSeq is the seq of the session's newest transcript row, -1 when it has none. The
+	// loop reads it for a child a subagent tool reported, to name the child's state it derived from.
+	NewestMessageSeq(ctx context.Context, sessionID string) (int64, error)
 	Get(context.Context, string) (SessionState, error)
 	// Transcript calls fn with every row whose seq is at least fromSeq, oldest first.
 	Transcript(ctx context.Context, sessionID string, fromSeq int64, fn func(seq int64, m protocol.Message) error) error

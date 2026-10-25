@@ -467,7 +467,7 @@ func (e *Engine) ApproveWorkflowGate(ctx context.Context, sessionID, gateID, act
 		return nil, err
 	}
 	state.SetWorkflow(wf)
-	if _, err := e.putTaskState(ctx, sessionID, taskstate.ReasonUser, state, 0); err != nil {
+	if _, err := e.putTaskState(ctx, sessionID, taskstate.ReasonUser, state, 0, nil); err != nil {
 		return nil, err
 	}
 	e.events.publish("workflow.approved", sessionID, map[string]any{
@@ -598,6 +598,10 @@ func (s agentStore) TaskState(ctx context.Context, id string) (taskstate.State, 
 		return taskstate.State{}, err
 	}
 	return taskstate.Decode(row.Version, row.JSON)
+}
+
+func (s agentStore) NewestMessageSeq(ctx context.Context, id string) (int64, error) {
+	return s.store.NewestMessageSeq(ctx, id)
 }
 
 func (s agentStore) InboxEdits(ctx context.Context, id string) ([]taskstate.QueuedEdit, error) {

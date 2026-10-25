@@ -136,7 +136,7 @@ func (e *Engine) ResetContext(ctx context.Context, sessionID string) (TaskStateI
 	}
 	if next > state.WindowStartSeq {
 		state.WindowStartSeq = next
-		if _, err := e.putTaskState(ctx, sessionID, taskstate.ReasonContextReset, state, 0); err != nil {
+		if _, err := e.putTaskState(ctx, sessionID, taskstate.ReasonContextReset, state, 0, nil); err != nil {
 			return TaskStateInfo{}, err
 		}
 	}
@@ -171,14 +171,15 @@ func queuedEdits(rows []session.InboxRow) []taskstate.QueuedEdit {
 	return out
 }
 
-// putTaskState writes state as the next version on its own; the caller holds the run lock.
-func (e *Engine) putTaskState(ctx context.Context, sessionID, reason string, state taskstate.State, inboxThrough int64) (int64, error) {
+// putTaskState writes state as the next version on its own, with the derived edges of the entries it
+// introduces; the caller holds the run lock.
+func (e *Engine) putTaskState(ctx context.Context, sessionID, reason string, state taskstate.State, inboxThrough int64, edges []session.DerivedEdge) (int64, error) {
 	raw, err := state.Encode()
 	if err != nil {
 		return 0, err
 	}
 	version, err := e.store.PutTaskState(ctx, sessionID, session.TaskStateWrite{
-		Base: state.Version, Reason: reason, JSON: raw, InboxThrough: inboxThrough,
+		Base: state.Version, Reason: reason, JSON: raw, InboxThrough: inboxThrough, Edges: edges,
 	})
 	if err != nil {
 		return 0, err
@@ -238,6 +239,7 @@ func (e *Engine) latchEvidence(ctx context.Context, sessionID, reason string) {
 		fail(err)
 		return
 	}
+	before := state.Clone()
 	state.Apply(edits)
 	ev, err := e.taskEvidence(ctx, sessionID, state)
 	if err != nil {
@@ -251,7 +253,7 @@ func (e *Engine) latchEvidence(ctx context.Context, sessionID, reason string) {
 	if len(edits) > 0 {
 		through = edits[len(edits)-1].Seq
 	}
-	if _, err := e.putTaskState(ctx, sessionID, reason, state, through); err != nil {
+	if _, err := e.putTaskState(ctx, sessionID, reason, state, through, agent.HostStateEdges(before, state)); err != nil {
 		fail(err)
 		return
 	}
@@ -319,6 +321,7 @@ func (e *Engine) startTaskState(ctx context.Context, sessionID string, opts Agen
 	if err != nil {
 		return nil, nil, err
 	}
+	before := state.Clone()
 	seeded, err := state.Seed(opts.Workflow, opts.WorkUnits)
 	if err != nil {
 		return nil, nil, err
@@ -346,7 +349,9 @@ func (e *Engine) startTaskState(ctx context.Context, sessionID string, opts Agen
 	if through == 0 && bytes.Equal(raw, stored) {
 		return nil, nil, nil
 	}
-	return &session.TaskStateWrite{Base: state.Version, Reason: taskstate.ReasonStart, JSON: raw, InboxThrough: through}, results, nil
+	// The edges of the user's rewrites the edits made and of the task results delivered commit with
+	// this version, in the Start transaction (plan T1-S5).
+	return &session.TaskStateWrite{Base: state.Version, Reason: taskstate.ReasonStart, JSON: raw, InboxThrough: through, Edges: agent.HostStateEdges(before, state)}, results, nil
 }
 
 // agentTaskStateChange converts the loop's change to the store's write.
@@ -358,7 +363,7 @@ func agentTaskStateChange(change *agent.TaskStateChange) (*session.TaskStateWrit
 	if err != nil {
 		return nil, err
 	}
-	return &session.TaskStateWrite{Base: change.Next.Version, Reason: change.Reason, JSON: raw, InboxThrough: change.InboxThrough}, nil
+	return &session.TaskStateWrite{Base: change.Next.Version, Reason: change.Reason, JSON: raw, InboxThrough: change.InboxThrough, Edges: change.Edges}, nil
 }
 
 // errNoWorkflow: the session has no workflow to approve a gate of.

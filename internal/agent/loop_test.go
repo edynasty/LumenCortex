@@ -220,6 +220,11 @@ func (s *memoryStore) NextStep(context.Context, string) (int64, error) {
 	defer s.mu.Unlock()
 	return int64(len(s.steps)) + 1, nil
 }
+func (s *memoryStore) NewestMessageSeq(context.Context, string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return int64(len(s.messages)) - 1, nil
+}
 func (s *memoryStore) TaskState(context.Context, string) (taskstate.State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

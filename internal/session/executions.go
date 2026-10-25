@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/edynasty/LumenCortex/protocol"
@@ -214,6 +216,9 @@ func (c ToolCommit) validate() error {
 			return err
 		}
 	}
+	if c.TaskState != nil {
+		return c.TaskState.validateEdges()
+	}
 	return nil
 }
 
@@ -236,10 +241,17 @@ func (s *Store) CommitToolResult(ctx context.Context, c ToolCommit) (int64, int6
 	if err != nil {
 		return 0, 0, err
 	}
-	edges, cut := c.Edges, false
-	if len(edges) > MaxEdgesPerCommit {
-		edges, cut = edges[:MaxEdgesPerCommit], true
+	// The Task State version's edges are the tool result's edges too: one list is fence-checked, cut
+	// and stored, so the version is written without its own.
+	edges := c.Edges
+	var taskState *TaskStateWrite
+	if c.TaskState != nil {
+		w := *c.TaskState
+		edges = append(append([]DerivedEdge(nil), c.Edges...), w.Edges...)
+		w.Edges = nil
+		taskState = &w
 	}
+	cut := len(edges) > MaxEdgesPerCommit
 	var seq, version int64
 	err = s.writeTx(ctx, func(conn *sql.Conn) error {
 		if err := sessionExists(ctx, conn, c.SessionID); err != nil {
@@ -280,8 +292,8 @@ func (s *Store) CommitToolResult(ctx context.Context, c ToolCommit) (int64, int6
 		if seq, err = appendMessageRow(ctx, conn, c.SessionID, "tool", raw); err != nil {
 			return err
 		}
-		if c.TaskState != nil {
-			if version, err = putTaskState(ctx, conn, c.SessionID, *c.TaskState); err != nil {
+		if taskState != nil {
+			if version, err = putTaskState(ctx, conn, c.SessionID, *taskState); err != nil {
 				return err
 			}
 		}
@@ -289,22 +301,85 @@ func (s *Store) CommitToolResult(ctx context.Context, c ToolCommit) (int64, int6
 		if c.Execution != nil {
 			execID = c.Execution.ExecutionID
 		}
-		at := now()
-		for _, e := range edges {
-			if _, err := conn.ExecContext(ctx, `INSERT INTO derived_origins(
-				session_id, run_id, kind, target_ref, source_kind, source_ref, origin_class, derived_from, lineage_complete, execution_id, created_at, updated_at)
-				VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				c.SessionID, nullString(c.RunID), e.Kind, e.TargetRef, e.SourceKind, e.SourceRef, e.OriginClass, nullString(e.DerivedFrom),
-				boolInt(e.LineageComplete && !cut), nullString(execID), at, at); err != nil {
-				return err
-			}
-		}
-		return nil
+		return insertEdges(ctx, conn, c.SessionID, c.RunID, execID, edges)
 	})
 	if err != nil {
 		return 0, 0, err
 	}
 	return seq, version, nil
+}
+
+// insertEdges stores the derived edges of one commit. More than MaxEdgesPerCommit are cut and every
+// stored edge is then lineage-incomplete. An edge is also stored incomplete when its source is not
+// (inheritedLineage): incompleteness propagates forward, so a rewrite or a copy never lands complete
+// on top of an incomplete or unrecorded source. The caller validated the edges and re-read the fences
+// in the same transaction.
+func insertEdges(ctx context.Context, q querier, sessionID, runID, execID string, edges []DerivedEdge) error {
+	cut := len(edges) > MaxEdgesPerCommit
+	if cut {
+		edges = edges[:MaxEdgesPerCommit]
+	}
+	at := now()
+	for _, e := range edges {
+		complete := e.LineageComplete && !cut
+		if complete {
+			inherited, err := inheritedLineage(ctx, q, sessionID, e)
+			if err != nil {
+				return err
+			}
+			complete = inherited
+		}
+		if _, err := q.ExecContext(ctx, `INSERT INTO derived_origins(
+			session_id, run_id, kind, target_ref, source_kind, source_ref, origin_class, derived_from, lineage_complete, execution_id, created_at, updated_at)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			sessionID, nullString(runID), e.Kind, e.TargetRef, e.SourceKind, e.SourceRef, e.OriginClass, nullString(e.DerivedFrom),
+			boolInt(complete), nullString(execID), at, at); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// inheritedLineage is the lineage of an edge's source, read in the commit's transaction:
+//   - source kind "message" names an entry or row of the same session (a Task State entry ref): it is
+//     complete only when the session records at least one edge to it and every such edge is complete,
+//     so an entry written before provenance existed (no edge) is incomplete;
+//   - source kind "session" names another session (a child): it is complete only when that session's
+//     newest answered main request at or before the seq of DerivedFrom ("session:<id>@<seq>") is, so a
+//     child with no recorded request, or a deleted one, is incomplete;
+//   - any other source (a request, a file, a check) carries its own lineage in the edge.
+//
+// Both reads use an index on session_id and are bounded by one session's rows.
+func inheritedLineage(ctx context.Context, q querier, sessionID string, e DerivedEdge) (bool, error) {
+	switch e.SourceKind {
+	case SourceMessage:
+		var n, incomplete int64
+		if err := q.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(lineage_complete = 0), 0) FROM derived_origins
+			WHERE session_id = ? AND kind = 'message' AND target_ref = ?`, sessionID, e.SourceRef).Scan(&n, &incomplete); err != nil {
+			return false, err
+		}
+		return n > 0 && incomplete == 0, nil
+	case SourceSession:
+		seq := int64(-1)
+		if i := strings.LastIndexByte(e.DerivedFrom, '@'); i >= 0 {
+			if v, err := strconv.ParseInt(e.DerivedFrom[i+1:], 10, 64); err == nil {
+				seq = v
+			}
+		}
+		if seq < 0 {
+			return false, nil
+		}
+		var complete int
+		err := q.QueryRowContext(ctx, `SELECT lineage_complete FROM request_envelopes
+			WHERE session_id = ? AND state = 'answered' AND purpose = ? AND answered_seq <= ?
+			ORDER BY answered_seq DESC LIMIT 1`, e.SourceRef, PurposeMain, seq).Scan(&complete)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return complete == 1, err
+	default:
+		return true, nil
+	}
 }
 
 // commitFenced reports whether the session or the source of any edge is fenced.

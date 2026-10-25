@@ -52,6 +52,11 @@ type RunStart struct {
 // COMMIT runs without the caller's cancellation: once BeginRun returns, the commit
 // is known to have happened, and an error means it did not.
 func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) (Session, []int64, error) {
+	if start.TaskState != nil {
+		if err := start.TaskState.validateEdges(); err != nil {
+			return Session{}, nil, err
+		}
+	}
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return Session{}, nil, err

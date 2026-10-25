@@ -197,11 +197,13 @@ func (s *RunSupervisor) StartProposedTask(ctx context.Context, parentID, taskID 
 		return ExecutionTask{}, err
 	}
 	now := time.Now().UTC()
+	before := state.Clone()
 	if err := state.StartTask(taskID, started.SessionID, now); err != nil {
 		return started, err
 	}
 	state.Reopen(now)
-	if _, err := e.putTaskState(ctx, parentID, taskstate.ReasonUser, state, 0); err != nil {
+	// The child's objective is the proposal's text: its edge derives the child from the proposal entry.
+	if _, err := e.putTaskState(ctx, parentID, taskstate.ReasonUser, state, 0, agent.HostStateEdges(before, state)); err != nil {
 		// The child runs; a retry finds it through its relation and records it.
 		return started, fmt.Errorf("task %s started as %s but recording it failed: %w", taskID, started.SessionID, err)
 	}

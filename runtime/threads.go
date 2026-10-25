@@ -199,7 +199,7 @@ func (e *Engine) recall(ctx context.Context, query string, limit int, exclude, w
 func markNotes(ctx context.Context, workspace string, notes []taskstate.Note, views []ThreadNote) error {
 	var paths []string
 	for _, n := range notes {
-		for _, c := range n.Cites {
+		for _, c := range n.Sources() {
 			paths = append(paths, c.Path)
 		}
 	}

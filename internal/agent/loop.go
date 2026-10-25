@@ -430,11 +430,20 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				}
 				r.ts.SetWorkflow(r.wf)
 			}
-			// The Task State change this result caused commits with its row (design §4.4).
+			// The Task State change this result caused commits with its row (design §4.4), with the
+			// edges of the entries it wrote and of the children a subagent tool reported (T1-S5).
 			change, err := r.change(taskstate.ReasonToolPrefix + call.Name)
 			if err != nil {
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 			}
+			if change != nil {
+				before, err := taskstate.Decode(0, r.saved)
+				if err != nil {
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+				}
+				edges = append(edges, modelStateEdges(before, change.Next, answered.RequestID, answered.Lineage)...)
+			}
+			edges = append(edges, l.subagentEdges(ctx, call, toolResult, answered.RequestID, answered.Lineage)...)
 			messageSeq, err := l.persistToolResult(ctx, sessionID, opts.RunID, call, toolResult, change, post, edges, r)
 			if err != nil {
 				return l.exit(ctx, state, usage, *storeExit(err))
@@ -487,8 +496,9 @@ func (l *Loop) applyInbox(ctx context.Context, sessionID string, r *run) error {
 	if err != nil || len(edits) == 0 {
 		return err
 	}
+	before := r.ts.Clone()
 	r.ts.Apply(edits)
-	change := &TaskStateChange{Reason: taskstate.ReasonUser, Next: r.ts, InboxThrough: edits[len(edits)-1].Seq}
+	change := &TaskStateChange{Reason: taskstate.ReasonUser, Next: r.ts, InboxThrough: edits[len(edits)-1].Seq, Edges: HostStateEdges(before, r.ts)}
 	if err := l.putTaskState(ctx, sessionID, r, change); err != nil {
 		return err
 	}

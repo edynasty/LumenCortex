@@ -35,11 +35,30 @@ var (
 
 // Note is one Task State note.
 type Note struct {
-	ID    string    `json:"id"`
-	Text  string    `json:"text"`
-	By    string    `json:"by"`
-	Cites []Cite    `json:"cites,omitempty"`
-	At    time.Time `json:"at"`
+	ID    string `json:"id"`
+	Text  string `json:"text"`
+	By    string `json:"by"`
+	Cites []Cite `json:"cites,omitempty"`
+	// From is set when the user rewrote agent text: the entry ref (EntryRef) of the version this one
+	// replaced. The note is the user's wording of something an agent wrote, not an independent user
+	// decision; its provenance continues through the derived edge to From (ADR-0018, plan T1-S5).
+	From string `json:"from,omitempty"`
+	// Review are the cites of the agent text a user rewrite replaced: sources to re-check, never
+	// evidence for the user's text.
+	Review []Cite    `json:"review,omitempty"`
+	At     time.Time `json:"at"`
+}
+
+// NeedsReview reports a user rewrite of agent text.
+func (n Note) NeedsReview() bool { return n.From != "" }
+
+// Sources are the cites a reader checks for freshness: the note's own, or for a user rewrite of agent
+// text the agent's cites it replaced.
+func (n Note) Sources() []Cite {
+	if len(n.Cites) > 0 {
+		return n.Cites
+	}
+	return n.Review
 }
 
 // Cite is a workspace path a note refers to and the git blob it had when the note was written. Blob is
@@ -221,8 +240,16 @@ func (s *State) setNote(e NoteEdit, at time.Time) {
 			return // applied already
 		}
 	} else if i >= 0 {
-		// The user's text replaces the note; its cites were the agent's evidence for other text.
-		s.Notes[i] = Note{ID: e.ID, Text: text, By: ByUser, At: at}
+		// The user's text replaces the note. Its cites were the agent's evidence for other text, so
+		// they are kept only as sources to review; a rewrite of agent text (or of an earlier such
+		// rewrite) names the version it replaced, so the agent's provenance is not laundered into a
+		// user decision.
+		prior := s.Notes[i]
+		n := Note{ID: e.ID, Text: text, By: ByUser, At: at}
+		if prior.By == ByAgent || prior.NeedsReview() {
+			n.From, n.Review = EntryRef(EntryNote, prior.ID, prior), prior.Sources()
+		}
+		s.Notes[i] = n
 		return
 	} else if e.ID != "" {
 		return // the note was removed in between
