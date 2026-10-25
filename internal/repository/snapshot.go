@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -123,24 +122,21 @@ type WorkspaceSnapshot struct {
 	digest  string
 }
 
-// SnapshotWorkspace runs one bounded `git status` and one `git rev-parse HEAD`, both read-only.
+// SnapshotWorkspace runs one bounded, read-only `git status --porcelain=v2 --branch`: its
+// `# branch.oid` header is HEAD and its entries are the listed paths, read by the same process.
 func (s *Service) SnapshotWorkspace(ctx context.Context) WorkspaceSnapshot {
-	raw, truncated, err := runBoundedEnv(ctx, s.workspace, MaxStatusBytes, readOnlyGit, "git", "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	raw, truncated, err := runBoundedEnv(ctx, s.workspace, MaxStatusBytes, readOnlyGit, snapshotGit(),
+		"status", "--porcelain=v2", "-z", "--branch", "--no-ahead-behind", "--untracked-files=all")
 	if err != nil {
 		return WorkspaceSnapshot{}
 	}
-	head, _, err := runBoundedEnv(ctx, s.workspace, 256, readOnlyGit, "git", "rev-parse", "--verify", "-q", "HEAD")
-	if err != nil {
-		// `rev-parse -q --verify HEAD` exits 1 without output when HEAD names no commit yet; any other
-		// failure leaves HEAD unknown, and a snapshot without HEAD cannot see a commit.
-		var exit *exec.ExitError
-		if !errors.As(err, &exit) || exit.ExitCode() != 1 || ctx.Err() != nil {
-			return WorkspaceSnapshot{}
-		}
-		head = nil
+	head, entries, ok := parseStatusV2(raw)
+	if !ok {
+		// No `# branch.oid` header: HEAD is unknown, and a snapshot without HEAD cannot see a commit.
+		return WorkspaceSnapshot{}
 	}
-	snap := WorkspaceSnapshot{OK: true, Complete: !truncated, Head: strings.TrimSpace(string(head)), entries: map[string]string{}}
-	for _, f := range parseStatus(raw) {
+	snap := WorkspaceSnapshot{OK: true, Complete: !truncated, Head: head, entries: map[string]string{}}
+	for _, f := range entries {
 		token := f.Index + f.Worktree + " " + BlobAbsent
 		if info, err := os.Lstat(filepath.Join(s.workspace, filepath.FromSlash(f.Path))); err == nil {
 			token = fmt.Sprintf("%s%s %d %d", f.Index, f.Worktree, info.Size(), info.ModTime().UnixNano())
@@ -159,6 +155,52 @@ func (s *Service) SnapshotWorkspace(ctx context.Context) WorkspaceSnapshot {
 	}
 	snap.digest = hex.EncodeToString(h.Sum(nil))
 	return snap
+}
+
+// parseStatusV2 reads `git status --porcelain=v2 -z --branch` output: HEAD from `# branch.oid` (""
+// for an unborn branch) and one entry per listed path with v1-style status letters (' ' for v2's
+// '.'). A rename or copy lists both its new path and its source path, so a `git mv` is seen at both
+// ends. ok is false without a `# branch.oid` header. A last entry cut by the output bound is read as
+// far as it goes; the caller marks such a snapshot incomplete.
+func parseStatusV2(raw []byte) (head string, files []GitFileStatus, ok bool) {
+	parts := strings.Split(string(raw), "\x00")
+	add := func(xy, path string) {
+		if len(xy) != 2 || path == "" {
+			return
+		}
+		x, y := strings.ReplaceAll(xy[:1], ".", " "), strings.ReplaceAll(xy[1:], ".", " ")
+		files = append(files, GitFileStatus{Path: filepath.ToSlash(path), Index: x, Worktree: y})
+	}
+	for i := 0; i < len(parts); i++ {
+		item := parts[i]
+		switch {
+		case strings.HasPrefix(item, "# branch.oid "):
+			oid := strings.TrimPrefix(item, "# branch.oid ")
+			if oid == "(initial)" {
+				oid = ""
+			}
+			head, ok = oid, true
+		case strings.HasPrefix(item, "1 "):
+			if f := strings.SplitN(item, " ", 9); len(f) == 9 {
+				add(f[1], f[8])
+			}
+		case strings.HasPrefix(item, "2 "):
+			if f := strings.SplitN(item, " ", 10); len(f) == 10 {
+				add(f[1], f[9])
+				if i+1 < len(parts) {
+					i++
+					add(f[1], parts[i])
+				}
+			}
+		case strings.HasPrefix(item, "u "):
+			if f := strings.SplitN(item, " ", 11); len(f) == 11 {
+				add(f[1], f[10])
+			}
+		case strings.HasPrefix(item, "? "):
+			add("??", item[2:])
+		}
+	}
+	return head, files, ok
 }
 
 // Ref names the snapshot: HEAD and a digest of the listed paths with their tokens. It is "" for a
