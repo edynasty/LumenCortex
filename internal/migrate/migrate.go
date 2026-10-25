@@ -52,6 +52,13 @@ var ErrLegacyNodeDatabase = errors.New("database was created by the legacy Node 
 // ErrNoDownMigration means a requested downgrade crosses a version that has no down file.
 var ErrNoDownMigration = errors.New("no down migration")
 
+// ErrLiveFences means a downgrade would drop the source_fences table while it holds a fence that is not
+// cleaned (a committed revocation or an unfinished privacy cleanup).
+var ErrLiveFences = errors.New("database holds revocation or privacy fences that a downgrade would discard")
+
+// fencesVersion is the schema version that adds source_fences (0006).
+const fencesVersion = 6
+
 // LockWait bounds how long Open and Downgrade wait for db.lock. Tests shorten it.
 var LockWait = 30 * time.Second
 
@@ -216,11 +223,7 @@ func checkVersion(ctx context.Context, path string, latest int) (int, error) {
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return 0, nil
 	}
-	source := fmt.Sprintf("file:%s?mode=ro&_busy_timeout=%d", filepath.ToSlash(path), busyTimeoutMS)
-	if _, err := os.Stat(path + "-wal"); errors.Is(err, fs.ErrNotExist) {
-		source = dsn(path)
-	}
-	db, err := sql.Open("sqlite3", source)
+	db, err := sql.Open("sqlite3", readOnlySource(path))
 	if err != nil {
 		return 0, err
 	}
@@ -239,6 +242,35 @@ func checkVersion(ctx context.Context, path string, latest int) (int, error) {
 		}
 	}
 	return v, nil
+}
+
+// readOnlySource opens a database for a check that must not change it: read-only when a WAL exists,
+// which a read-only connection leaves in place, and read-write otherwise, which with no frames writes
+// nothing (checkVersion).
+func readOnlySource(path string) string {
+	if _, err := os.Stat(path + "-wal"); errors.Is(err, fs.ErrNotExist) {
+		return dsn(path)
+	}
+	return fmt.Sprintf("file:%s?mode=ro&_busy_timeout=%d", filepath.ToSlash(path), busyTimeoutMS)
+}
+
+// refuseLiveFences returns ErrLiveFences when the database at version v holds a fence that is not
+// cleaned. It reads through the same no-write connection as checkVersion.
+func refuseLiveFences(ctx context.Context, path string, v int) error {
+	db, err := sql.Open("sqlite3", readOnlySource(path))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM source_fences WHERE state <> 'cleaned'`).Scan(&n); err != nil {
+		return fmt.Errorf("read source fences: %w", err)
+	}
+	if n > 0 {
+		return fmt.Errorf("%w: %d fences are active or awaiting cleanup; database stays at version %d", ErrLiveFences, n, v)
+	}
+	return nil
 }
 
 // useWAL puts the database in WAL mode, as core always has. It writes the header only when the file
@@ -429,7 +461,9 @@ func finishAfterFailure(conn *sql.Conn, stateDir string, kind markerKind) {
 // transaction, after the same exclusive db.lock and backup as an upgrade. It returns the version the
 // database had and the one it has now. `to` equal to the current version changes nothing. A version
 // without a down file cannot be undone: the request is refused before the backup, with the database
-// untouched. A database newer than this binary is refused with ErrSchemaTooNew.
+// untouched. A database newer than this binary is refused with ErrSchemaTooNew. A downgrade below the
+// version that holds source fences is refused with ErrLiveFences while a fence is not cleaned: it would
+// drop a committed revocation or an unfinished privacy cleanup (DATA §7), so it is refused the same way.
 func Downgrade(ctx context.Context, stateDir string, set *Set, to int) (from, now int, err error) {
 	path := filepath.Join(stateDir, dbFile)
 	if err := statExisting(path); err != nil {
@@ -456,6 +490,12 @@ func Downgrade(ctx context.Context, stateDir string, set *Set, to int) (from, no
 	for i := v; i > to; i-- {
 		if _, ok := set.down[i]; !ok {
 			return v, v, fmt.Errorf("%w for version %04d (%s): database stays at version %d", ErrNoDownMigration, i, set.up[i-1].name, v)
+		}
+	}
+	if v >= fencesVersion && to < fencesVersion {
+		// Under the exclusive lock no Engine can add a fence between this read and the down migration.
+		if err := refuseLiveFences(ctx, path, v); err != nil {
+			return v, v, err
 		}
 	}
 

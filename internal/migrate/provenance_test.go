@@ -281,9 +281,10 @@ func TestV6DownRoundTrip(t *testing.T) {
 
 	set := embeddedUpTo(t, 6)
 	closeWS(t, open(t, dir, set))
-	// v6-only rows exist while at version 6; they are lost by design, everything else must survive.
+	// v6-only rows exist while at version 6; they are lost by design, everything else must survive. The
+	// fence is a cleaned one: an active fence refuses the downgrade (fence_downgrade_test.go).
 	v6 := inspect(t, path)
-	mustExec(t, v6, `INSERT INTO source_fences(scope_kind, scope_ref, epoch, reason, state, created_at, updated_at) VALUES('session','x',1,'r','active','t','t')`)
+	mustExec(t, v6, `INSERT INTO source_fences(scope_kind, scope_ref, epoch, reason, state, created_at, updated_at) VALUES('session','x',1,'r','cleaned','t','t')`)
 	mustExec(t, v6, `UPDATE eval_results SET episode_id = 'ep', episode_status = 'closed'`)
 	v6.Close()
 
