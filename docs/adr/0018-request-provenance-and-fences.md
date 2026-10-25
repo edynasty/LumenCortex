@@ -71,6 +71,31 @@ admitted ──► outcome_unknown                           Reconcile
 All three results are terminal. `lineage_complete` starts at 1 (0 when the pre-state was unavailable) and is
 only lowered: by `coverage != complete`, `outcome_unknown`, a cut edge list, a fence, or Reconcile.
 
+### Tool tiers and snapshots (loop side, T1-S4)
+
+`internal/agent/execution.go` classifies each call before it runs (plan T1-S4, frozen table):
+
+| Tier | Tools | Before the tool runs |
+|---|---|---|
+| admission + pre-state | `write_file`, `replace_in_file`, `apply_patch` (blobs of the target paths); `shell` and every `mcp__*` whose effective permission is `exec` (bounded `git status` + `rev-parse HEAD`) | pre ref, then `AdmitExecution` |
+| admission only | other `mcp__*`, `start_task`, `spawn_subagent` | `AdmitExecution` without a pre ref |
+| none | read-only and in-memory Task State tools | nothing; the row commits through `CommitToolResult` |
+
+An MCP tool's tier comes from the effective permission on its spec (server `readOnlyHint` or the ADR-0013
+user override, resolved at registration); a spec without one is `exec`. Snapshots (`internal/repository/
+snapshot.go`) run outside every transaction, only read (`GIT_OPTIONAL_LOCKS=0` on every git process, no
+`write-tree` or `hash-object -w`), and store refs, never content. Each snapshot phase is cut at 5 s; a phase
+that runs out, like any pre-state that cannot be read, does not block the tool: the admission says
+`pre_unavailable` and the post coverage `unavailable`. The tool runs only after `AdmitExecution` returned nil;
+`ErrFenced` ends the run revoked and anything else fails closed, with nothing run. After the tool returns,
+the post-state is taken and `CommitToolResult` stores the row, the post record and one file edge
+`<path>@<blob>` ← the issuing request per changed path. Outcome: OK → `completed`, not OK → `failed`; a tool
+error → `outcome_unknown` (it may have acted), except a file tool whose targets the post-state shows
+unchanged. A cancelled call keeps the existing semantics (no tool row) and stays `admitted` until Reconcile
+settles it at the next start. A shell edge attributes every change in the work tree during the call,
+including another writer's; a moved HEAD, a cut status or more than `MaxEdgesPerCommit` paths make it
+`partial`.
+
 ### Store API (`internal/session`, frozen signatures)
 
 ```go
@@ -215,6 +240,12 @@ internal field.
 snapshot, constraints) and `internal/session/provenance_test.go` (every transition pair, atomicity, fences,
 Reconcile idempotence, deletion semantics, no bodies, self-lock detection under concurrent reads),
 `runtime/run_id_test.go`. See `docs/reports/cognition/t1-s1-schema-20261025.md`.
+
+Tool tiers (T1-S4): `internal/agent/execution_test.go` (tier table, admission before execution,
+outcomes, fences, cancellation, bounded snapshots, writes per call), `internal/repository/snapshot_test.go`
+(read-only snapshots, index untouched), `runtime/execution_test.go` (every tier through the real Engine with
+a stdio MCP server, edge cap, concurrent `git add`, 10k-file latency) and
+`runtime/execution_crash_unix_test.go` (SIGKILL matrix). See `docs/reports/cognition/t1-s4-20261025.md`.
 
 ## Documentation impact
 
