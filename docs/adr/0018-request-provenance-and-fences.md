@@ -96,6 +96,38 @@ settles it at the next start. A shell edge attributes every change in the work t
 including another writer's; a moved HEAD, a cut status or more than `MaxEdgesPerCommit` paths make it
 `partial`.
 
+### Message-level edges, user rewrites and child sessions (T1-S5)
+
+Edges of message-level bodies use `kind = 'message'` or `'child_session'` and name locators, never text:
+`ts:<kind>:<id>@sha256:<hex>` is one version of a Task State entry (note, ref, unit, task; the digest is
+that of the entry's stored JSON), `session:<id>` a child session, `session:<id>@<seq>` a child as of its
+transcript seq, `tool:<requestId>:<callId>` a tool row, `task_result:<id>@<seq>` a delivered task result.
+
+| Write | Edge | Source | Origin |
+|---|---|---|---|
+| a Task State tool call writes or changes an entry | entry version | the issuing request | `agent_generated` |
+| `start_task` / `spawn_subagent` starts a child | `child_session` | the issuing request | `agent_generated` |
+| `wait_subagent` / `list_subagents` reports children | the tool row | each child (`session:<id>@<newest seq>`) | `agent_generated` |
+| the user rewrites an agent note or takes over an agent reference suggestion | new entry version | the replaced version (`message`) | `user_decision` |
+| the user starts a proposed task | `child_session` | the proposal entry | `agent_generated` |
+| a task result is delivered with its cursor | `task_result:<id>@<seq>` | the child as of `<seq>` | `agent_generated` |
+
+A Task State version's edges travel on `TaskStateWrite.Edges` and commit in the version's transaction
+(`PutTaskState`, `AppendMessageTaskState`, the Start version of `BeginRun`, and `CommitToolResult`, where
+they join the tool row's edges in one list, fence-checked and cut at `MaxEdgesPerCommit` together). They
+are validated before the transaction opens. A note or reference the user writes from scratch, and the
+brief, have no edge: pasted text cannot be traced. The final answer is the answered main row
+(`answered_seq`).
+
+Lineage propagates forward inside the store (`inheritedLineage`): an edge from a `message` source is
+complete only when the same session records at least one edge to that ref and all of them are complete, so
+an entry written before provenance existed makes every later rewrite incomplete; an edge from a `session`
+source is complete only when that session's newest answered main request at or before the seq in
+`derived_from` is complete. A user rewrite keeps the user's wording but not a user's authority: the entry
+records `from` (the replaced version) and moves the agent's cites to `review`; the Task State block shows
+it as `[user edit of agent text, needs review]`, recall ranks it as agent text, and freshness is computed
+on the review cites, so a changed source still marks it stale.
+
 ### Store API (`internal/session`, frozen signatures)
 
 ```go
@@ -246,6 +278,12 @@ outcomes, fences, cancellation, bounded snapshots, writes per call), `internal/r
 (read-only snapshots, index untouched), `runtime/execution_test.go` (every tier through the real Engine with
 a stdio MCP server, edge cap, concurrent `git add`, 10k-file latency) and
 `runtime/execution_crash_unix_test.go` (SIGKILL matrix). See `docs/reports/cognition/t1-s4-20261025.md`.
+
+Message-level edges (T1-S5): `internal/session/derived_test.go` (version and edges commit together or not
+at all, 40-rewrite chain, lineage inheritance from unrecorded entries and children, joint cut),
+`internal/taskstate/provenance_test.go` (rewrite marks, entry diffs) and `runtime/derived_test.go` (the
+launder sequence, spawn/wait, proposed and direct tasks through the real Engine). See
+`docs/reports/cognition/t1-s5-20261025.md`.
 
 ## Documentation impact
 
