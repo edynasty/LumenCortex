@@ -100,6 +100,20 @@ func (e *Engine) EditTaskState(ctx context.Context, sessionID string, edit TaskS
 			return TaskStateInfo{}, fmt.Errorf("%w: the thread already has %d notes written by the user", taskstate.ErrTooManyNotes, taskstate.MaxNotes)
 		}
 	}
+	if c := edit.Constraint; c != nil {
+		// A remove or deviation must name a selected constraint, and a select needs room: checked
+		// against the state with the queued edits applied, under noteMu like a note add, because
+		// applying an edit cannot fail. Selecting is not deciding: only a Start decides a constraint.
+		e.noteMu.Lock()
+		defer e.noteMu.Unlock()
+		current, err := e.TaskState(ctx, sessionID)
+		if err != nil {
+			return TaskStateInfo{}, err
+		}
+		if err := current.State.CheckConstraintEdit(*c); err != nil {
+			return TaskStateInfo{}, err
+		}
+	}
 	raw, err := json.Marshal(edit)
 	if err != nil {
 		return TaskStateInfo{}, err
@@ -310,10 +324,10 @@ func (e *Engine) executionEvidence(ctx context.Context, sessionID string) ([]tas
 
 // startTaskState builds the Start's Task State version (design §4.4, ADR-0006 D1′, D4): the workflow
 // and work-unit seeds, each only while the state holds none, then the queued edits, then the delivery
-// cursor of the task_result rows it returns. A seed is a new obligation and reopens a resolved thread.
-// It returns a nil write when nothing changes, and rejects an invalid or conflicting seed before
-// anything is written.
-func (e *Engine) startTaskState(ctx context.Context, sessionID string, opts AgentOptions) (*session.TaskStateWrite, []protocol.Message, error) {
+// cursor of the task_result rows it returns, then decide (the thread's constraints, T4-S3). A seed is a
+// new obligation and reopens a resolved thread. It returns a nil write when nothing changes, and rejects
+// an invalid or conflicting seed before anything is written or run.
+func (e *Engine) startTaskState(ctx context.Context, sessionID string, opts AgentOptions, decide func(context.Context, *taskstate.State) error) (*session.TaskStateWrite, []protocol.Message, error) {
 	state, err := e.loadTaskState(ctx, sessionID)
 	if err != nil {
 		return nil, nil, err
@@ -341,6 +355,9 @@ func (e *Engine) startTaskState(ctx context.Context, sessionID string, opts Agen
 	}
 	results, withdrawn, err := e.taskResults(ctx, sessionID, &state)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := decide(ctx, &state); err != nil {
 		return nil, nil, err
 	}
 	raw, err := state.Encode()

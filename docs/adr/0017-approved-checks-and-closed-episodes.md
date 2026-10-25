@@ -1,7 +1,8 @@
 # ADR-0017: Approved checks and closed episodes (CHECKS-001)
 
 - **Status:** Proposed (approval part implemented by T4-S1, closed episodes and the set-level gate by
-  T4-S2). Changing the default for every user needs owner decision O-4 before it reaches `main`.
+  T4-S2, constraint use by T4-S3). Changing the default for every user needs owner decision O-4 before
+  it reaches `main`.
 - **Date:** 2026-10-26
 - **Owners:** project maintainers
 - **Supersedes:** none
@@ -108,6 +109,27 @@ five. Approvers are `user`, `team-decision` and `experiment-freeze`. Approving c
 binding and approving a binding never approves the check; T4-S3 requires both at use. No tool or agent
 path reaches either API: a maintainer or an executing agent can only propose.
 
+### A constraint is decided by its bound check, fresh, at every Start
+
+The user selects constraints for a thread with a Task State edit (`constraint`: `select`, `remove`, or
+`deviation` with a reason); no edit marks one satisfied, and no tool or model output reaches the list.
+Each selected constraint is a `ConstraintUse` in `task_states.json`: ref, digest, scope, and the last
+decision (status, binding digest, check, spec digest, approval epoch, episode id, result seq, pre/post
+fingerprint, run id).
+
+Every Start decides them after the seeds and queued edits and before its Task State version commits,
+in the session's workspace: an active binding must match the ref, digest and scope and name a check
+whose definition is still the bound one (else `unbound`); the check is decided through the run's own
+`runChecks.Decide`, so an unapproved definition is `spec_unapproved` and runs nothing, and only a pass
+the check ran for in a closed episode, at a fingerprint the episode held, is `satisfied`. A person's
+earlier acceptance or another run's pass decides nothing (`unknown`). A Start runs at most two checks
+for its constraints, within 15 s in all; a constraint past either, a check stopped at the budget, an
+unclosed episode or a fenced session is `unknown`, and the run starts anyway. A check bound to several
+constraints runs once. A deviation the user accepted is never decided over. The pass is registered in
+the run like any episode, so the completion gate takes it in that run without running it again.
+
+The list is not rendered into model requests: pushing it is T5a-S2's, under O-5.
+
 ### One entry for every host
 
 `Engine.CheckApprovalState` shows the current set, each definition as unchanged/added/changed against the
@@ -123,6 +145,10 @@ newest approval, the removed ones, the previous approval and the bindings. `lcx-
 - A runtime pass no longer carries over between runs: every run that needs a check decides it again
   (cost: one check execution per run at the gate). Host views (`SessionChecks`, evidence after Apply)
   show a past run's pass as the newest result but not as satisfying; only a person's acceptance does.
+- A thread with selected constraints spends up to two check runs and 15 s of each Start on them, before
+  the run begins, and every such Start writes a Task State version. A check bound to a constraint is
+  decided in the session's workspace like the gate's; a person who wants a constraint met without its
+  check records a deviation instead.
 - Desktop shows the new exit kind `spec_unapproved` as its raw kind until T7-S1 adds its copy.
 - An approval covers definitions only. It does not prove that `./verify.sh`, the tests or the
   dependencies a check runs were not changed by an agent, and it is no isolation against a same-UID
@@ -142,5 +168,9 @@ newest approval, the removed ones, the previous approval and the bindings. `lcx-
 `TestSideEffectToolsInvalidateInRunEpisodes`), `internal/session` approval store tests and `runtime`
 engine tests (P3 reproduction, deletion/optional/empty set with the set-level gate, write-then-revert,
 old acceptance, old trust, stale digest, epoch monotonicity, CLI and Engine through one predicate,
-`TestRuntimePassIsDecidedAgainInTheNextRun`, `TestUnapprovedRequiredCheckEndsTheRun`). Reports:
-`docs/reports/cognition/t4-s1-20261026.md`, `docs/reports/cognition/t4-s2-20261026.md`.
+`TestRuntimePassIsDecidedAgainInTheNextRun`, `TestUnapprovedRequiredCheckEndsTheRun`,
+`TestConstraintIsSatisfiedOnlyThroughAnApprovedBinding`, `TestConstraintIsDecidedFreshByEveryStart`,
+`TestConstraintRevalidationIsCapped`, `TestConstraintRevalidationBudgetDegradesToUnknown`,
+`TestConstraintEdits`), `internal/taskstate` (`TestDecideConstraintKeepsTheUsersDeviation`). Reports:
+`docs/reports/cognition/t4-s1-20261026.md`, `docs/reports/cognition/t4-s2-20261026.md`,
+`docs/reports/cognition/t4-s3-20261026.md`.

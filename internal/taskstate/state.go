@@ -54,6 +54,9 @@ type State struct {
 	// Notes are the thread's notes, oldest first (ADR-0010 D1); NoteSeq numbers them.
 	Notes   []Note `json:"notes,omitempty"`
 	NoteSeq int64  `json:"noteSeq,omitempty"`
+	// Constraints are the constraints the host selected for the thread and how a run last decided
+	// each (constraints.go, plan T4-S3). Only host edits add or remove them; only a Start decides them.
+	Constraints []ConstraintUse `json:"constraints,omitempty"`
 }
 
 // Decode reads one stored version. Empty raw is the empty state of a session without a version.

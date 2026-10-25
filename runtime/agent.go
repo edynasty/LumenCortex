@@ -211,13 +211,23 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if delegation == agent.DelegationIsolated && opts.tasks == nil {
 		return nil, errors.New("delegation isolated starts tasks that outlive the run: start the run with RunSupervisor.Start")
 	}
-	// The seeds are validated here, before anything is written; the task results of the parent's
-	// execution children are read here and commit with their cursor in the Start transaction.
-	taskState, results, err := e.startTaskState(ctx, sessionID, opts)
+	agentWorkspace, err := e.agentWorkspace(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	agentWorkspace, err := e.agentWorkspace(ctx, sessionID)
+	ev, err := e.sessionEvaluator(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	checks := runChecks{engine: e, ev: ev, specs: plan.checks, store: e.store, sessionID: sessionID}
+	// The seeds are validated here, before anything is written; the task results of the parent's
+	// execution children are read here and commit with their cursor in the Start transaction. The
+	// thread's constraints are decided here too, by the checks bound to them, in the session's workspace
+	// (plan T4-S3): that runs commands, so only once the seeds were accepted, and the decisions commit
+	// with the Start's Task State version. A pass of those checks counts for the rest of this run.
+	taskState, results, err := e.startTaskState(ctx, sessionID, opts, func(ctx context.Context, state *taskstate.State) error {
+		return e.decideConstraints(ctx, runID, state, checks)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -276,11 +286,6 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err != nil {
 		return nil, err
 	}
-	ev, err := e.sessionEvaluator(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	checks := runChecks{engine: e, ev: ev, specs: plan.checks, store: e.store, sessionID: sessionID}
 	// A revocation that reached the session is projected here, under the run lock and before anything
 	// is admitted for this Start (the auto judge included): the run withholds the rows that carry
 	// revoked content, or the Start is refused when the thread cannot be projected.
