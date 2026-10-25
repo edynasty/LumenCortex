@@ -2,8 +2,13 @@ package runtime
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/edynasty/LumenCortex/config"
@@ -23,18 +28,31 @@ type autoResolution struct {
 // autoTurn is the classifier's view of the transcript at this Start: the turn's new input, the
 // previous substantive user request, and the last assistant reply. inProgress reports that the last
 // substantive user row is already answered, so the Start continues that turn.
+//
+// The turn also carries what the judge request's envelope records: the seqs of the two transcript
+// rows the judge saw, and the digest of input the transcript does not hold yet. They are read and
+// computed here, before the admission transaction, so nothing inside it does I/O.
 type autoTurn struct {
 	newInput      string
 	prevUser      string
 	lastAssistant string
 	inProgress    bool
+	// prevUserSeq and lastAssistantSeq identify the rows above; nil when the turn has none.
+	prevUserSeq, lastAssistantSeq *int64
+	// pendingInputDigest is the digest of newInput when BeginRun has not stored it yet, and "" when
+	// newInput is already a transcript row.
+	pendingInputDigest string
 }
 
 // resolveAutoEffort resolves "auto" for one Start. It runs under the run lock before the Start
-// transaction, so the transcript is stable and a cancelled judge call writes nothing. A turn that
-// already resolved a level (a resumed run with no new input) reuses it instead of calling the judge
-// again.
-func (e *Engine) resolveAutoEffort(ctx context.Context, sessionID, input string, auto *autoPlan) (autoResolution, error) {
+// transaction, so the transcript is stable and a cancelled judge call writes nothing to the session
+// or its transcript. A turn that already resolved a level (a resumed run with no new input) reuses
+// it instead of calling the judge again.
+//
+// A judge request is a model request: it is admitted before it is sent and its outcome is settled on
+// its envelope (ADR-0018). Only the judge paths write, and only to request_envelopes: the session row
+// and the transcript are written by BeginRun alone.
+func (e *Engine) resolveAutoEffort(ctx context.Context, sessionID, runID, input string, auto *autoPlan) (autoResolution, error) {
 	rows, err := e.store.RecentMessages(ctx, sessionID, 500)
 	if err != nil {
 		return autoResolution{}, err
@@ -67,14 +85,41 @@ func (e *Engine) resolveAutoEffort(ctx context.Context, sessionID, input string,
 	}
 	level, source := config.Effort(""), ""
 	if judge != nil {
+		// The admission is the last write before the call and is committed before it: a request the
+		// store did not admit is not sent (R-1). A fenced session gets its failed envelope from the
+		// store, and ErrFenced ends the Start here, without a judge call.
+		requestID, err := e.admitAutoJudge(ctx, sessionID, runID, turn)
+		if err != nil {
+			return autoResolution{}, err
+		}
 		classified, classifier, reason, judgeErr := agent.ClassifyWithJudge(ctx, judge, auto.judge.Efforts, auto.timeout,
 			turn.newInput, turn.prevUser, turn.lastAssistant)
 		if judgeErr != nil {
+			// The request was admitted and may have been delivered: unknown, never failed. The
+			// cancellation is the Start's cause; the envelope's residue is reconciled if this write
+			// fails too.
+			reason := agent.AutoFallbackError
+			if ctx.Err() != nil {
+				reason = agent.AutoReasonCancelled
+			}
+			if settleErr := e.settleAutoJudge(requestID, session.RequestUnknown, reason, nil); settleErr != nil {
+				return autoResolution{}, judgeErr
+			}
 			return autoResolution{}, judgeErr
 		}
 		if reason == "" {
+			// The judge answered: the envelope carries the level its reply was read as, the decision
+			// log the level the run uses after the ceiling.
+			if err := e.settleAutoJudge(requestID, session.RequestAnswered, "", agent.AutoJudgeDecision(classified)); err != nil {
+				return autoResolution{}, err
+			}
 			level, source = classified, classifier
 		} else {
+			// Timeout, unparsable reply, provider error: the request may have reached the provider,
+			// so it is unknown, and the deterministic heuristic decides.
+			if err := e.settleAutoJudge(requestID, session.RequestUnknown, reason, nil); err != nil {
+				return autoResolution{}, err
+			}
 			fallback = reason
 		}
 	}
@@ -90,12 +135,70 @@ func (e *Engine) resolveAutoEffort(ctx context.Context, sessionID, input string,
 	}, nil
 }
 
+// autoSettleTimeout bounds the write that settles a judge envelope. It runs on a fresh context, so a
+// cancelled Start can still record how its request ended.
+const autoSettleTimeout = 5 * time.Second
+
+// newAutoRequestID is a 128-bit random request identity. It is drawn per judge call and never
+// derived from the session or the run: an id is never reused, and a restarted Start cannot collide
+// with an envelope it did not write.
+func newAutoRequestID() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("request id: %w", err)
+	}
+	return "rq-" + hex.EncodeToString(buf), nil
+}
+
+// inputDigest is the "sha256:<hex>" digest of input the transcript does not hold yet.
+func inputDigest(input string) string {
+	sum := sha256.Sum256([]byte(input))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// admitAutoJudge records the judge request before it is sent. The request id, the seqs and the
+// digest are all computed before the call; the store's transaction only reads the session's fence
+// and inserts the row. A session that has been fenced gets a failed envelope from the store and
+// ErrFenced, and the caller must not send the request.
+func (e *Engine) admitAutoJudge(ctx context.Context, sessionID, runID string, turn autoTurn) (string, error) {
+	id, err := newAutoRequestID()
+	if err != nil {
+		return "", err
+	}
+	adm := session.RequestAdmission{
+		RequestID: id, SessionID: sessionID, RunID: runID, Purpose: session.PurposeAutoEffort,
+		PrevUserSeq: turn.prevUserSeq, LastAssistantSeq: turn.lastAssistantSeq,
+		PendingInputDigest: turn.pendingInputDigest,
+		// The judge request has no Task State, system layer or tool: its context is the two seqs,
+		// and its input is either the digest above or the turn's stored user row.
+		LineageComplete: true,
+	}
+	if _, err := e.store.AdmitRequest(ctx, adm); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// settleAutoJudge ends an admitted judge request. A settlement that cannot be written fails the
+// Start: nothing else has been written yet, and the next Reconcile turns the still-admitted row into
+// unknown.
+func (e *Engine) settleAutoJudge(requestID string, to session.RequestState, reason string, decision json.RawMessage) error {
+	ctx, cancel := context.WithTimeout(context.Background(), autoSettleTimeout)
+	defer cancel()
+	return e.store.SettleRequest(ctx, requestID, session.Settlement{To: to, Reason: reason, Decision: decision})
+}
+
 // classifyTurn reads the newest transcript rows and separates the turn's new input from its
 // context. A Start with an input uses it as the new input. A Start without one either continues an
 // answered turn (newInput empty) or, on a fresh session whose goal is already the last user row,
 // treats that row as the new input.
+//
+// It also records the seqs of the rows the judge sees and, for an input BeginRun has not stored yet,
+// its digest: the envelope's admission takes them as they are, so no digest is computed inside the
+// store's transaction.
 func classifyTurn(rows []session.Message, input string) (autoTurn, error) {
 	type row struct {
+		seq     int64
 		role    string
 		content string
 		origin  string
@@ -110,7 +213,7 @@ func classifyTurn(rows []session.Message, input string) (autoTurn, error) {
 		if role == "" {
 			role = m.Role
 		}
-		messages = append(messages, row{role: role, content: message.Content, origin: message.Origin})
+		messages = append(messages, row{seq: m.Seq, role: role, content: message.Content, origin: message.Origin})
 	}
 	lastUser, previousUser := -1, -1
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -124,19 +227,27 @@ func classifyTurn(rows []session.Message, input string) (autoTurn, error) {
 		previousUser = i
 		break
 	}
-	lastAssistant := ""
+	lastAssistant, lastAssistantIndex := "", -1
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].role == "assistant" && strings.TrimSpace(messages[i].content) != "" {
-			lastAssistant = messages[i].content
+			lastAssistant, lastAssistantIndex = messages[i].content, i
 			break
 		}
 	}
 	turn := autoTurn{lastAssistant: lastAssistant}
+	if lastAssistantIndex >= 0 {
+		seq := messages[lastAssistantIndex].seq
+		turn.lastAssistantSeq = &seq
+	}
 	if lastUser >= 0 {
 		turn.prevUser = messages[lastUser].content
+		seq := messages[lastUser].seq
+		turn.prevUserSeq = &seq
 	}
 	if input != "" {
+		// The Start stores this input in BeginRun, after the judge has read it.
 		turn.newInput = input
+		turn.pendingInputDigest = inputDigest(input)
 		return turn, nil
 	}
 	if lastUser < 0 {
@@ -154,11 +265,15 @@ func classifyTurn(rows []session.Message, input string) (autoTurn, error) {
 		turn.prevUser = messages[lastUser].content
 		return turn, nil
 	}
-	// A fresh session writes its goal as the first user row; it is this turn's input.
+	// A fresh session writes its goal as the first user row; it is this turn's input, already
+	// stored, so there is no pending input.
 	turn.newInput = messages[lastUser].content
 	turn.prevUser = ""
+	turn.prevUserSeq = nil
 	if previousUser >= 0 {
 		turn.prevUser = messages[previousUser].content
+		seq := messages[previousUser].seq
+		turn.prevUserSeq = &seq
 	}
 	return turn, nil
 }

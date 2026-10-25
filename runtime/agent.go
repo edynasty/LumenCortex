@@ -283,7 +283,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		}
 	}
 	if plan.needsAuto(opts.Effort) {
-		auto, err := e.resolveAutoEffort(ctx, sessionID, opts.Input, plan.auto)
+		auto, err := e.resolveAutoEffort(ctx, sessionID, runID, opts.Input, plan.auto)
 		if err != nil {
 			return nil, err
 		}

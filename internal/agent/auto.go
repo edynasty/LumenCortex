@@ -33,6 +33,12 @@ const (
 	AutoFallbackUnparsable = "unparsable"
 	// AutoFallbackError: a judge request failed for a reason with no provider class.
 	AutoFallbackError = "error"
+
+	// AutoReasonCancelled is the settlement reason of a judge request the run's own cancellation
+	// ended. The request was admitted before the call, so it may have been delivered: its envelope
+	// becomes unknown, never failed. The fallback classes double as settlement reasons; they are
+	// machine codes, and a provider class is one too.
+	AutoReasonCancelled = "cancelled"
 )
 
 // AutoContextLimit is how many runes of each classifier input are kept: the new user input, the
@@ -75,6 +81,18 @@ type autoInputs struct {
 
 type autoOutput struct {
 	Level config.Effort `json:"level"`
+}
+
+// AutoJudgeDecision is the bounded decision recorded on an answered judge envelope: the level the
+// judge's reply was read as, before the host's ceiling narrows it. The decision log keeps the level
+// the run uses; the envelope keeps what the request itself answered.
+func AutoJudgeDecision(level config.Effort) json.RawMessage {
+	raw, err := json.Marshal(autoOutput{Level: level})
+	if err != nil {
+		// Unreachable: a level is a string.
+		return nil
+	}
+	return raw
 }
 
 // AutoDecision records the Start's auto resolution.
