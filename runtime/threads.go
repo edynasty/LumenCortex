@@ -180,20 +180,46 @@ func (e *Engine) readThread(ctx context.Context, id, workspace string, agent boo
 }
 
 func (e *Engine) recall(ctx context.Context, query string, limit int, exclude, workspace string, agent bool) ([]RecallHit, error) {
-	query = strings.TrimSpace(query)
-	if query == "" || len(query) > threadctx.MaxQueryBytes {
-		return nil, fmt.Errorf("recall query must be 1-%d bytes", threadctx.MaxQueryBytes)
-	}
-	// The newest MaxCandidates sessions, then older ones whose stored text holds a query term: a
-	// thread past the newest stays findable by what it is about (plan T2-S1).
-	rows, err := e.store.ContextRows(ctx, threadctx.MaxCandidates, threadctx.MaxFinalBytes)
+	hits, byID, err := e.rankThreads(ctx, query, limit, exclude)
 	if err != nil {
 		return nil, err
+	}
+	for i := range hits {
+		t := byID[hits[i].ID]
+		notes := make([]taskstate.Note, 0, len(hits[i].Notes))
+		for _, hn := range hits[i].Notes {
+			for _, n := range t.Notes {
+				if n.ID == hn.ID {
+					notes = append(notes, n)
+				}
+			}
+		}
+		if err := e.applyNotes(ctx, workspace, hits[i].ID, agent, notes, hits[i].Notes); err != nil {
+			return nil, err
+		}
+	}
+	if hits == nil {
+		hits = []RecallHit{}
+	}
+	return hits, nil
+}
+
+// rankThreads ranks this workspace's sessions against query: the newest MaxCandidates, then older ones
+// whose stored text holds a query term (plan T2-S1), less exclude's subtree and every fenced session.
+// It returns the hits and the ranked threads by id.
+func (e *Engine) rankThreads(ctx context.Context, query string, limit int, exclude string) ([]RecallHit, map[string]threadctx.Thread, error) {
+	query = strings.TrimSpace(query)
+	if query == "" || len(query) > threadctx.MaxQueryBytes {
+		return nil, nil, fmt.Errorf("recall query must be 1-%d bytes", threadctx.MaxQueryBytes)
+	}
+	rows, err := e.store.ContextRows(ctx, threadctx.MaxCandidates, threadctx.MaxFinalBytes)
+	if err != nil {
+		return nil, nil, err
 	}
 	if len(rows) == threadctx.MaxCandidates {
 		older, err := e.store.ContextRowsMatching(ctx, threadctx.Tokens(query), threadctx.MaxCandidates, threadctx.MaxCandidates, threadctx.MaxFinalBytes)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		rows = append(rows, older...)
 	}
@@ -219,25 +245,7 @@ func (e *Engine) recall(ctx context.Context, query string, limit int, exclude, w
 		threads = append(threads, t)
 		byID[t.ID] = t
 	}
-	hits := threadctx.Recall(query, threads, time.Now().UTC(), limit)
-	for i := range hits {
-		t := byID[hits[i].ID]
-		notes := make([]taskstate.Note, 0, len(hits[i].Notes))
-		for _, hn := range hits[i].Notes {
-			for _, n := range t.Notes {
-				if n.ID == hn.ID {
-					notes = append(notes, n)
-				}
-			}
-		}
-		if err := e.applyNotes(ctx, workspace, hits[i].ID, agent, notes, hits[i].Notes); err != nil {
-			return nil, err
-		}
-	}
-	if hits == nil {
-		hits = []RecallHit{}
-	}
-	return hits, nil
+	return threadctx.Recall(query, threads, time.Now().UTC(), limit), byID, nil
 }
 
 // applyNotes sets each view's freshness from the files in workspace and its applicability from the
