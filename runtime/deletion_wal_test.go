@@ -12,6 +12,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/internal/migrate"
 	"github.com/edynasty/LumenCortex/internal/session"
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 // walReader is a second SQLite connection to the state database holding a read snapshot, as another
@@ -131,6 +132,12 @@ func TestDeletionBlockedByAWALReaderIsNotReportedComplete(t *testing.T) {
 	if _, err := f.engine.DeleteSession(ctx, f.child, WorktreeCleanup{}); !errors.Is(err, ErrDeletionPending) {
 		t.Fatalf("retry while still blocked: %v", err)
 	}
+	// The rows are gone but the deletion is not finished: importing the id again is refused.
+	reimport := []session.ImportedSession{{Session: session.Session{ID: f.child, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		Status: "completed", Goal: "imported again", Metadata: []byte("{}")}, Messages: []protocol.Message{{Role: "user", Content: "imported again"}}}}
+	if err := f.engine.store.ImportSessions(ctx, reimport); !errors.Is(err, session.ErrCleanupPending) {
+		t.Fatalf("import while the deletion is pending: %v", err)
+	}
 
 	reader.release()
 	res, err := f.engine.DeleteSession(ctx, f.child, WorktreeCleanup{})
@@ -151,5 +158,15 @@ func TestDeletionBlockedByAWALReaderIsNotReportedComplete(t *testing.T) {
 	}
 	if withdrawn, err := f.engine.store.SessionWithdrawn(ctx, f.child); err != nil || !withdrawn {
 		t.Fatalf("deleted child withdrawn %v %v", withdrawn, err)
+	}
+	// A finished deletion is superseded by an explicit re-import; its body-free privacy record stays.
+	if err := f.engine.store.ImportSessions(ctx, reimport); err != nil {
+		t.Fatalf("import after the deletion finished: %v", err)
+	}
+	if withdrawn, err := f.engine.store.SessionWithdrawn(ctx, f.child); err != nil || withdrawn {
+		t.Fatalf("re-imported session withdrawn %v %v", withdrawn, err)
+	}
+	if states := privacyStates(t, f.engine, f.child); !slices.Equal(states, []string{"cleaned"}) {
+		t.Fatalf("privacy record after the re-import: %v", states)
 	}
 }
