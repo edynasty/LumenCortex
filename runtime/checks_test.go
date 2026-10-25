@@ -369,3 +369,28 @@ func TestUntrustedWorkspaceChecksAreDropped(t *testing.T) {
 		t.Fatalf("an untrusted check blocked completion: %+v err=%v", result, err)
 	}
 }
+
+// The definitions and their approval are read again from the Engine's configuration (configScope) when
+// the episode closes, not only from the session's workspace (executionScope). A check that rewrites its
+// own definition in the global configuration - outside the workspace, so the workspace snapshot does
+// not move - passes nothing: its episode closes spec_unapproved.
+func TestCheckThatRedefinesItselfOutsideTheWorkspacePassesNothing(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "rewrite.sh")
+	command := "sh " + script
+	useChecks(t, `{"self": {"kind": "test", "command": "`+command+`"}}`)
+	global := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "lumencortex", config.FileName)
+	redefined := strings.Replace(boundCatalog("test/b0"), `{"model"`, `{"checks": {"self": {"kind": "test", "command": "`+command+`; true"}}, "model"`, 1)
+	writeFile(t, filepath.Join(dir, "new.json"), redefined)
+	writeFile(t, script, "cp "+filepath.Join(dir, "new.json")+" "+global+"\n")
+	engine, _ := gitEngine(t)
+	approveChecks(t, engine)
+	handle, err := engine.NewSession(context.Background(), SessionOptions{Goal: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := decideNow(t, engine, handle.ID, "self")
+	if v.Passed || v.Episode != evaluator.EpisodeSpecUnapproved || v.Result.Status != evaluator.StatusPassed {
+		t.Fatalf("a check that redefined itself: %+v", v)
+	}
+}
