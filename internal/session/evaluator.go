@@ -25,19 +25,39 @@ type Artifact struct {
 // when the result decided a work unit's completion. Artifacts are artifact hashes of the same session.
 // SpecDigest and ApprovalEpoch are the approved check definition the result was decided or accepted
 // under (ADR-0017); a row stored before approvals existed has neither and never satisfies a check.
+// EpisodeID and EpisodeStatus are the check episode the row belongs to, PreFingerprint and
+// PostFingerprint the check's fingerprint when the episode began and ended; a row stored before
+// episodes has none of them and never satisfies a check either.
 type EvalRow struct {
-	Seq           int64     `json:"seq"`
-	WorkUnitID    string    `json:"workUnitId,omitempty"`
-	CheckID       string    `json:"checkId"`
-	Kind          string    `json:"kind"`
-	Status        string    `json:"status"`
-	Provenance    string    `json:"provenance"`
-	Fingerprint   string    `json:"fingerprint"`
-	SpecDigest    string    `json:"specDigest,omitempty"`
-	ApprovalEpoch int64     `json:"approvalEpoch,omitempty"`
-	Artifacts     []string  `json:"artifacts"`
-	At            time.Time `json:"at"`
+	Seq             int64     `json:"seq"`
+	WorkUnitID      string    `json:"workUnitId,omitempty"`
+	CheckID         string    `json:"checkId"`
+	Kind            string    `json:"kind"`
+	Status          string    `json:"status"`
+	Provenance      string    `json:"provenance"`
+	Fingerprint     string    `json:"fingerprint"`
+	SpecDigest      string    `json:"specDigest,omitempty"`
+	ApprovalEpoch   int64     `json:"approvalEpoch,omitempty"`
+	EpisodeID       string    `json:"episodeId,omitempty"`
+	EpisodeStatus   string    `json:"episodeStatus,omitempty"`
+	PreFingerprint  string    `json:"preFingerprint,omitempty"`
+	PostFingerprint string    `json:"postFingerprint,omitempty"`
+	Artifacts       []string  `json:"artifacts"`
+	At              time.Time `json:"at"`
 }
+
+// Check episode statuses (eval_results.episode_status, ADR-0017). A row is written open and its
+// episode is closed once; only closed rows can satisfy a check.
+const (
+	EpisodeOpen           = "open"
+	EpisodeClosed         = "closed"
+	EpisodeScopeChanged   = "scope_changed"
+	EpisodeSpecUnapproved = "spec_unapproved"
+	EpisodeInterrupted    = "interrupted"
+)
+
+// ErrEpisodeInvalid refuses an episode close with an unknown status or a missing id.
+var ErrEpisodeInvalid = errors.New("invalid check episode")
 
 // PutArtifact stores a blob under its hash. The same hash is the same content, so storing it again
 // writes nothing.
@@ -139,10 +159,11 @@ func (s *Store) AppendEvalResult(ctx context.Context, sessionID string, row Eval
 	if row.ApprovalEpoch > 0 {
 		epoch = row.ApprovalEpoch
 	}
-	if _, err := conn.ExecContext(ctx, `INSERT INTO eval_results(session_id, seq, work_unit_id, check_id, kind, status, provenance, fingerprint, artifacts_json, at, spec_digest, approval_epoch)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := conn.ExecContext(ctx, `INSERT INTO eval_results(session_id, seq, work_unit_id, check_id, kind, status, provenance, fingerprint, artifacts_json, at, spec_digest, approval_epoch,
+			episode_id, episode_status, pre_fingerprint, post_fingerprint)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sessionID, seq, unit, row.CheckID, row.Kind, row.Status, row.Provenance, row.Fingerprint, string(raw), at.UTC().Format(time.RFC3339Nano),
-		specDigest, epoch); err != nil {
+		specDigest, epoch, nullString(row.EpisodeID), nullString(row.EpisodeStatus), nullString(row.PreFingerprint), nullString(row.PostFingerprint)); err != nil {
 		return 0, err
 	}
 	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
@@ -152,17 +173,46 @@ func (s *Store) AppendEvalResult(ctx context.Context, sessionID string, row Eval
 	return seq, nil
 }
 
-const evalColumns = `seq, COALESCE(work_unit_id, ''), check_id, kind, status, provenance, fingerprint, artifacts_json, at,
-	COALESCE(spec_digest, ''), COALESCE(approval_epoch, 0)`
+// CloseEpisode closes the open rows of one check episode in one short write transaction: each named row
+// (seq -> its post fingerprint) gets status and its post fingerprint. A row already closed is left as
+// it is, so closing twice changes nothing. It runs nothing and reads no workspace; the caller took the
+// post snapshot before.
+func (s *Store) CloseEpisode(ctx context.Context, sessionID, episodeID, status string, post map[int64]string) error {
+	switch status {
+	case EpisodeClosed, EpisodeScopeChanged, EpisodeSpecUnapproved, EpisodeInterrupted:
+	default:
+		return fmt.Errorf("%w: status %q", ErrEpisodeInvalid, status)
+	}
+	if episodeID == "" {
+		return fmt.Errorf("%w: no episode id", ErrEpisodeInvalid)
+	}
+	if len(post) == 0 {
+		return nil
+	}
+	return s.writeTx(ctx, func(conn *sql.Conn) error {
+		for seq, fingerprint := range post {
+			if _, err := conn.ExecContext(ctx, `UPDATE eval_results SET episode_status = ?, post_fingerprint = ?
+				WHERE session_id = ? AND seq = ? AND episode_id = ? AND episode_status = 'open'`,
+				status, nullString(fingerprint), sessionID, seq, episodeID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
 
-// DecidingEvalResult returns the newest result for the check with provenance runtime or human:*, the
-// given fingerprint and the given approved definition (spec digest and approval epoch, ADR-0017): the
-// one CheckVerdict reads (design §4.7), or nil when there is none. A row of another approval, or of no
-// approval, is never returned.
+const evalColumns = `seq, COALESCE(work_unit_id, ''), check_id, kind, status, provenance, fingerprint, artifacts_json, at,
+	COALESCE(spec_digest, ''), COALESCE(approval_epoch, 0), COALESCE(episode_id, ''), COALESCE(episode_status, ''),
+	COALESCE(pre_fingerprint, ''), COALESCE(post_fingerprint, '')`
+
+// DecidingEvalResult returns the newest result of a closed episode for the check with provenance
+// runtime or human:*, the given fingerprint and the given approved definition (spec digest and
+// approval epoch, ADR-0017): the one CheckVerdict reads (design §4.7), or nil when there is none. A row
+// of another approval, of no approval, or of an episode that did not close is never returned.
 func (s *Store) DecidingEvalResult(ctx context.Context, sessionID, checkID, fingerprint, specDigest string, approvalEpoch int64) (*EvalRow, error) {
 	return s.oneEvalRow(ctx, `SELECT `+evalColumns+` FROM eval_results
 		WHERE session_id = ? AND check_id = ? AND fingerprint = ? AND (provenance = 'runtime' OR provenance GLOB 'human:?*')
-			AND spec_digest = ? AND approval_epoch = ?
+			AND spec_digest = ? AND approval_epoch = ? AND episode_status = 'closed'
 		ORDER BY seq DESC LIMIT 1`, sessionID, checkID, fingerprint, specDigest, approvalEpoch)
 }
 
@@ -216,7 +266,7 @@ func scanEvalRow(r interface{ Scan(...any) error }) (EvalRow, error) {
 		artifacts, at string
 	)
 	if err := r.Scan(&row.Seq, &row.WorkUnitID, &row.CheckID, &row.Kind, &row.Status, &row.Provenance, &row.Fingerprint, &artifacts, &at,
-		&row.SpecDigest, &row.ApprovalEpoch); err != nil {
+		&row.SpecDigest, &row.ApprovalEpoch, &row.EpisodeID, &row.EpisodeStatus, &row.PreFingerprint, &row.PostFingerprint); err != nil {
 		return EvalRow{}, err
 	}
 	if err := json.Unmarshal([]byte(artifacts), &row.Artifacts); err != nil {

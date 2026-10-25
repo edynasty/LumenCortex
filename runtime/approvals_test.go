@@ -161,7 +161,8 @@ func TestRunThatRewritesItsCheckCannotPassIt(t *testing.T) {
 
 // Removing the only required check, making it optional, or emptying the set each changes the set: the
 // approval no longer covers it, the remaining checks are not run, and an approval of the old digest is
-// refused as stale.
+// refused as stale. A non-interactive run cannot complete on the changed set, even when it requires
+// nothing any more (the set-level gate, T4-S2), until the user approves the set as it is now.
 func TestShrinkingTheCheckSetLeavesItUnapproved(t *testing.T) {
 	both := `{"gate": {"kind": "test", "command": "exit 1"}, "lint": {"kind": "test", "command": "true"}}`
 	for _, c := range []struct {
@@ -199,6 +200,17 @@ func TestShrinkingTheCheckSetLeavesItUnapproved(t *testing.T) {
 			}
 			if _, err := engine.ApproveChecks(ctx, ApproveChecksRequest{SetDigest: before.SetDigest, ApprovedBy: ApprovedByUser, Actor: "u"}); !errors.Is(err, ErrApprovalStale) {
 				t.Fatalf("approving the old digest: %v", err)
+			}
+			result, err := engine.runAgentWith(ctx, handle.ID, &answering{final: "done"}, AgentOptions{Input: "finish", MaxSteps: 3})
+			if err == nil || result.Status != "failed" {
+				t.Fatalf("a run completed on the changed set: %+v err=%v", result, err)
+			}
+			if _, cause := sessionState(t, engine, handle.ID); cause == nil || cause.Kind != "spec_unapproved" {
+				t.Fatalf("cause=%+v", cause)
+			}
+			approveChecks(t, engine)
+			if result, err := engine.runAgentWith(ctx, handle.ID, &answering{final: "done"}, AgentOptions{Input: "finish", MaxSteps: 3}); err != nil || result.Status != "completed" {
+				t.Fatalf("after approving the new set: %+v err=%v", result, err)
 			}
 		})
 	}

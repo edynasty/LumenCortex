@@ -138,6 +138,67 @@ func TestHumanAcceptanceHoldsUntilTheFingerprintChanges(t *testing.T) {
 	}
 }
 
+// ADR-0017 fresh-at-use with the real Engine: a run's runtime pass is stored in a closed episode, but
+// neither the host's view nor the next run takes it; the next run decides the check again at the same
+// fingerprint and approval. Only a person's acceptance carries over.
+func TestRuntimePassIsDecidedAgainInTheNextRun(t *testing.T) {
+	useChecks(t, `{"status": {"kind": "test", "command": "test -f README.md"}}`)
+	engine, _ := gitEngine(t)
+	approveChecks(t, engine)
+	ctx := context.Background()
+	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "fresh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for run := 1; run <= 2; run++ {
+		result, err := engine.runAgentWith(ctx, handle.ID, &answering{final: "done"}, AgentOptions{Input: "finish"})
+		if err != nil || result.Status != "completed" {
+			t.Fatalf("run %d: %+v err=%v", run, result, err)
+		}
+		results, err := engine.CheckResults(ctx, handle.ID, -1, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(results) != run {
+			t.Fatalf("run %d: %d stored results, want the check decided once per run", run, len(results))
+		}
+		newest := results[0]
+		if newest.Status != evaluator.StatusPassed || newest.EpisodeStatus != evaluator.EpisodeClosed || newest.EpisodeID == "" ||
+			newest.PreFingerprint != newest.Fingerprint || newest.PostFingerprint != newest.Fingerprint {
+			t.Fatalf("run %d: result %+v", run, newest)
+		}
+		if c := checkInfo(t, engine, handle.ID, "status"); c.Satisfied {
+			t.Fatalf("run %d: the host counts a past run's pass: %+v", run, c)
+		}
+	}
+}
+
+// A non-interactive run whose required check the host has not approved ends failed/spec_unapproved
+// after the model's first answer: only the user can approve, so the model is not asked again.
+func TestUnapprovedRequiredCheckEndsTheRun(t *testing.T) {
+	useChecks(t, `{"status": {"kind": "test", "command": "true"}}`)
+	engine, _ := gitEngine(t)
+	ctx := context.Background()
+	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "unapproved"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &answering{final: "done"}
+	result, err := engine.runAgentWith(ctx, handle.ID, provider, AgentOptions{Input: "finish", MaxSteps: 4})
+	if err == nil || result.Status != "failed" {
+		t.Fatalf("run=%+v err=%v", result, err)
+	}
+	if _, cause := sessionState(t, engine, handle.ID); cause == nil || cause.Kind != "spec_unapproved" {
+		t.Fatalf("cause=%+v", cause)
+	}
+	if n := provider.calls.Load(); n != 1 {
+		t.Fatalf("the model was asked %d times, want once", n)
+	}
+	if results, err := engine.CheckResults(ctx, handle.ID, -1, 0); err != nil || len(results) != 0 {
+		t.Fatalf("an unapproved check ran: %+v %v", results, err)
+	}
+}
+
 // The completion gate runs a failing required check, stores its log and the diff it covers, and
 // keeps the run going with a completion_blocked row; the host reads the artifacts back.
 func TestCompletionGateRunsRequiredChecksWithArtifacts(t *testing.T) {

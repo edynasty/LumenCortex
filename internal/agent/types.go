@@ -241,6 +241,10 @@ const (
 	// stored. The fence's terminal records are committed; the run neither retries nor sends (R-1).
 	KindFenced = "fenced"
 	KindPanic  = "panic"
+	// KindSpecUnapproved: a non-interactive run's completion gate needs a required check whose
+	// definition the host has not approved, or whose definition or approval changed while it ran
+	// (ADR-0017). Only the user can approve it, so the run ends instead of asking the model again.
+	KindSpecUnapproved = "spec_unapproved"
 )
 
 // ExitCause is why a run ended. Every return path of Loop.Run after the session

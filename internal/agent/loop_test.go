@@ -634,9 +634,15 @@ type fakeChecks struct {
 	err           error
 	calls         []string // "<workUnitID>:<ids>"
 	seq           int64
+	mutations     int  // Mutated calls: side-effect tools completed
+	setChanged    bool // the approved set was changed since: SetApproved is false
 }
 
 func (f *fakeChecks) Configured() ([]string, []string) { return f.all, f.required }
+
+func (f *fakeChecks) Mutated() { f.mutations++ }
+
+func (f *fakeChecks) SetApproved(context.Context) (bool, error) { return !f.setChanged, nil }
 
 func (f *fakeChecks) Decide(ctx context.Context, ids []string, unit string) ([]evaluator.Verdict, error) {
 	f.calls = append(f.calls, unit+":"+strings.Join(ids, ","))
@@ -655,15 +661,111 @@ func (f *fakeChecks) Decide(ctx context.Context, ids []string, unit string) ([]e
 		if !slices.Contains(f.all, id) {
 			status = evaluator.StatusError
 		}
+		// "episode:<status>" is a pass in an episode that did not close (ADR-0017): it decides nothing.
+		episode := evaluator.EpisodeClosed
+		if rest, ok := strings.CutPrefix(status, "episode:"); ok {
+			status, episode = evaluator.StatusPassed, rest
+		}
 		f.seq++
 		out = append(out, evaluator.Verdict{
 			Result: evaluator.Result{Check: id, Kind: evaluator.KindTest, Status: status, Provenance: evaluator.ProvenanceRuntime,
 				Seq: f.seq, Artifacts: []string{"sha256:" + strings.Repeat("a", 64)}},
-			Passed: status == evaluator.StatusPassed,
-			Tail:   "FAIL TestTransaction (" + status + ")",
+			Passed:  status == evaluator.StatusPassed && episode == evaluator.EpisodeClosed,
+			Tail:    "FAIL TestTransaction (" + status + ")",
+			Episode: episode,
 		})
 	}
 	return out, nil
+}
+
+// ADR-0017 at the completion gate: a required check the host has not approved, or whose definition
+// changed while its episode ran, ends a non-interactive run failed/spec_unapproved at once, without a
+// correction the model could not act on. A pass in a scope_changed episode is an ordinary failure the
+// model is told about, under the episode's status.
+func TestCompletionGateEndsOnUnapprovedChecks(t *testing.T) {
+	for _, status := range []string{evaluator.StatusSpecUnapproved, "episode:" + evaluator.EpisodeSpecUnapproved} {
+		t.Run(status, func(t *testing.T) {
+			store := &memoryStore{state: SessionState{ID: "u", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+			store.seedGoal()
+			provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+				{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
+				{Message: protocol.Message{Content: "done again"}, FinishReason: "stop"},
+			}}
+			checks := &fakeChecks{all: []string{"go-test"}, required: []string{"go-test"}, queue: map[string][]string{"go-test": {status}}}
+			result, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}, Checks: checks}).
+				Run(context.Background(), "u", Options{Session: testRef, MaxSteps: 3})
+			if !errors.Is(err, ErrChecksUnapproved) || result.Status != StatusFailed || store.cause["kind"] != KindSpecUnapproved {
+				t.Fatalf("status=%s cause=%v err=%v", result.Status, store.cause, err)
+			}
+			if len(provider.seen) != 1 {
+				t.Fatalf("the model was asked %d times, want once", len(provider.seen))
+			}
+			for _, m := range store.messages {
+				if m.Origin == protocol.OriginCompletionBlocked {
+					t.Fatalf("a correction was appended: %q", m.Content)
+				}
+			}
+		})
+	}
+	t.Run("scope_changed", func(t *testing.T) {
+		store := &memoryStore{state: SessionState{ID: "s", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+		store.seedGoal()
+		provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+			{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
+			{Message: protocol.Message{Content: "done again"}, FinishReason: "stop"},
+		}}
+		checks := &fakeChecks{all: []string{"go-test"}, required: []string{"go-test"}, queue: map[string][]string{"go-test": {"episode:" + evaluator.EpisodeScopeChanged}}}
+		result, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}, Checks: checks}).
+			Run(context.Background(), "s", Options{Session: testRef, MaxSteps: 3})
+		if err != nil || result.Status != StatusCompleted || result.Final != "done again" {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+		var blocked string
+		for _, m := range store.messages {
+			if m.Origin == protocol.OriginCompletionBlocked {
+				blocked = m.Content
+			}
+		}
+		if !strings.Contains(blocked, "go-test: scope_changed") {
+			t.Fatalf("correction: %q", blocked)
+		}
+	})
+}
+
+// The set-level gate: when the approved set was changed so that it requires nothing (emptied, its only
+// required check removed or made optional), a non-interactive run still ends spec_unapproved, and no
+// check is decided.
+func TestCompletionGateRefusesAChangedSetThatRequiresNothing(t *testing.T) {
+	store := &memoryStore{state: SessionState{ID: "e", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+	store.seedGoal()
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}}}
+	checks := &fakeChecks{setChanged: true}
+	result, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}, Checks: checks}).
+		Run(context.Background(), "e", Options{Session: testRef, MaxSteps: 3})
+	if !errors.Is(err, ErrChecksUnapproved) || result.Status != StatusFailed || store.cause["kind"] != KindSpecUnapproved || len(checks.calls) != 0 {
+		t.Fatalf("status=%s cause=%v err=%v decided=%v", result.Status, store.cause, err, checks.calls)
+	}
+}
+
+// Every side-effect tool that completes (a file tool, the shell) tells the checks, so no episode closed
+// before it is reused; a call that was denied and ran nothing does not.
+func TestSideEffectToolsInvalidateInRunEpisodes(t *testing.T) {
+	store := &memoryStore{state: SessionState{ID: "m", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+	store.seedGoal()
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
+			call("p", "apply_patch", `{"patch":"x"}`), call("s", "shell", `{"command":"ls"}`), call("r", "read_file", `{"path":"a"}`),
+		}}, FinishReason: "tool_calls"},
+		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
+	}}
+	checks := &fakeChecks{all: []string{"go-test"}, required: []string{"go-test"}}
+	if _, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}, Checks: checks}).
+		Run(context.Background(), "m", Options{Session: testRef, MaxSteps: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if checks.mutations != 2 {
+		t.Fatalf("Mutated called %d times, want 2 (apply_patch, shell; not the denied read_file)", checks.mutations)
+	}
 }
 
 // I8 at the loop: work_unit_update cannot carry a check result; completing a unit decides its checks

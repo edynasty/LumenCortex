@@ -1,7 +1,7 @@
 # ADR-0017: Approved checks and closed episodes (CHECKS-001)
 
-- **Status:** Proposed (approval part implemented by T4-S1; the closed-episode part is T4-S2's). Changing
-  the default for every user needs owner decision O-4 before it reaches `main`.
+- **Status:** Proposed (approval part implemented by T4-S1, closed episodes and the set-level gate by
+  T4-S2). Changing the default for every user needs owner decision O-4 before it reaches `main`.
 - **Date:** 2026-10-26
 - **Owners:** project maintainers
 - **Supersedes:** none
@@ -45,7 +45,7 @@ does not travel with a clone.
   workspace's effective configuration (`runtime.approvedChecks`), never from a session worktree; the
   evaluator runs them in the session's workspace or worktree. The run's frozen `plan.checks` only picks
   the ids the gate asks for: `runChecks.Decide` re-reads definitions and approval before deciding, and
-  again after; when the set or the epoch changed in between, no verdict passes.
+  again when the episode closes (below).
 
 ### What an unapproved check can do
 
@@ -63,6 +63,42 @@ whatever the case of the path. Reverting the file later does not bring the appro
 rows stay revoked and a new approval takes a new epoch. `CheckApprovalState.LastWrite` names the newest
 such write (session, run, execution) since the newest approval, so a host can show where a change came
 from.
+
+### A pass counts only from a closed episode, and only in its own run
+
+Every decision of a group of checks (the completion gate, a work unit's completion) is one **check
+episode** (`Evaluator.Decide`). It takes a workspace snapshot, stores each fresh result `open` under a
+random `episode_id` with its `pre_fingerprint`, and after the last check takes the snapshot again and
+re-reads the definitions and approval, both outside any transaction. One short write transaction
+(`Store.CloseEpisode`) then sets every row of the episode to `closed` (nothing changed), `scope_changed`
+(the workspace changed: tracked files or untracked non-ignored files; ignored build output does not
+count) or `spec_unapproved` (the definitions or their approval changed), with its `post_fingerprint`. A
+cancelled episode closes `interrupted`; a crash leaves rows `open`. No episode table is added: the four
+columns are schema v6's on `eval_results`.
+
+`evaluator.Satisfies` is the one predicate for the gate, the evidence rule (AutoDone), a work unit and a
+person's acceptance: a passed row at the current fingerprint under the current approval, from a
+`closed` episode whose pre and post fingerprints are the current one. A person's acceptance is an
+episode of its own, closed at the fingerprint the person saw, and holds across runs until the
+fingerprint or approval changes. A runtime pass additionally counts only in the run that closed its
+episode (the run's `Evaluator` remembers it in memory) and only until a side-effect tool completes
+(`Checks.Mutated`, called for every admitted execution and every workspace-mutating result). Across runs
+a check is decided again (fresh-at-use); the host's own views, built outside a run, count only a
+person's acceptance. `Store.DecidingEvalResult` reads only closed rows, so an open or pre-episode row
+never shadows an older closed one.
+
+### The gate covers the set, not only its members
+
+The completion gate first asks whether the set itself is approved (`Checks.SetApproved`): it is not when
+the project had an approved set and the current one differs (a check removed, made optional, the set
+emptied) or the approval was revoked. Then the gate fails with one `spec_unapproved` verdict for the
+set, even when nothing is required any more. A project that never approved a set is not gated at the
+set level: its required checks are `spec_unapproved` one by one, and a project without required checks
+completes as before.
+
+A model cannot clear `spec_unapproved`: a non-interactive run ends `failed` with kind `spec_unapproved`
+at the gate instead of receiving a correction. An interactive turn ends with its answer as before (the
+checks stay an obligation of the thread).
 
 ### ConstraintBinding is approved on its own
 
@@ -82,9 +118,12 @@ newest approval, the removed ones, the previous approval and the bindings. `lcx-
 ## Consequences
 
 - With no approved set, a non-interactive completion gate with required checks gets `spec_unapproved`
-  verdicts instead of running them, and a person cannot accept them. This is the default change O-4
-  decides. The dedicated exit for it, the set-level gate that also covers an emptied set, and the
-  interactive behaviour are T4-S2's.
+  verdicts instead of running them, a person cannot accept them, and the run ends `failed/spec_unapproved`
+  at once. The same holds for an approved set changed since. This is the default change O-4 decides.
+- A runtime pass no longer carries over between runs: every run that needs a check decides it again
+  (cost: one check execution per run at the gate). Host views (`SessionChecks`, evidence after Apply)
+  show a past run's pass as the newest result but not as satisfying; only a person's acceptance does.
+- Desktop shows the new exit kind `spec_unapproved` as its raw kind until T7-S1 adds its copy.
 - An approval covers definitions only. It does not prove that `./verify.sh`, the tests or the
   dependencies a check runs were not changed by an agent, and it is no isolation against a same-UID
   process with a full shell (R0 boundary).
@@ -96,7 +135,12 @@ newest approval, the removed ones, the previous approval and the bindings. `lcx-
 ## Verification
 
 `internal/evaluator` (`TestSatisfies`, `TestSpecAndSetDigests`, `TestCheckVerdict`,
-`TestApprovalGatesRunsAcceptanceAndReuse`), `internal/session` approval store tests and `runtime` engine
-tests (P3 reproduction, deletion/optional/empty set, write-then-revert, old acceptance, old trust, stale
-digest, epoch monotonicity, CLI and Engine through one predicate). Report:
-`docs/reports/cognition/t4-s1-20261026.md`.
+`TestApprovalGatesRunsAcceptanceAndReuse`, `TestEpisodeReuseIsInRunOnly`,
+`TestEpisodeScopeChangedAndIgnoredOutput`, `TestEpisodeSpecChangedDuringTheRun`,
+`TestEpisodeInterruptedOpenAndLegacyRows`, `TestUndecidingRowsDoNotShadowAClosedOne`), `internal/agent`
+(`TestCompletionGateEndsOnUnapprovedChecks`, `TestCompletionGateRefusesAChangedSetThatRequiresNothing`,
+`TestSideEffectToolsInvalidateInRunEpisodes`), `internal/session` approval store tests and `runtime`
+engine tests (P3 reproduction, deletion/optional/empty set with the set-level gate, write-then-revert,
+old acceptance, old trust, stale digest, epoch monotonicity, CLI and Engine through one predicate,
+`TestRuntimePassIsDecidedAgainInTheNextRun`, `TestUnapprovedRequiredCheckEndsTheRun`). Reports:
+`docs/reports/cognition/t4-s1-20261026.md`, `docs/reports/cognition/t4-s2-20261026.md`.

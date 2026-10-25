@@ -125,12 +125,25 @@ func (c runChecks) Configured() (all, req []string) {
 	return all, req
 }
 
-// Decide decides the ids against one snapshot, in order, with the definitions and approval the Engine
-// workspace has now. An id the current set does not define yields a spec_unapproved verdict when the
-// set is not approved (it was changed) and an error verdict when it is; an unapproved definition is
-// not run (evaluator.CheckVerdict). Nothing runs or is stored for either. When the set or its approval
-// changed while the checks ran, no verdict passes. In a fenced session nothing runs: a check is a
-// command with effects, and a revocation stops the session's next one (session.ErrFenced).
+func (c runChecks) Mutated() { c.ev.Mutated() }
+
+// SetApproved: the Engine workspace's check set is approved as it is now, or the project never
+// approved one (ADR-0017). A set approved once and changed since, or revoked, is not.
+func (c runChecks) SetApproved(ctx context.Context) (bool, error) {
+	_, a, _, err := c.engine.approvedChecks(ctx)
+	if err != nil {
+		return false, err
+	}
+	return a.set == nil || a.epoch > 0, nil
+}
+
+// Decide decides the ids as one check episode (ADR-0017), in order, with the definitions and approval
+// the Engine workspace has now. An id the current set does not define yields a spec_unapproved verdict
+// when the set is not approved (it was changed) and an error verdict when it is; an unapproved
+// definition is not run (evaluator.CheckVerdict). Nothing runs or is stored for either. The episode
+// closes spec_unapproved when the set or its approval changed while the checks ran, and then no
+// verdict passes. In a fenced session nothing runs: a check is a command with effects, and a
+// revocation stops the session's next one (session.ErrFenced).
 func (c runChecks) Decide(ctx context.Context, ids []string, workUnitID string) ([]evaluator.Verdict, error) {
 	if c.store != nil {
 		fenced, err := c.store.SessionFenced(ctx, c.sessionID)
@@ -151,24 +164,15 @@ func (c runChecks) Decide(ctx context.Context, ids []string, workUnitID string) 
 			specs = append(specs, s)
 		}
 	}
-	decided, err := c.ev.Decide(ctx, specs, workUnitID)
-	if err != nil {
-		return nil, err
-	}
-	if len(specs) > 0 {
+	decided, err := c.ev.Decide(ctx, specs, workUnitID, func(ctx context.Context) (bool, error) {
 		_, after, _, err := c.engine.approvedChecks(ctx)
 		if err != nil {
-			return nil, err
+			return false, err
 		}
-		if after.setDigest != before.setDigest || after.epoch != before.epoch {
-			for i := range decided {
-				if decided[i].Passed {
-					decided[i].Passed = false
-					decided[i].Result.Status = evaluator.StatusSpecUnapproved
-					decided[i].Tail = "the check definitions or their approval changed while the checks ran: " + ErrSpecUnapproved.Error()
-				}
-			}
-		}
+		return after.setDigest == before.setDigest && after.epoch == before.epoch, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	out := make([]evaluator.Verdict, 0, len(ids))
 	next := 0

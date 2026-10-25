@@ -306,6 +306,13 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				if cause != nil {
 					return l.exit(ctx, state, usage, *cause)
 				}
+				if unapproved := unapprovedChecks(failed); len(unapproved) > 0 {
+					// Only the user can approve a check definition (ADR-0017): the model cannot clear
+					// this, so the run ends here instead of looping on a correction.
+					l.emit("checks.blocked_final", sessionID, map[string]any{"step": step, "checks": verdictViews(failed)})
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindSpecUnapproved,
+						Err: fmt.Errorf("%w: %s", ErrChecksUnapproved, strings.Join(unapproved, ", "))})
+				}
 				if len(failed) > 0 {
 					correction = checksCorrection(failed)
 					l.emit("checks.blocked_final", sessionID, map[string]any{"step": step, "checks": verdictViews(failed)})
@@ -409,6 +416,10 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				}
 				if x != nil {
 					post, edges = l.postExecution(ctx, x, toolResult, toolErr, answered.RequestID, answered.Lineage)
+				}
+				if (x != nil || toolResult.MutatesWorkspace) && l.Checks != nil {
+					// No check episode closed before a side-effect tool is reused after it (ADR-0017).
+					l.Checks.Mutated()
 				}
 			}
 			end := map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "ok": toolResult.OK, "denied": toolResult.Denied}
@@ -527,10 +538,23 @@ func (l *Loop) latchEvidence(ctx context.Context, sessionID string, r *run) {
 }
 
 // requiredChecks decides the configured required checks for the completion gate and returns those
-// that did not pass, or the exit when deciding was cancelled or failed.
+// that did not pass, or the exit when deciding was cancelled or failed. A check set the host approved
+// and that was changed since (emptied, a check removed or made optional) fails as a whole with one
+// spec_unapproved verdict, whatever it requires now (ADR-0017).
 func (l *Loop) requiredChecks(ctx context.Context) ([]evaluator.Verdict, *ExitCause) {
 	if l.Checks == nil {
 		return nil, nil
+	}
+	approved, err := l.Checks.SetApproved(ctx)
+	if err != nil {
+		cause := checkFailureExit(ctx, err)
+		return nil, &cause
+	}
+	if !approved {
+		return []evaluator.Verdict{{
+			Result: evaluator.Result{Check: checkSetID, Status: evaluator.StatusSpecUnapproved, Provenance: evaluator.ProvenanceRuntime, Artifacts: []string{}},
+			Tail:   "the check set changed since the host approved it (a check removed, made optional, or the set emptied)",
+		}}, nil
 	}
 	_, required := l.Checks.Configured()
 	if len(required) == 0 {
