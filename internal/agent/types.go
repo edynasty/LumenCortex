@@ -54,6 +54,15 @@ type Store interface {
 	AppendAnswered(ctx context.Context, sessionID, requestID string, m protocol.Message) (int64, error)
 	// SettleRequest ends an admitted request that produced no stored answer.
 	SettleRequest(ctx context.Context, requestID string, st session.Settlement) error
+	// AdmitExecution durably records that a side-effect tool is about to run (ADR-0018, plan T1-S4).
+	// The pre-state ref was taken by the caller beforehand. A nil error means the tool may run;
+	// session.ErrFenced means nothing was recorded and the tool must not run.
+	AdmitExecution(ctx context.Context, a session.ExecutionAdmission) error
+	// CommitToolResult stores a tool row with the Task State version it caused, the post record of
+	// its execution (when it was admitted) and its derived edges in one transaction. It returns the
+	// row's seq and the new version. session.ErrFenced means the row was not stored and the execution,
+	// if any, is settled.
+	CommitToolResult(ctx context.Context, c ToolResultCommit) (int64, int64, error)
 	AppendStep(context.Context, string, int64, any) error
 	NextStep(context.Context, string) (int64, error)
 	Update(context.Context, string, SessionPatch) error
@@ -63,6 +72,17 @@ type Store interface {
 	InboxEdits(ctx context.Context, sessionID string) ([]taskstate.QueuedEdit, error)
 	// PutTaskState writes change on its own and returns the new version.
 	PutTaskState(ctx context.Context, sessionID string, change TaskStateChange) (int64, error)
+}
+
+// ToolResultCommit is one tool result as the loop commits it: the tool row, the Task State change it
+// caused (nil for none), the execution's post record when the tool was admitted, and the edges.
+type ToolResultCommit struct {
+	SessionID string
+	RunID     string
+	Message   protocol.Message
+	Change    *TaskStateChange
+	Execution *session.ExecutionResult
+	Edges     []session.DerivedEdge
 }
 
 type CheckpointStore interface {

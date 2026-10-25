@@ -36,8 +36,10 @@ type attempt struct {
 	Model    Model
 	Elapsed  time.Duration
 	Window   window.Result
-	// RequestID is the admitted envelope of the request that was answered.
+	// RequestID is the admitted envelope of the request that was answered, and Lineage whether the
+	// store kept that envelope lineage-complete (a cut ref list lowers it).
 	RequestID string
+	Lineage   bool
 }
 
 // candidates computes the step's ordered candidate list from the run's models and the health
@@ -162,7 +164,7 @@ func (l *Loop) send(
 			cause := exitFor(protocol.ClassCancelled, err)
 			return attempt{}, &cause
 		}
-		requestID, cause := l.admit(ctx, sessionID, step, attempts, opts, r, built, specs)
+		requestID, lineage, cause := l.admit(ctx, sessionID, step, attempts, opts, r, built, specs)
 		if cause != nil {
 			return attempt{}, cause
 		}
@@ -182,7 +184,7 @@ func (l *Loop) send(
 				"step": step, "modelRef": cand.Ref, "provider": m.ProviderID, "model": m.ModelID,
 				"elapsedMs": elapsed.Milliseconds(), "candidateIndex": i,
 			})
-			return attempt{Response: response, Model: m, Elapsed: elapsed, Window: built, RequestID: requestID}, nil
+			return attempt{Response: response, Model: m, Elapsed: elapsed, Window: built, RequestID: requestID, Lineage: lineage}, nil
 		}
 		class := Classify(ctx, err)
 		// The request was sent; an error does not prove it was not delivered, so it is unknown.

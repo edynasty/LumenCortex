@@ -134,19 +134,19 @@ func newRequestID() (string, error) {
 	return "rq-" + hex.EncodeToString(b[:]), nil
 }
 
-// admit writes the envelope of one attempt. It returns the request id to send under, or the exit the
-// run takes instead of sending: a fenced session ends the run (the store has already committed the
-// failed envelope, and nothing may be sent or retried), any other error is a storage failure and
-// fails closed.
-func (l *Loop) admit(ctx context.Context, sessionID string, step int64, attempt int, opts Options, r *run, built window.Result, specs []protocol.ToolSpec) (string, *ExitCause) {
+// admit writes the envelope of one attempt. It returns the request id to send under and whether the
+// stored envelope is lineage-complete, or the exit the run takes instead of sending: a fenced session
+// ends the run (the store has already committed the failed envelope, and nothing may be sent or
+// retried), any other error is a storage failure and fails closed.
+func (l *Loop) admit(ctx context.Context, sessionID string, step int64, attempt int, opts Options, r *run, built window.Result, specs []protocol.ToolSpec) (string, bool, *ExitCause) {
 	id, err := newRequestID()
 	if err != nil {
-		return "", &ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err}
+		return "", false, &ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err}
 	}
 	if built.FirstSeq < 0 {
 		// No transcript row reaches the model: there is no window to record, and a request that
 		// cannot be described is not sent.
-		return "", &ExitCause{Status: StatusFailed, Kind: KindStorage, Err: errors.New("request has no transcript window")}
+		return "", false, &ExitCause{Status: StatusFailed, Kind: KindStorage, Err: errors.New("request has no transcript window")}
 	}
 	first, last := built.FirstSeq, built.LastSeq
 	adm := session.RequestAdmission{
@@ -155,13 +155,14 @@ func (l *Loop) admit(ctx context.Context, sessionID string, step int64, attempt 
 		Refs: requestRefs(opts, r), ToolSpecsDigest: toolSpecsDigest(specs),
 		ProjectionVersion: projectionVersion, LineageComplete: true,
 	}
-	if _, err := l.Store.AdmitRequest(ctx, adm); err != nil {
+	env, err := l.Store.AdmitRequest(ctx, adm)
+	if err != nil {
 		if errors.Is(err, session.ErrFenced) {
-			return "", &ExitCause{Status: StatusFailed, Kind: KindFenced, Err: err}
+			return "", false, &ExitCause{Status: StatusFailed, Kind: KindFenced, Err: err}
 		}
-		return "", &ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err}
+		return "", false, &ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err}
 	}
-	return id, nil
+	return id, env.LineageComplete, nil
 }
 
 // settle ends an admitted envelope that did not end in an answer. It runs on a context that survives

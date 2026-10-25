@@ -40,6 +40,74 @@ type memoryStore struct {
 	admitErr    error
 	fenceAnswer bool
 	admissions  int // AdmitRequest calls, whatever their result
+	// incompleteEnvelopes stores every envelope lineage-incomplete, as the real store does for a cut
+	// ref list.
+	incompleteEnvelopes bool
+
+	// executions are the admitted tool executions in order with their post record once committed (the
+	// real store's machine: admitted -> completed | failed | outcome_unknown). edges are the committed
+	// derived edges. execErr fails every AdmitExecution with that error; commitErr every
+	// CommitToolResult (session.ErrFenced settles the execution first, as the real store does).
+	executions []*memoryExecution
+	edges      []session.DerivedEdge
+	execErr    error
+	commitErr  error
+}
+
+type memoryExecution struct {
+	admission session.ExecutionAdmission
+	post      *session.ExecutionResult
+}
+
+func (s *memoryStore) AdmitExecution(_ context.Context, a session.ExecutionAdmission) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.execErr != nil {
+		return s.execErr
+	}
+	s.executions = append(s.executions, &memoryExecution{admission: a})
+	return nil
+}
+
+func (s *memoryStore) CommitToolResult(_ context.Context, c ToolResultCommit) (int64, int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c.Execution != nil {
+		x := s.execution(c.Execution.ExecutionID)
+		if x == nil {
+			return 0, 0, session.ErrExecutionNotFound
+		}
+		if x.post != nil {
+			return 0, 0, session.ErrInvalidTransition
+		}
+		if s.commitErr == nil || errors.Is(s.commitErr, session.ErrFenced) {
+			post := *c.Execution
+			x.post = &post
+		}
+	}
+	if s.commitErr != nil {
+		return 0, 0, s.commitErr
+	}
+	var version int64
+	if c.Change != nil {
+		v, err := s.putLocked(*c.Change)
+		if err != nil {
+			return 0, 0, err
+		}
+		version = v
+	}
+	s.messages = append(s.messages, c.Message)
+	s.edges = append(s.edges, c.Edges...)
+	return int64(len(s.messages) - 1), version, nil
+}
+
+func (s *memoryStore) execution(id string) *memoryExecution {
+	for _, x := range s.executions {
+		if x.admission.ExecutionID == id {
+			return x
+		}
+	}
+	return nil
 }
 
 func (s *memoryStore) Get(context.Context, string) (SessionState, error) {
@@ -79,7 +147,7 @@ func (s *memoryStore) AdmitRequest(_ context.Context, a session.RequestAdmission
 	env := session.RequestEnvelope{
 		RequestID: a.RequestID, SessionID: a.SessionID, RunID: a.RunID, Step: a.Step, Attempt: a.Attempt, Purpose: a.Purpose,
 		State: session.RequestAdmitted, FirstSeq: a.FirstSeq, LastSeq: a.LastSeq, Refs: a.Refs, ToolSpecsDigest: a.ToolSpecsDigest,
-		ProjectionVersion: a.ProjectionVersion, LineageComplete: a.LineageComplete,
+		ProjectionVersion: a.ProjectionVersion, LineageComplete: a.LineageComplete && !s.incompleteEnvelopes,
 	}
 	if errors.Is(s.admitErr, session.ErrFenced) {
 		env.State, env.Reason = session.RequestFailed, session.ReasonFenced

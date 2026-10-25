@@ -64,6 +64,9 @@ type Loop struct {
 	// Cite returns the current git blob of each workspace-relative path for note_write (ADR-0010 D1),
 	// refusing a path that is not a file of the run's workspace. nil refuses notes with cites.
 	Cite func(ctx context.Context, paths []string) ([]taskstate.Cite, error)
+	// Snapshots take the pre- and post-state of side-effect tools in the run's workspace (plan T1-S4).
+	// nil records every such execution with its pre-state unavailable.
+	Snapshots Snapshots
 }
 
 // run is the Task State a run works on: the run's current state, the workflow and work units decoded
@@ -344,16 +347,31 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			args, argsErr := parseToolArguments(call.Arguments)
 			if argsErr != nil {
 				rejected := protocol.ToolResult{OK: false, Content: toolErrorContent("invalid tool arguments: " + argsErr.Error())}
-				if _, err := l.persistToolResult(ctx, sessionID, call, rejected, nil, r); err != nil {
-					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+				if _, err := l.persistToolResult(ctx, sessionID, opts.RunID, call, rejected, nil, nil, nil, r); err != nil {
+					return l.exit(ctx, state, usage, *storeExit(err))
 				}
 				continue
 			}
 			denied := !containsTool(specs, call.Name) || (r.wf != nil && !r.wf.IsToolAllowed(call.Name))
-			var toolResult protocol.ToolResult
+			var (
+				toolResult protocol.ToolResult
+				x          *execution
+				post       *session.ExecutionResult
+				edges      []session.DerivedEdge
+			)
 			if denied {
 				toolResult = protocol.ToolResult{OK: false, Denied: true, Permission: "workflow", Content: "tool is not allowed in the current working set"}
 			} else {
+				// A side-effect tool runs only after its admission is durable (plan T1-S4). From here
+				// until the result commits, a crash or cancellation leaves the execution admitted, and
+				// Reconcile makes it outcome_unknown; it is never run again.
+				if tier := executionTierOf(call.Name, specs); tier != tierNone {
+					var cause *ExitCause
+					if x, cause = l.admitExecution(ctx, sessionID, opts, answered.RequestID, call, args, tier); cause != nil {
+						return l.exit(ctx, state, usage, *cause)
+					}
+				}
+				var toolErr error
 				l.emit("tool.start", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "args": args})
 				if call.Name == toolStartTask {
 					toolResult = l.startTask(ctx, r, opts, args, time.Now().UTC())
@@ -371,7 +389,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 						return l.exit(ctx, state, usage, *cause)
 					}
 				} else {
-					toolResult, err = l.Tools.Execute(ctx, call.Name, args, func(output protocol.ToolOutput) {
+					toolResult, toolErr = l.Tools.Execute(ctx, call.Name, args, func(output protocol.ToolOutput) {
 						l.emit("tool.output", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "stream": output.Stream, "chunk": output.Chunk})
 					})
 					if ctx.Err() != nil {
@@ -380,8 +398,8 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 						// stays unanswered.
 						return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()})
 					}
-					if err != nil {
-						toolResult = protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, err.Error())}
+					if toolErr != nil {
+						toolResult = protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, toolErr.Error())}
 					}
 					if toolResult.MutatesWorkspace {
 						// A change to the workspace is a new obligation, whether or not the call succeeded.
@@ -389,8 +407,15 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 						r.mutated = true
 					}
 				}
+				if x != nil {
+					post, edges = l.postExecution(ctx, x, toolResult, toolErr, answered.RequestID, answered.Lineage)
+				}
 			}
-			l.emit("tool.end", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "ok": toolResult.OK, "denied": toolResult.Denied})
+			end := map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "ok": toolResult.OK, "denied": toolResult.Denied}
+			if x != nil {
+				end["executionId"], end["outcome"], end["coverage"], end["snapshotNanos"] = x.id, string(post.Outcome), string(post.Coverage), x.snapshot.Nanoseconds()
+			}
+			l.emit("tool.end", sessionID, end)
 			r.ts.Progress.ObserveTool(call.Name, toolResult.OK, toolResult.Content)
 			if r.wf != nil {
 				update, wfErr := r.wf.ObserveTool(workflow.ToolObservation{Tool: call.Name, Args: args, Result: map[string]any{"ok": toolResult.OK, "denied": toolResult.Denied, "permission": toolResult.Permission, "content": toolResult.Content}, Step: step})
@@ -410,9 +435,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			if err != nil {
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 			}
-			messageSeq, err := l.persistToolResult(ctx, sessionID, call, toolResult, change, r)
+			messageSeq, err := l.persistToolResult(ctx, sessionID, opts.RunID, call, toolResult, change, post, edges, r)
 			if err != nil {
-				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+				return l.exit(ctx, state, usage, *storeExit(err))
 			}
 			l.checkpoint(sessionID, "agent.safe", map[string]any{
 				"phase":      "tool_result",
@@ -547,11 +572,12 @@ func systemMessages(opts Options) []protocol.Message {
 	return system
 }
 
-// persistToolResult appends a tool row and, when change is non-nil, the Task State version it caused,
+// persistToolResult commits a tool row with, when change is non-nil, the Task State version it caused,
+// the execution's post record (post is nil for a call that was not admitted) and its derived edges,
 // in one transaction; the run's state then carries the stored version.
-func (l *Loop) persistToolResult(ctx context.Context, sessionID string, call protocol.ToolCall, result protocol.ToolResult, change *TaskStateChange, r *run) (int64, error) {
+func (l *Loop) persistToolResult(ctx context.Context, sessionID, runID string, call protocol.ToolCall, result protocol.ToolResult, change *TaskStateChange, post *session.ExecutionResult, edges []session.DerivedEdge, r *run) (int64, error) {
 	row := protocol.Message{Role: "tool", ToolCallID: call.ID, Name: call.Name, Content: result.Content}
-	seq, version, err := l.Store.AppendMessage(ctx, sessionID, row, change)
+	seq, version, err := l.Store.CommitToolResult(ctx, ToolResultCommit{SessionID: sessionID, RunID: runID, Message: row, Change: change, Execution: post, Edges: edges})
 	if err != nil {
 		return 0, err
 	}

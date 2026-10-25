@@ -265,6 +265,12 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err != nil {
 		return nil, err
 	}
+	// Side-effect tools are snapshotted where they act: the run's workspace, the worktree of a session
+	// that owns one (plan T1-S4).
+	snapshots, err := repository.New(agentWorkspace)
+	if err != nil {
+		return nil, err
+	}
 	ev, err := e.sessionEvaluator(ctx, sessionID)
 	if err != nil {
 		return nil, err
@@ -377,14 +383,15 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		info:      sessionInfo(committed),
 		loopOpts:  loopOpts,
 		loop: agent.Loop{
-			Models:   plan.models,
-			Health:   e.health,
-			Store:    agentStore{store: e.store},
-			Tools:    tools,
-			Evidence: e.runEvidence(sessionID, checks),
-			Checks:   checks,
-			Tasks:    taskStarterFor(delegation, opts.tasks),
-			Cite:     citeIn(agentWorkspace),
+			Models:    plan.models,
+			Health:    e.health,
+			Store:     agentStore{store: e.store},
+			Tools:     tools,
+			Snapshots: snapshots,
+			Evidence:  e.runEvidence(sessionID, checks),
+			Checks:    checks,
+			Tasks:     taskStarterFor(delegation, opts.tasks),
+			Cite:      citeIn(agentWorkspace),
 			Emit: func(event agent.Event) {
 				e.events.publish(event.Type, event.SessionID, event.Data)
 				_ = e.store.Journal(context.Background(), event.Type, map[string]any{
@@ -517,11 +524,41 @@ func (s agentStore) AppendMessage(ctx context.Context, id string, message protoc
 
 // Crash points for tests that kill the process (nil outside tests): the request is admitted but not
 // yet sent, and the model has answered but the answer is not stored. A third point, mid-call, is a
-// provider that never returns.
+// provider that never returns. For tools: the execution is admitted but the tool has not run, the
+// tool has run but its result is not committed, and the result is committed. Mid-execution is a
+// tool that never returns.
 var (
-	testHookAfterAdmit   func()
-	testHookBeforeAnswer func()
+	testHookAfterAdmit       func()
+	testHookBeforeAnswer     func()
+	testHookAfterExecAdmit   func()
+	testHookBeforeToolCommit func()
+	testHookAfterToolCommit  func()
 )
+
+func (s agentStore) AdmitExecution(ctx context.Context, a session.ExecutionAdmission) error {
+	err := s.store.AdmitExecution(ctx, a)
+	if err == nil && testHookAfterExecAdmit != nil {
+		testHookAfterExecAdmit()
+	}
+	return err
+}
+
+func (s agentStore) CommitToolResult(ctx context.Context, c agent.ToolResultCommit) (int64, int64, error) {
+	write, err := agentTaskStateChange(c.Change)
+	if err != nil {
+		return 0, 0, err
+	}
+	if testHookBeforeToolCommit != nil {
+		testHookBeforeToolCommit()
+	}
+	seq, version, err := s.store.CommitToolResult(ctx, session.ToolCommit{
+		SessionID: c.SessionID, RunID: c.RunID, Message: c.Message, TaskState: write, Execution: c.Execution, Edges: c.Edges,
+	})
+	if err == nil && testHookAfterToolCommit != nil {
+		testHookAfterToolCommit()
+	}
+	return seq, version, err
+}
 
 func (s agentStore) AdmitRequest(ctx context.Context, a session.RequestAdmission) (session.RequestEnvelope, error) {
 	env, err := s.store.AdmitRequest(ctx, a)

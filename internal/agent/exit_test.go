@@ -67,6 +67,19 @@ func (s *faultStore) AppendAnswered(ctx context.Context, id, requestID string, m
 	return s.memoryStore.AppendAnswered(ctx, id, requestID, m)
 }
 
+// CommitToolResult is where the loop stores a tool row now: the same fault hook applies to it.
+func (s *faultStore) CommitToolResult(ctx context.Context, c ToolResultCommit) (int64, int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+	if s.failAppend != nil {
+		if err := s.failAppend(c.Message); err != nil {
+			return 0, 0, err
+		}
+	}
+	return s.memoryStore.CommitToolResult(ctx, c)
+}
+
 // scriptTools runs fn for every tool call; the tool set is a single "shell" tool.
 type scriptTools struct {
 	fn       func(ctx context.Context, name string, args map[string]any) (protocol.ToolResult, error)
