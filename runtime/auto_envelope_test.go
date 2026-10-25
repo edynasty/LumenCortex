@@ -53,11 +53,19 @@ func readEnvelopes(path, sessionID string) ([]storedEnvelope, error) {
 	return out, rows.Err()
 }
 
+// storedEnvelopes are the Auto judge envelopes of the session. The main loop admits an envelope for
+// each of its own requests (T1-S2); those are not what these tests count, so they are left out.
 func storedEnvelopes(t *testing.T, engine *Engine, sessionID string) []storedEnvelope {
 	t.Helper()
-	envs, err := readEnvelopes(engine.store.Path(), sessionID)
+	all, err := readEnvelopes(engine.store.Path(), sessionID)
 	if err != nil {
 		t.Fatalf("read envelopes: %v", err)
+	}
+	var envs []storedEnvelope
+	for _, e := range all {
+		if e.Purpose == session.PurposeAutoEffort {
+			envs = append(envs, e)
+		}
 	}
 	return envs
 }
@@ -94,7 +102,8 @@ func readSessionFacts(t *testing.T, engine *Engine, sessionID string) sessionFac
 type watchingJudge struct {
 	path, sessionID, level string
 	calls                  atomic.Int32
-	observed               [][]storedEnvelope
+	observed               [][]storedEnvelope // the judge envelopes of the session, per call
+	otherAdmitted          int                // main envelopes still admitted during a judge call
 	readErr                error
 }
 
@@ -106,7 +115,18 @@ func (p *watchingJudge) Complete(_ context.Context, _ protocol.ProviderRequest) 
 	if err != nil {
 		p.readErr = err
 	} else {
-		p.observed = append(p.observed, envs)
+		// The judge runs before the main loop of this Start: no main request may be open now, and the
+		// judge envelopes alone are what the assertions below describe.
+		var judges []storedEnvelope
+		for _, e := range envs {
+			switch {
+			case e.Purpose == session.PurposeAutoEffort:
+				judges = append(judges, e)
+			case e.State == string(session.RequestAdmitted):
+				p.otherAdmitted++
+			}
+		}
+		p.observed = append(p.observed, judges)
 	}
 	return protocol.ProviderResponse{
 		Message:      protocol.Message{Role: "assistant", Content: fmt.Sprintf(`{"level":%q}`, p.level)},
@@ -180,6 +200,9 @@ func TestAutoJudgeAdmitsOneEnvelopeBeforeEachRequest(t *testing.T) {
 	}
 	if judge.calls.Load() != 2 || len(judge.observed) != 2 {
 		t.Fatalf("judge calls=%d observations=%d", judge.calls.Load(), len(judge.observed))
+	}
+	if judge.otherAdmitted != 0 {
+		t.Fatalf("%d main requests were open while a judge request was in flight", judge.otherAdmitted)
 	}
 	inFlight = judge.observed[1]
 	if len(inFlight) != 2 {
