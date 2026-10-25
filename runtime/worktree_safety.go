@@ -535,7 +535,9 @@ func (e *Engine) RemoveSessionWorktree(ctx context.Context, sessionID string, op
 // remove every local copy of the content (session.PurgeStep). A deletion interrupted after its fences
 // (a crash, a cancelled ctx, an error) is cleanup_pending: the next DeleteSession of the session, or
 // the next Open, resumes it; the content is never used again in between. While another caller holds
-// one of its sessions the call fails with ErrRunHeld and the deletion stays pending.
+// one of its sessions the call fails with ErrRunHeld, and while another reader keeps the WAL from
+// being truncated it fails with ErrDeletionPending; either way the deletion stays pending. A nil error
+// means every local copy in the database files is gone.
 func (e *Engine) DeleteSession(ctx context.Context, sessionID string, opts WorktreeCleanup) (DeleteSessionResult, error) {
 	// A pending deletion is resumed first: its last batches remove the session rows, so the root may
 	// be gone while the file still owes its rebuild.
@@ -597,9 +599,16 @@ func (e *Engine) DeleteSession(ctx context.Context, sessionID string, opts Workt
 // testHookPurgeStep, when set, runs after each committed PurgeStep (tests kill the process there).
 var testHookPurgeStep func()
 
-// purgeDeletion runs the cleanup of a committed deletion to its end. The WAL checkpoint is owed before
-// the first batch and settled after the last; a reader that blocks it leaves the marker, and every
-// later Open retries it. The caller holds the run lock of every id.
+// ErrDeletionPending is returned by DeleteSession when the deletion is committed and its rows are gone
+// but the cleanup could not finish - another reader keeps the WAL from being truncated, so the content
+// may still be at rest in the database files. The session is fenced and never used again; the next
+// DeleteSession of the session or the next Open finishes the cleanup. It is not a success.
+var ErrDeletionPending = session.ErrCleanupPending
+
+// purgeDeletion runs the cleanup of a committed deletion to its end: every batch, the rebuild and the
+// WAL truncation (session.PurgeStep). The checkpoint marker is owed before the first batch, so an Open
+// after a crash also retries the truncation. A reader that blocks the truncation ends it with
+// ErrDeletionPending and the deletion stays cleanup_pending. The caller holds the run lock of every id.
 func (e *Engine) purgeDeletion(ctx context.Context, d session.PrivacyDeletion) error {
 	if err := e.store.OweCheckpoint(); err != nil {
 		return err
@@ -613,11 +622,9 @@ func (e *Engine) purgeDeletion(ctx context.Context, d session.PrivacyDeletion) e
 			testHookPurgeStep()
 		}
 		if done {
-			break
+			return nil
 		}
 	}
-	_, err := e.store.SettleCheckpoint(ctx)
-	return err
 }
 
 // acquireDeleted takes the run locks of the descendants a pending deletion deletes. A descendant

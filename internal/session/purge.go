@@ -31,12 +31,16 @@ import (
 //     of parents that name a deleted child; the journal rows still holding content (rows written
 //     before the journal whitelist); then the session rows. The root's privacy row then owes a
 //     rebuild: the next step runs VACUUM (older copies left in unallocated space by earlier page
-//     splits are only gone after it), and the fences of the deleted ids become cleaned. The fences
-//     stay: an edge committed later that cites a deleted id is refused, and the edges of other
-//     sessions that cite it resolve to source_missing. An explicit re-import of the source supersedes
-//     a finished deletion (ImportSessions).
-//  3. The caller settles the WAL checkpoint the privacy row owed (OweCheckpoint before the first
-//     batch, SettleCheckpoint after the last).
+//     splits are only gone after it). It then owes the WAL truncation ($.settle): until it
+//     completes, the WAL can still hold page images of the removed rows and the main file the rows
+//     the rebuild replaced, so the step truncates the WAL, and only a complete truncation turns the
+//     fences of the deleted ids cleaned. A reader that keeps the WAL from being truncated leaves the
+//     deletion cleanup_pending (ErrCleanupPending); the next step retries. The fences stay after
+//     cleaned: an edge committed later that cites a deleted id is refused, and the edges of other
+//     sessions that cite it resolve to source_missing. An explicit re-import of the source
+//     supersedes a finished deletion (ImportSessions).
+//  3. The caller owes the checkpoint marker before the first batch (OweCheckpoint), so an Open after
+//     a crash also retries the truncation.
 
 const (
 	// ReasonPrivacyDelete is the reason of the fences a privacy deletion commits.
@@ -182,34 +186,32 @@ func (s *Store) PendingPrivacyDeletions(ctx context.Context) ([]PrivacyDeletion,
 	return out, rows.Err()
 }
 
+// ErrCleanupPending is returned by PurgeStep while the WAL truncation a privacy deletion owes cannot
+// complete (a reader of another connection keeps an older snapshot, or a schema rebuild is owed
+// first): the content may still be at rest in the WAL or the main file, so the deletion is not
+// finished and its fences stay cleanup_pending. A later step retries.
+var ErrCleanupPending = errors.New("privacy deletion not finished: the WAL could not be truncated yet (another reader holds the database)")
+
 // OweCheckpoint records durably, before the first batch of a deletion, that the WAL must be truncated
 // once the content is gone: until then it can hold page images of the removed rows.
 func (s *Store) OweCheckpoint() error { return migrate.OweCheckpoint(filepath.Dir(s.path)) }
 
-// SettleCheckpoint truncates the WAL after the last batch; complete is false while a reader blocks it,
-// and every later Open retries (the marker stays).
-func (s *Store) SettleCheckpoint(ctx context.Context) (bool, error) {
-	conn, err := s.db.Conn(ctx)
-	if err != nil {
-		return false, err
-	}
-	defer conn.Close()
-	return migrate.SettleCheckpoint(ctx, conn, filepath.Dir(s.path))
-}
-
 // PurgeStep runs one bounded batch of the deletion d in one write transaction with secure_delete on,
 // so the cells it frees are zeroed and not merely unlinked. done is true when the deletion is
-// finished: the session rows are gone, the file is rebuilt and the fences of the deleted ids are
-// cleaned. Each step reads where the cleanup stands from the database, so a step that was interrupted
-// is simply run again.
+// finished: the session rows are gone, the file is rebuilt, the WAL is truncated and the fences of
+// the deleted ids are cleaned. Each step reads where the cleanup stands from the database, so a step
+// that was interrupted is simply run again.
 //
 // secure_delete alone is not enough: an earlier page split or defragmentation (with secure_delete
 // off, as every ordinary write runs) can have left older copies of a deleted row in unallocated space
 // of pages the deletion never touches. So once the rows are gone the root's privacy row owes a
 // rebuild ($.rebuild), and the next step runs VACUUM on its own connection, outside any transaction
-// it opened, before the fences become cleaned. VACUUM costs one copy of the database and holds the
-// write lock while it runs; a writer of another process waits for it or fails busy, and an error
-// keeps the deletion pending for the next attempt. Readers of other processes are not blocked (WAL).
+// it opened. VACUUM costs one copy of the database and holds the write lock while it runs; a writer
+// of another process waits for it or fails busy, and an error keeps the deletion pending for the next
+// attempt. Readers of other processes are not blocked (WAL). The rebuilt pages go through the WAL, so
+// the row then owes the truncation ($.settle): wal_checkpoint(TRUNCATE), bounded by
+// migrate.CheckpointWait. It fails with ErrCleanupPending while a reader blocks it, and only a
+// complete truncation marks the fences cleaned.
 func (s *Store) PurgeStep(ctx context.Context, d PrivacyDeletion) (done bool, err error) {
 	if len(d.IDs) == 0 || d.IDs[0] != d.Root {
 		return false, invalid("privacy deletion without its root")
@@ -224,7 +226,7 @@ func (s *Store) PurgeStep(ctx context.Context, d PrivacyDeletion) (done bool, er
 	}
 	defer conn.ExecContext(context.WithoutCancel(ctx), `PRAGMA secure_delete = OFF`)
 	in, args := idList(d.IDs)
-	rebuild := false
+	rebuild, settle := false, false
 	err = writeTxOn(ctx, conn, func(conn *sql.Conn) error {
 		var state, raw string
 		err := conn.QueryRowContext(ctx, `SELECT state, tombstone_json FROM source_fences
@@ -239,12 +241,13 @@ func (s *Store) PurgeStep(ctx context.Context, d PrivacyDeletion) (done bool, er
 		var cursor struct {
 			Scan    int64 `json:"scan"`
 			Rebuild bool  `json:"rebuild"`
+			Settle  bool  `json:"settle"`
 		}
 		if err := json.Unmarshal([]byte(raw), &cursor); err != nil {
 			return err
 		}
-		if cursor.Rebuild {
-			rebuild = true
+		if cursor.Rebuild || cursor.Settle {
+			rebuild, settle = cursor.Rebuild, cursor.Settle
 			return nil
 		}
 		budget := int64(PurgeBatchRows)
@@ -291,14 +294,32 @@ func (s *Store) PurgeStep(ctx context.Context, d PrivacyDeletion) (done bool, er
 			WHERE scope_kind = 'privacy' AND scope_ref = ? AND epoch = ?`, now(), d.Root, d.Epoch)
 		return err
 	})
-	if err != nil || !rebuild {
+	if err != nil || !(rebuild || settle) {
 		return done, err
 	}
-	if _, err := conn.ExecContext(ctx, `VACUUM`); err != nil {
-		return false, fmt.Errorf("rebuild database after a privacy deletion: %w", err)
+	if rebuild {
+		if _, err := conn.ExecContext(ctx, `VACUUM`); err != nil {
+			return false, fmt.Errorf("rebuild database after a privacy deletion: %w", err)
+		}
+		err = writeTxOn(ctx, conn, func(conn *sql.Conn) error {
+			_, err := conn.ExecContext(ctx, `UPDATE source_fences SET tombstone_json = json_set(json_remove(tombstone_json, '$.rebuild'), '$.settle', json('true')), updated_at = ?
+				WHERE scope_kind = 'privacy' AND scope_ref = ? AND epoch = ? AND state = 'cleanup_pending'`, now(), d.Root, d.Epoch)
+			return err
+		})
+		if err != nil {
+			return false, err
+		}
 	}
+	complete, err := migrate.SettleCheckpoint(ctx, conn, filepath.Dir(s.path))
+	if err != nil {
+		return false, fmt.Errorf("truncate the WAL after a privacy deletion: %w", err)
+	}
+	if !complete {
+		return false, ErrCleanupPending
+	}
+	// Written after the truncation: these pages hold the fences, not the removed content.
 	err = writeTxOn(ctx, conn, func(conn *sql.Conn) error {
-		_, err := conn.ExecContext(ctx, `UPDATE source_fences SET state = 'cleaned', tombstone_json = json_remove(tombstone_json, '$.scan', '$.rebuild'), updated_at = ?
+		_, err := conn.ExecContext(ctx, `UPDATE source_fences SET state = 'cleaned', tombstone_json = json_remove(tombstone_json, '$.scan', '$.rebuild', '$.settle'), updated_at = ?
 			WHERE scope_kind IN ('privacy','session') AND scope_ref IN (`+in+`) AND state = 'cleanup_pending'`, append([]any{now()}, args...)...)
 		return err
 	})
