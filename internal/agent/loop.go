@@ -151,7 +151,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 	}
 	r := &run{ts: ts, wf: wf, units: ts.Units(), saved: saved}
-	if err := r.load(ctx, l.Store, sessionID); err != nil {
+	if err := r.load(ctx, l.Store, sessionID, opts.Withheld); err != nil {
 		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 	}
 	startStep, err := l.Store.NextStep(ctx, sessionID)

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"slices"
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/window"
@@ -36,9 +37,13 @@ type turnEntry struct {
 	echo  protocol.Echo
 }
 
-// load reads the transcript from the run's windowStartSeq.
-func (r *run) load(ctx context.Context, store Store, sessionID string) error {
+// load reads the transcript from the run's windowStartSeq. The rows at withheld seqs (sorted) are
+// read with their content withheld: they carry content of a revoked source (window.Withhold).
+func (r *run) load(ctx context.Context, store Store, sessionID string, withheld []int64) error {
 	return store.Transcript(ctx, sessionID, r.ts.WindowStartSeq, func(seq int64, m protocol.Message) error {
+		if _, found := slices.BinarySearch(withheld, seq); found {
+			m = window.Withhold(m)
+		}
 		r.appendRow(seq, m)
 		return nil
 	})

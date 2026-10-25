@@ -433,12 +433,11 @@ func TestFencedSessionSendsNoJudgeRequest(t *testing.T) {
 	if judge.calls.Load() != 0 || main.calls.Load() != 0 {
 		t.Fatalf("a fenced Start called judge=%d model=%d", judge.calls.Load(), main.calls.Load())
 	}
-	envs := storedEnvelopes(t, engine, handle.ID)
-	if len(envs) != 1 {
-		t.Fatalf("envelopes=%+v, want the store's failed one", envs)
-	}
-	if envs[0].State != string(session.RequestFailed) || envs[0].Reason != session.ReasonFenced {
-		t.Fatalf("fenced envelope=%+v, want failed/%s", envs[0], session.ReasonFenced)
+	// A session that is itself fenced cannot be projected: the Start is refused before anything is
+	// admitted (T3-S2, DATA_AND_FAILURES §5 step 3), so not even a failed envelope is written. The
+	// store's failed envelope for an admission that meets a fence is covered in internal/session.
+	if envs := storedEnvelopes(t, engine, handle.ID); len(envs) != 0 {
+		t.Fatalf("envelopes=%+v, want none", envs)
 	}
 	if after := readSessionFacts(t, engine, handle.ID); !reflect.DeepEqual(after, before) {
 		t.Fatalf("a fenced Start changed the session:\nbefore %+v\nafter  %+v", before, after)

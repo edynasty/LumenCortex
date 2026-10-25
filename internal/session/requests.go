@@ -187,7 +187,7 @@ func (s *Store) AdmitRequest(ctx context.Context, a RequestAdmission) (RequestEn
 		case !errors.Is(err, sql.ErrNoRows):
 			return err
 		}
-		epoch, fenced, err := sessionFence(ctx, conn, a.SessionID)
+		epoch, fenced, err := consumerFence(ctx, conn, a.SessionID)
 		if err != nil {
 			return err
 		}
@@ -246,7 +246,7 @@ func (s *Store) AppendAnswered(ctx context.Context, sessionID, requestID string,
 		if state != RequestAdmitted {
 			return transitionError(state, RequestAnswered)
 		}
-		epoch, fenced, err := sessionFence(ctx, conn, sessionID)
+		epoch, fenced, err := consumerFence(ctx, conn, sessionID)
 		if err != nil {
 			return err
 		}
@@ -327,7 +327,7 @@ func (s *Store) SettleRequest(ctx context.Context, requestID string, st Settleme
 		if st.To == RequestAnswered && purpose == PurposeMain {
 			return fmt.Errorf("%w: a main request is answered by AppendAnswered", ErrInvalidTransition)
 		}
-		epoch, _, err := sessionFence(ctx, conn, sessionID)
+		epoch, _, err := consumerFence(ctx, conn, sessionID)
 		if err != nil {
 			return err
 		}

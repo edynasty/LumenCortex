@@ -180,10 +180,11 @@ func exposureIn(ctx context.Context, conn *sql.Conn, sessions []string, rev *Rev
 	return nil
 }
 
-// SessionFenced reports whether a fence names the session. It only reads: a caller that must be
-// ordered with a revocation reads the fence inside its own write transaction instead.
+// SessionFenced reports whether a fence on the session refuses the session's own work: a fence no Start
+// has projected yet (consumerFence). It only reads: a caller that must be ordered with a revocation
+// reads the fence inside its own write transaction instead.
 func (s *Store) SessionFenced(ctx context.Context, sessionID string) (bool, error) {
-	_, fenced, err := sessionFence(ctx, s.db, sessionID)
+	_, fenced, err := consumerFence(ctx, s.db, sessionID)
 	return fenced, err
 }
 

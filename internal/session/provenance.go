@@ -233,10 +233,10 @@ func sessionExists(ctx context.Context, q rowQuerier, sessionID string) error {
 	return nil
 }
 
-// sessionFence is the admission read of ADR-0018: the newest epoch of a fence on the session, and
-// whether one exists. A fence is never lifted by this layer, whatever its cleanup state: a cleaned
-// fence still records that the session was revoked. Callers hold the write transaction, so the answer
-// is serialized with every fence write.
+// sessionFence is the source read of ADR-0018: the newest epoch of a fence on the session, and whether
+// one exists. A fence is never lifted by this layer, whatever its cleanup state or projection: a
+// cleaned or projected fence still records that the session was revoked, so nothing new may cite it.
+// Callers hold the write transaction, so the answer is serialized with every fence write.
 func sessionFence(ctx context.Context, q rowQuerier, sessionID string) (epoch int64, fenced bool, err error) {
 	var newest sql.NullInt64
 	if err := q.QueryRowContext(ctx,
@@ -244,6 +244,22 @@ func sessionFence(ctx context.Context, q rowQuerier, sessionID string) (epoch in
 		return 0, false, err
 	}
 	return newest.Int64, newest.Valid, nil
+}
+
+// consumerFence is the admission read of ADR-0018 for work of the session itself: the newest epoch of
+// a fence on the session, and whether one of its fences is not yet projected. A fence a Start
+// projected (AcknowledgeProjection, DATA_AND_FAILURES §5 step 3) no longer refuses the session's own
+// requests, tools and commits: each run withholds the content the fence names. A newer fence refuses
+// them again until a Start projects it. Same cost as sessionFence: one indexed read.
+func consumerFence(ctx context.Context, q rowQuerier, sessionID string) (epoch int64, fenced bool, err error) {
+	var newest sql.NullInt64
+	var open int64
+	if err := q.QueryRowContext(ctx,
+		`SELECT MAX(epoch), COALESCE(MAX(json_extract(tombstone_json, '$.projected') IS NULL), 0)
+		 FROM source_fences WHERE scope_kind = 'session' AND scope_ref = ?`, sessionID).Scan(&newest, &open); err != nil {
+		return 0, false, err
+	}
+	return newest.Int64, open == 1, nil
 }
 
 // SourceScopeRef is the scope_ref a source-scoped fence uses for the source (kind, ref): the cited

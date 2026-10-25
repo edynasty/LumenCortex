@@ -120,11 +120,15 @@ func TestRevokeSourceFencesReadersAndCancelsTheirRuns(t *testing.T) {
 		t.Fatalf("unknown epoch: %v", err)
 	}
 
-	// A fenced session sends nothing.
+	// A fenced session sends nothing. s answered after reading x, so its thread cannot be projected
+	// (T3-S2): the Start is refused before anything is written.
 	p := &countingProvider{}
-	res, _ := engine.runAgentWith(ctx, s.ID, p, AgentOptions{Input: "again", MaxSteps: 2})
-	if _, cause := sessionState(t, engine, s.ID); res.Status == "completed" || p.calls.Load() != 0 || cause == nil || cause.Kind != "fenced" {
-		t.Fatalf("fenced session run %+v, %d calls, cause %+v", res, p.calls.Load(), cause)
+	seqBefore, _ := engine.store.NewestMessageSeq(ctx, s.ID)
+	if _, err := engine.runAgentWith(ctx, s.ID, p, AgentOptions{Input: "again", MaxSteps: 2}); !errors.Is(err, session.ErrFenced) || p.calls.Load() != 0 {
+		t.Fatalf("fenced session run: %v, %d calls", err, p.calls.Load())
+	}
+	if after, _ := engine.store.NewestMessageSeq(ctx, s.ID); after != seqBefore {
+		t.Fatalf("a refused Start wrote rows: %d -> %d", seqBefore, after)
 	}
 	// It runs no check, and stores no result.
 	checks := func(id string) runChecks {

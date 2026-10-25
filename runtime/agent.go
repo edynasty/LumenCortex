@@ -281,6 +281,13 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		return nil, err
 	}
 	checks := runChecks{ev: ev, specs: plan.checks, store: e.store, sessionID: sessionID}
+	// A revocation that reached the session is projected here, under the run lock and before anything
+	// is admitted for this Start (the auto judge included): the run withholds the rows that carry
+	// revoked content, or the Start is refused when the thread cannot be projected.
+	withheld, err := e.projectRun(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	// Auto effort is resolved once per Start, under the run lock and before the Start transaction:
 	// the previous request and last reply are in the transcript, and a cancelled judge call leaves
 	// no new row or running session behind.
@@ -336,6 +343,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Delegation:          delegation,
 		TaskAgents:          plan.taskAgents,
 		RunID:               runID,
+		Withheld:            withheld,
 	}
 
 	loopOpts.SystemLayers = systemLayers(prompt.Layers)

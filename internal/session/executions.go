@@ -109,7 +109,7 @@ func (s *Store) AdmitExecution(ctx context.Context, a ExecutionAdmission) error 
 		case !errors.Is(err, sql.ErrNoRows):
 			return err
 		}
-		if _, fenced, err := sessionFence(ctx, conn, a.SessionID); err != nil {
+		if _, fenced, err := consumerFence(ctx, conn, a.SessionID); err != nil {
 			return err
 		} else if fenced {
 			return ErrFenced
@@ -382,9 +382,9 @@ func inheritedLineage(ctx context.Context, q querier, sessionID string, e Derive
 	}
 }
 
-// commitFenced reports whether the session or the source of any edge is fenced.
+// commitFenced reports whether the session (an unprojected fence) or the source of any edge is fenced.
 func commitFenced(ctx context.Context, q rowQuerier, sessionID string, edges []DerivedEdge) (bool, error) {
-	if _, fenced, err := sessionFence(ctx, q, sessionID); err != nil || fenced {
+	if _, fenced, err := consumerFence(ctx, q, sessionID); err != nil || fenced {
 		return fenced, err
 	}
 	for _, e := range edges {

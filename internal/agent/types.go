@@ -177,6 +177,11 @@ type Options struct {
 	// It lives in memory for the run's lifetime and is the nullable run_id column of request and
 	// execution rows; it is not a session field. "" means the caller supplied none.
 	RunID string
+	// Withheld are the transcript seqs whose content this run must not send: rows that carry content of
+	// a revoked source, as the Start's projection found them (DATA_AND_FAILURES §5 step 3). Their
+	// rows stay in the window with the same role, tool call id and order, and their content replaced
+	// (window.Withhold). Sorted ascending.
+	Withheld []int64
 	// Interactive marks a conversation turn (ADR-0006 D3). Without a host workflow, a text answer then
 	// ends the run completed: open work units and unpassed required checks stay obligations of the
 	// thread instead of blocking the answer. A run that changed the workspace still has its required
