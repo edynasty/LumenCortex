@@ -142,16 +142,22 @@ state with `ErrProtectedPath`: the workspace's external state directory (and an 
 (`mcp.json`, `skills/`, `cognition.json`) is not protected.
 
 The guard follows the real path, so absolute and relative spellings, `..` and symbolic links are
-refused. It then compares file identity (device and inode, or the Windows file index) of the path
-and of the open descriptor, so a hard link, a case or Unicode spelling the file system folds, and a
-path swapped between validation and open are refused too. A refused write leaves the file as it
-was.
+refused, and it compares names without regard to case. It then compares file identity (device and
+inode, or the Windows file index) of the path, of the directories above it in the workspace and of
+the open descriptor, so a hard link, a case or Unicode spelling the file system folds, and a path
+swapped between validation and open are refused too. A refused write leaves the file as it was.
+The lock files inside `runs/` are not compared one by one (their number grows with every session):
+a hard link to one of them, which only `shell` can create, is not refused; they hold only a pid and a
+time.
 
 **This is not an OS-level isolation boundary.** `shell` runs with the user's permissions and can
 read or overwrite the database, so a run that is allowed `full` policy can still bypass the file-tool
-guard. `search_text`, `find_files`, the git tools and the `lsp_*` tools (`lsp_rename` writes files) are not guarded, and a swap of a parent
-directory between `apply_patch`'s last check and its `os.Remove` of a delete is not closed. Treat
-the state as protected from the file tools only; run untrusted work in a policy without `shell`.
+guard. `search_text`, `find_files`, the git tools and the `lsp_*` tools (which read a file to send it to
+the language server; `lsp_rename` only previews an edit) are not guarded, and a swap of a parent
+directory between `apply_patch`'s last check and its `os.Remove` of a delete is not closed. They reach
+state only while it is inside the workspace (the legacy `.lumencortex` database or a workspace that
+contains the external state root). Treat the state as protected from the file tools only; run
+untrusted work in a policy without `shell`.
 
 Workflow dotted paths reject dangerous segments:
 

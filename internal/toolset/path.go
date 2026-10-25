@@ -94,9 +94,10 @@ func (s *Set) resolve(input string, allowMissing bool) (string, string, error) {
 
 // guard refuses a path that leads to protected state. anchor is the deepest existing part of the
 // path with symlinks resolved; full is anchor plus the components that do not exist yet. Names are
-// compared first; identity (device and inode, or the Windows file index) is compared after, which
-// also catches a hard link, a case or Unicode spelling the file system folds, and an existing
-// ancestor directory that is a protected directory.
+// compared first, without regard to case; identity (device and inode, or the Windows file index) is
+// compared after, for the anchor and every directory above it in the workspace, which also catches a
+// hard link, a case or Unicode spelling the file system folds, and a path through a protected
+// directory whose contents are not listed (runs).
 func (s *Set) guard(anchor, full string) error {
 	if s.protected.empty() {
 		return nil
@@ -104,29 +105,43 @@ func (s *Set) guard(anchor, full string) error {
 	if s.protectedByName(full) {
 		return ErrProtectedPath
 	}
-	info, err := os.Stat(anchor)
+	entries, err := s.protected.entries()
 	if err != nil {
 		return err
 	}
-	return s.denyIfProtected(info)
+	for dir := anchor; ; dir = filepath.Dir(dir) {
+		info, err := os.Stat(dir)
+		if err != nil {
+			return err
+		}
+		if sameAsAny(info, entries) {
+			return ErrProtectedPath
+		}
+		if !within(s.realWorkspace, dir) || dir == s.realWorkspace || filepath.Dir(dir) == dir {
+			return nil
+		}
+	}
 }
 
 // protectedByName reports whether the resolved path lies in a protected tree or is a state file
-// directly under the legacy directory.
+// directly under the legacy directory. Paths are compared without regard to case: on a file system
+// that folds case another spelling names the same file, and a spelling that does not exist yet has
+// no identity to compare. On one that does not, a case variant is refused needlessly, never allowed.
 func (s *Set) protectedByName(full string) bool {
+	full = strings.ToLower(full)
 	for _, tree := range s.protected.Trees {
-		if within(realOf(tree), full) {
+		if within(strings.ToLower(realOf(tree)), full) {
 			return true
 		}
 	}
 	if s.protected.Legacy == "" {
 		return false
 	}
-	rel, ok := relWithin(realOf(s.protected.Legacy), full)
+	rel, ok := relWithin(strings.ToLower(realOf(s.protected.Legacy)), full)
 	if !ok || rel == "." {
 		return false
 	}
-	first := strings.ToLower(strings.SplitN(rel, string(filepath.Separator), 2)[0])
+	first := strings.SplitN(rel, string(filepath.Separator), 2)[0]
 	for _, glob := range legacyStateGlobs {
 		if matched, _ := filepath.Match(glob, first); matched {
 			return true
@@ -144,16 +159,28 @@ func (s *Set) denyIfProtected(info os.FileInfo) error {
 	if err != nil {
 		return err
 	}
-	for _, entry := range entries {
-		if os.SameFile(info, entry) {
-			return ErrProtectedPath
-		}
+	if sameAsAny(info, entries) {
+		return ErrProtectedPath
 	}
 	return nil
 }
 
-// entries lists every protected file and directory that exists now. Entries that vanish during the
-// walk are skipped: they cannot be reached either.
+func sameAsAny(info os.FileInfo, entries []os.FileInfo) bool {
+	for _, entry := range entries {
+		if os.SameFile(info, entry) {
+			return true
+		}
+	}
+	return false
+}
+
+// lockDirName is the directory of run and lease lock files. It gains a file per session and is never
+// pruned, so its files are not listed: they are empty, and a path into the directory is refused by the
+// directory's own identity (guard) and name.
+const lockDirName = "runs"
+
+// entries lists every protected file and directory that exists now, except the files inside a runs
+// directory. Entries that vanish during the walk are skipped: they cannot be reached either.
 func (p Protected) entries() ([]os.FileInfo, error) {
 	var out []os.FileInfo
 	walk := func(root string) error {
@@ -166,6 +193,9 @@ func (p Protected) entries() ([]os.FileInfo, error) {
 			}
 			if info, err := d.Info(); err == nil {
 				out = append(out, info)
+			}
+			if d.IsDir() && strings.EqualFold(d.Name(), lockDirName) && (path == root || filepath.Dir(path) == root) {
+				return filepath.SkipDir
 			}
 			return nil
 		})

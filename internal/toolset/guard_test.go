@@ -164,6 +164,10 @@ func TestFileToolsRefuseEveryRouteToState(t *testing.T) {
 	for _, target := range targets {
 		outside := !within(f.ws, target)
 		for spelling, path := range f.spellings(t, target) {
+			if spelling == "hard link" && filepath.Base(filepath.Dir(target)) == lockDirName {
+				// Lock files are not compared one by one (ADR-0016 D5); see TestManyRunLocksKeepFileToolsWorking.
+				continue
+			}
 			for tool, run := range f.mutations(path) {
 				err := run()
 				switch {
@@ -386,4 +390,118 @@ func TestZeroProtectedChangesNothing(t *testing.T) {
 	if _, err := set.Execute(context.Background(), "write_file", map[string]any{"path": ".lumencortex/lumencortex.db", "content": "y"}, nil); err != nil {
 		t.Fatalf("write without a guard: %v", err)
 	}
+}
+
+// runs/ gains a lock file per session and is never pruned. However many there are, the file tools
+// keep working on ordinary files and keep refusing every path into runs/, existing or new, by any
+// spelling the name check or the directory's identity covers.
+func TestManyRunLocksKeepFileToolsWorking(t *testing.T) {
+	f := newGuardFixture(t)
+	for _, dir := range []string{filepath.Join(f.legacy, "runs"), filepath.Join(f.insideExt, "runs"), filepath.Join(f.outsideEx, "runs")} {
+		for i := 0; i < maxProtectedEntries+100; i++ {
+			if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("session-%05d.lock", i)), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := f.call("read_file", map[string]any{"path": "a.txt"}); err != nil {
+		t.Fatalf("read_file of an ordinary file: %v", err)
+	}
+	if err := f.call("write_file", map[string]any{"path": "b.txt", "content": "ordinary"}); err != nil {
+		t.Fatalf("write_file of an ordinary file: %v", err)
+	}
+	for _, target := range []string{filepath.Join(f.legacy, "runs", "s1.lock"), filepath.Join(f.insideExt, "runs", "s1.lock")} {
+		rel := mustRel(t, f.ws, target)
+		for spelling, path := range map[string]string{"relative": rel, "dot-dot": filepath.Join("sub", "..", rel)} {
+			for tool, run := range f.mutations(path) {
+				if err := run(); !isProtected(err) {
+					t.Errorf("%s via %s on %s: %v, want ErrProtectedPath", tool, spelling, target, err)
+				}
+			}
+		}
+		created := filepath.Join(filepath.Dir(target), "new.lock")
+		if err := f.call("write_file", map[string]any{"path": mustRel(t, f.ws, created), "content": "x"}); !isProtected(err) {
+			t.Errorf("write_file %s: %v, want ErrProtectedPath", created, err)
+		}
+		if _, err := os.Lstat(created); err == nil {
+			t.Errorf("%s was created", created)
+		}
+	}
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(f.ws, "runs-link")
+		if err := os.Symlink(filepath.Join(f.insideExt, "runs"), link); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.call("read_file", map[string]any{"path": "runs-link/s1.lock"}); !isProtected(err) {
+			t.Errorf("read_file through a symlinked runs directory: %v, want ErrProtectedPath", err)
+		}
+	}
+	f.assertStateIntact(t, "after the attempts")
+}
+
+// A case variant of a state path that does not exist yet has no identity to compare: the name check
+// refuses it, and a refused write creates nothing, whether or not the legacy directory exists.
+func TestCaseVariantCannotCreateState(t *testing.T) {
+	for _, legacyExists := range []bool{true, false} {
+		f := newGuardFixture(t)
+		if !legacyExists {
+			if err := os.RemoveAll(f.legacy); err != nil {
+				t.Fatal(err)
+			}
+		}
+		insideExt := mustRel(t, f.ws, f.insideExt)
+		for _, rel := range []string{
+			".LUMENCORTEX/lumencortex.db",
+			".LumenCortex/lumencortex.db-journal",
+			".LUMENCORTEX/checkpoint.pending",
+			".LUMENCORTEX/bind.lock",
+			strings.ToUpper(insideExt) + "/lumencortex.db-wal",
+		} {
+			for tool, run := range map[string]func() error{
+				"write_file": func() error { return f.call("write_file", map[string]any{"path": rel, "content": "forged"}) },
+				"apply_patch create": func() error {
+					return f.call("apply_patch", map[string]any{"patches": []any{map[string]any{"path": rel, "operation": "create", "content": "forged"}}})
+				},
+			} {
+				if err := run(); !isProtected(err) {
+					t.Errorf("legacy exists=%v: %s %s: %v, want ErrProtectedPath", legacyExists, tool, rel, err)
+				}
+				for _, spelling := range []string{rel, strings.ToLower(rel)} {
+					if _, err := os.Lstat(filepath.Join(f.ws, filepath.FromSlash(spelling))); err == nil {
+						if _, protected := f.protected[filepath.Join(f.ws, filepath.FromSlash(strings.ToLower(rel)))]; !protected {
+							t.Errorf("legacy exists=%v: %s %s created %s", legacyExists, tool, rel, spelling)
+						}
+					}
+				}
+			}
+		}
+		if legacyExists {
+			f.assertStateIntact(t, "after the case variants")
+		}
+	}
+}
+
+// A lock file inside runs/ is not listed, so a spelling the name check misses (Unicode normalization,
+// which a file system may fold) is refused by the identity of the runs directory above it.
+func TestNormalizationVariantIntoRunsIsRefused(t *testing.T) {
+	base := realDir(t)
+	ws := filepath.Join(base, "ws")
+	state := filepath.Join(ws, "st\u00e4te", "proj")
+	put(t, filepath.Join(state, "runs", "s1.lock"), stateContent)
+	put(t, filepath.Join(ws, "a.txt"), "ordinary")
+	variant := filepath.Join("sta\u0308te", "proj", "runs", "s1.lock")
+	if _, err := os.Stat(filepath.Join(ws, variant)); err != nil {
+		t.Skip("this file system distinguishes normalization forms")
+	}
+	set, err := New(Options{Workspace: ws, Policy: PolicyFull, Protected: Protected{Trees: []string{state}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &guardFixture{ws: ws, set: set, protected: map[string]string{filepath.Join(state, "runs", "s1.lock"): stateContent}}
+	for tool, run := range f.mutations(variant) {
+		if err := run(); !isProtected(err) {
+			t.Errorf("%s via a normalization variant: %v, want ErrProtectedPath", tool, err)
+		}
+	}
+	f.assertStateIntact(t, "after the variants")
 }

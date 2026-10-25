@@ -86,12 +86,17 @@ Only the database, its locks, run locks and backups moved.
 `backups/`, `checkpoint.pending*`, `legacy-state-*`. The legacy files stay protected after the external
 state took over. Project configuration beside them is not protected.
 
-The guard resolves the real path, compares names against those roots, then compares **file identity**
-(`os.SameFile`: device and inode, or the Windows file index) of the existing part of the path and, after
-the open, of the descriptor. Identity covers hard links, case and normalization spellings the file
-system folds, and a path swapped between validation and open. A write opens without truncating and
-truncates only after the identity check, so a refused write changes nothing. `apply_patch` validates a
-delete again immediately before removing.
+The guard resolves the real path and compares it, without regard to case, against those roots; then it
+compares **file identity** (`os.SameFile`: device and inode, or the Windows file index) of the existing
+part of the path and every directory above it in the workspace and, after the open, of the descriptor.
+Identity covers hard links, case and normalization spellings the file system folds, and a path swapped
+between validation and open. The files inside `runs/` are not listed: the directory gains a lock file
+per session and is never pruned, and listing them made every file-tool call cost time in proportion to
+the number of sessions and refuse every call past 4096 entries. A path into `runs/` is refused by the
+directory's name and identity; a hard link to one of its lock files (empty apart from a diagnostic
+pid and time, and only creatable with `shell`) is not. A write opens without truncating and truncates
+only after the identity check, so a refused write changes nothing. `apply_patch` validates a delete
+again immediately before removing.
 
 ## Not provided
 
