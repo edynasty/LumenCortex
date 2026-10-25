@@ -208,7 +208,7 @@ func (e *Engine) taskEvidence(ctx context.Context, sessionID string, state tasks
 	if ev.Tasks, err = e.executionEvidence(ctx, sessionID); err != nil {
 		return ev, err
 	}
-	specs, _, err := e.effectiveChecks()
+	specs, _, _, err := e.approvedChecks(ctx)
 	if err != nil {
 		return ev, err
 	}

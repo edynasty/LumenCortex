@@ -38,6 +38,25 @@ func gitEngine(t *testing.T) (*Engine, string) {
 	return engine, root
 }
 
+// approveChecks approves the engine's current effective check set as a user would after reading
+// `lcx-go checks status` (ADR-0017): the fixture's checks are the user's own definitions.
+func approveChecks(t *testing.T, engine *Engine) CheckApprovalState {
+	t.Helper()
+	ctx := context.Background()
+	state, err := engine.CheckApprovalState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved, err := engine.ApproveChecks(ctx, ApproveChecksRequest{SetDigest: state.SetDigest, ApprovedBy: ApprovedByUser, Actor: "test-user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !approved.Approved {
+		t.Fatalf("approval did not take: %+v", approved)
+	}
+	return approved
+}
+
 func checkInfo(t *testing.T, engine *Engine, id, check string) CheckInfo {
 	t.Helper()
 	info, err := engine.SessionChecks(context.Background(), id)
@@ -68,6 +87,7 @@ func taskResolution(t *testing.T, engine *Engine, id string) TaskStateInfo {
 func TestHumanAcceptanceHoldsUntilTheFingerprintChanges(t *testing.T) {
 	useChecks(t, `{"status": {"kind": "test", "command": "test -f ok.txt"}}`)
 	engine, root := gitEngine(t)
+	approveChecks(t, engine)
 	ctx := context.Background()
 	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "accept"})
 	if err != nil {
@@ -123,6 +143,7 @@ func TestHumanAcceptanceHoldsUntilTheFingerprintChanges(t *testing.T) {
 func TestCompletionGateRunsRequiredChecksWithArtifacts(t *testing.T) {
 	useChecks(t, `{"status": {"kind": "test", "command": "echo checking; test -f ok.txt"}}`)
 	engine, root := gitEngine(t)
+	approveChecks(t, engine)
 	ctx := context.Background()
 	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "gate"})
 	if err != nil {
@@ -187,6 +208,7 @@ func TestCompletionGateRunsRequiredChecksWithArtifacts(t *testing.T) {
 func TestChecksRunInTheWorktreeAndApplyLatchesOnlyOnEvidence(t *testing.T) {
 	useChecks(t, `{"marker": {"kind": "test", "command": "test -f marker.txt"}}`)
 	engine, root := gitEngine(t)
+	approveChecks(t, engine)
 	ctx := context.Background()
 
 	apply := func(goal string, accept bool, queueDrop bool) TaskStateInfo {

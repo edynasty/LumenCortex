@@ -87,7 +87,8 @@ func (f *fixture) artifact(hash string) session.Artifact {
 	return a
 }
 
-var statusOK = Spec{ID: "status", Kind: KindTest, Command: "grep -q ok status.txt", Timeout: 30 * time.Second, Required: true}
+// The fixtures' specs run under approval epoch 1, as the runtime sets it for an approved set (ADR-0017).
+var statusOK = Spec{ID: "status", Kind: KindTest, Command: "grep -q ok status.txt", Timeout: 30 * time.Second, Required: true, ApprovalEpoch: 1}
 
 // A check runs in the session's workspace; its runtime result is stored with its log, and a non-passing
 // result in a dirty tree also stores the diff its fingerprint covers. A pass at the same fingerprint is
@@ -174,6 +175,47 @@ func TestHumanAcceptanceHoldsUntilTheFingerprintChanges(t *testing.T) {
 	}
 }
 
+// ADR-0017: an unapproved definition is not run and stores nothing, cannot be accepted, and is never
+// satisfied; a pass or an acceptance under one approval epoch counts for nothing under the next.
+func TestApprovalGatesRunsAcceptanceAndReuse(t *testing.T) {
+	f := newFixture(t, true)
+	f.write("status.txt", "ok\n")
+	unapproved := statusOK
+	unapproved.ApprovalEpoch = 0
+	v := f.decide(unapproved)
+	if v.Passed || v.Result.Status != StatusSpecUnapproved || len(f.rows()) != 0 || !strings.Contains(v.Tail, "not approved") {
+		t.Fatalf("unapproved spec: %+v rows=%d", v, len(f.rows()))
+	}
+	if _, err := f.ev.Accept(context.Background(), unapproved, "desktop-user"); !errors.Is(err, ErrSpecUnapproved) {
+		t.Fatalf("accept unapproved: %v", err)
+	}
+	pass := f.decide(statusOK)
+	if !pass.Passed || pass.Result.ApprovalEpoch != 1 || pass.Result.SpecDigest != SpecDigest(statusOK) {
+		t.Fatalf("approved pass: %+v", pass)
+	}
+	if ok, _, _ := f.ev.Satisfied(context.Background(), unapproved); ok {
+		t.Fatal("an unapproved spec is satisfied by the pass of its approved twin")
+	}
+	next := statusOK
+	next.ApprovalEpoch = 2
+	if ok, _, _ := f.ev.Satisfied(context.Background(), next); ok {
+		t.Fatal("a pass of epoch 1 satisfies epoch 2")
+	}
+	before := len(f.rows())
+	if v := f.decide(next); !v.Passed || v.Reused || len(f.rows()) != before+1 || v.Result.ApprovalEpoch != 2 {
+		t.Fatalf("epoch 2 must run again: %+v", v)
+	}
+	accepted, err := f.ev.Accept(context.Background(), next, "desktop-user")
+	if err != nil || accepted.ApprovalEpoch != 2 {
+		t.Fatalf("accept: %+v %v", accepted, err)
+	}
+	third := statusOK
+	third.ApprovalEpoch = 3
+	if ok, _, _ := f.ev.Satisfied(context.Background(), third); ok {
+		t.Fatal("an acceptance of epoch 2 satisfies epoch 3")
+	}
+}
+
 // Outside git there is no fingerprint: nothing is reused, every decision runs, and nothing can be
 // accepted.
 func TestOutsideGitEveryDecisionRuns(t *testing.T) {
@@ -198,7 +240,7 @@ func TestTimeoutIsAnErrorAndCancellationStoresNothing(t *testing.T) {
 		t.Skip("process groups are POSIX")
 	}
 	f := newFixture(t, true)
-	slow := Spec{ID: "slow", Kind: KindTest, Command: "sleep 30 & wait", Timeout: 300 * time.Millisecond, Required: true}
+	slow := Spec{ID: "slow", Kind: KindTest, Command: "sleep 30 & wait", Timeout: 300 * time.Millisecond, Required: true, ApprovalEpoch: 1}
 	started := time.Now()
 	v := f.decide(slow)
 	if elapsed := time.Since(started); elapsed > 10*time.Second {
@@ -227,7 +269,7 @@ func TestSchemaCheck(t *testing.T) {
 	f.write("schema.json", `{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}`)
 	f.write("good.json", `{"name":"x"}`)
 	f.write("bad.json", `{"name":3}`)
-	spec := Spec{ID: "cfg", Kind: KindSchema, Schema: "schema.json", Files: []string{"good.json"}, Required: true}
+	spec := Spec{ID: "cfg", Kind: KindSchema, Schema: "schema.json", Files: []string{"good.json"}, Required: true, ApprovalEpoch: 1}
 	if v := f.decide(spec); !v.Passed {
 		t.Fatalf("valid file: %+v %s", v, v.Tail)
 	}

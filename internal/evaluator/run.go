@@ -34,6 +34,11 @@ var ErrNoFingerprint = errors.New("workspace has no fingerprint (not a git repos
 // ErrUnknownCheck reports a check id the configuration does not define (or dropped as untrusted).
 var ErrUnknownCheck = errors.New("check is not configured")
 
+// ErrSpecUnapproved reports a check whose definition the host has not approved in its current form
+// (ADR-0017): it is not run by the completion gate or a work unit, cannot be accepted, and satisfies
+// nothing until the user approves the current check set.
+var ErrSpecUnapproved = errors.New("check definition is not approved; approve the current check set (lcx-go checks status)")
+
 // ErrStore wraps a failure to read or write results and artifacts.
 var ErrStore = errors.New("evaluator store")
 
@@ -52,7 +57,7 @@ func storeErr(ctx context.Context, err error) error {
 type Store interface {
 	PutArtifact(ctx context.Context, sessionID string, a session.Artifact) error
 	AppendEvalResult(ctx context.Context, sessionID string, row session.EvalRow) (int64, error)
-	DecidingEvalResult(ctx context.Context, sessionID, checkID, fingerprint string) (*session.EvalRow, error)
+	DecidingEvalResult(ctx context.Context, sessionID, checkID, fingerprint, specDigest string, approvalEpoch int64) (*session.EvalRow, error)
 }
 
 // Evaluator decides checks for one session in its workspace: the session's worktree when it has one.
@@ -88,8 +93,8 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string)
 	for _, spec := range specs {
 		current := Fingerprint(snap.env, spec)
 		var stored *Result
-		if current != "" {
-			row, err := e.Store.DecidingEvalResult(ctx, e.SessionID, spec.ID, current)
+		if current != "" && Approved(spec) {
+			row, err := e.Store.DecidingEvalResult(ctx, e.SessionID, spec.ID, current, SpecDigest(spec), spec.ApprovalEpoch)
 			if err != nil {
 				return nil, storeErr(ctx, err)
 			}
@@ -99,13 +104,16 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string)
 			}
 		}
 		var tail string
-		result, passed, err := CheckVerdict(stored, current, func() (Result, error) {
+		result, passed, err := CheckVerdict(stored, current, spec, func() (Result, error) {
 			r, t, err := e.run(ctx, spec, current, workUnitID, snap)
 			tail = t
 			return r, err
 		})
 		if err != nil {
 			return nil, err
+		}
+		if result.Status == StatusSpecUnapproved {
+			result.WorkUnitID, tail = workUnitID, ErrSpecUnapproved.Error()
 		}
 		out = append(out, Verdict{Result: result, Passed: passed, Reused: stored != nil && passed && result.Seq == stored.Seq, Tail: tail})
 	}
@@ -140,15 +148,15 @@ func (e *Evaluator) SatisfiedAll(ctx context.Context, specs []Spec) ([]bool, []*
 
 func (e *Evaluator) satisfied(ctx context.Context, spec Spec, env Env) (bool, *Result, error) {
 	current := Fingerprint(env, spec)
-	if current == "" {
+	if current == "" || !Approved(spec) {
 		return false, nil, nil
 	}
-	row, err := e.Store.DecidingEvalResult(ctx, e.SessionID, spec.ID, current)
+	row, err := e.Store.DecidingEvalResult(ctx, e.SessionID, spec.ID, current, SpecDigest(spec), spec.ApprovalEpoch)
 	if err != nil || row == nil {
 		return false, nil, storeErr(ctx, err)
 	}
 	r := fromRow(*row)
-	return Satisfies(r, current), &r, nil
+	return Satisfies(r, current, spec), &r, nil
 }
 
 // Environment returns the workspace's current fingerprint environment.
@@ -157,13 +165,17 @@ func (e *Evaluator) Environment(ctx context.Context) (Env, error) {
 	return snap.env, err
 }
 
-// Accept records a person's acceptance of spec at the current fingerprint: a passed result with
-// provenance human:<actor>. It is a row, not a flag, and holds until the fingerprint changes. Outside
-// git it fails with ErrNoFingerprint.
+// Accept records a person's acceptance of spec at the current fingerprint under its approval: a passed
+// result with provenance human:<actor>. It is a row, not a flag, and holds until the fingerprint or the
+// approval changes. Outside git it fails with ErrNoFingerprint; an unapproved spec fails with
+// ErrSpecUnapproved (ADR-0017: accepting a result is not approving the definition that produced it).
 func (e *Evaluator) Accept(ctx context.Context, spec Spec, actor string) (Result, error) {
 	actor = strings.TrimSpace(actor)
 	if actor == "" || len(actor) > 128 || strings.ContainsAny(actor, " \t\r\n") {
 		return Result{}, errors.New("actor must be 1-128 bytes without whitespace")
+	}
+	if !Approved(spec) {
+		return Result{}, ErrSpecUnapproved
 	}
 	env, err := e.Environment(ctx)
 	if err != nil {
@@ -174,14 +186,14 @@ func (e *Evaluator) Accept(ctx context.Context, spec Spec, actor string) (Result
 		return Result{}, ErrNoFingerprint
 	}
 	r := Result{Check: spec.ID, Kind: spec.Kind, Status: StatusPassed, Provenance: ProvenanceHumanPrefix + actor,
-		Fingerprint: current, Artifacts: []string{}, At: time.Now().UTC()}
+		Fingerprint: current, SpecDigest: SpecDigest(spec), ApprovalEpoch: spec.ApprovalEpoch, Artifacts: []string{}, At: time.Now().UTC()}
 	return e.store(ctx, r)
 }
 
 func (e *Evaluator) store(ctx context.Context, r Result) (Result, error) {
 	seq, err := e.Store.AppendEvalResult(ctx, e.SessionID, session.EvalRow{
 		WorkUnitID: r.WorkUnitID, CheckID: r.Check, Kind: r.Kind, Status: r.Status, Provenance: r.Provenance,
-		Fingerprint: r.Fingerprint, Artifacts: r.Artifacts, At: r.At,
+		Fingerprint: r.Fingerprint, SpecDigest: r.SpecDigest, ApprovalEpoch: r.ApprovalEpoch, Artifacts: r.Artifacts, At: r.At,
 	})
 	if err != nil {
 		return Result{}, storeErr(ctx, err)
@@ -199,7 +211,8 @@ func fromRow(row session.EvalRow) Result {
 		artifacts = []string{}
 	}
 	return Result{Seq: row.Seq, WorkUnitID: row.WorkUnitID, Check: row.CheckID, Kind: row.Kind, Status: row.Status,
-		Provenance: row.Provenance, Fingerprint: row.Fingerprint, Artifacts: artifacts, At: row.At}
+		Provenance: row.Provenance, Fingerprint: row.Fingerprint, SpecDigest: row.SpecDigest, ApprovalEpoch: row.ApprovalEpoch,
+		Artifacts: artifacts, At: row.At}
 }
 
 // run executes spec once and stores its runtime result, with its log and, unless it passed, the diff
@@ -235,7 +248,8 @@ func (e *Evaluator) run(ctx context.Context, spec Spec, fingerprint, workUnitID 
 		artifacts = append(artifacts, diffArtifact)
 	}
 	stored, err := e.store(ctx, Result{WorkUnitID: workUnitID, Check: spec.ID, Kind: spec.Kind, Status: status,
-		Provenance: ProvenanceRuntime, Fingerprint: fingerprint, Artifacts: artifacts, At: at})
+		Provenance: ProvenanceRuntime, Fingerprint: fingerprint, SpecDigest: SpecDigest(spec), ApprovalEpoch: spec.ApprovalEpoch,
+		Artifacts: artifacts, At: at})
 	if err != nil {
 		return Result{}, "", err
 	}

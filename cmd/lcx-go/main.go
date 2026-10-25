@@ -217,8 +217,10 @@ func run() error {
 		return runImportCommand(ctx, engine, args[1:])
 	case "plugins":
 		return runPluginsCommand(ctx, engine, args[1:])
+	case "checks":
+		return runChecksCommand(ctx, engine, os.Stdout, args[1:])
 	default:
-		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, session-delete, shell, agent, resume, governor, approve, worktree, skills, agents, import, plugins)", args[0])
+		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, session-delete, shell, agent, resume, governor, approve, worktree, skills, agents, import, plugins, checks)", args[0])
 	}
 }
 

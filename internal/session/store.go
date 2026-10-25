@@ -19,6 +19,10 @@ type Store struct {
 	db   *sql.DB
 	ws   *migrate.Workspace
 	path string
+	// checkProject and checkDefinitions are what WatchCheckDefinitions set: the project whose check
+	// approvals a write of one of the definition files revokes (ADR-0017). Set once before any run.
+	checkProject     string
+	checkDefinitions []string
 }
 
 type Session struct {

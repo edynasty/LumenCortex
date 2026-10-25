@@ -52,6 +52,7 @@ func (p *countingProvider) Complete(context.Context, protocol.ProviderRequest) (
 func TestRevokeSourceFencesReadersAndCancelsTheirRuns(t *testing.T) {
 	useChecks(t, `{"status": {"kind": "test", "command": "true"}}`)
 	engine, _ := gitEngine(t)
+	approveChecks(t, engine)
 	ctx := context.Background()
 	x := newTestSession(t, engine, "the deploy host is alpha-7")
 	y := newTestSession(t, engine, "the retry policy uses jitter")
@@ -140,7 +141,7 @@ func TestRevokeSourceFencesReadersAndCancelsTheirRuns(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return runChecks{ev: ev, specs: specs, store: engine.store, sessionID: id}
+		return runChecks{engine: engine, ev: ev, specs: specs, store: engine.store, sessionID: id}
 	}
 	stored := func(id string) int {
 		rows, err := engine.CheckResults(ctx, id, -1, 0)

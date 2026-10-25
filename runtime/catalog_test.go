@@ -23,6 +23,7 @@ func TestLocatorCatalogCarriesNoFreeTextAndFollowsSources(t *testing.T) {
 	const sentinel = "CATALOG-SENTINEL-8c1"
 	useChecks(t, `{"status": {"kind": "test", "command": "echo `+sentinel+`-log; true"}}`)
 	engine, root := gitEngine(t)
+	approveChecks(t, engine)
 	ctx := context.Background()
 	for _, f := range []string{"a.go", "b.go", "c.go", "d.go", "e.go", "f.go"} {
 		if err := os.WriteFile(filepath.Join(root, f), []byte("package x // "+f+"\n"), 0o644); err != nil {

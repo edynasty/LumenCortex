@@ -8,9 +8,11 @@ import (
 
 // S5 TestSatisfies (design verify/go/contracts): only a passed runtime or human result at the current,
 // non-empty fingerprint satisfies; editing the check changes the fingerprint; outside git there is none.
+// ADR-0017: the result must also carry the approved definition's digest and the current approval
+// epoch, and an unapproved spec is never satisfied.
 func TestSatisfies(t *testing.T) {
 	env := Env{Head: "abc", DirtyHash: "", WorktreeID: "local"}
-	spec := Spec{ID: "go-test", Kind: KindTest, Command: "go test ./..."}
+	spec := Spec{ID: "go-test", Kind: KindTest, Command: "go test ./...", ApprovalEpoch: 3}
 	now := Fingerprint(env, spec)
 	edited := Fingerprint(env, Spec{ID: "go-test", Kind: KindTest, Command: "go test -race ./..."})
 	if now == "" || edited == now {
@@ -22,32 +24,91 @@ func TestSatisfies(t *testing.T) {
 	if other := Fingerprint(Env{Head: "abc", WorktreeID: "/wt/s1"}, spec); other == now {
 		t.Fatal("a result for the main checkout is valid in a worktree")
 	}
+	digest := SpecDigest(spec)
+	approved := func(r Result) Result { r.SpecDigest, r.ApprovalEpoch = digest, 3; return r }
+	unapproved := spec
+	unapproved.ApprovalEpoch = 0
 	cases := []struct {
 		r       Result
 		current string
+		spec    Spec
 		want    bool
 	}{
-		{Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: now}, now, true},
-		{Result{Status: StatusPassed, Provenance: "human:desktop-user", Fingerprint: now}, now, true},
-		{Result{Status: StatusPassed, Provenance: "llm:deepseek/chat", Fingerprint: now}, now, false},
-		{Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: "old+@local#00"}, now, false},
-		{Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: now}, edited, false},
-		{Result{Status: StatusFailed, Provenance: ProvenanceRuntime, Fingerprint: now}, now, false},
-		{Result{Status: StatusPassed, Provenance: "model", Fingerprint: now}, now, false},
-		{Result{Status: StatusPassed, Provenance: "human:", Fingerprint: now}, now, false},
-		{Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: ""}, "", false},
+		{approved(Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: now}), now, spec, true},
+		{approved(Result{Status: StatusPassed, Provenance: "human:desktop-user", Fingerprint: now}), now, spec, true},
+		{approved(Result{Status: StatusPassed, Provenance: "llm:deepseek/chat", Fingerprint: now}), now, spec, false},
+		{approved(Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: "old+@local#00"}), now, spec, false},
+		{approved(Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: now}), edited, spec, false},
+		{approved(Result{Status: StatusFailed, Provenance: ProvenanceRuntime, Fingerprint: now}), now, spec, false},
+		{approved(Result{Status: StatusPassed, Provenance: "model", Fingerprint: now}), now, spec, false},
+		{approved(Result{Status: StatusPassed, Provenance: "human:", Fingerprint: now}), now, spec, false},
+		{approved(Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: ""}), "", spec, false},
+		// ADR-0017: a result from before approvals, of an older epoch, of another definition, or for a
+		// spec that is not approved now never satisfies.
+		{Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: now}, now, spec, false},
+		{Result{Status: StatusPassed, Provenance: "human:desktop-user", Fingerprint: now, SpecDigest: digest, ApprovalEpoch: 2}, now, spec, false},
+		{Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: now, SpecDigest: "sha256:other", ApprovalEpoch: 3}, now, spec, false},
+		{approved(Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: now}), now, unapproved, false},
 	}
 	for i, c := range cases {
-		if got := Satisfies(c.r, c.current); got != c.want {
+		if got := Satisfies(c.r, c.current, c.spec); got != c.want {
 			t.Errorf("case %d: Satisfies=%v want %v", i, got, c.want)
 		}
 	}
 }
 
+// ADR-0017 digests: a definition's digest covers every field that changes what runs or whether it is
+// required, and not the approval epoch; the set digest is order-independent and the empty set has one
+// that no other set shares.
+func TestSpecAndSetDigests(t *testing.T) {
+	base := Spec{ID: "go-test", Kind: KindTest, Command: "go test ./...", Timeout: 60e9, Required: true, Source: "workspace"}
+	d := SpecDigest(base)
+	if len(d) != len("sha256:")+64 || d[:7] != "sha256:" {
+		t.Fatalf("digest %q", d)
+	}
+	withEpoch := base
+	withEpoch.ApprovalEpoch = 9
+	if SpecDigest(withEpoch) != d {
+		t.Fatal("the approval epoch changed the definition digest")
+	}
+	edits := map[string]func(*Spec){
+		"command":  func(s *Spec) { s.Command = "true" },
+		"kind":     func(s *Spec) { s.Kind = KindBuild },
+		"schema":   func(s *Spec) { s.Schema = "x.json" },
+		"files":    func(s *Spec) { s.Files = []string{"a"} },
+		"timeout":  func(s *Spec) { s.Timeout = 1e9 },
+		"required": func(s *Spec) { s.Required = false },
+		"source":   func(s *Spec) { s.Source = "global" },
+		"id":       func(s *Spec) { s.ID = "go-vet" },
+	}
+	for name, edit := range edits {
+		s := base
+		edit(&s)
+		if SpecDigest(s) == d {
+			t.Errorf("editing %s kept the digest", name)
+		}
+	}
+	other := Spec{ID: "a-lint", Kind: KindBuild, Command: "lint"}
+	if SetDigest([]Spec{base, other}) != SetDigest([]Spec{other, base}) {
+		t.Fatal("the set digest depends on order")
+	}
+	empty := SetDigest(nil)
+	if empty == SetDigest([]Spec{base}) || empty != SetDigest([]Spec{}) {
+		t.Fatal("the empty set digest is not its own")
+	}
+	optional := base
+	optional.Required = false
+	if SetDigest([]Spec{base}) == SetDigest([]Spec{optional}) {
+		t.Fatal("making the only required check optional kept the set digest")
+	}
+}
+
 // S5 TestCheckVerdict: a satisfying stored result decides without running; anything else runs the check
-// and the fresh runtime result decides, with or without a fingerprint.
+// and the fresh runtime result decides, with or without a fingerprint. An unapproved spec never runs.
 func TestCheckVerdict(t *testing.T) {
 	const now = "abc+@local#01"
+	spec := Spec{ID: "go-test", Kind: KindTest, Command: "go test ./...", ApprovalEpoch: 1}
+	digest := SpecDigest(spec)
 	runs := 0
 	run := func(status string) func() (Result, error) {
 		return func() (Result, error) {
@@ -63,23 +124,31 @@ func TestCheckVerdict(t *testing.T) {
 		want     bool
 		wantRuns int
 	}{
-		{"human acceptance is reused", &Result{Status: StatusPassed, Provenance: "human:desktop-user", Fingerprint: now}, now, StatusFailed, true, 0},
-		{"runtime pass is reused", &Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: now}, now, StatusFailed, true, 0},
-		{"stored failure reruns", &Result{Status: StatusFailed, Provenance: ProvenanceRuntime, Fingerprint: now}, now, StatusPassed, true, 1},
-		{"stored pass for an old fingerprint reruns", &Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: "old"}, now, StatusFailed, false, 1},
-		{"llm pass never counts", &Result{Status: StatusPassed, Provenance: "llm:p/m", Fingerprint: now}, now, StatusFailed, false, 1},
+		{"human acceptance is reused", &Result{Status: StatusPassed, Provenance: "human:desktop-user", Fingerprint: now, SpecDigest: digest, ApprovalEpoch: 1}, now, StatusFailed, true, 0},
+		{"runtime pass is reused", &Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: now, SpecDigest: digest, ApprovalEpoch: 1}, now, StatusFailed, true, 0},
+		{"stored failure reruns", &Result{Status: StatusFailed, Provenance: ProvenanceRuntime, Fingerprint: now, SpecDigest: digest, ApprovalEpoch: 1}, now, StatusPassed, true, 1},
+		{"stored pass for an old fingerprint reruns", &Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: "old", SpecDigest: digest, ApprovalEpoch: 1}, now, StatusFailed, false, 1},
+		{"llm pass never counts", &Result{Status: StatusPassed, Provenance: "llm:p/m", Fingerprint: now, SpecDigest: digest, ApprovalEpoch: 1}, now, StatusFailed, false, 1},
 		{"outside git a fresh pass counts", nil, "", StatusPassed, true, 1},
 		{"outside git a fresh failure blocks", nil, "", StatusFailed, false, 1},
 		{"fresh error blocks", nil, now, StatusError, false, 1},
 	}
 	for _, c := range cases {
 		runs = 0
-		if _, ok, err := CheckVerdict(c.stored, c.current, run(c.fresh)); err != nil || ok != c.want || runs != c.wantRuns {
+		if _, ok, err := CheckVerdict(c.stored, c.current, spec, run(c.fresh)); err != nil || ok != c.want || runs != c.wantRuns {
 			t.Errorf("%s: ok=%v runs=%d err=%v, want ok=%v runs=%d", c.name, ok, runs, err, c.want, c.wantRuns)
 		}
 	}
 	// The caller's cancellation decides nothing.
-	if _, ok, err := CheckVerdict(nil, now, func() (Result, error) { return Result{}, context.Canceled }); ok || !errors.Is(err, context.Canceled) {
+	if _, ok, err := CheckVerdict(nil, now, spec, func() (Result, error) { return Result{}, context.Canceled }); ok || !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled run: ok=%v err=%v", ok, err)
+	}
+	// ADR-0017: an unapproved spec is not run and does not pass, whatever is stored.
+	runs = 0
+	unapproved := spec
+	unapproved.ApprovalEpoch = 0
+	stored := &Result{Status: StatusPassed, Provenance: ProvenanceRuntime, Fingerprint: now, SpecDigest: digest, ApprovalEpoch: 1}
+	if r, ok, err := CheckVerdict(stored, now, unapproved, run(StatusPassed)); err != nil || ok || runs != 0 || r.Status != StatusSpecUnapproved {
+		t.Fatalf("unapproved: status=%s ok=%v runs=%d err=%v", r.Status, ok, runs, err)
 	}
 }

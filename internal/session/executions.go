@@ -301,7 +301,12 @@ func (s *Store) CommitToolResult(ctx context.Context, c ToolCommit) (int64, int6
 		if c.Execution != nil {
 			execID = c.Execution.ExecutionID
 		}
-		return insertEdges(ctx, conn, c.SessionID, c.RunID, execID, edges)
+		if err := insertEdges(ctx, conn, c.SessionID, c.RunID, execID, edges); err != nil {
+			return err
+		}
+		// A run that wrote a check definition file voids the check approval in the same transaction
+		// that records the write (ADR-0017), so no crash can keep it alive.
+		return s.revokeOnDefinitionWrite(ctx, conn, edges)
 	})
 	if err != nil {
 		return 0, 0, err

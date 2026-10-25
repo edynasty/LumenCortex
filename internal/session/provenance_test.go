@@ -965,6 +965,33 @@ func TestWriteMethodsDoNotSelfLockUnderConcurrentReads(t *testing.T) {
 		_, err := store.Reconcile(ctx, "s")
 		return err
 	}, nil)
+	// ADR-0017 approval writes, and a commit whose file edge revokes them in its own transaction.
+	store.WatchCheckDefinitions("/p", "lumencortex.json")
+	run("ApproveCheckSet", func(ctx context.Context) error {
+		_, err := store.ApproveCheckSet(ctx, CheckSetApproval{ProjectID: "/p", SetDigest: sha("1"), ApprovedBy: ApprovedByUser, Actor: "u",
+			Specs: []ApprovedSpec{{CheckID: "go-test", SpecDigest: sha("2")}}})
+		return err
+	}, nil)
+	run("ApproveConstraintBinding", func(ctx context.Context) error {
+		_, err := store.ApproveConstraintBinding(ctx, BindingApproval{ProjectID: "/p", ConstraintRef: "c", ConstraintDigest: sha("3"),
+			CheckID: "go-test", SpecDigest: sha("2"), BindingDigest: sha("4"), ApprovedBy: ApprovedByUser, Actor: "u"})
+		return err
+	}, nil)
+	run("RevokeConstraintBinding", func(ctx context.Context) error {
+		_, err := store.RevokeConstraintBinding(ctx, "/p", sha("4"))
+		return err
+	}, nil)
+	run("CommitToolResult revoking", func(ctx context.Context) error {
+		if err := store.AdmitExecution(ctx, execAdmission("s", "e2", "r1")); err != nil {
+			return err
+		}
+		_, _, err := store.CommitToolResult(ctx, toolCommit("s", "e2", OutcomeComplete, CoverageComplete, fileEdge("lumencortex.json")))
+		return err
+	}, nil)
+	run("RevokeCheckApprovals", func(ctx context.Context) error {
+		_, err := store.RevokeCheckApprovals(ctx, "/p")
+		return err
+	}, nil)
 	close(stop)
 	wg.Wait()
 	if reads.Load() == 0 {

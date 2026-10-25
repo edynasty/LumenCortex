@@ -23,16 +23,20 @@ type Artifact struct {
 
 // EvalRow is one stored evaluator result. Seq is the session's own result counter. WorkUnitID is set
 // when the result decided a work unit's completion. Artifacts are artifact hashes of the same session.
+// SpecDigest and ApprovalEpoch are the approved check definition the result was decided or accepted
+// under (ADR-0017); a row stored before approvals existed has neither and never satisfies a check.
 type EvalRow struct {
-	Seq         int64     `json:"seq"`
-	WorkUnitID  string    `json:"workUnitId,omitempty"`
-	CheckID     string    `json:"checkId"`
-	Kind        string    `json:"kind"`
-	Status      string    `json:"status"`
-	Provenance  string    `json:"provenance"`
-	Fingerprint string    `json:"fingerprint"`
-	Artifacts   []string  `json:"artifacts"`
-	At          time.Time `json:"at"`
+	Seq           int64     `json:"seq"`
+	WorkUnitID    string    `json:"workUnitId,omitempty"`
+	CheckID       string    `json:"checkId"`
+	Kind          string    `json:"kind"`
+	Status        string    `json:"status"`
+	Provenance    string    `json:"provenance"`
+	Fingerprint   string    `json:"fingerprint"`
+	SpecDigest    string    `json:"specDigest,omitempty"`
+	ApprovalEpoch int64     `json:"approvalEpoch,omitempty"`
+	Artifacts     []string  `json:"artifacts"`
+	At            time.Time `json:"at"`
 }
 
 // PutArtifact stores a blob under its hash. The same hash is the same content, so storing it again
@@ -128,9 +132,17 @@ func (s *Store) AppendEvalResult(ctx context.Context, sessionID string, row Eval
 	if row.WorkUnitID != "" {
 		unit = row.WorkUnitID
 	}
-	if _, err := conn.ExecContext(ctx, `INSERT INTO eval_results(session_id, seq, work_unit_id, check_id, kind, status, provenance, fingerprint, artifacts_json, at)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		sessionID, seq, unit, row.CheckID, row.Kind, row.Status, row.Provenance, row.Fingerprint, string(raw), at.UTC().Format(time.RFC3339Nano)); err != nil {
+	var specDigest, epoch any
+	if row.SpecDigest != "" {
+		specDigest = row.SpecDigest
+	}
+	if row.ApprovalEpoch > 0 {
+		epoch = row.ApprovalEpoch
+	}
+	if _, err := conn.ExecContext(ctx, `INSERT INTO eval_results(session_id, seq, work_unit_id, check_id, kind, status, provenance, fingerprint, artifacts_json, at, spec_digest, approval_epoch)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		sessionID, seq, unit, row.CheckID, row.Kind, row.Status, row.Provenance, row.Fingerprint, string(raw), at.UTC().Format(time.RFC3339Nano),
+		specDigest, epoch); err != nil {
 		return 0, err
 	}
 	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
@@ -140,14 +152,18 @@ func (s *Store) AppendEvalResult(ctx context.Context, sessionID string, row Eval
 	return seq, nil
 }
 
-const evalColumns = `seq, COALESCE(work_unit_id, ''), check_id, kind, status, provenance, fingerprint, artifacts_json, at`
+const evalColumns = `seq, COALESCE(work_unit_id, ''), check_id, kind, status, provenance, fingerprint, artifacts_json, at,
+	COALESCE(spec_digest, ''), COALESCE(approval_epoch, 0)`
 
-// DecidingEvalResult returns the newest result for the check with provenance runtime or human:* and the
-// given fingerprint, the one CheckVerdict reads (design §4.7), or nil when there is none.
-func (s *Store) DecidingEvalResult(ctx context.Context, sessionID, checkID, fingerprint string) (*EvalRow, error) {
+// DecidingEvalResult returns the newest result for the check with provenance runtime or human:*, the
+// given fingerprint and the given approved definition (spec digest and approval epoch, ADR-0017): the
+// one CheckVerdict reads (design §4.7), or nil when there is none. A row of another approval, or of no
+// approval, is never returned.
+func (s *Store) DecidingEvalResult(ctx context.Context, sessionID, checkID, fingerprint, specDigest string, approvalEpoch int64) (*EvalRow, error) {
 	return s.oneEvalRow(ctx, `SELECT `+evalColumns+` FROM eval_results
 		WHERE session_id = ? AND check_id = ? AND fingerprint = ? AND (provenance = 'runtime' OR provenance GLOB 'human:?*')
-		ORDER BY seq DESC LIMIT 1`, sessionID, checkID, fingerprint)
+			AND spec_digest = ? AND approval_epoch = ?
+		ORDER BY seq DESC LIMIT 1`, sessionID, checkID, fingerprint, specDigest, approvalEpoch)
 }
 
 // NewestEvalResult returns the newest result for the check whatever its provenance and fingerprint, or
@@ -199,7 +215,8 @@ func scanEvalRow(r interface{ Scan(...any) error }) (EvalRow, error) {
 		row           EvalRow
 		artifacts, at string
 	)
-	if err := r.Scan(&row.Seq, &row.WorkUnitID, &row.CheckID, &row.Kind, &row.Status, &row.Provenance, &row.Fingerprint, &artifacts, &at); err != nil {
+	if err := r.Scan(&row.Seq, &row.WorkUnitID, &row.CheckID, &row.Kind, &row.Status, &row.Provenance, &row.Fingerprint, &artifacts, &at,
+		&row.SpecDigest, &row.ApprovalEpoch); err != nil {
 		return EvalRow{}, err
 	}
 	if err := json.Unmarshal([]byte(artifacts), &row.Artifacts); err != nil {

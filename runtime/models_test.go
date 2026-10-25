@@ -491,6 +491,7 @@ func TestHiddenReasoningIsNeverPersisted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	approveChecks(t, engine)
 	events, unsubscribe := engine.Events(256)
 	handle, err := engine.NewSession(context.Background(), SessionOptions{Goal: "think hard"})
 	if err != nil {

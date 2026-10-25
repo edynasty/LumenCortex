@@ -148,6 +148,7 @@ func TestSubagentRunsAreNeverInteractive(t *testing.T) {
 func TestInteractiveTurnThatEditsDecidesChecksWithTheEvaluator(t *testing.T) {
 	useChecks(t, `{"status": {"kind": "test", "command": "test -f ok.txt"}}`)
 	engine, root := gitEngine(t)
+	approveChecks(t, engine)
 	ctx := context.Background()
 	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "add the ok file"})
 	if err != nil {
@@ -196,6 +197,7 @@ func TestInteractiveTurnThatEditsDecidesChecksWithTheEvaluator(t *testing.T) {
 func TestInteractiveReadOnlyShellKeepsTheResolution(t *testing.T) {
 	useChecks(t, `{"status": {"kind": "test", "command": "test -f ok.txt"}}`)
 	engine, _ := gitEngine(t)
+	approveChecks(t, engine)
 	ctx := context.Background()
 	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "look around"})
 	if err != nil {

@@ -223,6 +223,10 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A run that writes the workspace's check definition file revokes the project's check approval in
+	// the transaction that records the write (ADR-0017). The global file lies outside every workspace a
+	// run's snapshots cover; a change to it still changes the set digest.
+	store.WatchCheckDefinitions(loc.Workspace, config.FileName)
 	repoService, err := repository.New(workspace)
 	if err != nil {
 		_ = store.Close()

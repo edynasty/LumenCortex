@@ -280,7 +280,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err != nil {
 		return nil, err
 	}
-	checks := runChecks{ev: ev, specs: plan.checks, store: e.store, sessionID: sessionID}
+	checks := runChecks{engine: e, ev: ev, specs: plan.checks, store: e.store, sessionID: sessionID}
 	// A revocation that reached the session is projected here, under the run lock and before anything
 	// is admitted for this Start (the auto judge included): the run withholds the rows that carry
 	// revoked content, or the Start is refused when the thread cannot be projected.
