@@ -302,7 +302,7 @@ func TestRealModelAgentSelection(t *testing.T) {
 func runProbeThread(t *testing.T, repo string, factory lcx.ProviderFactory, prompt string) ([]delegationCall, []lcx.SubagentNode, string) {
 	t.Helper()
 	ctx := context.Background()
-	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: repo, ProviderFactory: factory})
+	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: repo, RepoDir: repo + ".state", ProviderFactory: factory})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -120,6 +120,7 @@ func TestEngineRunThroughFakeAnthropic(t *testing.T) {
 	// fake, one model with a configured output limit, the key in an environment variable.
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("XDG_STATE_HOME", t.TempDir()) // the Engine's state stays out of the developer's home
 	t.Setenv("FAKE_ANTHROPIC_KEY", "fake-key-value")
 	if err := os.MkdirAll(filepath.Join(xdg, "lumencortex"), 0o755); err != nil {
 		t.Fatal(err)

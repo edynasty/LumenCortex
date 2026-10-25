@@ -265,7 +265,7 @@ func writeEvidence(t *testing.T, ev *presetEvidence) {
 func runPresetTop(t *testing.T, repo string, factory lcx.ProviderFactory, agentID, policy, prompt string, maxSteps int) *presetEvidence {
 	t.Helper()
 	ctx := context.Background()
-	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: repo, ProviderFactory: factory})
+	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: repo, RepoDir: repo + ".state", ProviderFactory: factory})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func runPresetTop(t *testing.T, repo string, factory lcx.ProviderFactory, agentI
 func runPresetParent(t *testing.T, repo string, factory lcx.ProviderFactory, prompt string, maxSteps int) (*presetEvidence, *lcx.Engine) {
 	t.Helper()
 	ctx := context.Background()
-	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: repo, ProviderFactory: factory})
+	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: repo, RepoDir: repo + ".state", ProviderFactory: factory})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -242,8 +242,8 @@ func TestFileToolsCannotCreateInsideState(t *testing.T) {
 			if !isProtected(err) {
 				t.Errorf("apply_patch create %s via %s: %v, want ErrProtectedPath", target, spelling, err)
 			}
-			// (A spelling that differs only in case may name a state file that already exists.)
-			if _, statErr := os.Lstat(target); statErr == nil && target == strings.ToLower(target) {
+			// (A case variant of a state file's name may be that file on a case-folding file system.)
+			if _, statErr := os.Lstat(target); statErr == nil && filepath.Base(target) != "Lumencortex.DB" {
 				t.Fatalf("%s was created via %s", target, spelling)
 			}
 		}
