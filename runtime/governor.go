@@ -113,22 +113,26 @@ func (e *Engine) GovernorAnalyze(ctx context.Context, options cognition.Governor
 	return (cognition.GovernorAnalyzer{}).Analyze(graph, options), nil
 }
 
+// ErrGovernorCuratorDisabled is returned when a Governor plan is asked for with the model curator.
+// A curator proposal is a model request, and every model request of a run has to be admitted to
+// request_envelopes before it is sent (ADR-0018). The curator path has no admission, so it fails
+// closed instead of sending an unrecorded request; the deterministic plan stays available.
+var ErrGovernorCuratorDisabled = errors.New("the Governor's model curator is disabled: a curator request has no request envelope (ADR-0018); use the deterministic plan")
+
+// GovernorPlan analyses the graph and returns a validated plan. With a curator it refuses before
+// reading the graph or calling a provider: the deterministic plan is the only plan this runtime
+// produces.
 func (e *Engine) GovernorPlan(ctx context.Context, curator *cognition.LLMGovernorCurator, options cognition.GovernorAnalyzeOptions) (GovernorPlanResult, error) {
+	if curator != nil {
+		return GovernorPlanResult{}, ErrGovernorCuratorDisabled
+	}
 	graph, storage, err := e.CognitiveGraphSnapshot(ctx)
 	if err != nil { return GovernorPlanResult{}, err }
 	if options.StorageByNode == nil { options.StorageByNode = storage }
 	analysis := (cognition.GovernorAnalyzer{}).Analyze(graph, options)
 	plan := cognition.DeterministicGovernorPlan(analysis)
-	usedCurator := false
-	curatorModel := ""
-	if curator != nil {
-		plan, err = curator.Propose(ctx, graph, analysis)
-		if err != nil { return GovernorPlanResult{}, err }
-		usedCurator = true
-		if curator.Provider != nil { curatorModel = curator.Provider.Model() }
-	}
 	validation := cognition.ValidateGovernorPlan(plan, graph)
-	return GovernorPlanResult{Analysis: analysis, Plan: validation.Normalized, Validation: validation, Curator: usedCurator, CuratorModel: curatorModel}, nil
+	return GovernorPlanResult{Analysis: analysis, Plan: validation.Normalized, Validation: validation}, nil
 }
 
 func (e *Engine) GovernorValidate(ctx context.Context, plan cognition.GovernorPlan) (cognition.GovernorValidation, error) {

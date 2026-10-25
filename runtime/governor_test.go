@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -54,16 +56,21 @@ func TestGovernorReadsSharedSQLiteGraphWithoutMutation(t *testing.T) {
 
 type runtimeGovernorProvider struct {
 	request protocol.ProviderRequest
+	calls   int
 }
 
 func (p *runtimeGovernorProvider) Model() string { return "governor-model" }
 
 func (p *runtimeGovernorProvider) Complete(_ context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+	p.calls++
 	p.request = req
 	return protocol.ProviderResponse{Message: protocol.Message{Content: `{"archive":["c"],"canonicalize":[{"canonical":"a","aliases":["b"]}],"summary":"curated"}`}}, nil
 }
 
-func TestGovernorPlanCanUseCuratorOverSharedSQLiteSnapshot(t *testing.T) {
+// The Governor's model curator is fail-closed (ADR-0018, plan T1-S3): a curator proposal is a model
+// request with no envelope, so GovernorPlan refuses it before reading the graph or calling the
+// provider, and the deterministic plan is what the runtime produces.
+func TestGovernorPlanRefusesTheCuratorWithoutCallingTheModel(t *testing.T) {
 	engine, err := Open(Options{Workspace: t.TempDir()})
 	if err != nil { t.Fatal(err) }
 	defer engine.Close()
@@ -72,18 +79,28 @@ func TestGovernorPlanCanUseCuratorOverSharedSQLiteSnapshot(t *testing.T) {
 	provider := &runtimeGovernorProvider{}
 	curator := &cognition.LLMGovernorCurator{Provider: provider, MaxTokens: 3000, ReasoningEffort: "high"}
 	result, err := engine.GovernorPlan(context.Background(), curator, cognition.GovernorAnalyzeOptions{ArchiveThreshold: 0.5})
-	if err != nil { t.Fatal(err) }
-	if !result.Curator || result.CuratorModel != "governor-model" {
-		t.Fatalf("curator result=%#v", result)
+	if !errors.Is(err, ErrGovernorCuratorDisabled) {
+		t.Fatalf("GovernorPlan with a curator = %#v, %v; want ErrGovernorCuratorDisabled", result, err)
 	}
-	if !result.Validation.Valid { t.Fatalf("validation=%#v", result.Validation) }
-	if len(result.Plan.Canonicalize) != 1 || result.Plan.Canonicalize[0].Canonical != "a" {
-		t.Fatalf("plan=%#v", result.Plan)
+	if provider.calls != 0 {
+		t.Fatalf("the curator provider was called %d times", provider.calls)
 	}
-	if provider.request.ReasoningEffort != "high" || provider.request.MaxTokens != 3000 {
-		t.Fatalf("request=%#v", provider.request)
+	if !reflect.DeepEqual(result, GovernorPlanResult{}) {
+		t.Fatalf("a refused plan returned %#v", result)
 	}
-	if before != rawGraphRows(t, engine) { t.Fatal("Curator planning mutated shared graph") }
+	if before != rawGraphRows(t, engine) { t.Fatal("a refused curator plan changed the graph") }
+
+	// The deterministic plan is still available and still validates.
+	deterministic, err := engine.GovernorPlan(context.Background(), nil, cognition.GovernorAnalyzeOptions{ArchiveThreshold: 0.5})
+	if err != nil {
+		t.Fatalf("deterministic plan: %v", err)
+	}
+	if deterministic.Curator || deterministic.CuratorModel != "" || !deterministic.Validation.Valid {
+		t.Fatalf("deterministic plan=%#v", deterministic)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("the deterministic plan called the curator provider %d times", provider.calls)
+	}
 }
 
 func TestGovernorReportsMissingGraphTablesInGoOnlyWorkspace(t *testing.T) {
