@@ -94,7 +94,17 @@ error → `outcome_unknown` (it may have acted), except a file tool whose target
 unchanged. A cancelled call keeps the existing semantics (no tool row) and stays `admitted` until Reconcile
 settles it at the next start. A shell edge attributes every change in the work tree during the call,
 including another writer's; a moved HEAD, a cut status or more than `MaxEdgesPerCommit` paths make it
-`partial`.
+`partial`. A workspace snapshot is one `git status --porcelain=v2 -z --branch --untracked-files=all` process:
+HEAD comes from its `# branch.oid` header, and a status without that header gives no snapshot (`pre_unavailable`
+/ `unavailable`), never one with an unknown HEAD. Both ends of a rename or copy are listed paths. On macOS the
+`/usr/bin/git` shim is resolved once per `DEVELOPER_DIR` to the git it would run (same output, no `xcrun` per
+call); any other `PATH` is honoured per call.
+
+Cost (G1 re-review, design approval §7 amendment): the per-call snapshots are the whole added cost of a step.
+The gate is absolute per tool, not a relative suite median: `write_file` 2 `hash-object`, shell 2 `status`
+plus at most 1 `hash-object`, `read_file` none; step medians `write_file` ≤ 25 ms and shell ≤ 70 ms against
+`42ee234` on the same host. A change to the snapshot code, `runBounded*`, git resolution or the tier table is
+re-measured by a non-author.
 
 ### Message-level edges, user rewrites and child sessions (T1-S5)
 
@@ -206,6 +216,13 @@ them equal):
 `agent.Options.RunID`, and never writes it to `sessions`. `request_envelopes.run_id` and
 `derived_origins.run_id` are nullable; legacy rows have NULL. "Same run" means the same Start in the same
 process; a restart, takeover or new Start is a new run.
+
+### Public surface
+
+T1 adds one exported value: `runtime.ErrGovernorCuratorDisabled`. A Governor plan asked for with the model
+curator is refused with it, because a curator request would have no request envelope, so an embedder (Desktop,
+tests) can tell this fail-closed refusal apart by identity rather than by message text; `lcx-go` prints it.
+Ratified at G1 as an amendment to the plan's public API budget (T1: none otherwise).
 
 ### Column choices beyond the plan's list
 
