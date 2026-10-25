@@ -194,3 +194,28 @@ func TestSnapshotGitSkipsTheMacShimLookup(t *testing.T) {
 		}
 	}
 }
+
+// A status that succeeds without its `# branch.oid` header leaves HEAD unknown, so there is no
+// workspace snapshot (coverage unavailable) rather than one with an empty HEAD that could not see a
+// commit.
+func TestWorkspaceSnapshotWithoutHeadIsUnavailable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell stub")
+	}
+	s, root := blobWorkspace(t)
+	write(t, filepath.Join(root, "a.txt"), "a\n")
+	gitIn(t, root, "add", ".")
+	gitIn(t, root, "commit", "-q", "-m", "init")
+	if snap := s.SnapshotWorkspace(context.Background()); !snap.OK || snap.Head == "" {
+		t.Fatalf("real git: %+v", snap)
+	}
+	dir := t.TempDir()
+	stub := "#!/bin/sh\nprintf '? new.txt\\000'\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if snap := s.SnapshotWorkspace(context.Background()); snap.OK || snap.Ref() != "" {
+		t.Fatalf("status without a branch.oid header: %+v, want no snapshot", snap)
+	}
+}
