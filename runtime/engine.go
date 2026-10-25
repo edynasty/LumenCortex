@@ -565,7 +565,13 @@ func (s *SessionHandle) RunShell(ctx context.Context, command string) (ShellResu
 		payload["error"] = err.Error()
 	}
 	s.engine.events.publish("tool.end", s.ID, payload)
-	_ = s.engine.store.Journal(context.Background(), "tool.shell", payload)
+	// The journal row names the session and the outcome, never the command: the command line is
+	// content, and this row is a trace. The event above still carries it for the Desktop.
+	_ = s.engine.store.Journal(context.Background(), "tool.shell", map[string]any{
+		"sessionId": s.ID, "name": "shell", "exitCode": result.ExitCode,
+		"stdoutBytes": result.Stdout.Total, "stderrBytes": result.Stderr.Total,
+		"cancelled": result.Cancelled,
+	})
 	return shellResult(result), err
 }
 

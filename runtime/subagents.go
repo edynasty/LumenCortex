@@ -119,9 +119,12 @@ func (c *subagentController) Spawn(ctx context.Context, goal, agentID string) (a
 	}); err != nil {
 		return nil, err
 	}
+	// The checkpoint follows the child by identifier only: the goal it was spawned for is already
+	// the child's own session row and its first transcript message, and a parent-side copy of it
+	// would be a second body that no deletion of the child reaches.
 	_, _ = engine.store.AppendCheckpoint(context.Background(), c.parentID, "subagent.spawn", map[string]any{
 		"childSessionId": handle.ID,
-		"goal":           goal,
+		"status":         "created",
 		"agent":          agentID,
 	})
 
@@ -136,9 +139,12 @@ func (c *subagentController) Spawn(ctx context.Context, goal, agentID string) (a
 			Status: &status,
 			Error:  rawMessagePtr(errorRaw),
 		})
+		// The failure text is already the child's Error column; the checkpoint keeps the child, how
+		// it ended and which agent ran it.
 		_, _ = engine.store.AppendCheckpoint(context.Background(), c.parentID, "subagent.start_failed", map[string]any{
 			"childSessionId": handle.ID,
-			"error":          err.Error(),
+			"status":         "interrupted",
+			"agent":          agentID,
 		})
 		return nil, err
 	}
@@ -353,19 +359,28 @@ func (e *Engine) SessionCheckpoints(ctx context.Context, sessionID string, limit
 	return e.store.Checkpoints(ctx, sessionID, limit)
 }
 
+// checkpointSubagentStop records a finished child on its parent. The checkpoint carries the three
+// fields a parent needs to follow a child — which child, how it ended, which agent ran it — and no
+// copy of the child's final text or failure message: those live on the child's session row and in
+// the event below, which the Desktop reads.
 func (e *Engine) checkpointSubagentStop(parentID, childID string, runErr error) {
-	payload := map[string]any{"childSessionId": childID}
+	event := map[string]any{"childSessionId": childID}
+	checkpoint := map[string]any{"childSessionId": childID}
 	if value, err := e.store.Get(context.Background(), childID); err == nil {
-		payload["status"] = value.Status
+		event["status"] = value.Status
+		checkpoint["status"] = value.Status
+		if value.AgentID != "" {
+			checkpoint["agent"] = value.AgentID
+		}
 		if value.Final != nil {
-			payload["final"] = *value.Final
+			event["final"] = *value.Final
 		}
 	}
 	if runErr != nil {
-		payload["error"] = runErr.Error()
+		event["error"] = runErr.Error()
 	}
-	_, _ = e.store.AppendCheckpoint(context.Background(), parentID, "subagent.stopped", payload)
-	e.events.publish("subagent.stopped", parentID, payload)
+	_, _ = e.store.AppendCheckpoint(context.Background(), parentID, "subagent.stopped", checkpoint)
+	e.events.publish("subagent.stopped", parentID, event)
 }
 
 func subagentEventData(eventType, childID string, data map[string]any) map[string]any {
