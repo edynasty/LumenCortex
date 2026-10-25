@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/agent"
@@ -338,7 +339,7 @@ func (e *Engine) startTaskState(ctx context.Context, sessionID string, opts Agen
 		state.Apply(edits)
 		through = edits[len(edits)-1].Seq
 	}
-	results, err := e.taskResults(ctx, sessionID, &state)
+	results, withdrawn, err := e.taskResults(ctx, sessionID, &state)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -350,8 +351,17 @@ func (e *Engine) startTaskState(ctx context.Context, sessionID string, opts Agen
 		return nil, nil, nil
 	}
 	// The edges of the user's rewrites the edits made and of the task results delivered commit with
-	// this version, in the Start transaction (plan T1-S5).
-	return &session.TaskStateWrite{Base: state.Version, Reason: taskstate.ReasonStart, JSON: raw, InboxThrough: through, Edges: agent.HostStateEdges(before, state)}, results, nil
+	// this version, in the Start transaction (plan T1-S5). The delivery of a withdrawn child carries
+	// none of its content and cites nothing: its edge is dropped (an edge citing a fenced session is
+	// refused, and would refuse the whole Start). If a fence lands between this read and the commit,
+	// the commit refuses the edge and the next Start delivers the child withdrawn.
+	edges := agent.HostStateEdges(before, state)
+	if len(withdrawn) > 0 {
+		edges = slices.DeleteFunc(edges, func(e session.DerivedEdge) bool {
+			return e.SourceKind == session.SourceSession && withdrawn[e.SourceRef]
+		})
+	}
+	return &session.TaskStateWrite{Base: state.Version, Reason: taskstate.ReasonStart, JSON: raw, InboxThrough: through, Edges: edges}, results, nil
 }
 
 // agentTaskStateChange converts the loop's change to the store's write.

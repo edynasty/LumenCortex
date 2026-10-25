@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -64,6 +65,27 @@ func TestStartProjectsAThreadThatReadARevokedSource(t *testing.T) {
 		p := &countingProvider{}
 		if _, err := engine.runAgentWith(ctx, id, p, AgentOptions{Input: "again", MaxSteps: 2}); !errors.Is(err, session.ErrFenced) || p.calls.Load() != 0 {
 			t.Fatalf("Start of %s: %v, %d calls; want ErrFenced and no request", id, err, p.calls.Load())
+		}
+	}
+	// The host reads every row (T3-S3): s, which cannot be continued, has every row marked withheld; r
+	// only the read's tool row.
+	for id, want := range map[string]string{s.ID: "all", r.ID: "b1"} {
+		page, err := engine.MessagePage(ctx, id, -1, 200)
+		if err != nil {
+			t.Fatal(err)
+		}
+		newest, _ := engine.store.NewestMessageSeq(ctx, id)
+		if int64(len(page.Messages)) != newest+1 {
+			t.Fatalf("%s: %d rows on the page, newest seq %d", id, len(page.Messages), newest)
+		}
+		for _, m := range page.Messages {
+			var row protocol.Message
+			if err := json.Unmarshal(m.JSON, &row); err != nil {
+				t.Fatal(err)
+			}
+			if wantWithheld := want == "all" || (row.Role == "tool" && row.ToolCallID == want); m.Withheld != wantWithheld {
+				t.Fatalf("%s row %d (%s %s): withheld %v", id, m.Seq, row.Role, row.ToolCallID, m.Withheld)
+			}
 		}
 	}
 

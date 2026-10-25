@@ -99,9 +99,11 @@ const (
 )
 
 // subagentNode is the part of a subagent tool result the edges need: spawn_subagent returns a node,
-// wait_subagent {"node": node, ...}, list_subagents a tree of nodes.
+// wait_subagent {"node": node, ...}, list_subagents a tree of nodes. A withdrawn node carries no
+// content of its child, so it is no source.
 type subagentNode struct {
 	SessionID string         `json:"sessionId"`
+	Withdrawn bool           `json:"withdrawn,omitempty"`
 	Children  []subagentNode `json:"children,omitempty"`
 }
 
@@ -142,6 +144,9 @@ func resultSessions(name, own string, result protocol.ToolResult) (sessions []st
 		if err := json.Unmarshal([]byte(result.Content), &w); err != nil || w.Node.SessionID == "" {
 			return nil, false
 		}
+		if w.Node.Withdrawn {
+			return nil, true
+		}
 		return []string{w.Node.SessionID}, true
 	case toolListSubagents:
 		var nodes []subagentNode
@@ -151,7 +156,7 @@ func resultSessions(name, own string, result protocol.ToolResult) (sessions []st
 		var walk func([]subagentNode)
 		walk = func(nodes []subagentNode) {
 			for _, n := range nodes {
-				if n.SessionID != "" {
+				if n.SessionID != "" && !n.Withdrawn {
 					sessions = append(sessions, n.SessionID)
 				}
 				walk(n.Children)

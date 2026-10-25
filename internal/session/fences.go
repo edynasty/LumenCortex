@@ -188,6 +188,14 @@ func (s *Store) SessionFenced(ctx context.Context, sessionID string) (bool, erro
 	return fenced, err
 }
 
+// SessionWithdrawn reports whether the session is withdrawn as a source: any fence names it, projected
+// or not (sessionFence). A read exit returns no content of a withdrawn session to an agent, and stores
+// no edge citing it. It only reads; a commit that cites the session re-reads the fence itself.
+func (s *Store) SessionWithdrawn(ctx context.Context, sessionID string) (bool, error) {
+	_, fenced, err := sessionFence(ctx, s.db, sessionID)
+	return fenced, err
+}
+
 // Revocation reads back the report of the revocation committed with epoch.
 func (s *Store) Revocation(ctx context.Context, epoch int64) (Revocation, error) {
 	var raw string

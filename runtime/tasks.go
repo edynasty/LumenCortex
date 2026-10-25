@@ -72,6 +72,10 @@ type TaskResult struct {
 	Agent     string `json:"agent,omitempty"`
 	Objective string `json:"objective"`
 	Status    string `json:"status"`
+	// Withdrawn is true when a revocation or privacy fence names the child: the result carries its
+	// identity and status only - no objective, error, final, units, checks or worktree - and its
+	// delivery stores no edge citing the child.
+	Withdrawn bool   `json:"withdrawn,omitempty"`
 	ErrorKind string `json:"errorKind,omitempty"`
 	Error     string `json:"error,omitempty"`
 	Final     string `json:"final,omitempty"`
@@ -531,61 +535,81 @@ func terminalStatus(status string) bool {
 // state: one row for each execution child whose terminal transition (its newest seq and status) the
 // cursor has not seen. The caller commits the rows and state in one transaction, under the parent's
 // run lock, so each transition is delivered exactly once. A child still running is delivered later.
-func (e *Engine) taskResults(ctx context.Context, parentID string, state *taskstate.State) ([]protocol.Message, error) {
+// withdrawn are the delivered children a fence names: their rows carry no content of the child, and
+// the caller stores no edge citing them.
+func (e *Engine) taskResults(ctx context.Context, parentID string, state *taskstate.State) (rows []protocol.Message, withdrawn map[string]bool, err error) {
 	relations, err := e.store.ChildRelations(ctx, parentID, MaxSubagentTreeNodes)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var rows []protocol.Message
 	for _, r := range relations {
 		if r.Kind != RelationExecution {
 			continue
 		}
 		child, err := e.store.Get(ctx, r.ChildSessionID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !terminalStatus(child.Status) {
 			continue
 		}
 		seq, err := e.store.NewestMessageSeq(ctx, child.ID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		mark := taskstate.TaskMark{Seq: seq, Status: child.Status}
 		if state.Delivered(child.ID, mark) {
 			continue
 		}
-		result, err := e.taskResult(ctx, *state, r, child)
+		fenced, err := e.store.SessionWithdrawn(ctx, child.ID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		var result TaskResult
+		if fenced {
+			result = withdrawnTaskResult(*state, r, child)
+			if withdrawn == nil {
+				withdrawn = map[string]bool{}
+			}
+			withdrawn[child.ID] = true
+		} else if result, err = e.taskResult(ctx, *state, r, child); err != nil {
+			return nil, nil, err
 		}
 		raw, err := json.Marshal(result)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		rows = append(rows, protocol.Message{Role: "user", Origin: protocol.OriginTaskResult, Content: protocol.TaskResultHeader + "\n" + string(raw)})
 		state.MarkDelivered(child.ID, mark)
 	}
-	return rows, nil
+	return rows, withdrawn, nil
+}
+
+// withdrawnTaskResult is the result of a child a fence names: which task, which child and how it
+// ended, nothing the child produced.
+func withdrawnTaskResult(parent taskstate.State, relation session.Relation, child session.Session) TaskResult {
+	return TaskResult{TaskID: taskIDOf(parent, relation, child.ID), SessionID: child.ID, Agent: child.AgentID, Status: child.Status,
+		Withdrawn: true, Checks: []TaskResultCheck{}}
+}
+
+// taskIDOf is the task id of a child: the parent's Task State entry, else the relation's metadata.
+func taskIDOf(parent taskstate.State, relation session.Relation, childID string) string {
+	for _, t := range parent.Tasks {
+		if t.SessionID == childID {
+			return t.ID
+		}
+	}
+	var meta struct {
+		TaskID string `json:"taskId"`
+	}
+	_ = json.Unmarshal(relation.Metadata, &meta)
+	return meta.TaskID
 }
 
 // taskResult reads one child's result. Storage errors fail the Start; a worktree or checks that
 // cannot be read are reported in the result instead.
 func (e *Engine) taskResult(ctx context.Context, parent taskstate.State, relation session.Relation, child session.Session) (TaskResult, error) {
-	out := TaskResult{SessionID: child.ID, Agent: child.AgentID, Objective: truncateBytes(child.Goal, 512), Status: child.Status, Checks: []TaskResultCheck{}}
-	for _, t := range parent.Tasks {
-		if t.SessionID == child.ID {
-			out.TaskID = t.ID
-		}
-	}
-	if out.TaskID == "" {
-		var meta struct {
-			TaskID string `json:"taskId"`
-		}
-		_ = json.Unmarshal(relation.Metadata, &meta)
-		out.TaskID = meta.TaskID
-	}
+	out := TaskResult{TaskID: taskIDOf(parent, relation, child.ID), SessionID: child.ID, Agent: child.AgentID, Objective: truncateBytes(child.Goal, 512), Status: child.Status, Checks: []TaskResultCheck{}}
 	if len(child.Error) > 0 {
 		var cause struct{ Kind, Message string }
 		_ = json.Unmarshal(child.Error, &cause)

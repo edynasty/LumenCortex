@@ -29,15 +29,46 @@ type SubagentNode struct {
 	// Mode describes the child relation's execution provenance (for example, "imported").
 	Mode string `json:"mode,omitempty"`
 	// Agent is the catalog agent the child pinned at its first Start (ADR-0009 A3), "" before it.
-	Agent     string         `json:"agent,omitempty"`
-	Goal      string         `json:"goal"`
-	Status    string         `json:"status"`
-	Final     string         `json:"final,omitempty"`
+	Agent  string `json:"agent,omitempty"`
+	Goal   string `json:"goal"`
+	Status string `json:"status"`
+	Final  string `json:"final,omitempty"`
+	// Withdrawn is true when a revocation or privacy fence names the child: its goal and final are not
+	// returned, to the host or to the list_subagents/wait_subagent tools, and no edge cites it.
+	Withdrawn bool           `json:"withdrawn,omitempty"`
 	Active    bool           `json:"active"`
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`
 	Runtime   SessionRuntime `json:"runtime"`
 	Children  []SubagentNode `json:"children,omitempty"`
+}
+
+// subagentNode is the node of one child session: its row, its runtime identity, and its content only
+// when the child is not withdrawn.
+func (s *RunSupervisor) subagentNode(ctx context.Context, childID, parentID, kind string) (SubagentNode, error) {
+	value, err := s.engine.store.Get(ctx, childID)
+	if err != nil {
+		return SubagentNode{}, err
+	}
+	identity, err := s.engine.SessionRuntime(ctx, value.ID)
+	if err != nil {
+		return SubagentNode{}, err
+	}
+	withdrawn, err := s.engine.store.SessionWithdrawn(ctx, value.ID)
+	if err != nil {
+		return SubagentNode{}, err
+	}
+	node := SubagentNode{
+		SessionID: value.ID, ParentSessionID: parentID, Kind: kind, Agent: value.AgentID, Status: value.Status,
+		Withdrawn: withdrawn, Active: s.Active(value.ID), CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, Runtime: identity,
+	}
+	if !withdrawn {
+		node.Goal = value.Goal
+		if value.Final != nil {
+			node.Final = *value.Final
+		}
+	}
+	return node, nil
 }
 
 type SessionCheckpoint = session.Checkpoint
@@ -245,31 +276,7 @@ func (c *subagentController) childOptions(childRef config.ModelRef, agentID stri
 }
 
 func (c *subagentController) summary(ctx context.Context, childID string) (SubagentNode, error) {
-	value, err := c.supervisor.engine.store.Get(ctx, childID)
-	if err != nil {
-		return SubagentNode{}, err
-	}
-	identity, err := c.supervisor.engine.SessionRuntime(ctx, childID)
-	if err != nil {
-		return SubagentNode{}, err
-	}
-	final := ""
-	if value.Final != nil {
-		final = *value.Final
-	}
-	return SubagentNode{
-		SessionID:       value.ID,
-		Kind:            RelationSubagent,
-		Agent:           value.AgentID,
-		ParentSessionID: c.parentID,
-		Goal:            value.Goal,
-		Status:          value.Status,
-		Final:           final,
-		Active:          c.supervisor.Active(value.ID),
-		CreatedAt:       value.CreatedAt,
-		UpdatedAt:       value.UpdatedAt,
-		Runtime:         identity,
-	}, nil
+	return c.supervisor.subagentNode(ctx, childID, c.parentID, RelationSubagent)
 }
 
 func (s *RunSupervisor) HasActiveSubagents(ctx context.Context, parentSessionID string) (bool, error) {
@@ -311,38 +318,17 @@ func (s *RunSupervisor) subagentChildren(ctx context.Context, parentSessionID st
 		if (relation.Kind != RelationSubagent && relation.Kind != RelationExecution) || *remaining <= 0 {
 			continue
 		}
-		value, err := s.engine.store.Get(ctx, relation.ChildSessionID)
+		node, err := s.subagentNode(ctx, relation.ChildSessionID, parentSessionID, relation.Kind)
 		if err != nil {
 			return nil, err
-		}
-		identity, err := s.engine.SessionRuntime(ctx, value.ID)
-		if err != nil {
-			return nil, err
-		}
-		final := ""
-		if value.Final != nil {
-			final = *value.Final
 		}
 		var relationMeta struct {
 			Mode string `json:"mode"`
 		}
 		_ = json.Unmarshal(relation.Metadata, &relationMeta)
+		node.Mode = relationMeta.Mode
 		(*remaining)--
-		node := SubagentNode{
-			Kind:            relation.Kind,
-			Mode:            relationMeta.Mode,
-			Agent:           value.AgentID,
-			SessionID:       value.ID,
-			ParentSessionID: parentSessionID,
-			Goal:            value.Goal,
-			Status:          value.Status,
-			Final:           final,
-			Active:          s.Active(value.ID),
-			CreatedAt:       value.CreatedAt,
-			UpdatedAt:       value.UpdatedAt,
-			Runtime:         identity,
-		}
-		children, err := s.subagentChildren(ctx, value.ID, depth+1, remaining)
+		children, err := s.subagentChildren(ctx, node.SessionID, depth+1, remaining)
 		if err != nil {
 			return nil, err
 		}

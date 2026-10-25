@@ -155,6 +155,10 @@ type Message struct {
 	Seq       int64           `json:"seq"`
 	Role      string          `json:"role"`
 	JSON      json.RawMessage `json:"json"`
+	// Withheld marks a row whose content no run of the session sends again: it carries content of a
+	// revoked source, or the whole session is withdrawn or cannot be projected (DATA_AND_FAILURES §5).
+	// The host still reads the row; privacy deletion is what removes it.
+	Withheld bool `json:"withheld,omitempty"`
 }
 
 type StreamSnapshot struct {
@@ -523,11 +527,7 @@ func (s *SessionHandle) RecentMessages(ctx context.Context, limit int) ([]Messag
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Message, 0, len(items))
-	for _, item := range items {
-		out = append(out, Message{SessionID: item.SessionID, Seq: item.Seq, Role: item.Role, JSON: item.JSON})
-	}
-	return out, nil
+	return s.engine.hostMessages(ctx, s.ID, items)
 }
 
 func streamSnapshot(v streambuf.Snapshot) StreamSnapshot {
