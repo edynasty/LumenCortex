@@ -157,6 +157,10 @@ func TestEveryAttemptHasItsOwnEnvelope(t *testing.T) {
 			t.Errorf("envelope %d: step %d attempt %d, want step 1 attempt %d", i, env.Step, env.Attempt, i)
 		}
 	}
+	// One admission per provider attempt: the clients were called three times in all, once per envelope.
+	if calls := ps.calls + len(pl.seen); calls != len(envs) || store.admissions != len(envs) {
+		t.Errorf("provider attempts=%d admissions=%d envelopes=%d, want equal", calls, store.admissions, len(envs))
+	}
 	ids := map[string]bool{}
 	for _, env := range envs {
 		ids[env.RequestID] = true

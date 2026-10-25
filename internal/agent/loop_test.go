@@ -39,6 +39,7 @@ type memoryStore struct {
 	requests    []*session.RequestEnvelope
 	admitErr    error
 	fenceAnswer bool
+	admissions  int // AdmitRequest calls, whatever their result
 }
 
 func (s *memoryStore) Get(context.Context, string) (SessionState, error) {
@@ -74,6 +75,7 @@ func (s *memoryStore) AppendMessage(_ context.Context, _ string, m protocol.Mess
 func (s *memoryStore) AdmitRequest(_ context.Context, a session.RequestAdmission) (session.RequestEnvelope, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.admissions++
 	env := session.RequestEnvelope{
 		RequestID: a.RequestID, SessionID: a.SessionID, RunID: a.RunID, Step: a.Step, Attempt: a.Attempt, Purpose: a.Purpose,
 		State: session.RequestAdmitted, FirstSeq: a.FirstSeq, LastSeq: a.LastSeq, Refs: a.Refs, ToolSpecsDigest: a.ToolSpecsDigest,
