@@ -171,6 +171,7 @@ old acceptance, old trust, stale digest, epoch monotonicity, CLI and Engine thro
 `TestRuntimePassIsDecidedAgainInTheNextRun`, `TestUnapprovedRequiredCheckEndsTheRun`,
 `TestConstraintIsSatisfiedOnlyThroughAnApprovedBinding`, `TestConstraintIsDecidedFreshByEveryStart`,
 `TestConstraintRevalidationIsCapped`, `TestConstraintRevalidationBudgetDegradesToUnknown`,
-`TestConstraintEdits`), `internal/taskstate` (`TestDecideConstraintKeepsTheUsersDeviation`). Reports:
+`TestConstraintEdits`, `TestRewritingTheBoundCheckCannotSatisfyTheConstraint`), `internal/taskstate`
+(`TestDecideConstraintKeepsTheUsersDeviation`). Reports:
 `docs/reports/cognition/t4-s1-20261026.md`, `docs/reports/cognition/t4-s2-20261026.md`,
 `docs/reports/cognition/t4-s3-20261026.md`.

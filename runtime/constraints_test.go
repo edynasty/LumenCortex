@@ -185,6 +185,52 @@ func TestConstraintIsDecidedFreshByEveryStart(t *testing.T) {
 	}
 }
 
+// CHECKS-001 end to end, through a constraint: a run that rewrites the check bound to its constraint
+// cannot make the constraint pass. The rewrite revokes the set approval and the binding no longer names
+// the definition; approving the rewritten set does not approve the binding; only a binding approved for
+// the new definition makes it count again. A write that restores the bound definition byte for byte
+// still leaves it unapproved until the user approves the set again.
+func TestRewritingTheBoundCheckCannotSatisfyTheConstraint(t *testing.T) {
+	original := `{"gate": {"kind": "test", "command": "exit 1", "required": false}}`
+	rewritten := `{"gate": {"kind": "test", "command": "exit 0", "required": false}}`
+	engine, _ := trustedProject(t, original, false)
+	ctx := context.Background()
+	approveChecks(t, engine)
+	bindConstraint(t, engine, testConstraintRef, testConstraintDigest, "gate", testConstraintScope)
+	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "make the gate pass"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectConstraint(t, engine, handle.ID, testConstraintRef, testConstraintDigest, testConstraintScope)
+	start := func(step string, p *exitProvider, want, reason string) {
+		t.Helper()
+		if p == nil {
+			p = writingProvider()
+		}
+		_, _ = engine.runAgentWith(ctx, handle.ID, p, AgentOptions{Input: step, Policy: "workspace", MaxSteps: 3})
+		u := constraintUses(t, engine, handle.ID)[0]
+		if u.Status != want || !strings.Contains(u.Reason, reason) {
+			t.Fatalf("%s: %+v, want %s (%q)", step, u, want, reason)
+		}
+	}
+	start("failing check", writingProvider(`{"checks": `+rewritten+`}`), taskstate.ConstraintFailed, "did not pass")
+	start("after the rewrite", nil, taskstate.ConstraintUnbound, "definition changed")
+	approveChecks(t, engine)
+	start("rewritten set approved", nil, taskstate.ConstraintUnbound, "definition changed")
+	if n := passedRuntimeResults(t, engine, handle.ID, "gate"); n != 0 {
+		t.Fatalf("the rewritten check ran for the constraint: %d passes", n)
+	}
+	start("revert", writingProvider(`{"checks": `+original+`}`), taskstate.ConstraintUnbound, "definition changed")
+	start("after the revert", nil, taskstate.ConstraintSpecUnapproved, "")
+	approveChecks(t, engine)
+	start("original set approved again", nil, taskstate.ConstraintFailed, "did not pass")
+
+	setProjectChecks(t, engine.workspace, rewritten)
+	approveChecks(t, engine)
+	bindConstraint(t, engine, testConstraintRef, testConstraintDigest, "gate", testConstraintScope)
+	start("binding approved for the new definition", nil, taskstate.ConstraintSatisfied, "")
+}
+
 // markerCheck is a check that appends a line to a file outside the workspace each time it runs, so it
 // leaves the workspace (and its episode) unchanged.
 func markerCheck(id, marker, extra string) string {
