@@ -451,8 +451,16 @@ func (w *cappedWriter) Write(p []byte) (int, error) {
 }
 
 func runBounded(ctx context.Context, dir string, maxBytes int, name string, args ...string) ([]byte, bool, error) {
+	return runBoundedEnv(ctx, dir, maxBytes, nil, name, args...)
+}
+
+// runBoundedEnv is runBounded with extra environment entries appended to the process environment.
+func runBoundedEnv(ctx context.Context, dir string, maxBytes int, env []string, name string, args ...string) ([]byte, bool, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, false, err

@@ -61,7 +61,7 @@ func (s *Service) hashable(realWorkspace, p string) bool {
 
 func (s *Service) hashObjects(ctx context.Context, files []string) ([]string, bool) {
 	args := append([]string{"hash-object", "--"}, files...)
-	raw, _, err := runBounded(ctx, s.workspace, 128*len(files)+256, "git", args...)
+	raw, _, err := runBoundedEnv(ctx, s.workspace, 128*len(files)+256, readOnlyGit, "git", args...)
 	if err != nil {
 		return nil, false
 	}
