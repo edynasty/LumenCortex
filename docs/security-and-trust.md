@@ -149,7 +149,7 @@ was.
 
 **This is not an OS-level isolation boundary.** `shell` runs with the user's permissions and can
 read or overwrite the database, so a run that is allowed `full` policy can still bypass the file-tool
-guard. `search_text`, `find_files` and the git tools are not guarded, and a swap of a parent
+guard. `search_text`, `find_files`, the git tools and the `lsp_*` tools (`lsp_rename` writes files) are not guarded, and a swap of a parent
 directory between `apply_patch`'s last check and its `os.Remove` of a delete is not closed. Treat
 the state as protected from the file tools only; run untrusted work in a policy without `shell`.
 

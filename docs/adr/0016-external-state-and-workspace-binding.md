@@ -98,7 +98,7 @@ delete again immediately before removing.
 **This is not a sandbox.** `shell` runs with the user's permissions and can open the database, change
 the environment, or create links with any name. The guard narrows what the file tools can do; it does
 not isolate the process. OS-level isolation is outside this decision. The guard also leaves
-`search_text`, `find_files` and the git tools unguarded, and does not close a swap of a parent
+`search_text`, `find_files`, the git tools and the `lsp_*` tools (`lsp_rename` writes files) unguarded, and does not close a swap of a parent
 directory for the final `os.Remove` of a patch delete.
 
 ## Alternatives considered
