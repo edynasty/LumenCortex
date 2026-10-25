@@ -27,6 +27,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/skills"
 	"github.com/edynasty/LumenCortex/internal/streambuf"
+	"github.com/edynasty/LumenCortex/internal/toolset"
 	"github.com/edynasty/LumenCortex/pluginapi"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -55,7 +56,7 @@ var ErrDatabaseInUse = migrate.ErrDatabaseInUse
 // ErrDatabaseInUse after 30 s. A version without a down migration is refused with the database
 // unchanged. It returns the version the database had and the one it has now.
 func DowngradeSchema(ctx context.Context, opts Options, to int) (from, now int, err error) {
-	_, repoDir, err := resolveDirs(opts)
+	_, loc, err := locateState(ctx, opts)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -63,7 +64,7 @@ func DowngradeSchema(ctx context.Context, opts Options, to int) (from, now int, 
 	if err != nil {
 		return 0, 0, err
 	}
-	return migrate.Downgrade(ctx, repoDir, set, to)
+	return migrate.Downgrade(ctx, loc.Path, set, to)
 }
 
 // Budget bounds one Engine's resources. MaxAgents > 0 is a host override: it replaces the
@@ -76,8 +77,10 @@ type Budget struct {
 
 type Options struct {
 	Workspace string
-	RepoDir   string
-	Budget    Budget
+	// RepoDir overrides the state directory (tests and self-checks). Leave it empty: Core decides
+	// where a workspace's state lives (ADR-0016). The binding check applies to it all the same.
+	RepoDir string
+	Budget  Budget
 	// Plugins are host-supplied in-process extensions, registered after the built-in ones and started
 	// with them (ADR-0012). A plugin that fails to start is marked failed; Open still succeeds.
 	Plugins []pluginapi.Plugin
@@ -89,6 +92,8 @@ type Options struct {
 type Engine struct {
 	workspace    string
 	repoDir      string
+	state        StateInfo
+	protected    toolset.Protected
 	worktreeRoot string
 	store        *session.Store
 	resources    *resource.Manager
@@ -184,38 +189,29 @@ func Open(opts Options) (*Engine, error) {
 	return OpenContext(context.Background(), opts)
 }
 
-// resolveDirs returns the absolute workspace and the state directory that holds the database.
-func resolveDirs(opts Options) (workspace, repoDir string, err error) {
-	workspace = opts.Workspace
-	if workspace == "" {
-		workspace, err = os.Getwd()
-		if err != nil {
-			return "", "", err
-		}
-	}
-	workspace, err = filepath.Abs(workspace)
-	if err != nil {
-		return "", "", err
-	}
-	repoDir = opts.RepoDir
-	if repoDir == "" {
-		repoDir = filepath.Join(workspace, ".lumencortex")
-	}
-	return workspace, repoDir, nil
-}
-
-// OpenContext opens the workspace engine. Every Engine holds <state>/db.lock shared from Open to
-// Close, and an older schema is migrated first under the exclusive lock (backup, scrub, checkpoint).
-// ctx bounds the wait for that lock (at most 30 s) and cancels a migration in progress. It returns
-// ErrSchemaTooNew, writing nothing, for a database a newer binary migrated, and ErrDatabaseInUse when
-// other processes keep the workspace open for the whole wait.
+// OpenContext opens the workspace engine. Core decides where its state lives (ADR-0016): the
+// external state of the workspace, the legacy <workspace>/.lumencortex database opened in place
+// when that is all there is, or Options.RepoDir. The state is bound to the canonical workspace path;
+// ErrStateBindingMismatch refuses a database bound to another workspace and
+// ErrRepositoryCarriedState one that Git tracks, in both cases without opening a new empty state.
+// Every Engine holds <state>/db.lock shared from Open to Close, and an older schema is migrated
+// first under the exclusive lock (backup, scrub, checkpoint). ctx bounds the wait for that lock (at
+// most 30 s) and cancels a migration in progress. It returns ErrSchemaTooNew, writing nothing, for a
+// database a newer binary migrated, and ErrDatabaseInUse when other processes keep the workspace
+// open for the whole wait.
 func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
-	workspace, repoDir, err := resolveDirs(opts)
+	workspace, loc, err := locateState(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
+	repoDir := loc.Path
 	worktreeRoot := filepath.Join(filepath.Dir(workspace), "."+filepath.Base(workspace)+".lumencortex-worktrees")
-	store, err := session.OpenContext(ctx, repoDir)
+	if loc.Mode == StateExternal {
+		if err := os.MkdirAll(repoDir, 0o700); err != nil {
+			return nil, fmt.Errorf("create the state directory: %w", err)
+		}
+	}
+	store, err := session.OpenBound(ctx, repoDir, session.Binding{CanonicalPath: loc.Workspace, CoreVersion: GoRuntimePreviewVersion})
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +233,7 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	mcpRegistry, err := mcp.NewLayeredRegistry(
 		workspace,
 		globalMCPPath,
-		filepath.Join(repoDir, "mcp.json"),
+		filepath.Join(workspace, legacyDirName, "mcp.json"),
 	)
 	if err != nil {
 		_ = store.Close()
@@ -275,6 +271,8 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	engine := &Engine{
 		workspace:    workspace,
 		repoDir:      repoDir,
+		state:        loc.StateInfo,
+		protected:    loc.protected(),
 		worktreeRoot: worktreeRoot,
 		store:        store,
 		resources: resource.New(resource.Budget{

@@ -63,10 +63,10 @@ func TestDowngradeToZeroIsRefusedWithoutChanges(t *testing.T) {
 	if _, err := engine.NewSession(context.Background(), lcx.SessionOptions{Goal: "keep me"}); err != nil {
 		t.Fatal(err)
 	}
+	stateDir := engine.StateInfo().Path
 	if err := engine.Close(); err != nil {
 		t.Fatal(err)
 	}
-	stateDir := filepath.Join(root, ".lumencortex")
 	before := stateHash(t, stateDir)
 
 	err = runDBCommand(context.Background(), lcx.Options{Workspace: root}, []string{"downgrade", "--to", "0"})
@@ -106,8 +106,8 @@ func TestDowngradeNoopAtCurrentVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stateDir := engine.StateInfo().Path
 	engine.Close()
-	stateDir := filepath.Join(root, ".lumencortex")
 	current := schemaVersion(t, stateDir)
 	before := stateHash(t, stateDir)
 	from, now, err := lcx.DowngradeSchema(context.Background(), lcx.Options{Workspace: root}, current)
@@ -156,6 +156,9 @@ func TestDBCommandDispatchesBeforeOpen(t *testing.T) {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 
+	// A private state root, so "nothing was created" is checkable.
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
 	empty := t.TempDir()
 	cmd := exec.Command(bin, "db", "downgrade", "--to", "0")
 	cmd.Dir = empty
@@ -167,6 +170,9 @@ func TestDBCommandDispatchesBeforeOpen(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(empty, ".lumencortex")); !os.IsNotExist(err) {
 		t.Errorf("db downgrade created the state directory (stat: %v); an ordinary Open ran first", err)
 	}
+	if entries, err := os.ReadDir(stateHome); err != nil || len(entries) != 0 {
+		t.Errorf("db downgrade created external state (entries=%v, err=%v); an ordinary Open ran first", entries, err)
+	}
 
 	// A migrated workspace that no process holds open: refused, unchanged, exit status non-zero.
 	root := t.TempDir()
@@ -174,8 +180,9 @@ func TestDBCommandDispatchesBeforeOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rootState := engine.StateInfo().Path
 	engine.Close()
-	before := stateHash(t, filepath.Join(root, ".lumencortex"))
+	before := stateHash(t, rootState)
 	cmd = exec.Command(bin, "db", "downgrade", "--to", "0")
 	cmd.Dir = root
 	stderr.Reset()
@@ -186,7 +193,7 @@ func TestDBCommandDispatchesBeforeOpen(t *testing.T) {
 	if !strings.Contains(stderr.String(), "db downgrade") {
 		t.Errorf("stderr=%q, want an error naming the command", stderr.String())
 	}
-	if stateHash(t, filepath.Join(root, ".lumencortex")) != before {
+	if stateHash(t, rootState) != before {
 		t.Error("the refused downgrade changed the workspace")
 	}
 

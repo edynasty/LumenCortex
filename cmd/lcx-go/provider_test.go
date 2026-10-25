@@ -39,6 +39,7 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("AppData", filepath.Join(home, "AppData"))
 	os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
+	os.Setenv("XDG_STATE_HOME", filepath.Join(home, "xdg-state"))
 	code := m.Run()
 	_ = os.RemoveAll(home)
 	os.Exit(code)

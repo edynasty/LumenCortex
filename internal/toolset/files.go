@@ -18,15 +18,11 @@ func (s *Set) readFile(_ context.Context, args map[string]any, _ func(protocol.T
 	if err != nil {
 		return protocol.ToolResult{}, err
 	}
-	f, err := os.Open(file)
+	f, info, err := s.openRead(file)
 	if err != nil {
 		return protocol.ToolResult{}, err
 	}
 	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return protocol.ToolResult{}, err
-	}
 	if !info.Mode().IsRegular() {
 		return protocol.ToolResult{}, errors.New("read_file target is not a regular file")
 	}
@@ -73,7 +69,7 @@ func (s *Set) writeFile(_ context.Context, args map[string]any, _ func(protocol.
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		return protocol.ToolResult{}, err
 	}
-	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+	if err := s.writeChecked(file, []byte(content)); err != nil {
 		return protocol.ToolResult{}, err
 	}
 	raw, _ := json.Marshal(map[string]any{"path": rel, "bytes": len(content)})
@@ -84,7 +80,7 @@ func (s *Set) replaceFile(_ context.Context, args map[string]any, _ func(protoco
 	if err != nil {
 		return protocol.ToolResult{}, err
 	}
-	raw, err := os.ReadFile(file)
+	raw, err := s.readChecked(file)
 	if err != nil {
 		return protocol.ToolResult{}, err
 	}
@@ -105,7 +101,7 @@ func (s *Set) replaceFile(_ context.Context, args map[string]any, _ func(protoco
 		return protocol.ToolResult{}, errors.New("old_text is ambiguous")
 	}
 	result := source[:first] + next + source[first+len(old):]
-	if err := os.WriteFile(file, []byte(result), 0o644); err != nil {
+	if err := s.writeChecked(file, []byte(result)); err != nil {
 		return protocol.ToolResult{}, err
 	}
 	out, _ := json.Marshal(map[string]any{"path": rel, "replaced": true})

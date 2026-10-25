@@ -317,7 +317,7 @@ Without `--yes`, TUI intentionally remains read-only because a full-screen readl
 
 ## Sessions and resume
 
-Sessions are stored in `.lumencortex/lumencortex.db` using normalized `sessions`, `session_messages`, and `agent_steps` tables. Session growth uses incremental UPSERTs rather than deleting/reinserting the complete history on every Agent step. The main Agent, TUI and Subagents inside one harness share one SessionStore connection; SQLite WAL supports independent readers/processes.
+Sessions are stored in `lumencortex.db` in the workspace's state directory, outside the workspace by default ([ADR-0016](adr/0016-external-state-and-workspace-binding.md)) using normalized `sessions`, `session_messages`, and `agent_steps` tables. Session growth uses incremental UPSERTs rather than deleting/reinserting the complete history on every Agent step. The main Agent, TUI and Subagents inside one harness share one SessionStore connection; SQLite WAL supports independent readers/processes.
 
 A session persists:
 
