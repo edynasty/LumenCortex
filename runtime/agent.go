@@ -515,6 +515,33 @@ func (s agentStore) AppendMessage(ctx context.Context, id string, message protoc
 	return s.store.AppendMessageTaskState(ctx, id, message.Role, message, write)
 }
 
+// Crash points for tests that kill the process (nil outside tests): the request is admitted but not
+// yet sent, and the model has answered but the answer is not stored. A third point, mid-call, is a
+// provider that never returns.
+var (
+	testHookAfterAdmit   func()
+	testHookBeforeAnswer func()
+)
+
+func (s agentStore) AdmitRequest(ctx context.Context, a session.RequestAdmission) (session.RequestEnvelope, error) {
+	env, err := s.store.AdmitRequest(ctx, a)
+	if err == nil && testHookAfterAdmit != nil {
+		testHookAfterAdmit()
+	}
+	return env, err
+}
+
+func (s agentStore) AppendAnswered(ctx context.Context, sessionID, requestID string, message protocol.Message) (int64, error) {
+	if testHookBeforeAnswer != nil {
+		testHookBeforeAnswer()
+	}
+	return s.store.AppendAnswered(ctx, sessionID, requestID, message)
+}
+
+func (s agentStore) SettleRequest(ctx context.Context, requestID string, st session.Settlement) error {
+	return s.store.SettleRequest(ctx, requestID, st)
+}
+
 func (s agentStore) AppendStep(ctx context.Context, id string, step int64, value any) error {
 	return s.store.AppendStep(ctx, id, step, value)
 }

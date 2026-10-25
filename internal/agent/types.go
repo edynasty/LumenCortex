@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -43,6 +44,16 @@ type Store interface {
 	// AppendMessage appends one row and, when change is non-nil, the Task State version the row
 	// caused, in one transaction. It returns the row's seq and the new version (0 without a change).
 	AppendMessage(ctx context.Context, sessionID string, m protocol.Message, change *TaskStateChange) (int64, int64, error)
+	// AdmitRequest durably records a provider request before it is sent (ADR-0018). A nil error
+	// means the request is admitted and may be sent; session.ErrFenced means the failed envelope
+	// is committed and nothing may be sent or retried.
+	AdmitRequest(ctx context.Context, a session.RequestAdmission) (session.RequestEnvelope, error)
+	// AppendAnswered stores the assistant message of an admitted main request and marks the
+	// request answered in one transaction. session.ErrFenced means the message was not stored and
+	// the envelope is committed as unknown.
+	AppendAnswered(ctx context.Context, sessionID, requestID string, m protocol.Message) (int64, error)
+	// SettleRequest ends an admitted request that produced no stored answer.
+	SettleRequest(ctx context.Context, requestID string, st session.Settlement) error
 	AppendStep(context.Context, string, int64, any) error
 	NextStep(context.Context, string) (int64, error)
 	Update(context.Context, string, SessionPatch) error
@@ -196,7 +207,10 @@ const (
 	KindWorkflowGate         = "workflow_gate"
 	KindConfig               = "config"
 	KindStorage              = "storage"
-	KindPanic                = "panic"
+	// KindFenced: the session was revoked (a source fence) before a request or its answer could be
+	// stored. The fence's terminal records are committed; the run neither retries nor sends (R-1).
+	KindFenced = "fenced"
+	KindPanic  = "panic"
 )
 
 // ExitCause is why a run ended. Every return path of Loop.Run after the session

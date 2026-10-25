@@ -12,6 +12,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/evaluator"
+	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/internal/workflow"
@@ -238,8 +239,16 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		}
 		calls = preserveToolArguments(calls)
 		assistant.ToolCalls = calls
-		seq, _, err := l.Store.AppendMessage(ctx, sessionID, assistant, nil)
+		seq, err := l.Store.AppendAnswered(ctx, sessionID, answered.RequestID, assistant)
 		if err != nil {
+			if errors.Is(err, session.ErrFenced) {
+				// The store committed the envelope as unknown and kept the message out: nothing more
+				// is sent or run for this session (R-1).
+				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindFenced, Err: err})
+			}
+			// The answer is not stored, so the request ends unknown, not answered. A failed
+			// settlement is left to Reconcile.
+			l.settle(sessionID, answered.RequestID, reasonAnswerNotSaved)
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		r.appendAssistant(seq, assistant, answered.Model.Ref, response.Echo)

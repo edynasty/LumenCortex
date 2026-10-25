@@ -36,6 +36,8 @@ type attempt struct {
 	Model    Model
 	Elapsed  time.Duration
 	Window   window.Result
+	// RequestID is the admitted envelope of the request that was answered.
+	RequestID string
 }
 
 // candidates computes the step's ordered candidate list from the run's models and the health
@@ -92,6 +94,7 @@ func (l *Loop) send(
 ) (attempt, *ExitCause) {
 	fixed := window.Fixed(in)
 	retried := map[config.ModelRef]bool{}
+	attempts := 0
 	for i := 0; ; {
 		cand := cands[i]
 		m := l.Models[cand.Ref]
@@ -153,6 +156,17 @@ func (l *Loop) send(
 			MaxTokens: maxTokens, ReasoningEffort: string(sent),
 			Echo: r.requestEcho(built, cand.Ref),
 		}
+		// Nothing is sent without a durable envelope. A context that ended before this point sends
+		// nothing and records nothing; a fenced session or a storage failure ends the run here.
+		if err := ctx.Err(); err != nil {
+			cause := exitFor(protocol.ClassCancelled, err)
+			return attempt{}, &cause
+		}
+		requestID, cause := l.admit(ctx, sessionID, step, attempts, opts, r, built, specs)
+		if cause != nil {
+			return attempt{}, cause
+		}
+		attempts++
 		usage.Requests++
 		l.emit("llm.request", sessionID, map[string]any{
 			"step": step, "modelRef": cand.Ref, "provider": m.ProviderID, "model": m.ModelID,
@@ -160,7 +174,7 @@ func (l *Loop) send(
 			"candidateIndex": i, "windowFirstSeq": built.FirstSeq, "windowTokens": built.Tokens,
 		})
 		started := time.Now()
-		response, err := m.Client.Complete(ctx, req)
+		response, err := l.complete(ctx, sessionID, requestID, m, req)
 		elapsed := time.Since(started)
 		if err == nil {
 			l.Health.Success(cand.Ref)
@@ -168,9 +182,11 @@ func (l *Loop) send(
 				"step": step, "modelRef": cand.Ref, "provider": m.ProviderID, "model": m.ModelID,
 				"elapsedMs": elapsed.Milliseconds(), "candidateIndex": i,
 			})
-			return attempt{Response: response, Model: m, Elapsed: elapsed, Window: built}, nil
+			return attempt{Response: response, Model: m, Elapsed: elapsed, Window: built, RequestID: requestID}, nil
 		}
 		class := Classify(ctx, err)
+		// The request was sent; an error does not prove it was not delivered, so it is unknown.
+		l.settle(sessionID, requestID, settleReason(class))
 		if class == protocol.ClassCancelled {
 			cause := exitFor(class, ctx.Err())
 			return attempt{}, &cause
