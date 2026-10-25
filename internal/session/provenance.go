@@ -197,6 +197,11 @@ func (s *Store) writeTx(ctx context.Context, fn func(conn *sql.Conn) error) erro
 		return err
 	}
 	defer conn.Close()
+	return writeTxOn(ctx, conn, fn)
+}
+
+// writeTxOn is writeTx on a connection the caller pinned.
+func writeTxOn(ctx context.Context, conn *sql.Conn, fn func(conn *sql.Conn) error) error {
 	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
 		return err
 	}

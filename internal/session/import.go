@@ -71,6 +71,13 @@ func (s *Store) ImportSessions(ctx context.Context, items []ImportedSession) err
 		if exists > 0 {
 			return fmt.Errorf("%w: %s", ErrSessionExists, item.Session.ID)
 		}
+		// A privacy deletion of this id that finished (state cleaned) is superseded: importing the
+		// source again is the user's new decision, and the fences of the deleted content would refuse
+		// the imported session's own runs. A deletion still pending keeps its row, refused above.
+		if _, err := conn.ExecContext(ctx, `DELETE FROM source_fences
+			WHERE scope_kind IN ('session','privacy') AND scope_ref = ? AND state = 'cleaned'`, item.Session.ID); err != nil {
+			return err
+		}
 		if err := insertSession(ctx, conn, item.Session); err != nil {
 			return err
 		}

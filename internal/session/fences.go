@@ -64,45 +64,52 @@ func (s *Store) RevokeSession(ctx context.Context, sourceID, reason string) (Rev
 	}
 	var rev Revocation
 	err := s.writeTx(ctx, func(conn *sql.Conn) error {
-		if err := sessionExists(ctx, conn, sourceID); err != nil {
-			return err
-		}
-		var epoch int64
-		if err := conn.QueryRowContext(ctx, `SELECT COALESCE(MAX(epoch), 0) + 1 FROM source_fences`).Scan(&epoch); err != nil {
-			return err
-		}
-		reached, expanded, err := revocationReach(ctx, conn, sourceID)
-		if err != nil {
-			return err
-		}
-		at := now()
-		rev = Revocation{Epoch: epoch, Source: sourceID, Reason: reason, At: parseTime(at), SessionCount: len(reached), Expanded: expanded}
-		rev.Sessions = capIDs(reached)
-		if err := exposureIn(ctx, conn, reached, &rev); err != nil {
-			return err
-		}
-		report, err := json.Marshal(rev)
-		if err != nil {
-			return err
-		}
-		pointer, err := json.Marshal(map[string]any{"revocation": sourceID, "epoch": epoch})
-		if err != nil {
-			return err
-		}
-		for _, id := range reached {
-			tombstone := pointer
-			if id == sourceID {
-				tombstone = report
-			}
-			if _, err := conn.ExecContext(ctx, `INSERT INTO source_fences(scope_kind, scope_ref, epoch, reason, state, tombstone_json, created_at, updated_at)
-				VALUES('session', ?, ?, ?, 'active', ?, ?, ?)`, id, epoch, reason, string(tombstone), at, at); err != nil {
-				return err
-			}
-		}
-		return nil
+		var err error
+		rev, err = revokeIn(ctx, conn, sourceID, reason)
+		return err
 	})
 	if err != nil {
 		return Revocation{}, err
+	}
+	return rev, nil
+}
+
+// revokeIn is RevokeSession on the caller's write transaction.
+func revokeIn(ctx context.Context, conn *sql.Conn, sourceID, reason string) (Revocation, error) {
+	if err := sessionExists(ctx, conn, sourceID); err != nil {
+		return Revocation{}, err
+	}
+	var epoch int64
+	if err := conn.QueryRowContext(ctx, `SELECT COALESCE(MAX(epoch), 0) + 1 FROM source_fences`).Scan(&epoch); err != nil {
+		return Revocation{}, err
+	}
+	reached, expanded, err := revocationReach(ctx, conn, sourceID)
+	if err != nil {
+		return Revocation{}, err
+	}
+	at := now()
+	rev := Revocation{Epoch: epoch, Source: sourceID, Reason: reason, At: parseTime(at), SessionCount: len(reached), Expanded: expanded}
+	rev.Sessions = capIDs(reached)
+	if err := exposureIn(ctx, conn, reached, &rev); err != nil {
+		return Revocation{}, err
+	}
+	report, err := json.Marshal(rev)
+	if err != nil {
+		return Revocation{}, err
+	}
+	pointer, err := json.Marshal(map[string]any{"revocation": sourceID, "epoch": epoch})
+	if err != nil {
+		return Revocation{}, err
+	}
+	for _, id := range reached {
+		tombstone := pointer
+		if id == sourceID {
+			tombstone = report
+		}
+		if _, err := conn.ExecContext(ctx, `INSERT INTO source_fences(scope_kind, scope_ref, epoch, reason, state, tombstone_json, created_at, updated_at)
+			VALUES('session', ?, ?, ?, 'active', ?, ?, ?)`, id, epoch, reason, string(tombstone), at, at); err != nil {
+			return Revocation{}, err
+		}
 	}
 	return rev, nil
 }

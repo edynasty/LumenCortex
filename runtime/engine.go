@@ -319,6 +319,7 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		_ = engine.Close()
 		return nil, err
 	}
+	engine.resumeDeletions(ctx)
 	return engine, nil
 }
 
