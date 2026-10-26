@@ -38,9 +38,9 @@ does not travel with a clone.
   An approval therefore also covers the content of the workspace files a definition executes
   (`evaluator.ResolveInputs`, read in configScope): the schema of a schema check and the schema files it
   references by a relative `$ref`; for a test or build check the program of each simple command (or
-  wrapper) when it is written as a path (`./check.sh`, whatever its name: `./scripts/python-gate.sh` is
-  a workspace program, not python), the operand of `.`/`source`, and the script of a shell, python or
-  another interpreter named bare or by absolute path, after its options and their arguments
+  wrapper) when it is written as a path (`./check.sh`, `.venv/bin/python`), the operand of
+  `.`/`source`, and the script of a shell, python or another interpreter recognised by its base name
+  (`./scripts/python-gate.sh` is not python), after its options and their arguments
   (`bash -euo pipefail scripts/a.sh`, `python3 -W error x.py`, `perl -I lib x.pl`,
   `node -r ./setup.js x.js`, `php -f x.php`, `sh < x.sh`, also inside `sh -c '…'` and `$( )`), past
   wrappers (`env -i`, `nice -n 5`, `timeout 30`, `exec`, …), assignments and keywords. Arguments, inline

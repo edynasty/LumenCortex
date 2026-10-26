@@ -147,7 +147,7 @@ var (
 		"php":     {argOptions: set("-d", "-c", "-z"), inline: set("-r", "--run", "-B", "-R", "-F", "-E")},
 		"lua":     {argOptions: set("-l"), inline: set("-e")},
 		"Rscript": {argOptions: set("--default-packages"), inline: set("-e")},
-		"deno": {argOptions: set("-c", "--config", "--import-map", "--lock", "--cert", "--location", "--seed", "--env-file", "-L", "--log-level"),
+		"deno": {argOptions: set("-c", "--config", "--import-map", "--cert", "--location", "--seed", "-L", "--log-level"),
 			inline: set("eval"), subcommands: set("run", "test")},
 		"bun": {argOptions: set("-c", "--config", "-r", "--preload", "--tsconfig-override", "--cwd", "--env-file"),
 			inline: set("-e", "--eval", "-p", "--print"), subcommands: set("run", "test")},
@@ -187,25 +187,18 @@ func isPython(base string) bool {
 	return strings.Trim(major, "0123456789") == "" && strings.Trim(minor, "0123456789") == "" && (minor == "" || major != "")
 }
 
-// dispatchName is the name a program word is recognised by as a wrapper, shell or interpreter: its own
-// text when bare (looked up in PATH), its base name when absolute (/usr/bin/env), and "" for a relative
-// path (./scripts/python-gate.sh, bin/env), which is a workspace program and is bound as itself.
-func dispatchName(word string) string {
-	switch {
-	case !strings.Contains(word, "/"):
-		return word
-	case path.IsAbs(word):
-		return path.Base(word)
-	}
-	return ""
-}
+// dispatchName is the name a program word is recognised by as a wrapper, shell or interpreter: its
+// base name. A program written as a path is also bound as itself (simpleCommand), so
+// `.venv/bin/python x.py` binds the launcher and x.py, and `./scripts/python-gate.sh` binds itself only
+// (python-gate is not python).
+func dispatchName(word string) string { return path.Base(word) }
 
 // commandPaths returns the words of command that name a file it executes, in order: the program of a
 // simple command (or a wrapper) when it is written as a path (./check.sh, bin/x, /usr/bin/env; a bare
 // name is looked up in PATH), and the script operand of `.`, `source`, a shell, python or another
 // interpreter, after their options and the arguments of those options (bash -euo pipefail x.sh,
-// python3 -W error x.py, perl -I lib x.pl). Only a bare or absolute program name is recognised as a
-// wrapper, shell or interpreter: ./scripts/python-gate.sh is a workspace program, not python.
+// python3 -W error x.py, perl -I lib x.pl). A program is recognised as a wrapper, shell or interpreter
+// by its base name (.venv/bin/python x.py binds both); ./scripts/python-gate.sh is not python.
 // Wrappers (env, nice -n 5, timeout 30, exec, …), variable assignments and keywords are skipped
 // before the program. A shell's -c string is read as commands. The other words of a simple command
 // are its arguments: data the program reads, not its definition (`grep -q ok status.txt` has none).

@@ -57,11 +57,16 @@ func TestCommandPathsFindsTheExecutedFiles(t *testing.T) {
 		{"golangci-lint run --config=.golangci.yml ./...", nil},
 		{"sh 2> err.txt scripts/a.sh", []string{"scripts/a.sh"}},
 		{"> log.txt ./check.sh", []string{"./check.sh"}},
-		// A program written as a relative path is the workspace program, whatever its name (N1).
+		// A program written as a path is bound as itself, whatever its name, and is still recognised by
+		// its base name as a launcher: a relative launcher binds the script it runs (N1, Z1).
 		{"./scripts/python-gate.sh data.json", []string{"./scripts/python-gate.sh"}},
-		{"./scripts/time sh x.sh", []string{"./scripts/time"}},
+		{"./scripts/time sh x.sh", []string{"./scripts/time", "x.sh"}},
 		{"bin/env --check", []string{"bin/env"}},
-		{"./bash scripts/a.sh", []string{"./bash"}},
+		{"./bash scripts/a.sh", []string{"./bash", "scripts/a.sh"}},
+		{".venv/bin/python scripts/gate.py", []string{".venv/bin/python", "scripts/gate.py"}},
+		{"./node_modules/.bin/tsx scripts/gate.ts", []string{"./node_modules/.bin/tsx", "scripts/gate.ts"}},
+		{"./bin/env sh x.sh", []string{"./bin/env", "x.sh"}},
+		{"deno run --lock tools/check.ts", []string{"tools/check.ts"}},
 		{"/usr/bin/python3 tools/check.py", []string{"/usr/bin/python3", "tools/check.py"}},
 		{"/usr/bin/time -o t.txt sh scripts/a.sh", []string{"/usr/bin/time", "scripts/a.sh"}},
 		{"python3.12 tools/check.py", []string{"tools/check.py"}},
@@ -103,11 +108,15 @@ func TestResolveInputsBindsWhatADefinitionRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.write("scripts/a.sh", "exit 0\n")
-	f.write(".gitignore", "bin/\n")
+	f.write(".gitignore", "bin/\n.venv/\n")
 	if err := os.MkdirAll(filepath.Join(f.dir, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	f.write("bin/x", "binary\n")
+	if err := os.MkdirAll(filepath.Join(f.dir, ".venv", "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.write(".venv/bin/python", "launcher\n")
 	f.write("schema.json", `{"type": "object", "properties": {"a": {"$ref": "defs/a.json#/x"}, "b": {"$ref": "#/definitions/b"}, "c": {"$ref": "https://example.test/c.json"}}}`)
 	if err := os.MkdirAll(filepath.Join(f.dir, "defs"), 0o755); err != nil {
 		t.Fatal(err)
@@ -133,6 +142,7 @@ func TestResolveInputsBindsWhatADefinitionRuns(t *testing.T) {
 		{"outside", Spec{Kind: KindTest, Command: "sh " + outside + "; sh ../x.sh"}, map[string]bool{}},
 		{"symlink leaving the workspace", Spec{Kind: KindTest, Command: "sh link.sh"}, map[string]bool{"link.sh": false}},
 		{"ignored build output", Spec{Kind: KindBuild, Command: "go build -o bin/x . && ./bin/x"}, map[string]bool{}},
+		{"ignored launcher, bound script", Spec{Kind: KindTest, Command: ".venv/bin/python scripts/a.sh"}, map[string]bool{"scripts/a.sh": true}},
 		{"schema and its refs", Spec{Kind: KindSchema, Schema: "schema.json", Files: []string{"data.json"}},
 			map[string]bool{"schema.json": true, "defs/a.json": true, "shared.json": false}},
 		{"missing schema", Spec{Kind: KindSchema, Schema: "gone.json", Files: []string{"data.json"}}, map[string]bool{"gone.json": false}},
