@@ -1,154 +1,474 @@
 package evaluator
 
 import (
+	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Input is a workspace file whose content is part of a check's definition (CHECKS-002): the schema of a
-// schema check, or a file a test or build command executes, such as the script in `sh scripts/check.sh`
-// or `./check.sh`. Its digest is in the definition's digest, so an approval covers the content the
-// check runs and not only the command that runs it. Path is workspace-relative with forward slashes;
-// Digest is "sha256:<hex>" of the content.
+// schema check and the schema files it references, or a file a test or build command executes, such as
+// the script in `sh scripts/check.sh` or `./check.sh`. Its digest is in the definition's digest, so an
+// approval covers the content the check runs and not only the command that runs it. Path is
+// workspace-relative with forward slashes; Digest is "sha256:<hex>" of the content, or AbsentInput.
 type Input struct {
 	Path   string `json:"path"`
 	Digest string `json:"digest"`
 }
 
-// AbsentInput is the digest of an input that is not a readable regular file inside the workspace.
+// AbsentInput is the digest of an input that is not a readable regular file inside the workspace. An
+// input absent at approval is bound as absent: creating it later is a change like any other.
 const AbsentInput = "absent"
 
-// commandSeparators split words; commandBoundaries also end a simple command, so the next word is a
-// program again. Quotes split words too, so the command string of `sh -c '...'` is read as commands.
+// token is one lexed piece of a command: a word, the end of a simple command, or a redirection.
+type token struct {
+	kind   int
+	text   string
+	expand bool // the word has an unquoted or double-quoted $, an unquoted glob or a leading ~
+}
+
 const (
-	commandSeparators = " \t\r'\"<>"
-	commandBoundaries = ";&|()\n`"
+	tokWord = iota
+	tokEnd
+	tokRedirect
 )
 
-// interpreters run the file their first operand names.
-var interpreters = map[string]bool{
-	"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "fish": true, "node": true, "ruby": true,
-	"perl": true, "php": true, "lua": true, "Rscript": true, "deno": true, "bun": true, "tsx": true, "pwsh": true,
-}
-
-// transparent words leave the next word in program position.
-var transparent = map[string]bool{
-	"env": true, "exec": true, "command": true, "time": true, "nice": true, "nohup": true,
-	"if": true, "then": true, "else": true, "elif": true, "while": true, "until": true, "do": true, "!": true, "{": true,
-}
-
-func isInterpreter(word string) bool {
-	base := filepath.Base(word)
-	return interpreters[base] || strings.HasPrefix(base, "python")
-}
-
-// commandPaths returns the words of command in the position of a file it executes: the program of
-// each simple command (after variable assignments and words like env or time), and the first operand
-// of an interpreter (sh scripts/a.sh, python3 tools/check.py). An interpreter's -c starts a command
-// string, read as commands. The files a program reads as arguments are its data, not its definition:
-// `grep -q ok status.txt` has no input. Words with shell expansion ($, globs, a leading ~) are skipped;
-// whether a word names a workspace file is decided against a workspace (ResolveInputs).
-func commandPaths(command string) []string {
-	const (
-		program = iota
-		script
-		args
+// lex splits a command as a POSIX shell would into words, command ends (; & && | || ( ) newline `
+// and $( ), and redirections (<, >, >>, <<, &>, >&, with an fd number before them). Quotes and
+// backslashes are removed from words. It does not expand anything.
+func lex(command string) []token {
+	var (
+		out    []token
+		word   strings.Builder
+		inWord bool
+		expand bool
 	)
-	var out []string
-	state := program
-	var word strings.Builder
 	flush := func() {
-		w := word.String()
+		if inWord {
+			out = append(out, token{kind: tokWord, text: word.String(), expand: expand})
+		}
 		word.Reset()
-		if w == "" {
-			return
-		}
-		switch state {
-		case program:
-			if transparent[w] || (strings.Contains(w, "=") && !strings.HasPrefix(w, "=")) {
-				return
-			}
-			out = appendPath(out, w)
-			state = args
-			if isInterpreter(w) {
-				state = script
-			}
-		case script:
-			switch {
-			case w == "-c":
-				state = program
-			case strings.HasPrefix(w, "-"):
-			default:
-				out = appendPath(out, w)
-				state = args
-			}
-		}
+		inWord, expand = false, false
 	}
-	for _, r := range command {
+	rs := []rune(command)
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
 		switch {
-		case strings.ContainsRune(commandBoundaries, r):
+		case r == '\\' && i+1 < len(rs):
+			i++
+			word.WriteRune(rs[i])
+			inWord = true
+		case r == '\'':
+			inWord = true
+			for i++; i < len(rs) && rs[i] != '\''; i++ {
+				word.WriteRune(rs[i])
+			}
+		case r == '"':
+			inWord = true
+			for i++; i < len(rs) && rs[i] != '"'; i++ {
+				if rs[i] == '\\' && i+1 < len(rs) {
+					i++
+				} else if rs[i] == '$' || rs[i] == '`' {
+					expand = true
+				}
+				word.WriteRune(rs[i])
+			}
+		case r == ' ' || r == '\t' || r == '\r':
 			flush()
-			state = program
-		case strings.ContainsRune(commandSeparators, r):
+		case r == '<' || r == '>' || (r == '&' && i+1 < len(rs) && rs[i+1] == '>'):
+			// An fd number written right before the operator (2>) belongs to it.
+			if inWord && !expand && strings.Trim(word.String(), "0123456789") == "" {
+				word.Reset()
+				inWord = false
+			}
 			flush()
+			op := string(r)
+			for i+1 < len(rs) && (rs[i+1] == '<' || rs[i+1] == '>' || rs[i+1] == '&') {
+				i++
+				op += string(rs[i])
+			}
+			out = append(out, token{kind: tokRedirect, text: op})
+		case r == ';' || r == '&' || r == '|' || r == '(' || r == ')' || r == '\n' || r == '`':
+			flush()
+			out = append(out, token{kind: tokEnd})
+		case r == '$' && i+1 < len(rs) && rs[i+1] == '(':
+			flush()
+			i++
+			out = append(out, token{kind: tokEnd})
 		default:
+			if r == '$' || r == '*' || r == '?' || r == '[' || (r == '~' && !inWord) {
+				expand = true
+			}
 			word.WriteRune(r)
+			inWord = true
 		}
 	}
 	flush()
 	return out
 }
 
-func appendPath(out []string, w string) []string {
-	if strings.HasPrefix(w, "-") || strings.HasPrefix(w, "~") || strings.ContainsAny(w, "$*?[{\\") {
-		return out
+// Interpreters run the file their first operand names; shells and python take a command string after
+// -c instead, which is read as commands (shells) or ends the search (python: the string is not shell).
+var (
+	shells       = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "ash": true, "mksh": true}
+	interpreters = map[string]bool{
+		"node": true, "ruby": true, "perl": true, "php": true, "lua": true, "Rscript": true, "deno": true, "bun": true,
+		"tsx": true, "ts-node": true, "pwsh": true, "fish": true,
 	}
-	return append(out, w)
+	// inline marks the options of the other interpreters whose argument is code, not a file.
+	inline = map[string]bool{"-e": true, "--eval": true, "-p": true, "--print": true, "-c": true, "--command": true, "-E": true}
+	// keywords leave the next word in program position.
+	keywords = map[string]bool{"if": true, "then": true, "else": true, "elif": true, "while": true, "until": true, "do": true, "!": true, "{": true, "}": true}
+	// wrappers run the program that follows their options; the value names their options that take an
+	// argument, and operand is true when one operand (timeout's duration) comes before the program.
+	wrappers = map[string]struct {
+		argOptions map[string]bool
+		operand    bool
+	}{
+		"env":     {argOptions: map[string]bool{"-u": true, "--unset": true, "-C": true, "--chdir": true}},
+		"exec":    {argOptions: map[string]bool{"-a": true}},
+		"command": {},
+		"time":    {},
+		"nohup":   {},
+		"nice":    {argOptions: map[string]bool{"-n": true, "--adjustment": true}},
+		"timeout": {argOptions: map[string]bool{"-s": true, "--signal": true, "-k": true, "--kill-after": true}, operand: true},
+		"stdbuf":  {},
+		"xargs":   {argOptions: map[string]bool{"-I": true, "-n": true, "-P": true, "-L": true, "-d": true, "-E": true, "-s": true}},
+	}
+)
+
+func isPython(base string) bool { return strings.HasPrefix(base, "python") }
+
+// commandPaths returns the words of command that name a file it executes, in order: the program of a
+// simple command when it is a path (it contains a slash: ./check.sh, bin/x; a bare name is looked up
+// in PATH), and the script operand of `.`, `source`, a shell, python or another interpreter, after
+// their options and the arguments of those options (bash -euo pipefail x.sh, python3 -W error x.py).
+// Wrappers (env, nice -n 5, timeout 30, exec, …), variable assignments and keywords are skipped
+// before the program. A shell's -c string is read as commands. The other words of a simple command
+// are its arguments: data the program reads, not its definition (`grep -q ok status.txt` has none).
+// Redirection targets are skipped. A word with shell expansion is not a path.
+func commandPaths(command string) []string {
+	var out []string
+	toks := lex(command)
+	for i := 0; i < len(toks); {
+		i = simpleCommand(toks, i, &out)
+	}
+	return out
+}
+
+// simpleCommand reads one simple command from toks[i:], appends its paths, and returns the index
+// after its end token.
+func simpleCommand(toks []token, i int, out *[]string) int {
+	next := func() (token, bool) {
+		for i < len(toks) {
+			t := toks[i]
+			i++
+			switch t.kind {
+			case tokEnd:
+				i--
+				return token{}, false
+			case tokRedirect:
+				if i < len(toks) && toks[i].kind == tokWord {
+					i++ // the redirection target
+				}
+				continue
+			}
+			return t, true
+		}
+		return token{}, false
+	}
+	add := func(t token) {
+		if !t.expand && t.text != "" && !strings.HasPrefix(t.text, "-") {
+			*out = append(*out, t.text)
+		}
+	}
+	finish := func() int {
+		for i < len(toks) && toks[i].kind != tokEnd {
+			i++
+		}
+		return i + 1
+	}
+	// stdin is the file a `<` redirection of this simple command reads: a shell or python with no
+	// script operand runs it.
+	var stdin *token
+	for j := i; j < len(toks) && toks[j].kind != tokEnd; j++ {
+		if toks[j].kind == tokRedirect && toks[j].text == "<" && j+1 < len(toks) && toks[j+1].kind == tokWord {
+			stdin = &toks[j+1]
+		}
+	}
+	// Program position.
+	var prog token
+	for {
+		t, ok := next()
+		if !ok {
+			return finish()
+		}
+		if keywords[t.text] || (!t.expand && strings.Contains(t.text, "=") && !strings.HasPrefix(t.text, "=") && !strings.HasPrefix(t.text, "-")) {
+			continue
+		}
+		if w, isWrapper := wrappers[path.Base(t.text)]; isWrapper {
+			operand := w.operand
+			for {
+				o, ok := next()
+				if !ok {
+					return finish()
+				}
+				if strings.HasPrefix(o.text, "-") {
+					if w.argOptions[o.text] {
+						next()
+					}
+					continue
+				}
+				if strings.Contains(o.text, "=") && path.Base(t.text) == "env" {
+					continue
+				}
+				if operand {
+					operand = false
+					continue
+				}
+				i-- // o is the program
+				break
+			}
+			continue
+		}
+		prog = t
+		break
+	}
+	base := path.Base(prog.text)
+	switch {
+	case prog.text == "." || prog.text == "source":
+		if t, ok := next(); ok {
+			add(t)
+		}
+	case shells[base]:
+		script := false
+		for {
+			t, ok := next()
+			if !ok {
+				break
+			}
+			if t.text == "--" {
+				if t, ok := next(); ok {
+					add(t)
+					script = true
+				}
+				break
+			}
+			if t.text == "--rcfile" || t.text == "--init-file" {
+				next()
+				continue
+			}
+			if strings.HasPrefix(t.text, "--") {
+				continue
+			}
+			if len(t.text) > 1 && (t.text[0] == '-' || t.text[0] == '+') {
+				letters := t.text[1:]
+				if strings.ContainsRune(letters, 'c') {
+					if s, ok := next(); ok {
+						*out = append(*out, commandPaths(s.text)...)
+					}
+					script = true
+					break
+				}
+				if strings.ContainsRune(letters, 's') {
+					break // the script is read from stdin
+				}
+				if last := letters[len(letters)-1]; last == 'o' || last == 'O' {
+					next()
+				}
+				continue
+			}
+			add(t)
+			script = true
+			break
+		}
+		if !script && stdin != nil {
+			add(*stdin)
+		}
+	case isPython(base):
+		script := false
+		for {
+			t, ok := next()
+			if !ok || t.text == "-c" || t.text == "-m" {
+				script = ok
+				break
+			}
+			if t.text == "-" {
+				break
+			}
+			if t.text == "-W" || t.text == "-X" {
+				next()
+				continue
+			}
+			if strings.HasPrefix(t.text, "-") {
+				continue
+			}
+			add(t)
+			script = true
+			break
+		}
+		if !script && stdin != nil {
+			add(*stdin)
+		}
+	case interpreters[base]:
+		for {
+			t, ok := next()
+			if !ok || inline[t.text] {
+				break
+			}
+			if strings.HasPrefix(t.text, "-") || ((base == "deno" || base == "bun") && (t.text == "run" || t.text == "test")) {
+				continue
+			}
+			add(t)
+			break
+		}
+	default:
+		if strings.Contains(prog.text, "/") {
+			add(prog)
+		}
+	}
+	return finish()
 }
 
 // ResolveInputs sets the Inputs of each spec from workspace (the configuration scope the definitions
-// are read and approved in): the schema file of a schema check; for a test or build check, each file
-// its command executes (commandPaths) that is a regular file inside workspace, a path taken relative
-// to the workspace root (an absolute one only when it lies inside).
-// A word naming a directory, nothing, or a file outside the workspace is not an input. The content of
-// a schema check's Files is what it validates, not part of its definition.
+// are read and approved in): for a schema check its schema and the schema files it references by a
+// relative $ref, for a test or build check the files its command executes (commandPaths), each taken
+// relative to the workspace root (an absolute path only when it lies inside). A candidate that is not
+// a regular file inside the workspace is bound as AbsentInput. Files git ignores in workspace are not
+// inputs: they are generated, like a binary the check builds and then runs. The content of a schema
+// check's Files is what it validates, not part of its definition.
 func ResolveInputs(workspace string, specs []Spec) []Spec {
 	root, err := filepath.EvalSymlinks(workspace)
 	if err != nil {
 		root = workspace
 	}
+	type pending struct {
+		spec  int
+		paths []string
+	}
+	var (
+		all   []pending
+		names []string
+	)
 	for i := range specs {
 		var candidates []string
 		switch specs[i].Kind {
 		case KindSchema:
-			candidates = []string{specs[i].Schema}
+			candidates = schemaFiles(root, specs[i].Schema)
 		case KindTest, KindBuild:
 			candidates = commandPaths(specs[i].Command)
 		}
 		seen := map[string]bool{}
-		var inputs []Input
+		p := pending{spec: i}
 		for _, c := range candidates {
-			rel, ok := relativeTo(root, c)
-			if !ok || seen[rel] {
-				continue
+			if rel, ok := relativeTo(root, c); ok && !seen[rel] {
+				seen[rel] = true
+				p.paths = append(p.paths, rel)
+				names = append(names, rel)
 			}
-			digest := fileDigest(root, rel)
-			if digest == AbsentInput && specs[i].Kind != KindSchema {
-				continue
+		}
+		all = append(all, p)
+	}
+	ignored := ignoredPaths(root, names)
+	for _, p := range all {
+		var inputs []Input
+		for _, rel := range p.paths {
+			if !ignored[rel] {
+				inputs = append(inputs, Input{Path: rel, Digest: fileDigest(root, rel)})
 			}
-			seen[rel] = true
-			inputs = append(inputs, Input{Path: rel, Digest: digest})
 		}
 		slices.SortFunc(inputs, func(a, b Input) int { return strings.Compare(a.Path, b.Path) })
-		specs[i].Inputs = inputs
+		specs[p.spec].Inputs = inputs
 	}
 	return specs
+}
+
+// schemaFiles is the schema file and, transitively, the files it references by a relative $ref
+// (a URI without a scheme; the fragment is dropped), at most 64 of them.
+func schemaFiles(root, schema string) []string {
+	rel, ok := relativeTo(root, schema)
+	if !ok {
+		return []string{schema}
+	}
+	out := []string{rel}
+	for i := 0; i < len(out) && len(out) < 64; i++ {
+		raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(out[i])))
+		if err != nil {
+			continue
+		}
+		var doc any
+		if json.Unmarshal(raw, &doc) != nil {
+			continue
+		}
+		for _, ref := range schemaRefs(doc, nil) {
+			if j := strings.IndexByte(ref, '#'); j >= 0 {
+				ref = ref[:j]
+			}
+			if ref == "" || strings.Contains(ref, ":") || strings.HasPrefix(ref, "/") {
+				continue
+			}
+			if r, ok := relativeTo(root, path.Join(path.Dir(out[i]), ref)); ok && !slices.Contains(out, r) {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
+}
+
+func schemaRefs(v any, out []string) []string {
+	switch v := v.(type) {
+	case map[string]any:
+		for k, x := range v {
+			if s, ok := x.(string); ok && k == "$ref" {
+				out = append(out, s)
+			} else {
+				out = schemaRefs(x, out)
+			}
+		}
+	case []any:
+		for _, x := range v {
+			out = schemaRefs(x, out)
+		}
+	}
+	return out
+}
+
+// ignoredPaths reports which of rels git ignores in root (one git process; tracked files are never
+// ignored). Outside git, or when git fails, nothing is ignored.
+func ignoredPaths(root string, rels []string) map[string]bool {
+	out := map[string]bool{}
+	if len(rels) == 0 {
+		return out
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "check-ignore", "--stdin", "-z")
+	cmd.Stdin = strings.NewReader(strings.Join(rels, "\x00") + "\x00")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	// Exit 1 is "nothing ignored"; any other failure leaves every candidate an input.
+	if err := cmd.Run(); err != nil {
+		if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 {
+			return out
+		}
+	}
+	for _, p := range strings.Split(stdout.String(), "\x00") {
+		if p != "" {
+			out[p] = true
+		}
+	}
+	return out
 }
 
 // relativeTo cleans p to a forward-slash path relative to root, or reports that it leaves root.

@@ -36,15 +36,26 @@ does not travel with a clone.
 - **Inputs (CHECKS-002, 2026-10-26).** The O-6 real-model runs showed the common way around an approved
   check: the command `sh scripts/check-nofloat.sh` stayed approved while the agent rewrote the script.
   An approval therefore also covers the content of the workspace files a definition executes
-  (`evaluator.ResolveInputs`, read in configScope): the schema of a schema check, and for a test or build
-  check the program of each simple command (`./check.sh`) and the first operand of an interpreter
-  (`sh`, `bash`, `python3`, `node`, … `scripts/a.sh`, also inside `sh -c '…'`), when it names a regular
-  file that resolves inside the workspace. Each input is `{path, digest}` in the definition, so changing
-  the content in configScope changes the set digest and leaves the set unapproved, like editing
-  `lumencortex.json`. In executionScope the evaluator compares each approved input before an episode (a
-  differing one is decided `spec_unapproved` without running, naming the file) and after it (the
-  episode closes `spec_unapproved`, also for a file git ignores). Restoring the approved content makes
-  the check count again; there is no revocation row for an input.
+  (`evaluator.ResolveInputs`, read in configScope): the schema of a schema check and the schema files it
+  references by a relative `$ref`; for a test or build check the program of each simple command when it
+  is a path (`./check.sh`), the operand of `.`/`source`, and the script of a shell, python or another
+  interpreter after its options and their arguments (`bash -euo pipefail scripts/a.sh`,
+  `python3 -W error x.py`, `sh < x.sh`, also inside `sh -c '…'` and `$( )`), past wrappers (`env -i`,
+  `nice -n 5`, `timeout 30`, `exec`, …), assignments and keywords. Arguments, inline code (`python3 -c`,
+  `node -e`), redirection targets, words with expansion and programs found in `PATH` are not inputs:
+  they are data or the machine, not the definition. A candidate that does not resolve to a regular file
+  inside the workspace is bound as `absent`, so a script created after approval is a change; a file git
+  ignores in configScope (a binary the check builds and runs) is not an input. Each input is
+  `{path, digest}` in the definition, so changing the content in configScope changes the set digest and
+  leaves the set unapproved, like editing `lumencortex.json`; a definition without inputs digests as
+  before, so existing approvals of checks that run no workspace file survive the upgrade, while a
+  script-running check (and the constraints bound to it) needs approval again. In executionScope the
+  evaluator compares each approved input before an episode (a differing one is decided
+  `spec_unapproved` without running, naming the file), after it (the episode closes `spec_unapproved`,
+  also for a file git ignores), before a person's acceptance (refused with `ErrSpecUnapproved`) and when
+  a stored pass is read as satisfying. Restoring the approved content makes the check count again; there
+  is no revocation row for an input. Limits: this binds the file named in the command, not files that
+  script sources or reads in turn, and the parser is a lexer for the common spellings, not a shell.
 - **Approving.** `Engine.ApproveChecks` takes the set digest the user was shown and fails with
   `ErrApprovalStale` when the configuration no longer has it. In one transaction it revokes the active set
   and its definitions, then writes one `check_set` row and one `check_spec` row per definition under a new

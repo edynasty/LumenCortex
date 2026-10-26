@@ -406,10 +406,12 @@ func TestRunThatRewritesTheScriptItsCheckRunsCannotPassIt(t *testing.T) {
 
 // A session's worktree is its execution scope: a script rewritten there is not the content the
 // Engine workspace's approval covers, so the check is decided spec_unapproved in that session and not
-// run, while the approval and the main checkout are untouched. Restoring the content makes the check
-// run again (and fail, as the approved script does).
+// run, a person cannot accept it there and the session's checks do not show it satisfied, while the
+// approval and the main checkout are untouched (FIX_REVIEW F1/F4: the command spells the script with
+// wrapper and option arguments). Restoring the content makes the check run again (and fail, as the
+// approved script does).
 func TestScriptRewrittenInTheWorktreeIsNotTheApprovedOne(t *testing.T) {
-	engine, root := trustedProject(t, scriptGate, false)
+	engine, root := trustedProject(t, `{"gate": {"kind": "test", "command": "env -i bash -euo pipefail scripts/gate.sh"}}`, false)
 	ctx := context.Background()
 	writeFile(t, filepath.Join(root, "scripts", "gate.sh"), "exit 1\n")
 	runGitIn(t, root, "add", "scripts/gate.sh", config.FileName)
@@ -431,6 +433,12 @@ func TestScriptRewrittenInTheWorktreeIsNotTheApprovedOne(t *testing.T) {
 	}
 	if n := passedRuntimeResults(t, engine, handle.ID, "gate"); n != 0 {
 		t.Fatal("the worktree's rewritten script ran")
+	}
+	if _, err := engine.AcceptCheck(ctx, handle.ID, "gate", "desktop-user"); !errors.Is(err, ErrSpecUnapproved) {
+		t.Fatalf("accepting the worktree's rewritten script: %v", err)
+	}
+	if info := checkInfo(t, engine, handle.ID, "gate"); info.Satisfied {
+		t.Fatalf("the worktree's rewritten script shows satisfied: %+v", info)
 	}
 	if st := approvalState(t, engine); !st.Approved {
 		t.Fatalf("the Engine workspace's approval changed: %+v", st)

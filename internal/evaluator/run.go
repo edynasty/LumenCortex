@@ -316,7 +316,7 @@ func (e *Evaluator) SatisfiedAll(ctx context.Context, specs []Spec) ([]bool, []*
 
 func (e *Evaluator) satisfied(ctx context.Context, spec Spec, env Env) (bool, *Result, error) {
 	current := Fingerprint(env, spec)
-	if current == "" || !Approved(spec) {
+	if current == "" || !Approved(spec) || e.changedInput(spec) != "" {
 		return false, nil, nil
 	}
 	row, err := e.Store.DecidingEvalResult(ctx, e.SessionID, spec.ID, current, SpecDigest(spec), spec.ApprovalEpoch)
@@ -336,8 +336,8 @@ func (e *Evaluator) Environment(ctx context.Context) (Env, error) {
 // Accept records a person's acceptance of spec at the current fingerprint under its approval: a passed
 // result with provenance human:<actor>, an episode of its own closed at the fingerprint the person saw.
 // It is a row, not a flag, and holds until the fingerprint or the approval changes. Outside git it
-// fails with ErrNoFingerprint; an unapproved spec fails with ErrSpecUnapproved (ADR-0017: accepting a
-// result is not approving the definition that produced it).
+// fails with ErrNoFingerprint; an unapproved spec, or one whose input differs in this workspace, fails
+// with ErrSpecUnapproved (ADR-0017: accepting a result is not approving the definition that produced it).
 func (e *Evaluator) Accept(ctx context.Context, spec Spec, actor string) (Result, error) {
 	actor = strings.TrimSpace(actor)
 	if actor == "" || len(actor) > 128 || strings.ContainsAny(actor, " \t\r\n") {
@@ -345,6 +345,9 @@ func (e *Evaluator) Accept(ctx context.Context, spec Spec, actor string) (Result
 	}
 	if !Approved(spec) {
 		return Result{}, ErrSpecUnapproved
+	}
+	if changed := e.changedInput(spec); changed != "" {
+		return Result{}, fmt.Errorf("%w: %s, which the check runs, is not the approved content", ErrSpecUnapproved, changed)
 	}
 	env, err := e.Environment(ctx)
 	if err != nil {
