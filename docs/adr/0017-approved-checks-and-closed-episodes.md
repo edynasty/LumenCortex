@@ -29,9 +29,22 @@ state is bound to (ADR-0016). Nothing is read from the repository or an imported
 does not travel with a clone.
 
 - **Digests.** A definition's `specDigest` is `sha256:` over the canonical JSON of id, kind, command,
-  schema, files, timeout (ms), required and source (`evaluator.SpecDigest`). The set's `checkSetDigest`
+  schema, files, timeout (ms), required and source (`evaluator.SpecDigest`), and of its inputs when it
+  has any (below; a definition without inputs digests as before). The set's `checkSetDigest`
   covers every definition sorted by id; the empty set has its own digest (`evaluator.SetDigest`). The
   older 8-byte fingerprint hash is not reused.
+- **Inputs (CHECKS-002, 2026-10-26).** The O-6 real-model runs showed the common way around an approved
+  check: the command `sh scripts/check-nofloat.sh` stayed approved while the agent rewrote the script.
+  An approval therefore also covers the content of the workspace files a definition executes
+  (`evaluator.ResolveInputs`, read in configScope): the schema of a schema check, and for a test or build
+  check the program of each simple command (`./check.sh`) and the first operand of an interpreter
+  (`sh`, `bash`, `python3`, `node`, … `scripts/a.sh`, also inside `sh -c '…'`), when it names a regular
+  file that resolves inside the workspace. Each input is `{path, digest}` in the definition, so changing
+  the content in configScope changes the set digest and leaves the set unapproved, like editing
+  `lumencortex.json`. In executionScope the evaluator compares each approved input before an episode (a
+  differing one is decided `spec_unapproved` without running, naming the file) and after it (the
+  episode closes `spec_unapproved`, also for a file git ignores). Restoring the approved content makes
+  the check count again; there is no revocation row for an input.
 - **Approving.** `Engine.ApproveChecks` takes the set digest the user was shown and fails with
   `ErrApprovalStale` when the configuration no longer has it. In one transaction it revokes the active set
   and its definitions, then writes one `check_set` row and one `check_spec` row per definition under a new
@@ -150,9 +163,14 @@ newest approval, the removed ones, the previous approval and the bindings. `lcx-
   decided in the session's workspace like the gate's; a person who wants a constraint met without its
   check records a deviation instead.
 - Desktop shows the new exit kind `spec_unapproved` as its raw kind until T7-S1 adds its copy.
-- An approval covers definitions only. It does not prove that `./verify.sh`, the tests or the
-  dependencies a check runs were not changed by an agent, and it is no isolation against a same-UID
-  process with a full shell (R0 boundary).
+- An approval covers definitions and the files they execute (Inputs). It does not cover what a check
+  reads as data or configuration: arguments of a program (`grep -q ok status.txt`), a tool's own
+  configuration (`.golangci.yml`, a `Makefile` behind `make check`), paths relative to a `cd` inside the
+  command, the tests or the dependencies. A project that wants its gate logic covered names the script
+  in the command. It is no isolation against a same-UID process with a full shell (R0 boundary): a
+  background process can swap a script while the check runs and restore it before the episode closes.
+- An input changed in a session's worktree is not approvable from that session: the approval is read
+  in the Engine workspace, so the change has to reach it and be approved there.
 - Limits of the write detection: a change and its revert inside one shell command is invisible to the
   pre/post snapshot; a write outside the workspace (the global configuration file) produces no file edge;
   a crash between a tool's write and its commit records no edge. In each case a changed definition still
@@ -161,12 +179,15 @@ newest approval, the removed ones, the previous approval and the bindings. `lcx-
 ## Verification
 
 `internal/evaluator` (`TestSatisfies`, `TestSpecAndSetDigests`, `TestCheckVerdict`,
+`TestResolveInputsNamesTheFilesADefinitionRuns`, `TestRewritingTheScriptOfAnApprovedCheckDoesNotPassIt`,
+`TestAScriptChangedDuringTheEpisodeCountsForNothing`,
 `TestApprovalGatesRunsAcceptanceAndReuse`, `TestEpisodeReuseIsInRunOnly`,
 `TestEpisodeScopeChangedAndIgnoredOutput`, `TestEpisodeSpecChangedDuringTheRun`,
 `TestEpisodeInterruptedOpenAndLegacyRows`, `TestUndecidingRowsDoNotShadowAClosedOne`), `internal/agent`
 (`TestCompletionGateEndsOnUnapprovedChecks`, `TestCompletionGateRefusesAChangedSetThatRequiresNothing`,
 `TestSideEffectToolsInvalidateInRunEpisodes`), `internal/session` approval store tests and `runtime`
-engine tests (P3 reproduction, deletion/optional/empty set with the set-level gate, write-then-revert,
+engine tests (P3 reproduction, `TestRunThatRewritesTheScriptItsCheckRunsCannotPassIt`,
+`TestScriptRewrittenInTheWorktreeIsNotTheApprovedOne`, deletion/optional/empty set with the set-level gate, write-then-revert,
 old acceptance, old trust, stale digest, epoch monotonicity, CLI and Engine through one predicate,
 `TestRuntimePassIsDecidedAgainInTheNextRun`, `TestUnapprovedRequiredCheckEndsTheRun`,
 `TestConstraintIsSatisfiedOnlyThroughAnApprovedBinding`, `TestConstraintIsDecidedFreshByEveryStart`,

@@ -347,3 +347,96 @@ func TestRestoringAnOldDigestDoesNotReviveItsEpoch(t *testing.T) {
 		t.Fatalf("the epoch-%d pass was reused under epoch %d: %+v", a.Epoch, c.Epoch, v)
 	}
 }
+
+// fileWritingProvider writes path with body (one write_file call), then answers "done".
+func fileWritingProvider(path, body string) *exitProvider {
+	return &exitProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+		if n == 1 {
+			args, _ := json.Marshal(map[string]string{"path": path, "content": body})
+			return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{{ID: "w1", Name: "write_file", Arguments: args}}}, FinishReason: "tool_calls"}, nil
+		}
+		return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}, nil
+	}}
+}
+
+const scriptGate = `{"gate": {"kind": "test", "command": "sh scripts/gate.sh"}}`
+
+// CHECKS-002, as the O-6 F3 runs did it: the approved check runs scripts/gate.sh, and a run rewrites
+// the script to pass. The approval covers the script's content, so the rewritten check is not
+// approved: the run and the next one on the thread do not complete on it, it is decided
+// spec_unapproved without running, and the user sees the check as changed. Approving the set as it is
+// now makes it count, under a new epoch.
+func TestRunThatRewritesTheScriptItsCheckRunsCannotPassIt(t *testing.T) {
+	engine, root := trustedProject(t, scriptGate, false)
+	ctx := context.Background()
+	writeFile(t, filepath.Join(root, "scripts", "gate.sh"), "exit 1\n")
+	approved := approveChecks(t, engine)
+	if in := approved.Checks[0].Spec.Inputs; len(in) != 1 || in[0].Path != "scripts/gate.sh" {
+		t.Fatalf("the approval does not cover the script: %+v", approved.Checks[0].Spec)
+	}
+	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "make the gate pass"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r1, err := engine.runAgentWith(ctx, handle.ID, fileWritingProvider("scripts/gate.sh", "exit 0\n"), AgentOptions{Input: "fix", Policy: "workspace", MaxSteps: 3})
+	if r1.Status == "completed" {
+		t.Fatalf("the run that rewrote its check's script completed: %+v err=%v", r1, err)
+	}
+	st := approvalState(t, engine)
+	if st.Approved || len(st.Checks) != 1 || st.Checks[0].Change != CheckChanged || st.Checks[0].Approved {
+		t.Fatalf("after the rewrite: %+v", st)
+	}
+	r2, err := engine.runAgentWith(ctx, handle.ID, &answering{final: "done"}, AgentOptions{Input: "finish", MaxSteps: 2})
+	if r2.Status == "completed" {
+		t.Fatalf("the next run completed on the rewritten script: %+v err=%v", r2, err)
+	}
+	if n := passedRuntimeResults(t, engine, handle.ID, "gate"); n != 0 {
+		t.Fatalf("%d passed results of the rewritten script were stored", n)
+	}
+	if v := decideNow(t, engine, handle.ID, "gate"); v.Passed || v.Result.Status != evaluator.StatusSpecUnapproved {
+		t.Fatalf("decide: %+v", v)
+	}
+	if again := approveChecks(t, engine); again.Epoch != 2 {
+		t.Fatalf("approving the rewritten script: %+v", again)
+	}
+	if v := decideNow(t, engine, handle.ID, "gate"); !v.Passed {
+		t.Fatalf("the approved rewritten script: %+v", v)
+	}
+}
+
+// A session's worktree is its execution scope: a script rewritten there is not the content the
+// Engine workspace's approval covers, so the check is decided spec_unapproved in that session and not
+// run, while the approval and the main checkout are untouched. Restoring the content makes the check
+// run again (and fail, as the approved script does).
+func TestScriptRewrittenInTheWorktreeIsNotTheApprovedOne(t *testing.T) {
+	engine, root := trustedProject(t, scriptGate, false)
+	ctx := context.Background()
+	writeFile(t, filepath.Join(root, "scripts", "gate.sh"), "exit 1\n")
+	runGitIn(t, root, "add", "scripts/gate.sh", config.FileName)
+	runGitIn(t, root, "commit", "-m", "gate")
+	approveChecks(t, engine)
+	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "worktree"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := engine.AttachWorktree(ctx, handle.ID, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { discardWorktreeQuietly(engine, handle.ID) })
+	writeFile(t, filepath.Join(identity.Path, "scripts", "gate.sh"), "exit 0\n")
+	v := decideNow(t, engine, handle.ID, "gate")
+	if v.Passed || v.Result.Status != evaluator.StatusSpecUnapproved || !strings.Contains(v.Tail, "scripts/gate.sh") {
+		t.Fatalf("the worktree's rewritten script: %+v", v)
+	}
+	if n := passedRuntimeResults(t, engine, handle.ID, "gate"); n != 0 {
+		t.Fatal("the worktree's rewritten script ran")
+	}
+	if st := approvalState(t, engine); !st.Approved {
+		t.Fatalf("the Engine workspace's approval changed: %+v", st)
+	}
+	writeFile(t, filepath.Join(identity.Path, "scripts", "gate.sh"), "exit 1\n")
+	if v := decideNow(t, engine, handle.ID, "gate"); v.Passed || v.Result.Status != evaluator.StatusFailed {
+		t.Fatalf("the approved script restored in the worktree: %+v", v)
+	}
+}

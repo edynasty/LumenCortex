@@ -52,6 +52,9 @@ type Spec struct {
 	// Source is the configuration file the check came from: global, or workspace (present only when
 	// the workspace is trusted; config drops an untrusted workspace's checks).
 	Source string `json:"source"`
+	// Inputs are the workspace files the definition depends on, with their content digests, read in the
+	// configuration scope (ResolveInputs). They are part of the digest: an approval covers them.
+	Inputs []Input `json:"inputs,omitempty"`
 	// ApprovalEpoch is the host approval this definition runs under (ADR-0017): the epoch of the
 	// approved check set it belongs to, 0 when the set or this definition is not approved. It is set
 	// by the runtime, never read from configuration, and is not part of the definition's digest.
@@ -59,7 +62,7 @@ type Spec struct {
 }
 
 // specCanon is the canonical form a definition's digest covers: every field that changes what the
-// check runs or whether it is required, in a fixed order.
+// check runs or whether it is required, in a fixed order, and the content of its inputs.
 type specCanon struct {
 	ID        string   `json:"id"`
 	Kind      string   `json:"kind"`
@@ -69,6 +72,7 @@ type specCanon struct {
 	TimeoutMS int64    `json:"timeoutMs"`
 	Required  bool     `json:"required"`
 	Source    string   `json:"source"`
+	Inputs    []Input  `json:"inputs,omitempty"`
 }
 
 func canon(s Spec) specCanon {
@@ -77,7 +81,7 @@ func canon(s Spec) specCanon {
 		files = []string{}
 	}
 	return specCanon{ID: s.ID, Kind: s.Kind, Command: s.Command, Schema: s.Schema, Files: files,
-		TimeoutMS: s.Timeout.Milliseconds(), Required: s.Required, Source: s.Source}
+		TimeoutMS: s.Timeout.Milliseconds(), Required: s.Required, Source: s.Source, Inputs: s.Inputs}
 }
 
 func digest(v any) string {
@@ -91,7 +95,8 @@ func digest(v any) string {
 }
 
 // SpecDigest is the digest of one check definition (ADR-0017): "sha256:<hex>" of the canonical JSON
-// of its id, kind, command, schema, files, timeout, required flag and source.
+// of its id, kind, command, schema, files, timeout, required flag and source, and of its inputs' paths
+// and content digests when it has any (CHECKS-002). A definition without inputs digests as before.
 func SpecDigest(s Spec) string { return digest(canon(s)) }
 
 // SetDigest is the digest of a whole effective check set: the canonical definitions sorted by id. The

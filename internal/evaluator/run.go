@@ -149,6 +149,14 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string,
 	out := make([]Verdict, 0, len(specs))
 	fresh := map[int64]int{} // seq of a fresh result -> its index in out
 	for _, spec := range specs {
+		// An approved definition whose input differs here runs content nobody approved: it is decided as
+		// unapproved and not run (CHECKS-002).
+		changed := ""
+		if Approved(spec) {
+			if changed = e.changedInput(spec); changed != "" {
+				spec.ApprovalEpoch = 0
+			}
+		}
 		current := Fingerprint(pre.env, spec)
 		var stored *Result
 		if current != "" && Approved(spec) {
@@ -174,6 +182,9 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string,
 		}
 		if result.Status == StatusSpecUnapproved {
 			result.WorkUnitID, tail = workUnitID, ErrSpecUnapproved.Error()
+			if changed != "" {
+				tail = inputTail(changed)
+			}
 		}
 		if ran {
 			fresh[result.Seq] = len(out)
@@ -192,6 +203,16 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string,
 		}
 		if !same {
 			status = EpisodeSpecUnapproved
+		}
+	}
+	// An input that differs after the checks ran (or already differed) leaves the episode
+	// spec_unapproved, as a changed set does: nothing decided in it counts (CHECKS-002).
+	if status == EpisodeClosed {
+		for _, spec := range specs {
+			if Approved(spec) && e.changedInput(spec) != "" {
+				status = EpisodeSpecUnapproved
+				break
+			}
 		}
 	}
 	if status == EpisodeClosed && post.env != pre.env {
