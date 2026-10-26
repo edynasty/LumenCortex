@@ -37,13 +37,16 @@ does not travel with a clone.
   check: the command `sh scripts/check-nofloat.sh` stayed approved while the agent rewrote the script.
   An approval therefore also covers the content of the workspace files a definition executes
   (`evaluator.ResolveInputs`, read in configScope): the schema of a schema check and the schema files it
-  references by a relative `$ref`; for a test or build check the program of each simple command when it
-  is a path (`./check.sh`), the operand of `.`/`source`, and the script of a shell, python or another
-  interpreter after its options and their arguments (`bash -euo pipefail scripts/a.sh`,
-  `python3 -W error x.py`, `sh < x.sh`, also inside `sh -c '…'` and `$( )`), past wrappers (`env -i`,
-  `nice -n 5`, `timeout 30`, `exec`, …), assignments and keywords. Arguments, inline code (`python3 -c`,
-  `node -e`), redirection targets, words with expansion and programs found in `PATH` are not inputs:
-  they are data or the machine, not the definition. A candidate that does not resolve to a regular file
+  references by a relative `$ref`; for a test or build check the program of each simple command (or
+  wrapper) when it is written as a path (`./check.sh`, whatever its name: `./scripts/python-gate.sh` is
+  a workspace program, not python), the operand of `.`/`source`, and the script of a shell, python or
+  another interpreter named bare or by absolute path, after its options and their arguments
+  (`bash -euo pipefail scripts/a.sh`, `python3 -W error x.py`, `perl -I lib x.pl`,
+  `node -r ./setup.js x.js`, `php -f x.php`, `sh < x.sh`, also inside `sh -c '…'` and `$( )`), past
+  wrappers (`env -i`, `nice -n 5`, `timeout 30`, `exec`, …), assignments and keywords. Arguments, inline
+  code (`python3 -c`, `node -e`), redirection targets, words with expansion and programs found in
+  `PATH` are not inputs: they are data or the machine, not the definition. A candidate that does not
+  resolve to a regular file
   inside the workspace is bound as `absent`, so a script created after approval is a change; a file git
   ignores in configScope (a binary the check builds and runs) is not an input. Each input is
   `{path, digest}` in the definition, so changing the content in configScope changes the set digest and
@@ -55,7 +58,10 @@ does not travel with a clone.
   also for a file git ignores), before a person's acceptance (refused with `ErrSpecUnapproved`) and when
   a stored pass is read as satisfying. Restoring the approved content makes the check count again; there
   is no revocation row for an input. Limits: this binds the file named in the command, not files that
-  script sources or reads in turn, and the parser is a lexer for the common spellings, not a shell.
+  script sources or reads in turn; the parser is a lexer for the common spellings, not a shell, and
+  binds nothing for launchers it does not model (`uv run`, `poetry run`, `npx`, `go run`, `sudo`,
+  `flock`, `python3 -m`, `cat x | sh`); a script git ignores at approval is not bound; outside git every
+  candidate is an input (nothing is known to be ignored).
 - **Approving.** `Engine.ApproveChecks` takes the set digest the user was shown and fails with
   `ErrApprovalStale` when the configuration no longer has it. In one transaction it revokes the active set
   and its definitions, then writes one `check_set` row and one `check_spec` row per definition under a new
@@ -190,8 +196,10 @@ newest approval, the removed ones, the previous approval and the bindings. `lcx-
 ## Verification
 
 `internal/evaluator` (`TestSatisfies`, `TestSpecAndSetDigests`, `TestCheckVerdict`,
-`TestResolveInputsNamesTheFilesADefinitionRuns`, `TestRewritingTheScriptOfAnApprovedCheckDoesNotPassIt`,
-`TestAScriptChangedDuringTheEpisodeCountsForNothing`,
+`TestCommandPathsFindsTheExecutedFiles`, `TestResolveInputsBindsWhatADefinitionRuns`,
+`TestRewritingTheScriptOfAnApprovedCheckDoesNotPassIt`, `TestAScriptCreatedAfterApprovalIsNotApproved`,
+`TestAScriptChangedDuringTheEpisodeCountsForNothing`, `TestAPassDoesNotSatisfyOnceAnIgnoredInputChanged`,
+`TestADeletedScriptIsNotTheApprovedOne`, `TestOutsideGitEveryCandidateIsAnInput`,
 `TestApprovalGatesRunsAcceptanceAndReuse`, `TestEpisodeReuseIsInRunOnly`,
 `TestEpisodeScopeChangedAndIgnoredOutput`, `TestEpisodeSpecChangedDuringTheRun`,
 `TestEpisodeInterruptedOpenAndLegacyRows`, `TestUndecidingRowsDoNotShadowAClosedOne`), `internal/agent`

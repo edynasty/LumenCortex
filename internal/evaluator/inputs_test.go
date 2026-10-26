@@ -31,7 +31,7 @@ func TestCommandPathsFindsTheExecutedFiles(t *testing.T) {
 		{"bash -- scripts/a.sh", []string{"scripts/a.sh"}},
 		{"env -i sh scripts/a.sh", []string{"scripts/a.sh"}},
 		{"env -u HOME X=1 sh scripts/a.sh", []string{"scripts/a.sh"}},
-		{"/usr/bin/env bash scripts/a.sh", []string{"scripts/a.sh"}},
+		{"/usr/bin/env bash scripts/a.sh", []string{"/usr/bin/env", "scripts/a.sh"}},
 		{"nice -n 5 sh scripts/a.sh", []string{"scripts/a.sh"}},
 		{"timeout -s KILL 30 sh scripts/a.sh", []string{"scripts/a.sh"}},
 		{"exec sh scripts/a.sh", []string{"scripts/a.sh"}},
@@ -57,6 +57,27 @@ func TestCommandPathsFindsTheExecutedFiles(t *testing.T) {
 		{"golangci-lint run --config=.golangci.yml ./...", nil},
 		{"sh 2> err.txt scripts/a.sh", []string{"scripts/a.sh"}},
 		{"> log.txt ./check.sh", []string{"./check.sh"}},
+		// A program written as a relative path is the workspace program, whatever its name (N1).
+		{"./scripts/python-gate.sh data.json", []string{"./scripts/python-gate.sh"}},
+		{"./scripts/time sh x.sh", []string{"./scripts/time"}},
+		{"bin/env --check", []string{"bin/env"}},
+		{"./bash scripts/a.sh", []string{"./bash"}},
+		{"/usr/bin/python3 tools/check.py", []string{"/usr/bin/python3", "tools/check.py"}},
+		{"/usr/bin/time -o t.txt sh scripts/a.sh", []string{"/usr/bin/time", "scripts/a.sh"}},
+		{"python3.12 tools/check.py", []string{"tools/check.py"}},
+		{"python-gate tools/check.py", nil},
+		// Interpreter options that take an argument (N2).
+		{"perl -I lib scripts/gate.pl", []string{"scripts/gate.pl"}},
+		{"ruby -I lib -r json scripts/gate.rb", []string{"scripts/gate.rb"}},
+		{"node -r ./setup.js --max-old-space-size 4096 tools/check.js", []string{"tools/check.js"}},
+		{"node --import ./hooks.mjs tools/check.mjs", []string{"tools/check.mjs"}},
+		{"php -d memory_limit=1G -f tools/check.php", []string{"tools/check.php"}},
+		{"lua -l json tools/check.lua", []string{"tools/check.lua"}},
+		{"deno run --config deno.json tools/check.ts", []string{"tools/check.ts"}},
+		{"ts-node -P tsconfig.json tools/check.ts", []string{"tools/check.ts"}},
+		{"tsx --tsconfig tsconfig.json tools/check.ts", []string{"tools/check.ts"}},
+		{"pwsh -ExecutionPolicy Bypass -File tools/check.ps1", []string{"tools/check.ps1"}},
+		{"node --eval 'x' tools/check.js", nil},
 	} {
 		if got := commandPaths(c.command); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: %q, want %q", c.command, got, c.want)
@@ -257,5 +278,33 @@ func TestAPassDoesNotSatisfyOnceAnIgnoredInputChanged(t *testing.T) {
 	}
 	if ok, _, _ := f.ev.Satisfied(context.Background(), approved); ok {
 		t.Fatal("a pass satisfies while the ignored script is not the approved one")
+	}
+}
+
+// Deleting an approved script is a change too: the check is not run against whatever the command
+// finds instead (FIX_REVIEW M4′).
+func TestADeletedScriptIsNotTheApprovedOne(t *testing.T) {
+	f := newFixture(t, true)
+	f.commitScript("exit 0\n")
+	approved := f.gateScript("sh scripts/gate.sh")
+	if err := os.Remove(filepath.Join(f.dir, "scripts", "gate.sh")); err != nil {
+		t.Fatal(err)
+	}
+	if v := f.decide(approved); v.Passed || v.Result.Status != StatusSpecUnapproved || !strings.Contains(v.Tail, "scripts/gate.sh") {
+		t.Fatalf("the deleted script: %+v", v)
+	}
+}
+
+// When git cannot say what it ignores (outside git), no candidate is dropped: an unreadable ignore
+// list must not unbind a script (FIX_REVIEW M9).
+func TestOutsideGitEveryCandidateIsAnInput(t *testing.T) {
+	f := newFixture(t, false)
+	if err := os.MkdirAll(filepath.Join(f.dir, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.write("scripts/gate.sh", "exit 0\n")
+	f.write(".gitignore", "scripts/\n")
+	if got := inputsOf(f.gateScript("sh scripts/gate.sh")); got["scripts/gate.sh"] == "" || got["scripts/gate.sh"] == AbsentInput {
+		t.Fatalf("inputs outside git: %v", got)
 	}
 }

@@ -118,16 +118,45 @@ func lex(command string) []token {
 	return out
 }
 
-// Interpreters run the file their first operand names; shells and python take a command string after
-// -c instead, which is read as commands (shells) or ends the search (python: the string is not shell).
-var (
-	shells       = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "ash": true, "mksh": true}
-	interpreters = map[string]bool{
-		"node": true, "ruby": true, "perl": true, "php": true, "lua": true, "Rscript": true, "deno": true, "bun": true,
-		"tsx": true, "ts-node": true, "pwsh": true, "fish": true,
+// Shells and python have their own option rules in simpleCommand. Every other interpreter runs the
+// file its first operand names, after its options (php -f x.php and pwsh -File x.ps1 included: the
+// flag is skipped, the script is the operand after it); argOptions are the options whose argument is a
+// separate word (an option written --x=v is one word), and inline those whose argument is code: the
+// search ends there.
+type interpreter struct {
+	argOptions, inline map[string]bool
+	subcommands        map[string]bool // deno run x.ts, bun test x.ts
+}
+
+func set(words ...string) map[string]bool {
+	m := make(map[string]bool, len(words))
+	for _, w := range words {
+		m[w] = true
 	}
-	// inline marks the options of the other interpreters whose argument is code, not a file.
-	inline = map[string]bool{"-e": true, "--eval": true, "-p": true, "--print": true, "-c": true, "--command": true, "-E": true}
+	return m
+}
+
+var (
+	shells       = set("sh", "bash", "zsh", "dash", "ksh", "ash", "mksh")
+	interpreters = map[string]interpreter{
+		"node": {argOptions: set("-r", "--require", "--import", "--loader", "--experimental-loader", "-C", "--conditions",
+			"--max-old-space-size", "--stack-size", "--title", "--env-file", "--input-type", "--inspect-port", "--disable-warning"),
+			inline: set("-e", "--eval", "-p", "--print")},
+		"ruby":    {argOptions: set("-r", "-I", "-C", "-E", "-F", "--encoding"), inline: set("-e")},
+		"perl":    {argOptions: set("-I", "-M", "-m"), inline: set("-e", "-E")},
+		"php":     {argOptions: set("-d", "-c", "-z"), inline: set("-r", "--run", "-B", "-R", "-F", "-E")},
+		"lua":     {argOptions: set("-l"), inline: set("-e")},
+		"Rscript": {argOptions: set("--default-packages"), inline: set("-e")},
+		"deno": {argOptions: set("-c", "--config", "--import-map", "--lock", "--cert", "--location", "--seed", "--env-file", "-L", "--log-level"),
+			inline: set("eval"), subcommands: set("run", "test")},
+		"bun": {argOptions: set("-c", "--config", "-r", "--preload", "--tsconfig-override", "--cwd", "--env-file"),
+			inline: set("-e", "--eval", "-p", "--print"), subcommands: set("run", "test")},
+		"tsx":     {argOptions: set("--tsconfig", "--import", "--require", "-r", "--env-file"), inline: set("-e", "--eval", "-p", "--print")},
+		"ts-node": {argOptions: set("-P", "--project", "-r", "--require", "-C", "--compiler", "-O", "--compiler-options", "-I", "--ignore"), inline: set("-e", "--eval", "-p", "--print")},
+		"pwsh": {argOptions: set("-ExecutionPolicy", "-WorkingDirectory", "-ConfigurationName", "-OutputFormat", "-InputFormat", "-wd", "-ex"),
+			inline: set("-Command", "-c", "-EncodedCommand", "-e")},
+		"fish": {argOptions: set("-C", "--init-command", "-d", "--debug"), inline: set("-c", "--command")},
+	}
 	// keywords leave the next word in program position.
 	keywords = map[string]bool{"if": true, "then": true, "else": true, "elif": true, "while": true, "until": true, "do": true, "!": true, "{": true, "}": true}
 	// wrappers run the program that follows their options; the value names their options that take an
@@ -139,7 +168,7 @@ var (
 		"env":     {argOptions: map[string]bool{"-u": true, "--unset": true, "-C": true, "--chdir": true}},
 		"exec":    {argOptions: map[string]bool{"-a": true}},
 		"command": {},
-		"time":    {},
+		"time":    {argOptions: map[string]bool{"-o": true, "--output": true, "-f": true, "--format": true}},
 		"nohup":   {},
 		"nice":    {argOptions: map[string]bool{"-n": true, "--adjustment": true}},
 		"timeout": {argOptions: map[string]bool{"-s": true, "--signal": true, "-k": true, "--kill-after": true}, operand: true},
@@ -148,12 +177,35 @@ var (
 	}
 )
 
-func isPython(base string) bool { return strings.HasPrefix(base, "python") }
+// isPython is python, pythonN or pythonN.M.
+func isPython(base string) bool {
+	v, ok := strings.CutPrefix(base, "python")
+	if !ok {
+		return false
+	}
+	major, minor, _ := strings.Cut(v, ".")
+	return strings.Trim(major, "0123456789") == "" && strings.Trim(minor, "0123456789") == "" && (minor == "" || major != "")
+}
+
+// dispatchName is the name a program word is recognised by as a wrapper, shell or interpreter: its own
+// text when bare (looked up in PATH), its base name when absolute (/usr/bin/env), and "" for a relative
+// path (./scripts/python-gate.sh, bin/env), which is a workspace program and is bound as itself.
+func dispatchName(word string) string {
+	switch {
+	case !strings.Contains(word, "/"):
+		return word
+	case path.IsAbs(word):
+		return path.Base(word)
+	}
+	return ""
+}
 
 // commandPaths returns the words of command that name a file it executes, in order: the program of a
-// simple command when it is a path (it contains a slash: ./check.sh, bin/x; a bare name is looked up
-// in PATH), and the script operand of `.`, `source`, a shell, python or another interpreter, after
-// their options and the arguments of those options (bash -euo pipefail x.sh, python3 -W error x.py).
+// simple command (or a wrapper) when it is written as a path (./check.sh, bin/x, /usr/bin/env; a bare
+// name is looked up in PATH), and the script operand of `.`, `source`, a shell, python or another
+// interpreter, after their options and the arguments of those options (bash -euo pipefail x.sh,
+// python3 -W error x.py, perl -I lib x.pl). Only a bare or absolute program name is recognised as a
+// wrapper, shell or interpreter: ./scripts/python-gate.sh is a workspace program, not python.
 // Wrappers (env, nice -n 5, timeout 30, exec, …), variable assignments and keywords are skipped
 // before the program. A shell's -c string is read as commands. The other words of a simple command
 // are its arguments: data the program reads, not its definition (`grep -q ok status.txt` has none).
@@ -217,7 +269,10 @@ func simpleCommand(toks []token, i int, out *[]string) int {
 		if keywords[t.text] || (!t.expand && strings.Contains(t.text, "=") && !strings.HasPrefix(t.text, "=") && !strings.HasPrefix(t.text, "-")) {
 			continue
 		}
-		if w, isWrapper := wrappers[path.Base(t.text)]; isWrapper {
+		if w, isWrapper := wrappers[dispatchName(t.text)]; isWrapper {
+			if strings.Contains(t.text, "/") {
+				add(t) // an absolute wrapper inside the workspace is a workspace program too
+			}
 			operand := w.operand
 			for {
 				o, ok := next()
@@ -230,7 +285,7 @@ func simpleCommand(toks []token, i int, out *[]string) int {
 					}
 					continue
 				}
-				if strings.Contains(o.text, "=") && path.Base(t.text) == "env" {
+				if strings.Contains(o.text, "=") && dispatchName(t.text) == "env" {
 					continue
 				}
 				if operand {
@@ -245,9 +300,16 @@ func simpleCommand(toks []token, i int, out *[]string) int {
 		prog = t
 		break
 	}
-	base := path.Base(prog.text)
+	// A program written as a path is executed itself: bound whatever it is named (an absolute one
+	// outside the workspace is dropped by ResolveInputs). Only a bare or absolute name is recognised as
+	// a shell or interpreter.
+	if strings.Contains(prog.text, "/") {
+		add(prog)
+	}
+	base := dispatchName(prog.text)
+	_, isInterpreter := interpreters[base]
 	switch {
-	case prog.text == "." || prog.text == "source":
+	case base == "." || base == "source":
 		if t, ok := next(); ok {
 			add(t)
 		}
@@ -321,21 +383,22 @@ func simpleCommand(toks []token, i int, out *[]string) int {
 		if !script && stdin != nil {
 			add(*stdin)
 		}
-	case interpreters[base]:
+	case isInterpreter:
+		ip := interpreters[base]
 		for {
 			t, ok := next()
-			if !ok || inline[t.text] {
+			if !ok || ip.inline[t.text] {
 				break
 			}
-			if strings.HasPrefix(t.text, "-") || ((base == "deno" || base == "bun") && (t.text == "run" || t.text == "test")) {
+			if ip.argOptions[t.text] {
+				next()
+				continue
+			}
+			if strings.HasPrefix(t.text, "-") || ip.subcommands[t.text] {
 				continue
 			}
 			add(t)
 			break
-		}
-	default:
-		if strings.Contains(prog.text, "/") {
-			add(prog)
 		}
 	}
 	return finish()
