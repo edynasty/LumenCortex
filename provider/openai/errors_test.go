@@ -40,6 +40,7 @@ func TestAdapterClassifiesHTTPStatuses(t *testing.T) {
 		{"413", 413, "too big", protocol.ClassCapacity},
 		{"400 context marker", 400, `{"error":{"code":"context_length_exceeded"}}`, protocol.ClassCapacity},
 		{"400 maximum context", 400, "This model's Maximum Context Length is 8192 tokens", protocol.ClassCapacity},
+		{"400 gateway content too long", 400, `{"error":{"message":"Content too long. Please shorten it or start a new task","type":"invalid_request_error"}}`, protocol.ClassCapacity},
 		{"400 plain", 400, `{"error":"unknown parameter"}`, protocol.ClassBadRequest},
 		{"401", 401, "no", protocol.ClassAuth},
 		{"403", 403, "no", protocol.ClassAuth},

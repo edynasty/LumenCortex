@@ -194,7 +194,9 @@ func (c *Client) Complete(ctx context.Context, req protocol.ProviderRequest) (pr
 }
 
 // capacityMarkers are the fragments of a 400 body that say the request exceeded the model's context.
-var capacityMarkers = []string{"context_length_exceeded", "maximum context length", "context length exceeded", "prompt is too long", "too many tokens"}
+// "content too long" is the wording of the sub2api gateway in front of DeepSeek (measured 2026-10-26:
+// 649,063 prompt tokens passed, 675K was refused with it).
+var capacityMarkers = []string{"context_length_exceeded", "maximum context length", "context length exceeded", "prompt is too long", "too many tokens", "content too long"}
 
 // classify maps one failed attempt to a class (design §4.5, in this order):
 //
