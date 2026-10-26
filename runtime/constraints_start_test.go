@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/evaluator"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 )
@@ -164,4 +165,46 @@ func TestRevocationBeforeTheStartTransactionRefusesTheStart(t *testing.T) {
 		t.Fatalf("Start revoked before its transaction: %v", err)
 	}
 	c.nothingCommitted(t)
+}
+
+// A check set re-approved with the same set digest while a check bound to a constraint runs is a new
+// approval epoch: the episode that straddles the change is not closed and its pass satisfies nothing
+// (DATA_AND_FAILURES §3, ROADMAP §3 item 6; G-R1a R-1). The digest alone would not tell the two
+// approvals apart; the epoch does.
+func TestApprovalEpochChangedDuringAConstraintCheckSatisfiesNothing(t *testing.T) {
+	c := newConstraintStart(t, `touch ${STARTED}; while [ ! -f ${RELEASE} ]; do sleep 0.05; done; true`)
+	ctx := context.Background()
+	before := approvalState(t, c.engine)
+	reapproved := make(chan error, 1)
+	go func() {
+		waitFile(t, c.started)
+		_, err := c.engine.RevokeApproval(ctx, RevokeApprovalRequest{Kind: RevokeChecks})
+		if err == nil {
+			_, err = c.engine.ApproveChecks(ctx, ApproveChecksRequest{SetDigest: before.SetDigest, ApprovedBy: ApprovedByUser, Actor: "u"})
+		}
+		reapproved <- err
+		_ = os.WriteFile(c.release, nil, 0o644)
+	}()
+	if _, err := c.engine.runAgentWith(ctx, c.id, &answering{final: "rule:tests-pass is satisfied"}, AgentOptions{Input: "go", MaxSteps: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-reapproved; err != nil {
+		t.Fatal(err)
+	}
+	after := approvalState(t, c.engine)
+	if !after.Approved || after.SetDigest != before.SetDigest || after.Epoch <= before.Epoch {
+		t.Fatalf("fixture: approval %+v after %+v, want the same digest under a newer epoch", after, before)
+	}
+	if u := constraintUses(t, c.engine, c.id)[0]; u.Status == taskstate.ConstraintSatisfied {
+		t.Fatalf("a pass across an approval epoch change satisfied the constraint: %+v", u)
+	}
+	rows, err := c.engine.CheckResults(ctx, c.id, -1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Check == "gate" && r.EpisodeStatus == evaluator.EpisodeClosed {
+			t.Fatalf("the episode across the epoch change is closed: %+v", r)
+		}
+	}
 }
