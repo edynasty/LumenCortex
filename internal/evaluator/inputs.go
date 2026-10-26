@@ -264,7 +264,7 @@ func simpleCommand(toks []token, i int, out *[]string) int {
 		}
 		if w, isWrapper := wrappers[dispatchName(t.text)]; isWrapper {
 			if strings.Contains(t.text, "/") {
-				add(t) // an absolute wrapper inside the workspace is a workspace program too
+				add(t) // a wrapper written as a path is executed itself, like any path program
 			}
 			operand := w.operand
 			for {
@@ -294,8 +294,8 @@ func simpleCommand(toks []token, i int, out *[]string) int {
 		break
 	}
 	// A program written as a path is executed itself: bound whatever it is named (an absolute one
-	// outside the workspace is dropped by ResolveInputs). Only a bare or absolute name is recognised as
-	// a shell or interpreter.
+	// outside the workspace is dropped by ResolveInputs). It is still recognised by its base name as a
+	// shell or interpreter, so .venv/bin/python x.py binds x.py too.
 	if strings.Contains(prog.text, "/") {
 		add(prog)
 	}
