@@ -1,0 +1,8 @@
+task,attempts,observed,solved,rate,solvedClass,infra,model,meanPromptTokens,meanCompletionTokens,meanRequests,meanToolCalls,meanSteps,meanAgentSec,jobs,trials
+configure-git-webserver,1,1,1,1.0,1,0,0,899994,28460,37.0,40.0,34.0,601.0,"[""tb2-w13r-20261027""]","[""configure-git-webserver__SYeKRQv""]"
+extract-elf,1,1,1,1.0,1,0,0,134209,17668,11.0,15.0,11.0,212.6,"[""tb2-w13r-20261027""]","[""extract-elf__TV2sDbb""]"
+multi-source-data-merger,2,2,2,1.0,2,0,0,137536,8696,12.0,14.5,12.0,94.8,"[""tb2-w13r-20261027"", ""tb2-w13r-20261027b""]","[""multi-source-data-merger__jCKcuH9"", ""multi-source-data-merger__g9p5yqM""]"
+sanitize-git-repo,1,1,1,1.0,1,0,0,1233175,12606,20.0,29.0,20.0,230.1,"[""tb2-w13r-20261027""]","[""sanitize-git-repo__zoFYRR3""]"
+sqlite-with-gcov,2,2,2,1.0,2,0,0,1374092,24082,40.0,54.0,39.5,552.5,"[""tb2-w13r-20261027"", ""tb2-w13r-20261027b""]","[""sqlite-with-gcov__tXrXXbL"", ""sqlite-with-gcov__GBGwZbJ""]"
+tune-mjcf,1,1,0,0.0,0,0,1,623454,64784,22.0,23.0,21.0,735.2,"[""tb2-w13r-20261027""]","[""tune-mjcf__bpHTZMU""]"
+vulnerable-secret,2,2,2,1.0,2,0,0,157806,4679,10.5,13.5,10.5,60.7,"[""tb2-w13r-20261027"", ""tb2-w13r-20261027b""]","[""vulnerable-secret__xnBZSah"", ""vulnerable-secret__c3yaM5B""]"

@@ -58,7 +58,9 @@ func (e *Engine) effectiveChecks() ([]evaluator.Spec, []config.Warning, error) {
 			warnings = append(warnings, w)
 		}
 	}
-	return evaluator.Specs(eff.Checks), warnings, nil
+	// Inputs are read here, in the Engine workspace (configScope), so the approval covers the content
+	// of the scripts and schemas the definitions run (CHECKS-002).
+	return evaluator.ResolveInputs(e.workspace, evaluator.Specs(eff.Checks)), warnings, nil
 }
 
 func required(specs []evaluator.Spec) []evaluator.Spec {

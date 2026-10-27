@@ -1,0 +1,6 @@
+$ env -u all_proxy -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy curl -sS -L --max-time 15 -o /dev/null -w code=%{http_code} remote=%{remote_ip} connect=%{time_connect} tls=%{time_appconnect} total=%{time_total}
+ --noproxy * http://archive.ubuntu.com/ubuntu/dists/noble/InRelease
+UTC 2026-10-27T00:30:43.852666+00:00
+code=200 remote=185.125.190.82 connect=0.726362 tls=0.000000 total=2.149170
+
+exit=0

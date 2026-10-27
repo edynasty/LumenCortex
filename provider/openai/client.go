@@ -194,7 +194,9 @@ func (c *Client) Complete(ctx context.Context, req protocol.ProviderRequest) (pr
 }
 
 // capacityMarkers are the fragments of a 400 body that say the request exceeded the model's context.
-var capacityMarkers = []string{"context_length_exceeded", "maximum context length", "context length exceeded", "prompt is too long", "too many tokens"}
+// "content too long" is the wording of the sub2api gateway in front of DeepSeek (measured 2026-10-26:
+// 649,063 prompt tokens passed, 675K was refused with it).
+var capacityMarkers = []string{"context_length_exceeded", "maximum context length", "context length exceeded", "prompt is too long", "too many tokens", "content too long"}
 
 // classify maps one failed attempt to a class (design §4.5, in this order):
 //
@@ -349,10 +351,14 @@ func (c *Client) readJSON(body io.Reader) (protocol.ProviderResponse, error) {
 	return decoded.toProtocol(c.echo)
 }
 
+// readStream folds the SSE chunks into one response. The stream is complete at a finish_reason or
+// at [DONE]; one that ends with neither, or carries an error event, is an error (design §4.5:
+// availability), so a partial response never reaches the loop.
 func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 	reader := bufio.NewReader(io.LimitReader(body, c.maxResponseBytes+1))
 	builder := streamBuilder{maxBytes: c.maxResponseBytes}
 	var consumed int64
+	done := false
 	for {
 		line, err := reader.ReadString(10)
 		consumed += int64(len(line))
@@ -364,6 +370,7 @@ func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 			if strings.HasPrefix(trimmed, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
 				if payload == "[DONE]" {
+					done = true
 					break
 				}
 				if payload != "" {
@@ -383,6 +390,9 @@ func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 			}
 			return protocol.ProviderResponse{}, err
 		}
+	}
+	if !done && !builder.finished {
+		return protocol.ProviderResponse{}, errStreamCut
 	}
 	return builder.result(c.echo), nil
 }

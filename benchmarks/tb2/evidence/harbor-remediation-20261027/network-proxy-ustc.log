@@ -1,0 +1,6 @@
+$ env -u all_proxy -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy curl -sS -L --max-time 15 -o /dev/null -w code=%{http_code} remote=%{remote_ip} connect=%{time_connect} tls=%{time_appconnect} total=%{time_total}
+ --proxy http://127.0.0.1:7897 --noproxy  https://mirrors.ustc.edu.cn/debian/dists/bookworm/InRelease
+UTC 2026-10-27T00:30:47.495320+00:00
+code=200 remote=127.0.0.1 connect=0.000532 tls=0.148767 total=0.507534
+
+exit=0

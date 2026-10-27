@@ -1,0 +1,9 @@
+path,bytes,sha256,fetched_utc_mtime,url
+README.md,12654,aa68b5fef7fd34106b2dece8a955e86c7ac2d61e7a282145d566ff12615f70ae,2026-10-27T02:38:00Z,https://raw.githubusercontent.com/TannerMidd/SpecPi/af36b0a1d48e7f706d40e30413e3150b067f45e6/README.md
+evals_runs_jev-completion-replay.json,174212,cf20c0d415c55b064c093acfa808c8cc674c3124369ad85414bc26b211de038d,2026-10-27T02:41:17Z,https://raw.githubusercontent.com/TannerMidd/SpecPi/af36b0a1d48e7f706d40e30413e3150b067f45e6/evals/runs/jev-completion-replay.json
+evals_runs_jev-progress-replay.json,139382,94dcc8028e9b7398d95ed40cf92fc393cd5ecf2444a9b0536caa400564502cde,2026-10-27T02:41:16Z,https://raw.githubusercontent.com/TannerMidd/SpecPi/af36b0a1d48e7f706d40e30413e3150b067f45e6/evals/runs/jev-progress-replay.json
+evals_runs_jev-untrusted-replay.json,399024,3e93c232f1e21c831f50fd6a668033a44815760d3c741727eb8f7f3d47949434,2026-10-27T02:41:18Z,https://raw.githubusercontent.com/TannerMidd/SpecPi/af36b0a1d48e7f706d40e30413e3150b067f45e6/evals/runs/jev-untrusted-replay.json
+scripts_measure-context.mjs,32502,46be7f9d75160826a18c7d2d7642b64318e2d69c253590abab97c01ef1f2a847,2026-10-27T02:38:00Z,https://raw.githubusercontent.com/TannerMidd/SpecPi/af36b0a1d48e7f706d40e30413e3150b067f45e6/scripts/measure-context.mjs
+site_research_context-measurement.json,11373,fa6514a566ce203fb98dcea420be1cb0533c17507c20722e584c79c8c1d29140,2026-10-27T02:37:58Z,https://raw.githubusercontent.com/TannerMidd/SpecPi/af36b0a1d48e7f706d40e30413e3150b067f45e6/site/research/context-measurement.json
+templates_AGENTS.md,1216,b3fbc0cb9f834cf68ba1d27b1b4353a63edf44cafd661dabbdff25c7d4775333,2026-10-27T02:37:59Z,https://raw.githubusercontent.com/TannerMidd/SpecPi/af36b0a1d48e7f706d40e30413e3150b067f45e6/templates/AGENTS.md
+ohmy-pi_README.md,45832,8c6cb4c272a53431de26380491e2662e06eaaa12a96301596c58ed5a41d90938,2026-10-27T02:55:49Z,https://raw.githubusercontent.com/can1357/oh-my-pi/main/README.md

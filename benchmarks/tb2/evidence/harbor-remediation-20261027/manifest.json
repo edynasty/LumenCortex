@@ -1,0 +1,50 @@
+{
+ "generatedAt": "2026-10-27T02:18:47+00:00",
+ "files": [
+  {
+   "file": "trials.csv",
+   "bytes": 70769,
+   "sha256": "bb8279efc1dc6b79b896637f1a853811a6ace7b98742fe29c182f6b0b2abd5b3"
+  },
+  {
+   "file": "trials.json",
+   "bytes": 185667,
+   "sha256": "0336497c80e34fbcfc9232dfe569587d56f4be4aeedf65a6d797ce0d839a62b0"
+  },
+  {
+   "file": "verifier_network_events.csv",
+   "bytes": 7221,
+   "sha256": "ede54d071368e46a4edc3d913d3edb92abd0caef88f0887137ebfb2a57163c0d"
+  },
+  {
+   "file": "per_task_original.csv",
+   "bytes": 2518,
+   "sha256": "9328ac94a7225c9bd65e2cf63f48f3401d12b669cc3e99787160a8c1376e544b"
+  },
+  {
+   "file": "per_task_rerun.csv",
+   "bytes": 1238,
+   "sha256": "0349723e7b7936c764c0291afe2f559a1d629e0d0db1d49114cd73fb5a36a8f0"
+  },
+  {
+   "file": "per_task_vs_baseline.csv",
+   "bytes": 798,
+   "sha256": "3c32bf2f6dc3cdd61dcfd762fc45242f8c5783be3d9dfd77da524220d9b0d8e4"
+  },
+  {
+   "file": "ledger.csv",
+   "bytes": 2564,
+   "sha256": "127214cbe7ab1cb73eafae097e908b0bf8cbd3d102595805c8ea6e60f1d708cc"
+  },
+  {
+   "file": "ledger.json",
+   "bytes": 7418,
+   "sha256": "a2fab93a3a4ad4fe3d4e37d01a3cade1dfc7b16d2845161f3db862a27dbf8b4e"
+  },
+  {
+   "file": "report.md",
+   "bytes": 23727,
+   "sha256": "3319efa42a5006ef3d875304d8cd6f7d7a0d45532128d11f983d931ace9f1c0a"
+  }
+ ]
+}

@@ -262,6 +262,30 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 			},
 		},
 		{
+			name: "reply cut at the output limit", wantStatus: StatusInterrupted, wantKind: KindOutputLimit,
+			wantErr: func(err error) bool { return err != nil && strings.Contains(err.Error(), "output token limit") },
+			run: func(t *testing.T) (*memoryStore, Result, error) {
+				store := newState("l1")
+				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+					return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", Content: "Let me write the patch: <｜DSML｜ invoke name=\"apply_patch\">"}, FinishReason: protocol.FinishLength}, nil
+				}}
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "l1", Options{Session: testRef, MaxSteps: 2})
+				return store, r, err
+			},
+		},
+		{
+			name: "conversation turn cut at the output limit", wantStatus: StatusInterrupted, wantKind: KindOutputLimit,
+			wantErr: func(err error) bool { return err != nil },
+			run: func(t *testing.T) (*memoryStore, Result, error) {
+				store := newState("l2")
+				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+					return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", Content: "The answer is"}, FinishReason: protocol.FinishLength}, nil
+				}}
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "l2", Options{Session: testRef, MaxSteps: 2, Interactive: true})
+				return store, r, err
+			},
+		},
+		{
 			name: "provider unavailable", wantStatus: StatusInterrupted, wantKind: KindProviderAvailability,
 			wantErr: func(err error) bool { return err != nil && strings.Contains(err.Error(), "upstream down") },
 			run: func(t *testing.T) (*memoryStore, Result, error) {
@@ -601,6 +625,55 @@ func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.
 			answer := store.messages[2]
 			if answer.Role != "tool" || answer.ToolCallID != "bad" || answer.Content != wantContent {
 				t.Fatalf("tool answer = %+v, want content %s", answer, wantContent)
+			}
+		})
+	}
+}
+
+// A reply cut at the output limit that still holds tool calls is not an exit (output_limit applies only
+// without a call): a call whose arguments are a whole JSON object was finished before the cut and runs;
+// the last call, when the limit cut its arguments or left it with none (the adapters turn an empty
+// argument string into {}), is answered with a tool error and never runs, and the run continues. The same
+// argumentless call under a stop finish runs.
+func TestOutputLimitReplyWithToolCallsRunsOnlyFinishedCalls(t *testing.T) {
+	cases := []struct {
+		name, finish, lastArgs string
+		wantRan                []string
+	}{
+		{"arguments cut", protocol.FinishLength, `{"command":"rm -rf /tmp/x && ec`, []string{"ls"}},
+		{"cut before the first argument", protocol.FinishLength, `{}`, []string{"ls"}},
+		{"no arguments under stop", "stop", `{}`, []string{"ls", ""}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newState("lt")
+			var ran []string
+			tools := &scriptTools{fn: func(_ context.Context, _ string, args map[string]any) (protocol.ToolResult, error) {
+				command, _ := args["command"].(string)
+				ran = append(ran, command)
+				return protocol.ToolResult{OK: true, Content: `{"ran":true}`}, nil
+			}}
+			provider := &funcProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+				if n == 1 {
+					return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
+						call("whole", "shell", `{"command":"ls"}`),
+						call("last", "shell", tc.lastArgs),
+					}}, FinishReason: tc.finish}, nil
+				}
+				return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}, nil
+			}}
+			result, err := (&Loop{Models: testModels(provider), Store: store, Tools: tools}).Run(context.Background(), "lt", Options{Session: testRef, MaxSteps: 3})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertExit(t, store, result, StatusCompleted, "")
+			if strings.Join(ran, "|") != strings.Join(tc.wantRan, "|") {
+				t.Fatalf("ran %q, want %q", ran, tc.wantRan)
+			}
+			// goal, assistant calls, two tool answers, final answer
+			refused := strings.Contains(store.messages[3].Content, "invalid tool arguments")
+			if len(store.messages) != 5 || store.messages[3].ToolCallID != "last" || refused != (len(tc.wantRan) == 1) {
+				t.Fatalf("messages = %+v", store.messages)
 			}
 		})
 	}

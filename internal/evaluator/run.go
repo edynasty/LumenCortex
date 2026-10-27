@@ -149,6 +149,14 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string,
 	out := make([]Verdict, 0, len(specs))
 	fresh := map[int64]int{} // seq of a fresh result -> its index in out
 	for _, spec := range specs {
+		// An approved definition whose input differs here runs content nobody approved: it is decided as
+		// unapproved and not run (CHECKS-002).
+		changed := ""
+		if Approved(spec) {
+			if changed = e.changedInput(spec); changed != "" {
+				spec.ApprovalEpoch = 0
+			}
+		}
 		current := Fingerprint(pre.env, spec)
 		var stored *Result
 		if current != "" && Approved(spec) {
@@ -174,6 +182,9 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string,
 		}
 		if result.Status == StatusSpecUnapproved {
 			result.WorkUnitID, tail = workUnitID, ErrSpecUnapproved.Error()
+			if changed != "" {
+				tail = inputTail(changed)
+			}
 		}
 		if ran {
 			fresh[result.Seq] = len(out)
@@ -192,6 +203,16 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string,
 		}
 		if !same {
 			status = EpisodeSpecUnapproved
+		}
+	}
+	// An input that differs after the checks ran (or already differed) leaves the episode
+	// spec_unapproved, as a changed set does: nothing decided in it counts (CHECKS-002).
+	if status == EpisodeClosed {
+		for _, spec := range specs {
+			if Approved(spec) && e.changedInput(spec) != "" {
+				status = EpisodeSpecUnapproved
+				break
+			}
 		}
 	}
 	if status == EpisodeClosed && post.env != pre.env {
@@ -295,7 +316,7 @@ func (e *Evaluator) SatisfiedAll(ctx context.Context, specs []Spec) ([]bool, []*
 
 func (e *Evaluator) satisfied(ctx context.Context, spec Spec, env Env) (bool, *Result, error) {
 	current := Fingerprint(env, spec)
-	if current == "" || !Approved(spec) {
+	if current == "" || !Approved(spec) || e.changedInput(spec) != "" {
 		return false, nil, nil
 	}
 	row, err := e.Store.DecidingEvalResult(ctx, e.SessionID, spec.ID, current, SpecDigest(spec), spec.ApprovalEpoch)
@@ -315,8 +336,8 @@ func (e *Evaluator) Environment(ctx context.Context) (Env, error) {
 // Accept records a person's acceptance of spec at the current fingerprint under its approval: a passed
 // result with provenance human:<actor>, an episode of its own closed at the fingerprint the person saw.
 // It is a row, not a flag, and holds until the fingerprint or the approval changes. Outside git it
-// fails with ErrNoFingerprint; an unapproved spec fails with ErrSpecUnapproved (ADR-0017: accepting a
-// result is not approving the definition that produced it).
+// fails with ErrNoFingerprint; an unapproved spec, or one whose input differs in this workspace, fails
+// with ErrSpecUnapproved (ADR-0017: accepting a result is not approving the definition that produced it).
 func (e *Evaluator) Accept(ctx context.Context, spec Spec, actor string) (Result, error) {
 	actor = strings.TrimSpace(actor)
 	if actor == "" || len(actor) > 128 || strings.ContainsAny(actor, " \t\r\n") {
@@ -324,6 +345,9 @@ func (e *Evaluator) Accept(ctx context.Context, spec Spec, actor string) (Result
 	}
 	if !Approved(spec) {
 		return Result{}, ErrSpecUnapproved
+	}
+	if changed := e.changedInput(spec); changed != "" {
+		return Result{}, fmt.Errorf("%w: %s, which the check runs, is not the approved content", ErrSpecUnapproved, changed)
 	}
 	env, err := e.Environment(ctx)
 	if err != nil {

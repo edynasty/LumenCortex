@@ -40,6 +40,7 @@ func TestAdapterClassifiesHTTPStatuses(t *testing.T) {
 		{"413", 413, "too big", protocol.ClassCapacity},
 		{"400 context marker", 400, `{"error":{"code":"context_length_exceeded"}}`, protocol.ClassCapacity},
 		{"400 maximum context", 400, "This model's Maximum Context Length is 8192 tokens", protocol.ClassCapacity},
+		{"400 gateway content too long", 400, `{"error":{"message":"Content too long. Please shorten it or start a new task","type":"invalid_request_error"}}`, protocol.ClassCapacity},
 		{"400 plain", 400, `{"error":"unknown parameter"}`, protocol.ClassBadRequest},
 		{"401", 401, "no", protocol.ClassAuth},
 		{"403", 403, "no", protocol.ClassAuth},
@@ -151,6 +152,67 @@ func TestMalformedStreamIsAvailability(t *testing.T) {
 	_, err := client.Complete(context.Background(), request())
 	if pe := providerError(t, err); pe.Class != protocol.ClassAvailability {
 		t.Fatalf("class=%s", pe.Class)
+	}
+}
+
+// A stream the server ends early is not an answer: an in-band error event, or a stream that stops
+// with neither a finish_reason nor [DONE], is an availability error and is retried, never returned
+// as a response with the tool calls received so far (TB2 W13: a gateway "upstream_error" cut a
+// response after its first complete tool call, and the call ran).
+func TestTruncatedStreamIsAvailability(t *testing.T) {
+	call := `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"shell","arguments":"{\"command\":\"rm -rf /tmp/x\"}"}}]}}]}` + "\n\n"
+	cut := `data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"c2","type":"function","function":{"name":"apply_patch","arguments":"{\"patches\": [{\"pa"}}]}}]}` + "\n\n"
+	cases := []struct {
+		name, tail, wantErr string
+	}{
+		{"error event", `data: {"error":{"message":"Upstream request failed","type":"upstream_error"}}` + "\n\n", "Upstream request failed"},
+		{"error event without a message", `data: {"error":{}}` + "\n\n", "stream error"},
+		{"connection closed mid-response", "", "ended before"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var hits atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, call+cut+c.tail)
+			}))
+			defer server.Close()
+			client, _ := New(Config{BaseURL: server.URL, Model: "m", MaxRetries: 2, RetryBaseDelay: time.Millisecond})
+			resp, err := client.Complete(context.Background(), request())
+			if err == nil {
+				t.Fatalf("a cut stream was returned as a response: %+v", resp.Message.ToolCalls)
+			}
+			pe := providerError(t, err)
+			if pe.Class != protocol.ClassAvailability || !strings.Contains(err.Error(), c.wantErr) {
+				t.Fatalf("class=%s err=%v", pe.Class, err)
+			}
+			if hits.Load() != 3 {
+				t.Fatalf("attempts=%d, want 3 (retried as availability)", hits.Load())
+			}
+		})
+	}
+}
+
+// The end of a stream is its finish_reason or [DONE]; either one alone completes it.
+func TestStreamEndsAtFinishReasonOrDone(t *testing.T) {
+	cases := map[string]string{
+		"finish_reason, connection closed without [DONE]": `data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}` + "\n\n",
+		"[DONE] without finish_reason":                    `data: {"choices":[{"delta":{"content":"ok"}}]}` + "\n\n" + "data: [DONE]\n\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, body)
+			}))
+			defer server.Close()
+			client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableRetries: true})
+			resp, err := client.Complete(context.Background(), request())
+			if err != nil || resp.Message.Content != "ok" {
+				t.Fatalf("resp=%+v err=%v", resp.Message, err)
+			}
+		})
 	}
 }
 

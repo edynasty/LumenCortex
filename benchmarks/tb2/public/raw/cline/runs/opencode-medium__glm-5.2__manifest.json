@@ -1,0 +1,21 @@
+{
+  "agent": "opencode",
+  "attempts": 1,
+  "benchmark": "terminal-bench@2.0",
+  "concurrency": 20,
+  "env_file": "~/.env",
+  "environment": "modal",
+  "launch_command": "env PYTHONPATH=/home/robin_cline_bot/harbor/src /home/robin_cline_bot/harbor/.venv/bin/python -m harbor.cli.main run --job-name opencode-openrouter-glm52-reasoning-medium-full89-n20-20260624T094927Z -d terminal-bench@2.0 -a opencode -m openrouter/z-ai/glm-5.2 --env modal --env-file /home/robin_cline_bot/.env --timeout-multiplier 2.0 -l 89 -n 20 --ak 'opencode_config={\"provider\":{\"openrouter\":{\"models\":{\"z-ai/glm-5.2\":{\"options\":{\"reasoning\":{\"effort\":\"medium\"}}}}}}}'",
+  "log_file": "/home/robin_cline_bot/harbor/logs/opencode-openrouter-glm52-reasoning-medium-full89-n20-20260624T094927Z.log",
+  "model_arg": "openrouter/z-ai/glm-5.2",
+  "model_id": "z-ai/glm-5.2",
+  "notes": "Scheduled full row launch: GLM 5.2, all-medium.",
+  "pid": 2174560,
+  "provider_route": "openrouter",
+  "reasoning": "medium",
+  "run_name": "opencode-openrouter-glm52-reasoning-medium-full89-n20-20260624T094927Z",
+  "source_harbor_dir": "/home/robin_cline_bot/harbor",
+  "tarball_path": null,
+  "task_limit": 89,
+  "timeout_multiplier": 2.0
+}

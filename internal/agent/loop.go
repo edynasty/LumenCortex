@@ -275,6 +275,12 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		}
 
 		if len(calls) == 0 {
+			if response.FinishReason == protocol.FinishLength {
+				// A reply cut at the output limit is never the final answer: without a tool call
+				// it holds an unfinished thought (TB2 W13: such replies ended runs as completed).
+				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindOutputLimit,
+					Err: fmt.Errorf("the model reply reached the output token limit (%d completion tokens) without a tool call or a finished answer", response.Usage.CompletionTokens)})
+			}
 			if strings.TrimSpace(assistant.Content) == "" {
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindEmptyResponse, Err: errors.New("model returned neither tool calls nor final content")})
 			}
@@ -350,8 +356,19 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			return Result{SessionID: sessionID, Status: StatusCompleted, Final: final, Usage: usage, Workflow: workflowSummary(r.wf)}, nil
 		}
 
+		// Under a length finish the reply's last call may have been cut before its first argument byte.
+		// The adapters fill an empty argument string with {}, so such a call looks like a complete call
+		// without arguments; it is refused instead of run, and the model can send it again. Earlier calls
+		// and a last call holding a whole JSON object were finished before the cut.
+		lastCallID := ""
+		if all := response.Message.ToolCalls; response.FinishReason == protocol.FinishLength && len(all) > 0 {
+			lastCallID = all[len(all)-1].ID
+		}
 		for _, call := range calls {
 			args, argsErr := parseToolArguments(call.Arguments)
+			if argsErr == nil && len(args) == 0 && lastCallID != "" && call.ID == lastCallID {
+				argsErr = errors.New("the reply reached the output token limit before this call's arguments; send the call again")
+			}
 			if argsErr != nil {
 				rejected := protocol.ToolResult{OK: false, Content: toolErrorContent("invalid tool arguments: " + argsErr.Error())}
 				if _, err := l.persistToolResult(ctx, sessionID, opts.RunID, call, rejected, nil, nil, nil, r); err != nil {

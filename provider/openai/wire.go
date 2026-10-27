@@ -90,7 +90,34 @@ type wireUsage struct {
 type streamResponse struct {
 	Choices []streamChoice `json:"choices"`
 	Usage   *wireUsage     `json:"usage,omitempty"`
+	// Error is an error event a server sends in place of a chunk after the 200 status; the
+	// response ends there.
+	Error *streamErrorPayload `json:"error,omitempty"`
 }
+
+type streamErrorPayload struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+// streamError is an error event received mid-stream. Whatever arrived before it is discarded: the
+// response is incomplete, so it is an availability error and the attempt is retried.
+type streamError struct{ streamErrorPayload }
+
+func (e *streamError) Error() string {
+	text := "provider stream error"
+	if e.Type != "" {
+		text += ": " + e.Type
+	}
+	if strings.TrimSpace(e.Message) != "" {
+		text += ": " + e.Message
+	}
+	return text
+}
+
+// errStreamCut is a stream that ended without a finish_reason and without [DONE]: the connection
+// closed mid-response, and the tool calls received so far may be incomplete or missing.
+var errStreamCut = errors.New("provider stream ended before a finish_reason or [DONE]")
 
 type streamChoice struct {
 	Delta        streamDelta `json:"delta"`
@@ -223,9 +250,11 @@ type streamBuilder struct {
 	reasoning    strings.Builder
 	toolCalls    map[int]*partialToolCall
 	finishReason string
-	usage        wireUsage
-	maxBytes     int64
-	usedBytes    int64
+	// finished is set by the first non-empty finish_reason: the response is complete.
+	finished  bool
+	usage     wireUsage
+	maxBytes  int64
+	usedBytes int64
 }
 
 type partialToolCall struct {
@@ -235,12 +264,16 @@ type partialToolCall struct {
 }
 
 func (b *streamBuilder) apply(event streamResponse) error {
+	if event.Error != nil {
+		return &streamError{*event.Error}
+	}
 	if event.Usage != nil {
 		b.usage = *event.Usage
 	}
 	for _, choice := range event.Choices {
-		if choice.FinishReason != nil {
+		if choice.FinishReason != nil && *choice.FinishReason != "" {
 			b.finishReason = *choice.FinishReason
+			b.finished = true
 		}
 		if choice.Delta.Content != "" {
 			if err := b.reserve(len(choice.Delta.Content)); err != nil {

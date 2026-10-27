@@ -383,7 +383,8 @@ func (c *Client) readJSON(body io.Reader) (protocol.ProviderResponse, error) {
 
 // readStream reads the SSE stream. An event's payload may arrive as several data: lines and in
 // pieces; lines accumulate until the blank line that ends the event. message_stop ends the stream
-// even if the connection stays open.
+// even if the connection stays open; a stream that ends without it was cut and is an error
+// (availability), so the blocks received so far never reach the loop as a response.
 func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 	reader := bufio.NewReader(io.LimitReader(body, c.maxResponseBytes+1))
 	builder := streamBuilder{maxBytes: c.maxResponseBytes}
@@ -442,6 +443,9 @@ func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 		if stopErr != nil {
 			return protocol.ProviderResponse{}, stopErr
 		}
+	}
+	if !stopped {
+		return protocol.ProviderResponse{}, errStreamCut
 	}
 	return builder.result()
 }
