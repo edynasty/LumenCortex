@@ -262,6 +262,30 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 			},
 		},
 		{
+			name: "reply cut at the output limit", wantStatus: StatusInterrupted, wantKind: KindOutputLimit,
+			wantErr: func(err error) bool { return err != nil && strings.Contains(err.Error(), "output token limit") },
+			run: func(t *testing.T) (*memoryStore, Result, error) {
+				store := newState("l1")
+				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+					return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", Content: "Let me write the patch: <｜DSML｜ invoke name=\"apply_patch\">"}, FinishReason: protocol.FinishLength}, nil
+				}}
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "l1", Options{Session: testRef, MaxSteps: 2})
+				return store, r, err
+			},
+		},
+		{
+			name: "conversation turn cut at the output limit", wantStatus: StatusInterrupted, wantKind: KindOutputLimit,
+			wantErr: func(err error) bool { return err != nil },
+			run: func(t *testing.T) (*memoryStore, Result, error) {
+				store := newState("l2")
+				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+					return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", Content: "The answer is"}, FinishReason: protocol.FinishLength}, nil
+				}}
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "l2", Options{Session: testRef, MaxSteps: 2, Interactive: true})
+				return store, r, err
+			},
+		},
+		{
 			name: "provider unavailable", wantStatus: StatusInterrupted, wantKind: KindProviderAvailability,
 			wantErr: func(err error) bool { return err != nil && strings.Contains(err.Error(), "upstream down") },
 			run: func(t *testing.T) (*memoryStore, Result, error) {

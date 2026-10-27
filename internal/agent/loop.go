@@ -275,6 +275,12 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		}
 
 		if len(calls) == 0 {
+			if response.FinishReason == protocol.FinishLength {
+				// A reply cut at the output limit is never the final answer: without a tool call
+				// it holds an unfinished thought (TB2 W13: such replies ended runs as completed).
+				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindOutputLimit,
+					Err: fmt.Errorf("the model reply reached the output token limit (%d completion tokens) without a tool call or a finished answer", response.Usage.CompletionTokens)})
+			}
 			if strings.TrimSpace(assistant.Content) == "" {
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindEmptyResponse, Err: errors.New("model returned neither tool calls nor final content")})
 			}
