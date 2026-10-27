@@ -104,6 +104,10 @@ type ProviderRequest struct {
 	Echo []Echo `json:"-"`
 }
 
+// FinishLength is the FinishReason of a reply the provider cut at its output token limit (OpenAI
+// "length", Anthropic "max_tokens"): what it holds is unfinished.
+const FinishLength = "length"
+
 type ProviderResponse struct {
 	Message      Message `json:"message"`
 	Usage        Usage   `json:"usage"`

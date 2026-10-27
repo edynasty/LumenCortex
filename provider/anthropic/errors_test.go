@@ -180,6 +180,33 @@ func TestMalformedStreamIsAvailability(t *testing.T) {
 	}
 }
 
+// A stream that ends before message_stop is cut, not finished: it is an availability error, never a
+// response carrying the blocks received so far (a complete tool_use among them would otherwise run).
+func TestStreamWithoutMessageStopIsAvailability(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, event := range []string{
+			`{"type":"message_start","message":{"usage":{"input_tokens":3}}}`,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t1","name":"shell","input":{}}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"rm -rf /tmp/x\"}"}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"t2","name":"apply_patch","input":{}}}`,
+			`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"patches\": [{\"pa"}}`,
+		} {
+			fmt.Fprint(w, "data: "+event+"\n\n")
+		}
+	}))
+	defer server.Close()
+	client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableRetries: true})
+	resp, err := client.Complete(context.Background(), request())
+	if err == nil {
+		t.Fatalf("a cut stream was returned as a response: %+v", resp.Message.ToolCalls)
+	}
+	if pe := providerError(t, err); pe.Class != protocol.ClassAvailability || !strings.Contains(err.Error(), "ended before") {
+		t.Fatalf("class=%s (%v)", pe.Class, err)
+	}
+}
+
 // Cancelling the run is cancelled, never a timeout, aborts the in-flight stream at once, and
 // leaves no goroutine behind.
 func TestCancellationMidStream(t *testing.T) {

@@ -450,7 +450,7 @@ func mapStopReason(reason string) string {
 	case "tool_use":
 		return "tool_calls"
 	case "max_tokens":
-		return "length"
+		return protocol.FinishLength
 	case "":
 		return ""
 	default:
@@ -686,6 +686,9 @@ func (b *streamBuilder) result() (protocol.ProviderResponse, error) {
 		Echo:         thinkingEcho(thinking),
 	}, nil
 }
+
+// errStreamCut is a stream that ended without message_stop: the connection closed mid-response.
+var errStreamCut = errors.New("provider stream ended before message_stop")
 
 // streamError is an error event the API sent mid-stream.
 type streamError struct {
