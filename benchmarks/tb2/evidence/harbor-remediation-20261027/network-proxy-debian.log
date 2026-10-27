@@ -1,0 +1,6 @@
+$ env -u all_proxy -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy curl -sS -L --max-time 15 -o /dev/null -w code=%{http_code} remote=%{remote_ip} connect=%{time_connect} tls=%{time_appconnect} total=%{time_total}
+ --proxy http://127.0.0.1:7897 --noproxy  http://deb.debian.org/debian/dists/bookworm/InRelease
+UTC 2026-10-27T00:30:46.824903+00:00
+code=200 remote=127.0.0.1 connect=0.000376 tls=0.000000 total=0.296468
+
+exit=0

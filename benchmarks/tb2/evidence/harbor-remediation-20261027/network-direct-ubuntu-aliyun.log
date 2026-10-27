@@ -1,0 +1,6 @@
+$ env -u all_proxy -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy curl -sS -L --max-time 15 -o /dev/null -w code=%{http_code} remote=%{remote_ip} connect=%{time_connect} tls=%{time_appconnect} total=%{time_total}
+ --noproxy * https://mirrors.aliyun.com/ubuntu/dists/noble/InRelease
+UTC 2026-10-27T00:30:44.232116+00:00
+code=200 remote=124.226.75.197 connect=0.011717 tls=0.113669 total=0.348740
+
+exit=0

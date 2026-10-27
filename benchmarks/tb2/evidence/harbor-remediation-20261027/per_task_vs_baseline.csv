@@ -1,0 +1,14 @@
+task,lcOriginal,lcRerun,lcLedger,Pi,SpecPi,OMP,CC,OpenCode,DSH
+cobol-modernization,2/3,—,2/3,10/15,6/6,7/9,3/6,2/3,3/3
+configure-git-webserver,0/3,1/1,1/3,10/15,3/6,3/9,2/5,3/3,1/3
+extract-elf,2/3,1/1,3/3,10/15,5/6,7/9,3/6,3/3,2/3
+fix-git,3/3,—,3/3,15/15,6/6,9/9,5/6,3/3,3/3
+hf-model-inference,3/3,—,3/3,14/15,6/6,6/9,6/6,3/3,1/3
+multi-source-data-merger,1/3,2/2,3/3,15/15,6/6,9/9,6/6,3/3,3/3
+prove-plus-comm,3/3,—,3/3,13/15,6/6,9/9,6/6,3/3,3/3
+pytorch-model-cli,0/3,—,0/3 1 env-excl,3/15,0/6,1/9,3/6,0/3,1/3
+raman-fitting,0/3,—,0/3,3/15,2/5,4/9,0/6,2/3,1/3
+sanitize-git-repo,2/3,1/1,3/3,1/15,6/6,7/9,2/6,3/3,0/3
+sqlite-with-gcov,1/3,2/2,3/3,14/15,6/6,7/9,6/6,0/3,0/2
+tune-mjcf,0/3,0/1,0/3,11/15,4/6,7/9,2/6,1/3,0/3
+vulnerable-secret,1/3,2/2,3/3,15/15,6/6,8/8,6/6,3/3,3/3

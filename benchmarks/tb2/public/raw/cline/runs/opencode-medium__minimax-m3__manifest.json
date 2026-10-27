@@ -1,0 +1,21 @@
+{
+  "agent": "opencode",
+  "attempts": 1,
+  "benchmark": "terminal-bench@2.0",
+  "concurrency": 20,
+  "env_file": "~/.env",
+  "environment": "modal",
+  "launch_command": "env PYTHONPATH=/home/robin_cline_bot/harbor/src /home/robin_cline_bot/harbor/.venv/bin/python -m harbor.cli.main run --job-name opencode-openrouter-minimax-m3-reasoning-medium-full89-n20-20260624T104927Z -d terminal-bench@2.0 -a opencode -m openrouter/minimax/minimax-m3 --env modal --env-file /home/robin_cline_bot/.env --timeout-multiplier 2.0 -l 89 -n 20 --ak 'opencode_config={\"provider\":{\"openrouter\":{\"models\":{\"minimax/minimax-m3\":{\"options\":{\"reasoning\":{\"effort\":\"medium\"}}}}}}}'",
+  "log_file": "/home/robin_cline_bot/harbor/logs/opencode-openrouter-minimax-m3-reasoning-medium-full89-n20-20260624T104927Z.log",
+  "model_arg": "openrouter/minimax/minimax-m3",
+  "model_id": "minimax/minimax-m3",
+  "notes": "Scheduled full row launch: Minimax M3, all-medium.",
+  "pid": 2236811,
+  "provider_route": "openrouter",
+  "reasoning": "medium",
+  "run_name": "opencode-openrouter-minimax-m3-reasoning-medium-full89-n20-20260624T104927Z",
+  "source_harbor_dir": "/home/robin_cline_bot/harbor",
+  "tarball_path": null,
+  "task_limit": 89,
+  "timeout_multiplier": 2.0
+}

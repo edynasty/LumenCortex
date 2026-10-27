@@ -1,0 +1,370 @@
+[
+  {
+    "group": "cline-non",
+    "model": "glm-5.2",
+    "run": "cline-openrouter-glm52-reasoning-off-full89-n20-20260625T010100Z",
+    "score": "51/89",
+    "pass_rate": 0.573034,
+    "unscored": 1,
+    "agent": "cline-cli",
+    "model_name": "openrouter:z-ai/glm-5.2",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "setup-retries": 3,
+      "setup-retry-delay-sec": 5,
+      "setup-command-timeout-sec": 240,
+      "tarball-path": "/home/robin_cline_bot/harbor/local-tarballs/cline-cli-linux-x64-3.0.29-main-14a28b055-20260624T182744Z.tgz",
+      "reasoning-effort": "none"
+    },
+    "agent_env": {
+      "CLINE_DATA_DIR": "/logs/agent"
+    },
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/cline-non/glm-5.2",
+    "archive": "archives/cline-non/glm-5.2.zip"
+  },
+  {
+    "group": "cline-non",
+    "model": "minimax-m3",
+    "run": "cline-openrouter-minimax-m3-reasoning-off-full89-n20-20260625T010100Z",
+    "score": "41/89",
+    "pass_rate": 0.460674,
+    "unscored": 1,
+    "agent": "cline-cli",
+    "model_name": "openrouter:minimax/minimax-m3",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "setup-retries": 3,
+      "setup-retry-delay-sec": 5,
+      "setup-command-timeout-sec": 240,
+      "tarball-path": "/home/robin_cline_bot/harbor/local-tarballs/cline-cli-linux-x64-3.0.29-main-14a28b055-20260624T182744Z.tgz",
+      "reasoning-effort": "none"
+    },
+    "agent_env": {
+      "CLINE_DATA_DIR": "/logs/agent"
+    },
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/cline-non/minimax-m3",
+    "archive": "archives/cline-non/minimax-m3.zip"
+  },
+  {
+    "group": "cline-non",
+    "model": "mimo-v2.5-pro",
+    "run": "cline-openrouter-mimo-v25-pro-reasoning-off-full89-n20-20260625T010100Z",
+    "score": "42/89",
+    "pass_rate": 0.47191,
+    "unscored": 0,
+    "agent": "cline-cli",
+    "model_name": "openrouter:xiaomi/mimo-v2.5-pro",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "setup-retries": 3,
+      "setup-retry-delay-sec": 5,
+      "setup-command-timeout-sec": 240,
+      "tarball-path": "/home/robin_cline_bot/harbor/local-tarballs/cline-cli-linux-x64-3.0.29-main-14a28b055-20260624T182744Z.tgz",
+      "reasoning-effort": "none"
+    },
+    "agent_env": {
+      "CLINE_DATA_DIR": "/logs/agent"
+    },
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/cline-non/mimo-v2.5-pro",
+    "archive": "archives/cline-non/mimo-v2.5-pro.zip"
+  },
+  {
+    "group": "cline-medium",
+    "model": "kimi-k2.7-code",
+    "run": "cline-openrouter-kimi-k27-code-reasoning-medium-full89-n20-20260624T084152Z",
+    "score": "55/89",
+    "pass_rate": 0.617978,
+    "unscored": 1,
+    "agent": "cline-cli",
+    "model_name": "openrouter:moonshotai/kimi-k2.7-code",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "setup-retries": 3,
+      "setup-retry-delay-sec": 5,
+      "setup-command-timeout-sec": 240,
+      "tarball-path": "/home/robin_cline_bot/harbor/local-tarballs/cline-cli-linux-x64-3.0.29-main-218db385-20260623T235704Z.tgz",
+      "reasoning-effort": "medium"
+    },
+    "agent_env": {
+      "CLINE_DATA_DIR": "/logs/agent"
+    },
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/cline-medium/kimi-k2.7-code",
+    "archive": "archives/cline-medium/kimi-k2.7-code.zip"
+  },
+  {
+    "group": "cline-medium",
+    "model": "glm-5.2",
+    "run": "cline-openrouter-glm52-main-14a28b055-reasoning-medium-full89-n20-20260624T183315Z",
+    "score": "61/89",
+    "pass_rate": 0.685393,
+    "unscored": 1,
+    "agent": "cline-cli",
+    "model_name": "openrouter:z-ai/glm-5.2",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "setup-retries": 3,
+      "setup-retry-delay-sec": 5,
+      "setup-command-timeout-sec": 240,
+      "tarball-path": "/home/robin_cline_bot/harbor/local-tarballs/cline-cli-linux-x64-3.0.29-main-14a28b055-20260624T182744Z.tgz",
+      "reasoning-effort": "medium"
+    },
+    "agent_env": {
+      "CLINE_DATA_DIR": "/logs/agent"
+    },
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/cline-medium/glm-5.2",
+    "archive": "archives/cline-medium/glm-5.2.zip"
+  },
+  {
+    "group": "cline-medium",
+    "model": "minimax-m3",
+    "run": "cline-openrouter-minimax-m3-reasoning-medium-full89-n20-20260624T104927Z",
+    "score": "55/89",
+    "pass_rate": 0.617978,
+    "unscored": 0,
+    "agent": "cline-cli",
+    "model_name": "openrouter:minimax/minimax-m3",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "setup-retries": 3,
+      "setup-retry-delay-sec": 5,
+      "setup-command-timeout-sec": 240,
+      "tarball-path": "/home/robin_cline_bot/harbor/local-tarballs/cline-cli-linux-x64-3.0.29-main-218db385-20260623T235704Z.tgz",
+      "reasoning-effort": "medium"
+    },
+    "agent_env": {
+      "CLINE_DATA_DIR": "/logs/agent"
+    },
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/cline-medium/minimax-m3",
+    "archive": "archives/cline-medium/minimax-m3.zip"
+  },
+  {
+    "group": "cline-medium",
+    "model": "mimo-v2.5-pro",
+    "run": "cline-openrouter-mimo-v25-pro-main-14a28b055-reasoning-medium-full89-n20-20260624T202251Z",
+    "score": "54/89",
+    "pass_rate": 0.606742,
+    "unscored": 0,
+    "agent": "cline-cli",
+    "model_name": "openrouter:xiaomi/mimo-v2.5-pro",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "setup-retries": 3,
+      "setup-retry-delay-sec": 5,
+      "setup-command-timeout-sec": 240,
+      "tarball-path": "/home/robin_cline_bot/harbor/local-tarballs/cline-cli-linux-x64-3.0.29-main-14a28b055-20260624T182744Z.tgz",
+      "reasoning-effort": "medium"
+    },
+    "agent_env": {
+      "CLINE_DATA_DIR": "/logs/agent"
+    },
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/cline-medium/mimo-v2.5-pro",
+    "archive": "archives/cline-medium/mimo-v2.5-pro.zip"
+  },
+  {
+    "group": "opencode-medium",
+    "model": "kimi-k2.7-code",
+    "run": "opencode-openrouter-kimi-k27-code-reasoning-medium-full89-n20-20260624T084152Z",
+    "score": "53/89",
+    "pass_rate": 0.595506,
+    "unscored": 0,
+    "agent": "opencode",
+    "model_name": "openrouter/moonshotai/kimi-k2.7-code",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "opencode_config": {
+        "provider": {
+          "openrouter": {
+            "models": {
+              "moonshotai/kimi-k2.7-code": {
+                "options": {
+                  "reasoning": {
+                    "effort": "medium"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "agent_env": {},
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/opencode-medium/kimi-k2.7-code",
+    "archive": "archives/opencode-medium/kimi-k2.7-code.zip"
+  },
+  {
+    "group": "opencode-medium",
+    "model": "glm-5.2",
+    "run": "opencode-openrouter-glm52-reasoning-medium-full89-n20-20260624T094927Z",
+    "score": "53/89",
+    "pass_rate": 0.595506,
+    "unscored": 1,
+    "agent": "opencode",
+    "model_name": "openrouter/z-ai/glm-5.2",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "opencode_config": {
+        "provider": {
+          "openrouter": {
+            "models": {
+              "z-ai/glm-5.2": {
+                "options": {
+                  "reasoning": {
+                    "effort": "medium"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "agent_env": {},
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/opencode-medium/glm-5.2",
+    "archive": "archives/opencode-medium/glm-5.2.zip"
+  },
+  {
+    "group": "opencode-medium",
+    "model": "minimax-m3",
+    "run": "opencode-openrouter-minimax-m3-reasoning-medium-full89-n20-20260624T104927Z",
+    "score": "44/89",
+    "pass_rate": 0.494382,
+    "unscored": 0,
+    "agent": "opencode",
+    "model_name": "openrouter/minimax/minimax-m3",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "opencode_config": {
+        "provider": {
+          "openrouter": {
+            "models": {
+              "minimax/minimax-m3": {
+                "options": {
+                  "reasoning": {
+                    "effort": "medium"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "agent_env": {},
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/opencode-medium/minimax-m3",
+    "archive": "archives/opencode-medium/minimax-m3.zip"
+  },
+  {
+    "group": "opencode-medium",
+    "model": "mimo-v2.5-pro",
+    "run": "opencode-openrouter-mimo-v25-pro-reasoning-medium-full89-n20-20260624T212411Z",
+    "score": "40/89",
+    "pass_rate": 0.449438,
+    "unscored": 2,
+    "agent": "opencode",
+    "model_name": "openrouter/xiaomi/mimo-v2.5-pro",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "opencode_config": {
+        "provider": {
+          "openrouter": {
+            "models": {
+              "xiaomi/mimo-v2.5-pro": {
+                "options": {
+                  "reasoning": {
+                    "effort": "medium"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "agent_env": {},
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/opencode-medium/mimo-v2.5-pro",
+    "archive": "archives/opencode-medium/mimo-v2.5-pro.zip"
+  },
+  {
+    "group": "pi-medium",
+    "model": "kimi-k2.7-code",
+    "run": "pi-openrouter-kimi-k27-code-thinking-medium-full89-n20-20260624T084152Z",
+    "score": "55/89",
+    "pass_rate": 0.617978,
+    "unscored": 2,
+    "agent": "pi",
+    "model_name": "openrouter/moonshotai/kimi-k2.7-code",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "thinking": "medium"
+    },
+    "agent_env": {},
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/pi-medium/kimi-k2.7-code",
+    "archive": "archives/pi-medium/kimi-k2.7-code.zip"
+  },
+  {
+    "group": "pi-medium",
+    "model": "glm-5.2",
+    "run": "pi-openrouter-glm52-thinking-medium-full89-n20-20260624T094927Z",
+    "score": "51/89",
+    "pass_rate": 0.573034,
+    "unscored": 1,
+    "agent": "pi",
+    "model_name": "openrouter/z-ai/glm-5.2",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "thinking": "medium"
+    },
+    "agent_env": {},
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/pi-medium/glm-5.2",
+    "archive": "archives/pi-medium/glm-5.2.zip"
+  },
+  {
+    "group": "pi-medium",
+    "model": "minimax-m3",
+    "run": "pi-openrouter-minimax-m3-thinking-medium-full89-n20-20260624T104927Z",
+    "score": "42/89",
+    "pass_rate": 0.47191,
+    "unscored": 0,
+    "agent": "pi",
+    "model_name": "openrouter/minimax/minimax-m3",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "thinking": "medium"
+    },
+    "agent_env": {},
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/pi-medium/minimax-m3",
+    "archive": "archives/pi-medium/minimax-m3.zip"
+  },
+  {
+    "group": "pi-medium",
+    "model": "mimo-v2.5-pro",
+    "run": "pi-openrouter-mimo-v25-pro-thinking-medium-full89-n20-20260624T212411Z",
+    "score": "43/89",
+    "pass_rate": 0.483146,
+    "unscored": 1,
+    "agent": "pi",
+    "model_name": "openrouter/xiaomi/mimo-v2.5-pro",
+    "timeout_multiplier": 2.0,
+    "environment": "modal",
+    "agent_kwargs": {
+      "thinking": "medium"
+    },
+    "agent_env": {},
+    "run_dir": "terminal-bench/2026-06-open-weights/runs/pi-medium/mimo-v2.5-pro",
+    "archive": "archives/pi-medium/mimo-v2.5-pro.zip"
+  }
+]

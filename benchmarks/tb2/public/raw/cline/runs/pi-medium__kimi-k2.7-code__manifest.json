@@ -1,0 +1,26 @@
+{
+  "agent": "pi",
+  "attempts": 1,
+  "benchmark": "terminal-bench@2.0",
+  "concurrency": 20,
+  "env_file": "~/.env",
+  "environment": "modal",
+  "launch_command": "env PYTHONPATH=/home/robin_cline_bot/harbor/src /home/robin_cline_bot/harbor/.venv/bin/python -m harbor.cli.main run --job-name pi-openrouter-kimi-k27-code-thinking-medium-full89-n20-20260624T084152Z -d terminal-bench@2.0 -a pi -m openrouter/moonshotai/kimi-k2.7-code --env modal --env-file /home/robin_cline_bot/.env --timeout-multiplier 2.0 -l 89 -n 20 --ak thinking=medium",
+  "log_file": "/home/robin_cline_bot/harbor/logs/pi-openrouter-kimi-k27-code-thinking-medium-full89-n20-20260624T084152Z.log",
+  "model_arg": "openrouter/moonshotai/kimi-k2.7-code",
+  "model_id": "moonshotai/kimi-k2.7-code",
+  "notes": "First full row of 3x3 Terminal-Bench matrix. Using medium reasoning because OpenRouter rejected disabled reasoning for Kimi.",
+  "pid": 2100423,
+  "provider_route": "openrouter",
+  "reasoning": "medium",
+  "run_name": "pi-openrouter-kimi-k27-code-thinking-medium-full89-n20-20260624T084152Z",
+  "smoke_runs": [
+    "cline-openrouter-kimi-k27-code-reasoning-medium-regex-log-smoke-20260624T082738Z",
+    "opencode-openrouter-kimi-k27-code-reasoning-medium-regex-log-smoke-20260624T082738Z",
+    "pi-openrouter-kimi-k27-code-thinking-medium-regex-log-smoke-20260624T082738Z"
+  ],
+  "source_harbor_dir": "/home/robin_cline_bot/harbor",
+  "tarball_path": null,
+  "task_limit": 89,
+  "timeout_multiplier": 2.0
+}
