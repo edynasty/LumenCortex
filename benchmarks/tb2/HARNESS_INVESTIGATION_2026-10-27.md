@@ -18,6 +18,7 @@
 | 流内 `upstream_error` 事件、约 10 秒的 502/503 突发 | **上游服务 / 网关可用性** | 高 | 切断流现在按 availability 重试；突发窗口问题保留为 PROVIDER-002 |
 | temperature 过低导致异常 | **LC 侧无依据；上游未排除** | 中：LC 的 W13 请求体都没有 temperature（LC 也没有该配置项）；网关或上游推理后端会不会自己加一个默认温度，从客户端看不到；DeepSeek 说 thinking 模式忽略 temperature，但这只是官方 API 文档的说法，没有在本路由上验证 | 无代码修改；第 1 阶段（G0 vs G1）只能隔离路由因素，不能隔离温度，所以不单独设计温度矩阵 |
 | DSML 解析、`reasoning_content` 回传、工具参数校验 | **W13 证据中未发现 LC 缺陷** | 高（范围限于 arm A+ 的 1,074 个流） | 无修改 |
+| 独立审查发现（2026-10-31，§10）：`insufficient_system_resource`/`aborted` 被当作完整回复；`length` 时参数为完整 JSON 对象的最后一个调用仍会执行；`output_limit` 抢在完成门禁纠正之前结束 run；schema 文件读取无界、`$ref` 遍历不确定 | **LC 缺陷**（Provider 适配层、Agent Loop、检查输入） | 高：审查人的本地协议模拟复现，修复前失败、修复后通过 | 已修复 `f4a2c58`、`ecd6a92`、`4bd4b02` |
 
 没有证据表明需要在 LC 里加字符串修补或协议猜测：在这 1,074 个流中，DSML 没有出现在 `tool_calls` 参数里，LC 的解析也
 没有观察到错误。这个结论不能外推到其他路由或模型版本。
@@ -108,7 +109,10 @@ Anthropic 适配器存在同类缺陷（没有 `message_stop` 的流也会返回
 |---|---|---|
 | `da9c5bd` fix(provider) | `provider/openai/wire.go`：解析流内 `error` 事件（`streamError`），记录首个非空 `finish_reason`；`provider/openai/client.go`：流在既无 `finish_reason` 也无 `[DONE]` 时结束 → `errStreamCut`；`provider/anthropic/client.go`、`wire.go`：没有 `message_stop` → `errStreamCut`；`protocol.FinishLength` 常量；`factory_test.go` 的流式测试服务改为返回 SSE | §3 |
 | `ff19b89` fix(agent) | `internal/agent/loop.go`：无工具调用且 `FinishReason == protocol.FinishLength` 时，以 `interrupted` / `output_limit` 结束（交互式会话也一样），回复仍保存在 transcript 中；`types.go` 新增 `KindOutputLimit`；`docs/agent-runtime.md` 补充退出表和流完整性规则 | §1 |
-| `50aa96d` fix(agent) | `internal/agent/loop.go`：`length` 结束且带工具调用时，最后一个调用如果没有参数（`{}`），返回工具错误而不执行；`exit_test.go` 三组边界；`docs/agent-runtime.md` | §9.1（2026-10-28 合入前审查发现） |
+| `50aa96d` fix(agent) | `internal/agent/loop.go`：`length` 结束且带工具调用时，最后一个调用如果没有参数（`{}`），返回工具错误而不执行；`exit_test.go` 三组边界；`docs/agent-runtime.md` | §9.1（2026-10-28 合入前审查发现）；规则已被 `ecd6a92` 取代（§10） |
+| `f4a2c58` fix(provider) | `provider/openai/wire.go`：`finish_reason` 为 `insufficient_system_resource` 或 `aborted`（DeepSeek 文档：生成被中断）时，流式和非流式都按 availability 错误处理 | §10 R1 |
+| `ecd6a92` fix(agent) | `internal/agent/loop.go`：`length` 结束时按位置拒绝最后一个调用，不看参数；`MaxToolCallsPerStep` 截掉尾部时保留的调用全部执行；无工具调用的截断回复只在本来会 `completed` 时才以 `output_limit` 结束，完成门禁的纠正照常生效 | §10 R2、R3、R7 |
+| `4bd4b02` fix(checks) | `internal/evaluator/inputs.go`：schema 文件只在是工作区内普通文件且不超过 1 MiB 时读取；`$ref` 按排序遍历，最多 64 个文件 | §10 R4、R5 |
 
 设计边界：
 
@@ -187,7 +191,7 @@ Anthropic 适配器存在同类缺陷（没有 `message_stop` 的流也会返回
 | top_p / effort 是否能减少该现象 | 方案 §7 第 2 阶段，仅在第 1 阶段满足触发条件时执行（NOT RUN） |
 | `deepseek-v4.1-flash` 别名实际对应哪个 checkpoint | 客户端无法观测；G1 使用官方 `deepseek-flash`（Baseline A §2.1） |
 | LC 与 Pi/OpenCode/SpecPi 的差距 | 方案 §5 受控对照（NOT RUN） |
-| 修复合入 R1a 主线 | 已在本地合入 `cog/r1a`（§9.4）；还没有非作者审查；未推送 |
+| 修复合入 R1a 主线 | 已在本地合入 `cog/r1a`（§9.4、§10）；独立审查与复审见 §10；未推送 |
 
 ## 9. 合入前收尾审查（2026-10-28）
 
@@ -201,10 +205,10 @@ Anthropic 适配器存在同类缺陷（没有 `message_stop` 的流也会返回
 | `finish_reason` 之后、`[DONE]` 之前断开 | 作为完整响应接受：按协议，`finish_reason` 表示 choice 已经结束；后面最多还有一个 usage chunk，丢了只影响用量统计 | 同上 |
 | Anthropic 流的完整性 | 只有 `message_stop` 才算完整；`error` 事件会让本次尝试失败 | `provider/anthropic/client.go` `readStream`、`wire.go:634`；`TestStreamWithoutMessageStopIsAvailability` |
 | 流被切断时的工具调用 | 不会执行任何一个：`readStream` 在调用 `builder.result()` 之前就返回 `errStreamCut`，loop 收不到这些调用 | 同上 |
-| `length` 且含 `tool_calls` | run 继续。参数是完整 JSON 对象的调用会执行（对象的前缀不可能也是合法对象）；参数被截断的调用返回 invalid-argument 错误，不执行。**发现的缺陷：** 如果截断正好发生在最后一个调用的名称之后、第一个参数字节之前，适配器会把空参数补成 `{}`，这个调用就像一个完整的无参调用一样被执行。已修复为：`length` 结束时，最后一个调用没有参数就返回工具错误（`50aa96d`）。同一个无参调用在 `stop` 下照常执行 | `TestOutputLimitReplyWithToolCallsRunsOnlyFinishedCalls`（3 组），在 `ff19b89` 的 loop 上 `cut_before_the_first_argument` 失败，在 `50aa96d` 上通过 |
+| `length` 且含 `tool_calls` | **（已被 §10 推翻）** run 继续。参数是完整 JSON 对象的调用会执行（对象的前缀不可能也是合法对象）；参数被截断的调用返回 invalid-argument 错误，不执行。**发现的缺陷：** 如果截断正好发生在最后一个调用的名称之后、第一个参数字节之前，适配器会把空参数补成 `{}`，这个调用就像一个完整的无参调用一样被执行。已修复为：`length` 结束时，最后一个调用没有参数就返回工具错误（`50aa96d`）。同一个无参调用在 `stop` 下照常执行。「完整对象 = 已写完」这个前提只在参数是模型原始输出时成立 | `TestOutputLimitReplyWithToolCallsRunsOnlyFinishedCalls`（3 组），在 `ff19b89` 的 loop 上 `cut_before_the_first_argument` 失败，在 `50aa96d` 上通过 |
 | Provider 重试会不会重复执行 Shell / 文件修改 | 不会。重试（`Complete` 内最多 2 次，以及 Core 的 failover）都发生在拿到响应之前；工具只在响应写入 transcript（`AppendAnswered`）之后执行，每个 call ID 在一个 step 里最多执行一次 | `provider/openai/client.go:159-194`、`internal/agent/loop.go`（`send` → `AppendAnswered` → 工具循环） |
 | 已成功的工具结果会不会因为重试被重复提交 | 不会。重试只重发模型请求，不重新写工具结果；transcript 中出现重复结果会被 `window.Groups` 判为 `ErrUnpaired`，run 以 `transcript_unpaired` 失败，而不是带着重复结果继续 | `internal/window/window.go:64-98`、`loop.go:206-209` |
-| 工具执行途中崩溃 | 下一次 run 不会自动重放这个调用：没有结果的调用会导致 transcript 配对失败（`transcript_unpaired`）。执行记录用 `unknown` 表示「可能已经生效」。这是 R1a 已有的语义，本轮没有改 | `internal/agent/execution.go` `postExecution` |
+| 工具执行途中崩溃 | 下一次 run 不会自动重放这个调用。**（更正，§10）** 不是 `transcript_unpaired`：`Reconcile` 为没有结果的调用补写 `tool_interrupted` 结果，并把已登记的执行标为 `outcome_unknown`，调用不会再次执行。这是 R1a 已有的语义，本轮没有改 | `internal/session/reconcile.go:24-35`、`:98-123`；`internal/agent/execution.go` `postExecution` |
 | `interrupted/output_limit` 会不会被改成 `completed` | 不会。只有 loop 在接受最终答案时写 `completed`（`loop.go` 中唯一的 `StatusCompleted` 退出）；stale 恢复只处理 `running` 行；`runtime/session_import.go` 的 `completed` 只用于导入外部会话。用户在 Desktop 里「继续」一个 interrupted 会话会开始新的 run，新 run 自己完成，这是正常转换 | `grep StatusCompleted`、`exit_test.go` |
 
 没有加入任何针对 DeepSeek、DSML 或 Benchmark 的规则：判断只依据协议的结束标记、规范化后的 `length`，以及参数是不是完整的 JSON 对象。
@@ -238,3 +242,76 @@ job、二进制、>1 MB 的快照）的哈希。
 CHECKS-002 修复链（独立复审 `FIX_REVIEW.md` Addendum C：`VERDICT=PASS` @ `4e35447`；`e562be1` 只改注释）。
 G-R1a=PASS 对应的是 `4968ea8`，不覆盖合并后的提交；本轮修复只经过作者审查，没有非作者审查。合并 SHA 和验证结果
 见 `TODO.md` 中的 LOOP-001 / PROVIDER-005。未推送，未打 tag，未合入 `main`。
+
+## 10. 独立审查与整改（2026-10-31）
+
+范围：`cog/r1a@bf6748a` 相对 `4968ea8` 的全部变更（含合并带入的 CHECKS-002 修复链、`1e16a52`）。没有发起任何模型请求或
+Benchmark。
+
+### 10.1 审查人
+
+新上下文的 `reviewer` 子代理，不是实现者，没有看到实现会话的对话历史；按要求优先尝试了与实现者不同的模型
+（`gpt-6.1-sol`），该模型所在的账户池全部限流（429），改用新上下文的 Claude Opus 完成。Owner 已澄清 Gate 只要求
+独立性（非作者、新上下文）和可复现证据，不要求特定模型（`OWNER_DECISIONS_R2_O6_20261026.md`）。审查人的探针都是
+临时 `zz_review_*_test.go`，用 `httptest` 模拟协议，结束后已删除。
+
+### 10.2 发现与处理
+
+| ID | 级别 | 发现（审查人复现） | 处理 |
+|---|---|---|---|
+| R1 | P1 | DeepSeek 文档定义的 `finish_reason` `insufficient_system_resource`、`aborted` 表示生成被中断；任何非空 `finish_reason` 都让流算作完整，被中断的文本以 `completed` 结束，其中的工具调用被执行 | `f4a2c58`：流式和非流式都按 availability 错误处理并重试 |
+| R2 | P1 | `length` 时，最后一个调用只要参数能解析成完整 JSON 对象就会执行。DeepSeek DSML 的参数由服务端拼装并自动闭合，Anthropic 非流式返回的是已解析的 `input`，所以「完整对象」不能证明调用已写完 | `ecd6a92`：按位置拒绝最后一个调用 |
+| R3 | P2 | `ff19b89` 让 `output_limit` 在完成门禁纠正之前就结束 run：有未完成 work unit 时，基线会纠正并继续，`bf6748a` 直接结束 | `ecd6a92`：只在本来会 `completed` 时以 `output_limit` 结束；空内容的截断回复仍直接 `output_limit`（基线在这里也是直接结束：`empty_response`） |
+| R4 | P2 | schema 文件用 `os.ReadFile` 直接读取，没有工作区内、普通文件、大小检查：一个 FIFO 会让所有门禁、`SessionChecks`、`CheckApprovalState` 阻塞 | `4bd4b02`：与 `fileDigest` 共用 `regularFileInside`，最多读 1 MiB |
+| R5 | P3 | `$ref` 超过 64 个时，map 顺序决定绑定哪些文件，文件不变也会得到不同的 `SetDigest`；单个文件的引用还能让上限被超过（实测 86 个） | `4bd4b02`：排序遍历，严格 64 个 |
+| R6 | P3 | here-doc 正文里的脚本名被当作输入（失败方向是拒绝，不是绕过） | 未修改，记入 `TODO.md` |
+| R7 | P3 | `50aa96d` 按 call ID 匹配最后一个调用：空 ID 让拒绝失效，重复 ID 会拒绝错的调用 | `ecd6a92` 改为按位置，随 R2 消除 |
+| K1 | P2 风险 | 只有 `[DONE]`、没有 `finish_reason` 的流被接受；本地 sub2api 在切断后不会补 `[DONE]`，其他网关会不会补是 [INFERENCE] | 未修改：OpenAI 规范总在 `[DONE]` 之前发 `finish_reason`，但有的兼容服务不发，收紧会把它们全部变成错误；记入 `TODO.md` |
+| K2/K3 | P3 | Windows 路径形式的解释器不绑定输入；`stdbuf -o L` 不绑定（FIX_REVIEW N3 已记录） | 未修改，记入 `TODO.md` |
+
+另有两处我在 §9.1 中的结论被审查推翻或更正（已在原行标注）：`length` 下完整对象可执行（R2），以及工具执行中崩溃的
+处理（`Reconcile` 补写 `tool_interrupted`，不是 `transcript_unpaired`）。
+
+### 10.3 `output_limit` 下的工具调用语义
+
+需要修改，已修改（`ecd6a92`）：`length` 结束时，最后一个调用无论参数是否完整都不执行，返回工具错误让模型重发；它之前的
+调用已经写完（生成已经进入下一个调用），照常执行。没有改成「拒绝全部调用」：这只在 provider 交错输出并行调用时才有必要，
+适配器按 index 组装、按顺序输出，拒绝全部只会让每次撞到上限的 run 都没有进展。`stop` 下不变。
+
+### 10.4 先失败后通过
+
+| 测试 | 修复前生产代码 | 修复后 |
+|---|---|---|
+| `provider/openai` `TestTruncatedStreamIsAvailability/insufficient_system_resource`、`/aborted` | FAIL（`c45f681` 的 `wire.go`） | ok |
+| `provider/openai` `TestInterruptedFinishWithoutStreamingIsAvailability`（2 组） | FAIL | ok |
+| `internal/agent` `TestOutputLimitReplyWithToolCallsRunsOnlyFinishedCalls/whole_object_closed_by_the_server` | FAIL：`ran ["ls" "rm -rf /tmp/bu"]` | ok |
+| `internal/agent` `TestOutputLimitReplyKeepsTheCompletionGateCorrection` | FAIL：1 次请求即 `output_limit` | ok：2 次请求、2 条纠正、`max_steps` |
+| `internal/evaluator` `TestSchemaFilesAreBoundedAndDeterministic` | FAIL：86 个输入 | ok |
+| `internal/evaluator` `TestSchemaFIFOIsNotRead`（unix） | FAIL：5 s 后仍阻塞 | ok |
+
+门禁（`cog/harness-fix@8b32898`，生产代码与合并后的 `cog/r1a` 相同）：`gofmt -l` 改动文件无输出；`go build ./...`、
+`go vet ./...` exit 0；`go test -count=1 ./...` exit 0；`go test -race -count=1 ./provider/... ./internal/agent/
+./internal/evaluator/ ./runtime/ ./protocol/` exit 0；`GOOS=windows GOARCH=amd64 go build ./...` 与 `go vet
+./internal/evaluator/` ok。
+
+### 10.5 Desktop（DESKTOP-R1A-001）
+
+5 个失败都不是 Core 回归，在 Core `main@3e1c3cc`（T0-S1）上已失败 1 个、在 `4968ea8` 上 5 个全部失败，`bf6748a` 未改变：
+
+| 测试 | 错误 | 根因 | 分类 |
+|---|---|---|---|
+| `TestOpenWorkspaceRefusesNewerSchemaWithCoreSentinel` | `open <workspace>/.lumencortex/lumencortex.db: no such file or directory` | T0-S1 把状态库移到 `$XDG_STATE_HOME/lumencortex/workspaces/<key>`；测试写死了旧位置 | 测试预期过时（Core 已批准的接口变更） |
+| `TestAcceptRecordsAHumanResultAtTheCurrentFingerprint` | `check definition is not approved` | ADR-0017：检查定义经用户批准才生效；Desktop 没有批准入口 | 接口变更，Desktop 缺适配 |
+| `TestAcceptOutsideGitIsRefused` | 期望 `ErrNoFingerprint`，得到 `ErrSpecUnapproved` | 同上：批准检查先于指纹检查 | 同上 |
+| `TestCheckResultsPageAndArtifactsReadAsText` | `results=[]` | 同上：未批准的检查不运行，没有结果 | 同上 |
+| `TestDelegationGrantProposalStartAndDelivery` | 子任务 `interrupted` / `max_steps` | 同上：子任务的必需检查永远不能满足，一直被纠正到步数用完 | 同上 |
+
+修复在 Desktop 分支 `cog/t7-s0-r1a`（不进 `main`）：
+
+- `fbf8fc1`（与 v0.1.4 兼容）：测试隔离 `XDG_STATE_HOME`（原先未隔离，会读开发者环境的状态目录）；schema 测试改为在
+  Core 实际放置的位置找到唯一的状态库，旧位置和外部位置都接受。断言不变。在固定的 v0.1.4 上全部通过。
+- `06e368c`（只适用于 R1a）：`Runtime.CheckApprovalState`、`Runtime.ApproveChecks` 直通 Core；检查测试的夹具像用户一样批准
+  当前检查集合，4 个测试的断言不变；新增 `TestChecksCountOnlyAfterTheUserApprovesTheShownSet` 固定未批准和过期摘要的拒绝。
+  `go.mod` 用 `replace` 指向 `../../wt/core-r1a`（执行计划 T7-S0 允许的开发期做法），没有 Wails/UI 暴露（属于 T7-S1）。
+
+Desktop `main` 仍固定 Core `v0.1.4`，没有改动。
