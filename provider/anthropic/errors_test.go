@@ -276,3 +276,99 @@ func TestErrorsNeverContainTheKey(t *testing.T) {
 		t.Fatalf("the echoed key was not redacted: %v", err)
 	}
 }
+
+// stop_reason "refusal" is a safety classifier that declined the reply, possibly after part of it
+// streamed: the reply is not one, streaming or not, so nothing it holds is returned, a tool call
+// included. A retry of the same request would meet it again, so it is a bad request and not retried.
+func TestWithheldReplyIsNotAResponse(t *testing.T) {
+	cases := map[string]struct {
+		stream bool
+		body   string
+	}{
+		"stream": {true, sseEvents(
+			`{"type":"message_start","message":{"usage":{"input_tokens":3}}}`,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Sure, "}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"t1","name":"shell","input":{}}}`,
+			`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"x\"}"}}`,
+			`{"type":"content_block_stop","index":1}`,
+			`{"type":"message_delta","delta":{"stop_reason":"refusal"},"usage":{"output_tokens":5}}`,
+			`{"type":"message_stop"}`)},
+		"non-stream": {false, `{"content":[{"type":"text","text":"Sure, "},{"type":"tool_use","id":"t1","name":"shell","input":{"command":"x"}}],"stop_reason":"refusal","usage":{"input_tokens":3,"output_tokens":5}}`},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var hits atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				if c.stream {
+					w.Header().Set("Content-Type", "text/event-stream")
+				}
+				fmt.Fprint(w, c.body)
+			}))
+			defer server.Close()
+			client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: !c.stream, MaxRetries: 2, RetryBaseDelay: time.Millisecond})
+			resp, err := client.Complete(context.Background(), request())
+			if err == nil {
+				t.Fatalf("a refused reply was returned as a response: %+v", resp.Message)
+			}
+			if pe := providerError(t, err); pe.Class != protocol.ClassBadRequest || !strings.Contains(err.Error(), "refusal") {
+				t.Fatalf("class=%s err=%v", pe.Class, err)
+			}
+			if hits.Load() != 1 {
+				t.Fatalf("attempts=%d, want 1 (a refused reply is not retried)", hits.Load())
+			}
+		})
+	}
+}
+
+// A tool_use block with no input is the empty object only after a reply the model ended itself
+// (end_turn, tool_use, stop_sequence); after max_tokens, a cut at the context window or a stop reason
+// the adapter does not know, it is an empty JSON string, which the loop never runs.
+func TestMissingInputIsAnObjectOnlyAfterANormalStop(t *testing.T) {
+	cases := map[string]string{
+		"tool_use":                      `{}`,
+		"end_turn":                      `{}`,
+		"max_tokens":                    `""`,
+		"model_context_window_exceeded": `""`,
+		"brand_new_reason":              `""`,
+	}
+	for reason, want := range cases {
+		for _, stream := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/stream=%v", reason, stream), func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if stream {
+						w.Header().Set("Content-Type", "text/event-stream")
+						fmt.Fprint(w, sseEvents(
+							`{"type":"message_start","message":{"usage":{"input_tokens":3}}}`,
+							`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t1","name":"shell","input":{}}}`,
+							`{"type":"content_block_stop","index":0}`,
+							`{"type":"message_delta","delta":{"stop_reason":"`+reason+`"},"usage":{"output_tokens":5}}`,
+							`{"type":"message_stop"}`))
+						return
+					}
+					fmt.Fprintf(w, `{"content":[{"type":"tool_use","id":"t1","name":"shell"}],"stop_reason":%q,"usage":{"input_tokens":3,"output_tokens":5}}`, reason)
+				}))
+				defer server.Close()
+				client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: !stream, DisableRetries: true})
+				resp, err := client.Complete(context.Background(), request())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(resp.Message.ToolCalls) != 1 || string(resp.Message.ToolCalls[0].Arguments) != want {
+					t.Fatalf("tool calls = %+v, want arguments %s", resp.Message.ToolCalls, want)
+				}
+			})
+		}
+	}
+}
+
+// sseEvents frames each event as one SSE data line.
+func sseEvents(events ...string) string {
+	var out strings.Builder
+	for _, event := range events {
+		out.WriteString("data: " + event + "\n\n")
+	}
+	return out.String()
+}

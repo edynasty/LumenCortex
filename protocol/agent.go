@@ -105,8 +105,21 @@ type ProviderRequest struct {
 }
 
 // FinishLength is the FinishReason of a reply the provider cut at its output token limit (OpenAI
-// "length", Anthropic "max_tokens"): what it holds is unfinished.
+// "length", Anthropic "max_tokens" and "model_context_window_exceeded"): what it holds is unfinished.
 const FinishLength = "length"
+
+// MissingArguments is what an adapter stores for a tool call that arrived with no arguments at all.
+// Some servers send nothing for an argumentless call, so after a reply the model ended itself
+// (finish "stop" or "tool_calls"; OpenAI's legacy "function_call") it is the empty object. After any
+// other finish, or none, nothing shows the call was finished, so it is an empty JSON string: not an
+// object, so the loop answers the call with a tool error and never runs it.
+func MissingArguments(finish string) json.RawMessage {
+	switch finish {
+	case "stop", "tool_calls", "function_call":
+		return json.RawMessage("{}")
+	}
+	return json.RawMessage(`""`)
+}
 
 type ProviderResponse struct {
 	Message      Message `json:"message"`

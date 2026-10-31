@@ -164,15 +164,17 @@ func TestResponseToProtocol(t *testing.T) {
 	}
 }
 
+// A reply cut at the context window is unfinished like one cut at max_tokens; refusal is not a finish
+// at all (TestWithheldReplyIsNotAResponse).
 func TestStopReasonMapping(t *testing.T) {
 	cases := map[string]string{
-		"end_turn":      "stop",
-		"stop_sequence": "stop",
-		"refusal":       "stop",
-		"tool_use":      "tool_calls",
-		"max_tokens":    "length",
-		"":              "",
-		"model_turn":    "model_turn",
+		"end_turn":                      "stop",
+		"stop_sequence":                 "stop",
+		"tool_use":                      "tool_calls",
+		"max_tokens":                    "length",
+		"model_context_window_exceeded": "length",
+		"":                              "",
+		"model_turn":                    "model_turn",
 	}
 	for in, want := range cases {
 		if got := mapStopReason(in); got != want {
