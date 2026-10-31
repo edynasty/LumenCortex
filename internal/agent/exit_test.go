@@ -631,18 +631,23 @@ func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.
 }
 
 // A reply cut at the output limit that still holds tool calls is not an exit (output_limit applies only
-// without a call): a call whose arguments are a whole JSON object was finished before the cut and runs;
-// the last call, when the limit cut its arguments or left it with none (the adapters turn an empty
-// argument string into {}), is answered with a tool error and never runs, and the run continues. The same
-// argumentless call under a stop finish runs.
+// without a call): calls before the last were finished before the cut and run; the last call is the one
+// being written when the limit cut the reply and is answered with a tool error, whatever its arguments
+// (servers that parse the model's own call format close the JSON object themselves), and the run
+// continues. When MaxToolCallsPerStep drops the tail, every call kept was finished and runs. Under a
+// stop finish the last call runs, an argumentless one too.
 func TestOutputLimitReplyWithToolCallsRunsOnlyFinishedCalls(t *testing.T) {
 	cases := []struct {
 		name, finish, lastArgs string
+		maxCalls               int
 		wantRan                []string
 	}{
-		{"arguments cut", protocol.FinishLength, `{"command":"rm -rf /tmp/x && ec`, []string{"ls"}},
-		{"cut before the first argument", protocol.FinishLength, `{}`, []string{"ls"}},
-		{"no arguments under stop", "stop", `{}`, []string{"ls", ""}},
+		{"arguments cut", protocol.FinishLength, `{"command":"rm -rf /tmp/x && ec`, 0, []string{"ls"}},
+		{"cut before the first argument", protocol.FinishLength, `{}`, 0, []string{"ls"}},
+		{"whole object closed by the server", protocol.FinishLength, `{"command":"rm -rf /tmp/bu"}`, 0, []string{"ls"}},
+		{"cut call deferred by the step limit", protocol.FinishLength, `{"command":"pwd"}`, 2, []string{"ls", "pwd"}},
+		{"no arguments under stop", "stop", `{}`, 0, []string{"ls", ""}},
+		{"whole object under stop", "stop", `{"command":"pwd"}`, 0, []string{"ls", "pwd"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -655,14 +660,16 @@ func TestOutputLimitReplyWithToolCallsRunsOnlyFinishedCalls(t *testing.T) {
 			}}
 			provider := &funcProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 				if n == 1 {
-					return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
-						call("whole", "shell", `{"command":"ls"}`),
-						call("last", "shell", tc.lastArgs),
-					}}, FinishReason: tc.finish}, nil
+					calls := []protocol.ToolCall{call("whole", "shell", `{"command":"ls"}`), call("last", "shell", tc.lastArgs)}
+					if tc.maxCalls > 0 {
+						calls = append(calls, call("tail", "shell", `{"command":"rm -rf /tmp/t`))
+					}
+					return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: calls}, FinishReason: tc.finish}, nil
 				}
 				return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}, nil
 			}}
-			result, err := (&Loop{Models: testModels(provider), Store: store, Tools: tools}).Run(context.Background(), "lt", Options{Session: testRef, MaxSteps: 3})
+			opts := Options{Session: testRef, MaxSteps: 3, MaxToolCallsPerStep: tc.maxCalls}
+			result, err := (&Loop{Models: testModels(provider), Store: store, Tools: tools}).Run(context.Background(), "lt", opts)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -671,11 +678,35 @@ func TestOutputLimitReplyWithToolCallsRunsOnlyFinishedCalls(t *testing.T) {
 				t.Fatalf("ran %q, want %q", ran, tc.wantRan)
 			}
 			// goal, assistant calls, two tool answers, final answer
-			refused := strings.Contains(store.messages[3].Content, "invalid tool arguments")
+			refused := strings.Contains(store.messages[3].Content, "reached the output token limit while this call was being written")
 			if len(store.messages) != 5 || store.messages[3].ToolCallID != "last" || refused != (len(tc.wantRan) == 1) {
 				t.Fatalf("messages = %+v", store.messages)
 			}
 		})
+	}
+}
+
+// A reply without a tool call cut at the output limit ends the run output_limit only where it would have
+// completed it: a completion-gate correction (here an open work unit) still applies and the run goes on,
+// as it did before output_limit existed.
+func TestOutputLimitReplyKeepsTheCompletionGateCorrection(t *testing.T) {
+	store := newState("lg")
+	store.seed(t, nil, []byte(`{"workUnits":[{"id":"fix","goal":"fix the bug"}]}`))
+	provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+		return protocol.ProviderResponse{Message: protocol.Message{Content: "I think the fix is"}, FinishReason: protocol.FinishLength}, nil
+	}}
+	result, _ := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "lg", Options{Session: testRef, MaxSteps: 2})
+	if result.Status != StatusInterrupted || store.cause["kind"] != KindMaxSteps {
+		t.Fatalf("result = %+v cause %v, want interrupted/max_steps after corrections", result, store.cause)
+	}
+	blocked := 0
+	for _, m := range store.messages {
+		if m.Origin == protocol.OriginCompletionBlocked && strings.Contains(m.Content, "fix") {
+			blocked++
+		}
+	}
+	if provider.n != 2 || blocked != 2 {
+		t.Fatalf("requests %d, correction rows %d; want 2 and 2", provider.n, blocked)
 	}
 }
 
