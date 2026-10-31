@@ -7,7 +7,7 @@ in the Core binary it uploads and in the X-Exp-Tag arm prefix.
     PYTHONPATH=bench/adapters harbor run --agent lcx_eval:LcxPost ...
 Binaries (static linux/amd64 in bench/build/bin, built from an exact commit, never a dirty tree):
     lcx-go-Aplus  Core 4968ea8, the W13 A+ binary itself (reused, not rebuilt)
-    lcx-go-post   Core 50aa96d (cog/harness-fix merged into cog/r1a: da9c5bd cut streams, ff19b89 output_limit, 50aa96d argumentless last call); plan §3.2
+    lcx-go-post   Core cog/r1a at the G-R1a=PASS commit, code tree 16d94f0 (cut streams, output_limit, interrupted/withheld finishes, last call refused under length, missing arguments, bounded check inputs); plan §3.2
 """
 
 from lcx_agent import _Lcx
