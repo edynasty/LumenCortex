@@ -450,24 +450,36 @@ func ResolveInputs(workspace string, specs []Spec) []Spec {
 	return specs
 }
 
+// maxSchemaFiles and maxSchemaBytes bound the schema files a check definition binds and how much of
+// each is read to follow its references.
+const (
+	maxSchemaFiles = 64
+	maxSchemaBytes = 1 << 20
+)
+
 // schemaFiles is the schema file and, transitively, the files it references by a relative $ref
-// (a URI without a scheme; the fragment is dropped), at most 64 of them.
+// (a URI without a scheme; the fragment is dropped), at most maxSchemaFiles of them, visited in a
+// fixed order so the same files always yield the same list. A file is read only when it is a regular
+// file inside root, and only up to maxSchemaBytes; a larger one is bound but its references are not
+// followed.
 func schemaFiles(root, schema string) []string {
 	rel, ok := relativeTo(root, schema)
 	if !ok {
 		return []string{schema}
 	}
 	out := []string{rel}
-	for i := 0; i < len(out) && len(out) < 64; i++ {
-		raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(out[i])))
-		if err != nil {
+	for i := 0; i < len(out) && len(out) < maxSchemaFiles; i++ {
+		raw, ok := readSchemaFile(root, out[i])
+		if !ok {
 			continue
 		}
 		var doc any
 		if json.Unmarshal(raw, &doc) != nil {
 			continue
 		}
-		for _, ref := range schemaRefs(doc, nil) {
+		refs := schemaRefs(doc, nil)
+		slices.Sort(refs)
+		for _, ref := range refs {
 			if j := strings.IndexByte(ref, '#'); j >= 0 {
 				ref = ref[:j]
 			}
@@ -475,11 +487,32 @@ func schemaFiles(root, schema string) []string {
 				continue
 			}
 			if r, ok := relativeTo(root, path.Join(path.Dir(out[i]), ref)); ok && !slices.Contains(out, r) {
+				if len(out) == maxSchemaFiles {
+					break
+				}
 				out = append(out, r)
 			}
 		}
 	}
 	return out
+}
+
+// readSchemaFile reads rel under root when it is a regular file inside root of at most maxSchemaBytes.
+func readSchemaFile(root, rel string) ([]byte, bool) {
+	resolved, ok := regularFileInside(root, rel)
+	if !ok {
+		return nil, false
+	}
+	f, err := os.Open(resolved)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, maxSchemaBytes+1))
+	if err != nil || len(raw) > maxSchemaBytes {
+		return nil, false
+	}
+	return raw, true
 }
 
 func schemaRefs(v any, out []string) []string {
@@ -546,18 +579,28 @@ func relativeTo(root, p string) (string, bool) {
 	return filepath.ToSlash(p), true
 }
 
-// fileDigest is the content digest of rel under root, or AbsentInput when it is not a regular file
-// that resolves inside root.
-func fileDigest(root, rel string) string {
+// regularFileInside resolves rel under root and reports the path when it is a regular file that
+// resolves inside root.
+func regularFileInside(root, rel string) (string, bool) {
 	resolved, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(rel)))
 	if err != nil {
-		return AbsentInput
+		return "", false
 	}
 	if r, err := filepath.Rel(root, resolved); err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
-		return AbsentInput
+		return "", false
 	}
 	info, err := os.Stat(resolved)
 	if err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	return resolved, true
+}
+
+// fileDigest is the content digest of rel under root, or AbsentInput when it is not a regular file
+// that resolves inside root.
+func fileDigest(root, rel string) string {
+	resolved, ok := regularFileInside(root, rel)
+	if !ok {
 		return AbsentInput
 	}
 	f, err := os.Open(resolved)
