@@ -420,3 +420,91 @@ func TestFromModelUsesResolvedSettings(t *testing.T) {
 	}
 	_ = gotModel
 }
+
+// content_filter withholds the output ("content was omitted due to a flag from our content filters"):
+// the reply is not one, streaming or not, so nothing it holds is returned, a tool call included. A retry
+// of the same request would meet the filter again, so it is a bad request and is not retried.
+func TestWithheldReplyIsNotAResponse(t *testing.T) {
+	call := `{"id":"c1","type":"function","function":{"name":"shell","arguments":""}}`
+	cases := map[string]struct {
+		stream bool
+		body   string
+	}{
+		"stream":     {true, `data: {"choices":[{"delta":{"content":"The fix is","tool_calls":[{"index":0,` + call[1:] + `]},"finish_reason":"content_filter"}]}` + "\n\ndata: [DONE]\n\n"},
+		"non-stream": {false, `{"choices":[{"message":{"role":"assistant","content":"The fix is","tool_calls":[` + call + `]},"finish_reason":"content_filter"}]}`},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var hits atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				if c.stream {
+					w.Header().Set("Content-Type", "text/event-stream")
+				}
+				fmt.Fprint(w, c.body)
+			}))
+			defer server.Close()
+			client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: !c.stream, MaxRetries: 2, RetryBaseDelay: time.Millisecond})
+			resp, err := client.Complete(context.Background(), request())
+			if err == nil {
+				t.Fatalf("a withheld reply was returned as a response: %+v", resp.Message)
+			}
+			if pe := providerError(t, err); pe.Class != protocol.ClassBadRequest || !strings.Contains(err.Error(), "content_filter") {
+				t.Fatalf("class=%s err=%v", pe.Class, err)
+			}
+			if hits.Load() != 1 {
+				t.Fatalf("attempts=%d, want 1 (a withheld reply is not retried)", hits.Load())
+			}
+		})
+	}
+}
+
+// A tool call that arrived with no arguments is the empty object only after a reply the model ended
+// itself (stop, tool_calls); after a length finish, or a stream that ended at [DONE] without any
+// finish_reason, nothing shows the call was finished, and it is an empty JSON string, which the loop
+// answers with a tool error instead of running. Arguments that did arrive are kept as sent.
+func TestMissingArgumentsAreAnObjectOnlyAfterANormalFinish(t *testing.T) {
+	nameOnly := `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"shell","arguments":""}}]}}]}`
+	finish := func(reason string) string {
+		return `{"choices":[{"delta":{},"finish_reason":"` + reason + `"}]}`
+	}
+	cases := []struct {
+		name, finish string // finish "" streams [DONE] without a finish_reason
+		want         string
+	}{
+		{"tool_calls", "tool_calls", `{}`},
+		{"stop", "stop", `{}`},
+		{"length", "length", `""`},
+		{"[DONE] without finish_reason", "", `""`},
+	}
+	for _, c := range cases {
+		for _, stream := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/stream=%v", c.name, stream), func(t *testing.T) {
+				if !stream && c.finish == "" {
+					t.Skip("a non-streaming response has no [DONE]")
+				}
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if stream {
+						w.Header().Set("Content-Type", "text/event-stream")
+						fmt.Fprint(w, "data: "+nameOnly+"\n\n")
+						if c.finish != "" {
+							fmt.Fprint(w, "data: "+finish(c.finish)+"\n\n")
+						}
+						fmt.Fprint(w, "data: [DONE]\n\n")
+						return
+					}
+					fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"shell","arguments":""}}]},"finish_reason":%q}]}`, c.finish)
+				}))
+				defer server.Close()
+				client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: !stream, DisableRetries: true})
+				resp, err := client.Complete(context.Background(), request())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(resp.Message.ToolCalls) != 1 || string(resp.Message.ToolCalls[0].Arguments) != c.want {
+					t.Fatalf("tool calls = %+v, want arguments %s", resp.Message.ToolCalls, c.want)
+				}
+			})
+		}
+	}
+}

@@ -119,13 +119,17 @@ func (e *streamError) Error() string {
 // closed mid-response, and the tool calls received so far may be incomplete or missing.
 var errStreamCut = errors.New("provider stream ended before a finish_reason or [DONE]")
 
-// interruptedFinish reports a finish_reason by which the provider says it interrupted the generation
-// (DeepSeek: insufficient_system_resource, aborted). Such a reply is incomplete like a cut stream, so it
-// is an availability error and the attempt is retried; its content and tool calls are never returned.
-func interruptedFinish(reason string) error {
+// finishError reports a finish_reason after which the reply is not one: the provider interrupted the
+// generation (DeepSeek: insufficient_system_resource, aborted), which is incomplete like a cut stream,
+// so an availability error that is retried; or it withheld the output (content_filter: "content was
+// omitted due to a flag from our content filters"), which a retry of the same request would meet
+// again, so a bad request. Either way the content and tool calls are never returned.
+func finishError(reason string) error {
 	switch reason {
 	case "insufficient_system_resource", "aborted":
 		return fmt.Errorf("provider interrupted the generation (finish_reason %s)", reason)
+	case "content_filter":
+		return &badRequestError{fmt.Errorf("provider withheld the reply (finish_reason %s)", reason)}
 	}
 	return nil
 }
@@ -223,10 +227,10 @@ func (r chatResponse) toProtocol(echo string) (protocol.ProviderResponse, error)
 	if len(r.Choices) == 0 {
 		return protocol.ProviderResponse{}, errors.New("provider response contained no choices")
 	}
-	if err := interruptedFinish(r.Choices[0].FinishReason); err != nil {
+	if err := finishError(r.Choices[0].FinishReason); err != nil {
 		return protocol.ProviderResponse{}, err
 	}
-	message, err := r.Choices[0].Message.toProtocol()
+	message, err := r.Choices[0].Message.toProtocol(r.Choices[0].FinishReason)
 	if err != nil {
 		return protocol.ProviderResponse{}, err
 	}
@@ -242,18 +246,18 @@ func (r chatResponse) toProtocol(echo string) (protocol.ProviderResponse, error)
 	}, nil
 }
 
-func (m wireMessage) toProtocol() (protocol.Message, error) {
+func (m wireMessage) toProtocol(finish string) (protocol.Message, error) {
 	out := protocol.Message{Role: m.Role, Content: m.Content, Name: m.Name, ToolCallID: m.ToolCallID}
 	for _, call := range m.ToolCalls {
 		if strings.TrimSpace(call.Function.Name) == "" {
 			return protocol.Message{}, errors.New("provider returned tool call without a function name")
 		}
-		args := strings.TrimSpace(call.Function.Arguments)
-		if args == "" {
-			args = "{}"
+		args := json.RawMessage(strings.TrimSpace(call.Function.Arguments))
+		if len(args) == 0 {
+			args = protocol.MissingArguments(finish)
 		}
 		out.ToolCalls = append(out.ToolCalls, protocol.ToolCall{
-			ID: call.ID, Name: call.Function.Name, Arguments: json.RawMessage(args),
+			ID: call.ID, Name: call.Function.Name, Arguments: args,
 		})
 	}
 	return out, nil
@@ -286,7 +290,7 @@ func (b *streamBuilder) apply(event streamResponse) error {
 	}
 	for _, choice := range event.Choices {
 		if choice.FinishReason != nil && *choice.FinishReason != "" {
-			if err := interruptedFinish(*choice.FinishReason); err != nil {
+			if err := finishError(*choice.FinishReason); err != nil {
 				return err
 			}
 			b.finishReason = *choice.FinishReason
@@ -354,12 +358,12 @@ func (b *streamBuilder) result(echo string) protocol.ProviderResponse {
 		sort.Ints(indexes)
 		for _, index := range indexes {
 			partial := b.toolCalls[index]
-			args := partial.arguments.String()
-			if strings.TrimSpace(args) == "" {
-				args = "{}"
+			args := json.RawMessage(partial.arguments.String())
+			if len(bytes.TrimSpace(args)) == 0 {
+				args = protocol.MissingArguments(b.finishReason)
 			}
 			message.ToolCalls = append(message.ToolCalls, protocol.ToolCall{
-				ID: partial.id, Name: partial.name.String(), Arguments: json.RawMessage(args),
+				ID: partial.id, Name: partial.name.String(), Arguments: args,
 			})
 		}
 	}

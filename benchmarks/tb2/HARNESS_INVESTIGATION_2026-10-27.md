@@ -315,3 +315,73 @@ Benchmark。
   `go.mod` 用 `replace` 指向 `../../wt/core-r1a`（执行计划 T7-S0 允许的开发期做法），没有 Wails/UI 暴露（属于 T7-S1）。
 
 Desktop `main` 仍固定 Core `v0.1.4`，没有改动。
+
+## 11. 协议安全边界收口（PROVIDER-007，2026-10-31）
+
+范围：§10 遗留的 K1、N2、`length` 下的并行/交错调用，以及 N1 测试缺口。只用本地协议模拟（`httptest` 驱动真实
+适配器 + 真实 Loop），没有发起任何模型请求或 Benchmark。
+
+### 11.1 修复前探针（`f032ad1` 的生产代码）
+
+临时探针 `internal/agent/zz_probe_test.go`（已删除）：真实 OpenAI/Anthropic 适配器 -> 真实 `Loop` -> 计数工具。
+
+| 场景 | 修复前 | 修复后 | 定性 |
+|---|---|---|---|
+| OpenAI 流只有 `[DONE]`、没有 `finish_reason`，调用只到名称、没有参数字节 | 以 `{}` 执行 | 拒绝（工具错误） | 需要网关在切断后补 `[DONE]`（本地 sub2api 不会）；补出的 `{}` 是适配器造的 |
+| 同上，参数是完整 JSON 对象 | 执行 | 执行（不变） | 合法：原始文本参数闭合说明模型已写完；见 11.3 |
+| `finish_reason=content_filter`（流式和非流式），带无参调用 | 以 `{}` 执行 | 不执行，run `failed/provider:bad_request` | OpenAI、DeepSeek 都文档化了该值：输出被过滤省略 |
+| `content_filter`，只有文本 | 被截断的文本作为 final，`completed` | 同上 | 不是执行风险，是正确性问题，一并收口 |
+| `length`，交错的两个调用，index 0 无参数 | index 0 以 `{}` 执行 | 拒绝 | 已知服务端都按顺序输出调用；理论风险 |
+| Anthropic `model_context_window_exceeded`，非流式，参数是闭合对象 | 执行 | 拒绝（按位置） | **实际风险**：官方文档说「按截断处理」，Sonnet 4.5 及更新模型不加 beta header 也会返回；`input` 由服务端解析闭合，与 §10 R2 同类 |
+| 同上，流式，没有 `input_json_delta` | 以 `{}` 执行 | 拒绝 | 同上 |
+| Anthropic `refusal`，带 `tool_use` | 执行 | 不执行，run `failed/provider:bad_request` | 安全分类器拒绝，可能在部分内容流出之后 |
+| Anthropic `refusal`，只有文本 | 部分文本作为 final，`completed` | 同上 | 正确性问题 |
+| Anthropic 未知 `stop_reason`，`tool_use` 无 `input` | 以 `{}` 执行 | 拒绝 | 未知值仍按原样透传（向前兼容）；只是不再替它补 `{}` |
+
+结论：存在未完整生成的工具调用被执行的路径，`model_context_window_exceeded` 是官方 API 会实际返回的值，
+因此 PROVIDER-007 定为 **P1** 并修复。
+
+### 11.2 修复（`295df1a`、`16d94f0`）
+
+| 改动 | 规则 |
+|---|---|
+| `protocol.MissingArguments` | 调用完全没有参数时，只有在服务端说明回复由模型自己结束（`stop`、`tool_calls`，旧版 `function_call`；Anthropic `end_turn`、`tool_use`、`stop_sequence`）时才存为 `{}`（有的服务端对无参调用什么都不发）；其他结束原因或没有结束原因时存为空 JSON 字符串 `""`，Loop 按「参数不是 JSON 对象」回工具错误，永不执行 |
+| OpenAI `finishError` | `content_filter` -> bad request（同一请求重试仍会被过滤，所以不重试）；`insufficient_system_resource`/`aborted` 仍是 availability |
+| Anthropic `stopError`、`mapStopReason` | `refusal` -> bad request（原来映射为 `stop`）；`model_context_window_exceeded` -> `length`，于是适用 LOOP-001 的全部规则（最后一个调用按位置拒绝；无调用回复以 `output_limit` 结束） |
+| `docs/agent-runtime.md` | 退出契约与参数规则同步 |
+
+没有改的合法差异：
+
+- `[DONE]` 没有 `finish_reason` 的流仍算完整：要求 `finish_reason` 会让不发它的兼容服务全部失败。只是这种流里的无参调用
+  不再被补成 `{}`。
+- 未知的 Anthropic `stop_reason` 仍透传，不当作错误：新增的合法值不应让所有 run 失败。
+- 无参调用在 `stop`/`tool_calls` 下照常执行；在 `length` 下，排在前面的合法无参调用也会被拒绝一次（模型可以重发），
+  这是为了覆盖交错输出，代价有限。
+- `content_filter`/`refusal` 用已有的 `provider:bad_request`，没有新增 exit kind，Desktop 已有对应文案。
+
+### 11.3 剩余风险（不修改）
+
+- 网关切断上游后补发 `[DONE]`，而服务端（例如解析 DSML 的服务端）已经闭合了一个被截断调用的 JSON：这个调用会执行。
+  需要「网关补 `[DONE]`」和「服务端替模型闭合 JSON」同时成立；本地路由上前者不成立。客户端无法区分，记录为残余风险。
+- `pause_turn`（服务端工具循环暂停）：LC 不发送服务端工具，不可达；如果出现，按未知值处理，无参调用不执行。
+
+### 11.4 先失败后通过
+
+- 新测试：`provider/openai` `TestWithheldReplyIsNotAResponse`、`TestMissingArgumentsAreAnObjectOnlyAfterANormalFinish`；
+  `provider/anthropic` `TestWithheldReplyIsNotAResponse`、`TestMissingInputIsAnObjectOnlyAfterANormalStop`、
+  `TestStopReasonMapping`（删除钉住旧映射的 `refusal -> stop` 一行，新增 `model_context_window_exceeded -> length`）。
+  在旧的生产代码（`protocol/agent.go`、两个 `wire.go` 换回 `9f4bebf`）上全部失败，修复后通过。
+- N1：`TestEveryExitPathStoresStatusAndCause` 新增「empty reply cut at the output limit」，断言 kind 为
+  `output_limit`。删除 `loop.go` 中空回复的 `output_limit` 分支（审查人的 M4c 变异）后该行失败，恢复后通过。
+  `TestInvalidToolArguments…` 新增 `""` 一行（适配器存的空字符串参数不执行）。
+- 门禁（`16d94f0`）：`gofmt -l`（改动文件）无输出；`go build ./...`、`go vet ./...` exit 0；`go test -count=1 ./...`
+  exit 0；`go test -race -count=1 ./provider/... ./internal/agent/ ./internal/evaluator/ ./runtime/ ./protocol/` exit 0；
+  `GOOS=windows GOARCH=amd64 go build ./...` ok。
+
+### 11.5 评测准备
+
+`LCpost` 不再绑定 `50aa96d`：方案 §3.1/§3.2 改为「带 G-R1a=PASS 的 `cog/r1a` 提交，代码树等于 `16d94f0`」，构建前用
+`git diff --quiet 16d94f0 <gated> -- . ':!docs' ':!benchmarks'` 核对；G1 增加 `harbor --version` = 0.25.0（当前安装即
+0.25.0）。评分规则、任务集、arm 列表和 W13 数据都没有改：`ARTIFACTS.sha256` 4,167 项 `shasum -c` 全部 OK。
+`PREREGISTRATION_TB2.sha256` 中 `PREREGISTRATION_TB2.md` 一项不匹配：该文件 2026-10-26 21:23 修改于哈希文件
+（20:57）之后，早于本系列工作，是 W13 之前的旧预注册；保持原样，不改写历史记录。

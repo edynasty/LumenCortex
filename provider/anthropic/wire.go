@@ -401,6 +401,10 @@ func (u responseUsage) toProtocol() protocol.Usage {
 // responseToProtocol converts one response: text blocks concatenate, tool_use blocks become tool
 // calls, thinking blocks become the response's Echo.
 func responseToProtocol(resp messagesResponse) (protocol.ProviderResponse, error) {
+	if err := stopError(resp.StopReason); err != nil {
+		return protocol.ProviderResponse{}, err
+	}
+	finish := mapStopReason(resp.StopReason)
 	message := protocol.Message{Role: "assistant"}
 	var thinking []json.RawMessage
 	for _, raw := range resp.Content {
@@ -427,7 +431,7 @@ func responseToProtocol(resp messagesResponse) (protocol.ProviderResponse, error
 			}
 			input := bytes.TrimSpace(block.Input)
 			if len(input) == 0 {
-				input = json.RawMessage("{}")
+				input = protocol.MissingArguments(finish)
 			}
 			message.ToolCalls = append(message.ToolCalls, protocol.ToolCall{ID: block.ID, Name: block.Name, Arguments: input})
 		case "thinking", "redacted_thinking":
@@ -436,20 +440,32 @@ func responseToProtocol(resp messagesResponse) (protocol.ProviderResponse, error
 	}
 	return protocol.ProviderResponse{
 		Message:      message,
-		FinishReason: mapStopReason(resp.StopReason),
+		FinishReason: finish,
 		Usage:        resp.Usage.toProtocol(),
 		Echo:         thinkingEcho(thinking),
 	}, nil
 }
 
+// stopError reports a stop reason after which the reply is not one: "refusal" is a safety classifier
+// that declined the reply, possibly after part of it streamed. A retry of the same request would meet
+// it again, so it is a bad request; the content and tool calls are never returned.
+func stopError(reason string) error {
+	if reason == "refusal" {
+		return &badRequestError{fmt.Errorf("provider withheld the reply (stop_reason %s)", reason)}
+	}
+	return nil
+}
+
 // mapStopReason maps an API stop reason onto the finish reasons the runtime records.
+// model_context_window_exceeded is a reply cut at the context window ("treat the response as
+// truncated"), so it is a length finish like max_tokens.
 func mapStopReason(reason string) string {
 	switch reason {
-	case "end_turn", "stop_sequence", "refusal":
+	case "end_turn", "stop_sequence":
 		return "stop"
 	case "tool_use":
 		return "tool_calls"
-	case "max_tokens":
+	case "max_tokens", "model_context_window_exceeded":
 		return protocol.FinishLength
 	case "":
 		return ""
@@ -644,6 +660,10 @@ func (b *streamBuilder) apply(event streamEvent) error {
 
 // result assembles the protocol response from the folded events.
 func (b *streamBuilder) result() (protocol.ProviderResponse, error) {
+	if err := stopError(b.stopReason); err != nil {
+		return protocol.ProviderResponse{}, err
+	}
+	finish := mapStopReason(b.stopReason)
 	indexes := make([]int, 0, len(b.blocks))
 	for index := range b.blocks {
 		indexes = append(indexes, index)
@@ -660,11 +680,11 @@ func (b *streamBuilder) result() (protocol.ProviderResponse, error) {
 			if strings.TrimSpace(block.name) == "" {
 				return protocol.ProviderResponse{}, errors.New("provider streamed a tool_use block without a name")
 			}
-			input := strings.TrimSpace(block.input.String())
-			if input == "" {
-				input = "{}"
+			input := json.RawMessage(strings.TrimSpace(block.input.String()))
+			if len(input) == 0 {
+				input = protocol.MissingArguments(finish)
 			}
-			message.ToolCalls = append(message.ToolCalls, protocol.ToolCall{ID: block.id, Name: block.name, Arguments: json.RawMessage(input)})
+			message.ToolCalls = append(message.ToolCalls, protocol.ToolCall{ID: block.id, Name: block.name, Arguments: input})
 		case "thinking":
 			// Reassembled to the non-streamed shape: the same fields the API sends in one block.
 			thinking = append(thinking, mustJSON(struct {
@@ -681,7 +701,7 @@ func (b *streamBuilder) result() (protocol.ProviderResponse, error) {
 	}
 	return protocol.ProviderResponse{
 		Message:      message,
-		FinishReason: mapStopReason(b.stopReason),
+		FinishReason: finish,
 		Usage:        b.usage.toProtocol(),
 		Echo:         thinkingEcho(thinking),
 	}, nil

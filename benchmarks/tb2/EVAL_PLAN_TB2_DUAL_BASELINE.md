@@ -42,7 +42,7 @@ threshold.
 
 | Arm | Agent import | Version pin | Requests attributed by |
 |---|---|---|---|
-| `LCpost` | `lcx_eval:LcxPost` | Core `50aa96d` (`cog/harness-fix`, merged into `cog/r1a`), binary `lcx-go-post` | `X-Exp-Tag: LCpost/<trial>` |
+| `LCpost` | `lcx_eval:LcxPost` | Core `cog/r1a` at the commit that carries G-R1a=PASS (code tree = `16d94f0`, §3.2), binary `lcx-go-post` | `X-Exp-Tag: LCpost/<trial>` |
 | `LCpre` | `lcx_eval:LcxPre` | Core `4968ea8`, the W13 binary `lcx-go-Aplus` | `X-Exp-Tag: LCpre/<trial>` |
 | `pi` | Harbor built-in `pi` | Pi 0.87.1 (`--ak version=0.87.1`) | proxy tag file `pi/<job>` + time window |
 | `opencode` | `opencode_local:OpenCodeLocal` | OpenCode 1.19.4 (offline binary, watcher off) | tag file + time window |
@@ -56,21 +56,29 @@ route is Chat Completions (Baseline B §5.7 #10).
 
 ### 3.2 Building `lcx-go-post` (before gate G1)
 
-From a clean tree at the exact commit, the same way as the W13 binaries (static linux/amd64):
+From a clean tree at the exact commit, the same way as the W13 binaries (static linux/amd64). `GATED` is the
+full SHA on line 1 of the newest `LumenCortex-Cognitive-Design-20261023/G_R1A_REREVIEW_*.md`
+(`G-R1a=PASS @ <sha>`); a commit without such a line is not an LCpost build:
 
 ```sh
 cd /Users/tangxingpeng/IdeaProjects/me/LumenCortex
-git -C LumenCortex-Core worktree add --detach /tmp/lcx-post 50aa96d
+GATED=<full SHA from the G-R1a line>
+git -C LumenCortex-Core diff --quiet 16d94f0 "$GATED" -- . ':!docs' ':!benchmarks'   # code tree = 16d94f0
+git -C LumenCortex-Core worktree add --detach /tmp/lcx-post "$GATED"
 (cd /tmp/lcx-post && test -z "$(git status --porcelain)" && \
   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o ../lcx-go-post ./cmd/lcx-go)
 mv /tmp/lcx-go-post bench/build/bin/lcx-go-post && shasum -a 256 bench/build/bin/lcx-go-post
 git -C LumenCortex-Core worktree remove /tmp/lcx-post
 ```
 
-`50aa96d` is the last code commit of `cog/harness-fix` (`da9c5bd` cut streams, `ff19b89` output_limit,
-`50aa96d` argumentless last call under output_limit). The branch was merged into `cog/r1a` with only
-documentation and `benchmarks/tb2/` added after it, so the merge builds the same binary; if code changes
-before the run, build from the new SHA and record it. The arm is defined by the commit, not by the branch name.
+`16d94f0` is the last code commit of `cog/harness-fix`: `da9c5bd` cut streams, `ff19b89` output_limit,
+`f4a2c58` interrupted finish reasons, `ecd6a92` last call refused by position under length (supersedes
+`50aa96d`), `4bd4b02` bounded check inputs, `295df1a` withheld replies and missing arguments
+(PROVIDER-007), `16d94f0` tests only. Everything committed after it on the way to the gated `cog/r1a`
+commit is documentation and `benchmarks/tb2/`, which the diff above checks, so the gated commit builds
+this code. If code changes before the run, the arm needs a new G-R1a and this section is updated. The arm
+is defined by the commit, not by the branch name; an earlier `lcx-go-post` (for example one built from
+`50aa96d`) is not this arm.
 
 ### 3.3 Fixed conditions (identical for every arm)
 
@@ -126,7 +134,7 @@ Taken from `run_w13.sh` / Baseline B §5.0; `bench/run_controlled.sh` encodes th
 | Gate | Check | Counts toward results? |
 |---|---|---|
 | G0 | Owner authorization (§8) recorded in a dated decision file | — |
-| G1 | `lcx-go-post` built per §3.2, sha256 recorded; `lcx-go-Aplus` sha256 equals the W13 record | — |
+| G1 | `lcx-go-post` built per §3.2 from the G-R1a=PASS commit (code-tree diff against `16d94f0` empty), sha256 recorded; `lcx-go-Aplus` sha256 equals the W13 record; `harbor --version` = 0.25.0 (the W13 version, `HARBOR_SETUP.md`) | — |
 | G2 | One install-and-run smoke per built-in arm on `fix-git` (`-k 1`, job `smoke-<arm>`): Pi and SpecPi install over the in-container proxy, SpecPi's two unverified installer behaviours (Baseline B §5.3) checked in the trial log, requests appear in `proxy.jsonl` under the tag file | No — smoke jobs are excluded by name |
 | G3 | Oracle pass over the 13 tasks (`--agent oracle`, no model): every task reward 1; a task that fails here is an environment defect, fixed or removed **before** any arm runs | No |
 | G4 | Pre-registration: this plan, `run_controlled.sh`, the adapters, both binaries and `analyze_tb2.py` hashed into `bench/PREREGISTRATION_TB2_CC.sha256` | — |

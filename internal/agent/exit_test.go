@@ -286,6 +286,19 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 			},
 		},
 		{
+			// N1: a cut reply with no text is output_limit, not empty_response (both are interrupted).
+			name: "empty reply cut at the output limit", wantStatus: StatusInterrupted, wantKind: KindOutputLimit,
+			wantErr: func(err error) bool { return err != nil && strings.Contains(err.Error(), "output token limit") },
+			run: func(t *testing.T) (*memoryStore, Result, error) {
+				store := newState("l3")
+				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+					return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant"}, FinishReason: protocol.FinishLength}, nil
+				}}
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "l3", Options{Session: testRef, MaxSteps: 2})
+				return store, r, err
+			},
+		},
+		{
 			name: "provider unavailable", wantStatus: StatusInterrupted, wantKind: KindProviderAvailability,
 			wantErr: func(err error) bool { return err != nil && strings.Contains(err.Error(), "upstream down") },
 			run: func(t *testing.T) (*memoryStore, Result, error) {
@@ -575,6 +588,7 @@ func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.
 		{"plain text", `rm -rf /tmp/x`, `"rm -rf /tmp/x"`, false},
 		{"JSON string", `"x"`, `"\"x\""`, false},
 		{"JSON string holding an object", `"{\"command\":\"x\"}"`, `"\"{\\\"command\\\":\\\"x\\\"}\""`, false},
+		{"empty JSON string (arguments missing after an unproven finish)", `""`, `"\"\""`, false},
 		{"null", `null`, `null`, false},
 		{"null with whitespace", ` null `, ` null `, false},
 		{"true", `true`, `true`, false},
