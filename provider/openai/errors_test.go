@@ -155,10 +155,11 @@ func TestMalformedStreamIsAvailability(t *testing.T) {
 	}
 }
 
-// A stream the server ends early is not an answer: an in-band error event, or a stream that stops
-// with neither a finish_reason nor [DONE], is an availability error and is retried, never returned
-// as a response with the tool calls received so far (TB2 W13: a gateway "upstream_error" cut a
-// response after its first complete tool call, and the call ran).
+// A stream the server ends early is not an answer: an in-band error event, a stream that stops with
+// neither a finish_reason nor [DONE], or a finish_reason by which the provider says it interrupted the
+// generation (DeepSeek: insufficient_system_resource, aborted) is an availability error and is retried,
+// never returned as a response with the tool calls received so far (TB2 W13: a gateway
+// "upstream_error" cut a response after its first complete tool call, and the call ran).
 func TestTruncatedStreamIsAvailability(t *testing.T) {
 	call := `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"shell","arguments":"{\"command\":\"rm -rf /tmp/x\"}"}}]}}]}` + "\n\n"
 	cut := `data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"c2","type":"function","function":{"name":"apply_patch","arguments":"{\"patches\": [{\"pa"}}]}}]}` + "\n\n"
@@ -168,6 +169,8 @@ func TestTruncatedStreamIsAvailability(t *testing.T) {
 		{"error event", `data: {"error":{"message":"Upstream request failed","type":"upstream_error"}}` + "\n\n", "Upstream request failed"},
 		{"error event without a message", `data: {"error":{}}` + "\n\n", "stream error"},
 		{"connection closed mid-response", "", "ended before"},
+		{"insufficient_system_resource", `data: {"choices":[{"delta":{},"finish_reason":"insufficient_system_resource"}]}` + "\n\ndata: [DONE]\n\n", "insufficient_system_resource"},
+		{"aborted", `data: {"choices":[{"delta":{},"finish_reason":"aborted"}]}` + "\n\ndata: [DONE]\n\n", "aborted"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -189,6 +192,27 @@ func TestTruncatedStreamIsAvailability(t *testing.T) {
 			}
 			if hits.Load() != 3 {
 				t.Fatalf("attempts=%d, want 3 (retried as availability)", hits.Load())
+			}
+		})
+	}
+}
+
+// The same interrupted finish in a non-streaming response is an availability error, not a response.
+func TestInterruptedFinishWithoutStreamingIsAvailability(t *testing.T) {
+	for _, reason := range []string{"insufficient_system_resource", "aborted"} {
+		t.Run(reason, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":"The answer is","tool_calls":[{"id":"c1","type":"function","function":{"name":"shell","arguments":"{\"command\":\"rm -rf /tmp/x\"}"}}]},"finish_reason":%q}]}`, reason)
+			}))
+			defer server.Close()
+			client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: true, DisableRetries: true})
+			resp, err := client.Complete(context.Background(), request())
+			if err == nil {
+				t.Fatalf("an interrupted generation was returned as a response: %+v", resp.Message)
+			}
+			if pe := providerError(t, err); pe.Class != protocol.ClassAvailability || !strings.Contains(err.Error(), reason) {
+				t.Fatalf("class=%s err=%v", pe.Class, err)
 			}
 		})
 	}

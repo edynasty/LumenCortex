@@ -119,6 +119,17 @@ func (e *streamError) Error() string {
 // closed mid-response, and the tool calls received so far may be incomplete or missing.
 var errStreamCut = errors.New("provider stream ended before a finish_reason or [DONE]")
 
+// interruptedFinish reports a finish_reason by which the provider says it interrupted the generation
+// (DeepSeek: insufficient_system_resource, aborted). Such a reply is incomplete like a cut stream, so it
+// is an availability error and the attempt is retried; its content and tool calls are never returned.
+func interruptedFinish(reason string) error {
+	switch reason {
+	case "insufficient_system_resource", "aborted":
+		return fmt.Errorf("provider interrupted the generation (finish_reason %s)", reason)
+	}
+	return nil
+}
+
 type streamChoice struct {
 	Delta        streamDelta `json:"delta"`
 	FinishReason *string     `json:"finish_reason"`
@@ -212,6 +223,9 @@ func (r chatResponse) toProtocol(echo string) (protocol.ProviderResponse, error)
 	if len(r.Choices) == 0 {
 		return protocol.ProviderResponse{}, errors.New("provider response contained no choices")
 	}
+	if err := interruptedFinish(r.Choices[0].FinishReason); err != nil {
+		return protocol.ProviderResponse{}, err
+	}
 	message, err := r.Choices[0].Message.toProtocol()
 	if err != nil {
 		return protocol.ProviderResponse{}, err
@@ -272,6 +286,9 @@ func (b *streamBuilder) apply(event streamResponse) error {
 	}
 	for _, choice := range event.Choices {
 		if choice.FinishReason != nil && *choice.FinishReason != "" {
+			if err := interruptedFinish(*choice.FinishReason); err != nil {
+				return err
+			}
 			b.finishReason = *choice.FinishReason
 			b.finished = true
 		}

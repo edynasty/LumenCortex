@@ -37,7 +37,8 @@ does not travel with a clone.
   check: the command `sh scripts/check-nofloat.sh` stayed approved while the agent rewrote the script.
   An approval therefore also covers the content of the workspace files a definition executes
   (`evaluator.ResolveInputs`, read in configScope): the schema of a schema check and the schema files it
-  references by a relative `$ref`; for a test or build check the program of each simple command (or
+  references by a relative `$ref` (followed in sorted order, at most 64 files, each read only when it is
+  a regular file inside the workspace of at most 1 MiB); for a test or build check the program of each simple command (or
   wrapper) when it is written as a path (`./check.sh`, `.venv/bin/python`), the operand of
   `.`/`source`, and the script of a shell, python or another interpreter recognised by its base name
   (`./scripts/python-gate.sh` is not python), after its options and their arguments

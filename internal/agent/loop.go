@@ -275,13 +275,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		}
 
 		if len(calls) == 0 {
-			if response.FinishReason == protocol.FinishLength {
-				// A reply cut at the output limit is never the final answer: without a tool call
-				// it holds an unfinished thought (TB2 W13: such replies ended runs as completed).
-				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindOutputLimit,
-					Err: fmt.Errorf("the model reply reached the output token limit (%d completion tokens) without a tool call or a finished answer", response.Usage.CompletionTokens)})
-			}
+			cut := response.FinishReason == protocol.FinishLength
 			if strings.TrimSpace(assistant.Content) == "" {
+				if cut {
+					return l.exit(ctx, state, usage, outputLimitExit(response))
+				}
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindEmptyResponse, Err: errors.New("model returned neither tool calls nor final content")})
 			}
 			var correction string
@@ -324,6 +322,13 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					l.emit("checks.blocked_final", sessionID, map[string]any{"step": step, "checks": verdictViews(failed)})
 				}
 			}
+			if correction == "" && cut {
+				// A reply cut at the output limit is never the final answer: without a tool call it
+				// holds an unfinished thought (TB2 W13: such replies ended runs as completed). It ends
+				// the run only where the reply would have completed it; a completion-gate correction
+				// above still applies and the run continues as it did before.
+				return l.exit(ctx, state, usage, outputLimitExit(response))
+			}
 			if correction == "" {
 				l.latchEvidence(ctx, sessionID, r)
 			}
@@ -356,21 +361,27 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			return Result{SessionID: sessionID, Status: StatusCompleted, Final: final, Usage: usage, Workflow: workflowSummary(r.wf)}, nil
 		}
 
-		// Under a length finish the reply's last call may have been cut before its first argument byte.
-		// The adapters fill an empty argument string with {}, so such a call looks like a complete call
-		// without arguments; it is refused instead of run, and the model can send it again. Earlier calls
-		// and a last call holding a whole JSON object were finished before the cut.
-		lastCallID := ""
-		if all := response.Message.ToolCalls; response.FinishReason == protocol.FinishLength && len(all) > 0 {
-			lastCallID = all[len(all)-1].ID
+		// Under a length finish the reply's last call is the one being written when the limit cut the
+		// reply, and nothing shows it was finished: arguments that parse as a whole JSON object do not,
+		// because servers that parse a model's own call format (DeepSeek's DSML) or return a parsed
+		// input object (Anthropic) close the object themselves. It is answered with a tool error instead
+		// of run, and the model can send it again. Earlier calls were finished: generation had moved on.
+		// When MaxToolCallsPerStep dropped the tail, the last call is not among calls.
+		cutIndex := -1
+		if response.FinishReason == protocol.FinishLength && len(calls) == len(response.Message.ToolCalls) {
+			cutIndex = len(calls) - 1
 		}
-		for _, call := range calls {
+		for i, call := range calls {
 			args, argsErr := parseToolArguments(call.Arguments)
-			if argsErr == nil && len(args) == 0 && lastCallID != "" && call.ID == lastCallID {
-				argsErr = errors.New("the reply reached the output token limit before this call's arguments; send the call again")
+			var refusal string
+			switch {
+			case i == cutIndex:
+				refusal = "not executed: the reply reached the output token limit while this call was being written; send the call again"
+			case argsErr != nil:
+				refusal = "invalid tool arguments: " + argsErr.Error()
 			}
-			if argsErr != nil {
-				rejected := protocol.ToolResult{OK: false, Content: toolErrorContent("invalid tool arguments: " + argsErr.Error())}
+			if refusal != "" {
+				rejected := protocol.ToolResult{OK: false, Content: toolErrorContent(refusal)}
 				if _, err := l.persistToolResult(ctx, sessionID, opts.RunID, call, rejected, nil, nil, nil, r); err != nil {
 					return l.exit(ctx, state, usage, *storeExit(err))
 				}
@@ -677,6 +688,12 @@ func (l *Loop) finish(ctx context.Context, state SessionState, usage protocol.Us
 func finishFailure(state SessionState, usage protocol.Usage, cause ExitCause, err error) (Result, error) {
 	failure := fmt.Errorf("persist %s exit: %w", cause.Status, err)
 	return Result{SessionID: state.ID, Status: state.Status, Usage: usage}, errors.Join(cause.returnErr(), failure)
+}
+
+// outputLimitExit ends a run whose reply, without a tool call, was cut at the output token limit.
+func outputLimitExit(response protocol.ProviderResponse) ExitCause {
+	return ExitCause{Status: StatusInterrupted, Kind: KindOutputLimit,
+		Err: fmt.Errorf("the model reply reached the output token limit (%d completion tokens) without a tool call or a finished answer", response.Usage.CompletionTokens)}
 }
 
 // exit ends the run with an interrupted or failed cause: finish, then the

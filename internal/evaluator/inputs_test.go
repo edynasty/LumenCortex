@@ -3,6 +3,7 @@ package evaluator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -316,5 +317,38 @@ func TestOutsideGitEveryCandidateIsAnInput(t *testing.T) {
 	f.write(".gitignore", "scripts/\n")
 	if got := inputsOf(f.gateScript("sh scripts/gate.sh")); got["scripts/gate.sh"] == "" || got["scripts/gate.sh"] == AbsentInput {
 		t.Fatalf("inputs outside git: %v", got)
+	}
+}
+
+// A schema's references are followed in a fixed order and at most maxSchemaFiles files are bound, so
+// unchanged files always give the same inputs and digest (with more references than the cap, map order
+// used to pick a different subset per read). A schema larger than maxSchemaBytes is bound, but its
+// references are not followed.
+func TestSchemaFilesAreBoundedAndDeterministic(t *testing.T) {
+	f := newFixture(t, false)
+	var props []string
+	for i := 0; i < 85; i++ {
+		props = append(props, fmt.Sprintf(`"p%02d": {"$ref": "f%02d.json"}`, i, i))
+		f.write(fmt.Sprintf("f%02d.json", i), `{}`)
+	}
+	f.write("schema.json", `{"properties": {`+strings.Join(props, ", ")+`}}`)
+	spec := Spec{ID: "s", Kind: KindSchema, Schema: "schema.json", Files: []string{"data.json"}}
+	first := ResolveInputs(f.dir, []Spec{spec})[0]
+	if len(first.Inputs) != maxSchemaFiles {
+		t.Fatalf("%d inputs, want %d", len(first.Inputs), maxSchemaFiles)
+	}
+	if got := inputsOf(first); got["f00.json"] == "" || got["f62.json"] == "" || got["f63.json"] != "" {
+		t.Fatalf("inputs %v, want schema.json and f00..f62", got)
+	}
+	for i := 0; i < 20; i++ {
+		if again := ResolveInputs(f.dir, []Spec{spec})[0]; SpecDigest(again) != SpecDigest(first) {
+			t.Fatalf("read %d bound %v, first read %v", i, again.Inputs, first.Inputs)
+		}
+	}
+
+	f.write("big.json", `{"$ref": "f00.json", "pad": "`+strings.Repeat("x", maxSchemaBytes)+`"}`)
+	big := inputsOf(ResolveInputs(f.dir, []Spec{{ID: "b", Kind: KindSchema, Schema: "big.json"}})[0])
+	if len(big) != 1 || big["big.json"] == AbsentInput {
+		t.Fatalf("inputs of an oversized schema %v, want only big.json", big)
 	}
 }
