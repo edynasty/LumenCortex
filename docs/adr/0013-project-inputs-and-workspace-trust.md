@@ -29,6 +29,7 @@ The workspace is not one trust domain. The user's own inputs — `<GlobalDir>/AG
    | MCP servers | `<workspace>/.lumencortex/mcp.json` | ignored entirely; a project-only server is refused with `ErrUntrustedProject` and nothing is spawned |
    | Project instructions | `<workspace>/AGENTS.md`, else `CLAUDE.md` | not read; the effective prompt reports it as withheld |
    | Providers, checks, agents | `<workspace>/lumencortex.json` | already gated (ADR-0009 D4 and its predecessors) |
+   | Language servers started by a run | any file of the workspace a server loads (`node_modules/typescript/lib/tsserver.js`, a project's build files) | a run starts none; it uses a server the host started (`Engine.LSPStart` or a host LSP request) and is offered no `lsp_*` tool while none runs |
    | Global instructions, skills, MCP | `<GlobalDir>/**` | always read: the user's own configuration |
 
 3. **Project inputs are read from the Engine workspace, never from a session worktree.** The configuration, the instruction files and the skills all come from the directory the Engine was opened on. A session that owns a worktree runs with that worktree as its tool workspace, but its instructions are the ones the user sees. Without this rule an agent could edit `AGENTS.md` in its own worktree and have the edit govern the same run.
@@ -44,6 +45,7 @@ The workspace is not one trust domain. The user's own inputs — `<GlobalDir>/AG
    - its MCP server entries are ignored while the workspace is untrusted, so a project server cannot declare its tools read-only to reach a read-only run;
    - a tool permission override in `mcp.json` (`tools: {"<name>": {"permission": "read"}}`, P0-E1) applies only from the global file or from a trusted project; an untrusted project's override is ignored and the server's own `readOnlyHint` annotation decides;
    - its skills and instructions are not read at all.
+   - it cannot make a run start a language server: a server such as `typescript-language-server` executes code it finds in the repository it serves, so in an untrusted workspace the `lsp_*` tools use only a server the host started, never one a run started, and are not offered at all while none runs. The capability registry reports them `untrusted` (`disabledReason: "trust"`) and `ToolSchemaCost` and `EffectivePrompt` count them only when the run would be offered them.
 
 8. **Trust is reported, not inferred by the host.** `Engine.EffectivePrompt` returns `trusted`, every layer with `included` and `reason`, and every tool with the filter that withheld it. A host shows that; it does not re-implement the rule.
 
@@ -51,6 +53,7 @@ The workspace is not one trust domain. The user's own inputs — `<GlobalDir>/AG
 
 - No prompt a run sends contains text read from an untrusted workspace's project inputs.
 - No MCP process named by an untrusted workspace's `mcp.json` is started.
+- No language server is started by a run in an untrusted workspace.
 - Trust is read from the global file only, per run and per call, from the Engine workspace; a session worktree's path never grants or revokes trust.
 - A project input can only narrow what the project gets, never widen it.
 - Global inputs are read in every workspace, trusted or not.
@@ -97,6 +100,7 @@ None. No schema change, no new persisted state: trust is configuration, and the 
 - `internal/instructions`: trusted/untrusted, the `CLAUDE.md` fallback, `AGENTS.md` winning over it, a symlink out of the workspace refused, truncation at 64 KiB with a warning, missing files reported, and the global file read through a symlink.
 - `runtime`: a real run in an untrusted workspace sends the global inputs and none of the project's, and `skills.loaded` names the withheld ids and the reason; the same holds for a child run; `EffectivePrompt` with a session whose worktree holds a different `AGENTS.md` reports the Engine workspace's file; the contract test compares a real run's system messages and tool specs with `EffectivePrompt`'s report for the same inputs; `EffectivePrompt` writes no row and works without a session.
 - MCP (implemented with P0-B's MCP half): a project server is refused while the workspace is untrusted, no process is spawned, and the listing marks it `blockedByTrust`.
+- LSP (`runtime/lsp_test.go` `TestLSPToolsWithheldInUntrustedWorkspace`): an untrusted workspace with a server on `PATH` offers a read-only run no `lsp_*` tool, the model's call starts no process, and the capability registry, the schema cost and the prompt report agree; a server the host started is used by the run as is; after trusting, the first call starts the server.
 - Manual: a repository with `.lumencortex/skills/evil/SKILL.md` and a project `mcp.json`, untrusted, shows neither in the effective prompt and cannot start the server; after trusting, both appear.
 
 ## Documentation impact

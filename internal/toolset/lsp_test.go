@@ -92,7 +92,7 @@ func lspSet(t *testing.T, opts Options, serverArgs ...string) *Set {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
-	opts.LSP = manager
+	opts.LSP = manager.ForRun(true)
 	if opts.Policy == "" {
 		opts.Policy = PolicyFull
 	}
@@ -152,7 +152,7 @@ func TestLSPToolsAreOfferedOnlyWithAUsableServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = missingManager.Close() })
-	missing, err = New(Options{Workspace: workspace, Policy: PolicyFull, LSP: missingManager})
+	missing, err = New(Options{Workspace: workspace, Policy: PolicyFull, LSP: missingManager.ForRun(true)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/lsp"
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 // The runtime tests drive a real language server process: the testdata server of internal/lsp, built
@@ -223,4 +224,147 @@ func TestEngineCloseStopsLanguageServers(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitProcessGone(t, pid, 5*time.Second)
+}
+
+// lspRunOffers runs a read-only agent turn whose model calls lsp_hover on main.go, and returns whether
+// the first request offered lsp_hover and the content of the tool result.
+func lspRunOffers(t *testing.T, engine *Engine) (offered bool, result string) {
+	t.Helper()
+	ctx := context.Background()
+	handle := newTestSession(t, engine, "hover main.go")
+	provider := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("hover_1", "lsp_hover", `{"path":"main.go","line":1,"column":1}`),
+		finalResponse("done"),
+	}}
+	run, err := engine.runAgentWith(ctx, handle.ID, provider, AgentOptions{Policy: "read-only", MaxSteps: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "completed" {
+		t.Fatalf("run = %#v", run)
+	}
+	provider.mu.Lock()
+	first := provider.requests[0]
+	provider.mu.Unlock()
+	for _, spec := range first.Tools {
+		if strings.HasPrefix(spec.Name, "lsp_") {
+			offered = true
+		}
+	}
+	for _, message := range provider.messages() {
+		if message.Role == "tool" && message.ToolCallID == "hover_1" {
+			result = message.Content
+		}
+	}
+	return offered, result
+}
+
+// lspReports says whether the capability registry, the schema cost and the prompt report each count
+// the lsp_* tools for a read-only run.
+func lspReports(t *testing.T, engine *Engine) (capability, cost, prompt bool) {
+	t.Helper()
+	ctx := context.Background()
+	capabilities, err := engine.Capabilities(ctx, CapabilityQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	capability = capabilityByID(t, capabilities, "lsp_hover").Enabled
+	schema, err := engine.ToolSchemaCost(ctx, CapabilityQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cost = schema.LSPTools > 0
+	report, err := engine.EffectivePrompt(ctx, EffectivePromptRequest{Policy: "read-only"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range report.Tools {
+		if tool.Name == "lsp_hover" && tool.Included {
+			prompt = true
+		}
+	}
+	return capability, cost, prompt
+}
+
+// ADR-0013: a run may start a language server only in a trusted workspace — a server such as
+// typescript-language-server loads code from the repository it serves. In an untrusted workspace a
+// run uses only a server the host started, and is offered no lsp_* tool otherwise; the capability
+// registry, the schema cost and the prompt report say the same as the run.
+func TestLSPToolsWithheldInUntrustedWorkspace(t *testing.T) {
+	server := fakeLSPServer(t)
+	workspace := lspWorkspace(t)
+	if resolved, err := filepath.EvalSymlinks(workspace); err == nil {
+		workspace = resolved
+	}
+	// The runs bind fakes to the fixture catalog's models, so the lsp keys go into that catalog.
+	catalog := func(keys string) string {
+		return strings.Replace(boundCatalog("test/b0"), `{"model"`, `{`+keys+`, "model"`, 1)
+	}
+	lspKeys := fmt.Sprintf(`"lsp": {"servers": {"go": {"command": %q}}}`, server)
+	useGlobalConfig(t, catalog(lspKeys))
+	engine := openEngineAt(t, workspace)
+	ctx := context.Background()
+	status := func() LSPServerStatus {
+		t.Helper()
+		statuses, err := engine.LSPStatus(ctx, "")
+		if err != nil || len(statuses) != 1 {
+			t.Fatalf("statuses=%+v err=%v", statuses, err)
+		}
+		return statuses[0]
+	}
+
+	// Untrusted, nothing running: no tool offered, and the model's call starts nothing.
+	offered, result := lspRunOffers(t, engine)
+	if offered {
+		t.Fatal("an untrusted workspace's run was offered the lsp tools")
+	}
+	if strings.Contains(result, "hover-ok") {
+		t.Fatalf("an untrusted run reached a language server: %s", result)
+	}
+	if got := status(); got.State != lsp.StateStopped || got.PID != 0 {
+		t.Fatalf("an untrusted run started a language server: %+v", got)
+	}
+	if capability, cost, prompt := lspReports(t, engine); capability || cost || prompt {
+		t.Fatalf("untrusted reports: capability=%v cost=%v prompt=%v, want none", capability, cost, prompt)
+	}
+	capabilities, err := engine.Capabilities(ctx, CapabilityQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hover := capabilityByID(t, capabilities, "lsp_hover"); hover.Availability.State != AvailabilityUntrusted || hover.DisabledReason != "trust" {
+		t.Fatalf("untrusted lsp_hover capability = %+v, want untrusted/trust", hover)
+	}
+
+	// Untrusted, a server the host started: the run uses that process.
+	started, err := engine.LSPStart(ctx, "", LSPConfig{Command: server, LanguageID: "go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	offered, result = lspRunOffers(t, engine)
+	if !offered || !strings.Contains(result, "hover-ok") {
+		t.Fatalf("a host-started server in an untrusted workspace: offered=%v result=%s", offered, result)
+	}
+	if got := status(); got.PID != started.PID {
+		t.Fatalf("the run replaced the host's server: %d -> %+v", started.PID, got)
+	}
+	if capability, cost, prompt := lspReports(t, engine); !capability || !cost || !prompt {
+		t.Fatalf("host-started reports: capability=%v cost=%v prompt=%v, want all", capability, cost, prompt)
+	}
+	if err := engine.LSPStop(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	waitProcessGone(t, started.PID, 5*time.Second)
+
+	// Trusted: offered as before, and the first call starts the server.
+	useGlobalConfig(t, catalog(lspKeys+`, "trustedWorkspaces": [`+quoteJSON(workspace)+`]`))
+	offered, result = lspRunOffers(t, engine)
+	if !offered || !strings.Contains(result, "hover-ok") {
+		t.Fatalf("trusted workspace: offered=%v result=%s", offered, result)
+	}
+	if got := status(); got.PID == 0 {
+		t.Fatalf("a trusted run's call did not start the server: %+v", got)
+	}
+	if capability, cost, prompt := lspReports(t, engine); !capability || !cost || !prompt {
+		t.Fatalf("trusted reports: capability=%v cost=%v prompt=%v, want all", capability, cost, prompt)
+	}
 }

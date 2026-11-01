@@ -222,7 +222,7 @@ func (e *Engine) coreTools(workspace, sessionID string, delegation bool) ([]prot
 	eff := cfg.Effective()
 	// read_skill exists when the prompt lists skills, as at Start.
 	prompt := assemblePrompt(promptInput{workspace: e.workspace, globalDir: eff.GlobalDir, trusted: eff.Trusted, skills: e.skillRegistry})
-	tools, err := e.promptTools(workspace, toolset.PolicyFull, false, sessionID, true,
+	tools, err := e.promptTools(workspace, toolset.PolicyFull, false, eff.Trusted, sessionID, true,
 		eff.DelegationAgents(config.AgentInfo.SpawnEligible), newSkillReader(prompt.Skills.Included))
 	if err != nil {
 		return nil, err
@@ -243,9 +243,13 @@ func (e *Engine) coreTools(workspace, sessionID string, delegation bool) ([]prot
 
 // lspCapabilities lists the language-server tools. They are core-optional: the specs exist always, a
 // run is offered them when a configured server can serve the workspace (its command is on PATH and the
-// workspace holds a file or a marker of its language); the server itself starts on the first call.
+// workspace holds a file or a marker of its language) and the workspace is trusted, the server starting
+// on the first call; in an untrusted workspace only while a server the host started runs (ADR-0013).
 func (e *Engine) lspCapabilities(workspace string, denied map[string]bool) []Capability {
-	available := e.lspAvailable(workspace)
+	trusted := e.workspaceTrusted()
+	available := e.lspAvailable(workspace, trusted)
+	// A server could serve the workspace, but only a trusted workspace's run may start it.
+	blockedByTrust := !available && !trusted && e.lspAvailable(workspace, true)
 	specs := toolset.LSPSpecs()
 	out := make([]Capability, 0, len(specs))
 	for _, spec := range specs {
@@ -263,10 +267,16 @@ func (e *Engine) lspCapabilities(workspace string, denied map[string]bool) []Cap
 			ExecutionConstraints: CapabilityConstraints{RequiresApproval: spec.Permission == "exec"},
 			ConfigRequirements:   CapabilityRequirements{NeedsLanguageSrv: true},
 		}
-		if available {
+		switch {
+		case available:
 			capability.Availability = CapabilityAvailability{State: AvailabilityAvailable}
 			capability.ConfigRequirements = CapabilityRequirements{}
-		} else {
+		case blockedByTrust:
+			capability.Availability = CapabilityAvailability{State: AvailabilityUntrusted,
+				Detail: "the workspace is not trusted (ADR-0013): a run starts no language server, and none the host started is running"}
+			capability.ConfigRequirements = CapabilityRequirements{NeedsTrust: true}
+			capability.DisabledReason = "trust"
+		default:
 			capability.Availability.Detail = "no configured language server can serve a file in this workspace (lsp.servers, PATH)"
 			capability.DisabledReason = "unavailable"
 		}
@@ -651,7 +661,7 @@ func (e *Engine) ToolSchemaCost(ctx context.Context, query CapabilityQuery) (Too
 	}
 	cost.BuiltinBytes = specBytes(builtin)
 	cost.BuiltinTools = len(builtin)
-	if e.lspAvailable(workspace) {
+	if e.lspAvailable(workspace, e.workspaceTrusted()) {
 		lspSpecs := toolset.LSPSpecs()
 		cost.LSPBytes = specBytes(lspSpecs)
 		cost.LSPTools = len(lspSpecs)
@@ -674,11 +684,11 @@ func (e *Engine) ToolSchemaCost(ctx context.Context, query CapabilityQuery) (Too
 	return cost, nil
 }
 
-// lspAvailable reports whether a run in the workspace is offered the lsp_* tools. It starts nothing:
-// the manager is an object until a request needs a server.
-func (e *Engine) lspAvailable(workspace string) bool {
-	manager, err := e.lspManagerFor(workspace)
-	return err == nil && manager.Available()
+// lspAvailable reports whether a run in the workspace, trusted or not, is offered the lsp_* tools. It
+// starts nothing: the manager is an object until a request needs a server.
+func (e *Engine) lspAvailable(workspace string, trusted bool) bool {
+	access := e.lspForRun(workspace, trusted)
+	return access != nil && access.Available()
 }
 
 // specBytes is the JSON size of a tool spec list, the shape a provider request carries.

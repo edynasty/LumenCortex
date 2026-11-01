@@ -254,12 +254,10 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if agentWorkspace != e.workspace {
 		runner = shell.New(agentWorkspace)
 	}
-	// The workspace's manager exists whether or not a server is running: the toolset offers the lsp_*
-	// tools only when a server can serve the workspace, and the manager starts it on the first call.
-	lspManager, err := e.lspManagerFor(agentWorkspace)
-	if err != nil {
-		lspManager = nil
-	}
+	// The workspace's manager exists whether or not a server is running. In a trusted workspace the
+	// toolset offers the lsp_* tools when a server can serve the workspace and the first call starts it;
+	// in an untrusted one only a server the host started is used, and none is started (ADR-0013).
+	lspAccess := e.lspForRun(agentWorkspace, plan.trusted)
 	mcpRegistry := e.mcpRegistry
 	if opts.disableMCP {
 		mcpRegistry = nil
@@ -300,7 +298,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Workspace: agentWorkspace,
 		Policy:    policy,
 		Shell:     runner,
-		LSP:       lspManager,
+		LSP:       lspAccess,
 		MCP:       mcpRegistry,
 		Subagents: opts.subagents,
 		// Children get no spawn tool, so the list matters only to a thread's run.

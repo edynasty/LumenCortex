@@ -63,7 +63,8 @@ Also already held: workspace confinement of the document path (`features.go:reso
 ### `internal/toolset`
 
 - `registerLSPTools` returns early unless `s.lsp.Available()` (binary on PATH + file or marker of the
-  language). `lsp_rename` is `Permission: "write"`, `MutatesWorkspace: true`.
+  language; in an untrusted workspace, a server the host started — see "Workspace trust" below).
+  `lsp_rename` is `Permission: "write"`, `MutatesWorkspace: true`.
 - Failures become results: `{"error","code","hint"}` with `code` in
   `unavailable|timeout|busy|cancelled|failed` and a hint naming `search_text`/`find_files`.
 - `lspedit.go` `applyWorkspaceEdit`: every path through `s.resolve` (workspace confinement, protected
@@ -89,7 +90,8 @@ Also already held: workspace confinement of the document path (`features.go:reso
 
 - `Engine.log *slog.Logger` (`Options.Logger`, nil → discard) with `engineLogger`.
 - `lspManagerFor(workspace)` creates a manager (no process) and `Configure`s it from the global file at
-  every run start / status call; `agent.go` and `prompt.go` use it instead of requiring a running server.
+  every run start / status call; `agent.go` and `prompt.go` reach it through `lspForRun(workspace,
+  trusted)` instead of requiring a running server.
 - `LSPStatus(ctx, sessionID) ([]LSPServerStatus, error)` — camelCase JSON, starts nothing.
   `LSPStart`/`LSPStop` reworked; `stopLSPWorkspace` still called on worktree deletion.
 - Lifecycle events published as `lsp.started|ready|idle_stop|crashed|evicted|unavailable|stopped`.
@@ -99,6 +101,25 @@ Also already held: workspace confinement of the document path (`features.go:reso
 `docs/adr/0016-*` (D5 lists `lsp_rename`; "Not provided" no longer exempts it), `docs/agent-runtime.md`
 (LSP section rewritten: catalog, config keys, lifecycle, tools, fallback, `LSPStatus`),
 `docs/security-and-trust.md`, `docs/go-provider.md` (consumed keys).
+
+### Workspace trust (amendment after review, `fix/rt-cap`)
+
+The on-demand start gave runs an authority they never had at `ba0f7a5`, where only `LSPStart` started a
+server: a read-only run in an **untrusted** workspace was offered `lsp_*`, and its first call started
+`typescript-language-server`, which executed the repository's own `node_modules/typescript/lib/tsserver.js`
+(review probe U2). The rule is now ADR-0013's: a run may start a language server only in a trusted
+workspace.
+
+- `Manager.ForRun(trusted)` returns the `lsp.Access` the toolset uses. Trusted: requests start what they
+  need, as before. Untrusted: a request uses only a server the host started (`LSPStart`, or a host
+  request such as `Engine.LSPHover`), never one a run started, and starts nothing; `Access.Available`
+  is true only while such a server runs, so the tools are not offered otherwise.
+- `server.runStarted` records whether a run started the running client; the `Manager` request methods
+  stay the host's and start on demand.
+- `Capabilities` reports the tools `untrusted` (`disabledReason: "trust"`) when only trust withholds
+  them; `ToolSchemaCost` and `EffectivePrompt` count them exactly when a run would be offered them.
+- Test: `runtime/lsp_test.go` `TestLSPToolsWithheldInUntrustedWorkspace` (untrusted → no tool, no
+  process, registry/cost/prompt agree; host-started server → used as is; trusted → started by the call).
 
 ## Tests
 

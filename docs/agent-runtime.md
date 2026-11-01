@@ -200,7 +200,9 @@ gets executed):
 Lifecycle, per workspace:
 
 - **On demand.** A server starts on the first `lsp_*` call that needs its language, bounded by
-  `startTimeoutSeconds`; nothing starts at Engine open.
+  `startTimeoutSeconds`; nothing starts at Engine open. Only a run in a trusted workspace starts one
+  (ADR-0013): in an untrusted workspace a run uses a server the host started and is offered no `lsp_*`
+  tool while none runs.
 - **Reuse.** One server per (workspace root, language); concurrent calls share it.
 - **Idle reclaim.** One manager-level ticker stops a server unused for `idleTimeoutSeconds`; the next
   call starts it again.

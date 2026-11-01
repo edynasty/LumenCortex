@@ -157,6 +157,24 @@ func (e *Engine) lspManagerFor(workspace string) (*lsp.Manager, error) {
 	return manager, nil
 }
 
+// lspForRun is the workspace's manager as a run reaches it, nil when there is none. A run in a trusted
+// workspace starts the server a call needs; a run in an untrusted one uses only a server the host
+// started (ADR-0013): a language server loads code from the repository it serves.
+func (e *Engine) lspForRun(workspace string, trusted bool) *lsp.Access {
+	manager, err := e.lspManagerFor(workspace)
+	if err != nil {
+		return nil
+	}
+	return manager.ForRun(trusted)
+}
+
+// workspaceTrusted reads the Engine workspace's trust now, as a Start does (ADR-0013); a configuration
+// that does not load is not trusted.
+func (e *Engine) workspaceTrusted() bool {
+	cfg, err := config.Load(e.workspace)
+	return err == nil && cfg.Effective().Trusted
+}
+
 // lspSettings is the global file's lsp section with its defaults, as the manager options of a
 // workspace. A configuration that does not load gives the defaults: the run that read the catalog
 // reports that error.
