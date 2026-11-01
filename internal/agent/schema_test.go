@@ -48,7 +48,7 @@ func TestRequestToolSchemasAreValidJSONSchema(t *testing.T) {
 	// Both delegation tools carry their agent enum, so its schema is checked too.
 	spawnAgents := []config.AgentInfo{{ID: config.AgentExplore, Description: "Reads."}, {ID: "audit", Description: "Audits."}}
 	taskAgents := []config.AgentInfo{{ID: config.AgentWorker, Description: "Edits."}}
-	tools, err := toolset.New(toolset.Options{Workspace: workspace, Policy: toolset.PolicyFull, LSP: manager, Subagents: schemaSubagents{},
+	tools, err := toolset.New(toolset.Options{Workspace: workspace, Policy: toolset.PolicyFull, LSP: manager.ForRun(true), Subagents: schemaSubagents{},
 		SubagentAgents: spawnAgents})
 	if err != nil {
 		t.Fatal(err)

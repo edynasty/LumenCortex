@@ -201,6 +201,60 @@ func TestManagerStartsOnFirstRequestAndReusesTheServer(t *testing.T) {
 	waitGone(t, pid, 5*time.Second)
 }
 
+// ADR-0013: a run in an untrusted workspace starts no language server and uses only one the host
+// started; a server a trusted run started is a run's, and an untrusted run does not use it either.
+func TestManagerForRunStartsOnlyWhenTrusted(t *testing.T) {
+	workspace := t.TempDir()
+	writeWorkspaceFile(t, workspace, "main.go", "package main\n")
+	startLog := filepath.Join(t.TempDir(), "starts.log")
+	manager := newTestManager(t, Options{
+		Workspace: workspace,
+		Servers:   []LanguageServer{goServer("-start-log", startLog)},
+	})
+	ctx := context.Background()
+	untrusted, trusted := manager.ForRun(false), manager.ForRun(true)
+
+	if untrusted.Available() || !trusted.Available() {
+		t.Fatalf("nothing running: untrusted available=%v trusted available=%v", untrusted.Available(), trusted.Available())
+	}
+	if _, err := untrusted.Hover(ctx, "main.go", 0, 1); !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("untrusted hover with nothing running: %v, want ErrNotRunning", err)
+	}
+	if lines := logLines(startLog); len(lines) != 0 {
+		t.Fatalf("an untrusted run started a server: %v", lines)
+	}
+
+	// A trusted run starts the server; it is a run's, so an untrusted run still may not use it.
+	if _, err := trusted.Hover(ctx, "main.go", 0, 1); err != nil {
+		t.Fatal(err)
+	}
+	if untrusted.Available() {
+		t.Fatal("a server a run started is offered to an untrusted run")
+	}
+	if _, err := untrusted.Hover(ctx, "main.go", 0, 1); !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("untrusted hover on a run's server: %v, want ErrNotRunning", err)
+	}
+
+	// The host starts the server: an untrusted run uses that process and starts no other.
+	status, err := manager.Start(ctx, Config{Command: fakeServerPath, Args: []string{"-start-log", startLog}, LanguageID: "go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !untrusted.Available() {
+		t.Fatal("a host-started server is not offered to an untrusted run")
+	}
+	raw, err := untrusted.Hover(ctx, "main.go", 0, 1)
+	if err != nil || !strings.Contains(string(raw), "hover-ok") {
+		t.Fatalf("untrusted hover on the host's server: %s %v", raw, err)
+	}
+	if got := manager.Servers()[0].PID; got != status.PID {
+		t.Fatalf("the untrusted run's call replaced the host's server: %d -> %d", status.PID, got)
+	}
+	if lines := logLines(startLog); len(lines) != 2 {
+		t.Fatalf("starts=%v, want the trusted run's and the host's", lines)
+	}
+}
+
 func TestManagerReclaimsAnIdleServer(t *testing.T) {
 	workspace := t.TempDir()
 	writeWorkspaceFile(t, workspace, "main.go", "package main\n")

@@ -48,10 +48,13 @@ disabled with `disabledReason: "denylist"` and keeps them visible.
 
 ## On-demand MCP lifecycle
 
-- No MCP process exists when an Engine opens. The first call that needs a server starts it; concurrent
-  first calls share one start.
-- A server stops after `idleTimeoutSeconds` without a call (default 600 s), on `MCPStop`, and on
-  `Engine.Close`.
+- No MCP process exists when an Engine opens. A server starts when it is first needed: the first run
+  that may use an enabled server whose tool list was never recorded starts it once to record that list,
+  and after that a tool call starts it. A run whose host allowlist names none of a server's tools, or
+  whose denylist names every tool of its `include` list, does not start it. Concurrent first calls
+  share one start.
+- A server stops after `idleTimeoutSeconds` without a call (default 600 s; a call in flight keeps it
+  running), on `MCPStop`, and on `Engine.Close`.
 - A stdio server leads its own process group, as a bash command does, and Core kills that group when
   the server exits and on `Close`. `Close` closes the server's stdin first and waits up to 2 s for it
   to exit — which is when a server stops what it started — and signals a server that ignores the EOF.
@@ -62,7 +65,9 @@ disabled with `disabledReason: "denylist"` and keeps them visible.
 - A start failure, a crash or a hung call is a **tool result** with `ok:false` plus a `lastError` in the
   registry. The run continues; the dead client is dropped and the next call starts a fresh process.
 - The tool list a start discovers is cached at `<state>/mcp-catalog/<workspace>/<server>.json`, keyed by
-  a fingerprint of the server definition, so a later run can be offered the tools without a start.
+  a fingerprint of the server definition (transport, command, args, url, protocol mode, `env` and
+  `headers` as configured), so a later run can be offered the tools without a start and an edited
+  definition, its environment included, never reuses the old list.
 
 ### `mcp.json` fields
 
@@ -90,12 +95,14 @@ disabled with `disabledReason: "denylist"` and keeps them visible.
   `unix:///abs/socket` url reaches an HTTP endpoint served on a Unix socket (path `/mcp`, Host
   `localhost`) — the form CodeBridge's local daemon accepts.
 - A credential is only ever an `{env:NAME}` reference. It is resolved when a process starts or a request
-  is made; the value is never written to a file, an error, an event or a log.
-- `include` is the only set of tools runs may see from the server (empty = every tool it reports).
+  is made; the value is never written to a file, an error, an event or a log (a failed request names the
+  configured url, the reference unexpanded).
+- `include` is the only set of tools runs may see from the server (empty = every tool it reports); a
+  call to a tool outside it is refused.
 - `session` binds a server that controls a long-lived resource to the run:
   `{"argument":"session_id","startTool":"computer_start","sessionIdField":"computer_session_id","stopTool":"computer_stop","stopArgument":"computer_session_id"}`.
-  Core injects the LumenCortex session id, remembers the server-side id, and closes it when the server
-  stops.
+  Core injects the LumenCortex session id, remembers the server-side id, and closes it whenever the
+  server stops: explicitly, idle, disabled, reconfigured, deleted or at `Engine.Close`.
 
 Model-visible tool names are `mcp__<server>__<tool>`, so two servers may report the same tool name
 without colliding.
@@ -146,7 +153,9 @@ with `{"transport":"stdio","command":"docker","args":["run","-i","--rm","-e","GI
 
 ### Browser — `browser.control` (local process, off by default)
 
-- `@playwright/mcp` (official Playwright MCP server) over stdio, started on the first browser call.
+- `@playwright/mcp` (official Playwright MCP server) over stdio. Once enabled, the first run that may
+  use it starts it to record its tool list (Chromium launches on the first browser call); after that a
+  browser call starts it.
 - Flags: `--headless --isolated --browser chrome --timeout-action 15000 --timeout-navigation 30000
   --idle-timeout 300000 --output-dir .lumencortex/browser`.
 - `--isolated` keeps the profile in memory; `--idle-timeout` closes the browser before Core stops the

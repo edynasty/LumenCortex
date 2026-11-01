@@ -31,7 +31,9 @@ type Options struct {
 	Workspace string
 	Policy    string
 	Shell     *shell.Runner
-	LSP       *lsp.Manager
+	// LSP is the workspace's language servers as this run reaches them (lsp.Manager.ForRun): whether a
+	// call may start a server is decided there, by the workspace's trust (ADR-0013).
+	LSP       *lsp.Access
 	MCP       *mcp.Registry
 	Subagents SubagentController
 	// SubagentAgents are the catalog agents spawn_subagent may run (ADR-0009 A3): delegation use,
@@ -66,7 +68,7 @@ type Set struct {
 	policy         string
 	shell          *shell.Runner
 	repository     *repository.Service
-	lsp            *lsp.Manager
+	lsp            *lsp.Access
 	mcp            *mcp.Registry
 	subagents      SubagentController
 	subagentAgents []config.AgentInfo

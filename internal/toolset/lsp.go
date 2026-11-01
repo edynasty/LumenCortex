@@ -84,10 +84,11 @@ func lspSpecs() []protocol.ToolSpec {
 // LSPSpecs returns the specs of the language-server tools.
 func LSPSpecs() []protocol.ToolSpec { return lspSpecs() }
 
-// registerLSPTools offers the language-server tools only when a server can really serve this
-// workspace: its command is on PATH and the workspace holds a file or a marker of its language. A
-// workspace without one gets no lsp_* tool, so the model is never offered a capability that cannot
-// answer and falls back to search_text and find_files on its own.
+// registerLSPTools offers the language-server tools only when a server can really serve this run: in a
+// trusted workspace, a server whose command is on PATH and whose language the workspace holds (a file
+// or a marker), started by the first call; in an untrusted one, a server the host already started
+// (ADR-0013). A run without one gets no lsp_* tool, so the model is never offered a capability that
+// cannot answer and falls back to search_text and find_files on its own.
 func (s *Set) registerLSPTools() {
 	if s.lsp == nil || !s.lsp.Available() {
 		return

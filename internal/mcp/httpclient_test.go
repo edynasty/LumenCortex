@@ -1,15 +1,18 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -258,5 +261,192 @@ func TestHTTPClientUnixSocketEndpoint(t *testing.T) {
 	}
 	if len(result.Content) != 1 || result.Content[0].Text != "socket" {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+// httpRegistry is a registry with one trusted project server, cfg, over HTTP.
+func httpRegistry(t *testing.T, cfg Config) (*Registry, string) {
+	t.Helper()
+	root := t.TempDir()
+	registry, err := NewRegistry(root, filepath.Join(root, ".lumencortex", "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = registry.Close() })
+	trustedProject(registry, true)
+	cfg.Transport = TransportHTTP
+	if cfg.ProtocolMode == "" {
+		cfg.ProtocolMode = ModeLegacy
+	}
+	if err := registry.Upsert(cfg); err != nil {
+		t.Fatal(err)
+	}
+	return registry, root
+}
+
+// ADR-0021 D4: a credential in a URL is an {env:NAME} reference, and its value is reported nowhere. A
+// refused request names the configured URL — in the call error, the start error, the registry's
+// statuses and states — never the expanded one.
+func TestHTTPClientURLReferenceNeverInErrors(t *testing.T) {
+	const secret = "sk-test-url-7f3a9c"
+	t.Setenv("LCX_TEST_MCP_URL_KEY", secret)
+	_, server := startHTTPTestServer(t, false)
+	registry, root := httpRegistry(t, Config{ID: "remote", URL: server.URL + "/mcp?key={env:LCX_TEST_MCP_URL_KEY}"})
+	ctx := context.Background()
+	if _, err := registry.CallTool(ctx, root, "remote", "echo", map[string]any{"text": "up"}); err != nil {
+		t.Fatal(err)
+	}
+	server.Close()
+
+	reported := func(stage string, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatalf("%s: a closed endpoint must fail", stage)
+		}
+		texts := []string{err.Error()}
+		statuses, statusErr := registry.Statuses(root)
+		if statusErr != nil {
+			t.Fatal(statusErr)
+		}
+		for _, status := range statuses {
+			texts = append(texts, status.LastError, status.URL)
+		}
+		states, stateErr := registry.States(root)
+		if stateErr != nil {
+			t.Fatal(stateErr)
+		}
+		for _, state := range states {
+			texts = append(texts, state.LastError)
+		}
+		for _, text := range texts {
+			if strings.Contains(text, secret) {
+				t.Fatalf("%s: the expanded URL is reported: %s", stage, text)
+			}
+		}
+		if !strings.Contains(err.Error(), "{env:LCX_TEST_MCP_URL_KEY}") {
+			t.Fatalf("%s: error = %v, want the configured URL", stage, err)
+		}
+	}
+	_, err := registry.CallTool(ctx, root, "remote", "echo", map[string]any{"text": "down"})
+	reported("call on the running client", err)
+	if err := registry.Stop("remote", root); err != nil {
+		t.Fatal(err)
+	}
+	_, err = registry.CallTool(ctx, root, "remote", "echo", map[string]any{"text": "down"})
+	reported("start", err)
+}
+
+// resetServer is httpTestServer with two calls that hang up the connection: "reset" at once and
+// "slow_reset" when the test releases it, so a transport failure arrives exactly when a test wants it.
+type resetServer struct {
+	httpTestServer
+	inits       atomic.Int32
+	slowSeen    chan struct{}
+	release     chan struct{}
+	releaseOnce sync.Once
+}
+
+func (s *resetServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	var msg struct {
+		Method string `json:"method"`
+		Params struct {
+			Name string `json:"name"`
+		} `json:"params"`
+	}
+	_ = json.Unmarshal(body, &msg)
+	if msg.Method == "initialize" {
+		s.inits.Add(1)
+	}
+	if msg.Method == "tools/call" {
+		switch msg.Params.Name {
+		case "slow_reset":
+			close(s.slowSeen)
+			<-s.release
+			hangUp(w)
+			return
+		case "reset":
+			hangUp(w)
+			return
+		}
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	s.httpTestServer.ServeHTTP(w, r)
+}
+
+func (s *resetServer) releaseSlow() { s.releaseOnce.Do(func() { close(s.release) }) }
+
+// hangUp closes the connection without a response.
+func hangUp(w http.ResponseWriter) {
+	if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+		_ = conn.Close()
+	}
+}
+
+// ADR-0021 D3: a transport failure drops the client the failed call used, and only that one. A call
+// that was in flight on a crashed client and fails after the server was restarted leaves the healthy
+// restarted client running.
+func TestMCPLateTransportFailureKeepsRestartedClient(t *testing.T) {
+	handler := &resetServer{slowSeen: make(chan struct{}), release: make(chan struct{})}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	// Cleanups run last-in first-out: the held call is released before the server waits for it.
+	t.Cleanup(handler.releaseSlow)
+	registry, root := httpRegistry(t, Config{ID: "remote", URL: server.URL})
+	ctx := context.Background()
+	if _, err := registry.CallTool(ctx, root, "remote", "echo", map[string]any{"text": "c1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	late := make(chan error, 1)
+	go func() {
+		_, err := registry.CallTool(ctx, root, "remote", "slow_reset", map[string]any{})
+		late <- err
+	}()
+	<-handler.slowSeen
+	if _, err := registry.CallTool(ctx, root, "remote", "reset", map[string]any{}); err == nil {
+		t.Fatal("a hung-up call must fail")
+	}
+	if statuses, err := registry.Statuses(root); err != nil || len(statuses) != 0 {
+		t.Fatalf("after the first failure statuses=%#v err=%v, want the client dropped", statuses, err)
+	}
+	if _, err := registry.CallTool(ctx, root, "remote", "echo", map[string]any{"text": "c2"}); err != nil {
+		t.Fatal(err)
+	}
+	if inits := handler.inits.Load(); inits != 2 {
+		t.Fatalf("initialize count after the restart = %d, want 2", inits)
+	}
+
+	handler.releaseSlow()
+	if err := <-late; err == nil {
+		t.Fatal("the call on the crashed client must fail")
+	}
+	statuses, err := registry.Statuses(root)
+	if err != nil || len(statuses) != 1 || !statuses[0].Running {
+		t.Fatalf("after the late failure statuses=%#v err=%v, want the restarted client running", statuses, err)
+	}
+	if _, err := registry.CallTool(ctx, root, "remote", "echo", map[string]any{"text": "c2 again"}); err != nil {
+		t.Fatal(err)
+	}
+	if inits := handler.inits.Load(); inits != 2 {
+		t.Fatalf("initialize count after the late failure = %d, want 2 (the restarted client was dropped)", inits)
+	}
+}
+
+// ADR-0021 §3: a tool outside the server's include list is refused by the call itself, before the
+// server is reached, whatever list a run was built from.
+func TestMCPCallRefusesExcludedTool(t *testing.T) {
+	handler, server := startHTTPTestServer(t, false)
+	registry, root := httpRegistry(t, Config{ID: "remote", URL: server.URL, Include: []string{"echo"}, CallTimeoutSeconds: 1})
+	ctx := context.Background()
+	_, err := registry.CallTool(ctx, root, "remote", "hang", map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "include") {
+		t.Fatalf("excluded tool error = %v, want a refusal naming the include list", err)
+	}
+	if calls := handler.calls.Load(); calls != 0 {
+		t.Fatalf("the excluded tool reached the server (%d calls)", calls)
+	}
+	if _, err := registry.CallTool(ctx, root, "remote", "echo", map[string]any{"text": "in"}); err != nil {
+		t.Fatal(err)
 	}
 }

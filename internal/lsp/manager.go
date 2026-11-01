@@ -59,9 +59,9 @@ type Manager struct {
 	closeErr  error
 }
 
-// server is one language's server and its lifetime state. client, state, lastError, startedAt,
-// lastUsedAt, busy, failures and nextAttempt are guarded by Manager.mu; startMu serializes starts so
-// one language spawns one process even when two calls need it at once.
+// server is one language's server and its lifetime state. client, runStarted, state, lastError,
+// startedAt, lastUsedAt, busy, failures and nextAttempt are guarded by Manager.mu; startMu serializes
+// starts so one language spawns one process even when two calls need it at once.
 type server struct {
 	language   string
 	def        LanguageServer
@@ -69,7 +69,10 @@ type server struct {
 	extensions map[string]bool
 	startMu    sync.Mutex
 
-	client      *Client
+	client *Client
+	// runStarted reports that a run, not the host, started client: a run in an untrusted workspace
+	// may use only a server the host started.
+	runStarted  bool
 	state       string
 	lastError   string
 	startedAt   time.Time
@@ -313,7 +316,7 @@ func (m *Manager) Start(ctx context.Context, cfg Config) (Status, error) {
 	if previous != nil {
 		_ = previous.Close()
 	}
-	client, err := m.client(ctx, srv, true)
+	client, err := m.client(ctx, srv, true, byHost)
 	if err != nil {
 		return Status{}, err
 	}
@@ -365,9 +368,90 @@ func (m *Manager) Close() error {
 	return m.closeErr
 }
 
+// The request methods of a Manager are the host's: a host API asked for them, so they start the server
+// a request needs. A run reaches the servers through ForRun.
+
 func (m *Manager) Diagnostics(ctx context.Context, path string) ([]Diagnostic, error) {
+	return m.host().Diagnostics(ctx, path)
+}
+
+func (m *Manager) Hover(ctx context.Context, path string, line, character int) (json.RawMessage, error) {
+	return m.host().Hover(ctx, path, line, character)
+}
+
+func (m *Manager) Definition(ctx context.Context, path string, line, character int) (json.RawMessage, error) {
+	return m.host().Definition(ctx, path, line, character)
+}
+
+func (m *Manager) References(ctx context.Context, path string, line, character int, includeDeclaration bool) (json.RawMessage, error) {
+	return m.host().References(ctx, path, line, character, includeDeclaration)
+}
+
+func (m *Manager) DocumentSymbols(ctx context.Context, path string) (json.RawMessage, error) {
+	return m.host().DocumentSymbols(ctx, path)
+}
+
+func (m *Manager) WorkspaceSymbols(ctx context.Context, query string) (json.RawMessage, error) {
+	return m.host().WorkspaceSymbols(ctx, query)
+}
+
+func (m *Manager) Rename(ctx context.Context, path string, line, character int, newName string) (json.RawMessage, error) {
+	return m.host().Rename(ctx, path, line, character, newName)
+}
+
+// origin is who a request is made for, which decides whether it may start the server it needs.
+type origin int
+
+const (
+	// byHost: a host API. It starts what it needs; the server it starts is the host's.
+	byHost origin = iota
+	// byRun: a run in a trusted workspace. It starts what it needs; the server it starts is a run's.
+	byRun
+	// attachOnly: a run in an untrusted workspace (ADR-0013). It starts nothing — a language server
+	// loads code from the repository it serves — and uses only a server the host started.
+	attachOnly
+)
+
+// Access is the manager as one caller reaches it: the request methods, with the start rule of the
+// caller's origin.
+type Access struct {
+	m      *Manager
+	origin origin
+}
+
+func (m *Manager) host() *Access { return &Access{m: m, origin: byHost} }
+
+// ForRun is the manager as an agent run reaches it. A run in a trusted workspace starts the server a
+// request needs, as a host does. A run in an untrusted workspace never starts one and uses only a server
+// the host started (LSPStart, or a host request), so repository code runs in a language server only by
+// the host's action or the workspace's trust (ADR-0013).
+func (m *Manager) ForRun(trusted bool) *Access {
+	if trusted {
+		return &Access{m: m, origin: byRun}
+	}
+	return &Access{m: m, origin: attachOnly}
+}
+
+// Available reports whether this caller is offered the language-server tools: for a caller that may
+// start a server, Manager.Available; for one that may not, whether a server the host started is
+// running. It starts nothing.
+func (a *Access) Available() bool {
+	if a.origin != attachOnly {
+		return a.m.Available()
+	}
+	a.m.mu.Lock()
+	defer a.m.mu.Unlock()
+	for _, language := range a.m.order {
+		if srv := a.m.byLanguage[language]; srv != nil && srv.client != nil && !srv.runStarted {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Access) Diagnostics(ctx context.Context, path string) ([]Diagnostic, error) {
 	var out []Diagnostic
-	err := m.call(ctx, path, "textDocument/diagnostic", func(ctx context.Context, client *Client) error {
+	err := a.m.call(ctx, path, "textDocument/diagnostic", a.origin, func(ctx context.Context, client *Client) error {
 		items, err := client.Diagnostics(ctx, path)
 		out = items
 		return err
@@ -375,45 +459,45 @@ func (m *Manager) Diagnostics(ctx context.Context, path string) ([]Diagnostic, e
 	return out, err
 }
 
-func (m *Manager) Hover(ctx context.Context, path string, line, character int) (json.RawMessage, error) {
-	return m.raw(ctx, path, "textDocument/hover", func(ctx context.Context, client *Client) (json.RawMessage, error) {
+func (a *Access) Hover(ctx context.Context, path string, line, character int) (json.RawMessage, error) {
+	return a.raw(ctx, path, "textDocument/hover", func(ctx context.Context, client *Client) (json.RawMessage, error) {
 		return client.Hover(ctx, path, line, character)
 	})
 }
 
-func (m *Manager) Definition(ctx context.Context, path string, line, character int) (json.RawMessage, error) {
-	return m.raw(ctx, path, "textDocument/definition", func(ctx context.Context, client *Client) (json.RawMessage, error) {
+func (a *Access) Definition(ctx context.Context, path string, line, character int) (json.RawMessage, error) {
+	return a.raw(ctx, path, "textDocument/definition", func(ctx context.Context, client *Client) (json.RawMessage, error) {
 		return client.Definition(ctx, path, line, character)
 	})
 }
 
-func (m *Manager) References(ctx context.Context, path string, line, character int, includeDeclaration bool) (json.RawMessage, error) {
-	return m.raw(ctx, path, "textDocument/references", func(ctx context.Context, client *Client) (json.RawMessage, error) {
+func (a *Access) References(ctx context.Context, path string, line, character int, includeDeclaration bool) (json.RawMessage, error) {
+	return a.raw(ctx, path, "textDocument/references", func(ctx context.Context, client *Client) (json.RawMessage, error) {
 		return client.References(ctx, path, line, character, includeDeclaration)
 	})
 }
 
-func (m *Manager) DocumentSymbols(ctx context.Context, path string) (json.RawMessage, error) {
-	return m.raw(ctx, path, "textDocument/documentSymbol", func(ctx context.Context, client *Client) (json.RawMessage, error) {
+func (a *Access) DocumentSymbols(ctx context.Context, path string) (json.RawMessage, error) {
+	return a.raw(ctx, path, "textDocument/documentSymbol", func(ctx context.Context, client *Client) (json.RawMessage, error) {
 		return client.DocumentSymbols(ctx, path)
 	})
 }
 
-func (m *Manager) WorkspaceSymbols(ctx context.Context, query string) (json.RawMessage, error) {
-	return m.raw(ctx, "", "workspace/symbol", func(ctx context.Context, client *Client) (json.RawMessage, error) {
+func (a *Access) WorkspaceSymbols(ctx context.Context, query string) (json.RawMessage, error) {
+	return a.raw(ctx, "", "workspace/symbol", func(ctx context.Context, client *Client) (json.RawMessage, error) {
 		return client.WorkspaceSymbols(ctx, query)
 	})
 }
 
-func (m *Manager) Rename(ctx context.Context, path string, line, character int, newName string) (json.RawMessage, error) {
-	return m.raw(ctx, path, "textDocument/rename", func(ctx context.Context, client *Client) (json.RawMessage, error) {
+func (a *Access) Rename(ctx context.Context, path string, line, character int, newName string) (json.RawMessage, error) {
+	return a.raw(ctx, path, "textDocument/rename", func(ctx context.Context, client *Client) (json.RawMessage, error) {
 		return client.Rename(ctx, path, line, character, newName)
 	})
 }
 
-func (m *Manager) raw(ctx context.Context, path, method string, fn func(context.Context, *Client) (json.RawMessage, error)) (json.RawMessage, error) {
+func (a *Access) raw(ctx context.Context, path, method string, fn func(context.Context, *Client) (json.RawMessage, error)) (json.RawMessage, error) {
 	var out json.RawMessage
-	err := m.call(ctx, path, method, func(ctx context.Context, client *Client) error {
+	err := a.m.call(ctx, path, method, a.origin, func(ctx context.Context, client *Client) error {
 		raw, err := fn(ctx, client)
 		out = raw
 		return err
@@ -422,8 +506,8 @@ func (m *Manager) raw(ctx context.Context, path, method string, fn func(context.
 }
 
 // call runs one request against the server of path's language, starting the server when needed and
-// bounding the request by Options.RequestTimeout and the run's tool deadline.
-func (m *Manager) call(ctx context.Context, path, method string, fn func(context.Context, *Client) error) error {
+// the origin allows it, and bounding the request by Options.RequestTimeout and the run's tool deadline.
+func (m *Manager) call(ctx context.Context, path, method string, from origin, fn func(context.Context, *Client) error) error {
 	srv := m.serverForPath(path)
 	if srv == nil {
 		return fmt.Errorf("%w: no language server is configured for %q", ErrUnavailable, filepath.Ext(path))
@@ -432,7 +516,7 @@ func (m *Manager) call(ctx context.Context, path, method string, fn func(context
 	// it away between the lookup and the call.
 	m.begin(srv)
 	defer m.end(srv)
-	client, err := m.client(ctx, srv, false)
+	client, err := m.client(ctx, srv, false, from)
 	if err != nil {
 		return err
 	}
@@ -461,9 +545,19 @@ func (m *Manager) call(ctx context.Context, path, method string, fn func(context
 	return nil
 }
 
-// client returns the running client of srv, starting the server when it is not running. force skips
-// the restart backoff (an explicit Start).
-func (m *Manager) client(ctx context.Context, srv *server, force bool) (*Client, error) {
+// client returns the running client of srv, starting the server when it is not running and the origin
+// may start one. force skips the restart backoff (an explicit Start).
+func (m *Manager) client(ctx context.Context, srv *server, force bool, from origin) (*Client, error) {
+	if from == attachOnly {
+		m.mu.Lock()
+		client, byRunStart := srv.client, srv.runStarted
+		m.mu.Unlock()
+		if client == nil || byRunStart {
+			return nil, fmt.Errorf("%w: no %s server the host started is running, and a run in an untrusted workspace starts none",
+				ErrNotRunning, srv.language)
+		}
+		return client, nil
+	}
 	if client := m.runningClient(srv); client != nil {
 		return client, nil
 	}
@@ -520,7 +614,7 @@ func (m *Manager) client(ctx context.Context, srv *server, force bool) (*Client,
 		m.markFailed(srv, err)
 		return nil, fmt.Errorf("%w: %s: %w", ErrUnavailable, srv.language, err)
 	}
-	if err := m.install(srv, client, started); err != nil {
+	if err := m.install(srv, client, started, from == byRun); err != nil {
 		_ = client.Close()
 		return nil, err
 	}
@@ -555,15 +649,16 @@ func (m *Manager) reserveLocked(srv *server) (*server, *Client, error) {
 	return victim, client, nil
 }
 
-// install records a started client. A manager closed while the start ran refuses it, so the process
-// does not outlive Close.
-func (m *Manager) install(srv *server, client *Client, started time.Time) error {
+// install records a started client and whether a run started it. A manager closed while the start ran
+// refuses it, so the process does not outlive Close.
+func (m *Manager) install(srv *server, client *Client, started time.Time, byRun bool) error {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
 		return ErrClosed
 	}
 	srv.client = client
+	srv.runStarted = byRun
 	srv.state = StateIdle
 	srv.startedAt = started
 	srv.lastUsedAt = started

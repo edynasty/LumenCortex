@@ -397,7 +397,7 @@ func (e *Engine) EffectivePrompt(ctx context.Context, req EffectivePromptRequest
 	if wf != nil {
 		allowlist = wf.EffectiveAllowlist(allowlist)
 	}
-	tools, err := e.promptTools(workspace, policy, child, sessionID, req.Subagents, eff.DelegationAgents(config.AgentInfo.SpawnEligible), newSkillReader(prompt.Skills.Included))
+	tools, err := e.promptTools(workspace, policy, child, eff.Trusted, sessionID, req.Subagents, eff.DelegationAgents(config.AgentInfo.SpawnEligible), newSkillReader(prompt.Skills.Included))
 	if err != nil {
 		return EffectivePromptResult{}, err
 	}
@@ -418,16 +418,14 @@ func (e *Engine) EffectivePrompt(ctx context.Context, req EffectivePromptRequest
 
 // promptTools builds the toolset a run of the session would have, without starting anything: no MCP
 // server is launched and no provider client is built. The toolset only registers what is already
-// running, which is exactly what a run would see.
-func (e *Engine) promptTools(workspace, policy string, child bool, sessionID string, subagents bool, spawnAgents []config.AgentInfo, skillTools toolset.SkillReader) (*toolset.Set, error) {
+// running, which is exactly what a run would see. trusted is the workspace's trust, which decides the
+// language-server tools as at Start (ADR-0013).
+func (e *Engine) promptTools(workspace, policy string, child, trusted bool, sessionID string, subagents bool, spawnAgents []config.AgentInfo, skillTools toolset.SkillReader) (*toolset.Set, error) {
 	runner := e.shell
 	if workspace != e.workspace {
 		runner = shell.New(workspace)
 	}
-	lspManager, err := e.lspManagerFor(workspace)
-	if err != nil {
-		lspManager = nil
-	}
+	lspAccess := e.lspForRun(workspace, trusted)
 	registry := e.mcpRegistry
 	var controller toolset.SubagentController
 	var threads toolset.ThreadReader
@@ -453,7 +451,7 @@ func (e *Engine) promptTools(workspace, policy string, child bool, sessionID str
 		Workspace:      workspace,
 		Policy:         policy,
 		Shell:          runner,
-		LSP:            lspManager,
+		LSP:            lspAccess,
 		MCP:            registry,
 		Subagents:      controller,
 		SubagentAgents: spawnAgents,
