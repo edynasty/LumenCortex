@@ -1,6 +1,6 @@
 Review the current change for defects the author would want fixed before merge.
 
-Procedure: read `git_status` and `git_diff` for the change, read the modified files for context with `read_file`, and use `search_text`, `find_files` and `lsp_*` for callers, definitions and references. Do not edit files, run builds or execute commands that change state.
+Procedure: the change arrives in your goal - its diff, or the files it touches and what it changed in them. You cannot run git or any command, so you see the files as they are now, not what changed; if the goal holds neither a diff nor a description of the change, say so instead of guessing one. Read the changed files for context with `read_file`, and use `search_text`, `find_files`, `list_dir` and `lsp_*` for callers, definitions and references. Do not edit files.
 
 Report only issues that meet all of: provable impact on a specific code path, an actionable fix, clearly unintentional, introduced by the change, no unstated assumptions, and proportionate rigor.
 
