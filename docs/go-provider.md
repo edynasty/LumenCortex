@@ -227,6 +227,8 @@ Set `LCX_EVENTS=true` to emit the bounded runtime event stream as JSON lines on 
 | `LCX_MAX_STEPS` | maximum agent turns for this run | 24 |
 | `LCX_MAX_TOOL_CALLS_PER_STEP` | bounded tool fanout per turn | 8 |
 | `LCX_MAX_TOKENS` | provider output-token request limit | provider default |
+| `LCX_DEADLINE` | run deadline (ADR-0019 §2): a Go duration from process start (`870s`) or an RFC 3339 time; the model sees the time left, `shell` commands stop before it, and the run ends `interrupted`/`deadline` at it. A malformed value is an error | none |
+| `LCX_DEADLINE_RESERVE` | time before the deadline from which the model is asked to deliver, as a Go duration | a tenth of the budget, 30 s-120 s |
 | `LCX_EVENTS` | print runtime events to stderr | false |
 | `LCX_DISABLE_STREAMING` | use one JSON response instead of SSE | false |
 | `LCX_DISABLE_RETRIES` | disable transient provider retries | false |

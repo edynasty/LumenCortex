@@ -33,6 +33,9 @@ const (
 	// OriginImportedMarker marks a user row an import wrote where the source recorded an event it does
 	// not copy: a context compaction or a return from another branch.
 	OriginImportedMarker = "imported_marker"
+	// OriginDeadline marks a user row the loop appends for a run with a deadline (ADR-0019 §2): one when
+	// the run starts, stating its budget, and one when the time left first falls within the reserve.
+	OriginDeadline = "deadline"
 )
 
 // Contents of the runtime rows that open a new turn. They are user rows the model reads.
@@ -70,10 +73,13 @@ type ToolSpec struct {
 }
 
 type ToolResult struct {
-	OK         bool   `json:"ok"`
-	Denied     bool   `json:"denied,omitempty"`
-	Permission string `json:"permission,omitempty"`
-	Content    string `json:"content"`
+	// Interrupted: the tool stopped the operation before it finished (a command past its timeout), so
+	// what it did is unknown. The execution record of such a call ends outcome_unknown, never failed.
+	Interrupted bool   `json:"interrupted,omitempty"`
+	OK          bool   `json:"ok"`
+	Denied      bool   `json:"denied,omitempty"`
+	Permission  string `json:"permission,omitempty"`
+	Content     string `json:"content"`
 	// MutatesWorkspace: this call changed the workspace, or may have when the tool cannot tell. It is
 	// set whatever OK says: a failed command can still have changed files.
 	MutatesWorkspace bool `json:"mutatesWorkspace,omitempty"`

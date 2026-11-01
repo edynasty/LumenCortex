@@ -204,6 +204,9 @@ func (l *Loop) postExecution(ctx context.Context, x *execution, result protocol.
 	switch {
 	case toolErr == nil && result.OK:
 		post.Outcome = session.OutcomeComplete
+	case toolErr == nil && result.Interrupted:
+		// The tool stopped the operation partway (a command past its timeout): its effects are unknown.
+		post.Outcome = session.OutcomeUnknown
 	case toolErr == nil:
 		post.Outcome = session.OutcomeFailed
 	case x.tier == tierFiles && post.Coverage == session.CoverageComplete && len(changed) == 0:

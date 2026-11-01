@@ -21,9 +21,9 @@ func ToolCallID(ctx context.Context) string {
 }
 
 // WithToolDeadline returns ctx carrying the time by which a tool call must have returned: the run's
-// deadline less the reserve it keeps for delivering its answer. It is not a context deadline: a tool
-// that reaches it stops its own work and reports a timeout as its result, while cancelling ctx ends the
-// run. A zero t stores nothing.
+// deadline less the margin it keeps for the reply after the last tool result (ADR-0019 §2). It is not a
+// context deadline: a tool that reaches it stops its own work and reports a timeout as its result, while
+// cancelling ctx ends the run. A zero t stores nothing.
 func WithToolDeadline(ctx context.Context, t time.Time) context.Context {
 	if t.IsZero() {
 		return ctx

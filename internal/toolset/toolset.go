@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/lsp"
@@ -41,6 +42,9 @@ type Options struct {
 	Skills SkillReader
 	// Protected is the state the file tools refuse to reach (ADR-0016). The zero value protects nothing.
 	Protected Protected
+	// ShellTimeout is the default timeout of a foreground shell call (execution.shellTimeoutSeconds);
+	// 0 is none. A call's timeout_sec replaces it; the run's tool deadline bounds both.
+	ShellTimeout time.Duration
 }
 type Set struct {
 	workspace      string
@@ -55,7 +59,9 @@ type Set struct {
 	threads        ThreadReader
 	skills         SkillReader
 	protected      Protected
-	tools          map[string]tool
+	// shellTimeoutDefault is Options.ShellTimeout.
+	shellTimeoutDefault time.Duration
+	tools               map[string]tool
 }
 type tool struct {
 	spec    protocol.ToolSpec
@@ -101,7 +107,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -222,7 +228,10 @@ func (s *Set) registerBuiltins() {
 		}},
 		"required": []string{"patches"}, "additionalProperties": false,
 	}}, s.applyPatch)
-	s.add(protocol.ToolSpec{Name: "shell", Description: "Run a shell command in the workspace with bounded retained output.", Permission: "exec", MutatesWorkspace: true, Parameters: obj(map[string]any{"command": str()}, "command")}, s.runShell)
+	s.add(protocol.ToolSpec{Name: "shell", Description: shellDescription, Permission: "exec", MutatesWorkspace: true, Parameters: obj(map[string]any{
+		"command":     str(),
+		"timeout_sec": map[string]any{"type": "integer", "minimum": 1, "maximum": maxShellTimeoutSeconds, "description": "Seconds the command may run before its process group is terminated (SIGTERM, then SIGKILL). Replaces the configured default; the run's deadline still bounds it."},
+	}, "command")}, s.runShell)
 	if s.lsp != nil {
 		s.registerLSPTools()
 	}

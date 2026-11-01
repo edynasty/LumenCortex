@@ -9,11 +9,15 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/cognition"
 	lcx "github.com/edynasty/LumenCortex/runtime"
 )
+
+// processStart anchors LCX_DEADLINE given as a duration: it is read on the monotonic clock.
+var processStart = time.Now()
 
 func main() {
 	if err := run(); err != nil {
@@ -489,16 +493,52 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 			return lcx.AgentOptions{}, fmt.Errorf("read LCX_WORK_UNITS %q: %w", path, err)
 		}
 	}
+	deadline, err := deadlineFromEnv(processStart)
+	if err != nil {
+		return lcx.AgentOptions{}, err
+	}
+	reserve := 0
+	if value := strings.TrimSpace(os.Getenv("LCX_DEADLINE_RESERVE")); value != "" {
+		d, err := time.ParseDuration(value)
+		if err != nil || d <= 0 {
+			return lcx.AgentOptions{}, fmt.Errorf("LCX_DEADLINE_RESERVE %q: want a positive Go duration such as 90s", value)
+		}
+		reserve = int(d.Round(time.Second) / time.Second)
+	}
 	return lcx.AgentOptions{
-		Agent:               strings.TrimSpace(os.Getenv("LCX_AGENT")),
-		Policy:              policy,
-		MaxSteps:            maxSteps,
-		MaxTokens:           maxTokens,
-		MaxToolCallsPerStep: maxToolCalls,
-		Effort:              config.Effort(strings.TrimSpace(os.Getenv("LCX_EFFORT"))),
-		Workflow:            workflow,
-		WorkUnits:           workUnits,
+		Agent:                  strings.TrimSpace(os.Getenv("LCX_AGENT")),
+		Policy:                 policy,
+		MaxSteps:               maxSteps,
+		MaxTokens:              maxTokens,
+		MaxToolCallsPerStep:    maxToolCalls,
+		Effort:                 config.Effort(strings.TrimSpace(os.Getenv("LCX_EFFORT"))),
+		Workflow:               workflow,
+		WorkUnits:              workUnits,
+		Deadline:               deadline,
+		DeadlineReserveSeconds: reserve,
 	}, nil
+}
+
+// deadlineFromEnv reads LCX_DEADLINE (ADR-0019 §2): a Go duration counted from start (the process start,
+// on the monotonic clock), or an RFC 3339 time. Unset is no deadline; anything else is an error, never
+// silently no deadline.
+func deadlineFromEnv(start time.Time) (*time.Time, error) {
+	value := strings.TrimSpace(os.Getenv("LCX_DEADLINE"))
+	if value == "" {
+		return nil, nil
+	}
+	if d, err := time.ParseDuration(value); err == nil {
+		if d <= 0 {
+			return nil, fmt.Errorf("LCX_DEADLINE %q: a duration must be positive", value)
+		}
+		at := start.Add(d)
+		return &at, nil
+	}
+	at, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, fmt.Errorf("LCX_DEADLINE %q: want a Go duration from process start (870s) or an RFC 3339 time", value)
+	}
+	return &at, nil
 }
 
 func streamEvents(engine *lcx.Engine) func() {

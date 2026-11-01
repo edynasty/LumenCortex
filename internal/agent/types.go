@@ -195,6 +195,12 @@ type Options struct {
 	// TaskAgents are the catalog agents start_task may run (ADR-0009 A3): delegation use, workspace
 	// ceiling. They form the tool's agent enum; an empty list offers no agent parameter (worker runs).
 	TaskAgents []config.AgentInfo
+	// Deadline is the run's absolute deadline; zero means none (ADR-0019 §2). Tool calls get a tool
+	// deadline before it (the answer margin), the model sees the time left in every tool result, and the
+	// run ends interrupted with KindDeadline when it passes. DeadlineReserve is the time before the
+	// deadline from which the model is asked to deliver; 0 takes a tenth of the budget within 30 s-120 s.
+	Deadline        time.Time
+	DeadlineReserve time.Duration
 }
 
 // CandidateEffort is one candidate's default effort and, when that default was resolved from auto,
@@ -230,7 +236,10 @@ const (
 	KindEmptyResponse = "empty_response"
 	// KindOutputLimit: the reply hit the output token limit before it held a tool call, so it is an
 	// unfinished thought, not an answer; the run ends without completing.
-	KindOutputLimit          = "output_limit"
+	KindOutputLimit = "output_limit"
+	// KindDeadline: the run reached Options.Deadline (ADR-0019 §2); a request or tool in flight was
+	// cancelled. External cancellation stays KindCancelled.
+	KindDeadline             = "deadline"
 	KindProviderAvailability = "provider:availability"
 	KindProviderCapacity     = "provider:capacity"
 	KindProviderAuth         = "provider:auth"

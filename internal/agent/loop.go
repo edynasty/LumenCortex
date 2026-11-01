@@ -116,6 +116,14 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 	if opts.SystemPrompt == "" {
 		opts.SystemPrompt = SystemPrompt(opts.Interactive, "")
 	}
+	// A run with a deadline ends at it: the context carries ErrRunDeadline as its cause, so exit can tell
+	// it from the host's cancellation.
+	clock := newRunClock(opts.Deadline, opts.DeadlineReserve, time.Now())
+	if clock.set() {
+		var cancelDeadline context.CancelFunc
+		ctx, cancelDeadline = context.WithDeadlineCause(ctx, clock.deadline, ErrRunDeadline)
+		defer cancelDeadline()
+	}
 
 	var (
 		state = SessionState{ID: sessionID}
@@ -163,6 +171,14 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			"nextStep": startStep,
 		})
 	}
+	if clock.set() {
+		notice := clock.startNotice(time.Now())
+		seq, _, err := l.Store.AppendMessage(ctx, sessionID, notice, nil)
+		if err != nil {
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+		}
+		r.appendRow(seq, notice)
+	}
 
 	for turn := 0; turn < opts.MaxSteps; turn++ {
 		if err := ctx.Err(); err != nil {
@@ -172,6 +188,13 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		// Host edits queued since the last step become visible before this step's request is built.
 		if err := l.applyInbox(ctx, sessionID, r); err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+		}
+		if notice, ok := clock.reserveNotice(time.Now()); ok {
+			seq, _, err := l.Store.AppendMessage(ctx, sessionID, notice, nil)
+			if err != nil {
+				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+			}
+			r.appendRow(seq, notice)
 		}
 		if r.wf != nil && len(r.wf.WaitingHumanGates()) > 0 {
 			gates := r.wf.WaitingHumanGates()
@@ -227,7 +250,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				Err: fmt.Errorf("no model can take this request: it needs about %d tokens before the reply, and no candidate of %s has the context, tool calling and health for it", base, refList(append([]config.ModelRef{opts.Session}, opts.Failover...)))})
 		}
 		stall := Stall{SameFailure: r.ts.Progress.SameFailureCount, NoProgressSteps: r.ts.Progress.NoProgressSteps}
+		sent := time.Now()
 		answered, cause := l.send(ctx, sessionID, step, opts, stall, r.ts.Version, cands, r, in, len(groups), specs, &usage, &stepDecisions)
+		clock.observeModel(time.Since(sent))
 		if cause != nil {
 			return l.exit(ctx, state, usage, *cause)
 		}
@@ -381,7 +406,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				refusal = "invalid tool arguments: " + argsErr.Error()
 			}
 			if refusal != "" {
-				rejected := protocol.ToolResult{OK: false, Content: toolErrorContent(refusal)}
+				rejected := protocol.ToolResult{OK: false, Content: clock.annotate(toolErrorContent(refusal), time.Now())}
 				if _, err := l.persistToolResult(ctx, sessionID, opts.RunID, call, rejected, nil, nil, nil, r); err != nil {
 					return l.exit(ctx, state, usage, *storeExit(err))
 				}
@@ -407,6 +432,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					}
 				}
 				var toolErr error
+				toolStarted := time.Now()
 				l.emit("tool.start", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "args": args})
 				if call.Name == toolStartTask {
 					toolResult = l.startTask(ctx, r, opts, args, time.Now().UTC())
@@ -424,7 +450,13 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 						return l.exit(ctx, state, usage, *cause)
 					}
 				} else {
-					toolResult, toolErr = l.Tools.Execute(ctx, call.Name, args, func(output protocol.ToolOutput) {
+					// The tool sees its call id (a job names the call that started it) and the time by
+					// which it must be done (ADR-0019 §2); the run's own deadline stays the hard stop.
+					toolCtx := protocol.WithToolCallID(ctx, call.ID)
+					if until, ok := clock.toolDeadline(); ok {
+						toolCtx = protocol.WithToolDeadline(toolCtx, until)
+					}
+					toolResult, toolErr = l.Tools.Execute(toolCtx, call.Name, args, func(output protocol.ToolOutput) {
 						l.emit("tool.output", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "stream": output.Stream, "chunk": output.Chunk})
 					})
 					if ctx.Err() != nil {
@@ -442,6 +474,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 						r.mutated = true
 					}
 				}
+				clock.observeTool(call.Name, time.Since(toolStarted))
 				if x != nil {
 					post, edges = l.postExecution(ctx, x, toolResult, toolErr, answered.RequestID, answered.Lineage)
 				}
@@ -483,6 +516,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				edges = append(edges, modelStateEdges(before, change.Next, answered.RequestID, answered.Lineage)...)
 			}
 			edges = append(edges, l.sessionResultEdges(ctx, sessionID, call, toolResult, answered.RequestID, answered.Lineage)...)
+			toolResult.Content = clock.annotate(toolResult.Content, time.Now())
 			messageSeq, err := l.persistToolResult(ctx, sessionID, opts.RunID, call, toolResult, change, post, edges, r)
 			if err != nil {
 				return l.exit(ctx, state, usage, *storeExit(err))
@@ -698,10 +732,15 @@ func outputLimitExit(response protocol.ProviderResponse) ExitCause {
 
 // exit ends the run with an interrupted or failed cause: finish, then the
 // terminal event. A storage or provider error that arrives with the run context
-// already cancelled is the cancellation, not a failure.
+// already cancelled is the cancellation, not a failure; a cancellation caused by
+// the run's deadline is KindDeadline.
 func (l *Loop) exit(ctx context.Context, state SessionState, usage protocol.Usage, cause ExitCause) (Result, error) {
-	if ctx.Err() != nil && (cause.Kind == KindStorage || strings.HasPrefix(cause.Kind, "provider:")) {
-		cause = ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()}
+	if ctx.Err() != nil && (cause.Kind == KindCancelled || cause.Kind == KindStorage || strings.HasPrefix(cause.Kind, "provider:")) {
+		if errors.Is(context.Cause(ctx), ErrRunDeadline) {
+			cause = ExitCause{Status: StatusInterrupted, Kind: KindDeadline, Err: ErrRunDeadline}
+		} else if cause.Kind != KindCancelled {
+			cause = ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()}
+		}
 	}
 	if err := l.finish(ctx, state, usage, cause, nil); err != nil {
 		return finishFailure(state, usage, cause, err)

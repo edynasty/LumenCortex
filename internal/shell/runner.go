@@ -6,6 +6,7 @@ import (
 	"io"
 	"os/exec"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/streambuf"
@@ -24,6 +25,10 @@ type Result struct {
 	Stdout    streambuf.Snapshot `json:"stdout"`
 	Stderr    streambuf.Snapshot `json:"stderr"`
 	Cancelled bool               `json:"cancelled"`
+	// TimedOut: the command ran past its timeout and its process group was terminated (SIGTERM, then
+	// SIGKILL after TermGrace). Cancelled stays false: a timeout is the command's result, not the
+	// caller's cancellation.
+	TimedOut bool `json:"timedOut,omitempty"`
 }
 
 type Runner struct {
@@ -39,6 +44,9 @@ type Runner struct {
 // waitDelay bounds how long Run waits, after the shell exited or was killed, for background processes
 // to close stdout and stderr; the pipes are then closed and Run returns.
 const waitDelay = 2 * time.Second
+
+// TermGrace is how long a timed-out command's process group has, after SIGTERM, to exit before SIGKILL.
+const TermGrace = 2 * time.Second
 
 func New(workspace string) *Runner {
 	return &Runner{Workspace: workspace, HeadBytes: 8 << 10, TailBytes: 24 << 10}
@@ -60,15 +68,27 @@ func (w chunkWriter) Write(p []byte) (int, error) {
 }
 
 func (r *Runner) Run(ctx context.Context, command string, onChunk func(StreamEvent)) (Result, error) {
+	return r.RunTimeout(ctx, command, 0, onChunk)
+}
+
+// RunTimeout is Run with a timeout (0: none). At the timeout the command's process group gets SIGTERM,
+// then SIGKILL after TermGrace if it has not exited; the result keeps the output read so far and
+// reports TimedOut with exit code -1. Cancelling ctx still kills the group at once and returns
+// ctx.Err().
+func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Duration, onChunk func(StreamEvent)) (Result, error) {
 	started := time.Now().UTC()
 	stdout := streambuf.New(r.HeadBytes, r.TailBytes)
 	stderr := streambuf.New(r.HeadBytes, r.TailBytes)
 
+	// kill ends the command on its own context, so the timeout's SIGKILL goes through the same
+	// cancellation path (cmd.Cancel kills the group) without being mistaken for the caller's.
+	cmdCtx, kill := context.WithCancel(ctx)
+	defer kill()
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "cmd.exe", "/C", command)
+		cmd = exec.CommandContext(cmdCtx, "cmd.exe", "/C", command)
 	} else {
-		cmd = exec.CommandContext(ctx, "/bin/sh", "-lc", command)
+		cmd = exec.CommandContext(cmdCtx, "/bin/sh", "-lc", command)
 	}
 	cmd.Dir = r.Workspace
 	cmd.Stdout = chunkWriter{bounded: stdout, stream: "stdout", onChunk: onChunk}
@@ -76,8 +96,40 @@ func (r *Runner) Run(ctx context.Context, command string, onChunk func(StreamEve
 	cmd.WaitDelay = waitDelay
 	startGroup(cmd)
 
-	err := cmd.Run()
-	if r.Reap || ctx.Err() != nil {
+	err := cmd.Start()
+	var timedOut atomic.Bool
+	if err == nil {
+		var stopTimer func()
+		if timeout > 0 {
+			exited := make(chan struct{})
+			pid := cmd.Process.Pid
+			timer := time.AfterFunc(timeout, func() {
+				select {
+				case <-exited: // the command ended as the timer fired
+					return
+				default:
+				}
+				timedOut.Store(true)
+				_ = termGroup(pid)
+				grace := time.NewTimer(TermGrace)
+				defer grace.Stop()
+				select {
+				case <-grace.C:
+					kill()
+				case <-exited:
+				}
+			})
+			stopTimer = func() {
+				timer.Stop()
+				close(exited)
+			}
+		}
+		err = cmd.Wait()
+		if stopTimer != nil {
+			stopTimer()
+		}
+	}
+	if r.Reap || ctx.Err() != nil || timedOut.Load() {
 		_ = killGroup(cmd)
 	}
 	// The shell exited successfully but a background process kept the pipes open past waitDelay: the
@@ -93,6 +145,11 @@ func (r *Runner) Run(ctx context.Context, command string, onChunk func(StreamEve
 		Stdout:    stdout.Snapshot(),
 		Stderr:    stderr.Snapshot(),
 		Cancelled: errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded),
+		TimedOut:  timedOut.Load() && ctx.Err() == nil,
+	}
+	if result.TimedOut {
+		result.ExitCode = -1
+		return result, nil
 	}
 	if err != nil {
 		var exitErr *exec.ExitError

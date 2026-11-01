@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
@@ -60,6 +61,13 @@ type AgentOptions struct {
 	// starts execution tasks directly and needs RunSupervisor.Start. It is independent of Policy: a
 	// read-only conversation starts write-capable tasks only with this grant. Children never hold it.
 	Delegation string `json:"delegation,omitempty"`
+	// Deadline is the run's absolute deadline (ADR-0019 §2); nil means none. The model sees the time
+	// left, tools are bounded so that a reply still fits, and the run ends interrupted with kind
+	// "deadline" when it passes. A read-only subagent inherits the time by which its spawning tool call
+	// must be done. DeadlineReserveSeconds is the time before the deadline from which the model is asked
+	// to deliver; 0 takes a tenth of the budget within 30-120 s.
+	Deadline               *time.Time `json:"deadline,omitempty"`
+	DeadlineReserveSeconds int        `json:"deadlineReserveSeconds,omitempty"`
 
 	subagents toolset.SubagentController
 	// childAgent is a child run's default agent: explore for a read-only subagent, worker for an
@@ -276,6 +284,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Threads:        threadReader{engine: e, sessionID: sessionID, workspace: agentWorkspace},
 		Skills:         newSkillReader(prompt.Skills.Included),
 		Protected:      e.protected,
+		ShellTimeout:   time.Duration(e.executionLimits().ShellTimeoutSeconds) * time.Second,
 	})
 	if err != nil {
 		return nil, err
@@ -349,6 +358,10 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		TaskAgents:          plan.taskAgents,
 		RunID:               runID,
 		Withheld:            withheld,
+		DeadlineReserve:     time.Duration(opts.DeadlineReserveSeconds) * time.Second,
+	}
+	if opts.Deadline != nil {
+		loopOpts.Deadline = *opts.Deadline
 	}
 
 	loopOpts.SystemLayers = systemLayers(prompt.Layers)

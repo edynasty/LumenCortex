@@ -59,6 +59,56 @@ func TestCancellationKillsTheProcessGroup(t *testing.T) {
 	}
 }
 
+// A command past its timeout has its process group terminated: the result reports TimedOut (not
+// Cancelled) with the output read so far, a background child does not survive, and a group that ignores
+// SIGTERM is killed once the grace period has passed.
+func TestTimeoutTerminatesTheProcessGroup(t *testing.T) {
+	for _, name := range []string{"term", "ignores-term"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			pidFile := filepath.Join(dir, "child.pid")
+			cmd := `sleep 30 & echo $! > child.pid; echo started; wait`
+			if name == "ignores-term" {
+				// An ignored signal stays ignored across exec, so the shell and its child both outlive SIGTERM.
+				cmd = `trap '' TERM; ` + cmd
+			}
+			started := time.Now()
+			result, err := New(dir).RunTimeout(context.Background(), cmd, 300*time.Millisecond, nil)
+			elapsed := time.Since(started)
+			if err != nil {
+				t.Fatalf("err=%v, want a timed-out result", err)
+			}
+			if !result.TimedOut || result.Cancelled || result.ExitCode != -1 {
+				t.Fatalf("timedOut=%v cancelled=%v exit=%d, want timedOut, not cancelled, exit -1", result.TimedOut, result.Cancelled, result.ExitCode)
+			}
+			if !strings.Contains(string(result.Stdout.Head), "started") {
+				t.Fatalf("stdout=%q, want the output written before the timeout", result.Stdout.Head)
+			}
+			if name == "ignores-term" && elapsed < 300*time.Millisecond+TermGrace {
+				t.Fatalf("returned after %s: a group that ignores SIGTERM must get the %s grace before SIGKILL", elapsed, TermGrace)
+			}
+			if elapsed > 300*time.Millisecond+TermGrace+waitDelay+2*time.Second {
+				t.Fatalf("returned after %s", elapsed)
+			}
+			pid := readPID(t, pidFile)
+			deadline := time.Now().Add(2 * time.Second)
+			for alive(pid) {
+				if time.Now().After(deadline) {
+					_ = syscall.Kill(pid, syscall.SIGKILL)
+					t.Fatalf("background child %d survived the timeout", pid)
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+		})
+	}
+	t.Run("finishes-in-time", func(t *testing.T) {
+		result, err := New(t.TempDir()).RunTimeout(context.Background(), `echo ok; exit 3`, 5*time.Second, nil)
+		if err != nil || result.TimedOut || result.ExitCode != 3 {
+			t.Fatalf("result=%+v err=%v, want exit 3 without a timeout", result, err)
+		}
+	})
+}
+
 // After a normal exit only a reaping runner kills what the command left in the background; the agent's
 // shell tool keeps a detached process running.
 func TestReapKillsDetachedChildrenAfterExit(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/toolset"
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 const (
@@ -160,6 +161,10 @@ func (c *subagentController) Spawn(ctx context.Context, goal, agentID string) (a
 	})
 
 	childOpts := c.childOptions(childRef, agentID)
+	if until, ok := protocol.ToolDeadline(ctx); ok {
+		// A child of a run with a deadline must be done by the time its parent's tools must be (ADR-0019 §2).
+		childOpts.Deadline = &until
+	}
 	if _, err := c.supervisor.Start(ctx, handle.ID, childOpts); err != nil {
 		status := "interrupted"
 		errorRaw, _ := json.Marshal(map[string]any{

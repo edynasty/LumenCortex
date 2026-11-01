@@ -2,10 +2,15 @@ package toolset
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 func gitRepo(t *testing.T) string {
@@ -73,5 +78,101 @@ func TestShellReportsOnlyActualWorkspaceChanges(t *testing.T) {
 	}
 	if result, err := plain.Execute(context.Background(), "shell", map[string]any{"command": "true"}, nil); err != nil || !result.MutatesWorkspace {
 		t.Fatalf("outside git a command must count as a change: %+v err=%v", result, err)
+	}
+}
+
+type shellOutcome struct {
+	ExitCode   int    `json:"exitCode"`
+	Cancelled  bool   `json:"cancelled"`
+	TimedOut   bool   `json:"timedOut"`
+	TimeoutSec int64  `json:"timeoutSec"`
+	Error      string `json:"error"`
+	Stdout     struct {
+		Head string `json:"head"`
+	} `json:"stdout"`
+}
+
+// A foreground command's timeout is its timeout_sec, else the configured default, and the run's tool
+// deadline bounds either: past it the command's group is terminated, the partial output is kept, and the
+// result is a failed, interrupted call (effects unknown) rather than an error. A call with no time left
+// before the tool deadline does not start.
+func TestShellTimeoutSourcesAndResult(t *testing.T) {
+	root := t.TempDir()
+	newSet := func(def time.Duration) *Set {
+		set, err := New(Options{Workspace: root, Policy: PolicyFull, ShellTimeout: def})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return set
+	}
+	run := func(ctx context.Context, set *Set, args map[string]any) (protocol.ToolResult, shellOutcome, time.Duration) {
+		t.Helper()
+		started := time.Now()
+		result, err := set.Execute(ctx, "shell", args, nil)
+		elapsed := time.Since(started)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		var out shellOutcome
+		if err := json.Unmarshal([]byte(result.Content), &out); err != nil {
+			t.Fatalf("%v: content %q: %v", args, result.Content, err)
+		}
+		return result, out, elapsed
+	}
+	slow := "echo begun; sleep 20"
+
+	t.Run("argument", func(t *testing.T) {
+		result, out, elapsed := run(context.Background(), newSet(0), map[string]any{"command": slow, "timeout_sec": float64(1)})
+		if result.OK || !result.Interrupted || !out.TimedOut || out.TimeoutSec != 1 || out.ExitCode != -1 || out.Cancelled {
+			t.Fatalf("result=%+v out=%+v", result, out)
+		}
+		if !strings.Contains(out.Stdout.Head, "begun") || !strings.Contains(out.Error, "1s timeout") {
+			t.Fatalf("want the partial output and the reason: %+v", out)
+		}
+		if elapsed > 8*time.Second {
+			t.Fatalf("returned after %s", elapsed)
+		}
+	})
+	t.Run("config default, and an argument replaces it", func(t *testing.T) {
+		_, out, _ := run(context.Background(), newSet(time.Second), map[string]any{"command": slow})
+		if !out.TimedOut || out.TimeoutSec != 1 {
+			t.Fatalf("the configured default must apply: %+v", out)
+		}
+		result, out, _ := run(context.Background(), newSet(time.Second), map[string]any{"command": "sleep 2; echo late", "timeout_sec": float64(10)})
+		if !result.OK || out.TimedOut || result.Interrupted {
+			t.Fatalf("timeout_sec must replace a lower default: result=%+v out=%+v", result, out)
+		}
+	})
+	t.Run("tool deadline bounds the timeout", func(t *testing.T) {
+		ctx := protocol.WithToolDeadline(context.Background(), time.Now().Add(time.Second))
+		_, out, elapsed := run(ctx, newSet(time.Hour), map[string]any{"command": slow, "timeout_sec": float64(600)})
+		if !out.TimedOut || out.TimeoutSec > 1 || !strings.Contains(out.Error, "deadline") {
+			t.Fatalf("the tool deadline must bound the timeout: %+v", out)
+		}
+		if elapsed > 8*time.Second {
+			t.Fatalf("returned after %s", elapsed)
+		}
+	})
+	t.Run("no time left", func(t *testing.T) {
+		marker := filepath.Join(root, "ran")
+		ctx := protocol.WithToolDeadline(context.Background(), time.Now().Add(-time.Second))
+		result, out, _ := run(ctx, newSet(0), map[string]any{"command": "touch " + marker})
+		if result.OK || !strings.Contains(out.Error, "not run") {
+			t.Fatalf("result=%+v out=%+v", result, out)
+		}
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatalf("a call past the tool deadline ran: %v", err)
+		}
+	})
+	t.Run("no timeout at all keeps the old behaviour", func(t *testing.T) {
+		result, out, _ := run(context.Background(), newSet(0), map[string]any{"command": "sleep 1; echo ok"})
+		if !result.OK || out.TimedOut || result.Interrupted || out.TimeoutSec != 0 {
+			t.Fatalf("result=%+v out=%+v", result, out)
+		}
+	})
+	for _, bad := range []any{float64(0), float64(1.5), float64(86401), "10", true} {
+		if _, err := newSet(0).Execute(context.Background(), "shell", map[string]any{"command": "true", "timeout_sec": bad}, nil); err == nil {
+			t.Errorf("timeout_sec=%v was accepted", bad)
+		}
 	}
 }

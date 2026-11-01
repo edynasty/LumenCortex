@@ -46,27 +46,42 @@ global configuration's `execution` object (`config.Execution`, global file only,
 
 ### 1. Foreground tool timeout (RUNTIME-001)
 
-`shell` takes `timeout_sec` (1…86400). The effective timeout is the smallest of `timeout_sec`,
-`execution.shellTimeoutSeconds` (absent: none) and the time left before the call's tool deadline (§2).
-At the timeout the runner sends SIGTERM to the command's process group, waits a 2 s grace, then SIGKILL; the
-pipes are closed after the existing 2 s wait delay, so no orphaned process keeps the call open. The result
-keeps the partial stdout/stderr (head and tail) and reports `timedOut: true`, `timeoutSec`, exit code -1,
-and an error text telling the model that the group was terminated and the command's effects are unknown.
-A timeout is a tool result, not a run exit; cancellation of the run stays a run exit (`cancelled`), so the
-two are distinguishable. The execution record of the call (ADR-0018) ends `outcome_unknown` for a timed-out
-command: it may have changed the workspace.
+`shell` takes `timeout_sec` (1…86400). The effective timeout is `timeout_sec` when the call gives one, else
+`execution.shellTimeoutSeconds` (absent: none, the behaviour before this ADR), and in both cases at most the
+time left before the call's tool deadline (§2). At the timeout the runner sends SIGTERM to the command's
+process group, waits a 2 s grace, then SIGKILL; the pipes are closed after the existing 2 s wait delay, so
+no orphaned process keeps the call open. The result keeps the partial stdout/stderr (head and tail) and
+reports `timedOut: true`, `timeoutSec`, exit code -1, and an error text telling the model that the group
+was terminated and the command's effects are unknown. A timeout is a tool result (`ok: false`,
+`ToolResult.Interrupted`), not a run exit; cancellation of the run stays a run exit (`cancelled`), so the
+two are distinguishable. The execution record of the call (ADR-0018) ends `outcome_unknown` for a
+timed-out command: it may have changed the workspace. A call whose tool deadline has already passed is
+not started.
+
+No default timeout is shipped: the commands an agent runs range from a second to a long build, and a short
+built-in default would break the long ones. A deployment that wants one sets
+`execution.shellTimeoutSeconds`; a run with a deadline is bounded by it either way.
 
 ### 2. Run deadline (RUNTIME-001)
 
 `AgentOptions.Deadline` (absolute time; CLI `LCX_DEADLINE` as a Go duration from process start or RFC 3339)
-and `AgentOptions.DeadlineReserve` (default: a tenth of the budget, clamped to 30 s…120 s). The loop:
+and `AgentOptions.DeadlineReserveSeconds` (default: a tenth of the budget, clamped to 30 s…120 s, at most
+half the budget). The loop anchors the deadline on the monotonic clock when the run starts, so the time
+left only decreases. It:
 
-- passes every tool call a `protocol.WithToolDeadline(ctx, deadline - reserve)`; tools bound their own
-  waits by it (foreground shell, `job_wait`), so no tool can consume the reserve;
-- appends `deadline: {remainingSec}` to each tool result's JSON content (results are new transcript rows,
-  so the cached prefix is not disturbed: no dynamic text enters the fixed system prompt);
+- passes every tool call `protocol.WithToolCallID` and `protocol.WithToolDeadline(ctx, deadline −
+  margin)`, where the answer margin is 1.5× the longest model request of the run, at least 10 s, at most
+  the reserve: tools bound their own waits by it (foreground shell, `job_wait`), so a reply still fits
+  after the last tool result. A read-only subagent spawned by a tool call inherits that time as its own
+  deadline;
+- adds a `deadline` member to each tool result (a trailing runtime line when the result is not a JSON
+  object): `remainingSec`, `reserveSec` and `usedSec {model, tools, wait}` — time in model requests
+  (retries included), in tools, and in `job_wait`. Results are new transcript rows, so the cached prefix is
+  not disturbed: no dynamic text enters the fixed system prompt. The stall detector reads the result
+  before the report is added;
 - appends one user row (origin `deadline`) when a run with a deadline starts, stating its budget, and one
-  when the remaining time first falls under the reserve, asking the model to stop exploring and deliver;
+  when the remaining time first falls within the reserve, asking the model to deliver. Neither stops
+  work: within the reserve the model may still run short commands, bounded by the margin;
 - ends the run `interrupted` with kind `deadline` when the deadline passes (a request or tool in flight is
   cancelled). External cancellation keeps kind `cancelled`.
 

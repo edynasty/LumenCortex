@@ -433,6 +433,16 @@ func (e *Engine) concurrency() (config.Concurrency, error) {
 	return limits, nil
 }
 
+// executionLimits is the global file's execution limits (ADR-0019) with their defaults. A configuration
+// that does not load gives the defaults: the Start that reads the catalog reports that error.
+func (e *Engine) executionLimits() config.Execution {
+	cfg, err := config.Load(e.workspace)
+	if err != nil {
+		return (*config.Execution)(nil).Limits()
+	}
+	return cfg.Effective().Execution
+}
+
 func (e *Engine) Events(buffer int) (<-chan Event, func()) { return e.events.subscribe(buffer) }
 
 // EventStats returns the event bus counters (see EventStats). Publishing never

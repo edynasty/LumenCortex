@@ -15,3 +15,6 @@ func killGroup(cmd *exec.Cmd) error {
 	}
 	return cmd.Process.Kill()
 }
+
+// termGroup has no graceful equivalent for cmd.exe: the grace period passes and killGroup follows.
+func termGroup(int) error { return nil }

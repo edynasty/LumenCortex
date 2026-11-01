@@ -25,3 +25,12 @@ func killGroup(cmd *exec.Cmd) error {
 	}
 	return nil
 }
+
+// termGroup sends SIGTERM to the process group led by pid: a timed-out command gets a chance to exit
+// cleanly before killGroup. A group that is already gone is not an error.
+func termGroup(pid int) error {
+	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	return nil
+}
