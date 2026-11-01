@@ -506,14 +506,15 @@ func (w wakeups) ScheduleWakeup(ctx context.Context, delaySec int, message strin
 	return toolset.Wakeup{ID: task.ID, FireAt: at.Format(time.RFC3339)}, nil
 }
 
-// CancelWakeup removes a pending wake-up of this session. A task of another session is reported as not
-// found, not as a refusal: a run cannot probe other sessions' timers.
+// CancelWakeup removes a pending wake-up of this session. A task of another session, or one that is not
+// a wake-up (a host's agent schedule on this session), is reported as not found, not as a refusal: a
+// run cannot probe or remove timers the wake-up tools did not create.
 func (w wakeups) CancelWakeup(ctx context.Context, id string) error {
 	task, err := w.engine.schedules.Get(ctx, id)
 	if err != nil {
 		return err
 	}
-	if task.Kind != schedule.KindAgent || task.SessionID != w.sessionID {
+	if !w.owns(task) {
 		return session.ErrNotFound
 	}
 	if err := w.engine.schedules.Delete(ctx, id); err != nil {
@@ -530,12 +531,17 @@ func (w wakeups) pending(ctx context.Context) ([]schedule.Task, error) {
 	}
 	out := make([]schedule.Task, 0, len(tasks))
 	for _, t := range tasks {
-		if t.Kind == schedule.KindAgent && t.SessionID == w.sessionID && t.Enabled && t.NextRunAt != nil &&
-			strings.HasPrefix(agentPromptOf(t), wakeupPromptPrefix) {
+		if w.owns(t) && t.Enabled && t.NextRunAt != nil {
 			out = append(out, t)
 		}
 	}
 	return out, nil
+}
+
+// owns reports whether t is a wake-up of this session: an agent task on it that wakeup_schedule created.
+func (w wakeups) owns(t schedule.Task) bool {
+	return t.Kind == schedule.KindAgent && t.SessionID == w.sessionID &&
+		strings.HasPrefix(agentPromptOf(t), wakeupPromptPrefix)
 }
 
 // wakeupName is the task's display name: the message's first words, inside the name bound.

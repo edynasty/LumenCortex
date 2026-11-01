@@ -400,6 +400,27 @@ func TestEngineWakeupsAreScopedToOneSession(t *testing.T) {
 	}
 }
 
+// wakeup_cancel reaches only wake-ups: a host-created agent schedule of the same session is reported as
+// not found and stays (RT-state-17).
+func TestWakeupCancelLeavesHostAgentSchedules(t *testing.T) {
+	engine := openTestEngine(t)
+	ctx := context.Background()
+	handle := newTestSession(t, engine, "review")
+	host, err := engine.CreateSchedule(ctx, ScheduleRequest{
+		Name: "daily review", Kind: "agent", SessionID: handle.ID, Prompt: "review the open PRs", Policy: "workspace",
+		Trigger: ScheduleTrigger{Kind: "cron", Cron: "0 9 * * *"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.wakeupsFor(handle.ID, "read-only").CancelWakeup(ctx, host.ID); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("wakeup_cancel of a host schedule: %v, want ErrNotFound", err)
+	}
+	if _, err := engine.Schedule(ctx, host.ID); err != nil {
+		t.Fatalf("the host schedule after wakeup_cancel: %v", err)
+	}
+}
+
 // A read-only run keeps the read-only policy on its wake-up: the ceiling never widens.
 func TestEngineWakeupKeepsTheRunPolicy(t *testing.T) {
 	engine, err := Open(Options{Workspace: t.TempDir()})
