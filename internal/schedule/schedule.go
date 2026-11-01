@@ -111,10 +111,16 @@ type ShellPayload struct {
 	TimeoutSeconds int    `json:"timeoutSeconds,omitempty"`
 }
 
-// AgentPayload is the prompt an agent task starts and the policy it runs with.
+// AgentPayload is the prompt an agent task starts and the policy it runs with. ToolAllowlist and
+// ToolDenylist are the host tool filters the run gets (canonical tool names, nil for none): a wake-up
+// carries those of the run that scheduled it, so the woken run is offered no tool that run was not. An
+// empty allowlist is stored as none; a run with an empty allowlist is offered no wakeup_schedule, so
+// no wake-up carries one.
 type AgentPayload struct {
-	Prompt string `json:"prompt"`
-	Policy string `json:"policy,omitempty"`
+	Prompt        string   `json:"prompt"`
+	Policy        string   `json:"policy,omitempty"`
+	ToolAllowlist []string `json:"toolAllowlist,omitempty"`
+	ToolDenylist  []string `json:"toolDenylist,omitempty"`
 }
 
 // Trigger is when a task fires: once at At, every Every from its scheduled slot, or at each time

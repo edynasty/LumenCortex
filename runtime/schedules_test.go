@@ -338,7 +338,7 @@ func TestEngineWakeupsAreScopedToOneSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	controller := engine.wakeupsFor(mine.ID, "workspace")
+	controller := engine.wakeupsFor(mine.ID, "workspace", nil, nil)
 	if controller == nil {
 		t.Fatal("no wake-up controller for a run with a session")
 	}
@@ -371,7 +371,7 @@ func TestEngineWakeupsAreScopedToOneSession(t *testing.T) {
 	}
 
 	// Another session cannot cancel it, and its own controller sees none of it.
-	otherController := engine.wakeupsFor(other.ID, "read-only")
+	otherController := engine.wakeupsFor(other.ID, "read-only", nil, nil)
 	if err := otherController.CancelWakeup(ctx, wakeup.ID); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("cancel from another session: %v, want ErrNotFound", err)
 	}
@@ -413,7 +413,7 @@ func TestWakeupCancelLeavesHostAgentSchedules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.wakeupsFor(handle.ID, "read-only").CancelWakeup(ctx, host.ID); !errors.Is(err, session.ErrNotFound) {
+	if err := engine.wakeupsFor(handle.ID, "read-only", nil, nil).CancelWakeup(ctx, host.ID); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("wakeup_cancel of a host schedule: %v, want ErrNotFound", err)
 	}
 	if _, err := engine.Schedule(ctx, host.ID); err != nil {
@@ -433,7 +433,7 @@ func TestEngineWakeupKeepsTheRunPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	controller := engine.wakeupsFor(handle.ID, "")
+	controller := engine.wakeupsFor(handle.ID, "", nil, nil)
 	if controller == nil {
 		t.Fatal("no wake-up controller")
 	}
@@ -694,4 +694,81 @@ func TestWakeupDueDuringItsOwnRunFiresAfterTheRunEnds(t *testing.T) {
 	if info.LastStatus != session.ScheduleStatusFired || info.FireCount != 1 || info.NextRunAt != nil {
 		t.Fatalf("wake-up after its run: status=%q count=%d next=%v, want fired once", info.LastStatus, info.FireCount, info.NextRunAt)
 	}
+}
+
+// A wake-up keeps the host tool filters of the run that scheduled it: the woken run's first request
+// offers exactly the tools the creating run's first request offered, so a denied command tool (by its
+// current or its former name) or an allowlist does not come back with the wake-up. The workflow binding
+// of the session survives as well (capability U1).
+func TestWakeupKeepsTheRunToolFilters(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts AgentOptions
+	}{
+		{"denylist", AgentOptions{ToolDenylist: []string{"bash"}}},
+		{"denylist former name", AgentOptions{ToolDenylist: []string{"shell"}}},
+		{"allowlist", AgentOptions{ToolAllowlist: []string{"read_file", "wakeup_schedule"}}},
+		{"workflow", AgentOptions{Workflow: json.RawMessage(`{"id":"wf","facts":{"ready":true},"actions":{"work":{"terminal":true,"completeWhen":{"fact":"ready","equals":true},"allowedTools":["read_file","wakeup_schedule"]}}}`)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine := openTestEngine(t)
+			handle := newTestSession(t, engine, "wake up later")
+			supervisor, err := NewRunSupervisor(engine)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer supervisor.Close()
+			provider := &wakeupProvider{}
+			opts := tc.opts
+			opts.Input, opts.Policy, opts.MaxSteps = "go", "full", 4
+			if _, err := supervisor.startWith(context.Background(), handle.ID, provider, opts); err != nil {
+				t.Fatal(err)
+			}
+			// Request 1 schedules the wake-up, request 2 ends the run, request 3 is the woken run's first.
+			provider.waitRequests(t, 3, 15*time.Second)
+			waitUntilIdle(t, supervisor, handle.ID, 10*time.Second)
+			creating, woken := provider.toolNames(0), provider.toolNames(2)
+			if !slices.Contains(creating, "wakeup_schedule") {
+				t.Fatalf("the creating run was not offered wakeup_schedule: %v", creating)
+			}
+			if !slices.Equal(woken, creating) {
+				t.Fatalf("the woken run offers %v, want the creating run's %v", woken, creating)
+			}
+			if tc.opts.ToolAllowlist != nil || tc.opts.ToolDenylist != nil || tc.opts.Workflow != nil {
+				if slices.Contains(woken, "bash") {
+					t.Fatalf("the woken run offers bash: %v", woken)
+				}
+			}
+		})
+	}
+}
+
+// A wake-up stores the run's tool filters by their current names, and a host update of its prompt or
+// policy keeps them (capability U1).
+func TestWakeupToolFiltersSurviveAHostUpdate(t *testing.T) {
+	engine := openTestEngine(t)
+	ctx := context.Background()
+	handle := newTestSession(t, engine, "wake up later")
+	wakeup, err := engine.wakeupsFor(handle.ID, "full", []string{"read_file", "wakeup_schedule"}, []string{"shell"}).
+		ScheduleWakeup(ctx, 600, "resume")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(when string) {
+		t.Helper()
+		task, err := engine.schedules.Get(ctx, wakeup.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if task.Agent == nil || !slices.Equal(task.Agent.ToolAllowlist, []string{"read_file", "wakeup_schedule"}) ||
+			!slices.Equal(task.Agent.ToolDenylist, []string{"bash"}) {
+			t.Fatalf("%s: payload = %+v, want the run's filters by their current names", when, task.Agent)
+		}
+	}
+	check("created")
+	prompt, policy := "resume and report", "read-only"
+	if _, err := engine.UpdateSchedule(ctx, wakeup.ID, SchedulePatch{Prompt: &prompt, Policy: &policy}); err != nil {
+		t.Fatal(err)
+	}
+	check("after a host update")
 }

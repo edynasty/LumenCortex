@@ -501,7 +501,9 @@ func (s *Scheduler) Create(ctx context.Context, spec Spec) (Task, error) {
 		t.MissedPolicy = MissedSkip
 	}
 	if t.Kind == KindAgent && t.Agent != nil && t.Agent.Policy == "" {
-		t.Agent = &AgentPayload{Prompt: t.Agent.Prompt, Policy: PolicyReadOnly}
+		agent := *t.Agent
+		agent.Policy = PolicyReadOnly
+		t.Agent = &agent
 	}
 	if t.Trigger.Kind == TriggerOnce && !t.Trigger.At.IsZero() && t.Trigger.At.Before(now.Add(-oncePastTolerance)) {
 		return Task{}, invalidf("a once task's time must be in the future")
@@ -593,11 +595,12 @@ func applyPatch(t Task, patch Patch, now time.Time, minInterval time.Duration) (
 			return Task{}, invalidf("an %s task carries no shell payload", KindAgent)
 		}
 		if patch.Agent != nil {
-			policy := patch.Agent.Policy
-			if policy == "" {
-				policy = PolicyReadOnly
+			// The patch's payload replaces the task's whole, its tool filters included.
+			agent := *patch.Agent
+			if agent.Policy == "" {
+				agent.Policy = PolicyReadOnly
 			}
-			t.Agent = &AgentPayload{Prompt: patch.Agent.Prompt, Policy: policy}
+			t.Agent = &agent
 		}
 	}
 	if patch.Enabled != nil && *patch.Enabled != t.Enabled {

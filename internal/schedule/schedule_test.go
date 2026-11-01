@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -989,6 +990,40 @@ func TestCreateDefaults(t *testing.T) {
 	row := mustTask(t, store, agent.ID)
 	if row.Kind != session.ScheduleKindAgent || row.SessionID != "session_agent" {
 		t.Fatalf("row: kind=%q session=%q", row.Kind, row.SessionID)
+	}
+}
+
+// An agent task's tool filters survive the payload rebuilds: the default policy on create and a patch
+// that carries a new prompt and policy with the filters (capability U1).
+func TestAgentPayloadKeepsToolFilters(t *testing.T) {
+	ctx := context.Background()
+	clock := newFakeClock(testBase)
+	store := openScheduleStore(t, filepath.Join(t.TempDir(), ".lumencortex"))
+	defer store.Close()
+	if err := store.Create(ctx, session.Session{ID: "session_agent", Goal: "check"}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	s := newTestScheduler(t, store, newFakeActions(), clock, nil)
+	allow, deny := []string{"read_file", "wakeup_schedule"}, []string{"bash"}
+	task, err := s.Create(ctx, Spec{
+		Name: "wake-up", Kind: KindAgent, SessionID: "session_agent",
+		Agent:   &AgentPayload{Prompt: "check", ToolAllowlist: allow, ToolDenylist: deny},
+		Trigger: Trigger{Kind: TriggerOnce, At: testBase.Add(time.Hour)},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	stored := fromRow(mustTask(t, store, task.ID)).Agent
+	if stored == nil || stored.Policy != PolicyReadOnly || !slices.Equal(stored.ToolAllowlist, allow) || !slices.Equal(stored.ToolDenylist, deny) {
+		t.Fatalf("stored payload after create = %+v", stored)
+	}
+	if _, err := s.Update(ctx, task.ID, Patch{Agent: &AgentPayload{Prompt: "check again", ToolAllowlist: allow, ToolDenylist: deny}}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	stored = fromRow(mustTask(t, store, task.ID)).Agent
+	if stored == nil || stored.Prompt != "check again" || stored.Policy != PolicyReadOnly ||
+		!slices.Equal(stored.ToolAllowlist, allow) || !slices.Equal(stored.ToolDenylist, deny) {
+		t.Fatalf("stored payload after update = %+v", stored)
 	}
 }
 
