@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 func TestReadOnlyPolicyHidesMutationTools(t *testing.T) {
@@ -15,10 +17,27 @@ func TestReadOnlyPolicyHidesMutationTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, spec := range set.Specs(nil) {
-		if spec.Permission != "read" {
+		// A state tool (the working notebook) writes only the run's own durable state, never a
+		// workspace file, so every policy admits it (ADR-0020); nothing else may pass read-only.
+		if spec.Permission != "read" && spec.Permission != PermissionState {
 			t.Fatalf("read-only exposed %s (%s)", spec.Name, spec.Permission)
 		}
 	}
+	if _, ok := findSpec(set.Specs(nil), "write_file"); ok {
+		t.Fatal("read-only exposed write_file")
+	}
+	if _, ok := findSpec(set.Specs(nil), "shell"); ok {
+		t.Fatal("read-only exposed shell")
+	}
+}
+
+func findSpec(specs []protocol.ToolSpec, name string) (protocol.ToolSpec, bool) {
+	for _, spec := range specs {
+		if spec.Name == name {
+			return spec, true
+		}
+	}
+	return protocol.ToolSpec{}, false
 }
 
 func TestResolveRejectsTraversal(t *testing.T) {
