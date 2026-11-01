@@ -47,19 +47,28 @@ var secretKeys = map[string]bool{
 	"clientsecret":       true,
 	"password":           true,
 	"passwd":             true,
+	"pwd":                true,
 	"credential":         true,
 	"credentials":        true,
 	"privatekey":         true,
 }
 
 // secretSuffixes are matched against the end of a normalized key, so openai_api_key, bearer_token
-// and db_password are secrets too. A plain count such as total_tokens does not end in one.
+// and db_passwd are secrets too. A plain count such as total_tokens does not end in one.
 var secretSuffixes = []string{
-	"apikey", "token", "secret", "password", "passwd", "credential", "credentials", "privatekey", "cookie",
+	"apikey", "token", "passwd", "credential", "credentials", "cookie",
 }
 
+// secretWords make a normalized key secret wherever they appear in it, so secret_key,
+// aws_secret_access_key, ssh_passphrase_file and private_key_id are secrets. None of them is part of
+// an ordinary word; "token" is not among them, because token counts (max_tokens_used) are logged.
+var secretWords = []string{"secret", "password", "passphrase", "privatekey", "accesskey"}
+
 // contentKeys are the attribute names whose value is reduced to its byte length. Prompts, model
-// messages, reasoning, tool output and tool arguments never reach the log.
+// messages, reasoning, tool output and tool arguments never reach the log, nor the text a user or a
+// model wrote as a task: a session's goal (its first user row when it has no Input; session.start,
+// subagent.spawned), a work unit's goal, description and summary (work_unit.blocked_final), and the
+// output tail of a failed check (checks.blocked_final).
 var contentKeys = map[string]bool{
 	"content":          true,
 	"reasoning":        true,
@@ -78,6 +87,10 @@ var contentKeys = map[string]bool{
 	"command":          true,
 	"text":             true,
 	"body":             true,
+	"goal":             true,
+	"description":      true,
+	"summary":          true,
+	"tail":             true,
 }
 
 // debugKeepable are the content keys debug level may keep, masked and truncated: a command or the
@@ -130,6 +143,11 @@ func isSecretName(norm string) bool {
 	}
 	for _, suffix := range secretSuffixes {
 		if len(norm) > len(suffix) && strings.HasSuffix(norm, suffix) {
+			return true
+		}
+	}
+	for _, word := range secretWords {
+		if strings.Contains(norm, word) {
 			return true
 		}
 	}

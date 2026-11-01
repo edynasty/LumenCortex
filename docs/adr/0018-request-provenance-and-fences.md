@@ -118,6 +118,7 @@ transcript seq, `tool:<requestId>:<callId>` a tool row, `task_result:<id>@<seq>`
 | a Task State tool call writes or changes an entry | entry version | the issuing request | `agent_generated` |
 | `start_task` / `spawn_subagent` starts a child | `child_session` | the issuing request | `agent_generated` |
 | `wait_subagent` / `list_subagents` reports children | the tool row | each child (`session:<id>@<newest seq>`) | `agent_generated` |
+| `notebook_list` / `notebook_read` reads a direct child's notebooks (ADR-0020) | the tool row | the child (`session:<id>@<newest seq>`); none when it is withdrawn | `agent_generated` |
 | the user rewrites an agent note or takes over an agent reference suggestion | new entry version | the replaced version (`message`) | `user_decision` |
 | the user starts a proposed task | `child_session` | the proposal entry | `agent_generated` |
 | a task result is delivered with its cursor | `task_result:<id>@<seq>` | the child as of `<seq>` | `agent_generated` |

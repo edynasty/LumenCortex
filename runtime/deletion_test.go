@@ -271,6 +271,54 @@ func TestDeletingASessionRemovesEveryCopyOfItsContent(t *testing.T) {
 	}
 }
 
+// R1a deletion through a notebook read (RT-state-4): notebook_read returns a child's notebook body, so
+// the parent's tool row is a copy of the child's content. A parent run reads its child's notebook;
+// deleting the child leaves the parent's tool row with its content removed and no byte of the body in
+// the database or its WAL.
+func TestDeletingAChildRemovesItsNotebookFromTheParentTranscript(t *testing.T) {
+	engine, parent := notebookEngine(t)
+	ctx := context.Background()
+	child, err := engine.NewSession(ctx, SessionOptions{Goal: "child"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.store.AddRelation(ctx, session.Relation{ParentSessionID: parent, ChildSessionID: child.ID, Kind: RelationSubagent}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.CreateNotebook(ctx, child.ID, "research", "# Research\n\n## Findings\n"+privacySentinel+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	p := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("nb1", "notebook_read", `{"notebook":"research","session_id":"`+child.ID+`"}`),
+		finalResponse("read"),
+	}}
+	if r, err := engine.runAgentWith(ctx, parent, p, AgentOptions{Input: "read the child's notebook", Policy: "read-only", MaxSteps: 3}); err != nil || r.Status != "completed" {
+		t.Fatalf("parent run %+v %v", r, err)
+	}
+	copies := `SELECT count(*) FROM session_messages WHERE session_id = ? AND instr(json, ?) > 0`
+	if n := countRows(t, engine, copies, parent, privacySentinel); n != 1 {
+		t.Fatalf("fixture: %d parent rows hold the child's notebook body, want the notebook_read row", n)
+	}
+	parentRows := countRows(t, engine, `SELECT count(*) FROM session_messages WHERE session_id = ?`, parent)
+
+	if _, err := engine.DeleteSession(ctx, child.ID, WorktreeCleanup{}); err != nil {
+		t.Fatal(err)
+	}
+	if n := countRows(t, engine, copies, parent, privacySentinel); n != 0 {
+		t.Fatalf("after deleting the child, %d parent rows still hold its notebook body", n)
+	}
+	if n := countRows(t, engine, `SELECT count(*) FROM session_messages WHERE session_id = ?`, parent); n != parentRows {
+		t.Fatalf("parent rows %d -> %d", parentRows, n)
+	}
+	if n := countRows(t, engine, `SELECT count(*) FROM session_messages WHERE session_id = ? AND role = 'tool'
+		AND json_extract(json, '$.tool_call_id') = 'nb1' AND json_extract(json, '$.content') = ?`, parent, session.RemovedContent); n != 1 {
+		t.Fatalf("the notebook_read row was not rewritten: %d", n)
+	}
+	if found := sentinelAtRest(t, engine.store.Path()); len(found) != 0 {
+		t.Fatalf("the notebook body is still in %v", found)
+	}
+}
+
 // A deletion whose cleanup is interrupted after its fences (here: the caller's ctx is cancelled after
 // the first batch, or once the session rows are gone and only the rebuild is owed) is
 // cleanup_pending: the session cannot run, a DeleteSession while another caller holds one of its

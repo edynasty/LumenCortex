@@ -121,11 +121,16 @@ written, so the model re-reads and retries.
   never injected: they are read with `notebook_read`. A session without notebooks gets no row.
 - Subagents: a child run has its own notebooks. A run reads its own and those of its direct children
   (`session_id`), refuses any other session, and always writes its own - a parent merges a child's
-  findings by reading them and writing its own notebook.
+  findings by reading them and writing its own notebook. Reading a child is a session-source read,
+  as `read_thread` is: the result names the child, the tool row derives from it (revoking the child
+  fences the reader; deleting it removes the copy), and a child withdrawn as a source reads as
+  `{"session", "withdrawn": true}` with nothing of it.
 - Hosts: `Notebooks`, `Notebook`, `CreateNotebook`, `SaveNotebook` (compare-and-set, `updated_by`
   `host`), `NotebookRevisions`, `NotebookRevision`, `DeleteNotebook` and `ExportNotebook` (Markdown and
   a file name). Writes publish `notebook.updated` / `notebook.deleted` (id, version, bytes) and a
-  content-free journal row.
+  content-free journal row. The reads of a session withdrawn as a source return the same entries
+  marked `withdrawn` with no title, heading or body; `ExportNotebook` is refused
+  (`ErrNotebookWithdrawn`).
 
 ## Large-repository retrieval
 

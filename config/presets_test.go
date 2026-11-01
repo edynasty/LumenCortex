@@ -63,6 +63,19 @@ func TestAgentPresetsReturnsFreshCopies(t *testing.T) {
 	}
 }
 
+// No preset tells the agent to use a tool the runtime no longer offers (RT-capability-1): git_status and
+// git_diff were removed and shell renamed bash by ADR-0019 §0, so a preset that names one sends the
+// model after a tool it does not have.
+func TestAgentPresetsNameNoRemovedTool(t *testing.T) {
+	for _, preset := range AgentPresets() {
+		for _, gone := range []string{"git_status", "git_diff", "`shell`"} {
+			if strings.Contains(preset.Agent.Instructions, gone) {
+				t.Errorf("preset %q names %s, removed by ADR-0019 §0", preset.ID, gone)
+			}
+		}
+	}
+}
+
 // ompTestEffective is a catalog of four usable models and one that cannot call tools.
 func ompTestEffective() *Effective {
 	info := func(ref ModelRef, tools bool) ModelInfo {

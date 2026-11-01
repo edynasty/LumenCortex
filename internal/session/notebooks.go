@@ -61,6 +61,9 @@ type NotebookInfo struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 	UpdatedBy string    `json:"updatedBy"`
 	Sections  []string  `json:"sections"`
+	// Withdrawn is set by the runtime's host reads when the session is withdrawn as a source
+	// (SessionWithdrawn): Title, Sections and the body are then empty. The Store never sets it.
+	Withdrawn bool `json:"withdrawn,omitempty"`
 }
 
 // NotebookDoc is one notebook with its Markdown body.
@@ -78,6 +81,8 @@ type NotebookRevision struct {
 	Bytes      int       `json:"bytes"`
 	CreatedAt  time.Time `json:"createdAt"`
 	Body       string    `json:"body,omitempty"`
+	// Withdrawn is set as on NotebookInfo; Body is then empty.
+	Withdrawn bool `json:"withdrawn,omitempty"`
 }
 
 // notebookOps are the ways a notebook version comes to be, as stored in notebook_revisions.op.

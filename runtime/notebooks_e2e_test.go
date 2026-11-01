@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -302,5 +304,78 @@ func TestNotebookEventsCarryNoBody(t *testing.T) {
 	decodeJSON(t, raw, &deleted)
 	if deleted.NotebookID != doc.ID || deleted.Version != 2 || deleted.Bytes == 0 {
 		t.Fatalf("notebook.deleted = %s", raw)
+	}
+}
+
+// A notebook read of a child is a session-source read, as read_thread is (RT-state-3, ADR-0018): the
+// parent's notebook_list and notebook_read rows each store an edge citing the child, so revoking the
+// child reaches and fences the parent. A read of the run's own notebooks cites nothing. After the
+// revocation a run of another parent reads the child withdrawn: its run completes, its requests carry
+// none of the child's notebook, and it stores no edge citing the child.
+func TestNotebookReaderIsFencedWhenItsChildIsRevoked(t *testing.T) {
+	engine, parent := notebookEngine(t)
+	ctx := context.Background()
+	child, _ := childWithNotebook(t, engine, parent)
+	if _, err := engine.CreateNotebook(ctx, parent, "plan", "# Plan\n"); err != nil {
+		t.Fatal(err)
+	}
+	reader := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("nb1", "notebook_read", `{"notebook":"research","session_id":"`+child+`"}`),
+		toolCallResponse("nb2", "notebook_list", `{"session_id":"`+child+`"}`),
+		toolCallResponse("nb3", "notebook_read", `{"notebook":"plan"}`),
+		finalResponse("read"),
+	}}
+	if r, err := engine.runAgentWith(ctx, parent, reader, AgentOptions{Input: "read the child's notebook", Policy: "read-only", MaxSteps: 5}); err != nil || r.Status != "completed" {
+		t.Fatalf("reader run %+v %v", r, err)
+	}
+	cites := `SELECT count(*) FROM derived_origins WHERE session_id = ? AND source_kind = 'session' AND source_ref = ?`
+	if n := countRows(t, engine, cites, parent, child); n != 2 {
+		t.Fatalf("the parent stored %d edges citing the child, want one per notebook read of it", n)
+	}
+	if n := countRows(t, engine, cites, parent, parent); n != 0 {
+		t.Fatalf("the parent stored %d edges citing itself", n)
+	}
+
+	rep, err := engine.RevokeSource(ctx, SourceSession, child, "user_revoked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(rep.Sessions, parent) {
+		t.Fatalf("the revocation reached %v, not the parent that read the child's notebook", rep.Sessions)
+	}
+	if fenced, err := engine.store.SessionWithdrawn(ctx, parent); err != nil || !fenced {
+		t.Fatalf("parent withdrawn %v %v", fenced, err)
+	}
+
+	// A second parent of the same child reads it only after the revocation.
+	other, err := engine.NewSession(ctx, SessionOptions{Goal: "another parent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.store.AddRelation(ctx, session.Relation{ParentSessionID: other.ID, ChildSessionID: child, Kind: RelationSubagent}); err != nil {
+		t.Fatal(err)
+	}
+	late := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("nb1", "notebook_read", `{"notebook":"research","session_id":"`+child+`"}`),
+		toolCallResponse("nb2", "notebook_list", `{"session_id":"`+child+`"}`),
+		finalResponse("read"),
+	}}
+	if r, err := engine.runAgentWith(ctx, other.ID, late, AgentOptions{Input: "read the child's notebook", Policy: "read-only", MaxSteps: 4}); err != nil || r.Status != "completed" {
+		t.Fatalf("late reader run %+v %v", r, err)
+	}
+	tools := 0
+	for _, m := range late.messages() {
+		if strings.Contains(m.Content, notebookSentinel) {
+			t.Fatalf("the late reader's request carries the revoked child's notebook in a %s row: %q", m.Role, m.Content)
+		}
+		if m.Role == "tool" && strings.Contains(m.Content, `"withdrawn":true`) {
+			tools++
+		}
+	}
+	if tools == 0 {
+		t.Fatal("no tool row of the late reader marks the child withdrawn")
+	}
+	if n := countRows(t, engine, cites, other.ID, child); n != 0 {
+		t.Fatalf("the late reader stored %d edges citing the withdrawn child", n)
 	}
 }

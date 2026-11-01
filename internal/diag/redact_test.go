@@ -48,6 +48,9 @@ func TestSecretKeysAreRedactedAtEveryLevel(t *testing.T) {
 		"X-API-Key", "apikey", "token", "access_token", "accessToken", "refresh_token", "id_token",
 		"secret", "client_secret", "password", "passwd", "credential", "credentials", "private_key",
 		"openai_api_key", "bearer_token", "db_password",
+		// A secret word anywhere in the name, not only at its end (RT-state-9).
+		"secret_key", "aws_secret_access_key", "SecretKey", "access_key", "passphrase", "pwd", "private_key_id",
+		"password_hash", "ssh_passphrase_file",
 	}
 	for _, level := range []slog.Level{slog.LevelDebug, slog.LevelInfo, slog.LevelWarn, slog.LevelError} {
 		for _, key := range keys {
@@ -59,6 +62,20 @@ func TestSecretKeysAreRedactedAtEveryLevel(t *testing.T) {
 					t.Fatalf("%s = %v, want %s", key, got, Redacted)
 				}
 			})
+		}
+	}
+}
+
+// A key is secret by an exact name, a secret suffix, or a secret word anywhere in it; a key that only
+// counts or names something stays loggable (RT-state-9: the word rule keeps "token" a suffix, so token
+// counts are not lost).
+func TestBenignKeysAreNotSecret(t *testing.T) {
+	for _, key := range []string{
+		"total_tokens", "max_tokens", "tokens", "prompt_tokens", "session_id", "note", "count", "accept",
+		"step", "detail", "keys", "access", "pass", "cwd", "pwd_dir",
+	} {
+		if IsSecretKey(key) {
+			t.Errorf("IsSecretKey(%q) = true", key)
 		}
 	}
 }
@@ -165,6 +182,10 @@ func TestContentKeysAreReducedToTheirLength(t *testing.T) {
 		"command":           "cat secret.txt",
 		"text":              "some text",
 		"body":              "an http body",
+		"goal":              "the user's task",
+		"description":       "a work unit's description",
+		"summary":           "a work unit's summary",
+		"tail":              "the tail of a failed check's output",
 	}
 	for _, level := range []slog.Level{slog.LevelDebug, slog.LevelInfo, slog.LevelError} {
 		for key, value := range content {

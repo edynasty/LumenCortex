@@ -88,13 +88,15 @@ func HostStateEdges(before, after taskstate.State) []session.DerivedEdge {
 	return edges
 }
 
-// Tools whose result carries other sessions: the subagent tools (internal/toolset/subagents.go) and the
-// thread tools (internal/toolset/threads.go).
+// Tools whose result carries other sessions: the subagent tools (internal/toolset/subagents.go), the
+// thread tools (internal/toolset/threads.go) and the notebook reads (internal/toolset/notebook.go).
 const (
 	toolWaitSubagent  = "wait_subagent"
 	toolListSubagents = "list_subagents"
 	toolReadThread    = "read_thread"
 	toolRecall        = "recall"
+	toolNotebookList  = "notebook_list"
+	toolNotebookRead  = "notebook_read"
 	maxResultSources  = session.MaxEdgesPerCommit
 )
 
@@ -123,9 +125,10 @@ type threadResult struct {
 
 // resultSessions returns the sessions whose content a successful tool result carries: the spawned,
 // waited or listed children of a subagent tool (depth first), the thread read_thread returned and its
-// listed children, or every thread recall found. own, the reading session, is never a source of itself.
-// Anything else names none. ok is false when the result could not be read or held more sessions than
-// one commit stores, so what is recorded is incomplete.
+// listed children, every thread recall found, or the session whose notebooks notebook_list or
+// notebook_read returned ({"session": id}, no source when withdrawn). own, the reading session, is
+// never a source of itself. Anything else names none. ok is false when the result could not be read
+// or held more sessions than one commit stores, so what is recorded is incomplete.
 func resultSessions(name, own string, result protocol.ToolResult) (sessions []string, ok bool) {
 	if !result.OK {
 		return nil, true
@@ -185,6 +188,17 @@ func resultSessions(name, own string, result protocol.ToolResult) (sessions []st
 			if h.ID != "" && h.ID != own {
 				sessions = append(sessions, h.ID)
 			}
+		}
+	case toolNotebookList, toolNotebookRead:
+		var n struct {
+			Session   string `json:"session"`
+			Withdrawn bool   `json:"withdrawn"`
+		}
+		if err := json.Unmarshal([]byte(result.Content), &n); err != nil || n.Session == "" {
+			return nil, false
+		}
+		if !n.Withdrawn && n.Session != own {
+			sessions = append(sessions, n.Session)
 		}
 	default:
 		return nil, true

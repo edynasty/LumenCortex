@@ -203,9 +203,11 @@ Correlation fields, used where they apply: `session_id`, `run_id`, `step`, `tool
 `schedule_id`, `provider`, `model`, `duration_ms`, `error_code`.
 
 Redaction applies at every level, before a record is queued: secret-named keys (authorization, cookie,
-api key, token, secret, password, credential, private key) are replaced; secret-shaped values (bearer
+api key, token, credential, `pwd`, and any key containing secret, password, passphrase, private key or
+access key, such as `aws_secret_access_key`) are replaced; secret-shaped values (bearer
 tokens, `sk-…`, GitHub/AWS keys, PEM blocks) are masked inside any string; content fields (prompts,
-messages, reasoning, tool output, tool arguments, commands) are reduced to their byte length, except that
+messages, reasoning, tool output, tool arguments, commands, session and work-unit goals, work-unit
+descriptions and summaries, a failed check's output tail) are reduced to their byte length, except that
 `debug` keeps a command or argument text truncated to 512 bytes after masking. Reasoning and tool output are
 never logged. Export writes a zip of the (already redacted) logs, a manifest and job/schedule summaries
 without commands or payloads.
