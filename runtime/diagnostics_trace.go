@@ -228,6 +228,15 @@ func (b *traceBuilder) apply(record diag.Record, sessionID string) {
 		}
 		delete(b.requests, span.ID)
 		closeSpan(span, record.Time, TraceOK, "", false)
+	case "provider.failover":
+		// A failed request never completes: the failover event closes it, with the error class the
+		// run used to pick the next model.
+		span := b.openRequest(runID, requestSpanID(runID, sessionID, step))
+		if span == nil {
+			return
+		}
+		delete(b.requests, span.ID)
+		closeSpan(span, record.Time, TraceError, nestedText(attrs, "data", "class"), false)
 	case "tool.start":
 		id := toolSpanID(toolCallID, runID, sessionID, step)
 		span := &TraceSpan{

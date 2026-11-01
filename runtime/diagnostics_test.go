@@ -357,8 +357,14 @@ func TestEngineDiagnosticTrace(t *testing.T) {
 	engine.events.publish("job.state", sessionID, map[string]any{
 		"jobId": "job-7", "state": "completed", "exitCode": 0,
 	})
+	engine.events.publish("llm.request", sessionID, map[string]any{
+		"step": 2, "provider": "test", "model": "b1",
+	})
+	engine.events.publish("provider.failover", sessionID, map[string]any{
+		"step": 2, "provider": "test", "model": "b1", "class": "availability", "error": "boom",
+	})
 	engine.events.publish("session.complete", sessionID, map[string]any{"step": 1})
-	waitForRecords(t, engine, sessionID, 8)
+	waitForRecords(t, engine, sessionID, 10)
 
 	spans, err := engine.DiagnosticTrace(ctx, sessionID, "")
 	if err != nil {
@@ -386,6 +392,13 @@ func TestEngineDiagnosticTrace(t *testing.T) {
 	}
 	if request.EndedAt == nil {
 		t.Fatalf("request span never closed: %+v", request)
+	}
+	if len(byKind[TraceRequest]) != 2 {
+		t.Fatalf("request spans = %+v, want two", byKind[TraceRequest])
+	}
+	failed := byKind[TraceRequest][1]
+	if failed.Status != TraceError || failed.ErrorCode != "availability" || failed.EndedAt == nil {
+		t.Fatalf("failed request span = %+v", failed)
 	}
 	tool := byKind[TraceTool][0]
 	if tool.ToolCallID != "call-9" || tool.Status != TraceOK || tool.ParentID != run.ID {
