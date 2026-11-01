@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +35,15 @@ import (
 )
 
 const GoRuntimePreviewVersion = "0.1.4-preview"
+
+// engineLogger is where an Engine without a host logger writes: nowhere. The runtime always has a
+// logger, so no log call needs a nil check.
+func engineLogger(logger *slog.Logger) *slog.Logger {
+	if logger != nil {
+		return logger
+	}
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
 // ErrRunHeld reports that another Engine, in this process or another, holds the
 // session's run lock. Nothing was written.
@@ -85,8 +96,11 @@ type Options struct {
 	// with them (ADR-0012). A plugin that fails to start is marked failed; Open still succeeds.
 	Plugins []pluginapi.Plugin
 	// ProviderFactory builds the client of a catalog model before a run starts. nil uses the
-	// OpenAI-compatible adapter (openai.FromModel).
+	// [OI]-compatible adapter (openai.FromModel).
 	ProviderFactory ProviderFactory
+	// Logger receives the Engine's lifecycle log lines, the language servers' included. nil discards
+	// them; a host that wants them passes its own *slog.Logger.
+	Logger *slog.Logger
 }
 
 type Engine struct {
@@ -102,6 +116,7 @@ type Engine struct {
 	plugins      *PluginRegistry
 	hooks        *hookDispatcher
 	shell        *shell.Runner
+	log          *slog.Logger
 	lspMu        sync.Mutex
 	// noteMu makes the user-note limit check and the queueing of the add one step in this Engine.
 	noteMu        sync.Mutex
@@ -296,6 +311,7 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		repo:            repoService,
 		events:          newEventBus(),
 		shell:           shell.New(workspace),
+		log:             engineLogger(opts.Logger),
 		lspManagers:     make(map[string]*lsp.Manager),
 		mcpRegistry:     mcpRegistry,
 		skillRegistry:   skillRegistry,
