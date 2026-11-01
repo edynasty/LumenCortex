@@ -305,7 +305,7 @@ func (s *Scheduler) run(ctx context.Context, t Task, now time.Time, claimedFrom 
 			return
 		}
 		if active {
-			s.record(ctx, t, session.ScheduleStatusSkippedOverlap, t.LastRef, "", started)
+			s.overlap(ctx, t, previousFired, started)
 			return
 		}
 	}
@@ -319,7 +319,7 @@ func (s *Scheduler) run(ctx context.Context, t Task, now time.Time, claimedFrom 
 		ref, err = s.actions.RunShell(ctx, t)
 	}
 	if errors.Is(err, ErrBusy) {
-		s.record(ctx, t, session.ScheduleStatusSkippedOverlap, t.LastRef, "", started)
+		s.overlap(ctx, t, previousFired, started)
 		return
 	}
 	if errors.Is(err, ErrNoRunner) {
@@ -340,6 +340,22 @@ func (s *Scheduler) run(ctx context.Context, t Task, now time.Time, claimedFrom 
 		return
 	}
 	s.record(ctx, t, session.ScheduleStatusFired, ref, "", started)
+}
+
+// overlap handles a claimed occurrence whose previous firing or session is still running. A recurring
+// task records the skip and waits for its next slot. A task with no next slot (a one-shot, such as a
+// wake-up that comes due while the run that scheduled it still holds the session) would never fire if
+// it were skipped: its claim is given back with next_run_at busyRetry from now, so it stays pending,
+// in the database where every scheduler sees it, and fires once the session is free.
+func (s *Scheduler) overlap(ctx context.Context, t Task, previousFired *time.Time, started time.Time) {
+	if t.NextRunAt != nil {
+		s.record(ctx, t, session.ScheduleStatusSkippedOverlap, t.LastRef, "", started)
+		return
+	}
+	retry := s.now().Add(busyRetry)
+	if _, err := s.store.RevertScheduleClaim(ctx, t.ID, nil, &retry, previousFired); err != nil {
+		s.log.Warn("schedule: deferring a busy one-shot task failed", "schedule_id", t.ID, "error", err)
+	}
 }
 
 func payloadProblem(t Task) error {

@@ -107,8 +107,9 @@ func (a scheduleActions) RunAgent(ctx context.Context, t schedule.Task) (string,
 	}
 	if _, err := runner.Start(ctx, t.SessionID, AgentOptions{Input: t.Agent.Prompt, Policy: t.Agent.Policy}); err != nil {
 		if errors.Is(err, ErrRunHeld) {
-			// The session is running elsewhere (another Engine, another process): the previous firing
-			// is still going, so this occurrence is an overlap, not a failure.
+			// The session is running (the run that scheduled a wake-up, another Engine, another
+			// process): an overlap, not a failure. The scheduler skips a recurring occurrence and
+			// retries a one-shot.
 			return "", schedule.ErrBusy
 		}
 		return "", err

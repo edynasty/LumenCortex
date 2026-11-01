@@ -658,6 +658,75 @@ func TestNoRunnerKeepsTaskDue(t *testing.T) {
 	}
 }
 
+// A one-shot task whose session is busy when it comes due (ErrBusy: the run that scheduled a wake-up
+// still holds the session) is not consumed: it stays pending, is tried again busyRetry later and fires
+// once the session is free. A recurring task records the skip and waits for its next slot (RT-state-2).
+func TestBusyOnceTaskFiresWhenTheSessionIsFree(t *testing.T) {
+	ctx := context.Background()
+	clock := newFakeClock(testBase)
+	store := openScheduleStore(t, filepath.Join(t.TempDir(), ".lumencortex"))
+	defer store.Close()
+	if err := store.Create(ctx, session.Session{ID: "session_agent", Goal: "wait for the build"}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	actions := newFakeActions()
+	actions.runErr = ErrBusy
+	s := newTestScheduler(t, store, actions, clock, nil)
+	agentSpec := func(name string, trigger Trigger) Spec {
+		return Spec{Name: name, Kind: KindAgent, SessionID: "session_agent",
+			Agent: &AgentPayload{Prompt: "resume", Policy: PolicyReadOnly}, Trigger: trigger}
+	}
+	once, err := s.Create(ctx, agentSpec("wake-up", Trigger{Kind: TriggerOnce, At: testBase.Add(time.Minute)}))
+	if err != nil {
+		t.Fatalf("create once: %v", err)
+	}
+	every, err := s.Create(ctx, agentSpec("every minute", Trigger{Kind: TriggerInterval, Every: time.Minute}))
+	if err != nil {
+		t.Fatalf("create interval: %v", err)
+	}
+	pendingAt := func(want time.Time) {
+		t.Helper()
+		row := mustTask(t, store, once.ID)
+		if !row.Enabled || row.NextRunAt == nil || !row.NextRunAt.Equal(want) {
+			t.Fatalf("busy one-shot: enabled=%v next=%v status=%q, want pending at %v", row.Enabled, row.NextRunAt, row.LastStatus, want)
+		}
+		if row.FireCount != 0 || row.LastFiredAt != nil || row.LastStatus != "" {
+			t.Fatalf("busy one-shot recorded a firing: count=%d fired=%v status=%q", row.FireCount, row.LastFiredAt, row.LastStatus)
+		}
+	}
+
+	clock.Advance(time.Minute)
+	s.tick(ctx)
+	pendingAt(clock.Now().Add(busyRetry))
+	rec := mustTask(t, store, every.ID)
+	if rec.LastStatus != session.ScheduleStatusSkippedOverlap || rec.NextRunAt == nil || !rec.NextRunAt.Equal(testBase.Add(2*time.Minute)) {
+		t.Fatalf("busy interval task: status=%q next=%v, want %q and its next slot", rec.LastStatus, rec.NextRunAt, session.ScheduleStatusSkippedOverlap)
+	}
+
+	// Still busy at the retry: deferred again, not before the retry comes due.
+	s.tick(ctx)
+	pendingAt(clock.Now().Add(busyRetry))
+	clock.Advance(busyRetry)
+	s.tick(ctx)
+	pendingAt(clock.Now().Add(busyRetry))
+
+	// The session is free: the wake-up fires once.
+	actions.mu.Lock()
+	actions.runErr = nil
+	actions.mu.Unlock()
+	clock.Advance(busyRetry)
+	s.tick(ctx)
+	row := mustTask(t, store, once.ID)
+	if row.FireCount != 1 || row.LastStatus != session.ScheduleStatusFired || row.LastRef != "ref-1" || row.NextRunAt != nil {
+		t.Fatalf("one-shot after the session freed: count=%d status=%q ref=%q next=%v", row.FireCount, row.LastStatus, row.LastRef, row.NextRunAt)
+	}
+	clock.Advance(busyRetry)
+	s.tick(ctx)
+	if row := mustTask(t, store, once.ID); row.FireCount != 1 {
+		t.Fatalf("one-shot fired %d times, want 1", row.FireCount)
+	}
+}
+
 // Close stops the goroutine and the timer: nothing fires after it returns, and a second Close is a
 // no-op.
 func TestCloseStopsTheLoop(t *testing.T) {

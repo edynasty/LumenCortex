@@ -2,10 +2,12 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/internal/schedule"
 	"github.com/edynasty/LumenCortex/internal/session"
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 // fakeScheduledJobs is the job queue's scheduled-task surface, as the job manager will bind it.
@@ -557,5 +560,117 @@ func TestShellScheduleFiresAfterRetentionDeletedItsLastJob(t *testing.T) {
 	}
 	if n := countRows(t, engine, `SELECT count(*) FROM jobs WHERE schedule_id = ?`, info.ID); n != 1 {
 		t.Fatalf("jobs of the task after the sweep = %d, want the new one", n)
+	}
+}
+
+// wakeupProvider scripts a run that schedules its own wake-up: its first request calls
+// wakeup_schedule (1 s), its second waits for hold (nil: no wait) while the run keeps the session, and
+// every later request (the woken run) answers at once. It records each request.
+type wakeupProvider struct {
+	hold     chan struct{}
+	mu       sync.Mutex
+	requests []protocol.ProviderRequest
+}
+
+func (p *wakeupProvider) Model() string { return "wakeup-test" }
+
+func (p *wakeupProvider) Complete(ctx context.Context, request protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+	p.mu.Lock()
+	p.requests = append(p.requests, request)
+	n := len(p.requests)
+	p.mu.Unlock()
+	switch {
+	case n == 1:
+		return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
+			{ID: "wake", Name: "wakeup_schedule", Arguments: json.RawMessage(`{"delay_sec":1,"message":"resume"}`)},
+		}}}, nil
+	case n == 2 && p.hold != nil:
+		select {
+		case <-p.hold:
+		case <-ctx.Done():
+			return protocol.ProviderResponse{}, ctx.Err()
+		}
+	}
+	return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}}, nil
+}
+
+func (p *wakeupProvider) count() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.requests)
+}
+
+// toolNames is the sorted tool list of request i.
+func (p *wakeupProvider) toolNames(i int) []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	names := make([]string, 0, len(p.requests[i].Tools))
+	for _, tool := range p.requests[i].Tools {
+		names = append(names, tool.Name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+// waitRequests waits until the provider received n requests.
+func (p *wakeupProvider) waitRequests(t *testing.T, n int, within time.Duration) {
+	t.Helper()
+	for deadline := time.Now().Add(within); p.count() < n; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the provider got %d requests in %v, want %d", p.count(), within, n)
+		}
+	}
+}
+
+// A wake-up that comes due while the run that scheduled it still holds the session is not lost: it
+// stays pending and starts its run once that run ended (RT-state-2).
+func TestWakeupDueDuringItsOwnRunFiresAfterTheRunEnds(t *testing.T) {
+	engine := openTestEngine(t)
+	ctx := context.Background()
+	handle := newTestSession(t, engine, "wait for the build")
+	supervisor, err := NewRunSupervisor(engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer supervisor.Close()
+	provider := &wakeupProvider{hold: make(chan struct{})}
+	if _, err := supervisor.startWith(ctx, handle.ID, provider, AgentOptions{Input: "go", Policy: "workspace", MaxSteps: 4}); err != nil {
+		t.Fatal(err)
+	}
+	provider.waitRequests(t, 2, 10*time.Second)
+	tasks, err := engine.Schedules(ctx)
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("schedules = %+v, %v; want the wake-up", tasks, err)
+	}
+	wakeup := tasks[0]
+	// The wake-up comes due (within 1 s) while the run is still in its second request.
+	time.Sleep(2500 * time.Millisecond)
+	info, err := engine.Schedule(ctx, wakeup.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Enabled || info.NextRunAt == nil || info.LastStatus != "" || info.FireCount != 0 {
+		t.Fatalf("wake-up while its run holds the session: enabled=%v next=%v status=%q count=%d, want pending",
+			info.Enabled, info.NextRunAt, info.LastStatus, info.FireCount)
+	}
+	if n := provider.count(); n != 2 {
+		t.Fatalf("requests while the run holds the session = %d, want 2", n)
+	}
+
+	close(provider.hold)
+	provider.waitRequests(t, 3, 15*time.Second)
+	waitUntilIdle(t, supervisor, handle.ID, 10*time.Second)
+	provider.mu.Lock()
+	woken := provider.requests[2].Messages
+	provider.mu.Unlock()
+	if !slices.ContainsFunc(woken, func(m protocol.Message) bool { return strings.Contains(m.Content, wakeupPromptPrefix+"resume") }) {
+		t.Fatalf("the woken run's request carries no wake-up prompt: %+v", woken)
+	}
+	info, err = engine.Schedule(ctx, wakeup.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.LastStatus != session.ScheduleStatusFired || info.FireCount != 1 || info.NextRunAt != nil {
+		t.Fatalf("wake-up after its run: status=%q count=%d next=%v, want fired once", info.LastStatus, info.FireCount, info.NextRunAt)
 	}
 }

@@ -416,9 +416,11 @@ func (s *Store) ClaimSchedule(ctx context.Context, id string, from time.Time, ne
 	return n == 1, err
 }
 
-// RevertScheduleClaim gives back a claim the task could not use (no runner for an agent task in this
-// process): next_run_at and last_fired_at return to what they were and fire_count loses the claim, so
-// the task stays due. claimed is the next_run_at the claim wrote. It is false when the row moved on.
+// RevertScheduleClaim gives back a claim the task could not use: next_run_at becomes restoreNext (the
+// slot it was claimed from when no agent runner is in this process, so the task stays due; a later
+// retry time for a one-shot whose session is busy), last_fired_at returns to restoreFiredAt and
+// fire_count loses the claim. claimed is the next_run_at the claim wrote. It is false when the row
+// moved on.
 func (s *Store) RevertScheduleClaim(ctx context.Context, id string, claimed, restoreNext, restoreFiredAt *time.Time) (bool, error) {
 	if err := checkID("schedule id", id); err != nil {
 		return false, err
