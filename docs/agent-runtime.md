@@ -49,10 +49,10 @@ Background job tools, registered with `shell` and under the same `exec` permissi
 
 A job's row in `jobs` is its source of truth: every transition is one compare-and-set `UPDATE`, so a
 restart finds each job where its last committed transition left it. Output is written head-and-tail,
-bounded, under `<state>/jobs/<job_id>/`; the database holds byte counts only. A run's active jobs are
-visible to the completion gate and are cancelled when the run ends, and the manager that opens a
-database adopts the queued jobs of a dead process and records its running jobs `outcome_unknown` rather
-than running them again.
+bounded, under `<state>/jobs/<job_id>/`; the database holds byte counts only. The Engine exposes a
+run's active jobs (`ActiveJobsForRun`) and cancels them (`CancelRunJobs`), so the completion gate and
+the run's exit paths can use them, and the manager that opens a database adopts the queued jobs of a
+dead process and records its running jobs `outcome_unknown` rather than running them again.
 
 LSP tools when a language server is configured:
 

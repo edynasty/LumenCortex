@@ -451,20 +451,21 @@ func TestCASRaceMovesAJobOnce(t *testing.T) {
 	const writers = 16
 	var wg sync.WaitGroup
 	moved := make(chan bool, writers)
-	for range writers {
+	for i := range writers {
 		wg.Add(1)
-		go func() {
+		go func(claim bool) {
 			defer wg.Done()
 			now := time.Now().UTC()
-			reason := "cancelled"
-			ok, err := store.UpdateJob(context.Background(), job.ID, session.JobQueued, session.JobChange{
-				State: session.JobCancelled, Error: &reason, FinishedAt: &now,
-			})
+			change := session.JobChange{State: session.JobCancelled, FinishedAt: &now}
+			if claim {
+				change = session.JobChange{State: session.JobRunning, StartedAt: &now}
+			}
+			ok, err := store.UpdateJob(context.Background(), job.ID, session.JobQueued, change)
 			if err != nil {
 				t.Errorf("update: %v", err)
 			}
 			moved <- ok
-		}()
+		}(i%2 == 0)
 	}
 	wg.Wait()
 	close(moved)
@@ -476,6 +477,13 @@ func TestCASRaceMovesAJobOnce(t *testing.T) {
 	}
 	if winners != 1 {
 		t.Fatalf("%d writers moved the job, want exactly 1", winners)
+	}
+	final, err := store.GetJob(context.Background(), job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.State != session.JobCancelled && final.State != session.JobRunning {
+		t.Fatalf("final state=%q", final.State)
 	}
 }
 
