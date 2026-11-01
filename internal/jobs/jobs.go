@@ -472,10 +472,18 @@ func (m *Manager) cancelJobs(ctx context.Context, active []Job, reason string) (
 			stopping = append(stopping, job.ID)
 		}
 	}
-	// The workers that own the running jobs record their terminal state; wait for it, so a caller that
-	// cancelled a run's jobs sees them cancelled when it returns.
-	if len(stopping) > 0 {
-		_, _, _ = m.Wait(ctx, stopping, 10*time.Second)
+	// The workers that own the running jobs record their terminal state; wait for every one of them,
+	// under one shared bound, so a caller that cancelled a run's jobs sees them cancelled when it
+	// returns. Wait ends at the first terminal job of its list, so each job is waited for on its own.
+	deadline := time.Now().Add(10 * time.Second)
+	for _, id := range stopping {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		if _, _, err := m.Wait(ctx, []string{id}, remaining); err != nil {
+			break
+		}
 	}
 	return moved, nil
 }
