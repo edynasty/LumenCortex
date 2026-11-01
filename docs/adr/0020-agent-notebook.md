@@ -149,7 +149,7 @@ existing instruction files rather than a runtime rule.
   bodies = 12.5 MiB of bodies, **14,536,704 bytes** of database file. An ordinary notebook of a few
   KiB costs a page or two.
 - The three tool specs add **1,907 bytes** as `protocol.ToolSpec` JSON and **1,937 bytes** as the
-  [OI]-compatible adapter sends them (`notebook_list` 422/432, `notebook_read` 557/567,
+  OpenAI-compatible adapter sends them (`notebook_list` 422/432, `notebook_read` 557/567,
   `notebook_update` 928/938), against a tool list that already holds every built-in.
 - The index row for 8 short-titled notebooks measures 585 bytes; longer titles list fewer notebooks
   and say how many were left out.

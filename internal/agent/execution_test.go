@@ -29,11 +29,12 @@ func TestExecutionTierIsTheFrozenTable(t *testing.T) {
 	cases := map[string]executionTier{
 		"write_file": tierFiles, "replace_in_file": tierFiles, "apply_patch": tierFiles,
 		"bash":         tierWorkspace,
+		"lsp_rename":   tierWorkspace,
 		"mcp__s__exec": tierWorkspace, "mcp__s__blank": tierWorkspace, "mcp__s__gone": tierWorkspace,
 		"mcp__s__read": tierAdmit, "mcp__s__write": tierAdmit,
 		"start_task": tierAdmit, "spawn_subagent": tierAdmit,
 		"read_file": tierNone, "search_text": tierNone, "find_files": tierNone, "list_dir": tierNone,
-		"lsp_rename": tierNone, "read_skill": tierNone,
+		"read_skill":  tierNone,
 		"read_thread": tierNone, "recall": tierNone, "wait_subagent": tierNone,
 		"note_write": tierNone, "note_remove": tierNone, "work_unit_create": tierNone, "reference_suggest": tierNone,
 	}

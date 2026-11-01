@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -52,6 +53,9 @@ type Options struct {
 	Jobs JobController
 	// Wakeups backs wakeup_schedule and wakeup_cancel (ADR-0019 §4); nil offers neither.
 	Wakeups WakeupController
+	// Logger receives the tools' own log lines; nil discards them. LSP lifecycle lines come from the
+	// manager, which has its own logger.
+	Logger *slog.Logger
 }
 type Set struct {
 	workspace      string
@@ -71,6 +75,7 @@ type Set struct {
 	shellTimeoutDefault time.Duration
 	jobs                JobController
 	wakeups             WakeupController
+	log                 *slog.Logger
 	tools               map[string]tool
 }
 type tool struct {
@@ -124,7 +129,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, notebooks: opts.Notebook, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, jobs: opts.Jobs, wakeups: opts.Wakeups, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, notebooks: opts.Notebook, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, jobs: opts.Jobs, wakeups: opts.Wakeups, log: newToolsetLogger(opts.Logger), tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -265,9 +270,7 @@ func (s *Set) registerBuiltins() {
 			"output is kept head and tail only."
 	}
 	s.add(protocol.ToolSpec{Name: protocol.ToolBash, Description: description, Permission: "exec", MutatesWorkspace: true, Parameters: obj(bashParams, "command")}, s.runShell)
-	if s.lsp != nil {
-		s.registerLSPTools()
-	}
+	s.registerLSPTools()
 	if s.mcp != nil {
 		s.registerMCPTools()
 	}

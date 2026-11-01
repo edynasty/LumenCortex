@@ -152,12 +152,14 @@ time.
 
 **This is not an OS-level isolation boundary.** `bash` runs with the user's permissions and can
 read or overwrite the database, so a run that is allowed `full` policy can still bypass the file-tool
-guard. `search_text`, `find_files` and the `lsp_*` tools (which read a file to send it to
-the language server; `lsp_rename` only previews an edit) are not guarded, and a swap of a parent
-directory between `apply_patch`'s last check and its `os.Remove` of a delete is not closed. They reach
-state only while it is inside the workspace (the legacy `.lumencortex` database or a workspace that
-contains the external state root). Treat the state as protected from the file tools only; run
-untrusted work in a policy without `bash`.
+guard. `search_text`, `find_files` and the read-only `lsp_*` tools (which read a file
+to send it to the language server) are not guarded, and a swap of a parent directory between
+`apply_patch`'s last check and its `os.Remove` of a delete is not closed. `lsp_rename` is guarded like
+the file tools: it needs the `write` permission, resolves every path of the server's workspace edit
+through the same guard and writes the batch atomically, refusing the whole rename when one path is
+refused. They reach state only while it is inside the workspace (the legacy `.lumencortex` database
+or a workspace that contains the external state root). Treat the state as protected from the file
+tools only; run untrusted work in a policy without `bash`.
 
 Workflow dotted paths reject dangerous segments:
 

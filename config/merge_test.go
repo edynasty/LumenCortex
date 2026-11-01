@@ -530,6 +530,60 @@ func TestExecutionIsReadFromTheGlobalFileOnly(t *testing.T) {
 	}
 }
 
+// Language server settings bound this machine's processes like execution: only the global file sets
+// them, absent fields take their defaults, and values outside the schema bounds are invalid.
+func TestLSPIsReadFromTheGlobalFileOnly(t *testing.T) {
+	_, globalDir := env(t)
+	ws := canon(t, t.TempDir())
+	writeFile(t, filepath.Join(globalDir, FileName),
+		`{"lsp": {"maxServers": 2, "servers": {"go": {"command": "gopls", "args": ["-remote=auto"]}}}, "trustedWorkspaces": [`+quote(ws)+`]}`)
+	writeFile(t, filepath.Join(ws, FileName), `{"lsp": {"maxServers": 8, "servers": {"sh": {"command": "sh"}}}}`)
+	c, err := Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eff := c.Effective()
+	want := LSP{
+		IdleTimeoutSeconds:    DefaultLSPIdleTimeoutSeconds,
+		MaxServers:            2,
+		StartTimeoutSeconds:   DefaultLSPStartTimeoutSeconds,
+		RequestTimeoutSeconds: DefaultLSPRequestTimeoutSeconds,
+		Servers:               map[string]LSPServer{"go": {Command: "gopls", Args: []string{"-remote=auto"}}},
+	}
+	if eff.LSP.MaxServers != want.MaxServers || eff.LSP.IdleTimeoutSeconds != want.IdleTimeoutSeconds ||
+		eff.LSP.StartTimeoutSeconds != want.StartTimeoutSeconds || eff.LSP.RequestTimeoutSeconds != want.RequestTimeoutSeconds {
+		t.Fatalf("lsp=%+v want %+v", eff.LSP, want)
+	}
+	if len(eff.LSP.Servers) != 1 || eff.LSP.Servers["go"].Command != "gopls" {
+		t.Fatalf("lsp servers=%+v", eff.LSP.Servers)
+	}
+	if len(eff.Warnings) != 1 || eff.Warnings[0].Code != WarnGlobalOnly || eff.Warnings[0].Key != "lsp" {
+		t.Fatalf("warnings=%+v", eff.Warnings)
+	}
+	for _, raw := range []string{
+		`{"lsp": {"idleTimeoutSeconds": 0}}`,
+		`{"lsp": {"idleTimeoutSeconds": 86401}}`,
+		`{"lsp": {"maxServers": 0}}`,
+		`{"lsp": {"maxServers": 9}}`,
+		`{"lsp": {"startTimeoutSeconds": 301}}`,
+		`{"lsp": {"requestTimeoutSeconds": 0}}`,
+		`{"lsp": {"workers": 2}}`,
+		`{"lsp": {"servers": {"go": {}}}}`,
+		`{"lsp": {"servers": {"go": {"command": ""}}}}`,
+		`{"lsp": {"servers": {"go": {"command": "gopls", "extensions": ["go"]}}}}`,
+		`{"lsp": {"servers": {"Bad Language": {"command": "x"}}}}`,
+	} {
+		if _, err := Parse([]byte(raw)); !errors.Is(err, ErrInvalidConfig) {
+			t.Errorf("Parse(%s) err=%v", raw, err)
+		}
+	}
+	if got := (*LSP)(nil).Limits(); got.MaxServers != DefaultMaxLSPServers ||
+		got.IdleTimeoutSeconds != DefaultLSPIdleTimeoutSeconds || got.StartTimeoutSeconds != DefaultLSPStartTimeoutSeconds ||
+		got.RequestTimeoutSeconds != DefaultLSPRequestTimeoutSeconds || got.Servers != nil {
+		t.Fatalf("defaults=%+v", got)
+	}
+}
+
 func TestMalformedFilesAreErrorsNamingThePath(t *testing.T) {
 	_, globalDir := env(t)
 	ws := canon(t, t.TempDir())

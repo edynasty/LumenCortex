@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -31,7 +33,15 @@ func (schemaStarter) StartTask(context.Context, string, string) (string, any, er
 // properties. A schema with "required": null made a strict endpoint reject the whole request.
 func TestRequestToolSchemasAreValidJSONSchema(t *testing.T) {
 	workspace := t.TempDir()
-	manager, err := lsp.NewManager(workspace)
+	// The lsp_* tools are offered only when a server can serve the workspace: a command that exists
+	// and a file of its language. The test binary stands in for the server; nothing starts it here.
+	if err := os.WriteFile(filepath.Join(workspace, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := lsp.NewManager(lsp.Options{
+		Workspace: workspace,
+		Servers:   []lsp.LanguageServer{{Language: "go", Command: os.Args[0], Extensions: []string{".go"}}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

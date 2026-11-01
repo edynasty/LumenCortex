@@ -13,7 +13,6 @@ import (
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
-	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
@@ -246,12 +245,12 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if agentWorkspace != e.workspace {
 		runner = shell.New(agentWorkspace)
 	}
-	var lspManager *lsp.Manager
-	e.lspMu.Lock()
-	if candidate := e.lspManagers[agentWorkspace]; candidate != nil && candidate.Status().Running {
-		lspManager = candidate
+	// The workspace's manager exists whether or not a server is running: the toolset offers the lsp_*
+	// tools only when a server can serve the workspace, and the manager starts it on the first call.
+	lspManager, err := e.lspManagerFor(agentWorkspace)
+	if err != nil {
+		lspManager = nil
 	}
-	e.lspMu.Unlock()
 	mcpRegistry := e.mcpRegistry
 	if opts.disableMCP {
 		mcpRegistry = nil
@@ -299,6 +298,8 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		// The completion gate and the run's end use the same binding through the Engine (ADR-0019 §3).
 		Jobs:    e.runJobs(sessionID, runID, agentWorkspace),
 		Wakeups: wakeupBinding,
+		// A tool's own log lines name the session and the run they belong to.
+		Logger: e.log.With("session_id", sessionID, "run_id", runID),
 	})
 	if err != nil {
 		return nil, err

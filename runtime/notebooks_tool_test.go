@@ -321,7 +321,7 @@ func TestNotebookToolSpecsAreSmall(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// The wire form the [OI]-compatible adapter sends: {"type":"function","function":{...}}.
+		// The wire form the OpenAI-compatible adapter sends: {"type":"function","function":{...}}.
 		sent, err := json.Marshal(map[string]any{
 			"type": "function",
 			"function": map[string]any{

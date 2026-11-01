@@ -128,7 +128,9 @@ type Effective struct {
 	Concurrency Concurrency
 	// Execution is the global file's execution limits with their defaults applied.
 	Execution Execution
-	Checks    map[string]Check
+	// LSP is the global file's language server settings with their defaults applied.
+	LSP    LSP
+	Checks map[string]Check
 	// Warnings lists ignored workspace entries and legacy files, in a stable order.
 	Warnings []Warning
 }

@@ -101,6 +101,16 @@ func (c *Config) merge() error {
 		})
 	}
 	c.eff.Execution = g.Execution.Limits()
+	// Language servers are processes on this machine too, and a workspace file must not name a
+	// command: global file only.
+	if w.LSP != nil {
+		c.eff.Warnings = append(c.eff.Warnings, Warning{
+			Code: WarnGlobalOnly, Path: c.workspace.Path, Key: "lsp",
+			Message: fmt.Sprintf("ignored lsp in %s: language server settings are read from the global file %s only",
+				c.workspace.Path, c.global.Path),
+		})
+	}
+	c.eff.LSP = g.LSP.Limits()
 
 	for _, id := range sortedKeys(w.Providers) {
 		if !trusted {

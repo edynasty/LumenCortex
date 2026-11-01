@@ -11,7 +11,6 @@ import (
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
 	"github.com/edynasty/LumenCortex/internal/instructions"
-	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/skills"
@@ -425,12 +424,10 @@ func (e *Engine) promptTools(workspace, policy string, child bool, sessionID str
 	if workspace != e.workspace {
 		runner = shell.New(workspace)
 	}
-	var lspManager *lsp.Manager
-	e.lspMu.Lock()
-	if candidate := e.lspManagers[workspace]; candidate != nil && candidate.Status().Running {
-		lspManager = candidate
+	lspManager, err := e.lspManagerFor(workspace)
+	if err != nil {
+		lspManager = nil
 	}
-	e.lspMu.Unlock()
 	registry := e.mcpRegistry
 	var controller toolset.SubagentController
 	var threads toolset.ThreadReader
@@ -460,6 +457,7 @@ func (e *Engine) promptTools(workspace, policy string, child bool, sessionID str
 		Threads:        threads,
 		Skills:         skillTools,
 		Notebook:       notebooks,
+		Logger:         e.log.With("session_id", sessionID),
 	})
 }
 

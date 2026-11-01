@@ -3,81 +3,101 @@ package toolset
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"strings"
+	"time"
 
+	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
+// registerLSPTools offers the language-server tools only when a server can really serve this
+// workspace: its command is on PATH and the workspace holds a file or a marker of its language. A
+// workspace without one gets no lsp_* tool, so the model is never offered a capability that cannot
+// answer and falls back to search_text and find_files on its own.
 func (s *Set) registerLSPTools() {
+	if s.lsp == nil || !s.lsp.Available() {
+		return
+	}
 	positionProps := map[string]any{
-		"path": str(),
-		"line": map[string]any{"type": "integer", "minimum": 1},
+		"path":   str(),
+		"line":   map[string]any{"type": "integer", "minimum": 1},
 		"column": map[string]any{"type": "integer", "minimum": 1},
 	}
 	s.add(protocol.ToolSpec{
-		Name: "lsp_hover",
-		Description: "Ask the active language server for hover/type information at a 1-based file position.",
-		Permission: "read",
-		Parameters: obj(positionProps, "path", "line", "column"),
+		Name:        "lsp_hover",
+		Description: "Ask the workspace language server for hover/type information at a 1-based file position.",
+		Permission:  "read",
+		Parameters:  obj(positionProps, "path", "line", "column"),
 	}, s.lspHover)
 	s.add(protocol.ToolSpec{
-		Name: "lsp_definition",
+		Name:        "lsp_definition",
 		Description: "Find language-server definition targets for a 1-based file position.",
-		Permission: "read",
-		Parameters: obj(positionProps, "path", "line", "column"),
+		Permission:  "read",
+		Parameters:  obj(positionProps, "path", "line", "column"),
 	}, s.lspDefinition)
 	s.add(protocol.ToolSpec{
-		Name: "lsp_references",
+		Name:        "lsp_references",
 		Description: "Find language-server references for a 1-based file position.",
-		Permission: "read",
+		Permission:  "read",
 		Parameters: obj(map[string]any{
-			"path": str(),
-			"line": map[string]any{"type": "integer", "minimum": 1},
-			"column": map[string]any{"type": "integer", "minimum": 1},
+			"path":                str(),
+			"line":                map[string]any{"type": "integer", "minimum": 1},
+			"column":              map[string]any{"type": "integer", "minimum": 1},
 			"include_declaration": map[string]any{"type": "boolean"},
 		}, "path", "line", "column"),
 	}, s.lspReferences)
 	s.add(protocol.ToolSpec{
-		Name: "lsp_document_symbols",
+		Name:        "lsp_document_symbols",
 		Description: "List language-server symbols in a document.",
-		Permission: "read",
-		Parameters: obj(map[string]any{"path": str()}, "path"),
+		Permission:  "read",
+		Parameters:  obj(map[string]any{"path": str()}, "path"),
 	}, s.lspDocumentSymbols)
 	s.add(protocol.ToolSpec{
-		Name: "lsp_workspace_symbols",
+		Name:        "lsp_workspace_symbols",
 		Description: "Search language-server workspace symbols.",
-		Permission: "read",
-		Parameters: obj(map[string]any{"query": str()}, "query"),
+		Permission:  "read",
+		Parameters:  obj(map[string]any{"query": str()}, "query"),
 	}, s.lspWorkspaceSymbols)
 	s.add(protocol.ToolSpec{
-		Name: "lsp_diagnostics",
-		Description: "Read cached language-server diagnostics for a workspace file.",
-		Permission: "read",
-		Parameters: obj(map[string]any{"path": str()}, "path"),
+		Name:        "lsp_diagnostics",
+		Description: "Read language-server diagnostics for a workspace file.",
+		Permission:  "read",
+		Parameters:  obj(map[string]any{"path": str()}, "path"),
 	}, s.lspDiagnostics)
 	s.add(protocol.ToolSpec{
 		Name: "lsp_rename",
-		Description: "Preview the language-server workspace edit for renaming a symbol. This tool does not apply the edit.",
-		Permission: "read",
+		Description: "Rename a symbol through the workspace language server and apply the resulting workspace edit. " +
+			"Every edited path passes the same guard as write_file and apply_patch (workspace confinement, " +
+			"protected state, symlink escape) and the batch is written atomically: if any path is refused, " +
+			"nothing is written.",
+		Permission:       "write",
+		MutatesWorkspace: true,
 		Parameters: obj(map[string]any{
-			"path": str(),
-			"line": map[string]any{"type": "integer", "minimum": 1},
-			"column": map[string]any{"type": "integer", "minimum": 1},
+			"path":     str(),
+			"line":     map[string]any{"type": "integer", "minimum": 1},
+			"column":   map[string]any{"type": "integer", "minimum": 1},
 			"new_name": str(),
 		}, "path", "line", "column", "new_name"),
 	}, s.lspRename)
 }
 
 func (s *Set) lspHover(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
+	started := time.Now()
 	raw, err := s.lsp.Hover(ctx, stringArg(args, "path"), intArg(args, "line", 1)-1, intArg(args, "column", 1)-1)
-	return rawLSPResult(raw, err)
+	return s.lspResult(ctx, "lsp_hover", raw, err, started), nil
 }
 
 func (s *Set) lspDefinition(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
+	started := time.Now()
 	raw, err := s.lsp.Definition(ctx, stringArg(args, "path"), intArg(args, "line", 1)-1, intArg(args, "column", 1)-1)
-	return rawLSPResult(raw, err)
+	return s.lspResult(ctx, "lsp_definition", raw, err, started), nil
 }
 
 func (s *Set) lspReferences(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
+	started := time.Now()
 	raw, err := s.lsp.References(
 		ctx,
 		stringArg(args, "path"),
@@ -85,45 +105,121 @@ func (s *Set) lspReferences(ctx context.Context, args map[string]any, _ func(pro
 		intArg(args, "column", 1)-1,
 		boolArg(args, "include_declaration"),
 	)
-	return rawLSPResult(raw, err)
+	return s.lspResult(ctx, "lsp_references", raw, err, started), nil
 }
 
 func (s *Set) lspDocumentSymbols(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
+	started := time.Now()
 	raw, err := s.lsp.DocumentSymbols(ctx, stringArg(args, "path"))
-	return rawLSPResult(raw, err)
+	return s.lspResult(ctx, "lsp_document_symbols", raw, err, started), nil
 }
 
 func (s *Set) lspWorkspaceSymbols(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
+	started := time.Now()
 	raw, err := s.lsp.WorkspaceSymbols(ctx, stringArg(args, "query"))
-	return rawLSPResult(raw, err)
+	return s.lspResult(ctx, "lsp_workspace_symbols", raw, err, started), nil
 }
 
 func (s *Set) lspDiagnostics(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
+	started := time.Now()
 	items, err := s.lsp.Diagnostics(ctx, stringArg(args, "path"))
+	if err != nil {
+		return s.lspFailure(ctx, "lsp_diagnostics", err, started), nil
+	}
+	raw, err := json.Marshal(items)
 	if err != nil {
 		return protocol.ToolResult{}, err
 	}
-	raw, _ := json.Marshal(items)
 	return protocol.ToolResult{OK: true, Content: string(raw)}, nil
 }
 
+// lspRename asks the server for the workspace edit and applies it through the file tools' guard and
+// atomic write path: a rename is a file modification like any other, and it is refused as a whole
+// when one of its paths is.
 func (s *Set) lspRename(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
+	started := time.Now()
+	newName := strings.TrimSpace(stringArg(args, "new_name"))
+	if newName == "" {
+		return protocol.ToolResult{OK: false, Content: `{"error":"new_name is required"}`}, nil
+	}
 	raw, err := s.lsp.Rename(
 		ctx,
 		stringArg(args, "path"),
 		intArg(args, "line", 1)-1,
 		intArg(args, "column", 1)-1,
-		stringArg(args, "new_name"),
+		newName,
 	)
-	return rawLSPResult(raw, err)
-}
-
-func rawLSPResult(raw json.RawMessage, err error) (protocol.ToolResult, error) {
+	if err != nil {
+		return s.lspFailure(ctx, "lsp_rename", err, started), nil
+	}
+	var edit lsp.WorkspaceEdit
+	if len(raw) > 0 && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &edit); err != nil {
+			return protocol.ToolResult{OK: false, Content: `{"error":"the language server returned an edit that is not a workspace edit","hint":"nothing was written; use search_text and replace_in_file instead"}`}, nil
+		}
+	}
+	applied, wrote, err := s.applyWorkspaceEdit(edit)
+	if err != nil {
+		content, _ := json.Marshal(map[string]any{
+			"error": err.Error(),
+			"code":  "refused",
+			"hint":  "the rename was refused as a whole; use search_text and replace_in_file instead",
+		})
+		s.log.Warn("lsp rename refused", "tool", "lsp_rename", "error_code", "refused",
+			"duration_ms", time.Since(started).Milliseconds(), "tool_call_id", protocol.ToolCallID(ctx))
+		return protocol.ToolResult{OK: false, Content: string(content), MutatesWorkspace: wrote}, nil
+	}
+	content, err := json.Marshal(map[string]any{"applied": applied, "filesChanged": len(applied)})
 	if err != nil {
 		return protocol.ToolResult{}, err
+	}
+	s.log.Info("lsp rename applied", "tool", "lsp_rename", "files", len(applied),
+		"duration_ms", time.Since(started).Milliseconds(), "tool_call_id", protocol.ToolCallID(ctx))
+	return protocol.ToolResult{OK: true, Content: string(content), MutatesWorkspace: len(applied) > 0}, nil
+}
+
+// lspResult turns a server answer into a tool result, and a server failure into a result the model
+// can act on instead of an opaque error.
+func (s *Set) lspResult(ctx context.Context, tool string, raw json.RawMessage, err error, started time.Time) protocol.ToolResult {
+	if err != nil {
+		return s.lspFailure(ctx, tool, err, started)
 	}
 	if len(raw) == 0 {
 		raw = json.RawMessage("null")
 	}
-	return protocol.ToolResult{OK: true, Content: string(raw)}, nil
+	return protocol.ToolResult{OK: true, Content: string(raw)}
+}
+
+func (s *Set) lspFailure(ctx context.Context, tool string, err error, started time.Time) protocol.ToolResult {
+	code, hint := lspFailureReason(err)
+	content, marshalErr := json.Marshal(map[string]any{"error": err.Error(), "code": code, "hint": hint})
+	if marshalErr != nil {
+		content = []byte(`{"error":"language server request failed"}`)
+	}
+	s.log.Warn("lsp tool failed", "tool", tool, "error_code", code,
+		"duration_ms", time.Since(started).Milliseconds(), "tool_call_id", protocol.ToolCallID(ctx))
+	return protocol.ToolResult{OK: false, Content: string(content)}
+}
+
+// lspFailureReason classifies a language-server failure and names the fallback the model should use.
+func lspFailureReason(err error) (code, hint string) {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "cancelled", "the request was cancelled; nothing was changed"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout", "the language server did not answer in time; use search_text or find_files to locate the code instead"
+	case errors.Is(err, lsp.ErrServerLimit):
+		return "busy", "every language server is busy; retry later, or use search_text or find_files instead"
+	case errors.Is(err, lsp.ErrUnavailable), errors.Is(err, lsp.ErrNotRunning), errors.Is(err, lsp.ErrClosed):
+		return "unavailable", "no language server is available for this file; use search_text or find_files to locate the code instead"
+	}
+	return "failed", "the language server failed; use search_text or find_files instead"
+}
+
+// newToolsetLogger keeps a nil logger from turning every log line into a nil dereference.
+func newToolsetLogger(logger *slog.Logger) *slog.Logger {
+	if logger != nil {
+		return logger
+	}
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

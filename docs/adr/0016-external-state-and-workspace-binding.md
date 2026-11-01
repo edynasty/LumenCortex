@@ -84,7 +84,7 @@ Only the database, its locks, run locks and backups moved.
 
 ### D5 — Protected-path guard for the file tools
 
-`read_file`, `list_dir`, `write_file`, `replace_in_file` and `apply_patch` refuse
+`read_file`, `list_dir`, `write_file`, `replace_in_file`, `apply_patch` and `lsp_rename` refuse
 (`toolset.ErrProtectedPath`) the external state tree (and an explicit `RepoDir`) and, in
 `<workspace>/.lumencortex`, the state files: `lumencortex.db*`, `db.lock`, `bind.lock`, `runs/`,
 `backups/`, `checkpoint.pending*`, `legacy-state-*`. The legacy files stay protected after the external
@@ -102,12 +102,22 @@ pid and time, and only creatable with `shell`) is not. A write opens without tru
 only after the identity check, so a refused write changes nothing. `apply_patch` validates a delete
 again immediately before removing.
 
+`lsp_rename` is a file-modification tool like `write_file` and `apply_patch`, not an exception: it
+needs the `write` permission, it is classified as a work-tree mutation for the execution record, and
+it applies the language server's workspace edit through this same guard and the same atomic batch.
+Every path of the edit is resolved and checked before the first byte is written, a path that escapes
+the workspace (through `..` or a symlink), lands in protected state, is not a regular workspace file,
+or is named twice, refuses the whole rename with nothing changed. Resource operations of a workspace
+edit (`create`, `rename`, `delete` of a file) are refused rather than applied: only text edits are
+written. A batch that fails while writing is rolled back as `apply_patch`'s is.
+
 ## Not provided
 
 **This is not a sandbox.** `shell` runs with the user's permissions and can open the database, change
 the environment, or create links with any name. The guard narrows what the file tools can do; it does
 not isolate the process. OS-level isolation is outside this decision. The guard also leaves
-`search_text`, `find_files`, the git tools and the `lsp_*` tools (`lsp_rename` writes files) unguarded, and does not close a swap of a parent
+`search_text`, `find_files`, the git tools and the read-only `lsp_*` tools unguarded (they only read
+and ask a language server; `lsp_rename` is guarded, above), and does not close a swap of a parent
 directory for the final `os.Remove` of a patch delete.
 
 ## Alternatives considered

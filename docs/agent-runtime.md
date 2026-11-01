@@ -40,7 +40,7 @@ Core workspace tools:
 - `lumencortex_context`
 - `lumencortex_ingest`
 
-Background job tools, registered with `shell` and under the same `exec` permission (ADR-0019 §3):
+Background job tools, registered with `bash` and under the same `exec` permission (ADR-0019 §3):
 
 - `job_status` — state, exit code, duration and the bounded head and tail of a job's output (readable while it runs)
 - `job_wait` — waits for one of the named jobs, or for any active job of the run, bounded by `timeout_sec` and by the time left in the run; it never cancels the job
@@ -54,13 +54,15 @@ run's active jobs (`ActiveJobsForRun`) and cancels them (`CancelRunJobs`), so th
 the run's exit paths can use them, and the manager that opens a database adopts the queued jobs of a
 dead process and records its running jobs `outcome_unknown` rather than running them again.
 
-LSP tools when a language server is configured:
+LSP tools when a language server can serve the workspace (see LSP below):
 
+- `lsp_hover`
 - `lsp_definition`
 - `lsp_references`
-- `lsp_symbols`
-- `lsp_hover`
+- `lsp_document_symbols`
+- `lsp_workspace_symbols`
 - `lsp_diagnostics`
+- `lsp_rename` — write; applies the workspace edit through the file guard and the atomic batch
 
 Subagent tools:
 
@@ -163,47 +165,78 @@ This benchmark measures exact/symbol-heavy code navigation, not semantic-natural
 
 ## LSP
 
-The LSP client implements Content-Length JSON-RPC over stdio.
+The LSP client implements Content-Length JSON-RPC over stdio. Nothing is bundled and nothing is
+installed: a language server runs only when its command is on `PATH`.
 
-Default command mapping:
-
-```text
-.java                 -> jdtls
-.ts/.tsx/.js/.jsx     -> typescript-language-server --stdio
-.py                   -> pyright-langserver --stdio
-```
-
-Override or add servers in:
+Built-in catalog (language -> command):
 
 ```text
-.lumencortex/lsp.json
+go         -> gopls
+typescript -> typescript-language-server --stdio   (.ts .tsx .mts .cts .js .jsx .mjs .cjs)
+python     -> pyright-langserver --stdio           (.py .pyi)
+rust       -> rust-analyzer                        (.rs)
 ```
 
-Example:
+Override or extend the catalog in the **global** `lumencortex.json` (`lsp` is read from the global
+file only: a server is a process on this machine, and a project file must not name a command that
+gets executed):
 
 ```json
 {
-  "servers": {
-    "java": {
-      "command": "/opt/jdtls/bin/jdtls",
-      "args": [],
-      "extensions": [".java"]
+  "lsp": {
+    "idleTimeoutSeconds": 600,
+    "maxServers": 3,
+    "startTimeoutSeconds": 20,
+    "requestTimeoutSeconds": 20,
+    "servers": {
+      "java": { "command": "/opt/jdtls/bin/jdtls", "args": [], "extensions": [".java"] }
     }
   }
 }
 ```
 
-CLI examples:
+Lifecycle, per workspace:
 
-```bash
-lcx lsp status
-lcx lsp symbols src/main/java/demo/OrderService.java
-lcx lsp definition src/main/java/demo/OrderService.java 42 18
-lcx lsp references src/main/java/demo/OrderService.java 42 18
-lcx lsp diagnostics src/main/java/demo/OrderService.java
+- **On demand.** A server starts on the first `lsp_*` call that needs its language, bounded by
+  `startTimeoutSeconds`; nothing starts at Engine open.
+- **Reuse.** One server per (workspace root, language); concurrent calls share it.
+- **Idle reclaim.** One manager-level ticker stops a server unused for `idleTimeoutSeconds`; the next
+  call starts it again.
+- **Concurrency limit.** At most `maxServers` run at once. Starting another stops the least recently
+  used idle server; when every server is busy the call is refused, never queued.
+- **Crash.** A server that dies is marked unavailable with `lastError` and restarted on the next need
+  after a doubling backoff (500 ms to 30 s). An explicit `LSPStart` ignores the backoff.
+- **Close.** `Engine.Close` and `LSPStop` send `shutdown`/`exit`, then kill, and wait: no child process
+  survives.
+- **Cancellation and timeouts.** Every request is bounded by `requestTimeoutSeconds` and by the run's
+  tool deadline (`protocol.ToolDeadline`); a cancelled request sends `$/cancelRequest`.
+- **Logging.** Start, ready, idle stop, crash and eviction are logged to the Engine's diagnostics
+  log (`language`, `workspace`, `duration_ms`, `error_code`; OBS-001) and published as `lsp.*`
+  events (`lsp.started`, `lsp.ready`, `lsp.idle_stop`, `lsp.crashed`, `lsp.evicted`,
+  `lsp.unavailable`).
+
+Tools the Agent Loop sees, and only when a server can really serve the workspace (its command is on
+`PATH` and the workspace holds a file or a marker of its language):
+
+```text
+lsp_hover  lsp_definition  lsp_references  lsp_document_symbols
+lsp_workspace_symbols  lsp_diagnostics  lsp_rename (write)
 ```
 
-The same capabilities are exposed to the Agent Loop as tools.
+A workspace without a usable server gets none of them; a call that cannot reach a server answers with
+`ok:false`, a `code` (`unavailable`, `timeout`, `busy`, `cancelled`, `failed`) and a hint telling the
+model to use `search_text` or `find_files` instead.
+
+`lsp_rename` asks the server for a workspace edit and applies it through the file tools' guard and
+atomic batch (ADR-0016): `write` permission, work-tree mutation recorded, every path checked for
+workspace confinement, protected state and symlink escape before anything is written, and the whole
+rename refused if one path is.
+
+Hosts read the state without starting anything:
+
+```go
+statuses, err := engine.LSPStatus(ctx, sessionID) // language, root, state, pid, startedAt, lastUsedAt, lastError
+```
 
 ## MCP
 

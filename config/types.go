@@ -124,6 +124,7 @@ type File struct {
 	Agents            map[string]Agent    `json:"agents,omitempty"`
 	Concurrency       *Concurrency        `json:"concurrency,omitempty"`
 	Execution         *Execution          `json:"execution,omitempty"`
+	LSP               *LSP                `json:"lsp,omitempty"`
 	Providers         map[string]Provider `json:"providers,omitempty"`
 	Checks            map[string]Check    `json:"checks,omitempty"`
 	TrustedWorkspaces []string            `json:"trustedWorkspaces,omitempty"`
@@ -236,6 +237,82 @@ func (e *Execution) Limits() Execution {
 	}
 	if e.LogLevel != "" {
 		out.LogLevel = e.LogLevel
+	}
+	return out
+}
+
+// LSP bounds the language servers one process starts and says which servers it may start. Like
+// Concurrency and Execution it is read from the global file only: a language server is a process on
+// this machine, and a project file must not name a command that gets executed. A zero field means
+// "absent": the default applies.
+//
+// Nothing is bundled: a server runs only when its command is on PATH and the workspace holds a file
+// or a marker of its language. A workspace with no usable server gets no lsp_* tools.
+type LSP struct {
+	// IdleTimeoutSeconds is how long a server may stay unused before it is stopped; the next request
+	// starts it again.
+	IdleTimeoutSeconds int `json:"idleTimeoutSeconds,omitempty"`
+	// MaxServers is how many language servers may run at once. Starting another stops the least
+	// recently used idle one; when every server is busy the call is refused, never queued.
+	MaxServers int `json:"maxServers,omitempty"`
+	// StartTimeoutSeconds bounds one start, from the spawn to the initialize answer.
+	StartTimeoutSeconds int `json:"startTimeoutSeconds,omitempty"`
+	// RequestTimeoutSeconds bounds one language-server request; a run's tool deadline bounds it too.
+	RequestTimeoutSeconds int `json:"requestTimeoutSeconds,omitempty"`
+	// Servers overrides or extends the built-in language server catalog, keyed by language id.
+	Servers map[string]LSPServer `json:"servers,omitempty"`
+}
+
+// LSPServer is one language server: the command to run and the files it serves. Language, Extensions
+// and Markers are absent for a built-in language, whose values are kept.
+type LSPServer struct {
+	Command    string   `json:"command"`
+	Args       []string `json:"args,omitempty"`
+	Extensions []string `json:"extensions,omitempty"`
+	Markers    []string `json:"markers,omitempty"`
+}
+
+// LSP defaults and schema bounds.
+const (
+	DefaultLSPIdleTimeoutSeconds    = 600
+	DefaultMaxLSPServers            = 3
+	DefaultLSPStartTimeoutSeconds   = 20
+	DefaultLSPRequestTimeoutSeconds = 20
+	MaxLSPIdleTimeoutSeconds        = 86400
+	MaxMaxLSPServers                = 8
+	MaxLSPStartTimeoutSeconds       = 300
+	MaxLSPRequestTimeoutSeconds     = 300
+)
+
+// Limits returns l with its defaults applied; a nil l is all defaults. Values outside the schema
+// bounds never reach here: Parse and Save validate the file.
+func (l *LSP) Limits() LSP {
+	out := LSP{
+		IdleTimeoutSeconds:    DefaultLSPIdleTimeoutSeconds,
+		MaxServers:            DefaultMaxLSPServers,
+		StartTimeoutSeconds:   DefaultLSPStartTimeoutSeconds,
+		RequestTimeoutSeconds: DefaultLSPRequestTimeoutSeconds,
+	}
+	if l == nil {
+		return out
+	}
+	if l.IdleTimeoutSeconds > 0 {
+		out.IdleTimeoutSeconds = l.IdleTimeoutSeconds
+	}
+	if l.MaxServers > 0 {
+		out.MaxServers = l.MaxServers
+	}
+	if l.StartTimeoutSeconds > 0 {
+		out.StartTimeoutSeconds = l.StartTimeoutSeconds
+	}
+	if l.RequestTimeoutSeconds > 0 {
+		out.RequestTimeoutSeconds = l.RequestTimeoutSeconds
+	}
+	if len(l.Servers) > 0 {
+		out.Servers = make(map[string]LSPServer, len(l.Servers))
+		for language, server := range l.Servers {
+			out.Servers[language] = server
+		}
 	}
 	return out
 }
