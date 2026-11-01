@@ -145,6 +145,74 @@
         }
       }
     },
+    "lsp": {
+      "description": "Language servers of one LumenCortex process. Read from the global file only (ignored with a warning in a workspace file): a server is a process on this machine and a project file must not name a command that gets executed. A server starts on the first lsp_* call for its language, is reused for the same workspace and language, and is stopped after lsp.idleTimeoutSeconds unused. Nothing is bundled: a server runs only when its command is on PATH. A workspace with no usable server gets no lsp_* tools, and a call that cannot reach a server tells the model to use search_text or find_files.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "idleTimeoutSeconds": {
+          "description": "Seconds a language server may stay unused before it is stopped. Absent → 600.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "maxServers": {
+          "description": "Language servers running at once in this process. Starting another stops the least recently used idle server; when every server is busy the call is refused, never queued. Absent → 3.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "startTimeoutSeconds": {
+          "description": "Seconds one start may take, from the spawn to the initialize answer. Absent → 20.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "requestTimeoutSeconds": {
+          "description": "Seconds one language-server request may take; the run's tool deadline bounds it too. Absent → 20.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "servers": {
+          "description": "Language server catalog keyed by language id, merged over the built-in one (go: gopls, typescript: typescript-language-server, python: pyright-langserver, rust: rust-analyzer). An entry with no extensions or markers keeps the built-in ones of its language.",
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][a-z0-9+-]{0,39}$" },
+          "maxProperties": 32,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["command"],
+            "properties": {
+              "command": {
+                "description": "Executable to run: a name on PATH or an absolute path. Nothing is installed.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "args": {
+                "description": "Arguments passed to the command.",
+                "type": "array",
+                "maxItems": 32,
+                "items": { "type": "string", "maxLength": 1024 }
+              },
+              "extensions": {
+                "description": "File extensions this server serves, with the leading dot. A request for another extension does not reach it.",
+                "type": "array",
+                "maxItems": 64,
+                "items": { "type": "string", "pattern": "^\\.[A-Za-z0-9.+-]{1,16}$" }
+              },
+              "markers": {
+                "description": "File names at the workspace root that show the workspace holds this language (go.mod, Cargo.toml).",
+                "type": "array",
+                "maxItems": 64,
+                "items": { "type": "string", "minLength": 1, "maxLength": 255 }
+              }
+            }
+          }
+        }
+      }
+    },
     "providers": {
       "description": "Provider catalog keyed by provider id (the part before '/' in a model ref). In a workspace file this key is honoured only when the workspace is listed in the global trustedWorkspaces; entries then merge field by field over the global entry with the same id, and an entry that changes a global provider's baseURL or endpoint must set its own apiKey. Untrusted workspace entries are ignored with a warning.",
       "type": "object",
