@@ -264,6 +264,12 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		agentInstructions: plan.instructions,
 		skills:            e.skillRegistry,
 	})
+	// A wake-up starts a later run on this session. A child run (a subagent or an execution task) has a
+	// lifecycle of its own that its parent owns, so it gets no wake-up tools: the thread does.
+	var wakeupBinding toolset.WakeupController
+	if opts.parentSessionID == "" {
+		wakeupBinding = e.wakeupsFor(sessionID, policy)
+	}
 	tools, err := toolset.New(toolset.Options{
 		Workspace: agentWorkspace,
 		Policy:    policy,
@@ -276,7 +282,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Threads:        threadReader{engine: e, sessionID: sessionID, workspace: agentWorkspace},
 		Skills:         newSkillReader(prompt.Skills.Included),
 		Protected:      e.protected,
-		Wakeups:        e.wakeupsFor(sessionID, policy),
+		Wakeups:        wakeupBinding,
 	})
 	if err != nil {
 		return nil, err

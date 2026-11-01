@@ -134,7 +134,8 @@ spring-forward gap skips does not fire, and a wall time the fall-back hour repea
 - An agent may schedule its own continuation: the tools `wakeup_schedule {delay_sec, message}` and
   `wakeup_cancel {wakeup_id}` create and remove a one-shot `agent` task on the calling session with the
   calling run's policy as its ceiling, at most three pending per session. Both are `write` tools (they
-  schedule future work) and exist only in a run whose runtime bound a controller.
+  schedule future work) and exist only in a thread's run whose runtime bound a controller: a child run's
+  lifecycle belongs to its parent, so a subagent or an execution task gets neither tool.
 - Events: `schedule.changed`, `schedule.fired`.
 
 ### 5. Diagnostics log (OBS-001)
