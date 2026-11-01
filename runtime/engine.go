@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
+	"github.com/edynasty/LumenCortex/internal/diag"
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/mcp"
 	"github.com/edynasty/LumenCortex/internal/migrate"
@@ -118,6 +120,14 @@ type Engine struct {
 	// fences and waits for them (revoke.go). runsMu guards it.
 	runsMu sync.Mutex
 	runs   map[string]*trackedRun
+	// log is the diagnostics logger every runtime component writes to; it is never nil, a discard
+	// logger stands in when the diagnostics log could not be opened (diagnostics.go).
+	log *slog.Logger
+	// diag is the diagnostics log; nil when it could not be opened, and diagErr says why.
+	diag    *diag.Log
+	diagErr error
+	// bridge is the event-to-log goroutine's state; nil when the log is unavailable.
+	bridge *diagBridge
 }
 
 type Health struct {
@@ -223,6 +233,15 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The diagnostics log lives beside the database. A log that cannot be opened must not fail the
+	// Engine: it falls back to a discard logger and DiagnosticStats reports the reason.
+	diagLog, diagErr := openDiagnostics(repoDir, workspace)
+	var engine *Engine
+	defer func() {
+		if engine == nil && diagLog != nil {
+			_ = diagLog.Close()
+		}
+	}()
 	// A run that writes the workspace's check definition file revokes the project's check approval in
 	// the transaction that records the write (ADR-0017). The global file lies outside every workspace a
 	// run's snapshots cover; a change to it still changes the set digest.
@@ -280,7 +299,7 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	if factory == nil {
 		factory = defaultProviderFactory
 	}
-	engine := &Engine{
+	engine = &Engine{
 		workspace:    workspace,
 		repoDir:      repoDir,
 		state:        loc.StateInfo,
@@ -301,7 +320,14 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		skillRegistry:   skillRegistry,
 		health:          agent.NewHealth(nil),
 		providerFactory: factory,
+		log:             discardLogger(),
+		diag:            diagLog,
+		diagErr:         diagErr,
 	}
+	if diagLog != nil {
+		engine.log = diagLog.Logger()
+	}
+	engine.bridge = engine.startDiagnosticsBridge()
 	engine.hooks = newHookDispatcher(engine.events)
 	engine.plugins = newPluginRegistry(engine.events, engine.hooks, pluginStatePath)
 	if err := engine.plugins.Register(ompsession.Plugin{}, true); err != nil {
@@ -371,6 +397,12 @@ func (e *Engine) Close() error {
 		closeErr = errors.Join(closeErr, e.plugins.StopAll(context.Background()))
 	}
 	e.events.close()
+	// The bus is closed: the bridge drains what it was delivered and returns, so no event record is
+	// lost to Close and no goroutine outlives the Engine.
+	if e.bridge != nil {
+		e.bridge.stop()
+		<-e.bridge.done
+	}
 	e.lspMu.Lock()
 	managers := make([]*lsp.Manager, 0, len(e.lspManagers))
 	for _, manager := range e.lspManagers {
@@ -384,7 +416,9 @@ func (e *Engine) Close() error {
 	if e.mcpRegistry != nil {
 		_ = e.mcpRegistry.Close()
 	}
-	return errors.Join(closeErr, e.store.Close())
+	// The diagnostics log is closed last, after the store: everything that can log during Close has
+	// logged by then, and the writer flushes what is left.
+	return errors.Join(closeErr, e.store.Close(), e.closeDiagnostics())
 }
 
 // Plugins lists the registered extensions with their enablement, state and failures (ADR-0012).

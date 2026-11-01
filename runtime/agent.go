@@ -162,6 +162,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err != nil {
 		return nil, err
 	}
+	// The events the loop publishes carry no run id; the diagnostics bridge attaches this one so a
+	// trace can group them by run (diagnostics.go).
+	e.noteRunStarted(sessionID, runID)
 	if opts.Input != "" && strings.TrimSpace(opts.Input) == "" {
 		return nil, errors.New("input must not be blank")
 	}
