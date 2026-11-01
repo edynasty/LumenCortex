@@ -41,6 +41,9 @@ type Options struct {
 	Skills SkillReader
 	// Protected is the state the file tools refuse to reach (ADR-0016). The zero value protects nothing.
 	Protected Protected
+	// Jobs is the background job queue of the run's session (ADR-0019 §3); nil offers no job tools and
+	// no background mode.
+	Jobs JobController
 }
 type Set struct {
 	workspace      string
@@ -55,6 +58,7 @@ type Set struct {
 	threads        ThreadReader
 	skills         SkillReader
 	protected      Protected
+	jobs           JobController
 	tools          map[string]tool
 }
 type tool struct {
@@ -101,7 +105,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, jobs: opts.Jobs, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -222,7 +226,20 @@ func (s *Set) registerBuiltins() {
 		}},
 		"required": []string{"patches"}, "additionalProperties": false,
 	}}, s.applyPatch)
-	s.add(protocol.ToolSpec{Name: "shell", Description: "Run a shell command in the workspace with bounded retained output.", Permission: "exec", MutatesWorkspace: true, Parameters: obj(map[string]any{"command": str()}, "command")}, s.runShell)
+	shellParams := map[string]any{"command": str()}
+	shellDescription := "Run a shell command in the workspace with bounded retained output."
+	if s.jobs != nil {
+		// The job queue of this run is available: the same tool can start a command in the background and
+		// return at once with its job id, which job_status, job_wait, job_cancel and job_list act on.
+		shellParams["mode"] = map[string]any{"type": "string", "enum": []string{"foreground", "background"}}
+		shellParams["timeout_sec"] = map[string]any{"type": "integer", "minimum": 1, "maximum": 86400}
+		shellDescription = "Run a shell command in the workspace with bounded retained output. " +
+			"mode \"background\" starts it as a durable background job and returns its job id at once: use it for " +
+			"long builds and test runs, then job_wait, job_status or job_cancel it. A run cannot deliver its " +
+			"answer while its background jobs are active. timeout_sec bounds a background job's run time; its " +
+			"output is kept head and tail only."
+	}
+	s.add(protocol.ToolSpec{Name: "shell", Description: shellDescription, Permission: "exec", MutatesWorkspace: true, Parameters: obj(shellParams, "command")}, s.runShell)
 	if s.lsp != nil {
 		s.registerLSPTools()
 	}
@@ -231,6 +248,9 @@ func (s *Set) registerBuiltins() {
 	}
 	if s.subagents != nil {
 		s.registerSubagentTools()
+	}
+	if s.jobs != nil {
+		s.registerJobTools()
 	}
 	s.registerThreadTools()
 	s.registerSkillTools()
