@@ -78,6 +78,16 @@ Implemented and validated in this worktree (see "Tests" for the exact commands a
 - Notebook tools are not part of the workflow contract's tool observations; they do not affect
   gate decisions by design.
 
-## Tests
+## Tests (run 2026-11-01 in this worktree)
 
-See the final chat report for the exact commands and their results.
+| Command | Result |
+|---|---|
+| `gofmt -l <changed files>` | no output |
+| `go build ./...` | ok |
+| `go vet ./...` | ok |
+| `go test -count=1 ./internal/notebook/ ./internal/session/ ./internal/toolset/ ./internal/migrate/ ./runtime/` | all ok |
+| `go test ./... -count=1` | all packages ok, `cmd/lcx-go` included |
+| `go test -race -count=1 -run 'TestNotebook...' ./internal/session/ ./runtime/` | ok |
+
+Measured in `TestNotebookToolSpecsAreSmall`, `TestNotebookIndexRowCarriesNoBody` and
+`TestNotebookStorageBytes`; the figures are in the table above.
