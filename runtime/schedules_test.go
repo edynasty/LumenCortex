@@ -500,3 +500,62 @@ func TestEngineCronSchedule(t *testing.T) {
 		}
 	}
 }
+
+// A shell task whose previous job was deleted by job retention fires again: a job that no longer
+// exists is not running, so the overlap check lets the next firing through instead of failing every
+// later one (RT-state-1).
+func TestShellScheduleFiresAfterRetentionDeletedItsLastJob(t *testing.T) {
+	engine := openTestEngine(t)
+	ctx := context.Background()
+	events, unsubscribe := engine.Events(256)
+	defer unsubscribe()
+	info, err := engine.CreateSchedule(ctx, ScheduleRequest{
+		Name: "every eight days", Kind: "shell", Command: "true",
+		Trigger: ScheduleTrigger{Kind: "interval", EverySeconds: 8 * 24 * 3600},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// fireNow makes the task due and waits for the firing to be recorded.
+	fireNow := func() ScheduleInfo {
+		t.Helper()
+		past := time.Now().UTC().Add(-time.Second).Format("2006-01-02T15:04:05.000000000Z")
+		seedSQL(t, engine, []any{`UPDATE scheduled_tasks SET next_run_at = ? WHERE schedule_id = ?`, past, info.ID})
+		engine.schedules.Wake()
+		waitForEvent(t, events, "schedule.fired")
+		got, err := engine.Schedule(ctx, info.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	first := fireNow()
+	if first.LastStatus != session.ScheduleStatusFired || first.LastRef == "" {
+		t.Fatalf("first firing: status=%q ref=%q", first.LastStatus, first.LastRef)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if active, err := engine.JobActive(ctx, first.LastRef); err == nil && !active {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job %s never finished", first.LastRef)
+		}
+	}
+	// The retention sweep deletes the finished job row, as it does once JobRetentionDays passed.
+	if _, err := engine.store.DeleteFinishedJobsBefore(ctx, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.store.GetJob(ctx, first.LastRef); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("job after the sweep: %v, want ErrNotFound", err)
+	}
+	second := fireNow()
+	if second.LastStatus != session.ScheduleStatusFired || second.LastError != "" {
+		t.Fatalf("firing after the sweep: status=%q error=%q, want fired", second.LastStatus, second.LastError)
+	}
+	if second.LastRef == "" || second.LastRef == first.LastRef {
+		t.Fatalf("firing after the sweep started no new job: ref=%q (previous %q)", second.LastRef, first.LastRef)
+	}
+	if n := countRows(t, engine, `SELECT count(*) FROM jobs WHERE schedule_id = ?`, info.ID); n != 1 {
+		t.Fatalf("jobs of the task after the sweep = %d, want the new one", n)
+	}
+}

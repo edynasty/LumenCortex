@@ -279,12 +279,16 @@ func (e *Engine) SubmitScheduled(ctx context.Context, scheduleID, sessionID, com
 }
 
 // JobActive reports whether a job is queued or running: the scheduler skips an occurrence while the
-// previous firing's job is still active.
+// previous firing's job is still active. A job that no longer exists (job retention deleted the
+// finished row, or its session was deleted) is not active.
 func (e *Engine) JobActive(ctx context.Context, id string) (bool, error) {
 	if e.jobs == nil {
 		return false, ErrJobsUnavailable
 	}
 	job, err := e.jobs.Get(ctx, id)
+	if errors.Is(err, session.ErrNotFound) {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
