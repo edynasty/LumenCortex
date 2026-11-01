@@ -13,6 +13,77 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
+// lspSpecs is the static list of the language-server tools. registerLSPTools binds each spec to its
+// handler; the capability registry lists them through LSPSpecs; nothing else defines them.
+func lspSpecs() []protocol.ToolSpec {
+	positionProps := map[string]any{
+		"path":   str(),
+		"line":   map[string]any{"type": "integer", "minimum": 1},
+		"column": map[string]any{"type": "integer", "minimum": 1},
+	}
+	return []protocol.ToolSpec{
+		{
+			Name:        "lsp_hover",
+			Description: "Ask the workspace language server for hover/type information at a 1-based file position.",
+			Permission:  "read",
+			Parameters:  obj(positionProps, "path", "line", "column"),
+		},
+		{
+			Name:        "lsp_definition",
+			Description: "Find language-server definition targets for a 1-based file position.",
+			Permission:  "read",
+			Parameters:  obj(positionProps, "path", "line", "column"),
+		},
+		{
+			Name:        "lsp_references",
+			Description: "Find language-server references for a 1-based file position.",
+			Permission:  "read",
+			Parameters: obj(map[string]any{
+				"path":                str(),
+				"line":                map[string]any{"type": "integer", "minimum": 1},
+				"column":              map[string]any{"type": "integer", "minimum": 1},
+				"include_declaration": map[string]any{"type": "boolean"},
+			}, "path", "line", "column"),
+		},
+		{
+			Name:        "lsp_document_symbols",
+			Description: "List language-server symbols in a document.",
+			Permission:  "read",
+			Parameters:  obj(map[string]any{"path": str()}, "path"),
+		},
+		{
+			Name:        "lsp_workspace_symbols",
+			Description: "Search language-server workspace symbols.",
+			Permission:  "read",
+			Parameters:  obj(map[string]any{"query": str()}, "query"),
+		},
+		{
+			Name:        "lsp_diagnostics",
+			Description: "Read language-server diagnostics for a workspace file.",
+			Permission:  "read",
+			Parameters:  obj(map[string]any{"path": str()}, "path"),
+		},
+		{
+			Name: "lsp_rename",
+			Description: "Rename a symbol through the workspace language server and apply the resulting workspace edit. " +
+				"Every edited path passes the same guard as write_file and apply_patch (workspace confinement, " +
+				"protected state, symlink escape) and the batch is written atomically: if any path is refused, " +
+				"nothing is written.",
+			Permission:       "write",
+			MutatesWorkspace: true,
+			Parameters: obj(map[string]any{
+				"path":     str(),
+				"line":     map[string]any{"type": "integer", "minimum": 1},
+				"column":   map[string]any{"type": "integer", "minimum": 1},
+				"new_name": str(),
+			}, "path", "line", "column", "new_name"),
+		},
+	}
+}
+
+// LSPSpecs returns the specs of the language-server tools.
+func LSPSpecs() []protocol.ToolSpec { return lspSpecs() }
+
 // registerLSPTools offers the language-server tools only when a server can really serve this
 // workspace: its command is on PATH and the workspace holds a file or a marker of its language. A
 // workspace without one gets no lsp_* tool, so the model is never offered a capability that cannot
@@ -21,67 +92,18 @@ func (s *Set) registerLSPTools() {
 	if s.lsp == nil || !s.lsp.Available() {
 		return
 	}
-	positionProps := map[string]any{
-		"path":   str(),
-		"line":   map[string]any{"type": "integer", "minimum": 1},
-		"column": map[string]any{"type": "integer", "minimum": 1},
+	handlers := map[string]func(context.Context, map[string]any, func(protocol.ToolOutput)) (protocol.ToolResult, error){
+		"lsp_hover":             s.lspHover,
+		"lsp_definition":        s.lspDefinition,
+		"lsp_references":        s.lspReferences,
+		"lsp_document_symbols":  s.lspDocumentSymbols,
+		"lsp_workspace_symbols": s.lspWorkspaceSymbols,
+		"lsp_diagnostics":       s.lspDiagnostics,
+		"lsp_rename":            s.lspRename,
 	}
-	s.add(protocol.ToolSpec{
-		Name:        "lsp_hover",
-		Description: "Ask the workspace language server for hover/type information at a 1-based file position.",
-		Permission:  "read",
-		Parameters:  obj(positionProps, "path", "line", "column"),
-	}, s.lspHover)
-	s.add(protocol.ToolSpec{
-		Name:        "lsp_definition",
-		Description: "Find language-server definition targets for a 1-based file position.",
-		Permission:  "read",
-		Parameters:  obj(positionProps, "path", "line", "column"),
-	}, s.lspDefinition)
-	s.add(protocol.ToolSpec{
-		Name:        "lsp_references",
-		Description: "Find language-server references for a 1-based file position.",
-		Permission:  "read",
-		Parameters: obj(map[string]any{
-			"path":                str(),
-			"line":                map[string]any{"type": "integer", "minimum": 1},
-			"column":              map[string]any{"type": "integer", "minimum": 1},
-			"include_declaration": map[string]any{"type": "boolean"},
-		}, "path", "line", "column"),
-	}, s.lspReferences)
-	s.add(protocol.ToolSpec{
-		Name:        "lsp_document_symbols",
-		Description: "List language-server symbols in a document.",
-		Permission:  "read",
-		Parameters:  obj(map[string]any{"path": str()}, "path"),
-	}, s.lspDocumentSymbols)
-	s.add(protocol.ToolSpec{
-		Name:        "lsp_workspace_symbols",
-		Description: "Search language-server workspace symbols.",
-		Permission:  "read",
-		Parameters:  obj(map[string]any{"query": str()}, "query"),
-	}, s.lspWorkspaceSymbols)
-	s.add(protocol.ToolSpec{
-		Name:        "lsp_diagnostics",
-		Description: "Read language-server diagnostics for a workspace file.",
-		Permission:  "read",
-		Parameters:  obj(map[string]any{"path": str()}, "path"),
-	}, s.lspDiagnostics)
-	s.add(protocol.ToolSpec{
-		Name: "lsp_rename",
-		Description: "Rename a symbol through the workspace language server and apply the resulting workspace edit. " +
-			"Every edited path passes the same guard as write_file and apply_patch (workspace confinement, " +
-			"protected state, symlink escape) and the batch is written atomically: if any path is refused, " +
-			"nothing is written.",
-		Permission:       "write",
-		MutatesWorkspace: true,
-		Parameters: obj(map[string]any{
-			"path":     str(),
-			"line":     map[string]any{"type": "integer", "minimum": 1},
-			"column":   map[string]any{"type": "integer", "minimum": 1},
-			"new_name": str(),
-		}, "path", "line", "column", "new_name"),
-	}, s.lspRename)
+	for _, spec := range lspSpecs() {
+		s.add(spec, handlers[spec.Name])
+	}
 }
 
 func (s *Set) lspHover(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {

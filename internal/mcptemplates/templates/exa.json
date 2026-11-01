@@ -1,0 +1,33 @@
+{
+  "id": "exa",
+  "name": "Exa Web Search",
+  "capability": "web.search",
+  "description": "Official hosted Exa MCP server: web search and page fetch. Only web_search_exa and web_fetch_exa are exposed by default; Exa Agent (agent_run) and the advanced search tool stay off, so nothing runs a multi-step research job or a paid agent call on its own.",
+  "homepage": "https://docs.exa.ai/reference/exa-mcp",
+  "auth": "Keyless by default: https://mcp.exa.ai/mcp answers search and fetch at Exa's free rate limit, with no credential. For a paid plan or for agent_run, either add the header {\"x-api-key\": \"{env:EXA_API_KEY}\"} with EXA_API_KEY exported, or use Exa's OAuth flow (https://mcp.exa.ai/mcp?login) in a client that supports it. Core stores the reference only, never the value.",
+  "cost": "External paid service. Keyless search/fetch is rate limited and free; an API key or OAuth makes calls billable to the Exa account (agent_run is usage-based and is not exposed by default).",
+  "requires": "Network access to mcp.exa.ai. No local binary.",
+  "verified": "2026-11-01 against docs.exa.ai/reference/exa-mcp: endpoint https://mcp.exa.ai/mcp, keyless/OAuth/x-api-key auth forms, default tools web_search_exa + web_fetch_exa, `tools` URL parameter replaces the defaults. Live handshake NOT_RUN: it needs network egress and would spend Exa credits.",
+  "limitations": [
+    "No live handshake was performed; the tool names are the documented defaults, not a listing Core observed.",
+    "Search result count is controlled by the tool's own numResults argument; Core bounds the response by maxResultBytes only."
+  ],
+  "config": {
+    "id": "exa",
+    "name": "Exa",
+    "transport": "streamable-http",
+    "url": "https://mcp.exa.ai/mcp",
+    "protocolMode": "legacy",
+    "include": ["web_search_exa", "web_fetch_exa"],
+    "tools": {
+      "web_search_exa": { "permission": "read" },
+      "web_fetch_exa": { "permission": "read" }
+    },
+    "callTimeoutSeconds": 60,
+    "idleTimeoutSeconds": 600,
+    "maxConcurrentCalls": 2,
+    "maxResultBytes": 262144,
+    "disabled": true,
+    "template": "exa"
+  }
+}

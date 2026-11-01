@@ -63,19 +63,3 @@ func runImportCommand(ctx context.Context, engine *lcx.Engine, args []string) er
 		return errors.New(importUsage)
 	}
 }
-
-const pluginsUsage = "usage: lcx-go plugins [list] | plugins enable <id> | plugins disable <id>"
-
-// runPluginsCommand shows the plugin catalog and changes a plugin's enablement (ADR-0012).
-func runPluginsCommand(ctx context.Context, engine *lcx.Engine, args []string) error {
-	if len(args) == 0 || (args[0] == "list" && len(args) == 1) {
-		return printJSON(engine.Plugins())
-	}
-	if len(args) != 2 || (args[0] != "enable" && args[0] != "disable") {
-		return errors.New(pluginsUsage)
-	}
-	if err := engine.SetPluginEnabled(ctx, args[1], args[0] == "enable"); err != nil {
-		return err
-	}
-	return printJSON(engine.Plugins())
-}

@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,8 +54,14 @@ func Start(ctx context.Context, cfg Config) (*Client, error) {
 	if strings.TrimSpace(cfg.ID) == "" {
 		return nil, errors.New("mcp server id is required")
 	}
+	if cfg.transport() != TransportStdio {
+		return nil, fmt.Errorf("mcp server %q: the stdio client cannot start the %s transport", cfg.ID, cfg.transport())
+	}
 	if strings.TrimSpace(cfg.Command) == "" {
 		return nil, errors.New("mcp command is required")
+	}
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
 	}
 	if cfg.ProtocolMode == "" {
 		cfg.ProtocolMode = ModeLegacy
@@ -71,9 +79,17 @@ func Start(ctx context.Context, cfg Config) (*Client, error) {
 	}
 	cfg.Workspace = workspace
 
+	env, err := resolvedEnv(cfg.Env)
+	if err != nil {
+		return nil, err
+	}
+
 	procCtx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(procCtx, cfg.Command, cfg.Args...)
 	cmd.Dir = workspace
+	// A server inherits the runtime's environment; an explicit Env entry replaces one variable and is
+	// resolved from "{env:NAME}" references only at start, so no credential is persisted.
+	cmd.Env = append(os.Environ(), env...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
@@ -311,6 +327,7 @@ func (c *Client) Status() Status {
 		ID:              c.cfg.ID,
 		Name:            c.cfg.Name,
 		Command:         c.cfg.Command,
+		Transport:       TransportStdio,
 		Workspace:       c.cfg.Workspace,
 		ProtocolMode:    c.cfg.ProtocolMode,
 		ProtocolVersion: version,
@@ -341,6 +358,11 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) withModernMeta(params map[string]any) map[string]any {
+	return withModernMeta(params)
+}
+
+// withModernMeta adds the stateless protocol metadata the modern mode requires.
+func withModernMeta(params map[string]any) map[string]any {
 	out := make(map[string]any, len(params)+1)
 	for key, value := range params {
 		out[key] = value
@@ -503,6 +525,28 @@ func (c *Client) failAllPending(err error) {
 		default:
 		}
 	}
+}
+
+// resolvedEnv resolves the "{env:NAME}" references of a server's environment. A missing variable is
+// an *ErrMissingEnv naming it; no value is ever put in an error or a log line.
+func resolvedEnv(env map[string]string) ([]string, error) {
+	if len(env) == 0 {
+		return nil, nil
+	}
+	names := make([]string, 0, len(env))
+	for name := range env {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		value, err := resolveEnvReference(env[name])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, name+"="+value)
+	}
+	return out, nil
 }
 
 func (c *Client) setLastError(value string) {

@@ -280,6 +280,13 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if opts.parentSessionID == "" {
 		wakeupBinding = e.wakeupsFor(sessionID, policy)
 	}
+	// A server whose tool list was never discovered cannot be offered, so a run that may use MCP
+	// discovers the missing catalogs here, once per server, in parallel and under a bounded wait. A
+	// server whose catalog is already recorded costs nothing: this is a no-op in the steady state
+	// (ADR-0021 §3).
+	if mcpRegistry != nil {
+		e.discoverMCPCatalogs(ctx, mcpRegistry, agentWorkspace)
+	}
 	tools, err := toolset.New(toolset.Options{
 		Workspace: agentWorkspace,
 		Policy:    policy,
@@ -300,6 +307,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Wakeups: wakeupBinding,
 		// A tool's own log lines name the session and the run they belong to.
 		Logger: e.log.With("session_id", sessionID, "run_id", runID),
+		// A server with a session binding receives this id, so an action is attributed to the run that
+		// drove it and the server-side session can be closed with the run.
+		SessionID: sessionID,
 	})
 	if err != nil {
 		return nil, err

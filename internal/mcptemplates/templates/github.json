@@ -1,0 +1,48 @@
+{
+  "id": "github",
+  "name": "GitHub",
+  "capability": "code.host.read",
+  "description": "Official GitHub MCP server, hosted at api.githubcopilot.com/mcp/. Defaults to a curated read toolset — repositories, issues, pull requests, actions and code search — with the server-side readonly switch on. Write tools (create a pull request, push, workflow dispatch, comments) need an explicit change of this entry and keep exec permission, so a run must pass the permission gate to use them.",
+  "homepage": "https://github.com/github/github-mcp-server",
+  "auth": "A GitHub personal access token in the Authorization header, as an {env:GITHUB_PERSONAL_ACCESS_TOKEN} reference; export the variable in the environment that runs Core. Never paste the token into mcp.json.",
+  "cost": "No per-call charge from GitHub. A token with broad scopes can act on the account; the template keeps X-MCP-Readonly=true and a read-only tool list.",
+  "requires": "Network access to api.githubcopilot.com and a personal access token.",
+  "verified": "2026-11-01 against github/github-mcp-server docs/remote-server.md: URL https://api.githubcopilot.com/mcp/, Bearer PAT authorization, X-MCP-Toolsets / X-MCP-Tools / X-MCP-Readonly headers, /readonly URL modifier, per-toolset URLs under /mcp/x/{toolset}. Live handshake NOT_RUN: it needs a token, and no token on this machine was used.",
+  "limitations": [
+    "The include list is the curated read set; a name the server does not report is simply absent, and the registry shows which tools were actually discovered only after the first call.",
+    "X-MCP-Toolsets is applied by the server; Core's include list is a second, local filter.",
+    "An unknown tool name in X-MCP-Tools is a server error, so the template filters locally and leaves the toolset header coarse."
+  ],
+  "config": {
+    "id": "github",
+    "name": "GitHub",
+    "transport": "streamable-http",
+    "url": "https://api.githubcopilot.com/mcp/",
+    "protocolMode": "legacy",
+    "headers": {
+      "Authorization": "Bearer {env:GITHUB_PERSONAL_ACCESS_TOKEN}",
+      "X-MCP-Toolsets": "repos,issues,pull_requests,actions",
+      "X-MCP-Readonly": "true"
+    },
+    "include": [
+      "get_file_contents",
+      "search_code",
+      "list_branches",
+      "list_commits",
+      "issue_read",
+      "list_issues",
+      "pull_request_read",
+      "list_pull_requests",
+      "actions_list",
+      "actions_get",
+      "get_job_logs",
+      "get_commit"
+    ],
+    "callTimeoutSeconds": 60,
+    "idleTimeoutSeconds": 600,
+    "maxConcurrentCalls": 2,
+    "maxResultBytes": 524288,
+    "disabled": true,
+    "template": "github"
+  }
+}

@@ -56,6 +56,9 @@ type Options struct {
 	// Logger receives the tools' own log lines; nil discards them. LSP lifecycle lines come from the
 	// manager, which has its own logger.
 	Logger *slog.Logger
+	// SessionID is the session the run belongs to. A server configured with a session binding receives
+	// it instead of a model-supplied id (a computer session is bound to the run that opened it).
+	SessionID string
 }
 type Set struct {
 	workspace      string
@@ -76,7 +79,9 @@ type Set struct {
 	jobs                JobController
 	wakeups             WakeupController
 	log                 *slog.Logger
-	tools               map[string]tool
+	// sessionID is Options.SessionID.
+	sessionID string
+	tools     map[string]tool
 }
 type tool struct {
 	spec    protocol.ToolSpec
@@ -129,7 +134,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, notebooks: opts.Notebook, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, jobs: opts.Jobs, wakeups: opts.Wakeups, log: newToolsetLogger(opts.Logger), tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, notebooks: opts.Notebook, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, jobs: opts.Jobs, wakeups: opts.Wakeups, log: newToolsetLogger(opts.Logger), sessionID: opts.SessionID, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -229,38 +234,50 @@ func (s *Set) add(spec protocol.ToolSpec, fn func(context.Context, map[string]an
 	s.tools[spec.Name] = tool{spec: spec, execute: fn}
 }
 
-func (s *Set) registerBuiltins() {
-	s.add(protocol.ToolSpec{Name: "search_text", Description: "Search repository text with bounded results. Uses ripgrep when available.", Permission: "read", Parameters: obj(map[string]any{"query": str(), "path": str(), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000}}, "query")}, s.searchText)
-	s.add(protocol.ToolSpec{Name: "find_files", Description: "Find repository files by bounded glob/name pattern.", Permission: "read", Parameters: obj(map[string]any{"pattern": str(), "path": str(), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000}}, "pattern")}, s.findFiles)
-	// git_status and git_diff were removed (ADR-0019 §0): the agent runs git through bash; the host's
-	// Git API (repository.Service) is unchanged.
-	s.add(protocol.ToolSpec{Name: "read_file", Description: "Read a bounded UTF-8 file inside the workspace.", Permission: "read", Parameters: obj(map[string]any{"path": str()}, "path")}, s.readFile)
-	s.add(protocol.ToolSpec{Name: "list_dir", Description: "List a bounded number of entries in a workspace directory.", Permission: "read", Parameters: obj(map[string]any{"path": str()}, "path")}, s.listDir)
-	s.add(protocol.ToolSpec{Name: "write_file", Description: "Create or replace a UTF-8 file inside the workspace.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "content": str()}, "path", "content")}, s.writeFile)
-	s.add(protocol.ToolSpec{Name: "replace_in_file", Description: "Replace one exact text occurrence in a UTF-8 workspace file.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "old_text": str(), "new_text": str()}, "path", "old_text", "new_text")}, s.replaceFile)
-	s.add(protocol.ToolSpec{Name: "apply_patch", Description: "Apply a validated atomic batch of exact text edits, creates or deletes inside the workspace.", Permission: "write", MutatesWorkspace: true, Parameters: map[string]any{
-		"type": "object",
-		"properties": map[string]any{"patches": map[string]any{
-			"type": "array", "minItems": 1,
-			"items": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path":      str(),
-					"operation": map[string]any{"type": "string", "enum": []string{"update", "create", "delete"}},
-					"edits":     map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"old_text": str(), "new_text": str()}, "required": []string{"old_text", "new_text"}, "additionalProperties": false}},
-					"content":   str(),
+// builtinSpecs is the static tool list every run has, before the policy and allowlist filters. It is
+// the one definition of those specs: registerBuiltins binds each to its handler and the capability
+// registry lists them through BuiltinSpecs. bash's description names the interpreter it really runs
+// (ADR-0019 §0) and offers mode "background" only where a job queue exists (ADR-0019 §3).
+// git_status and git_diff were removed (ADR-0019 §0): the agent runs git through bash; the host's Git
+// API (repository.Service) is unchanged.
+func builtinSpecs(interp shell.Interpreter, background bool) []protocol.ToolSpec {
+	return []protocol.ToolSpec{
+		{Name: "search_text", Description: "Search repository text with bounded results. Uses ripgrep when available.", Permission: "read", Parameters: obj(map[string]any{"query": str(), "path": str(), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000}}, "query")},
+		{Name: "find_files", Description: "Find repository files by bounded glob/name pattern.", Permission: "read", Parameters: obj(map[string]any{"pattern": str(), "path": str(), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000}}, "pattern")},
+		{Name: "read_file", Description: "Read a bounded UTF-8 file inside the workspace.", Permission: "read", Parameters: obj(map[string]any{"path": str()}, "path")},
+		{Name: "list_dir", Description: "List a bounded number of entries in a workspace directory.", Permission: "read", Parameters: obj(map[string]any{"path": str()}, "path")},
+		{Name: "write_file", Description: "Create or replace a UTF-8 file inside the workspace.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "content": str()}, "path", "content")},
+		{Name: "replace_in_file", Description: "Replace one exact text occurrence in a UTF-8 workspace file.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "old_text": str(), "new_text": str()}, "path", "old_text", "new_text")},
+		{Name: "apply_patch", Description: "Apply a validated atomic batch of exact text edits, creates or deletes inside the workspace.", Permission: "write", MutatesWorkspace: true, Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{"patches": map[string]any{
+				"type": "array", "minItems": 1,
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path":      str(),
+						"operation": map[string]any{"type": "string", "enum": []string{"update", "create", "delete"}},
+						"edits":     map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"old_text": str(), "new_text": str()}, "required": []string{"old_text", "new_text"}, "additionalProperties": false}},
+						"content":   str(),
+					},
+					"required": []string{"path", "operation"}, "additionalProperties": false,
 				},
-				"required": []string{"path", "operation"}, "additionalProperties": false,
-			},
+			}},
+			"required": []string{"patches"}, "additionalProperties": false,
 		}},
-		"required": []string{"patches"}, "additionalProperties": false,
-	}}, s.applyPatch)
+		bashSpec(interp, background),
+	}
+}
+
+// bashSpec is the command tool's spec for a run whose commands run in interp, with the background mode
+// when the run has a job queue.
+func bashSpec(interp shell.Interpreter, background bool) protocol.ToolSpec {
 	bashParams := map[string]any{
 		"command":     str(),
 		"timeout_sec": map[string]any{"type": "integer", "minimum": 1, "maximum": maxShellTimeoutSeconds, "description": "Seconds the command may run before its process group is terminated (SIGTERM, then SIGKILL). In the foreground it replaces the configured default and the run's deadline still bounds it."},
 	}
-	description := bashDescription(s.shell.Interpreter)
-	if s.jobs != nil {
+	description := bashDescription(interp)
+	if background {
 		// The job queue of this run is available: the same tool can start a command in the background and
 		// return at once with its job id, which job_status, job_wait, job_cancel and job_list act on.
 		bashParams["mode"] = map[string]any{"type": "string", "enum": []string{"foreground", "background"}}
@@ -269,7 +286,24 @@ func (s *Set) registerBuiltins() {
 			"answer while its background jobs are active. timeout_sec bounds a background job's run time; its " +
 			"output is kept head and tail only."
 	}
-	s.add(protocol.ToolSpec{Name: protocol.ToolBash, Description: description, Permission: "exec", MutatesWorkspace: true, Parameters: obj(bashParams, "command")}, s.runShell)
+	return protocol.ToolSpec{Name: protocol.ToolBash, Description: description, Permission: "exec", MutatesWorkspace: true, Parameters: obj(bashParams, "command")}
+}
+
+// registerBuiltins binds the static specs to their handlers.
+func (s *Set) registerBuiltins() {
+	handlers := map[string]func(context.Context, map[string]any, func(protocol.ToolOutput)) (protocol.ToolResult, error){
+		"search_text":     s.searchText,
+		"find_files":      s.findFiles,
+		"read_file":       s.readFile,
+		"list_dir":        s.listDir,
+		"write_file":      s.writeFile,
+		"replace_in_file": s.replaceFile,
+		"apply_patch":     s.applyPatch,
+		protocol.ToolBash: s.runShell,
+	}
+	for _, spec := range builtinSpecs(s.shell.Interpreter, s.jobs != nil) {
+		s.add(spec, handlers[spec.Name])
+	}
 	s.registerLSPTools()
 	if s.mcp != nil {
 		s.registerMCPTools()
@@ -285,6 +319,14 @@ func (s *Set) registerBuiltins() {
 	s.registerWakeupTools()
 	s.registerNotebookTools()
 }
+
+// BuiltinSpecs returns the specs of the tools every run has, in declaration order, for a run whose
+// commands run in interp and that has (background) or lacks a job queue. It is the same list
+// registerBuiltins binds, so a capability catalog cannot drift from the toolset.
+func BuiltinSpecs(interp shell.Interpreter, background bool) []protocol.ToolSpec {
+	return builtinSpecs(interp, background)
+}
+
 func str() map[string]any { return map[string]any{"type": "string"} }
 
 // obj builds an object schema. JSON Schema requires "required" to be an array of strings when present,
