@@ -431,9 +431,10 @@ func (e *Engine) promptTools(workspace, policy string, child bool, sessionID str
 	registry := e.mcpRegistry
 	var controller toolset.SubagentController
 	var threads toolset.ThreadReader
+	var wakeupBinding toolset.WakeupController
 	// The working notebook is bound per run to the run's session (ADR-0020). A report without a
-	// session describes a run that will have one, so it lists the notebook tools too; nothing here
-	// executes them.
+	// session describes a run that will have one, so it lists the session-bound tools too - the
+	// notebook, the thread readers and the wake-ups; nothing here executes them.
 	notebooks := toolset.NotebookStore(newNotebookAccess(e, sessionID, "report"))
 	if child {
 		// A child runs without MCP, without spawn tools and without threads of its own.
@@ -442,8 +443,10 @@ func (e *Engine) promptTools(workspace, policy string, child bool, sessionID str
 		if subagents {
 			controller = reportSubagents{}
 		}
-		if sessionID != "" {
-			threads = threadReader{engine: e, sessionID: sessionID, workspace: workspace}
+		threads = threadReader{engine: e, sessionID: sessionID, workspace: workspace}
+		// A thread's run schedules its own wake-ups; a child's lifecycle belongs to its parent.
+		if e.schedules != nil {
+			wakeupBinding = wakeups{engine: e, sessionID: sessionID, policy: policy}
 		}
 	}
 	return toolset.New(toolset.Options{
@@ -457,7 +460,11 @@ func (e *Engine) promptTools(workspace, policy string, child bool, sessionID str
 		Threads:        threads,
 		Skills:         skillTools,
 		Notebook:       notebooks,
-		Logger:         e.log.With("session_id", sessionID),
+		// The run's job queue gives bash its background mode and the job tools (ADR-0019 §3); a report
+		// registers them and submits nothing.
+		Jobs:    e.runJobs(sessionID, "report", workspace),
+		Wakeups: wakeupBinding,
+		Logger:  e.log.With("session_id", sessionID),
 	})
 }
 

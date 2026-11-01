@@ -38,15 +38,23 @@ workspace, whatever provides it. Each entry carries `toolId`, `displayName`, `so
 
 | source | meaning | example |
 | --- | --- | --- |
-| `builtin` | compiled into Core | `read_file`, the command tool |
+| `builtin` | compiled into Core | `read_file`, the command tool, the job, notebook, wake-up, thread, skill, task and subagent tools, `start_task` |
 | `core-optional` | offered when a dependency can serve the workspace | `lsp_definition` (a configured language server on `PATH`) |
 | `mcp` | a remote MCP endpoint | Exa, GitHub |
 | `local-adapter` | a local process or local socket running third-party code | Playwright MCP, CodeGraph, CodeBridge |
 
 `capability` is the semantic job (`repo.read`, `repo.write`, `process.exec`, `code.intelligence`,
-`web.search`, `code.host.read`, `browser.control`, `computer.control`, `code.graph`). Several sources
-may provide one capability; the registry keeps them apart by `provider` and by the model-visible tool
-name, so two providers of "web search" never collide.
+`web.search`, `code.host.read`, `browser.control`, `computer.control`, `code.graph`, and for Core's own
+agent tools `context.read` (threads, skills), `agent.state` (notebook, wake-ups, work units, notes)
+and `agent.delegation` (subagents, `start_task`)). Several sources may provide one capability; the
+registry keeps them apart by `provider` and by the model-visible tool name, so two providers of "web
+search" never collide.
+
+The `builtin` rows and the built-in part of `Engine.ToolSchemaCost` are read from a toolset built
+exactly as a host's run builds it (the one `EffectivePrompt` reports), not from a separate list, so a
+tool family added to the run appears in the registry and in the cost without a second edit. The cost
+counts a top-level run under the full policy without a delegation grant; the registry also lists
+`start_task`.
 
 The registry describes tools; it does not run them. Every tool still executes through the same path as
 before — `toolset.Set.Execute`, the permission gate, `protocol.ToolDeadline`, the tool events and the

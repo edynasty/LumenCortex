@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/agent"
 	"github.com/edynasty/LumenCortex/internal/mcp"
 	"github.com/edynasty/LumenCortex/internal/mcptemplates"
-	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/toolset"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -136,7 +137,11 @@ func (e *Engine) Capabilities(ctx context.Context, query CapabilityQuery) ([]Cap
 		denied[protocol.CanonicalToolName(strings.TrimSpace(name))] = true
 	}
 	out := make([]Capability, 0, 32)
-	out = append(out, e.builtinCapabilities(denied)...)
+	builtin, err := e.builtinCapabilities(workspace, query.SessionID, denied)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, builtin...)
 	out = append(out, e.lspCapabilities(workspace, denied)...)
 	mcpCapabilities, err := e.mcpCapabilities(workspace, denied)
 	if err != nil {
@@ -161,16 +166,20 @@ func (e *Engine) Capabilities(ctx context.Context, query CapabilityQuery) ([]Cap
 	return out, nil
 }
 
-// builtinCapabilities lists the compiled-in tools. They are always available; the run's policy decides
-// whether a step sees one.
-func (e *Engine) builtinCapabilities(denied map[string]bool) []Capability {
-	specs := e.builtinSpecs()
-	out := make([]Capability, 0, len(specs))
+// builtinCapabilities lists the tools compiled into Core: every tool a run could be offered that is
+// neither a language-server nor an MCP tool (coreTools), start_task included. They are always
+// available; the run's policy and grants decide whether a step sees one.
+func (e *Engine) builtinCapabilities(workspace, sessionID string, denied map[string]bool) ([]Capability, error) {
+	tools, err := e.coreTools(workspace, sessionID, true)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Capability, 0, len(tools))
 	shellTimeout := 0
 	if limits := e.executionLimits(); limits.ShellTimeoutSeconds > 0 {
 		shellTimeout = limits.ShellTimeoutSeconds
 	}
-	for _, spec := range specs {
+	for _, spec := range tools {
 		constraints := CapabilityConstraints{
 			MutatesWorkspace: spec.MutatesWorkspace,
 			RequiresApproval: spec.Permission == "exec",
@@ -194,7 +203,42 @@ func (e *Engine) builtinCapabilities(denied map[string]bool) []Capability {
 		}
 		out = append(out, capability)
 	}
-	return out
+	return out, nil
+}
+
+// coreTools is the spec list of the Core tools a top-level run in workspace is offered, without the
+// language-server and MCP tools, which the registry lists with their own availability. The toolset is
+// built as EffectivePrompt builds it for a host's run of the session - started through
+// RunSupervisor.Start, which offers the subagent tools (promptTools: the built-ins with bash's
+// background mode, the job, wake-up, notebook, thread, skill and subagent tools) - and agent.StepTools
+// adds the task tools, so the catalog and the schema cost are the run's own list and cannot drift from
+// it. delegation adds start_task, which only an isolated delegation grant offers. It is the full
+// policy's list; nothing is started.
+func (e *Engine) coreTools(workspace, sessionID string, delegation bool) ([]protocol.ToolSpec, error) {
+	cfg, err := config.Load(e.workspace)
+	if err != nil {
+		return nil, err
+	}
+	eff := cfg.Effective()
+	// read_skill exists when the prompt lists skills, as at Start.
+	prompt := assemblePrompt(promptInput{workspace: e.workspace, globalDir: eff.GlobalDir, trusted: eff.Trusted, skills: e.skillRegistry})
+	tools, err := e.promptTools(workspace, toolset.PolicyFull, false, sessionID, true,
+		eff.DelegationAgents(config.AgentInfo.SpawnEligible), newSkillReader(prompt.Skills.Included))
+	if err != nil {
+		return nil, err
+	}
+	in := agent.StepToolsInput{TaskAgents: eff.DelegationAgents(config.AgentInfo.TaskEligible)}
+	if delegation {
+		in.Delegation, in.Tasks = agent.DelegationIsolated, true
+	}
+	var out []protocol.ToolSpec
+	for _, tool := range agent.StepTools(tools, in) {
+		if !tool.Included || tool.Source == "lsp" || tool.Source == "mcp" || strings.HasPrefix(tool.Source, "mcp:") {
+			continue
+		}
+		out = append(out, tool.Spec)
+	}
+	return out, nil
 }
 
 // lspCapabilities lists the language-server tools. They are core-optional: the specs exist always, a
@@ -416,8 +460,16 @@ func builtinCapability(name string) string {
 		return "repo.read"
 	case "write_file", "replace_in_file", "apply_patch":
 		return "repo.write"
-	case protocol.ToolBash:
+	case protocol.ToolBash, "job_status", "job_wait", "job_cancel", "job_list":
+		// The job tools act on the commands bash started in the background.
 		return "process.exec"
+	case "read_thread", "recall", "read_skill":
+		return "context.read"
+	case "notebook_list", "notebook_read", "notebook_update", "wakeup_schedule", "wakeup_cancel",
+		"work_unit_list", "work_unit_create", "work_unit_update", "reference_suggest", "note_write", "note_remove":
+		return "agent.state"
+	case "spawn_subagent", "list_subagents", "wait_subagent", "start_task":
+		return "agent.delegation"
 	default:
 		return "repo.read"
 	}
@@ -583,16 +635,20 @@ type ToolSchemaCost struct {
 	MCPTools     map[string]int `json:"mcpTools"`
 }
 
-// ToolSchemaCost measures what a request pays for tool schemas in this workspace: built-in tools, the
-// language-server tools when a server is attached, and each configured MCP server's exposed tools. It
-// reads catalogs only; nothing is started.
+// ToolSchemaCost measures what a request pays for tool schemas in this workspace: the Core tools a
+// host's top-level run under the full policy is offered without a delegation grant (coreTools), the
+// language-server tools when a server is attached, and each configured MCP server's exposed tools.
+// It reads catalogs only; nothing is started.
 func (e *Engine) ToolSchemaCost(ctx context.Context, query CapabilityQuery) (ToolSchemaCost, error) {
 	workspace, err := e.lspWorkspace(ctx, query.SessionID)
 	if err != nil {
 		return ToolSchemaCost{}, err
 	}
 	cost := ToolSchemaCost{MCPBytes: map[string]int{}, MCPTools: map[string]int{}}
-	builtin := e.builtinSpecs()
+	builtin, err := e.coreTools(workspace, query.SessionID, false)
+	if err != nil {
+		return ToolSchemaCost{}, err
+	}
 	cost.BuiltinBytes = specBytes(builtin)
 	cost.BuiltinTools = len(builtin)
 	if e.lspAvailable(workspace) {
@@ -623,12 +679,6 @@ func (e *Engine) ToolSchemaCost(ctx context.Context, query CapabilityQuery) (Too
 func (e *Engine) lspAvailable(workspace string) bool {
 	manager, err := e.lspManagerFor(workspace)
 	return err == nil && manager.Available()
-}
-
-// builtinSpecs is the built-in tool list a run of this Engine is offered: bash runs in the bash tool's
-// interpreter and has its background mode when the job queue is open.
-func (e *Engine) builtinSpecs() []protocol.ToolSpec {
-	return toolset.BuiltinSpecs(shell.Bash(), e.jobs != nil)
 }
 
 // specBytes is the JSON size of a tool spec list, the shape a provider request carries.

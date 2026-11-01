@@ -235,9 +235,9 @@ func (s *Set) add(spec protocol.ToolSpec, fn func(context.Context, map[string]an
 }
 
 // builtinSpecs is the static tool list every run has, before the policy and allowlist filters. It is
-// the one definition of those specs: registerBuiltins binds each to its handler and the capability
-// registry lists them through BuiltinSpecs. bash's description names the interpreter it really runs
-// (ADR-0019 §0) and offers mode "background" only where a job queue exists (ADR-0019 §3).
+// the one definition of those specs: registerBuiltins binds each to its handler, and the capability
+// registry reads them from a toolset built as a run builds it. bash's description names the interpreter
+// it really runs (ADR-0019 §0) and offers mode "background" only where a job queue exists (ADR-0019 §3).
 // git_status and git_diff were removed (ADR-0019 §0): the agent runs git through bash; the host's Git
 // API (repository.Service) is unchanged.
 func builtinSpecs(interp shell.Interpreter, background bool) []protocol.ToolSpec {
@@ -318,13 +318,6 @@ func (s *Set) registerBuiltins() {
 	s.registerSkillTools()
 	s.registerWakeupTools()
 	s.registerNotebookTools()
-}
-
-// BuiltinSpecs returns the specs of the tools every run has, in declaration order, for a run whose
-// commands run in interp and that has (background) or lacks a job queue. It is the same list
-// registerBuiltins binds, so a capability catalog cannot drift from the toolset.
-func BuiltinSpecs(interp shell.Interpreter, background bool) []protocol.ToolSpec {
-	return builtinSpecs(interp, background)
 }
 
 func str() map[string]any { return map[string]any{"type": "string"} }
