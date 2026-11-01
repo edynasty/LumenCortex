@@ -26,15 +26,16 @@ var errJobQueueUnavailable = errors.New("job queue unavailable")
 
 // scheduledJobs is the job queue's scheduled-task surface (ADR-0019 §3, §4): a shell timer submits a
 // job with source "schedule", and the overlap check asks whether the job a firing started still runs.
-// The job manager binds it (Engine.bindScheduledJobs); while it is nil a shell task fails with
-// errJobQueueUnavailable instead of silently doing nothing.
+// OpenContext binds the Engine's own queue (Engine.SubmitScheduled, Engine.JobActive) before the
+// scheduler starts; while it is nil a shell task fails with errJobQueueUnavailable instead of silently
+// doing nothing.
 type scheduledJobs interface {
 	SubmitScheduled(ctx context.Context, scheduleID, sessionID, command string, timeout time.Duration) (jobID string, err error)
 	JobActive(ctx context.Context, jobID string) (bool, error)
 }
 
-// bindScheduledJobs connects the job queue to the scheduler. The host's job manager calls it once it
-// runs; the scheduler retries the shell tasks it could not fire.
+// bindScheduledJobs connects a job queue to the scheduler and wakes it, so the shell tasks it could not
+// fire are retried.
 func (e *Engine) bindScheduledJobs(jobs scheduledJobs) {
 	e.schedMu.Lock()
 	e.scheduledJobs = jobs
