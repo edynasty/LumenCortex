@@ -26,7 +26,8 @@ Durable scheduled tasks and delayed wake-ups. Out of scope (other slices): the j
 1. `DueSchedules(now)` reads the due rows.
 2. `ClaimSchedule(id, next_run_at_read, next)` is one `UPDATE … WHERE schedule_id = ? AND next_run_at IS ?
    AND enabled = 1`; a lost claim means another scheduler took the occurrence and nothing runs.
-3. Overlap: `Actions.Active(previous last_ref)` → `skipped_overlap`, no new firing.
+3. Overlap: `Actions.Active(previous last_ref)` → `skipped_overlap`, no new firing. An action that
+   reports `schedule.ErrBusy` (the runtime maps a held run lock to it) is the same case.
 4. `Actions.RunShell` / `RunAgent`; `ErrNoRunner` gives the claim back (`RevertScheduleClaim`) and defers
    the task locally for 30 s, so it stays due for a process that has a runner.
 5. `RecordScheduleResult` writes `last_status`/`last_ref`/`last_error`; the host is notified.
@@ -64,7 +65,8 @@ rows carry `scheduleId`, `kind` and `status` only (content stays in `scheduled_t
 - **Agent ref is the session id.** `Active` asks the supervisor whether that session runs, which is the
   question the overlap rule needs; a run started elsewhere is still a live run.
 - **Wake-up prompt prefix** `[runtime] Scheduled wake-up: ` marks tasks the tools created; the pending
-  limit (3) counts only those.
+  limit (3) counts only those. The tools are bound for thread runs only: a child run's lifecycle belongs
+  to its parent, and the binding uses the run's capped policy so a wake-up never widens it.
 
 ## Tests
 
@@ -84,7 +86,8 @@ policy across a close/reopen for once and interval and cron; overlap skip; two s
 (two store handles) and an 8-goroutine claim race at the SQL layer; action failure recorded; `ErrNoRunner`
 keeps the task due and the retry after a runner registers; `Close` stops the loop; `ObserveRef` and stale
 refs; vanished session and task deleted mid-firing; cron parsing table, timezone, DST gap and repeated
-hour, never-matching bound; Engine API CRUD, cron and wake-up scoping; wake-up tool bounds and permissions.
+hour, never-matching bound; a busy action recorded as an overlap; Engine API CRUD, cron and wake-up
+scoping; wake-up tool bounds and permissions.
 
 ## Open items for the integrator
 
