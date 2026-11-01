@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"time"
@@ -74,6 +75,25 @@ WHERE child_session_id = ?
 	relation.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
 	relation.Metadata = json.RawMessage(metadata)
 	return relation, nil
+}
+
+// IsDirectChild reports whether child has a session_relations edge from parent. It is one indexed
+// read; a child of another session, a sibling or the parent itself is not a direct child.
+func (s *Store) IsDirectChild(ctx context.Context, parent, child string) (bool, error) {
+	if err := checkID("session id", parent); err != nil {
+		return false, err
+	}
+	if err := checkID("child session id", child); err != nil {
+		return false, err
+	}
+	var one int
+	err := s.db.QueryRowContext(ctx, `
+SELECT 1 FROM session_relations WHERE parent_session_id = ? AND child_session_id = ?
+`, parent, child).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func (s *Store) ChildRelations(ctx context.Context, parentSessionID string, limit int) ([]Relation, error) {

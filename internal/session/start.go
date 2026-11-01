@@ -33,6 +33,10 @@ type RunStart struct {
 	// Results are runtime rows (origin task_result) appended before Input. The Task State version
 	// that advances their delivery cursor is TaskState, so rows and cursor commit together.
 	Results []protocol.Message
+	// Notices are runtime rows appended after Input (or the resume row): the run-start index of the
+	// session's working notebooks (ADR-0020). They carry no content the session does not already hold
+	// and are never the model's turn's first row.
+	Notices []protocol.Message
 }
 
 // BeginRun is the Start transaction. The caller holds the session's run lock and
@@ -107,6 +111,7 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 	} else if newestRole.Valid && newestRole.String != "user" {
 		rows = append(rows, protocol.Message{Role: "user", Origin: protocol.OriginResume, Content: protocol.ResumeContent})
 	}
+	rows = append(rows, start.Notices...)
 	seqs := make([]int64, 0, len(rows))
 	for _, row := range rows {
 		raw, err := json.Marshal(row)
