@@ -629,6 +629,13 @@ func TestNoRunnerKeepsTaskDue(t *testing.T) {
 	}
 	clock.Advance(time.Minute)
 	s.Wake()
+	// The unclaimed row already matches the given-back one, so first wait for the attempt; after it the
+	// row is either still claimed (fire_count 1) or given back.
+	waitFor(t, "the agent attempt", func() bool {
+		actions.mu.Lock()
+		defer actions.mu.Unlock()
+		return len(actions.agents) == 1
+	})
 	waitFor(t, "the claim to be given back", func() bool {
 		row := mustTask(t, store, task.ID)
 		return row.NextRunAt != nil && row.FireCount == 0 && row.LastStatus == ""
