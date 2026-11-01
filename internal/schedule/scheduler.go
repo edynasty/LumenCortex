@@ -3,6 +3,7 @@ package schedule
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -95,9 +96,9 @@ func New(opts Options) (*Scheduler, error) {
 
 func (s *Scheduler) now() time.Time { return s.clock().UTC() }
 
-// Start applies the missed policy to the tasks that came due while no scheduler ran, then starts the
-// scheduler goroutine. A second Start is a no-op. The goroutine lives until Close; ctx supplies values
-// only, not a lifetime.
+// Start applies the missed policy to the tasks that came due while no scheduler ran (more than
+// missedGrace ago), then starts the scheduler goroutine. A second Start is a no-op. The goroutine lives
+// until Close; ctx supplies values only, not a lifetime.
 func (s *Scheduler) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.closed {
@@ -165,11 +166,14 @@ func (s *Scheduler) Wake() {
 	}
 }
 
-// applyMissed handles the tasks already due when the scheduler starts: skip advances past them
-// without firing (a one-shot is disabled), run_once fires one occurrence and then advances.
+// applyMissed handles the tasks that came due while no scheduler ran: skip advances past them without
+// firing (a one-shot is disabled), run_once fires one occurrence and then advances. Only occurrences
+// more than missedGrace overdue count as missed. A more recent one may be queued behind a live
+// scheduler's firing (another Engine on this database), so it is left to the normal claim, which
+// fires it once, whichever scheduler wins.
 func (s *Scheduler) applyMissed(ctx context.Context) error {
 	now := s.now()
-	due, err := s.store.DueSchedules(ctx, now)
+	due, err := s.store.DueSchedules(ctx, now.Add(-missedGrace))
 	if err != nil {
 		return err
 	}
@@ -305,7 +309,7 @@ func (s *Scheduler) run(ctx context.Context, t Task, now time.Time, claimedFrom 
 			return
 		}
 		if active {
-			s.record(ctx, t, session.ScheduleStatusSkippedOverlap, t.LastRef, "", started)
+			s.overlap(ctx, t, previousFired, started)
 			return
 		}
 	}
@@ -319,7 +323,7 @@ func (s *Scheduler) run(ctx context.Context, t Task, now time.Time, claimedFrom 
 		ref, err = s.actions.RunShell(ctx, t)
 	}
 	if errors.Is(err, ErrBusy) {
-		s.record(ctx, t, session.ScheduleStatusSkippedOverlap, t.LastRef, "", started)
+		s.overlap(ctx, t, previousFired, started)
 		return
 	}
 	if errors.Is(err, ErrNoRunner) {
@@ -340,6 +344,22 @@ func (s *Scheduler) run(ctx context.Context, t Task, now time.Time, claimedFrom 
 		return
 	}
 	s.record(ctx, t, session.ScheduleStatusFired, ref, "", started)
+}
+
+// overlap handles a claimed occurrence whose previous firing or session is still running. A recurring
+// task records the skip and waits for its next slot. A task with no next slot (a one-shot, such as a
+// wake-up that comes due while the run that scheduled it still holds the session) would never fire if
+// it were skipped: its claim is given back with next_run_at busyRetry from now, so it stays pending,
+// in the database where every scheduler sees it, and fires once the session is free.
+func (s *Scheduler) overlap(ctx context.Context, t Task, previousFired *time.Time, started time.Time) {
+	if t.NextRunAt != nil {
+		s.record(ctx, t, session.ScheduleStatusSkippedOverlap, t.LastRef, "", started)
+		return
+	}
+	retry := s.now().Add(busyRetry)
+	if _, err := s.store.RevertScheduleClaim(ctx, t.ID, nil, &retry, previousFired); err != nil {
+		s.log.Warn("schedule: deferring a busy one-shot task failed", "schedule_id", t.ID, "error", err)
+	}
 }
 
 func payloadProblem(t Task) error {
@@ -481,7 +501,9 @@ func (s *Scheduler) Create(ctx context.Context, spec Spec) (Task, error) {
 		t.MissedPolicy = MissedSkip
 	}
 	if t.Kind == KindAgent && t.Agent != nil && t.Agent.Policy == "" {
-		t.Agent = &AgentPayload{Prompt: t.Agent.Prompt, Policy: PolicyReadOnly}
+		agent := *t.Agent
+		agent.Policy = PolicyReadOnly
+		t.Agent = &agent
 	}
 	if t.Trigger.Kind == TriggerOnce && !t.Trigger.At.IsZero() && t.Trigger.At.Before(now.Add(-oncePastTolerance)) {
 		return Task{}, invalidf("a once task's time must be in the future")
@@ -517,14 +539,38 @@ func firstRunAt(t Task, now time.Time) (*time.Time, error) {
 }
 
 // Update applies a patch and stores the result. Enabling a disabled task, or changing its trigger,
-// recomputes next_run_at from the current time; disabling clears it.
+// recomputes next_run_at from the current time; disabling clears it. The write is a compare-and-set on
+// the next_run_at the patch was applied to: when a firing (of this scheduler or another process's)
+// moved the row in between, the patch is applied again to the row as it now is, so an update never
+// hands a claimed occurrence back to fire a second time.
 func (s *Scheduler) Update(ctx context.Context, id string, patch Patch) (Task, error) {
-	row, err := s.store.GetSchedule(ctx, id)
-	if err != nil {
-		return Task{}, err
+	for range maxUpdateAttempts {
+		row, err := s.store.GetSchedule(ctx, id)
+		if err != nil {
+			return Task{}, err
+		}
+		t, err := applyPatch(fromRow(row), patch, s.now(), s.minInterval)
+		if err != nil {
+			return Task{}, err
+		}
+		next, err := toRow(t)
+		if err != nil {
+			return Task{}, err
+		}
+		updated, err := s.store.UpdateSchedule(ctx, next, row.NextRunAt)
+		if err != nil {
+			return Task{}, err
+		}
+		if updated {
+			s.Wake()
+			return t, nil
+		}
 	}
-	t := fromRow(row)
-	now := s.now()
+	return Task{}, fmt.Errorf("schedule %s kept changing while it was updated; try again", id)
+}
+
+// applyPatch is t with patch applied at now, validated.
+func applyPatch(t Task, patch Patch, now time.Time, minInterval time.Duration) (Task, error) {
 	recompute := false
 	if patch.Name != nil {
 		t.Name = *patch.Name
@@ -549,11 +595,12 @@ func (s *Scheduler) Update(ctx context.Context, id string, patch Patch) (Task, e
 			return Task{}, invalidf("an %s task carries no shell payload", KindAgent)
 		}
 		if patch.Agent != nil {
-			policy := patch.Agent.Policy
-			if policy == "" {
-				policy = PolicyReadOnly
+			// The patch's payload replaces the task's whole, its tool filters included.
+			agent := *patch.Agent
+			if agent.Policy == "" {
+				agent.Policy = PolicyReadOnly
 			}
-			t.Agent = &AgentPayload{Prompt: patch.Agent.Prompt, Policy: policy}
+			t.Agent = &agent
 		}
 	}
 	if patch.Enabled != nil && *patch.Enabled != t.Enabled {
@@ -563,23 +610,16 @@ func (s *Scheduler) Update(ctx context.Context, id string, patch Patch) (Task, e
 	if recompute {
 		t.NextRunAt = nil
 		if t.Enabled {
+			var err error
 			if t.NextRunAt, err = firstRunAt(t, now); err != nil {
 				return Task{}, err
 			}
 		}
 	}
 	t.UpdatedAt = now
-	if err := validate(t, s.minInterval); err != nil {
+	if err := validate(t, minInterval); err != nil {
 		return Task{}, err
 	}
-	row, err = toRow(t)
-	if err != nil {
-		return Task{}, err
-	}
-	if err := s.store.UpdateSchedule(ctx, row); err != nil {
-		return Task{}, err
-	}
-	s.Wake()
 	return t, nil
 }
 

@@ -149,6 +149,36 @@ func TestCronSkipsNonexistentLocalTime(t *testing.T) {
 	}
 }
 
+// A match inside the spring-forward gap skips only the times that do not exist: the next match that
+// exists the same night fires, not the next day's first (RT-state-7). Lord Howe moves its clock by 30
+// minutes, so the next valid time is not always the next hour.
+func TestCronSpringForwardResumesAtTheNextValidTime(t *testing.T) {
+	ny := mustLoc(t, "America/New_York")
+	lordHowe := mustLoc(t, "Australia/Lord_Howe")
+	for _, tc := range []struct {
+		expr string
+		from time.Time
+		want time.Time
+	}{
+		// 2026-03-08 in New York: 02:00 EST becomes 03:00 EDT.
+		{"0 * * * *", time.Date(2026, 3, 8, 1, 50, 0, 0, ny), time.Date(2026, 3, 8, 3, 0, 0, 0, ny)},
+		{"*/15 * * * *", time.Date(2026, 3, 8, 1, 50, 0, 0, ny), time.Date(2026, 3, 8, 3, 0, 0, 0, ny)},
+		{"0 2,9 * * *", time.Date(2026, 3, 8, 1, 50, 0, 0, ny), time.Date(2026, 3, 8, 9, 0, 0, 0, ny)},
+		{"30 2 * * *", time.Date(2026, 3, 8, 1, 50, 0, 0, ny), time.Date(2026, 3, 9, 2, 30, 0, 0, ny)},
+		// 2026-10-04 on Lord Howe Island: 02:00 becomes 02:30.
+		{"*/15 * * * *", time.Date(2026, 10, 4, 1, 50, 0, 0, lordHowe), time.Date(2026, 10, 4, 2, 30, 0, 0, lordHowe)},
+	} {
+		got, err := mustParseCron(t, tc.expr).next(tc.from, tc.from.Location())
+		if err != nil {
+			t.Fatalf("%q: %v", tc.expr, err)
+		}
+		if !got.Equal(tc.want) {
+			t.Errorf("%q after %s = %s, want %s", tc.expr, tc.from.Format(time.RFC3339),
+				got.In(tc.from.Location()).Format(time.RFC3339), tc.want.Format(time.RFC3339))
+		}
+	}
+}
+
 // A local time that occurs twice (the fall-back hour) fires once: the second 01:30 is not a new slot.
 func TestCronFiresOnceInRepeatedHour(t *testing.T) {
 	ny := mustLoc(t, "America/New_York")

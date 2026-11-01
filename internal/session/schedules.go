@@ -321,31 +321,42 @@ func (s *Store) ListSchedules(ctx context.Context) ([]ScheduledTask, error) {
 }
 
 // UpdateSchedule writes the editable columns of a task: its name, kind and session, payload, trigger,
-// missed policy, enablement and next_run_at. The last-firing columns and fire_count are written only by
-// the firing paths below, so an update cannot erase what a concurrent firing recorded.
-func (s *Store) UpdateSchedule(ctx context.Context, t ScheduledTask) error {
+// missed policy, enablement and next_run_at. It is a compare-and-set on from, the next_run_at the
+// caller read: updated is false when a firing, a missed occurrence or another update moved the row
+// since, and the caller re-reads it, so an update never writes back a slot a firing already claimed.
+// The last-firing columns and fire_count are written only by the firing paths below, so an update
+// cannot erase what a concurrent firing recorded.
+func (s *Store) UpdateSchedule(ctx context.Context, t ScheduledTask, from *time.Time) (updated bool, err error) {
 	if err := t.validate(); err != nil {
-		return err
+		return false, err
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE scheduled_tasks SET
 		name = ?, kind = ?, session_id = NULLIF(?, ''), payload_json = ?, trigger_kind = ?, run_at = ?,
 		interval_ms = ?, cron_expr = NULLIF(?, ''), timezone = ?, missed_policy = ?, enabled = ?,
 		next_run_at = ?, updated_at = ?
-		WHERE schedule_id = ?`,
+		WHERE schedule_id = ? AND next_run_at IS ?`,
 		t.Name, t.Kind, t.SessionID, string(t.Payload), t.TriggerKind, scheduleTimePtr(t.RunAt),
 		scheduleIntervalMS(t.Interval), t.Cron, scheduleTimezone(t.Timezone), t.MissedPolicy,
-		boolInt(t.Enabled), scheduleTimePtr(t.NextRunAt), scheduleTime(time.Now().UTC()), t.ID)
+		boolInt(t.Enabled), scheduleTimePtr(t.NextRunAt), scheduleTime(time.Now().UTC()), t.ID,
+		scheduleTimePtr(from))
 	if err != nil {
-		return scheduleWriteError(err, t)
+		return false, scheduleWriteError(err, t)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return false, err
 	}
-	if n == 0 {
-		return ErrNotFound
+	if n == 1 {
+		return true, nil
 	}
-	return nil
+	var exists int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM scheduled_tasks WHERE schedule_id = ?`, t.ID).Scan(&exists); err != nil {
+		return false, err
+	}
+	if exists == 0 {
+		return false, ErrNotFound
+	}
+	return false, nil
 }
 
 // DeleteSchedule removes one task; ErrNotFound when it was already gone.
@@ -416,9 +427,11 @@ func (s *Store) ClaimSchedule(ctx context.Context, id string, from time.Time, ne
 	return n == 1, err
 }
 
-// RevertScheduleClaim gives back a claim the task could not use (no runner for an agent task in this
-// process): next_run_at and last_fired_at return to what they were and fire_count loses the claim, so
-// the task stays due. claimed is the next_run_at the claim wrote. It is false when the row moved on.
+// RevertScheduleClaim gives back a claim the task could not use: next_run_at becomes restoreNext (the
+// slot it was claimed from when no agent runner is in this process, so the task stays due; a later
+// retry time for a one-shot whose session is busy), last_fired_at returns to restoreFiredAt and
+// fire_count loses the claim. claimed is the next_run_at the claim wrote. It is false when the row
+// moved on.
 func (s *Store) RevertScheduleClaim(ctx context.Context, id string, claimed, restoreNext, restoreFiredAt *time.Time) (bool, error) {
 	if err := checkID("schedule id", id); err != nil {
 		return false, err

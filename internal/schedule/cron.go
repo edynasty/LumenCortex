@@ -189,9 +189,10 @@ func (c cronExpr) next(after time.Time, loc *time.Location) (time.Time, error) {
 		inst := time.Date(day.Year(), day.Month(), day.Day(), h, m, 0, 0, loc)
 		if iy, imo, id := inst.Date(); iy != day.Year() || imo != day.Month() || id != day.Day() ||
 			inst.Hour() != h || inst.Minute() != m {
-			// The local time does not exist (the hour the clock skips): the whole day after it is
-			// still to come, so continue with the next day.
-			day, h, m = day.AddDate(0, 0, 1), 0, 0
+			// The local time does not exist (the minutes the clock skips): only it is skipped, and the
+			// search goes on with the next wall-clock minute, so the first match after the gap fires
+			// the same night. A gap costs at most one candidate per skipped minute.
+			nextMinute()
 			continue
 		}
 		if !inst.After(start) {

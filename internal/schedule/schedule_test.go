@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -344,6 +345,54 @@ func TestDisableStopsAndEnableRecomputes(t *testing.T) {
 	}
 }
 
+// raceStore runs hook once, right after the first GetSchedule returned: a firing that lands between an
+// Update's read and its write.
+type raceStore struct {
+	*session.Store
+	once sync.Once
+	hook func()
+}
+
+func (r *raceStore) GetSchedule(ctx context.Context, id string) (session.ScheduledTask, error) {
+	row, err := r.Store.GetSchedule(ctx, id)
+	r.once.Do(r.hook)
+	return row, err
+}
+
+// An update racing a firing never writes back the next_run_at it read: the claimed occurrence stays
+// claimed, so it does not fire a second time, and the update still lands (RT-state-5).
+func TestUpdateRacingAFiringDoesNotRefire(t *testing.T) {
+	ctx := context.Background()
+	clock := newFakeClock(testBase)
+	store := openScheduleStore(t, filepath.Join(t.TempDir(), ".lumencortex"))
+	defer store.Close()
+	actions := newFakeActions()
+	firing := newTestScheduler(t, store, actions, clock, nil)
+	task, err := firing.Create(ctx, shellSpec("hourly", "make", Trigger{Kind: TriggerInterval, Every: time.Hour}))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	clock.Advance(time.Hour)
+	editor := newTestScheduler(t, &raceStore{Store: store, hook: func() { firing.tick(ctx) }}, newFakeActions(), clock, nil)
+	name := "renamed"
+	updated, err := editor.Update(ctx, task.ID, Patch{Name: &name})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if updated.Name != name {
+		t.Fatalf("update returned name %q", updated.Name)
+	}
+	row := mustTask(t, store, task.ID)
+	if row.Name != name || row.FireCount != 1 || row.NextRunAt == nil || !row.NextRunAt.Equal(testBase.Add(2*time.Hour)) {
+		t.Fatalf("row after the racing update: name=%q count=%d next=%v, want %q, 1, %v",
+			row.Name, row.FireCount, row.NextRunAt, name, testBase.Add(2*time.Hour))
+	}
+	firing.tick(ctx)
+	if shells, _ := actions.count(); shells != 1 {
+		t.Fatalf("one occurrence ran %d times, want 1", shells)
+	}
+}
+
 // Deleting a task stops it: nothing fires afterwards and the row is gone.
 func TestDeleteStopsFiring(t *testing.T) {
 	ctx := context.Background()
@@ -573,6 +622,82 @@ func TestTwoSchedulersFireOneOccurrence(t *testing.T) {
 	}
 }
 
+// slowActions holds the firing of the command "slow" until release is closed, as a slow agent start
+// holds the scheduler goroutine.
+type slowActions struct {
+	*fakeActions
+	started chan struct{}
+	release chan struct{}
+}
+
+func (a *slowActions) RunShell(ctx context.Context, t Task) (string, error) {
+	if t.Shell.Command == "slow" {
+		close(a.started)
+		<-a.release
+	}
+	return a.fakeActions.RunShell(ctx, t)
+}
+
+func (a *fakeActions) ran(command string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := 0
+	for _, c := range a.shells {
+		if c == command {
+			n++
+		}
+	}
+	return n
+}
+
+// A second scheduler starting on the database while the first is busy firing does not treat the
+// occurrences queued behind that firing as missed: they came due moments ago, a live scheduler is
+// about to run them, and a one-shot (a wake-up) marked missed would be disabled for good. Each fires
+// exactly once (RT-state-6).
+func TestSecondStartLeavesRecentOccurrencesToTheLiveScheduler(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), ".lumencortex")
+	clock := newFakeClock(testBase)
+	storeA := openScheduleStore(t, dir)
+	defer storeA.Close()
+	actionsA := &slowActions{fakeActions: newFakeActions(), started: make(chan struct{}), release: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(actionsA.release) })
+	defer release() // a failed check must not leave a's firing blocked
+	a := newTestScheduler(t, storeA, actionsA, clock, actionsA.fakeActions.notify)
+	if _, err := a.Create(ctx, shellSpec("x", "slow", Trigger{Kind: TriggerOnce, At: testBase.Add(time.Minute)})); err != nil {
+		t.Fatal(err)
+	}
+	y, err := a.Create(ctx, shellSpec("y", "quick", Trigger{Kind: TriggerOnce, At: testBase.Add(time.Minute + time.Second)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(2 * time.Minute)
+	a.Wake()
+	<-actionsA.started // a is firing x; y is due and queued behind it
+
+	storeB := openScheduleStore(t, dir)
+	defer storeB.Close()
+	actionsB := newFakeActions()
+	b := newTestScheduler(t, storeB, actionsB, clock, nil)
+	if err := b.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if row := mustTask(t, storeB, y.ID); row.LastStatus == session.ScheduleStatusMissed || !row.Enabled {
+		t.Fatalf("the second Start marked a live occurrence: status=%q enabled=%v", row.LastStatus, row.Enabled)
+	}
+	release()
+	waitFor(t, "y to fire", func() bool { return mustTask(t, storeA, y.ID).LastStatus == session.ScheduleStatusFired })
+	if n := actionsA.ran("quick") + actionsB.ran("quick"); n != 1 {
+		t.Fatalf("y ran %d times, want 1", n)
+	}
+	if row := mustTask(t, storeA, y.ID); row.FireCount != 1 {
+		t.Fatalf("y fire count = %d, want 1", row.FireCount)
+	}
+}
+
 // A failing action is recorded with its error and does not stop the schedule.
 func TestActionFailureIsRecorded(t *testing.T) {
 	ctx := context.Background()
@@ -655,6 +780,75 @@ func TestNoRunnerKeepsTaskDue(t *testing.T) {
 	row = mustTask(t, store, task.ID)
 	if row.FireCount != 1 || row.LastStatus != session.ScheduleStatusFired || row.LastRef != "ref-1" {
 		t.Fatalf("row after the retry: count=%d status=%q ref=%q", row.FireCount, row.LastStatus, row.LastRef)
+	}
+}
+
+// A one-shot task whose session is busy when it comes due (ErrBusy: the run that scheduled a wake-up
+// still holds the session) is not consumed: it stays pending, is tried again busyRetry later and fires
+// once the session is free. A recurring task records the skip and waits for its next slot (RT-state-2).
+func TestBusyOnceTaskFiresWhenTheSessionIsFree(t *testing.T) {
+	ctx := context.Background()
+	clock := newFakeClock(testBase)
+	store := openScheduleStore(t, filepath.Join(t.TempDir(), ".lumencortex"))
+	defer store.Close()
+	if err := store.Create(ctx, session.Session{ID: "session_agent", Goal: "wait for the build"}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	actions := newFakeActions()
+	actions.runErr = ErrBusy
+	s := newTestScheduler(t, store, actions, clock, nil)
+	agentSpec := func(name string, trigger Trigger) Spec {
+		return Spec{Name: name, Kind: KindAgent, SessionID: "session_agent",
+			Agent: &AgentPayload{Prompt: "resume", Policy: PolicyReadOnly}, Trigger: trigger}
+	}
+	once, err := s.Create(ctx, agentSpec("wake-up", Trigger{Kind: TriggerOnce, At: testBase.Add(time.Minute)}))
+	if err != nil {
+		t.Fatalf("create once: %v", err)
+	}
+	every, err := s.Create(ctx, agentSpec("every minute", Trigger{Kind: TriggerInterval, Every: time.Minute}))
+	if err != nil {
+		t.Fatalf("create interval: %v", err)
+	}
+	pendingAt := func(want time.Time) {
+		t.Helper()
+		row := mustTask(t, store, once.ID)
+		if !row.Enabled || row.NextRunAt == nil || !row.NextRunAt.Equal(want) {
+			t.Fatalf("busy one-shot: enabled=%v next=%v status=%q, want pending at %v", row.Enabled, row.NextRunAt, row.LastStatus, want)
+		}
+		if row.FireCount != 0 || row.LastFiredAt != nil || row.LastStatus != "" {
+			t.Fatalf("busy one-shot recorded a firing: count=%d fired=%v status=%q", row.FireCount, row.LastFiredAt, row.LastStatus)
+		}
+	}
+
+	clock.Advance(time.Minute)
+	s.tick(ctx)
+	pendingAt(clock.Now().Add(busyRetry))
+	rec := mustTask(t, store, every.ID)
+	if rec.LastStatus != session.ScheduleStatusSkippedOverlap || rec.NextRunAt == nil || !rec.NextRunAt.Equal(testBase.Add(2*time.Minute)) {
+		t.Fatalf("busy interval task: status=%q next=%v, want %q and its next slot", rec.LastStatus, rec.NextRunAt, session.ScheduleStatusSkippedOverlap)
+	}
+
+	// Still busy at the retry: deferred again, not before the retry comes due.
+	s.tick(ctx)
+	pendingAt(clock.Now().Add(busyRetry))
+	clock.Advance(busyRetry)
+	s.tick(ctx)
+	pendingAt(clock.Now().Add(busyRetry))
+
+	// The session is free: the wake-up fires once.
+	actions.mu.Lock()
+	actions.runErr = nil
+	actions.mu.Unlock()
+	clock.Advance(busyRetry)
+	s.tick(ctx)
+	row := mustTask(t, store, once.ID)
+	if row.FireCount != 1 || row.LastStatus != session.ScheduleStatusFired || row.LastRef != "ref-1" || row.NextRunAt != nil {
+		t.Fatalf("one-shot after the session freed: count=%d status=%q ref=%q next=%v", row.FireCount, row.LastStatus, row.LastRef, row.NextRunAt)
+	}
+	clock.Advance(busyRetry)
+	s.tick(ctx)
+	if row := mustTask(t, store, once.ID); row.FireCount != 1 {
+		t.Fatalf("one-shot fired %d times, want 1", row.FireCount)
 	}
 }
 
@@ -796,6 +990,40 @@ func TestCreateDefaults(t *testing.T) {
 	row := mustTask(t, store, agent.ID)
 	if row.Kind != session.ScheduleKindAgent || row.SessionID != "session_agent" {
 		t.Fatalf("row: kind=%q session=%q", row.Kind, row.SessionID)
+	}
+}
+
+// An agent task's tool filters survive the payload rebuilds: the default policy on create and a patch
+// that carries a new prompt and policy with the filters (capability U1).
+func TestAgentPayloadKeepsToolFilters(t *testing.T) {
+	ctx := context.Background()
+	clock := newFakeClock(testBase)
+	store := openScheduleStore(t, filepath.Join(t.TempDir(), ".lumencortex"))
+	defer store.Close()
+	if err := store.Create(ctx, session.Session{ID: "session_agent", Goal: "check"}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	s := newTestScheduler(t, store, newFakeActions(), clock, nil)
+	allow, deny := []string{"read_file", "wakeup_schedule"}, []string{"bash"}
+	task, err := s.Create(ctx, Spec{
+		Name: "wake-up", Kind: KindAgent, SessionID: "session_agent",
+		Agent:   &AgentPayload{Prompt: "check", ToolAllowlist: allow, ToolDenylist: deny},
+		Trigger: Trigger{Kind: TriggerOnce, At: testBase.Add(time.Hour)},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	stored := fromRow(mustTask(t, store, task.ID)).Agent
+	if stored == nil || stored.Policy != PolicyReadOnly || !slices.Equal(stored.ToolAllowlist, allow) || !slices.Equal(stored.ToolDenylist, deny) {
+		t.Fatalf("stored payload after create = %+v", stored)
+	}
+	if _, err := s.Update(ctx, task.ID, Patch{Agent: &AgentPayload{Prompt: "check again", ToolAllowlist: allow, ToolDenylist: deny}}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	stored = fromRow(mustTask(t, store, task.ID)).Agent
+	if stored == nil || stored.Prompt != "check again" || stored.Policy != PolicyReadOnly ||
+		!slices.Equal(stored.ToolAllowlist, allow) || !slices.Equal(stored.ToolDenylist, deny) {
+		t.Fatalf("stored payload after update = %+v", stored)
 	}
 }
 

@@ -283,11 +283,12 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		agentInstructions: plan.instructions,
 		skills:            e.skillRegistry,
 	})
-	// A wake-up starts a later run on this session. A child run (a subagent or an execution task) has a
-	// lifecycle of its own that its parent owns, so it gets no wake-up tools: the thread does.
+	// A wake-up starts a later run on this session with this run's policy and host tool filters. A
+	// child run (a subagent or an execution task) has a lifecycle of its own that its parent owns, so it
+	// gets no wake-up tools: the thread does.
 	var wakeupBinding toolset.WakeupController
 	if opts.parentSessionID == "" {
-		wakeupBinding = e.wakeupsFor(sessionID, policy)
+		wakeupBinding = e.wakeupsFor(sessionID, policy, opts.ToolAllowlist, opts.ToolDenylist)
 	}
 	// A server whose tool list was never discovered cannot be offered, so a run that may use MCP
 	// discovers the missing catalogs here, once per server, in parallel and under a bounded wait. A

@@ -23,7 +23,8 @@ var ErrInvalid = errors.New("invalid schedule")
 
 // ErrBusy reports that the previous firing of the task is still running, discovered when the action
 // tried to start the next one (a run started by another process, a job the queue has not finished
-// releasing). The occurrence is recorded as skipped_overlap, never as a failure.
+// releasing). The occurrence of a recurring task is recorded as skipped_overlap, never as a failure; a
+// one-shot task stays pending and is tried again busyRetry later.
 var ErrBusy = errors.New("the previous firing is still running")
 
 // ErrNoRunner reports an agent task in a process with no RunSupervisor: the task stays due and is
@@ -89,6 +90,19 @@ const (
 	// noRunnerRetry is how long a task whose agent runner is absent waits before this process tries
 	// it again. Without it the task would stay due and spin the loop.
 	noRunnerRetry = 30 * time.Second
+	// busyRetry is how long a one-shot task whose previous firing or session is still running waits
+	// before it is tried again (a wake-up that comes due while the run that scheduled it still holds
+	// the session). A refused start costs one lock attempt, so the wait is short: the task fires a
+	// moment after the session is free.
+	busyRetry = 2 * time.Second
+	// maxUpdateAttempts bounds how often Update re-reads a row that a firing moved between its read and
+	// its compare-and-set write. A firing moves a row once per occurrence, so a second loss is rare.
+	maxUpdateAttempts = 3
+	// missedGrace is how long overdue an occurrence must be before a starting scheduler applies the
+	// missed policy to it. A live scheduler re-reads its due tasks at least every maxSleep and fires
+	// them one after another, so an occurrence a few seconds or a minute overdue may be about to fire
+	// in another Engine on the same database; past two such sleeps it counts as missed.
+	missedGrace = 2 * maxSleep
 )
 
 // ShellPayload is the command a shell task submits.
@@ -97,10 +111,16 @@ type ShellPayload struct {
 	TimeoutSeconds int    `json:"timeoutSeconds,omitempty"`
 }
 
-// AgentPayload is the prompt an agent task starts and the policy it runs with.
+// AgentPayload is the prompt an agent task starts and the policy it runs with. ToolAllowlist and
+// ToolDenylist are the host tool filters the run gets (canonical tool names, nil for none): a wake-up
+// carries those of the run that scheduled it, so the woken run is offered no tool that run was not. An
+// empty allowlist is stored as none; a run with an empty allowlist is offered no wakeup_schedule, so
+// no wake-up carries one.
 type AgentPayload struct {
-	Prompt string `json:"prompt"`
-	Policy string `json:"policy,omitempty"`
+	Prompt        string   `json:"prompt"`
+	Policy        string   `json:"policy,omitempty"`
+	ToolAllowlist []string `json:"toolAllowlist,omitempty"`
+	ToolDenylist  []string `json:"toolDenylist,omitempty"`
 }
 
 // Trigger is when a task fires: once at At, every Every from its scheduled slot, or at each time
@@ -177,7 +197,7 @@ type Store interface {
 	CreateSchedule(ctx context.Context, t session.ScheduledTask) error
 	GetSchedule(ctx context.Context, id string) (session.ScheduledTask, error)
 	ListSchedules(ctx context.Context) ([]session.ScheduledTask, error)
-	UpdateSchedule(ctx context.Context, t session.ScheduledTask) error
+	UpdateSchedule(ctx context.Context, t session.ScheduledTask, from *time.Time) (bool, error)
 	DeleteSchedule(ctx context.Context, id string) error
 	DueSchedules(ctx context.Context, at time.Time) ([]session.ScheduledTask, error)
 	EarliestScheduleDue(ctx context.Context) (*time.Time, error)

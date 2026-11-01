@@ -164,21 +164,30 @@ a prompt and an explicit policy, default read-only, via the host's `RunSuperviso
 time), `interval` (every N ≥ 60 s) or `cron` (a standard five-field expression, `*`, lists, ranges and
 steps, read in an explicit IANA `timezone` — `UTC` unless the task names one; a local time the
 spring-forward gap skips does not fire, and a wall time the fall-back hour repeats fires once);
-`missed_policy` `skip` (default) or `run_once`. The expression and zone are columns of the row
+`missed_policy` `skip` (default) or `run_once`, applied when a scheduler starts to the occurrences more
+than two minutes overdue; a more recent one may be about to fire in another Engine on the same database,
+so it goes through the normal claim. The expression and zone are columns of the row
 (`cron_expr`, `timezone`), so a task means the same thing after a restart and in another process.
 
 - One scheduler goroutine per Engine with one `time.Timer` set to the earliest due task; no per-task timers.
 - A firing is claimed by `UPDATE … SET next_run_at = <next> WHERE schedule_id = ? AND next_run_at = <read>`:
   two Engines on one database never fire the same occurrence twice.
 - Overlap: when the previous firing's job or run is still active, the occurrence is skipped
-  (`skipped_overlap`), never run concurrently. An agent task whose session another process is running
-  (the run lock is held) is the same case: the start is refused and the occurrence is recorded as a skip.
+  (`skipped_overlap`), never run concurrently. An agent task whose session is running (the run lock is
+  held, by this process or another) is the same case: the start is refused and the occurrence is recorded
+  as a skip. A one-shot task has no later occurrence to wait for, so it is not skipped: it stays pending
+  and is tried again a few seconds later, and a wake-up that comes due during the run that scheduled it
+  fires once that run ended. A previous firing whose job no longer exists (job retention deleted it) is
+  not active.
 - An agent task fires only in a process with a `RunSupervisor`; otherwise it stays due.
 - A task whose stored trigger yields no further slot (a corrupted expression, an unknown zone) is
   disabled with `last_status = failed` and the reason in `last_error`, so it cannot fail on every tick.
 - An agent may schedule its own continuation: the tools `wakeup_schedule {delay_sec, message}` and
   `wakeup_cancel {wakeup_id}` create and remove a one-shot `agent` task on the calling session with the
-  calling run's policy as its ceiling, at most three pending per session. Both are `write` tools (they
+  calling run's policy as its ceiling and the run's host tool filters (allowlist and denylist, by their
+  current names, in the task's payload; a host update keeps them), so the woken run is offered no tool
+  the calling run was not; at most three pending per session. `wakeup_cancel` reaches only wake-ups,
+  never a host's agent task on the session. Both are `write` tools (they
   schedule future work) and exist only in a thread's run whose runtime bound a controller: a child run's
   lifecycle belongs to its parent, so a subagent or an execution task gets neither tool.
 - Events: `schedule.changed`, `schedule.fired`.

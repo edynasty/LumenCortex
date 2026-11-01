@@ -11,6 +11,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/schedule"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/toolset"
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 // Scheduled tasks (ADR-0019 §4). The scheduler lives in internal/schedule; this file binds it to the
@@ -95,8 +96,9 @@ func (a scheduleActions) RunShell(ctx context.Context, t schedule.Task) (string,
 		time.Duration(t.Shell.TimeoutSeconds)*time.Second)
 }
 
-// RunAgent starts a run on the task's session with its prompt and policy. Without a supervisor the
-// task stays due (schedule.ErrNoRunner).
+// RunAgent starts a run on the task's session with its prompt, its policy and the tool filters it
+// carries (a wake-up's are its scheduling run's). Without a supervisor the task stays due
+// (schedule.ErrNoRunner).
 func (a scheduleActions) RunAgent(ctx context.Context, t schedule.Task) (string, error) {
 	runner := a.engine.agentRunnerRef()
 	if runner == nil {
@@ -105,10 +107,12 @@ func (a scheduleActions) RunAgent(ctx context.Context, t schedule.Task) (string,
 	if t.Agent == nil {
 		return "", errors.New("agent schedule has no prompt")
 	}
-	if _, err := runner.Start(ctx, t.SessionID, AgentOptions{Input: t.Agent.Prompt, Policy: t.Agent.Policy}); err != nil {
+	if _, err := runner.Start(ctx, t.SessionID, AgentOptions{Input: t.Agent.Prompt, Policy: t.Agent.Policy,
+		ToolAllowlist: t.Agent.ToolAllowlist, ToolDenylist: t.Agent.ToolDenylist}); err != nil {
 		if errors.Is(err, ErrRunHeld) {
-			// The session is running elsewhere (another Engine, another process): the previous firing
-			// is still going, so this occurrence is an overlap, not a failure.
+			// The session is running (the run that scheduled a wake-up, another Engine, another
+			// process): an overlap, not a failure. The scheduler skips a recurring occurrence and
+			// retries a one-shot.
 			return "", schedule.ErrBusy
 		}
 		return "", err
@@ -380,6 +384,11 @@ func (e *Engine) UpdateSchedule(ctx context.Context, id string, patch SchedulePa
 				Prompt: patch.stringValue(patch.Prompt, agentPrompt(current)),
 				Policy: patch.stringValue(patch.Policy, agentPolicy(current)),
 			}
+			if current.Agent != nil {
+				// The tool filters are not host-editable: a wake-up keeps those of the run that
+				// scheduled it, so a new prompt or policy never widens its tool set.
+				update.Agent.ToolAllowlist, update.Agent.ToolDenylist = current.Agent.ToolAllowlist, current.Agent.ToolDenylist
+			}
 		}
 	}
 	t, err := e.schedules.Update(ctx, id, update)
@@ -449,11 +458,14 @@ func agentPolicy(t schedule.Task) string {
 var _ schedule.Actions = scheduleActions{}
 
 // wakeups are the delayed wake-ups one run may schedule (ADR-0019 §4): a one-shot agent task on the
-// run's own session, with the run's policy as its ceiling.
+// run's own session, with the run's policy as its ceiling and the run's host tool filters, so the woken
+// run is offered no tool the scheduling run was not.
 type wakeups struct {
 	engine    *Engine
 	sessionID string
 	policy    string
+	allowlist []string
+	denylist  []string
 }
 
 // maxPendingWakeups bounds the wake-ups of one session: each is a future run, and an agent that could
@@ -464,16 +476,18 @@ const maxPendingWakeups = 3
 // of the runtime rather than a user's.
 const wakeupPromptPrefix = "[runtime] Scheduled wake-up: "
 
-// wakeupsFor binds the wake-up tools to one run. A run without a session (never the case for a
-// prepared run) gets none.
-func (e *Engine) wakeupsFor(sessionID, policy string) toolset.WakeupController {
+// wakeupsFor binds the wake-up tools to one run: its session, its policy and its host tool filters
+// (stored by their current names). A run without a session (never the case for a prepared run) gets
+// none.
+func (e *Engine) wakeupsFor(sessionID, policy string, allowlist, denylist []string) toolset.WakeupController {
 	if sessionID == "" || e.schedules == nil {
 		return nil
 	}
 	if policy == "" {
 		policy = schedule.PolicyReadOnly
 	}
-	return wakeups{engine: e, sessionID: sessionID, policy: policy}
+	return wakeups{engine: e, sessionID: sessionID, policy: policy,
+		allowlist: protocol.CanonicalToolNames(allowlist), denylist: protocol.CanonicalToolNames(denylist)}
 }
 
 // ScheduleWakeup creates the wake-up. A session with the maximum pending is refused: the agent must
@@ -495,8 +509,9 @@ func (w wakeups) ScheduleWakeup(ctx context.Context, delaySec int, message strin
 		Name:      wakeupName(message),
 		Kind:      schedule.KindAgent,
 		SessionID: w.sessionID,
-		Agent:     &schedule.AgentPayload{Prompt: wakeupPromptPrefix + message, Policy: w.policy},
-		Trigger:   schedule.Trigger{Kind: schedule.TriggerOnce, At: at},
+		Agent: &schedule.AgentPayload{Prompt: wakeupPromptPrefix + message, Policy: w.policy,
+			ToolAllowlist: w.allowlist, ToolDenylist: w.denylist},
+		Trigger: schedule.Trigger{Kind: schedule.TriggerOnce, At: at},
 	})
 	if err != nil {
 		return toolset.Wakeup{}, err
@@ -505,14 +520,15 @@ func (w wakeups) ScheduleWakeup(ctx context.Context, delaySec int, message strin
 	return toolset.Wakeup{ID: task.ID, FireAt: at.Format(time.RFC3339)}, nil
 }
 
-// CancelWakeup removes a pending wake-up of this session. A task of another session is reported as not
-// found, not as a refusal: a run cannot probe other sessions' timers.
+// CancelWakeup removes a pending wake-up of this session. A task of another session, or one that is not
+// a wake-up (a host's agent schedule on this session), is reported as not found, not as a refusal: a
+// run cannot probe or remove timers the wake-up tools did not create.
 func (w wakeups) CancelWakeup(ctx context.Context, id string) error {
 	task, err := w.engine.schedules.Get(ctx, id)
 	if err != nil {
 		return err
 	}
-	if task.Kind != schedule.KindAgent || task.SessionID != w.sessionID {
+	if !w.owns(task) {
 		return session.ErrNotFound
 	}
 	if err := w.engine.schedules.Delete(ctx, id); err != nil {
@@ -529,12 +545,17 @@ func (w wakeups) pending(ctx context.Context) ([]schedule.Task, error) {
 	}
 	out := make([]schedule.Task, 0, len(tasks))
 	for _, t := range tasks {
-		if t.Kind == schedule.KindAgent && t.SessionID == w.sessionID && t.Enabled && t.NextRunAt != nil &&
-			strings.HasPrefix(agentPromptOf(t), wakeupPromptPrefix) {
+		if w.owns(t) && t.Enabled && t.NextRunAt != nil {
 			out = append(out, t)
 		}
 	}
 	return out, nil
+}
+
+// owns reports whether t is a wake-up of this session: an agent task on it that wakeup_schedule created.
+func (w wakeups) owns(t schedule.Task) bool {
+	return t.Kind == schedule.KindAgent && t.SessionID == w.sessionID &&
+		strings.HasPrefix(agentPromptOf(t), wakeupPromptPrefix)
 }
 
 // wakeupName is the task's display name: the message's first words, inside the name bound.
