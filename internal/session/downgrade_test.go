@@ -284,7 +284,7 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		}
 	}
 
-	checkVersion(6)
+	checkVersion(8)
 	hasTable := func(name string) bool {
 		t.Helper()
 		db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(filepath.Join(statedir, "lumencortex.db"))+"?mode=ro")
@@ -311,6 +311,19 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 			t.Fatal(err)
 		}
 		return n == 1
+	}
+
+	// Downgrade 8→6: the job queue and scheduled tasks go; every v6 object stays.
+	set8, err := migrate.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := migrate.Downgrade(context.Background(), statedir, set8, 6); err != nil {
+		t.Fatal(err)
+	}
+	checkVersion(6)
+	if hasTable("jobs") || hasTable("scheduled_tasks") || !hasTable("request_envelopes") || !hasTable("check_approvals") {
+		t.Fatal("after 8→6 a v8 table remains or a v6 table is gone")
 	}
 
 	// Downgrade 6→5: provenance/approval tables and the six eval_results columns go; the evaluator row,
@@ -415,15 +428,15 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Upgrade 1→2→3→4→5→6
+	// Upgrade 1→2→…→8
 	store, err = Open(statedir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	checkVersion(6)
-	if !hasTable("eval_results") || !hasTable("artifacts") || !hasColumn("sessions", "agent_id") {
-		t.Fatal("re-upgrade did not recreate the evaluator tables and the agent column")
+	checkVersion(8)
+	if !hasTable("eval_results") || !hasTable("artifacts") || !hasColumn("sessions", "agent_id") || !hasTable("jobs") || !hasTable("scheduled_tasks") {
+		t.Fatal("re-upgrade did not recreate the evaluator, job and schedule tables and the agent column")
 	}
 	// The re-added column starts empty: the session gets the default agent on its next Start.
 	if s1, err := store.Get(context.Background(), "s1"); err != nil || s1.AgentID != "" {

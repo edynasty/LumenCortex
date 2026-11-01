@@ -59,8 +59,10 @@ const (
 )
 
 // purgeTables are the tables holding rows of a deleted session, by session_id; sessions is last.
+// jobs and scheduled_tasks hold commands and prompts (content); a job's output files are removed by
+// the job manager once their row is gone.
 var purgeTables = []string{"session_messages", "agent_steps", "session_checkpoints", "task_states", "task_state_inbox",
-	"artifacts", "eval_results", "request_envelopes", "derived_origins"}
+	"artifacts", "eval_results", "request_envelopes", "derived_origins", "jobs", "scheduled_tasks"}
 
 // PrivacyDeletion is one deletion in progress: the root session the user deleted, every id it deletes
 // (the root first, then the temporary descendants deleted with it) and the epoch of its fences.

@@ -126,7 +126,9 @@ type Effective struct {
 	Escalation *Escalation
 	// Concurrency is the global file's concurrency with its defaults applied.
 	Concurrency Concurrency
-	Checks      map[string]Check
+	// Execution is the global file's execution limits with their defaults applied.
+	Execution Execution
+	Checks    map[string]Check
 	// Warnings lists ignored workspace entries and legacy files, in a stable order.
 	Warnings []Warning
 }

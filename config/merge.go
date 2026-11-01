@@ -92,6 +92,15 @@ func (c *Config) merge() error {
 		})
 	}
 	c.eff.Concurrency = g.Concurrency.Limits()
+	// Execution bounds this machine's processes and log too: global file only.
+	if w.Execution != nil {
+		c.eff.Warnings = append(c.eff.Warnings, Warning{
+			Code: WarnGlobalOnly, Path: c.workspace.Path, Key: "execution",
+			Message: fmt.Sprintf("ignored execution in %s: execution limits are read from the global file %s only",
+				c.workspace.Path, c.global.Path),
+		})
+	}
+	c.eff.Execution = g.Execution.Limits()
 
 	for _, id := range sortedKeys(w.Providers) {
 		if !trusted {
@@ -303,6 +312,10 @@ func cloneFile(f File) File {
 	if f.Concurrency != nil {
 		limits := *f.Concurrency
 		out.Concurrency = &limits
+	}
+	if f.Execution != nil {
+		execution := *f.Execution
+		out.Execution = &execution
 	}
 	out.Providers = cloneProviders(f.Providers)
 	out.Checks = cloneChecks(f.Checks)

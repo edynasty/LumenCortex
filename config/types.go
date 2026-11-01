@@ -123,6 +123,7 @@ type File struct {
 	Effort            *EffortPolicy       `json:"effort,omitempty"`
 	Agents            map[string]Agent    `json:"agents,omitempty"`
 	Concurrency       *Concurrency        `json:"concurrency,omitempty"`
+	Execution         *Execution          `json:"execution,omitempty"`
 	Providers         map[string]Provider `json:"providers,omitempty"`
 	Checks            map[string]Check    `json:"checks,omitempty"`
 	TrustedWorkspaces []string            `json:"trustedWorkspaces,omitempty"`
@@ -169,6 +170,72 @@ func (c *Concurrency) Limits() Concurrency {
 	}
 	if c.MaxChildrenPerParent > 0 {
 		out.MaxChildrenPerParent = c.MaxChildrenPerParent
+	}
+	return out
+}
+
+// Execution bounds the runtime's tool execution of one process: the foreground shell timeout, the
+// background job queue and the diagnostics log. Like Concurrency it is read from the global file only,
+// at every run start and job submission, and a zero field means "absent": the default applies.
+type Execution struct {
+	// ShellTimeoutSeconds is the timeout of a foreground shell call that names none. Absent: none, the
+	// call is bounded only by its run's deadline and cancellation.
+	ShellTimeoutSeconds int `json:"shellTimeoutSeconds,omitempty"`
+	// MaxConcurrentJobs is the background jobs running at once in this process.
+	MaxConcurrentJobs int `json:"maxConcurrentJobs,omitempty"`
+	// MaxQueuedJobs is the jobs waiting to run; a submission beyond it is refused, never dropped.
+	MaxQueuedJobs int `json:"maxQueuedJobs,omitempty"`
+	// JobOutputBytes is the output kept per job and stream (stdout, stderr): head and tail, middle cut.
+	JobOutputBytes int `json:"jobOutputBytes,omitempty"`
+	// JobRetentionDays is how long a finished job's row and output are kept.
+	JobRetentionDays int `json:"jobRetentionDays,omitempty"`
+	// LogLevel is the diagnostics log's level: error, warn, info or debug.
+	LogLevel string `json:"logLevel,omitempty"`
+}
+
+// Execution defaults and schema bounds.
+const (
+	DefaultMaxConcurrentJobs = 2
+	DefaultMaxQueuedJobs     = 32
+	DefaultJobOutputBytes    = 4 << 20
+	DefaultJobRetentionDays  = 7
+	DefaultLogLevel          = "info"
+	MaxShellTimeoutSeconds   = 86400
+	MaxMaxConcurrentJobs     = 16
+	MaxMaxQueuedJobs         = 1024
+	MinJobOutputBytes        = 64 << 10
+	MaxJobOutputBytes        = 64 << 20
+	MaxJobRetentionDays      = 365
+)
+
+// Limits returns e with its defaults applied; a nil e is all defaults. Values outside the schema bounds
+// never reach here: Parse and Save validate the file.
+func (e *Execution) Limits() Execution {
+	out := Execution{
+		MaxConcurrentJobs: DefaultMaxConcurrentJobs,
+		MaxQueuedJobs:     DefaultMaxQueuedJobs,
+		JobOutputBytes:    DefaultJobOutputBytes,
+		JobRetentionDays:  DefaultJobRetentionDays,
+		LogLevel:          DefaultLogLevel,
+	}
+	if e == nil {
+		return out
+	}
+	out.ShellTimeoutSeconds = e.ShellTimeoutSeconds
+	if e.MaxConcurrentJobs > 0 {
+		out.MaxConcurrentJobs = e.MaxConcurrentJobs
+	}
+	if e.MaxQueuedJobs > 0 {
+		out.MaxQueuedJobs = e.MaxQueuedJobs
+	}
+	if e.JobOutputBytes > 0 {
+		out.JobOutputBytes = e.JobOutputBytes
+	}
+	if e.JobRetentionDays > 0 {
+		out.JobRetentionDays = e.JobRetentionDays
+	}
+	if e.LogLevel != "" {
+		out.LogLevel = e.LogLevel
 	}
 	return out
 }

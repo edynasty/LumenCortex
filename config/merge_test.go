@@ -493,6 +493,43 @@ func TestConcurrencyOutsideItsBoundsIsInvalid(t *testing.T) {
 	}
 }
 
+// Execution limits bound the machine like concurrency: only the global file sets them, absent fields
+// take their defaults (no foreground shell timeout), and values outside the schema bounds are invalid.
+func TestExecutionIsReadFromTheGlobalFileOnly(t *testing.T) {
+	_, globalDir := env(t)
+	ws := canon(t, t.TempDir())
+	writeFile(t, filepath.Join(globalDir, FileName),
+		`{"execution": {"maxConcurrentJobs": 3, "logLevel": "debug"}, "trustedWorkspaces": [`+quote(ws)+`]}`)
+	writeFile(t, filepath.Join(ws, FileName), `{"execution": {"shellTimeoutSeconds": 5, "maxConcurrentJobs": 16}}`)
+	c, err := Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eff := c.Effective()
+	want := Execution{MaxConcurrentJobs: 3, MaxQueuedJobs: DefaultMaxQueuedJobs, JobOutputBytes: DefaultJobOutputBytes,
+		JobRetentionDays: DefaultJobRetentionDays, LogLevel: "debug"}
+	if eff.Execution != want {
+		t.Fatalf("execution=%+v want %+v", eff.Execution, want)
+	}
+	if len(eff.Warnings) != 1 || eff.Warnings[0].Code != WarnGlobalOnly || eff.Warnings[0].Key != "execution" {
+		t.Fatalf("warnings=%+v", eff.Warnings)
+	}
+	for _, raw := range []string{
+		`{"execution": {"shellTimeoutSeconds": 0}}`,
+		`{"execution": {"shellTimeoutSeconds": 86401}}`,
+		`{"execution": {"maxConcurrentJobs": 17}}`,
+		`{"execution": {"maxQueuedJobs": 0}}`,
+		`{"execution": {"jobOutputBytes": 1024}}`,
+		`{"execution": {"jobRetentionDays": 366}}`,
+		`{"execution": {"logLevel": "trace"}}`,
+		`{"execution": {"workers": 2}}`,
+	} {
+		if _, err := Parse([]byte(raw)); !errors.Is(err, ErrInvalidConfig) {
+			t.Errorf("Parse(%s) err=%v", raw, err)
+		}
+	}
+}
+
 func TestMalformedFilesAreErrorsNamingThePath(t *testing.T) {
 	_, globalDir := env(t)
 	ws := canon(t, t.TempDir())

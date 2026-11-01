@@ -104,6 +104,47 @@
         }
       }
     },
+    "execution": {
+      "description": "Tool execution limits of one LumenCortex process: the foreground shell timeout, the background job queue and the diagnostics log. Read from the global file only (ignored with a warning in a workspace file). Read at every run start and job submission.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shellTimeoutSeconds": {
+          "description": "Timeout of a foreground shell call that names none: its process group is terminated and the call reports timedOut. Absent → none; the call is then bounded only by its run's deadline and cancellation.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "maxConcurrentJobs": {
+          "description": "Background jobs running at once in this process. Absent → 2.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "maxQueuedJobs": {
+          "description": "Jobs waiting to run. A submission beyond it is refused, never dropped. Absent → 32.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        },
+        "jobOutputBytes": {
+          "description": "Output kept per job and stream (stdout, stderr): the head and the tail, the middle cut. Absent → 4194304.",
+          "type": "integer",
+          "minimum": 65536,
+          "maximum": 67108864
+        },
+        "jobRetentionDays": {
+          "description": "Days a finished job's record and output are kept. Absent → 7.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365
+        },
+        "logLevel": {
+          "description": "Level of the diagnostics log under the state directory. Secrets are redacted at every level. Absent → info.",
+          "enum": ["error", "warn", "info", "debug"]
+        }
+      }
+    },
     "providers": {
       "description": "Provider catalog keyed by provider id (the part before '/' in a model ref). In a workspace file this key is honoured only when the workspace is listed in the global trustedWorkspaces; entries then merge field by field over the global entry with the same id, and an entry that changes a global provider's baseURL or endpoint must set its own apiKey. Untrusted workspace entries are ignored with a warning.",
       "type": "object",

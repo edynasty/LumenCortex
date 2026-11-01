@@ -257,7 +257,7 @@ func TestUpgradeEveryVersionToV6(t *testing.T) {
 	t.Run("pre-runner kinds", func(t *testing.T) {
 		for _, kind := range allFixtures {
 			dir := newFixture(t, kind)
-			ws := open(t, dir, embeddedSet(t))
+			ws := open(t, dir, embeddedUpTo(t, 6))
 			if ws.To != 6 || qInt(t, ws.DB, `PRAGMA user_version`) != 6 {
 				t.Errorf("%s: To=%d", kind, ws.To)
 			}
@@ -317,6 +317,49 @@ func TestV6DownRoundTrip(t *testing.T) {
 	}
 	if n := qInt(t, ws.DB, `SELECT count(*) FROM eval_results WHERE episode_id IS NOT NULL`); n != 0 {
 		t.Errorf("re-upgrade resurrected episode data (%d rows)", n)
+	}
+}
+
+// 8 -> 6 drops the job queue and the scheduled tasks and returns the exact v6 schema with every other
+// row kept; 6 -> 8 works again afterwards and starts both tables empty.
+func TestV8DownRoundTrip(t *testing.T) {
+	dir := newFixture(t, fixtureGo)
+	path := filepath.Join(dir, dbFile)
+	closeWS(t, open(t, dir, embeddedUpTo(t, 6)))
+	db := inspect(t, path)
+	v6Schema := normalizedSchema(t, path)
+	v6Dump := dumpAll(t, db)
+	db.Close()
+
+	set := embeddedUpTo(t, 8)
+	closeWS(t, open(t, dir, set))
+	v8 := inspect(t, path)
+	mustExec(t, v8, `INSERT INTO jobs(job_id, kind, source, session_id, workspace, command, state, runner_id, runner_pid, created_at)
+		SELECT 'job_1', 'shell', 'agent', id, '/w', 'make', 'running', 'r1', 1, 't' FROM sessions LIMIT 1`)
+	mustExec(t, v8, `INSERT INTO scheduled_tasks(schedule_id, name, kind, payload_json, trigger_kind, interval_ms, next_run_at, created_at, updated_at)
+		VALUES('sch_1', 'n', 'shell', '{"command":"make"}', 'interval', 60000, 't', 't', 't')`)
+	v8.Close()
+
+	from, now, err := Downgrade(context.Background(), dir, set, 6)
+	if err != nil || from != 8 || now != 6 {
+		t.Fatalf("Downgrade: from=%d now=%d err=%v", from, now, err)
+	}
+	if got := normalizedSchema(t, path); got != v6Schema {
+		t.Errorf("schema after 8->6 differs from the original v6 schema:\n%s\nwant\n%s", got, v6Schema)
+	}
+	after := inspect(t, path)
+	if got := dumpAll(t, after); got != v6Dump {
+		t.Errorf("rows of the other tables changed across 8->6:\n%s\nwant\n%s", got, v6Dump)
+	}
+	after.Close()
+
+	ws := open(t, dir, set)
+	defer closeWS(t, ws)
+	if ws.From != 6 || ws.To != 8 {
+		t.Errorf("re-upgrade From=%d To=%d", ws.From, ws.To)
+	}
+	if n := qInt(t, ws.DB, `SELECT (SELECT count(*) FROM jobs) + (SELECT count(*) FROM scheduled_tasks)`); n != 0 {
+		t.Errorf("re-upgrade resurrected %d job or schedule rows", n)
 	}
 }
 
