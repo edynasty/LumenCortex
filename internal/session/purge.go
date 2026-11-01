@@ -355,9 +355,9 @@ func idList(ids []string) (string, []any) {
 
 // copyFilter selects the rows of other sessions that carry content of a deleted session: tool results
 // and task results that name a deleted id. Every exit that returns content of a session names it
-// (read_thread, recall, spawn/wait/list_subagents, a task result), with or without an edge: rows
-// written before request provenance have none. A row the user or a model authored is not a copy and
-// is kept.
+// (read_thread, recall, spawn/wait/list_subagents, notebook_list/notebook_read, a task result), with
+// or without an edge: rows written before request provenance have none. A row the user or a model
+// authored is not a copy and is kept.
 func copyFilter(ids []string) (string, []any) {
 	in, args := idList(ids)
 	match := strings.TrimSuffix(strings.Repeat("instr(json, ?) > 0 OR ", len(ids)), " OR ")

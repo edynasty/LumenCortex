@@ -218,7 +218,9 @@ type notebookListEntry struct {
 	Sections  []string `json:"sections"`
 }
 
-// Read implements toolset.NotebookStore.
+// Read implements toolset.NotebookStore. The result names the session it read, as List's does: it is
+// a copy of that session's content, and a privacy deletion finds the copies of a session by its id
+// (session.copyFilter).
 func (a notebookAccess) Read(ctx context.Context, sessionID, ref, section string) (any, error) {
 	target, err := a.target(ctx, sessionID)
 	if err != nil {
@@ -229,7 +231,7 @@ func (a notebookAccess) Read(ctx context.Context, sessionID, ref, section string
 		return nil, notebookProblem(err)
 	}
 	out := map[string]any{
-		"title": doc.Title, "id": doc.ID, "version": doc.Version, "bytes": doc.Bytes,
+		"session": target, "title": doc.Title, "id": doc.ID, "version": doc.Version, "bytes": doc.Bytes,
 	}
 	if section == "" {
 		out["body"] = doc.Body
