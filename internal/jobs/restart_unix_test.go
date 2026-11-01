@@ -60,7 +60,10 @@ func TestHelperRunsJobsAndWaits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for range 500 {
+	// Ready means the first command really started (its line is in the marker), not only that its job
+	// row says running: bash -lc reads the user's profile first, which takes long enough under load for
+	// the adopted job to finish before the first one writes its line.
+	for range 1000 {
 		running, err := manager.Get(context.Background(), first.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -69,7 +72,8 @@ func TestHelperRunsJobsAndWaits(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if running.State == session.JobRunning && queued.State == session.JobQueued {
+		ran, _ := os.ReadFile(marker)
+		if running.State == session.JobRunning && queued.State == session.JobQueued && strings.Contains(string(ran), "ran") {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
