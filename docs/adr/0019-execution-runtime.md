@@ -117,7 +117,11 @@ stateDiagram-v2
 In-run delays use `job_wait` (bounded, cancellable, no model calls). Durable scheduled tasks live in
 `scheduled_tasks`: kind `shell` (submits a job, source `schedule`) or `agent` (starts a run on a session with
 a prompt and an explicit policy, default read-only, via the host's `RunSupervisor`); trigger `once` (at a
-time) or `interval` (every N ≥ 60 s); `missed_policy` `skip` (default) or `run_once`.
+time), `interval` (every N ≥ 60 s) or `cron` (a standard five-field expression, `*`, lists, ranges and
+steps, read in an explicit IANA `timezone` — `UTC` unless the task names one; a local time the
+spring-forward gap skips does not fire, and a wall time the fall-back hour repeats fires once);
+`missed_policy` `skip` (default) or `run_once`. The expression and zone are columns of the row
+(`cron_expr`, `timezone`), so a task means the same thing after a restart and in another process.
 
 - One scheduler goroutine per Engine with one `time.Timer` set to the earliest due task; no per-task timers.
 - A firing is claimed by `UPDATE … SET next_run_at = <next> WHERE schedule_id = ? AND next_run_at = <read>`:
@@ -125,6 +129,12 @@ time) or `interval` (every N ≥ 60 s); `missed_policy` `skip` (default) or `run
 - Overlap: when the previous firing's job or run is still active, the occurrence is skipped
   (`skipped_overlap`), never run concurrently.
 - An agent task fires only in a process with a `RunSupervisor`; otherwise it stays due.
+- A task whose stored trigger yields no further slot (a corrupted expression, an unknown zone) is
+  disabled with `last_status = failed` and the reason in `last_error`, so it cannot fail on every tick.
+- An agent may schedule its own continuation: the tools `wakeup_schedule {delay_sec, message}` and
+  `wakeup_cancel {wakeup_id}` create and remove a one-shot `agent` task on the calling session with the
+  calling run's policy as its ceiling, at most three pending per session. Both are `write` tools (they
+  schedule future work) and exist only in a run whose runtime bound a controller.
 - Events: `schedule.changed`, `schedule.fired`.
 
 ### 5. Diagnostics log (OBS-001)

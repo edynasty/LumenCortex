@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/resource"
 	"github.com/edynasty/LumenCortex/internal/runlock"
+	"github.com/edynasty/LumenCortex/internal/schedule"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/skills"
@@ -118,6 +120,13 @@ type Engine struct {
 	// fences and waits for them (revoke.go). runsMu guards it.
 	runsMu sync.Mutex
 	runs   map[string]*trackedRun
+	// schedules fires the workspace's timers (ADR-0019 §4). schedMu guards the job queue and the
+	// supervisor it fires into: the host binds both after Open, and the scheduler is told when they
+	// change so it can retry the tasks that had nowhere to run.
+	schedules     *schedule.Scheduler
+	schedMu       sync.Mutex
+	scheduledJobs scheduledJobs
+	agentRunner   *RunSupervisor
 }
 
 type Health struct {
@@ -302,6 +311,18 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		health:          agent.NewHealth(nil),
 		providerFactory: factory,
 	}
+	// The scheduler opens with the store and starts once the durable state is reconciled. Its logger
+	// is the process default until the diagnostics manager binds its own (OBS-001).
+	engine.schedules, err = schedule.New(schedule.Options{
+		Store:   store,
+		Actions: scheduleActions{engine: engine},
+		Logger:  slog.Default(),
+		Notify:  engine.scheduleFired,
+	})
+	if err != nil {
+		_ = engine.Close()
+		return nil, err
+	}
 	engine.hooks = newHookDispatcher(engine.events)
 	engine.plugins = newPluginRegistry(engine.events, engine.hooks, pluginStatePath)
 	if err := engine.plugins.Register(ompsession.Plugin{}, true); err != nil {
@@ -320,6 +341,10 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		return nil, err
 	}
 	engine.resumeDeletions(ctx)
+	if err := engine.schedules.Start(ctx); err != nil {
+		_ = engine.Close()
+		return nil, fmt.Errorf("start the scheduler: %w", err)
+	}
 	return engine, nil
 }
 
@@ -367,6 +392,10 @@ func (e *Engine) reconcileRunning(ctx context.Context) error {
 
 func (e *Engine) Close() error {
 	var closeErr error
+	// The scheduler goes first: it starts jobs and runs, which the managers below own.
+	if e.schedules != nil {
+		closeErr = errors.Join(closeErr, e.schedules.Close())
+	}
 	if e.plugins != nil {
 		closeErr = errors.Join(closeErr, e.plugins.StopAll(context.Background()))
 	}

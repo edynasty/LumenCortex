@@ -276,6 +276,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Threads:        threadReader{engine: e, sessionID: sessionID, workspace: agentWorkspace},
 		Skills:         newSkillReader(prompt.Skills.Included),
 		Protected:      e.protected,
+		Wakeups:        e.wakeupsFor(sessionID, policy),
 	})
 	if err != nil {
 		return nil, err
