@@ -155,12 +155,56 @@ var secretPatterns = []struct {
 
 // MaskSecrets returns s with every secret-shaped value replaced. It does not truncate.
 func MaskSecrets(s string) string {
+	if !mayHoldSecret(s) {
+		// Most strings hold no secret at all: one literal scan is far cheaper than seven regexps.
+		return s
+	}
 	for _, p := range secretPatterns {
 		if p.re.MatchString(s) {
 			s = p.re.ReplaceAllString(s, p.repl)
 		}
 	}
 	return s
+}
+
+// mayHoldSecret reports whether s contains a literal every secret pattern needs, so a string without
+// one cannot match. It is a superset test: a false positive only costs the regexps.
+func mayHoldSecret(s string) bool {
+	if strings.Contains(s, "sk-") || strings.Contains(s, "://") ||
+		strings.Contains(s, "AKIA") || strings.Contains(s, "xox") ||
+		strings.Contains(s, "-----BEGIN") || strings.Contains(s, "github_pat_") {
+		return true
+	}
+	for _, prefix := range []string{"ghp_", "gho_", "ghu_", "ghs_", "ghr_"} {
+		if strings.Contains(s, prefix) {
+			return true
+		}
+	}
+	return containsFold(s, "bearer")
+}
+
+// containsFold reports whether s contains needle, ignoring ASCII case, without allocating.
+func containsFold(s, needle string) bool {
+	if len(needle) == 0 || len(s) < len(needle) {
+		return false
+	}
+	for i := 0; i+len(needle) <= len(s); i++ {
+		match := true
+		for j := 0; j < len(needle); j++ {
+			c := s[i+j]
+			if c >= 'A' && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			if c != needle[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
 }
 
 // truncateUTF8 cuts s to at most max bytes at a rune boundary and appends the truncation marker,
@@ -182,10 +226,14 @@ func truncateUTF8(s string, max int) string {
 // redactString masks and truncates an ordinary string attribute.
 func redactString(s string) string { return truncateUTF8(MaskSecrets(s), maxStringBytes) }
 
-// contentValue is the stand-in for a content attribute: how much there was, never the bytes.
-func contentValue(n int) map[string]any {
-	return map[string]any{"redacted": "content", "bytes": n}
+// contentStub is the stand-in for a content attribute: how much there was, never the bytes.
+type contentStub struct {
+	Redacted string `json:"redacted"`
+	Bytes    int    `json:"bytes"`
 }
+
+// contentValue is the stub of a content attribute of n bytes.
+func contentValue(n int) contentStub { return contentStub{Redacted: "content", Bytes: n} }
 
 // valueText renders a slog value as text, for the byte count of a content attribute and for the
 // text debug level may keep.
