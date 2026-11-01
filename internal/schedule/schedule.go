@@ -21,10 +21,10 @@ import (
 // ErrInvalid reports a spec or patch the scheduler refuses before anything is written.
 var ErrInvalid = errors.New("invalid schedule")
 
-// ErrBusy reports that the previous firing of the task is still running, discovered when the action
-// tried to start the next one (a run started by another process, a job the queue has not finished
-// releasing). The occurrence of a recurring task is recorded as skipped_overlap, never as a failure; a
-// one-shot task stays pending and is tried again busyRetry later.
+// ErrBusy reports that the previous firing of the task is still running, or that the action cannot
+// start it now (a run started by another process, a job the queue has not finished releasing, an
+// Engine at its agent concurrency limit). The occurrence of a recurring task is recorded as
+// skipped_overlap, never as a failure; a one-shot task stays pending and is tried again busyRetry later.
 var ErrBusy = errors.New("the previous firing is still running")
 
 // ErrNoRunner reports an agent task in a process with no RunSupervisor: the task stays due and is

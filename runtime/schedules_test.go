@@ -696,6 +696,89 @@ func TestWakeupDueDuringItsOwnRunFiresAfterTheRunEnds(t *testing.T) {
 	}
 }
 
+// answeringProvider answers every request at once and records each, safe across runs.
+type answeringProvider struct {
+	mu       sync.Mutex
+	requests []protocol.ProviderRequest
+}
+
+func (p *answeringProvider) Model() string { return "answering-test" }
+
+func (p *answeringProvider) Complete(_ context.Context, request protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+	p.mu.Lock()
+	p.requests = append(p.requests, request)
+	p.mu.Unlock()
+	return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}}, nil
+}
+
+func (p *answeringProvider) count() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.requests)
+}
+
+// A wake-up that comes due while the Engine runs as many agents as it may is not lost: the refused
+// start is busy, as a held session is, so the wake-up stays pending and starts its run once a slot is
+// free (RT-state-19).
+func TestWakeupDueAtTheAgentLimitFiresWhenASlotFrees(t *testing.T) {
+	engine, err := Open(Options{Workspace: t.TempDir(), Budget: Budget{MaxAgents: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	ctx := context.Background()
+	events, unsubscribe := engine.Events(256)
+	defer unsubscribe()
+	supervisor, err := NewRunSupervisor(engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer supervisor.Close()
+	waking := newTestSession(t, engine, "wake up later")
+	busy := newTestSession(t, engine, "keep the only slot")
+
+	// A first run binds the waking session's model and ends, freeing the only slot.
+	provider := &answeringProvider{}
+	if _, err := supervisor.startWith(ctx, waking.ID, provider, AgentOptions{Input: "go", Policy: "workspace", MaxSteps: 2}); err != nil {
+		t.Fatal(err)
+	}
+	waitForRunStopped(t, events, waking.ID)
+	// Another session takes the slot and keeps it.
+	if _, err := supervisor.startWith(ctx, busy.ID, blockedProvider(), AgentOptions{MaxSteps: 2}); err != nil {
+		t.Fatal(err)
+	}
+	wakeup, err := engine.wakeupsFor(waking.ID, "workspace", nil, nil).ScheduleWakeup(ctx, 1, "resume")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The wake-up comes due (within 1 s) while the slot is taken.
+	time.Sleep(2500 * time.Millisecond)
+	info, err := engine.Schedule(ctx, wakeup.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Enabled || info.NextRunAt == nil || info.LastStatus != "" || info.FireCount != 0 {
+		t.Fatalf("wake-up at the agent limit: enabled=%v next=%v status=%q error=%q count=%d, want pending",
+			info.Enabled, info.NextRunAt, info.LastStatus, info.LastError, info.FireCount)
+	}
+	before := provider.count()
+
+	supervisor.Cancel(busy.ID)
+	for deadline := time.Now().Add(15 * time.Second); provider.count() == before; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the wake-up never started its run after the slot was freed")
+		}
+	}
+	waitUntilIdle(t, supervisor, waking.ID, 10*time.Second)
+	info, err = engine.Schedule(ctx, wakeup.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.LastStatus != session.ScheduleStatusFired || info.FireCount != 1 || info.NextRunAt != nil {
+		t.Fatalf("wake-up after the slot freed: status=%q count=%d next=%v, want fired once", info.LastStatus, info.FireCount, info.NextRunAt)
+	}
+}
+
 // A wake-up keeps the host tool filters of the run that scheduled it: the woken run's first request
 // offers exactly the tools the creating run's first request offered, so a denied command tool (by its
 // current or its former name) or an allowlist does not come back with the wake-up. The workflow binding
