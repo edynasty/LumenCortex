@@ -29,6 +29,17 @@ func TestMain(m *testing.M) {
 		main()
 		os.Exit(0)
 	}
+	// Tests here run `go build`. Under the private home the go command would use an empty module
+	// cache below it and download every dependency, so a test needed the network; keep the caches
+	// the go command already uses.
+	for _, name := range []string{"GOMODCACHE", "GOCACHE"} {
+		if os.Getenv(name) != "" {
+			continue
+		}
+		if out, err := exec.Command("go", "env", name).Output(); err == nil {
+			os.Setenv(name, strings.TrimSpace(string(out)))
+		}
+	}
 	home, err := os.MkdirTemp("", "lcx-cli-test-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
