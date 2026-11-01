@@ -959,3 +959,121 @@ func TestUnschedulableTaskIsDisabled(t *testing.T) {
 	s.Wake()
 	noEvent(t, actions.events)
 }
+
+// A task whose session is deleted disappears with it (the schema cascades), and the scheduler does not
+// fire or fail on the row it can no longer see.
+func TestVanishedTaskIsTolerated(t *testing.T) {
+	ctx := context.Background()
+	clock := newFakeClock(testBase)
+	store := openScheduleStore(t, filepath.Join(t.TempDir(), ".lumencortex"))
+	defer store.Close()
+	if err := store.Create(ctx, session.Session{ID: "session_gone", Goal: "temporary"}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	actions := newFakeActions()
+	s := newTestScheduler(t, store, actions, clock, nil)
+	if err := s.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	task, err := s.Create(ctx, Spec{
+		Name: "agent check", Kind: KindAgent, SessionID: "session_gone",
+		Agent:   &AgentPayload{Prompt: "check", Policy: PolicyReadOnly},
+		Trigger: Trigger{Kind: TriggerInterval, Every: time.Minute},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// The session is deleted out from under the scheduler, as a privacy deletion in another process
+	// would: its task goes with it through the schema's cascade.
+	db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(store.Path())+"?_busy_timeout=5000&_foreign_keys=on")
+	if err != nil {
+		t.Fatalf("open the database: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, `DELETE FROM sessions WHERE id = 'session_gone'`); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+	if _, err := store.GetSchedule(ctx, task.ID); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("the task survived its session: %v", err)
+	}
+	clock.Advance(2 * time.Minute)
+	s.Wake()
+	noEvent(t, actions.events)
+	if _, agents := actions.count(); agents != 0 {
+		t.Fatalf("an agent run started for a deleted session (%d times)", agents)
+	}
+	// The scheduler is still healthy afterwards: a new task fires normally.
+	if _, err := s.Create(ctx, shellSpec("after", "make", Trigger{Kind: TriggerOnce, At: clock.Now().Add(time.Minute)})); err != nil {
+		t.Fatalf("create after the deletion: %v", err)
+	}
+	clock.Advance(time.Minute)
+	s.Wake()
+	waitEvent(t, actions.events, "fired")
+}
+
+// A task deleted between the claim and the result write is not an error: the firing already happened,
+// and there is no row left to record it on.
+func TestTaskDeletedDuringFiringIsTolerated(t *testing.T) {
+	ctx := context.Background()
+	clock := newFakeClock(testBase)
+	store := openScheduleStore(t, filepath.Join(t.TempDir(), ".lumencortex"))
+	defer store.Close()
+	actions := &deletingActions{store: store, events: make(chan firedEvent, 8)}
+	s, err := New(Options{Store: store, Actions: actions, Now: clock.Now, MinInterval: time.Second, Notify: actions.notify})
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	defer s.Close()
+	if err := s.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	task, err := s.Create(ctx, shellSpec("self-deleting", "make", Trigger{Kind: TriggerInterval, Every: time.Minute}))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	actions.id = task.ID
+	clock.Advance(time.Minute)
+	s.Wake()
+	waitFor(t, "the task to be deleted", func() bool {
+		_, err := store.GetSchedule(ctx, task.ID)
+		return errors.Is(err, session.ErrNotFound)
+	})
+	noEvent(t, actions.events)
+	// The loop survives a result it could not record.
+	if _, err := s.Create(ctx, shellSpec("next", "make", Trigger{Kind: TriggerOnce, At: clock.Now().Add(time.Minute)})); err != nil {
+		t.Fatalf("create after the deletion: %v", err)
+	}
+	clock.Advance(time.Minute)
+	s.Wake()
+	waitEvent(t, actions.events, "fired")
+}
+
+// deletingActions removes the task's row when it fires, as another process deleting the session would.
+type deletingActions struct {
+	store  Store
+	id     string
+	events chan firedEvent
+	mu     sync.Mutex
+	ran    int
+}
+
+func (d *deletingActions) RunShell(ctx context.Context, _ Task) (string, error) {
+	d.mu.Lock()
+	d.ran++
+	d.mu.Unlock()
+	if err := d.store.DeleteSchedule(ctx, d.id); err != nil {
+		return "", err
+	}
+	return "ref-deleted", nil
+}
+
+func (d *deletingActions) RunAgent(context.Context, Task) (string, error) { return "", ErrNoRunner }
+
+func (d *deletingActions) Active(context.Context, Task, string) (bool, error) { return false, nil }
+
+func (d *deletingActions) notify(event string, t Task) {
+	select {
+	case d.events <- firedEvent{event: event, task: t}:
+	default:
+	}
+}
