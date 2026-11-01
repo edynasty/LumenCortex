@@ -45,6 +45,9 @@ type Options struct {
 	// ShellTimeout is the default timeout of a foreground shell call (execution.shellTimeoutSeconds);
 	// 0 is none. A call's timeout_sec replaces it; the run's tool deadline bounds both.
 	ShellTimeout time.Duration
+	// SessionID is the session the run belongs to. A server configured with a session binding receives
+	// it instead of a model-supplied id (a computer session is bound to the run that opened it).
+	SessionID string
 }
 type Set struct {
 	workspace      string
@@ -61,7 +64,9 @@ type Set struct {
 	protected      Protected
 	// shellTimeoutDefault is Options.ShellTimeout.
 	shellTimeoutDefault time.Duration
-	tools               map[string]tool
+	// sessionID is Options.SessionID.
+	sessionID string
+	tools     map[string]tool
 }
 type tool struct {
 	spec    protocol.ToolSpec
@@ -107,7 +112,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, sessionID: opts.SessionID, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -202,36 +207,59 @@ func (s *Set) add(spec protocol.ToolSpec, fn func(context.Context, map[string]an
 	s.tools[spec.Name] = tool{spec: spec, execute: fn}
 }
 
-func (s *Set) registerBuiltins() {
-	s.add(protocol.ToolSpec{Name: "search_text", Description: "Search repository text with bounded results. Uses ripgrep when available.", Permission: "read", Parameters: obj(map[string]any{"query": str(), "path": str(), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000}}, "query")}, s.searchText)
-	s.add(protocol.ToolSpec{Name: "find_files", Description: "Find repository files by bounded glob/name pattern.", Permission: "read", Parameters: obj(map[string]any{"pattern": str(), "path": str(), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000}}, "pattern")}, s.findFiles)
-	s.add(protocol.ToolSpec{Name: "git_status", Description: "Read bounded Git working tree status.", Permission: "read", Parameters: obj(map[string]any{})}, s.gitStatus)
-	s.add(protocol.ToolSpec{Name: "git_diff", Description: "Read a bounded Git diff for the repository or one file.", Permission: "read", Parameters: obj(map[string]any{"path": str(), "staged": map[string]any{"type": "boolean"}})}, s.gitDiff)
-	s.add(protocol.ToolSpec{Name: "read_file", Description: "Read a bounded UTF-8 file inside the workspace.", Permission: "read", Parameters: obj(map[string]any{"path": str()}, "path")}, s.readFile)
-	s.add(protocol.ToolSpec{Name: "list_dir", Description: "List a bounded number of entries in a workspace directory.", Permission: "read", Parameters: obj(map[string]any{"path": str()}, "path")}, s.listDir)
-	s.add(protocol.ToolSpec{Name: "write_file", Description: "Create or replace a UTF-8 file inside the workspace.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "content": str()}, "path", "content")}, s.writeFile)
-	s.add(protocol.ToolSpec{Name: "replace_in_file", Description: "Replace one exact text occurrence in a UTF-8 workspace file.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "old_text": str(), "new_text": str()}, "path", "old_text", "new_text")}, s.replaceFile)
-	s.add(protocol.ToolSpec{Name: "apply_patch", Description: "Apply a validated atomic batch of exact text edits, creates or deletes inside the workspace.", Permission: "write", MutatesWorkspace: true, Parameters: map[string]any{
-		"type": "object",
-		"properties": map[string]any{"patches": map[string]any{
-			"type": "array", "minItems": 1,
-			"items": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path":      str(),
-					"operation": map[string]any{"type": "string", "enum": []string{"update", "create", "delete"}},
-					"edits":     map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"old_text": str(), "new_text": str()}, "required": []string{"old_text", "new_text"}, "additionalProperties": false}},
-					"content":   str(),
+// builtinSpecs is the static tool list every run has, before the policy and allowlist filters.
+// It is the one definition of those specs: registerBuiltins binds each to its handler.
+func builtinSpecs() []protocol.ToolSpec {
+	return []protocol.ToolSpec{
+		{Name: "search_text", Description: "Search repository text with bounded results. Uses ripgrep when available.", Permission: "read", Parameters: obj(map[string]any{"query": str(), "path": str(), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000}}, "query")},
+		{Name: "find_files", Description: "Find repository files by bounded glob/name pattern.", Permission: "read", Parameters: obj(map[string]any{"pattern": str(), "path": str(), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000}}, "pattern")},
+		{Name: "git_status", Description: "Read bounded Git working tree status.", Permission: "read", Parameters: obj(map[string]any{})},
+		{Name: "git_diff", Description: "Read a bounded Git diff for the repository or one file.", Permission: "read", Parameters: obj(map[string]any{"path": str(), "staged": map[string]any{"type": "boolean"}})},
+		{Name: "read_file", Description: "Read a bounded UTF-8 file inside the workspace.", Permission: "read", Parameters: obj(map[string]any{"path": str()}, "path")},
+		{Name: "list_dir", Description: "List a bounded number of entries in a workspace directory.", Permission: "read", Parameters: obj(map[string]any{"path": str()}, "path")},
+		{Name: "write_file", Description: "Create or replace a UTF-8 file inside the workspace.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "content": str()}, "path", "content")},
+		{Name: "replace_in_file", Description: "Replace one exact text occurrence in a UTF-8 workspace file.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "old_text": str(), "new_text": str()}, "path", "old_text", "new_text")},
+		{Name: "apply_patch", Description: "Apply a validated atomic batch of exact text edits, creates or deletes inside the workspace.", Permission: "write", MutatesWorkspace: true, Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{"patches": map[string]any{
+				"type": "array", "minItems": 1,
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path":      str(),
+						"operation": map[string]any{"type": "string", "enum": []string{"update", "create", "delete"}},
+						"edits":     map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"old_text": str(), "new_text": str()}, "required": []string{"old_text", "new_text"}, "additionalProperties": false}},
+						"content":   str(),
+					},
+					"required": []string{"path", "operation"}, "additionalProperties": false,
 				},
-				"required": []string{"path", "operation"}, "additionalProperties": false,
-			},
+			}},
+			"required": []string{"patches"}, "additionalProperties": false,
 		}},
-		"required": []string{"patches"}, "additionalProperties": false,
-	}}, s.applyPatch)
-	s.add(protocol.ToolSpec{Name: "shell", Description: shellDescription, Permission: "exec", MutatesWorkspace: true, Parameters: obj(map[string]any{
-		"command":     str(),
-		"timeout_sec": map[string]any{"type": "integer", "minimum": 1, "maximum": maxShellTimeoutSeconds, "description": "Seconds the command may run before its process group is terminated (SIGTERM, then SIGKILL). Replaces the configured default; the run's deadline still bounds it."},
-	}, "command")}, s.runShell)
+		{Name: "shell", Description: shellDescription, Permission: "exec", MutatesWorkspace: true, Parameters: obj(map[string]any{
+			"command":     str(),
+			"timeout_sec": map[string]any{"type": "integer", "minimum": 1, "maximum": maxShellTimeoutSeconds, "description": "Seconds the command may run before its process group is terminated (SIGTERM, then SIGKILL). Replaces the configured default; the run's deadline still bounds it."},
+		}, "command")},
+	}
+}
+
+// registerBuiltins binds the static specs to their handlers.
+func (s *Set) registerBuiltins() {
+	handlers := map[string]func(context.Context, map[string]any, func(protocol.ToolOutput)) (protocol.ToolResult, error){
+		"search_text":     s.searchText,
+		"find_files":      s.findFiles,
+		"git_status":      s.gitStatus,
+		"git_diff":        s.gitDiff,
+		"read_file":       s.readFile,
+		"list_dir":        s.listDir,
+		"write_file":      s.writeFile,
+		"replace_in_file": s.replaceFile,
+		"apply_patch":     s.applyPatch,
+		"shell":           s.runShell,
+	}
+	for _, spec := range builtinSpecs() {
+		s.add(spec, handlers[spec.Name])
+	}
 	if s.lsp != nil {
 		s.registerLSPTools()
 	}
@@ -244,6 +272,11 @@ func (s *Set) registerBuiltins() {
 	s.registerThreadTools()
 	s.registerSkillTools()
 }
+
+// BuiltinSpecs returns the specs of the tools every run has, in declaration order. It is the same
+// list registerBuiltins binds, so a capability catalog cannot drift from the toolset.
+func BuiltinSpecs() []protocol.ToolSpec { return builtinSpecs() }
+
 func str() map[string]any { return map[string]any{"type": "string"} }
 
 // obj builds an object schema. JSON Schema requires "required" to be an array of strings when present,

@@ -1,0 +1,78 @@
+{
+  "id": "browser",
+  "name": "Browser (Playwright MCP)",
+  "capability": "browser.control",
+  "description": "Playwright's official MCP server drives a real Chromium through the Chrome DevTools Protocol: navigate, read the accessibility snapshot, click, type, screenshot. The process starts only on the first browser tool call, keeps an in-memory (isolated) profile, and stops after the idle timeout or when the Engine closes. The default include list is a curated reading and interaction set: page snapshots, navigation, clicking and typing, console and network reads. Arbitrary script execution (browser_evaluate, browser_run_code_unsafe), file upload and the credential surface stay off. Web content is untrusted: a page can contain text that looks like instructions, and every page-derived value is data, not a command.",
+  "homepage": "https://github.com/microsoft/playwright-mcp",
+  "auth": "None. A local process; no credential and no account.",
+  "requires": "The @playwright/mcp package installed on PATH as `playwright-mcp` (npm i -g @playwright/mcp) and its Chromium build (npx playwright install chromium). Core never downloads a package: a missing binary is reported by the availability diagnostic, not installed.",
+  "verified": "2026-11-01 against the published package @playwright/mcp 0.0.82 (`--help`) and by a live stdio handshake through this Core's MCP client: 25 tools listed in 285 ms, 20,117 bytes of tool schemas. The include list below names tools that listing actually reported. No credential and no paid call.",
+  "limitations": [
+    "Chromium is a child of the MCP server: stopping the server closes it, but a crash of the server can leave a browser process behind.",
+    "The tool list is whatever the installed package version reports; Core filters by the include list but cannot pin the upstream tool set."
+  ],
+  "config": {
+    "id": "browser",
+    "name": "Browser",
+    "transport": "stdio",
+    "command": "playwright-mcp",
+    "args": [
+      "--headless",
+      "--isolated",
+      "--browser",
+      "chrome",
+      "--timeout-action",
+      "15000",
+      "--timeout-navigation",
+      "30000",
+      "--idle-timeout",
+      "300000",
+      "--output-dir",
+      ".lumencortex/browser"
+    ],
+    "protocolMode": "legacy",
+    "callTimeoutSeconds": 120,
+    "idleTimeoutSeconds": 600,
+    "maxConcurrentCalls": 1,
+    "maxResultBytes": 262144,
+    "disabled": true,
+    "template": "browser",
+    "include": [
+      "browser_navigate",
+      "browser_navigate_back",
+      "browser_snapshot",
+      "browser_click",
+      "browser_type",
+      "browser_press_key",
+      "browser_hover",
+      "browser_select_option",
+      "browser_fill_form",
+      "browser_wait_for",
+      "browser_take_screenshot",
+      "browser_tabs",
+      "browser_console_messages",
+      "browser_network_requests",
+      "browser_close"
+    ],
+    "tools": {
+      "browser_snapshot": {
+        "permission": "read"
+      },
+      "browser_take_screenshot": {
+        "permission": "read"
+      },
+      "browser_tabs": {
+        "permission": "read"
+      },
+      "browser_console_messages": {
+        "permission": "read"
+      },
+      "browser_network_requests": {
+        "permission": "read"
+      },
+      "browser_close": {
+        "permission": "read"
+      }
+    }
+  }
+}

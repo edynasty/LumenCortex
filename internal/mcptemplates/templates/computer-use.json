@@ -1,0 +1,43 @@
+{
+  "id": "computer-use",
+  "name": "Computer Use (CodeBridge)",
+  "capability": "computer.control",
+  "description": "Drives the real display through CodeBridge's local daemon, which exposes Computer Use over MCP on a Unix socket. Core does not implement screen capture or accessibility control: it connects to codebridged as a same-user local MCP client and calls computer_start / computer_observe / computer_action / computer_status / computer_stop. Off by default and never started implicitly; the user must enable this entry and authorize the actions in CodeBridge's own approval gate, which Core does not bypass.",
+  "homepage": "https://github.com/edynasty/codebridge",
+  "auth": "Same-user local socket. The daemon classifies a request without a bearer token as local_mcp and authorizes it by peer UID on a 0600 Unix socket, so no credential is configured. The per-launch bearer secret belongs to CodeBridge's tunnel path and is not used here.",
+  "cost": "No external charge. Every action runs on the user's real display, and CodeBridge's approval policy still decides whether each one may proceed.",
+  "requires": "CodeBridge.app installed and its daemon codebridged running, with its MCP socket at ~/Library/Application Support/CodeBridge/run/mcp.sock.",
+  "verified": "2026-11-01 against the local CodeBridge repository: internal/daemon/ingress.go serves MCP Streamable HTTP (stateless) on a Unix socket only, no TCP listener; a request without a bearer token is CallerLocalMCP; internal/daemon/mcpcomputertools.go registers computer_start, computer_observe, computer_action, computer_status and computer_stop for every caller class, gated by the approval service. Live handshake through this Core's HTTP-over-Unix-socket client against the running daemon: the tool list was returned (computer_start/observe/action/status/stop among 40 tools); no Computer Use session was opened.",
+  "limitations": [
+    "The socket path is the macOS Application Support layout; another OS or a custom -mcp-socket needs this url edited.",
+    "computer_start returns approval_required until the human approves in CodeBridge; Core reports that as a tool result and does not retry.",
+    "computer_action is limited by CodeBridge's Phase 1 surface (observe and safe pointer movement); Core adds no capability of its own."
+  ],
+  "config": {
+    "id": "computer-use",
+    "name": "Computer Use",
+    "transport": "streamable-http",
+    "url": "unix://{env:HOME}/Library/Application Support/CodeBridge/run/mcp.sock",
+    "protocolMode": "legacy",
+    "include": [
+      "computer_start",
+      "computer_observe",
+      "computer_action",
+      "computer_status",
+      "computer_stop"
+    ],
+    "session": {
+      "argument": "session_id",
+      "startTool": "computer_start",
+      "sessionIdField": "computer_session_id",
+      "stopTool": "computer_stop",
+      "stopArgument": "computer_session_id"
+    },
+    "callTimeoutSeconds": 120,
+    "idleTimeoutSeconds": 300,
+    "maxConcurrentCalls": 1,
+    "maxResultBytes": 524288,
+    "disabled": true,
+    "template": "computer-use"
+  }
+}

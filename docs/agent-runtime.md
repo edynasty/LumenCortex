@@ -56,7 +56,7 @@ Subagent tools:
 Configured MCP tools are dynamically registered as:
 
 ```text
-mcp_<server>_<tool>
+mcp__<server>__<tool>
 ```
 
 All tools participate in the same permission gate. File tools are workspace-scoped and reject path traversal.
@@ -213,7 +213,27 @@ lcx mcp tools dbx
 lcx mcp call dbx query '{"sql":"select 1"}'
 ```
 
-MCP tools are also dynamically added to normal agent runs unless `--no-mcp` is supplied.
+MCP tools are also added to normal agent runs unless `--no-mcp` is supplied.
+
+### On-demand lifecycle and limits
+
+No MCP server process exists when an Engine opens. A server starts when a run needs its tool list (its
+catalog is not recorded yet) or when a tool of it is called, and stops after `idleTimeoutSeconds`
+without a call, on `MCPStop` and on `Engine.Close`. A start that fails, a crash or a hung call is a
+tool result with `ok:false` plus a `lastError`; the run continues.
+
+The server entry accepts `transport` (`stdio` default, or `streamable-http` with a `url`; a
+`unix:///abs/socket` url reaches a local daemon), `headers`, `env`, `include` (the only tools runs may
+see), `callTimeoutSeconds`, `idleTimeoutSeconds`, `maxConcurrentCalls`, `maxResultBytes`, `session`
+(ties a server-side session to the run) and `template`. A credential is only ever an `{env:NAME}`
+reference, resolved at start or per request and never persisted.
+
+`Engine.Capabilities` is the one view of everything a run could be offered — built-in, `lsp_*` and MCP
+tools — with `source`, `permission`, `availability`, `executionConstraints` and `configRequirements`.
+Listing it starts nothing. `Engine.MCPServerStates` is the per-server view (enabled, running,
+requirements, last error). Templates for the official servers are data: `lcx-go plugins templates`,
+`lcx-go plugins apply <id>`. See [plugins-mcp-templates.md](plugins-mcp-templates.md) and
+[ADR-0021](adr/0021-capability-registry-and-mcp-lifecycle.md).
 
 ## Subagents
 

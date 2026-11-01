@@ -255,6 +255,10 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	// tool listing, against the Engine workspace and never a session worktree, so withdrawing trust
 	// blocks a project server without reopening the workspace. A configuration that does not load is
 	// not trusted.
+	// Tool catalogs are remembered under the state directory, so a run can offer a server's tools
+	// without starting it (ADR-0021 §3). A server the registry stops by itself (idle timeout, crash) is
+	// reported like an explicit stop.
+	mcpRegistry.SetStateDir(filepath.Join(repoDir, "mcp-catalog"))
 	mcpRegistry.SetProjectTrust(func() bool {
 		cfg, err := config.Load(workspace)
 		if err != nil {
@@ -302,6 +306,14 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		health:          agent.NewHealth(nil),
 		providerFactory: factory,
 	}
+	// A server the registry stops by itself (idle timeout, crash) is reported like an explicit stop.
+	mcpRegistry.SetStopHook(func(serverID, workspace, reason string) {
+		engine.events.publish("mcp.stopped", "", map[string]any{
+			"serverId":  serverID,
+			"workspace": workspace,
+			"reason":    reason,
+		})
+	})
 	engine.hooks = newHookDispatcher(engine.events)
 	engine.plugins = newPluginRegistry(engine.events, engine.hooks, pluginStatePath)
 	if err := engine.plugins.Register(ompsession.Plugin{}, true); err != nil {

@@ -2,10 +2,13 @@ package mcp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -16,6 +19,11 @@ import (
 const (
 	MaxServers     = 64
 	MaxConfigBytes = 1 << 20
+	// MaxCatalogBytes bounds one persisted tool catalog.
+	MaxCatalogBytes = 1 << 20
+	// maxTrackedServers bounds the per-workspace lifecycle table; over it, stopped servers are
+	// forgotten oldest-first.
+	maxTrackedServers = MaxServers * 4
 )
 
 var serverIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
@@ -36,6 +44,41 @@ type AgentTool struct {
 	Permission       string `json:"permission"`
 	PermissionSource string `json:"permissionSource,omitempty"`
 	Scope            string `json:"scope,omitempty"`
+	// ToolSource is "live" when the server answered this listing and "cache" when the tool list comes
+	// from the catalog a previous start recorded.
+	ToolSource string `json:"toolSource,omitempty"`
+}
+
+// ConfigRequirements is what a server needs before it can start, computed from configuration and
+// the environment without starting it.
+type ConfigRequirements struct {
+	// MissingEnv names environment variables a "{env:NAME}" reference points at that are unset.
+	MissingEnv []string `json:"missingEnv,omitempty"`
+	// MissingBinary is the command a stdio server needs that does not resolve on PATH.
+	MissingBinary string `json:"missingBinary,omitempty"`
+	// NeedsTrust reports that the entry comes from the project file, so the workspace must be trusted.
+	NeedsTrust bool `json:"needsTrust,omitempty"`
+	// MissingEndpoint is the Unix socket a streamable-http server points at that does not exist.
+	MissingEndpoint string `json:"missingEndpoint,omitempty"`
+}
+
+// Empty reports whether nothing is missing.
+func (r ConfigRequirements) Empty() bool {
+	return len(r.MissingEnv) == 0 && r.MissingBinary == "" && r.MissingEndpoint == "" && !r.NeedsTrust
+}
+
+// ServerState is one configured server as the registry sees it, without starting anything.
+type ServerState struct {
+	ID             string             `json:"id"`
+	Name           string             `json:"name,omitempty"`
+	Transport      Transport          `json:"transport"`
+	Scope          string             `json:"scope,omitempty"`
+	Enabled        bool               `json:"enabled"`
+	Running        bool               `json:"running"`
+	BlockedByTrust bool               `json:"blockedByTrust,omitempty"`
+	Tools          int                `json:"tools"`
+	LastError      string             `json:"lastError,omitempty"`
+	Requirements   ConfigRequirements `json:"configRequirements"`
 }
 
 const (
@@ -52,18 +95,18 @@ type Registry struct {
 	trustMu sync.RWMutex
 	trust   func() bool
 
-	mu             sync.RWMutex
+	// onStop is told when the registry stops a server on its own (idle timeout or a crash), so the
+	// host can publish the event. It is called without the registry lock held.
+	onStop func(serverID, workspace, reason string)
+
+	stateMu sync.RWMutex
+	// stateDir is where tool catalogs are persisted; empty keeps them in memory only.
+	stateDir string
+
+	mu             sync.Mutex
 	globalConfigs  map[string]Config
 	projectConfigs map[string]Config
-	instances      map[string]*instance
-}
-
-// instance is one running client of this Registry with the configuration and scope it was started
-// from. The scope decides whether the project trust gate applies to it.
-type instance struct {
-	client *Client
-	cfg    Config
-	scope  string
+	servers        map[string]*server
 }
 
 func NewRegistry(workspace, configPath string) (*Registry, error) {
@@ -97,7 +140,7 @@ func NewLayeredRegistry(workspace, globalConfigPath, projectConfigPath string) (
 		projectConfigPath: projectConfigPath,
 		globalConfigs:     make(map[string]Config),
 		projectConfigs:    make(map[string]Config),
-		instances:         make(map[string]*instance),
+		servers:           make(map[string]*server),
 	}
 	if globalConfigPath != "" {
 		r.globalConfigs, err = loadConfigFile(globalConfigPath)
@@ -110,6 +153,31 @@ func NewLayeredRegistry(workspace, globalConfigPath, projectConfigPath string) (
 		return nil, err
 	}
 	return r, nil
+}
+
+// SetStateDir makes tool catalogs survive a restart: a run can offer a server's tools without
+// starting it, from the list a previous start recorded. An empty directory keeps them in memory.
+func (r *Registry) SetStateDir(dir string) {
+	r.stateMu.Lock()
+	r.stateDir = dir
+	r.stateMu.Unlock()
+}
+
+// SetStopHook installs the callback that reports a server the registry stopped by itself.
+func (r *Registry) SetStopHook(hook func(serverID, workspace, reason string)) {
+	r.mu.Lock()
+	r.onStop = hook
+	r.mu.Unlock()
+}
+
+func (r *Registry) publishStopped(s *server, reason string) {
+	r.mu.Lock()
+	hook := r.onStop
+	r.mu.Unlock()
+	if hook != nil {
+		cfg, _ := s.config()
+		hook(cfg.ID, s.workspace, reason)
+	}
 }
 
 // SetProjectTrust installs the check that reports whether the workspace whose project file this
@@ -131,8 +199,8 @@ func (r *Registry) projectTrusted() bool {
 
 func (r *Registry) Configs() []Config {
 	trusted := r.projectTrusted()
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.effectiveConfigsLocked(trusted)
 }
 
@@ -160,8 +228,8 @@ func (r *Registry) effectiveConfigsLocked(trusted bool) []Config {
 
 func (r *Registry) ConfigsScope(scope string) ([]Config, error) {
 	trusted := r.projectTrusted()
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	switch scope {
 	case ScopeGlobal:
 		return listingConfigs(r.globalConfigs, ScopeGlobal, false), nil
@@ -182,20 +250,21 @@ func (r *Registry) UpsertScope(scope string, cfg Config) error {
 	cfg.ID = strings.TrimSpace(cfg.ID)
 	cfg.Name = strings.TrimSpace(cfg.Name)
 	cfg.Command = strings.TrimSpace(cfg.Command)
+	cfg.URL = strings.TrimSpace(cfg.URL)
 	cfg.Workspace = ""
 	cfg.Scope = ""
 	cfg.BlockedByTrust = false
 	if !serverIDPattern.MatchString(cfg.ID) {
 		return errors.New("mcp server id must match [A-Za-z0-9._-] and be at most 64 characters")
 	}
-	if cfg.Command == "" {
-		return errors.New("mcp command is required")
-	}
 	if cfg.ProtocolMode == "" {
 		cfg.ProtocolMode = ModeLegacy
 	}
 	if cfg.ProtocolMode != ModeLegacy && cfg.ProtocolMode != ModeModern {
 		return errors.New("unsupported mcp protocol mode")
+	}
+	if err := validateConfig(cfg); err != nil {
+		return err
 	}
 	if err := validateTools(cfg); err != nil {
 		return err
@@ -211,7 +280,7 @@ func (r *Registry) UpsertScope(scope string, cfg Config) error {
 		return errors.New("mcp server configuration limit exceeded")
 	}
 	target[cfg.ID] = cfg
-	r.stopInstancesLocked(cfg.ID)
+	r.reconfigureLocked(cfg.ID)
 	return saveConfigFile(path, target)
 }
 
@@ -228,7 +297,7 @@ func (r *Registry) DeleteScope(scope, id string) error {
 		return err
 	}
 	delete(target, id)
-	r.stopInstancesLocked(id)
+	r.stopServersLocked(id)
 	return saveConfigFile(path, target)
 }
 
@@ -246,60 +315,72 @@ func (r *Registry) scopeLocked(scope string) (map[string]Config, string, error) 
 	}
 }
 
-func (r *Registry) stopInstancesLocked(id string) {
-	for key, inst := range r.instances {
+// reconfigureLocked re-reads the effective configuration of one id into the lifecycle table, so a
+// changed entry stops the process the old one started.
+func (r *Registry) reconfigureLocked(id string) {
+	trusted := r.projectTrusted()
+	cfg, scope, ok := r.resolveLocked(id, trusted)
+	for key, srv := range r.servers {
+		if !strings.HasSuffix(key, "\x00"+id) {
+			continue
+		}
+		if !ok {
+			srv.configure(Config{ID: id, Disabled: true}, scope)
+			continue
+		}
+		srv.configure(cfg, scope)
+	}
+}
+
+func (r *Registry) stopServersLocked(id string) {
+	for key, srv := range r.servers {
 		if strings.HasSuffix(key, "\x00"+id) {
-			_ = inst.client.Close()
-			delete(r.instances, key)
+			_ = srv.stop()
+			delete(r.servers, key)
 		}
 	}
 }
 
-// Start starts one server for workspace. A server defined only by the project file of an untrusted
-// workspace is refused with ErrUntrustedProject before any process is created; a global server, or
-// one the project file shadows while untrusted, starts from its global entry as if the project file
-// did not exist.
-func (r *Registry) Start(ctx context.Context, id, workspace string) (Status, error) {
-	id = strings.TrimSpace(id)
-	workspace, err := r.runtimeWorkspace(workspace)
-	if err != nil {
-		return Status{}, err
+// serverLocked returns the lifecycle entry of a configured server in one workspace, creating it
+// without starting anything.
+func (r *Registry) serverLocked(cfg Config, scope, workspace string) *server {
+	key := instanceKey(workspace, cfg.ID)
+	if existing := r.servers[key]; existing != nil {
+		existing.configure(cfg, scope)
+		return existing
 	}
+	if len(r.servers) >= maxTrackedServers {
+		r.pruneServersLocked()
+	}
+	created := newServer(r, key, workspace, cfg, scope)
+	r.servers[key] = created
+	return created
+}
 
-	trusted := r.projectTrusted()
-	r.mu.RLock()
-	cfg, scope, ok := r.resolveLocked(id, trusted)
-	_, projectDefined := r.projectConfigs[id]
-	r.mu.RUnlock()
-	if !ok {
-		if projectDefined && !trusted {
-			return Status{}, fmt.Errorf("%w: %s", ErrUntrustedProject, id)
+// pruneServersLocked forgets stopped servers, oldest use first, when the table is over its bound.
+func (r *Registry) pruneServersLocked() {
+	type candidate struct {
+		key  string
+		used int64
+	}
+	candidates := make([]candidate, 0, len(r.servers))
+	for key, srv := range r.servers {
+		srv.mu.Lock()
+		running := srv.current != nil
+		used := srv.lastUsed.UnixNano()
+		srv.mu.Unlock()
+		if running {
+			continue
 		}
-		return Status{}, fmt.Errorf("unknown mcp server: %s", id)
+		candidates = append(candidates, candidate{key: key, used: used})
 	}
-	if cfg.Disabled {
-		return Status{}, fmt.Errorf("mcp server is disabled: %s", id)
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].used < candidates[j].used })
+	for _, entry := range candidates {
+		if len(r.servers) < maxTrackedServers {
+			return
+		}
+		delete(r.servers, entry.key)
 	}
-	spawn := cfg
-	spawn.Workspace = workspace
-
-	client, err := Start(ctx, spawn)
-	if err != nil {
-		return Status{}, err
-	}
-	key := instanceKey(workspace, id)
-
-	r.mu.Lock()
-	previous := r.instances[key]
-	r.instances[key] = &instance{client: client, cfg: cfg, scope: scope}
-	r.mu.Unlock()
-	if previous != nil {
-		_ = previous.client.Close()
-	}
-	status := client.Status()
-	status.Scope = scope
-	status.BlockedByTrust = scope == ScopeProject && !trusted
-	return status, nil
 }
 
 // resolveLocked returns the configuration a start would use and the file it came from. While the
@@ -314,6 +395,46 @@ func (r *Registry) resolveLocked(id string, trusted bool) (Config, string, bool)
 	return Config{}, "", false
 }
 
+// server resolves the lifecycle entry for an explicit operation, refusing a project-only server of an
+// untrusted workspace before anything is created.
+func (r *Registry) server(id, workspace string) (*server, error) {
+	id = strings.TrimSpace(id)
+	workspace, err := r.runtimeWorkspace(workspace)
+	if err != nil {
+		return nil, err
+	}
+	trusted := r.projectTrusted()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cfg, scope, ok := r.resolveLocked(id, trusted)
+	_, projectDefined := r.projectConfigs[id]
+	if !ok {
+		if projectDefined && !trusted {
+			return nil, fmt.Errorf("%w: %s", ErrUntrustedProject, id)
+		}
+		return nil, fmt.Errorf("unknown mcp server: %s", id)
+	}
+	if cfg.Disabled {
+		return nil, fmt.Errorf("%w: %s", ErrServerDisabled, id)
+	}
+	return r.serverLocked(cfg, scope, workspace), nil
+}
+
+// Start starts one server for workspace. A server defined only by the project file of an untrusted
+// workspace is refused with ErrUntrustedProject before any process is created; a global server, or
+// one the project file shadows while untrusted, starts from its global entry as if the project file
+// did not exist.
+func (r *Registry) Start(ctx context.Context, id, workspace string) (Status, error) {
+	srv, err := r.server(id, workspace)
+	if err != nil {
+		return Status{}, err
+	}
+	if _, err := srv.ensure(ctx); err != nil {
+		return Status{}, err
+	}
+	return srv.status(r.projectTrusted()), nil
+}
+
 func (r *Registry) Stop(id, workspace string) error {
 	workspace, err := r.runtimeWorkspace(workspace)
 	if err != nil {
@@ -321,13 +442,12 @@ func (r *Registry) Stop(id, workspace string) error {
 	}
 	key := instanceKey(workspace, strings.TrimSpace(id))
 	r.mu.Lock()
-	inst := r.instances[key]
-	delete(r.instances, key)
+	srv := r.servers[key]
 	r.mu.Unlock()
-	if inst == nil {
+	if srv == nil {
 		return nil
 	}
-	return inst.client.Close()
+	return srv.stop()
 }
 
 func (r *Registry) StopWorkspace(workspace string) {
@@ -337,92 +457,178 @@ func (r *Registry) StopWorkspace(workspace string) {
 	}
 	prefix := workspace + "\x00"
 	r.mu.Lock()
-	instances := make([]*instance, 0)
-	for key, inst := range r.instances {
+	servers := make([]*server, 0)
+	for key, srv := range r.servers {
 		if strings.HasPrefix(key, prefix) {
-			instances = append(instances, inst)
-			delete(r.instances, key)
+			servers = append(servers, srv)
+			delete(r.servers, key)
 		}
 	}
 	r.mu.Unlock()
-	for _, inst := range instances {
-		_ = inst.client.Close()
+	for _, srv := range servers {
+		_ = srv.stop()
 	}
 }
 
+// Statuses lists the servers of the workspace that are running. It starts nothing; States is the full
+// configured view, running or not.
 func (r *Registry) Statuses(workspace string) ([]Status, error) {
+	states, err := r.States(workspace)
+	if err != nil {
+		return nil, err
+	}
+	trusted := r.projectTrusted()
+	out := make([]Status, 0, len(states))
+	for _, state := range states {
+		if !state.Running {
+			continue
+		}
+		srv := r.tracked(workspace, state.ID)
+		if srv == nil {
+			continue
+		}
+		out = append(out, srv.status(trusted))
+	}
+	return out, nil
+}
+
+// States lists the configured servers of a workspace with what they would need to start. It creates
+// no process and no lifecycle entry that outlives the call.
+func (r *Registry) States(workspace string) ([]ServerState, error) {
 	workspace, err := r.runtimeWorkspace(workspace)
 	if err != nil {
 		return nil, err
 	}
 	trusted := r.projectTrusted()
-	prefix := workspace + "\x00"
-	r.mu.RLock()
-	statuses := make([]Status, 0)
-	for key, inst := range r.instances {
-		if strings.HasPrefix(key, prefix) {
-			status := inst.client.Status()
-			status.Scope = inst.scope
-			status.BlockedByTrust = inst.scope == ScopeProject && !trusted
-			statuses = append(statuses, status)
+	r.mu.Lock()
+	configs := r.effectiveConfigsLocked(trusted)
+	out := make([]ServerState, 0, len(configs))
+	for _, cfg := range configs {
+		key := instanceKey(workspace, cfg.ID)
+		srv := r.servers[key]
+		if srv == nil {
+			out = append(out, ServerState{
+				ID:             cfg.ID,
+				Name:           cfg.Name,
+				Transport:      cfg.transport(),
+				Scope:          cfg.Scope,
+				Enabled:        !cfg.Disabled,
+				BlockedByTrust: cfg.BlockedByTrust,
+				Requirements:   requirementsFor(cfg, cfg.Scope, cfg.BlockedByTrust),
+			})
+			continue
+		}
+		srv.mu.Lock()
+		running := srv.current != nil
+		toolCount := len(srv.catalog)
+		lastErr := srv.lastErr
+		srv.mu.Unlock()
+		out = append(out, ServerState{
+			ID:             cfg.ID,
+			Name:           cfg.Name,
+			Transport:      cfg.transport(),
+			Scope:          cfg.Scope,
+			Enabled:        !cfg.Disabled,
+			Running:        running,
+			BlockedByTrust: cfg.BlockedByTrust,
+			Tools:          toolCount,
+			LastError:      lastErr,
+			Requirements:   srv.configRequirements(),
+		})
+	}
+	r.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+// requirementsFor computes the static requirements of a configuration that has no lifecycle entry.
+func requirementsFor(cfg Config, scope string, blocked bool) ConfigRequirements {
+	requirements := ConfigRequirements{NeedsTrust: scope == ScopeProject}
+	requirements.MissingEnv = cfg.MissingEnv()
+	switch cfg.transport() {
+	case TransportStdio:
+		if _, err := exec.LookPath(cfg.Command); err != nil {
+			requirements.MissingBinary = cfg.Command
+		}
+	case TransportHTTP:
+		// A Unix socket endpoint is a local service: its absence is reported without connecting.
+		if raw, err := expandEnv(cfg.URL); err == nil && strings.HasPrefix(raw, "unix://") {
+			socket := strings.TrimPrefix(raw, "unix://")
+			if _, statErr := os.Stat(socket); statErr != nil {
+				requirements.MissingEndpoint = socket
+			}
 		}
 	}
-	r.mu.RUnlock()
-	sort.Slice(statuses, func(i, j int) bool { return statuses[i].ID < statuses[j].ID })
-	return statuses, nil
+	return requirements
+}
+
+// tracked returns the lifecycle entry of a server when one exists.
+func (r *Registry) tracked(workspace, id string) *server {
+	workspace, err := r.runtimeWorkspace(workspace)
+	if err != nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.servers[instanceKey(workspace, id)]
 }
 
 func (r *Registry) RefreshTools(ctx context.Context, id, workspace string) ([]Tool, error) {
-	client, err := r.client(id, workspace)
+	srv, err := r.server(id, workspace)
 	if err != nil {
 		return nil, err
 	}
-	return client.RefreshTools(ctx)
+	return srv.refreshTools(ctx)
 }
 
+// AgentTools lists the tools runs may use, without starting any server: a running server reports its
+// live catalog, a stopped one the catalog a previous start recorded. A server whose configuration
+// lists Include exposes only those tools.
 func (r *Registry) AgentTools(workspace string) ([]AgentTool, error) {
 	workspace, err := r.runtimeWorkspace(workspace)
 	if err != nil {
 		return nil, err
 	}
 	trusted := r.projectTrusted()
-	prefix := workspace + "\x00"
-	r.mu.RLock()
-	instances := make([]*instance, 0)
-	for key, inst := range r.instances {
-		if !strings.HasPrefix(key, prefix) || !inst.client.Status().Running {
+	r.mu.Lock()
+	configs := r.effectiveConfigsLocked(trusted)
+	servers := make([]*server, 0, len(configs))
+	resolved := make([]Config, 0, len(configs))
+	for _, cfg := range configs {
+		if cfg.Disabled || (cfg.Scope == ScopeProject && !trusted) {
 			continue
 		}
-		// A project server keeps running when trust is withdrawn, but its tools stop being exposed
-		// to runs (ADR-0013).
-		if inst.scope == ScopeProject && !trusted {
-			continue
-		}
-		instances = append(instances, inst)
+		servers = append(servers, r.serverLocked(cfg, cfg.Scope, workspace))
+		resolved = append(resolved, cfg)
 	}
-	r.mu.RUnlock()
+	r.mu.Unlock()
 
 	out := make([]AgentTool, 0)
 	seen := map[string]bool{}
-	for _, inst := range instances {
-		status := inst.client.Status()
-		for _, tool := range inst.client.Tools() {
-			name := agentToolName(status.ID, tool.Name)
+	for index, srv := range servers {
+		cfg := resolved[index]
+		tools, source := srv.tools()
+		for _, tool := range tools {
+			if !cfg.included(tool.Name) {
+				continue
+			}
+			name := agentToolName(cfg.ID, tool.Name)
 			if seen[name] {
 				continue
 			}
 			seen[name] = true
-			permission, source := effectivePermission(inst.cfg, inst.scope, trusted, tool)
+			permission, permissionSource := effectivePermission(cfg, cfg.Scope, trusted, tool)
 			out = append(out, AgentTool{
 				Name:             name,
 				Description:      tool.Description,
 				InputSchema:      tool.InputSchema,
-				ServerID:         status.ID,
+				ServerID:         cfg.ID,
 				ToolName:         tool.Name,
 				ReadOnly:         permission == PermissionRead,
 				Permission:       permission,
-				PermissionSource: source,
-				Scope:            inst.scope,
+				PermissionSource: permissionSource,
+				Scope:            cfg.Scope,
+				ToolSource:       source,
 			})
 		}
 	}
@@ -448,45 +654,34 @@ func effectivePermission(cfg Config, scope string, trusted bool, tool Tool) (per
 	return permission, PermissionSourceAnnotation
 }
 
+// CallTool calls one tool of one server, starting the server on demand. A failure is returned as an
+// error the caller turns into a tool result; it never takes the registry down.
 func (r *Registry) CallTool(ctx context.Context, workspace, serverID, toolName string, args map[string]any) (CallToolResult, error) {
-	client, err := r.client(serverID, workspace)
+	return r.CallToolForSession(ctx, workspace, serverID, toolName, "", args)
+}
+
+// CallToolForSession is CallTool with the LumenCortex session that drives the call, which a server
+// configured with a Session binding receives instead of a model-supplied id.
+func (r *Registry) CallToolForSession(ctx context.Context, workspace, serverID, toolName, sessionID string, args map[string]any) (CallToolResult, error) {
+	srv, err := r.server(serverID, workspace)
 	if err != nil {
 		return CallToolResult{}, err
 	}
-	return client.CallTool(ctx, toolName, args)
+	return srv.callTool(ctx, toolName, sessionID, args)
 }
 
 func (r *Registry) Close() error {
 	r.mu.Lock()
-	instances := r.instances
-	r.instances = make(map[string]*instance)
+	servers := r.servers
+	r.servers = make(map[string]*server)
 	r.mu.Unlock()
 	var firstErr error
-	for _, inst := range instances {
-		if err := inst.client.Close(); err != nil && firstErr == nil {
+	for _, srv := range servers {
+		if err := srv.stop(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
 	return firstErr
-}
-
-func (r *Registry) client(id, workspace string) (*Client, error) {
-	workspace, err := r.runtimeWorkspace(workspace)
-	if err != nil {
-		return nil, err
-	}
-	trusted := r.projectTrusted()
-	key := instanceKey(workspace, strings.TrimSpace(id))
-	r.mu.RLock()
-	inst := r.instances[key]
-	r.mu.RUnlock()
-	if inst == nil || !inst.client.Status().Running {
-		return nil, errors.New("mcp server is not running in this runtime")
-	}
-	if inst.scope == ScopeProject && !trusted {
-		return nil, fmt.Errorf("%w: %s", ErrUntrustedProject, id)
-	}
-	return inst.client, nil
 }
 
 func (r *Registry) runtimeWorkspace(workspace string) (string, error) {
@@ -533,11 +728,14 @@ func loadConfigFile(path string) (map[string]Config, error) {
 		cfg.Workspace = ""
 		cfg.Scope = ""
 		cfg.BlockedByTrust = false
-		if !serverIDPattern.MatchString(cfg.ID) || strings.TrimSpace(cfg.Command) == "" {
+		if !serverIDPattern.MatchString(cfg.ID) {
 			return nil, fmt.Errorf("invalid mcp server configuration: %s", id)
 		}
 		if cfg.ProtocolMode == "" {
 			cfg.ProtocolMode = ModeLegacy
+		}
+		if err := validateConfig(cfg); err != nil {
+			return nil, err
 		}
 		if err := validateTools(cfg); err != nil {
 			return nil, err
@@ -626,6 +824,16 @@ func agentToolName(serverID, toolName string) string {
 	return "mcp__" + sanitizeToolPart(serverID, 16) + "__" + sanitizeToolPart(toolName, 40)
 }
 
+// AgentToolPrefix is the namespace a server's tool names share: "mcp__<server>__". It lets a host turn a
+// model-visible name back into a server and a tool name.
+func AgentToolPrefix(serverID string) string {
+	return "mcp__" + sanitizeToolPart(serverID, 16) + "__"
+}
+
+// AgentToolName is the model-visible name of a server tool, exported so a registry view can report the
+// name a run would see without duplicating the rule.
+func AgentToolName(serverID, toolName string) string { return agentToolName(serverID, toolName) }
+
 func sanitizeToolPart(value string, maxLen int) string {
 	var b strings.Builder
 	for _, r := range value {
@@ -642,4 +850,39 @@ func sanitizeToolPart(value string, maxLen int) string {
 		return "tool"
 	}
 	return b.String()
+}
+
+// catalogFingerprint identifies the spawn-relevant part of a configuration, so a catalog recorded for
+// one server definition is not reused for another.
+func catalogFingerprint(cfg Config) string {
+	digest := sha256.New()
+	fmt.Fprintf(digest, "%s\x00%s\x00%s\x00%v\x00%v", cfg.transport(), cfg.Command, cfg.URL, cfg.Args, cfg.ProtocolMode)
+	return hex.EncodeToString(digest.Sum(nil))[:16]
+}
+
+// MissingCatalogs lists the enabled servers of a workspace whose tool catalog was never discovered, so
+// a run can start exactly those and no other. A server that is disabled, blocked by trust or missing a
+// requirement is not listed: it could not start anyway. It starts nothing.
+func (r *Registry) MissingCatalogs(workspace string) []string {
+	states, err := r.States(workspace)
+	if err != nil {
+		return nil
+	}
+	var missing []string
+	for _, state := range states {
+		if !state.Enabled || state.BlockedByTrust || !state.Requirements.Empty() {
+			continue
+		}
+		if srv := r.tracked(workspace, state.ID); srv != nil {
+			if tools, _ := srv.tools(); len(tools) > 0 {
+				continue
+			}
+			if srv.recentlyFailed() {
+				continue
+			}
+		}
+		missing = append(missing, state.ID)
+	}
+	sort.Strings(missing)
+	return missing
 }
