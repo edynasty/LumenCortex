@@ -321,31 +321,42 @@ func (s *Store) ListSchedules(ctx context.Context) ([]ScheduledTask, error) {
 }
 
 // UpdateSchedule writes the editable columns of a task: its name, kind and session, payload, trigger,
-// missed policy, enablement and next_run_at. The last-firing columns and fire_count are written only by
-// the firing paths below, so an update cannot erase what a concurrent firing recorded.
-func (s *Store) UpdateSchedule(ctx context.Context, t ScheduledTask) error {
+// missed policy, enablement and next_run_at. It is a compare-and-set on from, the next_run_at the
+// caller read: updated is false when a firing, a missed occurrence or another update moved the row
+// since, and the caller re-reads it, so an update never writes back a slot a firing already claimed.
+// The last-firing columns and fire_count are written only by the firing paths below, so an update
+// cannot erase what a concurrent firing recorded.
+func (s *Store) UpdateSchedule(ctx context.Context, t ScheduledTask, from *time.Time) (updated bool, err error) {
 	if err := t.validate(); err != nil {
-		return err
+		return false, err
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE scheduled_tasks SET
 		name = ?, kind = ?, session_id = NULLIF(?, ''), payload_json = ?, trigger_kind = ?, run_at = ?,
 		interval_ms = ?, cron_expr = NULLIF(?, ''), timezone = ?, missed_policy = ?, enabled = ?,
 		next_run_at = ?, updated_at = ?
-		WHERE schedule_id = ?`,
+		WHERE schedule_id = ? AND next_run_at IS ?`,
 		t.Name, t.Kind, t.SessionID, string(t.Payload), t.TriggerKind, scheduleTimePtr(t.RunAt),
 		scheduleIntervalMS(t.Interval), t.Cron, scheduleTimezone(t.Timezone), t.MissedPolicy,
-		boolInt(t.Enabled), scheduleTimePtr(t.NextRunAt), scheduleTime(time.Now().UTC()), t.ID)
+		boolInt(t.Enabled), scheduleTimePtr(t.NextRunAt), scheduleTime(time.Now().UTC()), t.ID,
+		scheduleTimePtr(from))
 	if err != nil {
-		return scheduleWriteError(err, t)
+		return false, scheduleWriteError(err, t)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return false, err
 	}
-	if n == 0 {
-		return ErrNotFound
+	if n == 1 {
+		return true, nil
 	}
-	return nil
+	var exists int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM scheduled_tasks WHERE schedule_id = ?`, t.ID).Scan(&exists); err != nil {
+		return false, err
+	}
+	if exists == 0 {
+		return false, ErrNotFound
+	}
+	return false, nil
 }
 
 // DeleteSchedule removes one task; ErrNotFound when it was already gone.

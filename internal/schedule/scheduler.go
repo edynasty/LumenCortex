@@ -3,6 +3,7 @@ package schedule
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -533,14 +534,38 @@ func firstRunAt(t Task, now time.Time) (*time.Time, error) {
 }
 
 // Update applies a patch and stores the result. Enabling a disabled task, or changing its trigger,
-// recomputes next_run_at from the current time; disabling clears it.
+// recomputes next_run_at from the current time; disabling clears it. The write is a compare-and-set on
+// the next_run_at the patch was applied to: when a firing (of this scheduler or another process's)
+// moved the row in between, the patch is applied again to the row as it now is, so an update never
+// hands a claimed occurrence back to fire a second time.
 func (s *Scheduler) Update(ctx context.Context, id string, patch Patch) (Task, error) {
-	row, err := s.store.GetSchedule(ctx, id)
-	if err != nil {
-		return Task{}, err
+	for range maxUpdateAttempts {
+		row, err := s.store.GetSchedule(ctx, id)
+		if err != nil {
+			return Task{}, err
+		}
+		t, err := applyPatch(fromRow(row), patch, s.now(), s.minInterval)
+		if err != nil {
+			return Task{}, err
+		}
+		next, err := toRow(t)
+		if err != nil {
+			return Task{}, err
+		}
+		updated, err := s.store.UpdateSchedule(ctx, next, row.NextRunAt)
+		if err != nil {
+			return Task{}, err
+		}
+		if updated {
+			s.Wake()
+			return t, nil
+		}
 	}
-	t := fromRow(row)
-	now := s.now()
+	return Task{}, fmt.Errorf("schedule %s kept changing while it was updated; try again", id)
+}
+
+// applyPatch is t with patch applied at now, validated.
+func applyPatch(t Task, patch Patch, now time.Time, minInterval time.Duration) (Task, error) {
 	recompute := false
 	if patch.Name != nil {
 		t.Name = *patch.Name
@@ -579,23 +604,16 @@ func (s *Scheduler) Update(ctx context.Context, id string, patch Patch) (Task, e
 	if recompute {
 		t.NextRunAt = nil
 		if t.Enabled {
+			var err error
 			if t.NextRunAt, err = firstRunAt(t, now); err != nil {
 				return Task{}, err
 			}
 		}
 	}
 	t.UpdatedAt = now
-	if err := validate(t, s.minInterval); err != nil {
+	if err := validate(t, minInterval); err != nil {
 		return Task{}, err
 	}
-	row, err = toRow(t)
-	if err != nil {
-		return Task{}, err
-	}
-	if err := s.store.UpdateSchedule(ctx, row); err != nil {
-		return Task{}, err
-	}
-	s.Wake()
 	return t, nil
 }
 

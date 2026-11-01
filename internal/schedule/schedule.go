@@ -95,6 +95,9 @@ const (
 	// the session). A refused start costs one lock attempt, so the wait is short: the task fires a
 	// moment after the session is free.
 	busyRetry = 2 * time.Second
+	// maxUpdateAttempts bounds how often Update re-reads a row that a firing moved between its read and
+	// its compare-and-set write. A firing moves a row once per occurrence, so a second loss is rare.
+	maxUpdateAttempts = 3
 )
 
 // ShellPayload is the command a shell task submits.
@@ -183,7 +186,7 @@ type Store interface {
 	CreateSchedule(ctx context.Context, t session.ScheduledTask) error
 	GetSchedule(ctx context.Context, id string) (session.ScheduledTask, error)
 	ListSchedules(ctx context.Context) ([]session.ScheduledTask, error)
-	UpdateSchedule(ctx context.Context, t session.ScheduledTask) error
+	UpdateSchedule(ctx context.Context, t session.ScheduledTask, from *time.Time) (bool, error)
 	DeleteSchedule(ctx context.Context, id string) error
 	DueSchedules(ctx context.Context, at time.Time) ([]session.ScheduledTask, error)
 	EarliestScheduleDue(ctx context.Context) (*time.Time, error)

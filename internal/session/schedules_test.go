@@ -100,11 +100,24 @@ func TestScheduleRowsRoundTrip(t *testing.T) {
 	}
 	disabled := false
 	row := mustRow(t, store, "schedule_interval")
+	read := row.NextRunAt
 	row.Name = "renamed"
 	row.Enabled = disabled
 	row.NextRunAt = nil
-	if err := store.UpdateSchedule(ctx, row); err != nil {
-		t.Fatalf("update: %v", err)
+	// An update is a compare-and-set on the next_run_at it read: a stale one writes nothing.
+	if ok, err := store.UpdateSchedule(ctx, row, &next); err != nil || ok {
+		t.Fatalf("update with a stale next_run_at: ok=%v err=%v", ok, err)
+	}
+	if got := mustRow(t, store, "schedule_interval"); got.Name == "renamed" || got.NextRunAt == nil || !got.NextRunAt.Equal(later) {
+		t.Fatalf("a stale update wrote the row: %+v", got)
+	}
+	if ok, err := store.UpdateSchedule(ctx, row, read); err != nil || !ok {
+		t.Fatalf("update: ok=%v err=%v", ok, err)
+	}
+	missing := row
+	missing.ID = "schedule_missing"
+	if _, err := store.UpdateSchedule(ctx, missing, read); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("update of a missing task: %v, want ErrNotFound", err)
 	}
 	got = mustRow(t, store, "schedule_interval")
 	if got.Name != "renamed" || got.Enabled {
@@ -265,8 +278,8 @@ func TestClaimScheduleIsCompareAndSet(t *testing.T) {
 	row = mustRow(t, first, "schedule_race")
 	row.Enabled = false
 	row.NextRunAt = &next
-	if err := first.UpdateSchedule(ctx, row); err != nil {
-		t.Fatal(err)
+	if ok, err := first.UpdateSchedule(ctx, row, &next); err != nil || !ok {
+		t.Fatalf("update: ok=%v err=%v", ok, err)
 	}
 	later := next.Add(time.Minute)
 	if ok, err := second.ClaimSchedule(ctx, "schedule_race", next, &later, next); err != nil || ok {

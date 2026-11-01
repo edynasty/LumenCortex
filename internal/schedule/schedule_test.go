@@ -344,6 +344,54 @@ func TestDisableStopsAndEnableRecomputes(t *testing.T) {
 	}
 }
 
+// raceStore runs hook once, right after the first GetSchedule returned: a firing that lands between an
+// Update's read and its write.
+type raceStore struct {
+	*session.Store
+	once sync.Once
+	hook func()
+}
+
+func (r *raceStore) GetSchedule(ctx context.Context, id string) (session.ScheduledTask, error) {
+	row, err := r.Store.GetSchedule(ctx, id)
+	r.once.Do(r.hook)
+	return row, err
+}
+
+// An update racing a firing never writes back the next_run_at it read: the claimed occurrence stays
+// claimed, so it does not fire a second time, and the update still lands (RT-state-5).
+func TestUpdateRacingAFiringDoesNotRefire(t *testing.T) {
+	ctx := context.Background()
+	clock := newFakeClock(testBase)
+	store := openScheduleStore(t, filepath.Join(t.TempDir(), ".lumencortex"))
+	defer store.Close()
+	actions := newFakeActions()
+	firing := newTestScheduler(t, store, actions, clock, nil)
+	task, err := firing.Create(ctx, shellSpec("hourly", "make", Trigger{Kind: TriggerInterval, Every: time.Hour}))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	clock.Advance(time.Hour)
+	editor := newTestScheduler(t, &raceStore{Store: store, hook: func() { firing.tick(ctx) }}, newFakeActions(), clock, nil)
+	name := "renamed"
+	updated, err := editor.Update(ctx, task.ID, Patch{Name: &name})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if updated.Name != name {
+		t.Fatalf("update returned name %q", updated.Name)
+	}
+	row := mustTask(t, store, task.ID)
+	if row.Name != name || row.FireCount != 1 || row.NextRunAt == nil || !row.NextRunAt.Equal(testBase.Add(2*time.Hour)) {
+		t.Fatalf("row after the racing update: name=%q count=%d next=%v, want %q, 1, %v",
+			row.Name, row.FireCount, row.NextRunAt, name, testBase.Add(2*time.Hour))
+	}
+	firing.tick(ctx)
+	if shells, _ := actions.count(); shells != 1 {
+		t.Fatalf("one occurrence ran %d times, want 1", shells)
+	}
+}
+
 // Deleting a task stops it: nothing fires afterwards and the row is gone.
 func TestDeleteStopsFiring(t *testing.T) {
 	ctx := context.Background()
