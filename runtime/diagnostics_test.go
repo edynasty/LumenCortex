@@ -526,6 +526,41 @@ func TestEngineCloseFlushesAndStopsBridge(t *testing.T) {
 	}
 }
 
+// ADR-0019 §5 (RT-state-8): the session goal is the user's task text - the first user row when there is
+// no Input - so the session.start record reduces it to its byte length at every level, as a prompt is,
+// and the log never holds it (it would outlive a deletion of the session).
+func TestSessionGoalIsReducedToItsLengthInTheLog(t *testing.T) {
+	engine, _ := diagWorkspace(t)
+	engine.diag.Level().Set(slog.LevelDebug)
+	const goal = "GOAL-SENTINEL-the user's private task text"
+	handle, err := engine.NewSession(context.Background(), SessionOptions{Goal: goal})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if text := diagLogText(t, engine); strings.Contains(text, "GOAL-SENTINEL") {
+		t.Fatalf("the log holds the session goal:\n%s", text)
+	}
+	records, err := engine.DiagnosticLogs(context.Background(), DiagnosticQuery{Level: "debug", SessionID: handle.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range records {
+		if record.Msg != "session.start" {
+			continue
+		}
+		data, _ := record.Attrs["data"].(map[string]any)
+		stub, _ := data["goal"].(map[string]any)
+		if record.Level != "INFO" || stub["redacted"] != "content" || stub["bytes"] != float64(len(goal)) {
+			t.Fatalf("session.start = %+v, want INFO with the goal as a content stub of %d bytes", record, len(goal))
+		}
+		return
+	}
+	t.Fatalf("no session.start record: %+v", records)
+}
+
 func TestDiagLogDirectoryPermissions(t *testing.T) {
 	engine, _ := diagWorkspace(t)
 	info, err := os.Stat(engine.diag.Dir())

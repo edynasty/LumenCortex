@@ -59,7 +59,10 @@ var secretSuffixes = []string{
 }
 
 // contentKeys are the attribute names whose value is reduced to its byte length. Prompts, model
-// messages, reasoning, tool output and tool arguments never reach the log.
+// messages, reasoning, tool output and tool arguments never reach the log, nor the text a user or a
+// model wrote as a task: a session's goal (its first user row when it has no Input; session.start,
+// subagent.spawned), a work unit's goal, description and summary (work_unit.blocked_final), and the
+// output tail of a failed check (checks.blocked_final).
 var contentKeys = map[string]bool{
 	"content":          true,
 	"reasoning":        true,
@@ -78,6 +81,10 @@ var contentKeys = map[string]bool{
 	"command":          true,
 	"text":             true,
 	"body":             true,
+	"goal":             true,
+	"description":      true,
+	"summary":          true,
+	"tail":             true,
 }
 
 // debugKeepable are the content keys debug level may keep, masked and truncated: a command or the

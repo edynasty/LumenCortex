@@ -165,6 +165,10 @@ func TestContentKeysAreReducedToTheirLength(t *testing.T) {
 		"command":           "cat secret.txt",
 		"text":              "some text",
 		"body":              "an http body",
+		"goal":              "the user's task",
+		"description":       "a work unit's description",
+		"summary":           "a work unit's summary",
+		"tail":              "the tail of a failed check's output",
 	}
 	for _, level := range []slog.Level{slog.LevelDebug, slog.LevelInfo, slog.LevelError} {
 		for key, value := range content {
