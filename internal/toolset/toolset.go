@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -45,6 +46,9 @@ type Options struct {
 	// ShellTimeout is the default timeout of a foreground shell call (execution.shellTimeoutSeconds);
 	// 0 is none. A call's timeout_sec replaces it; the run's tool deadline bounds both.
 	ShellTimeout time.Duration
+	// Logger receives the tools' own log lines; nil discards them. LSP lifecycle lines come from the
+	// manager, which has its own logger.
+	Logger *slog.Logger
 }
 type Set struct {
 	workspace      string
@@ -61,6 +65,7 @@ type Set struct {
 	protected      Protected
 	// shellTimeoutDefault is Options.ShellTimeout.
 	shellTimeoutDefault time.Duration
+	log                 *slog.Logger
 	tools               map[string]tool
 }
 type tool struct {
@@ -107,7 +112,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, log: newToolsetLogger(opts.Logger), tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -232,9 +237,7 @@ func (s *Set) registerBuiltins() {
 		"command":     str(),
 		"timeout_sec": map[string]any{"type": "integer", "minimum": 1, "maximum": maxShellTimeoutSeconds, "description": "Seconds the command may run before its process group is terminated (SIGTERM, then SIGKILL). Replaces the configured default; the run's deadline still bounds it."},
 	}, "command")}, s.runShell)
-	if s.lsp != nil {
-		s.registerLSPTools()
-	}
+	s.registerLSPTools()
 	if s.mcp != nil {
 		s.registerMCPTools()
 	}

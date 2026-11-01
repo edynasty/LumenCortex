@@ -57,6 +57,10 @@ func executionTierOf(name string, specs []protocol.ToolSpec) executionTier {
 		return tierFiles
 	case "shell":
 		return tierWorkspace
+	case "lsp_rename":
+		// A rename writes files the language server chooses, which the call's arguments do not name:
+		// the whole work tree is snapshotted, as for shell.
+		return tierWorkspace
 	case toolStartTask, toolSpawnSubagent:
 		return tierAdmit
 	}
