@@ -433,12 +433,10 @@ func (e *Engine) promptTools(workspace, policy string, child bool, sessionID str
 	registry := e.mcpRegistry
 	var controller toolset.SubagentController
 	var threads toolset.ThreadReader
-	// The working notebook is bound per run to the run's session (ADR-0020); a report without a
-	// session describes a run that has none yet, so it lists none.
-	var notebooks toolset.NotebookStore
-	if sessionID != "" {
-		notebooks = newNotebookAccess(e, sessionID, "report")
-	}
+	// The working notebook is bound per run to the run's session (ADR-0020). A report without a
+	// session describes a run that will have one, so it lists the notebook tools too; nothing here
+	// executes them.
+	notebooks := toolset.NotebookStore(newNotebookAccess(e, sessionID, "report"))
 	if child {
 		// A child runs without MCP, without spawn tools and without threads of its own.
 		registry = nil
