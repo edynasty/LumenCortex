@@ -1077,3 +1077,34 @@ func (d *deletingActions) notify(event string, t Task) {
 	default:
 	}
 }
+
+// A firing whose action reports that the previous one is still running is recorded as an overlap skip,
+// not as a failure: the run lock of another process is not an error of this scheduler.
+func TestBusyActionIsSkippedAsOverlap(t *testing.T) {
+	ctx := context.Background()
+	clock := newFakeClock(testBase)
+	store := openScheduleStore(t, filepath.Join(t.TempDir(), ".lumencortex"))
+	defer store.Close()
+	actions := newFakeActions()
+	s := newTestScheduler(t, store, actions, clock, nil)
+	if err := s.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	task, err := s.Create(ctx, shellSpec("busy", "make", Trigger{Kind: TriggerInterval, Every: time.Minute}))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	actions.mu.Lock()
+	actions.runErr = ErrBusy
+	actions.mu.Unlock()
+	clock.Advance(time.Minute)
+	s.Wake()
+	waitEvent(t, actions.events, "fired")
+	row := mustTask(t, store, task.ID)
+	if row.LastStatus != session.ScheduleStatusSkippedOverlap {
+		t.Fatalf("status = %q, want %q", row.LastStatus, session.ScheduleStatusSkippedOverlap)
+	}
+	if row.LastError != "" {
+		t.Fatalf("a skip recorded an error: %q", row.LastError)
+	}
+}

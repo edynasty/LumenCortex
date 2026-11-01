@@ -127,7 +127,8 @@ spring-forward gap skips does not fire, and a wall time the fall-back hour repea
 - A firing is claimed by `UPDATE … SET next_run_at = <next> WHERE schedule_id = ? AND next_run_at = <read>`:
   two Engines on one database never fire the same occurrence twice.
 - Overlap: when the previous firing's job or run is still active, the occurrence is skipped
-  (`skipped_overlap`), never run concurrently.
+  (`skipped_overlap`), never run concurrently. An agent task whose session another process is running
+  (the run lock is held) is the same case: the start is refused and the occurrence is recorded as a skip.
 - An agent task fires only in a process with a `RunSupervisor`; otherwise it stays due.
 - A task whose stored trigger yields no further slot (a corrupted expression, an unknown zone) is
   disabled with `last_status = failed` and the reason in `last_error`, so it cannot fail on every tick.

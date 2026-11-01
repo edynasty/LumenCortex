@@ -318,6 +318,10 @@ func (s *Scheduler) run(ctx context.Context, t Task, now time.Time, claimedFrom 
 	} else {
 		ref, err = s.actions.RunShell(ctx, t)
 	}
+	if errors.Is(err, ErrBusy) {
+		s.record(ctx, t, session.ScheduleStatusSkippedOverlap, t.LastRef, "", started)
+		return
+	}
 	if errors.Is(err, ErrNoRunner) {
 		// No runner in this process: give the occurrence back so the task stays due, and wait for a
 		// Wake or the retry delay instead of spinning on it.
