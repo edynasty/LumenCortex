@@ -73,7 +73,7 @@ func newServer(registry *Registry, key, workspace string, cfg Config, scope stri
 
 // configure replaces the configuration and scope, stopping a running client when the configuration
 // that produced it changed.
-func (s *server) configure(cfg Config, scope string) {
+func (s *server) configure(cfg Config, scope string) session {
 	s.mu.Lock()
 	changed := !sameSpawnConfig(s.cfg, cfg) || s.scope != scope
 	s.cfg = cfg
@@ -88,9 +88,7 @@ func (s *server) configure(cfg Config, scope string) {
 		s.stopIdleTimerLocked()
 	}
 	s.mu.Unlock()
-	if current != nil {
-		_ = current.Close()
-	}
+	return current
 }
 
 func sameSpawnConfig(a, b Config) bool {
@@ -468,6 +466,21 @@ func (s *server) dropClient() {
 	if current != nil {
 		_ = current.Close()
 	}
+}
+
+// detach forgets the server's client without closing it, returning it for the caller to close outside
+// any lock.
+func (s *server) detach() []session {
+	s.mu.Lock()
+	current := s.current
+	s.current = nil
+	s.sem = nil
+	s.stopIdleTimerLocked()
+	s.mu.Unlock()
+	if current == nil {
+		return nil
+	}
+	return []session{current}
 }
 
 // stop closes the server, whatever its state, after closing the server-side sessions this runtime

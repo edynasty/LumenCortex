@@ -271,17 +271,23 @@ func (r *Registry) UpsertScope(scope string, cfg Config) error {
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	target, path, err := r.scopeLocked(scope)
 	if err != nil {
+		r.mu.Unlock()
 		return err
 	}
 	if _, exists := target[cfg.ID]; !exists && len(target) >= MaxServers {
+		r.mu.Unlock()
 		return errors.New("mcp server configuration limit exceeded")
 	}
 	target[cfg.ID] = cfg
-	r.reconfigureLocked(cfg.ID)
-	return saveConfigFile(path, target)
+	stopped := r.reconfigureLocked(cfg.ID)
+	saveErr := saveConfigFile(path, target)
+	r.mu.Unlock()
+	// A process the old entry started is closed outside the registry lock: waiting for a server to exit
+	// must not block every other registry operation.
+	closeSessions(stopped)
+	return saveErr
 }
 
 func (r *Registry) Delete(id string) error {
@@ -291,14 +297,17 @@ func (r *Registry) Delete(id string) error {
 func (r *Registry) DeleteScope(scope, id string) error {
 	id = strings.TrimSpace(id)
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	target, path, err := r.scopeLocked(scope)
 	if err != nil {
+		r.mu.Unlock()
 		return err
 	}
 	delete(target, id)
-	r.stopServersLocked(id)
-	return saveConfigFile(path, target)
+	stopped := r.stopServersLocked(id)
+	saveErr := saveConfigFile(path, target)
+	r.mu.Unlock()
+	closeSessions(stopped)
+	return saveErr
 }
 
 func (r *Registry) scopeLocked(scope string) (map[string]Config, string, error) {
@@ -316,27 +325,47 @@ func (r *Registry) scopeLocked(scope string) (map[string]Config, string, error) 
 }
 
 // reconfigureLocked re-reads the effective configuration of one id into the lifecycle table, so a
-// changed entry stops the process the old one started.
-func (r *Registry) reconfigureLocked(id string) {
+// changed entry stops the process the old one started. It returns the clients the caller must close
+// after releasing the registry lock.
+func (r *Registry) reconfigureLocked(id string) []session {
 	trusted := r.projectTrusted()
 	cfg, scope, ok := r.resolveLocked(id, trusted)
-	for key, srv := range r.servers {
-		if !strings.HasSuffix(key, "\x00"+id) {
+	var stopped []session
+	for _, srv := range r.servers {
+		if !strings.HasSuffix(srv.key, "\x00"+id) {
 			continue
 		}
 		if !ok {
-			srv.configure(Config{ID: id, Disabled: true}, scope)
+			if client := srv.configure(Config{ID: id, Disabled: true}, scope); client != nil {
+				stopped = append(stopped, client)
+			}
 			continue
 		}
-		srv.configure(cfg, scope)
+		if client := srv.configure(cfg, scope); client != nil {
+			stopped = append(stopped, client)
+		}
 	}
+	return stopped
 }
 
-func (r *Registry) stopServersLocked(id string) {
+// stopServersLocked forgets the lifecycle entries of one id, returning the clients to close after the
+// registry lock is released.
+func (r *Registry) stopServersLocked(id string) []session {
+	var stopped []session
 	for key, srv := range r.servers {
 		if strings.HasSuffix(key, "\x00"+id) {
-			_ = srv.stop()
+			stopped = append(stopped, srv.detach()...)
 			delete(r.servers, key)
+		}
+	}
+	return stopped
+}
+
+// closeSessions closes clients outside any registry lock.
+func closeSessions(clients []session) {
+	for _, client := range clients {
+		if client != nil {
+			_ = client.Close()
 		}
 	}
 }
@@ -500,43 +529,52 @@ func (r *Registry) States(workspace string) ([]ServerState, error) {
 		return nil, err
 	}
 	trusted := r.projectTrusted()
+	// Snapshot under the lock; the requirements do filesystem and environment lookups (PATH, sockets)
+	// and must not run while every other registry operation waits.
+	type snapshot struct {
+		cfg     Config
+		srv     *server
+		running bool
+		tools   int
+		lastErr string
+	}
 	r.mu.Lock()
 	configs := r.effectiveConfigsLocked(trusted)
-	out := make([]ServerState, 0, len(configs))
+	snapshots := make([]snapshot, 0, len(configs))
 	for _, cfg := range configs {
-		key := instanceKey(workspace, cfg.ID)
-		srv := r.servers[key]
-		if srv == nil {
-			out = append(out, ServerState{
-				ID:             cfg.ID,
-				Name:           cfg.Name,
-				Transport:      cfg.transport(),
-				Scope:          cfg.Scope,
-				Enabled:        !cfg.Disabled,
-				BlockedByTrust: cfg.BlockedByTrust,
-				Requirements:   requirementsFor(cfg, cfg.Scope, cfg.BlockedByTrust),
-			})
-			continue
+		entry := snapshot{cfg: cfg, srv: r.servers[instanceKey(workspace, cfg.ID)]}
+		if entry.srv != nil {
+			entry.srv.mu.Lock()
+			entry.running = entry.srv.current != nil
+			entry.tools = len(entry.srv.catalog)
+			entry.lastErr = entry.srv.lastErr
+			entry.srv.mu.Unlock()
 		}
-		srv.mu.Lock()
-		running := srv.current != nil
-		toolCount := len(srv.catalog)
-		lastErr := srv.lastErr
-		srv.mu.Unlock()
-		out = append(out, ServerState{
+		snapshots = append(snapshots, entry)
+	}
+	r.mu.Unlock()
+
+	out := make([]ServerState, 0, len(snapshots))
+	for _, entry := range snapshots {
+		cfg := entry.cfg
+		state := ServerState{
 			ID:             cfg.ID,
 			Name:           cfg.Name,
 			Transport:      cfg.transport(),
 			Scope:          cfg.Scope,
 			Enabled:        !cfg.Disabled,
-			Running:        running,
+			Running:        entry.running,
 			BlockedByTrust: cfg.BlockedByTrust,
-			Tools:          toolCount,
-			LastError:      lastErr,
-			Requirements:   srv.configRequirements(),
-		})
+			Tools:          entry.tools,
+			LastError:      entry.lastErr,
+		}
+		if entry.srv != nil {
+			state.Requirements = entry.srv.configRequirements()
+		} else {
+			state.Requirements = requirementsFor(cfg, cfg.Scope, cfg.BlockedByTrust)
+		}
+		out = append(out, state)
 	}
-	r.mu.Unlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
 }
