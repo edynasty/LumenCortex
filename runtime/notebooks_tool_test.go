@@ -119,11 +119,20 @@ func TestReadOnlyRunUpdatesItsNotebookButNotFiles(t *testing.T) {
 		}
 	}
 
+	before, err := engine.TaskState(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	result, err := readOnly.Execute(ctx, "notebook_update", map[string]any{
 		"notebook": "plan", "op": "create", "content": "# Plan\n\n## Handoff\nstart\n",
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// A notebook write is not a workspace change: it opens no completion obligation and does not
+	// touch the Task State, which is the boundary the notebook must not cross (ADR-0020 §2).
+	if result.MutatesWorkspace {
+		t.Fatal("a notebook write reported a workspace change")
 	}
 	var created struct {
 		Version int64 `json:"version"`
@@ -186,6 +195,14 @@ func TestReadOnlyRunUpdatesItsNotebookButNotFiles(t *testing.T) {
 		"notebook": "plan", "op": "replace", "content": "x",
 	}, nil); err == nil {
 		t.Fatal("replace without expected_version was accepted")
+	}
+
+	after, err := engine.TaskState(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Version != before.Version {
+		t.Fatalf("a notebook write advanced the Task State %d -> %d", before.Version, after.Version)
 	}
 
 	// The file tools of the same run are still read-only.

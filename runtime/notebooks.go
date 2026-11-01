@@ -97,9 +97,11 @@ func (e *Engine) DeleteNotebook(ctx context.Context, sessionID, id string) error
 	if err != nil {
 		return err
 	}
-	e.events.publish("notebook.deleted", sessionID, map[string]any{"notebookId": deleted.ID})
+	e.events.publish("notebook.deleted", sessionID, map[string]any{
+		"notebookId": deleted.ID, "version": deleted.Version, "bytes": deleted.Bytes,
+	})
 	_ = e.store.Journal(context.WithoutCancel(ctx), "notebook.deleted", map[string]any{
-		"sessionId": sessionID, "id": deleted.ID, "version": deleted.Version,
+		"sessionId": sessionID, "id": deleted.ID, "version": deleted.Version, "bytes": deleted.Bytes,
 	})
 	return nil
 }

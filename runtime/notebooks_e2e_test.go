@@ -290,7 +290,17 @@ func TestNotebookEventsCarryNoBody(t *testing.T) {
 	if updated.NotebookID != doc.ID || updated.Version != 2 || updated.Bytes == 0 {
 		t.Fatalf("notebook.updated = %s", raw)
 	}
-	if _, ok := seen["notebook.deleted"]; !ok {
+	raw, ok = seen["notebook.deleted"]
+	if !ok {
 		t.Fatalf("no notebook.deleted event: %v", seen)
+	}
+	var deleted struct {
+		NotebookID string `json:"notebookId"`
+		Version    int64  `json:"version"`
+		Bytes      int    `json:"bytes"`
+	}
+	decodeJSON(t, raw, &deleted)
+	if deleted.NotebookID != doc.ID || deleted.Version != 2 || deleted.Bytes == 0 {
+		t.Fatalf("notebook.deleted = %s", raw)
 	}
 }
