@@ -396,16 +396,26 @@ func (r runJobs) Active(ctx context.Context) ([]toolset.JobInfo, error) {
 	return out, nil
 }
 
-// Wait blocks until one of the named jobs is terminal, the timeout passes or ctx ends.
+// Wait blocks until one of the named jobs is terminal, the timeout passes or ctx ends. The outcome is
+// logged: a run that spent its budget waiting is visible in the diagnostics log, with the job that
+// ended (if any) and how long the wait took.
 func (r runJobs) Wait(ctx context.Context, ids []string, timeout time.Duration) (toolset.JobInfo, bool, error) {
 	for _, id := range ids {
 		if _, err := r.own(ctx, id); err != nil {
 			return toolset.JobInfo{}, false, err
 		}
 	}
+	started := time.Now()
 	job, ok, err := r.manager.Wait(ctx, ids, timeout)
 	if err != nil {
 		return toolset.JobInfo{}, false, err
+	}
+	if r.logger != nil {
+		attrs := map[string]any{"waited_ms": time.Since(started).Milliseconds(), "timed_out": !ok}
+		if ok {
+			attrs["job_id"], attrs["state"] = job.ID, job.State
+		}
+		r.log(ctx, "job.wait", attrs, nil)
 	}
 	return runJobInfo(job), ok, nil
 }
