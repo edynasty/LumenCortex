@@ -372,7 +372,7 @@ var journalPayloadStrings = map[string]bool{
 	// identifiers and sequence labels
 	"sessionId": true, "parentSessionId": true, "childSessionId": true,
 	"id": true, "ids": true, "seq": true, "nextStep": true, "taskId": true,
-	"toolCallId": true, "callId": true, "relationId": true, "check": true,
+	"toolCallId": true, "callId": true, "relationId": true, "check": true, "scheduleId": true,
 	"modelRef": true, "nextModelRef": true, "provider": true, "model": true, "agent": true,
 	// the tool name
 	"name": true, "tool": true, "toolName": true,
