@@ -45,6 +45,9 @@ type Options struct {
 	// ShellTimeout is the default timeout of a foreground shell call (execution.shellTimeoutSeconds);
 	// 0 is none. A call's timeout_sec replaces it; the run's tool deadline bounds both.
 	ShellTimeout time.Duration
+	// Jobs is the background job queue of the run's session (ADR-0019 §3); nil offers no job tools and
+	// no background mode.
+	Jobs JobController
 }
 type Set struct {
 	workspace      string
@@ -61,6 +64,7 @@ type Set struct {
 	protected      Protected
 	// shellTimeoutDefault is Options.ShellTimeout.
 	shellTimeoutDefault time.Duration
+	jobs                JobController
 	tools               map[string]tool
 }
 type tool struct {
@@ -114,7 +118,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, jobs: opts.Jobs, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -235,10 +239,21 @@ func (s *Set) registerBuiltins() {
 		}},
 		"required": []string{"patches"}, "additionalProperties": false,
 	}}, s.applyPatch)
-	s.add(protocol.ToolSpec{Name: protocol.ToolBash, Description: bashDescription(s.shell.Interpreter), Permission: "exec", MutatesWorkspace: true, Parameters: obj(map[string]any{
+	bashParams := map[string]any{
 		"command":     str(),
-		"timeout_sec": map[string]any{"type": "integer", "minimum": 1, "maximum": maxShellTimeoutSeconds, "description": "Seconds the command may run before its process group is terminated (SIGTERM, then SIGKILL). Replaces the configured default; the run's deadline still bounds it."},
-	}, "command")}, s.runShell)
+		"timeout_sec": map[string]any{"type": "integer", "minimum": 1, "maximum": maxShellTimeoutSeconds, "description": "Seconds the command may run before its process group is terminated (SIGTERM, then SIGKILL). In the foreground it replaces the configured default and the run's deadline still bounds it."},
+	}
+	description := bashDescription(s.shell.Interpreter)
+	if s.jobs != nil {
+		// The job queue of this run is available: the same tool can start a command in the background and
+		// return at once with its job id, which job_status, job_wait, job_cancel and job_list act on.
+		bashParams["mode"] = map[string]any{"type": "string", "enum": []string{"foreground", "background"}}
+		description += " mode \"background\" starts it as a durable background job and returns its job id at once: use it for " +
+			"long builds and test runs, then job_wait, job_status or job_cancel it. A run cannot deliver its " +
+			"answer while its background jobs are active. timeout_sec bounds a background job's run time; its " +
+			"output is kept head and tail only."
+	}
+	s.add(protocol.ToolSpec{Name: protocol.ToolBash, Description: description, Permission: "exec", MutatesWorkspace: true, Parameters: obj(bashParams, "command")}, s.runShell)
 	if s.lsp != nil {
 		s.registerLSPTools()
 	}
@@ -247,6 +262,9 @@ func (s *Set) registerBuiltins() {
 	}
 	if s.subagents != nil {
 		s.registerSubagentTools()
+	}
+	if s.jobs != nil {
+		s.registerJobTools()
 	}
 	s.registerThreadTools()
 	s.registerSkillTools()

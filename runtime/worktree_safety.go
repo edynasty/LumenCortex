@@ -68,7 +68,7 @@ type WorktreeInspection struct {
 	// Head is the worktree's HEAD, or the branch tip when the directory is missing.
 	Head string `json:"head,omitempty"`
 	// TargetHead is the main checkout's HEAD that UnappliedCommits is measured against.
-	TargetHead       string   `json:"targetHead,omitempty"`
+	TargetHead string   `json:"targetHead,omitempty"`
 	DirtyFiles []string `json:"dirtyFiles,omitempty"`
 	// IgnoredFiles are ignored entries ("dir/" for a fully ignored directory) that git
 	// reports clean but removing the directory deletes: build output, dependencies,
@@ -579,6 +579,15 @@ func (e *Engine) DeleteSession(ctx context.Context, sessionID string, opts Workt
 		return DeleteSessionResult{}, errors.Join(err, releaseAll())
 	}
 	ids := append([]string{sessionID}, children...)
+	// The session's background jobs end with it: a queued job never starts, a running one has its
+	// process group killed, before the rows and the content go (ADR-0019 §3).
+	if e.jobs != nil {
+		for _, id := range ids {
+			if _, err := e.jobs.CancelSession(ctx, id); err != nil {
+				return DeleteSessionResult{}, errors.Join(err, lease.Release(), releaseAll())
+			}
+		}
+	}
 	deletion, _, err := e.store.BeginPrivacyDeletion(ctx, ids)
 	if err == nil {
 		err = e.purgeDeletion(ctx, deletion)

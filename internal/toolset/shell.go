@@ -69,6 +69,11 @@ func (s *Set) runShell(ctx context.Context, args map[string]any, onOutput func(p
 		})
 		return protocol.ToolResult{OK: false, Content: string(content)}, nil
 	}
+	if s.jobs != nil {
+		if mode, _ := args["mode"].(string); mode == "background" {
+			return s.runShellBackground(ctx, command, args)
+		}
+	}
 	// A command changed the workspace only if its state differs afterwards. When the state cannot be read
 	// either time, the command counts as a change.
 	before, known := s.repository.WorkspaceState(ctx)

@@ -36,9 +36,23 @@ Core workspace tools:
 - `write_file`
 - `replace_in_file`
 - `apply_patch` — validates an exact multi-hunk / multi-file create-update-delete batch before mutating targets
-- `bash` — runs each command in bash (`/bin/bash -lc`, else bash on PATH; POSIX `sh` when bash is not installed; on Windows Git Bash, else `cmd.exe /C`; the tool description names the program actually used); asynchronous, timeout-bounded and cancellable; stdout/stderr stream as live Agent events; POSIX cancellation terminates the command process group. Before ADR-0019 it was named `shell`: host lists naming `shell` (allowlists, denylists, workflow `allowedTools` and tool conditions) mean `bash`. `git_status`/`git_diff` are no longer agent tools; the agent runs `git` through `bash`, and the host Git API is unchanged
+- `bash` — runs each command in bash (`/bin/bash -lc`, else bash on PATH; POSIX `sh` when bash is not installed; on Windows Git Bash, else `cmd.exe /C`; the tool description names the program actually used); asynchronous, timeout-bounded and cancellable; stdout/stderr stream as live Agent events; POSIX cancellation terminates the command process group. `mode: "background"` submits the command to the durable job queue instead and returns its job id at once; `timeout_sec` bounds a background job's run time. Before ADR-0019 it was named `shell`: host lists naming `shell` (allowlists, denylists, workflow `allowedTools` and tool conditions) mean `bash`. `git_status`/`git_diff` are no longer agent tools; the agent runs `git` through `bash`, and the host Git API is unchanged
 - `lumencortex_context`
 - `lumencortex_ingest`
+
+Background job tools, registered with `shell` and under the same `exec` permission (ADR-0019 §3):
+
+- `job_status` — state, exit code, duration and the bounded head and tail of a job's output (readable while it runs)
+- `job_wait` — waits for one of the named jobs, or for any active job of the run, bounded by `timeout_sec` and by the time left in the run; it never cancels the job
+- `job_cancel` — a queued job never starts; a running one has its process group killed
+- `job_list` — this session's recent jobs
+
+A job's row in `jobs` is its source of truth: every transition is one compare-and-set `UPDATE`, so a
+restart finds each job where its last committed transition left it. Output is written head-and-tail,
+bounded, under `<state>/jobs/<job_id>/`; the database holds byte counts only. The Engine exposes a
+run's active jobs (`ActiveJobsForRun`) and cancels them (`CancelRunJobs`), so the completion gate and
+the run's exit paths can use them, and the manager that opens a database adopts the queued jobs of a
+dead process and records its running jobs `outcome_unknown` rather than running them again.
 
 LSP tools when a language server is configured:
 
