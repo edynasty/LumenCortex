@@ -16,6 +16,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
+	"github.com/edynasty/LumenCortex/internal/jobs"
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/mcp"
 	"github.com/edynasty/LumenCortex/internal/migrate"
@@ -102,7 +103,10 @@ type Engine struct {
 	plugins      *PluginRegistry
 	hooks        *hookDispatcher
 	shell        *shell.Runner
-	lspMu        sync.Mutex
+	// jobs is the background job queue of this process (ADR-0019 §3): the workers, the recovery of the
+	// jobs of a dead owner, and the retention sweep. It is closed before the store.
+	jobs  *jobs.Manager
+	lspMu sync.Mutex
 	// noteMu makes the user-note limit check and the queueing of the add one step in this Engine.
 	noteMu        sync.Mutex
 	lspManagers   map[string]*lsp.Manager
@@ -319,6 +323,18 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		_ = engine.Close()
 		return nil, err
 	}
+	// The queue is recovered after the run reconciliation, so a session whose run died is settled
+	// before the jobs it left are, and before the Engine accepts a submission.
+	manager, err := engine.openJobs()
+	if err != nil {
+		_ = engine.Close()
+		return nil, err
+	}
+	if err := manager.Start(ctx); err != nil {
+		_ = engine.Close()
+		return nil, err
+	}
+	engine.jobs = manager
 	engine.resumeDeletions(ctx)
 	return engine, nil
 }
@@ -383,6 +399,11 @@ func (e *Engine) Close() error {
 	}
 	if e.mcpRegistry != nil {
 		_ = e.mcpRegistry.Close()
+	}
+	// The job manager goes before the store: Close cancels the jobs this Engine runs and records their
+	// state while the database is still open.
+	if e.jobs != nil {
+		closeErr = errors.Join(closeErr, e.jobs.Close())
 	}
 	return errors.Join(closeErr, e.store.Close())
 }

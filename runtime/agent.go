@@ -276,6 +276,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Threads:        threadReader{engine: e, sessionID: sessionID, workspace: agentWorkspace},
 		Skills:         newSkillReader(prompt.Skills.Included),
 		Protected:      e.protected,
+		// The run's background job queue: its session, its run id and the workspace its commands run in.
+		// The completion gate and the run's end use the same binding through the Engine (ADR-0019 §3).
+		Jobs: e.runJobs(sessionID, runID, agentWorkspace),
 	})
 	if err != nil {
 		return nil, err

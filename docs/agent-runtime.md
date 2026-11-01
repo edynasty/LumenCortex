@@ -36,9 +36,23 @@ Core workspace tools:
 - `write_file`
 - `replace_in_file`
 - `apply_patch` — validates an exact multi-hunk / multi-file create-update-delete batch before mutating targets
-- `shell` — asynchronous, timeout-bounded and cancellable; stdout/stderr stream as live Agent events; POSIX cancellation terminates the command process group
+- `shell` — asynchronous, timeout-bounded and cancellable; stdout/stderr stream as live Agent events; POSIX cancellation terminates the command process group. `mode: "background"` submits the command to the durable job queue instead and returns its job id at once; `timeout_sec` bounds a background job's run time
 - `lumencortex_context`
 - `lumencortex_ingest`
+
+Background job tools, registered with `shell` and under the same `exec` permission (ADR-0019 §3):
+
+- `job_status` — state, exit code, duration and the bounded head and tail of a job's output (readable while it runs)
+- `job_wait` — waits for one of the named jobs, or for any active job of the run, bounded by `timeout_sec` and by the time left in the run; it never cancels the job
+- `job_cancel` — a queued job never starts; a running one has its process group killed
+- `job_list` — this session's recent jobs
+
+A job's row in `jobs` is its source of truth: every transition is one compare-and-set `UPDATE`, so a
+restart finds each job where its last committed transition left it. Output is written head-and-tail,
+bounded, under `<state>/jobs/<job_id>/`; the database holds byte counts only. A run's active jobs are
+visible to the completion gate and are cancelled when the run ends, and the manager that opens a
+database adopts the queued jobs of a dead process and records its running jobs `outcome_unknown` rather
+than running them again.
 
 LSP tools when a language server is configured:
 
