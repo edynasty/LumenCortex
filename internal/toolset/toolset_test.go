@@ -113,3 +113,34 @@ func TestReplaceRejectsAmbiguousText(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+// TestNotebookToolsNeedAStore: the three tools exist only when the runtime binds the run's notebook.
+func TestNotebookToolsNeedAStore(t *testing.T) {
+	set, err := New(Options{Workspace: t.TempDir(), Policy: PolicyFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, spec := range set.Specs(nil) {
+		if spec.Permission == PermissionState || strings.HasPrefix(spec.Name, "notebook_") {
+			t.Fatalf("a run without a notebook store offers %s", spec.Name)
+		}
+	}
+	bound, err := New(Options{Workspace: t.TempDir(), Policy: PolicyReadOnly, Notebook: stubNotebooks{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"notebook_list", "notebook_read", "notebook_update"} {
+		if _, ok := findSpec(bound.Specs(nil), name); !ok {
+			t.Fatalf("read-only run with a notebook store does not offer %s", name)
+		}
+	}
+}
+
+// stubNotebooks is a notebook store that is never called: these tests inspect the tool list only.
+type stubNotebooks struct{}
+
+func (stubNotebooks) List(context.Context, string) (any, error) { return nil, nil }
+
+func (stubNotebooks) Read(context.Context, string, string, string) (any, error) { return nil, nil }
+
+func (stubNotebooks) Update(context.Context, NotebookUpdate) (any, error) { return nil, nil }
