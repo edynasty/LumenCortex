@@ -192,6 +192,22 @@ New coverage, all against real processes, the real store and a real restart:
   names itself, a stored credential is refused, an `{env:NAME}` reference is accepted, an unknown id is
   refused, and the describe view names endpoint/tools/verification.
 
+## Commits
+
+`2f969b2` (feature), `0ed8bbc` (close stopped servers and compute requirements outside the registry
+lock). Both local on `rt/plugins`; nothing pushed.
+
+## Deviations from the task brief, and why
+
+- The stdio test server is the test binary re-executed as an MCP server (`-test.run=TestRuntimeMCPServer`)
+  rather than a program under `testdata/`. It is still a tiny local Go stdio MCP server with no network,
+  and it is this repository's existing convention (`internal/mcp/client_test.go`), so it needs no
+  `go build` inside a test and no extra toolchain on the test machine.
+- `availability` has five states (`available`, `disabled`, `needs-configuration`, `untrusted`,
+  `error`); a configured tool whose server was never started is reported as available with
+  `detail: "tool list not yet discovered"` instead of a sixth `unknown` state, because "unknown" told a
+  host nothing it could act on.
+
 ## Known limitations
 
 - **First-run cost.** A run that may use MCP starts, once, every enabled server whose catalog was never
