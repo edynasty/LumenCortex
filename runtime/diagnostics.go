@@ -301,7 +301,7 @@ func eventLevel(eventType string, data map[string]any) slog.Level {
 	case strings.HasSuffix(eventType, ".failed"), strings.HasSuffix(eventType, ".error"),
 		strings.HasSuffix(eventType, "_failed"), eventType == "window.overflow":
 		return slog.LevelError
-	case eventType == "session.interrupted":
+	case eventType == "session.interrupted", eventType == "budget.warning":
 		return slog.LevelWarn
 	case eventType == "tool.output":
 		return slog.LevelDebug
@@ -325,7 +325,7 @@ func eventLevel(eventType string, data map[string]any) slog.Level {
 		return slog.LevelInfo
 	}
 	switch eventType {
-	case "tool.start", "run.started", "schedule.changed", "schedule.fired":
+	case "tool.start", "run.started", "schedule.changed", "schedule.fired", "budget.spend":
 		return slog.LevelInfo
 	}
 	if strings.HasPrefix(eventType, "session.") || strings.HasPrefix(eventType, "job.") ||

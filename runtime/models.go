@@ -210,7 +210,7 @@ func (e *Engine) planModels(req startRequest) (*modelPlan, error) {
 		built := agent.Model{
 			Ref: candidate, ProviderID: m.ProviderID, ModelID: m.ModelID,
 			Context: m.Context, DefaultContext: !m.ContextSet, Output: m.Output, OutputSet: m.OutputSet,
-			ToolCalling: m.ToolCalling, Efforts: m.Efforts,
+			ToolCalling: m.ToolCalling, Efforts: m.Efforts, Price: m.Cost,
 		}
 		if m.ToolCalling {
 			if built.Client, err = e.providerFactory(m); err != nil {

@@ -49,6 +49,8 @@ type ResolvedModel struct {
 	// OutputSet reports that limit.output is configured. When false, Output is DefaultOutput and
 	// the runtime reserves it but sends no max_tokens (D4).
 	OutputSet bool
+	// Cost is the model's price; nil when none is configured (its cost is unknown).
+	Cost *Cost
 	// ContextSet reports that limit.context is configured. When false, Context is DefaultContext and
 	// the runtime logs rule window.default_context with every request it budgets on it (design §5).
 	ContextSet bool
@@ -234,6 +236,10 @@ func (c *Config) Resolve(ref ModelRef) (ResolvedModel, error) {
 	}
 	if m.Modalities != nil && len(m.Modalities.Input) > 0 {
 		out.InputModalities = slices.Clone(m.Modalities.Input)
+	}
+	if m.Cost != nil {
+		c := *m.Cost
+		out.Cost = &c
 	}
 	return out, nil
 }

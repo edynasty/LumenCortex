@@ -201,6 +201,9 @@ type Options struct {
 	// deadline from which the model is asked to deliver; 0 takes a tenth of the budget within 30 s-120 s.
 	Deadline        time.Time
 	DeadlineReserve time.Duration
+	// Budget bounds the run's tool calls, model requests, tokens and cost (ADR-0019 §6); a zero field
+	// is no limit. Every new request and tool call is admitted against it.
+	Budget config.Budget
 }
 
 // CandidateEffort is one candidate's default effort and, when that default was resolved from auto,
@@ -217,6 +220,8 @@ type Result struct {
 	Usage       protocol.Usage
 	WaitingGate bool
 	Workflow    any
+	// Spend is what this run used against its budget, whether or not it set one.
+	Spend Spend
 }
 
 // Session statuses the loop writes.
@@ -257,6 +262,12 @@ const (
 	// definition the host has not approved, or whose definition or approval changed while it ran
 	// (ADR-0017). Only the user can approve it, so the run ends instead of asking the model again.
 	KindSpecUnapproved = "spec_unapproved"
+	// Budget kinds (ADR-0019 §6): the run's budget refused the next tool call or model request. The
+	// run ends interrupted; nothing was sent or executed past the limit.
+	KindBudgetToolCalls     = "budget:tool_calls"
+	KindBudgetModelRequests = "budget:model_requests"
+	KindBudgetTokens        = "budget:tokens"
+	KindBudgetCost          = "budget:cost"
 )
 
 // ExitCause is why a run ended. Every return path of Loop.Run after the session

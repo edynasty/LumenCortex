@@ -142,6 +142,38 @@
         "logLevel": {
           "description": "Level of the diagnostics log under the state directory. Secrets are redacted at every level. Absent → info.",
           "enum": ["error", "warn", "info", "debug"]
+        },
+        "budget": {
+          "description": "Default budget of every agent run of this process (ADR-0019 §6); a run's own budget overrides it field by field. Every limit is checked before a new model request or tool call is admitted: a request already sent is settled whatever it costs, so the last one may overshoot tokenBudget and costLimitUsd by its reply. Absent field → no limit. A run's runtime limit is its deadline.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxToolCalls": {
+              "description": "Tool calls a run may execute. Reached → the run ends interrupted with kind budget:tool_calls before its next model request.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxModelRequests": {
+              "description": "Model requests a run may send, retries and failovers included. Reached → interrupted, kind budget:model_requests.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "tokenBudget": {
+              "description": "Tokens a run may use: provider-reported usage, or the request's estimate when a response carried none or a request failed after it was sent. A request whose estimated input would pass it is not sent → interrupted, kind budget:tokens.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "costWarningUsd": {
+              "description": "US dollars of known and estimated cost at which the run reports budget.warning once; a request to a model with no cost also reports it.",
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "costLimitUsd": {
+              "description": "US dollars of known and estimated cost a run may reach. A request whose input would pass it, and every request to a model with no cost (its cost is unknown, never zero), is not sent → interrupted, kind budget:cost.",
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
         }
       }
     },
@@ -434,6 +466,16 @@
               "uniqueItems": true,
               "minItems": 1
             }
+          }
+        },
+        "cost": {
+          "description": "List price in US dollars per million tokens, used by run budgets (ADR-0019 §6). Cache discounts are not modelled. Absent → the model's cost is unknown: runs report it as such and a run with costLimitUsd does not send to it.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input", "output"],
+          "properties": {
+            "input": { "description": "USD per million input (prompt) tokens.", "type": "number", "minimum": 0 },
+            "output": { "description": "USD per million output (completion) tokens.", "type": "number", "minimum": 0 }
           }
         }
       }

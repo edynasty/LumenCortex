@@ -28,6 +28,8 @@ type Model struct {
 	ToolCalling    bool
 	Efforts        []config.Effort
 	Client         protocol.Provider
+	// Price is the model's configured cost, nil when it has none: its spend is unknown (ADR-0019 §6).
+	Price *config.Cost
 }
 
 // attempt is the request that answered a step and the window it was built from.
@@ -164,6 +166,11 @@ func (l *Loop) send(
 			cause := exitFor(protocol.ClassCancelled, err)
 			return attempt{}, &cause
 		}
+		// Every attempt (failover and capacity retries included) is a new request the budget admits
+		// before its envelope exists (ADR-0019 §6).
+		if cause := r.spend.admitRequest(opts.Budget, m, built.Tokens); cause != nil {
+			return attempt{}, cause
+		}
 		requestID, lineage, cause := l.admit(ctx, sessionID, step, attempts, opts, r, built, specs)
 		if cause != nil {
 			return attempt{}, cause
@@ -179,6 +186,8 @@ func (l *Loop) send(
 		response, err := l.complete(ctx, sessionID, requestID, m, req)
 		elapsed := time.Since(started)
 		if err == nil {
+			r.spend.record(m, response.Usage, built.Tokens, window.Estimate(response.Message))
+			l.budgetWarning(sessionID, step, opts.Budget, r.spend)
 			l.Health.Success(cand.Ref)
 			l.emit("llm.complete", sessionID, map[string]any{
 				"step": step, "modelRef": cand.Ref, "provider": m.ProviderID, "model": m.ModelID,
@@ -186,6 +195,9 @@ func (l *Loop) send(
 			})
 			return attempt{Response: response, Model: m, Elapsed: elapsed, Window: built, RequestID: requestID, Lineage: lineage}, nil
 		}
+		// A request that failed after it was sent may still be billed: its input is estimated.
+		r.spend.record(m, protocol.Usage{}, built.Tokens, 0)
+		l.budgetWarning(sessionID, step, opts.Budget, r.spend)
 		class := Classify(ctx, err)
 		// The request was sent; an error does not prove it was not delivered, so it is unknown.
 		l.settle(sessionID, requestID, settleReason(class))

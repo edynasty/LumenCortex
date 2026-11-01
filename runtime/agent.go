@@ -67,6 +67,10 @@ type AgentOptions struct {
 	// to deliver; 0 takes a tenth of the budget within 30-120 s.
 	Deadline               *time.Time `json:"deadline,omitempty"`
 	DeadlineReserveSeconds int        `json:"deadlineReserveSeconds,omitempty"`
+	// Budget is this run's budget (ADR-0019 §6): each non-zero field overrides the global file's
+	// execution.budget, which bounds every run, child runs included. The result's spend reports what
+	// the run used.
+	Budget *config.Budget `json:"budget,omitempty"`
 
 	subagents toolset.SubagentController
 	// childAgent is a child run's default agent: explore for a read-only subagent, worker for an
@@ -85,6 +89,9 @@ type AgentResult struct {
 	Usage       protocol.Usage `json:"usage"`
 	WaitingGate bool           `json:"waitingGate,omitempty"`
 	Workflow    any            `json:"workflow,omitempty"`
+	// Spend is what the run used against its budget: tool calls, model requests, and tokens and cost
+	// split into known, estimated and unknown (ADR-0019 §6).
+	Spend agent.Spend `json:"spend"`
 }
 
 // RunAgent runs the agent loop to its exit on the calling goroutine. It holds the
@@ -136,6 +143,7 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 		Usage:       result.Usage,
 		WaitingGate: result.WaitingGate,
 		Workflow:    result.Workflow,
+		Spend:       result.Spend,
 	}, err
 }
 
@@ -387,6 +395,12 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	}
 	if opts.Deadline != nil {
 		loopOpts.Deadline = *opts.Deadline
+	}
+	if global := e.executionLimits().Budget; global != nil {
+		loopOpts.Budget = *global
+	}
+	if opts.Budget != nil {
+		loopOpts.Budget = loopOpts.Budget.Over(*opts.Budget)
 	}
 
 	loopOpts.SystemLayers = systemLayers(prompt.Layers)

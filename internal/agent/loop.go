@@ -81,6 +81,8 @@ type run struct {
 	saved json.RawMessage
 	// mutated: a tool call of this run changed the workspace successfully.
 	mutated bool
+	// spend is what the run used against opts.Budget (ADR-0019 §6).
+	spend *Spend
 	runTranscript
 }
 
@@ -132,7 +134,16 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 	var (
 		state = SessionState{ID: sessionID}
 		usage protocol.Usage
+		spend = &Spend{}
 	)
+	// Registered before the panic recovery so it runs last: every return, a panic's included, reports
+	// the run's spend.
+	defer func() {
+		result.Spend = *spend
+		if spend.ModelRequests > 0 || spend.ToolCalls > 0 {
+			l.emit("budget.spend", sessionID, spend.view(opts.Budget))
+		}
+	}()
 	// The host's Start transaction set the session to running before Run is called,
 	// so from here on every return goes through finish: the run owns one ExitCause.
 	defer func() {
@@ -162,7 +173,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 	if err != nil {
 		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 	}
-	r := &run{ts: ts, wf: wf, units: ts.Units(), saved: saved}
+	r := &run{ts: ts, wf: wf, units: ts.Units(), saved: saved, spend: spend}
 	if err := r.load(ctx, l.Store, sessionID, opts.Withheld); err != nil {
 		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 	}
@@ -213,6 +224,10 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			})
 			l.emit("workflow.gate_waiting", sessionID, map[string]any{"step": step, "gates": gates})
 			return Result{SessionID: sessionID, Status: StatusWaitingGate, Usage: usage, WaitingGate: true, Workflow: r.wf.Summary()}, nil
+		}
+		// No request is sent for a reply whose tool calls the budget could not execute (ADR-0019 §6).
+		if cause := spend.admitTools(opts.Budget); cause != nil {
+			return l.exit(ctx, state, usage, *cause)
 		}
 
 		allowlist := opts.ToolAllowlist
@@ -268,6 +283,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		if len(calls) > opts.MaxToolCallsPerStep {
 			calls = calls[:opts.MaxToolCallsPerStep]
 			l.emit("tools.deferred", sessionID, map[string]any{"step": step, "requested": len(response.Message.ToolCalls), "executing": len(calls)})
+		}
+		if room := spend.toolRoom(opts.Budget); room >= 0 && len(calls) > room {
+			// The calls past the budget are not stored or run: the next step's admission ends the run.
+			calls = calls[:room]
+			l.emit("tools.deferred", sessionID, map[string]any{"step": step, "requested": len(response.Message.ToolCalls), "executing": len(calls), "reason": KindBudgetToolCalls})
 		}
 		calls = preserveToolArguments(calls)
 		assistant.ToolCalls = calls
@@ -442,6 +462,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				}
 				var toolErr error
 				toolStarted := time.Now()
+				spend.ToolCalls++
 				l.emit("tool.start", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "args": args})
 				if call.Name == toolStartTask {
 					toolResult = l.startTask(ctx, r, opts, args, time.Now().UTC())

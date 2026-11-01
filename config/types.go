@@ -192,6 +192,45 @@ type Execution struct {
 	JobRetentionDays int `json:"jobRetentionDays,omitempty"`
 	// LogLevel is the diagnostics log's level: error, warn, info or debug.
 	LogLevel string `json:"logLevel,omitempty"`
+	// Budget bounds every agent run of this process (ADR-0019 §6); a run's own budget overrides it field
+	// by field. Absent: no limit.
+	Budget *Budget `json:"budget,omitempty"`
+}
+
+// Budget bounds one agent run (ADR-0019 §6). A zero field is no limit. The run's deadline is its
+// runtime limit. Limits are checked before each new model request or tool call is admitted; a request
+// already sent is settled whatever it costs, so the last request may overshoot TokenBudget and
+// CostLimitUSD by its reply.
+type Budget struct {
+	MaxToolCalls     int   `json:"maxToolCalls,omitempty"`
+	MaxModelRequests int   `json:"maxModelRequests,omitempty"`
+	TokenBudget      int64 `json:"tokenBudget,omitempty"`
+	// CostWarningUSD reports once (event budget.warning) when the run's known and estimated cost reaches
+	// it, or when a request goes to a model whose price is unknown.
+	CostWarningUSD float64 `json:"costWarningUsd,omitempty"`
+	// CostLimitUSD refuses a request whose input would take the run's known and estimated cost past it,
+	// and every request to a model with no configured price: an unknown cost is never taken as zero.
+	CostLimitUSD float64 `json:"costLimitUsd,omitempty"`
+}
+
+// Over returns b with every non-zero field of o in place of its own.
+func (b Budget) Over(o Budget) Budget {
+	if o.MaxToolCalls > 0 {
+		b.MaxToolCalls = o.MaxToolCalls
+	}
+	if o.MaxModelRequests > 0 {
+		b.MaxModelRequests = o.MaxModelRequests
+	}
+	if o.TokenBudget > 0 {
+		b.TokenBudget = o.TokenBudget
+	}
+	if o.CostWarningUSD > 0 {
+		b.CostWarningUSD = o.CostWarningUSD
+	}
+	if o.CostLimitUSD > 0 {
+		b.CostLimitUSD = o.CostLimitUSD
+	}
+	return b
 }
 
 // Execution defaults and schema bounds.
@@ -237,6 +276,10 @@ func (e *Execution) Limits() Execution {
 	}
 	if e.LogLevel != "" {
 		out.LogLevel = e.LogLevel
+	}
+	if e.Budget != nil {
+		b := *e.Budget
+		out.Budget = &b
 	}
 	return out
 }
@@ -397,6 +440,15 @@ type Model struct {
 	Reasoning   *Reasoning  `json:"reasoning,omitempty"`
 	ToolCalling *bool       `json:"toolCalling,omitempty"`
 	Modalities  *Modalities `json:"modalities,omitempty"`
+	Cost        *Cost       `json:"cost,omitempty"`
+}
+
+// Cost is a model's list price in US dollars per million tokens (ADR-0019 §6). It prices a run's
+// usage at list price: provider cache discounts are not modelled. A model with none has an unknown
+// cost.
+type Cost struct {
+	Input  float64 `json:"input"`
+	Output float64 `json:"output"`
 }
 
 // Limit holds the token limits used by the context window builder.

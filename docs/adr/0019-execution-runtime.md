@@ -1,4 +1,4 @@
-# ADR-0019: Execution runtime — tool timeouts, run deadlines, background jobs, timers, diagnostics (schema v8)
+# ADR-0019: Execution runtime — tool timeouts, run deadlines, background jobs, timers, diagnostics, run budgets (schema v8)
 
 - **Status:** Proposed (implemented on `rt/execution-runtime`)
 - **Date:** 2026-11-01
@@ -195,6 +195,40 @@ messages, reasoning, tool output, tool arguments, commands) are reduced to their
 never logged. Export writes a zip of the (already redacted) logs, a manifest and job/schedule summaries
 without commands or payloads.
 
+### 6. Run budget
+
+`config.Budget` bounds one run: `maxToolCalls`, `maxModelRequests`, `tokenBudget`, `costWarningUsd`,
+`costLimitUsd`; the run's deadline (§2) is its runtime limit. The global file's `execution.budget` bounds
+every run (child runs included); a run's `AgentOptions.Budget` (CLI: `LCX_MAX_TOOL_CALLS`,
+`LCX_MAX_MODEL_REQUESTS`, `LCX_TOKEN_BUDGET`, `LCX_COST_WARNING_USD`, `LCX_COST_LIMIT_USD`) overrides it field
+by field. Prices are the model's `cost` (`{input, output}` USD per million tokens, list price; cache
+discounts are not modelled).
+
+The runtime controls admission, never the model:
+
+- Before every request attempt (failover and capacity retries included), before its envelope exists:
+  the request count, `spent tokens + the request's estimated input` against `tokenBudget`, and with a cost
+  limit `spent cost + estimated input cost`, and a price for the model at all. A refused request is not
+  sent; the run ends `interrupted` with `budget:model_requests`, `budget:tokens` or `budget:cost`.
+- Tool calls: a reply's calls past the remaining allowance are neither stored nor run (event
+  `tools.deferred`, reason `budget:tool_calls`), so the transcript stays paired; once the allowance is used,
+  the run ends `budget:tool_calls` before its next request (a reply could only ask for tools it may not run).
+
+Spend is settled per sent request and split three ways (`agent.Spend`, returned in `AgentResult.spend`,
+event `budget.spend` at every exit, `budget.warning` once):
+
+| | source |
+|---|---|
+| known | the provider's usage, priced at the model's cost |
+| estimated | the request's own token estimate when a response carried no usage, or a request failed after it was sent (it may be billed); priced at the model's cost |
+| unknown | a request to a model with no cost: its tokens are counted, its dollars are not, and `unknownCostRequests` counts it. A cost limit refuses such a model outright; a cost warning reports it |
+
+Overshoot: a request already sent is settled whatever its reply costs, so the last admitted request may
+take spend past `tokenBudget` or `costLimitUsd` by its output (at most the request's `max_tokens`), and a
+provider-side retry inside one attempt is not visible to the runtime. The limits bound what is admitted, not
+what a provider bills for a request in flight. Budgets are per run and in memory: a resumed run starts a new
+allowance.
+
 ### Engine API (consumed by Desktop)
 
 `Jobs`, `Job`, `JobOutput`, `SubmitJob`, `CancelJob`; `Schedules`, `CreateSchedule`, `UpdateSchedule`,
@@ -217,4 +251,5 @@ without commands or payloads.
 - A separate jobs database: avoids touching the session schema but splits deletion and backup; rejected.
 - Logging through the journal table: synchronous SQLite writes on the agent path and no rotation; the
   journal stays the content-free durable trace and the diagnostics log is the bounded, lossy companion.
-- Cron expressions: no current need; `once` and `interval` cover delayed checks and periodic tasks.
+- A cost limit enforced by asking the model to stop: the model decides when to stop, so it cannot bound
+  spend; rejected in favour of admission (§6).

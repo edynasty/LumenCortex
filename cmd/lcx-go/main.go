@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/signal"
 	"strconv"
@@ -126,11 +127,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		result, err := engine.RunAgent(ctx, h.ID, agentOpts)
-		if err != nil {
-			return err
-		}
-		return printJSON(result)
+		return printRunResult(engine.RunAgent(ctx, h.ID, agentOpts))
 	case "resume":
 		if len(args) != 2 {
 			return fmt.Errorf("usage: lcx-go resume <session-id>")
@@ -143,11 +140,7 @@ func run() error {
 			return err
 		}
 		// The session runs on its pinned model; the Engine reads it from the session row.
-		result, err := engine.RunAgent(ctx, args[1], agentOpts)
-		if err != nil {
-			return err
-		}
-		return printJSON(result)
+		return printRunResult(engine.RunAgent(ctx, args[1], agentOpts))
 	case "governor":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: lcx-go governor <analyze|plan|validate> [plan.json]")
@@ -505,6 +498,10 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 		}
 		reserve = int(d.Round(time.Second) / time.Second)
 	}
+	budget, err := budgetFromEnv()
+	if err != nil {
+		return lcx.AgentOptions{}, err
+	}
 	return lcx.AgentOptions{
 		Agent:                  strings.TrimSpace(os.Getenv("LCX_AGENT")),
 		Policy:                 policy,
@@ -516,7 +513,57 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 		WorkUnits:              workUnits,
 		Deadline:               deadline,
 		DeadlineReserveSeconds: reserve,
+		Budget:                 budget,
 	}, nil
+}
+
+// budgetFromEnv reads the run's budget (ADR-0019 §6): LCX_MAX_TOOL_CALLS, LCX_MAX_MODEL_REQUESTS and
+// LCX_TOKEN_BUDGET as positive integers, LCX_COST_WARNING_USD and LCX_COST_LIMIT_USD as positive
+// numbers. Unset leaves execution.budget of the global file; a malformed value is an error, never
+// silently no limit.
+func budgetFromEnv() (*config.Budget, error) {
+	var b config.Budget
+	set := false
+	for _, v := range []struct {
+		name string
+		dst  *int64
+	}{{"LCX_TOKEN_BUDGET", &b.TokenBudget}} {
+		if value := strings.TrimSpace(os.Getenv(v.name)); value != "" {
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n <= 0 {
+				return nil, fmt.Errorf("%s %q: want a positive integer", v.name, value)
+			}
+			*v.dst, set = n, true
+		}
+	}
+	for _, v := range []struct {
+		name string
+		dst  *int
+	}{{"LCX_MAX_TOOL_CALLS", &b.MaxToolCalls}, {"LCX_MAX_MODEL_REQUESTS", &b.MaxModelRequests}} {
+		if value := strings.TrimSpace(os.Getenv(v.name)); value != "" {
+			n, err := strconv.Atoi(value)
+			if err != nil || n <= 0 {
+				return nil, fmt.Errorf("%s %q: want a positive integer", v.name, value)
+			}
+			*v.dst, set = n, true
+		}
+	}
+	for _, v := range []struct {
+		name string
+		dst  *float64
+	}{{"LCX_COST_WARNING_USD", &b.CostWarningUSD}, {"LCX_COST_LIMIT_USD", &b.CostLimitUSD}} {
+		if value := strings.TrimSpace(os.Getenv(v.name)); value != "" {
+			n, err := strconv.ParseFloat(value, 64)
+			if err != nil || !(n > 0) || math.IsInf(n, 0) {
+				return nil, fmt.Errorf("%s %q: want a positive number of US dollars", v.name, value)
+			}
+			*v.dst, set = n, true
+		}
+	}
+	if !set {
+		return nil, nil
+	}
+	return &b, nil
 }
 
 // deadlineFromEnv reads LCX_DEADLINE (ADR-0019 §2): a Go duration counted from start (the process start,
@@ -571,6 +618,18 @@ func envInt(name string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+// printRunResult prints the result of a run that reached an exit, an interrupted or failed one too, so
+// its status and spend are on stdout; the run's error still makes the exit code non-zero. A run that
+// never started (no session in the result) prints nothing.
+func printRunResult(result lcx.AgentResult, err error) error {
+	if result.SessionID != "" {
+		if printErr := printJSON(result); err == nil {
+			return printErr
+		}
+	}
+	return err
 }
 
 func printJSON(v any) error {

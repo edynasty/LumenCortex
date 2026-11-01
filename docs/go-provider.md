@@ -229,6 +229,8 @@ Set `LCX_EVENTS=true` to emit the bounded runtime event stream as JSON lines on 
 | `LCX_MAX_TOKENS` | provider output-token request limit | provider default |
 | `LCX_DEADLINE` | run deadline (ADR-0019 §2): a Go duration from process start (`870s`) or an RFC 3339 time; the model sees the time left, `bash` commands stop before it, and the run ends `interrupted`/`deadline` at it. A malformed value is an error | none |
 | `LCX_DEADLINE_RESERVE` | time before the deadline from which the model is asked to deliver, as a Go duration | a tenth of the budget, 30 s-120 s |
+| `LCX_MAX_TOOL_CALLS`, `LCX_MAX_MODEL_REQUESTS`, `LCX_TOKEN_BUDGET` | run budget (ADR-0019 §6), positive integers: tool calls executed, model requests sent (retries and failovers included), tokens used (provider usage, else estimated); reached → `interrupted`/`budget:*`. Malformed → error | `execution.budget` of the global file, else none |
+| `LCX_COST_WARNING_USD`, `LCX_COST_LIMIT_USD` | run cost warning (event `budget.warning`) and limit in US dollars, priced at each model's `cost`; a limit refuses any model without a `cost`. The result JSON's `spend` splits known, estimated and unknown cost | `execution.budget`, else none |
 | `LCX_EVENTS` | print runtime events to stderr | false |
 | `LCX_DISABLE_STREAMING` | use one JSON response instead of SSE | false |
 | `LCX_DISABLE_RETRIES` | disable transient provider retries | false |

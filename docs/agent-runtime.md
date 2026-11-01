@@ -450,6 +450,7 @@ Every way the Go loop (`internal/agent`) ends a run, once the session row says `
 | run context cancelled by the host (also during a tool, or when a storage/provider error is the cancellation) | `interrupted` | `cancelled` |
 | run reached `Options.Deadline` (a request or tool in flight is cancelled; ADR-0019 §2) | `interrupted` | `deadline` |
 | step budget exhausted | `interrupted` | `max_steps` |
+| run budget refused the next tool call or model request (ADR-0019 §6) | `interrupted` | `budget:tool_calls`, `budget:model_requests`, `budget:tokens`, `budget:cost` |
 | no tool calls and no content | `interrupted` | `empty_response` |
 | reply cut at the output token limit (`finish_reason` `length`) without a tool call | `interrupted` | `output_limit` |
 | provider or decision-provider error | `interrupted` | `provider:availability` |

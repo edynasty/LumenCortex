@@ -306,6 +306,10 @@ func mergeModel(base, ws Model) Model {
 	if ws.Modalities != nil {
 		out.Modalities = &Modalities{Input: slices.Clone(ws.Modalities.Input)}
 	}
+	if ws.Cost != nil {
+		c := *ws.Cost
+		out.Cost = &c
+	}
 	return out
 }
 
@@ -325,6 +329,10 @@ func cloneFile(f File) File {
 	}
 	if f.Execution != nil {
 		execution := *f.Execution
+		if f.Execution.Budget != nil {
+			b := *f.Execution.Budget
+			execution.Budget = &b
+		}
 		out.Execution = &execution
 	}
 	out.Providers = cloneProviders(f.Providers)
@@ -416,6 +424,10 @@ func cloneModel(m Model) Model {
 	}
 	if m.Modalities != nil {
 		out.Modalities = &Modalities{Input: slices.Clone(m.Modalities.Input)}
+	}
+	if m.Cost != nil {
+		c := *m.Cost
+		out.Cost = &c
 	}
 	return out
 }
