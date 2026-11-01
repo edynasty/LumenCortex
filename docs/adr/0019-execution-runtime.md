@@ -44,6 +44,29 @@ log). SQL stays in `internal/session` (`jobs.go`, `schedules.go`), as for every 
 binds them in `runtime/jobs.go`, `runtime/schedules.go`, `runtime/diagnostics.go`. Limits come from the
 global configuration's `execution` object (`config.Execution`, global file only, like `concurrency`).
 
+### 0. The command tool is `bash`; the agent has no Git tools
+
+The model-visible command tool is `bash` (`protocol.ToolBash`), and it really runs bash: `/bin/bash -lc`,
+else `bash -lc` from `PATH`; on Windows Git Bash (`%ProgramFiles%\Git\bin\bash.exe`), else a `bash.exe` on
+`PATH` that is not the WSL launcher (`%SystemRoot%\System32\bash.exe` runs in a Linux distribution, not the
+workspace). Without bash it falls back to `/bin/sh -lc` (`cmd.exe /C` on Windows) and the tool description
+says so instead of claiming bash (`shell.Bash`, resolved once per process; the description names the exact
+invocation). Configured checks and the host's `SessionHandle.RunShell` keep `/bin/sh -lc` (`shell.System`): an approved
+check keeps the meaning it was approved with. The toolset runs the bash tool on a copy of the host's
+runner, so the shared runner's interpreter never changes.
+
+The tool was called `shell`. `protocol.CanonicalToolName` maps the old name for every host-written list:
+allowlists and denylists (`agent.Loop`, the prompt report), and workflow `allowedTools` and `tool`
+conditions (`internal/workflow`), so a denylist or workflow that names `shell` keeps its meaning without an
+edit. A model call to `shell` (a resumed history still shows it) runs nothing; its result names `bash` when
+the run offers it, else it is the plain refusal.
+
+`git_status` and `git_diff` are no longer agent tools: a run with `bash` runs `git` itself, with the full
+command line instead of two fixed views. The host Git API (`repository.Service`, `Engine.GitStatus`/
+`GitDiff`, Desktop's Git panel) is unchanged. Consequence: a run without `bash` (`read-only` and
+`workspace` policy, the explore child) cannot read Git state; it reads the working tree as it is, and a host
+or parent that wants a change reviewed states it in the goal.
+
 ### 1. Foreground tool timeout (RUNTIME-001)
 
 `shell` takes `timeout_sec` (1…86400). The effective timeout is `timeout_sec` when the call gives one, else

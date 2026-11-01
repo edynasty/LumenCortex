@@ -336,7 +336,7 @@ func TestProposedTaskRunsConfinedAndDeliversItsResultOnce(t *testing.T) {
 	waitInactive(t, supervisor, child)
 
 	tools := fake.childTools
-	for _, forbidden := range []string{"shell", "spawn_subagent", "start_task"} {
+	for _, forbidden := range []string{"bash", "spawn_subagent", "start_task"} {
 		if contains(tools, forbidden) {
 			t.Fatalf("child has %s: %v", forbidden, tools)
 		}
@@ -502,7 +502,7 @@ func TestIsolatedTaskOutlivesTheParentAndStopsOnlyWithTheSubtree(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitInactive(t, supervisor, child)
-	if tools := fake.childTools; contains(tools, "shell") || contains(tools, "start_task") || contains(tools, "spawn_subagent") {
+	if tools := fake.childTools; contains(tools, "bash") || contains(tools, "start_task") || contains(tools, "spawn_subagent") {
 		t.Fatalf("a resumed child widened its authority: %v", tools)
 	}
 	startAndWait(t, supervisor, parent, "", DelegationIsolated)

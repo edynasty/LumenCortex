@@ -5,7 +5,7 @@ import (
 	"errors"
 	"io"
 	"os/exec"
-	"runtime"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -39,6 +39,9 @@ type Runner struct {
 	// the background outlives it. Evaluator checks set it; the agent's shell tool does not, so a
 	// detached `server > log &` keeps running. Cancellation and timeout kill the group either way.
 	Reap bool
+	// Interpreter runs the command; the zero value is System (/bin/sh -lc, cmd.exe /C on Windows).
+	// The agent's bash tool sets Bash.
+	Interpreter Interpreter
 }
 
 // waitDelay bounds how long Run waits, after the shell exited or was killed, for background processes
@@ -84,12 +87,11 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 	// cancellation path (cmd.Cancel kills the group) without being mistaken for the caller's.
 	cmdCtx, kill := context.WithCancel(ctx)
 	defer kill()
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(cmdCtx, "cmd.exe", "/C", command)
-	} else {
-		cmd = exec.CommandContext(cmdCtx, "/bin/sh", "-lc", command)
+	interp := r.Interpreter
+	if interp.IsZero() {
+		interp = System()
 	}
+	cmd := exec.CommandContext(cmdCtx, interp.Path, append(slices.Clip(interp.Args), command)...)
 	cmd.Dir = r.Workspace
 	cmd.Stdout = chunkWriter{bounded: stdout, stream: "stdout", onChunk: onChunk}
 	cmd.Stderr = chunkWriter{bounded: stderr, stream: "stderr", onChunk: onChunk}

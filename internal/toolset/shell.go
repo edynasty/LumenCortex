@@ -12,8 +12,18 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
-// shellDescription is the shell tool's description.
-const shellDescription = "Run a shell command in the workspace with bounded retained output. A command that runs past timeout_sec (or the configured default, or the run's deadline) has its process group terminated and returns its partial output with timedOut: true; its effects are then unknown."
+// bashDescription is the bash tool's description. It names the program commands really run in (ADR-0019
+// §0): bash where it is installed, else the system shell, and never claims bash for it.
+func bashDescription(interp shell.Interpreter) string {
+	runs := "Commands run in bash (" + interp.String() + "), one process per call: cd and exported variables do not carry over."
+	switch interp.Name {
+	case "sh":
+		runs = "bash is not installed here: commands run in POSIX sh (" + interp.String() + "), one process per call; bash-only syntax fails."
+	case "cmd.exe":
+		runs = "No bash was found on this Windows host: commands run in cmd.exe (" + interp.String() + "), one process per call; POSIX syntax fails."
+	}
+	return "Run a command in the workspace with bounded retained output. " + runs + " A command that runs past timeout_sec (or the configured default, or the run's deadline) has its process group terminated and returns its partial output with timedOut: true; its effects are then unknown."
+}
 
 // shellTimeout is the timeout of one foreground shell call and what set it: the call's timeout_sec, else
 // the configured default, bounded by the time left before the run's tool deadline. 0 means none. left is
@@ -46,7 +56,7 @@ const maxShellTimeoutSeconds = 86400
 func (s *Set) runShell(ctx context.Context, args map[string]any, onOutput func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	command := fmt.Sprint(args["command"])
 	if command == "" {
-		return protocol.ToolResult{}, errors.New("shell command is required")
+		return protocol.ToolResult{}, errors.New("bash command is required")
 	}
 	timeout, source, left, err := s.shellTimeout(ctx, args)
 	if err != nil {

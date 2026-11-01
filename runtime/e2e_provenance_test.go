@@ -41,7 +41,7 @@ func (p *e2eProvider) Complete(_ context.Context, req protocol.ProviderRequest) 
 	case 1:
 		return toolCalls(tc("w", "write_file", `{"path":"a.txt","content":"alpha\n"}`)), nil
 	case 2:
-		return toolCalls(tc("s", "shell", `{"command":"cat a.txt a.txt > b.txt"}`)), nil
+		return toolCalls(tc("s", "bash", `{"command":"cat a.txt a.txt > b.txt"}`)), nil
 	case 3:
 		return toolCalls(tc("spawn", "spawn_subagent", `{"goal":"inspect a.txt"}`)), nil
 	case 4:
@@ -192,7 +192,7 @@ func TestRealEngineEndToEndProvenance(t *testing.T) {
 	if x, ok := byTool["write_file"]; !ok || x.Request != mains[0].ID {
 		t.Errorf("write_file execution %+v, want under request 1 (%s)", x, mains[0].ID)
 	}
-	if x, ok := byTool["shell"]; !ok || x.Request != mains[1].ID {
+	if x, ok := byTool["bash"]; !ok || x.Request != mains[1].ID {
 		t.Errorf("shell execution %+v, want under request 2 (%s)", x, mains[1].ID)
 	}
 	if raw, _ := os.ReadFile(filepath.Join(workspace, "b.txt")); string(raw) != "alpha\nalpha\n" {

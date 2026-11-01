@@ -62,7 +62,7 @@ func TestHelperCrashAfterATool(t *testing.T) {
 	provider := &exitProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 		if n == 1 {
 			return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
-				tc("c1", "shell", fmt.Sprintf(`{"command":%q}`, fmt.Sprintf("printf x >> %q", counter))),
+				tc("c1", "bash", fmt.Sprintf(`{"command":%q}`, fmt.Sprintf("printf x >> %q", counter))),
 			}}, FinishReason: "tool_calls"}, nil
 		}
 		if point == "in_complete" {
@@ -125,7 +125,7 @@ func TestKilledAroundTheRequestAfterATool(t *testing.T) {
 				t.Fatalf("envelopes after restart = %+v, want answered then unknown/%s", envs, session.ReasonRestartNoAnswer)
 			}
 			execs, edges := readProvenance(t, reopened, handle.ID)
-			if len(execs) != 1 || execs[0].Tool != "shell" || execs[0].Outcome != "completed" || execs[0].Lineage != 1 || execs[0].Request != envs[0].ID {
+			if len(execs) != 1 || execs[0].Tool != "bash" || execs[0].Outcome != "completed" || execs[0].Lineage != 1 || execs[0].Request != envs[0].ID {
 				t.Fatalf("executions after restart = %+v, want the shell completed under the first request", execs)
 			}
 			rows := transcriptRows(t, reopened, handle.ID)

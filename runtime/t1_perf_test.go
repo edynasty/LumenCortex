@@ -55,14 +55,14 @@ func (p *perfProvider) Complete(_ context.Context, _ protocol.ProviderRequest) (
 	case 1:
 		return call("w", "write_file", fmt.Sprintf(`{"path":"a.txt","content":"alpha %d\n"}`, time.Now().UnixNano())), nil
 	case 2:
-		return call("s", "shell", `{"command":"printf x >> log.txt"}`), nil
+		return call("s", "bash", `{"command":"printf x >> log.txt"}`), nil
 	case 3:
 		return call("r", "read_file", `{"path":"a.txt"}`), nil
 	case 4:
 		return call("n", "note_write", `{"text":"a.txt holds the alpha line.","cites":["a.txt"]}`), nil
 	case 5:
 		// Streams many tool.output chunks: before T1-S6 the journal kept each chunk.
-		return call("o", "shell", `{"command":"seq 1 20000"}`), nil
+		return call("o", "bash", `{"command":"seq 1 20000"}`), nil
 	}
 	return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}, nil
 }

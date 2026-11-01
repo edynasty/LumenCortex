@@ -11,11 +11,11 @@
     "diagnose": {
       "title": "Establish failing baseline",
       "description": "Inspect relevant code and prove the current failure.",
-      "allowedTools": ["read_file", "read_files", "list_dir", "search_text", "code_search", "lsp_diagnostics", "shell"],
+      "allowedTools": ["read_file", "read_files", "list_dir", "search_text", "code_search", "lsp_diagnostics", "bash"],
       "outcomes": [{
         "id": "baseline-fails",
         "when": { "all": [
-          { "tool": "shell" },
+          { "tool": "bash" },
           { "arg": "command", "contains": "test" },
           { "result": "exitCode", "notEquals": 0 }
         ] },
@@ -40,11 +40,11 @@
     "verify": {
       "title": "Independent verification",
       "terminal": true,
-      "allowedTools": ["read_file", "read_files", "shell"],
+      "allowedTools": ["read_file", "read_files", "bash"],
       "outcomes": [{
         "id": "tests-pass",
         "when": { "all": [
-          { "tool": "shell" },
+          { "tool": "bash" },
           { "arg": "command", "contains": "test" },
           { "result": "exitCode", "equals": 0 }
         ] },

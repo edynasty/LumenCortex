@@ -80,7 +80,7 @@ func TestJournalAndParentCheckpointHoldNoBodySentinels(t *testing.T) {
 	parent := &journalScriptProvider{responses: []protocol.ProviderResponse{
 		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
 			{ID: "call-write", Name: "write_file", Arguments: json.RawMessage(`{"path":"note.txt","content":"` + journalSentinelArgs + `"}`)},
-			{ID: "call-shell", Name: "shell", Arguments: json.RawMessage(`{"command":"printf '%s\n' ` + journalSentinelOutput + `"}`)},
+			{ID: "call-shell", Name: "bash", Arguments: json.RawMessage(`{"command":"printf '%s\n' ` + journalSentinelOutput + `"}`)},
 		}}, FinishReason: "tool_calls"},
 		{Message: protocol.Message{Role: "assistant", Content: "parent final " + journalSentinelFinal}, FinishReason: "stop"},
 	}}
@@ -391,7 +391,7 @@ func TestJournalShellHeavyJournalSize(t *testing.T) {
 			for i := range calls {
 				command := `{"command":"printf '%s\n' ` + strings.Repeat("x", fixture.payload) + `"}`
 				responses = append(responses, protocol.ProviderResponse{
-					Message:      protocol.Message{ToolCalls: []protocol.ToolCall{{ID: fmt.Sprintf("call-%d", i), Name: "shell", Arguments: json.RawMessage(command)}}},
+					Message:      protocol.Message{ToolCalls: []protocol.ToolCall{{ID: fmt.Sprintf("call-%d", i), Name: "bash", Arguments: json.RawMessage(command)}}},
 					FinishReason: "tool_calls",
 				})
 			}

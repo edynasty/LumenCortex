@@ -15,7 +15,7 @@ Goal
   -> LLM
   -> tool_calls
   -> permission gate / Tool Working Set
-  -> read / search / LSP / MCP / subagent / edit / shell
+  -> read / search / LSP / MCP / subagent / edit / bash
   -> tool observations
   -> re-ingest + index refresh after workspace mutation
   -> next reasoning turn
@@ -36,7 +36,7 @@ Core workspace tools:
 - `write_file`
 - `replace_in_file`
 - `apply_patch` — validates an exact multi-hunk / multi-file create-update-delete batch before mutating targets
-- `shell` — asynchronous, timeout-bounded and cancellable; stdout/stderr stream as live Agent events; POSIX cancellation terminates the command process group
+- `bash` — runs each command in bash (`/bin/bash -lc`, else bash on PATH; POSIX `sh` when bash is not installed; on Windows Git Bash, else `cmd.exe /C`; the tool description names the program actually used); asynchronous, timeout-bounded and cancellable; stdout/stderr stream as live Agent events; POSIX cancellation terminates the command process group. Before ADR-0019 it was named `shell`: host lists naming `shell` (allowlists, denylists, workflow `allowedTools` and tool conditions) mean `bash`. `git_status`/`git_diff` are no longer agent tools; the agent runs `git` through `bash`, and the host Git API is unchanged
 - `lumencortex_context`
 - `lumencortex_ingest`
 
@@ -222,7 +222,7 @@ Subagents are isolated durable Agent sessions with a focused system prompt and a
 Two child prompts are built in and not editable (they are part of the harness, adapted from
 oh-my-pi under MIT — see `THIRD_PARTY_NOTICES.md`):
 
-- **Explore** (read-only child): the launch forbids writes, shell and spawning; the prompt asks for
+- **Explore** (read-only child): the launch forbids writes, commands and spawning, and it has no Git tool (it reads the working tree as it is; a parent that needs a diff examined puts it in the goal); the prompt asks for
   parallel searches within the per-step call limit, one alternate strategy before concluding
   something is absent, inferred thoroughness (quick/medium/thorough, default medium), and a compact
   markdown handoff: Summary, Files as `path:start-end`, Architecture, and a full Report only when the

@@ -451,9 +451,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 func policyAuthority(policy string) string {
 	switch policy {
 	case toolset.PolicyFull:
-		return "This run can read and edit files in the workspace and run shell commands."
+		return "This run can read and edit files in the workspace and run commands with bash."
 	case toolset.PolicyWorkspace:
-		return "This run can read and edit files in the workspace; it cannot run shell commands."
+		return "This run can read and edit files in the workspace; it cannot run commands."
 	default:
 		return "This run is read-only: it can read, search and inspect the workspace, read Skills, use MCP tools marked read-only, and record notes and plan work units; it cannot change project files or run commands. Describe a needed change instead of making it."
 	}

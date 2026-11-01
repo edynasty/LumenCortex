@@ -193,7 +193,7 @@ func TestRealEngineRecordsEveryTier(t *testing.T) {
 	}
 	handle := newTestSession(t, engine, "write things")
 	provider := &stepProvider{steps: []protocol.ProviderResponse{
-		toolCalls(tc("w", "write_file", `{"path":"a.txt","content":"alpha\n"}`), tc("r", "read_file", `{"path":"a.txt"}`), tc("s", "shell", `{"command":"printf 'x' >> log.txt"}`)),
+		toolCalls(tc("w", "write_file", `{"path":"a.txt","content":"alpha\n"}`), tc("r", "read_file", `{"path":"a.txt"}`), tc("s", "bash", `{"command":"printf 'x' >> log.txt"}`)),
 		toolCalls(tc("e", "mcp__srv__echo", `{"text":"hi"}`), tc("m", "mcp__srv__act", `{"text":"go"}`)),
 	}}
 	result, err := engine.runAgentWith(context.Background(), handle.ID, provider, AgentOptions{Policy: "full", MaxSteps: 5})
@@ -206,8 +206,8 @@ func TestRealEngineRecordsEveryTier(t *testing.T) {
 	for i, x := range execs {
 		tools[i] = x.Tool
 	}
-	if fmt.Sprint(tools) != "[write_file shell mcp__srv__echo mcp__srv__act]" {
-		t.Fatalf("executions = %v, want write_file, shell and both MCP tools; read_file is not admitted", tools)
+	if fmt.Sprint(tools) != "[write_file bash mcp__srv__echo mcp__srv__act]" {
+		t.Fatalf("executions = %v, want write_file, bash and both MCP tools; read_file is not admitted", tools)
 	}
 	wantRequest := []string{envs[0].ID, envs[0].ID, envs[1].ID, envs[1].ID}
 	for i, x := range execs {
@@ -250,8 +250,8 @@ func TestRealEngineRecordsEveryTier(t *testing.T) {
 func TestRealEngineShellOutsideGitIsUnavailable(t *testing.T) {
 	workspace := t.TempDir()
 	engine := openEngineAt(t, workspace)
-	handle := newTestSession(t, engine, "shell")
-	provider := &stepProvider{steps: []protocol.ProviderResponse{toolCalls(tc("s", "shell", `{"command":"printf 'x' > out.txt"}`))}}
+	handle := newTestSession(t, engine, "bash")
+	provider := &stepProvider{steps: []protocol.ProviderResponse{toolCalls(tc("s", "bash", `{"command":"printf 'x' > out.txt"}`))}}
 	if result, err := engine.runAgentWith(context.Background(), handle.ID, provider, AgentOptions{Policy: "full", MaxSteps: 3}); err != nil || result.Status != "completed" {
 		t.Fatalf("run = %+v err=%v", result, err)
 	}
@@ -272,7 +272,7 @@ func TestRealEngineShellEdgeCapIsPartial(t *testing.T) {
 	gitInit(t, workspace)
 	engine := openEngineAt(t, workspace)
 	handle := newTestSession(t, engine, "many files")
-	provider := &stepProvider{steps: []protocol.ProviderResponse{toolCalls(tc("s", "shell", `{"command":"for i in $(seq 1 70); do printf x > f$i.txt; done"}`))}}
+	provider := &stepProvider{steps: []protocol.ProviderResponse{toolCalls(tc("s", "bash", `{"command":"for i in $(seq 1 70); do printf x > f$i.txt; done"}`))}}
 	if result, err := engine.runAgentWith(context.Background(), handle.ID, provider, AgentOptions{Policy: "full", MaxSteps: 3}); err != nil || result.Status != "completed" {
 		t.Fatalf("run = %+v err=%v", result, err)
 	}

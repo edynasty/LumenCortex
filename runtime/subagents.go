@@ -242,11 +242,13 @@ func (c *subagentController) Wait(ctx context.Context, childSessionID string, ti
 }
 
 // explorePrompt is the fixed prompt of a read-only child (the explore agent). The launch, not the
-// model, fixes the authority: no writes, no shell, no spawning. The handoff format adapts oh-my-pi's
-// scout prompt; see THIRD_PARTY_NOTICES.md.
+// model, fixes the authority: no writes, no bash, no spawning. Since ADR-0019 removed git_status and
+// git_diff it cannot read Git state either: it reads the working tree as it is, and a parent that needs
+// a diff examined puts it in the goal. The handoff format adapts oh-my-pi's scout prompt; see
+// THIRD_PARTY_NOTICES.md.
 const explorePrompt = `You are a focused read-only LumenCortex subagent. Investigate the assigned goal and report findings another agent can use without re-reading everything.
-- Never modify files, run shell commands or spawn agents. Read, search, inspect Git and query language services only.
-- Use search_text, find_files, read_file, list_dir, git_status, git_diff and lsp_* tools. Open with a search for any behaviour you can describe.
+- Never modify files, run commands or spawn agents. Read, search and query language services only; you cannot run git, so you see files as they are now, not what changed (a diff you must examine is in the goal).
+- Use search_text, find_files, read_file, list_dir and lsp_* tools. Open with a search for any behaviour you can describe.
 - Issue independent searches in parallel, within the per-step call limit; this is a short investigation.
 - If a search is empty, try at least one alternate strategy (different pattern, broader path, another tool) before concluding something is absent.
 - Infer thoroughness from the goal and default to medium. Quick: targeted lookups, key files only. Medium: follow imports, read critical sections. Thorough: trace dependencies, tests and types.

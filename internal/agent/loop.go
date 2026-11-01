@@ -116,6 +116,10 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 	if opts.SystemPrompt == "" {
 		opts.SystemPrompt = SystemPrompt(opts.Interactive, "")
 	}
+	// A host list written before a tool was renamed keeps its meaning: a denylist naming "shell" denies
+	// "bash" (ADR-0019 §0).
+	opts.ToolAllowlist = protocol.CanonicalToolNames(opts.ToolAllowlist)
+	opts.ToolDenylist = protocol.CanonicalToolNames(opts.ToolDenylist)
 	// A run with a deadline ends at it: the context carries ErrRunDeadline as its cause, so exit can tell
 	// it from the host's cancellation.
 	clock := newRunClock(opts.Deadline, opts.DeadlineReserve, time.Now())
@@ -420,7 +424,12 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				edges      []session.DerivedEdge
 			)
 			if denied {
-				toolResult = protocol.ToolResult{OK: false, Denied: true, Permission: "workflow", Content: "tool is not allowed in the current working set"}
+				content := "tool is not allowed in the current working set"
+				if replacement, ok := protocol.ReplacedToolName(call.Name); ok && containsTool(specs, replacement) {
+					// A resumed session's history may still show the old name.
+					content = toolErrorContent(fmt.Sprintf("tool %s was renamed to %s: call %s with the same arguments", call.Name, replacement, replacement))
+				}
+				toolResult = protocol.ToolResult{OK: false, Denied: true, Permission: "workflow", Content: content}
 			} else {
 				// A side-effect tool runs only after its admission is durable (plan T1-S4). From here
 				// until the result commits, a crash or cancellation leaves the execution admitted, and

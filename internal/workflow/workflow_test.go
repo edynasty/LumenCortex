@@ -55,6 +55,9 @@ const verifiedCodeFix = `{
   }
 }`
 
+// The definition names the command tool by its pre-ADR-0019 name "shell": it admits "bash" (and no
+// longer "shell") and its tool conditions match bash calls, so a workflow written before the rename keeps
+// working without being edited.
 func TestVerifiedCodeFixParity(t *testing.T) {
 	def, err := Parse([]byte(verifiedCodeFix))
 	if err != nil {
@@ -64,12 +67,12 @@ func TestVerifiedCodeFixParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rt.CurrentAction != "diagnose" || !rt.IsToolAllowed("shell") || rt.IsToolAllowed("apply_patch") {
+	if rt.CurrentAction != "diagnose" || !rt.IsToolAllowed("bash") || rt.IsToolAllowed("shell") || rt.IsToolAllowed("apply_patch") {
 		t.Fatalf("unexpected diagnose state: %#v", rt.Summary())
 	}
 
 	_, err = rt.ObserveTool(ToolObservation{
-		Tool:   "shell",
+		Tool:   "bash",
 		Args:   map[string]any{"command": "go test ./..."},
 		Result: map[string]any{"ok": false, "content": `{"exitCode":1}`},
 		Step:   1,
@@ -90,7 +93,7 @@ func TestVerifiedCodeFixParity(t *testing.T) {
 	}
 
 	_, err = rt.ObserveTool(ToolObservation{
-		Tool: "shell", Args: map[string]any{"command": "go test ./..."},
+		Tool: "bash", Args: map[string]any{"command": "go test ./..."},
 		Result: map[string]any{"ok": true, "content": `{"exitCode":0}`}, Step: 3,
 	})
 	if err != nil {

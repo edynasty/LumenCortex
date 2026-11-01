@@ -164,7 +164,7 @@ Stored under `session.metadata.workflow`:
   "factSources": {
     "tests.failed": {
       "source": "tool",
-      "tool": "shell",
+      "tool": "bash",
       "step": 1,
       "outcome": "baseline-fails"
     }

@@ -243,7 +243,7 @@ func TestEffectivePromptMatchesARealRun(t *testing.T) {
 func TestEffectivePromptReportsWithheldTools(t *testing.T) {
 	f := newPromptFixture(t, true)
 	report, err := f.engine.EffectivePrompt(context.Background(), EffectivePromptRequest{
-		Agent: "ask", Policy: "read-only", ToolDenylist: []string{"git_diff"},
+		Agent: "ask", Policy: "read-only", ToolDenylist: []string{"find_files"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -252,14 +252,14 @@ func TestEffectivePromptReportsWithheldTools(t *testing.T) {
 	for _, tool := range report.Tools {
 		tools[tool.Name] = tool
 	}
-	if tool := tools["shell"]; tool.Included || tool.Reason != "policy" {
-		t.Fatalf("shell=%+v", tool)
+	if tool := tools["bash"]; tool.Included || tool.Reason != "policy" {
+		t.Fatalf("bash=%+v", tool)
 	}
 	if tool := tools["write_file"]; tool.Included || tool.Reason != "policy" {
 		t.Fatalf("write_file=%+v", tool)
 	}
-	if tool := tools["git_diff"]; tool.Included || tool.Reason != "denylist" {
-		t.Fatalf("git_diff=%+v", tool)
+	if tool := tools["find_files"]; tool.Included || tool.Reason != "denylist" {
+		t.Fatalf("find_files=%+v", tool)
 	}
 	if tool := tools["start_task"]; tool.Included || tool.Reason != "delegation" {
 		t.Fatalf("start_task=%+v", tool)
@@ -369,7 +369,7 @@ func TestEffectivePromptChildAuthority(t *testing.T) {
 		t.Fatalf("child grant=%s/%q agent=%s", report.Policy, report.Delegation, report.Agent)
 	}
 	for _, tool := range report.Tools {
-		if tool.Name == "shell" && tool.Included {
+		if tool.Name == "bash" && tool.Included {
 			t.Fatalf("a child report offers shell: %+v", tool)
 		}
 		if tool.Name == "start_task" && tool.Included {

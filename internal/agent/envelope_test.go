@@ -42,7 +42,7 @@ func states(envs []session.RequestEnvelope) []string {
 func TestEnvelopeDescribesTheRequestThatWasSent(t *testing.T) {
 	store := envStore("env")
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "shell", `{"command":"ok"}`)}}, FinishReason: "tool_calls"},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "bash", `{"command":"ok"}`)}}, FinishReason: "tool_calls"},
 		answerOf("done"),
 	}}
 	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
@@ -272,7 +272,7 @@ func TestFencedBeforeAnswerStoresNothingAndRunsNothing(t *testing.T) {
 	store := envStore("fb")
 	store.fenceAnswer = true
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "shell", `{"command":"rm -rf x"}`)}}, FinishReason: "tool_calls"},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "bash", `{"command":"rm -rf x"}`)}}, FinishReason: "tool_calls"},
 		answerOf("never"),
 	}}
 	tools := &scriptTools{fn: func(context.Context, string, map[string]any) (protocol.ToolResult, error) {

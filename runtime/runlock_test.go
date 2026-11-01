@@ -333,7 +333,7 @@ func TestCancelDuringToolThenStartWithInputLeavesAPairedTranscript(t *testing.T)
 
 	cancelled := &exitProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 		return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
-			{ID: "sleep-1", Name: "shell", Arguments: json.RawMessage(`{"command":"echo ready && exec sleep 5"}`)},
+			{ID: "sleep-1", Name: "bash", Arguments: json.RawMessage(`{"command":"echo ready && exec sleep 5"}`)},
 		}}, FinishReason: "tool_calls"}, nil
 	}}
 	if _, err := supervisor.startWith(context.Background(), handle.ID, cancelled, AgentOptions{Policy: "full", MaxSteps: 3}); err != nil {

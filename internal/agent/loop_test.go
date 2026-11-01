@@ -337,7 +337,7 @@ func (p *scriptedProvider) Complete(_ context.Context, req protocol.ProviderRequ
 type fakeTools struct{}
 
 func (fakeTools) Specs(allow []string) []protocol.ToolSpec {
-	all := []protocol.ToolSpec{{Name: "shell"}, {Name: "apply_patch"}}
+	all := []protocol.ToolSpec{{Name: "bash"}, {Name: "apply_patch"}}
 	if allow == nil {
 		return all
 	}
@@ -355,7 +355,7 @@ func (fakeTools) Specs(allow []string) []protocol.ToolSpec {
 }
 func (fakeTools) Execute(_ context.Context, name string, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	switch name {
-	case "shell":
+	case "bash":
 		code := 0
 		if fmt.Sprint(args["command"]) == "test-fail" {
 			code = 1
@@ -380,9 +380,9 @@ func TestLoopWorkflowAndWindowedTranscript(t *testing.T) {
 		store.messages = append(store.messages, protocol.Message{Role: "user", Content: fmt.Sprintf("old-%d %s", i, strings.Repeat("x", 200))})
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "shell", `{"command":"test-fail"}`)}}},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "bash", `{"command":"test-fail"}`)}}},
 		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("2", "apply_patch", `{}`)}}},
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("3", "shell", `{"command":"test-pass"}`)}}},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("3", "bash", `{"command":"test-pass"}`)}}},
 		{Message: protocol.Message{Content: "done"}},
 	}}
 	workflow := []byte(`{"id":"wf","entry":"diagnose","facts":{"failed":false,"changed":false,"passed":false},"actions":{"diagnose":{"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","notEquals":0},"set":{"failed":true}}],"routes":[{"to":"repair","when":{"fact":"failed","equals":true}}]},"repair":{"allowedTools":["apply_patch"],"outcomes":[{"when":{"tool":"apply_patch","ok":true},"set":{"changed":true}}],"completeWhen":{"fact":"changed","equals":true},"routes":[{"to":"verify"}]},"verify":{"terminal":true,"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","equals":0},"set":{"passed":true}}],"completeWhen":{"fact":"passed","equals":true}}}}`)
@@ -429,7 +429,7 @@ func TestLoopWorkflowAndWindowedTranscript(t *testing.T) {
 func TestLoopRejectsPrematureFinal(t *testing.T) {
 	store := &memoryStore{state: SessionState{ID: "s2", Goal: "verify", Status: "running"}, steps: map[int64]any{}}
 	store.seedGoal()
-	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done too early"}}, {Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "shell", `{"command":"test-pass"}`)}}}, {Message: protocol.Message{Content: "done"}}}}
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done too early"}}, {Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "bash", `{"command":"test-pass"}`)}}}, {Message: protocol.Message{Content: "done"}}}}
 	workflow := []byte(`{"id":"wf","facts":{"passed":false},"actions":{"verify":{"terminal":true,"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","equals":0},"set":{"passed":true}}],"completeWhen":{"fact":"passed","equals":true}}}}`)
 	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
 	store.seed(t, workflow, nil)
@@ -526,6 +526,7 @@ func TestLoopAddsSystemLayers(t *testing.T) {
 	}
 }
 
+// The denylist names the command tool by its pre-ADR-0019 name: it still denies bash.
 func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
 	store := &memoryStore{
 		state: SessionState{ID: "deny", Goal: "test deny", Status: "running"},
@@ -537,7 +538,7 @@ func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
 			Message: protocol.Message{
 				Role: "assistant",
 				ToolCalls: []protocol.ToolCall{
-					call("blocked-shell", "shell", `{"command":"echo should-not-run"}`),
+					call("blocked-shell", "bash", `{"command":"echo should-not-run"}`),
 				},
 			},
 			FinishReason: "tool_calls",
@@ -563,7 +564,7 @@ func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
 		t.Fatal("provider did not receive request")
 	}
 	for _, spec := range provider.seen[0].Tools {
-		if spec.Name == "shell" {
+		if spec.Name == "bash" {
 			t.Fatalf("denied shell leaked into provider tools: %#v", provider.seen[0].Tools)
 		}
 	}
@@ -587,7 +588,7 @@ func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
 		{
 			Message: protocol.Message{
-				ToolCalls: []protocol.ToolCall{call("deny-1", "shell", `{"command":"echo should-not-run"}`)},
+				ToolCalls: []protocol.ToolCall{call("deny-1", "bash", `{"command":"echo should-not-run"}`)},
 			},
 			FinishReason: "tool_calls",
 		},
@@ -600,7 +601,7 @@ func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 	result, err := loop.Run(context.Background(), "deny", Options{
 		Session:      testRef,
 		MaxSteps:     3,
-		ToolDenylist: []string{"shell"},
+		ToolDenylist: []string{"bash"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -612,7 +613,7 @@ func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 		t.Fatal("provider request missing")
 	}
 	for _, spec := range provider.seen[0].Tools {
-		if spec.Name == "shell" {
+		if spec.Name == "bash" {
 			t.Fatalf("denied tool leaked into provider request: %#v", provider.seen[0].Tools)
 		}
 	}
@@ -624,6 +625,48 @@ func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 	}
 	if !foundDenied {
 		t.Fatalf("denied tool result missing: %#v", store.messages)
+	}
+}
+
+// A model that calls the command tool by its old name (a resumed history still shows "shell") is told
+// the new name and nothing runs; once bash is denied as well, the old name gets the plain refusal.
+func TestLoopCallByRenamedToolNameIsCorrected(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		denylist []string
+		want     string
+	}{
+		{"offered", nil, "tool shell was renamed to bash: call bash with the same arguments"},
+		{"denied", []string{"bash"}, "tool is not allowed in the current working set"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &memoryStore{state: SessionState{ID: "renamed", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+			store.seedGoal()
+			provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+				toolStep(call("old-1", "shell", `{"command":"echo x"}`)),
+				answer("done"),
+			}}
+			tools := &tierTools{}
+			loop := Loop{Models: testModels(provider), Store: store, Tools: tools}
+			result, err := loop.Run(context.Background(), "renamed", Options{
+				Session: testRef, MaxSteps: 3, ToolDenylist: tc.denylist,
+			})
+			if err != nil || result.Status != "completed" {
+				t.Fatalf("result=%#v err=%v", result, err)
+			}
+			if len(tools.executed) != 0 {
+				t.Fatalf("executed %v, want nothing", tools.executed)
+			}
+			var content string
+			for _, message := range store.messages {
+				if message.Role == "tool" && message.ToolCallID == "old-1" {
+					content = message.Content
+				}
+			}
+			if !strings.Contains(content, tc.want) {
+				t.Fatalf("tool result = %q, want it to contain %q", content, tc.want)
+			}
+		})
 	}
 }
 
@@ -754,7 +797,7 @@ func TestSideEffectToolsInvalidateInRunEpisodes(t *testing.T) {
 	store.seedGoal()
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
 		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
-			call("p", "apply_patch", `{"patch":"x"}`), call("s", "shell", `{"command":"ls"}`), call("r", "read_file", `{"path":"a"}`),
+			call("p", "apply_patch", `{"patch":"x"}`), call("s", "bash", `{"command":"ls"}`), call("r", "read_file", `{"path":"a"}`),
 		}}, FinishReason: "tool_calls"},
 		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
 	}}
@@ -999,7 +1042,7 @@ func TestLoopFailoverTraceAcrossStepsAndHealth(t *testing.T) {
 	health := NewHealth(func() time.Time { return now })
 	pa := &outageProvider{retryAfter: time.Hour}
 	pb := &scriptedProvider{responses: []protocol.ProviderResponse{
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c1", "shell", `{"command":"ok"}`)}}, FinishReason: "tool_calls"},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c1", "bash", `{"command":"ok"}`)}}, FinishReason: "tool_calls"},
 		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
 	}}
 	store := &memoryStore{state: SessionState{ID: "trace", Goal: "trace", Status: "running"}, steps: map[int64]any{}}

@@ -211,7 +211,7 @@ func TestInteractiveReadOnlyShellKeepsTheResolution(t *testing.T) {
 		p := &exitProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 			if n == 1 {
 				args, _ := json.Marshal(map[string]string{"command": command})
-				return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{{ID: "s1", Name: "shell", Arguments: args}}}, FinishReason: "tool_calls"}, nil
+				return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{{ID: "s1", Name: "bash", Arguments: args}}}, FinishReason: "tool_calls"}, nil
 			}
 			return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}, nil
 		}}

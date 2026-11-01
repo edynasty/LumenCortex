@@ -179,7 +179,7 @@ func TestAgentCeilingsCapTheGrant(t *testing.T) {
 	}
 	waitUntilIdle(t, supervisor, handle.ID, 5*time.Second)
 	names := toolNames(p.requests[0])
-	if containsString(names, "shell") || containsString(names, "write_file") || containsString(names, "start_task") {
+	if containsString(names, "bash") || containsString(names, "write_file") || containsString(names, "start_task") {
 		t.Fatalf("ask exposed write or delegation tools: %v", names)
 	}
 	if !containsString(names, "read_file") {

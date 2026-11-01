@@ -28,12 +28,12 @@ func TestExecutionTierIsTheFrozenTable(t *testing.T) {
 	}
 	cases := map[string]executionTier{
 		"write_file": tierFiles, "replace_in_file": tierFiles, "apply_patch": tierFiles,
-		"shell":        tierWorkspace,
+		"bash":         tierWorkspace,
 		"mcp__s__exec": tierWorkspace, "mcp__s__blank": tierWorkspace, "mcp__s__gone": tierWorkspace,
 		"mcp__s__read": tierAdmit, "mcp__s__write": tierAdmit,
 		"start_task": tierAdmit, "spawn_subagent": tierAdmit,
 		"read_file": tierNone, "search_text": tierNone, "find_files": tierNone, "list_dir": tierNone,
-		"git_status": tierNone, "git_diff": tierNone, "lsp_rename": tierNone, "read_skill": tierNone,
+		"lsp_rename": tierNone, "read_skill": tierNone,
 		"read_thread": tierNone, "recall": tierNone, "wait_subagent": tierNone,
 		"note_write": tierNone, "note_remove": tierNone, "work_unit_create": tierNone, "reference_suggest": tierNone,
 	}
@@ -44,7 +44,7 @@ func TestExecutionTierIsTheFrozenTable(t *testing.T) {
 	}
 }
 
-// tierTools offers a read tool, the file tools, shell and two MCP tools; every call runs fn.
+// tierTools offers a read tool, the file tools, bash and two MCP tools; every call runs fn.
 type tierTools struct {
 	mu       sync.Mutex
 	fn       func(ctx context.Context, name string, args map[string]any) (protocol.ToolResult, error)
@@ -56,7 +56,7 @@ func (t *tierTools) Specs([]string) []protocol.ToolSpec {
 		{Name: "read_file", Permission: "read"},
 		{Name: "write_file", Permission: "write"},
 		{Name: "apply_patch", Permission: "write"},
-		{Name: "shell", Permission: "exec"},
+		{Name: "bash", Permission: "exec"},
 		{Name: "mcp__s__exec", Permission: "exec"},
 		{Name: "mcp__s__read", Permission: "read"},
 	}
@@ -131,7 +131,7 @@ func TestSideEffectCallIsAdmittedBeforeItRuns(t *testing.T) {
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
 		toolStep(call("1", "read_file", `{"path":"a.txt"}`), call("2", "write_file", `{"path":"a.txt","content":"x"}`)),
-		toolStep(call("3", "shell", `{"command":"true"}`), call("4", "mcp__s__read", `{}`), call("5", "mcp__s__exec", `{}`)),
+		toolStep(call("3", "bash", `{"command":"true"}`), call("4", "mcp__s__read", `{}`), call("5", "mcp__s__exec", `{}`)),
 		answerOf("done"),
 	}}
 	loop := Loop{Models: testModels(provider), Store: store, Tools: tools, Snapshots: files}
@@ -143,7 +143,7 @@ func TestSideEffectCallIsAdmittedBeforeItRuns(t *testing.T) {
 		t.Fatalf("open admissions seen by each tool = %v, want [0 1 1 1 1]", seenAdmitted)
 	}
 	envs := store.envelopes()
-	wantTools := []string{"write_file", "shell", "mcp__s__read", "mcp__s__exec"}
+	wantTools := []string{"write_file", "bash", "mcp__s__read", "mcp__s__exec"}
 	wantRequest := []string{envs[0].RequestID, envs[1].RequestID, envs[1].RequestID, envs[1].RequestID}
 	wantArgs := []string{`{"path":"a.txt","content":"x"}`, `{"command":"true"}`, `{}`, `{}`}
 	if len(store.executions) != len(wantTools) {
@@ -202,7 +202,7 @@ func TestExecutionAdmissionRefusalRunsNothing(t *testing.T) {
 			store.execErr = tc.err
 			tools := &tierTools{}
 			provider := &scriptedProvider{responses: []protocol.ProviderResponse{
-				toolStep(call("1", "shell", `{"command":"rm -rf x"}`)), answerOf("never"),
+				toolStep(call("1", "bash", `{"command":"rm -rf x"}`)), answerOf("never"),
 			}}
 			rows := 0
 			loop := Loop{Models: testModels(provider), Store: store, Tools: tools}
@@ -230,7 +230,7 @@ func TestFencedToolCommitEndsTheRun(t *testing.T) {
 	store.commitErr = session.ErrFenced
 	tools := &tierTools{}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
-		toolStep(call("1", "shell", `{"command":"true"}`)), answerOf("never"),
+		toolStep(call("1", "bash", `{"command":"true"}`)), answerOf("never"),
 	}}
 	loop := Loop{Models: testModels(provider), Store: store, Tools: tools}
 	result, err := loop.Run(context.Background(), "fc", Options{Session: testRef, MaxSteps: 3})
@@ -254,7 +254,7 @@ func TestCancelledToolLeavesTheExecutionAdmitted(t *testing.T) {
 		cancel()
 		return protocol.ToolResult{OK: true, Content: "partial"}, nil
 	}}
-	provider := &scriptedProvider{responses: []protocol.ProviderResponse{toolStep(call("1", "shell", `{"command":"sleep 9"}`))}}
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{toolStep(call("1", "bash", `{"command":"sleep 9"}`))}}
 	loop := Loop{Models: testModels(provider), Store: store, Tools: tools}
 	result, _ := loop.Run(ctx, "cx", Options{Session: testRef, MaxSteps: 3})
 	assertExit(t, store, result, StatusInterrupted, KindCancelled)
@@ -286,8 +286,8 @@ func TestExecutionOutcomes(t *testing.T) {
 			delete(f.blobs, "gone")
 			f.mu.Unlock()
 		}, protocol.ToolResult{OK: true}, nil, session.OutcomeComplete, []string{"gone@-"}},
-		{"shell nonzero", call("1", "shell", `{"command":"false"}`), nil, protocol.ToolResult{OK: false}, nil, session.OutcomeFailed, nil},
-		{"shell error", call("1", "shell", `{"command":"x"}`), nil, protocol.ToolResult{}, errors.New("spawn failed"), session.OutcomeUnknown, nil},
+		{"shell nonzero", call("1", "bash", `{"command":"false"}`), nil, protocol.ToolResult{OK: false}, nil, session.OutcomeFailed, nil},
+		{"shell error", call("1", "bash", `{"command":"x"}`), nil, protocol.ToolResult{}, errors.New("spawn failed"), session.OutcomeUnknown, nil},
 		{"mcp error", call("1", "mcp__s__read", `{}`), nil, protocol.ToolResult{}, errors.New("broken pipe"), session.OutcomeUnknown, nil},
 	}
 	for _, tc := range cases {
@@ -364,7 +364,7 @@ func TestStuckSnapshotIsBoundedAndUnavailable(t *testing.T) {
 	old := snapshotTimeout
 	snapshotTimeout = 20 * time.Millisecond
 	t.Cleanup(func() { snapshotTimeout = old })
-	for _, c := range []protocol.ToolCall{call("1", "write_file", `{"path":"a"}`), call("1", "shell", `{"command":"true"}`)} {
+	for _, c := range []protocol.ToolCall{call("1", "write_file", `{"path":"a"}`), call("1", "bash", `{"command":"true"}`)} {
 		t.Run(c.Name, func(t *testing.T) {
 			store := envStore("st")
 			tools := &tierTools{}
@@ -424,7 +424,7 @@ func TestStoreWritesPerCall(t *testing.T) {
 		{call("1", "read_file", `{"path":"a"}`), 1},
 		{call("1", "mcp__s__read", `{}`), 2},
 		{call("1", "write_file", `{"path":"a"}`), 2},
-		{call("1", "shell", `{"command":"true"}`), 2},
+		{call("1", "bash", `{"command":"true"}`), 2},
 	} {
 		t.Run(tc.call.Name, func(t *testing.T) {
 			store := &countingStore{memoryStore: envStore("w")}

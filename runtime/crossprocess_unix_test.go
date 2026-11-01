@@ -83,7 +83,7 @@ func (p *xpProvider) Complete(context.Context, protocol.ProviderRequest) (protoc
 	case 1:
 		call = protocol.ToolCall{ID: fmt.Sprintf("w%d", n), Name: "write_file", Arguments: json.RawMessage(fmt.Sprintf(`{"path":"%s-%d.txt","content":"%s %d\n"}`, p.tag, n, p.tag, n))}
 	case 2:
-		call = protocol.ToolCall{ID: fmt.Sprintf("s%d", n), Name: "shell", Arguments: json.RawMessage(fmt.Sprintf(`{"command":"printf x >> %s.log"}`, p.tag))}
+		call = protocol.ToolCall{ID: fmt.Sprintf("s%d", n), Name: "bash", Arguments: json.RawMessage(fmt.Sprintf(`{"command":"printf x >> %s.log"}`, p.tag))}
 	default:
 		call = protocol.ToolCall{ID: fmt.Sprintf("r%d", n), Name: "read_file", Arguments: json.RawMessage(fmt.Sprintf(`{"path":"%s-%d.txt"}`, p.tag, n-2))}
 	}
@@ -121,7 +121,7 @@ func TestHelperCrossProcess(t *testing.T) {
 					return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", Content: "must not be asked"}, FinishReason: "stop"}
 				}
 				return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", ToolCalls: []protocol.ToolCall{
-					{ID: "s1", Name: "shell", Arguments: json.RawMessage(`{"command":"printf x >> count.txt && touch ` + sig + ` && sleep 2"}`)},
+					{ID: "s1", Name: "bash", Arguments: json.RawMessage(`{"command":"printf x >> count.txt && touch ` + sig + ` && sleep 2"}`)},
 					{ID: "w1", Name: "write_file", Arguments: json.RawMessage(`{"path":"after-busy.txt","content":"must not exist\n"}`)},
 				}}, FinishReason: "tool_calls"}
 			}
@@ -369,7 +369,7 @@ func TestCrossProcessBusyIsAStorageFailure(t *testing.T) {
 
 	reopened := openEngineAt(t, workspace)
 	execs, _ := readProvenance(t, reopened, h.ID)
-	if len(execs) != 1 || execs[0].Tool != "shell" || execs[0].Outcome != "outcome_unknown" || execs[0].Lineage != 0 {
+	if len(execs) != 1 || execs[0].Tool != "bash" || execs[0].Outcome != "outcome_unknown" || execs[0].Lineage != 0 {
 		t.Fatalf("executions after reopen = %+v, want the shell outcome_unknown", execs)
 	}
 	for _, e := range envelopeRows(t, reopened, h.ID) {

@@ -87,7 +87,7 @@ type scriptTools struct {
 }
 
 func (t *scriptTools) Specs([]string) []protocol.ToolSpec {
-	return []protocol.ToolSpec{{Name: "shell"}}
+	return []protocol.ToolSpec{{Name: "bash"}}
 }
 
 func (t *scriptTools) Execute(ctx context.Context, name string, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
@@ -109,7 +109,7 @@ func (p *funcProvider) Complete(ctx context.Context, req protocol.ProviderReques
 }
 
 func shellCall(id string) protocol.ProviderResponse {
-	return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call(id, "shell", `{"command":"x"}`)}}}
+	return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call(id, "bash", `{"command":"x"}`)}}}
 }
 
 // newState is a running session as NewSession leaves it: the goal is the first transcript row.
@@ -612,7 +612,7 @@ func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.
 			provider := &funcProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 				if n == 1 {
 					return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
-						{ID: "bad", Name: "shell", Arguments: json.RawMessage(raw)},
+						{ID: "bad", Name: "bash", Arguments: json.RawMessage(raw)},
 					}}}, nil
 				}
 				return protocol.ProviderResponse{Message: protocol.Message{Content: "fixed it"}}, nil
@@ -674,9 +674,9 @@ func TestOutputLimitReplyWithToolCallsRunsOnlyFinishedCalls(t *testing.T) {
 			}}
 			provider := &funcProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 				if n == 1 {
-					calls := []protocol.ToolCall{call("whole", "shell", `{"command":"ls"}`), call("last", "shell", tc.lastArgs)}
+					calls := []protocol.ToolCall{call("whole", "bash", `{"command":"ls"}`), call("last", "bash", tc.lastArgs)}
 					if tc.maxCalls > 0 {
-						calls = append(calls, call("tail", "shell", `{"command":"rm -rf /tmp/t`))
+						calls = append(calls, call("tail", "bash", `{"command":"rm -rf /tmp/t`))
 					}
 					return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: calls}, FinishReason: tc.finish}, nil
 				}

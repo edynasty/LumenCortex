@@ -176,7 +176,7 @@ Example:
 {
   "when": {
     "all": [
-      { "tool": "shell" },
+      { "tool": "bash" },
       { "arg": "command", "contains": "test" },
       { "result": "exitCode", "equals": 0 }
     ]

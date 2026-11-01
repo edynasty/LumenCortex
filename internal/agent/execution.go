@@ -55,7 +55,7 @@ func executionTierOf(name string, specs []protocol.ToolSpec) executionTier {
 	switch name {
 	case "write_file", "replace_in_file", "apply_patch":
 		return tierFiles
-	case "shell":
+	case protocol.ToolBash:
 		return tierWorkspace
 	case toolStartTask, toolSpawnSubagent:
 		return tierAdmit

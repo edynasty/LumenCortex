@@ -33,7 +33,7 @@ func (catalogFake) Execute(context.Context, string, map[string]any, func(protoco
 func (catalogFake) Catalog() []toolset.CatalogTool {
 	return []toolset.CatalogTool{
 		{Spec: protocol.ToolSpec{Name: "read_file", Permission: "read"}, Source: "builtin"},
-		{Spec: protocol.ToolSpec{Name: "shell", Permission: "exec"}, Source: "builtin"},
+		{Spec: protocol.ToolSpec{Name: "bash", Permission: "exec"}, Source: "builtin"},
 		{Spec: protocol.ToolSpec{Name: "lsp_hover", Permission: "read"}, Source: "lsp"},
 		{Spec: protocol.ToolSpec{Name: "mcp__helper__lookup", Permission: "read"}, Source: "mcp:helper"},
 	}
@@ -59,7 +59,7 @@ func TestStepToolsReportsWithheldTools(t *testing.T) {
 	if got := status["read_file"]; !got.Included || got.Reason != "" || got.Source != "builtin" {
 		t.Fatalf("read_file=%+v", got)
 	}
-	if got := status["shell"]; got.Included || got.Reason != ToolReasonPolicy {
+	if got := status["bash"]; got.Included || got.Reason != ToolReasonPolicy {
 		t.Fatalf("shell=%+v", got)
 	}
 	if got := status["lsp_hover"]; got.Included || got.Reason != ToolReasonDenylist {

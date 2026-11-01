@@ -118,8 +118,8 @@ func TestToolGitProcessCost(t *testing.T) {
 	}{
 		{"write_file of a new file", tcall("w", "write_file", `{"path":"a.txt","content":"alpha\n"}`), gitCost{hashObject: 1}},
 		{"write_file of an existing file", tcall("w", "write_file", `{"path":"seed.txt","content":"seed two\n"}`), gitCost{hashObject: 2}},
-		{"shell that changes a file", tcall("s", "shell", `{"command":"printf 'x' >> log.txt"}`), gitCost{status: 2, hashObject: 1, legacyShell: 4}},
-		{"shell that changes nothing", tcall("s", "shell", `{"command":"true"}`), gitCost{status: 2, legacyShell: 4}},
+		{"shell that changes a file", tcall("s", "bash", `{"command":"printf 'x' >> log.txt"}`), gitCost{status: 2, hashObject: 1, legacyShell: 4}},
+		{"shell that changes nothing", tcall("s", "bash", `{"command":"true"}`), gitCost{status: 2, legacyShell: 4}},
 		{"read_file", tcall("r", "read_file", `{"path":"seed.txt"}`), gitCost{}},
 		{"note_write", tcall("n", "note_write", `{"text":"the seed file holds one line"}`), gitCost{}},
 	} {

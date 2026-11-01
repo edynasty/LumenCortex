@@ -71,10 +71,15 @@ func TestRequestToolSchemasAreValidJSONSchema(t *testing.T) {
 					t.Errorf("%s: %v in %s", spec.Name, err, raw)
 				}
 			}
-			for _, want := range []string{"git_status", "git_diff", "list_subagents", "spawn_subagent", "wait_subagent", "shell",
+			for _, want := range []string{"list_subagents", "spawn_subagent", "wait_subagent", "bash",
 				"apply_patch", "lsp_hover", "lsp_rename", "work_unit_update", "start_task"} {
 				if !slices.Contains(names, want) {
 					t.Errorf("request tools lack %s: %v", want, names)
+				}
+			}
+			for _, gone := range []string{"shell", "git_status", "git_diff"} {
+				if slices.Contains(names, gone) {
+					t.Errorf("request tools offer %s, removed by ADR-0019 §0: %v", gone, names)
 				}
 			}
 		})

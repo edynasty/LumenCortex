@@ -18,6 +18,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/internal/toolset"
 	"github.com/edynasty/LumenCortex/internal/workflow"
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 // The kinds of layer a run's prompt is made of, in the order the run sends them (ADR-0013).
@@ -392,7 +393,7 @@ func (e *Engine) EffectivePrompt(ctx context.Context, req EffectivePromptRequest
 		})
 	}
 
-	allowlist := req.ToolAllowlist
+	allowlist := protocol.CanonicalToolNames(req.ToolAllowlist)
 	if wf != nil {
 		allowlist = wf.EffectiveAllowlist(allowlist)
 	}
@@ -401,7 +402,7 @@ func (e *Engine) EffectivePrompt(ctx context.Context, req EffectivePromptRequest
 		return EffectivePromptResult{}, err
 	}
 	stepTools := agent.StepTools(tools, agent.StepToolsInput{
-		Allowlist: allowlist, Denylist: req.ToolDenylist,
+		Allowlist: allowlist, Denylist: protocol.CanonicalToolNames(req.ToolDenylist),
 		Delegation: delegation, Tasks: req.Subagents && !child,
 		TaskAgents: eff.DelegationAgents(config.AgentInfo.TaskEligible),
 	})

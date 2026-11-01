@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 func Evaluate(condition any, ctx EvalContext) (bool, error) {
@@ -60,7 +62,8 @@ func Evaluate(condition any, ctx EvalContext) (bool, error) {
 		}
 		found := false
 		for _, tool := range tools {
-			found = found || tool == ctx.Tool
+			// A restored definition may name a tool by its pre-rename name (ADR-0019 §0).
+			found = found || protocol.CanonicalToolName(tool) == ctx.Tool
 		}
 		checks = append(checks, found)
 	}

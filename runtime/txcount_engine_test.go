@@ -63,7 +63,7 @@ func TestRealEngineSideEffectStepTakesOneMoreWriteTransaction(t *testing.T) {
 	for _, last := range []protocol.ToolCall{
 		{Name: "write_file", Arguments: json.RawMessage(`{"path":"b.txt","content":"beta\n"}`)},
 		// No output, so no tool.output event adds a journal row.
-		{Name: "shell", Arguments: json.RawMessage(`{"command":"true"}`)},
+		{Name: "bash", Arguments: json.RawMessage(`{"command":"true"}`)},
 	} {
 		if got := run(last); got != readOnly+1 {
 			t.Errorf("a run ending in %s took %d write transactions, the same run ending in read_file %d: want exactly one more (the admission)",

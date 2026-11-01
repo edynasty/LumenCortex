@@ -33,12 +33,12 @@ func toolCrashCall(tool, counter, point string) protocol.ToolCall {
 	switch tool {
 	case "write_file":
 		return tc("c1", "write_file", `{"path":"a.txt","content":"written by the run\n"}`)
-	case "shell":
+	case "bash":
 		cmd := fmt.Sprintf("printf x >> %q", counter)
 		if point == "in_execution" {
 			cmd += fmt.Sprintf(" && printf acting > %q && sleep 300", counter+".acting")
 		}
-		return tc("c1", "shell", fmt.Sprintf(`{"command":%q}`, cmd))
+		return tc("c1", "bash", fmt.Sprintf(`{"command":%q}`, cmd))
 	default:
 		return tc("c1", "mcp__srv__act", `{"text":"go"}`)
 	}
@@ -98,7 +98,7 @@ func TestHelperCrashAtToolPoint(t *testing.T) {
 
 func TestKilledAroundAToolIsUnknownAndNotReplayed(t *testing.T) {
 	points := []string{"after_admit", "in_execution", "before_commit", "after_commit"}
-	for _, tool := range []string{"write_file", "shell", "mcp"} {
+	for _, tool := range []string{"write_file", "bash", "mcp"} {
 		for _, point := range points {
 			if tool == "write_file" && point == "in_execution" {
 				// write_file is one synchronous write inside the process: there is no point between

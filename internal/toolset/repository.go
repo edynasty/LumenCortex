@@ -53,21 +53,3 @@ func (s *Set) findFiles(ctx context.Context, args map[string]any, _ func(protoco
 	raw, _ := json.Marshal(result)
 	return protocol.ToolResult{OK: true, Content: string(raw)}, nil
 }
-
-func (s *Set) gitStatus(ctx context.Context, _ map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
-	result, err := s.repository.GitStatus(ctx)
-	if err != nil {
-		return protocol.ToolResult{}, err
-	}
-	raw, _ := json.Marshal(result)
-	return protocol.ToolResult{OK: true, Content: string(raw)}, nil
-}
-
-func (s *Set) gitDiff(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
-	result, err := s.repository.GitDiff(ctx, stringArg(args, "path"), boolArg(args, "staged"))
-	if err != nil {
-		return protocol.ToolResult{}, err
-	}
-	raw, _ := json.Marshal(result)
-	return protocol.ToolResult{OK: true, Content: string(raw)}, nil
-}

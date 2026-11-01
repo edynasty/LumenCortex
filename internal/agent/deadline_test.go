@@ -116,9 +116,9 @@ func TestToolCallsSeeTheirDeadlineAndResultsReportTheTimeLeft(t *testing.T) {
 		provider := &funcProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 			switch n {
 			case 1:
-				return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("a", "shell", `{"command":"json"}`)}}}, nil
+				return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("a", "bash", `{"command":"json"}`)}}}, nil
 			case 2:
-				return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("b", "shell", `{"command":"plain"}`)}}}, nil
+				return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("b", "bash", `{"command":"plain"}`)}}}, nil
 			}
 			return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}}, nil
 		}}
@@ -284,7 +284,7 @@ func TestRunClockReserveAndMargin(t *testing.T) {
 		t.Fatalf("a reserve below the minimum margin bounds it: margin %s reserve %s", got, small.reserve)
 	}
 	c.observeTool(jobWaitTool, 7*time.Second)
-	c.observeTool("shell", 3*time.Second)
+	c.observeTool("bash", 3*time.Second)
 	if c.wait != 7*time.Second || c.tools != 3*time.Second {
 		t.Fatalf("wait=%s tools=%s", c.wait, c.tools)
 	}
