@@ -357,11 +357,104 @@ func TestSessionDeletionCancelsItsJobs(t *testing.T) {
 	if _, err := engine.Job(ctx, job.ID); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("job row survived the session deletion: err=%v", err)
 	}
-	// The session's output directory is swept with the row.
-	if err := engine.jobs.Sweep(ctx); err != nil {
-		t.Fatal(err)
-	}
+	// The session's output directory goes with the row, without waiting for a sweep.
 	if _, err := os.Stat(filepath.Join(engine.repoDir, "jobs", job.ID)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("job output survived: err=%v", err)
+	}
+}
+
+// Deleting a session removes its jobs' output files once the deletion has committed, not at the next
+// sweep or Open, and the preview names them beforehand (RT-exec-2). Another session's output stays.
+func TestSessionDeletionRemovesItsJobOutput(t *testing.T) {
+	workspace := gitWorkspace(t)
+	engine := openJobsEngine(t, workspace)
+	ctx := context.Background()
+	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "delete"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := engine.NewSession(ctx, SessionOptions{Goal: "keep"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := engine.SubmitJob(ctx, JobRequest{SessionID: handle.ID, Command: "echo private-session-output"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept, err := engine.SubmitJob(ctx, JobRequest{SessionID: other.ID, Command: "echo kept"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitJobState(t, engine, job.ID, session.JobCompleted, 20*time.Second)
+	waitJobState(t, engine, kept.ID, session.JobCompleted, 20*time.Second)
+	dir := filepath.Join(engine.repoDir, "jobs", job.ID)
+	keptDir := filepath.Join(engine.repoDir, "jobs", kept.ID)
+	if raw, err := os.ReadFile(filepath.Join(dir, "stdout.head")); err != nil || !strings.Contains(string(raw), "private-session-output") {
+		t.Fatalf("job output before the deletion: %q err=%v", raw, err)
+	}
+
+	p, err := engine.DeletionPreview(ctx, handle.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed []string
+	for _, o := range p.Outside {
+		if o.Kind == "jobOutput" {
+			listed = append(listed, o.Path)
+		}
+	}
+	if len(listed) != 1 || listed[0] != dir {
+		t.Fatalf("preview job output %q, want only %s (outside %+v)", listed, dir, p.Outside)
+	}
+
+	if _, err := engine.DeleteSession(ctx, handle.ID, WorktreeCleanup{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		raw, _ := os.ReadFile(filepath.Join(dir, "stdout.head"))
+		t.Fatalf("job output survived DeleteSession: stdout.head=%q err=%v", raw, err)
+	}
+	if _, err := os.Stat(keptDir); err != nil {
+		t.Fatalf("another session's job output was removed: %v", err)
+	}
+}
+
+// A deletion interrupted once the rows are gone (the caller's ctx ends before the rebuild) removes its
+// jobs' output when the next DeleteSession resumes and finishes it (RT-exec-2).
+func TestAResumedDeletionRemovesItsJobOutput(t *testing.T) {
+	workspace := gitWorkspace(t)
+	engine := openJobsEngine(t, workspace)
+	bg := context.Background()
+	handle, err := engine.NewSession(bg, SessionOptions{Goal: "delete"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := engine.SubmitJob(bg, JobRequest{SessionID: handle.ID, Command: "echo private-session-output"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitJobState(t, engine, job.ID, session.JobCompleted, 20*time.Second)
+	dir := filepath.Join(engine.repoDir, "jobs", job.ID)
+
+	ctx, cancel := context.WithCancel(bg)
+	defer cancel()
+	testHookPurgeStep = func() {
+		if _, err := engine.store.Get(bg, handle.ID); errors.Is(err, session.ErrNotFound) {
+			cancel()
+		}
+	}
+	defer func() { testHookPurgeStep = nil }()
+	if _, err := engine.DeleteSession(ctx, handle.ID, WorktreeCleanup{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("interrupted delete: %v", err)
+	}
+	testHookPurgeStep = nil
+	if pending, err := engine.store.PendingPrivacyDeletion(bg, handle.ID); err != nil || pending == nil {
+		t.Fatalf("pending deletion %v %v", pending, err)
+	}
+	if _, err := engine.DeleteSession(bg, handle.ID, WorktreeCleanup{}); err != nil {
+		t.Fatalf("resumed delete: %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("job output survived the resumed deletion: err=%v", err)
 	}
 }

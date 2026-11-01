@@ -249,6 +249,101 @@ func TestCancelQueuedAndRunningKillsProcessGroup(t *testing.T) {
 	}
 }
 
+// waitPID reads the pid a job's command wrote to path and kills that process when the test ends: the
+// tests that use it start a child the job's own process group does not reach.
+func waitPID(t *testing.T, path string) int {
+	t.Helper()
+	for range 500 {
+		raw, err := os.ReadFile(path)
+		if err == nil && len(strings.TrimSpace(string(raw))) > 0 {
+			var pid int
+			fmt.Sscanf(strings.TrimSpace(string(raw)), "%d", &pid)
+			t.Cleanup(func() {
+				if p, err := os.FindProcess(pid); err == nil {
+					_ = p.Kill()
+				}
+			})
+			return pid
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("no pid in %s", path)
+	return 0
+}
+
+// CancelRun returns once every job it stopped is terminal, not when the first one is (RT-exec-3). One
+// job's shell dies with its group at once; the other's child leads a group of its own (set -m), so the
+// kill misses it and the pipe it keeps open holds that worker in Wait for killGrace.
+func TestCancelRunWaitsForEveryStoppedJob(t *testing.T) {
+	manager, _, _ := newManager(t, defaultLimits())
+	ctx := context.Background()
+	workspace := t.TempDir()
+	pidFile := filepath.Join(workspace, "escaped.pid")
+	quick, err := manager.Submit(ctx, Spec{Command: "sleep 30", Workspace: workspace, RunID: "run_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slow, err := manager.Submit(ctx, Spec{
+		Command:   fmt.Sprintf("set -m; sleep 30 & echo $! > %s; wait", pidFile),
+		Workspace: workspace, RunID: "run_1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, manager, quick.ID, session.JobRunning, 10*time.Second)
+	waitState(t, manager, slow.ID, session.JobRunning, 10*time.Second)
+	waitPID(t, pidFile)
+
+	moved, err := manager.CancelRun(ctx, "run_1", "run_ended")
+	if err != nil || moved != 2 {
+		t.Fatalf("CancelRun moved=%d err=%v, want 2 jobs", moved, err)
+	}
+	for _, id := range []string{quick.ID, slow.ID} {
+		job, err := manager.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if job.State != session.JobCancelled {
+			t.Fatalf("job %s state=%q when CancelRun returned, want cancelled", id, job.State)
+		}
+	}
+}
+
+// A job whose shell exits 0 while a child it started keeps stdout open has succeeded (RT-exec-4): once
+// killGrace has passed the pipes are closed and the job is completed with exit code 0, as a foreground
+// command is (shell.Runner), not failed with exec.ErrWaitDelay.
+func TestJobWhoseChildKeepsStdoutOpenCompletes(t *testing.T) {
+	manager, _, _ := newManager(t, defaultLimits())
+	workspace := t.TempDir()
+	pidFile := filepath.Join(workspace, "child.pid")
+	job, err := manager.Submit(context.Background(), Spec{
+		Command:   fmt.Sprintf("sleep 30 & echo $! > %s; echo hi", pidFile),
+		Workspace: workspace,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitPID(t, pidFile)
+	done, ok, err := manager.Wait(context.Background(), []string{job.ID}, 20*time.Second)
+	if err != nil || !ok {
+		t.Fatalf("wait: ok=%v err=%v", ok, err)
+	}
+	if done.State != session.JobCompleted || done.ExitCode == nil || *done.ExitCode != 0 || done.Error != "" {
+		exit := "none"
+		if done.ExitCode != nil {
+			exit = fmt.Sprint(*done.ExitCode)
+		}
+		t.Fatalf("state=%q exit=%s error=%q, want completed with exit 0", done.State, exit, done.Error)
+	}
+	out, err := manager.Output(context.Background(), job.ID, 8<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Stdout.Head, "hi") {
+		t.Fatalf("stdout=%+v", out.Stdout)
+	}
+}
+
 func TestJobTimeoutEndsTimedOutWithPartialOutput(t *testing.T) {
 	manager, _, _ := newManager(t, defaultLimits())
 	workspace := t.TempDir()

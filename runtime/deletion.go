@@ -25,8 +25,9 @@ type DeletionPreview struct {
 // OutsideCopy is one place a deletion cannot remove the content from.
 type OutsideCopy struct {
 	// Kind: "backup" (a pre-migration copy of the database, Path), "worktree" (the session's worktree,
-	// removed or kept by WorktreeCleanup, Path), "workspace" (files and Git history the session's tools
-	// wrote), "provider" (requests already sent to a model provider).
+	// removed or kept by WorktreeCleanup, Path), "jobOutput" (the output files of one of the sessions'
+	// background jobs, removed once the deletion's rows are purged, Path), "workspace" (files and Git
+	// history the session's tools wrote), "provider" (requests already sent to a model provider).
 	Kind string `json:"kind"`
 	Path string `json:"path,omitempty"`
 }
@@ -65,6 +66,15 @@ func (e *Engine) DeletionPreview(ctx context.Context, sessionID string) (Deletio
 	for _, id := range p.Deleted {
 		if identity, err := e.SessionRuntime(ctx, id); err == nil && identity.Kind == RuntimeWorktree {
 			p.Outside = append(p.Outside, OutsideCopy{Kind: "worktree", Path: identity.Path})
+		}
+	}
+	if e.jobs != nil {
+		dirs, err := e.jobs.OutputDirs(ctx, p.Deleted)
+		if err != nil {
+			return DeletionPreview{}, err
+		}
+		for _, dir := range dirs {
+			p.Outside = append(p.Outside, OutsideCopy{Kind: "jobOutput", Path: dir})
 		}
 	}
 	p.Outside = append(p.Outside, OutsideCopy{Kind: "workspace"}, OutsideCopy{Kind: "provider"})

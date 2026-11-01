@@ -618,9 +618,18 @@ var ErrDeletionPending = session.ErrCleanupPending
 // WAL truncation (session.PurgeStep). The checkpoint marker is owed before the first batch, so an Open
 // after a crash also retries the truncation. A reader that blocks the truncation ends it with
 // ErrDeletionPending and the deletion stays cleanup_pending. The caller holds the run lock of every id.
+// The output files of the jobs whose rows it purged are removed when it returns, however it ends; a
+// failure there is logged and leaves them to the next resume or sweep, never undoes the deletion.
 func (e *Engine) purgeDeletion(ctx context.Context, d session.PrivacyDeletion) error {
 	if err := e.store.OweCheckpoint(); err != nil {
 		return err
+	}
+	if e.jobs != nil {
+		defer func() {
+			if err := e.jobs.RemoveOrphanOutput(ctx); err != nil {
+				e.jobs.Logger().Warn("remove the job output of a deletion", "error", err)
+			}
+		}()
 	}
 	for {
 		done, err := e.store.PurgeStep(ctx, d)

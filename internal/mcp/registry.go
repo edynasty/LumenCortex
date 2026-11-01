@@ -708,18 +708,34 @@ func (r *Registry) CallToolForSession(ctx context.Context, workspace, serverID, 
 	return srv.callTool(ctx, toolName, sessionID, args)
 }
 
+// Close stops every server at once and waits for all of them: each stop may wait its server's
+// closeGrace, which the servers then share instead of adding up.
 func (r *Registry) Close() error {
 	r.mu.Lock()
 	servers := r.servers
 	r.servers = make(map[string]*server)
 	r.mu.Unlock()
-	var firstErr error
+	var (
+		mu   sync.Mutex
+		errs []error
+		wg   sync.WaitGroup
+	)
 	for _, srv := range servers {
-		if err := srv.stop(); err != nil && firstErr == nil {
-			firstErr = err
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := srv.stop(); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+		}()
 	}
-	return firstErr
+	wg.Wait()
+	if len(errs) > 0 {
+		return errs[0]
+	}
+	return nil
 }
 
 func (r *Registry) runtimeWorkspace(workspace string) (string, error) {

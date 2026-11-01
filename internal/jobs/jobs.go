@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -472,10 +473,18 @@ func (m *Manager) cancelJobs(ctx context.Context, active []Job, reason string) (
 			stopping = append(stopping, job.ID)
 		}
 	}
-	// The workers that own the running jobs record their terminal state; wait for it, so a caller that
-	// cancelled a run's jobs sees them cancelled when it returns.
-	if len(stopping) > 0 {
-		_, _, _ = m.Wait(ctx, stopping, 10*time.Second)
+	// The workers that own the running jobs record their terminal state; wait for every one of them,
+	// under one shared bound, so a caller that cancelled a run's jobs sees them cancelled when it
+	// returns. Wait ends at the first terminal job of its list, so each job is waited for on its own.
+	deadline := time.Now().Add(10 * time.Second)
+	for _, id := range stopping {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		if _, _, err := m.Wait(ctx, []string{id}, remaining); err != nil {
+			break
+		}
 	}
 	return moved, nil
 }
@@ -541,13 +550,19 @@ func (m *Manager) Sweep(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	root := filepath.Join(m.stateDir, "jobs")
 	for _, id := range ids {
-		if err := os.RemoveAll(filepath.Join(root, id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := os.RemoveAll(m.jobDir(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}
-	entries, err := os.ReadDir(root)
+	return m.RemoveOrphanOutput(ctx)
+}
+
+// RemoveOrphanOutput removes the output directories of jobs whose row is gone (a purged session).
+// Sweep runs it on every pass, and session deletion as soon as its rows are purged, so a deleted
+// session's command output does not wait for the next sweep.
+func (m *Manager) RemoveOrphanOutput(ctx context.Context) error {
+	entries, err := os.ReadDir(filepath.Join(m.stateDir, "jobs"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -561,11 +576,40 @@ func (m *Manager) Sweep(ctx context.Context) error {
 		if _, err := m.store.GetJob(ctx, entry.Name()); !errors.Is(err, session.ErrNotFound) {
 			continue
 		}
-		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := os.RemoveAll(m.jobDir(entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}
 	return nil
+}
+
+// OutputDirs lists the output directories on disk of the jobs of the named sessions: the copies of
+// their command output that deleting the sessions removes besides the rows.
+func (m *Manager) OutputDirs(ctx context.Context, sessionIDs []string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(m.stateDir, "jobs"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var dirs []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		job, err := m.store.GetJob(ctx, entry.Name())
+		if errors.Is(err, session.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if slices.Contains(sessionIDs, job.SessionID) {
+			dirs = append(dirs, m.jobDir(job.ID))
+		}
+	}
+	return dirs, nil
 }
 
 // Close stops accepting work, cancels the jobs this manager runs and the ones it still had queued

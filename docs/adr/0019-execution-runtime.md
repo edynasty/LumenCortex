@@ -256,8 +256,10 @@ are bounded by `max_steps`, the deadline and the budget.
 
 - Schema v8 (`0007_jobs`, `0008_schedules`, both reversible). A v6 binary refuses a v8 database
   (`ErrSchemaTooNew`); `lcx-go db downgrade --to 6` drops jobs and schedules after a backup.
-- Session deletion removes the session's jobs and scheduled tasks (`purgeTables`, cascade); the job manager
-  removes the orphaned output files.
+- Session deletion cancels the session's jobs, waits up to 10 s for every stopped one to end, and removes
+  its jobs and scheduled tasks (`purgeTables`, cascade); the output files of those jobs are removed as soon
+  as the rows are purged (a resumed deletion does the same; the sweep removes anything left), and
+  `DeletionPreview` lists them (`jobOutput`).
 - Background commands run concurrently with the run's foreground tools in the same workspace. The loop still
   executes tool calls one at a time; conflicting background commands are the model's responsibility, bounded
   by the per-run job limit.

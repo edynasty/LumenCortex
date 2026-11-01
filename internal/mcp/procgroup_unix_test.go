@@ -88,6 +88,43 @@ func TestMCPStdioCloseKillsItsProcessGroup(t *testing.T) {
 	waitProcessGone(t, child, 5*time.Second)
 }
 
+// TestRegistryCloseStopsServersTogether: Close stops every server at once (RT-exec-9). Each of these
+// servers is a shell that sleeps on with stdout open once the helper behind it exits at stdin EOF, so
+// each Client.Close waits its full closeGrace: one after another, Close would take closeGrace per
+// server; together they share one grace.
+func TestRegistryCloseStopsServersTogether(t *testing.T) {
+	root := t.TempDir()
+	registry, err := NewRegistry(root, filepath.Join(root, ".lumencortex", "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustedProject(registry, true)
+	t.Setenv("LCX_MCP_HELPER", "1")
+	t.Setenv("LCX_MCP_MODERN", "0")
+	const servers = 4
+	for i := range servers {
+		cfg := Config{
+			ID:           "lingering" + strconv.Itoa(i),
+			Command:      "/bin/sh",
+			Args:         []string{"-c", `"$0" -test.run=TestHelperMCPServer; sleep 30`, os.Args[0]},
+			ProtocolMode: ModeLegacy,
+		}
+		if err := registry.Upsert(cfg); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := registry.Start(context.Background(), cfg.ID, root); err != nil {
+			t.Fatal(err)
+		}
+	}
+	started := time.Now()
+	if err := registry.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(started); took >= 2*closeGrace {
+		t.Fatalf("Registry.Close of %d servers took %s, want them to share one %s grace", servers, took, closeGrace)
+	}
+}
+
 func processAlive(pid int) bool {
 	return pid > 0 && syscall.Kill(pid, 0) == nil
 }

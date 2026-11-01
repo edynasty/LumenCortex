@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -18,7 +19,15 @@ type execCommand struct {
 func (c *execCommand) Pid() int { return c.cmd.Process.Pid }
 
 // Wait waits for the command to exit and its pipes to close (bounded by the wait delay the start set).
-func (c *execCommand) Wait() error { return c.cmd.Wait() }
+// A shell that exited 0 while a process it started kept stdout or stderr open past the delay
+// succeeded: exec reports that as ErrWaitDelay, which Wait drops, as the foreground runner does
+// (shell.Runner).
+func (c *execCommand) Wait() error {
+	if err := c.cmd.Wait(); !errors.Is(err, exec.ErrWaitDelay) {
+		return err
+	}
+	return nil
+}
 
 // ProcessState is the exit state Wait recorded, nil before it returns.
 func (c *execCommand) ProcessState() *os.ProcessState { return c.cmd.ProcessState }
