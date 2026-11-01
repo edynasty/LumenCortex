@@ -40,6 +40,10 @@ const (
 	// a short index of their titles, versions, update times and sections. It never holds a body; the
 	// model reads a notebook, or one of its sections, with notebook_read.
 	OriginNotebook = "notebook"
+	// OriginJobs marks the user row a run appends when its session has background jobs queued, running or
+	// of unknown outcome (ADR-0019 §3): their ids, states and commands, so a resumed run starts from the
+	// runtime's state, not from what its transcript last said.
+	OriginJobs = "jobs"
 )
 
 // Contents of the runtime rows that open a new turn. They are user rows the model reads.

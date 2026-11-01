@@ -136,6 +136,7 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 	ctx, done := r.engine.trackRun(ctx, r.sessionID)
 	defer done()
 	result, err := r.loop.Run(ctx, r.sessionID, r.loopOpts)
+	r.engine.endRunJobs(ctx, r.sessionID, r.loopOpts.RunID)
 	return AgentResult{
 		SessionID:   result.SessionID,
 		Status:      result.Status,
@@ -426,6 +427,11 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	} else if row, ok := notebookIndexRow(infos); ok {
 		start.Notices = append(start.Notices, row)
 	}
+	if open, err := e.store.ListJobs(ctx, session.JobFilter{SessionID: sessionID, States: jobsIndexStates, Limit: maxJobsIndexEntries + 1}); err != nil {
+		return nil, err
+	} else if row, ok := jobsIndexRow(open); ok {
+		start.Notices = append(start.Notices, row)
+	}
 	if agent.WritesModelRef(plan.rule) {
 		ref := string(plan.session)
 		start.ModelRef = &ref
@@ -450,7 +456,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		case i < len(results):
 			e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user", "origin": protocol.OriginTaskResult})
 		case i >= noticeFrom:
-			e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user", "origin": protocol.OriginNotebook})
+			e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user", "origin": start.Notices[i-noticeFrom].Origin})
 		case start.Input != nil:
 			e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user"})
 		default:
@@ -472,6 +478,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 			Store:     agentStore{store: e.store},
 			Tools:     tools,
 			Snapshots: snapshots,
+			Jobs:      e.jobGate(),
 			Evidence:  e.runEvidence(sessionID, checks),
 			Checks:    checks,
 			Tasks:     taskStarterFor(delegation, opts.tasks),

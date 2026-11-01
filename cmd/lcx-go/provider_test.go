@@ -120,7 +120,7 @@ func globalFor(url string, extra string) string {
 	  "model": "local/m",
 	  "providers": {"local": {
 	    "settings": {"baseURL": %q, "apiKey": "{env:LOCAL_TEST_KEY}", "headers": {"X-Org": "acme"}},
-	    "models": {"m": {"modelID": "upstream-model", "limit": {"context": 4000, "output": 500},
+	    "models": {"m": {"modelID": "upstream-model", "limit": {"context": 8000, "output": 500},
 	      "reasoning": {"format": "reasoning-effort", "efforts": ["low", "high"]}}}
 	  }}%s
 	}`, url, extra)

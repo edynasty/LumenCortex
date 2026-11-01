@@ -145,9 +145,15 @@ stateDiagram-v2
   counts only. Retention: finished jobs older than `execution.jobRetentionDays` are deleted with their
   files; files whose row is gone (a deleted session) are removed.
 - A run's active jobs: the completion gate refuses a final answer while the run still has queued or running
-  jobs (correction: wait, read or cancel them). When a run ends any other way, its active jobs are cancelled
-  (reason `run_ended`): no job outlives the run that wanted it unobserved. Host and schedule jobs are not
-  tied to a run. Engine close cancels the jobs it runs.
+  jobs (correction names them: wait, read or cancel), at most twice per run, so a job that never ends cannot
+  loop the run; a failed lookup does not block. When the run ends, however it ends (completed after those
+  refusals included), its remaining active jobs are cancelled (reason `run_ended`, event `jobs.run_ended`):
+  no job outlives the run that wanted it unobserved. Host and schedule jobs are not tied to a run and are
+  never cancelled by a run's end. Engine close cancels the jobs it runs.
+- Resume: a run whose session has queued, running or `outcome_unknown` jobs gets one runtime user row
+  (origin `jobs`, ≤ 600 bytes, ≤ 8 jobs: id, state, command head) written by its Start transaction, next to
+  the notebook index (ADR-0020 §5), so it checks the runtime's state instead of its transcript's. A
+  session without such jobs gets no row.
 - Events: `job.state` `{jobId, sessionId, runId, scheduleId, source, state, exitCode}`.
 
 ### 4. Timers and scheduled tasks (RUNTIME-004)
@@ -228,6 +234,18 @@ take spend past `tokenBudget` or `costLimitUsd` by its output (at most the reque
 provider-side retry inside one attempt is not visible to the runtime. The limits bound what is admitted, not
 what a provider bills for a request in flight. Budgets are per run and in memory: a resumed run starts a new
 allowance.
+
+### 7. Agent strategy
+
+The default task prompt (`agent.SystemPrompt`, a host prompt replaces it) states a general working
+strategy, never task-specific rules: name the deliverable and produce a working version early; keep a
+plan and handoff in a notebook for multi-step work and read it, with the runtime rows, when continuing;
+bounded experiments; deliver a verified result before the deadline reserve; long commands as background
+jobs; change approach after a repeated failure; check files, commands and jobs before answering, and say
+what is not done. The runtime enforces what can be enforced (deadline, budget, the jobs gate, the
+repeated-failure hint of the Task State, `max_steps`); the prompt carries the rest. No gate loops a run
+without bound: the jobs gate stops after two refusals, and the workflow, work-unit and check corrections
+are bounded by `max_steps`, the deadline and the budget.
 
 ### Engine API (consumed by Desktop)
 

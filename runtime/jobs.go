@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/agent"
 	"github.com/edynasty/LumenCortex/internal/jobs"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/toolset"
@@ -464,4 +466,88 @@ func (e *Engine) runJobs(sessionID, runID, workspace string) toolset.JobControll
 		workspace: workspace,
 		logger:    e.jobs.Logger(),
 	}
+}
+
+// runJobGate is the agent loop's view of the run's active jobs, for the completion gate (ADR-0019 §3).
+type runJobGate struct{ manager *jobs.Manager }
+
+func (g runJobGate) ActiveJobs(ctx context.Context, runID string) ([]agent.ActiveJob, error) {
+	active, err := g.manager.ActiveForRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.ActiveJob, 0, len(active))
+	for _, job := range active {
+		out = append(out, agent.ActiveJob{ID: job.ID, State: job.State, Command: job.Command})
+	}
+	return out, nil
+}
+
+// jobGate is the run's job view, nil when this Engine has no job queue.
+func (e *Engine) jobGate() agent.RunJobs {
+	if e.jobs == nil {
+		return nil
+	}
+	return runJobGate{manager: e.jobs}
+}
+
+// endRunJobs cancels the jobs a run left queued or running when it ended, however it ended (ADR-0019
+// §3): no job outlives the run that wanted it unobserved. It runs after the loop returned, on a context
+// of its own, so a cancelled run still cancels its jobs.
+func (e *Engine) endRunJobs(ctx context.Context, sessionID, runID string) {
+	if e.jobs == nil || runID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	n, err := e.jobs.CancelRun(ctx, runID, "run_ended")
+	if err != nil {
+		e.events.publish("jobs.cancel_failed", sessionID, map[string]any{"runId": runID, "error": err.Error()})
+		return
+	}
+	if n > 0 {
+		e.events.publish("jobs.run_ended", sessionID, map[string]any{"runId": runID, "cancelled": n})
+	}
+}
+
+// The run-start row of the session's open background jobs (ADR-0019 §3): queued and running jobs (a
+// host's, a schedule's, another process's) and jobs whose owner died (outcome_unknown, never re-run).
+// It names them so a resumed run checks the runtime's state instead of trusting its transcript.
+const (
+	maxJobsIndexEntries = 8
+	maxJobsIndexBytes   = 600
+	jobsIndexPrefix     = "[runtime] Background jobs of this session that are open or ended without a known outcome: "
+	jobsIndexTail       = ". Check a job with job_status before you rely on, wait for or repeat its work; an outcome_unknown job was not finished and is never re-run."
+)
+
+// jobsIndexStates are the job states the row names.
+var jobsIndexStates = []string{session.JobQueued, session.JobRunning, session.JobOutcomeUnknown}
+
+// jobsIndexRow is the row a run appends when its session has such jobs; ok is false when it has none.
+func jobsIndexRow(open []session.Job) (protocol.Message, bool) {
+	if len(open) == 0 {
+		return protocol.Message{}, false
+	}
+	entries := make([]string, 0, min(len(open), maxJobsIndexEntries))
+	for i, job := range open {
+		if i == maxJobsIndexEntries {
+			break
+		}
+		command := job.Command
+		if len(command) > 48 {
+			command = truncateUTF8(command, 45) + "..."
+		}
+		entries = append(entries, fmt.Sprintf("%s %s (%s)", job.ID, job.State, command))
+	}
+	for n := len(entries); n >= 1; n-- {
+		line := jobsIndexPrefix + strings.Join(entries[:n], "; ")
+		if remaining := len(open) - n; remaining > 0 {
+			line += fmt.Sprintf("; and %d more (job_list)", remaining)
+		}
+		line += jobsIndexTail
+		if len(line) <= maxJobsIndexBytes {
+			return protocol.Message{Role: "user", Origin: protocol.OriginJobs, Content: line}, true
+		}
+	}
+	return protocol.Message{Role: "user", Origin: protocol.OriginJobs, Content: truncateUTF8(jobsIndexPrefix+entries[0]+jobsIndexTail, maxJobsIndexBytes)}, true
 }

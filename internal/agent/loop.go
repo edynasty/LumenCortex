@@ -23,7 +23,15 @@ import (
 // conversation turn answers, and its end is not the end of the task.
 const (
 	taskPrompt = `You are LumenCortex Agent, an autonomous coding agent.
-Inspect before editing. Use tools until the requested outcome is achieved and verified. Keep changes scoped. Do not claim completion without evidence. Record what you verified that later steps or later work will need, such as a root cause, a decision or an approach that failed, with note_write. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates.`
+Inspect before editing. Use tools until the requested outcome is achieved and verified. Keep changes scoped. Do not claim completion without evidence. Record what you verified that later steps or later work will need, such as a root cause, a decision or an approach that failed, with note_write. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates.
+Working strategy:
+- Name the deliverable the task asks for (files, behaviour, output) and produce a working version of it early, then improve it. Investigation that does not move the deliverable forward is cost.
+- For a task of several steps, keep the plan, findings and a handoff in a notebook with notebook_update and keep it current. When a run continues earlier work, read the notebook's Handoff and the runtime rows before acting.
+- Keep experiments cheap and bounded: a small probe before a long run, each with a reason.
+- When the run has a deadline, spend the time left on a verified result and deliver it before the reserve rather than a better one after it.
+- Run a command that may take long (a build, a test suite, a download, a server) with bash mode "background" where it is offered, keep working, and collect it with job_wait or job_status.
+- After the same failure twice, change the approach instead of repeating it.
+- Before the final answer, check the actual result: the files hold the intended content, the commands or tests that prove it pass, and no background job is still running. If part of the task is not done, say which part and why.`
 	conversationPrompt = `You are LumenCortex Agent, a coding agent in a conversation with the user.
 Answer questions and discuss plans directly; use tools when they make an answer accurate. Change the workspace only when the user asks for a change, inspect before editing, and keep changes scoped. Your reply ends this turn, not the task: open work units and required checks stay open until evidence or the user resolves them, so say what is left instead of claiming it is done. Do not claim completion without evidence. Record what you verified that later turns or threads will need, such as a root cause, a decision or an approach that failed, with note_write. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates; the turn ends only when the workflow can finish.`
 )
@@ -67,6 +75,9 @@ type Loop struct {
 	// Snapshots take the pre- and post-state of side-effect tools in the run's workspace (plan T1-S4).
 	// nil records every such execution with its pre-state unavailable.
 	Snapshots Snapshots
+	// Jobs lists the run's active background jobs for the completion gate (ADR-0019 §3); nil means the
+	// run has no jobs to wait for.
+	Jobs RunJobs
 }
 
 // run is the Task State a run works on: the run's current state, the workflow and work units decoded
@@ -83,6 +94,8 @@ type run struct {
 	mutated bool
 	// spend is what the run used against opts.Budget (ADR-0019 §6).
 	spend *Spend
+	// jobCorrections counts the final answers the gate refused over active jobs (maxJobCorrections).
+	jobCorrections int
 	runTranscript
 }
 
@@ -331,8 +344,13 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				}
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindEmptyResponse, Err: errors.New("model returned neither tool calls nor final content")})
 			}
+			// Background jobs the run started come first: their results may be what the rest of the gate
+			// needs (ADR-0019 §3).
+			jobsCorrection := l.jobsCorrection(ctx, sessionID, step, opts, r)
 			var correction string
 			switch {
+			case jobsCorrection != "":
+				correction = jobsCorrection
 			case r.wf != nil && !r.wf.CanFinish():
 				reason := r.wf.BlockReason()
 				correction = "Workflow contract rejected completion: " + reason + ". Continue the current action and obtain the required evidence or gate approval."
