@@ -296,8 +296,8 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		ShellTimeout:   time.Duration(e.executionLimits().ShellTimeoutSeconds) * time.Second,
 		// The run's background job queue: its session, its run id and the workspace its commands run in.
 		// The completion gate and the run's end use the same binding through the Engine (ADR-0019 §3).
-		Jobs: e.runJobs(sessionID, runID, agentWorkspace),
-		Wakeups:        wakeupBinding,
+		Jobs:    e.runJobs(sessionID, runID, agentWorkspace),
+		Wakeups: wakeupBinding,
 	})
 	if err != nil {
 		return nil, err
