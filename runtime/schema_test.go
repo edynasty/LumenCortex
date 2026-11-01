@@ -67,7 +67,7 @@ func TestOpenRefusesNewerSchemaWithoutWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine.Close()
-	setUserVersion(t, stateDir, 9)
+	setUserVersion(t, stateDir, 10)
 	dbFile := filepath.Join(stateDir, "lumencortex.db")
 	before, err := os.ReadFile(dbFile)
 	if err != nil {
@@ -75,7 +75,7 @@ func TestOpenRefusesNewerSchemaWithoutWriting(t *testing.T) {
 	}
 
 	if _, err := Open(Options{Workspace: workspace}); !errors.Is(err, ErrSchemaTooNew) {
-		t.Fatalf("Open of a version-9 database: %v, want ErrSchemaTooNew", err)
+		t.Fatalf("Open of a version-10 database: %v, want ErrSchemaTooNew", err)
 	}
 	after, err := os.ReadFile(dbFile)
 	if err != nil {
