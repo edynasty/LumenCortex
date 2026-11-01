@@ -4,17 +4,17 @@ package shell
 
 import "os/exec"
 
-// startGroup keeps exec's default cancellation (kill cmd.exe); Windows has no POSIX process groups.
+// StartGroup keeps exec's default cancellation (kill cmd.exe); Windows has no POSIX process groups.
 // WaitDelay still bounds the wait for pipes a surviving child holds.
-func startGroup(*exec.Cmd) {}
+func StartGroup(*exec.Cmd) {}
 
-// killGroup kills cmd.exe.
-func killGroup(cmd *exec.Cmd) error {
+// KillGroup kills cmd.exe.
+func KillGroup(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}
 	return cmd.Process.Kill()
 }
 
-// termGroup has no graceful equivalent for cmd.exe: the grace period passes and killGroup follows.
-func termGroup(int) error { return nil }
+// TermGroup has no graceful equivalent for cmd.exe: the grace period passes and KillGroup follows.
+func TermGroup(int) error { return nil }

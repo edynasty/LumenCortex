@@ -6,9 +6,10 @@
   "homepage": "https://github.com/microsoft/playwright-mcp",
   "auth": "None. A local process; no credential and no account.",
   "requires": "The @playwright/mcp package installed on PATH as `playwright-mcp` (npm i -g @playwright/mcp) and its Chromium build (npx playwright install chromium). Core never downloads a package: a missing binary is reported by the availability diagnostic, not installed.",
-  "verified": "2026-11-01 against the published package @playwright/mcp 0.0.82 (`--help`) and by a live stdio handshake through this Core's MCP client: 25 tools listed in 285 ms, 20,117 bytes of tool schemas. The include list below names tools that listing actually reported. No credential and no paid call.",
+  "verified": "2026-11-01 against the published package @playwright/mcp 0.0.82 (`--help`) and by a live stdio handshake through this Core's MCP client: 25 tools listed in 285 ms, 20,117 bytes of tool schemas. The include list below names tools that listing actually reported. No credential and no paid call. Lifecycle verified live through the Engine on the same day, with the process tree sampled every 15 s: a real Chrome navigated a local page, Core stopped the server 599.9 s after the last call, a disable/start cycle, a SIGKILL of the server, a cancelled run and Engine.Close were each followed by a scan for leftover processes.",
   "limitations": [
-    "Chromium is a child of the MCP server: stopping the server closes it, but a crash of the server can leave a browser process behind.",
+    "Chromium runs in a process group of its own, which Core cannot signal. Core stops the server by closing its stdin and waiting for it to exit, which is when Playwright closes the browser: an idle stop, MCPStop, a disable and Engine.Close leave no browser process.",
+    "A server killed outright (SIGKILL) leaves its Chromium running: Core reports the dead client, drops it and starts a fresh server on the next call, but the detached browser is beyond its reach until it is killed by hand.",
     "The tool list is whatever the installed package version reports; Core filters by the include list but cannot pin the upstream tool set."
   ],
   "config": {

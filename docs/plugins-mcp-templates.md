@@ -52,6 +52,9 @@ disabled with `disabledReason: "denylist"` and keeps them visible.
   first calls share one start.
 - A server stops after `idleTimeoutSeconds` without a call (default 600 s), on `MCPStop`, and on
   `Engine.Close`.
+- A stdio server leads its own process group, as a bash command does, and Core kills that group when
+  the server exits and on `Close`. `Close` closes the server's stdin first and waits up to 2 s for it
+  to exit — which is when a server stops what it started — and signals a server that ignores the EOF.
 - `callTimeoutSeconds` (default 120 s), the run's tool deadline and cancellation all bound one call;
   the earliest wins.
 - `maxConcurrentCalls` (default 4) bounds calls in flight, `maxResultBytes` (default 1 MiB) bounds one
@@ -147,9 +150,15 @@ with `{"transport":"stdio","command":"docker","args":["run","-i","--rm","-e","GI
 - Flags: `--headless --isolated --browser chrome --timeout-action 15000 --timeout-navigation 30000
   --idle-timeout 300000 --output-dir .lumencortex/browser`.
 - `--isolated` keeps the profile in memory; `--idle-timeout` closes the browser before Core stops the
-  server (Core's own idle stop is 600 s). Downloads never happen: `playwright-mcp` must already be on
+  server (Core's own idle stop is 600 s; observed live: the browser was gone at 300 s and the server
+  stopped at 599.9 s). Downloads never happen: `playwright-mcp` must already be on
   `PATH` (`npm i -g @playwright/mcp`, then `npx playwright install chromium`); a missing binary is
   reported as `needs-configuration`, not installed.
+- Playwright launches Chromium in a process group of its own, which Core cannot signal: every stop
+  (idle timeout, `MCPStop`, a disable, `Engine.Close`) closes the server's stdin and waits for it to
+  exit, and Playwright then closes the browser — nothing outlives a stop. A server killed outright
+  (`SIGKILL`) leaves its Chromium running until it is killed by hand; the next call starts a fresh
+  server.
 - Web content is untrusted: a page's text is data, never an instruction. Independent of Computer Use.
 - Verified 2026-11-01 against `@playwright/mcp` 0.0.82 `--help`. A live stdio handshake through Core
   was run locally (see the report) — no credential, no paid call.

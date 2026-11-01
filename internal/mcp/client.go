@@ -17,6 +17,9 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/edynasty/LumenCortex/internal/shell"
 )
 
 var (
@@ -25,6 +28,11 @@ var (
 	ErrMessageTooLarge    = errors.New("mcp message exceeds runtime limit")
 	ErrToolResultTooLarge = errors.New("mcp tool result exceeds runtime limit")
 )
+
+// closeGrace bounds how long Close waits for a server to exit on its own after its stdin closes: a
+// server that stops what it started (playwright-mcp closes its Chromium) does so on exit, and only a
+// server that does not is signalled.
+const closeGrace = 2 * time.Second
 
 type Client struct {
 	cfg    Config
@@ -102,6 +110,9 @@ func Start(ctx context.Context, cfg Config) (*Client, error) {
 	}
 	stderr := &boundedBuffer{max: 128 << 10}
 	cmd.Stderr = stderr
+	// A server leads its own process group, the same way a shell command does: cancellation kills the
+	// group rather than the server alone, and whatever the server leaves in that group dies with it.
+	shell.StartGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return nil, err
@@ -346,15 +357,33 @@ func (c *Client) Close() error {
 	c.closeOnce.Do(func() {
 		c.closed.Store(true)
 		_ = c.stdin.Close()
+		if c.cmd != nil {
+			// A server that stops what it started does it on exit, which stdin EOF begins: give it
+			// closeGrace to end before its group is killed, so a browser it owns is closed rather than
+			// signalled.
+			select {
+			case <-c.done:
+			case <-time.After(closeGrace):
+			}
+		}
 		c.cancel()
 		if c.cmd != nil {
 			// The process is owned by this client. Cancellation/termination caused
 			// by an explicit Close is expected and must not surface as a Stop error.
 			_ = c.cmd.Wait()
+			// A server that was signalled had no chance to stop its children: the group takes them.
+			_ = shell.KillGroup(c.cmd)
 		}
 		c.failAllPending(ErrClosed)
 	})
 	return nil
+}
+
+// killGroup kills the server's process group: the processes it started are not this client's to leak.
+func (c *Client) killGroup() {
+	if c.cmd != nil {
+		_ = shell.KillGroup(c.cmd)
+	}
 }
 
 func (c *Client) withModernMeta(params map[string]any) map[string]any {
@@ -383,6 +412,9 @@ func withModernMeta(params map[string]any) map[string]any {
 func (c *Client) readLoop(stderr *boundedBuffer) {
 	defer close(c.done)
 	defer c.closed.Store(true)
+	// The server is gone (it exited, crashed or was killed): whatever it left in its process group is
+	// not this client's to leak, so the group is killed here and not only on Close.
+	defer c.killGroup()
 	for {
 		raw, err := readJSONLine(c.stdout)
 		if err != nil {

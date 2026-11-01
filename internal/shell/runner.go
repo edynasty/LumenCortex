@@ -96,7 +96,7 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 	cmd.Stdout = chunkWriter{bounded: stdout, stream: "stdout", onChunk: onChunk}
 	cmd.Stderr = chunkWriter{bounded: stderr, stream: "stderr", onChunk: onChunk}
 	cmd.WaitDelay = waitDelay
-	startGroup(cmd)
+	StartGroup(cmd)
 
 	err := cmd.Start()
 	var timedOut atomic.Bool
@@ -112,7 +112,7 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 				default:
 				}
 				timedOut.Store(true)
-				_ = termGroup(pid)
+				_ = TermGroup(pid)
 				grace := time.NewTimer(TermGrace)
 				defer grace.Stop()
 				select {
@@ -132,7 +132,7 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 		}
 	}
 	if r.Reap || ctx.Err() != nil || timedOut.Load() {
-		_ = killGroup(cmd)
+		_ = KillGroup(cmd)
 	}
 	// The shell exited successfully but a background process kept the pipes open past waitDelay: the
 	// command's own result stands.
