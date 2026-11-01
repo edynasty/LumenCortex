@@ -311,14 +311,18 @@ func TestNotebookToolSpecsAreSmall(t *testing.T) {
 		t.Fatal(err)
 	}
 	specs := set.Specs(nil)
-	total := 0
+	total, wire := 0, 0
 	for _, name := range []string{"notebook_list", "notebook_read", "notebook_update"} {
 		spec, ok := findToolSpec(specs, name)
 		if !ok {
 			t.Fatalf("no %s", name)
 		}
+		raw, err := json.Marshal(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
 		// The wire form the [OI]-compatible adapter sends: {"type":"function","function":{...}}.
-		raw, err := json.Marshal(map[string]any{
+		sent, err := json.Marshal(map[string]any{
 			"type": "function",
 			"function": map[string]any{
 				"name": spec.Name, "description": spec.Description, "parameters": spec.Parameters,
@@ -328,9 +332,10 @@ func TestNotebookToolSpecsAreSmall(t *testing.T) {
 			t.Fatal(err)
 		}
 		total += len(raw)
-		t.Logf("%s spec: %d bytes", name, len(raw))
+		wire += len(sent)
+		t.Logf("%s: spec %d bytes, sent %d bytes", name, len(raw), len(sent))
 	}
-	t.Logf("three notebook specs as sent: %d bytes", total)
+	t.Logf("three notebook specs: %d bytes as ToolSpec JSON, %d bytes as sent", total, wire)
 }
 
 func findToolSpec(specs []protocol.ToolSpec, name string) (protocol.ToolSpec, bool) {

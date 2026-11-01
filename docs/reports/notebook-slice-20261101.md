@@ -61,10 +61,10 @@ Implemented and validated in this worktree (see "Tests" for the exact commands a
 
 | Figure | Value | How |
 |---|---|---|
-| `notebook_list` spec, as sent | 432 bytes | `TestNotebookToolSpecsAreSmall` |
-| `notebook_read` spec, as sent | 567 bytes | same |
-| `notebook_update` spec, as sent | 938 bytes | same |
-| three specs together | 1,937 bytes | same |
+| `notebook_list` spec | 422 bytes JSON, 432 bytes as sent | `TestNotebookToolSpecsAreSmall` |
+| `notebook_read` spec | 557 bytes JSON, 567 bytes as sent | same |
+| `notebook_update` spec | 928 bytes JSON, 938 bytes as sent | same |
+| three specs together | 1,907 bytes JSON, 1,937 bytes as sent | same |
 | run-start index row, 8 notebooks | 585 bytes | `TestNotebookIndexRowCarriesNoBody` |
 | 32 notebooks × 50 revisions × 8 KiB bodies | 14,536,704 bytes on disk (12.5 MiB of bodies) | `TestNotebookStorageBytes` |
 
