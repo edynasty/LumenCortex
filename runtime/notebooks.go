@@ -35,6 +35,9 @@ var (
 	ErrNotebookConflict = session.ErrNotebookVersionConflict
 	// ErrNotebookNotFound reports that the session holds no notebook with that id or title.
 	ErrNotebookNotFound = session.ErrNotebookNotFound
+	// ErrNotebookWithdrawn reports that the session is withdrawn as a source (a revocation or a
+	// privacy deletion fences it), so its notebooks are not exported.
+	ErrNotebookWithdrawn = errors.New("the session is withdrawn as a source: its notebooks are not readable")
 )
 
 // Notebook limits, as the store enforces them (ADR-0020).
@@ -45,17 +48,48 @@ const (
 	MaxNotebookRevisions   = session.MaxNotebookRevisions
 )
 
-// Notebooks lists the working notebooks of a session, newest first, without their bodies.
+// Notebooks lists the working notebooks of a session, newest first, without their bodies. Like every
+// host read below, a session withdrawn as a source (Store.SessionWithdrawn, the predicate ReadThread
+// and the other read exits use; plan T3-S3) returns the same entries marked Withdrawn, with identity,
+// version, size and author and no title, section heading or body: those are the session's content.
 func (e *Engine) Notebooks(ctx context.Context, sessionID string) ([]NotebookInfo, error) {
 	if _, err := e.store.Get(ctx, sessionID); err != nil {
 		return nil, err
 	}
-	return e.store.ListNotebooks(ctx, sessionID)
+	infos, err := e.store.ListNotebooks(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	withdrawn, err := e.store.SessionWithdrawn(ctx, sessionID)
+	if err != nil || !withdrawn {
+		return infos, err
+	}
+	for i := range infos {
+		infos[i] = withdrawnNotebook(infos[i])
+	}
+	return infos, nil
 }
 
 // Notebook returns one notebook of a session by id or title, with its body.
 func (e *Engine) Notebook(ctx context.Context, sessionID, id string) (NotebookDoc, error) {
-	return e.store.GetNotebook(ctx, sessionID, id)
+	doc, err := e.store.GetNotebook(ctx, sessionID, id)
+	if err != nil {
+		return NotebookDoc{}, err
+	}
+	withdrawn, err := e.store.SessionWithdrawn(ctx, sessionID)
+	if err != nil {
+		return NotebookDoc{}, err
+	}
+	if withdrawn {
+		return NotebookDoc{NotebookInfo: withdrawnNotebook(doc.NotebookInfo)}, nil
+	}
+	return doc, nil
+}
+
+// withdrawnNotebook is info as a host read of a withdrawn session returns it.
+func withdrawnNotebook(info NotebookInfo) NotebookInfo {
+	return NotebookInfo{ID: info.ID, SessionID: info.SessionID, Version: info.Version, Bytes: info.Bytes,
+		UpdatedAt: info.UpdatedAt, UpdatedBy: info.UpdatedBy, Sections: []string{}, Withdrawn: true}
 }
 
 // CreateNotebook creates a notebook of the session with body as version 1, attributed to the host.
@@ -83,12 +117,34 @@ func (e *Engine) SaveNotebook(ctx context.Context, sessionID, id, body string, e
 
 // NotebookRevisions lists the kept versions of one notebook, newest first, without their bodies.
 func (e *Engine) NotebookRevisions(ctx context.Context, sessionID, id string) ([]NotebookRevision, error) {
-	return e.store.NotebookRevisions(ctx, sessionID, id)
+	revisions, err := e.store.NotebookRevisions(ctx, sessionID, id)
+	if err != nil {
+		return nil, err
+	}
+	withdrawn, err := e.store.SessionWithdrawn(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range revisions {
+		revisions[i].Withdrawn = withdrawn
+	}
+	return revisions, nil
 }
 
 // NotebookRevision returns one kept version of a notebook, with its body.
 func (e *Engine) NotebookRevision(ctx context.Context, sessionID, id string, version int64) (NotebookRevision, error) {
-	return e.store.NotebookRevision(ctx, sessionID, id, version)
+	revision, err := e.store.NotebookRevision(ctx, sessionID, id, version)
+	if err != nil {
+		return NotebookRevision{}, err
+	}
+	withdrawn, err := e.store.SessionWithdrawn(ctx, sessionID)
+	if err != nil {
+		return NotebookRevision{}, err
+	}
+	if withdrawn {
+		revision.Body, revision.Withdrawn = "", true
+	}
+	return revision, nil
 }
 
 // DeleteNotebook deletes one notebook of the session and every kept revision of it.
@@ -108,11 +164,18 @@ func (e *Engine) DeleteNotebook(ctx context.Context, sessionID, id string) error
 
 // ExportNotebook returns one notebook as a Markdown file and the file name a host should save it as.
 // The name is derived from the title and bounded; the body is returned unchanged apart from a final
-// newline.
+// newline. A notebook of a session withdrawn as a source is refused with ErrNotebookWithdrawn.
 func (e *Engine) ExportNotebook(ctx context.Context, sessionID, id string) (markdown, filename string, err error) {
 	doc, err := e.store.GetNotebook(ctx, sessionID, id)
 	if err != nil {
 		return "", "", err
+	}
+	withdrawn, err := e.store.SessionWithdrawn(ctx, sessionID)
+	if err != nil {
+		return "", "", err
+	}
+	if withdrawn {
+		return "", "", ErrNotebookWithdrawn
 	}
 	body := doc.Body
 	if body != "" && !strings.HasSuffix(body, "\n") {
@@ -168,28 +231,46 @@ func newNotebookAccess(e *Engine, sessionID, runID string) notebookAccess {
 }
 
 // target resolves the session a read names. Only the run's own session and its direct children are
-// reachable; anything else is refused with a reason the model can act on.
-func (a notebookAccess) target(ctx context.Context, sessionID string) (string, error) {
+// reachable; anything else is refused with a reason the model can act on. withdrawn reports a child
+// withdrawn as a source (Store.SessionWithdrawn, the predicate read_thread uses): a read of it returns
+// withdrawnRead and nothing of the child. The run's own session is never withdrawn to itself: a
+// fenced reader that was projected continues with its own notebooks.
+func (a notebookAccess) target(ctx context.Context, sessionID string) (target string, withdrawn bool, err error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" || sessionID == a.sessionID {
-		return a.sessionID, nil
+		return a.sessionID, false, nil
 	}
 	child, err := a.engine.store.IsDirectChild(ctx, a.sessionID, sessionID)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if !child {
-		return "", &toolset.NotebookProblem{Reason: fmt.Sprintf(
+		return "", false, &toolset.NotebookProblem{Reason: fmt.Sprintf(
 			"session %q is not your own session or a direct child subagent of it; a run reads only its own notebooks and those of its children", sessionID)}
 	}
-	return sessionID, nil
+	withdrawn, err = a.engine.store.SessionWithdrawn(ctx, sessionID)
+	if err != nil {
+		return "", false, err
+	}
+	return sessionID, withdrawn, nil
 }
 
-// List implements toolset.NotebookStore.
+// withdrawnRead is the notebook_list and notebook_read result of a child withdrawn as a source: the
+// session it names and the mark, as a withdrawn read_thread or subagent node carries them. It cites
+// nothing, so the tool row stores no edge to the child (internal/agent resultSessions).
+func withdrawnRead(target string) map[string]any {
+	return map[string]any{"session": target, "withdrawn": true}
+}
+
+// List implements toolset.NotebookStore. A child's list is a read of its content (titles and
+// headings): its tool row derives from the child, as a read_thread row does.
 func (a notebookAccess) List(ctx context.Context, sessionID string) (any, error) {
-	target, err := a.target(ctx, sessionID)
+	target, withdrawn, err := a.target(ctx, sessionID)
 	if err != nil {
 		return nil, err
+	}
+	if withdrawn {
+		return withdrawnRead(target), nil
 	}
 	infos, err := a.engine.store.ListNotebooks(ctx, target)
 	if err != nil {
@@ -219,12 +300,15 @@ type notebookListEntry struct {
 }
 
 // Read implements toolset.NotebookStore. The result names the session it read, as List's does: it is
-// a copy of that session's content, and a privacy deletion finds the copies of a session by its id
-// (session.copyFilter).
+// a copy of that session's content, a privacy deletion finds the copies of a session by its id
+// (session.copyFilter), and a child's read derives from the child as List's does.
 func (a notebookAccess) Read(ctx context.Context, sessionID, ref, section string) (any, error) {
-	target, err := a.target(ctx, sessionID)
+	target, withdrawn, err := a.target(ctx, sessionID)
 	if err != nil {
 		return nil, err
+	}
+	if withdrawn {
+		return withdrawnRead(target), nil
 	}
 	doc, err := a.engine.store.GetNotebook(ctx, target, ref)
 	if err != nil {

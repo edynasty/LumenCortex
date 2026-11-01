@@ -301,6 +301,120 @@ func TestNotebookToolsOnlyWriteTheRunOwnSession(t *testing.T) {
 	}
 }
 
+// notebookSentinel is the content of a child's notebook no read exit may return once the child is
+// withdrawn as a source.
+const notebookSentinel = "NOTEBOOK-SENTINEL-4b1f"
+
+// childWithNotebook is a subagent child of parent with one notebook, "research", at version 2, whose
+// body (both versions) holds notebookSentinel.
+func childWithNotebook(t *testing.T, engine *Engine, parent string) (string, NotebookDoc) {
+	t.Helper()
+	ctx := context.Background()
+	child, err := engine.NewSession(ctx, SessionOptions{Goal: "child"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.store.AddRelation(ctx, session.Relation{ParentSessionID: parent, ChildSessionID: child.ID, Kind: RelationSubagent}); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := engine.CreateNotebook(ctx, child.ID, "research", "# Research\n\n## Findings\n"+notebookSentinel+"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc, err = engine.SaveNotebook(ctx, child.ID, doc.ID, doc.Body+"\n## Handoff\n"+notebookSentinel+" again\n", doc.Version); err != nil {
+		t.Fatal(err)
+	}
+	return child.ID, doc
+}
+
+// Plan T3-S3 for the notebook (RT-state-3): once a child is revoked, every notebook read of it returns
+// the child withdrawn, as read_thread does - the agent's notebook_list and notebook_read results mark
+// it withdrawn and carry no title, heading or body; the host's Notebooks, Notebook, NotebookRevisions
+// and NotebookRevision return the same entries marked withdrawn with no content; ExportNotebook is
+// refused. The parent's own notebooks stay readable.
+func TestNotebookReadsOfARevokedChildAreWithdrawn(t *testing.T) {
+	engine, parent := notebookEngine(t)
+	ctx := context.Background()
+	child, childDoc := childWithNotebook(t, engine, parent)
+	if _, err := engine.CreateNotebook(ctx, parent, "plan", "# Plan\n\n## Handoff\nparent only\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.RevokeSource(ctx, SourceSession, child, "user_revoked"); err != nil {
+		t.Fatal(err)
+	}
+
+	set, err := toolset.New(toolset.Options{
+		Workspace: engine.workspace, Policy: toolset.PolicyReadOnly,
+		Notebook: newNotebookAccess(engine, parent, "run1"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"notebook_read", map[string]any{"notebook": "research", "session_id": child}},
+		{"notebook_read", map[string]any{"notebook": childDoc.ID, "section": "Findings", "session_id": child}},
+		{"notebook_list", map[string]any{"session_id": child}},
+	} {
+		result, err := set.Execute(ctx, call.name, call.args, nil)
+		if err != nil || !result.OK {
+			t.Fatalf("%s %v = %#v, %v", call.name, call.args, result, err)
+		}
+		var out struct {
+			Session   string `json:"session"`
+			Withdrawn bool   `json:"withdrawn"`
+		}
+		decodeJSON(t, []byte(result.Content), &out)
+		if out.Session != child || !out.Withdrawn || strings.Contains(result.Content, notebookSentinel) ||
+			strings.Contains(result.Content, "Findings") || strings.Contains(result.Content, "Handoff") {
+			t.Fatalf("%s %v of the revoked child = %s", call.name, call.args, result.Content)
+		}
+	}
+	if result, err := set.Execute(ctx, "notebook_read", map[string]any{"notebook": "plan"}, nil); err != nil || !result.OK ||
+		!strings.Contains(result.Content, "parent only") || strings.Contains(result.Content, `"withdrawn"`) {
+		t.Fatalf("the parent's own notebook = %#v, %v", result, err)
+	}
+
+	withdrawn := func(what string, v any) {
+		t.Helper()
+		text := jsonOf(t, v)
+		if strings.Contains(text, notebookSentinel) || strings.Contains(text, "research") || strings.Contains(text, "Findings") {
+			t.Fatalf("host %s of the revoked child carries its content: %s", what, text)
+		}
+		if !strings.Contains(text, `"withdrawn":true`) {
+			t.Fatalf("host %s of the revoked child is not marked withdrawn: %s", what, text)
+		}
+	}
+	infos, err := engine.Notebooks(ctx, child)
+	if err != nil || len(infos) != 1 || infos[0].ID != childDoc.ID || infos[0].Version != 2 {
+		t.Fatalf("host list %+v %v", infos, err)
+	}
+	withdrawn("list", infos)
+	doc, err := engine.Notebook(ctx, child, "research")
+	if err != nil || doc.ID != childDoc.ID || doc.Version != 2 {
+		t.Fatalf("host read %+v %v", doc, err)
+	}
+	withdrawn("read", doc)
+	revisions, err := engine.NotebookRevisions(ctx, child, childDoc.ID)
+	if err != nil || len(revisions) != 2 {
+		t.Fatalf("host revisions %+v %v", revisions, err)
+	}
+	withdrawn("revisions", revisions)
+	revision, err := engine.NotebookRevision(ctx, child, childDoc.ID, 1)
+	if err != nil || revision.Version != 1 {
+		t.Fatalf("host revision %+v %v", revision, err)
+	}
+	withdrawn("revision", revision)
+	if markdown, filename, err := engine.ExportNotebook(ctx, child, childDoc.ID); !errors.Is(err, ErrNotebookWithdrawn) || markdown != "" || filename != "" {
+		t.Fatalf("host export of the revoked child = %q, %q, %v", markdown, filename, err)
+	}
+	if got, err := engine.Notebook(ctx, parent, "plan"); err != nil || !strings.Contains(got.Body, "parent only") {
+		t.Fatalf("the parent's own notebook on the host = %+v, %v", got, err)
+	}
+}
+
 func TestNotebookToolSpecsAreSmall(t *testing.T) {
 	engine, sessionID := notebookEngine(t)
 	set, err := toolset.New(toolset.Options{

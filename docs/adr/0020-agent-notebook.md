@@ -129,9 +129,16 @@ readable after a context reset (it is written by the next Start) and after a mod
   any other session id is refused with a result that says so. Writes always name the run's own
   session: a parent merges a child's notebook by reading it and writing its own, which keeps one
   writer per notebook and leaves the child's record as the child left it.
+- A read of a child is a session-source read, as `read_thread` is (ADR-0018): the `notebook_list` or
+  `notebook_read` result names the child (`"session"`), its tool row stores an edge deriving from the
+  child, so revoking the child fences the reader, and a privacy deletion of the child removes the
+  copy. A child withdrawn as a source (revoked or deleted) reads as `{"session", "withdrawn": true}`
+  with nothing of it, and the row cites nothing.
 - The host (Desktop, CLI) uses the Engine API: `Notebooks`, `Notebook`, `CreateNotebook`,
   `SaveNotebook` (`updated_by = "host"`), `NotebookRevisions`, `NotebookRevision`, `DeleteNotebook`,
-  `ExportNotebook` (Markdown plus a file name). Host writes use the same compare-and-set.
+  `ExportNotebook` (Markdown plus a file name). Host writes use the same compare-and-set. The reads of
+  a session withdrawn as a source return the same entries marked `withdrawn`, with no title, section
+  heading or body; `ExportNotebook` is refused with `ErrNotebookWithdrawn`.
 - `notebook.updated` and `notebook.deleted` carry `{notebookId, version, bytes}`; the journal records
   the same ids and counts and never a body.
 
