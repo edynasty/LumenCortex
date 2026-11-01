@@ -199,6 +199,11 @@ func (s *Scheduler) applyMissed(ctx context.Context) error {
 			continue
 		}
 		t.NextRunAt, t.Enabled, t.LastStatus, t.LastError = next, !disable, session.ScheduleStatusMissed, ""
+		attrs := []any{"schedule_id", t.ID, "kind", string(t.Kind), "status", session.ScheduleStatusMissed}
+		if t.SessionID != "" {
+			attrs = append(attrs, "session_id", t.SessionID)
+		}
+		s.log.Info("schedule: missed occurrence advanced past without firing", attrs...)
 		s.emit("missed", t)
 	}
 	return nil
@@ -288,18 +293,19 @@ func (s *Scheduler) fire(ctx context.Context, t Task, now time.Time) {
 
 // run performs a claimed firing: overlap check, then the action, then the recorded outcome.
 func (s *Scheduler) run(ctx context.Context, t Task, now time.Time, claimedFrom time.Time, previousFired *time.Time) {
+	started := time.Now()
 	if err := payloadProblem(t); err != nil {
-		s.record(ctx, t, session.ScheduleStatusFailed, "", err.Error())
+		s.record(ctx, t, session.ScheduleStatusFailed, "", err.Error(), started)
 		return
 	}
 	if t.LastRef != "" {
 		active, err := s.actions.Active(ctx, t, t.LastRef)
 		if err != nil {
-			s.record(ctx, t, session.ScheduleStatusFailed, t.LastRef, "checking the previous firing: "+err.Error())
+			s.record(ctx, t, session.ScheduleStatusFailed, t.LastRef, "checking the previous firing: "+err.Error(), started)
 			return
 		}
 		if active {
-			s.record(ctx, t, session.ScheduleStatusSkippedOverlap, t.LastRef, "")
+			s.record(ctx, t, session.ScheduleStatusSkippedOverlap, t.LastRef, "", started)
 			return
 		}
 	}
@@ -326,10 +332,10 @@ func (s *Scheduler) run(ctx context.Context, t Task, now time.Time, claimedFrom 
 		return
 	}
 	if err != nil {
-		s.record(ctx, t, session.ScheduleStatusFailed, "", err.Error())
+		s.record(ctx, t, session.ScheduleStatusFailed, "", err.Error(), started)
 		return
 	}
-	s.record(ctx, t, session.ScheduleStatusFired, ref, "")
+	s.record(ctx, t, session.ScheduleStatusFired, ref, "", started)
 }
 
 func payloadProblem(t Task) error {
@@ -348,9 +354,9 @@ func payloadProblem(t Task) error {
 	return nil
 }
 
-// record writes the outcome of a firing and notifies the host. A task that vanished meanwhile is not
-// an error: a deleted session takes its tasks with it.
-func (s *Scheduler) record(ctx context.Context, t Task, status, ref, errText string) {
+// record writes the outcome of a firing, logs it with its correlation fields and notifies the host. A
+// task that vanished meanwhile is not an error: a deleted session takes its tasks with it.
+func (s *Scheduler) record(ctx context.Context, t Task, status, ref, errText string, elapsed time.Time) {
 	if err := s.store.RecordScheduleResult(ctx, t.ID, status, ref, errText); err != nil {
 		if !errors.Is(err, session.ErrNotFound) {
 			s.log.Warn("schedule: recording a firing failed", "schedule_id", t.ID, "error", err)
@@ -358,7 +364,32 @@ func (s *Scheduler) record(ctx context.Context, t Task, status, ref, errText str
 		return
 	}
 	t.LastStatus, t.LastRef, t.LastError = status, ref, errText
+	s.logFiring(t, status, ref, errText, time.Since(elapsed))
 	s.emit("fired", t)
+}
+
+// logFiring writes one record per firing with the correlation fields a trace reads (ADR-0019 §5):
+// which schedule, which session, what kind, how it ended and how long it took.
+func (s *Scheduler) logFiring(t Task, status, ref, errText string, elapsed time.Duration) {
+	attrs := []any{
+		"schedule_id", t.ID, "kind", string(t.Kind), "status", status,
+		"duration_ms", elapsed.Milliseconds(),
+	}
+	if t.SessionID != "" {
+		attrs = append(attrs, "session_id", t.SessionID)
+	}
+	if ref != "" {
+		attrs = append(attrs, "ref", ref)
+	}
+	switch status {
+	case session.ScheduleStatusFailed:
+		attrs = append(attrs, "error_code", "schedule_failed", "error", errText)
+		s.log.Warn("schedule: firing failed", attrs...)
+	case session.ScheduleStatusSkippedOverlap:
+		s.log.Info("schedule: firing skipped, the previous one is still active", attrs...)
+	default:
+		s.log.Info("schedule: fired", attrs...)
+	}
 }
 
 func (s *Scheduler) emit(event string, t Task) {
