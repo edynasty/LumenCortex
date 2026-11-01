@@ -621,6 +621,82 @@ func TestTwoSchedulersFireOneOccurrence(t *testing.T) {
 	}
 }
 
+// slowActions holds the firing of the command "slow" until release is closed, as a slow agent start
+// holds the scheduler goroutine.
+type slowActions struct {
+	*fakeActions
+	started chan struct{}
+	release chan struct{}
+}
+
+func (a *slowActions) RunShell(ctx context.Context, t Task) (string, error) {
+	if t.Shell.Command == "slow" {
+		close(a.started)
+		<-a.release
+	}
+	return a.fakeActions.RunShell(ctx, t)
+}
+
+func (a *fakeActions) ran(command string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := 0
+	for _, c := range a.shells {
+		if c == command {
+			n++
+		}
+	}
+	return n
+}
+
+// A second scheduler starting on the database while the first is busy firing does not treat the
+// occurrences queued behind that firing as missed: they came due moments ago, a live scheduler is
+// about to run them, and a one-shot (a wake-up) marked missed would be disabled for good. Each fires
+// exactly once (RT-state-6).
+func TestSecondStartLeavesRecentOccurrencesToTheLiveScheduler(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), ".lumencortex")
+	clock := newFakeClock(testBase)
+	storeA := openScheduleStore(t, dir)
+	defer storeA.Close()
+	actionsA := &slowActions{fakeActions: newFakeActions(), started: make(chan struct{}), release: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(actionsA.release) })
+	defer release() // a failed check must not leave a's firing blocked
+	a := newTestScheduler(t, storeA, actionsA, clock, actionsA.fakeActions.notify)
+	if _, err := a.Create(ctx, shellSpec("x", "slow", Trigger{Kind: TriggerOnce, At: testBase.Add(time.Minute)})); err != nil {
+		t.Fatal(err)
+	}
+	y, err := a.Create(ctx, shellSpec("y", "quick", Trigger{Kind: TriggerOnce, At: testBase.Add(time.Minute + time.Second)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(2 * time.Minute)
+	a.Wake()
+	<-actionsA.started // a is firing x; y is due and queued behind it
+
+	storeB := openScheduleStore(t, dir)
+	defer storeB.Close()
+	actionsB := newFakeActions()
+	b := newTestScheduler(t, storeB, actionsB, clock, nil)
+	if err := b.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if row := mustTask(t, storeB, y.ID); row.LastStatus == session.ScheduleStatusMissed || !row.Enabled {
+		t.Fatalf("the second Start marked a live occurrence: status=%q enabled=%v", row.LastStatus, row.Enabled)
+	}
+	release()
+	waitFor(t, "y to fire", func() bool { return mustTask(t, storeA, y.ID).LastStatus == session.ScheduleStatusFired })
+	if n := actionsA.ran("quick") + actionsB.ran("quick"); n != 1 {
+		t.Fatalf("y ran %d times, want 1", n)
+	}
+	if row := mustTask(t, storeA, y.ID); row.FireCount != 1 {
+		t.Fatalf("y fire count = %d, want 1", row.FireCount)
+	}
+}
+
 // A failing action is recorded with its error and does not stop the schedule.
 func TestActionFailureIsRecorded(t *testing.T) {
 	ctx := context.Background()

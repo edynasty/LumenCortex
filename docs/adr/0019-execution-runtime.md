@@ -164,7 +164,9 @@ a prompt and an explicit policy, default read-only, via the host's `RunSuperviso
 time), `interval` (every N ≥ 60 s) or `cron` (a standard five-field expression, `*`, lists, ranges and
 steps, read in an explicit IANA `timezone` — `UTC` unless the task names one; a local time the
 spring-forward gap skips does not fire, and a wall time the fall-back hour repeats fires once);
-`missed_policy` `skip` (default) or `run_once`. The expression and zone are columns of the row
+`missed_policy` `skip` (default) or `run_once`, applied when a scheduler starts to the occurrences more
+than two minutes overdue; a more recent one may be about to fire in another Engine on the same database,
+so it goes through the normal claim. The expression and zone are columns of the row
 (`cron_expr`, `timezone`), so a task means the same thing after a restart and in another process.
 
 - One scheduler goroutine per Engine with one `time.Timer` set to the earliest due task; no per-task timers.

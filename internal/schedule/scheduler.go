@@ -96,9 +96,9 @@ func New(opts Options) (*Scheduler, error) {
 
 func (s *Scheduler) now() time.Time { return s.clock().UTC() }
 
-// Start applies the missed policy to the tasks that came due while no scheduler ran, then starts the
-// scheduler goroutine. A second Start is a no-op. The goroutine lives until Close; ctx supplies values
-// only, not a lifetime.
+// Start applies the missed policy to the tasks that came due while no scheduler ran (more than
+// missedGrace ago), then starts the scheduler goroutine. A second Start is a no-op. The goroutine lives
+// until Close; ctx supplies values only, not a lifetime.
 func (s *Scheduler) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.closed {
@@ -166,11 +166,14 @@ func (s *Scheduler) Wake() {
 	}
 }
 
-// applyMissed handles the tasks already due when the scheduler starts: skip advances past them
-// without firing (a one-shot is disabled), run_once fires one occurrence and then advances.
+// applyMissed handles the tasks that came due while no scheduler ran: skip advances past them without
+// firing (a one-shot is disabled), run_once fires one occurrence and then advances. Only occurrences
+// more than missedGrace overdue count as missed. A more recent one may be queued behind a live
+// scheduler's firing (another Engine on this database), so it is left to the normal claim, which
+// fires it once, whichever scheduler wins.
 func (s *Scheduler) applyMissed(ctx context.Context) error {
 	now := s.now()
-	due, err := s.store.DueSchedules(ctx, now)
+	due, err := s.store.DueSchedules(ctx, now.Add(-missedGrace))
 	if err != nil {
 		return err
 	}

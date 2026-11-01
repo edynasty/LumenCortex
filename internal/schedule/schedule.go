@@ -98,6 +98,11 @@ const (
 	// maxUpdateAttempts bounds how often Update re-reads a row that a firing moved between its read and
 	// its compare-and-set write. A firing moves a row once per occurrence, so a second loss is rare.
 	maxUpdateAttempts = 3
+	// missedGrace is how long overdue an occurrence must be before a starting scheduler applies the
+	// missed policy to it. A live scheduler re-reads its due tasks at least every maxSleep and fires
+	// them one after another, so an occurrence a few seconds or a minute overdue may be about to fire
+	// in another Engine on the same database; past two such sleeps it counts as missed.
+	missedGrace = 2 * maxSleep
 )
 
 // ShellPayload is the command a shell task submits.
