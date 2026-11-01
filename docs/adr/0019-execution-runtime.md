@@ -174,8 +174,9 @@ so it goes through the normal claim. The expression and zone are columns of the 
   two Engines on one database never fire the same occurrence twice.
 - Overlap: when the previous firing's job or run is still active, the occurrence is skipped
   (`skipped_overlap`), never run concurrently. An agent task whose session is running (the run lock is
-  held, by this process or another) is the same case: the start is refused and the occurrence is recorded
-  as a skip. A one-shot task has no later occurrence to wait for, so it is not skipped: it stays pending
+  held, by this process or another), or whose Engine already runs `concurrency.maxAgents` agents, is the
+  same case: the start is refused and the occurrence is recorded as a skip. A one-shot task has no later
+  occurrence to wait for, so it is not skipped: it stays pending
   and is tried again a few seconds later, and a wake-up that comes due during the run that scheduled it
   fires once that run ended. A previous firing whose job no longer exists (job retention deleted it) is
   not active.

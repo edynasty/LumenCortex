@@ -109,10 +109,11 @@ func (a scheduleActions) RunAgent(ctx context.Context, t schedule.Task) (string,
 	}
 	if _, err := runner.Start(ctx, t.SessionID, AgentOptions{Input: t.Agent.Prompt, Policy: t.Agent.Policy,
 		ToolAllowlist: t.Agent.ToolAllowlist, ToolDenylist: t.Agent.ToolDenylist}); err != nil {
-		if errors.Is(err, ErrRunHeld) {
+		if errors.Is(err, ErrRunHeld) || errors.Is(err, ErrAgentLimitExceeded) {
 			// The session is running (the run that scheduled a wake-up, another Engine, another
-			// process): an overlap, not a failure. The scheduler skips a recurring occurrence and
-			// retries a one-shot.
+			// process), or this Engine already runs as many agents as it may: the start is refused
+			// for now, an overlap rather than a failure. The scheduler skips a recurring occurrence
+			// and retries a one-shot.
 			return "", schedule.ErrBusy
 		}
 		return "", err
