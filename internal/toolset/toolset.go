@@ -48,6 +48,8 @@ type Options struct {
 	// Jobs is the background job queue of the run's session (ADR-0019 §3); nil offers no job tools and
 	// no background mode.
 	Jobs JobController
+	// Wakeups backs wakeup_schedule and wakeup_cancel (ADR-0019 §4); nil offers neither.
+	Wakeups WakeupController
 }
 type Set struct {
 	workspace      string
@@ -65,6 +67,7 @@ type Set struct {
 	// shellTimeoutDefault is Options.ShellTimeout.
 	shellTimeoutDefault time.Duration
 	jobs                JobController
+	wakeups             WakeupController
 	tools               map[string]tool
 }
 type tool struct {
@@ -118,7 +121,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, jobs: opts.Jobs, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, jobs: opts.Jobs, wakeups: opts.Wakeups, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -268,6 +271,7 @@ func (s *Set) registerBuiltins() {
 	}
 	s.registerThreadTools()
 	s.registerSkillTools()
+	s.registerWakeupTools()
 }
 func str() map[string]any { return map[string]any{"type": "string"} }
 

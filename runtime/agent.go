@@ -272,6 +272,12 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		agentInstructions: plan.instructions,
 		skills:            e.skillRegistry,
 	})
+	// A wake-up starts a later run on this session. A child run (a subagent or an execution task) has a
+	// lifecycle of its own that its parent owns, so it gets no wake-up tools: the thread does.
+	var wakeupBinding toolset.WakeupController
+	if opts.parentSessionID == "" {
+		wakeupBinding = e.wakeupsFor(sessionID, policy)
+	}
 	tools, err := toolset.New(toolset.Options{
 		Workspace: agentWorkspace,
 		Policy:    policy,
@@ -288,6 +294,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		// The run's background job queue: its session, its run id and the workspace its commands run in.
 		// The completion gate and the run's end use the same binding through the Engine (ADR-0019 §3).
 		Jobs: e.runJobs(sessionID, runID, agentWorkspace),
+		Wakeups:        wakeupBinding,
 	})
 	if err != nil {
 		return nil, err

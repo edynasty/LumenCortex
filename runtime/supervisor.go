@@ -45,10 +45,14 @@ func NewRunSupervisor(engine *Engine) (*RunSupervisor, error) {
 	if engine == nil {
 		return nil, errors.New("engine is required")
 	}
-	return &RunSupervisor{
+	sup := &RunSupervisor{
 		engine: engine,
 		runs:   map[string]*managedRun{},
-	}, nil
+	}
+	// Agent schedules start their runs here (ADR-0019 §4): without a registered supervisor they stay
+	// due, and registering one retries them.
+	engine.setAgentRunner(sup)
+	return sup, nil
 }
 
 // Start begins an agent run and returns once its goroutine has started.
@@ -273,4 +277,5 @@ func (s *RunSupervisor) Close() {
 	for _, run := range runs {
 		<-run.done
 	}
+	s.engine.clearAgentRunner(s)
 }
