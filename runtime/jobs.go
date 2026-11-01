@@ -104,9 +104,8 @@ func (e *Engine) openJobs() (*jobs.Manager, error) {
 		Store:    e.store,
 		StateDir: e.repoDir,
 		Limits:   e.executionLimits,
-		// integrator wires the diagnostics logger
-		Logger: nil,
-		Notify: func(job session.Job) { e.jobStateChanged(job) },
+		Logger:   e.log,
+		Notify:   func(job session.Job) { e.jobStateChanged(job) },
 	})
 	if err != nil {
 		return nil, err

@@ -388,7 +388,12 @@ func copyTree(t *testing.T, from, to string) {
 			return err
 		}
 		rel, _ := filepath.Rel(from, path)
-		return os.WriteFile(filepath.Join(to, rel), raw, 0o644)
+		target := filepath.Join(to, rel)
+		// The state directory has subdirectories (logs, jobs, runs); a copy keeps them.
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, raw, 0o644)
 	})
 	if err != nil {
 		t.Fatal(err)
