@@ -309,6 +309,41 @@ func TestCancelRunWaitsForEveryStoppedJob(t *testing.T) {
 	}
 }
 
+// A job whose shell exits 0 while a child it started keeps stdout open has succeeded (RT-exec-4): once
+// killGrace has passed the pipes are closed and the job is completed with exit code 0, as a foreground
+// command is (shell.Runner), not failed with exec.ErrWaitDelay.
+func TestJobWhoseChildKeepsStdoutOpenCompletes(t *testing.T) {
+	manager, _, _ := newManager(t, defaultLimits())
+	workspace := t.TempDir()
+	pidFile := filepath.Join(workspace, "child.pid")
+	job, err := manager.Submit(context.Background(), Spec{
+		Command:   fmt.Sprintf("sleep 30 & echo $! > %s; echo hi", pidFile),
+		Workspace: workspace,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitPID(t, pidFile)
+	done, ok, err := manager.Wait(context.Background(), []string{job.ID}, 20*time.Second)
+	if err != nil || !ok {
+		t.Fatalf("wait: ok=%v err=%v", ok, err)
+	}
+	if done.State != session.JobCompleted || done.ExitCode == nil || *done.ExitCode != 0 || done.Error != "" {
+		exit := "none"
+		if done.ExitCode != nil {
+			exit = fmt.Sprint(*done.ExitCode)
+		}
+		t.Fatalf("state=%q exit=%s error=%q, want completed with exit 0", done.State, exit, done.Error)
+	}
+	out, err := manager.Output(context.Background(), job.ID, 8<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Stdout.Head, "hi") {
+		t.Fatalf("stdout=%+v", out.Stdout)
+	}
+}
+
 func TestJobTimeoutEndsTimedOutWithPartialOutput(t *testing.T) {
 	manager, _, _ := newManager(t, defaultLimits())
 	workspace := t.TempDir()
