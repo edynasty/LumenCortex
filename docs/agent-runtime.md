@@ -78,14 +78,50 @@ All tools participate in the same permission gate. File tools are workspace-scop
 Permission policies have explicit scopes:
 
 ```text
-read-only  -> read tools only
+read-only  -> read tools, and the state tools (the run's own working notebook)
 workspace  -> reads + workspace writes; no host shell; no external MCP writes
 full       -> all configured read/write/exec tools
 ```
 
+A `state` tool writes only the run's own durable working memory - never a workspace file, a command
+or another session - so every policy admits it ([ADR-0020](adr/0020-agent-notebook.md)).
+
 Unknown policy names are rejected. Ordinary autonomous `--yes` runs default to `full`; TUI without `--yes` remains `read-only`.
 
 One-shot Agent and Chat commands bridge `SIGINT` / `SIGTERM` into the Agent `AbortSignal`, matching the TUI cancellation semantics: active provider/shell work is cancelled and the Session is stored as `interrupted` for resume.
+
+## Working notebooks
+
+A run may keep a **working notebook**: a Markdown document with `## ` sections (Plan, Checklist,
+Findings, Experiments, Decisions, Failures, Verification, Handoff) stored in the state database and
+owned by the session ([ADR-0020](adr/0020-agent-notebook.md)). It is external working memory, not
+Task State: no status transition, completion-gate decision, check result or job state depends on it,
+and a notebook cannot declare a check passed.
+
+```text
+notebook_list   {} [session_id]                     titles, versions, sizes, sections
+notebook_read   {notebook, [section], [session_id]}  the body, or one section
+notebook_update {notebook, op, content, [section], [expected_version]}
+```
+
+`op` is `create` (a new title, no version), `replace` (needs `expected_version`), `append` (adds at
+the end) or `section` (replaces one `## ` section, creating it at the end when absent). Every write
+returns the new version and size; a conflict returns `{"error", "currentVersion"}` and nothing was
+written, so the model re-reads and retries.
+
+- Limits: body 256 KiB, title 1…120 characters, 32 notebooks per session, the newest 50 revisions of
+  each notebook kept (older pruned in the same transaction).
+- Context: when a run starts and its session has notebooks, the Start appends one user row (origin
+  `notebook`) with at most 8 titles, versions, update times and section headings, capped at 600
+  bytes, plus a line telling the model to read the Handoff section before continuing. Bodies are
+  never injected: they are read with `notebook_read`. A session without notebooks gets no row.
+- Subagents: a child run has its own notebooks. A run reads its own and those of its direct children
+  (`session_id`), refuses any other session, and always writes its own - a parent merges a child's
+  findings by reading them and writing its own notebook.
+- Hosts: `Notebooks`, `Notebook`, `CreateNotebook`, `SaveNotebook` (compare-and-set, `updated_by`
+  `host`), `NotebookRevisions`, `NotebookRevision`, `DeleteNotebook` and `ExportNotebook` (Markdown and
+  a file name). Writes publish `notebook.updated` / `notebook.deleted` (id, version, bytes) and a
+  content-free journal row.
 
 ## Large-repository retrieval
 

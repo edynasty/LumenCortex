@@ -36,6 +36,10 @@ const (
 	// OriginDeadline marks a user row the loop appends for a run with a deadline (ADR-0019 §2): one when
 	// the run starts, stating its budget, and one when the time left first falls within the reserve.
 	OriginDeadline = "deadline"
+	// OriginNotebook marks the user row a run appends when its session has working notebooks (ADR-0020):
+	// a short index of their titles, versions, update times and sections. It never holds a body; the
+	// model reads a notebook, or one of its sections, with notebook_read.
+	OriginNotebook = "notebook"
 )
 
 // Contents of the runtime rows that open a new turn. They are user rows the model reads.

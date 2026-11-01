@@ -292,6 +292,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		SubagentAgents: plan.spawnAgents,
 		Threads:        threadReader{engine: e, sessionID: sessionID, workspace: agentWorkspace},
 		Skills:         newSkillReader(prompt.Skills.Included),
+		Notebook:       newNotebookAccess(e, sessionID, runID),
 		Protected:      e.protected,
 		ShellTimeout:   time.Duration(e.executionLimits().ShellTimeoutSeconds) * time.Second,
 		// The run's background job queue: its session, its run id and the workspace its commands run in.
@@ -393,6 +394,13 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	// Start's one durable write: Input, the session model identity, the Start's Task State version and
 	// the running transition commit together or not at all (§3.2). Nothing above it wrote.
 	start := session.RunStart{Provider: &plan.resolved.ProviderID, Model: &plan.resolved.ModelID, TaskState: taskState, Results: results}
+	// The working notebooks of the session (ADR-0020) become one short index row in this Start: their
+	// titles, versions and sections, never a body. A session without notebooks gets no row.
+	if infos, err := e.store.ListNotebooks(ctx, sessionID); err != nil {
+		return nil, err
+	} else if row, ok := notebookIndexRow(infos); ok {
+		start.Notices = append(start.Notices, row)
+	}
 	if agent.WritesModelRef(plan.rule) {
 		ref := string(plan.session)
 		start.ModelRef = &ref
@@ -411,10 +419,13 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err != nil {
 		return nil, err
 	}
+	noticeFrom := len(seqs) - len(start.Notices)
 	for i, seq := range seqs {
 		switch {
 		case i < len(results):
 			e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user", "origin": protocol.OriginTaskResult})
+		case i >= noticeFrom:
+			e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user", "origin": protocol.OriginNotebook})
 		case start.Input != nil:
 			e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user"})
 		default:

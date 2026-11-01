@@ -40,6 +40,8 @@ type Options struct {
 	Threads ThreadReader
 	// Skills backs read_skill; nil (a run whose catalog offers no skill) does not offer it.
 	Skills SkillReader
+	// Notebook backs notebook_list/read/update (ADR-0020); nil offers none of them.
+	Notebook NotebookStore
 	// Protected is the state the file tools refuse to reach (ADR-0016). The zero value protects nothing.
 	Protected Protected
 	// ShellTimeout is the default timeout of a foreground shell call (execution.shellTimeoutSeconds);
@@ -63,6 +65,7 @@ type Set struct {
 	subagentAgents []config.AgentInfo
 	threads        ThreadReader
 	skills         SkillReader
+	notebooks      NotebookStore
 	protected      Protected
 	// shellTimeoutDefault is Options.ShellTimeout.
 	shellTimeoutDefault time.Duration
@@ -121,7 +124,7 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, jobs: opts.Jobs, wakeups: opts.Wakeups, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, notebooks: opts.Notebook, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, jobs: opts.Jobs, wakeups: opts.Wakeups, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -204,6 +207,11 @@ func (s *Set) Execute(ctx context.Context, name string, args map[string]any, onO
 	return t.execute(ctx, args, onOutput)
 }
 func (s *Set) policyAllows(spec protocol.ToolSpec) bool {
+	// A state tool writes only the run's own durable working memory (its notebook), never a workspace
+	// file or a command, so every policy admits it - the read-only one included (ADR-0020).
+	if spec.Permission == PermissionState {
+		return true
+	}
 	if s.policy == PolicyFull {
 		return true
 	}
@@ -272,6 +280,7 @@ func (s *Set) registerBuiltins() {
 	s.registerThreadTools()
 	s.registerSkillTools()
 	s.registerWakeupTools()
+	s.registerNotebookTools()
 }
 func str() map[string]any { return map[string]any{"type": "string"} }
 

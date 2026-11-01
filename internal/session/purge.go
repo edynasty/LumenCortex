@@ -60,9 +60,22 @@ const (
 
 // purgeTables are the tables holding rows of a deleted session, by session_id; sessions is last.
 // jobs and scheduled_tasks hold commands and prompts (content); a job's output files are removed by
-// the job manager once their row is gone.
+// the job manager once their row is gone. Notebooks are the agent's working memory (ADR-0020): their
+// bodies and revisions are content and are deleted with the session; notebook_revisions is keyed by
+// notebook, so it is purged before notebooks through purgeWhere.
 var purgeTables = []string{"session_messages", "agent_steps", "session_checkpoints", "task_states", "task_state_inbox",
-	"artifacts", "eval_results", "request_envelopes", "derived_origins", "jobs", "scheduled_tasks"}
+	"artifacts", "eval_results", "request_envelopes", "derived_origins", "jobs", "scheduled_tasks",
+	"notebook_revisions", "notebooks"}
+
+// purgeWhere is the WHERE clause selecting the rows of the sessions named by the id list `in` for one
+// table. Every table but notebook_revisions holds session_id; a revision is reached through the
+// notebook it belongs to.
+func purgeWhere(table, in string) string {
+	if table == "notebook_revisions" {
+		return "notebook_id IN (SELECT id FROM notebooks WHERE session_id IN (" + in + "))"
+	}
+	return "session_id IN (" + in + ")"
+}
 
 // PrivacyDeletion is one deletion in progress: the root session the user deleted, every id it deletes
 // (the root first, then the temporary descendants deleted with it) and the epoch of its fences.
@@ -255,7 +268,7 @@ func (s *Store) PurgeStep(ctx context.Context, d PrivacyDeletion) (done bool, er
 		budget := int64(PurgeBatchRows)
 		for _, table := range purgeTables {
 			res, err := conn.ExecContext(ctx, `DELETE FROM `+table+` WHERE rowid IN
-				(SELECT rowid FROM `+table+` WHERE session_id IN (`+in+`) LIMIT ?)`, append(args, budget)...)
+				(SELECT rowid FROM `+table+` WHERE `+purgeWhere(table, in)+` LIMIT ?)`, append(args, budget)...)
 			if err != nil {
 				return err
 			}
@@ -560,12 +573,12 @@ func (s *Store) DeletionPreview(ctx context.Context, ids []string) (DeletionPrev
 	p := DeletionPreview{Rows: map[string]int64{}}
 	in, args := idList(ids)
 	for _, table := range append(purgeTables, "sessions") {
-		column := "session_id"
+		where := purgeWhere(table, in)
 		if table == "sessions" {
-			column = "id"
+			where = "id IN (" + in + ")"
 		}
 		var n int64
-		if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM `+table+` WHERE `+column+` IN (`+in+`)`, args...).Scan(&n); err != nil {
+		if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM `+table+` WHERE `+where, args...).Scan(&n); err != nil {
 			return DeletionPreview{}, err
 		}
 		p.Rows[table] = n

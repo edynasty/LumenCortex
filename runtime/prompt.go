@@ -77,7 +77,8 @@ type PromptLayer struct {
 // PromptTool is one tool a run's step could offer.
 type PromptTool struct {
 	Name string `json:"name"`
-	// Permission is the tool's permission class: read, write, exec or delegate.
+	// Permission is the tool's permission class: read, write, exec, delegate or state (a tool that
+	// writes only the run's own durable state, admitted under every policy).
 	Permission string `json:"permission"`
 	// Source is where the tool came from: builtin, task, lsp, mcp:<serverID> or delegation.
 	Source string `json:"source"`
@@ -433,6 +434,10 @@ func (e *Engine) promptTools(workspace, policy string, child bool, sessionID str
 	registry := e.mcpRegistry
 	var controller toolset.SubagentController
 	var threads toolset.ThreadReader
+	// The working notebook is bound per run to the run's session (ADR-0020). A report without a
+	// session describes a run that will have one, so it lists the notebook tools too; nothing here
+	// executes them.
+	notebooks := toolset.NotebookStore(newNotebookAccess(e, sessionID, "report"))
 	if child {
 		// A child runs without MCP, without spawn tools and without threads of its own.
 		registry = nil
@@ -454,6 +459,7 @@ func (e *Engine) promptTools(workspace, policy string, child bool, sessionID str
 		SubagentAgents: spawnAgents,
 		Threads:        threads,
 		Skills:         skillTools,
+		Notebook:       notebooks,
 	})
 }
 
