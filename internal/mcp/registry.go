@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -284,9 +286,9 @@ func (r *Registry) UpsertScope(scope string, cfg Config) error {
 	stopped := r.reconfigureLocked(cfg.ID)
 	saveErr := saveConfigFile(path, target)
 	r.mu.Unlock()
-	// A process the old entry started is closed outside the registry lock: waiting for a server to exit
-	// must not block every other registry operation.
-	closeSessions(stopped)
+	// A process the old entry started is closed outside the registry lock, after the sessions it opened:
+	// waiting for a server to exit must not block every other registry operation.
+	closeReleases(stopped)
 	return saveErr
 }
 
@@ -306,7 +308,7 @@ func (r *Registry) DeleteScope(scope, id string) error {
 	stopped := r.stopServersLocked(id)
 	saveErr := saveConfigFile(path, target)
 	r.mu.Unlock()
-	closeSessions(stopped)
+	closeReleases(stopped)
 	return saveErr
 }
 
@@ -327,47 +329,33 @@ func (r *Registry) scopeLocked(scope string) (map[string]Config, string, error) 
 // reconfigureLocked re-reads the effective configuration of one id into the lifecycle table, so a
 // changed entry stops the process the old one started. It returns the clients the caller must close
 // after releasing the registry lock.
-func (r *Registry) reconfigureLocked(id string) []session {
+func (r *Registry) reconfigureLocked(id string) []release {
 	trusted := r.projectTrusted()
 	cfg, scope, ok := r.resolveLocked(id, trusted)
-	var stopped []session
+	var stopped []release
 	for _, srv := range r.servers {
 		if !strings.HasSuffix(srv.key, "\x00"+id) {
 			continue
 		}
 		if !ok {
-			if client := srv.configure(Config{ID: id, Disabled: true}, scope); client != nil {
-				stopped = append(stopped, client)
-			}
-			continue
+			cfg = Config{ID: id, Disabled: true}
 		}
-		if client := srv.configure(cfg, scope); client != nil {
-			stopped = append(stopped, client)
-		}
+		stopped = append(stopped, srv.configure(cfg, scope))
 	}
 	return stopped
 }
 
 // stopServersLocked forgets the lifecycle entries of one id, returning the clients to close after the
 // registry lock is released.
-func (r *Registry) stopServersLocked(id string) []session {
-	var stopped []session
+func (r *Registry) stopServersLocked(id string) []release {
+	var stopped []release
 	for key, srv := range r.servers {
 		if strings.HasSuffix(key, "\x00"+id) {
-			stopped = append(stopped, srv.detach()...)
+			stopped = append(stopped, srv.detach())
 			delete(r.servers, key)
 		}
 	}
 	return stopped
-}
-
-// closeSessions closes clients outside any registry lock.
-func closeSessions(clients []session) {
-	for _, client := range clients {
-		if client != nil {
-			_ = client.Close()
-		}
-	}
 }
 
 // serverLocked returns the lifecycle entry of a configured server in one workspace, creating it
@@ -375,7 +363,11 @@ func closeSessions(clients []session) {
 func (r *Registry) serverLocked(cfg Config, scope, workspace string) *server {
 	key := instanceKey(workspace, cfg.ID)
 	if existing := r.servers[key]; existing != nil {
-		existing.configure(cfg, scope)
+		// The effective entry can change without an edit through this registry (trust withdrawn moves
+		// an id to its global entry); the client the old entry started is closed outside the lock.
+		if stale := existing.configure(cfg, scope); stale.client != nil {
+			go stale.close()
+		}
 		return existing
 	}
 	if len(r.servers) >= maxTrackedServers {
@@ -890,11 +882,23 @@ func sanitizeToolPart(value string, maxLen int) string {
 	return b.String()
 }
 
-// catalogFingerprint identifies the spawn-relevant part of a configuration, so a catalog recorded for
-// one server definition is not reused for another.
+// catalogFingerprint identifies the spawn- and connection-relevant part of a configuration — what
+// sameSpawnConfig compares to decide that a running process no longer describes its entry, minus the
+// limits and the include list, which do not change the tool list a start reports — so a catalog
+// recorded for one server definition is not reused for another. Env and headers are hashed as
+// configured: an {env:NAME} reference, never the value it resolves to. A definition without either
+// keeps the fingerprint it had before they were covered.
 func catalogFingerprint(cfg Config) string {
 	digest := sha256.New()
 	fmt.Fprintf(digest, "%s\x00%s\x00%s\x00%v\x00%v", cfg.transport(), cfg.Command, cfg.URL, cfg.Args, cfg.ProtocolMode)
+	for _, section := range []struct {
+		name   string
+		values map[string]string
+	}{{"env", cfg.Env}, {"headers", cfg.Headers}} {
+		for _, key := range slices.Sorted(maps.Keys(section.values)) {
+			fmt.Fprintf(digest, "\x00%s %q=%q", section.name, key, section.values[key])
+		}
+	}
 	return hex.EncodeToString(digest.Sum(nil))[:16]
 }
 

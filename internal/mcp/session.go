@@ -71,24 +71,23 @@ func newServer(registry *Registry, key, workspace string, cfg Config, scope stri
 	return &server{registry: registry, key: key, workspace: workspace, cfg: cfg, scope: scope}
 }
 
-// configure replaces the configuration and scope, stopping a running client when the configuration
-// that produced it changed.
-func (s *server) configure(cfg Config, scope string) session {
+// configure replaces the configuration and scope. When the configuration that produced the running
+// client changed, the client is taken with the server-side sessions it opened, for the caller to close
+// outside every lock.
+func (s *server) configure(cfg Config, scope string) release {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	changed := !sameSpawnConfig(s.cfg, cfg) || s.scope != scope
-	s.cfg = cfg
-	s.scope = scope
-	var current session
+	var taken release
 	if changed {
 		// The entry was edited or moved between files: the process it started no longer describes it.
-		current = s.current
-		s.current = nil
-		s.sem = nil
+		// The sessions it opened are closed with the binding that opened them, before s.cfg changes.
+		taken = s.takeLocked()
 		s.catalogSet = false
-		s.stopIdleTimerLocked()
 	}
-	s.mu.Unlock()
-	return current
+	s.cfg = cfg
+	s.scope = scope
+	return taken
 }
 
 func sameSpawnConfig(a, b Config) bool {
@@ -314,6 +313,11 @@ func (s *server) refreshTools(ctx context.Context) ([]Tool, error) {
 // caller's cancellation, whichever is earliest, and with a bounded number of calls in flight.
 func (s *server) callTool(ctx context.Context, toolName string, sessionID string, args map[string]any) (CallToolResult, error) {
 	cfg, _ := s.config()
+	// The include list is the server's exposure (ADR-0021 D4): a name outside it is refused here, before
+	// anything starts, whatever tool list the caller was built from.
+	if !cfg.included(toolName) {
+		return CallToolResult{}, fmt.Errorf("mcp tool %s/%s is not in the server's include list", cfg.ID, toolName)
+	}
 	if binding := cfg.Session; binding != nil && sessionID != "" {
 		// The runtime supplies the session id; a model-supplied value is replaced, so an action cannot
 		// be attributed to another session.
@@ -352,14 +356,15 @@ func (s *server) callTool(ctx context.Context, toolName string, sessionID string
 	s.calls++
 	s.mu.Unlock()
 	result, callErr := client.CallTool(callCtx, toolName, args)
+	// A call is use whatever its outcome: the idle timer counts from its end, not from its start.
 	s.mu.Lock()
 	s.calls--
+	s.touchLocked()
 	s.mu.Unlock()
 
 	switch {
 	case callErr == nil:
 		s.clearLastError()
-		s.touch()
 		s.noteBoundSession(cfg, toolName, result)
 		return result, nil
 	case errors.Is(callErr, context.DeadlineExceeded):
@@ -367,13 +372,13 @@ func (s *server) callTool(ctx context.Context, toolName string, sessionID string
 	case errors.Is(callErr, ErrClosed), errors.Is(callErr, ErrToolResultTooLarge):
 		err = fmt.Errorf("mcp tool %s/%s failed: %w", cfg.ID, toolName, callErr)
 		// A closed client is a crashed or exited server: drop it so the next call starts a fresh one.
-		s.dropClient()
+		s.dropClient(client)
 	default:
 		err = fmt.Errorf("mcp tool %s/%s failed: %w", cfg.ID, toolName, callErr)
 		if isTransportFailure(callErr) {
 			// The process is gone (EOF, a closed pipe): forget the client so the next call starts a
 			// fresh one instead of reusing a dead session.
-			s.dropClient()
+			s.dropClient(client)
 		}
 	}
 	s.setLastError(err.Error())
@@ -393,13 +398,6 @@ func isTransportFailure(err error) bool {
 	message := err.Error()
 	return strings.Contains(message, "broken pipe") || strings.Contains(message, "connection reset") ||
 		strings.Contains(message, "use of closed network connection")
-}
-
-// touch records use and re-arms the idle timer.
-func (s *server) touch() {
-	s.mu.Lock()
-	s.touchLocked()
-	s.mu.Unlock()
 }
 
 func (s *server) touchLocked() {
@@ -428,7 +426,8 @@ func (s *server) stopIdleTimerLocked() {
 }
 
 // stopIdle closes a server that has not been used for its idle timeout. It is the only place a
-// server is stopped for inactivity; Stop and Close stop explicitly.
+// server is stopped for inactivity; Stop and Close stop explicitly. A server with a call in flight is
+// in use: the timer is re-armed, and the call's end counts as its last use.
 func (s *server) stopIdle() {
 	s.mu.Lock()
 	if s.current == nil {
@@ -436,69 +435,94 @@ func (s *server) stopIdle() {
 		s.mu.Unlock()
 		return
 	}
+	timeout := s.cfg.idleTimeout()
 	elapsed := time.Since(s.lastUsed)
-	if elapsed < s.cfg.idleTimeout() {
-		// A call touched the server after the timer fired: re-arm for the remainder.
+	if s.calls > 0 || elapsed < timeout {
+		// A call is running, or one touched the server after the timer fired: re-arm.
+		wait := timeout - elapsed
+		if s.calls > 0 {
+			wait = timeout
+		}
 		if s.idleTimer != nil {
 			s.idleTimer.Stop()
 		}
-		s.idleTimer = time.AfterFunc(s.cfg.idleTimeout()-elapsed, s.stopIdle)
+		s.idleTimer = time.AfterFunc(wait, s.stopIdle)
 		s.mu.Unlock()
 		return
 	}
-	current := s.current
-	s.current = nil
-	s.sem = nil
-	s.idleTimer = nil
+	taken := s.takeLocked()
 	s.mu.Unlock()
-	_ = current.Close()
+	_ = taken.close()
 	s.registry.publishStopped(s, "idle")
 }
 
-// dropClient forgets a client whose process exited, without reporting an idle stop.
-func (s *server) dropClient() {
+// dropClient forgets failed, a client whose process exited or whose connection died, without
+// reporting an idle stop. A client that is no longer current was already taken by whoever replaced it
+// — a late failure of a call on a crashed client must not drop the server started after it.
+func (s *server) dropClient(failed session) {
 	s.mu.Lock()
-	current := s.current
+	if s.current != failed {
+		s.mu.Unlock()
+		return
+	}
 	s.current = nil
 	s.sem = nil
 	s.stopIdleTimerLocked()
 	s.mu.Unlock()
-	if current != nil {
-		_ = current.Close()
-	}
+	_ = failed.Close()
 }
 
-// detach forgets the server's client without closing it, returning it for the caller to close outside
-// any lock.
-func (s *server) detach() []session {
+// detach forgets the server's client without closing it, returning it with its server-side sessions
+// for the caller to close outside any lock.
+func (s *server) detach() release {
 	s.mu.Lock()
-	current := s.current
-	s.current = nil
-	s.sem = nil
-	s.stopIdleTimerLocked()
-	s.mu.Unlock()
-	if current == nil {
-		return nil
-	}
-	return []session{current}
+	defer s.mu.Unlock()
+	return s.takeLocked()
 }
 
 // stop closes the server, whatever its state, after closing the server-side sessions this runtime
 // opened through it.
 func (s *server) stop() error {
 	s.mu.Lock()
-	current := s.current
-	bound := s.boundSessions
-	s.boundSessions = nil
+	taken := s.takeLocked()
+	s.mu.Unlock()
+	return taken.close()
+}
+
+// release is a client taken from its server to be closed outside every lock, with the server-side
+// sessions it opened and the binding that closes them.
+type release struct {
+	client  session
+	binding *SessionBinding
+	bound   []string
+}
+
+// takeLocked takes the running client and the sessions it opened; the server is stopped from then on.
+// The caller holds s.mu.
+func (s *server) takeLocked() release {
+	taken := release{client: s.current, binding: s.cfg.Session, bound: s.boundSessions}
 	s.current = nil
 	s.sem = nil
+	s.boundSessions = nil
 	s.stopIdleTimerLocked()
-	s.mu.Unlock()
-	if current == nil {
+	return taken
+}
+
+// close asks the server to close the sessions it opened, then closes the client. Every path that stops
+// a client goes through it, so no server-side session outlives the client that opened it.
+func (r release) close() error {
+	if r.client == nil {
 		return nil
 	}
-	s.closeBoundSessions(current, bound)
-	return current.Close()
+	closeBoundSessions(r.client, r.binding, r.bound)
+	return r.client.Close()
+}
+
+// closeReleases closes taken clients outside any registry lock.
+func closeReleases(taken []release) {
+	for _, r := range taken {
+		_ = r.close()
+	}
 }
 
 // noteBoundSession remembers the server-side session id a start tool returned, so stop can close it.
@@ -528,11 +552,9 @@ func (s *server) noteBoundSession(cfg Config, toolName string, result CallToolRe
 // outside what the runtime can clean up, and the oldest entries are dropped first.
 const maxBoundSessions = 16
 
-// closeBoundSessions asks the server to close the sessions it opened. Each call is bounded and a
-// failure is ignored: the process is going away either way.
-func (s *server) closeBoundSessions(client session, ids []string) {
-	cfg, _ := s.config()
-	binding := cfg.Session
+// closeBoundSessions asks the server to close the sessions it opened, with the binding that opened
+// them. Each call is bounded and a failure is ignored: the client is going away either way.
+func closeBoundSessions(client session, binding *SessionBinding, ids []string) {
 	if binding == nil || binding.StopTool == "" {
 		return
 	}

@@ -244,6 +244,11 @@ func (c *HTTPClient) post(ctx context.Context, payload map[string]any, result an
 
 	response, err := c.client.Do(request)
 	if err != nil {
+		// The request went to the expanded endpoint; the error names the configured one, so an
+		// {env:NAME} credential in the URL reaches no error, status or tool result (ADR-0021 D4).
+		if urlErr, ok := err.(*url.Error); ok {
+			urlErr.URL = c.cfg.URL
+		}
 		c.setLastError(err.Error())
 		return nil, err
 	}

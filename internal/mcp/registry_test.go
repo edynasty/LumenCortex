@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -600,5 +601,48 @@ func TestProjectTrustIsIndependentOfTheRuntimeWorkspace(t *testing.T) {
 	}
 	if tools, err := registry.AgentTools(worktree); err != nil || len(tools) != 1 {
 		t.Fatalf("tools = %#v err=%v", tools, err)
+	}
+}
+
+// The catalog fingerprint covers every field that decides which process or endpoint answers, so an
+// edit of env or headers alone never reuses a catalog recorded for the previous definition. It hashes
+// the configured references, never the values they resolve to.
+func TestCatalogFingerprintCoversEnvAndHeaders(t *testing.T) {
+	base := Config{
+		ID: "server", Command: "server", Args: []string{"--stdio"},
+		Env:     map[string]string{"MODE": "safe", "TOKEN": "{env:LCX_TEST_FINGERPRINT}"},
+		Headers: map[string]string{"X-Mode": "read"},
+	}
+	edited := func(edit func(*Config)) Config {
+		cfg := base
+		cfg.Env = maps.Clone(base.Env)
+		cfg.Headers = maps.Clone(base.Headers)
+		edit(&cfg)
+		return cfg
+	}
+	t.Setenv("LCX_TEST_FINGERPRINT", "first")
+	recorded := catalogFingerprint(base)
+	for range 16 {
+		if again := catalogFingerprint(base); again != recorded {
+			t.Fatalf("fingerprint is not stable: %s then %s", recorded, again)
+		}
+	}
+	for name, cfg := range map[string]Config{
+		"env value":    edited(func(c *Config) { c.Env["MODE"] = "unsafe" }),
+		"env added":    edited(func(c *Config) { c.Env["NODE_OPTIONS"] = "--require ./inject.js" }),
+		"header value": edited(func(c *Config) { c.Headers["X-Mode"] = "write" }),
+		"header added": edited(func(c *Config) { c.Headers["X-Extra"] = "1" }),
+		"env moved to a header": edited(func(c *Config) {
+			delete(c.Env, "MODE")
+			c.Headers["MODE"] = "safe"
+		}),
+	} {
+		if catalogFingerprint(cfg) == recorded {
+			t.Fatalf("%s: an edited definition keeps the recorded fingerprint", name)
+		}
+	}
+	t.Setenv("LCX_TEST_FINGERPRINT", "second")
+	if catalogFingerprint(base) != recorded {
+		t.Fatal("the fingerprint depends on a resolved environment value")
 	}
 }

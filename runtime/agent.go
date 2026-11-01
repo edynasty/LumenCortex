@@ -292,7 +292,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	// server whose catalog is already recorded costs nothing: this is a no-op in the steady state
 	// (ADR-0021 §3).
 	if mcpRegistry != nil {
-		e.discoverMCPCatalogs(ctx, mcpRegistry, agentWorkspace)
+		e.discoverMCPCatalogs(ctx, mcpRegistry, agentWorkspace, opts.ToolAllowlist, opts.ToolDenylist)
 	}
 	tools, err := toolset.New(toolset.Options{
 		Workspace: agentWorkspace,

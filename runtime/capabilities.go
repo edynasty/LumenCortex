@@ -703,10 +703,20 @@ func specBytes(specs []protocol.ToolSpec) int {
 // discoverMCPCatalogs starts the servers whose tool list is not known yet, so the run about to be
 // prepared can offer their tools: a run that may use a server needs its tool list (ADR-0021 §3). It is
 // a no-op for every server whose catalog a previous start recorded — the steady state — and a failure
-// is recorded as that server's lastError: the server contributes no tools and the run continues. The
+// is recorded as that server's lastError: the server contributes no tools and the run continues. A
+// server the host's tool filters keep from the whole run is not started (mcpServerOfferable). The
 // wait is bounded in total, and the calls run concurrently so N cold servers cost one handshake, not N.
-func (e *Engine) discoverMCPCatalogs(ctx context.Context, registry *mcp.Registry, workspace string) {
-	missing := registry.MissingCatalogs(workspace)
+func (e *Engine) discoverMCPCatalogs(ctx context.Context, registry *mcp.Registry, workspace string, allowlist, denylist []string) {
+	configs := map[string]mcp.Config{}
+	for _, cfg := range registry.Configs() {
+		configs[cfg.ID] = cfg
+	}
+	var missing []string
+	for _, serverID := range registry.MissingCatalogs(workspace) {
+		if mcpServerOfferable(configs[serverID], allowlist, denylist) {
+			missing = append(missing, serverID)
+		}
+	}
 	if len(missing) == 0 {
 		return
 	}
@@ -727,6 +737,42 @@ func (e *Engine) discoverMCPCatalogs(ctx context.Context, registry *mcp.Registry
 			return
 		}
 	}
+}
+
+// mcpServerOfferable reports whether a run with the host's allowlist and denylist could be offered a
+// tool of cfg, judged from configuration alone: an allowlist that names no tool under the server's
+// prefix, or a denylist that names every tool of its include list, withholds the server for the whole
+// run. Anything else counts as offerable — an empty include list leaves the tool names unknown, a
+// workflow narrows the allowlist per step and may widen it again on a later step, and the policy
+// decision needs the permissions the catalog carries — so the rule only ever skips a start the run
+// could not use.
+func mcpServerOfferable(cfg mcp.Config, allowlist, denylist []string) bool {
+	if allowlist != nil {
+		prefix := mcp.AgentToolPrefix(cfg.ID)
+		named := false
+		for _, name := range allowlist {
+			if strings.HasPrefix(strings.TrimSpace(name), prefix) {
+				named = true
+				break
+			}
+		}
+		if !named {
+			return false
+		}
+	}
+	if len(cfg.Include) == 0 || len(denylist) == 0 {
+		return true
+	}
+	denied := make(map[string]bool, len(denylist))
+	for _, name := range denylist {
+		denied[strings.TrimSpace(name)] = true
+	}
+	for _, tool := range cfg.Include {
+		if !denied[mcp.AgentToolName(cfg.ID, tool)] {
+			return true
+		}
+	}
+	return false
 }
 
 // mcpCatalogDiscoveryBudget bounds how long a run start waits for the catalogs it does not know yet.

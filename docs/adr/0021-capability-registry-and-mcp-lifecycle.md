@@ -82,42 +82,55 @@ the first start records the catalog.
   whose catalog was never recorded (`discoverMCPCatalogs`): concurrently, under a 10 s total budget,
   and skipped for a server whose start failed within a 2-minute backoff. In the steady state — a
   catalog recorded by an earlier start — this starts nothing. A server that cannot start contributes no
-  tools and never delays the run beyond that budget.
+  tools and never delays the run beyond that budget. A server the host's filters keep from the whole
+  run is not started: an allowlist that names none of its `mcp__<id>__` tools, or a denylist that names
+  every tool of its `include` list (`mcpServerOfferable`). The policy is not consulted, because a tool's
+  permission is known only from the catalog the start would record; a server without an `include`
+  list is discovered whatever the denylist says.
 - **Single-flight start.** Concurrent first calls share one start; the start is bounded by
   `DefaultCatalogTimeout` (8 s) so a server that never answers cannot hold a run.
-- **Idle stop.** After the last call, a timer of `idleTimeoutSeconds` (default 10 min) closes the
-  server; a call that arrives first re-arms it. `Engine.Close` and `MCPStop` close it immediately.
+- **Idle stop.** After the last call ends, a timer of `idleTimeoutSeconds` (default 10 min) closes the
+  server; a call that arrives first re-arms it, and a timer that fires while a call is in flight is
+  re-armed, so a call is bounded by its call timeout and never by the idle timeout. `Engine.Close` and
+  `MCPStop` close it immediately.
 - **Per-server limits.** `callTimeoutSeconds` (default 120 s) bounds one call together with the run's
   tool deadline (the earlier wins) and the caller's cancellation; `maxConcurrentCalls` (default 4)
   bounds calls in flight; `maxResultBytes` (default 1 MiB) bounds one result. A call past the deadline
   sends `notifications/cancelled` and returns a timeout.
 - **Failure isolation.** A start failure, a crash (EOF / closed pipe) or a hung call becomes a tool
   result error plus `lastError` in the registry; the client is dropped so the next call starts a fresh
-  process; the run continues. Nothing in the MCP path can end the loop.
+  process; the run continues. Nothing in the MCP path can end the loop. Only the client the failed call
+  used is dropped: a late failure on a client that was already replaced leaves the new one running.
 - **Cached catalog.** A start records its tool list to `<state>/mcp-catalog/<workspace key>/<id>.json`,
   keyed by a fingerprint of the server definition, bounded by 1 MiB and 512 tools. A run is offered
-  those tools without a start; an edited definition never reuses the old list.
+  those tools without a start; an edited definition never reuses the old list. The fingerprint covers
+  the transport, command, args, URL, protocol mode, `env` and `headers` — the configured values,
+  `{env:NAME}` references included, never what they resolve to — so an edit of an entry's environment
+  alone withdraws the recorded catalog until a start records a new one.
 
 ### D4 — Exposure: include lists and namespacing
 
 `mcp.json` gains `transport` (`stdio` default, `streamable-http`), `url` (http(s) or `unix:///abs/sock`),
 `headers`, `env`, `include`, the four limits, `session` and `template`. A credential is only ever an
 `{env:NAME}` reference, resolved when a process starts or a request is made; the resolved value is
-never written to a file, an error, an event or a log line.
+never written to a file, an error, an event or a log line. A failed HTTP request reports the configured
+URL, `{env:NAME}` unexpanded, not the URL it was sent to.
 
 An enabled server exposes only the tools in its `include` list (empty means every tool it reports,
 bounded by 512). Model-visible names keep the existing `mcp__<server>__<tool>` namespacing, so two
 servers may report the same tool name. Installing many servers therefore does not put their tools in
 front of the model: a server contributes nothing until it is enabled, and only its included tools
-reach a step.
+reach a step. The registry refuses a call to a tool outside the server's current `include` list,
+whatever tool list the caller was built from.
 
 ### D5 — Session binding for long-lived resources
 
 A server that controls a long-lived resource (a computer session) may declare a `session` binding:
 Core injects the LumenCortex session id into one tool argument (replacing a model-supplied value),
 remembers the server-side id a start tool returned, and calls the stop tool for each remembered id
-when the server is stopped or the Engine closes. The model never chooses the id, and nothing a run
-opened outlives the run.
+on every path that stops the client — an explicit stop, the idle stop, a disable, an edit that
+replaces the process, a delete and `Engine.Close` — with the binding that opened it. The model never
+chooses the id, and nothing a run opened outlives the server process.
 
 ### D6 — Templates are data, disabled, and credential-free
 

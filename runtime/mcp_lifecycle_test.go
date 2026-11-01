@@ -638,6 +638,198 @@ func TestMCPSessionBindingInjectsAndCloses(t *testing.T) {
 	}
 }
 
+// sessionBoundHelper is the helper server with the Computer Use session binding.
+func sessionBoundHelper(t *testing.T, overrides map[string]any) map[string]any {
+	t.Helper()
+	settings := map[string]any{
+		"include": []string{"computer_start", "computer_stop"},
+		"session": map[string]any{
+			"argument":       "session_id",
+			"startTool":      "computer_start",
+			"sessionIdField": "computer_session_id",
+			"stopTool":       "computer_stop",
+			"stopArgument":   "computer_session_id",
+		},
+	}
+	for key, value := range overrides {
+		settings[key] = value
+	}
+	return mcpTestServerConfig(t, "helper", settings)
+}
+
+// ADR-0021 D5: every path that stops a session-bound server closes the server-side sessions it
+// opened — the idle stop, a disable, a reconfiguration and a delete, not only an explicit stop.
+func TestMCPBoundSessionsCloseOnEveryStop(t *testing.T) {
+	globalConfig := func(t *testing.T, engine *Engine) MCPConfig {
+		t.Helper()
+		configs, err := engine.MCPConfigsScope(mcp.ScopeGlobal)
+		if err != nil || len(configs) != 1 {
+			t.Fatalf("global configs = %#v err=%v", configs, err)
+		}
+		return configs[0]
+	}
+	paths := []struct {
+		name      string
+		overrides map[string]any
+		stop      func(t *testing.T, engine *Engine)
+	}{
+		{name: "idle", overrides: map[string]any{"idleTimeoutSeconds": 1}, stop: func(*testing.T, *Engine) {}},
+		{name: "disable", stop: func(t *testing.T, engine *Engine) {
+			if err := engine.SetMCPServerEnabled(context.Background(), mcp.ScopeGlobal, "helper", false); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "reconfigure", stop: func(t *testing.T, engine *Engine) {
+			cfg := globalConfig(t, engine)
+			cfg.CallTimeoutSeconds = 30
+			if err := engine.MCPUpsertConfigScope(mcp.ScopeGlobal, cfg); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "delete", stop: func(t *testing.T, engine *Engine) {
+			if err := engine.MCPDeleteConfigScope(mcp.ScopeGlobal, "helper"); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, path := range paths {
+		t.Run(path.name, func(t *testing.T) {
+			_, logPath := helperEnv(t, "")
+			useGlobalMCP(t, map[string]any{"helper": sessionBoundHelper(t, path.overrides)})
+			engine := openEngineWithGlobalConfig(t, t.TempDir())
+			if _, err := engine.mcpRegistry.CallToolForSession(context.Background(), engine.workspace, "helper",
+				"computer_start", "session_lc_1", map[string]any{}); err != nil {
+				t.Fatal(err)
+			}
+			path.stop(t, engine)
+			// The stop call is made before the process is closed; poll the server's log rather than
+			// guess when the idle timer fired.
+			deadline := time.Now().Add(10 * time.Second)
+			for {
+				raw, _ := os.ReadFile(logPath)
+				if strings.Contains(string(raw), `computer_stop {"computer_session_id":"cmp_test_1"}`) {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("%s left the server-side session open: %s", path.name, raw)
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			if statuses, err := engine.MCPStatuses(context.Background(), ""); err != nil || len(statuses) != 0 {
+				t.Fatalf("after %s statuses=%#v err=%v, want the server stopped", path.name, statuses, err)
+			}
+		})
+	}
+}
+
+// ADR-0021 D3: the idle timer never stops a server while one of its calls is in flight; the call ends
+// at its own call timeout.
+func TestMCPIdleTimerSparesInFlightCall(t *testing.T) {
+	helperEnv(t, "hang")
+	useGlobalMCP(t, map[string]any{
+		"helper": mcpTestServerConfig(t, "helper", map[string]any{"idleTimeoutSeconds": 1, "callTimeoutSeconds": 6}),
+	})
+	engine := openEngineWithGlobalConfig(t, t.TempDir())
+	started := time.Now()
+	_, err := engine.mcpRegistry.CallTool(context.Background(), engine.workspace, "helper", "echo", map[string]any{"text": "slow"})
+	elapsed := time.Since(started)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("after %s the call ended with %v, want its call timeout (the idle timer stopped the server)", elapsed, err)
+	}
+	if elapsed < 5*time.Second {
+		t.Fatalf("the call ended after %s, before its 6 s call timeout", elapsed)
+	}
+}
+
+// ADR-0013 / ADR-0021 §3: a catalog recorded for a project server is keyed by everything that decides
+// the process, its environment included. After an edit of the entry's env alone the recorded catalog is
+// withdrawn: no tool is offered from it and nothing is started until the host starts the server again.
+func TestMCPProjectEnvEditWithdrawsCachedCatalog(t *testing.T) {
+	marker, _ := helperEnv(t, "")
+	workspace := t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(workspace); err == nil {
+		workspace = resolved
+	}
+	writeEngineMCP(t, workspace, map[string]any{"proj": mcpTestServerConfig(t, "proj", nil)})
+	useGlobalConfig(t, mcpGlobalConfig(workspace))
+	engine, err := Open(Options{Workspace: workspace})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := engine.MCPStart(ctx, "", "proj"); err != nil {
+		t.Fatal(err)
+	}
+	if tools, err := engine.MCPTools(ctx, ""); err != nil || len(tools) == 0 {
+		t.Fatalf("tools after the host start = %#v err=%v", tools, err)
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+
+	injected := filepath.Join(t.TempDir(), "injected")
+	writeEngineMCP(t, workspace, map[string]any{
+		"proj": mcpTestServerConfig(t, "proj", map[string]any{"env": map[string]string{"LCX_TEST_MCP_MARKER": injected}}),
+	})
+	reopened := openEngineWithGlobalConfig(t, workspace)
+	if tools, err := reopened.MCPTools(ctx, ""); err != nil || len(tools) != 0 {
+		t.Fatalf("after an env-only edit tools = %#v err=%v, want the recorded catalog withdrawn", tools, err)
+	}
+	handle := newTestSession(t, reopened, "use the project server")
+	provider := &notebookProvider{}
+	if _, err := reopened.runAgentWith(ctx, handle.ID, provider, AgentOptions{Policy: "read-only", MaxSteps: 2}); err != nil {
+		t.Fatal(err)
+	}
+	for _, spec := range provider.requests[0].Tools {
+		if strings.HasPrefix(spec.Name, mcp.AgentToolPrefix("proj")) {
+			t.Fatalf("a run was offered %s from the withdrawn catalog", spec.Name)
+		}
+	}
+	for _, path := range []string{marker, injected} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("the edited project server started without a host start (%s): %v", path, err)
+		}
+	}
+}
+
+// ADR-0021 §3: a run discovers the catalog only of a server whose tools it could be offered. A server
+// whose every included tool the run's denylist names, or that the run's allowlist does not reach, is
+// not started; a run that may use the server still discovers it.
+func TestMCPRunSkipsDiscoveryOfAServerItCannotUse(t *testing.T) {
+	marker, _ := helperEnv(t, "")
+	useGlobalMCP(t, map[string]any{
+		"helper": mcpTestServerConfig(t, "helper", map[string]any{"include": []string{"echo", "mutate"}}),
+	})
+	engine := openEngineWithGlobalConfig(t, t.TempDir())
+	ctx := context.Background()
+	run := func(opts AgentOptions) {
+		t.Helper()
+		handle := newTestSession(t, engine, "no server needed")
+		result, err := engine.runAgentWith(ctx, handle.ID, &notebookProvider{}, opts)
+		if err != nil || result.Status != "completed" {
+			t.Fatalf("run = %#v err=%v", result, err)
+		}
+	}
+	for name, opts := range map[string]AgentOptions{
+		"denylist names every included tool": {Policy: "read-only", MaxSteps: 2, ToolDenylist: []string{
+			mcp.AgentToolName("helper", "echo"), mcp.AgentToolName("helper", "mutate"),
+		}},
+		"allowlist names no tool of the server": {Policy: "read-only", MaxSteps: 2, ToolAllowlist: []string{"read_file"}},
+	} {
+		run(opts)
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatalf("%s: the run started a server it cannot use: %v", name, err)
+		}
+	}
+	run(AgentOptions{Policy: "read-only", MaxSteps: 2})
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("a run that may use the server did not discover it: %v", err)
+	}
+}
+
 // The shipped templates are data the loader accepts, they are disabled, and they carry no credential.
 func TestMCPTemplatesAreValidDisabledEntries(t *testing.T) {
 	templates := mcptemplates.All()
