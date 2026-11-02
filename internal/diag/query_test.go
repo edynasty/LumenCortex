@@ -168,8 +168,10 @@ func TestQueryRespectsCancellation(t *testing.T) {
 }
 
 func TestQueryMemoryIsBoundedByLimit(t *testing.T) {
-	l := newDebugLog(t, Options{})
 	const total = 20000
+	// The queue holds every record: a full queue drops by design (it never makes the logger wait),
+	// and this test is about the query, not the writer keeping up.
+	l := newDebugLog(t, Options{QueueSize: total})
 	for i := range total {
 		l.Logger().Info("probe", "i", i, "pad", strings.Repeat("m", 200))
 	}
