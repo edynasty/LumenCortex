@@ -66,8 +66,11 @@ disabled with `disabledReason: "denylist"` and keeps them visible.
   registry. The run continues; the dead client is dropped and the next call starts a fresh process.
 - The tool list a start discovers is cached at `<state>/mcp-catalog/<workspace>/<server>.json`, keyed by
   a fingerprint of the server definition (transport, command, args, url, protocol mode, `env` and
-  `headers` as configured), so a later run can be offered the tools without a start and an edited
-  definition, its environment included, never reuses the old list.
+  `headers` as configured; for a project entry also `include`, `tools` and `disabled`), so a later run
+  can be offered the tools without a start and an edited definition, its environment included, never
+  reuses the old list. A host edit through `MCPUpsertConfig`, `SetCapabilityEnabled` or
+  `SetMCPServerEnabled` that changes only a project entry's exposure keeps the cached list; the same
+  edit written into the project file by anything else withdraws it until the host starts the server.
 
 ### `mcp.json` fields
 

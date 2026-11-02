@@ -106,7 +106,14 @@ the first start records the catalog.
   those tools without a start; an edited definition never reuses the old list. The fingerprint covers
   the transport, command, args, URL, protocol mode, `env` and `headers` — the configured values,
   `{env:NAME}` references included, never what they resolve to — so an edit of an entry's environment
-  alone withdraws the recorded catalog until a start records a new one.
+  alone withdraws the recorded catalog until a start records a new one. For a project entry it also
+  covers the exposure (`include`, the `tools` overrides, `disabled`), because a run can write the
+  project `mcp.json` (ADR-0013): an exposure edit made outside the registry withdraws the catalog the
+  same way, so a run cannot relabel a tool `read` or include one the host left out and have a later
+  run offered it without a host start. The host's own edits through the registry (`MCPUpsertConfig`,
+  `SetCapabilityEnabled`, `SetMCPServerEnabled`) that change only the exposure move the recorded
+  catalog to the new fingerprint. A global entry's fingerprint does not cover the exposure: the global
+  file is the user's own.
 
 ### D4 — Exposure: include lists and namespacing
 
@@ -114,14 +121,20 @@ the first start records the catalog.
 `headers`, `env`, `include`, the four limits, `session` and `template`. A credential is only ever an
 `{env:NAME}` reference, resolved when a process starts or a request is made; the resolved value is
 never written to a file, an error, an event or a log line. A failed HTTP request reports the configured
-URL, `{env:NAME}` unexpanded, not the URL it was sent to.
+URL, `{env:NAME}` unexpanded, not the URL it was sent to; a URL that does not parse once its
+references are expanded is reported by its configured form, without the parser's reason (which quotes
+the expanded part it rejects).
 
 An enabled server exposes only the tools in its `include` list (empty means every tool it reports,
 bounded by 512). Model-visible names keep the existing `mcp__<server>__<tool>` namespacing, so two
 servers may report the same tool name. Installing many servers therefore does not put their tools in
 front of the model: a server contributes nothing until it is enabled, and only its included tools
 reach a step. The registry refuses a call to a tool outside the server's current `include` list,
-whatever tool list the caller was built from.
+whatever tool list the caller was built from. Switching a tool back on (`SetCapabilityEnabled`)
+writes the name the server reports, found in its recorded or live catalog, since the model-visible
+id sanitises it (`page.read` → `mcp__<server>__page_read`); an id that names no tool of a server whose
+catalog is known is refused. Only a server never started, with no catalog, falls back to the tool
+part of the id.
 
 ### D5 — Session binding for long-lived resources
 

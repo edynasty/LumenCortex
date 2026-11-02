@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -29,6 +30,7 @@ import (
 //	LCX_TEST_MCP_MODE       "" (normal), "crash" (exit on the first call), "hang" (never answer a call)
 //	LCX_TEST_MCP_MARKER     file touched when the process starts
 //	LCX_TEST_MCP_LOG        file each tool call name and its arguments are appended to
+//	LCX_TEST_MCP_EXTRA_TOOL one more tool the server reports, by this name (it echoes like echo)
 func TestRuntimeMCPServer(t *testing.T) {
 	if os.Getenv("LCX_TEST_MCP") != "1" {
 		return
@@ -67,6 +69,10 @@ func TestRuntimeMCPServer(t *testing.T) {
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"session_id": map[string]any{"type": "string"}}}},
 		{"name": "computer_stop", "description": "Close a session.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"computer_session_id": map[string]any{"type": "string"}}}},
+	}
+	if extra := os.Getenv("LCX_TEST_MCP_EXTRA_TOOL"); extra != "" {
+		tools = append(tools, map[string]any{"name": extra, "description": "Echo text back.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"text": map[string]any{"type": "string"}}}})
 	}
 	for {
 		line, err := reader.ReadString('\n')
@@ -795,6 +801,132 @@ func TestMCPProjectEnvEditWithdrawsCachedCatalog(t *testing.T) {
 	}
 }
 
+// hostStartedProjectServer opens an Engine on a trusted workspace whose project mcp.json names the
+// helper as "proj" with include [echo], starts it as the host does, runs host, and closes the Engine,
+// so the catalog the start recorded is all a later Engine has. It returns the workspace, the helper's
+// start marker (removed) and its call log.
+func hostStartedProjectServer(t *testing.T, host func(engine *Engine)) (workspace, marker, logPath string) {
+	t.Helper()
+	marker, logPath = helperEnv(t, "")
+	workspace = t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(workspace); err == nil {
+		workspace = resolved
+	}
+	writeEngineMCP(t, workspace, map[string]any{"proj": mcpTestServerConfig(t, "proj", map[string]any{"include": []string{"echo"}})})
+	useGlobalConfig(t, mcpGlobalConfig(workspace))
+	engine, err := Open(Options{Workspace: workspace})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.MCPStart(context.Background(), "", "proj"); err != nil {
+		t.Fatal(err)
+	}
+	host(engine)
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	return workspace, marker, logPath
+}
+
+// ADR-0013 / ADR-0021 §3: the catalog a host start recorded for a project server is keyed by the
+// entry's exposure too — include, tools overrides and disabled. An edit of the project mcp.json that
+// did not go through the Engine (a run's write_file) withdraws it: a later read-only run is offered
+// nothing from it, and its call to the relabelled tool starts no server and runs nothing.
+func TestMCPProjectExposureEditWithdrawsCachedCatalog(t *testing.T) {
+	cases := map[string]struct {
+		host   func(t *testing.T, engine *Engine)
+		edited map[string]any
+	}{
+		"include and permission": {
+			host:   func(*testing.T, *Engine) {},
+			edited: map[string]any{"include": []string{"echo", "mutate"}, "tools": map[string]any{"mutate": map[string]any{"permission": "read"}}},
+		},
+		"disabled by the host, enabled by the file": {
+			host: func(t *testing.T, engine *Engine) {
+				if err := engine.SetMCPServerEnabled(context.Background(), mcp.ScopeProject, "proj", false); err != nil {
+					t.Fatal(err)
+				}
+			},
+			edited: map[string]any{"include": []string{"echo"}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			workspace, marker, logPath := hostStartedProjectServer(t, func(engine *Engine) { tc.host(t, engine) })
+			writeEngineMCP(t, workspace, map[string]any{"proj": mcpTestServerConfig(t, "proj", tc.edited)})
+			reopened := openEngineWithGlobalConfig(t, workspace)
+			ctx := context.Background()
+			if tools, err := reopened.MCPTools(ctx, ""); err != nil || len(tools) != 0 {
+				t.Fatalf("after an exposure edit outside the Engine tools = %#v err=%v, want the recorded catalog withdrawn", tools, err)
+			}
+			handle := newTestSession(t, reopened, "use the project server")
+			provider := &notebookProvider{responses: []protocol.ProviderResponse{
+				toolCallResponse("mutate_1", mcp.AgentToolName("proj", "mutate"), `{"value":"x"}`),
+			}}
+			if _, err := reopened.runAgentWith(ctx, handle.ID, provider, AgentOptions{Policy: "read-only", MaxSteps: 3}); err != nil {
+				t.Fatal(err)
+			}
+			for _, spec := range provider.requests[0].Tools {
+				if strings.HasPrefix(spec.Name, mcp.AgentToolPrefix("proj")) {
+					t.Fatalf("a read-only run was offered %s (%s) from the withdrawn catalog", spec.Name, spec.Permission)
+				}
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatalf("the edited project server started without a host start: %v", err)
+			}
+			if raw, _ := os.ReadFile(logPath); strings.Contains(string(raw), "mutate") {
+				t.Fatalf("the relabelled tool ran: %s", raw)
+			}
+		})
+	}
+}
+
+// ADR-0021 §3: an exposure edit the host makes through the Engine — a tool switched on, a permission
+// override, the server disabled and enabled again — keeps the recorded catalog: the next Engine offers
+// the edited exposure from it without starting the server.
+func TestMCPHostExposureEditKeepsCachedCatalog(t *testing.T) {
+	workspace, marker, _ := hostStartedProjectServer(t, func(engine *Engine) {
+		ctx := context.Background()
+		if err := engine.SetCapabilityEnabled(ctx, mcp.AgentToolName("proj", "mutate"), true); err != nil {
+			t.Fatal(err)
+		}
+		configs, err := engine.MCPConfigsScope(mcp.ScopeProject)
+		if err != nil || len(configs) != 1 {
+			t.Fatalf("project configs = %#v err=%v", configs, err)
+		}
+		cfg := configs[0]
+		cfg.Tools = map[string]mcp.ToolConfig{"mutate": {Permission: mcp.PermissionRead}}
+		if err := engine.MCPUpsertConfigScope(mcp.ScopeProject, cfg); err != nil {
+			t.Fatal(err)
+		}
+		for _, enabled := range []bool{false, true} {
+			if err := engine.SetMCPServerEnabled(ctx, mcp.ScopeProject, "proj", enabled); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	reopened := openEngineWithGlobalConfig(t, workspace)
+	tools, err := reopened.MCPTools(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mutate *MCPAgentTool
+	for index := range tools {
+		if tools[index].Name == mcp.AgentToolName("proj", "mutate") {
+			mutate = &tools[index]
+		}
+	}
+	if mutate == nil || mutate.Permission != mcp.PermissionRead || mutate.ToolSource != mcp.ToolSourceCache {
+		t.Fatalf("after host edits tools = %#v, want mutate offered read from the recorded catalog", tools)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("listing the tools started the server: %v", err)
+	}
+}
+
 // ADR-0021 §3: a run discovers the catalog only of a server whose tools it could be offered. A server
 // whose every included tool the run's denylist names, or that the run's allowlist does not reach, is
 // not started; a run that may use the server still discovers it.
@@ -951,6 +1083,51 @@ func TestSetCapabilityEnabledEditsTheIncludeList(t *testing.T) {
 	}
 	if err := engine.SetCapabilityEnabled(ctx, "read_file", false); err == nil {
 		t.Fatal("a built-in tool must not be switchable through an MCP server's list")
+	}
+}
+
+// A tool whose name the model-visible id sanitises (page.read -> mcp__helper__page_read) is switched
+// back on under the name the server reports, found in the server's catalog; an id that names no tool
+// of a server whose catalog is known is refused rather than written as a guessed include entry.
+func TestSetCapabilityEnabledReenablesSanitizedToolName(t *testing.T) {
+	helperEnv(t, "")
+	t.Setenv("LCX_TEST_MCP_EXTRA_TOOL", "page.read")
+	useGlobalMCP(t, map[string]any{
+		"helper": mcpTestServerConfig(t, "helper", nil),
+	})
+	engine := openEngineWithGlobalConfig(t, t.TempDir())
+	ctx := context.Background()
+	if _, err := engine.mcpRegistry.CallTool(ctx, engine.workspace, "helper", "echo", map[string]any{"text": "x"}); err != nil {
+		t.Fatal(err)
+	}
+	pageRead := mcp.AgentToolName("helper", "page.read")
+	if err := engine.SetCapabilityEnabled(ctx, pageRead, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.SetCapabilityEnabled(ctx, pageRead, true); err != nil {
+		t.Fatal(err)
+	}
+	configs, err := engine.MCPConfigsScope(mcp.ScopeGlobal)
+	if err != nil || len(configs) != 1 {
+		t.Fatalf("configs = %#v err=%v", configs, err)
+	}
+	if !slices.Contains(configs[0].Include, "page.read") || slices.Contains(configs[0].Include, "page_read") {
+		t.Fatalf("include after re-enabling %s = %v, want the server's name page.read", pageRead, configs[0].Include)
+	}
+	tools, err := engine.MCPTools(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(tools, func(tool MCPAgentTool) bool { return tool.Name == pageRead }) {
+		t.Fatalf("after re-enabling tools = %#v, want %s offered", tools, pageRead)
+	}
+	before := configs[0].Include
+	if err := engine.SetCapabilityEnabled(ctx, mcp.AgentToolName("helper", "no_such_tool"), true); err == nil {
+		t.Fatal("re-enabling a tool the server's catalog does not list must fail")
+	}
+	configs, err = engine.MCPConfigsScope(mcp.ScopeGlobal)
+	if err != nil || !slices.Equal(configs[0].Include, before) {
+		t.Fatalf("a refused re-enable changed the include list: %v -> %v (err=%v)", before, configs[0].Include, err)
 	}
 }
 

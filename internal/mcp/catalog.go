@@ -50,24 +50,15 @@ func lastIndexByte(value string, b byte) int {
 	return -1
 }
 
-// loadCatalog reads the catalog a previous start recorded, when its fingerprint still matches.
-func (r *Registry) loadCatalog(key string, cfg Config) ([]Tool, bool) {
+// loadCatalog reads the catalog a previous start recorded, when its fingerprint still matches the
+// definition in scope.
+func (r *Registry) loadCatalog(key string, cfg Config, scope string) ([]Tool, bool) {
 	path := r.catalogPath(key, cfg)
 	if path == "" {
 		return nil, false
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil || len(raw) > MaxCatalogBytes {
-		return nil, false
-	}
-	var file catalogFile
-	if err := json.Unmarshal(raw, &file); err != nil {
-		return nil, false
-	}
-	if file.Version != catalogVersion || file.ServerID != cfg.ID || file.Fingerprint != catalogFingerprint(cfg) {
-		return nil, false
-	}
-	if len(file.Tools) > MaxTools {
+	file, ok := readCatalogFile(path)
+	if !ok || file.ServerID != cfg.ID || file.Fingerprint != catalogFingerprint(cfg, scope) {
 		return nil, false
 	}
 	return file.Tools, len(file.Tools) > 0
@@ -75,18 +66,70 @@ func (r *Registry) loadCatalog(key string, cfg Config) ([]Tool, bool) {
 
 // saveCatalog persists a tool list. A write failure is not an error for the caller: the in-memory
 // catalog already serves the current process.
-func (r *Registry) saveCatalog(key string, cfg Config, tools []Tool) {
+func (r *Registry) saveCatalog(key string, cfg Config, scope string, tools []Tool) {
 	path := r.catalogPath(key, cfg)
 	if path == "" || len(tools) == 0 {
 		return
 	}
-	file := catalogFile{
+	writeCatalogFile(path, catalogFile{
 		Version:     catalogVersion,
 		ServerID:    cfg.ID,
-		Fingerprint: catalogFingerprint(cfg),
+		Fingerprint: catalogFingerprint(cfg, scope),
 		RecordedAt:  time.Now().UTC(),
 		Tools:       tools,
+	})
+}
+
+// rerecordCatalogs moves the catalogs recorded for before, in every workspace, to after's fingerprint
+// when the host's edit through the registry changed only what the fingerprint covers beyond the spawn
+// (a project entry's exposure): the tool list a start reported is still the server's, and the host
+// chose the new exposure. A catalog recorded for any other definition — one a file edit outside the
+// registry produced, or an older spawn — is left as it is. scope "" is the project file, as in
+// scopeLocked. The caller holds r.mu, so no other edit of the entry interleaves.
+func (r *Registry) rerecordCatalogs(before, after Config, scope string) {
+	if scope == "" {
+		scope = ScopeProject
 	}
+	from, to := catalogFingerprint(before, scope), catalogFingerprint(after, scope)
+	if from == to || catalogFingerprint(before, ScopeGlobal) != catalogFingerprint(after, ScopeGlobal) {
+		return
+	}
+	r.stateMu.RLock()
+	dir := r.stateDir
+	r.stateMu.RUnlock()
+	if dir == "" {
+		return
+	}
+	// A server id matches [A-Za-z0-9._-], so it is a literal in the pattern.
+	paths, _ := filepath.Glob(filepath.Join(dir, "*", after.ID+".json"))
+	for _, path := range paths {
+		file, ok := readCatalogFile(path)
+		if !ok || file.ServerID != after.ID || file.Fingerprint != from {
+			continue
+		}
+		file.Fingerprint = to
+		writeCatalogFile(path, file)
+	}
+}
+
+// readCatalogFile reads one recorded catalog within the runtime's bounds.
+func readCatalogFile(path string) (catalogFile, bool) {
+	raw, err := os.ReadFile(path)
+	if err != nil || len(raw) > MaxCatalogBytes {
+		return catalogFile{}, false
+	}
+	var file catalogFile
+	if err := json.Unmarshal(raw, &file); err != nil {
+		return catalogFile{}, false
+	}
+	if file.Version != catalogVersion || len(file.Tools) > MaxTools {
+		return catalogFile{}, false
+	}
+	return file, true
+}
+
+// writeCatalogFile replaces one recorded catalog atomically; a failure leaves the previous file.
+func writeCatalogFile(path string, file catalogFile) {
 	raw, err := json.Marshal(file)
 	if err != nil || len(raw) > MaxCatalogBytes {
 		return

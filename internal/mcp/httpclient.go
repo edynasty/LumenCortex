@@ -63,6 +63,11 @@ func startHTTPClient(ctx context.Context, cfg Config) (*HTTPClient, error) {
 	}
 	endpoint, socket, err := parseEndpoint(rawURL)
 	if err != nil {
+		if rawURL != cfg.URL {
+			// The parser quotes the URL and the part it rejects (a userinfo, a port), which here carry an
+			// expanded {env:NAME} value: the error names the configured URL and withholds the reason.
+			return nil, fmt.Errorf("mcp server %q: url %q is not a valid endpoint once its {env:} references are expanded", cfg.ID, cfg.URL)
+		}
 		return nil, fmt.Errorf("mcp server %q: %w", cfg.ID, err)
 	}
 	client := &HTTPClient{cfg: cfg, endpoint: endpoint, socket: socket}
