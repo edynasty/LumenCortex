@@ -145,9 +145,16 @@ A server that controls a long-lived resource (a computer session) may declare a 
 Core injects the LumenCortex session id into one tool argument (replacing a model-supplied value),
 remembers the server-side id a start tool returned, and calls the stop tool for each remembered id
 on every path that stops the client — an explicit stop, the idle stop, a disable, an edit that
-replaces the process, a delete and `Engine.Close` — with the binding that opened it. The stop tool is
-called only when the same definition's `include` list exposes it: the runtime never calls a tool a run
-could not. The model never chooses the id, and nothing a run opened outlives the server process.
+replaces the process, a delete and `Engine.Close` — with the binding that opened it. The binding's
+start and stop tools must be exposed by its `include` list (an empty list exposes every tool),
+because the runtime never calls a tool a run could not: every host write (`MCPUpsertConfig`,
+`SetCapabilityEnabled`, `SetMCPServerEnabled`, a template apply) refuses a binding that breaks this,
+naming the tool, so switching off a bound server's start or stop tool is refused and the list is
+unchanged. An entry already on disk with such a binding still loads, beside the other servers, but its
+server refuses to start, offers no tools, and its state's `lastError` names the tool. As a backstop, a
+stop that the rule would forbid is skipped and recorded in the server's `lastError` with the number of
+sessions left open. The model never chooses the id, and nothing a run opened outlives the server
+process.
 
 ### D6 — Templates are data, disabled, and credential-free
 
