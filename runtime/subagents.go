@@ -197,6 +197,10 @@ func (c *subagentController) List(ctx context.Context) (any, error) {
 	return c.supervisor.SubagentTree(ctx, c.parentID)
 }
 
+// Wait blocks until the child's run ends or the wait ends. The wait ends at the earliest of timeout
+// (default 30 s, at most 60 s) and the run's tool deadline (ADR-0019 §2); a deadline already past is a
+// timed-out wait, never the default timeout. A timed-out wait leaves the child running. Cancelling ctx
+// ends the wait with ctx's error, even when the deadline has passed as well.
 func (c *subagentController) Wait(ctx context.Context, childSessionID string, timeout time.Duration) (any, error) {
 	childSessionID = strings.TrimSpace(childSessionID)
 	if childSessionID == "" {
@@ -215,8 +219,12 @@ func (c *subagentController) Wait(ctx context.Context, childSessionID string, ti
 	if timeout > 60*time.Second {
 		timeout = 60 * time.Second
 	}
+	deadline := time.Now().Add(timeout)
+	if until, ok := protocol.ToolDeadline(ctx); ok && until.Before(deadline) {
+		deadline = until
+	}
 
-	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	waitCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
@@ -226,6 +234,10 @@ func (c *subagentController) Wait(ctx context.Context, childSessionID string, ti
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-waitCtx.Done():
+			// waitCtx also ends with ctx: a cancelled caller is never reported as a timeout.
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			node, summaryErr := c.summary(context.Background(), childSessionID)
 			if summaryErr != nil {
 				return nil, summaryErr

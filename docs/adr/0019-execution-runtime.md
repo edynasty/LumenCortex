@@ -94,9 +94,9 @@ left only decreases. It:
 
 - passes every tool call `protocol.WithToolCallID` and `protocol.WithToolDeadline(ctx, deadline −
   margin)`, where the answer margin is 1.5× the longest model request of the run, at least 10 s, at most
-  the reserve: tools bound their own waits by it (foreground shell, `job_wait`), so a reply still fits
-  after the last tool result. A read-only subagent spawned by a tool call inherits that time as its own
-  deadline;
+  the reserve: tools bound their own waits by it (foreground shell, `job_wait`, `wait_subagent`), so a
+  reply still fits after the last tool result. A read-only subagent spawned by a tool call inherits that
+  time as its own deadline;
 - adds a `deadline` member to each tool result (a trailing runtime line when the result is not a JSON
   object): `remainingSec`, `reserveSec` and `usedSec {model, tools, wait}` — time in model requests
   (retries included), in tools, and in `job_wait`. Results are new transcript rows, so the cached prefix is
