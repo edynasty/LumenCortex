@@ -491,17 +491,17 @@ func (s *server) stop() error {
 }
 
 // release is a client taken from its server to be closed outside every lock, with the server-side
-// sessions it opened and the binding that closes them.
+// sessions it opened and the definition whose binding closes them.
 type release struct {
-	client  session
-	binding *SessionBinding
-	bound   []string
+	client session
+	cfg    Config
+	bound  []string
 }
 
 // takeLocked takes the running client and the sessions it opened; the server is stopped from then on.
 // The caller holds s.mu.
 func (s *server) takeLocked() release {
-	taken := release{client: s.current, binding: s.cfg.Session, bound: s.boundSessions}
+	taken := release{client: s.current, cfg: s.cfg, bound: s.boundSessions}
 	s.current = nil
 	s.sem = nil
 	s.boundSessions = nil
@@ -515,7 +515,7 @@ func (r release) close() error {
 	if r.client == nil {
 		return nil
 	}
-	closeBoundSessions(r.client, r.binding, r.bound)
+	closeBoundSessions(r.client, r.cfg, r.bound)
 	return r.client.Close()
 }
 
@@ -554,9 +554,12 @@ func (s *server) noteBoundSession(cfg Config, toolName string, result CallToolRe
 const maxBoundSessions = 16
 
 // closeBoundSessions asks the server to close the sessions it opened, with the binding that opened
-// them. Each call is bounded and a failure is ignored: the client is going away either way.
-func closeBoundSessions(client session, binding *SessionBinding, ids []string) {
-	if binding == nil || binding.StopTool == "" {
+// them. Each call is bounded and a failure is ignored: the client is going away either way. The stop
+// tool is called only when the server's include list exposes it: the runtime calls no tool a run could
+// not, so a binding cannot make it run an excluded one.
+func closeBoundSessions(client session, cfg Config, ids []string) {
+	binding := cfg.Session
+	if binding == nil || binding.StopTool == "" || !cfg.included(binding.StopTool) {
 		return
 	}
 	for _, id := range ids {

@@ -107,13 +107,16 @@ the first start records the catalog.
   the transport, command, args, URL, protocol mode, `env` and `headers` — the configured values,
   `{env:NAME}` references included, never what they resolve to — so an edit of an entry's environment
   alone withdraws the recorded catalog until a start records a new one. For a project entry it also
-  covers the exposure (`include`, the `tools` overrides, `disabled`), because a run can write the
-  project `mcp.json` (ADR-0013): an exposure edit made outside the registry withdraws the catalog the
-  same way, so a run cannot relabel a tool `read` or include one the host left out and have a later
-  run offered it without a host start. The host's own edits through the registry (`MCPUpsertConfig`,
-  `SetCapabilityEnabled`, `SetMCPServerEnabled`) that change only the exposure move the recorded
-  catalog to the new fingerprint. A global entry's fingerprint does not cover the exposure: the global
-  file is the user's own.
+  covers the exposure (`include`, the `tools` overrides, `disabled`, the `session` binding), because a
+  run can write the project `mcp.json` (ADR-0013): an exposure edit made outside the registry withdraws
+  the catalog the same way, so a run cannot relabel a tool `read`, include one the host left out or
+  bind a stop tool, and have a later run offered the server without a host start. The host's own edits
+  through the registry (`MCPUpsertConfig`, `SetCapabilityEnabled`, `SetMCPServerEnabled`) that change
+  only the exposure, a `session` binding included, move the recorded catalog to the new fingerprint: the
+  host chose the new definition. A global entry's fingerprint does not cover the exposure: the global
+  file is the user's own. Deleting an entry through the registry (`MCPDeleteConfig`) removes the
+  catalogs recorded for its id in every workspace, so an identical entry written back by a run is not
+  offered from them before the host starts it again.
 
 ### D4 — Exposure: include lists and namespacing
 
@@ -142,8 +145,9 @@ A server that controls a long-lived resource (a computer session) may declare a 
 Core injects the LumenCortex session id into one tool argument (replacing a model-supplied value),
 remembers the server-side id a start tool returned, and calls the stop tool for each remembered id
 on every path that stops the client — an explicit stop, the idle stop, a disable, an edit that
-replaces the process, a delete and `Engine.Close` — with the binding that opened it. The model never
-chooses the id, and nothing a run opened outlives the server process.
+replaces the process, a delete and `Engine.Close` — with the binding that opened it. The stop tool is
+called only when the same definition's `include` list exposes it: the runtime never calls a tool a run
+could not. The model never chooses the id, and nothing a run opened outlives the server process.
 
 ### D6 — Templates are data, disabled, and credential-free
 

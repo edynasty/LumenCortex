@@ -607,8 +607,8 @@ func TestProjectTrustIsIndependentOfTheRuntimeWorkspace(t *testing.T) {
 // The catalog fingerprint covers every field that decides which process or endpoint answers, so an
 // edit of env or headers alone never reuses a catalog recorded for the previous definition. It hashes
 // the configured references, never the values they resolve to. A project entry's fingerprint also
-// covers its exposure (include, tools overrides, disabled), in any order of the include list; a global
-// entry's does not.
+// covers its exposure (include, tools overrides, disabled, the session binding), in any order of the
+// include list; a global entry's does not.
 func TestCatalogFingerprintCoversEnvAndHeaders(t *testing.T) {
 	base := Config{
 		ID: "server", Command: "server", Args: []string{"--stdio"},
@@ -653,6 +653,9 @@ func TestCatalogFingerprintCoversEnvAndHeaders(t *testing.T) {
 		"include added":       edited(func(c *Config) { c.Include = append(c.Include, "write") }),
 		"permission override": edited(func(c *Config) { c.Tools = map[string]ToolConfig{"write": {Permission: PermissionRead}} }),
 		"disabled":            edited(func(c *Config) { c.Disabled = true }),
+		"session binding": edited(func(c *Config) {
+			c.Session = &SessionBinding{Argument: "session_id", StopTool: "write", StopArgument: "value"}
+		}),
 	}
 	for name, cfg := range exposure {
 		if catalogFingerprint(cfg, ScopeProject) == recorded[ScopeProject] {

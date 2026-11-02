@@ -644,6 +644,31 @@ func TestMCPSessionBindingInjectsAndCloses(t *testing.T) {
 	}
 }
 
+// ADR-0021 D5: the runtime closes a bound session only through a tool the server exposes. A stop tool
+// outside the include list is never called, even by the runtime itself when the server stops.
+func TestMCPBoundSessionStopToolMustBeIncluded(t *testing.T) {
+	_, logPath := helperEnv(t, "")
+	useGlobalMCP(t, map[string]any{"helper": sessionBoundHelper(t, map[string]any{"include": []string{"computer_start"}})})
+	engine := openEngineWithGlobalConfig(t, t.TempDir())
+	if _, err := engine.mcpRegistry.CallToolForSession(context.Background(), engine.workspace, "helper", "computer_start", "session_lc_1",
+		map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "computer_start") {
+		t.Fatalf("the start call did not reach the server: %s", raw)
+	}
+	if strings.Contains(string(raw), "computer_stop") {
+		t.Fatalf("a stop tool outside the include list was called: %s", raw)
+	}
+}
+
 // sessionBoundHelper is the helper server with the Computer Use session binding.
 func sessionBoundHelper(t *testing.T, overrides map[string]any) map[string]any {
 	t.Helper()
@@ -832,9 +857,10 @@ func hostStartedProjectServer(t *testing.T, host func(engine *Engine)) (workspac
 }
 
 // ADR-0013 / ADR-0021 §3: the catalog a host start recorded for a project server is keyed by the
-// entry's exposure too — include, tools overrides and disabled. An edit of the project mcp.json that
-// did not go through the Engine (a run's write_file) withdraws it: a later read-only run is offered
-// nothing from it, and its call to the relabelled tool starts no server and runs nothing.
+// entry's exposure too — include, tools overrides, disabled and the session binding. An edit of the
+// project mcp.json that did not go through the Engine (a run's write_file) withdraws it: a later
+// read-only run is offered nothing from it, its calls start no server, and no tool outside the include
+// list runs — neither the relabelled one nor a stop tool the edit bound, when the server stops.
 func TestMCPProjectExposureEditWithdrawsCachedCatalog(t *testing.T) {
 	cases := map[string]struct {
 		host   func(t *testing.T, engine *Engine)
@@ -852,6 +878,13 @@ func TestMCPProjectExposureEditWithdrawsCachedCatalog(t *testing.T) {
 			},
 			edited: map[string]any{"include": []string{"echo"}},
 		},
+		"session binding with an excluded stop tool": {
+			host: func(*testing.T, *Engine) {},
+			edited: map[string]any{"include": []string{"echo"}, "session": map[string]any{
+				"argument": "session_id", "startTool": "echo", "sessionIdField": "sid",
+				"stopTool": "mutate", "stopArgument": "value",
+			}},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -864,9 +897,10 @@ func TestMCPProjectExposureEditWithdrawsCachedCatalog(t *testing.T) {
 			}
 			handle := newTestSession(t, reopened, "use the project server")
 			provider := &notebookProvider{responses: []protocol.ProviderResponse{
+				toolCallResponse("echo_1", mcp.AgentToolName("proj", "echo"), `{"text":"{\"sid\":\"PAYLOAD-from-read-only-run\"}"}`),
 				toolCallResponse("mutate_1", mcp.AgentToolName("proj", "mutate"), `{"value":"x"}`),
 			}}
-			if _, err := reopened.runAgentWith(ctx, handle.ID, provider, AgentOptions{Policy: "read-only", MaxSteps: 3}); err != nil {
+			if _, err := reopened.runAgentWith(ctx, handle.ID, provider, AgentOptions{Policy: "read-only", MaxSteps: 4}); err != nil {
 				t.Fatal(err)
 			}
 			for _, spec := range provider.requests[0].Tools {
@@ -877,10 +911,44 @@ func TestMCPProjectExposureEditWithdrawsCachedCatalog(t *testing.T) {
 			if _, err := os.Stat(marker); !os.IsNotExist(err) {
 				t.Fatalf("the edited project server started without a host start: %v", err)
 			}
+			// A server that did start is stopped here, which is when a bound stop tool would run.
+			if err := reopened.Close(); err != nil {
+				t.Fatal(err)
+			}
 			if raw, _ := os.ReadFile(logPath); strings.Contains(string(raw), "mutate") {
-				t.Fatalf("the relabelled tool ran: %s", raw)
+				t.Fatalf("a tool outside the include list ran: %s", raw)
 			}
 		})
+	}
+}
+
+// ADR-0021 §3: deleting a server through the registry deletes the catalogs its starts recorded. A run
+// that writes the identical entry back into the project mcp.json is offered nothing from the old
+// catalog, and its call starts no server until the host starts it again.
+func TestMCPDeletedProjectServerCatalogIsNotReused(t *testing.T) {
+	workspace, marker, logPath := hostStartedProjectServer(t, func(engine *Engine) {
+		if err := engine.MCPDeleteConfigScope(mcp.ScopeProject, "proj"); err != nil {
+			t.Fatal(err)
+		}
+	})
+	writeEngineMCP(t, workspace, map[string]any{"proj": mcpTestServerConfig(t, "proj", map[string]any{"include": []string{"echo"}})})
+	reopened := openEngineWithGlobalConfig(t, workspace)
+	ctx := context.Background()
+	if tools, err := reopened.MCPTools(ctx, ""); err != nil || len(tools) != 0 {
+		t.Fatalf("after the host deleted the server and a run re-added it tools = %#v err=%v, want none", tools, err)
+	}
+	handle := newTestSession(t, reopened, "use the project server")
+	provider := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("echo_1", mcp.AgentToolName("proj", "echo"), `{"text":"x"}`),
+	}}
+	if _, err := reopened.runAgentWith(ctx, handle.ID, provider, AgentOptions{Policy: "read-only", MaxSteps: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("the re-added server started without a host start: %v", err)
+	}
+	if raw, _ := os.ReadFile(logPath); strings.Contains(string(raw), "echo") {
+		t.Fatalf("the re-added server ran a call: %s", raw)
 	}
 }
 

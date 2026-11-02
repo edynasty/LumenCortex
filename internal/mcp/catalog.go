@@ -94,15 +94,7 @@ func (r *Registry) rerecordCatalogs(before, after Config, scope string) {
 	if from == to || catalogFingerprint(before, ScopeGlobal) != catalogFingerprint(after, ScopeGlobal) {
 		return
 	}
-	r.stateMu.RLock()
-	dir := r.stateDir
-	r.stateMu.RUnlock()
-	if dir == "" {
-		return
-	}
-	// A server id matches [A-Za-z0-9._-], so it is a literal in the pattern.
-	paths, _ := filepath.Glob(filepath.Join(dir, "*", after.ID+".json"))
-	for _, path := range paths {
+	for _, path := range r.recordedCatalogPaths(after.ID) {
 		file, ok := readCatalogFile(path)
 		if !ok || file.ServerID != after.ID || file.Fingerprint != from {
 			continue
@@ -110,6 +102,28 @@ func (r *Registry) rerecordCatalogs(before, after Config, scope string) {
 		file.Fingerprint = to
 		writeCatalogFile(path, file)
 	}
+}
+
+// forgetCatalogs removes the catalogs recorded for a server id in every workspace. The caller holds
+// r.mu, so no edit of the entry interleaves.
+func (r *Registry) forgetCatalogs(id string) {
+	for _, path := range r.recordedCatalogPaths(id) {
+		_ = os.Remove(path)
+	}
+}
+
+// recordedCatalogPaths lists the catalog files of a server id in every workspace, none without a state
+// directory.
+func (r *Registry) recordedCatalogPaths(id string) []string {
+	r.stateMu.RLock()
+	dir := r.stateDir
+	r.stateMu.RUnlock()
+	if dir == "" || !serverIDPattern.MatchString(id) {
+		return nil
+	}
+	// A server id matches [A-Za-z0-9._-], so it is a literal in the pattern.
+	paths, _ := filepath.Glob(filepath.Join(dir, "*", id+".json"))
+	return paths
 }
 
 // readCatalogFile reads one recorded catalog within the runtime's bounds.
