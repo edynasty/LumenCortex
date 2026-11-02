@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -16,6 +17,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 // httpTestServer is a minimal MCP Streamable HTTP endpoint: one JSON-RPC message per POST, answered
@@ -487,5 +490,135 @@ func TestMCPCallRefusesExcludedTool(t *testing.T) {
 	}
 	if _, err := registry.CallTool(ctx, root, "remote", "echo", map[string]any{"text": "in"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// ADR-0021 §3: the run's tool deadline bounds the wait for a call slot. A call queued behind the call
+// holding the server's only slot gives up when its deadline passes, and its tool never reaches the
+// server.
+func TestMCPQueuedCallToolDeadlineBoundsTheSlotWait(t *testing.T) {
+	handler := &resetServer{slowSeen: make(chan struct{}), release: make(chan struct{})}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	t.Cleanup(handler.releaseSlow)
+	registry, root := httpRegistry(t, Config{ID: "remote", URL: server.URL, MaxConcurrentCalls: 1})
+	held := make(chan error, 1)
+	go func() {
+		_, err := registry.CallTool(context.Background(), root, "remote", "slow_reset", map[string]any{})
+		held <- err
+	}()
+	select {
+	case <-handler.slowSeen:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the slot-holding call never reached the server")
+	}
+
+	ctx := protocol.WithToolDeadline(context.Background(), time.Now().Add(80*time.Millisecond))
+	queued := make(chan error, 1)
+	go func() {
+		_, err := registry.CallTool(ctx, root, "remote", "echo", map[string]any{"text": "queued"})
+		queued <- err
+	}()
+	select {
+	case err := <-queued:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("queued call error = %v, want context.DeadlineExceeded", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the queued call ignored its tool deadline while another call held the only slot")
+	}
+	if calls := handler.calls.Load(); calls != 0 {
+		t.Fatalf("the queued tool reached the server (%d calls)", calls)
+	}
+	handler.releaseSlow()
+	<-held
+}
+
+// ADR-0021 §3: callTimeoutSeconds bounds the whole call, the wait for a call slot included. A call that
+// gets no slot within it times out without its tool reaching the server.
+func TestMCPCallTimeoutBoundsTheSlotWait(t *testing.T) {
+	handler, server := startHTTPTestServer(t, false)
+	registry, root := httpRegistry(t, Config{ID: "remote", URL: server.URL, MaxConcurrentCalls: 1, CallTimeoutSeconds: 1})
+	if _, err := registry.CallTool(context.Background(), root, "remote", "echo", map[string]any{"text": "warm"}); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := registry.server("remote", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.mu.Lock()
+	sem := srv.sem
+	srv.mu.Unlock()
+	// The test holds the server's only slot, as a call that never ends would.
+	sem <- struct{}{}
+	t.Cleanup(func() { <-sem })
+
+	queued := make(chan error, 1)
+	go func() {
+		_, err := registry.CallTool(context.Background(), root, "remote", "echo", map[string]any{"text": "queued"})
+		queued <- err
+	}()
+	select {
+	case err := <-queued:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("queued call error = %v, want context.DeadlineExceeded", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the queued call outlived its call timeout waiting for a slot")
+	}
+	if calls := handler.calls.Load(); calls != 1 {
+		t.Fatalf("tool calls that reached the server = %d, want only the warm-up", calls)
+	}
+}
+
+// A call whose budget is spent before it starts starts no server and contacts none: no HTTP request,
+// no process, no lastError. The context error keeps its cause.
+func TestMCPExpiredCallStartsNoServer(t *testing.T) {
+	handler, server := startHTTPTestServer(t, false)
+	registry, root := httpRegistry(t, Config{ID: "remote", URL: server.URL})
+	expired := protocol.WithToolDeadline(context.Background(), time.Now().Add(-time.Second))
+	if _, err := registry.CallTool(expired, root, "remote", "echo", map[string]any{"text": "late"}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expired call error = %v, want context.DeadlineExceeded", err)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := registry.CallTool(cancelled, root, "remote", "echo", map[string]any{"text": "late"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled call error = %v, want context.Canceled", err)
+	}
+	if requests := handler.requests.Load(); requests != 0 {
+		t.Fatalf("the HTTP server was contacted (%d requests)", requests)
+	}
+
+	marker := filepath.Join(t.TempDir(), "spawned")
+	stdioRoot := t.TempDir()
+	stdio, err := NewRegistry(stdioRoot, filepath.Join(stdioRoot, ".lumencortex", "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stdio.Close() })
+	trustedProject(stdio, true)
+	if err := stdio.Upsert(Config{ID: "local", Command: "/bin/sh", Args: []string{"-c", "touch " + marker}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stdio.CallTool(expired, stdioRoot, "local", "echo", map[string]any{}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expired stdio call error = %v, want context.DeadlineExceeded", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("the stdio server was spawned: %v", err)
+	}
+
+	for _, reg := range []struct {
+		registry *Registry
+		root     string
+	}{{registry, root}, {stdio, stdioRoot}} {
+		states, err := reg.registry.States(reg.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, state := range states {
+			if state.Running || state.LastError != "" {
+				t.Fatalf("an expired call left state %#v, want stopped with no lastError", state)
+			}
+		}
 	}
 }

@@ -315,7 +315,9 @@ func (s *server) refreshTools(ctx context.Context) ([]Tool, error) {
 }
 
 // callTool runs one tool call with the server's own deadline, the run's tool deadline and the
-// caller's cancellation, whichever is earliest, and with a bounded number of calls in flight.
+// caller's cancellation, whichever is earliest, and with a bounded number of calls in flight. The
+// budget is fixed when the call arrives and covers a cold start, the wait for a call slot and the
+// request: a call already past it starts and contacts nothing, and a queued call gives up its wait.
 func (s *server) callTool(ctx context.Context, toolName string, sessionID string, args map[string]any) (CallToolResult, error) {
 	cfg, _ := s.config()
 	// The include list is the server's exposure (ADR-0021 D4): a name outside it is refused here, before
@@ -333,7 +335,17 @@ func (s *server) callTool(ctx context.Context, toolName string, sessionID string
 		copied[binding.Argument] = sessionID
 		args = copied
 	}
-	client, err := s.ensure(ctx)
+	callCtx, cancel := context.WithTimeout(ctx, cfg.callTimeout())
+	defer cancel()
+	if deadline, ok := toolDeadline(callCtx); ok {
+		var deadlineCancel context.CancelFunc
+		callCtx, deadlineCancel = context.WithDeadline(callCtx, deadline)
+		defer deadlineCancel()
+	}
+	if err := callCtx.Err(); err != nil {
+		return CallToolResult{}, err
+	}
+	client, err := s.ensure(callCtx)
 	if err != nil {
 		return CallToolResult{}, err
 	}
@@ -343,18 +355,14 @@ func (s *server) callTool(ctx context.Context, toolName string, sessionID string
 	if sem != nil {
 		select {
 		case sem <- struct{}{}:
-		case <-ctx.Done():
-			return CallToolResult{}, ctx.Err()
+		case <-callCtx.Done():
+			return CallToolResult{}, callCtx.Err()
 		}
 		defer func() { <-sem }()
-	}
-
-	callCtx, cancel := context.WithTimeout(ctx, cfg.callTimeout())
-	defer cancel()
-	if deadline, ok := toolDeadline(callCtx); ok {
-		var deadlineCancel context.CancelFunc
-		callCtx, deadlineCancel = context.WithDeadline(callCtx, deadline)
-		defer deadlineCancel()
+		// A slot freed as the budget ran out may win the select: the call still sends nothing.
+		if err := callCtx.Err(); err != nil {
+			return CallToolResult{}, err
+		}
 	}
 
 	s.mu.Lock()

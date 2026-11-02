@@ -95,8 +95,11 @@ the first start records the catalog.
   `MCPStop` close it immediately.
 - **Per-server limits.** `callTimeoutSeconds` (default 120 s) bounds one call together with the run's
   tool deadline (the earlier wins) and the caller's cancellation; `maxConcurrentCalls` (default 4)
-  bounds calls in flight; `maxResultBytes` (default 1 MiB) bounds one result. A call past the deadline
-  sends `notifications/cancelled` and returns a timeout.
+  bounds calls in flight; `maxResultBytes` (default 1 MiB) bounds one result. The budget is fixed when
+  the call arrives and covers a cold start, the wait for a call slot and the request, never restarting
+  after the wait: a call already past it starts and contacts nothing, and a call still waiting for a
+  slot when it passes returns the context error without reaching the server. A call whose deadline
+  passes in flight sends `notifications/cancelled` and returns a timeout.
 - **Failure isolation.** A start failure, a crash (EOF / closed pipe) or a hung call becomes a tool
   result error plus `lastError` in the registry; the client is dropped so the next call starts a fresh
   process; the run continues. Nothing in the MCP path can end the loop. Only the client the failed call
