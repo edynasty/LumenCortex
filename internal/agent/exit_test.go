@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -118,6 +119,28 @@ func newState(id string) *memoryStore {
 		messages: []protocol.Message{{Role: "user", Content: "goal"}}}
 }
 
+// assertStoppedCallStored checks that a command-tool call stopped by the run's cancellation has exactly
+// one terminal tool row, the runtime's interrupted result carrying want, and that every admitted execution
+// was settled outcome_unknown - the run leaves a paired transcript and terminal provenance behind.
+func assertStoppedCallStored(t *testing.T, store *memoryStore, callID, want string) {
+	t.Helper()
+	rows := toolRows(store.messages)
+	if len(rows) != 1 || rows[0].ToolCallID != callID {
+		t.Fatalf("tool rows = %+v, want one row for %s", rows, callID)
+	}
+	if rows[0].Origin != protocol.OriginToolInterrupted || !strings.Contains(rows[0].Content, want) {
+		t.Fatalf("stopped call row = %+v, want origin tool_interrupted with %q", rows[0], want)
+	}
+	if last := store.messages[len(store.messages)-1]; last.Role != "tool" || last.ToolCallID != callID {
+		t.Fatalf("the stopped call's row is not the last row: %+v", store.messages)
+	}
+	for _, x := range store.executions {
+		if x.post == nil || x.post.Outcome != session.OutcomeUnknown {
+			t.Fatalf("execution = %+v, want settled outcome_unknown", x)
+		}
+	}
+}
+
 func assertExit(t *testing.T, store *memoryStore, result Result, wantStatus, wantKind string) {
 	t.Helper()
 	if store.state.Status != wantStatus {
@@ -196,11 +219,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 					return shellCall("t1"), nil
 				}}
 				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: tools}).Run(ctx, "c3", Options{Session: testRef, MaxSteps: 3})
-				for _, m := range store.messages {
-					if m.Role == "tool" {
-						t.Errorf("the output of a tool stopped by cancellation must not be saved as a result: %+v", m)
-					}
-				}
+				assertStoppedCallStored(t, store, "t1", `"cancelled":true`)
 				return store, r, err
 			},
 		},
@@ -219,6 +238,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 					return shellCall("t1"), nil
 				}}
 				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: tools}).Run(ctx, "c4", Options{Session: testRef, MaxSteps: 3})
+				assertStoppedCallStored(t, store, "t1", session.InterruptedToolResult)
 				return store, r, err
 			},
 		},

@@ -18,9 +18,10 @@ import (
 // Side-effect tools are admitted before they run (ADR-0018, plan T1-S4). The loop takes the pre-state
 // outside any transaction, records the execution with Store.AdmitExecution, runs the tool only after
 // that returned nil, takes the post-state outside any transaction, and commits the tool row, the post
-// record and the derived edges with Store.CommitToolResult. An execution that never reaches the commit
-// (a crash, a cancellation, a failed write) stays admitted until Reconcile makes it outcome_unknown; it
-// is never run again.
+// record and the derived edges with Store.CommitToolResult. The command tool's call, stopped by the run's
+// cancellation or deadline, is committed that way before the run ends, settled outcome_unknown; an
+// execution that never reaches a commit (any other tool's cancelled call, a crash, a failed write) stays
+// admitted until Reconcile makes it outcome_unknown. It is never run again.
 
 // Snapshots take the pre- and post-state of side-effect tools in the run's workspace. They only read.
 // *repository.Service implements it.

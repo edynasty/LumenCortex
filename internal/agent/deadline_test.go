@@ -32,13 +32,14 @@ func toolRows(messages []protocol.Message) []protocol.Message {
 	return out
 }
 
-// A run that reaches its deadline while a tool works ends interrupted/deadline, not cancelled; the tool's
-// output is not saved, as for any cancellation; the run's first row after the input states the budget.
+// A run that reaches its deadline while a tool works ends interrupted/deadline, not cancelled; the
+// tool's stopped output is kept as the call's one result (the command ran into the deadline reserve)
+// and its execution is settled; the run's first row after the input states the budget.
 func TestRunDeadlineEndsTheRunWithKindDeadline(t *testing.T) {
 	store := newState("d1")
 	tools := &scriptTools{fn: func(ctx context.Context, _ string, _ map[string]any) (protocol.ToolResult, error) {
 		<-ctx.Done()
-		return protocol.ToolResult{OK: false, Content: `{"exitCode":-1,"cancelled":true}`}, nil
+		return protocol.ToolResult{OK: false, Interrupted: true, Content: `{"exitCode":-1,"timedOut":true}`, MutatesWorkspace: true}, nil
 	}}
 	provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 		return shellCall("t1"), nil
@@ -53,8 +54,9 @@ func TestRunDeadlineEndsTheRunWithKindDeadline(t *testing.T) {
 		t.Fatalf("err = %v, want ErrRunDeadline", err)
 	}
 	assertExit(t, store, result, StatusInterrupted, KindDeadline)
-	if rows := toolRows(store.messages); len(rows) != 0 {
-		t.Fatalf("a tool stopped by the deadline must not have its output saved: %+v", rows)
+	rows := toolRows(store.messages)
+	if len(rows) != 1 || rows[0].ToolCallID != "t1" || rows[0].Origin != protocol.OriginToolInterrupted || !strings.Contains(rows[0].Content, `"timedOut":true`) {
+		t.Fatalf("the stopped call must keep one terminal row: %+v", rows)
 	}
 	notices := deadlineRows(store.messages)
 	if len(notices) == 0 || store.messages[1].Origin != protocol.OriginDeadline || !strings.Contains(notices[0].Content, "deadline") {

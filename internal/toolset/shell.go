@@ -26,8 +26,8 @@ func bashDescription(interp shell.Interpreter) string {
 }
 
 // shellTimeout is the timeout of one foreground shell call and what set it: the call's timeout_sec, else
-// the configured default, bounded by the time left before the run's tool deadline. 0 means none. left is
-// false when the tool deadline has already passed: the call must not start.
+// the configured default, clamped to the configured maximum and bounded by the time left before the run's
+// tool deadline. left is false when the tool deadline has already passed: the call must not start.
 func (s *Set) shellTimeout(ctx context.Context, args map[string]any) (timeout time.Duration, source string, left bool, err error) {
 	if raw, ok := args["timeout_sec"]; ok && raw != nil {
 		n, ok := raw.(float64)
@@ -35,22 +35,26 @@ func (s *Set) shellTimeout(ctx context.Context, args map[string]any) (timeout ti
 			return 0, "", false, fmt.Errorf("timeout_sec must be a whole number of seconds from 1 to %d", maxShellTimeoutSeconds)
 		}
 		timeout, source = time.Duration(n)*time.Second, "argument"
-	} else if s.shellTimeoutDefault > 0 {
+	} else {
 		timeout, source = s.shellTimeoutDefault, "config"
+	}
+	if s.shellMaxTimeout > 0 && timeout > s.shellMaxTimeout {
+		timeout = s.shellMaxTimeout
 	}
 	if deadline, ok := protocol.ToolDeadline(ctx); ok {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			return 0, "deadline", false, nil
 		}
-		if timeout == 0 || remaining < timeout {
+		if remaining < timeout {
 			timeout, source = remaining, "deadline"
 		}
 	}
 	return timeout, source, true, nil
 }
 
-// maxShellTimeoutSeconds bounds timeout_sec (one day), as config.MaxShellTimeoutSeconds bounds the default.
+// maxShellTimeoutSeconds bounds the timeout_sec argument (one day). The configured maximum
+// (config.MaxShellTimeoutSeconds) clamps the effective timeout to a lower value.
 const maxShellTimeoutSeconds = 86400
 
 func (s *Set) runShell(ctx context.Context, args map[string]any, onOutput func(protocol.ToolOutput)) (protocol.ToolResult, error) {
@@ -82,7 +86,9 @@ func (s *Set) runShell(ctx context.Context, args map[string]any, onOutput func(p
 			onOutput(protocol.ToolOutput{Stream: chunk.Stream, Chunk: string(chunk.Chunk)})
 		}
 	})
-	if err != nil {
+	// A cancelled runner call still carries the output it read and the reason; only a call that could
+	// not run at all is an error.
+	if err != nil && !result.Cancelled {
 		return protocol.ToolResult{}, err
 	}
 	out := map[string]any{
@@ -111,6 +117,12 @@ func (s *Set) runShell(ctx context.Context, args map[string]any, onOutput func(p
 			reason = fmt.Sprintf("the command ran into the run's deadline reserve after %ds", seconds)
 		}
 		out["error"] = reason + "; its process group was terminated (SIGTERM, then SIGKILL). The output is partial and the command may have left partial effects. Narrow the command or give it a larger timeout_sec."
+	} else if result.Cancelled {
+		reason := "the run was cancelled"
+		if errors.Is(context.Cause(ctx), context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			reason = "the run's deadline passed"
+		}
+		out["error"] = reason + " while the command was running; its process group was terminated (SIGTERM, then SIGKILL). The output is partial."
 	}
 	content, _ := json.Marshal(out)
 	changed := true
@@ -120,7 +132,7 @@ func (s *Set) runShell(ctx context.Context, args map[string]any, onOutput func(p
 	}
 	return protocol.ToolResult{
 		OK:               result.ExitCode == 0 && !result.Cancelled && !result.TimedOut,
-		Interrupted:      result.TimedOut,
+		Interrupted:      result.TimedOut || result.Cancelled,
 		Content:          string(content),
 		MutatesWorkspace: changed,
 	}, nil

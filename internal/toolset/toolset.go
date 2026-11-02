@@ -48,8 +48,12 @@ type Options struct {
 	// Protected is the state the file tools refuse to reach (ADR-0016). The zero value protects nothing.
 	Protected Protected
 	// ShellTimeout is the default timeout of a foreground shell call (execution.shellTimeoutSeconds);
-	// 0 is none. A call's timeout_sec replaces it; the run's tool deadline bounds both.
+	// 0 selects the default, 120 s. A call's timeout_sec replaces it; ShellMaxTimeout bounds both.
 	ShellTimeout time.Duration
+	// ShellMaxTimeout bounds every foreground shell call (execution.shellMaxTimeoutSeconds); 0 selects
+	// the default, 1800 s, and a lower value also lowers ShellTimeout. A call's timeout_sec above it is
+	// clamped to it; the run's tool deadline still bounds every call.
+	ShellMaxTimeout time.Duration
 	// Jobs is the background job queue of the run's session (ADR-0019 §3); nil offers no job tools and
 	// no background mode.
 	Jobs JobController
@@ -76,11 +80,13 @@ type Set struct {
 	skills         SkillReader
 	notebooks      NotebookStore
 	protected      Protected
-	// shellTimeoutDefault is Options.ShellTimeout.
+	// shellTimeoutDefault is Options.ShellTimeout with its default applied.
 	shellTimeoutDefault time.Duration
-	jobs                JobController
-	wakeups             WakeupController
-	log                 *slog.Logger
+	// shellMaxTimeout is Options.ShellMaxTimeout with its default applied.
+	shellMaxTimeout time.Duration
+	jobs            JobController
+	wakeups         WakeupController
+	log             *slog.Logger
 	// sessionID is Options.SessionID.
 	sessionID string
 	tools     map[string]tool
@@ -136,7 +142,18 @@ func New(opts Options) (*Set, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, notebooks: opts.Notebook, protected: opts.Protected, shellTimeoutDefault: opts.ShellTimeout, jobs: opts.Jobs, wakeups: opts.Wakeups, log: newToolsetLogger(opts.Logger), sessionID: opts.SessionID, tools: map[string]tool{}}
+	shellTimeout := opts.ShellTimeout
+	if shellTimeout <= 0 {
+		shellTimeout = config.DefaultShellTimeoutSeconds * time.Second
+	}
+	shellMaxTimeout := opts.ShellMaxTimeout
+	if shellMaxTimeout <= 0 {
+		shellMaxTimeout = config.DefaultShellMaxTimeoutSeconds * time.Second
+	}
+	if shellTimeout > shellMaxTimeout {
+		shellTimeout = shellMaxTimeout
+	}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, notebooks: opts.Notebook, protected: opts.Protected, shellTimeoutDefault: shellTimeout, shellMaxTimeout: shellMaxTimeout, jobs: opts.Jobs, wakeups: opts.Wakeups, log: newToolsetLogger(opts.Logger), sessionID: opts.SessionID, tools: map[string]tool{}}
 	s.registerBuiltins()
 	return s, nil
 }

@@ -508,9 +508,24 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 						l.emit("tool.output", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "stream": output.Stream, "chunk": output.Chunk})
 					})
 					if ctx.Err() != nil {
-						// A tool stopped by cancellation often returns a result, not an error. Its
-						// output is not saved: the run ends interrupted/cancelled and the call
-						// stays unanswered.
+						// The command tool reports a killed command as a result, not an error, and its
+						// call is answered before the run ends: one terminal row with the partial
+						// output and its execution settled, so the transcript and the execution are
+						// terminal rather than waiting for the next Start. Every other tool keeps the
+						// older contract: its stopped call stays unanswered and Reconcile closes it.
+						if call.Name == protocol.ToolBash {
+							if closeErr := l.closeStoppedCall(ctx, sessionID, opts.RunID, call, x, toolResult, toolErr, r); closeErr != nil {
+								// The run was cancelled; its closing write failed. The cause stays the
+								// cancellation the run really had (a cancelled run's storage error is the
+								// cancellation, loop exit rule), and the failure is joined so it is reported
+								// rather than hidden. The transcript keeps the gap Reconcile closes later.
+								cause := ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: errors.Join(ctx.Err(), closeErr)}
+								if errors.Is(context.Cause(ctx), ErrRunDeadline) {
+									cause = ExitCause{Status: StatusInterrupted, Kind: KindDeadline, Err: errors.Join(ErrRunDeadline, closeErr)}
+								}
+								return l.exit(ctx, state, usage, cause)
+							}
+						}
 						return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()})
 					}
 					if toolErr != nil {
@@ -731,6 +746,41 @@ func (l *Loop) persistToolResult(ctx context.Context, sessionID, runID string, c
 		l.emit("task_state.changed", sessionID, map[string]any{"version": version, "reason": change.Reason})
 	}
 	return seq, nil
+}
+
+// closeStoppedCall answers the call a cancelled or expired run stopped mid-execution: one tool row with
+// the interrupted result, and, for an admitted call, its execution settled outcome_unknown in the same
+// transaction. It runs without the run's cancellation and is bounded like the terminal write, so a run
+// that is cancelled ends with a paired transcript and a terminal execution; Reconcile then finds no gap
+// to close at the next Start (ADR-0018).
+//
+// A failed write is returned, never swallowed: the caller reports it with the run's exit, and the
+// transcript keeps the gap Reconcile closes at the next Start.
+func (l *Loop) closeStoppedCall(ctx context.Context, sessionID, runID string, call protocol.ToolCall, x *execution, result protocol.ToolResult, toolErr error, r *run) error {
+	content := session.InterruptedToolResult
+	if toolErr == nil && strings.TrimSpace(result.Content) != "" {
+		// The partial output the tool had read, with the reason it stopped.
+		content = result.Content
+	}
+	row := protocol.Message{Role: "tool", ToolCallID: call.ID, Name: call.Name, Content: content, Origin: protocol.OriginToolInterrupted}
+	var post *session.ExecutionResult
+	if x != nil {
+		post = &session.ExecutionResult{ExecutionID: x.id, Outcome: session.OutcomeUnknown, Coverage: session.CoverageUnavailable}
+	}
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishTimeout)
+	defer cancel()
+	seq, _, err := l.Store.CommitToolResult(writeCtx, ToolResultCommit{SessionID: sessionID, RunID: runID, Message: row, Execution: post})
+	if err != nil {
+		l.emit("tool.end", sessionID, map[string]any{"toolCallId": call.ID, "name": call.Name, "ok": false, "stopped": true, "error": err.Error()})
+		return fmt.Errorf("persist the interrupted result of call %s: %w", call.ID, err)
+	}
+	r.appendRow(seq, row)
+	end := map[string]any{"toolCallId": call.ID, "name": call.Name, "ok": false, "stopped": true, "interrupted": true}
+	if x != nil {
+		end["executionId"], end["outcome"] = x.id, string(session.OutcomeUnknown)
+	}
+	l.emit("tool.end", sessionID, end)
+	return nil
 }
 
 func (l *Loop) checkpoint(sessionID, reason string, payload any) {

@@ -494,19 +494,21 @@ func TestConcurrencyOutsideItsBoundsIsInvalid(t *testing.T) {
 }
 
 // Execution limits bound the machine like concurrency: only the global file sets them, absent fields
-// take their defaults (no foreground shell timeout), and values outside the schema bounds are invalid.
+// take their defaults (foreground shell timeout 120 s, at most 1800 s), and values outside the schema
+// bounds are invalid.
 func TestExecutionIsReadFromTheGlobalFileOnly(t *testing.T) {
 	_, globalDir := env(t)
 	ws := canon(t, t.TempDir())
 	writeFile(t, filepath.Join(globalDir, FileName),
-		`{"execution": {"maxConcurrentJobs": 3, "logLevel": "debug"}, "trustedWorkspaces": [`+quote(ws)+`]}`)
+		`{"execution": {"shellTimeoutSeconds": 90, "shellMaxTimeoutSeconds": 900, "maxConcurrentJobs": 3, "logLevel": "debug"}, "trustedWorkspaces": [`+quote(ws)+`]}`)
 	writeFile(t, filepath.Join(ws, FileName), `{"execution": {"shellTimeoutSeconds": 5, "maxConcurrentJobs": 16}}`)
 	c, err := Load(ws)
 	if err != nil {
 		t.Fatal(err)
 	}
 	eff := c.Effective()
-	want := Execution{MaxConcurrentJobs: 3, MaxQueuedJobs: DefaultMaxQueuedJobs, JobOutputBytes: DefaultJobOutputBytes,
+	want := Execution{ShellTimeoutSeconds: 90, ShellMaxTimeoutSeconds: 900,
+		MaxConcurrentJobs: 3, MaxQueuedJobs: DefaultMaxQueuedJobs, JobOutputBytes: DefaultJobOutputBytes,
 		JobRetentionDays: DefaultJobRetentionDays, LogLevel: "debug"}
 	if eff.Execution != want {
 		t.Fatalf("execution=%+v want %+v", eff.Execution, want)
@@ -517,6 +519,8 @@ func TestExecutionIsReadFromTheGlobalFileOnly(t *testing.T) {
 	for _, raw := range []string{
 		`{"execution": {"shellTimeoutSeconds": 0}}`,
 		`{"execution": {"shellTimeoutSeconds": 86401}}`,
+		`{"execution": {"shellMaxTimeoutSeconds": 0}}`,
+		`{"execution": {"shellMaxTimeoutSeconds": 86401}}`,
 		`{"execution": {"maxConcurrentJobs": 17}}`,
 		`{"execution": {"maxQueuedJobs": 0}}`,
 		`{"execution": {"jobOutputBytes": 1024}}`,
@@ -526,6 +530,41 @@ func TestExecutionIsReadFromTheGlobalFileOnly(t *testing.T) {
 	} {
 		if _, err := Parse([]byte(raw)); !errors.Is(err, ErrInvalidConfig) {
 			t.Errorf("Parse(%s) err=%v", raw, err)
+		}
+	}
+}
+
+// A foreground shell call is never unbounded: absent settings select 120 s and an 1800 s maximum, an
+// explicit default above the maximum is clamped, a lower maximum lowers an absent default too, and a
+// deployment may raise the maximum to the schema bound.
+func TestExecutionShellTimeoutDefaultsAndClamp(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		in   *Execution
+		want [2]int
+	}{
+		{"nil", nil, [2]int{DefaultShellTimeoutSeconds, DefaultShellMaxTimeoutSeconds}},
+		{"empty", &Execution{}, [2]int{DefaultShellTimeoutSeconds, DefaultShellMaxTimeoutSeconds}},
+		{"default below maximum", &Execution{ShellTimeoutSeconds: 300}, [2]int{300, DefaultShellMaxTimeoutSeconds}},
+		{"default above maximum", &Execution{ShellTimeoutSeconds: 3600}, [2]int{DefaultShellMaxTimeoutSeconds, DefaultShellMaxTimeoutSeconds}},
+		{"lower maximum lowers the default", &Execution{ShellMaxTimeoutSeconds: 60}, [2]int{60, 60}},
+		{"both named", &Execution{ShellTimeoutSeconds: 240, ShellMaxTimeoutSeconds: 600}, [2]int{240, 600}},
+		{"raised maximum", &Execution{ShellMaxTimeoutSeconds: MaxShellTimeoutSeconds}, [2]int{DefaultShellTimeoutSeconds, MaxShellTimeoutSeconds}},
+		{"schema bound", &Execution{ShellTimeoutSeconds: MaxShellTimeoutSeconds, ShellMaxTimeoutSeconds: MaxShellTimeoutSeconds},
+			[2]int{MaxShellTimeoutSeconds, MaxShellTimeoutSeconds}},
+	} {
+		got := c.in.Limits()
+		if got.ShellTimeoutSeconds != c.want[0] || got.ShellMaxTimeoutSeconds != c.want[1] {
+			t.Errorf("%s: limits=%+v want timeout=%d max=%d", c.name, got, c.want[0], c.want[1])
+		}
+	}
+	// The schema keeps the same 1…86400 bounds for both settings.
+	for _, raw := range []string{
+		`{"execution": {"shellTimeoutSeconds": 1, "shellMaxTimeoutSeconds": 1}}`,
+		`{"execution": {"shellTimeoutSeconds": 86400, "shellMaxTimeoutSeconds": 86400}}`,
+	} {
+		if _, err := Parse([]byte(raw)); err != nil {
+			t.Errorf("Parse(%s): %v", raw, err)
 		}
 	}
 }

@@ -175,10 +175,9 @@ func (e *Engine) builtinCapabilities(workspace, sessionID string, denied map[str
 		return nil, err
 	}
 	out := make([]Capability, 0, len(tools))
-	shellTimeout := 0
-	if limits := e.executionLimits(); limits.ShellTimeoutSeconds > 0 {
-		shellTimeout = limits.ShellTimeoutSeconds
-	}
+	// The foreground shell default is always set (120 s when the global file does not name one), so the
+	// registry shows the timeout a call gets without timeout_sec.
+	shellTimeout := e.executionLimits().ShellTimeoutSeconds
 	for _, spec := range tools {
 		constraints := CapabilityConstraints{
 			MutatesWorkspace: spec.MutatesWorkspace,

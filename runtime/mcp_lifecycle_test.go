@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/mcp"
 	"github.com/edynasty/LumenCortex/internal/mcptemplates"
 	"github.com/edynasty/LumenCortex/internal/toolset"
@@ -524,6 +525,11 @@ func TestCapabilityRegistryListsEverySource(t *testing.T) {
 	bash := capabilityByID(t, capabilities, "bash")
 	if bash.Permission != "exec" || !bash.ExecutionConstraints.RequiresApproval || !bash.ExecutionConstraints.MutatesWorkspace {
 		t.Fatalf("bash = %#v", bash)
+	}
+	// A foreground call is never unbounded: the registry shows the default a call gets without
+	// timeout_sec, 120 s when the global file names none.
+	if bash.ExecutionConstraints.TimeoutSeconds != config.DefaultShellTimeoutSeconds {
+		t.Fatalf("bash timeout = %d, want %d", bash.ExecutionConstraints.TimeoutSeconds, config.DefaultShellTimeoutSeconds)
 	}
 	lsp := capabilityByID(t, capabilities, "lsp_definition")
 	if lsp.Source != SourceCoreOptional || lsp.Enabled || lsp.Availability.State != AvailabilityNeedsConfiguration {

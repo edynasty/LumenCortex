@@ -110,7 +110,13 @@
       "additionalProperties": false,
       "properties": {
         "shellTimeoutSeconds": {
-          "description": "Timeout of a foreground shell call that names none: its process group is terminated and the call reports timedOut. Absent → none; the call is then bounded only by its run's deadline and cancellation.",
+          "description": "Timeout of a foreground shell call that names none: its process group is terminated and the call reports timedOut. Absent → 120. Clamped to shellMaxTimeoutSeconds.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "shellMaxTimeoutSeconds": {
+          "description": "Upper bound of every foreground shell call, including one whose timeout_sec names more; the run's deadline still bounds the call. A lower value also lowers the effective default. Absent → 1800.",
           "type": "integer",
           "minimum": 1,
           "maximum": 86400

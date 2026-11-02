@@ -91,8 +91,13 @@ that runs out, like any pre-state that cannot be read, does not block the tool: 
 the post-state is taken and `CommitToolResult` stores the row, the post record and one file edge
 `<path>@<blob>` ← the issuing request per changed path. Outcome: OK → `completed`, not OK → `failed`; a tool
 error → `outcome_unknown` (it may have acted), except a file tool whose targets the post-state shows
-unchanged. A cancelled call keeps the existing semantics (no tool row) and stays `admitted` until Reconcile
-settles it at the next start. A shell edge attributes every change in the work tree during the call,
+unchanged. The command tool (`bash`) is the one exception: a call the run's cancellation or deadline
+stops while the command executes is answered before the run ends, with one tool row carrying the command's
+stopped result (`origin: tool_interrupted`) and, for its admitted execution, the outcome settled
+`outcome_unknown` with lineage 0 in that same transaction, so a finishing run leaves a paired transcript
+and terminal provenance. Every other tool keeps the earlier semantics: a cancelled call gets no tool row and stays `admitted`
+until Reconcile settles it `outcome_unknown` at the next start. That also holds for the command tool when
+its process dies before the row commits. A shell edge attributes every change in the work tree during the call,
 including another writer's; a moved HEAD, a cut status or more than `MaxEdgesPerCommit` paths make it
 `partial`. A workspace snapshot is one `git status --porcelain=v2 -z --branch --untracked-files=all` process:
 HEAD comes from its `# branch.oid` header, and a status without that header gives no snapshot (`pre_unavailable`

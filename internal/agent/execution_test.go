@@ -244,9 +244,9 @@ func TestFencedToolCommitEndsTheRun(t *testing.T) {
 	}
 }
 
-// A cancellation while the tool runs ends the run with the call unanswered, as before, and leaves the
-// execution admitted: nothing is committed for it, and Reconcile settles it as outcome_unknown at the
-// next start.
+// A cancellation while a tool other than the command tool runs ends the run with the call unanswered,
+// as before, and leaves the execution admitted: nothing is committed for it, and Reconcile settles it as
+// outcome_unknown at the next start. Only the command tool answers its stopped call in the run itself.
 func TestCancelledToolLeavesTheExecutionAdmitted(t *testing.T) {
 	store := envStore("cx")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -255,7 +255,7 @@ func TestCancelledToolLeavesTheExecutionAdmitted(t *testing.T) {
 		cancel()
 		return protocol.ToolResult{OK: true, Content: "partial"}, nil
 	}}
-	provider := &scriptedProvider{responses: []protocol.ProviderResponse{toolStep(call("1", "bash", `{"command":"sleep 9"}`))}}
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{toolStep(call("1", "mcp__s__exec", `{"text":"go"}`))}}
 	loop := Loop{Models: testModels(provider), Store: store, Tools: tools}
 	result, _ := loop.Run(ctx, "cx", Options{Session: testRef, MaxSteps: 3})
 	assertExit(t, store, result, StatusInterrupted, KindCancelled)

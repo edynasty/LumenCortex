@@ -70,20 +70,23 @@ or parent that wants a change reviewed states it in the goal.
 ### 1. Foreground tool timeout (RUNTIME-001)
 
 `shell` takes `timeout_sec` (1…86400). The effective timeout is `timeout_sec` when the call gives one, else
-`execution.shellTimeoutSeconds` (absent: none, the behaviour before this ADR), and in both cases at most the
-time left before the call's tool deadline (§2). At the timeout the runner sends SIGTERM to the command's
-process group, waits a 2 s grace, then SIGKILL; the pipes are closed after the existing 2 s wait delay, so
-no orphaned process keeps the call open. The result keeps the partial stdout/stderr (head and tail) and
-reports `timedOut: true`, `timeoutSec`, exit code -1, and an error text telling the model that the group
-was terminated and the command's effects are unknown. A timeout is a tool result (`ok: false`,
-`ToolResult.Interrupted`), not a run exit; cancellation of the run stays a run exit (`cancelled`), so the
-two are distinguishable. The execution record of the call (ADR-0018) ends `outcome_unknown` for a
-timed-out command: it may have changed the workspace. A call whose tool deadline has already passed is
-not started.
+`execution.shellTimeoutSeconds` (default 120 s), clamped to `execution.shellMaxTimeoutSeconds` (default
+1800 s), and in both cases at most the time left before the call's tool deadline (§2). A foreground shell
+call is therefore never unbounded, and a lower maximum also lowers an absent or higher default. At the
+timeout the runner sends SIGTERM to the command's process group, waits a 2 s grace, then SIGKILL; the pipes
+are closed after the existing 2 s wait delay, so no orphaned process keeps the call open. The result keeps
+the partial stdout/stderr (head and tail) and reports `timedOut: true`, `timeoutSec`, exit code -1, and an
+error text telling the model that the group was terminated and the command's effects are unknown. A timeout
+is a tool result (`ok: false`, `ToolResult.Interrupted`), not a run exit; cancellation of the run stays a
+run exit (`cancelled`), so the two are distinguishable. A cancelled call keeps the output it read and
+reports `cancelled: true` with an error naming the run's cancellation or deadline. The execution record of
+the call (ADR-0018) ends `outcome_unknown` for a timed-out command: it may have changed the workspace. A
+call whose tool deadline has already passed is not started.
 
-No default timeout is shipped: the commands an agent runs range from a second to a long build, and a short
-built-in default would break the long ones. A deployment that wants one sets
-`execution.shellTimeoutSeconds`; a run with a deadline is bounded by it either way.
+The defaults exist so a command that hangs cannot hold the run forever: 120 s covers an ordinary command,
+1800 s a long build. A deployment that needs other bounds sets `execution.shellTimeoutSeconds` and
+`execution.shellMaxTimeoutSeconds` (both global file only, 1…86400); a run with a deadline is bounded by it
+either way. Background jobs and the evaluator's checks are bounded separately and are not affected.
 
 ### 2. Run deadline (RUNTIME-001)
 

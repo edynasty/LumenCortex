@@ -76,16 +76,16 @@ func (r *Runner) Run(ctx context.Context, command string, onChunk func(StreamEve
 
 // RunTimeout is Run with a timeout (0: none). At the timeout the command's process group gets SIGTERM,
 // then SIGKILL after TermGrace if it has not exited; the result keeps the output read so far and
-// reports TimedOut with exit code -1. Cancelling ctx still kills the group at once and returns
-// ctx.Err().
+// reports TimedOut with exit code -1. Caller cancellation uses the same bounded
+// group shutdown but remains Cancelled, never a command timeout.
 func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Duration, onChunk func(StreamEvent)) (Result, error) {
 	started := time.Now().UTC()
 	stdout := streambuf.New(r.HeadBytes, r.TailBytes)
 	stderr := streambuf.New(r.HeadBytes, r.TailBytes)
 
-	// kill ends the command on its own context, so the timeout's SIGKILL goes through the same
-	// cancellation path (cmd.Cancel kills the group) without being mistaken for the caller's.
-	cmdCtx, kill := context.WithCancel(ctx)
+	// Caller cancellation first terminates the group gracefully; the private
+	// context is cancelled only when that group's grace period has expired.
+	cmdCtx, kill := context.WithCancel(context.WithoutCancel(ctx))
 	defer kill()
 	interp := r.Interpreter
 	if interp.IsZero() {
@@ -98,20 +98,32 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 	cmd.WaitDelay = waitDelay
 	StartGroup(cmd)
 
+	if err := ctx.Err(); err != nil {
+		return Result{Command: command, ExitCode: -1, StartedAt: started, Cancelled: true}, err
+	}
 	err := cmd.Start()
 	var timedOut atomic.Bool
 	if err == nil {
-		var stopTimer func()
-		if timeout > 0 {
+		var stopWatcher func()
+		if timeout > 0 || ctx.Done() != nil {
 			exited := make(chan struct{})
+			finished := make(chan struct{})
 			pid := cmd.Process.Pid
-			timer := time.AfterFunc(timeout, func() {
-				select {
-				case <-exited: // the command ended as the timer fired
-					return
-				default:
+			go func() {
+				defer close(finished)
+				var deadline <-chan time.Time
+				if timeout > 0 {
+					timer := time.NewTimer(timeout)
+					defer timer.Stop()
+					deadline = timer.C
 				}
-				timedOut.Store(true)
+				select {
+				case <-exited:
+					return
+				case <-ctx.Done():
+				case <-deadline:
+					timedOut.Store(true)
+				}
 				_ = TermGroup(pid)
 				grace := time.NewTimer(TermGrace)
 				defer grace.Stop()
@@ -120,15 +132,15 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 					kill()
 				case <-exited:
 				}
-			})
-			stopTimer = func() {
-				timer.Stop()
+			}()
+			stopWatcher = func() {
 				close(exited)
+				<-finished
 			}
 		}
 		err = cmd.Wait()
-		if stopTimer != nil {
-			stopTimer()
+		if stopWatcher != nil {
+			stopWatcher()
 		}
 	}
 	if r.Reap || ctx.Err() != nil || timedOut.Load() {
@@ -149,6 +161,10 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 		Cancelled: errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded),
 		TimedOut:  timedOut.Load() && ctx.Err() == nil,
 	}
+	if result.Cancelled {
+		result.ExitCode = -1
+		return result, ctx.Err()
+	}
 	if result.TimedOut {
 		result.ExitCode = -1
 		return result, nil
@@ -158,10 +174,6 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
 			return result, nil
-		}
-		if result.Cancelled {
-			result.ExitCode = -1
-			return result, ctx.Err()
 		}
 		result.ExitCode = -1
 		return result, err

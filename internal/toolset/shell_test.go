@@ -94,17 +94,31 @@ type shellOutcome struct {
 	} `json:"stdout"`
 }
 
-// A foreground command's timeout is its timeout_sec, else the configured default, and the run's tool
-// deadline bounds either: past it the command's group is terminated, the partial output is kept, and the
-// result is a failed, interrupted call (effects unknown) rather than an error. A call with no time left
-// before the tool deadline does not start.
+// A foreground command's timeout is its timeout_sec, else the configured default (120 s when unset),
+// clamped to the configured maximum (1800 s when unset), and the run's tool deadline bounds either:
+// past it the command's group is terminated, the partial output is kept, and the result is a failed,
+// interrupted call (effects unknown) rather than an error. A call with no time left before the tool
+// deadline does not start.
 func TestShellTimeoutSourcesAndResult(t *testing.T) {
 	root := t.TempDir()
-	newSet := func(def time.Duration) *Set {
-		set, err := New(Options{Workspace: root, Policy: PolicyFull, ShellTimeout: def})
+	newSet := func(def, limit time.Duration) *Set {
+		set, err := New(Options{Workspace: root, Policy: PolicyFull, ShellTimeout: def, ShellMaxTimeout: limit})
 		if err != nil {
 			t.Fatal(err)
 		}
+		return set
+	}
+	// The sub-second cases below need the interpreter itself to start in milliseconds. The tool's
+	// default is a login shell (`bash -lc`), whose profile can take longer than the timeout on a
+	// developer's host; a non-login interpreter runs the same commands without that cost. The real
+	// bash interpreter stays covered by TestBashToolRunsBashAndTheSharedRunnerKeepsSh.
+	controlled := shell.Bash()
+	if controlled.Name != "cmd.exe" {
+		controlled.Args = []string{"-c"}
+	}
+	controlledSet := func(def, limit time.Duration) *Set {
+		set := newSet(def, limit)
+		set.shell.Interpreter = controlled
 		return set
 	}
 	run := func(ctx context.Context, set *Set, args map[string]any) (protocol.ToolResult, shellOutcome, time.Duration) {
@@ -123,8 +137,21 @@ func TestShellTimeoutSourcesAndResult(t *testing.T) {
 	}
 	slow := "echo begun; sleep 20"
 
+	t.Run("echo under the defaults", func(t *testing.T) {
+		result, out, _ := run(context.Background(), newSet(0, 0), map[string]any{"command": "echo hello"})
+		if !result.OK || out.TimedOut || result.Interrupted || out.Cancelled || out.ExitCode != 0 {
+			t.Fatalf("result=%+v out=%+v", result, out)
+		}
+		timeout, source, left, err := newSet(0, 0).shellTimeout(context.Background(), map[string]any{"command": "true"})
+		if err != nil || !left || source != "config" || timeout != 120*time.Second {
+			t.Fatalf("default timeout=%s source=%q left=%v err=%v, want 120s from config", timeout, source, left, err)
+		}
+		if got := newSet(0, 0).shellMaxTimeout; got != 1800*time.Second {
+			t.Fatalf("default maximum=%s, want 1800s", got)
+		}
+	})
 	t.Run("argument", func(t *testing.T) {
-		result, out, elapsed := run(context.Background(), newSet(0), map[string]any{"command": slow, "timeout_sec": float64(1)})
+		result, out, elapsed := run(context.Background(), newSet(0, 0), map[string]any{"command": slow, "timeout_sec": float64(1)})
 		if result.OK || !result.Interrupted || !out.TimedOut || out.TimeoutSec != 1 || out.ExitCode != -1 || out.Cancelled {
 			t.Fatalf("result=%+v out=%+v", result, out)
 		}
@@ -135,21 +162,92 @@ func TestShellTimeoutSourcesAndResult(t *testing.T) {
 			t.Fatalf("returned after %s", elapsed)
 		}
 	})
-	t.Run("config default, and an argument replaces it", func(t *testing.T) {
-		_, out, _ := run(context.Background(), newSet(time.Second), map[string]any{"command": slow})
-		if !out.TimedOut || out.TimeoutSec != 1 {
-			t.Fatalf("the configured default must apply: %+v", out)
+	t.Run("injected short default", func(t *testing.T) {
+		result, out, elapsed := run(context.Background(), controlledSet(500*time.Millisecond, 0), map[string]any{"command": slow})
+		if !result.Interrupted || !out.TimedOut || out.TimeoutSec != 1 || out.ExitCode != -1 {
+			t.Fatalf("the configured default must apply: result=%+v out=%+v", result, out)
 		}
-		result, out, _ := run(context.Background(), newSet(time.Second), map[string]any{"command": "sleep 2; echo late", "timeout_sec": float64(10)})
+		if !strings.Contains(out.Stdout.Head, "begun") {
+			t.Fatalf("want the partial output: %+v", out)
+		}
+		if elapsed > 8*time.Second {
+			t.Fatalf("returned after %s", elapsed)
+		}
+	})
+	t.Run("an argument replaces a lower default", func(t *testing.T) {
+		result, out, _ := run(context.Background(), newSet(time.Second, 0), map[string]any{"command": "sleep 2; echo late", "timeout_sec": float64(10)})
 		if !result.OK || out.TimedOut || result.Interrupted {
 			t.Fatalf("timeout_sec must replace a lower default: result=%+v out=%+v", result, out)
 		}
 	})
+	t.Run("a lower maximum clamps an explicit argument and the default", func(t *testing.T) {
+		set := newSet(0, time.Second)
+		result, out, elapsed := run(context.Background(), set, map[string]any{"command": slow, "timeout_sec": float64(5)})
+		if !result.Interrupted || !out.TimedOut || out.TimeoutSec != 1 || !strings.Contains(out.Error, "1s timeout") {
+			t.Fatalf("timeout_sec must clamp to the configured maximum: result=%+v out=%+v", result, out)
+		}
+		if elapsed > 8*time.Second {
+			t.Fatalf("returned after %s", elapsed)
+		}
+		if timeout, _, _, err := set.shellTimeout(context.Background(), map[string]any{"command": "true"}); err != nil || timeout != time.Second {
+			t.Fatalf("the default must clamp to the maximum too: timeout=%s err=%v", timeout, err)
+		}
+	})
+	t.Run("a configured higher limit admits a longer argument", func(t *testing.T) {
+		set := newSet(3*time.Second, 10*time.Second)
+		result, out, _ := run(context.Background(), set, map[string]any{"command": "sleep 2; echo late", "timeout_sec": float64(10)})
+		if !result.OK || out.TimedOut || result.Interrupted {
+			t.Fatalf("the configured maximum must admit the argument: result=%+v out=%+v", result, out)
+		}
+		timeout, source, _, err := set.shellTimeout(context.Background(), map[string]any{"command": "true", "timeout_sec": float64(30)})
+		if err != nil || source != "argument" || timeout != 10*time.Second {
+			t.Fatalf("argument 30s with a 10s maximum: timeout=%s source=%q err=%v", timeout, source, err)
+		}
+	})
 	t.Run("tool deadline bounds the timeout", func(t *testing.T) {
 		ctx := protocol.WithToolDeadline(context.Background(), time.Now().Add(time.Second))
-		_, out, elapsed := run(ctx, newSet(time.Hour), map[string]any{"command": slow, "timeout_sec": float64(600)})
+		_, out, elapsed := run(ctx, newSet(0, 0), map[string]any{"command": slow, "timeout_sec": float64(600)})
 		if !out.TimedOut || out.TimeoutSec > 1 || !strings.Contains(out.Error, "deadline") {
 			t.Fatalf("the tool deadline must bound the timeout: %+v", out)
+		}
+		if elapsed > 8*time.Second {
+			t.Fatalf("returned after %s", elapsed)
+		}
+	})
+	t.Run("cancellation keeps the partial output and its reason", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		// Cancel once the command's output arrived, so the partial stdout is observable.
+		seen := make(chan struct{}, 1)
+		go func() {
+			select {
+			case <-seen:
+			case <-time.After(5 * time.Second):
+			}
+			cancel()
+		}()
+		started := time.Now()
+		result, err := controlledSet(0, 0).Execute(ctx, "bash", map[string]any{"command": slow}, func(output protocol.ToolOutput) {
+			if strings.Contains(output.Chunk, "begun") {
+				select {
+				case seen <- struct{}{}:
+				default:
+				}
+			}
+		})
+		elapsed := time.Since(started)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out shellOutcome
+		if err := json.Unmarshal([]byte(result.Content), &out); err != nil {
+			t.Fatalf("content %q: %v", result.Content, err)
+		}
+		if result.OK || !result.Interrupted || !out.Cancelled || out.TimedOut || out.ExitCode != -1 {
+			t.Fatalf("result=%+v out=%+v", result, out)
+		}
+		if !strings.Contains(out.Stdout.Head, "begun") || !strings.Contains(out.Error, "cancelled") {
+			t.Fatalf("want the partial output and the cancellation reason: %+v", out)
 		}
 		if elapsed > 8*time.Second {
 			t.Fatalf("returned after %s", elapsed)
@@ -158,7 +256,7 @@ func TestShellTimeoutSourcesAndResult(t *testing.T) {
 	t.Run("no time left", func(t *testing.T) {
 		marker := filepath.Join(root, "ran")
 		ctx := protocol.WithToolDeadline(context.Background(), time.Now().Add(-time.Second))
-		result, out, _ := run(ctx, newSet(0), map[string]any{"command": "touch " + marker})
+		result, out, _ := run(ctx, newSet(0, 0), map[string]any{"command": "touch " + marker})
 		if result.OK || !strings.Contains(out.Error, "not run") {
 			t.Fatalf("result=%+v out=%+v", result, out)
 		}
@@ -166,14 +264,8 @@ func TestShellTimeoutSourcesAndResult(t *testing.T) {
 			t.Fatalf("a call past the tool deadline ran: %v", err)
 		}
 	})
-	t.Run("no timeout at all keeps the old behaviour", func(t *testing.T) {
-		result, out, _ := run(context.Background(), newSet(0), map[string]any{"command": "sleep 1; echo ok"})
-		if !result.OK || out.TimedOut || result.Interrupted || out.TimeoutSec != 0 {
-			t.Fatalf("result=%+v out=%+v", result, out)
-		}
-	})
 	for _, bad := range []any{float64(0), float64(1.5), float64(86401), "10", true} {
-		if _, err := newSet(0).Execute(context.Background(), "bash", map[string]any{"command": "true", "timeout_sec": bad}, nil); err == nil {
+		if _, err := newSet(0, 0).Execute(context.Background(), "bash", map[string]any{"command": "true", "timeout_sec": bad}, nil); err == nil {
 			t.Errorf("timeout_sec=%v was accepted", bad)
 		}
 	}
