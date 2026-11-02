@@ -483,6 +483,114 @@ func TestManagerStartTimeoutMarksTheServerUnavailable(t *testing.T) {
 	}
 }
 
+// A call whose tool deadline has already passed fails before anything starts: no process, no failure
+// recorded, and the next call starts the server as usual. On a running server it fails the same way.
+func TestManagerExpiredToolDeadlineStartsNothing(t *testing.T) {
+	workspace := t.TempDir()
+	writeWorkspaceFile(t, workspace, "main.go", "package main\n")
+	startLog := filepath.Join(t.TempDir(), "starts.log")
+	manager := newTestManager(t, Options{
+		Workspace:      workspace,
+		Servers:        []LanguageServer{goServer("-start-log", startLog)},
+		RequestTimeout: time.Second,
+	})
+	expired := protocol.WithToolDeadline(context.Background(), time.Now().Add(-time.Second))
+	callers := []struct {
+		name   string
+		access *Access
+	}{{"host", manager.host()}, {"trusted run", manager.ForRun(true)}}
+	for _, caller := range callers {
+		if _, err := caller.access.Hover(expired, "main.go", 0, 1); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("%s: err=%v, want DeadlineExceeded before a start", caller.name, err)
+		}
+	}
+	if lines := logLines(startLog); len(lines) != 0 {
+		t.Fatalf("an expired tool deadline started a server: %v", lines)
+	}
+	if status := manager.Servers()[0]; status.State != StateStopped || status.PID != 0 || status.LastError != "" {
+		t.Fatalf("status after an expired call=%+v", status)
+	}
+
+	if _, err := manager.Hover(context.Background(), "main.go", 0, 1); err != nil {
+		t.Fatalf("an expired call must leave the server startable: %v", err)
+	}
+	for _, caller := range callers {
+		if _, err := caller.access.Hover(expired, "main.go", 0, 1); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("%s on a running server: err=%v, want DeadlineExceeded", caller.name, err)
+		}
+	}
+	if lines := logLines(startLog); len(lines) != 1 {
+		t.Fatalf("starts=%v, want one", lines)
+	}
+}
+
+// The tool deadline bounds a cold start, not only the request after it: a start slower than the
+// deadline is abandoned and its process is gone.
+func TestManagerToolDeadlineBoundsColdStart(t *testing.T) {
+	workspace := t.TempDir()
+	writeWorkspaceFile(t, workspace, "main.go", "package main\n")
+	startLog := filepath.Join(t.TempDir(), "starts.log")
+	manager := newTestManager(t, Options{
+		Workspace:      workspace,
+		Servers:        []LanguageServer{goServer("-slow", "5000", "-start-log", startLog)},
+		StartTimeout:   30 * time.Second,
+		RequestTimeout: 30 * time.Second,
+	})
+	ctx := protocol.WithToolDeadline(context.Background(), time.Now().Add(150*time.Millisecond))
+	started := time.Now()
+	if _, err := manager.ForRun(true).Hover(ctx, "main.go", 0, 1); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err=%v, want the tool deadline", err)
+	}
+	// Abandoning the start waits at most one second for the shutdown answer, then kills.
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Fatalf("a 150ms tool deadline returned after %s of a 5s start", elapsed)
+	}
+	waitGone(t, pidFromStartLog(t, startLog), 5*time.Second)
+}
+
+// A caller queued behind another call's start leaves when its context ends; it starts no second
+// process, and the start it left still completes for the call that owns it.
+func TestManagerQueuedCallerLeavesWhileAnotherStarts(t *testing.T) {
+	workspace := t.TempDir()
+	writeWorkspaceFile(t, workspace, "main.go", "package main\n")
+	startLog := filepath.Join(t.TempDir(), "starts.log")
+	manager := newTestManager(t, Options{
+		Workspace:      workspace,
+		Servers:        []LanguageServer{goServer("-slow", "1000", "-start-log", startLog)},
+		RequestTimeout: 10 * time.Second,
+	})
+	first := make(chan error, 1)
+	go func() {
+		_, err := manager.Hover(context.Background(), "main.go", 0, 1)
+		first <- err
+	}()
+	// The first call owns the start once its process is up and its initialize is pending.
+	deadline := time.Now().Add(5 * time.Second)
+	for len(logLines(startLog)) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(logLines(startLog)) == 0 {
+		t.Fatal("the first call never started its server")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	time.AfterFunc(50*time.Millisecond, cancel)
+	started := time.Now()
+	if _, err := manager.ForRun(true).Hover(ctx, "main.go", 0, 1); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v, want a cancellation", err)
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("a cancelled caller waited %s for another call's 1s start", elapsed)
+	}
+	if err := <-first; err != nil {
+		t.Fatalf("the start the queued caller left must complete: %v", err)
+	}
+	if lines := logLines(startLog); len(lines) != 1 {
+		t.Fatalf("starts=%v, want one", lines)
+	}
+}
+
 func TestManagerAvailability(t *testing.T) {
 	t.Run("command missing", func(t *testing.T) {
 		workspace := t.TempDir()

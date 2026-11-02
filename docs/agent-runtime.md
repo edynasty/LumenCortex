@@ -217,8 +217,11 @@ Lifecycle, per workspace:
   after a doubling backoff (500 ms to 30 s). An explicit `LSPStart` ignores the backoff.
 - **Close.** `Engine.Close` and `LSPStop` send `shutdown`/`exit`, then kill, and wait: no child process
   survives.
-- **Cancellation and timeouts.** Every request is bounded by `requestTimeoutSeconds` and by the run's
-  tool deadline (`protocol.ToolDeadline`); a cancelled request sends `$/cancelRequest`.
+- **Cancellation and timeouts.** The caller's cancellation and the run's tool deadline
+  (`protocol.ToolDeadline`) bound a whole `lsp_*` call: the wait behind another start of the same
+  language, the start, and the request. A call whose deadline has already passed starts and sends
+  nothing. Within that budget a start is bounded by `startTimeoutSeconds` and a request by
+  `requestTimeoutSeconds`; a cancelled request sends `$/cancelRequest`.
 - **Logging.** Start, ready, idle stop, crash and eviction are logged to the Engine's diagnostics
   log (`language`, `workspace`, `duration_ms`, `error_code`; OBS-001) and published as `lsp.*`
   events (`lsp.started`, `lsp.ready`, `lsp.idle_stop`, `lsp.crashed`, `lsp.evicted`,

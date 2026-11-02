@@ -29,8 +29,10 @@ var (
 // needs its language, reused for later requests, stopped after Options.IdleTimeout unused, and
 // restarted after a crash on the next need. At most Options.MaxServers run at once.
 //
-// Every wait honours ctx and protocol.ToolDeadline; every request is also bounded by
-// Options.RequestTimeout. A cancelled request sends $/cancelRequest to the server.
+// A call is bounded end to end by ctx and protocol.ToolDeadline: waiting behind another start of its
+// language, the start, and the request. A call whose deadline has already passed starts and sends
+// nothing. A start is also bounded by Options.StartTimeout, a request by Options.RequestTimeout. A
+// cancelled request sends $/cancelRequest to the server.
 type Manager struct {
 	workspace string
 	order     []string
@@ -60,14 +62,15 @@ type Manager struct {
 }
 
 // server is one language's server and its lifetime state. client, runStarted, state, lastError,
-// startedAt, lastUsedAt, busy, failures and nextAttempt are guarded by Manager.mu; startMu serializes
-// starts so one language spawns one process even when two calls need it at once.
+// startedAt, lastUsedAt, busy, failures and nextAttempt are guarded by Manager.mu; startGate (one
+// slot) serializes starts so one language spawns one process even when two calls need it at once, and
+// a caller waiting for it leaves when its context ends.
 type server struct {
 	language   string
 	def        LanguageServer
 	config     Config
 	extensions map[string]bool
-	startMu    sync.Mutex
+	startGate  chan struct{}
 
 	client *Client
 	// runStarted reports that a run, not the host, started client: a run in an untrusted workspace
@@ -140,7 +143,8 @@ func NewManager(opts Options) (*Manager, error) {
 				LanguageID: def.Language,
 				Workspace:  root,
 			},
-			state: StateStopped,
+			state:     StateStopped,
+			startGate: make(chan struct{}, 1),
 		}
 	}
 	return m, nil
@@ -506,11 +510,17 @@ func (a *Access) raw(ctx context.Context, path, method string, fn func(context.C
 }
 
 // call runs one request against the server of path's language, starting the server when needed and
-// the origin allows it, and bounding the request by Options.RequestTimeout and the run's tool deadline.
+// the origin allows it. The run's tool deadline and ctx bound the whole call, from the wait behind
+// another start to the answer; Options.RequestTimeout bounds the request.
 func (m *Manager) call(ctx context.Context, path, method string, from origin, fn func(context.Context, *Client) error) error {
 	srv := m.serverForPath(path)
 	if srv == nil {
 		return fmt.Errorf("%w: no language server is configured for %q", ErrUnavailable, filepath.Ext(path))
+	}
+	ctx, cancelCall := callContext(ctx)
+	defer cancelCall()
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	// The server is marked busy before it is looked up, so an idle reclaim or an eviction cannot take
 	// it away between the lookup and the call.
@@ -561,8 +571,19 @@ func (m *Manager) client(ctx context.Context, srv *server, force bool, from orig
 	if client := m.runningClient(srv); client != nil {
 		return client, nil
 	}
-	srv.startMu.Lock()
-	defer srv.startMu.Unlock()
+	// One start per language at a time. A caller queued behind another start leaves when its context
+	// ends instead of waiting that start out.
+	select {
+	case srv.startGate <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-srv.startGate }()
+	// The gate and ctx may have been ready together: a caller whose context ended evicts and starts
+	// nothing.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if client := m.runningClient(srv); client != nil {
 		return client, nil
 	}
@@ -605,6 +626,10 @@ func (m *Manager) client(ctx context.Context, srv *server, force bool, from orig
 	cfg.StartTimeout = startTimeout
 	startCtx, cancel := context.WithTimeout(ctx, startTimeout)
 	defer cancel()
+	// Start spawns the process before it looks at ctx, and closing an evicted server takes time.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	started := time.Now()
 	m.logger.Info("lsp server starting", "language", srv.language, "workspace", m.workspace,
 		"command", cfg.Command, "error_code", "")
@@ -787,21 +812,23 @@ func (m *Manager) end(srv *server) {
 	m.mu.Unlock()
 }
 
-// requestContext bounds one request by Options.RequestTimeout and by the run's tool deadline.
+// callContext bounds a whole call by the run's tool deadline. A deadline already past leaves the
+// context done: it never becomes an unbounded wait.
+func callContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if deadline, ok := protocol.ToolDeadline(ctx); ok {
+		return context.WithDeadline(ctx, deadline)
+	}
+	return ctx, func() {}
+}
+
+// requestContext bounds one request by Options.RequestTimeout; ctx already carries the call's tool
+// deadline (callContext).
 func (m *Manager) requestContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	m.mu.Lock()
 	timeout := m.requestTimeout
 	m.mu.Unlock()
 	if timeout <= 0 {
 		timeout = DefaultRequestTimeout
-	}
-	if deadline, ok := protocol.ToolDeadline(ctx); ok {
-		if until := time.Until(deadline); until < timeout {
-			timeout = until
-		}
-	}
-	if timeout <= 0 {
-		return context.WithCancel(ctx)
 	}
 	return context.WithTimeout(ctx, timeout)
 }
@@ -939,6 +966,7 @@ func (m *Manager) serverForLanguage(language string, cfg Config) *server {
 		config:     cfg,
 		extensions: map[string]bool{},
 		state:      StateStopped,
+		startGate:  make(chan struct{}, 1),
 	}
 	m.order = append(m.order, language)
 	m.byLanguage[language] = srv
