@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/diag"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -59,6 +61,9 @@ type Client struct {
 	echo             string
 	requestTimeout   time.Duration
 	idleTimeout      time.Duration
+	// secrets are the credential values this client sends, redacted from every error text built
+	// from what the server returned.
+	secrets []string
 }
 
 // TimeoutError reports an attempt that outlived its request or idle timeout. It deliberately has
@@ -145,7 +150,43 @@ func New(cfg Config) (*Client, error) {
 		echo:             strings.TrimSpace(cfg.ReasoningEcho),
 		requestTimeout:   cfg.RequestTimeout,
 		idleTimeout:      cfg.IdleTimeout,
+		secrets:          errorSecrets(cfg.APIKey, headers),
 	}, nil
+}
+
+// errorSecrets lists the credentials a client sends, longest first: the API key and the value of
+// every configured header whose name is secret-shaped (diag.IsSecretKey: Authorization, x-api-key,
+// …), with the credential after its scheme ("Bearer <token>"). A version or content-type header is
+// not a credential and is left alone.
+func errorSecrets(apiKey string, headers map[string]string) []string {
+	var secrets []string
+	add := func(value string) {
+		if value = strings.TrimSpace(value); value != "" {
+			secrets = append(secrets, value)
+		}
+	}
+	add(apiKey)
+	for name, value := range headers {
+		if !diag.IsSecretKey(name) {
+			continue
+		}
+		add(value)
+		if _, credential, ok := strings.Cut(strings.TrimSpace(value), " "); ok {
+			add(credential)
+		}
+	}
+	// A whole value goes before the token inside it, so "Bearer <token>" is redacted in one piece.
+	sort.Slice(secrets, func(i, j int) bool { return len(secrets[i]) > len(secrets[j]) })
+	return secrets
+}
+
+// redact replaces every credential the client sends in text a server returned: a gateway or a
+// logging proxy may echo the request's key back in an error body or a stream error event.
+func (c *Client) redact(text string) string {
+	for _, secret := range c.secrets {
+		text = strings.ReplaceAll(text, secret, diag.Redacted)
+	}
+	return text
 }
 
 func (c *Client) Model() string { return c.model }
@@ -320,7 +361,7 @@ func (c *Client) completeOnce(ctx context.Context, req protocol.ProviderRequest)
 	defer resp.Body.Close()
 	touch()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return protocol.ProviderResponse{}, timeoutOr(readHTTPError(resp))
+		return protocol.ProviderResponse{}, timeoutOr(c.readHTTPError(resp))
 	}
 	reader := activityReader{r: resp.Body, touch: touch}
 	var out protocol.ProviderResponse
@@ -378,6 +419,10 @@ func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 					if decodeErr := json.Unmarshal([]byte(payload), &event); decodeErr != nil {
 						return protocol.ProviderResponse{}, decodeErr
 					}
+					if event.Error != nil {
+						event.Error.Type = c.redact(event.Error.Type)
+						event.Error.Message = c.redact(event.Error.Message)
+					}
 					if applyErr := builder.apply(event); applyErr != nil {
 						return protocol.ProviderResponse{}, applyErr
 					}
@@ -397,12 +442,14 @@ func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 	return builder.result(c.echo), nil
 }
 
-func readHTTPError(resp *http.Response) error {
+// readHTTPError reads a failed response. No credential the client sent reaches the error: every
+// occurrence of one in the status or the body is redacted before the error is built.
+func (c *Client) readHTTPError(resp *http.Response) error {
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	return &HTTPError{
 		StatusCode: resp.StatusCode,
-		Status:     resp.Status,
-		Body:       strings.TrimSpace(string(raw)),
+		Status:     c.redact(resp.Status),
+		Body:       c.redact(strings.TrimSpace(string(raw))),
 		RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
 	}
 }

@@ -67,7 +67,8 @@ adapter, all inside the adapter:
   `Usage` field and is dropped;
 - errors map to the same classes as the chat-completions adapter: 401/403 auth, 400 with a capacity
   marker or 413 capacity, 408/409/429/5xx/529 availability, anything else bad request; a mid-stream
-  `error` event classifies by its error type; the API key never appears in an error text.
+  `error` event classifies by its error type; no credential the adapter sends appears in an error text
+  (see Security).
 
 
 ## Go API
@@ -278,3 +279,5 @@ Consumed by the runtime: `model`, `failover`, the first model of `agents.explore
 ## Security
 
 Do not put API keys in repository configuration or Session metadata. Configuration holds `{env:NAME}` references only; the CLI reads the key from the process environment and the provider only uses it to build the Authorization header.
+
+Both adapters redact the credentials they send from the server text an error carries, because a gateway or logging proxy may echo a request back. The credentials are the API key and the value of each configured header whose name is secret-shaped (the diagnostics log's rule, `diag.IsSecretKey`: `Authorization`, `x-api-key`, `*-api-key`, `*token`, `cookie`, …), together with the credential after an auth scheme (`Bearer <token>`). Each exact occurrence becomes `[redacted]` in an `HTTPError`'s `Status` and `Body` and in a mid-stream error event's type and message, before the error is classified, returned, persisted as the session's error or published as an event. Redaction is an exact match: an encoded, split or partial copy of a credential is not recognized. Other headers (`anthropic-version`, content type, a client version) and the error's typed metadata (status code, class, `RetryAfter`) are unchanged.
