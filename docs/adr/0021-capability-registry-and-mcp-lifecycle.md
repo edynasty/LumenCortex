@@ -121,7 +121,9 @@ the first start records the catalog.
 `headers`, `env`, `include`, the four limits, `session` and `template`. A credential is only ever an
 `{env:NAME}` reference, resolved when a process starts or a request is made; the resolved value is
 never written to a file, an error, an event or a log line. A failed HTTP request reports the configured
-URL, `{env:NAME}` unexpanded, not the URL it was sent to.
+URL, `{env:NAME}` unexpanded, not the URL it was sent to; a URL that does not parse once its
+references are expanded is reported by its configured form, without the parser's reason (which quotes
+the expanded part it rejects).
 
 An enabled server exposes only the tools in its `include` list (empty means every tool it reports,
 bounded by 512). Model-visible names keep the existing `mcp__<server>__<tool>` namespacing, so two

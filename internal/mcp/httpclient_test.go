@@ -334,6 +334,45 @@ func TestHTTPClientURLReferenceNeverInErrors(t *testing.T) {
 	}
 	_, err = registry.CallTool(ctx, root, "remote", "echo", map[string]any{"text": "down"})
 	reported("start", err)
+
+	// A value that makes the expanded URL unparsable: the parse error names the configured URL, never
+	// the expanded one or the part of it the parser quotes (a userinfo, a port).
+	for name, tc := range map[string]struct{ url, value string }{
+		"invalid userinfo": {"http://bot:{env:LCX_TEST_MCP_URL_PART}@127.0.0.1:1/mcp", "sk^live|url-7f3a9c"},
+		"invalid port":     {"http://127.0.0.1:{env:LCX_TEST_MCP_URL_PART}/mcp", "1sk-url-7f3a9c"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("LCX_TEST_MCP_URL_PART", tc.value)
+			registry, root := httpRegistry(t, Config{ID: "remote", URL: tc.url})
+			_, err := registry.CallTool(ctx, root, "remote", "echo", map[string]any{"text": "x"})
+			if err == nil {
+				t.Fatal("an unparsable expanded URL must fail")
+			}
+			texts := []string{err.Error()}
+			states, stateErr := registry.States(root)
+			if stateErr != nil {
+				t.Fatal(stateErr)
+			}
+			for _, state := range states {
+				texts = append(texts, state.LastError)
+			}
+			statuses, statusErr := registry.Statuses(root)
+			if statusErr != nil {
+				t.Fatal(statusErr)
+			}
+			for _, status := range statuses {
+				texts = append(texts, status.LastError)
+			}
+			for _, text := range texts {
+				if strings.Contains(text, "url-7f3a9c") {
+					t.Fatalf("the expanded value is reported: %s", text)
+				}
+			}
+			if !strings.Contains(err.Error(), tc.url) {
+				t.Fatalf("error = %v, want the configured URL %s", err, tc.url)
+			}
+		})
+	}
 }
 
 // resetServer is httpTestServer with two calls that hang up the connection: "reset" at once and
