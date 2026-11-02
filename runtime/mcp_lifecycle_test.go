@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -29,6 +30,7 @@ import (
 //	LCX_TEST_MCP_MODE       "" (normal), "crash" (exit on the first call), "hang" (never answer a call)
 //	LCX_TEST_MCP_MARKER     file touched when the process starts
 //	LCX_TEST_MCP_LOG        file each tool call name and its arguments are appended to
+//	LCX_TEST_MCP_EXTRA_TOOL one more tool the server reports, by this name (it echoes like echo)
 func TestRuntimeMCPServer(t *testing.T) {
 	if os.Getenv("LCX_TEST_MCP") != "1" {
 		return
@@ -67,6 +69,10 @@ func TestRuntimeMCPServer(t *testing.T) {
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"session_id": map[string]any{"type": "string"}}}},
 		{"name": "computer_stop", "description": "Close a session.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"computer_session_id": map[string]any{"type": "string"}}}},
+	}
+	if extra := os.Getenv("LCX_TEST_MCP_EXTRA_TOOL"); extra != "" {
+		tools = append(tools, map[string]any{"name": extra, "description": "Echo text back.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"text": map[string]any{"type": "string"}}}})
 	}
 	for {
 		line, err := reader.ReadString('\n')
@@ -1077,6 +1083,51 @@ func TestSetCapabilityEnabledEditsTheIncludeList(t *testing.T) {
 	}
 	if err := engine.SetCapabilityEnabled(ctx, "read_file", false); err == nil {
 		t.Fatal("a built-in tool must not be switchable through an MCP server's list")
+	}
+}
+
+// A tool whose name the model-visible id sanitises (page.read -> mcp__helper__page_read) is switched
+// back on under the name the server reports, found in the server's catalog; an id that names no tool
+// of a server whose catalog is known is refused rather than written as a guessed include entry.
+func TestSetCapabilityEnabledReenablesSanitizedToolName(t *testing.T) {
+	helperEnv(t, "")
+	t.Setenv("LCX_TEST_MCP_EXTRA_TOOL", "page.read")
+	useGlobalMCP(t, map[string]any{
+		"helper": mcpTestServerConfig(t, "helper", nil),
+	})
+	engine := openEngineWithGlobalConfig(t, t.TempDir())
+	ctx := context.Background()
+	if _, err := engine.mcpRegistry.CallTool(ctx, engine.workspace, "helper", "echo", map[string]any{"text": "x"}); err != nil {
+		t.Fatal(err)
+	}
+	pageRead := mcp.AgentToolName("helper", "page.read")
+	if err := engine.SetCapabilityEnabled(ctx, pageRead, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.SetCapabilityEnabled(ctx, pageRead, true); err != nil {
+		t.Fatal(err)
+	}
+	configs, err := engine.MCPConfigsScope(mcp.ScopeGlobal)
+	if err != nil || len(configs) != 1 {
+		t.Fatalf("configs = %#v err=%v", configs, err)
+	}
+	if !slices.Contains(configs[0].Include, "page.read") || slices.Contains(configs[0].Include, "page_read") {
+		t.Fatalf("include after re-enabling %s = %v, want the server's name page.read", pageRead, configs[0].Include)
+	}
+	tools, err := engine.MCPTools(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(tools, func(tool MCPAgentTool) bool { return tool.Name == pageRead }) {
+		t.Fatalf("after re-enabling tools = %#v, want %s offered", tools, pageRead)
+	}
+	before := configs[0].Include
+	if err := engine.SetCapabilityEnabled(ctx, mcp.AgentToolName("helper", "no_such_tool"), true); err == nil {
+		t.Fatal("re-enabling a tool the server's catalog does not list must fail")
+	}
+	configs, err = engine.MCPConfigsScope(mcp.ScopeGlobal)
+	if err != nil || !slices.Equal(configs[0].Include, before) {
+		t.Fatalf("a refused re-enable changed the include list: %v -> %v (err=%v)", before, configs[0].Include, err)
 	}
 }
 

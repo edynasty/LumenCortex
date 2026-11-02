@@ -617,6 +617,28 @@ func (r *Registry) RefreshTools(ctx context.Context, id, workspace string) ([]To
 	return srv.refreshTools(ctx)
 }
 
+// ServerTools lists the tools one server reported — live while it runs, else the catalog a previous
+// start recorded — before its include list filters them, so a tool switched off can be found again by
+// the name the server uses. It starts nothing; nil when the server is unknown, belongs to an untrusted
+// project, or no catalog is known.
+func (r *Registry) ServerTools(workspace, id string) []Tool {
+	workspace, err := r.runtimeWorkspace(workspace)
+	if err != nil {
+		return nil
+	}
+	trusted := r.projectTrusted()
+	r.mu.Lock()
+	cfg, scope, ok := r.resolveLocked(strings.TrimSpace(id), trusted)
+	if !ok {
+		r.mu.Unlock()
+		return nil
+	}
+	srv := r.serverLocked(cfg, scope, workspace)
+	r.mu.Unlock()
+	tools, _ := srv.tools()
+	return tools
+}
+
 // AgentTools lists the tools runs may use, without starting any server: a running server reports its
 // live catalog, a stopped one the catalog a previous start recorded. A server whose configuration
 // lists Include exposes only those tools.

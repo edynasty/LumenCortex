@@ -526,12 +526,25 @@ func (e *Engine) SetCapabilityEnabled(ctx context.Context, toolID string, enable
 			}
 		}
 	}
-	// A tool that was switched off is no longer in any list, so its name is recovered from the
-	// namespaced id: mcp__<server>__<tool>.
+	// A tool that was switched off is no longer in any list. Its id is recovered against the server's
+	// unfiltered catalog, because the id sanitises the name the server uses (page.read ->
+	// mcp__<server>__page_read) and only the server's own name re-includes it. A server whose catalog is
+	// not known yet (never started) has only the id, so the tool part of mcp__<server>__<tool> is used.
 	for _, cfg := range e.mcpRegistry.Configs() {
-		if name, ok := strings.CutPrefix(toolID, mcp.AgentToolPrefix(cfg.ID)); ok && name != "" {
-			return e.setMCPToolIncluded(cfg.ID, cfg.Scope, name, enabled, workspace)
+		recovered, ok := strings.CutPrefix(toolID, mcp.AgentToolPrefix(cfg.ID))
+		if !ok || recovered == "" {
+			continue
 		}
+		catalog := e.mcpRegistry.ServerTools(workspace, cfg.ID)
+		if len(catalog) == 0 {
+			return e.setMCPToolIncluded(cfg.ID, cfg.Scope, recovered, enabled, workspace)
+		}
+		for _, tool := range catalog {
+			if mcp.AgentToolName(cfg.ID, tool.Name) == toolID {
+				return e.setMCPToolIncluded(cfg.ID, cfg.Scope, tool.Name, enabled, workspace)
+			}
+		}
+		return fmt.Errorf("capability %q is not a tool of mcp server %q", toolID, cfg.ID)
 	}
 	return fmt.Errorf("capability %q is not switchable: only an MCP server's tools can be enabled or disabled", toolID)
 }

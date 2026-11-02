@@ -130,7 +130,11 @@ bounded by 512). Model-visible names keep the existing `mcp__<server>__<tool>` n
 servers may report the same tool name. Installing many servers therefore does not put their tools in
 front of the model: a server contributes nothing until it is enabled, and only its included tools
 reach a step. The registry refuses a call to a tool outside the server's current `include` list,
-whatever tool list the caller was built from.
+whatever tool list the caller was built from. Switching a tool back on (`SetCapabilityEnabled`)
+writes the name the server reports, found in its recorded or live catalog, since the model-visible
+id sanitises it (`page.read` → `mcp__<server>__page_read`); an id that names no tool of a server whose
+catalog is known is refused. Only a server never started, with no catalog, falls back to the tool
+part of the id.
 
 ### D5 — Session binding for long-lived resources
 
