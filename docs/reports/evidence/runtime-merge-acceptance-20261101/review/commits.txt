@@ -1,0 +1,57 @@
+15f9039 fix(mcp): a stopped stdio server takes its process group with it - a live Playwright MCP run left Chro
+006b031 test(runtime): a context reset drops every earlier row from the next request - TestContextResetDropsEa
+9dcf95c fix(runtime): the prompt report, the capability registry and the schema cost list the tools a run is o
+a4b8fc7 feat(agent): run strategy - the completion gate refuses a final answer while the run's own background 
+67e7dc9 feat(runtime): run budget - tool calls, model requests, tokens and cost admitted by the runtime (ADR-0
+5e4cc9c test(schedule): the no-runner test waits for the agent attempt before checking the claim was given bac
+7d938c8 test(jobs): the restart helper is ready once the first command really ran - under full-suite load bash
+0aef6ef merge rt/plugins: capability registry, on-demand MCP lifecycle and templates (ADR-0021) - builtinSpecs
+ac3ebb5 merge rt/lsp: LSP lifecycle and guarded lsp_rename - the Engine has one logger, the diagnostics log (O
+797a375 merge rt/notebook: agent working notebook (ADR-0020, schema v9) - the toolset registers wakeup and not
+af54bc8 style(runtime): gofmt the merged toolset options
+d6cfdf6 merge rt/diag: diagnostics log (ADR-0019 §5) - the job manager and the scheduler log to the Engine's 
+bc62dec docs(runtime): the scheduler's job queue is bound at Open
+57147d9 docs(report): record commits and the two deviations from the brief
+e0fc411 merge rt/sched: scheduler, timers and wake-ups (ADR-0019 §4) - the Engine binds its own job queue to 
+0ed8bbc fix(mcp): close stopped servers and compute requirements outside the registry lock
+097ec19 docs(report): record the validation commands and their results
+2f969b2 feat(mcp): on-demand lifecycle, capability registry and server templates (ADR-0021)
+8b09fe4 merge rt/jobs: durable background jobs and job_* tools (ADR-0019 §3) - resolved onto the bash tool: m
+e27a320 test(toolset): the notebook tools exist only with a bound notebook store
+ea185ca docs(lsp): lifecycle, lsp_rename guard and status contract
+9ffaefc feat(runtime): LSP status for hosts and an engine logger
+1ca515a fix(runtime): the prompt report lists the notebook tools for a sessionless run too
+6ecff3b feat(toolset): guard lsp_rename and offer lsp tools only when usable
+1f1e783 feat(lsp): per-language server lifecycle in the manager
+782ffaa feat(config): lsp settings for language server lifecycle
+88c9771 docs: both measured spec sizes (ToolSpec JSON and wire form)
+aee2e7a test(runtime): delete event fields and the notebook/Task State boundary
+8eec215 docs: ADR-0020 working notebook and the runtime section
+416bcd7 feat(runtime): notebook Engine API and run-start index (ADR-0020)
+d9f0909 feat(toolset): notebook_list/read/update with the state permission (ADR-0020)
+95a61c9 feat(session): notebook store with optimistic concurrency and purge (ADR-0020)
+b80369c feat(schema): notebooks and notebook_revisions, schema v9 (ADR-0020)
+bba97ae feat(notebook): Markdown section helpers for the working notebook (ADR-0020)
+468ff83 feat(tools): the command tool is bash and runs bash; git_status/git_diff are no longer agent tools (AD
+ff7b175 test(jobs): race claims and cancels for the same job; correct the docs claim
+b9cee65 perf(diag): skip the secret regexps for strings without a secret literal and encode content stubs as a
+9897ff7 feat(runtime): log a job_wait outcome with its correlation fields
+d72df62 docs(reports): record the overlap mapping and the wake-up scoping
+3e7c288 feat(runtime): run background jobs from the Engine and expose the job API
+ba0f7a5 feat(runtime): foreground shell timeout and run deadline (ADR-0019 §1-2, RUNTIME-001) - shell timeout
+e9f08e8 feat(toolset): background shell mode and the job tools (ADR-0019 §3)
+7449cbe feat(jobs): durable background job manager with workers, output and recovery
+79d5ab9 feat(session): job queue SQL over the 0007 schema (ADR-0019 §3)
+6bdc9d2 feat(runtime): close a failed model request's trace span on provider.failover - a request that never c
+35af5e8 feat(schedule): record a held run lock as an overlap skip
+d2a79b4 feat(runtime): offer wake-up tools to thread runs only
+c5aab04 docs(reports): RUNTIME-004 timers and scheduled tasks slice report
+35101f9 feat(schedule): log each firing with its correlation fields
+f511bc7 test(runtime): copy state subdirectories in the state-binding test helper - the state directory now ho
+ed9a740 feat(runtime): bind the diagnostics log to the Engine (ADR-0019 §5) - e.log (never nil) for the job m
+7094665 feat(diag): redacting asynchronous JSONL diagnostics log (ADR-0019 §5) - bounded queue that never blo
+f6a23f1 test(schedule): vanished rows and tasks deleted mid-firing
+338a233 feat(runtime): bind the scheduler to the engine and add delayed wake-ups
+eb9815d feat(schedule): one-timer scheduler with missed policy, overlap skip and cron
+a413ca4 feat(session): scheduled_tasks rows, compare-and-set claims and cron columns
+44c534a feat(schema): execution runtime base (ADR-0019) - migrations 0007 jobs and 0008 scheduled_tasks (rever

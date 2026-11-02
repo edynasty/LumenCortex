@@ -1,0 +1,115 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/edynasty/LumenCortex/internal/session"
+	"github.com/edynasty/LumenCortex/protocol"
+)
+
+func zzRequestsHold(p *notebookProvider, needle string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	for _, r := range p.requests {
+		for _, m := range r.Messages {
+			if strings.Contains(m.Content, needle) {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// N1: host saves on the revoked child and on the fenced reader parent are refused, bodies and
+// revision counts unchanged; Notebooks lists the parent's notebooks withdrawn.
+// N2 (case A, not exposed): the parent read the child's notebook in its last step (no model answer
+// derived from it), the child is revoked, the parent's next run appends to its own notebook.
+func TestZZProbeNBWFencedReaderContinues(t *testing.T) {
+	engine, parent := notebookEngine(t)
+	ctx := context.Background()
+	child, childDoc := childWithNotebook(t, engine, parent)
+	if r, err := engine.runAgentWith(ctx, child, &notebookProvider{responses: []protocol.ProviderResponse{finalResponse("child work")}}, AgentOptions{Input: "work", Policy: "read-only", MaxSteps: 2}); err != nil {
+		t.Fatalf("child run %+v %v", r, err)
+	}
+	plan, err := engine.CreateNotebook(ctx, parent, "plan", "# Plan\n\n## Handoff\nparent only\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("nb1", "notebook_read", `{"notebook":"research","session_id":"`+child+`"}`),
+	}}
+	r1, err1 := engine.runAgentWith(ctx, parent, reader, AgentOptions{Input: "read the child's notebook", Policy: "read-only", MaxSteps: 1})
+	if _, err := engine.RevokeSource(ctx, SourceSession, child, "user_revoked"); err != nil {
+		t.Fatal(err)
+	}
+	pw, _ := engine.store.SessionWithdrawn(ctx, parent)
+	if p, err := engine.store.Projection(ctx, parent); err == nil {
+		t.Logf("PROBE N2 parent projection after the revocation: isolated=%q withheld=%v", p.Isolated, p.Withheld)
+	}
+	t.Logf("PROBE N2 reader run: status=%q err=%v; parent withdrawn after revoking the child: %v", r1.Status, err1, pw)
+
+	// N1
+	childRevs, _ := engine.store.NotebookRevisions(ctx, child, childDoc.ID)
+	planRevs, _ := engine.store.NotebookRevisions(ctx, parent, plan.ID)
+	_, errChild := engine.SaveNotebook(ctx, child, childDoc.ID, "overwrite", childDoc.Version)
+	_, errParent := engine.SaveNotebook(ctx, parent, plan.ID, "overwrite", plan.Version)
+	_, errParentAny := engine.SaveNotebook(ctx, parent, plan.ID, "overwrite", -1)
+	gotChild, _ := engine.store.GetNotebook(ctx, child, childDoc.ID)
+	gotPlan, _ := engine.store.GetNotebook(ctx, parent, plan.ID)
+	childRevs2, _ := engine.store.NotebookRevisions(ctx, child, childDoc.ID)
+	planRevs2, _ := engine.store.NotebookRevisions(ctx, parent, plan.ID)
+	list, _ := engine.Notebooks(ctx, parent)
+	t.Logf("PROBE N1 host save child: %v (withdrawn=%v) body unchanged=%v version=%d revisions %d->%d",
+		errChild, errors.Is(errChild, ErrNotebookWithdrawn), gotChild.Body == childDoc.Body, gotChild.Version, len(childRevs), len(childRevs2))
+	t.Logf("PROBE N1 host save fenced parent: %v (withdrawn=%v); expected=-1: %v; body unchanged=%v version=%d revisions %d->%d; host list withdrawn=%v",
+		errParent, errors.Is(errParent, ErrNotebookWithdrawn), errors.Is(errParentAny, ErrNotebookWithdrawn), gotPlan.Body == plan.Body, gotPlan.Version, len(planRevs), len(planRevs2), len(list) == 1 && list[0].Withdrawn)
+
+	// N2: the fenced reader continues and writes its own notebook through a real run.
+	writer := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("nb2", "notebook_update", `{"notebook":"plan","op":"append","content":"continued after the revocation"}`),
+		toolCallResponse("nb3", "notebook_read", `{"notebook":"plan"}`),
+		finalResponse("done"),
+	}}
+	r2, err2 := engine.runAgentWith(ctx, parent, writer, AgentOptions{Input: "continue", Policy: "read-only", MaxSteps: 4})
+	after, _ := engine.store.GetNotebook(ctx, parent, plan.ID)
+	t.Logf("PROBE N2 continuing run: status=%q err=%v; plan version=%d updatedBy=%q appended=%v; sentinel in the continuing run's requests: %d; own read returned the body to the model: %d",
+		r2.Status, err2, after.Version, after.UpdatedBy, strings.Contains(after.Body, "continued after the revocation"),
+		zzRequestsHold(writer, notebookSentinel), zzRequestsHold(writer, "parent only"))
+	_, errAfter := engine.SaveNotebook(ctx, parent, plan.ID, "overwrite", after.Version)
+	t.Logf("PROBE N2 host save of the parent after the agent's write: withdrawn=%v", errors.Is(errAfter, ErrNotebookWithdrawn))
+}
+
+// N3 (case B, exposed): the parent's model answered after reading the child's notebook; after the
+// revocation the parent cannot start again, so no agent write can reach its notebook either.
+func TestZZProbeNBWExposedReaderIsolated(t *testing.T) {
+	engine, parent := notebookEngine(t)
+	ctx := context.Background()
+	child, _ := childWithNotebook(t, engine, parent)
+	if r, err := engine.runAgentWith(ctx, child, &notebookProvider{responses: []protocol.ProviderResponse{finalResponse("child work")}}, AgentOptions{Input: "work", Policy: "read-only", MaxSteps: 2}); err != nil {
+		t.Fatalf("child run %+v %v", r, err)
+	}
+	plan, err := engine.CreateNotebook(ctx, parent, "plan", "# Plan\nparent only\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("nb1", "notebook_read", `{"notebook":"research","session_id":"`+child+`"}`),
+		finalResponse("read"),
+	}}
+	r1, err1 := engine.runAgentWith(ctx, parent, reader, AgentOptions{Input: "read", Policy: "read-only", MaxSteps: 3})
+	if _, err := engine.RevokeSource(ctx, SourceSession, child, "user_revoked"); err != nil {
+		t.Fatal(err)
+	}
+	writer := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("nb2", "notebook_update", `{"notebook":"plan","op":"append","content":"x"}`),
+		finalResponse("done"),
+	}}
+	r2, err2 := engine.runAgentWith(ctx, parent, writer, AgentOptions{Input: "continue", Policy: "read-only", MaxSteps: 3})
+	after, _ := engine.store.GetNotebook(ctx, parent, plan.ID)
+	t.Logf("PROBE N3 exposed reader: first run %q %v; next run status=%q err=%v (fenced=%v); plan version=%d (unchanged=%v); requests sent=%d",
+		r1.Status, err1, r2.Status, err2, errors.Is(err2, session.ErrFenced), after.Version, after.Version == plan.Version, len(writer.requests))
+}

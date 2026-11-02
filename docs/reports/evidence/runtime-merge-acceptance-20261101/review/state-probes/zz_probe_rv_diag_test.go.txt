@@ -1,0 +1,14 @@
+package diag
+
+import (
+	"testing"
+)
+
+func TestZZProbeRVSecretKeyNames(t *testing.T) {
+	for _, k := range []string{"secret_key", "aws_secret_access_key", "SecretKey", "access_key", "passphrase", "pwd", "private_key_id", "db_password", "clientSecret", "auth", "api.key", "x-authorization"} {
+		t.Logf("PROBE RV-9 secret? %-22q -> %v", k, IsSecretKey(k))
+	}
+	for _, k := range []string{"total_tokens", "max_tokens_used", "input_tokens", "session_id", "run_id", "tool_call_id", "job_id", "schedule_id", "duration_ms", "error_code", "provider", "model", "step", "status", "exitCode", "password_policy", "has_secret", "secret_count", "passwordless", "keyboard", "accessKeyCount"} {
+		t.Logf("PROBE RV-9 benign? %-20q -> secret=%v", k, IsSecretKey(k))
+	}
+}

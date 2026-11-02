@@ -1,0 +1,16 @@
+# Tool schema re-check: first request of each profile, measured Core vs bd0160a vs c36bd29 (final)
+# same driver (main.go, scenarios.go), mock provider; sha = sha256 of the wire tools JSON (first 12 hex)
+base/p1-default: 5ccc350 n=19 B=9997 sha=8d6bbf7cccee | bd0160a n=19 B=9997 sha=8d6bbf7cccee | c36bd29 n=19 B=9997 sha=8d6bbf7cccee | identical=True
+base/p2-readonly-agent: 5ccc350 n=19 B=9997 sha=8d6bbf7cccee | bd0160a n=19 B=9997 sha=8d6bbf7cccee | c36bd29 n=19 B=9997 sha=8d6bbf7cccee | identical=True
+base/p3-workspace: 5ccc350 n=24 B=12498 sha=14b6f7c551fa | bd0160a n=24 B=12498 sha=14b6f7c551fa | c36bd29 n=24 B=12498 sha=14b6f7c551fa | identical=True
+base/p4-coding-full: 5ccc350 n=29 B=15131 sha=05a64e14961f | bd0160a n=29 B=15131 sha=05a64e14961f | c36bd29 n=29 B=15131 sha=05a64e14961f | identical=True
+base/p5-complex: 5ccc350 n=30 B=16059 sha=4c03227ae279 | bd0160a n=30 B=16059 sha=4c03227ae279 | c36bd29 n=30 B=16059 sha=4c03227ae279 | identical=True
+base/m1-research-min: 5ccc350 n=4 B=1154 sha=ad76668915cd | bd0160a n=4 B=1154 sha=ad76668915cd | c36bd29 n=4 B=1154 sha=ad76668915cd | identical=True
+base/m2-coding-min: 5ccc350 n=15 B=7593 sha=f8f1e2954fc4 | bd0160a n=15 B=7593 sha=f8f1e2954fc4 | c36bd29 n=15 B=7593 sha=f8f1e2954fc4 | identical=True
+lsp/p1-default: 15f9039 n=25 B=11849 sha=6791870d52a9 | bd0160a n=25 B=11849 sha=6791870d52a9 | c36bd29 n=25 B=11849 sha=6791870d52a9 | identical=True
+lsp/p5-complex: 15f9039 n=37 B=18536 sha=f6afed451cf0 | bd0160a n=37 B=18536 sha=f6afed451cf0 | c36bd29 n=37 B=18536 sha=f6afed451cf0 | identical=True
+mcp/p5-complex-mcp: 15f9039 n=35 B=17181 sha=54a2d2827d82 | bd0160a n=35 B=17181 sha=54a2d2827d82 | c36bd29 n=35 B=17181 sha=54a2d2827d82 | identical=True
+mcp/p1-default-mcp: 15f9039 n=22 B=10715 sha=008339a1963d | bd0160a n=22 B=10715 sha=008339a1963d | c36bd29 n=22 B=10715 sha=008339a1963d | identical=True
+mcp-narrow/p5-complex-mcp-narrow: 15f9039 n=32 B=16568 sha=2235284fe0d3 | bd0160a n=32 B=16568 sha=2235284fe0d3 | c36bd29 n=32 B=16568 sha=2235284fe0d3 | identical=True
+browser/p1-default: 5ccc350 n=26 B=15643 sha=e62d092c7a11 | bd0160a n=26 B=15643 sha=e62d092c7a11 | c36bd29 n=26 B=15643 sha=e62d092c7a11 | identical=True
+browser/p4-coding-full: 5ccc350 n=44 B=26048 sha=dccce9bde20a | bd0160a n=44 B=26048 sha=dccce9bde20a | c36bd29 n=44 B=26048 sha=dccce9bde20a | identical=True

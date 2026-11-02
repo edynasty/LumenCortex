@@ -1,0 +1,47 @@
+package runtime
+
+import (
+	"context"
+	"testing"
+
+	"github.com/edynasty/LumenCortex/internal/toolset"
+	"github.com/edynasty/LumenCortex/protocol"
+)
+
+// PROBE N4: a parent that read a child's notebook is not fenced when the child is revoked (no edge),
+// unlike a read_thread reader.
+func TestZZProbeNotebookReaderNotFencedOnRevoke(t *testing.T) {
+	engine, parent := notebookEngine(t)
+	ctx := context.Background()
+	child := zzChildWithNotebook(t, engine, parent)
+	p := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("nb1", "notebook_read", `{"notebook":"research","session_id":"`+child+`"}`),
+		finalResponse("ok"),
+	}}
+	if _, err := engine.runAgentWith(ctx, parent, p, AgentOptions{Input: "read the child's notebook", Policy: "read-only", MaxSteps: 3}); err != nil {
+		t.Fatal(err)
+	}
+	edges := countRows(t, engine, `SELECT count(*) FROM derived_origins WHERE session_id = ? AND source_ref = ?`, parent, child)
+	rep, err := engine.RevokeSource(ctx, SourceSession, child, "user_revoked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentFenced, _ := engine.store.SessionWithdrawn(ctx, parent)
+	t.Logf("PROBE N4 edges parent->child=%d; revocation fenced sessions=%v; parent fenced=%v", edges, rep.Sessions, parentFenced)
+}
+
+// PROBE N5: CRLF body kept by create, rewritten wholesale by the first append.
+func TestZZProbeNotebookCRLF(t *testing.T) {
+	engine, sid := notebookEngine(t)
+	ctx := context.Background()
+	doc, err := engine.CreateNotebook(ctx, sid, "plan", "a\r\nb\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := newNotebookAccess(engine, sid, "run1").Update(ctx, toolset.NotebookUpdate{Notebook: "plan", Op: "append", Content: "c", Expected: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := engine.Notebook(ctx, sid, "plan")
+	t.Logf("PROBE N5 create body=%q bytes=%d; after append body=%q (%v)", doc.Body, doc.Bytes, after.Body, out)
+}

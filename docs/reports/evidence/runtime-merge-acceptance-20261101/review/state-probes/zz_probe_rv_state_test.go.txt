@@ -1,0 +1,228 @@
+package runtime
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/edynasty/LumenCortex/protocol"
+)
+
+func zzWaitSchedule(t *testing.T, engine *Engine, id string, cond func(ScheduleInfo) bool, d time.Duration) (ScheduleInfo, bool) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for {
+		info, err := engine.Schedule(context.Background(), id)
+		if err != nil {
+			t.Fatalf("schedule %s: %v", id, err)
+		}
+		if cond(info) {
+			return info, true
+		}
+		if time.Now().After(deadline) {
+			return info, false
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+// RV-2: a wake-up due while its session's run holds the lock is retried and fires once the run ends;
+// no schedule event is published per retry.
+func TestZZProbeRVWakeupBusyRetry(t *testing.T) {
+	engine := openTestEngine(t)
+	handle := newTestSession(t, engine, "g")
+	stream, cancelEvents := engine.Events(1024)
+	defer cancelEvents()
+	sup := startBlockedRun(t, engine, handle.ID)
+	ctx := context.Background()
+	w, err := engine.wakeupsFor(handle.ID, "read-only", nil, nil).ScheduleWakeup(ctx, 1, "resume after the build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(7 * time.Second) // ~3 busy retries
+	info, _ := engine.Schedule(ctx, w.ID)
+	t.Logf("PROBE RV-2 while run active (7s): status=%q next=%v fireCount=%d enabled=%v", info.LastStatus, info.NextRunAt, info.FireCount, info.Enabled)
+	scheduleEvents := 0
+	drain := func() {
+		for {
+			select {
+			case ev := <-stream:
+				if strings.HasPrefix(ev.Type, "schedule.") {
+					scheduleEvents++
+				}
+			default:
+				return
+			}
+		}
+	}
+	drain()
+	t.Logf("PROBE RV-2 schedule.* events during the busy window: %d", scheduleEvents)
+	cancelled := sup.Cancel(handle.ID)
+	t.Logf("PROBE RV-2 cancelled the blocking run: %v", cancelled)
+	start := time.Now()
+	info, ok := zzWaitSchedule(t, engine, w.ID, func(i ScheduleInfo) bool { return i.LastStatus != "" }, 10*time.Second)
+	t.Logf("PROBE RV-2 after run ended: recorded=%v in %s status=%q ref=%q error=%q fireCount=%d next=%v",
+		ok, time.Since(start).Round(100*time.Millisecond), info.LastStatus, info.LastRef, info.LastError, info.FireCount, info.NextRunAt)
+}
+
+// RV-2b: a wake-up due while the process is at its agent limit (another session's run holds the only
+// slot) — same transient "busy" class as RT-state-2.
+func TestZZProbeRVWakeupAtAgentLimit(t *testing.T) {
+	engine, err := Open(Options{Workspace: t.TempDir(), Budget: Budget{MaxAgents: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	other := newTestSession(t, engine, "other")
+	mine := newTestSession(t, engine, "mine")
+	sup := startBlockedRun(t, engine, other.ID)
+	ctx := context.Background()
+	w, err := engine.wakeupsFor(mine.ID, "read-only", nil, nil).ScheduleWakeup(ctx, 1, "check the build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, ok := zzWaitSchedule(t, engine, w.ID, func(i ScheduleInfo) bool { return i.LastStatus != "" }, 6*time.Second)
+	t.Logf("PROBE RV-2b at agent limit: recorded=%v status=%q error=%q fireCount=%d next=%v enabled=%v", ok, info.LastStatus, info.LastError, info.FireCount, info.NextRunAt, info.Enabled)
+	sup.Close()
+	time.Sleep(4 * time.Second)
+	info, _ = engine.Schedule(ctx, w.ID)
+	t.Logf("PROBE RV-2b after the slot freed (4s): status=%q fireCount=%d next=%v enabled=%v", info.LastStatus, info.FireCount, info.NextRunAt, info.Enabled)
+}
+
+// RV-17: wakeup_cancel against a host cron agent task; and a host agent task whose prompt starts with
+// the wake-up prefix.
+func TestZZProbeRVWakeupCancelScope(t *testing.T) {
+	engine := openTestEngine(t)
+	ctx := context.Background()
+	h := newTestSession(t, engine, "g")
+	host, err := engine.CreateSchedule(ctx, ScheduleRequest{
+		Name: "daily review", Kind: "agent", SessionID: h.ID, Prompt: "review the open PRs", Policy: "workspace",
+		Trigger: ScheduleTrigger{Kind: "cron", Cron: "0 9 * * *"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := engine.wakeupsFor(h.ID, "read-only", nil, nil)
+	err = c.CancelWakeup(ctx, host.ID)
+	_, gerr := engine.Schedule(ctx, host.ID)
+	t.Logf("PROBE RV-17 cancel host cron task: err=%v; task afterwards err=%v", err, gerr)
+	prefixed, err := engine.CreateSchedule(ctx, ScheduleRequest{
+		Name: "host prefixed", Kind: "agent", SessionID: h.ID, Prompt: wakeupPromptPrefix + "host text", Policy: "workspace",
+		Trigger: ScheduleTrigger{Kind: "cron", Cron: "0 9 * * *"},
+	})
+	t.Logf("PROBE RV-17 host create with wake-up prefix: err=%v", err)
+	if err == nil {
+		err = c.CancelWakeup(ctx, prefixed.ID)
+		_, gerr = engine.Schedule(ctx, prefixed.ID)
+		t.Logf("PROBE RV-17 cancel host prefixed task: err=%v; task afterwards err=%v", err, gerr)
+	}
+}
+
+// RV-1: retention-deleted previous job.
+func TestZZProbeRVScheduleAfterJobRetention(t *testing.T) {
+	engine := openTestEngine(t)
+	ctx := context.Background()
+	info, err := engine.CreateSchedule(ctx, ScheduleRequest{
+		Name: "weekly", Kind: "shell", Command: "true",
+		Trigger: ScheduleTrigger{Kind: "interval", EverySeconds: 8 * 24 * 3600},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	makeDue := func() {
+		past := time.Now().UTC().Add(-time.Second).Format("2006-01-02T15:04:05.000000000Z")
+		seedSQL(t, engine, []any{`UPDATE scheduled_tasks SET next_run_at = ? WHERE schedule_id = ?`, past, info.ID})
+		engine.schedules.Wake()
+	}
+	makeDue()
+	first, _ := zzWaitSchedule(t, engine, info.ID, func(i ScheduleInfo) bool { return i.FireCount >= 1 && i.LastStatus != "" }, 10*time.Second)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		job, err := engine.store.GetJob(ctx, first.LastRef)
+		if err == nil && (job.State == "completed" || job.State == "failed") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job %s never finished", first.LastRef)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	deleted, err := engine.store.DeleteFinishedJobsBefore(ctx, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := int64(2); i <= 3; i++ {
+		time.Sleep(150 * time.Millisecond)
+		makeDue()
+		got, _ := zzWaitSchedule(t, engine, info.ID, func(s ScheduleInfo) bool { return s.FireCount >= i }, 10*time.Second)
+		t.Logf("PROBE RV-1 firing %d after sweep (deleted %d): status=%q ref=%q error=%q", i, len(deleted), got.LastStatus, got.LastRef, got.LastError)
+	}
+	n := countRows(t, engine, `SELECT count(*) FROM jobs WHERE schedule_id = ?`, info.ID)
+	t.Logf("PROBE RV-1 jobs submitted after the sweep: %d", n)
+}
+
+// RV-8: the goal is reduced to its length in the diagnostics log.
+func TestZZProbeRVGoalInDiagnosticsLog(t *testing.T) {
+	engine, _ := diagWorkspace(t)
+	ctx := context.Background()
+	if _, err := engine.NewSession(ctx, SessionOptions{Goal: "GOAL-SENTINEL-the user's private task text"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	text := diagLogText(t, &Engine{diag: engine.diag})
+	line := ""
+	for _, l := range strings.Split(text, "\n") {
+		if strings.Contains(l, "session.start") {
+			line = l
+		}
+	}
+	t.Logf("PROBE RV-8 goal-in-log=%v session.start line=%s", strings.Contains(text, "GOAL-SENTINEL"), line)
+}
+
+// RV-3 (agent and host): reads of a revoked child; edges from a run's read; parent fenced by the revocation.
+func TestZZProbeRVNotebookRevocation(t *testing.T) {
+	engine, parent := notebookEngine(t)
+	ctx := context.Background()
+	child := zzChildWithNotebook(t, engine, parent)
+	p := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("nb0", "notebook_list", `{}`),
+		toolCallResponse("nb1", "notebook_list", `{"session_id":"`+child+`"}`),
+		toolCallResponse("nb2", "notebook_read", `{"notebook":"research","session_id":"`+child+`"}`),
+		finalResponse("ok"),
+	}}
+	r, err := engine.runAgentWith(ctx, parent, p, AgentOptions{Input: "read the child's notebook", Policy: "read-only", MaxSteps: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edges := countRows(t, engine, `SELECT count(*) FROM derived_origins WHERE session_id = ? AND source_kind = 'session' AND source_ref = ?`, parent, child)
+	selfEdges := countRows(t, engine, `SELECT count(*) FROM derived_origins WHERE session_id = ? AND source_kind = 'session' AND source_ref = ?`, parent, parent)
+	rep, err := engine.RevokeSource(ctx, SourceSession, child, "user_revoked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentWithdrawn, _ := engine.store.SessionWithdrawn(ctx, parent)
+	t.Logf("PROBE RV-3 run=%s edges parent->child=%d parent->self=%d; revocation sessions=%v; parent withdrawn=%v",
+		r.Status, edges, selfEdges, rep.Sessions, parentWithdrawn)
+
+	access := newNotebookAccess(engine, parent, "run2")
+	got, err := access.Read(ctx, child, "research", "")
+	list, lerr := access.List(ctx, child)
+	own, oerr := access.List(ctx, "")
+	t.Logf("PROBE RV-3 agent read=%v err=%v sentinel=%v; agent list=%v err=%v; own list err=%v sentinel=%v",
+		got, err, strings.Contains(fmt.Sprint(got), zzNotebookSentinel), list, lerr, oerr, strings.Contains(fmt.Sprint(own), zzNotebookSentinel))
+	doc, herr := engine.Notebook(ctx, child, "research")
+	infos, ierr := engine.Notebooks(ctx, child)
+	revs, rerr := engine.NotebookRevisions(ctx, child, "research")
+	rev, r1err := engine.NotebookRevision(ctx, child, "research", 1)
+	md, _, xerr := engine.ExportNotebook(ctx, child, "research")
+	t.Logf("PROBE RV-3 host Notebook err=%v withdrawn=%v title=%q sentinel=%v; Notebooks err=%v %+v; Revisions err=%v withdrawn=%v; Revision err=%v body-sentinel=%v; Export err=%v sentinel=%v",
+		herr, doc.Withdrawn, doc.Title, strings.Contains(doc.Body, zzNotebookSentinel), ierr, infos, rerr, len(revs) > 0 && revs[0].Withdrawn, r1err, strings.Contains(rev.Body, zzNotebookSentinel), xerr, strings.Contains(md, zzNotebookSentinel))
+	// A withdrawn session: host can still WRITE its notebook, and read back?
+	_, serr := engine.SaveNotebook(ctx, child, "research", "new body "+zzNotebookSentinel, doc.Version)
+	doc2, _ := engine.Notebook(ctx, child, "research")
+	t.Logf("PROBE RV-3 host save on withdrawn child err=%v; read back withdrawn=%v sentinel=%v", serr, doc2.Withdrawn, strings.Contains(doc2.Body, zzNotebookSentinel))
+}

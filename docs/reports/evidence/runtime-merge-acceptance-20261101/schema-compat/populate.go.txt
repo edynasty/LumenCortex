@@ -1,0 +1,44 @@
+// Populates a v9 state with rows in every runtime-upgrade table (jobs, scheduled_tasks, notebooks)
+// through the public Engine API, then prints what it sees. Throwaway; schema compatibility check.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"time"
+
+	lcx "github.com/edynasty/LumenCortex/runtime"
+)
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	return v
+}
+
+func main() {
+	ctx := context.Background()
+	e := must(lcx.OpenContext(ctx, lcx.Options{Workspace: os.Args[1]}))
+	defer e.Close()
+	sessions := must(e.ListSessions(ctx, 50, 0))
+	h := must(e.NewSession(ctx, lcx.SessionOptions{Goal: "rt session"}))
+	nb := must(e.CreateNotebook(ctx, h.ID, "handoff", "# handoff\n\n## Plan\n\nrt-notebook-body\n"))
+	enabled := true
+	sc := must(e.CreateSchedule(ctx, lcx.ScheduleRequest{Name: "hourly", Kind: "shell", Command: "true",
+		Trigger: lcx.ScheduleTrigger{Kind: "interval", EverySeconds: 3600}, Enabled: &enabled}))
+	job := must(e.SubmitJob(ctx, lcx.JobRequest{SessionID: h.ID, Command: "echo job-out"}))
+	for i := 0; i < 100; i++ {
+		job = must(e.Job(ctx, job.ID))
+		if job.State != "queued" && job.State != "running" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	out, _ := json.Marshal(map[string]any{"sessionsBefore": len(sessions), "newSession": h.ID, "notebook": nb.ID,
+		"schedule": sc.ID, "job": job.ID, "jobState": job.State})
+	fmt.Println(string(out))
+}

@@ -1,0 +1,1880 @@
+{
+ "browserTemplate": {
+  "id": "browser",
+  "name": "Browser",
+  "transport": "stdio",
+  "command": "playwright-mcp",
+  "args": [
+   "--headless",
+   "--isolated",
+   "--browser",
+   "chrome",
+   "--timeout-action",
+   "15000",
+   "--timeout-navigation",
+   "30000",
+   "--idle-timeout",
+   "300000",
+   "--output-dir",
+   ".lumencortex/browser"
+  ],
+  "protocolMode": "legacy",
+  "disabled": true,
+  "tools": {
+   "browser_close": {
+    "permission": "read"
+   },
+   "browser_console_messages": {
+    "permission": "read"
+   },
+   "browser_network_requests": {
+    "permission": "read"
+   },
+   "browser_snapshot": {
+    "permission": "read"
+   },
+   "browser_tabs": {
+    "permission": "read"
+   },
+   "browser_take_screenshot": {
+    "permission": "read"
+   }
+  },
+  "include": [
+   "browser_navigate",
+   "browser_navigate_back",
+   "browser_snapshot",
+   "browser_click",
+   "browser_type",
+   "browser_press_key",
+   "browser_hover",
+   "browser_select_option",
+   "browser_fill_form",
+   "browser_wait_for",
+   "browser_take_screenshot",
+   "browser_tabs",
+   "browser_console_messages",
+   "browser_network_requests",
+   "browser_close"
+  ],
+  "callTimeoutSeconds": 120,
+  "idleTimeoutSeconds": 600,
+  "maxConcurrentCalls": 1,
+  "maxResultBytes": 262144,
+  "template": "browser"
+ },
+ "capabilities": [
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": true,
+   "permission": "write",
+   "source": "builtin",
+   "toolId": "apply_patch"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": true,
+   "permission": "exec",
+   "source": "builtin",
+   "toolId": "bash"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "find_files"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "builtin",
+   "toolId": "job_cancel"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "builtin",
+   "toolId": "job_list"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "builtin",
+   "toolId": "job_status"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "builtin",
+   "toolId": "job_wait"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "list_dir"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "list_subagents"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "note_remove"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "note_write"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "state",
+   "source": "builtin",
+   "toolId": "notebook_list"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "state",
+   "source": "builtin",
+   "toolId": "notebook_read"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "state",
+   "source": "builtin",
+   "toolId": "notebook_update"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "read_file"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "read_skill"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "read_thread"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "recall"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "reference_suggest"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": true,
+   "permission": "write",
+   "source": "builtin",
+   "toolId": "replace_in_file"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "search_text"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "spawn_subagent"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "delegate",
+   "source": "builtin",
+   "toolId": "start_task"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "wait_subagent"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "write",
+   "source": "builtin",
+   "toolId": "wakeup_cancel"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "write",
+   "source": "builtin",
+   "toolId": "wakeup_schedule"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "work_unit_create"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "work_unit_list"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "work_unit_update"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": true,
+   "permission": "write",
+   "source": "builtin",
+   "toolId": "write_file"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "core-optional",
+   "toolId": "lsp_definition"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "core-optional",
+   "toolId": "lsp_diagnostics"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "core-optional",
+   "toolId": "lsp_document_symbols"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "core-optional",
+   "toolId": "lsp_hover"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "core-optional",
+   "toolId": "lsp_references"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "write",
+   "source": "core-optional",
+   "toolId": "lsp_rename"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "core-optional",
+   "toolId": "lsp_workspace_symbols"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_click"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_close"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_console_messages"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_fill_form"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_hover"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_navigate"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_navigate_back"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_network_requests"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_press_key"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_select_option"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_snapshot"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_tabs"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_take_screenshot"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_type"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_wait_for"
+  }
+ ],
+ "capabilitiesAfter": [
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": true,
+   "permission": "write",
+   "source": "builtin",
+   "toolId": "apply_patch"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": true,
+   "permission": "exec",
+   "source": "builtin",
+   "toolId": "bash"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "find_files"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "builtin",
+   "toolId": "job_cancel"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "builtin",
+   "toolId": "job_list"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "builtin",
+   "toolId": "job_status"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "builtin",
+   "toolId": "job_wait"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "list_dir"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "list_subagents"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "note_remove"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "note_write"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "state",
+   "source": "builtin",
+   "toolId": "notebook_list"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "state",
+   "source": "builtin",
+   "toolId": "notebook_read"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "state",
+   "source": "builtin",
+   "toolId": "notebook_update"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "read_file"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "read_skill"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "read_thread"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "recall"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "reference_suggest"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": true,
+   "permission": "write",
+   "source": "builtin",
+   "toolId": "replace_in_file"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "search_text"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "spawn_subagent"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "delegate",
+   "source": "builtin",
+   "toolId": "start_task"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "wait_subagent"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "write",
+   "source": "builtin",
+   "toolId": "wakeup_cancel"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "write",
+   "source": "builtin",
+   "toolId": "wakeup_schedule"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "work_unit_create"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "work_unit_list"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "builtin",
+   "toolId": "work_unit_update"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": true,
+   "permission": "write",
+   "source": "builtin",
+   "toolId": "write_file"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "core-optional",
+   "toolId": "lsp_definition"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "core-optional",
+   "toolId": "lsp_diagnostics"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "core-optional",
+   "toolId": "lsp_document_symbols"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "core-optional",
+   "toolId": "lsp_hover"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "core-optional",
+   "toolId": "lsp_references"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "write",
+   "source": "core-optional",
+   "toolId": "lsp_rename"
+  },
+  {
+   "availability": "needs-configuration",
+   "enabled": false,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "core-optional",
+   "toolId": "lsp_workspace_symbols"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_click"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_close"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_console_messages"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_fill_form"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_hover"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_navigate"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_navigate_back"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_network_requests"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_press_key"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_select_option"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_snapshot"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_tabs"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_take_screenshot"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "exec",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_type"
+  },
+  {
+   "availability": "available",
+   "enabled": true,
+   "mutatesWorkspace": false,
+   "permission": "read",
+   "source": "local-adapter",
+   "toolId": "mcp__browser__browser_wait_for"
+  }
+ ],
+ "capabilitiesAfterBySource": {
+  "builtin": 30,
+  "core-optional": 7,
+  "local-adapter": 15
+ },
+ "capabilitiesBySource": {
+  "builtin": 30,
+  "core-optional": 7,
+  "local-adapter": 15
+ },
+ "capabilityCount": 52,
+ "child": {
+  "n": 0,
+  "session": "",
+  "model": "",
+  "messages": 0,
+  "requestBytes": 0,
+  "toolsBytes": 0,
+  "toolCount": 0,
+  "toolNames": null,
+  "toolsJson": "",
+  "system": "",
+  "firstUser": "",
+  "messagesJson": ""
+ },
+ "coreHead": "5ccc35047a1c416f752b442bc3de61bdb0f4ada5",
+ "globalSkills": [
+  "company-deploy",
+  "dbx",
+  "docx-openai",
+  "docx-polish",
+  "find-skills",
+  "frontend-design",
+  "impeccable",
+  "poc-vulnerability",
+  "ui-animation",
+  "ui-ux-pro-max",
+  "ui-verification"
+ ],
+ "profiles": [
+  {
+   "id": "p1-default",
+   "label": "普通任务 (default, read-only) with the Browser template enabled",
+   "marker": "MARK-B1",
+   "options": {
+    "maxSteps": 4
+   },
+   "sessionId": "session_e8760f334a78d6efdacfdc8f",
+   "effectivePrompt": {
+    "agent": "agent",
+    "policy": "read-only",
+    "delegation": "",
+    "included": [
+     {
+      "name": "find_files",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "list_dir",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "list_subagents",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "note_remove",
+      "permission": "read",
+      "source": "task"
+     },
+     {
+      "name": "note_write",
+      "permission": "read",
+      "source": "task"
+     },
+     {
+      "name": "notebook_list",
+      "permission": "state",
+      "source": "builtin"
+     },
+     {
+      "name": "notebook_read",
+      "permission": "state",
+      "source": "builtin"
+     },
+     {
+      "name": "notebook_update",
+      "permission": "state",
+      "source": "builtin"
+     },
+     {
+      "name": "read_file",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "read_skill",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "read_thread",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "recall",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "reference_suggest",
+      "permission": "read",
+      "source": "task"
+     },
+     {
+      "name": "search_text",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "spawn_subagent",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "wait_subagent",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "work_unit_create",
+      "permission": "read",
+      "source": "task"
+     },
+     {
+      "name": "work_unit_list",
+      "permission": "read",
+      "source": "task"
+     },
+     {
+      "name": "work_unit_update",
+      "permission": "read",
+      "source": "task"
+     }
+    ],
+    "withheld": [
+     "apply_patch(policy)",
+     "bash(policy)",
+     "job_cancel(policy)",
+     "job_list(policy)",
+     "job_status(policy)",
+     "job_wait(policy)",
+     "replace_in_file(policy)",
+     "start_task(delegation)",
+     "wakeup_cancel(policy)",
+     "wakeup_schedule(policy)",
+     "write_file(policy)"
+    ]
+   },
+   "toolSchemaCost": {
+    "builtinBytes": 14916,
+    "builtinTools": 29,
+    "lspBytes": 0,
+    "lspTools": 0,
+    "mcpBytes": {},
+    "mcpTools": {},
+    "totalBytes": 14916
+   },
+   "toolSchemaCostAfterRun": {
+    "builtinBytes": 14916,
+    "builtinTools": 29,
+    "lspBytes": 0,
+    "lspTools": 0,
+    "mcpBytes": {
+     "browser": 10137
+    },
+    "mcpTools": {
+     "browser": 15
+    },
+    "totalBytes": 25053
+   },
+   "firstRequest": {
+    "n": 1,
+    "session": "parent:MARK-B1",
+    "model": "fake",
+    "messages": 5,
+    "requestBytes": 22568,
+    "toolsBytes": 15643,
+    "toolCount": 26,
+    "toolNames": [
+     "find_files",
+     "list_dir",
+     "list_subagents",
+     "mcp__browser__browser_close",
+     "mcp__browser__browser_console_messages",
+     "mcp__browser__browser_network_requests",
+     "mcp__browser__browser_snapshot",
+     "mcp__browser__browser_tabs",
+     "mcp__browser__browser_take_screenshot",
+     "mcp__browser__browser_wait_for",
+     "notebook_list",
+     "notebook_read",
+     "notebook_update",
+     "read_file",
+     "read_skill",
+     "read_thread",
+     "recall",
+     "search_text",
+     "spawn_subagent",
+     "wait_subagent",
+     "work_unit_list",
+     "work_unit_create",
+     "work_unit_update",
+     "reference_suggest",
+     "note_write",
+     "note_remove"
+    ],
+    "toolsJson": "[{\"type\":\"function\",\"function\":{\"name\":\"find_files\",\"description\":\"Find repository files by bounded glob/name pattern.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"limit\":{\"maximum\":1000,\"minimum\":1,\"type\":\"integer\"},\"path\":{\"type\":\"string\"},\"pattern\":{\"type\":\"string\"}},\"required\":[\"pattern\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"list_dir\",\"description\":\"List a bounded number of entries in a workspace directory.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"list_subagents\",\"description\":\"List durable child-agent sessions and their current statuses for this task.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_close\",\"description\":\"Close the page (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_console_messages\",\"description\":\"Returns all console messages (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"all\":{\"description\":\"Return all console messages since the beginning of the session, not just since the last navigation. Defaults to false.\",\"type\":\"boolean\"},\"filename\":{\"description\":\"File name to save the console messages to. Relative file names are resolved against the workspace root. If not provided, messages are returned as text.\",\"type\":\"string\"},\"level\":{\"default\":\"info\",\"description\":\"Level of the console messages to return. Each level includes the messages of more severe levels. Defaults to \\\"info\\\".\",\"enum\":[\"error\",\"warning\",\"info\",\"debug\"],\"type\":\"string\"}},\"required\":[\"level\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_network_requests\",\"description\":\"Returns a numbered list of network requests since loading the page. Use browser_network_request with the number to get full details. (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"filename\":{\"description\":\"File name to save the network requests to. Relative file names are resolved against the workspace root. If not provided, requests are returned as text.\",\"type\":\"string\"},\"filter\":{\"description\":\"Only return requests whose URL matches this regexp (e.g. \\\"/api/.*user\\\").\",\"type\":\"string\"},\"static\":{\"default\":false,\"description\":\"Whether to include successful static resources like images, fonts, scripts, etc. Defaults to false.\",\"type\":\"boolean\"}},\"required\":[\"static\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_snapshot\",\"description\":\"Capture accessibility snapshot of the current page, this is better than screenshot (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"boxes\":{\"description\":\"Include each element's bounding box as [box=x,y,width,height] in the snapshot. Coordinates are viewport-relative, in CSS pixels (Element.getBoundingClientRect)\",\"type\":\"boolean\"},\"depth\":{\"description\":\"Limit the depth of the snapshot tree\",\"type\":\"number\"},\"filename\":{\"description\":\"Save snapshot to a file instead of returning it in the response. Relative file names are resolved against the workspace root.\",\"type\":\"string\"},\"target\":{\"description\":\"Exact target element reference from the page snapshot, or a unique element selector\",\"type\":\"string\"}},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_tabs\",\"description\":\"List, create, close, or select a browser tab. (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"action\":{\"description\":\"Operation to perform\",\"enum\":[\"list\",\"new\",\"close\",\"select\"],\"type\":\"string\"},\"index\":{\"description\":\"Tab index, used for close/select. If omitted for close, current tab is closed.\",\"type\":\"number\"},\"url\":{\"description\":\"URL to navigate to in the new tab, used for new.\",\"type\":\"string\"}},\"required\":[\"action\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_take_screenshot\",\"description\":\"Take a screenshot of the current page. You can't perform actions based on the screenshot, use browser_snapshot for actions. (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"element\":{\"description\":\"Human-readable element description used to obtain permission to interact with the element\",\"type\":\"string\"},\"filename\":{\"description\":\"File name to save the screenshot to. Relative file names are resolved against the workspace root. If not specified, the screenshot is saved into the output directory as `page-{timestamp}.{png|jpeg|webp}`.\",\"type\":\"string\"},\"fullPage\":{\"description\":\"When true, takes a screenshot of the full scrollable page, instead of the currently visible viewport. Cannot be used with element screenshots.\",\"type\":\"boolean\"},\"scale\":{\"default\":\"css\",\"description\":\"Image resolution scale. \\\"css\\\" produces a screenshot sized in CSS pixels (smaller, consistent across devices). \\\"device\\\" produces a high-resolution screenshot using device pixels (larger, accounts for the device pixel ratio). Default is css.\",\"enum\":[\"css\",\"device\"],\"type\":\"string\"},\"target\":{\"description\":\"Exact target element reference from the page snapshot, or a unique element selector\",\"type\":\"string\"},\"type\":{\"description\":\"Image format for the screenshot. If unset, inferred from the filename extension, otherwise png.\",\"enum\":[\"png\",\"jpeg\",\"webp\"],\"type\":\"string\"}},\"required\":[\"scale\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_wait_for\",\"description\":\"Wait for text to appear or disappear or a specified time to pass (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"text\":{\"description\":\"The text to wait for\",\"type\":\"string\"},\"textGone\":{\"description\":\"The text to wait for to disappear\",\"type\":\"string\"},\"time\":{\"description\":\"The time to wait in seconds\",\"type\":\"number\"}},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"notebook_list\",\"description\":\"List your working notebooks: title, version, size, when and by whom they were last written, and their '## ' section headings. Add session_id to list a direct child subagent's notebooks.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"session_id\":{\"description\":\"a direct child subagent's session; omit for your own\",\"type\":\"string\"}},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"notebook_read\",\"description\":\"Read one of your working notebooks by title or id, or one '## ' section of it. Read the Handoff section before continuing earlier work; add session_id to read a direct child subagent's notebook.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"notebook\":{\"type\":\"string\"},\"section\":{\"description\":\"read only this '## ' section\",\"type\":\"string\"},\"session_id\":{\"description\":\"a direct child subagent's session; omit for your own\",\"type\":\"string\"}},\"required\":[\"notebook\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"notebook_update\",\"description\":\"Write your working notebook. op create needs a new title and no version; replace needs the whole new body and expected_version; append adds content at the end; section replaces one '## ' section, creating it at the end when absent. A conflict returns the current version: re-read, then retry. Returns the new version and size.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"content\":{\"type\":\"string\"},\"expected_version\":{\"description\":\"the version the write requires; replace requires it\",\"minimum\":1,\"type\":\"integer\"},\"notebook\":{\"description\":\"the new title for create, else the title or id of an existing notebook\",\"type\":\"string\"},\"op\":{\"enum\":[\"create\",\"replace\",\"append\",\"section\"],\"type\":\"string\"},\"section\":{\"description\":\"the section a section write replaces or creates\",\"type\":\"string\"}},\"required\":[\"notebook\",\"op\",\"content\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"description\":\"Read a bounded UTF-8 file inside the workspace.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"read_skill\",\"description\":\"Load a skill from the Skills catalog in your instructions: with only an id it returns the skill's instructions (SKILL.md); with a path relative to the skill directory it returns that file, or the entries of that directory. Call it before acting on a task a skill's description matches.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"id\":{\"description\":\"the skill id from the catalog\",\"type\":\"string\"},\"path\":{\"description\":\"optional file or directory inside the skill, e.g. references/api.md\",\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"read_thread\",\"description\":\"Read one earlier thread or task of this workspace by id (from recall, a thread reference, or a task), or the current thread by its own id: its objective, status, resolution, notes (each with its applicability; stale when a file it cites has changed), open work units, tasks, children and final answer. With transcript=true it also returns one page of the thread's visible messages, newest first by page, never splitting a tool call from its results; pass the page's nextBefore as before to read further back.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"before\":{\"description\":\"read messages before this seq (implies transcript)\",\"minimum\":0,\"type\":\"integer\"},\"id\":{\"description\":\"the session id\",\"type\":\"string\"},\"transcript\":{\"description\":\"include one page of the visible messages\",\"type\":\"boolean\"}},\"required\":[\"id\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"recall\",\"description\":\"Search earlier threads and tasks of this workspace for what they decided, tried, abandoned or found: matches their objectives, notes, resolutions and final answers. Facts the user gave in earlier conversations (hosts, variable names, conventions, decisions, approaches that failed) are often not in the repository; call recall before you guess or invent such a fact, and at the start of a task that may continue earlier work. Returns up to 8 threads with matching notes; open one with read_thread.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"limit\":{\"maximum\":8,\"minimum\":1,\"type\":\"integer\"},\"query\":{\"description\":\"words to match: names, identifiers, error text, topics\",\"type\":\"string\"}},\"required\":[\"query\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"search_text\",\"description\":\"Search repository text with bounded results. Uses ripgrep when available.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"limit\":{\"maximum\":1000,\"minimum\":1,\"type\":\"integer\"},\"path\":{\"type\":\"string\"},\"query\":{\"type\":\"string\"}},\"required\":[\"query\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"spawn_subagent\",\"description\":\"Spawn one bounded read-only child agent for a focused research, search, diagnostic, or analysis task. Child agents cannot modify files or recursively spawn more agents. Agents that can run it:\\n- explore: Read-only research: searches and reads the workspace and reports what it found.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"agent\":{\"description\":\"the agent that runs it; omit for explore\",\"enum\":[\"explore\"],\"type\":\"string\"},\"goal\":{\"type\":\"string\"}},\"required\":[\"goal\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"wait_subagent\",\"description\":\"Wait up to a bounded timeout for one direct child agent and return its latest durable result. Use this after spawn_subagent when the parent needs the child's findings before continuing.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"child_session_id\":{\"type\":\"string\"},\"timeout_seconds\":{\"maximum\":60,\"minimum\":1,\"type\":\"integer\"}},\"required\":[\"child_session_id\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"work_unit_list\",\"description\":\"Inspect persistent Work Units for this Agent session.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"work_unit_create\",\"description\":\"Create a persistent Work Unit. Work Units cannot choose providers, models, Categories or reasoning effort.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"checks\":{\"description\":\"Ids of configured checks this unit must pass. Completing the unit runs them; only their results count.\",\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"depends_on\":{\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"description\":{\"type\":\"string\"},\"goal\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"required_evidence\":{\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"risk\":{\"enum\":[\"low\",\"medium\",\"high\",\"critical\"],\"type\":\"string\"}},\"required\":[\"goal\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"work_unit_update\",\"description\":\"Update Work Unit status, summary and evidence. Setting status completed runs the unit's checks through the runtime evaluator; the unit completes only if all of them pass. Check results cannot be written by this tool.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"evidence\":{\"type\":\"array\"},\"id\":{\"type\":\"string\"},\"status\":{\"enum\":[\"pending\",\"active\",\"blocked\",\"verifying\",\"completed\",\"failed\",\"cancelled\"],\"type\":\"string\"},\"summary\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"reference_suggest\",\"description\":\"Suggest a file, directory or earlier thread as context for this task. The user decides whether to include it; a target the user excluded cannot be suggested again.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"kind\":{\"enum\":[\"path\",\"thread\"],\"type\":\"string\"},\"note\":{\"description\":\"why it is relevant, at most 512 bytes\",\"type\":\"string\"},\"target\":{\"description\":\"workspace-relative path, or a session id for a thread\",\"type\":\"string\"}},\"required\":[\"kind\",\"target\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"note_write\",\"description\":\"Record a short note in this thread's Task State, where it stays after older messages leave the context window: a root cause, a decision and its reason, an approach that failed, a measured fact. Notes are shown to you and the user on every turn and to later threads through read_thread and recall. Write what you verified, not plans or summaries of the conversation. Give id to replace one of your notes.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"cites\":{\"description\":\"workspace-relative files the note is about; a later reader is told when one has changed since\",\"items\":{\"type\":\"string\"},\"maxItems\":4,\"type\":\"array\"},\"id\":{\"description\":\"an existing note of yours to replace; omit to add one\",\"type\":\"string\"},\"text\":{\"description\":\"the note, at most 512 bytes\",\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"note_remove\",\"description\":\"Remove one of your notes from this thread's Task State, e.g. one that turned out wrong. Notes the user wrote cannot be removed.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}}}]",
+    "system": "You are LumenCortex Agent, an autonomous coding agent.\nInspect before editing. Use tools until the requested outcome is achieved and verified. Keep changes scoped. Do not claim completion without evidence. Record what you verified that later steps or later work will need, such as a root cause, a decision or an approach that failed, with note_write. When a Workflow Contract is active, obey its curr...",
+    "firstUser": "[Task State — maintained by the LumenCortex runtime from durable session state; it is not a new user message.]\n\nObjective:\n普通任务 (default, read-only) with the Browser template enabled\n",
+    "messagesJson": "[{\"role\":\"system\",\"content\":\"You are LumenCortex Agent, an autonomous coding agent.\\nInspect before editing. Use tools until the requested outcome is achieved and verified. Keep changes scoped. Do not claim completion without evidence. Record what you verified that later steps or later work will need, such as a root cause, a decision or an approach that failed, with note_write. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates.\\nWorking strategy:\\n- Name the deliverable the task asks for (files, behaviour, output) and produce a working version of it early, then improve it. Investigation that does not move the deliverable forward is cost.\\n- For a task of several steps, keep the plan, findings and a handoff in a notebook with notebook_update and keep it current. When a run continues earlier work, read the notebook's Handoff and the runtime rows before acting.\\n- Keep experiments cheap and bounded: a small probe before a long run, each with a reason.\\n- When the run has a deadline, spend the time left on a verified result and deliver it before the reserve rather than a better one after it.\\n- Run a command that may take long (a build, a test suite, a download, a server) with bash mode \\\"background\\\" where it is offered, keep working, and collect it with job_wait or job_status.\\n- After the same failure twice, change the approach instead of repeating it.\\n- Before the final answer, check the actual result: the files hold the intended content, the commands or tests that prove it pass, and no background job is still running. If part of the task is not done, say which part and why.\\nThis run is read-only: it can read, search and inspect the workspace, read Skills, use MCP tools marked read-only, and record notes and plan work units; it cannot change project files or run commands. Describe a needed change instead of making it.\"},{\"role\":\"system\",\"content\":\"## Skills (from /tmp/lcx-tools/work/browser/xdg/lumencortex/skills, /Users/tangxingpeng/.agents/skills, /Users/tangxingpeng/.claude/skills, /tmp/lcx-tools/work/browser/ws/.lumencortex/skills, /tmp/lcx-tools/work/browser/ws/.agents/skills, /tmp/lcx-tools/work/browser/ws/.claude/skills)\\n\\nSkills are instructions the user installed for particular kinds of work. Only each skill's id and description are listed here. When a task matches a description, call read_skill with that id before you act and follow what it returns, unless it conflicts with higher-priority instructions. A skill may name other files by a path relative to its directory (references, scripts, templates): read them with read_skill(id, path) when you need them. Do not load a skill that does not apply.\\n\\n- `company-deploy`: 公司应用部署标准流程（RMS/zhct 等项目部署到阿里云内网 130/133）。当用户要求\\\"部署/迁移/上线某服务到服务器、配置 Nacos/nginx/Jenkins、更新前端到 92 端口\\\"时加载本技能。涵盖：后端微服务(Maven+Docker)、前端(pnpm+nginx)、纯 jar 交付服务三类部署；数据库/Redis 操作统一经 DBX (MCP)；含验证清单与已知坑。\\n- `dbx`: Use the DBX CLI to inspect DBX-managed database connections, explore schemas, run bounded read-only queries, generate DBML or schema documentation, and open tables in DBX Desktop. Use when the user asks to work with a database configured in DBX from a shell-capable AI agent. Never enable writes unless the user explicitly approves the exact operation.\\n- `docx-openai`: OpenAI DOCX workflow, pinned Apache-2.0 snapshot adapted for this Mac. Create/read/edit Word files and inspect every rendered page. For existing-document beautification use docx-polish first; default to exact content preservation.\\n- `docx-polish`: Word/DOCX 中文排版、美化与参考模板样式迁移。默认宋体正文、黑体分级标题、黑色文字；支持软件技术文档及技术图形排版。模式 A 保留内容，模式 B 按授权重设计，模式 C 匹配参考 Word；渲染后逐页检查。\\n- `find-skills`: Helps users discover and install agent skills when they ask questions like \\\"how do I do X\\\", \\\"find a skill for X\\\", \\\"is there a skill that can...\\\", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.\\n- `frontend-design`: Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults.\\n- `impeccable`: Use when the user wants to design, redesign, shape, critique, audit, polish, simplify, harden, animate, or otherwise improve a frontend interface: websites, landing pages, dashboards, product UI, components, forms, settings, onboarding, empty states, and native iOS or Android screens. Handles UX review, hierarchy, layout, typography, color, motion, UX copy, accessibility, responsive behavior, edge cases, and capturing or documenting design systems (DESIGN.md, tokens). Also for making bland UI bolder, loud UI quieter, or ambitious visual effects. Not for backend-only or non-UI tasks.\\n- `ui-animation`: Builds, reviews, and measures UI motion, including springs, gestures, scroll effects, curve fitting from recordings, and sparse interface sound. Use when asked to \\\"add animation\\\", \\\"match this easing\\\", \\\"reverse engineer this motion\\\", \\\"add a click sound\\\", or find animation opportunities.\\n- `ui-ux-pro-max`: UI/UX design intelligence for web, mobile, and desktop. This skill should be used when designing, building, reviewing, or fixing interfaces, including pages, components, design systems, accessibility, interaction, responsive layout, typography, color, charts, and stack-specific UI implementation. Searchable local data: 79 searchable styles (50 active), 192 product palettes and reasoning profiles, 74 font pairings, 119 UX guidelines, 105 icons, 17 GSAP presets, 25 chart types, and 22 stacks.\\n- `ui-verification`: Runs scoped browser probes for focus, hit targets, overflow, themes, request failures, and performance attribution, with evidence linked to UI rule IDs. Use when asked to \\\"verify this in the browser\\\", \\\"reproduce this UI finding\\\", \\\"re-measure after the UI fix\\\", or \\\"review before and after screenshots\\\".\\n\"},{\"role\":\"user\",\"content\":\"[Task State — maintained by the LumenCortex runtime from durable session state; it is not a new user message.]\\n\\nObjective:\\n普通任务 (default, read-only) with the Browser template enabled\\n\"},{\"role\":\"user\",\"content\":\"普通任务 (default, read-only) with the Browser template enabled\"},{\"role\":\"user\",\"content\":\"MARK-B1 — 普通任务 (default, read-only) with the Browser template enabled\"}]"
+   }
+  },
+  {
+   "id": "p4-coding-full",
+   "label": "Coding Agent (full) with the Browser template enabled",
+   "marker": "MARK-B4",
+   "options": {
+    "policy": "full",
+    "maxSteps": 4
+   },
+   "sessionId": "session_23db472df292e7e5cb5b146e",
+   "effectivePrompt": {
+    "agent": "agent",
+    "policy": "full",
+    "delegation": "",
+    "included": [
+     {
+      "name": "apply_patch",
+      "permission": "write",
+      "source": "builtin"
+     },
+     {
+      "name": "bash",
+      "permission": "exec",
+      "source": "builtin"
+     },
+     {
+      "name": "find_files",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "job_cancel",
+      "permission": "exec",
+      "source": "builtin"
+     },
+     {
+      "name": "job_list",
+      "permission": "exec",
+      "source": "builtin"
+     },
+     {
+      "name": "job_status",
+      "permission": "exec",
+      "source": "builtin"
+     },
+     {
+      "name": "job_wait",
+      "permission": "exec",
+      "source": "builtin"
+     },
+     {
+      "name": "list_dir",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "list_subagents",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "mcp__browser__browser_click",
+      "permission": "exec",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_close",
+      "permission": "read",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_console_messages",
+      "permission": "read",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_fill_form",
+      "permission": "exec",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_hover",
+      "permission": "exec",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_navigate",
+      "permission": "exec",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_navigate_back",
+      "permission": "exec",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_network_requests",
+      "permission": "read",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_press_key",
+      "permission": "exec",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_select_option",
+      "permission": "exec",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_snapshot",
+      "permission": "read",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_tabs",
+      "permission": "read",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_take_screenshot",
+      "permission": "read",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_type",
+      "permission": "exec",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "mcp__browser__browser_wait_for",
+      "permission": "read",
+      "source": "mcp:browser"
+     },
+     {
+      "name": "note_remove",
+      "permission": "read",
+      "source": "task"
+     },
+     {
+      "name": "note_write",
+      "permission": "read",
+      "source": "task"
+     },
+     {
+      "name": "notebook_list",
+      "permission": "state",
+      "source": "builtin"
+     },
+     {
+      "name": "notebook_read",
+      "permission": "state",
+      "source": "builtin"
+     },
+     {
+      "name": "notebook_update",
+      "permission": "state",
+      "source": "builtin"
+     },
+     {
+      "name": "read_file",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "read_skill",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "read_thread",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "recall",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "reference_suggest",
+      "permission": "read",
+      "source": "task"
+     },
+     {
+      "name": "replace_in_file",
+      "permission": "write",
+      "source": "builtin"
+     },
+     {
+      "name": "search_text",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "spawn_subagent",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "wait_subagent",
+      "permission": "read",
+      "source": "builtin"
+     },
+     {
+      "name": "wakeup_cancel",
+      "permission": "write",
+      "source": "builtin"
+     },
+     {
+      "name": "wakeup_schedule",
+      "permission": "write",
+      "source": "builtin"
+     },
+     {
+      "name": "work_unit_create",
+      "permission": "read",
+      "source": "task"
+     },
+     {
+      "name": "work_unit_list",
+      "permission": "read",
+      "source": "task"
+     },
+     {
+      "name": "work_unit_update",
+      "permission": "read",
+      "source": "task"
+     },
+     {
+      "name": "write_file",
+      "permission": "write",
+      "source": "builtin"
+     }
+    ],
+    "withheld": [
+     "start_task(delegation)"
+    ]
+   },
+   "toolSchemaCost": {
+    "builtinBytes": 14916,
+    "builtinTools": 29,
+    "lspBytes": 0,
+    "lspTools": 0,
+    "mcpBytes": {
+     "browser": 10137
+    },
+    "mcpTools": {
+     "browser": 15
+    },
+    "totalBytes": 25053
+   },
+   "toolSchemaCostAfterRun": {
+    "builtinBytes": 14916,
+    "builtinTools": 29,
+    "lspBytes": 0,
+    "lspTools": 0,
+    "mcpBytes": {
+     "browser": 10137
+    },
+    "mcpTools": {
+     "browser": 15
+    },
+    "totalBytes": 25053
+   },
+   "firstRequest": {
+    "n": 2,
+    "session": "parent:MARK-B4",
+    "model": "fake",
+    "messages": 5,
+    "requestBytes": 32761,
+    "toolsBytes": 26048,
+    "toolCount": 44,
+    "toolNames": [
+     "apply_patch",
+     "bash",
+     "find_files",
+     "job_cancel",
+     "job_list",
+     "job_status",
+     "job_wait",
+     "list_dir",
+     "list_subagents",
+     "mcp__browser__browser_click",
+     "mcp__browser__browser_close",
+     "mcp__browser__browser_console_messages",
+     "mcp__browser__browser_fill_form",
+     "mcp__browser__browser_hover",
+     "mcp__browser__browser_navigate",
+     "mcp__browser__browser_navigate_back",
+     "mcp__browser__browser_network_requests",
+     "mcp__browser__browser_press_key",
+     "mcp__browser__browser_select_option",
+     "mcp__browser__browser_snapshot",
+     "mcp__browser__browser_tabs",
+     "mcp__browser__browser_take_screenshot",
+     "mcp__browser__browser_type",
+     "mcp__browser__browser_wait_for",
+     "notebook_list",
+     "notebook_read",
+     "notebook_update",
+     "read_file",
+     "read_skill",
+     "read_thread",
+     "recall",
+     "replace_in_file",
+     "search_text",
+     "spawn_subagent",
+     "wait_subagent",
+     "wakeup_cancel",
+     "wakeup_schedule",
+     "write_file",
+     "work_unit_list",
+     "work_unit_create",
+     "work_unit_update",
+     "reference_suggest",
+     "note_write",
+     "note_remove"
+    ],
+    "toolsJson": "[{\"type\":\"function\",\"function\":{\"name\":\"apply_patch\",\"description\":\"Apply a validated atomic batch of exact text edits, creates or deletes inside the workspace.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"patches\":{\"items\":{\"additionalProperties\":false,\"properties\":{\"content\":{\"type\":\"string\"},\"edits\":{\"items\":{\"additionalProperties\":false,\"properties\":{\"new_text\":{\"type\":\"string\"},\"old_text\":{\"type\":\"string\"}},\"required\":[\"old_text\",\"new_text\"],\"type\":\"object\"},\"type\":\"array\"},\"operation\":{\"enum\":[\"update\",\"create\",\"delete\"],\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"path\",\"operation\"],\"type\":\"object\"},\"minItems\":1,\"type\":\"array\"}},\"required\":[\"patches\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"bash\",\"description\":\"Run a command in the workspace with bounded retained output. Commands run in bash (/bin/bash -lc), one process per call: cd and exported variables do not carry over. A command that runs past timeout_sec (or the configured default, or the run's deadline) has its process group terminated and returns its partial output with timedOut: true; its effects are then unknown. mode \\\"background\\\" starts it as a durable background job and returns its job id at once: use it for long builds and test runs, then job_wait, job_status or job_cancel it. A run cannot deliver its answer while its background jobs are active. timeout_sec bounds a background job's run time; its output is kept head and tail only.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"command\":{\"type\":\"string\"},\"mode\":{\"enum\":[\"foreground\",\"background\"],\"type\":\"string\"},\"timeout_sec\":{\"description\":\"Seconds the command may run before its process group is terminated (SIGTERM, then SIGKILL). In the foreground it replaces the configured default and the run's deadline still bounds it.\",\"maximum\":86400,\"minimum\":1,\"type\":\"integer\"}},\"required\":[\"command\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"find_files\",\"description\":\"Find repository files by bounded glob/name pattern.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"limit\":{\"maximum\":1000,\"minimum\":1,\"type\":\"integer\"},\"path\":{\"type\":\"string\"},\"pattern\":{\"type\":\"string\"}},\"required\":[\"pattern\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"job_cancel\",\"description\":\"Cancel a background job of this session: a queued job never starts, a running one has its process group killed.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"job_id\":{\"type\":\"string\"}},\"required\":[\"job_id\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"job_list\",\"description\":\"List this session's recent background jobs, newest first, with their states: the record of what was started and how it ended.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"job_status\",\"description\":\"Read one background job of this session: its state, exit code, duration and the head and tail of its output (bounded; a running job's output is partial).\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"job_id\":{\"type\":\"string\"}},\"required\":[\"job_id\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"job_wait\",\"description\":\"Wait until one of the named background jobs ends, or any active job of this run when no id is given. Bounded by timeout_sec and by the time left in the run: it never cancels the job, and a timeout just reports that nothing ended yet.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"job_ids\":{\"items\":{\"type\":\"string\"},\"maxItems\":32,\"type\":\"array\"},\"timeout_sec\":{\"maximum\":3600,\"minimum\":1,\"type\":\"integer\"}},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"list_dir\",\"description\":\"List a bounded number of entries in a workspace directory.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"list_subagents\",\"description\":\"List durable child-agent sessions and their current statuses for this task.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_click\",\"description\":\"Perform click on a web page (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"button\":{\"description\":\"Button to click, defaults to left\",\"enum\":[\"left\",\"right\",\"middle\"],\"type\":\"string\"},\"doubleClick\":{\"description\":\"Whether to perform a double click instead of a single click\",\"type\":\"boolean\"},\"element\":{\"description\":\"Human-readable element description used to obtain permission to interact with the element\",\"type\":\"string\"},\"modifiers\":{\"description\":\"Modifier keys to press\",\"items\":{\"enum\":[\"Alt\",\"Control\",\"ControlOrMeta\",\"Meta\",\"Shift\"],\"type\":\"string\"},\"type\":\"array\"},\"target\":{\"description\":\"Exact target element reference from the page snapshot, or a unique element selector\",\"type\":\"string\"}},\"required\":[\"target\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_close\",\"description\":\"Close the page (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_console_messages\",\"description\":\"Returns all console messages (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"all\":{\"description\":\"Return all console messages since the beginning of the session, not just since the last navigation. Defaults to false.\",\"type\":\"boolean\"},\"filename\":{\"description\":\"File name to save the console messages to. Relative file names are resolved against the workspace root. If not provided, messages are returned as text.\",\"type\":\"string\"},\"level\":{\"default\":\"info\",\"description\":\"Level of the console messages to return. Each level includes the messages of more severe levels. Defaults to \\\"info\\\".\",\"enum\":[\"error\",\"warning\",\"info\",\"debug\"],\"type\":\"string\"}},\"required\":[\"level\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_fill_form\",\"description\":\"Fill multiple form fields (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"fields\":{\"description\":\"Fields to fill in\",\"items\":{\"additionalProperties\":false,\"properties\":{\"element\":{\"description\":\"Human-readable element description used to obtain permission to interact with the element\",\"type\":\"string\"},\"name\":{\"description\":\"Human-readable field name\",\"type\":\"string\"},\"target\":{\"description\":\"Exact target element reference from the page snapshot, or a unique element selector\",\"type\":\"string\"},\"type\":{\"description\":\"Type of the field\",\"enum\":[\"textbox\",\"checkbox\",\"radio\",\"combobox\",\"slider\"],\"type\":\"string\"},\"value\":{\"description\":\"Value to fill in the field. If the field is a checkbox, the value should be `true` or `false`. If the field is a combobox, the value should be the text of the option.\",\"type\":\"string\"}},\"required\":[\"target\",\"name\",\"type\",\"value\"],\"type\":\"object\"},\"type\":\"array\"}},\"required\":[\"fields\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_hover\",\"description\":\"Hover over element on page (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"element\":{\"description\":\"Human-readable element description used to obtain permission to interact with the element\",\"type\":\"string\"},\"target\":{\"description\":\"Exact target element reference from the page snapshot, or a unique element selector\",\"type\":\"string\"}},\"required\":[\"target\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_navigate\",\"description\":\"Navigate to a URL (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"url\":{\"description\":\"The URL to navigate to\",\"type\":\"string\"}},\"required\":[\"url\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_navigate_back\",\"description\":\"Go back to the previous page in the history (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_network_requests\",\"description\":\"Returns a numbered list of network requests since loading the page. Use browser_network_request with the number to get full details. (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"filename\":{\"description\":\"File name to save the network requests to. Relative file names are resolved against the workspace root. If not provided, requests are returned as text.\",\"type\":\"string\"},\"filter\":{\"description\":\"Only return requests whose URL matches this regexp (e.g. \\\"/api/.*user\\\").\",\"type\":\"string\"},\"static\":{\"default\":false,\"description\":\"Whether to include successful static resources like images, fonts, scripts, etc. Defaults to false.\",\"type\":\"boolean\"}},\"required\":[\"static\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_press_key\",\"description\":\"Press a key on the keyboard (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"key\":{\"description\":\"Name of the key to press or a character to generate, such as `ArrowLeft` or `a`\",\"type\":\"string\"}},\"required\":[\"key\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_select_option\",\"description\":\"Select an option in a dropdown (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"element\":{\"description\":\"Human-readable element description used to obtain permission to interact with the element\",\"type\":\"string\"},\"target\":{\"description\":\"Exact target element reference from the page snapshot, or a unique element selector\",\"type\":\"string\"},\"values\":{\"description\":\"Array of values to select in the dropdown. This can be a single value or multiple values.\",\"items\":{\"type\":\"string\"},\"type\":\"array\"}},\"required\":[\"target\",\"values\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_snapshot\",\"description\":\"Capture accessibility snapshot of the current page, this is better than screenshot (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"boxes\":{\"description\":\"Include each element's bounding box as [box=x,y,width,height] in the snapshot. Coordinates are viewport-relative, in CSS pixels (Element.getBoundingClientRect)\",\"type\":\"boolean\"},\"depth\":{\"description\":\"Limit the depth of the snapshot tree\",\"type\":\"number\"},\"filename\":{\"description\":\"Save snapshot to a file instead of returning it in the response. Relative file names are resolved against the workspace root.\",\"type\":\"string\"},\"target\":{\"description\":\"Exact target element reference from the page snapshot, or a unique element selector\",\"type\":\"string\"}},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_tabs\",\"description\":\"List, create, close, or select a browser tab. (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"action\":{\"description\":\"Operation to perform\",\"enum\":[\"list\",\"new\",\"close\",\"select\"],\"type\":\"string\"},\"index\":{\"description\":\"Tab index, used for close/select. If omitted for close, current tab is closed.\",\"type\":\"number\"},\"url\":{\"description\":\"URL to navigate to in the new tab, used for new.\",\"type\":\"string\"}},\"required\":[\"action\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_take_screenshot\",\"description\":\"Take a screenshot of the current page. You can't perform actions based on the screenshot, use browser_snapshot for actions. (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"element\":{\"description\":\"Human-readable element description used to obtain permission to interact with the element\",\"type\":\"string\"},\"filename\":{\"description\":\"File name to save the screenshot to. Relative file names are resolved against the workspace root. If not specified, the screenshot is saved into the output directory as `page-{timestamp}.{png|jpeg|webp}`.\",\"type\":\"string\"},\"fullPage\":{\"description\":\"When true, takes a screenshot of the full scrollable page, instead of the currently visible viewport. Cannot be used with element screenshots.\",\"type\":\"boolean\"},\"scale\":{\"default\":\"css\",\"description\":\"Image resolution scale. \\\"css\\\" produces a screenshot sized in CSS pixels (smaller, consistent across devices). \\\"device\\\" produces a high-resolution screenshot using device pixels (larger, accounts for the device pixel ratio). Default is css.\",\"enum\":[\"css\",\"device\"],\"type\":\"string\"},\"target\":{\"description\":\"Exact target element reference from the page snapshot, or a unique element selector\",\"type\":\"string\"},\"type\":{\"description\":\"Image format for the screenshot. If unset, inferred from the filename extension, otherwise png.\",\"enum\":[\"png\",\"jpeg\",\"webp\"],\"type\":\"string\"}},\"required\":[\"scale\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_type\",\"description\":\"Type text into editable element (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"element\":{\"description\":\"Human-readable element description used to obtain permission to interact with the element\",\"type\":\"string\"},\"slowly\":{\"description\":\"Whether to type one character at a time. Useful for triggering key handlers in the page. By default entire text is filled in at once.\",\"type\":\"boolean\"},\"submit\":{\"description\":\"Whether to submit entered text (press Enter after)\",\"type\":\"boolean\"},\"target\":{\"description\":\"Exact target element reference from the page snapshot, or a unique element selector\",\"type\":\"string\"},\"text\":{\"description\":\"Text to type into the element\",\"type\":\"string\"}},\"required\":[\"target\",\"text\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"mcp__browser__browser_wait_for\",\"description\":\"Wait for text to appear or disappear or a specified time to pass (MCP server: browser)\",\"parameters\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"text\":{\"description\":\"The text to wait for\",\"type\":\"string\"},\"textGone\":{\"description\":\"The text to wait for to disappear\",\"type\":\"string\"},\"time\":{\"description\":\"The time to wait in seconds\",\"type\":\"number\"}},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"notebook_list\",\"description\":\"List your working notebooks: title, version, size, when and by whom they were last written, and their '## ' section headings. Add session_id to list a direct child subagent's notebooks.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"session_id\":{\"description\":\"a direct child subagent's session; omit for your own\",\"type\":\"string\"}},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"notebook_read\",\"description\":\"Read one of your working notebooks by title or id, or one '## ' section of it. Read the Handoff section before continuing earlier work; add session_id to read a direct child subagent's notebook.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"notebook\":{\"type\":\"string\"},\"section\":{\"description\":\"read only this '## ' section\",\"type\":\"string\"},\"session_id\":{\"description\":\"a direct child subagent's session; omit for your own\",\"type\":\"string\"}},\"required\":[\"notebook\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"notebook_update\",\"description\":\"Write your working notebook. op create needs a new title and no version; replace needs the whole new body and expected_version; append adds content at the end; section replaces one '## ' section, creating it at the end when absent. A conflict returns the current version: re-read, then retry. Returns the new version and size.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"content\":{\"type\":\"string\"},\"expected_version\":{\"description\":\"the version the write requires; replace requires it\",\"minimum\":1,\"type\":\"integer\"},\"notebook\":{\"description\":\"the new title for create, else the title or id of an existing notebook\",\"type\":\"string\"},\"op\":{\"enum\":[\"create\",\"replace\",\"append\",\"section\"],\"type\":\"string\"},\"section\":{\"description\":\"the section a section write replaces or creates\",\"type\":\"string\"}},\"required\":[\"notebook\",\"op\",\"content\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"description\":\"Read a bounded UTF-8 file inside the workspace.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"read_skill\",\"description\":\"Load a skill from the Skills catalog in your instructions: with only an id it returns the skill's instructions (SKILL.md); with a path relative to the skill directory it returns that file, or the entries of that directory. Call it before acting on a task a skill's description matches.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"id\":{\"description\":\"the skill id from the catalog\",\"type\":\"string\"},\"path\":{\"description\":\"optional file or directory inside the skill, e.g. references/api.md\",\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"read_thread\",\"description\":\"Read one earlier thread or task of this workspace by id (from recall, a thread reference, or a task), or the current thread by its own id: its objective, status, resolution, notes (each with its applicability; stale when a file it cites has changed), open work units, tasks, children and final answer. With transcript=true it also returns one page of the thread's visible messages, newest first by page, never splitting a tool call from its results; pass the page's nextBefore as before to read further back.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"before\":{\"description\":\"read messages before this seq (implies transcript)\",\"minimum\":0,\"type\":\"integer\"},\"id\":{\"description\":\"the session id\",\"type\":\"string\"},\"transcript\":{\"description\":\"include one page of the visible messages\",\"type\":\"boolean\"}},\"required\":[\"id\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"recall\",\"description\":\"Search earlier threads and tasks of this workspace for what they decided, tried, abandoned or found: matches their objectives, notes, resolutions and final answers. Facts the user gave in earlier conversations (hosts, variable names, conventions, decisions, approaches that failed) are often not in the repository; call recall before you guess or invent such a fact, and at the start of a task that may continue earlier work. Returns up to 8 threads with matching notes; open one with read_thread.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"limit\":{\"maximum\":8,\"minimum\":1,\"type\":\"integer\"},\"query\":{\"description\":\"words to match: names, identifiers, error text, topics\",\"type\":\"string\"}},\"required\":[\"query\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"replace_in_file\",\"description\":\"Replace one exact text occurrence in a UTF-8 workspace file.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"new_text\":{\"type\":\"string\"},\"old_text\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"path\",\"old_text\",\"new_text\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"search_text\",\"description\":\"Search repository text with bounded results. Uses ripgrep when available.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"limit\":{\"maximum\":1000,\"minimum\":1,\"type\":\"integer\"},\"path\":{\"type\":\"string\"},\"query\":{\"type\":\"string\"}},\"required\":[\"query\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"spawn_subagent\",\"description\":\"Spawn one bounded read-only child agent for a focused research, search, diagnostic, or analysis task. Child agents cannot modify files or recursively spawn more agents. Agents that can run it:\\n- explore: Read-only research: searches and reads the workspace and reports what it found.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"agent\":{\"description\":\"the agent that runs it; omit for explore\",\"enum\":[\"explore\"],\"type\":\"string\"},\"goal\":{\"type\":\"string\"}},\"required\":[\"goal\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"wait_subagent\",\"description\":\"Wait up to a bounded timeout for one direct child agent and return its latest durable result. Use this after spawn_subagent when the parent needs the child's findings before continuing.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"child_session_id\":{\"type\":\"string\"},\"timeout_seconds\":{\"maximum\":60,\"minimum\":1,\"type\":\"integer\"}},\"required\":[\"child_session_id\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"wakeup_cancel\",\"description\":\"Cancel a pending wake-up of this session by its id (from wakeup_schedule). A wake-up of another session is not reachable.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"wakeup_id\":{\"description\":\"the id wakeup_schedule returned\",\"type\":\"string\"}},\"required\":[\"wakeup_id\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"wakeup_schedule\",\"description\":\"Schedule a one-shot wake-up of this session: after delay_sec (1..86400) the runtime starts a new run here with your message as its instruction, so work can resume later (a build finishing, a review window, a retry after a cool-down). At most 3 wake-ups may be pending per session. The wake-up runs with this run's policy, never a wider one. Returns its id and the time it fires.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"delay_sec\":{\"description\":\"seconds from now until the wake-up fires\",\"maximum\":86400,\"minimum\":1,\"type\":\"integer\"},\"message\":{\"description\":\"what the resumed run should do, in your own words\",\"maxLength\":2000,\"minLength\":1,\"type\":\"string\"}},\"required\":[\"delay_sec\",\"message\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"write_file\",\"description\":\"Create or replace a UTF-8 file inside the workspace.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"content\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"work_unit_list\",\"description\":\"Inspect persistent Work Units for this Agent session.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{},\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"work_unit_create\",\"description\":\"Create a persistent Work Unit. Work Units cannot choose providers, models, Categories or reasoning effort.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"checks\":{\"description\":\"Ids of configured checks this unit must pass. Completing the unit runs them; only their results count.\",\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"depends_on\":{\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"description\":{\"type\":\"string\"},\"goal\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"required_evidence\":{\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"risk\":{\"enum\":[\"low\",\"medium\",\"high\",\"critical\"],\"type\":\"string\"}},\"required\":[\"goal\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"work_unit_update\",\"description\":\"Update Work Unit status, summary and evidence. Setting status completed runs the unit's checks through the runtime evaluator; the unit completes only if all of them pass. Check results cannot be written by this tool.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"evidence\":{\"type\":\"array\"},\"id\":{\"type\":\"string\"},\"status\":{\"enum\":[\"pending\",\"active\",\"blocked\",\"verifying\",\"completed\",\"failed\",\"cancelled\"],\"type\":\"string\"},\"summary\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"reference_suggest\",\"description\":\"Suggest a file, directory or earlier thread as context for this task. The user decides whether to include it; a target the user excluded cannot be suggested again.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"kind\":{\"enum\":[\"path\",\"thread\"],\"type\":\"string\"},\"note\":{\"description\":\"why it is relevant, at most 512 bytes\",\"type\":\"string\"},\"target\":{\"description\":\"workspace-relative path, or a session id for a thread\",\"type\":\"string\"}},\"required\":[\"kind\",\"target\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"note_write\",\"description\":\"Record a short note in this thread's Task State, where it stays after older messages leave the context window: a root cause, a decision and its reason, an approach that failed, a measured fact. Notes are shown to you and the user on every turn and to later threads through read_thread and recall. Write what you verified, not plans or summaries of the conversation. Give id to replace one of your notes.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"cites\":{\"description\":\"workspace-relative files the note is about; a later reader is told when one has changed since\",\"items\":{\"type\":\"string\"},\"maxItems\":4,\"type\":\"array\"},\"id\":{\"description\":\"an existing note of yours to replace; omit to add one\",\"type\":\"string\"},\"text\":{\"description\":\"the note, at most 512 bytes\",\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"note_remove\",\"description\":\"Remove one of your notes from this thread's Task State, e.g. one that turned out wrong. Notes the user wrote cannot be removed.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}}}]",
+    "system": "You are LumenCortex Agent, an autonomous coding agent.\nInspect before editing. Use tools until the requested outcome is achieved and verified. Keep changes scoped. Do not claim completion without evidence. Record what you verified that later steps or later work will need, such as a root cause, a decision or an approach that failed, with note_write. When a Workflow Contract is active, obey its curr...",
+    "firstUser": "[Task State — maintained by the LumenCortex runtime from durable session state; it is not a new user message.]\n\nObjective:\nCoding Agent (full) with the Browser template enabled\n",
+    "messagesJson": "[{\"role\":\"system\",\"content\":\"You are LumenCortex Agent, an autonomous coding agent.\\nInspect before editing. Use tools until the requested outcome is achieved and verified. Keep changes scoped. Do not claim completion without evidence. Record what you verified that later steps or later work will need, such as a root cause, a decision or an approach that failed, with note_write. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates.\\nWorking strategy:\\n- Name the deliverable the task asks for (files, behaviour, output) and produce a working version of it early, then improve it. Investigation that does not move the deliverable forward is cost.\\n- For a task of several steps, keep the plan, findings and a handoff in a notebook with notebook_update and keep it current. When a run continues earlier work, read the notebook's Handoff and the runtime rows before acting.\\n- Keep experiments cheap and bounded: a small probe before a long run, each with a reason.\\n- When the run has a deadline, spend the time left on a verified result and deliver it before the reserve rather than a better one after it.\\n- Run a command that may take long (a build, a test suite, a download, a server) with bash mode \\\"background\\\" where it is offered, keep working, and collect it with job_wait or job_status.\\n- After the same failure twice, change the approach instead of repeating it.\\n- Before the final answer, check the actual result: the files hold the intended content, the commands or tests that prove it pass, and no background job is still running. If part of the task is not done, say which part and why.\\nThis run can read and edit files in the workspace and run commands with bash.\"},{\"role\":\"system\",\"content\":\"## Skills (from /tmp/lcx-tools/work/browser/xdg/lumencortex/skills, /Users/tangxingpeng/.agents/skills, /Users/tangxingpeng/.claude/skills, /tmp/lcx-tools/work/browser/ws/.lumencortex/skills, /tmp/lcx-tools/work/browser/ws/.agents/skills, /tmp/lcx-tools/work/browser/ws/.claude/skills)\\n\\nSkills are instructions the user installed for particular kinds of work. Only each skill's id and description are listed here. When a task matches a description, call read_skill with that id before you act and follow what it returns, unless it conflicts with higher-priority instructions. A skill may name other files by a path relative to its directory (references, scripts, templates): read them with read_skill(id, path) when you need them. Do not load a skill that does not apply.\\n\\n- `company-deploy`: 公司应用部署标准流程（RMS/zhct 等项目部署到阿里云内网 130/133）。当用户要求\\\"部署/迁移/上线某服务到服务器、配置 Nacos/nginx/Jenkins、更新前端到 92 端口\\\"时加载本技能。涵盖：后端微服务(Maven+Docker)、前端(pnpm+nginx)、纯 jar 交付服务三类部署；数据库/Redis 操作统一经 DBX (MCP)；含验证清单与已知坑。\\n- `dbx`: Use the DBX CLI to inspect DBX-managed database connections, explore schemas, run bounded read-only queries, generate DBML or schema documentation, and open tables in DBX Desktop. Use when the user asks to work with a database configured in DBX from a shell-capable AI agent. Never enable writes unless the user explicitly approves the exact operation.\\n- `docx-openai`: OpenAI DOCX workflow, pinned Apache-2.0 snapshot adapted for this Mac. Create/read/edit Word files and inspect every rendered page. For existing-document beautification use docx-polish first; default to exact content preservation.\\n- `docx-polish`: Word/DOCX 中文排版、美化与参考模板样式迁移。默认宋体正文、黑体分级标题、黑色文字；支持软件技术文档及技术图形排版。模式 A 保留内容，模式 B 按授权重设计，模式 C 匹配参考 Word；渲染后逐页检查。\\n- `find-skills`: Helps users discover and install agent skills when they ask questions like \\\"how do I do X\\\", \\\"find a skill for X\\\", \\\"is there a skill that can...\\\", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.\\n- `frontend-design`: Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults.\\n- `impeccable`: Use when the user wants to design, redesign, shape, critique, audit, polish, simplify, harden, animate, or otherwise improve a frontend interface: websites, landing pages, dashboards, product UI, components, forms, settings, onboarding, empty states, and native iOS or Android screens. Handles UX review, hierarchy, layout, typography, color, motion, UX copy, accessibility, responsive behavior, edge cases, and capturing or documenting design systems (DESIGN.md, tokens). Also for making bland UI bolder, loud UI quieter, or ambitious visual effects. Not for backend-only or non-UI tasks.\\n- `ui-animation`: Builds, reviews, and measures UI motion, including springs, gestures, scroll effects, curve fitting from recordings, and sparse interface sound. Use when asked to \\\"add animation\\\", \\\"match this easing\\\", \\\"reverse engineer this motion\\\", \\\"add a click sound\\\", or find animation opportunities.\\n- `ui-ux-pro-max`: UI/UX design intelligence for web, mobile, and desktop. This skill should be used when designing, building, reviewing, or fixing interfaces, including pages, components, design systems, accessibility, interaction, responsive layout, typography, color, charts, and stack-specific UI implementation. Searchable local data: 79 searchable styles (50 active), 192 product palettes and reasoning profiles, 74 font pairings, 119 UX guidelines, 105 icons, 17 GSAP presets, 25 chart types, and 22 stacks.\\n- `ui-verification`: Runs scoped browser probes for focus, hit targets, overflow, themes, request failures, and performance attribution, with evidence linked to UI rule IDs. Use when asked to \\\"verify this in the browser\\\", \\\"reproduce this UI finding\\\", \\\"re-measure after the UI fix\\\", or \\\"review before and after screenshots\\\".\\n\"},{\"role\":\"user\",\"content\":\"[Task State — maintained by the LumenCortex runtime from durable session state; it is not a new user message.]\\n\\nObjective:\\nCoding Agent (full) with the Browser template enabled\\n\"},{\"role\":\"user\",\"content\":\"Coding Agent (full) with the Browser template enabled\"},{\"role\":\"user\",\"content\":\"MARK-B4 — Coding Agent (full) with the Browser template enabled\"}]"
+   }
+  }
+ ],
+ "requestCounts": {
+  "parent:MARK-B1": 1,
+  "parent:MARK-B4": 1
+ },
+ "scenario": "browser",
+ "sessionlessFullPolicy": {
+  "agent": "agent",
+  "policy": "full",
+  "delegation": "",
+  "included": [
+   {
+    "name": "apply_patch",
+    "permission": "write",
+    "source": "builtin"
+   },
+   {
+    "name": "bash",
+    "permission": "exec",
+    "source": "builtin"
+   },
+   {
+    "name": "find_files",
+    "permission": "read",
+    "source": "builtin"
+   },
+   {
+    "name": "job_cancel",
+    "permission": "exec",
+    "source": "builtin"
+   },
+   {
+    "name": "job_list",
+    "permission": "exec",
+    "source": "builtin"
+   },
+   {
+    "name": "job_status",
+    "permission": "exec",
+    "source": "builtin"
+   },
+   {
+    "name": "job_wait",
+    "permission": "exec",
+    "source": "builtin"
+   },
+   {
+    "name": "list_dir",
+    "permission": "read",
+    "source": "builtin"
+   },
+   {
+    "name": "list_subagents",
+    "permission": "read",
+    "source": "builtin"
+   },
+   {
+    "name": "mcp__browser__browser_click",
+    "permission": "exec",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_close",
+    "permission": "read",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_console_messages",
+    "permission": "read",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_fill_form",
+    "permission": "exec",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_hover",
+    "permission": "exec",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_navigate",
+    "permission": "exec",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_navigate_back",
+    "permission": "exec",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_network_requests",
+    "permission": "read",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_press_key",
+    "permission": "exec",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_select_option",
+    "permission": "exec",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_snapshot",
+    "permission": "read",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_tabs",
+    "permission": "read",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_take_screenshot",
+    "permission": "read",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_type",
+    "permission": "exec",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "mcp__browser__browser_wait_for",
+    "permission": "read",
+    "source": "mcp:browser"
+   },
+   {
+    "name": "note_remove",
+    "permission": "read",
+    "source": "task"
+   },
+   {
+    "name": "note_write",
+    "permission": "read",
+    "source": "task"
+   },
+   {
+    "name": "notebook_list",
+    "permission": "state",
+    "source": "builtin"
+   },
+   {
+    "name": "notebook_read",
+    "permission": "state",
+    "source": "builtin"
+   },
+   {
+    "name": "notebook_update",
+    "permission": "state",
+    "source": "builtin"
+   },
+   {
+    "name": "read_file",
+    "permission": "read",
+    "source": "builtin"
+   },
+   {
+    "name": "read_skill",
+    "permission": "read",
+    "source": "builtin"
+   },
+   {
+    "name": "read_thread",
+    "permission": "read",
+    "source": "builtin"
+   },
+   {
+    "name": "recall",
+    "permission": "read",
+    "source": "builtin"
+   },
+   {
+    "name": "reference_suggest",
+    "permission": "read",
+    "source": "task"
+   },
+   {
+    "name": "replace_in_file",
+    "permission": "write",
+    "source": "builtin"
+   },
+   {
+    "name": "search_text",
+    "permission": "read",
+    "source": "builtin"
+   },
+   {
+    "name": "spawn_subagent",
+    "permission": "read",
+    "source": "builtin"
+   },
+   {
+    "name": "wait_subagent",
+    "permission": "read",
+    "source": "builtin"
+   },
+   {
+    "name": "wakeup_cancel",
+    "permission": "write",
+    "source": "builtin"
+   },
+   {
+    "name": "wakeup_schedule",
+    "permission": "write",
+    "source": "builtin"
+   },
+   {
+    "name": "work_unit_create",
+    "permission": "read",
+    "source": "task"
+   },
+   {
+    "name": "work_unit_list",
+    "permission": "read",
+    "source": "task"
+   },
+   {
+    "name": "work_unit_update",
+    "permission": "read",
+    "source": "task"
+   },
+   {
+    "name": "write_file",
+    "permission": "write",
+    "source": "builtin"
+   }
+  ],
+  "withheld": [
+   "start_task(delegation)"
+  ]
+ },
+ "task": {
+  "n": 0,
+  "session": "",
+  "model": "",
+  "messages": 0,
+  "requestBytes": 0,
+  "toolsBytes": 0,
+  "toolCount": 0,
+  "toolNames": null,
+  "toolsJson": "",
+  "system": "",
+  "firstUser": "",
+  "messagesJson": ""
+ },
+ "workspace": "/tmp/lcx-tools/work/browser/ws",
+ "measured": {
+  "p1-default": {
+   "toolCount": 26,
+   "wireBytes": 15643,
+   "wireFunctionBytes": 14810,
+   "browserToolCount": 7,
+   "browserToolNames": [
+    "mcp__browser__browser_close",
+    "mcp__browser__browser_console_messages",
+    "mcp__browser__browser_network_requests",
+    "mcp__browser__browser_snapshot",
+    "mcp__browser__browser_tabs",
+    "mcp__browser__browser_take_screenshot",
+    "mcp__browser__browser_wait_for"
+   ],
+   "browserPermissions": {
+    "mcp__browser__browser_close": "read",
+    "mcp__browser__browser_console_messages": "read",
+    "mcp__browser__browser_network_requests": "read",
+    "mcp__browser__browser_snapshot": "read",
+    "mcp__browser__browser_tabs": "read",
+    "mcp__browser__browser_take_screenshot": "read",
+    "mcp__browser__browser_wait_for": "read"
+   },
+   "browserWireFunctionBytes": 5422,
+   "browserSpecBytesCostShape": 5436,
+   "browserSpecBytesRunShape": 5570,
+   "toolsJsonTokens": 3528,
+   "toolDefinitionTokens": 4038,
+   "promptTokensWithoutTools": 1532,
+   "promptTokensWithTools": 5570,
+   "systemPromptTokens": 402,
+   "costBeforeRun": {
+    "mcpBytes": {},
+    "mcpTools": {},
+    "totalBytes": 14916
+   },
+   "costAfterRun": {
+    "mcpBytes": {
+     "browser": 10137
+    },
+    "mcpTools": {
+     "browser": 15
+    },
+    "totalBytes": 25053
+   },
+   "costReconcilesWithWire": false
+  },
+  "p4-coding-full": {
+   "toolCount": 44,
+   "wireBytes": 26048,
+   "wireFunctionBytes": 24639,
+   "browserToolCount": 15,
+   "browserToolNames": [
+    "mcp__browser__browser_click",
+    "mcp__browser__browser_close",
+    "mcp__browser__browser_console_messages",
+    "mcp__browser__browser_fill_form",
+    "mcp__browser__browser_hover",
+    "mcp__browser__browser_navigate",
+    "mcp__browser__browser_navigate_back",
+    "mcp__browser__browser_network_requests",
+    "mcp__browser__browser_press_key",
+    "mcp__browser__browser_select_option",
+    "mcp__browser__browser_snapshot",
+    "mcp__browser__browser_tabs",
+    "mcp__browser__browser_take_screenshot",
+    "mcp__browser__browser_type",
+    "mcp__browser__browser_wait_for"
+   ],
+   "browserPermissions": {
+    "mcp__browser__browser_click": "exec",
+    "mcp__browser__browser_close": "read",
+    "mcp__browser__browser_console_messages": "read",
+    "mcp__browser__browser_fill_form": "exec",
+    "mcp__browser__browser_hover": "exec",
+    "mcp__browser__browser_navigate": "exec",
+    "mcp__browser__browser_navigate_back": "exec",
+    "mcp__browser__browser_network_requests": "read",
+    "mcp__browser__browser_press_key": "exec",
+    "mcp__browser__browser_select_option": "exec",
+    "mcp__browser__browser_snapshot": "read",
+    "mcp__browser__browser_tabs": "read",
+    "mcp__browser__browser_take_screenshot": "read",
+    "mcp__browser__browser_type": "exec",
+    "mcp__browser__browser_wait_for": "read"
+   },
+   "browserWireFunctionBytes": 10437,
+   "browserSpecBytesCostShape": 10467,
+   "browserSpecBytesRunShape": 10753,
+   "toolsJsonTokens": 5965,
+   "toolDefinitionTokens": 6709,
+   "promptTokensWithoutTools": 1487,
+   "promptTokensWithTools": 8196,
+   "systemPromptTokens": 365,
+   "costBeforeRun": {
+    "mcpBytes": {
+     "browser": 10137
+    },
+    "mcpTools": {
+     "browser": 15
+    },
+    "totalBytes": 25053
+   },
+   "costAfterRun": {
+    "mcpBytes": {
+     "browser": 10137
+    },
+    "mcpTools": {
+     "browser": 15
+    },
+    "totalBytes": 25053
+   },
+   "costReconcilesWithWire": false
+  }
+ },
+ "deltaVsBase": {
+  "p1-default": {
+   "withoutTemplate": {
+    "toolCount": 19,
+    "wireBytes": 9997,
+    "toolsJsonTokens": 2218,
+    "toolDefinitionTokens": 2618
+   },
+   "delta": {
+    "toolCount": 7,
+    "wireBytes": 5646,
+    "toolsJsonTokens": 1310,
+    "toolDefinitionTokens": 1420,
+    "promptTokensWithTools": 1433
+   }
+  },
+  "p4-coding-full": {
+   "withoutTemplate": {
+    "toolCount": 29,
+    "wireBytes": 15131,
+    "toolsJsonTokens": 3423,
+    "toolDefinitionTokens": 3923
+   },
+   "delta": {
+    "toolCount": 15,
+    "wireBytes": 10917,
+    "toolsJsonTokens": 2542,
+    "toolDefinitionTokens": 2786,
+    "promptTokensWithTools": 2787
+   }
+  }
+ },
+ "reconciliation": {
+  "note": "ToolSchemaCost prices each MCP tool as {name, description, parameters} with the server's own description; the run sends ' (MCP server: browser)' appended per tool (internal/toolset/mcp.go:41-45).",
+  "decoration": " (MCP server: browser)",
+  "perProfile": {
+   "p1-default": {
+    "costApiBytes": 10137,
+    "costShapeBytes": 5436,
+    "difference": -4701,
+    "perToolDecorationBytes": 22,
+    "tools": 7,
+    "expectedDifference": 154
+   },
+   "p4-coding-full": {
+    "costApiBytes": 10137,
+    "costShapeBytes": 10467,
+    "difference": 330,
+    "perToolDecorationBytes": 22,
+    "tools": 15,
+    "expectedDifference": 330
+   }
+  }
+ },
+ "processCheck": {
+  "playwrightOrMcpCliProcessesAfterClose": [],
+  "clean": true,
+  "note": "Engine.Close and RunSupervisor.Close ran before this check; a Chrome from this run would be a child of the MCP server."
+ }
+}

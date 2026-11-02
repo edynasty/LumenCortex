@@ -1,0 +1,68 @@
+package runtime
+
+import (
+	"context"
+	"testing"
+	"time"
+)
+
+// PROBE: once the previous firing's job row is swept by job retention (7 days by default), every later
+// firing of a shell schedule fails in the overlap check and never runs again.
+func TestZZProbeScheduleAfterJobRetention(t *testing.T) {
+	engine := openTestEngine(t)
+	ctx := context.Background()
+	info, err := engine.CreateSchedule(ctx, ScheduleRequest{
+		Name: "weekly", Kind: "shell", Command: "true",
+		Trigger: ScheduleTrigger{Kind: "interval", EverySeconds: 8 * 24 * 3600},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	makeDue := func() {
+		past := time.Now().UTC().Add(-time.Second).Format("2006-01-02T15:04:05.000000000Z")
+		seedSQL(t, engine, []any{`UPDATE scheduled_tasks SET next_run_at = ? WHERE schedule_id = ?`, past, info.ID})
+		engine.schedules.Wake()
+	}
+	waitCount := func(n int64) ScheduleInfo {
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			got, err := engine.Schedule(ctx, info.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.FireCount >= n && got.LastStatus != "" {
+				return got
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("no firing %d: %+v", n, got)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	makeDue()
+	first := waitCount(1)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		job, err := engine.store.GetJob(ctx, first.LastRef)
+		if err == nil && (job.State == "completed" || job.State == "failed") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job %s never finished: %+v %v", first.LastRef, job, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// The retention sweep (jobs.Manager.Sweep, default 7 days) removes the finished job row.
+	deleted, err := engine.store.DeleteFinishedJobsBefore(ctx, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := int64(2); i <= 3; i++ {
+		time.Sleep(150 * time.Millisecond)
+		makeDue()
+		got := waitCount(i)
+		t.Logf("PROBE firing %d after sweep (deleted %v): status=%q ref=%q error=%q", i, deleted, got.LastStatus, got.LastRef, got.LastError)
+	}
+	n := countRows(t, engine, `SELECT count(*) FROM jobs WHERE schedule_id = ?`, info.ID)
+	t.Logf("PROBE jobs submitted after the sweep: %d", n)
+}

@@ -1,0 +1,97 @@
+package schedule
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+// RV-6 residual: the live scheduler's firing queue is slower than missedGrace (2 min).
+func TestZZProbeRVSecondStartAfterGrace(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), ".lumencortex")
+	clock := newFakeClock(testBase)
+	storeA := openScheduleStore(t, dir)
+	defer storeA.Close()
+	actsA := &blockingActions{fakeActions: newFakeActions(), started: make(chan struct{}), release: make(chan struct{})}
+	a := newTestScheduler(t, storeA, actsA, clock, actsA.fakeActions.notify)
+	x, err := a.Create(ctx, shellSpec("x", "slow", Trigger{Kind: TriggerOnce, At: testBase.Add(time.Minute)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	y, err := a.Create(ctx, shellSpec("y", "quick", Trigger{Kind: TriggerOnce, At: testBase.Add(time.Minute + time.Second)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(2 * time.Minute)
+	a.Wake()
+	<-actsA.started
+	clock.Advance(2 * time.Minute) // the slow firing has now taken 2 min; y is ~3 min overdue
+	storeB := openScheduleStore(t, dir)
+	defer storeB.Close()
+	b := newTestScheduler(t, storeB, newFakeActions(), clock, func(string, Task) {})
+	if err := b.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	close(actsA.release)
+	waitFor(t, "x recorded", func() bool { return mustTask(t, storeA, x.ID).LastStatus != "" })
+	time.Sleep(300 * time.Millisecond)
+	rowY := mustTask(t, storeA, y.ID)
+	shells, _ := actsA.count()
+	t.Logf("PROBE RV-6 residual (A's firing took 2 min): y last_status=%q enabled=%v; A shell firings=%d", rowY.LastStatus, rowY.Enabled, shells)
+}
+
+// RV-6 semantics: a restart 90 s after a skip-policy slot now fires the occurrence (inside missedGrace).
+func TestZZProbeRVShortDowntimeSkipFires(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), ".lumencortex")
+	clock := newFakeClock(testBase)
+	store := openScheduleStore(t, dir)
+	defer store.Close()
+	acts := newFakeActions()
+	s := newTestScheduler(t, store, acts, clock, acts.notify)
+	task, err := s.Create(ctx, shellSpec("hourly", "make", Trigger{Kind: TriggerInterval, Every: time.Hour}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(time.Hour + 90*time.Second) // the process was down across the slot, back 90 s later
+	if err := s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	row := mustTask(t, store, task.ID)
+	shells, _ := acts.count()
+	t.Logf("PROBE RV-6 restart 90s late, policy skip: last_status=%q shells=%d", row.LastStatus, shells)
+}
+
+// RV-7: other zones and patterns around a gap; the repeated hour is unchanged.
+func TestZZProbeRVCronGaps(t *testing.T) {
+	cases := []struct {
+		zone, expr string
+		from       time.Time
+	}{
+		{"Australia/Lord_Howe", "*/10 * * * *", time.Date(2026, 10, 3, 15, 25, 0, 0, time.UTC)},
+		{"America/New_York", "* * * * *", time.Date(2026, 3, 8, 6, 58, 0, 0, time.UTC)},
+		{"America/New_York", "30 2 * * *", time.Date(2026, 3, 8, 5, 0, 0, 0, time.UTC)},
+		{"America/New_York", "30 1 * * *", time.Date(2026, 11, 1, 5, 0, 0, 0, time.UTC)},
+		{"Europe/London", "15 1 * * *", time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC)},
+	}
+	for _, c := range cases {
+		loc, err := time.LoadLocation(c.zone)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expr, err := parseCron(c.expr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		from := c.from.In(loc)
+		got, err := expr.next(from, loc)
+		got2, err2 := expr.next(got, loc)
+		t.Logf("PROBE RV-7 %s %-14q after %s -> %s (err=%v), then %s (err=%v)", c.zone, c.expr, from.Format(time.RFC3339), got.In(loc).Format(time.RFC3339), err, got2.In(loc).Format(time.RFC3339), err2)
+	}
+}

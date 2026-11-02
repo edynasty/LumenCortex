@@ -1,0 +1,23 @@
+package runtime
+
+import (
+	"context"
+	"testing"
+)
+
+// PROBE: wakeup_cancel removes any agent schedule of the session, including a host-created recurring one.
+func TestZZProbeWakeupCancelDeletesHostSchedule(t *testing.T) {
+	engine := openTestEngine(t)
+	ctx := context.Background()
+	h := newTestSession(t, engine, "g")
+	info, err := engine.CreateSchedule(ctx, ScheduleRequest{
+		Name: "daily review", Kind: "agent", SessionID: h.ID, Prompt: "review the open PRs", Policy: "workspace",
+		Trigger: ScheduleTrigger{Kind: "cron", Cron: "0 9 * * *"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = engine.wakeupsFor(h.ID, "read-only").CancelWakeup(ctx, info.ID)
+	_, gerr := engine.Schedule(ctx, info.ID)
+	t.Logf("PROBE read-only run's wakeup_cancel(host cron task) err=%v; task afterwards: %v", err, gerr)
+}

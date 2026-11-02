@@ -1,0 +1,131 @@
+package schedule
+
+import (
+	"context"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/edynasty/LumenCortex/internal/session"
+)
+
+// PROBE 1: spring-forward gap — does a matching nonexistent minute skip the rest of the day?
+func TestZZProbeCronSpringForward(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := time.Date(2026, 3, 8, 1, 50, 0, 0, ny) // 10 minutes before 02:00 EST becomes 03:00 EDT
+	for _, expr := range []string{"0 * * * *", "*/15 * * * *", "0 2,9 * * *"} {
+		c, err := parseCron(expr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := c.next(from, ny)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("PROBE cron %-14q after %s -> %s", expr, from.Format(time.RFC3339), got.In(ny).Format(time.RFC3339))
+	}
+}
+
+// racingStore lets "another process" claim the occurrence between Update's read and its write.
+type racingStore struct {
+	*session.Store
+	once sync.Once
+	hook func()
+}
+
+func (r *racingStore) GetSchedule(ctx context.Context, id string) (session.ScheduledTask, error) {
+	row, err := r.Store.GetSchedule(ctx, id)
+	if r.hook != nil {
+		r.once.Do(r.hook)
+	}
+	return row, err
+}
+
+// PROBE 2: a name-only Update racing a firing writes the stale next_run_at back; the same occurrence fires twice.
+func TestZZProbeUpdateRacingFiringRefires(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), ".lumencortex")
+	clock := newFakeClock(testBase)
+	store := openScheduleStore(t, dir)
+	defer store.Close()
+
+	firer := newFakeActions()
+	other := newTestScheduler(t, store, firer, clock, nil) // the process that fires
+	task, err := other.Create(ctx, shellSpec("hourly", "make", Trigger{Kind: TriggerInterval, Every: time.Hour}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(time.Hour) // the first slot is due
+	rs := &racingStore{Store: store}
+	rs.hook = func() { other.tick(ctx) } // fires between Update's GetSchedule and UpdateSchedule
+	editor := newTestScheduler(t, rs, newFakeActions(), clock, func(string, Task) {})
+	name := "renamed"
+	if _, err := editor.Update(ctx, task.ID, Patch{Name: &name}); err != nil {
+		t.Fatal(err)
+	}
+	row := mustTask(t, store, task.ID)
+	t.Logf("PROBE after rename: next_run_at=%v fire_count=%d", row.NextRunAt, row.FireCount)
+	other.tick(ctx) // same clock instant, same occurrence
+	shells, _ := firer.count()
+	row = mustTask(t, store, task.ID)
+	t.Logf("PROBE shell firings for one occurrence at %s: %d (fire_count=%d)", clock.Now().Format(time.RFC3339), shells, row.FireCount)
+}
+
+// blockingActions holds the "slow" firing until released, as a slow RunSupervisor.Start would.
+type blockingActions struct {
+	*fakeActions
+	started chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingActions) RunShell(ctx context.Context, t Task) (string, error) {
+	if t.Shell.Command == "slow" {
+		close(b.started)
+		<-b.release
+	}
+	return b.fakeActions.RunShell(ctx, t)
+}
+
+// PROBE 3: a second Engine starting while the first scheduler is mid-tick classifies a due occurrence
+// as "missed" (skip) although a scheduler was running; the running scheduler then loses the claim.
+func TestZZProbeSecondStartMarksLiveOccurrenceMissed(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), ".lumencortex")
+	clock := newFakeClock(testBase)
+	storeA := openScheduleStore(t, dir)
+	defer storeA.Close()
+	actsA := &blockingActions{fakeActions: newFakeActions(), started: make(chan struct{}), release: make(chan struct{})}
+	a := newTestScheduler(t, storeA, actsA, clock, actsA.fakeActions.notify)
+	x, err := a.Create(ctx, shellSpec("x", "slow", Trigger{Kind: TriggerOnce, At: testBase.Add(time.Minute)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	y, err := a.Create(ctx, shellSpec("y", "quick", Trigger{Kind: TriggerOnce, At: testBase.Add(time.Minute + time.Second)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(2 * time.Minute)
+	a.Wake()
+	<-actsA.started // A is firing x; y is due and next in A's tick
+
+	storeB := openScheduleStore(t, dir)
+	defer storeB.Close()
+	b := newTestScheduler(t, storeB, newFakeActions(), clock, func(string, Task) {})
+	if err := b.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	close(actsA.release)
+	waitFor(t, "x recorded", func() bool { return mustTask(t, storeA, x.ID).LastStatus != "" })
+	time.Sleep(300 * time.Millisecond)
+	rowY := mustTask(t, storeA, y.ID)
+	shells, _ := actsA.count()
+	t.Logf("PROBE y: last_status=%q enabled=%v fire_count=%d next_run_at=%v; A shell firings=%d (A was running throughout)",
+		rowY.LastStatus, rowY.Enabled, rowY.FireCount, rowY.NextRunAt, shells)
+}
