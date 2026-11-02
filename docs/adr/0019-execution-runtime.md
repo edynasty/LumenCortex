@@ -135,7 +135,9 @@ stateDiagram-v2
 ```
 
 - Every transition is one `UPDATE … WHERE job_id = ? AND state = ?` (compare-and-set): two writers never
-  both move a job.
+  both move a job. If a cancel reads `queued` but loses its transition to a worker's claim, it
+  re-reads the row and cancels the running job through the normal stop-and-wait path; single-job,
+  run-end and session-deletion cancellation do not silently drop that race.
 - `runner_id`/`runner_pid` name the owning manager. At open, a manager adopts queued jobs of runners whose
   process is gone and marks their running jobs `outcome_unknown`; such a job is never re-run automatically.
 - Workers: `execution.maxConcurrentJobs` (default 2). Queue: `execution.maxQueuedJobs` (default 32); a

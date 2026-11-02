@@ -403,13 +403,22 @@ func (m *Manager) Cancel(ctx context.Context, id string) (Job, error) {
 	if job.State == session.JobQueued {
 		now := m.now()
 		reason := "cancelled"
-		if _, err := m.store.UpdateJob(ctx, id, session.JobQueued, session.JobChange{
+		moved, err := m.store.UpdateJob(ctx, id, session.JobQueued, session.JobChange{
 			State: session.JobCancelled, Error: &reason, FinishedAt: &now,
-		}); err != nil {
+		})
+		if err != nil {
 			return Job{}, err
 		}
-		m.emit(id)
-		return m.store.GetJob(ctx, id)
+		if moved {
+			m.emit(id)
+			return m.store.GetJob(ctx, id)
+		}
+		// A worker may have claimed the queued row after our read. Cancel its running
+		// state instead of treating the lost compare-and-set as a completed cancel.
+		job, err = m.store.GetJob(ctx, id)
+		if err != nil || session.JobTerminal(job.State) {
+			return job, err
+		}
 	}
 	if !m.cancelRunning(ctx, job, stopReason{kind: stopCancel, message: "cancelled"}) {
 		return m.store.GetJob(ctx, id)
@@ -465,8 +474,17 @@ func (m *Manager) cancelJobs(ctx context.Context, active []Job, reason string) (
 			if ok {
 				moved++
 				m.emit(job.ID)
+				continue
 			}
-			continue
+			// Claim won the queued-state CAS; the run/session still owns this job,
+			// so include it in running cancellation and the terminal-state wait.
+			job, err = m.store.GetJob(ctx, job.ID)
+			if err != nil {
+				return moved, err
+			}
+			if session.JobTerminal(job.State) {
+				continue
+			}
 		}
 		if m.cancelRunning(ctx, job, stopReason{kind: stopCancel, message: reason}) {
 			moved++
