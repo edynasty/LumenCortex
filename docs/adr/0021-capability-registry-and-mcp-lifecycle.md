@@ -114,7 +114,9 @@ the first start records the catalog.
   through the registry (`MCPUpsertConfig`, `SetCapabilityEnabled`, `SetMCPServerEnabled`) that change
   only the exposure, a `session` binding included, move the recorded catalog to the new fingerprint: the
   host chose the new definition. A global entry's fingerprint does not cover the exposure: the global
-  file is the user's own.
+  file is the user's own. Deleting an entry through the registry (`MCPDeleteConfig`) removes the
+  catalogs recorded for its id in every workspace, so an identical entry written back by a run is not
+  offered from them before the host starts it again.
 
 ### D4 — Exposure: include lists and namespacing
 

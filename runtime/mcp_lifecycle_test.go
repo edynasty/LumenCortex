@@ -916,9 +916,39 @@ func TestMCPProjectExposureEditWithdrawsCachedCatalog(t *testing.T) {
 				t.Fatal(err)
 			}
 			if raw, _ := os.ReadFile(logPath); strings.Contains(string(raw), "mutate") {
-				t.Fatalf("the relabelled tool ran: %s", raw)
+				t.Fatalf("a tool outside the include list ran: %s", raw)
 			}
 		})
+	}
+}
+
+// ADR-0021 §3: deleting a server through the registry deletes the catalogs its starts recorded. A run
+// that writes the identical entry back into the project mcp.json is offered nothing from the old
+// catalog, and its call starts no server until the host starts it again.
+func TestMCPDeletedProjectServerCatalogIsNotReused(t *testing.T) {
+	workspace, marker, logPath := hostStartedProjectServer(t, func(engine *Engine) {
+		if err := engine.MCPDeleteConfigScope(mcp.ScopeProject, "proj"); err != nil {
+			t.Fatal(err)
+		}
+	})
+	writeEngineMCP(t, workspace, map[string]any{"proj": mcpTestServerConfig(t, "proj", map[string]any{"include": []string{"echo"}})})
+	reopened := openEngineWithGlobalConfig(t, workspace)
+	ctx := context.Background()
+	if tools, err := reopened.MCPTools(ctx, ""); err != nil || len(tools) != 0 {
+		t.Fatalf("after the host deleted the server and a run re-added it tools = %#v err=%v, want none", tools, err)
+	}
+	handle := newTestSession(t, reopened, "use the project server")
+	provider := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("echo_1", mcp.AgentToolName("proj", "echo"), `{"text":"x"}`),
+	}}
+	if _, err := reopened.runAgentWith(ctx, handle.ID, provider, AgentOptions{Policy: "read-only", MaxSteps: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("the re-added server started without a host start: %v", err)
+	}
+	if raw, _ := os.ReadFile(logPath); strings.Contains(string(raw), "echo") {
+		t.Fatalf("the re-added server ran a call: %s", raw)
 	}
 }
 

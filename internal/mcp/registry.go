@@ -312,6 +312,9 @@ func (r *Registry) DeleteScope(scope, id string) error {
 	}
 	delete(target, id)
 	stopped := r.stopServersLocked(id)
+	// The host deleted the definition: the catalogs its starts recorded go with it, so an identical
+	// entry written back by anything else is not offered from them before the host starts it again.
+	r.forgetCatalogs(id)
 	saveErr := saveConfigFile(path, target)
 	r.mu.Unlock()
 	closeReleases(stopped)
