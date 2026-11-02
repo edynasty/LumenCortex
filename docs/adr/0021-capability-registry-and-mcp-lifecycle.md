@@ -106,7 +106,14 @@ the first start records the catalog.
   those tools without a start; an edited definition never reuses the old list. The fingerprint covers
   the transport, command, args, URL, protocol mode, `env` and `headers` — the configured values,
   `{env:NAME}` references included, never what they resolve to — so an edit of an entry's environment
-  alone withdraws the recorded catalog until a start records a new one.
+  alone withdraws the recorded catalog until a start records a new one. For a project entry it also
+  covers the exposure (`include`, the `tools` overrides, `disabled`), because a run can write the
+  project `mcp.json` (ADR-0013): an exposure edit made outside the registry withdraws the catalog the
+  same way, so a run cannot relabel a tool `read` or include one the host left out and have a later
+  run offered it without a host start. The host's own edits through the registry (`MCPUpsertConfig`,
+  `SetCapabilityEnabled`, `SetMCPServerEnabled`) that change only the exposure move the recorded
+  catalog to the new fingerprint. A global entry's fingerprint does not cover the exposure: the global
+  file is the user's own.
 
 ### D4 — Exposure: include lists and namespacing
 

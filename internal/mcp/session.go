@@ -164,7 +164,7 @@ func (s *server) tools() ([]Tool, string) {
 	s.mu.Lock()
 	current := s.current
 	catalog, known := s.catalog, s.catalogSet
-	cfg := s.cfg
+	cfg, scope := s.cfg, s.scope
 	s.mu.Unlock()
 	if current != nil {
 		if live := current.Tools(); len(live) > 0 {
@@ -174,7 +174,7 @@ func (s *server) tools() ([]Tool, string) {
 	if known {
 		return catalog, ToolSourceCache
 	}
-	if cached, ok := s.registry.loadCatalog(s.key, cfg); ok {
+	if cached, ok := s.registry.loadCatalog(s.key, cfg, scope); ok {
 		s.mu.Lock()
 		if !s.catalogSet {
 			s.catalog, s.catalogSet = cached, true
@@ -289,8 +289,9 @@ func (s *server) recordCatalog(cfg Config, tools []Tool) {
 	s.mu.Lock()
 	s.catalog = tools
 	s.catalogSet = true
+	scope := s.scope
 	s.mu.Unlock()
-	s.registry.saveCatalog(s.key, cfg, tools)
+	s.registry.saveCatalog(s.key, cfg, scope, tools)
 }
 
 // refreshTools asks a running server for its tool list and records it.

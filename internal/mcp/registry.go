@@ -282,7 +282,13 @@ func (r *Registry) UpsertScope(scope string, cfg Config) error {
 		r.mu.Unlock()
 		return errors.New("mcp server configuration limit exceeded")
 	}
+	previous, existed := target[cfg.ID]
 	target[cfg.ID] = cfg
+	if existed {
+		// The host's own edit: a catalog the previous definition recorded serves the new one when only
+		// the exposure changed.
+		r.rerecordCatalogs(previous, cfg, scope)
+	}
 	stopped := r.reconfigureLocked(cfg.ID)
 	saveErr := saveConfigFile(path, target)
 	r.mu.Unlock()
@@ -882,13 +888,16 @@ func sanitizeToolPart(value string, maxLen int) string {
 	return b.String()
 }
 
-// catalogFingerprint identifies the spawn- and connection-relevant part of a configuration — what
-// sameSpawnConfig compares to decide that a running process no longer describes its entry, minus the
-// limits and the include list, which do not change the tool list a start reports — so a catalog
-// recorded for one server definition is not reused for another. Env and headers are hashed as
-// configured: an {env:NAME} reference, never the value it resolves to. A definition without either
-// keeps the fingerprint it had before they were covered.
-func catalogFingerprint(cfg Config) string {
+// catalogFingerprint identifies the definition a recorded catalog may serve, so a catalog recorded for
+// one server definition is not reused for another. For every scope it covers the spawn- and
+// connection-relevant part — what sameSpawnConfig compares to decide that a running process no longer
+// describes its entry, minus the limits — with env and headers hashed as configured: an {env:NAME}
+// reference, never the value it resolves to. For a project entry it also covers the exposure — the
+// include list, the tools overrides and disabled — because the project mcp.json is a file a run can
+// write: an exposure edit that did not come through the registry withdraws the catalog until the host
+// starts the server again, and one that did is re-recorded by rerecordCatalogs (ADR-0013, ADR-0021 D3).
+// A global definition without env or headers keeps the fingerprint it had before they were covered.
+func catalogFingerprint(cfg Config, scope string) string {
 	digest := sha256.New()
 	fmt.Fprintf(digest, "%s\x00%s\x00%s\x00%v\x00%v", cfg.transport(), cfg.Command, cfg.URL, cfg.Args, cfg.ProtocolMode)
 	for _, section := range []struct {
@@ -897,6 +906,15 @@ func catalogFingerprint(cfg Config) string {
 	}{{"env", cfg.Env}, {"headers", cfg.Headers}} {
 		for _, key := range slices.Sorted(maps.Keys(section.values)) {
 			fmt.Fprintf(digest, "\x00%s %q=%q", section.name, key, section.values[key])
+		}
+	}
+	if scope == ScopeProject {
+		fmt.Fprintf(digest, "\x00disabled %t", cfg.Disabled)
+		for _, name := range slices.Sorted(slices.Values(cfg.Include)) {
+			fmt.Fprintf(digest, "\x00include %q", name)
+		}
+		for _, name := range slices.Sorted(maps.Keys(cfg.Tools)) {
+			fmt.Fprintf(digest, "\x00tool %q=%q", name, cfg.Tools[name].Permission)
 		}
 	}
 	return hex.EncodeToString(digest.Sum(nil))[:16]
