@@ -415,6 +415,70 @@ func TestNotebookReadsOfARevokedChildAreWithdrawn(t *testing.T) {
 	}
 }
 
+// A host write of a session withdrawn as a source is refused: its reads show the version but not the
+// body, so a compare-and-set on that version would replace content the host never saw, and its
+// revisions are hidden too. The refusal holds for a version read after the revocation and for one read
+// before it (the revocation committed between the host's read and its write), and for a reader the
+// revocation fenced, not only the revoked child. Nothing is written; the agent's own notebook writes
+// are untouched.
+func TestSaveNotebookOfAWithdrawnSessionIsRefused(t *testing.T) {
+	engine, parent := notebookEngine(t)
+	ctx := context.Background()
+	child, childDoc := childWithNotebook(t, engine, parent)
+	plan, err := engine.CreateNotebook(ctx, parent, "plan", "# Plan\n\n## Handoff\nparent only\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("nb1", "notebook_read", `{"notebook":"research","session_id":"`+child+`"}`),
+		finalResponse("read"),
+	}}
+	if r, err := engine.runAgentWith(ctx, parent, reader, AgentOptions{Input: "read the child's notebook", Policy: "read-only", MaxSteps: 3}); err != nil || r.Status != "completed" {
+		t.Fatalf("reader run %+v %v", r, err)
+	}
+	// The host read the child's version while it was still a source.
+	before, err := engine.Notebook(ctx, child, childDoc.ID)
+	if err != nil || before.Withdrawn {
+		t.Fatalf("host read before the revocation %+v %v", before, err)
+	}
+	if _, err := engine.RevokeSource(ctx, SourceSession, child, "user_revoked"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := engine.Notebook(ctx, child, childDoc.ID)
+	if err != nil || !after.Withdrawn {
+		t.Fatalf("host read after the revocation %+v %v", after, err)
+	}
+	shown, err := engine.Notebook(ctx, parent, plan.ID)
+	if err != nil || !shown.Withdrawn {
+		t.Fatalf("host read of the fenced reader %+v %v", shown, err)
+	}
+	for _, w := range []struct {
+		what, session, id string
+		version           int64
+	}{
+		{"the revoked child, version read after the revocation", child, childDoc.ID, after.Version},
+		{"the revoked child, version read before the revocation", child, childDoc.ID, before.Version},
+		{"the fenced reader", parent, plan.ID, shown.Version},
+	} {
+		if doc, err := engine.SaveNotebook(ctx, w.session, w.id, "", w.version); !errors.Is(err, ErrNotebookWithdrawn) {
+			t.Fatalf("SaveNotebook of %s = %+v, %v; want ErrNotebookWithdrawn", w.what, doc, err)
+		}
+	}
+	if got, err := engine.store.GetNotebook(ctx, child, childDoc.ID); err != nil || got.Version != childDoc.Version || got.Body != childDoc.Body {
+		t.Fatalf("the child's notebook changed: %+v %v", got, err)
+	}
+	if got, err := engine.store.GetNotebook(ctx, parent, plan.ID); err != nil || got.Version != plan.Version || got.Body != plan.Body {
+		t.Fatalf("the reader's notebook changed: %+v %v", got, err)
+	}
+	// The run's own writes of its notebook are not host writes: a fenced reader that continues keeps
+	// its notebook.
+	if _, err := newNotebookAccess(engine, parent, "run2").Update(ctx, toolset.NotebookUpdate{
+		Notebook: "plan", Op: "append", Content: "more", Expected: -1,
+	}); err != nil {
+		t.Fatalf("the fenced reader's own append: %v", err)
+	}
+}
+
 func TestNotebookToolSpecsAreSmall(t *testing.T) {
 	engine, sessionID := notebookEngine(t)
 	set, err := toolset.New(toolset.Options{

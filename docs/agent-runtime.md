@@ -129,8 +129,8 @@ written, so the model re-reads and retries.
   `host`), `NotebookRevisions`, `NotebookRevision`, `DeleteNotebook` and `ExportNotebook` (Markdown and
   a file name). Writes publish `notebook.updated` / `notebook.deleted` (id, version, bytes) and a
   content-free journal row. The reads of a session withdrawn as a source return the same entries
-  marked `withdrawn` with no title, heading or body; `ExportNotebook` is refused
-  (`ErrNotebookWithdrawn`).
+  marked `withdrawn` with no title, heading or body; `ExportNotebook` and `SaveNotebook` are refused
+  (`ErrNotebookWithdrawn`, checked inside the write).
 
 ## Large-repository retrieval
 
