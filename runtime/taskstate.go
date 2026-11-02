@@ -134,13 +134,18 @@ func (e *Engine) ResolveThread(ctx context.Context, sessionID, state, actor stri
 
 // ResetContext moves the window start to the seq the next transcript row will get (design §4.4), so
 // later requests hold System, Task State and the rows added after the reset. It takes the run lock and
-// returns ErrRunHeld while a run holds it.
+// returns ErrRunHeld while a run holds it. The cancel or crash residue of an earlier run is repaired
+// first (session.Store.Reconcile), so the tool row that answers an interrupted call falls before the
+// new window start with its call, and the next run does not find a result whose call it cannot see.
 func (e *Engine) ResetContext(ctx context.Context, sessionID string) (TaskStateInfo, error) {
 	lock, err := e.acquireRun(ctx, sessionID)
 	if err != nil {
 		return TaskStateInfo{}, err
 	}
 	defer lock.Release()
+	if _, err := e.store.Reconcile(ctx, sessionID); err != nil {
+		return TaskStateInfo{}, err
+	}
 	state, err := e.loadTaskState(ctx, sessionID)
 	if err != nil {
 		return TaskStateInfo{}, err
