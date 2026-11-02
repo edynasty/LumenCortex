@@ -931,9 +931,10 @@ func sanitizeToolPart(value string, maxLen int) string {
 // connection-relevant part — what sameSpawnConfig compares to decide that a running process no longer
 // describes its entry, minus the limits — with env and headers hashed as configured: an {env:NAME}
 // reference, never the value it resolves to. For a project entry it also covers the exposure — the
-// include list, the tools overrides and disabled — because the project mcp.json is a file a run can
-// write: an exposure edit that did not come through the registry withdraws the catalog until the host
-// starts the server again, and one that did is re-recorded by rerecordCatalogs (ADR-0013, ADR-0021 D3).
+// include list, the tools overrides, disabled and the session binding (which names tools the runtime
+// calls itself) — because the project mcp.json is a file a run can write: an exposure edit that did not
+// come through the registry withdraws the catalog until the host starts the server again, and one that
+// did is re-recorded by rerecordCatalogs (ADR-0013, ADR-0021 D3).
 // A global definition without env or headers keeps the fingerprint it had before they were covered.
 func catalogFingerprint(cfg Config, scope string) string {
 	digest := sha256.New()
@@ -953,6 +954,10 @@ func catalogFingerprint(cfg Config, scope string) string {
 		}
 		for _, name := range slices.Sorted(maps.Keys(cfg.Tools)) {
 			fmt.Fprintf(digest, "\x00tool %q=%q", name, cfg.Tools[name].Permission)
+		}
+		if session := cfg.Session; session != nil {
+			fmt.Fprintf(digest, "\x00session %q %q %q %q %q", session.Argument, session.StartTool,
+				session.SessionIDField, session.StopTool, session.StopArgument)
 		}
 	}
 	return hex.EncodeToString(digest.Sum(nil))[:16]
