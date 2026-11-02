@@ -342,13 +342,33 @@ func (c Config) included(toolName string) bool {
 }
 
 // ValidateConfig checks a server entry against the runtime's rules: the transport and its endpoint, the
-// limit bounds and the include list. It is what the loader and a template both apply, so a template
-// cannot describe a server the loader would refuse.
+// limit bounds, the include list and the session binding's tools. It is what a host write and a
+// template apply, so neither can describe a server the runtime would refuse to start.
 func ValidateConfig(cfg Config) error {
 	if err := validateConfig(cfg); err != nil {
 		return err
 	}
-	return validateTools(cfg)
+	if err := validateTools(cfg); err != nil {
+		return err
+	}
+	return cfg.bindingError()
+}
+
+// bindingError reports a session binding whose start or stop tool is outside a non-empty include list:
+// the runtime calls those tools itself (the stop tool when the server stops), and it calls no tool a
+// run could not, so such a binding would leave every session a run opened open. A host write refuses
+// it; an entry already on disk with it loads, but its server refuses to start (ADR-0021 D5).
+func (c Config) bindingError() error {
+	binding := c.Session
+	if binding == nil {
+		return nil
+	}
+	for _, tool := range []struct{ field, name string }{{"startTool", binding.StartTool}, {"stopTool", binding.StopTool}} {
+		if tool.name != "" && !c.included(tool.name) {
+			return fmt.Errorf("mcp server %q: session.%s %q is not in the include list; a bound server's start and stop tools must stay included", c.ID, tool.field, tool.name)
+		}
+	}
+	return nil
 }
 
 // validateConfig checks the fields that decide whether a server can be started at all. The error

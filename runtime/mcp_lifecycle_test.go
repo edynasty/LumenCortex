@@ -644,28 +644,108 @@ func TestMCPSessionBindingInjectsAndCloses(t *testing.T) {
 	}
 }
 
-// ADR-0021 D5: the runtime closes a bound session only through a tool the server exposes. A stop tool
-// outside the include list is never called, even by the runtime itself when the server stops.
-func TestMCPBoundSessionStopToolMustBeIncluded(t *testing.T) {
-	_, logPath := helperEnv(t, "")
-	useGlobalMCP(t, map[string]any{"helper": sessionBoundHelper(t, map[string]any{"include": []string{"computer_start"}})})
+// ADR-0021 D5: a session binding's start and stop tools stay inside a non-empty include list, so the
+// runtime can always close what a run opened. Every host write refuses a binding that breaks the rule,
+// naming the tool, and leaves the stored entry as it was.
+func TestMCPHostWriteRefusesBindingOutsideInclude(t *testing.T) {
+	helperEnv(t, "")
+	useGlobalMCP(t, map[string]any{"helper": sessionBoundHelper(t, nil)})
 	engine := openEngineWithGlobalConfig(t, t.TempDir())
-	if _, err := engine.mcpRegistry.CallToolForSession(context.Background(), engine.workspace, "helper", "computer_start", "session_lc_1",
-		map[string]any{}); err != nil {
-		t.Fatal(err)
+	configs, err := engine.MCPConfigsScope(mcp.ScopeGlobal)
+	if err != nil || len(configs) != 1 {
+		t.Fatalf("global configs = %#v err=%v", configs, err)
 	}
-	if err := engine.Close(); err != nil {
-		t.Fatal(err)
+	stored := configs[0]
+	for tool, include := range map[string][]string{
+		"computer_stop":  {"computer_start"},
+		"computer_start": {"computer_stop"},
+	} {
+		edited := stored
+		edited.Include = include
+		err := engine.MCPUpsertConfigScope(mcp.ScopeGlobal, edited)
+		if err == nil || !strings.Contains(err.Error(), tool) {
+			t.Fatalf("include %v: upsert error = %v, want a refusal naming %s", include, err, tool)
+		}
 	}
-	raw, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
+	configs, err = engine.MCPConfigsScope(mcp.ScopeGlobal)
+	if err != nil || !slices.Equal(configs[0].Include, stored.Include) {
+		t.Fatalf("a refused write changed the entry: include %v -> %v (err=%v)", stored.Include, configs[0].Include, err)
 	}
-	if !strings.Contains(string(raw), "computer_start") {
-		t.Fatalf("the start call did not reach the server: %s", raw)
+}
+
+// ADR-0021 D5: switching off the start or stop tool of a bound server is refused with an error naming
+// the tool, whether the include list names its tools or is empty (every tool), and the list is unchanged.
+func TestSetCapabilityEnabledKeepsBoundSessionTools(t *testing.T) {
+	for name, include := range map[string]any{"listed": []string{"computer_start", "computer_stop"}, "every tool": nil} {
+		t.Run(name, func(t *testing.T) {
+			helperEnv(t, "")
+			useGlobalMCP(t, map[string]any{"helper": sessionBoundHelper(t, map[string]any{"include": include})})
+			engine := openEngineWithGlobalConfig(t, t.TempDir())
+			ctx := context.Background()
+			if include == nil {
+				// An empty include list is materialised from the catalog, which a start records.
+				if _, err := engine.mcpRegistry.CallTool(ctx, engine.workspace, "helper", "echo", map[string]any{"text": "x"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := engine.MCPConfigsScope(mcp.ScopeGlobal)
+			if err != nil || len(before) != 1 {
+				t.Fatalf("global configs = %#v err=%v", before, err)
+			}
+			for _, tool := range []string{"computer_stop", "computer_start"} {
+				err := engine.SetCapabilityEnabled(ctx, mcp.AgentToolName("helper", tool), false)
+				if err == nil || !strings.Contains(err.Error(), tool) {
+					t.Fatalf("switching off %s: error = %v, want a refusal naming it", tool, err)
+				}
+			}
+			after, err := engine.MCPConfigsScope(mcp.ScopeGlobal)
+			if err != nil || !slices.Equal(after[0].Include, before[0].Include) {
+				t.Fatalf("a refused switch changed the include list: %v -> %v (err=%v)", before[0].Include, after[0].Include, err)
+			}
+		})
 	}
-	if strings.Contains(string(raw), "computer_stop") {
-		t.Fatalf("a stop tool outside the include list was called: %s", raw)
+}
+
+// ADR-0021 D5: a binding outside the include list that is already on disk (written before the rule, or
+// by hand) does not stop the file from loading: the other servers stay usable, and that entry refuses
+// to start with an error naming the tool, reported in its state before and after the attempt.
+func TestMCPInvalidBindingOnDiskLeavesOtherServersUsable(t *testing.T) {
+	_, logPath := helperEnv(t, "")
+	useGlobalMCP(t, map[string]any{
+		"helper": sessionBoundHelper(t, map[string]any{"include": []string{"computer_start"}}),
+		"other":  mcpTestServerConfig(t, "other", nil),
+	})
+	engine := openEngineWithGlobalConfig(t, t.TempDir())
+	ctx := context.Background()
+	if _, err := engine.mcpRegistry.CallTool(ctx, engine.workspace, "other", "echo", map[string]any{"text": "x"}); err != nil {
+		t.Fatalf("a valid server beside the invalid binding: %v", err)
+	}
+	stateError := func() string {
+		t.Helper()
+		states, err := engine.MCPServerStates(ctx, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, state := range states {
+			if state.ID == "helper" {
+				return state.LastError
+			}
+		}
+		t.Fatal("the entry with the invalid binding is not listed")
+		return ""
+	}
+	if text := stateError(); !strings.Contains(text, "computer_stop") {
+		t.Fatalf("state before a start: lastError = %q, want it to name computer_stop", text)
+	}
+	_, err := engine.mcpRegistry.CallToolForSession(ctx, engine.workspace, "helper", "computer_start", "session_lc_1", map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "computer_stop") {
+		t.Fatalf("call on the invalid binding: error = %v, want a refusal naming computer_stop", err)
+	}
+	if text := stateError(); !strings.Contains(text, "computer_stop") {
+		t.Fatalf("state after the refused start: lastError = %q, want it to name computer_stop", text)
+	}
+	if raw, _ := os.ReadFile(logPath); strings.Contains(string(raw), "computer_start") {
+		t.Fatalf("the invalid binding's server ran a call: %s", raw)
 	}
 }
 

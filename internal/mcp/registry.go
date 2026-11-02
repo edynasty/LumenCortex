@@ -265,10 +265,7 @@ func (r *Registry) UpsertScope(scope string, cfg Config) error {
 	if cfg.ProtocolMode != ModeLegacy && cfg.ProtocolMode != ModeModern {
 		return errors.New("unsupported mcp protocol mode")
 	}
-	if err := validateConfig(cfg); err != nil {
-		return err
-	}
-	if err := validateTools(cfg); err != nil {
+	if err := ValidateConfig(cfg); err != nil {
 		return err
 	}
 
@@ -574,6 +571,11 @@ func (r *Registry) States(workspace string) ([]ServerState, error) {
 		} else {
 			state.Requirements = requirementsFor(cfg, cfg.Scope, cfg.BlockedByTrust)
 		}
+		// An entry whose session binding breaks the include rule loaded from disk but cannot start; its
+		// state says why before anything tries.
+		if err := cfg.bindingError(); err != nil && state.LastError == "" {
+			state.LastError = err.Error()
+		}
 		out = append(out, state)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -656,7 +658,9 @@ func (r *Registry) AgentTools(workspace string) ([]AgentTool, error) {
 	servers := make([]*server, 0, len(configs))
 	resolved := make([]Config, 0, len(configs))
 	for _, cfg := range configs {
-		if cfg.Disabled || (cfg.Scope == ScopeProject && !trusted) {
+		// An entry whose session binding breaks the include rule cannot start, so its catalog is not
+		// offered either (States reports why).
+		if cfg.Disabled || (cfg.Scope == ScopeProject && !trusted) || cfg.bindingError() != nil {
 			continue
 		}
 		servers = append(servers, r.serverLocked(cfg, cfg.Scope, workspace))

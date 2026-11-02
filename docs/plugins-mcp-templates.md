@@ -71,8 +71,10 @@ disabled with `disabledReason: "denylist"` and keeps them visible.
   included, never reuses the old list. A host edit through `MCPUpsertConfig`, `SetCapabilityEnabled` or
   `SetMCPServerEnabled` that changes only a project entry's exposure keeps the cached list; the same
   edit written into the project file by anything else withdraws it until the host starts the server.
-  A session binding's stop tool is called only when the entry's `include` list exposes it. Deleting an
-  entry through the registry removes its cached lists.
+  A session binding's start and stop tools must be exposed by `include` (an empty list exposes every
+  tool): a host write that breaks this (including switching off `computer_stop`) is refused, and an
+  entry already on disk that breaks it loads but cannot start, with the reason in its `lastError`.
+  Deleting an entry through the registry removes its cached lists.
 
 ### `mcp.json` fields
 

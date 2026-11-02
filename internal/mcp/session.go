@@ -251,8 +251,12 @@ func (s *server) ensure(ctx context.Context) (session, error) {
 }
 
 // start creates the client for the configuration. A stdio command that cannot be resolved fails here,
-// before a process exists, so a missing binary is a start error rather than a spawn failure.
+// before a process exists, so a missing binary is a start error rather than a spawn failure; so does a
+// session binding outside the include list, which only an entry loaded from disk can carry.
 func (s *server) start(ctx context.Context, cfg Config, workspace string) (session, error) {
+	if err := cfg.bindingError(); err != nil {
+		return nil, err
+	}
 	startCtx, cancel := context.WithTimeout(ctx, DefaultCatalogTimeout)
 	defer cancel()
 	spawn := cfg
@@ -493,6 +497,7 @@ func (s *server) stop() error {
 // release is a client taken from its server to be closed outside every lock, with the server-side
 // sessions it opened and the definition whose binding closes them.
 type release struct {
+	server *server
 	client session
 	cfg    Config
 	bound  []string
@@ -501,7 +506,7 @@ type release struct {
 // takeLocked takes the running client and the sessions it opened; the server is stopped from then on.
 // The caller holds s.mu.
 func (s *server) takeLocked() release {
-	taken := release{client: s.current, cfg: s.cfg, bound: s.boundSessions}
+	taken := release{server: s, client: s.current, cfg: s.cfg, bound: s.boundSessions}
 	s.current = nil
 	s.sem = nil
 	s.boundSessions = nil
@@ -515,7 +520,9 @@ func (r release) close() error {
 	if r.client == nil {
 		return nil
 	}
-	closeBoundSessions(r.client, r.cfg, r.bound)
+	if err := closeBoundSessions(r.client, r.cfg, r.bound); err != nil {
+		r.server.setLastError(err.Error())
+	}
 	return r.client.Close()
 }
 
@@ -556,17 +563,22 @@ const maxBoundSessions = 16
 // closeBoundSessions asks the server to close the sessions it opened, with the binding that opened
 // them. Each call is bounded and a failure is ignored: the client is going away either way. The stop
 // tool is called only when the server's include list exposes it: the runtime calls no tool a run could
-// not, so a binding cannot make it run an excluded one.
-func closeBoundSessions(client session, cfg Config, ids []string) {
+// not. A host write cannot configure a stop tool outside the list and such an entry cannot start, so
+// this is a backstop; when it skips the stop, the returned error says which sessions were left open.
+func closeBoundSessions(client session, cfg Config, ids []string) error {
 	binding := cfg.Session
-	if binding == nil || binding.StopTool == "" || !cfg.included(binding.StopTool) {
-		return
+	if binding == nil || binding.StopTool == "" || len(ids) == 0 {
+		return nil
+	}
+	if !cfg.included(binding.StopTool) {
+		return fmt.Errorf("mcp server %q: session.stopTool %q is not in the include list; %d bound session(s) were left open", cfg.ID, binding.StopTool, len(ids))
 	}
 	for _, id := range ids {
 		ctx, cancel := context.WithTimeout(context.Background(), closeSessionTimeout)
 		_, _ = client.CallTool(ctx, binding.StopTool, map[string]any{binding.StopArgument: id})
 		cancel()
 	}
+	return nil
 }
 
 // closeSessionTimeout bounds one stop call made while a server is being closed.
