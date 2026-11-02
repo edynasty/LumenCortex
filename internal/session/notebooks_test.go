@@ -119,6 +119,35 @@ func TestNotebookCreateReadUpdateAndDelete(t *testing.T) {
 	}
 }
 
+// A host write of a withdrawn session is refused inside the write, with no revision; a run's write of
+// its own session is not. The host holds a version it read before the revocation committed.
+func TestHostNotebookWriteOfAWithdrawnSessionIsRefused(t *testing.T) {
+	store, ctx := notebookStore(t)
+	doc, err := store.CreateNotebook(ctx, "s1", "plan", "# Plan\nkept\n", "agent:run1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RevokeSession(ctx, "s1", "user_revoked"); err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range []string{"replace", "append", "section"} {
+		if _, err := store.UpdateNotebook(ctx, "s1", doc.ID, "host", op, doc.Version,
+			func(string) (string, error) { return "", nil }); !errors.Is(err, ErrNotebookWithdrawn) {
+			t.Fatalf("host %s of a withdrawn session: %v", op, err)
+		}
+	}
+	if got, err := store.GetNotebook(ctx, "s1", doc.ID); err != nil || got.Version != 1 || got.Body != doc.Body {
+		t.Fatalf("notebook after the refused writes %+v %v", got, err)
+	}
+	if revs, err := store.NotebookRevisions(ctx, "s1", doc.ID); err != nil || len(revs) != 1 {
+		t.Fatalf("revisions after the refused writes %+v %v", revs, err)
+	}
+	if got, err := store.UpdateNotebook(ctx, "s1", doc.ID, "agent:run2", "append", doc.Version,
+		func(current string) (string, error) { return current + "more\n", nil }); err != nil || got.Version != 2 {
+		t.Fatalf("the run's own append %+v %v", got, err)
+	}
+}
+
 func TestNotebookLimitsAreRefused(t *testing.T) {
 	store, ctx := notebookStore(t)
 

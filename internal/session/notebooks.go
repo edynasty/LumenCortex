@@ -36,6 +36,9 @@ var (
 	ErrNotebookNotFound = errors.New("notebook not found")
 	// ErrNotebookVersionConflict means a write expected a version the notebook no longer has.
 	ErrNotebookVersionConflict = errors.New("notebook version conflict")
+	// ErrNotebookWithdrawn means the session is withdrawn as a source (a revocation or a privacy
+	// deletion fences it): a host neither exports its notebooks nor replaces one of them.
+	ErrNotebookWithdrawn = errors.New("the session is withdrawn as a source: its notebooks are not readable or writable by the host")
 )
 
 // NotebookConflict is a lost compare-and-set: the notebook is at CurrentVersion, and nothing was
@@ -320,6 +323,13 @@ func scanNotebook(row *sql.Row) (NotebookDoc, error) {
 // refuses the write with *NotebookConflict when the notebook is at another version, writing nothing;
 // expected < 0 applies to whatever version is current. op names the revision (replace, append or
 // section).
+//
+// A write by "host" of a session withdrawn as a source is refused with ErrNotebookWithdrawn, writing
+// nothing: the host's reads of such a session show versions but no body (runtime, plan T3-S3), so its
+// compare-and-set would replace content it never saw. The fence is read inside the write transaction,
+// which every fence write is serialized with, so a revocation that commits after the host's read and
+// before this write refuses it too. A run's write of its own session is not refused: a fenced reader
+// that was projected continues with its own notebooks.
 func (s *Store) UpdateNotebook(ctx context.Context, sessionID, ref, author, op string, expected int64, mutate func(current string) (string, error)) (NotebookDoc, error) {
 	if err := checkID("session id", sessionID); err != nil {
 		return NotebookDoc{}, err
@@ -336,6 +346,13 @@ func (s *Store) UpdateNotebook(ctx context.Context, sessionID, ref, author, op s
 	now := time.Now().UTC()
 	var doc NotebookDoc
 	err := s.writeTx(ctx, func(conn *sql.Conn) error {
+		if author == "host" {
+			if _, withdrawn, err := sessionFence(ctx, conn, sessionID); err != nil {
+				return err
+			} else if withdrawn {
+				return ErrNotebookWithdrawn
+			}
+		}
 		current, err := getNotebook(ctx, conn, sessionID, ref)
 		if err != nil {
 			return err

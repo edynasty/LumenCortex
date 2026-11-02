@@ -36,8 +36,8 @@ var (
 	// ErrNotebookNotFound reports that the session holds no notebook with that id or title.
 	ErrNotebookNotFound = session.ErrNotebookNotFound
 	// ErrNotebookWithdrawn reports that the session is withdrawn as a source (a revocation or a
-	// privacy deletion fences it), so its notebooks are not exported.
-	ErrNotebookWithdrawn = errors.New("the session is withdrawn as a source: its notebooks are not readable")
+	// privacy deletion fences it), so its notebooks are neither exported nor saved by the host.
+	ErrNotebookWithdrawn = session.ErrNotebookWithdrawn
 )
 
 // Notebook limits, as the store enforces them (ADR-0020).
@@ -104,7 +104,10 @@ func (e *Engine) CreateNotebook(ctx context.Context, sessionID, title, body stri
 
 // SaveNotebook replaces the body of one notebook of the session, attributed to the host. The write
 // applies only to expectedVersion; a notebook at another version is refused with a *NotebookConflict
-// (errors.Is(err, ErrNotebookConflict)) that carries the current version, and nothing is written.
+// (errors.Is(err, ErrNotebookConflict)) that carries the current version, and nothing is written. A
+// session withdrawn as a source is refused with ErrNotebookWithdrawn: its reads show the version but
+// not the body, so the write would replace content the host never saw. The store reads the fence in
+// the write transaction, so a revocation committed after the host's read still refuses the write.
 func (e *Engine) SaveNotebook(ctx context.Context, sessionID, id, body string, expectedVersion int64) (NotebookDoc, error) {
 	doc, err := e.store.UpdateNotebook(ctx, sessionID, id, "host", "replace", expectedVersion,
 		func(string) (string, error) { return body, nil })

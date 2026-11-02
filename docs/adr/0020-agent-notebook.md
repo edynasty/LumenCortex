@@ -138,7 +138,9 @@ readable after a context reset (it is written by the next Start) and after a mod
   `SaveNotebook` (`updated_by = "host"`), `NotebookRevisions`, `NotebookRevision`, `DeleteNotebook`,
   `ExportNotebook` (Markdown plus a file name). Host writes use the same compare-and-set. The reads of
   a session withdrawn as a source return the same entries marked `withdrawn`, with no title, section
-  heading or body; `ExportNotebook` is refused with `ErrNotebookWithdrawn`.
+  heading or body; `ExportNotebook` and `SaveNotebook` are refused with `ErrNotebookWithdrawn` (a save
+  would replace a body the host was never shown; the store reads the fence inside the write, so a
+  revocation between the host's read and its save refuses it too).
 - `notebook.updated` and `notebook.deleted` carry `{notebookId, version, bytes}`; the journal records
   the same ids and counts and never a body.
 
