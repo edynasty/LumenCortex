@@ -353,7 +353,8 @@ func TestDiagnosticTraceClosesEveryRequestOfARecoveringStep(t *testing.T) {
 	engine.events.publish("provider.retry", sessionID, map[string]any{"step": 1, "retry": 1})
 	request("a")
 	engine.events.publish("llm.complete", sessionID, map[string]any{"step": 1, "provider": "test", "model": "a"})
-	waitForRecords(t, engine, sessionID, 10)
+	// session.start from newTestSession plus the ten events above, the last being llm.complete.
+	waitForRecords(t, engine, sessionID, 11)
 	spans, err := engine.DiagnosticTrace(context.Background(), sessionID, "")
 	if err != nil {
 		t.Fatal(err)
