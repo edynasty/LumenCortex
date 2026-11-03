@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -328,6 +329,48 @@ func TestEngineDiagnosticsStatsCountsDrops(t *testing.T) {
 	}
 	if stats.Events.Published == 0 {
 		t.Fatalf("event stats = %+v", stats.Events)
+	}
+}
+
+// Every failed request of a recovering step closes its own span: a capacity rejection retried on the same
+// model closes through window.capacity_retry, so the answer that follows closes the request that answered.
+func TestDiagnosticTraceClosesEveryRequestOfARecoveringStep(t *testing.T) {
+	engine, _ := diagWorkspace(t)
+	engine.diag.Level().Set(slog.LevelDebug)
+	handle := newTestSession(t, engine, "trace-recovery")
+	sessionID := handle.ID
+	engine.noteRunStarted(sessionID, "run-1")
+	engine.events.publish("run.started", sessionID, map[string]any{"startedAt": time.Now()})
+	request := func(model string) {
+		engine.events.publish("llm.request", sessionID, map[string]any{"step": 1, "modelRef": "test/" + model, "provider": "test", "model": model})
+	}
+	request("a")
+	engine.events.publish("provider.failover", sessionID, map[string]any{"step": 1, "class": "availability", "error": "503"})
+	request("b")
+	engine.events.publish("window.capacity_retry", sessionID, map[string]any{"step": 1, "modelRef": "test/b", "error": "too large"})
+	request("b")
+	engine.events.publish("provider.failover", sessionID, map[string]any{"step": 1, "class": "capacity", "error": "too large"})
+	engine.events.publish("provider.retry", sessionID, map[string]any{"step": 1, "retry": 1})
+	request("a")
+	engine.events.publish("llm.complete", sessionID, map[string]any{"step": 1, "provider": "test", "model": "a"})
+	waitForRecords(t, engine, sessionID, 10)
+	spans, err := engine.DiagnosticTrace(context.Background(), sessionID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, span := range spans {
+		if span.Kind != TraceRequest {
+			continue
+		}
+		if span.EndedAt == nil {
+			t.Fatalf("request span left open: %+v", span)
+		}
+		got = append(got, span.Model+":"+span.Status+":"+span.ErrorCode)
+	}
+	want := []string{"a:error:availability", "b:error:capacity", "b:error:capacity", "a:ok:"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("request spans = %v, want %v", got, want)
 	}
 }
 

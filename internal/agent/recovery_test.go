@@ -124,6 +124,10 @@ func TestRecoveryDecisionReplays(t *testing.T) {
 	if err := ReplayDecision(d); err == nil {
 		t.Fatal("a changed recovery output replayed")
 	}
+	// A sub-millisecond backoff is recorded as 1 ms, never 0: the wait between retries is kept.
+	if _, wait, _ := RecoveryDecision(cands[:1], 0, protocol.ClassAvailability, []time.Duration{0}, 750*time.Microsecond); wait != time.Millisecond {
+		t.Fatalf("a 750µs backoff waited %s", wait)
+	}
 }
 
 func TestRecoveryFromConfig(t *testing.T) {
@@ -252,9 +256,9 @@ func TestLoopWaitsOutConsecutiveUpstreamFailures(t *testing.T) {
 			t.Errorf("retry event %d = %v", i, r)
 		}
 	}
-	// delayMs is what is left of the Retry-After after the failure was handled; the request gap above
-	// proves the whole Retry-After passed.
-	if r := retries[1]; r["status"] != 429 || r["retryAfterMs"] != int64(120) || r["delayMs"].(int64) < 100 {
+	// delayMs is what is left of the Retry-After after the failure was handled, so it depends on
+	// scheduling; the request gap above proves the whole Retry-After passed.
+	if r := retries[1]; r["status"] != 429 || r["retryAfterMs"] != int64(120) || r["delayMs"].(int64) <= 0 {
 		t.Errorf("the 429 retry event = %v", r)
 	}
 	recovered := events.of("provider.recovered")

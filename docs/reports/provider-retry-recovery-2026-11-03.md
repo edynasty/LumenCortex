@@ -50,6 +50,14 @@ Reviewer agent `RetryReview` on `fb40879`: PASS for retry mechanics, admission, 
 
 Found while fixing: the old sweep reset recorded no decision, so the step record's decision log could lead to a different model than the one that answered (VerifyStep). The `failover.recovery` decision closes that; tests now replay every step.
 
+Recheck on `367a3db`: F1–F5 CLOSED; ReplayDecision/VerifyStep PASS. Fixed in the next commit:
+
+| ID | Finding | Fix |
+|---|---|---|
+| F6 P2 | Recorded backoff truncated to whole ms: `baseDelayMs=maxDelayMs=1` gave 0 ms waits | Backoff rounded up like readiness (`ceilMs`); decision test for 750 µs |
+| F7 P2 | Test required ≥100 ms remaining of a 120 ms Retry-After (scheduler-dependent) | Bound removed; the request-gap assertion proves the Retry-After |
+| Trace (pre-existing, now reachable) | A first capacity rejection emitted only `window.capacity_retry`, which the trace builder ignored, so a later answer closed the wrong request span | `window.capacity_retry` closes the request span with `capacity`; test fails without the fix |
+
 ## Behaviour changes to note
 
 - A run without a deadline now waits up to 30 min through an outage instead of ending within seconds; set `execution.retry.maxOutageSeconds` or `disabled` for the old behaviour.

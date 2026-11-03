@@ -228,15 +228,20 @@ func (b *traceBuilder) apply(record diag.Record, sessionID string) {
 		}
 		delete(b.requests, span.ID)
 		closeSpan(span, record.Time, TraceOK, "", false)
-	case "provider.failover":
+	case "provider.failover", "window.capacity_retry":
 		// A failed request never completes: the failover event closes it, with the error class the
-		// run used to pick the next model.
+		// run used to pick the next model; a capacity rejection retried on the same model closes it
+		// through window.capacity_retry instead.
 		span := b.openRequest(runID, requestSpanID(runID, sessionID, step))
 		if span == nil {
 			return
 		}
 		delete(b.requests, span.ID)
-		closeSpan(span, record.Time, TraceError, nestedText(attrs, "data", "class"), false)
+		class := nestedText(attrs, "data", "class")
+		if record.Msg == "window.capacity_retry" {
+			class = "capacity"
+		}
+		closeSpan(span, record.Time, TraceError, class, false)
 	case "tool.start":
 		id := toolSpanID(toolCallID, runID, sessionID, step)
 		span := &TraceSpan{

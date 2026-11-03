@@ -173,21 +173,27 @@ type recoveryOutput struct {
 }
 
 // RecoveryDecision records a recovery move: after cands[failed] failed with class, the step waits and
-// sends to next (-1: no candidate is left). The inputs are recoveryPick's at millisecond precision, a
-// readiness rounded up so a Retry-After is never cut short, so the decision replays (I7); being a
+// sends to next (-1: no candidate is left). The inputs are recoveryPick's in whole milliseconds, rounded
+// up so neither a Retry-After nor the backoff is cut short, so the decision replays (I7); being a
 // failover entry, it moves the step's model like any failover.
 func RecoveryDecision(cands []Candidate, failed int, class protocol.ErrorClass, readyIn []time.Duration, backoff time.Duration) (int, time.Duration, Decision) {
 	ms := make([]int64, len(readyIn))
 	for i, d := range readyIn {
 		ms[i] = -1
 		if d >= 0 {
-			ms[i] = int64((d + time.Millisecond - 1) / time.Millisecond)
+			ms[i] = ceilMs(d)
 		}
 	}
-	next, waitMs := replayRecoveryPick(ms, failed, backoff.Milliseconds())
+	backoffMs := ceilMs(backoff)
+	next, waitMs := replayRecoveryPick(ms, failed, backoffMs)
 	return next, time.Duration(waitMs) * time.Millisecond, newDecision(DecisionFailover, RuleFailoverRecovery,
-		recoveryInputs{Candidates: candidateRefs(cands), Failed: failed, Class: class, ReadyInMs: ms, BackoffMs: backoff.Milliseconds()},
+		recoveryInputs{Candidates: candidateRefs(cands), Failed: failed, Class: class, ReadyInMs: ms, BackoffMs: backoffMs},
 		recoveryOutput{Next: next, WaitMs: waitMs})
+}
+
+// ceilMs is d in whole milliseconds, rounded up so a recorded wait is never shorter than d.
+func ceilMs(d time.Duration) int64 {
+	return int64((d + time.Millisecond - 1) / time.Millisecond)
 }
 
 func replayRecoveryPick(readyInMs []int64, failed int, backoffMs int64) (int, int64) {
