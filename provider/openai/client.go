@@ -373,7 +373,28 @@ func (c *Client) completeOnce(ctx context.Context, req protocol.ProviderRequest)
 	if err != nil {
 		return protocol.ProviderResponse{}, timeoutOr(err)
 	}
+	// Some OpenAI-compatible DeepSeek gateways return a successful `stop`
+	// with proprietary tool-call closing tags in plain text instead of a
+	// structured tool call. That is not an agent final answer. Reject only
+	// the distinctive complete closing sequence, never synthesize or run
+	// a tool from the text. Availability classification lets existing bounded
+	// retries/failover handle the malformed upstream answer.
+	if malformedDSMLToolStop(out, req) {
+		return protocol.ProviderResponse{}, errMalformedDSMLToolStop
+	}
 	return out, nil
+}
+
+var errMalformedDSMLToolStop = errors.New("provider returned malformed tool-call delimiters as assistant text without structured tool_calls")
+
+func malformedDSMLToolStop(response protocol.ProviderResponse, request protocol.ProviderRequest) bool {
+	if len(request.Tools) == 0 || len(response.Message.ToolCalls) != 0 || response.FinishReason != "stop" {
+		return false
+	}
+	content := strings.TrimSpace(response.Message.Content)
+	return strings.HasSuffix(content, "</｜｜DSML｜｜ calls>") &&
+		strings.Contains(content, "</｜｜DSML｜｜ parameter>") &&
+		strings.Contains(content, "</｜｜DSML｜｜ invoke>")
 }
 
 func (c *Client) readJSON(body io.Reader) (protocol.ProviderResponse, error) {
