@@ -198,6 +198,49 @@ type Execution struct {
 	// Budget bounds every agent run of this process (ADR-0019 §6); a run's own budget overrides it field
 	// by field. Absent: no limit.
 	Budget *Budget `json:"budget,omitempty"`
+	// Retry is how a run recovers from provider availability failures. Absent: the defaults.
+	Retry *Retry `json:"retry,omitempty"`
+}
+
+// Retry is how an agent run waits out provider availability failures (408, 409, 429, 5xx, transport
+// errors, timeouts, cut or malformed streams): the same step is sent again after an exponential backoff
+// with jitter, or after the provider's Retry-After when that is longer. It sets no request, token or cost
+// limit: the run's deadline and the host's cancellation bound the recovery, and MaxOutageSeconds bounds
+// one continuous outage. A zero field means "absent": the default applies.
+type Retry struct {
+	// Disabled ends the run at the first availability failure no failover candidate answered.
+	Disabled bool `json:"disabled,omitempty"`
+	// BaseDelayMs is the first backoff; each further one doubles. Absent: 1000.
+	BaseDelayMs int `json:"baseDelayMs,omitempty"`
+	// MaxDelayMs caps the computed backoff (a provider's Retry-After may ask for more). Absent: 30000.
+	MaxDelayMs int `json:"maxDelayMs,omitempty"`
+	// MaxOutageSeconds is the longest continuous outage a run waits out. Absent: a run with a deadline
+	// waits until its deadline; a run without one waits 1800 s.
+	MaxOutageSeconds int `json:"maxOutageSeconds,omitempty"`
+}
+
+// Retry defaults.
+const (
+	DefaultRetryBaseDelayMs          = 1000
+	DefaultRetryMaxDelayMs           = 30000
+	DefaultRetryMaxOutageNoDeadlineS = 1800
+)
+
+// Over returns r with every set field of o in place of its own.
+func (r Retry) Over(o Retry) Retry {
+	if o.Disabled {
+		r.Disabled = true
+	}
+	if o.BaseDelayMs > 0 {
+		r.BaseDelayMs = o.BaseDelayMs
+	}
+	if o.MaxDelayMs > 0 {
+		r.MaxDelayMs = o.MaxDelayMs
+	}
+	if o.MaxOutageSeconds > 0 {
+		r.MaxOutageSeconds = o.MaxOutageSeconds
+	}
+	return r
 }
 
 // Budget bounds one agent run (ADR-0019 §6). A zero field is no limit. The run's deadline is its
@@ -295,6 +338,10 @@ func (e *Execution) Limits() Execution {
 	if e.Budget != nil {
 		b := *e.Budget
 		out.Budget = &b
+	}
+	if e.Retry != nil {
+		r := *e.Retry
+		out.Retry = &r
 	}
 	return out
 }

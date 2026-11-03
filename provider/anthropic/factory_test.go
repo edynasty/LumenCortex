@@ -56,7 +56,7 @@ func TestFromModelUsesResolvedSettings(t *testing.T) {
 		APIKeyRef: "{env:FROM_MODEL_KEY}", Headers: map[string]string{"X-Org": "acme"}, Output: 2048,
 		IdleTimeout: time.Minute,
 	}
-	client, err := FromModel(m, Options{DisableStreaming: true, DisableRetries: true})
+	client, err := FromModel(m, Options{DisableStreaming: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestFromModelCarriesTheReasoningFormat(t *testing.T) {
 	defer server.Close()
 	complete := func(format, effort string) error {
 		m := config.ResolvedModel{Ref: "p/m", ProviderID: "p", ModelID: "m", BaseURL: server.URL, ReasoningFormat: format}
-		client, err := FromModel(m, Options{DisableStreaming: true, DisableRetries: true})
+		client, err := FromModel(m, Options{DisableStreaming: true})
 		if err != nil {
 			return err
 		}

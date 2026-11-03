@@ -287,7 +287,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		stall := Stall{SameFailure: r.ts.Progress.SameFailureCount, NoProgressSteps: r.ts.Progress.NoProgressSteps}
 		sent := time.Now()
 		answered, cause := l.send(ctx, sessionID, step, opts, stall, r.ts.Version, cands, r, in, len(groups), specs, &usage, &stepDecisions)
-		clock.observeModel(time.Since(sent))
+		clock.observeModel(time.Since(sent), answered.Elapsed)
 		if cause != nil {
 			return l.exit(ctx, state, usage, *cause)
 		}

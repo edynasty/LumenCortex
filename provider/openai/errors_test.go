@@ -29,28 +29,32 @@ func providerError(t *testing.T, err error) *protocol.ProviderError {
 	return pe
 }
 
-// The adapter table of design §4.5: every failed Complete is a ProviderError whose class follows the status.
+// The adapter table of design §4.5: every failed Complete is a ProviderError whose class and reason
+// follow the status. Complete is one attempt: the agent loop owns retrying.
 func TestAdapterClassifiesHTTPStatuses(t *testing.T) {
 	cases := []struct {
 		name   string
 		status int
 		body   string
 		want   protocol.ErrorClass
+		reason protocol.Reason
 	}{
-		{"413", 413, "too big", protocol.ClassCapacity},
-		{"400 context marker", 400, `{"error":{"code":"context_length_exceeded"}}`, protocol.ClassCapacity},
-		{"400 maximum context", 400, "This model's Maximum Context Length is 8192 tokens", protocol.ClassCapacity},
-		{"400 gateway content too long", 400, `{"error":{"message":"Content too long. Please shorten it or start a new task","type":"invalid_request_error"}}`, protocol.ClassCapacity},
-		{"400 plain", 400, `{"error":"unknown parameter"}`, protocol.ClassBadRequest},
-		{"401", 401, "no", protocol.ClassAuth},
-		{"403", 403, "no", protocol.ClassAuth},
-		{"404", 404, "no", protocol.ClassBadRequest},
-		{"422", 422, "no", protocol.ClassBadRequest},
-		{"408", 408, "slow", protocol.ClassAvailability},
-		{"409", 409, "busy", protocol.ClassAvailability},
-		{"429", 429, "rate", protocol.ClassAvailability},
-		{"500", 500, "boom", protocol.ClassAvailability},
-		{"503", 503, "down", protocol.ClassAvailability},
+		{"413", 413, "too big", protocol.ClassCapacity, ""},
+		{"400 context marker", 400, `{"error":{"code":"context_length_exceeded"}}`, protocol.ClassCapacity, ""},
+		{"400 maximum context", 400, "This model's Maximum Context Length is 8192 tokens", protocol.ClassCapacity, ""},
+		{"400 gateway content too long", 400, `{"error":{"message":"Content too long. Please shorten it or start a new task","type":"invalid_request_error"}}`, protocol.ClassCapacity, ""},
+		{"400 plain", 400, `{"error":"unknown parameter"}`, protocol.ClassBadRequest, ""},
+		{"401", 401, "no", protocol.ClassAuth, ""},
+		{"403", 403, "no", protocol.ClassAuth, ""},
+		{"404", 404, "no", protocol.ClassBadRequest, ""},
+		{"422", 422, "no", protocol.ClassBadRequest, ""},
+		{"408", 408, "slow", protocol.ClassAvailability, protocol.ReasonTimeout},
+		{"409", 409, "busy", protocol.ClassAvailability, protocol.ReasonConflict},
+		{"429", 429, "rate", protocol.ClassAvailability, protocol.ReasonRateLimited},
+		{"500", 500, "boom", protocol.ClassAvailability, protocol.ReasonServerError},
+		{"502", 502, "bad gateway", protocol.ClassAvailability, protocol.ReasonServerError},
+		{"503", 503, "down", protocol.ClassAvailability, protocol.ReasonOverloaded},
+		{"504", 504, "gateway timeout", protocol.ClassAvailability, protocol.ReasonServerError},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -61,74 +65,68 @@ func TestAdapterClassifiesHTTPStatuses(t *testing.T) {
 				fmt.Fprint(w, c.body)
 			}))
 			defer server.Close()
-			client, err := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: true, MaxRetries: 2, RetryBaseDelay: time.Millisecond})
+			client, err := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: true})
 			if err != nil {
 				t.Fatal(err)
 			}
 			_, err = client.Complete(context.Background(), request())
 			pe := providerError(t, err)
-			if pe.Class != c.want {
-				t.Fatalf("class=%s, want %s (%v)", pe.Class, c.want, err)
+			if pe.Class != c.want || pe.Reason != c.reason || pe.Status != c.status {
+				t.Fatalf("class=%s reason=%q status=%d, want %s %q %d (%v)", pe.Class, pe.Reason, pe.Status, c.want, c.reason, c.status, err)
 			}
 			var httpErr *HTTPError
 			if !errors.As(err, &httpErr) || httpErr.StatusCode != c.status {
 				t.Fatalf("the HTTP error is not reachable through the ProviderError: %v", err)
 			}
-			wantHits := int32(1)
-			if c.want == protocol.ClassAvailability {
-				wantHits = 3 // availability errors are retried: 1 + MaxRetries
-			}
-			if got := hits.Load(); got != wantHits {
-				t.Fatalf("requests=%d, want %d", got, wantHits)
+			if got := hits.Load(); got != 1 {
+				t.Fatalf("requests=%d, want 1: the adapter never retries", got)
 			}
 		})
 	}
 }
 
-// Retry-After above the in-adapter cap is reported at once instead of slept through (F8); the class
-// carries the delay so the health registry can record it.
-func TestRetryAfterBeyondCapReturnsImmediately(t *testing.T) {
-	var hits atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
-		w.Header().Set("Retry-After", "3600")
-		w.WriteHeader(429)
-	}))
-	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: true})
-	if err != nil {
-		t.Fatal(err)
+// Retry-After is reported, never slept through: the adapter returns at once with the delay so the loop
+// can wait it out under the run's deadline and cancellation. retry-after-ms takes precedence; an HTTP
+// date is read as the time left.
+func TestRetryAfterIsReportedNotSlept(t *testing.T) {
+	cases := map[string]struct {
+		header map[string]string
+		lo, hi time.Duration
+	}{
+		"seconds":         {map[string]string{"Retry-After": "3600"}, time.Hour, time.Hour},
+		"fraction":        {map[string]string{"Retry-After": "1.5"}, 1500 * time.Millisecond, 1500 * time.Millisecond},
+		"ms wins":         {map[string]string{"Retry-After": "60", "retry-after-ms": "250"}, 250 * time.Millisecond, 250 * time.Millisecond},
+		"http date":       {map[string]string{"Retry-After": time.Now().Add(90 * time.Second).UTC().Format(http.TimeFormat)}, 85 * time.Second, 91 * time.Second},
+		"past date":       {map[string]string{"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"}, 0, 0},
+		"garbage":         {map[string]string{"Retry-After": "soon"}, 0, 0},
+		"negative":        {map[string]string{"Retry-After": "-5"}, 0, 0},
+		"capped at a day": {map[string]string{"Retry-After": "999999999999"}, 24 * time.Hour, 24 * time.Hour},
 	}
-	start := time.Now()
-	_, err = client.Complete(context.Background(), request())
-	pe := providerError(t, err)
-	if pe.Class != protocol.ClassAvailability || pe.RetryAfter != time.Hour {
-		t.Fatalf("class=%s retryAfter=%v", pe.Class, pe.RetryAfter)
-	}
-	if elapsed := time.Since(start); elapsed > 2*time.Second || hits.Load() != 1 {
-		t.Fatalf("elapsed=%v requests=%d: the adapter waited or retried", elapsed, hits.Load())
-	}
-}
-
-// A Retry-After inside the cap is honoured before the retry.
-func TestRetryAfterWithinCapIsHonoured(t *testing.T) {
-	var hits atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if hits.Add(1) == 1 {
-			w.Header().Set("Retry-After", "1")
-			w.WriteHeader(429)
-			return
-		}
-		fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
-	}))
-	defer server.Close()
-	client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: true, RetryBaseDelay: time.Millisecond})
-	start := time.Now()
-	if _, err := client.Complete(context.Background(), request()); err != nil {
-		t.Fatal(err)
-	}
-	if elapsed := time.Since(start); elapsed < 900*time.Millisecond || hits.Load() != 2 {
-		t.Fatalf("elapsed=%v requests=%d, want the 1 s Retry-After before the second request", elapsed, hits.Load())
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var hits atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				for k, v := range c.header {
+					w.Header().Set(k, v)
+				}
+				w.WriteHeader(429)
+			}))
+			defer server.Close()
+			client, err := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			start := time.Now()
+			_, err = client.Complete(context.Background(), request())
+			pe := providerError(t, err)
+			if pe.Class != protocol.ClassAvailability || pe.RetryAfter < c.lo || pe.RetryAfter > c.hi {
+				t.Fatalf("class=%s retryAfter=%v, want availability in [%v, %v]", pe.Class, pe.RetryAfter, c.lo, c.hi)
+			}
+			if elapsed := time.Since(start); elapsed > 2*time.Second || hits.Load() != 1 {
+				t.Fatalf("elapsed=%v requests=%d: the adapter waited or retried", elapsed, hits.Load())
+			}
+		})
 	}
 }
 
@@ -136,10 +134,10 @@ func TestTransportErrorIsAvailability(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	url := server.URL
 	server.Close()
-	client, _ := New(Config{BaseURL: url, Model: "m", DisableStreaming: true, DisableRetries: true})
+	client, _ := New(Config{BaseURL: url, Model: "m", DisableStreaming: true})
 	_, err := client.Complete(context.Background(), request())
-	if pe := providerError(t, err); pe.Class != protocol.ClassAvailability {
-		t.Fatalf("class=%s", pe.Class)
+	if pe := providerError(t, err); pe.Class != protocol.ClassAvailability || pe.Reason != protocol.ReasonTransport {
+		t.Fatalf("class=%s reason=%q", pe.Class, pe.Reason)
 	}
 }
 
@@ -148,18 +146,18 @@ func TestMalformedStreamIsAvailability(t *testing.T) {
 		fmt.Fprint(w, "data: {not json\n\n")
 	}))
 	defer server.Close()
-	client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableRetries: true})
+	client, _ := New(Config{BaseURL: server.URL, Model: "m"})
 	_, err := client.Complete(context.Background(), request())
-	if pe := providerError(t, err); pe.Class != protocol.ClassAvailability {
-		t.Fatalf("class=%s", pe.Class)
+	if pe := providerError(t, err); pe.Class != protocol.ClassAvailability || pe.Reason != protocol.ReasonMalformedResponse {
+		t.Fatalf("class=%s reason=%q", pe.Class, pe.Reason)
 	}
 }
 
 // A stream the server ends early is not an answer: an in-band error event, a stream that stops with
 // neither a finish_reason nor [DONE], or a finish_reason by which the provider says it interrupted the
-// generation (DeepSeek: insufficient_system_resource, aborted) is an availability error and is retried,
-// never returned as a response with the tool calls received so far (TB2 W13: a gateway
-// "upstream_error" cut a response after its first complete tool call, and the call ran).
+// generation (DeepSeek: insufficient_system_resource, aborted) is an availability error with reason
+// stream_incomplete, never returned as a response with the tool calls received so far (TB2 W13: a
+// gateway "upstream_error" cut a response after its first complete tool call, and the call ran).
 func TestTruncatedStreamIsAvailability(t *testing.T) {
 	call := `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"shell","arguments":"{\"command\":\"rm -rf /tmp/x\"}"}}]}}]}` + "\n\n"
 	cut := `data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"c2","type":"function","function":{"name":"apply_patch","arguments":"{\"patches\": [{\"pa"}}]}}]}` + "\n\n"
@@ -181,17 +179,17 @@ func TestTruncatedStreamIsAvailability(t *testing.T) {
 				fmt.Fprint(w, call+cut+c.tail)
 			}))
 			defer server.Close()
-			client, _ := New(Config{BaseURL: server.URL, Model: "m", MaxRetries: 2, RetryBaseDelay: time.Millisecond})
+			client, _ := New(Config{BaseURL: server.URL, Model: "m"})
 			resp, err := client.Complete(context.Background(), request())
 			if err == nil {
 				t.Fatalf("a cut stream was returned as a response: %+v", resp.Message.ToolCalls)
 			}
 			pe := providerError(t, err)
-			if pe.Class != protocol.ClassAvailability || !strings.Contains(err.Error(), c.wantErr) {
-				t.Fatalf("class=%s err=%v", pe.Class, err)
+			if pe.Class != protocol.ClassAvailability || pe.Reason != protocol.ReasonStreamIncomplete || !strings.Contains(err.Error(), c.wantErr) {
+				t.Fatalf("class=%s reason=%q err=%v", pe.Class, pe.Reason, err)
 			}
-			if hits.Load() != 3 {
-				t.Fatalf("attempts=%d, want 3 (retried as availability)", hits.Load())
+			if hits.Load() != 1 {
+				t.Fatalf("attempts=%d, want 1", hits.Load())
 			}
 		})
 	}
@@ -206,7 +204,7 @@ func TestInterruptedFinishWithoutStreamingIsAvailability(t *testing.T) {
 				fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":"The answer is","tool_calls":[{"id":"c1","type":"function","function":{"name":"shell","arguments":"{\"command\":\"rm -rf /tmp/x\"}"}}]},"finish_reason":%q}]}`, reason)
 			}))
 			defer server.Close()
-			client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: true, DisableRetries: true})
+			client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: true})
 			resp, err := client.Complete(context.Background(), request())
 			if err == nil {
 				t.Fatalf("an interrupted generation was returned as a response: %+v", resp.Message)
@@ -231,7 +229,7 @@ func TestStreamEndsAtFinishReasonOrDone(t *testing.T) {
 				fmt.Fprint(w, body)
 			}))
 			defer server.Close()
-			client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableRetries: true})
+			client, _ := New(Config{BaseURL: server.URL, Model: "m"})
 			resp, err := client.Complete(context.Background(), request())
 			if err != nil || resp.Message.Content != "ok" {
 				t.Fatalf("resp=%+v err=%v", resp.Message, err)
@@ -290,7 +288,7 @@ func TestIdleAndRequestTimeouts(t *testing.T) {
 			}))
 			defer server.Close()
 			cfg := c.cfg
-			cfg.BaseURL, cfg.Model, cfg.DisableRetries = server.URL, "m", true
+			cfg.BaseURL, cfg.Model = server.URL, "m"
 			client, err := New(cfg)
 			if err != nil {
 				t.Fatal(err)
@@ -301,8 +299,8 @@ func TestIdleAndRequestTimeouts(t *testing.T) {
 				t.Fatalf("timeout took %v", elapsed)
 			}
 			pe := providerError(t, err)
-			if pe.Class != protocol.ClassAvailability {
-				t.Fatalf("class=%s, want availability: %v", pe.Class, err)
+			if pe.Class != protocol.ClassAvailability || pe.Reason != protocol.ReasonTimeout {
+				t.Fatalf("class=%s reason=%q, want availability/timeout: %v", pe.Class, pe.Reason, err)
 			}
 			if got := timeoutOf(t, err); got.Kind != c.kind {
 				t.Fatalf("timeout kind=%s, want %s", got.Kind, c.kind)
@@ -323,27 +321,10 @@ func TestIdleTimeoutResetsOnEveryRead(t *testing.T) {
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	defer server.Close()
-	client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableRetries: true, IdleTimeout: 150 * time.Millisecond})
+	client, _ := New(Config{BaseURL: server.URL, Model: "m", IdleTimeout: 150 * time.Millisecond})
 	resp, err := client.Complete(context.Background(), request())
 	if err != nil || resp.Message.Content != "aaaaaaaa" {
 		t.Fatalf("resp=%+v err=%v", resp.Message, err)
-	}
-}
-
-// Timeouts are retried like other availability errors, with the retry budget of the client.
-func TestTimeoutsAreRetried(t *testing.T) {
-	var hits atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
-		_, _ = io.Copy(io.Discard, r.Body)
-		<-r.Context().Done()
-	}))
-	defer server.Close()
-	client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: true, IdleTimeout: 40 * time.Millisecond, MaxRetries: 2, RetryBaseDelay: time.Millisecond})
-	_, err := client.Complete(context.Background(), request())
-	timeoutOf(t, err)
-	if hits.Load() != 3 {
-		t.Fatalf("requests=%d, want 3", hits.Load())
 	}
 }
 
@@ -393,7 +374,7 @@ func TestFromModelUsesResolvedSettings(t *testing.T) {
 		Ref: "p/m", ProviderID: "p", ModelID: "upstream", BaseURL: server.URL, APIKeyRef: "{env:FROM_MODEL_KEY}",
 		Headers: map[string]string{"X-Org": "acme"}, ReasoningFormat: config.ReasoningNone, IdleTimeout: time.Minute,
 	}
-	client, err := FromModel(m, Options{DisableStreaming: true, DisableRetries: true})
+	client, err := FromModel(m, Options{DisableStreaming: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +425,7 @@ func TestWithheldReplyIsNotAResponse(t *testing.T) {
 				fmt.Fprint(w, c.body)
 			}))
 			defer server.Close()
-			client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: !c.stream, MaxRetries: 2, RetryBaseDelay: time.Millisecond})
+			client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: !c.stream})
 			resp, err := client.Complete(context.Background(), request())
 			if err == nil {
 				t.Fatalf("a withheld reply was returned as a response: %+v", resp.Message)
@@ -496,7 +477,7 @@ func TestMissingArgumentsAreAnObjectOnlyAfterANormalFinish(t *testing.T) {
 					fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"shell","arguments":""}}]},"finish_reason":%q}]}`, c.finish)
 				}))
 				defer server.Close()
-				client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: !stream, DisableRetries: true})
+				client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableStreaming: !stream})
 				resp, err := client.Complete(context.Background(), request())
 				if err != nil {
 					t.Fatal(err)

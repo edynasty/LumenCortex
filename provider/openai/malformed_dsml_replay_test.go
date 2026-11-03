@@ -69,7 +69,7 @@ func TestCapturedFinalResponsesReplay(t *testing.T) {
 				_, _ = io.Copy(w, f)
 			}))
 			defer server.Close()
-			c, err := New(Config{Endpoint: server.URL, Model: "replay", DisableRetries: true, MaxResponseBytes: 4 << 20})
+			c, err := New(Config{Endpoint: server.URL, Model: "replay", MaxResponseBytes: 4 << 20})
 			if err != nil {
 				t.Fatal(err)
 			}

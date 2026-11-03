@@ -36,7 +36,7 @@ func TestFromModelSelectsByPackage(t *testing.T) {
 		Ref: "p/a", ProviderID: "p", Package: config.PackageAnthropicMessages,
 		ModelID: "claude", BaseURL: server.URL, APIKeyRef: "{env:PROBE_ENV_KEY}", Output: 512,
 	}
-	p, err := provider.FromModel(anthropicModel, provider.Options{DisableStreaming: true, DisableRetries: true})
+	p, err := provider.FromModel(anthropicModel, provider.Options{DisableStreaming: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestFromModelSelectsByPackage(t *testing.T) {
 		if pkg != "" && pkg != config.PackageOpenAICompatible {
 			continue
 		}
-		p, err := provider.FromModel(m, provider.Options{DisableStreaming: true, DisableRetries: true})
+		p, err := provider.FromModel(m, provider.Options{DisableStreaming: true})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}

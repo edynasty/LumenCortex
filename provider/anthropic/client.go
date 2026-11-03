@@ -10,18 +10,15 @@ import (
 	"io"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/diag"
 	"github.com/edynasty/LumenCortex/protocol"
+	"github.com/edynasty/LumenCortex/provider/internal/retryafter"
 )
 
-const (
-	defaultMaxResponseBytes = int64(8 << 20)
-	defaultRetryBaseDelay   = 500 * time.Millisecond
-)
+const defaultMaxResponseBytes = int64(8 << 20)
 
 type Config struct {
 	Endpoint string
@@ -34,9 +31,6 @@ type Config struct {
 	HTTPClient       *http.Client
 	Headers          map[string]string
 	DisableStreaming bool
-	DisableRetries   bool
-	MaxRetries       int
-	RetryBaseDelay   time.Duration
 	MaxResponseBytes int64
 	// MaxTokensDefault is the max_tokens sent when a request carries none (the API requires the
 	// field): the model's resolved output limit. 0 means config.DefaultOutput.
@@ -59,8 +53,6 @@ type Client struct {
 	httpClient       *http.Client
 	headers          map[string]string
 	stream           bool
-	maxRetries       int
-	retryBaseDelay   time.Duration
 	maxResponseBytes int64
 	maxTokensDefault int
 	reasoningFormat  string
@@ -126,17 +118,6 @@ func New(cfg Config) (*Client, error) {
 	if maxResponseBytes <= 0 {
 		maxResponseBytes = defaultMaxResponseBytes
 	}
-	retryBaseDelay := cfg.RetryBaseDelay
-	if retryBaseDelay <= 0 {
-		retryBaseDelay = defaultRetryBaseDelay
-	}
-	maxRetries := cfg.MaxRetries
-	if !cfg.DisableRetries && maxRetries <= 0 {
-		maxRetries = 2
-	}
-	if cfg.DisableRetries {
-		maxRetries = 0
-	}
 	maxTokensDefault := cfg.MaxTokensDefault
 	headers := map[string]string{}
 	for key, value := range cfg.Headers {
@@ -149,8 +130,6 @@ func New(cfg Config) (*Client, error) {
 		httpClient:       httpClient,
 		headers:          headers,
 		stream:           !cfg.DisableStreaming,
-		maxRetries:       maxRetries,
-		retryBaseDelay:   retryBaseDelay,
 		maxResponseBytes: maxResponseBytes,
 		maxTokensDefault: maxTokensDefault,
 		reasoningFormat:  strings.TrimSpace(cfg.ReasoningFormat),
@@ -197,48 +176,18 @@ func (c *Client) redact(text string) string {
 
 func (c *Client) Model() string { return c.model }
 
-// maxInAdapterRetryAfter is the longest Retry-After the adapter sleeps through. A provider that
-// asks for more is reported at once so the runtime can fail over; the health registry records the
-// time.
-const maxInAdapterRetryAfter = 5 * time.Second
-
-// Complete sends one request, retrying availability errors with backoff. Every error it returns
-// is a *protocol.ProviderError: the adapter classifies, the loop only reads the class.
+// Complete sends one request: one HTTP attempt. It never retries; the agent loop owns retrying, so
+// every attempt is admitted, recorded and logged there. Every error it returns is a
+// *protocol.ProviderError: the adapter classifies, the loop only reads the class.
 func (c *Client) Complete(ctx context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
-	var lastErr error
-	for attempt := 0; attempt <= c.maxRetries; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return protocol.ProviderResponse{}, &protocol.ProviderError{Class: protocol.ClassCancelled, Err: err}
-		}
-		response, err := c.completeOnce(ctx, req)
-		if err == nil {
-			return response, nil
-		}
-		lastErr = err
-		class, retryAfter := classify(ctx, err)
-		if class != protocol.ClassAvailability {
-			return protocol.ProviderResponse{}, &protocol.ProviderError{Class: class, RetryAfter: retryAfter, Err: err}
-		}
-		if attempt == c.maxRetries || retryAfter > maxInAdapterRetryAfter {
-			break
-		}
-		delay := c.retryBaseDelay << attempt
-		if delay > maxInAdapterRetryAfter {
-			delay = maxInAdapterRetryAfter
-		}
-		if retryAfter > delay {
-			delay = retryAfter
-		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return protocol.ProviderResponse{}, &protocol.ProviderError{Class: protocol.ClassCancelled, Err: ctx.Err()}
-		case <-timer.C:
-		}
+	if err := ctx.Err(); err != nil {
+		return protocol.ProviderResponse{}, &protocol.ProviderError{Class: protocol.ClassCancelled, Err: err}
 	}
-	class, retryAfter := classify(ctx, lastErr)
-	return protocol.ProviderResponse{}, &protocol.ProviderError{Class: class, RetryAfter: retryAfter, Err: lastErr}
+	response, err := c.completeOnce(ctx, req)
+	if err == nil {
+		return response, nil
+	}
+	return protocol.ProviderResponse{}, classify(ctx, err)
 }
 
 // capacityMarkers are the fragments of a 400 body that say the request exceeded the model's
@@ -249,54 +198,110 @@ var capacityMarkers = []string{
 	"context_length_exceeded", "maximum context length", "context length exceeded", "too many tokens",
 }
 
-// classify maps one failed attempt to a class (design §4.5, in this order):
+// classify maps one failed attempt to a class and a reason (design §4.5, in this order):
 //
 //  1. the run context is done → cancelled;
-//  2. a stream error the API sent mid-stream: overloaded, rate_limit, api and timeout errors are
-//     availability; authentication and permission are auth; anything else is bad_request;
-//  3. a TimeoutError, a transport error or a malformed stream → availability;
-//  4. HTTP 413, or 400 whose body names a capacity marker → capacity;
-//  5. HTTP 401, 403 → auth;
-//  6. HTTP 408, 409, 429, 5xx (529 overloaded included) → availability;
-//  7. any other status → bad_request.
+//  2. a stream error the API sent mid-stream: overloaded (overloaded), rate_limit (rate_limited), api
+//     (server_error) and timeout (timeout) errors are availability; authentication and permission are
+//     auth; anything else is bad_request;
+//  3. a request the adapter could not build, or a reply the provider withheld → bad_request;
+//  4. a TimeoutError → availability/timeout; a cut stream → availability/stream_incomplete; an
+//     undecodable 2xx body → availability/malformed_response; any other error → availability/transport;
+//  5. HTTP 413, or 400 whose body names a capacity marker → capacity;
+//  6. HTTP 401, 403 → auth;
+//  7. HTTP 408 (timeout), 409 (conflict), 429 (rate_limited), 503 and 529 (overloaded), other 5xx
+//     (server_error) → availability;
+//  8. any other status → bad_request.
 //
-// It also returns the provider's Retry-After, 0 when there is none.
-func classify(ctx context.Context, err error) (protocol.ErrorClass, time.Duration) {
+// The error carries the provider's Retry-After, 0 when there is none, and the HTTP status.
+func classify(ctx context.Context, err error) *protocol.ProviderError {
 	if ctx.Err() != nil {
-		return protocol.ClassCancelled, 0
+		return &protocol.ProviderError{Class: protocol.ClassCancelled, Err: err}
 	}
+	out := &protocol.ProviderError{Err: err}
 	var httpErr *HTTPError
 	if errors.As(err, &httpErr) {
+		out.Status, out.RetryAfter = httpErr.StatusCode, httpErr.RetryAfter
 		code, body := httpErr.StatusCode, strings.ToLower(httpErr.Body)
 		switch {
 		case code == http.StatusRequestEntityTooLarge:
-			return protocol.ClassCapacity, httpErr.RetryAfter
+			out.Class = protocol.ClassCapacity
 		case code == http.StatusBadRequest && containsAny(body, capacityMarkers):
-			return protocol.ClassCapacity, httpErr.RetryAfter
+			out.Class = protocol.ClassCapacity
 		case code == http.StatusUnauthorized || code == http.StatusForbidden:
-			return protocol.ClassAuth, httpErr.RetryAfter
-		case code == http.StatusRequestTimeout || code == http.StatusConflict || code == http.StatusTooManyRequests || code >= 500:
-			return protocol.ClassAvailability, httpErr.RetryAfter
+			out.Class = protocol.ClassAuth
+		case code == http.StatusRequestTimeout:
+			out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonTimeout
+		case code == http.StatusConflict:
+			out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonConflict
+		case code == http.StatusTooManyRequests:
+			out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonRateLimited
+		case code == http.StatusServiceUnavailable || code == statusOverloaded:
+			out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonOverloaded
+		case code >= 500:
+			out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonServerError
 		default:
-			return protocol.ClassBadRequest, httpErr.RetryAfter
+			out.Class = protocol.ClassBadRequest
 		}
+		return out
 	}
-	var streamErr *streamError
-	if errors.As(err, &streamErr) {
+	var (
+		streamErr *streamError
+		bad       *badRequestError
+		timeout   *TimeoutError
+		malformed *malformedError
+	)
+	switch {
+	case errors.As(err, &streamErr):
 		switch streamErr.errType {
-		case "overloaded_error", "rate_limit_error", "api_error", "timeout_error":
-			return protocol.ClassAvailability, 0
+		case "overloaded_error":
+			out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonOverloaded
+		case "rate_limit_error":
+			out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonRateLimited
+		case "api_error":
+			out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonServerError
+		case "timeout_error":
+			out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonTimeout
 		case "authentication_error", "permission_error":
-			return protocol.ClassAuth, 0
+			out.Class = protocol.ClassAuth
 		default:
-			return protocol.ClassBadRequest, 0
+			out.Class = protocol.ClassBadRequest
 		}
+	case errors.As(err, &bad):
+		out.Class = protocol.ClassBadRequest
+	case errors.As(err, &timeout):
+		out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonTimeout
+	case errors.Is(err, errStreamCut):
+		out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonStreamIncomplete
+	case errors.As(err, &malformed):
+		out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonMalformedResponse
+	default:
+		out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonTransport
 	}
-	var bad *badRequestError
-	if errors.As(err, &bad) {
-		return protocol.ClassBadRequest, 0
+	return out
+}
+
+// statusOverloaded is the API's "overloaded" status.
+const statusOverloaded = 529
+
+// malformedError is a 2xx body that is not a response: undecodable JSON, a body past the byte limit,
+// a nameless tool_use block.
+type malformedError struct{ err error }
+
+func (e *malformedError) Error() string { return e.err.Error() }
+func (e *malformedError) Unwrap() error { return e.err }
+
+// malformed marks err as a malformed body unless it already says more: a withheld reply stays
+// bad_request and a stream error event keeps its own class.
+func malformed(err error) error {
+	var (
+		bad    *badRequestError
+		stream *streamError
+	)
+	if errors.As(err, &bad) || errors.As(err, &stream) {
+		return err
 	}
-	return protocol.ClassAvailability, 0
+	return &malformedError{err}
 }
 
 func containsAny(s string, needles []string) bool {
@@ -413,13 +418,17 @@ func (c *Client) readJSON(body io.Reader) (protocol.ProviderResponse, error) {
 		return protocol.ProviderResponse{}, err
 	}
 	if int64(len(raw)) > c.maxResponseBytes {
-		return protocol.ProviderResponse{}, fmt.Errorf("provider response exceeded %d bytes", c.maxResponseBytes)
+		return protocol.ProviderResponse{}, malformed(fmt.Errorf("provider response exceeded %d bytes", c.maxResponseBytes))
 	}
 	var decoded messagesResponse
 	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return protocol.ProviderResponse{}, err
+		return protocol.ProviderResponse{}, malformed(err)
 	}
-	return responseToProtocol(decoded)
+	out, err := responseToProtocol(decoded)
+	if err != nil {
+		return protocol.ProviderResponse{}, malformed(err)
+	}
+	return out, nil
 }
 
 // readStream reads the SSE stream. An event's payload may arrive as several data: lines and in
@@ -441,14 +450,14 @@ func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 		}
 		var event streamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
-			return false, err
+			return false, malformed(err)
 		}
 		if event.Error != nil {
 			event.Error.Type = c.redact(event.Error.Type)
 			event.Error.Message = c.redact(event.Error.Message)
 		}
 		if err := builder.apply(event); err != nil {
-			return false, err
+			return false, malformed(err)
 		}
 		return event.Type == "message_stop", nil
 	}
@@ -456,7 +465,7 @@ func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 		line, err := reader.ReadString(10)
 		consumed += int64(len(line))
 		if consumed > c.maxResponseBytes {
-			return protocol.ProviderResponse{}, fmt.Errorf("provider stream exceeded %d bytes", c.maxResponseBytes)
+			return protocol.ProviderResponse{}, malformed(fmt.Errorf("provider stream exceeded %d bytes", c.maxResponseBytes))
 		}
 		trimmed := strings.TrimRight(line, "\r\n")
 		switch {
@@ -492,7 +501,11 @@ func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 	if !stopped {
 		return protocol.ProviderResponse{}, errStreamCut
 	}
-	return builder.result()
+	out, err := builder.result()
+	if err != nil {
+		return protocol.ProviderResponse{}, malformed(err)
+	}
+	return out, nil
 }
 
 // readHTTPError reads the API's {type:"error",error:{type,message}} body. No credential the client
@@ -504,23 +517,6 @@ func (c *Client) readHTTPError(resp *http.Response) error {
 		StatusCode: resp.StatusCode,
 		Status:     c.redact(resp.Status),
 		Body:       c.redact(strings.TrimSpace(string(raw))),
-		RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+		RetryAfter: retryafter.Parse(resp.Header, time.Now()),
 	}
-}
-
-func parseRetryAfter(value string) time.Duration {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0
-	}
-	if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
-		return time.Duration(seconds) * time.Second
-	}
-	if at, err := http.ParseTime(value); err == nil {
-		delay := time.Until(at)
-		if delay > 0 {
-			return delay
-		}
-	}
-	return 0
 }

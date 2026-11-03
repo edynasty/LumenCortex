@@ -59,8 +59,7 @@ func TestErrorsRedactSentCredentials(t *testing.T) {
 				}))
 				defer server.Close()
 				client, err := New(Config{
-					BaseURL: server.URL, Model: "fixture", APIKey: cred.apiKey, Headers: cred.headers,
-					DisableRetries: true, DisableStreaming: !stream,
+					BaseURL: server.URL, Model: "fixture", APIKey: cred.apiKey, Headers: cred.headers, DisableStreaming: !stream,
 				})
 				if err != nil {
 					t.Fatal(err)

@@ -527,10 +527,18 @@ func TestExecutionIsReadFromTheGlobalFileOnly(t *testing.T) {
 		`{"execution": {"jobRetentionDays": 366}}`,
 		`{"execution": {"logLevel": "trace"}}`,
 		`{"execution": {"workers": 2}}`,
+		`{"execution": {"retry": {"baseDelayMs": 0}}}`,
+		`{"execution": {"retry": {"maxOutageSeconds": 86401}}}`,
+		`{"execution": {"retry": {"maxAttempts": 5}}}`,
 	} {
 		if _, err := Parse([]byte(raw)); !errors.Is(err, ErrInvalidConfig) {
 			t.Errorf("Parse(%s) err=%v", raw, err)
 		}
+	}
+	if f, err := Parse([]byte(`{"execution": {"retry": {"baseDelayMs": 250, "maxDelayMs": 60000, "maxOutageSeconds": 3600}}}`)); err != nil {
+		t.Errorf("retry: %v", err)
+	} else if r := f.Execution.Limits().Retry; r == nil || *r != (Retry{BaseDelayMs: 250, MaxDelayMs: 60000, MaxOutageSeconds: 3600}) {
+		t.Errorf("retry limits = %+v", r)
 	}
 }
 

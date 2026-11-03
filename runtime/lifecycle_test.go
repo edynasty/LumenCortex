@@ -232,7 +232,7 @@ func TestToolArgumentTextReplaysExactlyThroughOpenAIAdapter(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": message, "finish_reason": finish}}})
 			}))
 			defer server.Close()
-			client, err := openai.New(openai.Config{Endpoint: server.URL, Model: "wire-test", DisableStreaming: true, DisableRetries: true})
+			client, err := openai.New(openai.Config{Endpoint: server.URL, Model: "wire-test", DisableStreaming: true})
 			if err != nil {
 				t.Fatal(err)
 			}

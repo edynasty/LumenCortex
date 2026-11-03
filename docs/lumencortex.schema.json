@@ -180,6 +180,35 @@
               "exclusiveMinimum": 0
             }
           }
+        },
+        "retry": {
+          "description": "How an agent run waits out provider availability failures (HTTP 408/409/429/5xx, transport errors, timeouts, cut or malformed streams) that no failover candidate answered: the same step is sent again, as a new admitted request, after an exponential backoff with 75-100% jitter, or after the provider's retry-after-ms/Retry-After when that is longer. Tools never run twice: a failed request returned nothing to execute. No request, token or cost limit is set here (execution.budget does that); the run's deadline and the host's cancellation bound the recovery, and maxOutageSeconds bounds one continuous outage. A wait that would pass either ends the run at once, interrupted with kind provider:availability and the reason.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "disabled": {
+              "description": "End the run at the first availability failure no failover candidate answered. Absent → false.",
+              "type": "boolean"
+            },
+            "baseDelayMs": {
+              "description": "First backoff in milliseconds; each further one doubles up to maxDelayMs. Absent → 1000.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600000
+            },
+            "maxDelayMs": {
+              "description": "Cap of the computed backoff in milliseconds; a provider's Retry-After may ask for longer and is honoured. Absent → 30000.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600000
+            },
+            "maxOutageSeconds": {
+              "description": "Longest continuous outage (from the first failed request to the next send) a run waits out. Absent → a run with a deadline waits until its deadline; a run without one waits 1800 s.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 86400
+            }
+          }
         }
       }
     },

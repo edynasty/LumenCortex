@@ -516,6 +516,10 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 	if err != nil {
 		return lcx.AgentOptions{}, err
 	}
+	var retry *config.Retry
+	if envBool("LCX_DISABLE_RETRIES") {
+		retry = &config.Retry{Disabled: true}
+	}
 	return lcx.AgentOptions{
 		Agent:                  strings.TrimSpace(os.Getenv("LCX_AGENT")),
 		Policy:                 policy,
@@ -529,6 +533,7 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 		Deadline:               deadline,
 		DeadlineReserveSeconds: reserve,
 		Budget:                 budget,
+		Retry:                  retry,
 	}, nil
 }
 

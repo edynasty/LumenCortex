@@ -20,7 +20,7 @@ func TestAstraProviderErrorPersistsWithoutCredentials(t *testing.T) {
 	defer server.Close()
 	engine := openTestEngine(t)
 	handle := newTestSession(t, engine, "reject provider credentials safely")
-	client, err := openai.New(openai.Config{Endpoint: server.URL, Model: "fixture", APIKey: key, DisableStreaming: true, DisableRetries: true})
+	client, err := openai.New(openai.Config{Endpoint: server.URL, Model: "fixture", APIKey: key, DisableStreaming: true})
 	if err != nil {
 		t.Fatal(err)
 	}

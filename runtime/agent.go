@@ -73,6 +73,10 @@ type AgentOptions struct {
 	// execution.budget, which bounds every run, child runs included. The result's spend reports what
 	// the run used.
 	Budget *config.Budget `json:"budget,omitempty"`
+	// Retry is this run's provider retry policy: each set field overrides the global file's
+	// execution.retry (CLI: LCX_DISABLE_RETRIES). The run's deadline and cancellation bound every
+	// recovery; no request, token or cost limit comes from it.
+	Retry *config.Retry `json:"retry,omitempty"`
 
 	subagents toolset.SubagentController
 	// childAgent is a child run's default agent: explore for a read-only subagent, worker for an
@@ -406,6 +410,14 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if opts.Budget != nil {
 		loopOpts.Budget = loopOpts.Budget.Over(*opts.Budget)
 	}
+	var retry config.Retry
+	if global := execution.Retry; global != nil {
+		retry = *global
+	}
+	if opts.Retry != nil {
+		retry = retry.Over(*opts.Retry)
+	}
+	loopOpts.Recovery = agent.RecoveryFrom(retry, opts.Deadline != nil)
 
 	loopOpts.SystemLayers = systemLayers(prompt.Layers)
 	if prompt.SkillsErr != nil {

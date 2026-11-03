@@ -60,10 +60,12 @@ func newRunClock(deadline time.Time, reserve time.Duration, now time.Time) runCl
 
 func (c *runClock) set() bool { return !c.deadline.IsZero() }
 
-func (c *runClock) observeModel(d time.Duration) {
-	c.model += d
-	if d > c.longestModel {
-		c.longestModel = d
+// observeModel adds a step's model time (retries and their backoff included) and records the request
+// that answered it, whose duration sizes the answer margin; a backoff wait is not a request.
+func (c *runClock) observeModel(total, request time.Duration) {
+	c.model += total
+	if request > c.longestModel {
+		c.longestModel = request
 	}
 }
 

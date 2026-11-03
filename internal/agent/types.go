@@ -204,6 +204,9 @@ type Options struct {
 	// Budget bounds the run's tool calls, model requests, tokens and cost (ADR-0019 §6); a zero field
 	// is no limit. Every new request and tool call is admitted against it.
 	Budget config.Budget
+	// Recovery is how a step waits out availability failures no failover candidate answered. The zero
+	// value never retries; the runtime fills it from execution.retry.
+	Recovery Recovery
 }
 
 // CandidateEffort is one candidate's default effort and, when that default was resolved from auto,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
@@ -79,8 +80,9 @@ func exitFor(class protocol.ErrorClass, err error) ExitCause {
 // window is built for each candidate with that candidate's budget from in; groups counts the groups
 // from windowStartSeq on that the run still keeps. A window that does not fit a candidate moves to the
 // next candidate with a larger context, and a capacity rejection is retried once on the same model
-// with half the transcript (§5). Every move is appended to decisions. It returns the exit to take when
-// no candidate answered.
+// with half the transcript (§5). A sweep that ends in an availability failure waits as opts.Recovery
+// says and sends the step again from the first candidate (recovery.go). Every move is appended to
+// decisions. It returns the exit to take when no candidate answered.
 func (l *Loop) send(
 	ctx context.Context,
 	sessionID string,
@@ -99,6 +101,7 @@ func (l *Loop) send(
 	fixed := window.Fixed(in)
 	retried := map[config.ModelRef]bool{}
 	attempts := 0
+	var down outage
 	for i := 0; ; {
 		cand := cands[i]
 		m := l.Models[cand.Ref]
@@ -193,6 +196,12 @@ func (l *Loop) send(
 				"step": step, "modelRef": cand.Ref, "provider": m.ProviderID, "model": m.ModelID,
 				"elapsedMs": elapsed.Milliseconds(), "candidateIndex": i,
 			})
+			if down.failures > 0 {
+				l.emit("provider.recovered", sessionID, map[string]any{
+					"step": step, "modelRef": cand.Ref, "failedRequests": down.failures, "retries": down.retries,
+					"outageMs": time.Since(down.start).Milliseconds(),
+				})
+			}
 			return attempt{Response: response, Model: m, Elapsed: elapsed, Window: built, RequestID: requestID, Lineage: lineage}, nil
 		}
 		// A request that failed after it was sent may still be billed: its input is estimated.
@@ -207,6 +216,7 @@ func (l *Loop) send(
 		}
 		if class == protocol.ClassAvailability {
 			l.Health.Fail(cand.Ref, retryAfter(err))
+			down.fail(started, retryAfter(err))
 		}
 		if class == protocol.ClassCapacity && !retried[cand.Ref] {
 			// The window is deterministic, so the same request would be rejected again: retry once
@@ -221,19 +231,55 @@ func (l *Loop) send(
 			continue
 		}
 		next, decision := FailoverDecision(cands, i, class)
+		reason, status := failureDetail(err)
 		event := map[string]any{
 			"step": step, "modelRef": cand.Ref, "provider": m.ProviderID, "model": m.ModelID,
-			"class": class, "error": err.Error(), "elapsedMs": elapsed.Milliseconds(),
+			"class": class, "reason": reason, "status": status, "error": err.Error(), "elapsedMs": elapsed.Milliseconds(),
 		}
 		if next >= 0 {
 			event["nextModelRef"] = cands[next].Ref
 		}
 		l.emit("provider.failover", sessionID, event)
-		if next < 0 {
-			cause := exitFor(class, fmt.Errorf("model %s: %w", cand.Ref, err))
+		if next >= 0 {
+			*decisions = append(*decisions, decision)
+			i = next
+			continue
+		}
+		last := fmt.Errorf("model %s: %w", cand.Ref, err)
+		if class != protocol.ClassAvailability {
+			cause := exitFor(class, last)
 			return attempt{}, &cause
 		}
-		*decisions = append(*decisions, decision)
-		i = next
+		// Every candidate of this sweep is unavailable: wait and send the step again, or stop.
+		deadline, _ := ctx.Deadline()
+		now := time.Now()
+		wait, stop := opts.Recovery.next(&down, now, deadline, rand.Float64())
+		retry := map[string]any{
+			"step": step, "modelRef": cand.Ref, "class": class, "reason": reason, "status": status,
+			"error": err.Error(), "failedRequests": down.failures, "retries": down.retries,
+			"retryAfterMs": down.hint.Milliseconds(), "delayMs": wait.Milliseconds(),
+			"outageMs": now.Sub(down.start).Milliseconds(),
+		}
+		if stop != "" {
+			retry["stop"] = stop
+			l.emit("provider.retry_stopped", sessionID, retry)
+			cause := exitFor(class, &RecoveryError{
+				Failures: down.failures, Retries: down.retries, Outage: now.Sub(down.start), Stop: stop, Wait: wait, Last: last,
+			})
+			return attempt{}, &cause
+		}
+		down.retries++
+		retry["retry"] = down.retries
+		l.emit("provider.retry", sessionID, retry)
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			cause := exitFor(protocol.ClassCancelled, ctx.Err())
+			return attempt{}, &cause
+		case <-timer.C:
+		}
+		down.sweeping = false
+		i = 0
 	}
 }

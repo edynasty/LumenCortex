@@ -119,6 +119,9 @@ func (e *streamError) Error() string {
 // closed mid-response, and the tool calls received so far may be incomplete or missing.
 var errStreamCut = errors.New("provider stream ended before a finish_reason or [DONE]")
 
+// errInterrupted is a generation the provider reported it interrupted (finishError).
+var errInterrupted = errors.New("provider interrupted the generation")
+
 // finishError reports a finish_reason after which the reply is not one: the provider interrupted the
 // generation (DeepSeek: insufficient_system_resource, aborted), which is incomplete like a cut stream,
 // so an availability error that is retried; or it withheld the output (content_filter: "content was
@@ -127,7 +130,7 @@ var errStreamCut = errors.New("provider stream ended before a finish_reason or [
 func finishError(reason string) error {
 	switch reason {
 	case "insufficient_system_resource", "aborted":
-		return fmt.Errorf("provider interrupted the generation (finish_reason %s)", reason)
+		return fmt.Errorf("%w (finish_reason %s)", errInterrupted, reason)
 	case "content_filter":
 		return &badRequestError{fmt.Errorf("provider withheld the reply (finish_reason %s)", reason)}
 	}

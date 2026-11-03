@@ -24,8 +24,8 @@ The provider is designed for long-running agent sessions:
 - uses SSE streaming by default,
 - bounds the raw/assembled response size,
 - supports cancellation through `context.Context`,
-- performs bounded retries for transient HTTP/network errors,
-- honors `Retry-After` when it is larger than the local backoff,
+- makes one HTTP attempt per `Complete`: the agent loop owns retrying (below),
+- reports the provider's `retry-after-ms` / `Retry-After` (seconds or HTTP date, at most a day) without sleeping,
 - assembles streamed function/tool calls by index,
 - can disable streaming for compatibility testing.
 
@@ -147,8 +147,14 @@ Per candidate, the capped level is fitted with `ClampEffort`. If the candidate's
 
 The decision log carries `effort.auto` in the first step record of the run (inputs: source, fallback class, input length, ceiling, judge model ref, `reused`; output: the resolved level) and, per request, `effort.default`/`effort.override`/`effort.escalated`/`effort.capped` or `effort.auto_unavailable`.
 
-Provider errors are classified by the adapter as `protocol.ProviderError{Class, RetryAfter}`: `auth` and `bad_request` end the run as `failed` and never fail over; `capacity` fails over only to a candidate with a larger context; `availability` (HTTP 408/409/429/5xx, transport errors, request and idle timeouts) fails over to the next candidate and marks the model unavailable in the Engine's in-memory registry for `Retry-After` or 30 seconds. The adapter waits at most five seconds for a `Retry-After`. A cancelled run is `interrupted`, never failed over. `max_tokens` is sent only when `AgentOptions.MaxTokens` or the model's `limit.output` is set
+Provider errors are classified by the adapter as `protocol.ProviderError{Class, Reason, Status, RetryAfter}`: `auth` and `bad_request` end the run as `failed` and never fail over or retry; `capacity` fails over only to a candidate with a larger context; `availability` fails over to the next candidate and marks the model unavailable in the Engine's in-memory registry for `Retry-After` or 30 seconds. `Reason` refines availability for logs and the final error: `rate_limited` (429), `overloaded` (503, 529, Anthropic `overloaded_error`), `server_error` (other 5xx), `timeout` (408, request and idle timeouts), `conflict` (409), `transport` (connection errors), `stream_incomplete` (a stream cut before its end, an in-band error event, `insufficient_system_resource`/`aborted`), `malformed_response` (an undecodable body, leaked DSML tool-call delimiters). A cancelled run is `interrupted`, never failed over. `max_tokens` is sent only when `AgentOptions.MaxTokens` or the model's `limit.output` is set
 (chat-completions; the Anthropic adapter always sends one because the API requires it).
+
+#### Retrying availability failures
+
+When every candidate of a step failed with `availability`, the loop waits and sends the same step again from the first candidate (`execution.retry`; per run `AgentOptions.Retry`). Each retry is a new admitted request with its own envelope; the transcript is unchanged and no tool runs twice, because a failed request returned nothing to execute. The wait is an exponential backoff (`baseDelayMs` 1000, doubling to `maxDelayMs` 30000) scaled by a 75–100 % jitter, or the shortest `Retry-After` of the sweep when that is longer. There is no request, token or cost limit here (`execution.budget` still admits each retry); the run's deadline and cancellation bound the recovery, and `maxOutageSeconds` bounds one continuous outage (default: until the deadline, or 1800 s for a run without one). A wait that would pass either ends the run at once, `interrupted`/`provider:availability`, with a final error naming the outage time, failed requests, retries, the stop reason and the last provider error. Cancelling during a wait ends the run `interrupted`/`cancelled` (or `deadline`) immediately.
+
+Events: `provider.failover` per failed request (`class`, `reason`, `status`, `error`), `provider.retry` per wait (`retry`, `failedRequests`, `retryAfterMs`, `delayMs`, `outageMs`), `provider.retry_stopped` with `stop` (`retry_disabled`, `outage_window`, `deadline`), and `provider.recovered` when a step answers after failures.
 
 ### Run ownership and host messages
 
@@ -234,7 +240,7 @@ Set `LCX_EVENTS=true` to emit the bounded runtime event stream as JSON lines on 
 | `LCX_COST_WARNING_USD`, `LCX_COST_LIMIT_USD` | run cost warning (event `budget.warning`) and limit in US dollars, priced at each model's `cost`; a limit refuses any model without a `cost`. The result JSON's `spend` splits known, estimated and unknown cost | `execution.budget`, else none |
 | `LCX_EVENTS` | print runtime events to stderr | false |
 | `LCX_DISABLE_STREAMING` | use one JSON response instead of SSE | false |
-| `LCX_DISABLE_RETRIES` | disable transient provider retries | false |
+| `LCX_DISABLE_RETRIES` | end the run at the first availability failure no failover candidate answered (`execution.retry.disabled` for this run) | false |
 
 ## Configuration
 

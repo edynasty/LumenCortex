@@ -45,7 +45,7 @@ func TestJudgeClassifiesOpenAICompatible(t *testing.T) {
 		ReasoningFormat: config.ReasoningEffortField,
 		Efforts:         []config.Effort{config.EffortLow, config.EffortHigh},
 	}
-	client, err := provider.FromModel(m, provider.Options{DisableStreaming: true, DisableRetries: true})
+	client, err := provider.FromModel(m, provider.Options{DisableStreaming: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestJudgeClassifiesAnthropic(t *testing.T) {
 		BaseURL: server.URL, APIKeyRef: "{env:JUDGE_KEY}", Output: 4096, OutputSet: true,
 		Efforts: []config.Effort{config.EffortNone, config.EffortLow},
 	}
-	client, err := provider.FromModel(m, provider.Options{DisableStreaming: true, DisableRetries: true})
+	client, err := provider.FromModel(m, provider.Options{DisableStreaming: true})
 	if err != nil {
 		t.Fatal(err)
 	}

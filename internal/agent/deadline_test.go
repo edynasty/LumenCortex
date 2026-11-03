@@ -272,12 +272,12 @@ func TestRunClockReserveAndMargin(t *testing.T) {
 	if got := c.answerMargin(); got != minAnswerMargin {
 		t.Fatalf("margin before any request = %s, want %s", got, minAnswerMargin)
 	}
-	c.observeModel(40 * time.Second)
-	c.observeModel(5 * time.Second)
+	c.observeModel(40*time.Second, 40*time.Second)
+	c.observeModel(5*time.Second, 5*time.Second)
 	if got := c.answerMargin(); got != 60*time.Second {
 		t.Fatalf("margin after a 40 s request = %s, want 60 s (1.5x the longest)", got)
 	}
-	c.observeModel(200 * time.Second)
+	c.observeModel(200*time.Second, 200*time.Second)
 	if got := c.answerMargin(); got != c.reserve {
 		t.Fatalf("margin = %s, want the reserve %s as its bound", got, c.reserve)
 	}

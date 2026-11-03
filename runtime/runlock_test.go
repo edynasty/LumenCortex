@@ -206,8 +206,9 @@ func TestRunLockIsReleasedOnEveryExitPath(t *testing.T) {
 		cancel   bool
 	}{
 		"completed": {provider: completingProvider("done")},
+		// A refused request ends the run at once; an availability error would be waited out (execution.retry).
 		"failed": {provider: &exitProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
-			return protocol.ProviderResponse{}, errors.New("provider down")
+			return protocol.ProviderResponse{}, &protocol.ProviderError{Class: protocol.ClassBadRequest, Err: errors.New("provider refused")}
 		}}},
 		"panic":     {provider: &exitProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) { panic("boom") }}},
 		"cancelled": {provider: blockedProvider(), cancel: true},

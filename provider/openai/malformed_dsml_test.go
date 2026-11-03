@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -39,7 +38,7 @@ func TestMalformedDSMLStopIsRejected(t *testing.T) {
 					_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{choice}})
 				}))
 				defer server.Close()
-				client, err := New(Config{Endpoint: server.URL, Model: "fixture", DisableStreaming: !stream, DisableRetries: true})
+				client, err := New(Config{Endpoint: server.URL, Model: "fixture", DisableStreaming: !stream})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -89,7 +88,9 @@ func TestMalformedDSMLGuardDoesNotBlockOrdinaryOutputs(t *testing.T) {
 	}
 }
 
-func TestMalformedDSMLStopRetriesAreBounded(t *testing.T) {
+// Leaked tool-call delimiters are one availability/malformed_response attempt: the loop decides whether
+// to send the step again, and nothing in the text is ever executed.
+func TestMalformedDSMLStopIsOneMalformedAttempt(t *testing.T) {
 	var hits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
@@ -98,16 +99,16 @@ func TestMalformedDSMLStopRetriesAreBounded(t *testing.T) {
 		fmt.Fprintln(w, "data: [DONE]")
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "fixture", MaxRetries: 2, RetryBaseDelay: time.Millisecond})
+	client, err := New(Config{Endpoint: server.URL, Model: "fixture"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = client.Complete(context.Background(), protocol.ProviderRequest{Tools: []protocol.ToolSpec{{Name: "bash"}}})
 	var pe *protocol.ProviderError
-	if !errors.As(err, &pe) || pe.Class != protocol.ClassAvailability {
+	if !errors.As(err, &pe) || pe.Class != protocol.ClassAvailability || pe.Reason != protocol.ReasonMalformedResponse {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := hits.Load(); got != 3 {
-		t.Fatalf("got %d requests, want exactly 3 (initial + 2 retries)", got)
+	if got := hits.Load(); got != 1 {
+		t.Fatalf("got %d requests, want 1", got)
 	}
 }

@@ -63,7 +63,7 @@ func TestHeadersAuthAndOverride(t *testing.T) {
 
 	client, err := New(Config{
 		BaseURL: server.URL, APIKey: "sk-ant-secret", Model: "m",
-		Headers: map[string]string{"X-Org": "acme"}, DisableStreaming: true, DisableRetries: true,
+		Headers: map[string]string{"X-Org": "acme"}, DisableStreaming: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestHeadersAuthAndOverride(t *testing.T) {
 	// The configured headers win over the defaults, the version included.
 	client, err = New(Config{
 		BaseURL: server.URL, APIKey: "sk-ant-secret", Model: "m",
-		Headers: map[string]string{"anthropic-version": "2023-01-01"}, DisableStreaming: true, DisableRetries: true,
+		Headers: map[string]string{"anthropic-version": "2023-01-01"}, DisableStreaming: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestStreamingAssembly(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{BaseURL: server.URL, Model: "m", DisableRetries: true})
+	client, err := New(Config{BaseURL: server.URL, Model: "m"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestStreamingSplitChunksAndComments(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableRetries: true})
+	client, _ := New(Config{BaseURL: server.URL, Model: "m"})
 	response, err := client.Complete(context.Background(), request())
 	if err != nil {
 		t.Fatal(err)
@@ -230,7 +230,7 @@ func TestStreamingRedactedThinking(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, _ := New(Config{BaseURL: server.URL, Model: "m", DisableRetries: true})
+	client, _ := New(Config{BaseURL: server.URL, Model: "m"})
 	response, err := client.Complete(context.Background(), request())
 	if err != nil {
 		t.Fatal(err)
@@ -250,7 +250,7 @@ func TestNonStreamingResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{BaseURL: server.URL, Model: "test", DisableStreaming: true, DisableRetries: true})
+	client, err := New(Config{BaseURL: server.URL, Model: "test", DisableStreaming: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,39 +263,13 @@ func TestNonStreamingResponse(t *testing.T) {
 	}
 }
 
-func TestRetries429AndHonorsBoundedAttempts(t *testing.T) {
-	var attempts atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		current := attempts.Add(1)
-		if current < 3 {
-			w.Header().Set("Retry-After", "0")
-			http.Error(w, `{"type":"error","error":{"type":"rate_limit_error","message":"busy"}}`, http.StatusTooManyRequests)
-			return
-		}
-		fmt.Fprint(w, `{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{}}`)
-	}))
-	defer server.Close()
-
-	client, err := New(Config{BaseURL: server.URL, Model: "test", DisableStreaming: true, MaxRetries: 2, RetryBaseDelay: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, err := client.Complete(context.Background(), request())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.Message.Content != "ok" || attempts.Load() != 3 {
-		t.Fatalf("response=%+v attempts=%d", response, attempts.Load())
-	}
-}
-
 func TestResponseBudget(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, strings.Repeat("x", 2048))
 	}))
 	defer server.Close()
 
-	client, _ := New(Config{BaseURL: server.URL, Model: "test", DisableStreaming: true, DisableRetries: true, MaxResponseBytes: 1024})
+	client, _ := New(Config{BaseURL: server.URL, Model: "test", DisableStreaming: true, MaxResponseBytes: 1024})
 	if _, err := client.Complete(context.Background(), request()); err == nil || !strings.Contains(err.Error(), "exceeded") {
 		t.Fatalf("err=%v", err)
 	}
@@ -338,7 +312,7 @@ func TestIdleAndRequestTimeouts(t *testing.T) {
 			}))
 			defer server.Close()
 			cfg := c.cfg
-			cfg.BaseURL, cfg.Model, cfg.DisableRetries = server.URL, "m", true
+			cfg.BaseURL, cfg.Model = server.URL, "m"
 			client, err := New(cfg)
 			if err != nil {
 				t.Fatal(err)
@@ -385,7 +359,7 @@ func TestReasoningFormatReachesTheWire(t *testing.T) {
 		defer server.Close()
 
 		client, err := New(Config{
-			BaseURL: server.URL, Model: "m", DisableStreaming: !stream, DisableRetries: true,
+			BaseURL: server.URL, Model: "m", DisableStreaming: !stream,
 			ReasoningFormat: config.ReasoningAdaptive,
 		})
 		if err != nil {
@@ -421,7 +395,7 @@ func TestUnimplementedReasoningFormatSendsNothing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{BaseURL: server.URL, Model: "m", DisableRetries: true, ReasoningFormat: "deepseek"})
+	client, err := New(Config{BaseURL: server.URL, Model: "m", ReasoningFormat: "deepseek"})
 	if err != nil {
 		t.Fatal(err)
 	}
