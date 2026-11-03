@@ -333,6 +333,10 @@ func cloneFile(f File) File {
 			b := *f.Execution.Budget
 			execution.Budget = &b
 		}
+		if f.Execution.Retry != nil {
+			r := *f.Execution.Retry
+			execution.Retry = &r
+		}
 		out.Execution = &execution
 	}
 	out.Providers = cloneProviders(f.Providers)

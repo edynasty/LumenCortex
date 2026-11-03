@@ -14,9 +14,9 @@ Branch `feat/provider-retry-resilience` from `ff5ccdb` (`fix/bench003-shell-time
 |---|---|
 | `protocol.ProviderError` | `Reason` (`rate_limited`, `overloaded`, `server_error`, `timeout`, `conflict`, `transport`, `stream_incomplete`, `malformed_response`) and `Status`; the loop still branches on `Class` only. |
 | Adapters (`openai`, `anthropic`) | One HTTP attempt per `Complete`; `MaxRetries`, `RetryBaseDelay`, `DisableRetries` removed. Retry-After is read by `provider/internal/retryafter`: `retry-after-ms`, then `Retry-After` seconds (fractions allowed) or HTTP date, capped at 24 h, never slept in the adapter. |
-| Loop (`internal/agent/recovery.go`, `send.go`) | When a sweep of every candidate ends in availability, the step waits and sends again from the first candidate. Wait = max(exponential backoff × jitter 75–100 %, shortest Retry-After of the sweep). Stops before sleeping if the wait would pass the outage window or reach the run's deadline; a cancel during the wait ends the run at once. |
+| Loop (`internal/agent/recovery.go`, `send.go`) | The failover chain runs first. When it ends without an answer and some candidate failed with availability (also when the chain ends in capacity), the step waits and sends again. Only availability-failed candidates are retried, rotating in failover order, each no earlier than its own Retry-After counted from its own failure; a candidate capacity rejected for good is skipped. Wait = backoff × jitter 75–100 % when a candidate is ready within it, else that candidate's remaining Retry-After. Each move is a replayable `failover.recovery` decision. Stops before sleeping if the wait would pass the outage window or reach the run's deadline, or no candidate is left; a cancel during the wait ends the run at once. |
 | Config | `execution.retry {disabled, baseDelayMs=1000, maxDelayMs=30000, maxOutageSeconds}`; default outage: until the deadline, 1800 s without one. `AgentOptions.Retry` per run; CLI `LCX_DISABLE_RETRIES` now sets `retry.disabled`. No request, token or cost limit added. |
-| Logs | `provider.failover` gains `reason`/`status`; new `provider.retry`, `provider.retry_stopped` (`retry_disabled`, `outage_window`, `deadline`), `provider.recovered`. Final error: `provider unavailable for <d>: N failed requests, M retries; stopped because …; last error: …`, wrapping the last `ProviderError`. |
+| Logs | `provider.failover` gains `failure` (reason code) and `status`; new `provider.retry`, `provider.retry_stopped` (`retry_disabled`, `no_candidate`, `outage_window`, `deadline`), `provider.recovered`. Journal keeps `failure`/`stop` (whitelisted; error text dropped); diagnostic log levels warn (failover, retry_stopped) and info (retry, recovered). Final error: `provider unavailable for <d>: N failed requests, M retries; stopped because …; last error: …`, wrapping the last availability `ProviderError`. |
 | Deadline clock | `observeModel(total, request)`: backoff time counts as model time but no longer inflates the answer margin. |
 
 Session and context: a retry re-sends the same window on the same session; each attempt is a new admitted request with its own envelope (`unknown:provider_error` when failed). A failed or cut response returns nothing to execute, so no tool runs twice (PROVIDER-005 guarantee unchanged).
@@ -25,25 +25,39 @@ Reference: OMP `packages/coding-agent/src/session/turn-recovery.ts` and `docs/no
 
 ## Verification
 
-- `go build ./...`, `go vet ./...`: pass.
-- `go test ./...` (all packages): pass; `runtime` 203 s.
-- New loop tests (`internal/agent/recovery_test.go`): consecutive 502 → 429(Retry-After) → cut stream recovered with one tool execution and identical transcripts; outage window stop with reason; deadline stop without sleeping; cancel during backoff; auth/bad_request not retried; sweep restarts at the first candidate.
-- Mutation check: 7/7 caught (Retry-After ignored, no sweep reset, no outage check, no deadline check, cancel ignored, no jitter, longest instead of shortest hint).
-- CLI smoke (built binary, fake upstream on 127.0.0.1, isolated HOME/XDG):
+- `go build ./...`, `go vet ./...`, `go test ./...` (all packages, `runtime` included): pass.
+- Loop tests (`internal/agent/recovery_test.go`): consecutive 502 → 429(Retry-After) → cut stream recovered with one tool execution and identical transcripts; outage window stop; deadline stop without sleeping; cancel during backoff; auth/bad_request not retried; chain then rotation with a replayed `failover.recovery` decision; capacity at the end of an outage waited out; capacity-rejected candidate not resent; per-candidate Retry-After kept. Config copy isolation, journal projection and log level tests added.
+- Mutation checks: first round 7/7 caught (Retry-After ignored, no sweep reset, no outage check, no deadline check, cancel ignored, no jitter, longest hint); review-fix round 5/5 caught (capacity end not waited out, exhaustion not recorded, readiness ignored, no rotation, readiness not aged); config clone fix: test fails without it.
+- CLI smoke after the review fixes (built binary, fake upstream on 127.0.0.1, isolated HOME/XDG):
 
 | Scenario | Result |
 |---|---|
-| 502, 429 `Retry-After: 1`, cut SSE with a tool call, tool call, 503, answer | `completed`, 6 requests, waits 194 ms / 1000 ms / 740 ms / 196 ms, marker `RAN` once, the cut call never ran |
-| always 503, `LCX_DEADLINE=4s` | `interrupted`/`provider:availability` at 3.8 s, 7 requests, `stop: deadline` |
+| 502, 429 `Retry-After: 1`, cut SSE with a tool call, tool call, 503, answer | `completed`, 6 requests, waits 192 ms / 1000 ms / 695 ms / 153 ms, marker `RAN` once, the cut call never ran |
+| always 503, `LCX_DEADLINE=4s` | `interrupted`/`provider:availability`, 7 requests, 6 retries, `stop: deadline` (refused 938 ms wait at 3.9 s) |
 | always 503, `LCX_DISABLE_RETRIES=1` | `interrupted` after 1 request, `stop: retry_disabled` |
+
+## Independent review (2026-11-03)
+
+Reviewer agent `RetryReview` on `fb40879`: PASS for retry mechanics, admission, tool duplication, adapter classification, Retry-After parsing, deadline/cancel and config/CLI compatibility. Findings fixed in the follow-up commit:
+
+| ID | Finding | Fix |
+|---|---|---|
+| F1 P1 | A chain ending in capacity ended the run although an earlier candidate was only unavailable | Recovery when any candidate failed with availability |
+| F2 P2 | The sweep reset re-sent a capacity-exhausted candidate | Only availability-failed, non-exhausted candidates are retried |
+| F3 P2 | Shortest sweep hint released a candidate before its own Retry-After; hints never aged | Per-candidate absolute readiness |
+| F4 P2 | `execution.retry` pointer shared between config copies | Cloned in `cloneFile` and `Effective` (budget too) |
+| F5 P2 | Journal dropped `reason`/`stop`; events logged at debug | Fields `failure`/`stop` whitelisted; warn/info levels |
+
+Found while fixing: the old sweep reset recorded no decision, so the step record's decision log could lead to a different model than the one that answered (VerifyStep). The `failover.recovery` decision closes that; tests now replay every step.
 
 ## Behaviour changes to note
 
 - A run without a deadline now waits up to 30 min through an outage instead of ending within seconds; set `execution.retry.maxOutageSeconds` or `disabled` for the old behaviour.
 - `execution.budget.maxModelRequests` counts every retry (each is admitted), as it already counted failovers.
-- Health registry marks are unchanged (Retry-After or 30 s); within a step the candidate list is fixed, so a marked model is still retried by its own step.
+- Health registry marks are unchanged (Retry-After or 30 s); within a step the candidate list is fixed, and recovery uses each candidate's own Retry-After instead of the registry.
+- Event field: the failure reason code is `failure` (not `reason`), because the journal whitelist is global and `reason` carries free text in other events.
 
 ## Not done
 
 - Not merged into `main` or any benchmark branch; BENCH005 keeps its frozen binary.
-- No independent model-diverse review: project `sol-*` agents are not present in this workspace; the bundled reviewer is the same model family as the implementer.
+- Review was by the bundled reviewer agent (same model family as the implementer); the project `sol-*` agents named in the workspace rules are not present. A model-diverse review is still open before any merge.

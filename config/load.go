@@ -239,6 +239,14 @@ func (c *Config) Effective() Effective {
 		auto := *e.Auto
 		e.Auto = &auto
 	}
+	if e.Execution.Budget != nil {
+		b := *e.Execution.Budget
+		e.Execution.Budget = &b
+	}
+	if e.Execution.Retry != nil {
+		r := *e.Execution.Retry
+		e.Execution.Retry = &r
+	}
 	e.Checks = cloneChecks(e.Checks)
 	e.Warnings = append([]Warning(nil), e.Warnings...)
 	return e

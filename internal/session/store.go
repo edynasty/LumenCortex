@@ -379,6 +379,8 @@ var journalPayloadStrings = map[string]bool{
 	"name": true, "tool": true, "toolName": true,
 	// status and exit code
 	"status": true, "phase": true, "class": true, "kind": true, "stream": true,
+	// a provider failure's reason code and why a step stopped retrying (protocol.Reason, RecoveryStop*)
+	"failure": true, "stop": true,
 	"origin": true, "role": true, "ok": true, "denied": true, "cancelled": true,
 	// time
 	"at": true, "time": true, "timestamp": true, "startedAt": true, "endedAt": true,

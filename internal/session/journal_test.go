@@ -105,6 +105,30 @@ func TestJournalProjectsEventData(t *testing.T) {
 	}
 }
 
+// A provider retry keeps its machine codes (class, failure reason, stop reason, status, counts) in the
+// journal; the provider's error text does not survive.
+func TestJournalKeepsProviderRetryCodes(t *testing.T) {
+	store, journal := journalTestStore(t)
+	if err := store.Journal(context.Background(), "provider.retry_stopped", map[string]any{
+		"sessionId": "session_1",
+		"data": map[string]any{
+			"step": int64(3), "modelRef": "deepseek/flash", "class": "availability", "failure": "rate_limited",
+			"status": 429, "stop": "deadline", "failedRequests": 7, "error": "provider HTTP 429: body from the gateway",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := journal.last()["data"].(map[string]any)
+	for _, kept := range []string{"step", "modelRef", "class", "failure", "status", "stop", "failedRequests"} {
+		if _, ok := data[kept]; !ok {
+			t.Fatalf("event data %v dropped %q", data, kept)
+		}
+	}
+	if _, ok := data["error"]; ok {
+		t.Fatalf("event data %v kept the error text", data)
+	}
+}
+
 // A payload with nothing whitelisted, and one that is not an object at all, become an empty object:
 // the column holds valid JSON either way.
 func TestJournalWritesAnEmptyObjectWhenNothingSurvives(t *testing.T) {

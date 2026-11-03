@@ -52,6 +52,9 @@ const (
 	// effort.auto.max, so no reasoning parameter is sent to it.
 	RuleEffortAutoUnavailable = "effort.auto_unavailable"
 	RuleFailoverPrefix        = "failover."
+	// RuleFailoverRecovery: the failover chain ended in an outage; the step waits and sends the request
+	// again to a candidate that failed with availability (Recovery).
+	RuleFailoverRecovery = "failover.recovery"
 	// RuleWindowDropped: older transcript groups were left out to fit the candidate's budget (§5).
 	RuleWindowDropped = "window.dropped"
 	// RuleWindowDefaultContext: the model configures no limit.context, so the request is budgeted on
@@ -745,6 +748,18 @@ func ReplayDecision(d Decision) error {
 		}
 		if context, rule := EffectiveContext(in.Configured); rule != d.Rule || context != out.Context {
 			return fmt.Errorf("%s: recomputed context %d via %q, logged %d", d.Rule, context, rule, out.Context)
+		}
+	case d.Kind == DecisionFailover && d.Rule == RuleFailoverRecovery:
+		var in recoveryInputs
+		var out recoveryOutput
+		if err := decodeDecision(d, &in, &out); err != nil {
+			return err
+		}
+		if len(in.ReadyInMs) != len(in.Candidates) {
+			return fmt.Errorf("%s: %d readiness entries for %d candidates", d.Rule, len(in.ReadyInMs), len(in.Candidates))
+		}
+		if next, wait := replayRecoveryPick(in.ReadyInMs, in.Failed, in.BackoffMs); next != out.Next || wait != out.WaitMs {
+			return fmt.Errorf("%s: recomputed next=%d wait=%dms, logged next=%d wait=%dms", d.Rule, next, wait, out.Next, out.WaitMs)
 		}
 	case d.Kind == DecisionFailover:
 		var in failoverInputs

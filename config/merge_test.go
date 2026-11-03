@@ -542,6 +542,25 @@ func TestExecutionIsReadFromTheGlobalFileOnly(t *testing.T) {
 	}
 }
 
+// The retry policy is copied with the documents and views that hand out a caller-owned copy: editing one
+// copy changes neither the configuration nor a later copy.
+func TestRetryCopiesAreIsolated(t *testing.T) {
+	_, globalDir := env(t)
+	writeFile(t, filepath.Join(globalDir, FileName), `{"execution": {"retry": {"maxOutageSeconds": 600}, "budget": {"maxModelRequests": 9}}}`)
+	c, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := c.Global()
+	g.File.Execution.Retry.Disabled = true
+	e := c.Effective()
+	e.Execution.Retry.Disabled = true
+	e.Execution.Budget.MaxModelRequests = 1
+	if c.Global().File.Execution.Retry.Disabled || c.Effective().Execution.Retry.Disabled || c.Effective().Execution.Budget.MaxModelRequests != 9 {
+		t.Fatal("editing a copy changed the configuration")
+	}
+}
+
 // A foreground shell call is never unbounded: absent settings select 120 s and an 1800 s maximum, an
 // explicit default above the maximum is clamped, a lower maximum lowers an absent default too, and a
 // deployment may raise the maximum to the schema bound.

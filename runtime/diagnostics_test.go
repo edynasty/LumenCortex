@@ -649,6 +649,10 @@ func TestEventLevelMapping(t *testing.T) {
 		{"session.message", nil, slog.LevelInfo},
 		{"schedule.fired", nil, slog.LevelInfo},
 		{"checkpoint.saved", nil, slog.LevelDebug},
+		{"provider.failover", nil, slog.LevelWarn},
+		{"provider.retry_stopped", nil, slog.LevelWarn},
+		{"provider.retry", nil, slog.LevelInfo},
+		{"provider.recovered", nil, slog.LevelInfo},
 	}
 	for _, tc := range cases {
 		if got := eventLevel(tc.event, tc.data); got != tc.want {

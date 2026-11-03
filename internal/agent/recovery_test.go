@@ -27,42 +27,102 @@ func TestBackoffDoublesToTheCapWithJitter(t *testing.T) {
 	}
 }
 
-// The wait is the longer of the backoff and the shortest Retry-After of the sweep; a wait that passes
-// the outage window or reaches the deadline is refused with that reason, before anything sleeps.
-func TestRecoveryNextHonoursRetryAfterOutageAndDeadline(t *testing.T) {
+// A recovery request goes, in failover order after the candidate that failed, to the first candidate
+// ready within the backoff, after the backoff; when none is, to the one ready soonest, once its own
+// Retry-After has passed. Candidates never retried (-1) are skipped.
+func TestRecoveryPickRotatesAndHonoursEachRetryAfter(t *testing.T) {
+	const s = time.Second
+	cases := []struct {
+		name    string
+		readyIn []time.Duration
+		failed  int
+		pick    int
+		wait    time.Duration
+	}{
+		{"one candidate", []time.Duration{0}, 0, 0, s},
+		{"rotates past the one that failed", []time.Duration{0, 0, 0}, 0, 1, s},
+		{"wraps around", []time.Duration{0, 0, 0}, 2, 0, s},
+		{"skips a cooling candidate", []time.Duration{0, 60 * s}, 0, 0, s},
+		{"waits for its own retry-after", []time.Duration{20 * s}, 0, 0, 20 * s},
+		{"the soonest of two hints", []time.Duration{60 * s, 10 * s}, 1, 1, 10 * s},
+		{"not one hint shorter than another candidate's", []time.Duration{60 * s, 2 * s}, 1, 1, 2 * s},
+		{"skips a candidate never retried", []time.Duration{-1, 0}, 1, 1, s},
+		{"nothing to retry", []time.Duration{-1, -1}, 0, -1, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if pick, wait := recoveryPick(c.readyIn, c.failed, s); pick != c.pick || wait != c.wait {
+				t.Fatalf("pick = %d %s, want %d %s", pick, wait, c.pick, c.wait)
+			}
+		})
+	}
+}
+
+// A candidate's Retry-After counts from its own failure, so it ages while other candidates are tried;
+// a candidate capacity rejected for good is not retried.
+func TestOutageReadinessAgesAndSkipsExhausted(t *testing.T) {
+	t0 := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	var o outage
+	o.fail(0, t0, t0, 10*time.Second, errors.New("a"))
+	o.fail(1, t0.Add(8*time.Second), t0.Add(8*time.Second), 20*time.Second, errors.New("b"))
+	got := o.readyIn(3, nil, t0.Add(8*time.Second))
+	if want := []time.Duration{2 * time.Second, 20 * time.Second, -1}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("readyIn = %v, want %v", got, want)
+	}
+	if got := o.readyIn(3, map[int]bool{0: true}, t0.Add(30*time.Second)); !reflect.DeepEqual(got, []time.Duration{-1, 0, -1}) {
+		t.Fatalf("readyIn with 0 exhausted = %v", got)
+	}
+	if o.start != t0 || o.failures != 2 || o.last.Error() != "b" {
+		t.Fatalf("outage = %+v", o)
+	}
+}
+
+// A wait that passes the outage window or reaches the deadline is refused with that reason, before
+// anything sleeps.
+func TestRecoveryStopsAtWindowDeadlineAndDisabled(t *testing.T) {
 	now := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
 	p := Recovery{BaseDelay: time.Second, MaxDelay: 4 * time.Second, MaxOutage: time.Minute}
 	cases := []struct {
 		name     string
-		hints    []time.Duration
+		pick     int
+		wait     time.Duration
 		start    time.Time
 		deadline time.Time
-		wait     time.Duration
 		stop     string
 	}{
-		{"backoff", []time.Duration{0}, now, time.Time{}, time.Second, ""},
-		{"retry-after longer than backoff", []time.Duration{20 * time.Second}, now, time.Time{}, 20 * time.Second, ""},
-		{"shortest hint of a sweep", []time.Duration{30 * time.Second, 10 * time.Second}, now, time.Time{}, 10 * time.Second, ""},
-		{"a candidate without a hint", []time.Duration{30 * time.Second, 0}, now, time.Time{}, time.Second, ""},
-		{"outage window", []time.Duration{0}, now.Add(-time.Minute), time.Time{}, time.Second, RecoveryStopOutage},
-		{"retry-after past the outage window", []time.Duration{2 * time.Minute}, now, time.Time{}, 2 * time.Minute, RecoveryStopOutage},
-		{"deadline", []time.Duration{20 * time.Second}, now, now.Add(10 * time.Second), 20 * time.Second, RecoveryStopDeadline},
-		{"exactly at the deadline", []time.Duration{0}, now, now.Add(time.Second), time.Second, RecoveryStopDeadline},
+		{"wait", 0, time.Second, now, time.Time{}, ""},
+		{"within the window", 0, 59 * time.Second, now.Add(-time.Second), now.Add(time.Hour), ""},
+		{"outage window", 0, time.Second, now.Add(-time.Minute), time.Time{}, RecoveryStopOutage},
+		{"retry-after past the outage window", 0, 2 * time.Minute, now, time.Time{}, RecoveryStopOutage},
+		{"deadline", 0, 20 * time.Second, now, now.Add(10 * time.Second), RecoveryStopDeadline},
+		{"exactly at the deadline", 0, time.Second, now, now.Add(time.Second), RecoveryStopDeadline},
+		{"no candidate", -1, 0, now, time.Time{}, RecoveryStopNoCandidate},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			var o outage
-			for _, h := range c.hints {
-				o.fail(c.start, h)
-			}
-			wait, stop := p.next(&o, now, c.deadline, 1)
-			if wait != c.wait || stop != c.stop {
-				t.Fatalf("next = %s %q, want %s %q", wait, stop, c.wait, c.stop)
+			if stop := p.stopFor(c.pick, c.wait, c.start, now, c.deadline); stop != c.stop {
+				t.Fatalf("stopFor = %q, want %q", stop, c.stop)
 			}
 		})
 	}
-	if _, stop := (Recovery{}).next(&outage{}, now, time.Time{}, 1); stop != RecoveryStopDisabled {
+	if stop := (Recovery{}).stopFor(0, 0, now, now, time.Time{}); stop != RecoveryStopDisabled {
 		t.Fatalf("the zero Recovery retried: %q", stop)
+	}
+}
+
+// A recovery decision replays from its inputs, and a changed output is caught (I7).
+func TestRecoveryDecisionReplays(t *testing.T) {
+	cands := []Candidate{{Ref: "t/a", Context: 8000}, {Ref: "t/b", Context: 8000}}
+	next, wait, d := RecoveryDecision(cands, 1, protocol.ClassAvailability, []time.Duration{2 * time.Second, 1500 * time.Millisecond}, time.Second)
+	if next != 1 || wait != 1500*time.Millisecond || d.Rule != RuleFailoverRecovery {
+		t.Fatalf("decision = %d %s %s", next, wait, d.Output)
+	}
+	if err := ReplayDecision(d); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	d.Output = []byte(`{"next":0,"waitMs":1500}`)
+	if err := ReplayDecision(d); err == nil {
+		t.Fatal("a changed recovery output replayed")
 	}
 }
 
@@ -188,11 +248,13 @@ func TestLoopWaitsOutConsecutiveUpstreamFailures(t *testing.T) {
 	}
 	wantReasons := []protocol.Reason{protocol.ReasonServerError, protocol.ReasonRateLimited, protocol.ReasonStreamIncomplete}
 	for i, r := range retries {
-		if r["reason"] != wantReasons[i] || r["retry"] != i+1 || r["failedRequests"] != i+1 {
+		if r["failure"] != wantReasons[i] || r["retry"] != i+1 || r["failedRequests"] != i+1 {
 			t.Errorf("retry event %d = %v", i, r)
 		}
 	}
-	if r := retries[1]; r["status"] != 429 || r["retryAfterMs"] != int64(120) || r["delayMs"].(int64) < 120 {
+	// delayMs is what is left of the Retry-After after the failure was handled; the request gap above
+	// proves the whole Retry-After passed.
+	if r := retries[1]; r["status"] != 429 || r["retryAfterMs"] != int64(120) || r["delayMs"].(int64) < 100 {
 		t.Errorf("the 429 retry event = %v", r)
 	}
 	recovered := events.of("provider.recovered")
@@ -254,7 +316,7 @@ func TestLoopDoesNotWaitPastTheDeadline(t *testing.T) {
 	start := time.Now()
 	result, err := loop.Run(context.Background(), "dl", opts)
 	var rec *RecoveryError
-	if result.Status != StatusInterrupted || !errors.As(err, &rec) || rec.Stop != RecoveryStopDeadline || rec.Wait != time.Hour {
+	if result.Status != StatusInterrupted || !errors.As(err, &rec) || rec.Stop != RecoveryStopDeadline || rec.Wait < 59*time.Minute {
 		t.Fatalf("result %+v err %v", result, err)
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second || len(p.seen) != 1 {
@@ -300,14 +362,15 @@ func TestOnlyAvailabilityIsRetried(t *testing.T) {
 	}
 }
 
-// Failover comes first: a sweep tries every candidate before the step waits, and the retry starts
-// again from the session model.
+// Failover comes first: the chain tries every candidate before the step waits, then the retries rotate
+// over the unavailable candidates, and every step's decision log leads to the model that answered.
 func TestRetrySweepsFromTheFirstCandidate(t *testing.T) {
 	const a, b = config.ModelRef("test/a"), config.ModelRef("test/b")
 	pa := &flakyProvider{script: []any{unavailable(protocol.ReasonOverloaded, 503, 0), answerOf("done")}}
 	pb := &flakyProvider{script: []any{unavailable(protocol.ReasonServerError, 502, 0)}}
 	health := NewHealth(nil)
-	loop := Loop{Models: map[config.ModelRef]Model{a: testModel(a, pa), b: testModel(b, pb)}, Store: envStore("sw"), Tools: fakeTools{}, Health: health}
+	store := envStore("sw")
+	loop := Loop{Models: map[config.ModelRef]Model{a: testModel(a, pa), b: testModel(b, pb)}, Store: store, Tools: fakeTools{}, Health: health}
 	opts := Options{Session: a, Failover: []config.ModelRef{b}, MaxSteps: 2, RunID: "r",
 		Recovery: Recovery{BaseDelay: 10 * time.Millisecond, MaxDelay: 10 * time.Millisecond, MaxOutage: time.Minute}}
 	result, err := loop.Run(context.Background(), "sw", opts)
@@ -317,4 +380,86 @@ func TestRetrySweepsFromTheFirstCandidate(t *testing.T) {
 	if len(pa.seen) != 2 || len(pb.seen) != 1 {
 		t.Fatalf("requests a=%d b=%d, want a, b, then a again", len(pa.seen), len(pb.seen))
 	}
+	if steps := replayAll(t, store); !hasRule(steps[0].Decisions, RuleFailoverRecovery) {
+		t.Fatalf("no recovery decision in %+v", steps[0].Decisions)
+	}
+}
+
+// A chain that ends in capacity is still waited out when an earlier candidate failed with availability:
+// that candidate may answer once it recovers (review F1).
+func TestCapacityAtTheEndOfAnOutageIsWaitedOut(t *testing.T) {
+	const a, b = config.ModelRef("test/a"), config.ModelRef("test/b")
+	tooLarge := func() *protocol.ProviderError {
+		return &protocol.ProviderError{Class: protocol.ClassCapacity, Status: 400, Err: errors.New("too large")}
+	}
+	pa := &flakyProvider{script: []any{unavailable(protocol.ReasonOverloaded, 503, 0), answerOf("done")}}
+	pb := &flakyProvider{script: []any{tooLarge(), tooLarge()}}
+	mb := testModel(b, pb)
+	mb.Context *= 2
+	store := withOldRows(envStore("cap"))
+	loop := Loop{Models: map[config.ModelRef]Model{a: testModel(a, pa), b: mb}, Store: store, Tools: fakeTools{}}
+	opts := Options{Session: a, Failover: []config.ModelRef{b}, MaxSteps: 2, RunID: "r",
+		Recovery: Recovery{BaseDelay: 10 * time.Millisecond, MaxDelay: 10 * time.Millisecond, MaxOutage: time.Minute}}
+	result, err := loop.Run(context.Background(), "cap", opts)
+	if err != nil || result.Status != StatusCompleted {
+		t.Fatalf("result %+v err %v", result, err)
+	}
+	if len(pa.seen) != 2 || len(pb.seen) != 2 {
+		t.Fatalf("requests a=%d b=%d, want a, b, b halved, then a again", len(pa.seen), len(pb.seen))
+	}
+	replayAll(t, store)
+}
+
+// A candidate that capacity rejected for good is not sent again while the step waits out another's
+// outage, even though it failed with availability before (review F2): a and its halved retry are
+// rejected once, then only b is retried until it answers.
+func TestCapacityRejectedCandidateIsNotRetried(t *testing.T) {
+	const a, b = config.ModelRef("test/a"), config.ModelRef("test/b")
+	tooLarge := &protocol.ProviderError{Class: protocol.ClassCapacity, Status: 400, Err: errors.New("too large")}
+	pa := &flakyProvider{script: []any{unavailable(protocol.ReasonOverloaded, 503, 0), tooLarge, tooLarge, answerOf("from a")}}
+	pb := &flakyProvider{script: []any{unavailable(protocol.ReasonOverloaded, 503, 0), unavailable(protocol.ReasonOverloaded, 503, 0), answerOf("done")}}
+	store := withOldRows(envStore("ex"))
+	loop := Loop{Models: map[config.ModelRef]Model{a: testModel(a, pa), b: testModel(b, pb)}, Store: store, Tools: fakeTools{}}
+	opts := Options{Session: a, Failover: []config.ModelRef{b}, MaxSteps: 2, RunID: "r",
+		Recovery: Recovery{BaseDelay: 10 * time.Millisecond, MaxDelay: 10 * time.Millisecond, MaxOutage: time.Minute}}
+	result, err := loop.Run(context.Background(), "ex", opts)
+	if err != nil || result.Status != StatusCompleted || result.Final != "done" {
+		t.Fatalf("result %+v err %v", result, err)
+	}
+	if len(pa.seen) != 3 || len(pb.seen) != 3 {
+		t.Fatalf("requests a=%d b=%d, want a, b, a, a halved, b, b", len(pa.seen), len(pb.seen))
+	}
+	replayAll(t, store)
+}
+
+// Each candidate is retried no earlier than its own Retry-After: a short hint on one candidate does not
+// release another that asked for longer (review F3).
+func TestEachCandidateKeepsItsOwnRetryAfter(t *testing.T) {
+	const a, b = config.ModelRef("test/a"), config.ModelRef("test/b")
+	pa := &flakyProvider{script: []any{unavailable(protocol.ReasonRateLimited, 429, 150*time.Millisecond), answerOf("done")}}
+	pb := &flakyProvider{script: []any{unavailable(protocol.ReasonRateLimited, 429, time.Hour)}}
+	store := envStore("ra")
+	loop := Loop{Models: map[config.ModelRef]Model{a: testModel(a, pa), b: testModel(b, pb)}, Store: store, Tools: fakeTools{}}
+	opts := Options{Session: a, Failover: []config.ModelRef{b}, MaxSteps: 2, RunID: "r",
+		Recovery: Recovery{BaseDelay: 10 * time.Millisecond, MaxDelay: 10 * time.Millisecond, MaxOutage: time.Minute}}
+	result, err := loop.Run(context.Background(), "ra", opts)
+	if err != nil || result.Status != StatusCompleted {
+		t.Fatalf("result %+v err %v", result, err)
+	}
+	if len(pa.seen) != 2 || len(pb.seen) != 1 {
+		t.Fatalf("requests a=%d b=%d, want a, b, then a once its Retry-After passed", len(pa.seen), len(pb.seen))
+	}
+	if gap := pa.at[1].Sub(pa.at[0]); gap < 150*time.Millisecond {
+		t.Fatalf("a was retried %s after it asked for 150ms", gap)
+	}
+	replayAll(t, store)
+}
+
+// withOldRows adds older transcript rows, so a capacity retry with half the transcript still fits and
+// is sent.
+func withOldRows(store *memoryStore) *memoryStore {
+	for i := range 20 {
+		store.messages = append(store.messages, protocol.Message{Role: "user", Content: fmt.Sprintf("old-%d %s", i, strings.Repeat("x", 200))})
+	}
+	return store
 }

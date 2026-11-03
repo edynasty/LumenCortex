@@ -10,13 +10,15 @@ import (
 )
 
 // Recovery is how a step waits out availability failures that no failover candidate answered (design
-// §4.5; the runtime's execution.retry). After a sweep of the step's candidates ends in availability
-// failures, the loop waits and sends the same step again from the first candidate, as a new admitted
-// request: the transcript is unchanged and no tool ran, because a failed request returned nothing to
-// execute. The wait is an exponential backoff from BaseDelay, doubling up to MaxDelay, scaled by a
-// 75-100% jitter so concurrent runs do not retry in lockstep, or the provider's Retry-After when that is
-// longer. Recovery sets no request, token or cost limit: the run's deadline and cancellation bound it, and
-// MaxOutage bounds one continuous outage.
+// §4.5; the runtime's execution.retry). Once the step's failover chain has ended without an answer and
+// at least one candidate failed with availability, every further failure is followed by a wait and a new
+// admitted request of the same step: the transcript is unchanged and no tool ran, because a failed
+// request returned nothing to execute. Only candidates that failed with availability are retried, each
+// no earlier than its own Retry-After; a candidate that capacity rejected for good is not sent again.
+// The wait is an exponential backoff from BaseDelay, doubling up to MaxDelay, scaled by a 75-100% jitter
+// so concurrent runs do not retry in lockstep, or the chosen candidate's remaining Retry-After when that
+// is longer. Recovery sets no request, token or cost limit: the run's deadline and cancellation bound it,
+// and MaxOutage bounds one continuous outage.
 //
 // The zero value never retries.
 type Recovery struct {
@@ -68,52 +70,137 @@ func (p Recovery) backoff(n int, jitter float64) time.Duration {
 
 // Why a step stopped recovering.
 const (
-	RecoveryStopDisabled = "retry_disabled"
-	RecoveryStopOutage   = "outage_window"
-	RecoveryStopDeadline = "deadline"
+	RecoveryStopDisabled    = "retry_disabled"
+	RecoveryStopNoCandidate = "no_candidate"
+	RecoveryStopOutage      = "outage_window"
+	RecoveryStopDeadline    = "deadline"
 )
+
+// stopFor returns why the step stops instead of waiting wait before it sends candidate pick again:
+// retrying is disabled, no candidate is left to retry (pick < 0), the wait would take the outage past
+// MaxOutage, or it would end at or after the deadline. "" means wait.
+func (p Recovery) stopFor(pick int, wait time.Duration, start, now, deadline time.Time) string {
+	switch at := now.Add(wait); {
+	case !p.enabled():
+		return RecoveryStopDisabled
+	case pick < 0:
+		return RecoveryStopNoCandidate
+	case p.MaxOutage > 0 && at.Sub(start) > p.MaxOutage:
+		return RecoveryStopOutage
+	case !deadline.IsZero() && !at.Before(deadline):
+		return RecoveryStopDeadline
+	}
+	return ""
+}
 
 // outage is one step's run of availability failures since its last answer.
 type outage struct {
 	start    time.Time
 	failures int
 	retries  int
-	// hint is the shortest Retry-After of the current sweep (0 when any candidate gave none): the
-	// earliest any candidate said it could take a request again.
-	hint     time.Duration
-	sweeping bool
+	// ready is when each candidate (by index) that failed with availability may be sent again: its
+	// failure time plus its Retry-After.
+	ready map[int]time.Time
+	// last is the newest availability error.
+	last error
 }
 
-func (o *outage) fail(sentAt time.Time, retryAfter time.Duration) {
+func (o *outage) fail(i int, sentAt, failedAt time.Time, retryAfter time.Duration, err error) {
 	if o.failures == 0 {
 		o.start = sentAt
 	}
 	o.failures++
-	if !o.sweeping || retryAfter < o.hint {
-		o.hint = retryAfter
+	if o.ready == nil {
+		o.ready = map[int]time.Time{}
 	}
-	o.sweeping = true
+	o.ready[i] = failedAt.Add(retryAfter)
+	o.last = err
 }
 
-// next returns the wait before the next sweep, or why the step stops instead: retrying is disabled, the
-// wait would take the outage past MaxOutage, or it would end at or after the deadline.
-func (p Recovery) next(o *outage, now time.Time, deadline time.Time, jitter float64) (time.Duration, string) {
-	if !p.enabled() {
-		return 0, RecoveryStopDisabled
+// readyIn lists, per candidate index, how long until it may be retried (0 when it may now), or -1 when
+// it is not retried: it never failed with availability, or capacity rejected it for good.
+func (o *outage) readyIn(n int, exhausted map[int]bool, now time.Time) []time.Duration {
+	out := make([]time.Duration, n)
+	for i := range out {
+		t, ok := o.ready[i]
+		switch {
+		case !ok || exhausted[i]:
+			out[i] = -1
+		case t.After(now):
+			out[i] = t.Sub(now)
+		}
 	}
-	wait := max(p.backoff(o.retries+1, jitter), o.hint)
-	at := now.Add(wait)
-	if p.MaxOutage > 0 && at.Sub(o.start) > p.MaxOutage {
-		return wait, RecoveryStopOutage
+	return out
+}
+
+// recoveryPick is the candidate a recovery request goes to after cands[failed] failed, and the wait
+// before it. Candidates are taken in failover order starting after the one that failed, so retries
+// rotate over the unavailable candidates: the first one ready within the backoff is sent after the
+// backoff; when none is, the one ready soonest is sent once its Retry-After has passed. pick is -1 when
+// no candidate is retried (readyIn < 0 for all).
+func recoveryPick(readyIn []time.Duration, failed int, backoff time.Duration) (pick int, wait time.Duration) {
+	pick = -1
+	for k := 1; k <= len(readyIn); k++ {
+		i := (failed + k) % len(readyIn)
+		d := readyIn[i]
+		if d < 0 {
+			continue
+		}
+		if d <= backoff {
+			return i, backoff
+		}
+		if pick < 0 || d < readyIn[pick] {
+			pick = i
+		}
 	}
-	if !deadline.IsZero() && !at.Before(deadline) {
-		return wait, RecoveryStopDeadline
+	if pick < 0 {
+		return -1, 0
 	}
-	return wait, ""
+	return pick, readyIn[pick]
+}
+
+type recoveryInputs struct {
+	Candidates []candidateRef      `json:"candidates"`
+	Failed     int                 `json:"failed"`
+	Class      protocol.ErrorClass `json:"class"`
+	ReadyInMs  []int64             `json:"readyInMs"`
+	BackoffMs  int64               `json:"backoffMs"`
+}
+
+type recoveryOutput struct {
+	Next   int   `json:"next"`
+	WaitMs int64 `json:"waitMs"`
+}
+
+// RecoveryDecision records a recovery move: after cands[failed] failed with class, the step waits and
+// sends to next (-1: no candidate is left). The inputs are recoveryPick's at millisecond precision, a
+// readiness rounded up so a Retry-After is never cut short, so the decision replays (I7); being a
+// failover entry, it moves the step's model like any failover.
+func RecoveryDecision(cands []Candidate, failed int, class protocol.ErrorClass, readyIn []time.Duration, backoff time.Duration) (int, time.Duration, Decision) {
+	ms := make([]int64, len(readyIn))
+	for i, d := range readyIn {
+		ms[i] = -1
+		if d >= 0 {
+			ms[i] = int64((d + time.Millisecond - 1) / time.Millisecond)
+		}
+	}
+	next, waitMs := replayRecoveryPick(ms, failed, backoff.Milliseconds())
+	return next, time.Duration(waitMs) * time.Millisecond, newDecision(DecisionFailover, RuleFailoverRecovery,
+		recoveryInputs{Candidates: candidateRefs(cands), Failed: failed, Class: class, ReadyInMs: ms, BackoffMs: backoff.Milliseconds()},
+		recoveryOutput{Next: next, WaitMs: waitMs})
+}
+
+func replayRecoveryPick(readyInMs []int64, failed int, backoffMs int64) (int, int64) {
+	in := make([]time.Duration, len(readyInMs))
+	for i, ms := range readyInMs {
+		in[i] = time.Duration(ms) * time.Millisecond
+	}
+	pick, wait := recoveryPick(in, failed, time.Duration(backoffMs)*time.Millisecond)
+	return pick, wait.Milliseconds()
 }
 
 // RecoveryError is the final error of a step that stopped recovering from availability failures. It
-// wraps the last provider error, so its class and Retry-After stay readable.
+// wraps the last availability error, so its class and Retry-After stay readable.
 type RecoveryError struct {
 	// Failures counts the failed requests of the outage, Retries the waits taken.
 	Failures int
@@ -130,6 +217,8 @@ func (e *RecoveryError) Error() string {
 	switch e.Stop {
 	case RecoveryStopDisabled:
 		why = "retries are disabled"
+	case RecoveryStopNoCandidate:
+		why = "no unavailable candidate is left to retry"
 	case RecoveryStopOutage:
 		why = fmt.Sprintf("the next retry in %s would pass the outage window", e.Wait.Round(time.Millisecond))
 	case RecoveryStopDeadline:
