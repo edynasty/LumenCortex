@@ -58,6 +58,8 @@ Recheck on `367a3db`: F1–F5 CLOSED; ReplayDecision/VerifyStep PASS. Fixed in t
 | F7 P2 | Test required ≥100 ms remaining of a 120 ms Retry-After (scheduler-dependent) | Bound removed; the request-gap assertion proves the Retry-After |
 | Trace (pre-existing, now reachable) | A first capacity rejection emitted only `window.capacity_retry`, which the trace builder ignored, so a later answer closed the wrong request span | `window.capacity_retry` closes the request span with `capacity`; test fails without the fix |
 
+Recheck on `3496e7e`: F6, F7 and the trace gap CLOSED. F8 P2 (the new trace test waited for 10 of its 11 records, so the trace could be read before `llm.complete` was logged) fixed in `e5620a2`.
+
 ## Behaviour changes to note
 
 - A run without a deadline now waits up to 30 min through an outage instead of ending within seconds; set `execution.retry.maxOutageSeconds` or `disabled` for the old behaviour.
