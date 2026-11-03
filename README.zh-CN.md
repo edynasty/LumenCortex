@@ -565,3 +565,20 @@ Algorithm（始终存在）
 `decision.providers` 的顺序只决定可选模型化判断线路的尝试顺序。Algorithm baseline 始终由框架独立计算，因此不需要写进列表。
 
 Generative Decision fallback 只接收压缩后的 state 与 typed questions，要求结构化 JSON，不提供工具，并对模型自报 confidence 做折减。格式错误、超时或 provider 故障会进入同一个 circuit/fallback 机制，最终仍可只用算法判断继续运行。它不属于 Category 执行模型链。
+
+
+## Coding Agent 评测：双外部基线
+
+LumenCortex 使用 **Harbor** 评测真实 Coding 任务完成能力；这与上面的 12 例 Cognitive Routing 决策回归测试是不同的评测。保留官方 Verifier、原始 Trial、请求/Token 覆盖情况，并将 Provider 或评测环境中断与模型能力失败分开。以下数据是**外部参考基线，不是同等条件下的 Harness 排名**。
+
+| 基线 | 已公开／已执行的结果 | 条件与限制 |
+|---|---|---|
+| **A · DeepSeek 官方** | `deepseek-v4.1-flash-1017`：Terminal-Bench **4.0 为 42.3%**；DeepSWE **v1.1 为 77.0%** | 分别使用 **Claude Code** 与 **Mini-SWE-V2**；数据集不同于 TB2，部分运行参数未公开。 |
+| **B · SpecPi 等公开 Harness** | Terminal-Bench **2.0 相同 13 道 Widened 题**：**SpecPi 62/77（80.5%）**、**OpenCode 29/39（74.4%）**、**Oh My Pi 84/116（72.4%）**、**Pi 134/195（68.7%）**、**Claude Code 50/77（64.9%）**、**DeepSeek Harness 21/38（55.3%）** | 公开模型标识为 `deepseek-v4.1-flash`；各 Harness 的尝试次数、运行批次不同。SpecPi 版本 **0.33.0，Jev 关闭**；数据生成于 **2026-09-24**。无法确认实际模型权重与 1017 完全一致，也未公开逐次 Agent 轨迹。 |
+| **LC 本机 W13** | 同样 13 道题，**原始 Raw 9/13（69.23%）**，每题一次；评测环境修复后的独立历史产物复核为 **10/13**，**不得覆盖原始 Raw** | 仅为开发／回归子集，不是完整 TB2 排行榜；部分 Trial 存在 Provider/Verifier 干扰。样本次数、环境和 checkpoint 并未与外部对齐，不能把成功率差异直接归因于 Harness。 |
+
+SpecPi 页面另有包含校准题的 *overall* 汇总，**不能与 13 题 Widened 汇总混用**。比较时应按同一道题展示 Raw Reward、有效／中断分类、输入／输出／缓存 Token（缓存不能重复加总）、耗时、尝试次数及本地实际计费；单次 W13 不足以支持 Harness 强弱排名。
+
+后续新 Trial 按要求使用 `combo/deepseek-v4.1-flash`；历史请求仍保留 `deepseek-v4.1-flash`。尽可能记录实际供应商、故障切换和模型标识，**不能假定 Combo 的所有供应商都部署了同一 checkpoint**。
+
+资料来源：[SpecPi 官方评测](https://tannermidd.github.io/SpecPi/evaluations/)（[TB2 原始 JSON](https://tannermidd.github.io/SpecPi/evaluations/terminal-bench-2.json)）。本机工作区详细记录：`bench/public/PUBLIC_BASELINES.md`、`bench/baselines/BASELINE_A_DEEPSEEK_OFFICIAL.md`、`bench/baselines/BASELINE_B_SPECPI_HARNESS.md`、`bench/evidence/bench002-20261102/bench002-astra-w13-20261102-191656/RESULTS.json`。这里的 `bench/` 位于 **LumenCortex 父工作区**，不保证包含在当前 Core Git checkout 中。

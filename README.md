@@ -554,3 +554,18 @@ lcx cognition benchmark --predictions predictions.jsonl --strict --json
 The built-in fixture currently covers 12 representative workloads and validates Category, Think activation, reasoning effort, and retrieval direction. The prompt command emits the same unlabeled routing rubric used by runtime Decision questions, so external model calibration does not maintain a separate policy prompt.
 
 A captured local OMP calibration on 2026-09-26 using `local/deepseek-v4.1-flash` and the canonical prompt scored 12/12; its JSONL output is versioned at `benchmarks/predictions/deepseek-v4.1-flash-2026-09-26.jsonl` and re-scored in CI. This is one generative-model calibration sample; it does not replace live Jev/Laya validation or the separate full DeepSeek coding-agent proof.
+
+
+## Coding-agent benchmark: two external baselines
+
+LumenCortex evaluates **coding-task completion**, separately from the 12-case deterministic cognitive-routing fixture above. The local benchmark uses **Harbor** and preserves official verifier outcomes, raw attempts, request/usage coverage, and infrastructure/provider interruptions. The public comparisons below are references, **not a controlled same-condition ranking**.
+
+| Reference | Published result | Test conditions and limits |
+|---|---|---|
+| **A · DeepSeek official** | `deepseek-v4.1-flash-1017`: Terminal-Bench **4.0: 42.3%**; DeepSWE **v1.1: 77.0%** | Respectively **Claude Code** and **Mini-SWE-V2** harnesses; different datasets from TB2, and some run settings are unpublished. |
+| **B · SpecPi and peers** | Terminal-Bench **2.0**, same **13 widened tasks**: **SpecPi 62/77 (80.5%)**, **OpenCode 29/39 (74.4%)**, **Oh My Pi 84/116 (72.4%)**, **Pi 134/195 (68.7%)**, **Claude Code 50/77 (64.9%)**, **DeepSeek Harness 21/38 (55.3%)** | Published `deepseek-v4.1-flash` results, pooled across unequal attempts/sittings. SpecPi **0.33.0, Jev off**; evaluation data generated **2026-09-24**. The exact model checkpoint and individual trajectories are not published. |
+| **LumenCortex local W13** | **Raw 9/13 (69.23%)**, one attempt per same widened task; separate post-environment-repair artifact check **10/13**, **not** a replacement for the raw score | Development/regression subset, **not** the complete TB2 leaderboard; affected trials include provider/verifier issues. Different attempt counts, environment, and checkpoint provenance prevent attributing the percentage gap to the harness alone. |
+
+The public page's *overall* aggregates include other calibration tasks; do **not** mix them with the 13-task widened slice above. In particular, a single W13 run cannot establish a harness ranking. Compare matching tasks and report raw Reward, valid/infra-interrupted status, input/output/cache Tokens (without double-counting cache), wall/tool time, attempts, and observed local billing separately. Future benchmark Trials use `combo/deepseek-v4.1-flash` as requested; preserve the older `deepseek-v4.1-flash` route in historical evidence and record actual provider/failover when observable. A combo route is not proof that every provider serves the same model checkpoint.
+
+Sources: [SpecPi evaluations](https://tannermidd.github.io/SpecPi/evaluations/) ([raw TB2 data](https://tannermidd.github.io/SpecPi/evaluations/terminal-bench-2.json)); repository/workspace evidence: `bench/public/PUBLIC_BASELINES.md`, `bench/baselines/BASELINE_A_DEEPSEEK_OFFICIAL.md`, `bench/baselines/BASELINE_B_SPECPI_HARNESS.md`, and `bench/evidence/bench002-20261102/bench002-astra-w13-20261102-191656/RESULTS.json` (paths relative to the **parent LumenCortex workspace**, not all tracked in this Core checkout).
