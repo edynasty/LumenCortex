@@ -61,7 +61,8 @@ type Evidence struct {
 	// Tasks are the session's execution children with their run status (ADR-0006 D4).
 	Tasks []TaskEvidence
 	// Refs are the workspace refs a latch rests on, e.g. "head:<sha>".
-	Refs []string
+	Refs              []string
+	DeliverySatisfied bool
 }
 
 // TaskEvidence is one execution child of the session and its run status.
@@ -92,6 +93,9 @@ type CheckEvidence struct {
 // Obligations lists what keeps the thread open, in a stable order.
 func (s State) Obligations(e Evidence) []string {
 	var out []string
+	if s.Delivery != nil && !e.DeliverySatisfied {
+		out = append(out, "delivery")
+	}
 	if s.WorkUnits != nil && len(s.Units().Incomplete()) > 0 {
 		out = append(out, ObligationWorkUnits)
 	}

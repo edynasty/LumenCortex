@@ -48,8 +48,10 @@ type AgentOptions struct {
 	SystemPrompt        string          `json:"systemPrompt,omitempty"`
 	Workflow            json.RawMessage `json:"workflow,omitempty"`
 	WorkUnits           json.RawMessage `json:"workUnits,omitempty"`
-	MaxTokens           int             `json:"maxTokens,omitempty"`
-	Temperature         *float64        `json:"temperature,omitempty"`
+	// Delivery is an explicit host contract persisted once and reused on resume.
+	Delivery    *DeliveryContract `json:"delivery,omitempty"`
+	MaxTokens   int               `json:"maxTokens,omitempty"`
+	Temperature *float64          `json:"temperature,omitempty"`
 	// Interactive marks a conversation turn (ADR-0006 D3): without a host workflow, a text answer ends
 	// the run completed and leaves open work units and checks to the thread's resolution; a run that
 	// changed the workspace still has its required checks decided. The default, false, keeps the full
@@ -481,6 +483,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 			Snapshots: snapshots,
 			Jobs:      e.jobGate(),
 			Evidence:  e.runEvidence(sessionID, checks),
+			Delivery:  deliveryIn(agentWorkspace),
 			Checks:    checks,
 			Tasks:     taskStarterFor(delegation, opts.tasks),
 			Cite:      citeIn(agentWorkspace),

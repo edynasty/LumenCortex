@@ -24,6 +24,33 @@ Goal
 
 Full session history is durable on disk. The model only receives the current Active Subgraph plus a bounded number of complete recent assistant/tool rounds.
 
+### Explicit task delivery
+
+Hosts can set `AgentOptions.delivery` (CLI: `LCX_DELIVERY=/absolute/contract.json`):
+
+```json
+{"files":[{"path":"src/result.go","changed":true}],"branch":"fix/result","commit":true}
+```
+
+These requirements are host-selected, not inferred from model text. Task State captures the initial
+file blobs and commit HEAD once, renders the requirements in every request, and preserves them across
+resume and context reset. Re-supplying a different contract in the same session is rejected. Paths are
+literal workspace-relative regular files; symlinks outside the workspace do not satisfy delivery.
+`changed` compares against the pre-execution file content; omit it to require only existence. A commit
+requirement needs a descendant of the original HEAD with a nonempty delivered tree delta and no pending
+changes to the listed files (the workspace when no files are listed). The runtime never commits for the
+model. Without `commit:true`, dirty files are allowed. Deletions and semantic acceptance belong in
+approved Checks/Workflow rather than existence requirements.
+
+Autonomous final answers still pass Workflow, Work Units and approved required Checks, then delivery.
+Two short delivery corrections are allowed; the next unsatisfied answer ends `interrupted` with kind
+`delivery_incomplete`, retaining state and work for explicit resume. Deadlines, cancellation, step and
+request budgets still apply. Conversation turns without a host workflow may end normally with delivery
+open; turn completion is not objective completion. An unmet delivery condition prevents evidence-based
+resolution. A notebook or summary is not delivery proof. No contract means no new file/commit gate;
+natural-language completion claims alone cannot prove arbitrary behavior.
+
+
 ## Built-in coding tools
 
 Core workspace tools:
@@ -465,6 +492,7 @@ Every way the Go loop (`internal/agent`) ends a run, once the session row says `
 | run budget refused the next tool call or model request (ADR-0019 §6) | `interrupted` | `budget:tool_calls`, `budget:model_requests`, `budget:tokens`, `budget:cost` |
 | no tool calls and no content | `interrupted` | `empty_response` |
 | reply cut at the output token limit (`finish_reason` `length`) without a tool call | `interrupted` | `output_limit` |
+| declared delivery remains unmet after two bounded corrections | `interrupted` | `delivery_incomplete` |
 | provider or decision-provider error | `interrupted` | `provider:availability` |
 | workflow human gate pending | `waiting_gate` | `workflow_gate` |
 | storage error | `failed` | `storage` |

@@ -83,6 +83,20 @@ It also verified the following:
 - Execution tasks and read-only subagents are never interactive.
 - The system prompt states the run's actual authority instead of always demanding implementation.
 
+#### 2026-11-03 candidate amendment — explicit delivery obligations
+
+The task-delivery candidate adds host-selected `AgentOptions.delivery` in Task State: regular files
+that must exist/change, an optional branch and an optional commit requirement. The pre-execution file
+blobs and HEAD are captured once and retained on resume. Runtime inspection, never a final reply,
+decides them. Existing required Checks and Workflow remain the behavioral acceptance mechanism.
+An unmet explicit delivery contract is an additional obligation; it cannot latch evidence-based done.
+Interactive turns without Workflow still end normally while the objective stays open. Autonomous
+completion allows two delivery corrections, then interrupts `delivery_incomplete` for explicit resume.
+There is no unconditional dirty-workspace gate or automatic commit; undeclared requirements are not
+inferred from prose. This candidate is not merged or product-Gate approved. Evidence and limits:
+[task-delivery report](../reports/task-delivery-2026-11-03.md).
+
+
 ### D4 — Execution tasks on the subagent infrastructure (C2, after C1)
 
 - **Separate tool, separate grant.**

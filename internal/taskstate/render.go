@@ -31,6 +31,16 @@ func Render(goal string, s State, wf *workflow.Runtime) string {
 	b.WriteString("\n\nObjective:\n")
 	b.WriteString(truncate(strings.TrimSpace(s.Objective(goal)), MaxBriefBytes))
 	b.WriteString("\n")
+	if d := s.Delivery; d != nil {
+		b.WriteString("\nRequired delivery (runtime-verified, not satisfied by a final reply):\n")
+		for _, f := range d.Files {
+			fmt.Fprintf(&b, "- file %s (must change: %t)\n", f.Path, f.Changed)
+		}
+		if d.Branch != "" {
+			fmt.Fprintf(&b, "- branch %s\n", d.Branch)
+		}
+		fmt.Fprintf(&b, "- commit required: %t\n", d.Commit)
+	}
 
 	var included []Reference
 	for _, r := range s.References {

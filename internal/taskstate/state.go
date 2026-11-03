@@ -39,6 +39,8 @@ type State struct {
 	Brief      string      `json:"brief,omitempty"`
 	References []Reference `json:"references,omitempty"`
 	Resolution Resolution  `json:"resolution"`
+	// Delivery contains only host-selected, mechanically checked obligations.
+	Delivery *DeliveryContract `json:"delivery,omitempty"`
 	// WorkUnits is nil until the host seeds units or the model creates one.
 	WorkUnits *WorkUnitState `json:"workUnits,omitempty"`
 	// Workflow is the host workflow's snapshot, nil when the session has none.

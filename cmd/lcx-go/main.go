@@ -486,6 +486,20 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 			return lcx.AgentOptions{}, fmt.Errorf("read LCX_WORK_UNITS %q: %w", path, err)
 		}
 	}
+	var delivery *lcx.DeliveryContract
+	if path := strings.TrimSpace(os.Getenv("LCX_DELIVERY")); path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return lcx.AgentOptions{}, fmt.Errorf("read LCX_DELIVERY: %w", err)
+		}
+		delivery = &lcx.DeliveryContract{}
+		if err := json.Unmarshal(raw, delivery); err != nil {
+			return lcx.AgentOptions{}, fmt.Errorf("decode LCX_DELIVERY: %w", err)
+		}
+		if err := delivery.Validate(); err != nil {
+			return lcx.AgentOptions{}, err
+		}
+	}
 	deadline, err := deadlineFromEnv(processStart)
 	if err != nil {
 		return lcx.AgentOptions{}, err
@@ -511,6 +525,7 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 		Effort:                 config.Effort(strings.TrimSpace(os.Getenv("LCX_EFFORT"))),
 		Workflow:               workflow,
 		WorkUnits:              workUnits,
+		Delivery:               delivery,
 		Deadline:               deadline,
 		DeadlineReserveSeconds: reserve,
 		Budget:                 budget,

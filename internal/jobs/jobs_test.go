@@ -402,7 +402,10 @@ func TestOutputIsBoundedOnDisk(t *testing.T) {
 		t.Fatal("truncation was not recorded")
 	}
 	dir := filepath.Join(stateDir, "jobs", job.ID)
-	total := int64(0)
+	// JobOutputBytes bounds each stream independently (stdout and stderr), not
+	// the sum of both streams. Some platforms emit diagnostic stderr from the
+	// shell even when the command's expected output is all stdout.
+	streamBytes := map[string]int64{"stdout": 0, "stderr": 0}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -412,10 +415,17 @@ func TestOutputIsBoundedOnDisk(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		total += info.Size()
+		name := entry.Name()
+		stream := strings.SplitN(name, ".", 2)[0]
+		if _, ok := streamBytes[stream]; !ok {
+			t.Fatalf("unexpected output file %q", name)
+		}
+		streamBytes[stream] += info.Size()
 	}
-	if total > int64(limits.JobOutputBytes) {
-		t.Fatalf("job output on disk=%d bytes, want at most %d", total, limits.JobOutputBytes)
+	for stream, retained := range streamBytes {
+		if retained > int64(limits.JobOutputBytes) {
+			t.Fatalf("%s output on disk=%d bytes, want at most %d per stream", stream, retained, limits.JobOutputBytes)
+		}
 	}
 	out, err := manager.Output(context.Background(), job.ID, 8<<10)
 	if err != nil {

@@ -236,9 +236,10 @@ const (
 // Kinds of ExitCause the loop produces. Provider error classes and stale-run
 // recovery have their own kinds in later migration items.
 const (
-	KindCancelled     = "cancelled"
-	KindMaxSteps      = "max_steps"
-	KindEmptyResponse = "empty_response"
+	KindCancelled          = "cancelled"
+	KindMaxSteps           = "max_steps"
+	KindDeliveryIncomplete = "delivery_incomplete"
+	KindEmptyResponse      = "empty_response"
 	// KindOutputLimit: the reply hit the output token limit before it held a tool call, so it is an
 	// unfinished thought, not an answer; the run ends without completing.
 	KindOutputLimit = "output_limit"

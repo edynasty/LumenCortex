@@ -78,6 +78,8 @@ type Loop struct {
 	// Jobs lists the run's active background jobs for the completion gate (ADR-0019 §3); nil means the
 	// run has no jobs to wait for.
 	Jobs RunJobs
+	// Delivery inspects only the host's explicit persistent delivery requirements.
+	Delivery func(context.Context, *taskstate.DeliveryContract) ([]string, error)
 }
 
 // run is the Task State a run works on: the run's current state, the workflow and work units decoded
@@ -95,7 +97,8 @@ type run struct {
 	// spend is what the run used against opts.Budget (ADR-0019 §6).
 	spend *Spend
 	// jobCorrections counts the final answers the gate refused over active jobs (maxJobCorrections).
-	jobCorrections int
+	jobCorrections      int
+	deliveryCorrections int
 	runTranscript
 }
 
@@ -389,6 +392,25 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					l.emit("checks.blocked_final", sessionID, map[string]any{"step": step, "checks": verdictViews(failed)})
 				}
 			}
+			if correction == "" && r.ts.Delivery != nil && (!opts.Interactive || r.wf != nil) {
+				missing := []string{"delivery evidence unavailable"}
+				if l.Delivery != nil {
+					var err error
+					missing, err = l.Delivery(ctx, r.ts.Delivery)
+					if err != nil {
+						return l.exit(ctx, state, usage, checkFailureExit(ctx, err))
+					}
+				}
+				if len(missing) > 0 {
+					l.emit("delivery.blocked_final", sessionID, map[string]any{"step": step, "missing": missing})
+					if r.deliveryCorrections >= 2 {
+						return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindDeliveryIncomplete,
+							Err: fmt.Errorf("delivery remains incomplete: %s", strings.Join(missing, "; "))})
+					}
+					r.deliveryCorrections++
+					correction = "Delivery is incomplete: " + strings.Join(missing, "; ") + ". Continue the requested work and verify it. Do not claim completion. Only commit if the delivery contract requires it."
+				}
+			}
 			if correction == "" && cut {
 				// A reply cut at the output limit is never the final answer: without a tool call it
 				// holds an unfinished thought (TB2 W13: such replies ended runs as completed). It ends
@@ -653,6 +675,16 @@ func (l *Loop) latchEvidence(ctx context.Context, sessionID string, r *run) {
 			l.emit("task_state.evidence_unavailable", sessionID, map[string]any{"error": err.Error()})
 			return
 		}
+	}
+	if r.ts.Delivery != nil {
+		if l.Delivery == nil {
+			return
+		}
+		missing, err := l.Delivery(ctx, r.ts.Delivery)
+		if err != nil {
+			return
+		}
+		ev.DeliverySatisfied = len(missing) == 0
 	}
 	if r.wf != nil {
 		ev.Workflow, ev.WorkflowCanFinish, ev.GatePending = true, r.wf.CanFinish(), len(r.wf.PendingGates()) > 0

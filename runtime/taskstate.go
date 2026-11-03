@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/agent"
+	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -212,6 +213,17 @@ func (e *Engine) putTaskState(ctx context.Context, sessionID, reason string, sta
 // session's workspace and its required checks under the effective configuration.
 func (e *Engine) taskEvidence(ctx context.Context, sessionID string, state taskstate.State) (taskstate.Evidence, error) {
 	ev := taskstate.Evidence{}
+	if state.Delivery != nil {
+		workspace, err := e.agentWorkspace(ctx, sessionID)
+		if err != nil {
+			return ev, err
+		}
+		missing, err := deliveryIn(workspace)(ctx, state.Delivery)
+		if err != nil {
+			return ev, err
+		}
+		ev.DeliverySatisfied = len(missing) == 0
+	}
 	wf, err := state.RestoreWorkflow()
 	if err != nil {
 		return ev, err
@@ -345,6 +357,24 @@ func (e *Engine) startTaskState(ctx context.Context, sessionID string, opts Agen
 	seeded, err := state.Seed(opts.Workflow, opts.WorkUnits)
 	if err != nil {
 		return nil, nil, err
+	}
+	deliverySeeded, err := state.SeedDelivery(opts.Delivery)
+	if err != nil {
+		return nil, nil, err
+	}
+	if deliverySeeded {
+		workspace, err := e.agentWorkspace(ctx, sessionID)
+		if err != nil {
+			return nil, nil, err
+		}
+		repo, err := repository.New(workspace)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := repo.CaptureDelivery(ctx, state.Delivery); err != nil {
+			return nil, nil, err
+		}
+		seeded = true
 	}
 	if seeded {
 		state.Reopen(time.Now().UTC())
