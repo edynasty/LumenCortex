@@ -31,9 +31,9 @@ func Render(goal string, s State, wf *workflow.Runtime) string {
 	b.WriteString(truncate(strings.TrimSpace(s.Objective(goal)), MaxBriefBytes))
 	b.WriteString("\n")
 	if d := s.Delivery; d != nil {
-		b.WriteString("\nRequired delivery (runtime-verified, not satisfied by a final reply):\n")
+		b.WriteString("\nRequired delivery (verified after execution; a final reply is not proof):\n")
 		for _, f := range d.Files {
-			fmt.Fprintf(&b, "- file %s (must change: %t)\n", f.Path, f.Changed)
+			fmt.Fprintf(&b, "- file %s (must change: %t, must be absent: %t)\n", f.Path, f.Changed, f.Absent)
 		}
 		if d.Branch != "" {
 			fmt.Fprintf(&b, "- branch %s\n", d.Branch)

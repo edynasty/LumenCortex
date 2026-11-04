@@ -15,6 +15,15 @@ a later run of the historical parent does not adopt it. `Cancel` reaches active 
 checkpoint. Authority, worktree borrowing, explicit completion contracts and recovery non-replay remain
 unchanged. See [implementation and evidence](../reports/execution-retry-review-2026-11-03.md#2026-11-04owner-新生命周期设计).
 
+**2026-11-04 Delivery isolation amendment (Owner-directed, isolated candidate):** Delivery Contract
+verification is now post-execution, not a Loop completion/correction condition. Native file snapshots
+replace required Git hashes; only explicit branch/commit requirements use Git. `completed` records
+Agent execution independently of `verified`/`failed`/`verification_unavailable` delivery. Verification
+failures never restart the Agent; verification-only retry preserves baseline and successful tools.
+Pending/unavailable delivery remains an objective obligation. This supersedes the 2026-11-03 delivery
+correction semantics below, not Workflow/Checks/Cancel/Deadline/Retry contracts. See
+[current API](../agent-runtime.md#explicit-task-delivery) and [evidence](../reports/task-delivery-2026-11-03.md).
+
 ## Context
 
 The review (`../../../LumenCortex-architecture-audit/design/handoffs/product-architecture-review-2026-10-15.md`) found three problems:

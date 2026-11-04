@@ -102,18 +102,18 @@ func TestImmediateChildrenInheritDisabledRetry(t *testing.T) {
 	}
 }
 
-func TestDeliveryMakesRealProgressAcrossSeveralCorrections(t *testing.T) {
+func TestDeliveryVerifiesAllRequestedFilesAfterExecution(t *testing.T) {
 	engine, id := notebookEngine(t)
 	p := &executionRetryProvider{}
 	d := &DeliveryContract{}
 	for i := range 4 {
 		name := fmt.Sprintf("result-%d.txt", i)
 		d.Files = append(d.Files, DeliveryFile{Path: name})
-		p.responses = append(p.responses, finalResponse("check delivery"), toolCallResponse(fmt.Sprint(i), "write_file", fmt.Sprintf(`{"path":%q,"content":"verified artifact"}`, name)))
+		p.responses = append(p.responses, toolCallResponse(fmt.Sprint(i), "write_file", fmt.Sprintf(`{"path":%q,"content":"verified artifact"}`, name)))
 	}
 	p.responses = append(p.responses, finalResponse("all delivered"))
 	result, err := engine.runAgentWith(context.Background(), id, p, AgentOptions{Policy: "workspace", Delivery: d, MaxSteps: 16})
-	if err != nil || result.Status != "completed" || result.Final != "all delivered" {
+	if err != nil || result.Status != "completed" || result.Final != "all delivered" || result.Delivery.Status != DeliveryVerified {
 		t.Fatalf("progressive delivery: %+v %v", result, err)
 	}
 	workspace, err := engine.agentWorkspace(context.Background(), id)
@@ -139,7 +139,7 @@ func TestDeliveryIgnoresUnrelatedSuccessfulActivity(t *testing.T) {
 	if getErr != nil {
 		t.Fatal(getErr)
 	}
-	if err == nil || result.Status != "interrupted" || p.requests != 10 || !strings.Contains(string(row.Error), "max_steps") {
+	if err != nil || result.Status != "completed" || p.requests != 2 || result.Delivery.Status != DeliveryFailed || len(row.Error) != 0 {
 		t.Fatalf("unrelated activity: %+v requests=%d cause=%s err=%v", result, p.requests, row.Error, err)
 	}
 }

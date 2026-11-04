@@ -65,9 +65,9 @@ func TestDeliveryCommitOnlySparseAndLargeIndex(t *testing.T) {
 			git("commit", "-m", "delivery")
 			check := func(want bool) {
 				t.Helper()
-				missing, err := repo.DeliveryMissing(context.Background(), d)
-				if err != nil || (len(missing) == 0) != want {
-					t.Fatalf("satisfied=%t missing=%v error=%v", want, missing, err)
+				result := repo.VerifyDelivery(context.Background(), d)
+				if len(result.Issues) != 0 || (result.Status == taskstate.DeliveryVerified) != want {
+					t.Fatalf("satisfied=%t result=%+v", want, result)
 				}
 			}
 			check(true)

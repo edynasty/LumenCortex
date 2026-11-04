@@ -30,10 +30,11 @@ type SubagentNode struct {
 	// Mode describes the child relation's execution provenance (for example, "imported").
 	Mode string `json:"mode,omitempty"`
 	// Agent is the catalog agent the child pinned at its first Start (ADR-0009 A3), "" before it.
-	Agent  string `json:"agent,omitempty"`
-	Goal   string `json:"goal"`
-	Status string `json:"status"`
-	Final  string `json:"final,omitempty"`
+	Agent    string          `json:"agent,omitempty"`
+	Goal     string          `json:"goal"`
+	Status   string          `json:"status"`
+	Final    string          `json:"final,omitempty"`
+	Delivery *DeliveryResult `json:"delivery,omitempty"`
 	// Withdrawn is true when a revocation or privacy fence names the child: its goal and final are not
 	// returned, to the host or to the list_subagents/wait_subagent tools, and no edge cites it.
 	Withdrawn bool           `json:"withdrawn,omitempty"`
@@ -64,6 +65,11 @@ func (s *RunSupervisor) subagentNode(ctx context.Context, childID, parentID, kin
 		Withdrawn: withdrawn, Active: s.Active(value.ID), CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, Runtime: identity,
 	}
 	if !withdrawn {
+		state, err := s.engine.loadTaskState(ctx, value.ID)
+		if err != nil {
+			return SubagentNode{}, err
+		}
+		node.Delivery = state.DeliveryResult
 		node.Goal = value.Goal
 		if value.Final != nil {
 			node.Final = *value.Final

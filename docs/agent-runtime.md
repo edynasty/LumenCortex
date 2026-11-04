@@ -45,26 +45,76 @@ Hosts can set `AgentOptions.delivery` (CLI: `LCX_DELIVERY=/absolute/contract.jso
 {"files":[{"path":"src/result.go","changed":true}],"branch":"fix/result","commit":true}
 ```
 
-These requirements are host-selected, not inferred from model text. Task State captures the initial
-file blobs and commit HEAD once, renders the requirements in every request, and preserves them across
-resume and context reset. Re-supplying a different contract in the same session is rejected. Paths are
-literal workspace-relative regular files; symlinks outside the workspace do not satisfy delivery.
-`changed` compares against the pre-execution file content; omit it to require only existence. A commit
-requirement needs a descendant of the original HEAD with a nonempty delivered tree delta and no pending
-changes to the listed files (the workspace when no files are listed). The runtime never commits for the
-model. Without `commit:true`, dirty files are allowed. Deletions and semantic acceptance belong in
-approved Checks/Workflow rather than existence requirements.
+These requirements are host-selected, not inferred from model text. Task State captures native
+SHA-256 content digests, file type, size, permissions and explicit absence before execution, once.
+Baselines survive resume/context reset; a different contract in the same session is rejected.
+Paths are literal workspace-relative files; symlink files do not satisfy regular-file delivery.
+Lookup walks one component at a time from the real workspace root and follows each intermediate
+symlink, confining every step: absence counts only when it is proven inside the workspace. A link
+(dangling or not) leading outside, `..` past the root that never enters it again, an absolute target
+outside the real root or a
+link loop is `verification_unavailable`, never absence. A branch name must satisfy
+`git check-ref-format --branch` rules, checked in Go at Start, so an impossible branch is a contract
+error with or without Git.
+Absolute targets, and relative ones leaving through the root's parent, may use an existing alias of
+the workspace root to come back in. Their unvisited path components
+are never cleaned before symlink traversal: `link/..`, `missing/..` and `file/..` retain filesystem
+semantics. After hashing, verification resolves the declared path again and checks its identity and
+metadata, rejecting an intermediate link retargeted during the read. This is not an atomic multi-file
+snapshot against arbitrary external writers; blocked filesystem calls can also outlast context deadlines.
+`changed` requires a baseline delta; omit it to require existence. `absent:true` requires absence;
+combine it with `changed:true` to require an actual deletion. Timestamp changes alone are not proof.
+Hashing streams in Go without Git or external hash commands and without the Git snapshot 4 MiB cap.
+A missing/unreadable baseline makes only a `changed` (or commit) requirement unavailable, with the
+recorded capture cause, each distinct cause reported once; existence and absence are judged on the
+current state alone. A regular file where a parent directory was proves absence below it, for plain
+and committed (`absent`+`commit`) deletions alike. Old Git-only baselines are never recaptured after work.
 
-Autonomous final answers still pass Workflow, Work Units and approved required Checks, then delivery.
-An unmet explicit condition refuses completion and gives the model its missing requirements. The
-runtime does not infer progress, repetition or loops from tool-call patterns and does not terminate
-delivery after a fixed number of corrections. It also never accepts a final answer merely because
-a live-job correction allowance ran out. Hosts bound autonomous work with explicit step/request
-budgets, Deadline and cancellation; provider availability recovery remains finite independently.
-Conversation turns without a host workflow may end normally with delivery
-open; turn completion is not objective completion. An unmet delivery condition prevents evidence-based
-resolution. A notebook or summary is not delivery proof. No contract means no new file/commit gate;
-natural-language completion claims alone cannot prove arbitrary behavior.
+Only explicit `branch`/`commit` requirements use Git. A commit needs a descendant of the initial HEAD,
+a nonempty delivered tree delta, and clean scoped content (the workspace when no files are listed),
+including index-flag checks. Missing Git is `verification_unavailable`, not a request to install Git.
+The runtime never initializes a repository or commits for the Agent. Without `commit:true`, dirty
+files are allowed. Semantic correctness still belongs to approved Checks/Workflow or an external verifier.
+
+Delivery is **not an Agent Loop gate**. Workflow, Work Units, approved Checks, owned jobs, explicit
+execution controls and finite provider recovery retain their existing semantics. Once execution
+commits `completed` and owned work stops, the runtime verifies delivery independently. It never sends
+a delivery correction to the model or replays a successful tool to repair verification infrastructure.
+
+`AgentResult.status` is execution status. `AgentResult.delivery` and durable
+`TaskState.state.deliveryResult` independently report `pending`, `verified`, `failed`, or
+`verification_unavailable`, with run ID, per-path before/after evidence, observed changes, missing
+requirements and issues (phase/path/reason). Any inspection error takes precedence over positive or
+negative delivery conclusions; confirmed mismatches remain evidence but do not turn unavailable into
+failed. Agent Completed remains completed in all three settled delivery outcomes. Failed/interrupted
+Agent runs report and keep the Start's `pending` record. No contract leaves `delivery` absent; contract
+presence is the Start's record, never inferred from a later (possibly failing) state read.
+
+Baseline and verification inspection each have a 10 s operation timeout; recording terminal evidence
+uses bounded 5 s cleanup. These are not Agent step/request/token/cost limits and never cancel its loop.
+TaskState queries read recorded delivery evidence rather than executing a verifier. A crash between
+Agent completion and verification leaves `completed` plus `pending`, never a fabricated verification.
+Use `Engine.VerifyDelivery(ctx, sessionID)` or `lcx-go delivery-verify <session-id>` to retry only
+verification after completion, including after restart; a session without a contract returns
+`ErrNoDeliveryContract`. It holds the session/workspace locks and
+cannot run against an active Agent. A retry first records `pending` (withdrawing an evidence-based
+`done`), as a Start does; if that record cannot be written the retry returns an error and verifies
+nothing. Do not use `resume` for a verification outage: resume explicitly
+starts more Agent work. CLI exits follow execution errors, not delivery verdicts; benchmarks must
+consume the separate delivery field under their own formal rules.
+
+Only `verified` discharges the delivery obligation; it does not by itself prove semantic task success.
+Historical evidence versions remain stored. If evidence persistence itself fails, the returned/event
+result reports `verification_unavailable` with a persistence issue; the stored outcome stays the
+attempt's `pending`, never an earlier `verified`, and execution status is untouched. Every settlement
+exit, including an unreadable Task State, publishes `delivery.result`: it is how an asynchronous
+(supervised) host learns the outcome. A settlement applies queued host edits before the evidence rule
+and consumes them in the same version, so a user `done`/`dropped` is never replaced by an automatic
+`done`; an edit queued after that read is applied by the next Start or settlement, like any host edit.
+
+Child result and subagent views carry the same separate delivery result. A verification-only change
+updates the task-result cursor without changing the child's execution status; identical verification
+evidence is not re-delivered. An unverified completed child retains a parent task obligation.
 
 
 ## Built-in coding tools

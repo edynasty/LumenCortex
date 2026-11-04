@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
-	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -64,24 +63,6 @@ func TestToolBatchOnlyHonorsExplicitLimit(t *testing.T) {
 		if err != nil || r.Final != "done" || tools.calls.Load() != want {
 			t.Fatalf("limit=%d tools=%d result=%+v err=%v", limit, tools.calls.Load(), r, err)
 		}
-	}
-}
-
-func TestDeliveryDoesNotTerminateOnUnchangedObligations(t *testing.T) {
-	store := newState("delivery-repeat")
-	store.ts.Delivery = &taskstate.DeliveryContract{}
-	p := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
-		return answer("check"), nil
-	}}
-	loop := &Loop{Models: testModels(p), Store: store, Tools: fakeTools{}, Delivery: func(context.Context, *taskstate.DeliveryContract) ([]string, error) {
-		if p.n < 9 {
-			return []string{"same required file"}, nil
-		}
-		return nil, nil
-	}}
-	r, err := loop.Run(context.Background(), "delivery-repeat", Options{Session: testRef})
-	if err != nil || r.Status != StatusCompleted || p.n != 9 {
-		t.Fatalf("result=%+v requests=%d err=%v", r, p.n, err)
 	}
 }
 

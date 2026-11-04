@@ -213,17 +213,7 @@ func (e *Engine) putTaskState(ctx context.Context, sessionID, reason string, sta
 // session's workspace and its required checks under the effective configuration.
 func (e *Engine) taskEvidence(ctx context.Context, sessionID string, state taskstate.State) (taskstate.Evidence, error) {
 	ev := taskstate.Evidence{}
-	if state.Delivery != nil {
-		workspace, err := e.agentWorkspace(ctx, sessionID)
-		if err != nil {
-			return ev, err
-		}
-		missing, err := deliveryIn(workspace)(ctx, state.Delivery)
-		if err != nil {
-			return ev, err
-		}
-		ev.DeliverySatisfied = len(missing) == 0
-	}
+	ev.DeliverySatisfied = state.DeliveryResult != nil && state.DeliveryResult.Status == DeliveryVerified
 	wf, err := state.RestoreWorkflow()
 	if err != nil {
 		return ev, err
@@ -334,7 +324,18 @@ func (e *Engine) executionEvidence(ctx context.Context, sessionID string) ([]tas
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, taskstate.TaskEvidence{SessionID: child.ID, Status: child.Status})
+		state, err := e.loadTaskState(ctx, child.ID)
+		if err != nil {
+			return nil, err
+		}
+		delivery := ""
+		if state.Delivery != nil {
+			delivery = DeliveryPending
+			if state.DeliveryResult != nil {
+				delivery = state.DeliveryResult.Status
+			}
+		}
+		out = append(out, taskstate.TaskEvidence{SessionID: child.ID, Status: child.Status, Delivery: delivery})
 	}
 	return out, nil
 }
@@ -343,45 +344,61 @@ func (e *Engine) executionEvidence(ctx context.Context, sessionID string) ([]tas
 // and work-unit seeds, each only while the state holds none, then the queued edits, then the delivery
 // cursor of the task_result rows it returns, then decide (the thread's constraints, T4-S3). A seed is a
 // new obligation and reopens a resolved thread. It returns a nil write when nothing changes, and rejects
-// an invalid or conflicting seed before anything is written or run.
-func (e *Engine) startTaskState(ctx context.Context, sessionID string, opts AgentOptions, decide func(context.Context, *taskstate.State) error) (*session.TaskStateWrite, []protocol.Message, error) {
+// an invalid or conflicting seed before anything is written or run. The DeliveryResult is the pending
+// record this Start writes for the session's delivery contract, nil when the session has none: the run
+// keeps it, so contract presence is never inferred from a later read.
+func (e *Engine) startTaskState(ctx context.Context, sessionID, runID string, opts AgentOptions, decide func(context.Context, *taskstate.State) error) (*session.TaskStateWrite, []protocol.Message, *DeliveryResult, error) {
 	state, err := e.loadTaskState(ctx, sessionID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	stored, err := state.Encode()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	before := state.Clone()
 	seeded, err := state.Seed(opts.Workflow, opts.WorkUnits)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	deliverySeeded, err := state.SeedDelivery(opts.Delivery)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if deliverySeeded {
-		workspace, err := e.agentWorkspace(ctx, sessionID)
-		if err != nil {
-			return nil, nil, err
-		}
-		repo, err := repository.New(workspace)
-		if err != nil {
-			return nil, nil, err
-		}
-		if err := repo.CaptureDelivery(ctx, state.Delivery); err != nil {
-			return nil, nil, err
-		}
+		result := inspectDelivery(func() DeliveryResult {
+			workspace, err := e.agentWorkspace(ctx, sessionID)
+			if err != nil {
+				return unavailableDelivery("baseline", "", err)
+			}
+			repo, err := repository.New(workspace)
+			if err != nil {
+				return unavailableDelivery("baseline", workspace, err)
+			}
+			if err := repo.CaptureDelivery(ctx, state.Delivery); err != nil {
+				return unavailableDelivery("baseline", "", err)
+			}
+			return DeliveryResult{Issues: state.Delivery.BaselineIssues}
+		})
+		state.Delivery.BaselineIssues = result.Issues
 		seeded = true
+	}
+	var pending *DeliveryResult
+	if state.Delivery != nil {
+		state.DeliveryResult = &DeliveryResult{Status: DeliveryPending, RunID: runID, Issues: slices.Clone(state.Delivery.BaselineIssues)}
+		if state.Resolution.By == taskstate.ByEvidence {
+			state.Reopen(time.Now().UTC())
+		}
+		recorded := *state.DeliveryResult
+		recorded.Issues = slices.Clone(recorded.Issues)
+		pending = &recorded
 	}
 	if seeded {
 		state.Reopen(time.Now().UTC())
 	}
 	edits, err := e.inboxEdits(ctx, sessionID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var through int64
 	if len(edits) > 0 {
@@ -390,17 +407,17 @@ func (e *Engine) startTaskState(ctx context.Context, sessionID string, opts Agen
 	}
 	results, withdrawn, err := e.taskResults(ctx, sessionID, &state)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err := decide(ctx, &state); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	raw, err := state.Encode()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if through == 0 && bytes.Equal(raw, stored) {
-		return nil, nil, nil
+		return nil, nil, pending, nil
 	}
 	// The edges of the user's rewrites the edits made and of the task results delivered commit with
 	// this version, in the Start transaction (plan T1-S5). The delivery of a withdrawn child carries
@@ -413,7 +430,7 @@ func (e *Engine) startTaskState(ctx context.Context, sessionID string, opts Agen
 			return e.SourceKind == session.SourceSession && withdrawn[e.SourceRef]
 		})
 	}
-	return &session.TaskStateWrite{Base: state.Version, Reason: taskstate.ReasonStart, JSON: raw, InboxThrough: through, Edges: edges}, results, nil
+	return &session.TaskStateWrite{Base: state.Version, Reason: taskstate.ReasonStart, JSON: raw, InboxThrough: through, Edges: edges}, results, pending, nil
 }
 
 // agentTaskStateChange converts the loop's change to the store's write.

@@ -143,6 +143,8 @@ type AgentResult struct {
 	// Spend is what the run used against its budget: tool calls, model requests, and tokens and cost
 	// split into known, estimated and unknown (ADR-0019 §6).
 	Spend agent.Spend `json:"spend"`
+	// Delivery is a separate verification outcome; it never changes Status or the Agent error.
+	Delivery *DeliveryResult `json:"delivery,omitempty"`
 }
 
 // RunAgent runs the agent loop to its exit on the calling goroutine. It holds the
@@ -185,13 +187,30 @@ type preparedRun struct {
 	sessionID string
 	// info is the session as the Start transaction committed it: running, with the
 	// new identity and the previous outcome cleared.
-	info SessionInfo
+	info        SessionInfo
+	finishOwned func()
+	// delivery is the pending record the Start committed, nil without a delivery contract.
+	delivery *DeliveryResult
 }
 
 // execute runs under the caller's tracked lifetime, including preparation and owned cleanup.
 func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 	result, err := r.loop.Run(ctx, r.sessionID, r.loopOpts)
 	r.engine.endRunJobs(ctx, r.sessionID, r.loopOpts.RunID)
+	if r.finishOwned != nil {
+		r.finishOwned()
+	}
+	// Only a completed execution is verified; otherwise the result reports the pending record its
+	// Start committed, so it never reads as "no contract". A run without a contract settles nothing.
+	var delivery *DeliveryResult
+	if r.delivery != nil {
+		if result.Status == agent.StatusCompleted {
+			delivery = r.engine.settleDelivery(ctx, r.sessionID, r.loopOpts.RunID)
+		} else {
+			recorded := *r.delivery
+			delivery = &recorded
+		}
+	}
 	return AgentResult{
 		SessionID:   result.SessionID,
 		Status:      result.Status,
@@ -200,6 +219,7 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 		WaitingGate: result.WaitingGate,
 		Workflow:    result.Workflow,
 		Spend:       result.Spend,
+		Delivery:    delivery,
 	}, err
 }
 
@@ -299,7 +319,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	// thread's constraints are decided here too, by the checks bound to them, in the session's workspace
 	// (plan T4-S3): that runs commands, so only once the seeds were accepted, and the decisions commit
 	// with the Start's Task State version. A pass of those checks counts for the rest of this run.
-	taskState, results, err := e.startTaskState(ctx, sessionID, opts, func(ctx context.Context, state *taskstate.State) error {
+	taskState, results, pendingDelivery, err := e.startTaskState(ctx, sessionID, runID, opts, func(ctx context.Context, state *taskstate.State) error {
 		return e.decideConstraints(ctx, runID, state, checks)
 	})
 	if err != nil {
@@ -534,6 +554,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		engine:    e,
 		sessionID: sessionID,
 		info:      sessionInfo(committed),
+		delivery:  pendingDelivery,
 		loopOpts:  loopOpts,
 		loop: agent.Loop{
 			Models:    plan.models,
@@ -543,7 +564,6 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 			Snapshots: snapshots,
 			Jobs:      e.jobGate(),
 			Evidence:  e.runEvidence(sessionID, checks),
-			Delivery:  deliveryIn(agentWorkspace),
 			Checks:    checks,
 			Tasks:     taskStarterFor(delegation, opts.tasks),
 			Cite:      citeIn(agentWorkspace),

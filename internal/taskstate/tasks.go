@@ -58,6 +58,8 @@ type TaskBounds struct {
 type TaskMark struct {
 	Seq    int64  `json:"seq"`
 	Status string `json:"status"`
+	// Delivery identifies independently settled verification evidence, without replaying the child.
+	Delivery string `json:"delivery,omitempty"`
 }
 
 // ValidTaskObjective trims and checks an objective.

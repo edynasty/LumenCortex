@@ -167,14 +167,19 @@ func TestHostChildExecutionOverride(t *testing.T) {
 
 func TestChildDeadlineInheritsAndCannotExtendParent(t *testing.T) {
 	for _, kind := range []string{"explore", "worker"} {
-		deadline := time.Now().Add(150 * time.Millisecond)
+		// Engine migration/configuration is not the execution under test. Start
+		// the deadline afterward so race instrumentation cannot consume it here.
+		engine, id := notebookEngine(t)
+		deadline := time.Now().Add(time.Second)
 		later := deadline.Add(time.Hour)
 		parent := AgentOptions{Deadline: &deadline, ChildExecution: &ChildExecutionOptions{Deadline: &later}}
 		opts := executionOptions(parent, "", nil, "", "worker")
 		if kind == "explore" {
 			opts = (&subagentController{parentOpts: parent}).childOptions("", "explore")
 		}
-		engine, id := notebookEngine(t)
+		if opts.Deadline == nil || !opts.Deadline.Equal(deadline) {
+			t.Fatalf("%s child extended parent deadline: %v, want %v", kind, opts.Deadline, deadline)
+		}
 		p := &lifecycleProvider{entered: make(chan struct{})}
 		result, err := engine.runAgentWith(context.Background(), id, p, opts)
 		row, getErr := engine.store.Get(context.Background(), id)

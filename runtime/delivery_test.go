@@ -18,14 +18,14 @@ func TestDeliverySurvivesResetAndResume(t *testing.T) {
 	d := &DeliveryContract{Files: []DeliveryFile{{Path: "result.txt", Changed: true}}}
 	p := &notebookProvider{responses: []protocol.ProviderResponse{finalResponse("not yet implemented")}}
 	first, err := engine.runAgentWith(ctx, id, p, AgentOptions{Policy: "workspace", Delivery: d, MaxSteps: 1})
-	if err == nil || first.Status != "interrupted" {
+	if err != nil || first.Status != "completed" || first.Delivery.Status != DeliveryFailed {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	info, err := engine.TaskState(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseline := info.State.Delivery.Files[0].BaseBlob
+	baseline := *info.State.Delivery.Files[0].Baseline
 	if !slices.Contains(info.Obligations, "delivery") {
 		t.Fatalf("missing obligation: %+v", info)
 	}
@@ -34,14 +34,14 @@ func TestDeliverySurvivesResetAndResume(t *testing.T) {
 	}
 	p = &notebookProvider{responses: []protocol.ProviderResponse{finalResponse("still not implemented"), finalResponse("still not implemented"), finalResponse("still not implemented")}}
 	second, secondErr := engine.runAgentWith(ctx, id, p, AgentOptions{Policy: "workspace", Input: "Continue the requested delivery.", MaxSteps: 3})
-	if second.Status != "interrupted" || second.Spend.ModelRequests != 3 {
+	if second.Status != "completed" || second.Spend.ModelRequests != 1 || second.Delivery.Status != DeliveryFailed {
 		t.Fatalf("bounded continuation=%+v err=%v", second, secondErr)
 	}
 	info, err = engine.TaskState(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.State.Delivery.Files[0].BaseBlob != baseline {
+	if *info.State.Delivery.Files[0].Baseline != baseline {
 		t.Fatal("resume replaced baseline")
 	}
 	// A question ends its turn but cannot mark the objective done.
@@ -104,9 +104,9 @@ func TestDeliveryCommitAndBranchAreExplicit(t *testing.T) {
 	}
 	check := func(want bool) {
 		t.Helper()
-		missing, err := repo.DeliveryMissing(context.Background(), d)
-		if err != nil || (len(missing) == 0) != want {
-			t.Fatalf("want satisfied=%t got %v %v", want, missing, err)
+		result := repo.VerifyDelivery(context.Background(), d)
+		if len(result.Issues) != 0 || (result.Status == DeliveryVerified) != want {
+			t.Fatalf("want satisfied=%t got %+v", want, result)
 		}
 	}
 	check(false)

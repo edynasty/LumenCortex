@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
-	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -41,27 +40,6 @@ func TestDefaultStepsAllowLongerTask(t *testing.T) {
 	result, err := (&Loop{Models: testModels(p), Store: newState("long"), Tools: tools}).Run(context.Background(), "long", Options{Session: testRef})
 	if err != nil || result.Status != StatusCompleted || result.Final != "review complete" || tools.calls.Load() != 30 {
 		t.Fatalf("long task: result=%+v calls=%d err=%v", result, tools.calls.Load(), err)
-	}
-}
-
-// Delivery evidence, not tool activity, determines whether another correction is useful.
-func TestDeliveryProgressAllowsFurtherCorrection(t *testing.T) {
-	store := newState("delivery-progress")
-	store.ts.Delivery = &taskstate.DeliveryContract{}
-	p := &scriptedProvider{responses: []protocol.ProviderResponse{answer("first"), answer("second"), answer("third"), answer("fourth"), answer("delivered")}}
-	missing := [][]string{{"a", "b", "c", "d"}, {"b", "c", "d"}, {"c", "d"}, {"d"}, nil}
-	calls := 0
-	loop := &Loop{Models: testModels(p), Store: store, Tools: fakeTools{}, Delivery: func(context.Context, *taskstate.DeliveryContract) ([]string, error) {
-		i := calls
-		calls++
-		if i >= len(missing) {
-			return nil, nil
-		}
-		return missing[i], nil
-	}}
-	result, err := loop.Run(context.Background(), "delivery-progress", Options{Session: testRef, MaxSteps: 8})
-	if err != nil || result.Status != StatusCompleted || result.Final != "delivered" {
-		t.Fatalf("progressive delivery: %+v %v", result, err)
 	}
 }
 

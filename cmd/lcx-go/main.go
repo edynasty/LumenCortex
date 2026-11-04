@@ -141,6 +141,15 @@ func run() error {
 		}
 		// The session runs on its pinned model; the Engine reads it from the session row.
 		return printRunResult(engine.RunAgent(ctx, args[1], agentOpts))
+	case "delivery-verify":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: lcx-go delivery-verify <session-id>")
+		}
+		result, err := engine.VerifyDelivery(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		return printJSON(result)
 	case "governor":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: lcx-go governor <analyze|plan|validate> [plan.json]")
@@ -217,7 +226,7 @@ func run() error {
 	case "checks":
 		return runChecksCommand(ctx, engine, os.Stdout, args[1:])
 	default:
-		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, session-delete, shell, agent, resume, governor, approve, worktree, skills, agents, import, plugins, checks)", args[0])
+		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, session-delete, shell, agent, resume, delivery-verify, governor, approve, worktree, skills, agents, import, plugins, checks)", args[0])
 	}
 }
 

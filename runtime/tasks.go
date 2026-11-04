@@ -3,6 +3,7 @@ package runtime
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -75,10 +76,11 @@ type TaskResult struct {
 	// Withdrawn is true when a revocation or privacy fence names the child: the result carries its
 	// identity and status only - no objective, error, final, units, checks or worktree - and its
 	// delivery stores no edge citing the child.
-	Withdrawn bool   `json:"withdrawn,omitempty"`
-	ErrorKind string `json:"errorKind,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Final     string `json:"final,omitempty"`
+	Withdrawn bool            `json:"withdrawn,omitempty"`
+	ErrorKind string          `json:"errorKind,omitempty"`
+	Error     string          `json:"error,omitempty"`
+	Final     string          `json:"final,omitempty"`
+	Delivery  *DeliveryResult `json:"delivery,omitempty"`
 	// OpenUnits are the child's work units that did not reach a terminal status.
 	OpenUnits []TaskResultUnit `json:"openUnits,omitempty"`
 	// Checks are the configured checks against the worktree as it is now; empty when none are
@@ -561,6 +563,17 @@ func (e *Engine) taskResults(ctx context.Context, parentID string, state *taskst
 			return nil, nil, err
 		}
 		mark := taskstate.TaskMark{Seq: seq, Status: child.Status}
+		childState, err := e.loadTaskState(ctx, child.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if childState.DeliveryResult != nil {
+			raw, err := json.Marshal(childState.DeliveryResult)
+			if err != nil {
+				return nil, nil, err
+			}
+			mark.Delivery = fmt.Sprintf("%x", sha256.Sum256(raw))
+		}
 		if state.Delivered(child.ID, mark) {
 			continue
 		}
@@ -577,6 +590,9 @@ func (e *Engine) taskResults(ctx context.Context, parentID string, state *taskst
 			withdrawn[child.ID] = true
 		} else if result, err = e.taskResult(ctx, *state, r, child); err != nil {
 			return nil, nil, err
+		}
+		if !fenced {
+			result.Delivery = childState.DeliveryResult
 		}
 		raw, err := json.Marshal(result)
 		if err != nil {
@@ -625,6 +641,7 @@ func (e *Engine) taskResult(ctx context.Context, parent taskstate.State, relatio
 	if err != nil {
 		return TaskResult{}, err
 	}
+	out.Delivery = state.DeliveryResult
 	for _, u := range state.Units().Incomplete() {
 		if len(out.OpenUnits) == maxResultUnits {
 			break

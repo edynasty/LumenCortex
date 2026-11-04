@@ -41,6 +41,8 @@ type State struct {
 	Resolution Resolution  `json:"resolution"`
 	// Delivery contains only host-selected, mechanically checked obligations.
 	Delivery *DeliveryContract `json:"delivery,omitempty"`
+	// DeliveryResult records the latest verification attempt, never the Agent's execution status.
+	DeliveryResult *DeliveryResult `json:"deliveryResult,omitempty"`
 	// WorkUnits is nil until the host seeds units or the model creates one.
 	WorkUnits *WorkUnitState `json:"workUnits,omitempty"`
 	// Workflow is the host workflow's snapshot, nil when the session has none.

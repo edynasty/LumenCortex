@@ -171,6 +171,7 @@ func (s *RunSupervisor) Start(
 	if err != nil {
 		return SessionInfo{}, err
 	}
+	prepared.finishOwned = func() { s.stopChildren(run) }
 	// The Start transaction has committed: the session is durably running. Nothing
 	// fallible may sit between here and the goroutine that owns the run, so the
 	// returned info comes from the transaction itself.
@@ -208,7 +209,6 @@ func (s *RunSupervisor) Start(
 				s.engine.checkpointSubagentStop(opts.parentSessionID, sessionID, runErr)
 			}
 		}()
-		defer s.stopChildren(run)
 		_, runErr = prepared.execute(runCtx)
 	}()
 

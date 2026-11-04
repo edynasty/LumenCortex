@@ -42,7 +42,7 @@ const (
 	ObligationWorkflow           = "workflow"
 	ObligationChecks             = "checks"
 	ObligationPendingApplication = "pending_application"
-	// ObligationTasks: an execution child still runs or waits at a gate.
+	// ObligationTasks: an execution child still runs, waits at a gate, or completed without verified delivery.
 	ObligationTasks = "tasks"
 )
 
@@ -69,12 +69,16 @@ type Evidence struct {
 type TaskEvidence struct {
 	SessionID string `json:"sessionId"`
 	Status    string `json:"status"`
+	// Empty means no delivery contract; otherwise this is verification, not execution status.
+	Delivery string `json:"delivery,omitempty"`
 }
 
-// open: the child has not ended, or it waits at a gate for the user. completed, failed and
-// interrupted are the run statuses in which a child has stopped without needing anything.
+// open: the child has not ended, waits at a gate for the user, or completed while its delivery
+// contract is not verified (pending, failed or verification_unavailable). completed, failed and
+// interrupted are otherwise the run statuses in which a child has stopped without needing anything.
 func (t TaskEvidence) open() bool {
-	return t.Status != "completed" && t.Status != "failed" && t.Status != "interrupted"
+	return (t.Status == "completed" && t.Delivery != "" && t.Delivery != DeliveryVerified) ||
+		(t.Status != "completed" && t.Status != "failed" && t.Status != "interrupted")
 }
 
 // unsuccessful: the child ended without completing; its parent is not accepted on evidence (D2).
