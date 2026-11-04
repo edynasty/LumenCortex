@@ -1,0 +1,200 @@
+package session
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+)
+
+func zzTwoStores(t *testing.T) (*Store, *Store, NotebookDoc) {
+	t.Helper()
+	ctx := context.Background()
+	dir := t.TempDir()
+	a, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { a.Close() })
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { b.Close() })
+	if err := a.Create(ctx, Session{ID: "s1", Goal: "g", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := a.CreateNotebook(ctx, "s1", "plan", "# Plan\noriginal\n", "agent:run1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a, b, doc
+}
+
+// S1: the host read v1 while s1 was a source; another store (process) has a revocation of s1 written
+// but not committed; the host save starts. It must wait for the fence's commit and then be refused.
+func TestZZProbeNBWFenceCommitsDuringSave(t *testing.T) {
+	ctx := context.Background()
+	a, b, doc := zzTwoStores(t)
+	if got, _ := a.GetNotebook(ctx, "s1", doc.ID); got.Version != 1 {
+		t.Fatalf("host read %+v", got)
+	}
+	conn, err := b.db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := revokeIn(ctx, conn, "s1", "user_revoked"); err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		doc NotebookDoc
+		err error
+		at  time.Time
+	}
+	done := make(chan result, 1)
+	start := time.Now()
+	go func() {
+		d, err := a.UpdateNotebook(ctx, "s1", doc.ID, "host", "replace", 1,
+			func(string) (string, error) { return "host overwrite\n", nil })
+		done <- result{d, err, time.Now()}
+	}()
+	time.Sleep(400 * time.Millisecond)
+	select {
+	case r := <-done:
+		t.Logf("PROBE S1 save returned while the fence was uncommitted: %+v %v", r.doc, r.err)
+	default:
+		t.Logf("PROBE S1 save still waiting after 400 ms while the fence is uncommitted")
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		t.Fatal(err)
+	}
+	committed := time.Now()
+	r := <-done
+	got, _ := a.GetNotebook(ctx, "s1", doc.ID)
+	revs, _ := a.NotebookRevisions(ctx, "s1", doc.ID)
+	t.Logf("PROBE S1 save after the fence commit: err=%v isWithdrawn=%v returned %s after start, %s after the commit; body=%q version=%d revisions=%d",
+		r.err, errors.Is(r.err, ErrNotebookWithdrawn), r.at.Sub(start).Round(time.Millisecond), r.at.Sub(committed).Round(time.Millisecond), got.Body, got.Version, len(revs))
+}
+
+// S2: the host save is inside its write transaction (past the fence read) when another store starts a
+// revocation. The revocation must wait for the save's commit; the save, whose read preceded the
+// revocation, lands; the next host save is refused.
+func TestZZProbeNBWRevocationDuringSave(t *testing.T) {
+	ctx := context.Background()
+	a, b, doc := zzTwoStores(t)
+	inside, release := make(chan struct{}), make(chan struct{})
+	saved := make(chan error, 1)
+	go func() {
+		_, err := a.UpdateNotebook(ctx, "s1", doc.ID, "host", "replace", 1, func(string) (string, error) {
+			close(inside)
+			<-release
+			return "host edit seen at v1\n", nil
+		})
+		saved <- err
+	}()
+	<-inside
+	revoked := make(chan time.Time, 1)
+	go func() {
+		if _, err := b.RevokeSession(ctx, "s1", "user_revoked"); err != nil {
+			t.Error(err)
+		}
+		revoked <- time.Now()
+	}()
+	time.Sleep(400 * time.Millisecond)
+	select {
+	case <-revoked:
+		t.Logf("PROBE S2 revocation committed while the save held its transaction")
+	default:
+		t.Logf("PROBE S2 revocation still waiting after 400 ms while the save holds its transaction")
+	}
+	releasedAt := time.Now()
+	close(release)
+	err := <-saved
+	at := <-revoked
+	got, _ := a.GetNotebook(ctx, "s1", doc.ID)
+	_, err2 := a.UpdateNotebook(ctx, "s1", doc.ID, "host", "replace", got.Version,
+		func(string) (string, error) { return "second host edit\n", nil })
+	after, _ := a.GetNotebook(ctx, "s1", doc.ID)
+	t.Logf("PROBE S2 save err=%v (version %d, body %q); revocation committed %s after the save released; next host save err=%v; body after=%q version=%d",
+		err, got.Version, got.Body, at.Sub(releasedAt).Round(time.Millisecond), err2, after.Body, after.Version)
+}
+
+// S3: 60 fresh sessions, a host save at the version read before and a revocation started together.
+// Outcomes are counted; a refused save must leave the body unchanged; every session ends fenced.
+func TestZZProbeNBWConcurrentStress(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	a, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	counts := map[string]int{}
+	for i := range 60 {
+		id := "s" + string(rune('a'+i/26)) + string(rune('a'+i%26))
+		if err := a.Create(ctx, Session{ID: id, Goal: "g", Status: "running"}); err != nil {
+			t.Fatal(err)
+		}
+		doc, err := a.CreateNotebook(ctx, id, "plan", "orig\n", "agent:run1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		var saveErr, revErr error
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, saveErr = a.UpdateNotebook(ctx, id, doc.ID, "host", "replace", 1, func(string) (string, error) { return "host\n", nil })
+		}()
+		go func() { defer wg.Done(); _, revErr = b.RevokeSession(ctx, id, "user_revoked") }()
+		wg.Wait()
+		got, _ := a.GetNotebook(ctx, id, doc.ID)
+		withdrawn, _ := a.SessionWithdrawn(ctx, id)
+		switch {
+		case revErr != nil:
+			counts["revocation error: "+revErr.Error()]++
+		case saveErr == nil && got.Body == "host\n" && withdrawn:
+			counts["save first, then fenced"]++
+		case errors.Is(saveErr, ErrNotebookWithdrawn) && got.Body == "orig\n" && got.Version == 1 && withdrawn:
+			counts["fence first, save refused, body unchanged"]++
+		default:
+			counts["UNEXPECTED save="+errString(saveErr)+" body="+got.Body]++
+		}
+	}
+	t.Logf("PROBE S3 outcomes over 60 races: %v", counts)
+}
+
+func errString(err error) string {
+	if err == nil {
+		return "<nil>"
+	}
+	return err.Error()
+}
+
+// S4: host Create and Delete on a withdrawn session (the fix leaves both unchanged).
+func TestZZProbeNBWHostCreateDeleteOnWithdrawn(t *testing.T) {
+	ctx := context.Background()
+	a, _, doc := zzTwoStores(t)
+	if _, err := a.RevokeSession(ctx, "s1", "user_revoked"); err != nil {
+		t.Fatal(err)
+	}
+	created, cerr := a.CreateNotebook(ctx, "s1", "new", "host note\n", "host")
+	_, serr := a.UpdateNotebook(ctx, "s1", created.ID, "host", "replace", created.Version,
+		func(string) (string, error) { return "host note edited\n", nil })
+	_, derr := a.DeleteNotebook(ctx, "s1", doc.ID)
+	_, gerr := a.GetNotebook(ctx, "s1", doc.ID)
+	_, aerr := a.UpdateNotebook(ctx, "s1", created.ID, "agent:run9", "append", -1,
+		func(c string) (string, error) { return c + "agent line\n", nil })
+	t.Logf("PROBE S4 host create on withdrawn: err=%v version=%d; host save of what it just created: err=%v; host delete of the unseen notebook: err=%v (get after: %v); agent append: err=%v",
+		cerr, created.Version, serr, derr, gerr, aerr)
+}

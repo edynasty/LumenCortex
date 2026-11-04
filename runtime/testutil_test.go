@@ -46,19 +46,21 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("AppData", filepath.Join(home, "AppData"))
 	os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
-	if owner { // a helper keeps the state root its parent test chose
+	if owner { // a helper keeps the state root and the global catalog its parent test wrote
 		os.Setenv("XDG_STATE_HOME", filepath.Join(home, "xdg-state"))
+		// Only the owner writes the shared file: os.WriteFile truncates first, so a helper starting
+		// beside another helper's running Engine would let that Engine read an empty document.
+		if err := os.MkdirAll(filepath.Join(home, "xdg", "lumencortex"), 0o755); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := os.WriteFile(filepath.Join(home, "xdg", "lumencortex", config.FileName), []byte(boundCatalog("test/b0")), 0o644); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
 	for _, name := range []string{"LCX_MODEL", "LCX_ENDPOINT", "LCX_BASE_URL", "LCX_API_KEY", "LCX_REASONING_FORMAT"} {
 		os.Unsetenv(name)
-	}
-	if err := os.MkdirAll(filepath.Join(home, "xdg", "lumencortex"), 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	if err := os.WriteFile(filepath.Join(home, "xdg", "lumencortex", config.FileName), []byte(boundCatalog("test/b0")), 0o644); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
 	}
 	code := m.Run()
 	if owner {

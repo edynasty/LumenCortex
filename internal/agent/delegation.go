@@ -40,12 +40,12 @@ func (l *Loop) delegationGranted(delegation string) string {
 // (workspace ceiling, delegation use).
 func delegationSpec(grant string, agents []config.AgentInfo) protocol.ToolSpec {
 	description := "Propose an execution task: an autonomous run in its own git worktree, based on the committed HEAD, " +
-		"with file read and edit tools but no shell, that works the objective until the configured checks pass. " +
+		"with file read and edit tools but no bash, that works the objective until the configured checks pass. " +
 		"The call only records the proposal and returns approval_required; the user decides whether to start it. " +
 		"Propose a task when the user asks for a change to be made, not to answer a question."
 	if grant == DelegationIsolated {
 		description = "Start an execution task: an autonomous run in its own git worktree, based on the committed HEAD, " +
-			"with file read and edit tools but no shell, that works the objective until the configured checks pass. " +
+			"with file read and edit tools but no bash, that works the objective until the configured checks pass. " +
 			"It runs on its own; its outcome arrives in a later turn as a task_result row. " +
 			"Its changes stay in its worktree until the user applies them. Start a task when the user asks for a change to be made."
 	}

@@ -1,0 +1,12 @@
+slot,originalJob,originalTrial,task,originalReward,originalClass,originalReason,replacementRequired,exclusion,rerunJob,rerunTrial,rerunReward,rerunClass,counted,finalReward,status,note
+S01,tb2-w13a,configure-git-webserver__Vv5u3Vg,configure-git-webserver,0.0,INFRA,"no CTRF/tests and verifier bootstrap failed over the network (download, tls)",True,,tb2-w13r-20261027,configure-git-webserver__SYeKRQv,1.0,solved,True,1.0,filled,
+S02,tb2-w13a,pytorch-model-cli__67LsMqP,pytorch-model-cli,0.0,INFRA,"no CTRF/tests and verifier bootstrap failed over the network (download, http5xx)",False,"oracle fails 3/3 under emulation (see jobs/oracle-w13*, EXECUTION_LOG_TB2_W13.md)",,,,,False,0.0,env-excluded,"ENV exclusion: no replacement counted, original reward kept as-is"
+S03,tb2-w13a,sanitize-git-repo__sU9xstz,sanitize-git-repo,0.0,INFRA,"run-ending gateway non-200 (502x2, 503x1)",True,,tb2-w13r-20261027,sanitize-git-repo__zoFYRR3,1.0,solved,True,1.0,filled,
+S04,tb2-w13a,vulnerable-secret__75TyDtG,vulnerable-secret,0.0,INFRA,run-ending gateway non-200 (503x3),True,,tb2-w13r-20261027,vulnerable-secret__xnBZSah,1.0,solved,True,1.0,filled,
+S05,tb2-w13a,vulnerable-secret__aZAcGjG,vulnerable-secret,0.0,INFRA,"no CTRF/tests and verifier bootstrap failed over the network (download, http5xx)",True,,tb2-w13r-20261027b,vulnerable-secret__c3yaM5B,1.0,solved,True,1.0,filled,
+S06,tb2-w13b,extract-elf__nSfcnQf,extract-elf,0.0,INFRA,run-ending gateway non-200 (503x3),True,,tb2-w13r-20261027,extract-elf__TV2sDbb,1.0,solved,True,1.0,filled,
+S07,tb2-w13b,multi-source-data-merger__JZvrxD2,multi-source-data-merger,0.0,INFRA,"no CTRF/tests and verifier bootstrap failed over the network (download, http5xx)",True,,tb2-w13r-20261027,multi-source-data-merger__jCKcuH9,1.0,solved,True,1.0,filled,
+S08,tb2-w13b,multi-source-data-merger__ZUcLhd3,multi-source-data-merger,0.0,INFRA,run-ending gateway non-200 (503x3),True,,tb2-w13r-20261027b,multi-source-data-merger__g9p5yqM,1.0,solved,True,1.0,filled,
+S09,tb2-w13b,sqlite-with-gcov__CsX7xL5,sqlite-with-gcov,0.0,INFRA,"no CTRF/tests and verifier bootstrap failed over the network (download, http5xx)",True,,tb2-w13r-20261027,sqlite-with-gcov__tXrXXbL,1.0,solved,True,1.0,filled,
+S10,tb2-w13b,sqlite-with-gcov__H3Pkh2U,sqlite-with-gcov,0.0,INFRA,run-ending gateway non-200 (503x3),True,,tb2-w13r-20261027b,sqlite-with-gcov__GBGwZbJ,1.0,solved,True,1.0,filled,
+S11,tb2-w13b,tune-mjcf__BigZ6Nc,tune-mjcf,0.0,INFRA,run-ending gateway non-200 (503x3),True,,tb2-w13r-20261027,tune-mjcf__bpHTZMU,0.0,MODEL,True,0.0,filled,

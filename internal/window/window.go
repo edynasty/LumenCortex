@@ -36,6 +36,9 @@ type Input struct {
 type Result struct {
 	Messages []protocol.Message
 	FirstSeq int64 // seq of the oldest included transcript entry; -1 if none
+	// LastSeq is the seq of the newest included transcript entry; -1 if none. The included rows are
+	// the contiguous suffix [FirstSeq, LastSeq] of the transcript: the interval is the whole selection.
+	LastSeq int64
 	Dropped  int   // whole groups left out (oldest first)
 	Tokens   int   // Σ System + State + ToolTokens + included groups
 	// Available is the transcript budget and Costs the token cost of each group Select examined,
@@ -177,7 +180,7 @@ func Build(in Input, b Budget) (Result, error) {
 		return Result{}, fmt.Errorf("%w: newest group does not fit in %d available tokens", ErrOverflow, available)
 	}
 	first := len(groups) - included
-	res := Result{FirstSeq: -1, Dropped: first, Tokens: fixed + used, Available: available, Costs: costs}
+	res := Result{FirstSeq: -1, LastSeq: -1, Dropped: first, Tokens: fixed + used, Available: available, Costs: costs}
 	res.Messages = make([]protocol.Message, 0, len(in.System)+1+len(in.Transcript))
 	res.Messages = append(res.Messages, in.System...)
 	res.Messages = append(res.Messages, in.State)
@@ -187,6 +190,7 @@ func Build(in Input, b Budget) (Result, error) {
 		}
 		for _, e := range groups[k] {
 			res.Messages = append(res.Messages, e.Msg)
+			res.LastSeq = e.Seq
 		}
 	}
 	return res, nil

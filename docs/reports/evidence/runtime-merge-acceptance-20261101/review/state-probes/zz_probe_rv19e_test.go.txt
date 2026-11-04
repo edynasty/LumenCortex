@@ -1,0 +1,81 @@
+package runtime
+
+import (
+	"context"
+	"testing"
+	"time"
+)
+
+// RV-19e: 12 wake-ups (3 on each of 4 sessions) wait at the limit for 10 s; once the holder is
+// cancelled they must all fire, one run at a time. Each waking session first runs once with a provider
+// that answers at once, so its woken runs end quickly and free the slot.
+func TestZZProbeRV19Drain12(t *testing.T) {
+	engine, err := Open(Options{Workspace: t.TempDir(), Budget: Budget{MaxAgents: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	ctx := context.Background()
+	supervisor, err := NewRunSupervisor(engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer supervisor.Close()
+	provider := &answeringProvider{}
+	var sessions []string
+	for range 4 {
+		sid := newTestSession(t, engine, "waking").ID
+		if _, err := supervisor.startWith(ctx, sid, provider, AgentOptions{Input: "go", Policy: "workspace", MaxSteps: 2}); err != nil {
+			t.Fatal(err)
+		}
+		waitUntilIdle(t, supervisor, sid, 10*time.Second)
+		sessions = append(sessions, sid)
+	}
+	holder := newTestSession(t, engine, "holder")
+	if _, err := supervisor.startWith(ctx, holder.ID, blockedProvider(), AgentOptions{MaxSteps: 2}); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, sid := range sessions {
+		for i := range 3 {
+			w, err := engine.wakeupsFor(sid, "workspace", nil, nil).ScheduleWakeup(ctx, 1+i, "resume")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, w.ID)
+		}
+	}
+	before := provider.count()
+	time.Sleep(10 * time.Second)
+	pendingAtLimit, requestsAtLimit := 0, provider.count()-before
+	for _, id := range ids {
+		info, _ := engine.Schedule(ctx, id)
+		if info.LastStatus == "" && info.Enabled && info.NextRunAt != nil {
+			pendingAtLimit++
+		}
+	}
+	t.Logf("PROBE RV-19e after 10 s at the limit: pending %d/12, model requests by woken runs %d", pendingAtLimit, requestsAtLimit)
+	supervisor.Cancel(holder.ID)
+	start := time.Now()
+	fired := 0
+	for time.Since(start) < 90*time.Second {
+		fired = 0
+		for _, id := range ids {
+			info, _ := engine.Schedule(ctx, id)
+			if info.LastStatus == "fired" && info.FireCount == 1 {
+				fired++
+			} else if info.LastStatus != "" {
+				t.Logf("PROBE RV-19e %s status=%q error=%q count=%d", id, info.LastStatus, info.LastError, info.FireCount)
+			}
+		}
+		if fired == len(ids) {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	for _, sid := range sessions {
+		waitUntilIdle(t, supervisor, sid, 10*time.Second)
+	}
+	t.Logf("PROBE RV-19e after the slot freed: fired %d/12 in %s; woken runs' model requests %d",
+		fired, time.Since(start).Round(100*time.Millisecond), provider.count()-before)
+}

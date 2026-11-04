@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -29,20 +30,44 @@ type SessionPatch struct {
 }
 
 // TaskStateChange is the Task State version a write commits: Next.Version is its base, and the store
-// writes base+1 with Reason. InboxThrough, when positive, consumes the inbox edits Next applied.
+// writes base+1 with Reason. InboxThrough, when positive, consumes the inbox edits Next applied. Edges
+// are the derived edges of the entries the version introduces, committed with it (HostStateEdges).
 type TaskStateChange struct {
 	Reason       string
 	Next         taskstate.State
 	InboxThrough int64
+	Edges        []session.DerivedEdge
 }
 
 type Store interface {
+	// NewestMessageSeq is the seq of the session's newest transcript row, -1 when it has none. The
+	// loop reads it for a child a subagent tool reported, to name the child's state it derived from.
+	NewestMessageSeq(ctx context.Context, sessionID string) (int64, error)
 	Get(context.Context, string) (SessionState, error)
 	// Transcript calls fn with every row whose seq is at least fromSeq, oldest first.
 	Transcript(ctx context.Context, sessionID string, fromSeq int64, fn func(seq int64, m protocol.Message) error) error
 	// AppendMessage appends one row and, when change is non-nil, the Task State version the row
 	// caused, in one transaction. It returns the row's seq and the new version (0 without a change).
 	AppendMessage(ctx context.Context, sessionID string, m protocol.Message, change *TaskStateChange) (int64, int64, error)
+	// AdmitRequest durably records a provider request before it is sent (ADR-0018). A nil error
+	// means the request is admitted and may be sent; session.ErrFenced means the failed envelope
+	// is committed and nothing may be sent or retried.
+	AdmitRequest(ctx context.Context, a session.RequestAdmission) (session.RequestEnvelope, error)
+	// AppendAnswered stores the assistant message of an admitted main request and marks the
+	// request answered in one transaction. session.ErrFenced means the message was not stored and
+	// the envelope is committed as unknown.
+	AppendAnswered(ctx context.Context, sessionID, requestID string, m protocol.Message) (int64, error)
+	// SettleRequest ends an admitted request that produced no stored answer.
+	SettleRequest(ctx context.Context, requestID string, st session.Settlement) error
+	// AdmitExecution durably records that a side-effect tool is about to run (ADR-0018, plan T1-S4).
+	// The pre-state ref was taken by the caller beforehand. A nil error means the tool may run;
+	// session.ErrFenced means nothing was recorded and the tool must not run.
+	AdmitExecution(ctx context.Context, a session.ExecutionAdmission) error
+	// CommitToolResult stores a tool row with the Task State version it caused, the post record of
+	// its execution (when it was admitted) and its derived edges in one transaction. It returns the
+	// row's seq and the new version. session.ErrFenced means the row was not stored and the execution,
+	// if any, is settled.
+	CommitToolResult(ctx context.Context, c ToolResultCommit) (int64, int64, error)
 	AppendStep(context.Context, string, int64, any) error
 	NextStep(context.Context, string) (int64, error)
 	Update(context.Context, string, SessionPatch) error
@@ -52,6 +77,17 @@ type Store interface {
 	InboxEdits(ctx context.Context, sessionID string) ([]taskstate.QueuedEdit, error)
 	// PutTaskState writes change on its own and returns the new version.
 	PutTaskState(ctx context.Context, sessionID string, change TaskStateChange) (int64, error)
+}
+
+// ToolResultCommit is one tool result as the loop commits it: the tool row, the Task State change it
+// caused (nil for none), the execution's post record when the tool was admitted, and the edges.
+type ToolResultCommit struct {
+	SessionID string
+	RunID     string
+	Message   protocol.Message
+	Change    *TaskStateChange
+	Execution *session.ExecutionResult
+	Edges     []session.DerivedEdge
 }
 
 type CheckpointStore interface {
@@ -102,7 +138,9 @@ type SystemLayer struct {
 
 // Options is a run's fixed inputs.
 type Options struct {
-	MaxSteps            int
+	// MaxSteps: positive is explicit, -1 is unlimited; zero uses config.DefaultMaxSteps.
+	MaxSteps int
+	// MaxToolCallsPerStep truncates batches only when explicitly positive; nonpositive is unlimited.
 	MaxToolCallsPerStep int
 	ToolAllowlist       []string
 	ToolDenylist        []string
@@ -117,12 +155,10 @@ type Options struct {
 	Temperature  *float64
 	// Session is the model the run starts on and Failover the agent's list that follows it; both
 	// must be keys of Loop.Models. EffortDefault is the default of a candidate CandidateEfforts does
-	// not name, Escalation the configured escalation (nil for none) and Effort the per-run override
-	// ("" for none), which wins over every candidate's default.
+	// not name. Effort is the per-run override ("" for none), which wins over every default.
 	Session       config.ModelRef
 	Failover      []config.ModelRef
 	EffortDefault config.Effort
-	Escalation    *config.Escalation
 	Effort        config.Effort
 	// EffortAutoCeiling is effort.auto.max when EffortDefault was resolved from auto, "" when it
 	// was not. A candidate whose reasoning.efforts offers nothing at or below it sends no
@@ -137,6 +173,15 @@ type Options struct {
 	// Resumed reports that the session was interrupted before this Start; the run
 	// records an agent.resume checkpoint. Start sets it from the status it found.
 	Resumed bool
+	// RunID identifies this run: a 128-bit random hex value drawn by the runtime's Start after Reconcile.
+	// It lives in memory for the run's lifetime and is the nullable run_id column of request and
+	// execution rows; it is not a session field. "" means the caller supplied none.
+	RunID string
+	// Withheld are the transcript seqs whose content this run must not send: rows that carry content of
+	// a revoked source, as the Start's projection found them (DATA_AND_FAILURES §5 step 3). Their
+	// rows stay in the window with the same role, tool call id and order, and their content replaced
+	// (window.Withhold). Sorted ascending.
+	Withheld []int64
 	// Interactive marks a conversation turn (ADR-0006 D3). Without a host workflow, a text answer then
 	// ends the run completed: open work units and unpassed required checks stay obligations of the
 	// thread instead of blocking the answer. A run that changed the workspace still has its required
@@ -150,6 +195,18 @@ type Options struct {
 	// TaskAgents are the catalog agents start_task may run (ADR-0009 A3): delegation use, workspace
 	// ceiling. They form the tool's agent enum; an empty list offers no agent parameter (worker runs).
 	TaskAgents []config.AgentInfo
+	// Deadline is the run's absolute deadline; zero means none (ADR-0019 §2). Tool calls get a tool
+	// deadline before it (the answer margin), the model sees the time left in every tool result, and the
+	// run ends interrupted with KindDeadline when it passes. DeadlineReserve is the time before the
+	// deadline from which the model is asked to deliver; 0 takes a tenth of the budget within 30 s-120 s.
+	Deadline        time.Time
+	DeadlineReserve time.Duration
+	// Budget bounds the run's tool calls, model requests, tokens and cost (ADR-0019 §6); a zero field
+	// is no limit. Every new request and tool call is admitted against it.
+	Budget config.Budget
+	// Recovery is how a step waits out availability failures no failover candidate answered. The zero
+	// value never retries; the runtime fills it from execution.retry.
+	Recovery Recovery
 }
 
 // CandidateEffort is one candidate's default effort and, when that default was resolved from auto,
@@ -166,6 +223,8 @@ type Result struct {
 	Usage       protocol.Usage
 	WaitingGate bool
 	Workflow    any
+	// Spend is what this run used against its budget, whether or not it set one.
+	Spend Spend
 }
 
 // Session statuses the loop writes.
@@ -180,9 +239,15 @@ const (
 // Kinds of ExitCause the loop produces. Provider error classes and stale-run
 // recovery have their own kinds in later migration items.
 const (
-	KindCancelled            = "cancelled"
-	KindMaxSteps             = "max_steps"
-	KindEmptyResponse        = "empty_response"
+	KindCancelled     = "cancelled"
+	KindMaxSteps      = "max_steps"
+	KindEmptyResponse = "empty_response"
+	// KindOutputLimit: the reply hit the output token limit before it held a tool call, so it is an
+	// unfinished thought, not an answer; the run ends without completing.
+	KindOutputLimit = "output_limit"
+	// KindDeadline: the run reached Options.Deadline (ADR-0019 §2); a request or tool in flight was
+	// cancelled. External cancellation stays KindCancelled.
+	KindDeadline             = "deadline"
 	KindProviderAvailability = "provider:availability"
 	KindProviderCapacity     = "provider:capacity"
 	KindProviderAuth         = "provider:auth"
@@ -192,7 +257,20 @@ const (
 	KindWorkflowGate         = "workflow_gate"
 	KindConfig               = "config"
 	KindStorage              = "storage"
-	KindPanic                = "panic"
+	// KindFenced: the session was revoked (a source fence) before a request or its answer could be
+	// stored. The fence's terminal records are committed; the run neither retries nor sends (R-1).
+	KindFenced = "fenced"
+	KindPanic  = "panic"
+	// KindSpecUnapproved: a non-interactive run's completion gate needs a required check whose
+	// definition the host has not approved, or whose definition or approval changed while it ran
+	// (ADR-0017). Only the user can approve it, so the run ends instead of asking the model again.
+	KindSpecUnapproved = "spec_unapproved"
+	// Budget kinds (ADR-0019 §6): the run's budget refused the next tool call or model request. The
+	// run ends interrupted; nothing was sent or executed past the limit.
+	KindBudgetToolCalls     = "budget:tool_calls"
+	KindBudgetModelRequests = "budget:model_requests"
+	KindBudgetTokens        = "budget:tokens"
+	KindBudgetCost          = "budget:cost"
 )
 
 // ExitCause is why a run ended. Every return path of Loop.Run after the session

@@ -1,0 +1,6 @@
+# apidiff -incompatible main(3e1c3cc) -> rt(c36bd29), golang.org/x/exp/cmd/apidiff
+== runtime
+- (*Engine).LSPStatus: changed from func(context.Context, string) (LSPStatus, error) to func(context.Context, string) ([]LSPServerStatus, error)
+== protocol
+== pluginapi
+== config

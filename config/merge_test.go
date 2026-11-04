@@ -95,7 +95,7 @@ func TestLoadGlobalOnlyAndNoWorkspace(t *testing.T) {
 	}
 	e := c.Effective()
 	if explore, _ := e.Agent(AgentExplore); e.Model != "deepseek/chat" || explore.Models[0].Model != "deepseek/coder" || !slices.Equal(e.Failover, []ModelRef{"openrouter/sonnet"}) ||
-		e.EffortDefault != EffortMedium || e.Escalation == nil || e.Escalation.Max != EffortHigh || e.Workspace != "" {
+		e.EffortDefault != EffortMedium || e.Workspace != "" {
 		t.Fatalf("effective=%+v", e)
 	}
 	if got := len(c.Catalog()); got != 3 {
@@ -127,10 +127,6 @@ func TestUntrustedWorkspaceOnlyChoosesAmongGlobalModels(t *testing.T) {
 	if explore, _ := e.Agent(AgentExplore); e.Model != "openrouter/sonnet" || explore.Models[0].Model != "deepseek/chat" ||
 		!slices.Equal(e.Failover, []ModelRef{"deepseek/chat"}) || e.EffortDefault != EffortHigh {
 		t.Fatalf("permitted overrides not applied: %+v", e)
-	}
-	// Escalation was not in the workspace effort: workspace effort replaces the whole policy.
-	if e.Escalation != nil {
-		t.Fatalf("effort must replace, not merge: %+v", e.Escalation)
 	}
 	if len(e.Checks) != 0 {
 		t.Fatalf("workspace check survived: %v", e.Checks)
@@ -490,6 +486,163 @@ func TestConcurrencyOutsideItsBoundsIsInvalid(t *testing.T) {
 	}
 	if _, err := Save(filepath.Join(t.TempDir(), FileName), File{Concurrency: &Concurrency{MaxAgents: MaxMaxAgents + 1}}, ""); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("Save accepted maxAgents above the bound: %v", err)
+	}
+}
+
+// Execution limits bound the machine like concurrency: only the global file sets them, absent fields
+// take their defaults (foreground shell timeout 120 s, at most 1800 s), and values outside the schema
+// bounds are invalid.
+func TestExecutionIsReadFromTheGlobalFileOnly(t *testing.T) {
+	_, globalDir := env(t)
+	ws := canon(t, t.TempDir())
+	writeFile(t, filepath.Join(globalDir, FileName),
+		`{"execution": {"shellTimeoutSeconds": 90, "shellMaxTimeoutSeconds": 900, "maxConcurrentJobs": 3, "logLevel": "debug"}, "trustedWorkspaces": [`+quote(ws)+`]}`)
+	writeFile(t, filepath.Join(ws, FileName), `{"execution": {"shellTimeoutSeconds": 5, "maxConcurrentJobs": 16}}`)
+	c, err := Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eff := c.Effective()
+	want := Execution{ShellTimeoutSeconds: 90, ShellMaxTimeoutSeconds: 900,
+		MaxConcurrentJobs: 3, MaxQueuedJobs: DefaultMaxQueuedJobs, JobOutputBytes: DefaultJobOutputBytes,
+		JobRetentionDays: DefaultJobRetentionDays, LogLevel: "debug"}
+	if eff.Execution != want {
+		t.Fatalf("execution=%+v want %+v", eff.Execution, want)
+	}
+	if len(eff.Warnings) != 1 || eff.Warnings[0].Code != WarnGlobalOnly || eff.Warnings[0].Key != "execution" {
+		t.Fatalf("warnings=%+v", eff.Warnings)
+	}
+	for _, raw := range []string{
+		`{"execution": {"shellTimeoutSeconds": 0}}`,
+		`{"execution": {"shellTimeoutSeconds": 86401}}`,
+		`{"execution": {"shellMaxTimeoutSeconds": 0}}`,
+		`{"execution": {"shellMaxTimeoutSeconds": 86401}}`,
+		`{"execution": {"maxConcurrentJobs": 17}}`,
+		`{"execution": {"maxQueuedJobs": 0}}`,
+		`{"execution": {"jobOutputBytes": 1024}}`,
+		`{"execution": {"jobRetentionDays": 366}}`,
+		`{"execution": {"logLevel": "trace"}}`,
+		`{"execution": {"workers": 2}}`,
+		`{"execution": {"retry": {"baseDelayMs": 0}}}`,
+		`{"execution": {"retry": {"maxOutageSeconds": 86401}}}`,
+		`{"execution": {"retry": {"maxAttempts": 5}}}`,
+	} {
+		if _, err := Parse([]byte(raw)); !errors.Is(err, ErrInvalidConfig) {
+			t.Errorf("Parse(%s) err=%v", raw, err)
+		}
+	}
+	if f, err := Parse([]byte(`{"execution": {"retry": {"baseDelayMs": 250, "maxDelayMs": 60000, "maxOutageSeconds": 3600}}}`)); err != nil {
+		t.Errorf("retry: %v", err)
+	} else if r := f.Execution.Limits().Retry; r == nil || *r != (Retry{BaseDelayMs: 250, MaxDelayMs: 60000, MaxOutageSeconds: 3600}) {
+		t.Errorf("retry limits = %+v", r)
+	}
+}
+
+// The retry policy is copied with the documents and views that hand out a caller-owned copy: editing one
+// copy changes neither the configuration nor a later copy.
+func TestRetryCopiesAreIsolated(t *testing.T) {
+	_, globalDir := env(t)
+	writeFile(t, filepath.Join(globalDir, FileName), `{"execution": {"retry": {"maxOutageSeconds": 600}, "budget": {"maxModelRequests": 9}}}`)
+	c, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := c.Global()
+	g.File.Execution.Retry.Disabled = true
+	e := c.Effective()
+	e.Execution.Retry.Disabled = true
+	e.Execution.Budget.MaxModelRequests = 1
+	if c.Global().File.Execution.Retry.Disabled || c.Effective().Execution.Retry.Disabled || c.Effective().Execution.Budget.MaxModelRequests != 9 {
+		t.Fatal("editing a copy changed the configuration")
+	}
+}
+
+// A foreground shell call is never unbounded: absent settings select 120 s and an 1800 s maximum, an
+// explicit default above the maximum is clamped, a lower maximum lowers an absent default too, and a
+// deployment may raise the maximum to the schema bound.
+func TestExecutionShellTimeoutDefaultsAndClamp(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		in   *Execution
+		want [2]int
+	}{
+		{"nil", nil, [2]int{DefaultShellTimeoutSeconds, DefaultShellMaxTimeoutSeconds}},
+		{"empty", &Execution{}, [2]int{DefaultShellTimeoutSeconds, DefaultShellMaxTimeoutSeconds}},
+		{"default below maximum", &Execution{ShellTimeoutSeconds: 300}, [2]int{300, DefaultShellMaxTimeoutSeconds}},
+		{"default above maximum", &Execution{ShellTimeoutSeconds: 3600}, [2]int{DefaultShellMaxTimeoutSeconds, DefaultShellMaxTimeoutSeconds}},
+		{"lower maximum lowers the default", &Execution{ShellMaxTimeoutSeconds: 60}, [2]int{60, 60}},
+		{"both named", &Execution{ShellTimeoutSeconds: 240, ShellMaxTimeoutSeconds: 600}, [2]int{240, 600}},
+		{"raised maximum", &Execution{ShellMaxTimeoutSeconds: MaxShellTimeoutSeconds}, [2]int{DefaultShellTimeoutSeconds, MaxShellTimeoutSeconds}},
+		{"schema bound", &Execution{ShellTimeoutSeconds: MaxShellTimeoutSeconds, ShellMaxTimeoutSeconds: MaxShellTimeoutSeconds},
+			[2]int{MaxShellTimeoutSeconds, MaxShellTimeoutSeconds}},
+	} {
+		got := c.in.Limits()
+		if got.ShellTimeoutSeconds != c.want[0] || got.ShellMaxTimeoutSeconds != c.want[1] {
+			t.Errorf("%s: limits=%+v want timeout=%d max=%d", c.name, got, c.want[0], c.want[1])
+		}
+	}
+	// The schema keeps the same 1…86400 bounds for both settings.
+	for _, raw := range []string{
+		`{"execution": {"shellTimeoutSeconds": 1, "shellMaxTimeoutSeconds": 1}}`,
+		`{"execution": {"shellTimeoutSeconds": 86400, "shellMaxTimeoutSeconds": 86400}}`,
+	} {
+		if _, err := Parse([]byte(raw)); err != nil {
+			t.Errorf("Parse(%s): %v", raw, err)
+		}
+	}
+}
+
+// Language server settings bound this machine's processes like execution: only the global file sets
+// them, absent fields take their defaults, and values outside the schema bounds are invalid.
+func TestLSPIsReadFromTheGlobalFileOnly(t *testing.T) {
+	_, globalDir := env(t)
+	ws := canon(t, t.TempDir())
+	writeFile(t, filepath.Join(globalDir, FileName),
+		`{"lsp": {"maxServers": 2, "servers": {"go": {"command": "gopls", "args": ["-remote=auto"]}}}, "trustedWorkspaces": [`+quote(ws)+`]}`)
+	writeFile(t, filepath.Join(ws, FileName), `{"lsp": {"maxServers": 8, "servers": {"sh": {"command": "sh"}}}}`)
+	c, err := Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eff := c.Effective()
+	want := LSP{
+		IdleTimeoutSeconds:    DefaultLSPIdleTimeoutSeconds,
+		MaxServers:            2,
+		StartTimeoutSeconds:   DefaultLSPStartTimeoutSeconds,
+		RequestTimeoutSeconds: DefaultLSPRequestTimeoutSeconds,
+		Servers:               map[string]LSPServer{"go": {Command: "gopls", Args: []string{"-remote=auto"}}},
+	}
+	if eff.LSP.MaxServers != want.MaxServers || eff.LSP.IdleTimeoutSeconds != want.IdleTimeoutSeconds ||
+		eff.LSP.StartTimeoutSeconds != want.StartTimeoutSeconds || eff.LSP.RequestTimeoutSeconds != want.RequestTimeoutSeconds {
+		t.Fatalf("lsp=%+v want %+v", eff.LSP, want)
+	}
+	if len(eff.LSP.Servers) != 1 || eff.LSP.Servers["go"].Command != "gopls" {
+		t.Fatalf("lsp servers=%+v", eff.LSP.Servers)
+	}
+	if len(eff.Warnings) != 1 || eff.Warnings[0].Code != WarnGlobalOnly || eff.Warnings[0].Key != "lsp" {
+		t.Fatalf("warnings=%+v", eff.Warnings)
+	}
+	for _, raw := range []string{
+		`{"lsp": {"idleTimeoutSeconds": 0}}`,
+		`{"lsp": {"idleTimeoutSeconds": 86401}}`,
+		`{"lsp": {"maxServers": 0}}`,
+		`{"lsp": {"maxServers": 9}}`,
+		`{"lsp": {"startTimeoutSeconds": 301}}`,
+		`{"lsp": {"requestTimeoutSeconds": 0}}`,
+		`{"lsp": {"workers": 2}}`,
+		`{"lsp": {"servers": {"go": {}}}}`,
+		`{"lsp": {"servers": {"go": {"command": ""}}}}`,
+		`{"lsp": {"servers": {"go": {"command": "gopls", "extensions": ["go"]}}}}`,
+		`{"lsp": {"servers": {"Bad Language": {"command": "x"}}}}`,
+	} {
+		if _, err := Parse([]byte(raw)); !errors.Is(err, ErrInvalidConfig) {
+			t.Errorf("Parse(%s) err=%v", raw, err)
+		}
+	}
+	if got := (*LSP)(nil).Limits(); got.MaxServers != DefaultMaxLSPServers ||
+		got.IdleTimeoutSeconds != DefaultLSPIdleTimeoutSeconds || got.StartTimeoutSeconds != DefaultLSPStartTimeoutSeconds ||
+		got.RequestTimeoutSeconds != DefaultLSPRequestTimeoutSeconds || got.Servers != nil {
+		t.Fatalf("defaults=%+v", got)
 	}
 }
 

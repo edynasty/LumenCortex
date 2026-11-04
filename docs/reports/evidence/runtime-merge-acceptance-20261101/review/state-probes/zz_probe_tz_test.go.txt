@@ -1,0 +1,18 @@
+package schedule
+
+import (
+	"testing"
+	"time"
+)
+
+// PROBE: a cron task may name the host-dependent "Local" zone; it is accepted at create.
+func TestZZProbeLocalTimezoneAccepted(t *testing.T) {
+	task := Task{
+		ID: "schedule_tz", Name: "tz", Kind: KindShell, Shell: &ShellPayload{Command: "make"},
+		Trigger:      Trigger{Kind: TriggerCron, Cron: "0 9 * * *", Timezone: "Local"},
+		MissedPolicy: MissedSkip,
+	}
+	err := validate(task, time.Minute)
+	loc, lerr := loadTimezone("Local")
+	t.Logf("PROBE validate(Local)=%v loadTimezone=%v err=%v", err, loc, lerr)
+}

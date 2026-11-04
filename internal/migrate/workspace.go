@@ -49,8 +49,9 @@ func (w *Workspace) Close() error {
 //     processes kept db.lock is ErrDatabaseInUse.
 //
 // Concurrent opens of one old database all succeed: one migrates under the exclusive lock, the
-// others then see the latest version under the shared lock. The stateDir must exist.
-func Open(ctx context.Context, stateDir string, set *Set) (*Workspace, error) {
+// others then see the latest version under the shared lock. The stateDir must exist. hooks run in
+// the transaction of the migration they name (StepHook).
+func Open(ctx context.Context, stateDir string, set *Set, hooks ...StepHook) (*Workspace, error) {
 	path := filepath.Join(stateDir, dbFile)
 	deadline := time.Now().Add(LockWait)
 	from := -1
@@ -84,7 +85,7 @@ func Open(ctx context.Context, stateDir string, set *Set) (*Workspace, error) {
 
 		ex, err := runlock.TryAcquire(stateDir, dbLockID)
 		if err == nil {
-			mfrom, _, merr := upgradeLocked(ctx, path, stateDir, set)
+			mfrom, _, merr := upgradeLocked(ctx, path, stateDir, set, hooks...)
 			if from < 0 {
 				from = mfrom
 			}
@@ -324,4 +325,29 @@ func removeMarker(stateDir string) error {
 		return err
 	}
 	return syncDir(stateDir)
+}
+
+// OweCheckpoint durably records that a WAL truncation is owed (the checkpoint marker) before content
+// is removed outside a schema change, as a privacy deletion does: until the checkpoint completes, the
+// WAL can hold page images of the removed rows. A marker that already owes a rebuild is kept.
+func OweCheckpoint(stateDir string) error {
+	kind, err := readMarker(stateDir)
+	if err != nil || kind != markerNone {
+		return err
+	}
+	return createMarker(stateDir, markerCheckpoint)
+}
+
+// SettleCheckpoint runs the owed WAL truncation through q and removes the checkpoint marker when it
+// completes. complete is false when a reader blocked it; the marker stays and every later Open retries.
+// A marker that owes a rebuild is left to the exclusive path of the next Open.
+func SettleCheckpoint(ctx context.Context, q querier, stateDir string) (complete bool, err error) {
+	kind, err := readMarker(stateDir)
+	if err != nil || kind == markerVacuum {
+		return false, err
+	}
+	if complete, err = truncateCheckpoint(ctx, q); err != nil || !complete {
+		return complete, err
+	}
+	return true, removeMarker(stateDir)
 }

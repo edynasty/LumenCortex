@@ -129,7 +129,7 @@ func TestInteractiveRunKeepsTheWorkflowGate(t *testing.T) {
 		provider := &scriptedProvider{responses: []protocol.ProviderResponse{
 			toolStep(call("p1", "apply_patch", `{}`)),
 			answer("done too early"),
-			toolStep(call("s1", "shell", `{"command":"test-pass"}`)),
+			toolStep(call("s1", "bash", `{"command":"test-pass"}`)),
 			answer("verified"),
 		}}
 		var events []string
@@ -158,7 +158,7 @@ func TestInteractiveRunKeepsTheWorkflowGate(t *testing.T) {
 		workflow := strings.Replace(finishableWorkflow, `"allowedTools":["shell"]`, `"allowedTools":["shell","work_unit_update"]`, 1)
 		store.seed(t, []byte(workflow), []byte(`{"workUnits":[{"id":"u","goal":"g"}]}`))
 		provider := &scriptedProvider{responses: []protocol.ProviderResponse{
-			toolStep(call("s1", "shell", `{"command":"test-pass"}`)),
+			toolStep(call("s1", "bash", `{"command":"test-pass"}`)),
 			answer("done"),
 			toolStep(call("u1", "work_unit_update", `{"id":"u","status":"completed"}`)),
 			answer("done now"),
@@ -196,7 +196,7 @@ func TestInteractiveRunKeepsTheWorkflowGate(t *testing.T) {
 // question with an inspection tool, accept nothing without stored evidence, and latch only on a stored
 // result, such as a human acceptance, that satisfies every required check.
 func TestInteractiveTurnResolution(t *testing.T) {
-	inspect := []protocol.ProviderResponse{toolStep(call("s1", "shell", `{"command":"git log"}`)), answer("It was merged on Monday.")}
+	inspect := []protocol.ProviderResponse{toolStep(call("s1", "bash", `{"command":"git log"}`)), answer("It was merged on Monday.")}
 
 	for _, state := range []string{taskstate.ResolutionDone, taskstate.ResolutionDropped} {
 		t.Run("a question keeps the user's "+state, func(t *testing.T) {

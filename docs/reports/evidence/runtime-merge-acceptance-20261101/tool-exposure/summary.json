@@ -1,0 +1,1278 @@
+{
+  "profiles": {
+    "p1-default": {
+      "id": "p1-default",
+      "label": "\u666e\u901a\u4efb\u52a1: default top-level run, default options",
+      "toolCount": 19,
+      "wireBytes": 9997,
+      "wireFunctionBytes": 9388,
+      "specArrayBytes": 9791,
+      "specArrayBySource": {
+        "builtin": 9791
+      },
+      "costApi": {
+        "builtinBytes": 14916,
+        "builtinTools": 29,
+        "lspBytes": 0,
+        "lspTools": 0,
+        "mcpBytes": null,
+        "mcpTools": null,
+        "totalBytes": 14916
+      },
+      "toolsJsonTokens": 2218,
+      "promptTokensWithoutTools": 1519,
+      "promptTokensWithTools": 4137,
+      "toolDefinitionTokens": 2618,
+      "systemPromptTokens": 402,
+      "promptReportToolCount": 19,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [],
+      "toolNames": [
+        "find_files",
+        "list_dir",
+        "list_subagents",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_file",
+        "read_skill",
+        "read_thread",
+        "recall",
+        "search_text",
+        "spawn_subagent",
+        "wait_subagent",
+        "work_unit_list",
+        "work_unit_create",
+        "work_unit_update",
+        "reference_suggest",
+        "note_write",
+        "note_remove"
+      ]
+    },
+    "p2-readonly-agent": {
+      "id": "p2-readonly-agent",
+      "label": "\u53ea\u8bfb Agent: the read-only ask preset",
+      "toolCount": 19,
+      "wireBytes": 9997,
+      "wireFunctionBytes": 9388,
+      "specArrayBytes": 9791,
+      "specArrayBySource": {
+        "builtin": 9791
+      },
+      "costApi": {
+        "builtinBytes": 14916,
+        "builtinTools": 29,
+        "lspBytes": 0,
+        "lspTools": 0,
+        "mcpBytes": null,
+        "mcpTools": null,
+        "totalBytes": 14916
+      },
+      "toolsJsonTokens": 2218,
+      "promptTokensWithoutTools": 1516,
+      "promptTokensWithTools": 4134,
+      "toolDefinitionTokens": 2618,
+      "systemPromptTokens": 402,
+      "promptReportToolCount": 19,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [],
+      "toolNames": [
+        "find_files",
+        "list_dir",
+        "list_subagents",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_file",
+        "read_skill",
+        "read_thread",
+        "recall",
+        "search_text",
+        "spawn_subagent",
+        "wait_subagent",
+        "work_unit_list",
+        "work_unit_create",
+        "work_unit_update",
+        "reference_suggest",
+        "note_write",
+        "note_remove"
+      ]
+    },
+    "p3-workspace": {
+      "id": "p3-workspace",
+      "label": "\u7f16\u8f91 Agent: workspace policy, top-level (read + write, no command)",
+      "toolCount": 24,
+      "wireBytes": 12498,
+      "wireFunctionBytes": 11729,
+      "specArrayBytes": 12314,
+      "specArrayBySource": {
+        "builtin": 12314
+      },
+      "costApi": {
+        "builtinBytes": 14916,
+        "builtinTools": 29,
+        "lspBytes": 0,
+        "lspTools": 0,
+        "mcpBytes": null,
+        "mcpTools": null,
+        "totalBytes": 14916
+      },
+      "toolsJsonTokens": 2820,
+      "promptTokensWithoutTools": 1498,
+      "promptTokensWithTools": 4785,
+      "toolDefinitionTokens": 3287,
+      "systemPromptTokens": 365,
+      "promptReportToolCount": 24,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [],
+      "toolNames": [
+        "apply_patch",
+        "find_files",
+        "list_dir",
+        "list_subagents",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_file",
+        "read_skill",
+        "read_thread",
+        "recall",
+        "replace_in_file",
+        "search_text",
+        "spawn_subagent",
+        "wait_subagent",
+        "wakeup_cancel",
+        "wakeup_schedule",
+        "write_file",
+        "work_unit_list",
+        "work_unit_create",
+        "work_unit_update",
+        "reference_suggest",
+        "note_write",
+        "note_remove"
+      ]
+    },
+    "p4-coding-full": {
+      "id": "p4-coding-full",
+      "label": "Coding Agent: full policy, top-level, no delegation",
+      "toolCount": 29,
+      "wireBytes": 15131,
+      "wireFunctionBytes": 14202,
+      "specArrayBytes": 14916,
+      "specArrayBySource": {
+        "builtin": 14916
+      },
+      "costApi": {
+        "builtinBytes": 14916,
+        "builtinTools": 29,
+        "lspBytes": 0,
+        "lspTools": 0,
+        "mcpBytes": null,
+        "mcpTools": null,
+        "totalBytes": 14916
+      },
+      "toolsJsonTokens": 3423,
+      "promptTokensWithoutTools": 1486,
+      "promptTokensWithTools": 5409,
+      "toolDefinitionTokens": 3923,
+      "systemPromptTokens": 365,
+      "promptReportToolCount": 29,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [],
+      "toolNames": [
+        "apply_patch",
+        "bash",
+        "find_files",
+        "job_cancel",
+        "job_list",
+        "job_status",
+        "job_wait",
+        "list_dir",
+        "list_subagents",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_file",
+        "read_skill",
+        "read_thread",
+        "recall",
+        "replace_in_file",
+        "search_text",
+        "spawn_subagent",
+        "wait_subagent",
+        "wakeup_cancel",
+        "wakeup_schedule",
+        "write_file",
+        "work_unit_list",
+        "work_unit_create",
+        "work_unit_update",
+        "reference_suggest",
+        "note_write",
+        "note_remove"
+      ]
+    },
+    "p5-complex": {
+      "id": "p5-complex",
+      "label": "\u590d\u6742\u4efb\u52a1: full policy, delegation isolated, spawns a child and starts a task",
+      "toolCount": 30,
+      "wireBytes": 16059,
+      "wireFunctionBytes": 15098,
+      "specArrayBytes": 15837,
+      "specArrayBySource": {
+        "builtin": 14916,
+        "delegation": 922
+      },
+      "costApi": {
+        "builtinBytes": 14916,
+        "builtinTools": 29,
+        "lspBytes": 0,
+        "lspTools": 0,
+        "mcpBytes": null,
+        "mcpTools": null,
+        "totalBytes": 14916
+      },
+      "toolsJsonTokens": 3628,
+      "promptTokensWithoutTools": 1503,
+      "promptTokensWithTools": 5640,
+      "toolDefinitionTokens": 4137,
+      "systemPromptTokens": 365,
+      "promptReportToolCount": 30,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [],
+      "toolNames": [
+        "apply_patch",
+        "bash",
+        "find_files",
+        "job_cancel",
+        "job_list",
+        "job_status",
+        "job_wait",
+        "list_dir",
+        "list_subagents",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_file",
+        "read_skill",
+        "read_thread",
+        "recall",
+        "replace_in_file",
+        "search_text",
+        "spawn_subagent",
+        "wait_subagent",
+        "wakeup_cancel",
+        "wakeup_schedule",
+        "write_file",
+        "work_unit_list",
+        "work_unit_create",
+        "work_unit_update",
+        "reference_suggest",
+        "note_write",
+        "note_remove",
+        "start_task"
+      ]
+    },
+    "m1-research-min": {
+      "id": "m1-research-min",
+      "label": "minimal read-only research: policy read-only + four-tool allowlist",
+      "toolCount": 4,
+      "wireBytes": 1154,
+      "wireFunctionBytes": 1025,
+      "specArrayBytes": 1110,
+      "specArrayBySource": {
+        "builtin": 1110
+      },
+      "costApi": {
+        "builtinBytes": 14916,
+        "builtinTools": 29,
+        "lspBytes": 0,
+        "lspTools": 0,
+        "mcpBytes": null,
+        "mcpTools": null,
+        "totalBytes": 14916
+      },
+      "toolsJsonTokens": 266,
+      "promptTokensWithoutTools": 1532,
+      "promptTokensWithTools": 2035,
+      "toolDefinitionTokens": 503,
+      "systemPromptTokens": 402,
+      "promptReportToolCount": 4,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [],
+      "toolNames": [
+        "find_files",
+        "list_dir",
+        "read_file",
+        "search_text"
+      ]
+    },
+    "m2-coding-min": {
+      "id": "m2-coding-min",
+      "label": "minimal coding: full policy minus jobs, wake-ups, notebook, threads, subagents, tasks",
+      "toolCount": 15,
+      "wireBytes": 7593,
+      "wireFunctionBytes": 7112,
+      "specArrayBytes": 7527,
+      "specArrayBySource": {
+        "builtin": 7527
+      },
+      "costApi": {
+        "builtinBytes": 14916,
+        "builtinTools": 29,
+        "lspBytes": 0,
+        "lspTools": 0,
+        "mcpBytes": null,
+        "mcpTools": null,
+        "totalBytes": 14916
+      },
+      "toolsJsonTokens": 1730,
+      "promptTokensWithoutTools": 1510,
+      "promptTokensWithTools": 3616,
+      "toolDefinitionTokens": 2106,
+      "systemPromptTokens": 365,
+      "promptReportToolCount": 15,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [],
+      "toolNames": [
+        "apply_patch",
+        "bash",
+        "find_files",
+        "list_dir",
+        "read_file",
+        "read_skill",
+        "replace_in_file",
+        "search_text",
+        "write_file",
+        "work_unit_list",
+        "work_unit_create",
+        "work_unit_update",
+        "reference_suggest",
+        "note_write",
+        "note_remove"
+      ]
+    },
+    "subagent-child": {
+      "id": "subagent-child",
+      "label": "spawn_subagent child run: explore agent, read-only",
+      "toolCount": 16,
+      "wireBytes": 8728,
+      "wireFunctionBytes": 8215,
+      "specArrayBytes": 8555,
+      "specArrayBySource": {
+        "builtin": 8555
+      },
+      "costApi": {
+        "builtinBytes": null,
+        "builtinTools": null,
+        "lspBytes": null,
+        "lspTools": null,
+        "mcpBytes": null,
+        "mcpTools": null,
+        "totalBytes": null
+      },
+      "toolsJsonTokens": 1943,
+      "promptTokensWithoutTools": 1394,
+      "promptTokensWithTools": 3721,
+      "toolDefinitionTokens": 2327,
+      "systemPromptTokens": 287,
+      "promptReportToolCount": 14,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [
+        "read_thread",
+        "recall"
+      ],
+      "toolNames": [
+        "find_files",
+        "list_dir",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_file",
+        "read_skill",
+        "read_thread",
+        "recall",
+        "search_text",
+        "work_unit_list",
+        "work_unit_create",
+        "work_unit_update",
+        "reference_suggest",
+        "note_write",
+        "note_remove"
+      ]
+    },
+    "execution-task": {
+      "id": "execution-task",
+      "label": "start_task execution run: worker agent, workspace",
+      "toolCount": 19,
+      "wireBytes": 10053,
+      "wireFunctionBytes": 9444,
+      "specArrayBytes": 9922,
+      "specArrayBySource": {
+        "builtin": 9922
+      },
+      "costApi": {
+        "builtinBytes": null,
+        "builtinTools": null,
+        "lspBytes": null,
+        "lspTools": null,
+        "mcpBytes": null,
+        "mcpTools": null,
+        "totalBytes": null
+      },
+      "toolsJsonTokens": 2258,
+      "promptTokensWithoutTools": 1351,
+      "promptTokensWithTools": 4037,
+      "toolDefinitionTokens": 2686,
+      "systemPromptTokens": 171,
+      "promptReportToolCount": 17,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [
+        "read_thread",
+        "recall"
+      ],
+      "toolNames": [
+        "apply_patch",
+        "find_files",
+        "list_dir",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_file",
+        "read_skill",
+        "read_thread",
+        "recall",
+        "replace_in_file",
+        "search_text",
+        "write_file",
+        "work_unit_list",
+        "work_unit_create",
+        "work_unit_update",
+        "reference_suggest",
+        "note_write",
+        "note_remove"
+      ]
+    },
+    "lsp:p1-default": {
+      "id": "lsp:p1-default",
+      "label": "\u666e\u901a\u4efb\u52a1 with a language server available (read-only default)",
+      "toolCount": 25,
+      "wireBytes": 11849,
+      "wireFunctionBytes": 11048,
+      "specArrayBytes": 11577,
+      "specArrayBySource": {
+        "builtin": 9791,
+        "lsp": 1787
+      },
+      "costApi": {
+        "builtinBytes": 14916,
+        "builtinTools": 29,
+        "lspBytes": 2426,
+        "lspTools": 7,
+        "mcpBytes": null,
+        "mcpTools": null,
+        "totalBytes": 17342
+      },
+      "toolsJsonTokens": 2647,
+      "promptTokensWithoutTools": 1527,
+      "promptTokensWithTools": 4624,
+      "toolDefinitionTokens": 3097,
+      "systemPromptTokens": 402,
+      "promptReportToolCount": 25,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [],
+      "toolNames": [
+        "find_files",
+        "list_dir",
+        "list_subagents",
+        "lsp_definition",
+        "lsp_diagnostics",
+        "lsp_document_symbols",
+        "lsp_hover",
+        "lsp_references",
+        "lsp_workspace_symbols",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_file",
+        "read_skill",
+        "read_thread",
+        "recall",
+        "search_text",
+        "spawn_subagent",
+        "wait_subagent",
+        "work_unit_list",
+        "work_unit_create",
+        "work_unit_update",
+        "reference_suggest",
+        "note_write",
+        "note_remove"
+      ]
+    },
+    "lsp:p5-complex": {
+      "id": "lsp:p5-complex",
+      "label": "\u590d\u6742\u4efb\u52a1 with a language server available (full + isolated)",
+      "toolCount": 37,
+      "wireBytes": 18536,
+      "wireFunctionBytes": 17351,
+      "specArrayBytes": 18238,
+      "specArrayBySource": {
+        "builtin": 14916,
+        "lsp": 2402,
+        "delegation": 922
+      },
+      "costApi": {
+        "builtinBytes": 14916,
+        "builtinTools": 29,
+        "lspBytes": 2426,
+        "lspTools": 7,
+        "mcpBytes": null,
+        "mcpTools": null,
+        "totalBytes": 17342
+      },
+      "toolsJsonTokens": 4199,
+      "promptTokensWithoutTools": 1490,
+      "promptTokensWithTools": 6264,
+      "toolDefinitionTokens": 4774,
+      "systemPromptTokens": 365,
+      "promptReportToolCount": 37,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [],
+      "toolNames": [
+        "apply_patch",
+        "bash",
+        "find_files",
+        "job_cancel",
+        "job_list",
+        "job_status",
+        "job_wait",
+        "list_dir",
+        "list_subagents",
+        "lsp_definition",
+        "lsp_diagnostics",
+        "lsp_document_symbols",
+        "lsp_hover",
+        "lsp_references",
+        "lsp_rename",
+        "lsp_workspace_symbols",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_file",
+        "read_skill",
+        "read_thread",
+        "recall",
+        "replace_in_file",
+        "search_text",
+        "spawn_subagent",
+        "wait_subagent",
+        "wakeup_cancel",
+        "wakeup_schedule",
+        "write_file",
+        "work_unit_list",
+        "work_unit_create",
+        "work_unit_update",
+        "reference_suggest",
+        "note_write",
+        "note_remove",
+        "start_task"
+      ]
+    },
+    "mcp:p5-complex-mcp": {
+      "id": "mcp:p5-complex-mcp",
+      "label": "\u590d\u6742\u4efb\u52a1 with one MCP server exposing five tools (full + isolated)",
+      "toolCount": 35,
+      "wireBytes": 17181,
+      "wireFunctionBytes": 16060,
+      "specArrayBytes": 16904,
+      "specArrayBySource": {
+        "builtin": 14916,
+        "local-adapter": 1068,
+        "delegation": 922
+      },
+      "costApi": {
+        "builtinBytes": 14916,
+        "builtinTools": 29,
+        "lspBytes": 0,
+        "lspTools": 0,
+        "mcpBytes": null,
+        "mcpTools": null,
+        "totalBytes": 14916
+      },
+      "toolsJsonTokens": 3917,
+      "promptTokensWithoutTools": 1499,
+      "promptTokensWithTools": 5928,
+      "toolDefinitionTokens": 4429,
+      "systemPromptTokens": 365,
+      "promptReportToolCount": 30,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [
+        "mcp__stub__stub_fetch",
+        "mcp__stub__stub_purge",
+        "mcp__stub__stub_reindex",
+        "mcp__stub__stub_search",
+        "mcp__stub__stub_stats"
+      ],
+      "toolNames": [
+        "apply_patch",
+        "bash",
+        "find_files",
+        "job_cancel",
+        "job_list",
+        "job_status",
+        "job_wait",
+        "list_dir",
+        "list_subagents",
+        "mcp__stub__stub_fetch",
+        "mcp__stub__stub_purge",
+        "mcp__stub__stub_reindex",
+        "mcp__stub__stub_search",
+        "mcp__stub__stub_stats",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_file",
+        "read_skill",
+        "read_thread",
+        "recall",
+        "replace_in_file",
+        "search_text",
+        "spawn_subagent",
+        "wait_subagent",
+        "wakeup_cancel",
+        "wakeup_schedule",
+        "write_file",
+        "work_unit_list",
+        "work_unit_create",
+        "work_unit_update",
+        "reference_suggest",
+        "note_write",
+        "note_remove",
+        "start_task"
+      ]
+    },
+    "mcp:p1-default-mcp": {
+      "id": "mcp:p1-default-mcp",
+      "label": "\u666e\u901a\u4efb\u52a1 with one MCP server (read-only default)",
+      "toolCount": 22,
+      "wireBytes": 10715,
+      "wireFunctionBytes": 10010,
+      "specArrayBytes": 10476,
+      "specArrayBySource": {
+        "builtin": 9791,
+        "mcp": 686
+      },
+      "costApi": {
+        "builtinBytes": 14916,
+        "builtinTools": 29,
+        "lspBytes": 0,
+        "lspTools": 0,
+        "mcpBytes": {
+          "stub": 877
+        },
+        "mcpTools": {
+          "stub": 5
+        },
+        "totalBytes": 15793
+      },
+      "toolsJsonTokens": 2403,
+      "promptTokensWithoutTools": 1527,
+      "promptTokensWithTools": 4335,
+      "toolDefinitionTokens": 2808,
+      "systemPromptTokens": 402,
+      "promptReportToolCount": 22,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [],
+      "toolNames": [
+        "find_files",
+        "list_dir",
+        "list_subagents",
+        "mcp__stub__stub_fetch",
+        "mcp__stub__stub_search",
+        "mcp__stub__stub_stats",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_file",
+        "read_skill",
+        "read_thread",
+        "recall",
+        "search_text",
+        "spawn_subagent",
+        "wait_subagent",
+        "work_unit_list",
+        "work_unit_create",
+        "work_unit_update",
+        "reference_suggest",
+        "note_write",
+        "note_remove"
+      ]
+    },
+    "mcp-narrow:p5-complex-mcp-narrow": {
+      "id": "mcp-narrow:p5-complex-mcp-narrow",
+      "label": "\u590d\u6742\u4efb\u52a1 with the same MCP server narrowed to two tools",
+      "toolCount": 32,
+      "wireBytes": 16568,
+      "wireFunctionBytes": 15543,
+      "specArrayBytes": 16324,
+      "specArrayBySource": {
+        "builtin": 14916,
+        "local-adapter": 488,
+        "delegation": 922
+      },
+      "costApi": {
+        "builtinBytes": 14916,
+        "builtinTools": 29,
+        "lspBytes": 0,
+        "lspTools": 0,
+        "mcpBytes": null,
+        "mcpTools": null,
+        "totalBytes": 14916
+      },
+      "toolsJsonTokens": 3761,
+      "promptTokensWithoutTools": 1500,
+      "promptTokensWithTools": 5776,
+      "toolDefinitionTokens": 4276,
+      "systemPromptTokens": 365,
+      "promptReportToolCount": 30,
+      "promptOnlyTools": [],
+      "wireOnlyTools": [
+        "mcp__stub__stub_fetch",
+        "mcp__stub__stub_search"
+      ],
+      "toolNames": [
+        "apply_patch",
+        "bash",
+        "find_files",
+        "job_cancel",
+        "job_list",
+        "job_status",
+        "job_wait",
+        "list_dir",
+        "list_subagents",
+        "mcp__stub__stub_fetch",
+        "mcp__stub__stub_search",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_file",
+        "read_skill",
+        "read_thread",
+        "recall",
+        "replace_in_file",
+        "search_text",
+        "spawn_subagent",
+        "wait_subagent",
+        "wakeup_cancel",
+        "wakeup_schedule",
+        "write_file",
+        "work_unit_list",
+        "work_unit_create",
+        "work_unit_update",
+        "reference_suggest",
+        "note_write",
+        "note_remove",
+        "start_task"
+      ]
+    }
+  },
+  "deltas": {
+    "readonly-agent-vs-default": {
+      "note": "agent identity alone",
+      "toolCount": 0,
+      "wireBytes": 0,
+      "toolDefinitionTokens": 0,
+      "added": [],
+      "removed": []
+    },
+    "workspace-vs-readonly": {
+      "note": "policy workspace",
+      "toolCount": 5,
+      "wireBytes": 2501,
+      "toolDefinitionTokens": 669,
+      "added": [
+        "apply_patch",
+        "replace_in_file",
+        "wakeup_cancel",
+        "wakeup_schedule",
+        "write_file"
+      ],
+      "removed": []
+    },
+    "full-vs-workspace": {
+      "note": "policy full",
+      "toolCount": 5,
+      "wireBytes": 2633,
+      "toolDefinitionTokens": 636,
+      "added": [
+        "bash",
+        "job_cancel",
+        "job_list",
+        "job_status",
+        "job_wait"
+      ],
+      "removed": []
+    },
+    "complex-vs-full": {
+      "note": "delegation isolated",
+      "toolCount": 1,
+      "wireBytes": 928,
+      "toolDefinitionTokens": 214,
+      "added": [
+        "start_task"
+      ],
+      "removed": []
+    },
+    "lsp-readonly": {
+      "note": "language-server tools, read-only policy",
+      "toolCount": 6,
+      "wireBytes": 1852,
+      "toolDefinitionTokens": 479,
+      "added": [
+        "lsp_definition",
+        "lsp_diagnostics",
+        "lsp_document_symbols",
+        "lsp_hover",
+        "lsp_references",
+        "lsp_workspace_symbols"
+      ],
+      "removed": []
+    },
+    "lsp-full": {
+      "note": "language-server tools, full policy",
+      "toolCount": 7,
+      "wireBytes": 2477,
+      "toolDefinitionTokens": 637,
+      "added": [
+        "lsp_definition",
+        "lsp_diagnostics",
+        "lsp_document_symbols",
+        "lsp_hover",
+        "lsp_references",
+        "lsp_rename",
+        "lsp_workspace_symbols"
+      ],
+      "removed": []
+    },
+    "mcp-full": {
+      "note": "one MCP server, five tools",
+      "toolCount": 5,
+      "wireBytes": 1122,
+      "toolDefinitionTokens": 292,
+      "added": [
+        "mcp__stub__stub_fetch",
+        "mcp__stub__stub_purge",
+        "mcp__stub__stub_reindex",
+        "mcp__stub__stub_search",
+        "mcp__stub__stub_stats"
+      ],
+      "removed": []
+    },
+    "mcp-include-narrowed": {
+      "note": "include list two of five",
+      "toolCount": -3,
+      "wireBytes": -613,
+      "toolDefinitionTokens": -153,
+      "added": [],
+      "removed": [
+        "mcp__stub__stub_purge",
+        "mcp__stub__stub_reindex",
+        "mcp__stub__stub_stats"
+      ]
+    },
+    "minimal-research": {
+      "note": "four-tool allowlist",
+      "toolCount": -15,
+      "wireBytes": -8843,
+      "toolDefinitionTokens": -2115,
+      "added": [],
+      "removed": [
+        "list_subagents",
+        "note_remove",
+        "note_write",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_skill",
+        "read_thread",
+        "recall",
+        "reference_suggest",
+        "spawn_subagent",
+        "wait_subagent",
+        "work_unit_create",
+        "work_unit_list",
+        "work_unit_update"
+      ]
+    },
+    "minimal-coding": {
+      "note": "denylist of aux tools",
+      "toolCount": -14,
+      "wireBytes": -7538,
+      "toolDefinitionTokens": -1817,
+      "added": [],
+      "removed": [
+        "job_cancel",
+        "job_list",
+        "job_status",
+        "job_wait",
+        "list_subagents",
+        "notebook_list",
+        "notebook_read",
+        "notebook_update",
+        "read_thread",
+        "recall",
+        "spawn_subagent",
+        "wait_subagent",
+        "wakeup_cancel",
+        "wakeup_schedule"
+      ]
+    },
+    "child": {
+      "note": "a child run",
+      "toolCount": -3,
+      "wireBytes": -1269,
+      "toolDefinitionTokens": -291,
+      "added": [],
+      "removed": [
+        "list_subagents",
+        "spawn_subagent",
+        "wait_subagent"
+      ]
+    },
+    "task": {
+      "note": "an execution task",
+      "toolCount": -10,
+      "wireBytes": -5078,
+      "toolDefinitionTokens": -1237,
+      "added": [],
+      "removed": [
+        "bash",
+        "job_cancel",
+        "job_list",
+        "job_status",
+        "job_wait",
+        "list_subagents",
+        "spawn_subagent",
+        "wait_subagent",
+        "wakeup_cancel",
+        "wakeup_schedule"
+      ]
+    }
+  },
+  "reconciliation": {
+    "perSource": [
+      {
+        "profile": "p1-default",
+        "builtin": {
+          "reconstructed": 9791,
+          "costApi": 14916
+        },
+        "lsp": {
+          "reconstructed": null,
+          "costApi": 0
+        },
+        "mcp": {
+          "reconstructed": null,
+          "costApi": null
+        }
+      },
+      {
+        "profile": "p2-readonly-agent",
+        "builtin": {
+          "reconstructed": 9791,
+          "costApi": 14916
+        },
+        "lsp": {
+          "reconstructed": null,
+          "costApi": 0
+        },
+        "mcp": {
+          "reconstructed": null,
+          "costApi": null
+        }
+      },
+      {
+        "profile": "p3-workspace",
+        "builtin": {
+          "reconstructed": 12314,
+          "costApi": 14916
+        },
+        "lsp": {
+          "reconstructed": null,
+          "costApi": 0
+        },
+        "mcp": {
+          "reconstructed": null,
+          "costApi": null
+        }
+      },
+      {
+        "profile": "p4-coding-full",
+        "builtin": {
+          "reconstructed": 14916,
+          "costApi": 14916
+        },
+        "lsp": {
+          "reconstructed": null,
+          "costApi": 0
+        },
+        "mcp": {
+          "reconstructed": null,
+          "costApi": null
+        }
+      },
+      {
+        "profile": "p5-complex",
+        "builtin": {
+          "reconstructed": 14916,
+          "costApi": 14916
+        },
+        "lsp": {
+          "reconstructed": null,
+          "costApi": 0
+        },
+        "mcp": {
+          "reconstructed": null,
+          "costApi": null
+        }
+      },
+      {
+        "profile": "m1-research-min",
+        "builtin": {
+          "reconstructed": 1110,
+          "costApi": 14916
+        },
+        "lsp": {
+          "reconstructed": null,
+          "costApi": 0
+        },
+        "mcp": {
+          "reconstructed": null,
+          "costApi": null
+        }
+      },
+      {
+        "profile": "m2-coding-min",
+        "builtin": {
+          "reconstructed": 7527,
+          "costApi": 14916
+        },
+        "lsp": {
+          "reconstructed": null,
+          "costApi": 0
+        },
+        "mcp": {
+          "reconstructed": null,
+          "costApi": null
+        }
+      },
+      {
+        "profile": "subagent-child",
+        "builtin": {
+          "reconstructed": 8555,
+          "costApi": null
+        },
+        "lsp": {
+          "reconstructed": null,
+          "costApi": null
+        },
+        "mcp": {
+          "reconstructed": null,
+          "costApi": null
+        }
+      },
+      {
+        "profile": "execution-task",
+        "builtin": {
+          "reconstructed": 9922,
+          "costApi": null
+        },
+        "lsp": {
+          "reconstructed": null,
+          "costApi": null
+        },
+        "mcp": {
+          "reconstructed": null,
+          "costApi": null
+        }
+      },
+      {
+        "profile": "lsp:p1-default",
+        "builtin": {
+          "reconstructed": 9791,
+          "costApi": 14916
+        },
+        "lsp": {
+          "reconstructed": 1787,
+          "costApi": 2426
+        },
+        "mcp": {
+          "reconstructed": null,
+          "costApi": null
+        }
+      },
+      {
+        "profile": "lsp:p5-complex",
+        "builtin": {
+          "reconstructed": 14916,
+          "costApi": 14916
+        },
+        "lsp": {
+          "reconstructed": 2402,
+          "costApi": 2426
+        },
+        "mcp": {
+          "reconstructed": null,
+          "costApi": null
+        }
+      },
+      {
+        "profile": "mcp:p5-complex-mcp",
+        "builtin": {
+          "reconstructed": 14916,
+          "costApi": 14916
+        },
+        "lsp": {
+          "reconstructed": null,
+          "costApi": 0
+        },
+        "mcp": {
+          "reconstructed": null,
+          "costApi": null
+        }
+      },
+      {
+        "profile": "mcp:p1-default-mcp",
+        "builtin": {
+          "reconstructed": 9791,
+          "costApi": 14916
+        },
+        "lsp": {
+          "reconstructed": null,
+          "costApi": 0
+        },
+        "mcp": {
+          "reconstructed": 686,
+          "costApi": 877
+        }
+      },
+      {
+        "profile": "mcp-narrow:p5-complex-mcp-narrow",
+        "builtin": {
+          "reconstructed": 14916,
+          "costApi": 14916
+        },
+        "lsp": {
+          "reconstructed": null,
+          "costApi": 0
+        },
+        "mcp": {
+          "reconstructed": null,
+          "costApi": null
+        }
+      }
+    ],
+    "note": "The cost API reports one fixed list (full policy, no delegation, LSP if attached, every configured MCP server's exposed tools); a run's own list is the wire. The two agree per source where the run's policy and grant match the API's assumptions.",
+    "mcpCatalogOrder": {
+      "firstRunInWorkspace": {
+        "profile": "mcp:p5-complex-mcp",
+        "promptReportToolCount": 30,
+        "wireToolCount": 35,
+        "wireOnly": [
+          "mcp__stub__stub_fetch",
+          "mcp__stub__stub_purge",
+          "mcp__stub__stub_reindex",
+          "mcp__stub__stub_search",
+          "mcp__stub__stub_stats"
+        ],
+        "costApiMCP": null
+      },
+      "afterCatalogCached": {
+        "profile": "mcp:p1-default-mcp",
+        "promptReportToolCount": 22,
+        "wireToolCount": 22,
+        "wireOnly": [],
+        "costApiMCP": {
+          "stub": 877
+        },
+        "costApiMCPTools": {
+          "stub": 5
+        }
+      }
+    }
+  },
+  "provenance": {
+    "repo": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+    "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+    "files": {
+      "tokenizer.json": {
+        "sha256": "c90dfa01249db1be4245780a052ede752e1361c612ac6d08e2bdada7d599476b",
+        "bytes": 6367257
+      },
+      "tokenizer_config.json": {
+        "sha256": "6ac8c8dc065ed118161d02dd532749ae3f52c243deac27872134fae2f50d8547",
+        "bytes": 801
+      },
+      "config.json": {
+        "sha256": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+        "bytes": 3311
+      },
+      "encoding/encoding.py": {
+        "sha256": "13231c592e958fb39e2af6001dae69d90e7a36b265702b9b390236fb387599e2",
+        "bytes": 37962
+      }
+    },
+    "notDownloaded": "model-*.safetensors (48 shards) were never requested",
+    "encoder": "encoding/encoding.py from the same revision; reproduces encoding/tests/test_output_1.txt byte for byte",
+    "vocabSize": 129280,
+    "coreHead": "15f9039bc7408b57181a54ae0aa7d20b82aeab6e",
+    "globalSkills": [
+      "company-deploy",
+      "dbx",
+      "docx-openai",
+      "docx-polish",
+      "find-skills",
+      "frontend-design",
+      "impeccable",
+      "poc-vulnerability",
+      "ui-animation",
+      "ui-ux-pro-max",
+      "ui-verification"
+    ],
+    "capabilities": {
+      "count": 37,
+      "bySource": {
+        "builtin": 30,
+        "core-optional": 7
+      }
+    },
+    "sessionlessFullPolicyToolCount": 29
+  },
+  "children": [
+    {
+      "kind": "subagent",
+      "agent": "explore",
+      "status": "completed",
+      "sessionId": "session_0ac9be591cac5f63f8d4771a",
+      "reportedToolCount": 14,
+      "wireToolCount": 16,
+      "reportedOnly": [],
+      "wireOnly": [
+        "read_thread",
+        "recall"
+      ]
+    },
+    {
+      "kind": "execution",
+      "agent": "worker",
+      "status": "interrupted",
+      "sessionId": "session_4a4801f97476c10ae62f2a64",
+      "reportedToolCount": 17,
+      "wireToolCount": 19,
+      "reportedOnly": [],
+      "wireOnly": [
+        "read_thread",
+        "recall"
+      ]
+    }
+  ]
+}

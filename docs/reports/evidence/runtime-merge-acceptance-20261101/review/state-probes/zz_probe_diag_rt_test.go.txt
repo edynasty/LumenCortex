@@ -1,0 +1,36 @@
+package runtime
+
+import (
+	"context"
+	"strings"
+	"testing"
+)
+
+// PROBE: the session goal (the user's prompt when no Input is given) is logged verbatim at the default
+// level, and stays in the log after the session is deleted.
+func TestZZProbeGoalInDiagnosticsLog(t *testing.T) {
+	engine, _ := diagWorkspace(t)
+	ctx := context.Background()
+	const goal = "GOAL-SENTINEL-the user's private task text"
+	h, err := engine.NewSession(ctx, SessionOptions{Goal: goal})
+	if err != nil {
+		t.Fatal(err)
+	}
+	level := engine.diag.Level().Level()
+	if _, err := engine.DeleteSession(ctx, h.ID, WorktreeCleanup{}); err != nil {
+		t.Fatal(err)
+	}
+	dir := engine.diag.Dir()
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	text := diagLogText(t, &Engine{diag: engine.diag})
+	idx := strings.Index(text, "GOAL-SENTINEL")
+	line := ""
+	if idx >= 0 {
+		start := strings.LastIndex(text[:idx], "\n") + 1
+		end := strings.Index(text[idx:], "\n")
+		line = text[start : idx+end]
+	}
+	t.Logf("PROBE level=%s dir=%s goal-in-log-after-delete=%v line=%s", level, dir, idx >= 0, line)
+}

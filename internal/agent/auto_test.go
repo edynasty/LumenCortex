@@ -128,7 +128,7 @@ func TestEffortDecisionAutoUnavailable(t *testing.T) {
 		{"no efforts list leaves the level", "low", "high", nil, "low", RuleEffortDefault},
 	}
 	for _, c := range cases {
-		sent, decision := EffortDecision(c.def, "", nil, Stall{}, 0, c.supported, c.ceiling)
+		sent, decision := EffortDecision(c.def, "", 0, c.supported, c.ceiling)
 		if sent != c.want || decision.Rule != c.rule {
 			t.Errorf("%s: sent=%q rule=%s, want %q/%s", c.name, sent, decision.Rule, c.want, c.rule)
 		}
@@ -137,15 +137,6 @@ func TestEffortDecisionAutoUnavailable(t *testing.T) {
 		}
 	}
 
-	// Escalation raises the auto-resolved level, up to escalation.max.
-	esc := &config.Escalation{SameFailure: 2, NoProgressSteps: 6, Max: config.EffortHigh}
-	sent, decision := EffortDecision(config.EffortLow, "", esc, Stall{SameFailure: 2}, 0, []config.Effort{"low", "medium", "high"}, config.EffortHigh)
-	if sent != config.EffortMedium || decision.Rule != RuleEffortEscalated {
-		t.Fatalf("escalation sent=%q rule=%s", sent, decision.Rule)
-	}
-	if err := ReplayDecision(decision); err != nil {
-		t.Fatalf("escalation replay: %v", err)
-	}
 }
 
 func TestAutoDecision(t *testing.T) {

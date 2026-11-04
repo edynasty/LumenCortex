@@ -15,7 +15,6 @@ type Options struct {
 	// availability.
 	HTTPClient       *http.Client
 	DisableStreaming bool
-	DisableRetries   bool
 	// Credentials resolves {secret:NAME} apiKey references. A nil Credentials leaves the factory
 	// environment-only, the CLI's mode.
 	Credentials config.CredentialResolver
@@ -41,7 +40,6 @@ func FromModel(m config.ResolvedModel, o Options) (*Client, error) {
 		Headers:          m.Headers,
 		HTTPClient:       o.HTTPClient,
 		DisableStreaming: o.DisableStreaming,
-		DisableRetries:   o.DisableRetries,
 		MaxTokensDefault: m.Output,
 		ReasoningFormat:  m.ReasoningFormat,
 		RequestTimeout:   m.RequestTimeout,

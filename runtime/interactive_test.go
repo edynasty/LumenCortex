@@ -148,6 +148,7 @@ func TestSubagentRunsAreNeverInteractive(t *testing.T) {
 func TestInteractiveTurnThatEditsDecidesChecksWithTheEvaluator(t *testing.T) {
 	useChecks(t, `{"status": {"kind": "test", "command": "test -f ok.txt"}}`)
 	engine, root := gitEngine(t)
+	approveChecks(t, engine)
 	ctx := context.Background()
 	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "add the ok file"})
 	if err != nil {
@@ -196,6 +197,7 @@ func TestInteractiveTurnThatEditsDecidesChecksWithTheEvaluator(t *testing.T) {
 func TestInteractiveReadOnlyShellKeepsTheResolution(t *testing.T) {
 	useChecks(t, `{"status": {"kind": "test", "command": "test -f ok.txt"}}`)
 	engine, _ := gitEngine(t)
+	approveChecks(t, engine)
 	ctx := context.Background()
 	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "look around"})
 	if err != nil {
@@ -209,7 +211,7 @@ func TestInteractiveReadOnlyShellKeepsTheResolution(t *testing.T) {
 		p := &exitProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 			if n == 1 {
 				args, _ := json.Marshal(map[string]string{"command": command})
-				return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{{ID: "s1", Name: "shell", Arguments: args}}}, FinishReason: "tool_calls"}, nil
+				return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{{ID: "s1", Name: "bash", Arguments: args}}}, FinishReason: "tool_calls"}, nil
 			}
 			return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}, nil
 		}}

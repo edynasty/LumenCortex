@@ -27,6 +27,8 @@ type managedRun struct {
 	done            chan struct{}
 	startedAt       time.Time
 	cancelRequested bool
+	parentID        string
+	ownerRun        *managedRun
 	releaseAgent    func()
 }
 
@@ -45,10 +47,14 @@ func NewRunSupervisor(engine *Engine) (*RunSupervisor, error) {
 	if engine == nil {
 		return nil, errors.New("engine is required")
 	}
-	return &RunSupervisor{
+	sup := &RunSupervisor{
 		engine: engine,
 		runs:   map[string]*managedRun{},
-	}, nil
+	}
+	// Agent schedules start their runs here (ADR-0019 §4): without a registered supervisor they stay
+	// due, and registering one retries them.
+	engine.setAgentRunner(sup)
+	return sup, nil
 }
 
 // Start begins an agent run and returns once its goroutine has started.
@@ -64,6 +70,13 @@ func (s *RunSupervisor) Start(
 	sessionID string,
 	opts AgentOptions,
 ) (info SessionInfo, err error) {
+	ctx, cancel := executionContext(ctx, opts)
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			cancel()
+		}
+	}()
 
 	s.mu.Lock()
 	if s.closed {
@@ -74,6 +87,16 @@ func (s *RunSupervisor) Start(
 
 	lock, err := s.engine.acquireRun(ctx, sessionID)
 	if err != nil {
+		return SessionInfo{}, err
+	}
+	ctx, done := s.engine.trackRun(ctx, sessionID)
+	defer func() {
+		if !handedOff {
+			done()
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		_ = lock.Release()
 		return SessionInfo{}, err
 	}
 	if opts, err = s.engine.constrainChild(ctx, sessionID, opts); err != nil {
@@ -95,7 +118,6 @@ func (s *RunSupervisor) Start(
 		_ = lock.Release()
 		return SessionInfo{}, err
 	}
-	handedOff := false
 	defer func() {
 		if !handedOff {
 			releaseAgent()
@@ -104,12 +126,14 @@ func (s *RunSupervisor) Start(
 		}
 	}()
 
-	runCtx, cancel := context.WithCancel(context.Background())
+	runCtx := ctx
 	run := &managedRun{
 		cancel:       cancel,
 		done:         make(chan struct{}),
 		startedAt:    time.Now().UTC(),
 		releaseAgent: releaseAgent,
+		parentID:     opts.parentSessionID,
+		ownerRun:     opts.ownerRun,
 	}
 	s.mu.Lock()
 	if s.closed {
@@ -131,6 +155,8 @@ func (s *RunSupervisor) Start(
 		}
 	}()
 
+	// Child lifetimes belong to this invocation, not every historical child of the session.
+	opts.ownerRun = run
 	if !opts.disableSubagents && opts.subagents == nil {
 		opts.subagents = &subagentController{
 			supervisor: s,
@@ -141,10 +167,11 @@ func (s *RunSupervisor) Start(
 	if opts.Delegation == DelegationIsolated && opts.parentSessionID == "" && opts.tasks == nil {
 		opts.tasks = &taskStarter{supervisor: s, parentID: sessionID, parentOpts: opts}
 	}
-	prepared, err := s.engine.prepareRun(ctx, sessionID, opts)
+	prepared, err := s.engine.prepareRun(runCtx, sessionID, opts)
 	if err != nil {
 		return SessionInfo{}, err
 	}
+	prepared.finishOwned = func() { s.stopChildren(run) }
 	// The Start transaction has committed: the session is durably running. Nothing
 	// fallible may sit between here and the goroutine that owns the run, so the
 	// returned info comes from the transaction itself.
@@ -156,6 +183,7 @@ func (s *RunSupervisor) Start(
 	})
 
 	go func() {
+		defer done()
 		var runErr error
 		// Cleanup order: the loop has already persisted the terminal status and
 		// published its terminal event; the lock is released before the run leaves
@@ -212,19 +240,48 @@ func (s *RunSupervisor) checkChildLimit(ctx context.Context, parentID string) er
 	return nil
 }
 
+// stopChildren settles owned child runs before publishing the parent's stopped state.
+func (s *RunSupervisor) stopChildren(owner *managedRun) {
+	s.mu.Lock()
+	var children []*managedRun
+	for _, run := range s.runs {
+		if run.ownerRun == owner {
+			run.cancelRequested = true
+			run.cancel()
+			children = append(children, run)
+		}
+	}
+	s.mu.Unlock()
+	for _, run := range children {
+		<-run.done
+	}
+}
+
+// Cancel stops this session and its active descendants, even if the parent has already ended.
+// Context cancellation also reaches children started concurrently from the parent's run context.
 func (s *RunSupervisor) Cancel(sessionID string) bool {
 	s.mu.Lock()
-	run := s.runs[sessionID]
-	if run == nil {
-		s.mu.Unlock()
-		return false
+	ids := map[string]bool{sessionID: true}
+	for changed := true; changed; {
+		changed = false
+		for id, run := range s.runs {
+			if !ids[id] && ids[run.parentID] {
+				ids[id], changed = true, true
+			}
+		}
 	}
-	run.cancelRequested = true
-	cancel := run.cancel
+	var cancels []context.CancelFunc
+	for id, run := range s.runs {
+		if ids[id] {
+			run.cancelRequested = true
+			cancels = append(cancels, run.cancel)
+		}
+	}
 	s.mu.Unlock()
-
-	cancel()
-	return true
+	for _, cancel := range cancels {
+		cancel()
+	}
+	return len(cancels) > 0
 }
 
 func (s *RunSupervisor) Active(sessionID string) bool {
@@ -273,4 +330,5 @@ func (s *RunSupervisor) Close() {
 	for _, run := range runs {
 		<-run.done
 	}
+	s.engine.clearAgentRunner(s)
 }

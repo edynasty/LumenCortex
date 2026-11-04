@@ -28,6 +28,11 @@ const (
 //     call that has no result;
 //   - changes a session that still says "running" to interrupted/stale_run_recovered.
 //     Any other status and its cause are kept.
+//   - settles the provenance residue of the crash (ADR-0018): a request envelope that is still
+//     'admitted' becomes 'unknown' (it may have reached the provider; it is never resent and never
+//     becomes failed), and an execution that is still 'admitted', so has no post record, becomes
+//     'outcome_unknown' with lineage_complete = 0. Rows already in a terminal state are not touched,
+//     so a second Reconcile changes nothing, and no tool is executed again.
 //
 // A gap followed by any non-tool row is not repairable: a result appended after
 // that row would be an orphan. It is left alone.
@@ -128,6 +133,9 @@ func (s *Store) Reconcile(ctx context.Context, sessionID string) (inserted int, 
 			}
 		}
 	}
+	if err := reconcileProvenance(ctx, conn, sessionID, now); err != nil {
+		return 0, err
+	}
 	if status == "running" {
 		cause, err := json.Marshal(map[string]any{"kind": KindStaleRunRecovered, "message": staleRunMessage, "at": now})
 		if err != nil {
@@ -218,4 +226,20 @@ func (s *Store) Delete(ctx context.Context, sessionIDs ...string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// reconcileProvenance settles the envelopes and executions a crashed or cancelled run left admitted.
+// It runs on Reconcile's transaction and connection; the caller holds the session's run lock, so no
+// live run of this session can own an admitted row. Only 'admitted' rows are selected, which is what
+// makes it idempotent and leaves every terminal row as it was.
+func reconcileProvenance(ctx context.Context, conn *sql.Conn, sessionID, at string) error {
+	if _, err := conn.ExecContext(ctx,
+		`UPDATE request_envelopes SET state = 'unknown', reason = ?, updated_at = ? WHERE session_id = ? AND state = 'admitted'`,
+		ReasonRestartNoAnswer, at, sessionID); err != nil {
+		return err
+	}
+	_, err := conn.ExecContext(ctx,
+		`UPDATE derived_origins SET outcome = 'outcome_unknown', lineage_complete = 0, updated_at = ?
+		 WHERE session_id = ? AND kind = 'execution' AND outcome = 'admitted'`, at, sessionID)
+	return err
 }

@@ -1,0 +1,90 @@
+package diag
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// PROBE D1: With(k) then WithGroup(k) on the same logger.
+func TestZZProbeGroupCollisionPanics(t *testing.T) {
+	l := newDebugLog(t, Options{})
+	defer func() {
+		if r := recover(); r != nil {
+			t.Logf("PROBE D1 panic on caller goroutine: %v", r)
+		}
+		_ = l.Close()
+	}()
+	l.Logger().With("http", "plain").WithGroup("http").Info("probe", "k", "v")
+	t.Logf("PROBE D1 no panic")
+}
+
+// PROBE D2: secret-named handler group is not redacted.
+func TestZZProbeWithGroupSecretName(t *testing.T) {
+	l := newDebugLog(t, Options{})
+	l.Logger().WithGroup("api_key").Info("probe", "value", "hunter2-password")
+	closeLog(t, l)
+	t.Logf("PROBE D2 raw: %s", strings.TrimSpace(rawLogText(t, l.Dir())))
+}
+
+// PROBE D3: objects nested in arrays.
+func TestZZProbeMapInSlice(t *testing.T) {
+	l := newDebugLog(t, Options{})
+	l.Logger().Info("probe", "rows", []any{map[string]any{"n": 1, "password": "hunter2-password"}})
+	closeLog(t, l)
+	t.Logf("PROBE D3 raw: %s", strings.TrimSpace(rawLogText(t, l.Dir())))
+}
+
+// PROBE D4: torn last line before restart.
+func TestZZProbeTornLine(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, FileName), []byte(`{"time":"2026-01-01T00:00:00Z","level":"INFO","msg":"cut`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l := newDebugLog(t, Options{Dir: dir})
+	l.Logger().Info("after restart")
+	closeLog(t, l)
+	got, err := l.Query(context.Background(), Query{MinLevel: slog.LevelDebug})
+	t.Logf("PROBE D4 query after restart: n=%d err=%v", len(got), err)
+}
+
+// PROBE D5: secret-named keys that are not matched.
+func TestZZProbeSecretKeyNames(t *testing.T) {
+	for _, k := range []string{"secret_key", "aws_secret_access_key", "SecretKey", "access_key", "passphrase", "pwd", "auth", "private_key_id", "api.key", "x-authorization"} {
+		t.Logf("PROBE D5 IsSecretKey(%q)=%v", k, IsSecretKey(k))
+	}
+}
+
+// PROBE D6: a value json.Marshal cannot encode.
+func TestZZProbeUnmarshalableMap(t *testing.T) {
+	l := newDebugLog(t, Options{})
+	l.Logger().Info("probe", "data", map[any]any{"password": "hunter2-password"})
+	closeLog(t, l)
+	t.Logf("PROBE D6 raw: %s", strings.TrimSpace(rawLogText(t, l.Dir())))
+}
+
+// PROBE D7: reserved key collision.
+func TestZZProbeReservedKey(t *testing.T) {
+	l := newDebugLog(t, Options{})
+	l.Logger().Info("probe", "level", "custom")
+	closeLog(t, l)
+	got, err := l.Query(context.Background(), Query{MinLevel: slog.LevelDebug})
+	t.Logf("PROBE D7 raw: %s ; query n=%d err=%v", strings.TrimSpace(rawLogText(t, l.Dir())), len(got), err)
+}
+
+// PROBE D8: value shapes in free strings.
+func TestZZProbeValueShapes(t *testing.T) {
+	for _, s := range []string{
+		"https://user:p@ss@host/x",
+		"-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAsecretbody",
+		"Authorization: Basic dXNlcjpwYXNzd29yZA==",
+		"curl -H 'Authorization: Bearer abcdefghijkl'",
+		fmt.Sprintf("key=%s", "sk-ant-api03-abcdefghijklmnop"),
+	} {
+		t.Logf("PROBE D8 %q -> %q", s, MaskSecrets(s))
+	}
+}

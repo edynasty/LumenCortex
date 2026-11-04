@@ -1,0 +1,6 @@
+$ env -u all_proxy -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy curl -sS -L --max-time 15 -o /dev/null -w code=%{http_code} remote=%{remote_ip} connect=%{time_connect} tls=%{time_appconnect} total=%{time_total}
+ --proxy http://127.0.0.1:7897 --noproxy  https://mirrors.aliyun.com/debian/dists/bookworm/InRelease
+UTC 2026-10-27T00:30:46.951062+00:00
+code=200 remote=127.0.0.1 connect=0.000522 tls=0.053040 total=0.102499
+
+exit=0

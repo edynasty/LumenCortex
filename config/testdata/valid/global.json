@@ -24,12 +24,7 @@
     }
   },
   "effort": {
-    "default": "medium",
-    "escalation": {
-      "sameFailure": 2,
-      "noProgressSteps": 6,
-      "max": "high"
-    }
+    "default": "medium"
   },
   "providers": {
     "deepseek": {

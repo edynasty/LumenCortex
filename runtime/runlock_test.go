@@ -206,8 +206,9 @@ func TestRunLockIsReleasedOnEveryExitPath(t *testing.T) {
 		cancel   bool
 	}{
 		"completed": {provider: completingProvider("done")},
+		// A refused request ends the run at once; an availability error would be waited out (execution.retry).
 		"failed": {provider: &exitProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
-			return protocol.ProviderResponse{}, errors.New("provider down")
+			return protocol.ProviderResponse{}, &protocol.ProviderError{Class: protocol.ClassBadRequest, Err: errors.New("provider refused")}
 		}}},
 		"panic":     {provider: &exitProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) { panic("boom") }}},
 		"cancelled": {provider: blockedProvider(), cancel: true},
@@ -317,9 +318,9 @@ func TestNewSessionWritesExactlyTheFirstRow(t *testing.T) {
 	}
 }
 
-// F8 end to end in core: a tool cancelled mid-call leaves its call unanswered; the
-// next Start with Input closes it first, so the follow-up lands after a paired
-// transcript and the model never sees an unanswered call.
+// F8 end to end in core: a tool cancelled mid-call is answered by the run itself, so the transcript is
+// paired when the run ends; the next Start with Input appends no reconcile row and the model sees the
+// cancelled call's terminal result.
 func TestCancelDuringToolThenStartWithInputLeavesAPairedTranscript(t *testing.T) {
 	engine := openTestEngine(t)
 	handle := newTestSession(t, engine, "sleep")
@@ -333,7 +334,7 @@ func TestCancelDuringToolThenStartWithInputLeavesAPairedTranscript(t *testing.T)
 
 	cancelled := &exitProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 		return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
-			{ID: "sleep-1", Name: "shell", Arguments: json.RawMessage(`{"command":"echo ready && exec sleep 5"}`)},
+			{ID: "sleep-1", Name: "bash", Arguments: json.RawMessage(`{"command":"echo ready && exec sleep 5"}`)},
 		}}, FinishReason: "tool_calls"}, nil
 	}}
 	if _, err := supervisor.startWith(context.Background(), handle.ID, cancelled, AgentOptions{Policy: "full", MaxSteps: 3}); err != nil {
@@ -344,9 +345,10 @@ func TestCancelDuringToolThenStartWithInputLeavesAPairedTranscript(t *testing.T)
 	waitUntilIdle(t, supervisor, handle.ID, 15*time.Second)
 
 	before := transcript(t, handle)
-	if last := before[len(before)-1]; last.Role != "assistant" || len(last.ToolCalls) != 1 {
-		t.Fatalf("expected the cancelled call to be unanswered, transcript: %+v", before)
+	if last := before[len(before)-1]; last.Role != "tool" || last.ToolCallID != "sleep-1" || last.Origin != protocol.OriginToolInterrupted || !strings.Contains(last.Content, `"cancelled":true`) {
+		t.Fatalf("the cancelled call must be closed when the run ends, transcript: %+v", before)
 	}
+	assertPaired(t, before)
 
 	var sent []protocol.Message
 	followUp := &exitProvider{fn: func(_ context.Context, _ int, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
@@ -361,13 +363,14 @@ func TestCancelDuringToolThenStartWithInputLeavesAPairedTranscript(t *testing.T)
 	after := transcript(t, handle)
 	assertPaired(t, after)
 	assertPaired(t, sent)
-	// goal, assistant(call), tool_interrupted, follow-up, assistant: Reconcile came first.
+	// goal, assistant(call), tool(cancelled), follow-up, assistant: the run closed the call, Reconcile
+	// added nothing at the next Start.
 	if len(after) != 5 {
 		t.Fatalf("transcript = %+v", after)
 	}
 	closer, input := after[2], after[3]
-	if closer.Role != "tool" || closer.ToolCallID != "sleep-1" || closer.Origin != protocol.OriginToolInterrupted || closer.Content != session.InterruptedToolResult {
-		t.Fatalf("row 2 = %+v, want the tool_interrupted result for sleep-1", closer)
+	if closer.Role != "tool" || closer.ToolCallID != "sleep-1" || closer.Origin != protocol.OriginToolInterrupted || !strings.Contains(closer.Content, `"cancelled":true`) {
+		t.Fatalf("row 2 = %+v, want the cancelled call's terminal result", closer)
 	}
 	if input.Role != "user" || input.Content != "now just list the files" || input.Origin != "" {
 		t.Fatalf("row 3 = %+v, want the follow-up input", input)

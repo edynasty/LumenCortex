@@ -1,0 +1,65 @@
+package runtime
+
+import (
+	"bytes"
+	"context"
+	"runtime/pprof"
+	"strings"
+	"testing"
+	"time"
+)
+
+func zzSchedulerStacks() string {
+	var b bytes.Buffer
+	_ = pprof.Lookup("goroutine").WriteTo(&b, 2)
+	var out []string
+	for _, g := range strings.Split(b.String(), "\n\n") {
+		if strings.Contains(g, "schedule.(*Scheduler)") || strings.Contains(g, "runtime.(*RunSupervisor)") || strings.Contains(g, "runtime.(*Engine).run") {
+			lines := strings.Split(g, "\n")
+			if len(lines) > 24 {
+				lines = lines[:24]
+			}
+			out = append(out, strings.Join(lines, "\n"))
+		}
+	}
+	return strings.Join(out, "\n---\n")
+}
+
+// RV-19c: two wake-ups on two sessions at the limit; after the holder is cancelled, does the second
+// fire once the first woken run ends? Where is the scheduler goroutine?
+func TestZZProbeRV19Drain(t *testing.T) {
+	engine, err := Open(Options{Workspace: t.TempDir(), Budget: Budget{MaxAgents: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	ctx := context.Background()
+	holder := newTestSession(t, engine, "holder")
+	a := newTestSession(t, engine, "a")
+	b := newTestSession(t, engine, "b")
+	sup := startBlockedRun(t, engine, holder.ID)
+	wa, err := engine.wakeupsFor(a.ID, "read-only", nil, nil).ScheduleWakeup(ctx, 1, "wake a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wb, err := engine.wakeupsFor(b.ID, "read-only", nil, nil).ScheduleWakeup(ctx, 1, "wake b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Second)
+	sup.Cancel(holder.ID)
+	for i := range 6 {
+		time.Sleep(2 * time.Second)
+		ia, _ := engine.Schedule(ctx, wa.ID)
+		ib, _ := engine.Schedule(ctx, wb.ID)
+		_, sa, _ := engine.Session(ctx, a.ID)
+		_, sb, _ := engine.Session(ctx, b.ID)
+		var runs []string
+		for _, r := range sup.Runs() {
+			runs = append(runs, r.SessionID)
+		}
+		t.Logf("PROBE RV-19c t+%ds: a{status=%q next=%v count=%d session=%v} b{status=%q next=%v count=%d session=%v} supervisor runs=%v holder=%s",
+			2*(i+1), ia.LastStatus, ia.NextRunAt, ia.FireCount, sa.Status, ib.LastStatus, ib.NextRunAt, ib.FireCount, sb.Status, runs, holder.ID)
+	}
+	t.Logf("PROBE RV-19c stacks:\n%s", zzSchedulerStacks())
+}

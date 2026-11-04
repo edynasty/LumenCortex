@@ -2,9 +2,12 @@ package session
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
+
+	"github.com/edynasty/LumenCortex/internal/migrate"
 )
 
 func openBound(t *testing.T, dir, workspace string) (*Store, error) {
@@ -83,4 +86,68 @@ func TestMissingBindingByCreationSchema(t *testing.T) {
 	if err := ensureBinding(ctx, store.db, bindingRequiredFromVersion, want); err != nil {
 		t.Errorf("schema %d with a binding: %v", bindingRequiredFromVersion, err)
 	}
+}
+
+// An open that stops after the schema reached 6 but before it returned (a crash, a cancelled
+// context, a failed read) must not leave a database that every later open refuses as unbound: the
+// binding is part of the transaction that creates schema 6. Both a new database and an adopted older
+// one are covered.
+func TestInterruptedOpenAfterMigrationStillBinds(t *testing.T) {
+	ctx := context.Background()
+	stop := errors.New("stopped after the migration")
+	interrupt := func(t *testing.T, dir, workspace string) {
+		t.Helper()
+		testHookAfterMigrate = func() error { return stop }
+		defer func() { testHookAfterMigrate = nil }()
+		if _, err := openBound(t, dir, workspace); !errors.Is(err, stop) {
+			t.Fatalf("interrupted open: %v", err)
+		}
+	}
+	check := func(t *testing.T, dir, workspace string) {
+		t.Helper()
+		store, err := openBound(t, dir, workspace)
+		if err != nil {
+			t.Fatalf("open after the interruption: %v", err)
+		}
+		defer store.Close()
+		if record, found, err := readBinding(ctx, store.db); err != nil || !found || record.CanonicalPath != workspace {
+			t.Fatalf("binding = %+v found=%v err=%v", record, found, err)
+		}
+		if _, err := openBound(t, dir, "/ws/other"); !errors.Is(err, ErrStateBindingMismatch) {
+			t.Fatalf("another workspace after recovery: %v, want ErrStateBindingMismatch", err)
+		}
+	}
+
+	t.Run("new database", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "state")
+		interrupt(t, dir, "/ws/a")
+		check(t, dir, "/ws/a")
+	})
+
+	t.Run("adopted older database", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "state")
+		store, err := openBound(t, dir, "/ws/a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		store.Close()
+		set, err := migrate.Embedded()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := migrate.Downgrade(ctx, dir, set, bindingRequiredFromVersion-1); err != nil {
+			t.Fatal(err)
+		}
+		// A database of an earlier build: the schema before 6 and no binding row.
+		db, err := sql.Open("sqlite3", filepath.Join(dir, "lumencortex.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`DELETE FROM metadata WHERE key = ?`, BindingKey); err != nil {
+			t.Fatal(err)
+		}
+		db.Close()
+		interrupt(t, dir, "/ws/a")
+		check(t, dir, "/ws/a")
+	})
 }

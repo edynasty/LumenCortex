@@ -90,6 +90,51 @@ type wireUsage struct {
 type streamResponse struct {
 	Choices []streamChoice `json:"choices"`
 	Usage   *wireUsage     `json:"usage,omitempty"`
+	// Error is an error event a server sends in place of a chunk after the 200 status; the
+	// response ends there.
+	Error *streamErrorPayload `json:"error,omitempty"`
+}
+
+type streamErrorPayload struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+// streamError is an error event received mid-stream. Whatever arrived before it is discarded: the
+// response is incomplete, so it is an availability error and the attempt is retried.
+type streamError struct{ streamErrorPayload }
+
+func (e *streamError) Error() string {
+	text := "provider stream error"
+	if e.Type != "" {
+		text += ": " + e.Type
+	}
+	if strings.TrimSpace(e.Message) != "" {
+		text += ": " + e.Message
+	}
+	return text
+}
+
+// errStreamCut is a stream that ended without a finish_reason and without [DONE]: the connection
+// closed mid-response, and the tool calls received so far may be incomplete or missing.
+var errStreamCut = errors.New("provider stream ended before a finish_reason or [DONE]")
+
+// errInterrupted is a generation the provider reported it interrupted (finishError).
+var errInterrupted = errors.New("provider interrupted the generation")
+
+// finishError reports a finish_reason after which the reply is not one: the provider interrupted the
+// generation (DeepSeek: insufficient_system_resource, aborted), which is incomplete like a cut stream,
+// so an availability error that is retried; or it withheld the output (content_filter: "content was
+// omitted due to a flag from our content filters"), which a retry of the same request would meet
+// again, so a bad request. Either way the content and tool calls are never returned.
+func finishError(reason string) error {
+	switch reason {
+	case "insufficient_system_resource", "aborted":
+		return fmt.Errorf("%w (finish_reason %s)", errInterrupted, reason)
+	case "content_filter":
+		return &badRequestError{fmt.Errorf("provider withheld the reply (finish_reason %s)", reason)}
+	}
+	return nil
 }
 
 type streamChoice struct {
@@ -185,7 +230,10 @@ func (r chatResponse) toProtocol(echo string) (protocol.ProviderResponse, error)
 	if len(r.Choices) == 0 {
 		return protocol.ProviderResponse{}, errors.New("provider response contained no choices")
 	}
-	message, err := r.Choices[0].Message.toProtocol()
+	if err := finishError(r.Choices[0].FinishReason); err != nil {
+		return protocol.ProviderResponse{}, err
+	}
+	message, err := r.Choices[0].Message.toProtocol(r.Choices[0].FinishReason)
 	if err != nil {
 		return protocol.ProviderResponse{}, err
 	}
@@ -201,18 +249,18 @@ func (r chatResponse) toProtocol(echo string) (protocol.ProviderResponse, error)
 	}, nil
 }
 
-func (m wireMessage) toProtocol() (protocol.Message, error) {
+func (m wireMessage) toProtocol(finish string) (protocol.Message, error) {
 	out := protocol.Message{Role: m.Role, Content: m.Content, Name: m.Name, ToolCallID: m.ToolCallID}
 	for _, call := range m.ToolCalls {
 		if strings.TrimSpace(call.Function.Name) == "" {
 			return protocol.Message{}, errors.New("provider returned tool call without a function name")
 		}
-		args := strings.TrimSpace(call.Function.Arguments)
-		if args == "" {
-			args = "{}"
+		args := json.RawMessage(strings.TrimSpace(call.Function.Arguments))
+		if len(args) == 0 {
+			args = protocol.MissingArguments(finish)
 		}
 		out.ToolCalls = append(out.ToolCalls, protocol.ToolCall{
-			ID: call.ID, Name: call.Function.Name, Arguments: json.RawMessage(args),
+			ID: call.ID, Name: call.Function.Name, Arguments: args,
 		})
 	}
 	return out, nil
@@ -223,9 +271,11 @@ type streamBuilder struct {
 	reasoning    strings.Builder
 	toolCalls    map[int]*partialToolCall
 	finishReason string
-	usage        wireUsage
-	maxBytes     int64
-	usedBytes    int64
+	// finished is set by the first non-empty finish_reason: the response is complete.
+	finished  bool
+	usage     wireUsage
+	maxBytes  int64
+	usedBytes int64
 }
 
 type partialToolCall struct {
@@ -235,12 +285,19 @@ type partialToolCall struct {
 }
 
 func (b *streamBuilder) apply(event streamResponse) error {
+	if event.Error != nil {
+		return &streamError{*event.Error}
+	}
 	if event.Usage != nil {
 		b.usage = *event.Usage
 	}
 	for _, choice := range event.Choices {
-		if choice.FinishReason != nil {
+		if choice.FinishReason != nil && *choice.FinishReason != "" {
+			if err := finishError(*choice.FinishReason); err != nil {
+				return err
+			}
 			b.finishReason = *choice.FinishReason
+			b.finished = true
 		}
 		if choice.Delta.Content != "" {
 			if err := b.reserve(len(choice.Delta.Content)); err != nil {
@@ -304,12 +361,12 @@ func (b *streamBuilder) result(echo string) protocol.ProviderResponse {
 		sort.Ints(indexes)
 		for _, index := range indexes {
 			partial := b.toolCalls[index]
-			args := partial.arguments.String()
-			if strings.TrimSpace(args) == "" {
-				args = "{}"
+			args := json.RawMessage(partial.arguments.String())
+			if len(bytes.TrimSpace(args)) == 0 {
+				args = protocol.MissingArguments(b.finishReason)
 			}
 			message.ToolCalls = append(message.ToolCalls, protocol.ToolCall{
-				ID: partial.id, Name: partial.name.String(), Arguments: json.RawMessage(args),
+				ID: partial.id, Name: partial.name.String(), Arguments: args,
 			})
 		}
 	}

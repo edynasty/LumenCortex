@@ -23,13 +23,12 @@ var removedProviderEnv = []struct{ name, replacement string }{
 }
 
 // providerFactory is the Engine's ProviderFactory for the CLI: the package dispatcher, with the
-// two debugging switches the CLI has always offered. {env:NAME} references read the environment;
+// LCX_DISABLE_STREAMING debugging switch. {env:NAME} references read the environment;
 // {secret:NAME} references read the default file credential store, so the CLI and Desktop share
 // one store. It is the only place an API key is resolved.
 func providerFactory(m config.ResolvedModel) (protocol.Provider, error) {
 	return provider.FromModel(m, provider.Options{
 		DisableStreaming: envBool("LCX_DISABLE_STREAMING"),
-		DisableRetries:   envBool("LCX_DISABLE_RETRIES"),
 		Credentials:      cliCredentials(),
 	})
 }

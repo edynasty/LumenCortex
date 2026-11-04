@@ -123,6 +123,8 @@ type File struct {
 	Effort            *EffortPolicy       `json:"effort,omitempty"`
 	Agents            map[string]Agent    `json:"agents,omitempty"`
 	Concurrency       *Concurrency        `json:"concurrency,omitempty"`
+	Execution         *Execution          `json:"execution,omitempty"`
+	LSP               *LSP                `json:"lsp,omitempty"`
 	Providers         map[string]Provider `json:"providers,omitempty"`
 	Checks            map[string]Check    `json:"checks,omitempty"`
 	TrustedWorkspaces []string            `json:"trustedWorkspaces,omitempty"`
@@ -173,12 +175,266 @@ func (c *Concurrency) Limits() Concurrency {
 	return out
 }
 
+// Execution bounds the runtime's tool execution of one process: the foreground shell timeout, the
+// background job queue and the diagnostics log. Like Concurrency it is read from the global file only,
+// at every run start and job submission, and a zero field means "absent": the default applies.
+type Execution struct {
+	// ShellTimeoutSeconds is the timeout of a foreground shell call that names none. Absent: the
+	// default, 120 s. It is clamped to ShellMaxTimeoutSeconds.
+	ShellTimeoutSeconds int `json:"shellTimeoutSeconds,omitempty"`
+	// ShellMaxTimeoutSeconds bounds every foreground shell call, including one whose timeout_sec names
+	// more. Absent: the default, 1800 s. A lower value also lowers an absent or higher default.
+	ShellMaxTimeoutSeconds int `json:"shellMaxTimeoutSeconds,omitempty"`
+	// MaxConcurrentJobs is the background jobs running at once in this process.
+	MaxConcurrentJobs int `json:"maxConcurrentJobs,omitempty"`
+	// MaxQueuedJobs is the jobs waiting to run; a submission beyond it is refused, never dropped.
+	MaxQueuedJobs int `json:"maxQueuedJobs,omitempty"`
+	// JobOutputBytes is the output kept per job and stream (stdout, stderr): head and tail, middle cut.
+	JobOutputBytes int `json:"jobOutputBytes,omitempty"`
+	// JobRetentionDays is how long a finished job's row and output are kept.
+	JobRetentionDays int `json:"jobRetentionDays,omitempty"`
+	// LogLevel is the diagnostics log's level: error, warn, info or debug.
+	LogLevel string `json:"logLevel,omitempty"`
+	// Budget bounds every agent run of this process (ADR-0019 §6); a run's own budget overrides it field
+	// by field. Absent: no limit.
+	Budget *Budget `json:"budget,omitempty"`
+	// Retry is how a run recovers from provider availability failures. Absent: the defaults.
+	Retry *Retry `json:"retry,omitempty"`
+}
+
+// Retry bounds availability recovery within one response step. The first candidate sweep and one
+// capacity reduction per candidate are separate; retries after that sweep share MaxRetries, never
+// multiplying it by the model count. Deadline, cancellation and an explicit outage window also apply.
+// Zero fields mean absent, not unlimited. This is not a whole-run request, token or cost budget.
+type Retry struct {
+	// Disabled ends the run at the first availability failure no failover candidate answered.
+	Disabled bool `json:"disabled,omitempty"`
+	// MaxRetries bounds additional recovery requests after the initial failover sweep. Absent: 6.
+	MaxRetries int `json:"maxRetries,omitempty"`
+	// BaseDelayMs is the first backoff; each further one doubles. Absent: 1000.
+	BaseDelayMs int `json:"baseDelayMs,omitempty"`
+	// MaxDelayMs caps the computed backoff (a provider's Retry-After may ask for more). Absent: 30000.
+	MaxDelayMs int `json:"maxDelayMs,omitempty"`
+	// MaxOutageSeconds optionally bounds one continuous outage. Absent: no additional time window;
+	// the finite retry count and the run's deadline/cancellation still apply.
+	MaxOutageSeconds int `json:"maxOutageSeconds,omitempty"`
+}
+
+// DefaultMaxSteps leaves response/tool cycles per Start unlimited. Positive host values bound steps;
+// zero means omitted. Provider attempts within one response step do not consume additional steps.
+const DefaultMaxSteps = -1
+
+// Retry defaults allow about a minute of backoff without imposing a task-wide request quota.
+const (
+	DefaultRetryMaxRetries  = 6
+	DefaultRetryBaseDelayMs = 1000
+	DefaultRetryMaxDelayMs  = 30000
+)
+
+// Over returns r with every set field of o in place of its own.
+func (r Retry) Over(o Retry) Retry {
+	if o.Disabled {
+		r.Disabled = true
+	}
+	if o.MaxRetries > 0 {
+		r.MaxRetries = o.MaxRetries
+	}
+	if o.BaseDelayMs > 0 {
+		r.BaseDelayMs = o.BaseDelayMs
+	}
+	if o.MaxDelayMs > 0 {
+		r.MaxDelayMs = o.MaxDelayMs
+	}
+	if o.MaxOutageSeconds > 0 {
+		r.MaxOutageSeconds = o.MaxOutageSeconds
+	}
+	return r
+}
+
+// Budget bounds one agent run (ADR-0019 §6). A zero field is no limit. The run's deadline is its
+// runtime limit. Limits are checked before each new model request or tool call is admitted; a request
+// already sent is settled whatever it costs, so the last request may overshoot TokenBudget and
+// CostLimitUSD by its reply.
+type Budget struct {
+	MaxToolCalls     int   `json:"maxToolCalls,omitempty"`
+	MaxModelRequests int   `json:"maxModelRequests,omitempty"`
+	TokenBudget      int64 `json:"tokenBudget,omitempty"`
+	// CostWarningUSD reports once (event budget.warning) when the run's known and estimated cost reaches
+	// it, or when a request goes to a model whose price is unknown.
+	CostWarningUSD float64 `json:"costWarningUsd,omitempty"`
+	// CostLimitUSD refuses a request whose input would take the run's known and estimated cost past it,
+	// and every request to a model with no configured price: an unknown cost is never taken as zero.
+	CostLimitUSD float64 `json:"costLimitUsd,omitempty"`
+}
+
+// Over returns b with every non-zero field of o in place of its own.
+func (b Budget) Over(o Budget) Budget {
+	if o.MaxToolCalls > 0 {
+		b.MaxToolCalls = o.MaxToolCalls
+	}
+	if o.MaxModelRequests > 0 {
+		b.MaxModelRequests = o.MaxModelRequests
+	}
+	if o.TokenBudget > 0 {
+		b.TokenBudget = o.TokenBudget
+	}
+	if o.CostWarningUSD > 0 {
+		b.CostWarningUSD = o.CostWarningUSD
+	}
+	if o.CostLimitUSD > 0 {
+		b.CostLimitUSD = o.CostLimitUSD
+	}
+	return b
+}
+
+// Execution defaults and schema bounds.
+const (
+	DefaultMaxConcurrentJobs      = 2
+	DefaultMaxQueuedJobs          = 32
+	DefaultJobOutputBytes         = 4 << 20
+	DefaultJobRetentionDays       = 7
+	DefaultLogLevel               = "info"
+	DefaultShellTimeoutSeconds    = 120
+	DefaultShellMaxTimeoutSeconds = 1800
+	MaxShellTimeoutSeconds        = 86400
+	MaxMaxConcurrentJobs          = 16
+	MaxMaxQueuedJobs              = 1024
+	MinJobOutputBytes             = 64 << 10
+	MaxJobOutputBytes             = 64 << 20
+	MaxJobRetentionDays           = 365
+)
+
+// Limits returns e with its defaults applied; a nil e is all defaults. Values outside the schema bounds
+// never reach here: Parse and Save validate the file.
+func (e *Execution) Limits() Execution {
+	out := Execution{
+		ShellTimeoutSeconds:    DefaultShellTimeoutSeconds,
+		ShellMaxTimeoutSeconds: DefaultShellMaxTimeoutSeconds,
+		MaxConcurrentJobs:      DefaultMaxConcurrentJobs,
+		MaxQueuedJobs:          DefaultMaxQueuedJobs,
+		JobOutputBytes:         DefaultJobOutputBytes,
+		JobRetentionDays:       DefaultJobRetentionDays,
+		LogLevel:               DefaultLogLevel,
+	}
+	if e == nil {
+		return out
+	}
+	if e.ShellMaxTimeoutSeconds > 0 {
+		out.ShellMaxTimeoutSeconds = e.ShellMaxTimeoutSeconds
+	}
+	if e.ShellTimeoutSeconds > 0 {
+		out.ShellTimeoutSeconds = e.ShellTimeoutSeconds
+	}
+	if out.ShellTimeoutSeconds > out.ShellMaxTimeoutSeconds {
+		out.ShellTimeoutSeconds = out.ShellMaxTimeoutSeconds
+	}
+	if e.MaxConcurrentJobs > 0 {
+		out.MaxConcurrentJobs = e.MaxConcurrentJobs
+	}
+	if e.MaxQueuedJobs > 0 {
+		out.MaxQueuedJobs = e.MaxQueuedJobs
+	}
+	if e.JobOutputBytes > 0 {
+		out.JobOutputBytes = e.JobOutputBytes
+	}
+	if e.JobRetentionDays > 0 {
+		out.JobRetentionDays = e.JobRetentionDays
+	}
+	if e.LogLevel != "" {
+		out.LogLevel = e.LogLevel
+	}
+	if e.Budget != nil {
+		b := *e.Budget
+		out.Budget = &b
+	}
+	if e.Retry != nil {
+		r := *e.Retry
+		out.Retry = &r
+	}
+	return out
+}
+
+// LSP bounds the language servers one process starts and says which servers it may start. Like
+// Concurrency and Execution it is read from the global file only: a language server is a process on
+// this machine, and a project file must not name a command that gets executed. A zero field means
+// "absent": the default applies.
+//
+// Nothing is bundled: a server runs only when its command is on PATH and the workspace holds a file
+// or a marker of its language. A workspace with no usable server gets no lsp_* tools.
+type LSP struct {
+	// IdleTimeoutSeconds is how long a server may stay unused before it is stopped; the next request
+	// starts it again.
+	IdleTimeoutSeconds int `json:"idleTimeoutSeconds,omitempty"`
+	// MaxServers is how many language servers may run at once. Starting another stops the least
+	// recently used idle one; when every server is busy the call is refused, never queued.
+	MaxServers int `json:"maxServers,omitempty"`
+	// StartTimeoutSeconds bounds one start, from the spawn to the initialize answer.
+	StartTimeoutSeconds int `json:"startTimeoutSeconds,omitempty"`
+	// RequestTimeoutSeconds bounds one language-server request; a run's tool deadline bounds it too.
+	RequestTimeoutSeconds int `json:"requestTimeoutSeconds,omitempty"`
+	// Servers overrides or extends the built-in language server catalog, keyed by language id.
+	Servers map[string]LSPServer `json:"servers,omitempty"`
+}
+
+// LSPServer is one language server: the command to run and the files it serves. Language, Extensions
+// and Markers are absent for a built-in language, whose values are kept.
+type LSPServer struct {
+	Command    string   `json:"command"`
+	Args       []string `json:"args,omitempty"`
+	Extensions []string `json:"extensions,omitempty"`
+	Markers    []string `json:"markers,omitempty"`
+}
+
+// LSP defaults and schema bounds.
+const (
+	DefaultLSPIdleTimeoutSeconds    = 600
+	DefaultMaxLSPServers            = 3
+	DefaultLSPStartTimeoutSeconds   = 20
+	DefaultLSPRequestTimeoutSeconds = 20
+	MaxLSPIdleTimeoutSeconds        = 86400
+	MaxMaxLSPServers                = 8
+	MaxLSPStartTimeoutSeconds       = 300
+	MaxLSPRequestTimeoutSeconds     = 300
+)
+
+// Limits returns l with its defaults applied; a nil l is all defaults. Values outside the schema
+// bounds never reach here: Parse and Save validate the file.
+func (l *LSP) Limits() LSP {
+	out := LSP{
+		IdleTimeoutSeconds:    DefaultLSPIdleTimeoutSeconds,
+		MaxServers:            DefaultMaxLSPServers,
+		StartTimeoutSeconds:   DefaultLSPStartTimeoutSeconds,
+		RequestTimeoutSeconds: DefaultLSPRequestTimeoutSeconds,
+	}
+	if l == nil {
+		return out
+	}
+	if l.IdleTimeoutSeconds > 0 {
+		out.IdleTimeoutSeconds = l.IdleTimeoutSeconds
+	}
+	if l.MaxServers > 0 {
+		out.MaxServers = l.MaxServers
+	}
+	if l.StartTimeoutSeconds > 0 {
+		out.StartTimeoutSeconds = l.StartTimeoutSeconds
+	}
+	if l.RequestTimeoutSeconds > 0 {
+		out.RequestTimeoutSeconds = l.RequestTimeoutSeconds
+	}
+	if len(l.Servers) > 0 {
+		out.Servers = make(map[string]LSPServer, len(l.Servers))
+		for language, server := range l.Servers {
+			out.Servers[language] = server
+		}
+	}
+	return out
+}
+
 // EffortPolicy is the reasoning effort policy. Default may be "auto": each Start then resolves a
 // concrete level from Auto's judge (or the heuristic fallback) before its first request.
 type EffortPolicy struct {
-	Default    Effort      `json:"default,omitempty"`
-	Auto       *AutoEffort `json:"auto,omitempty"`
-	Escalation *Escalation `json:"escalation,omitempty"`
+	Default Effort      `json:"default,omitempty"`
+	Auto    *AutoEffort `json:"auto,omitempty"`
 }
 
 // AutoEffort configures the auto effort resolver. Absent Model means the deterministic heuristic
@@ -205,13 +461,6 @@ type AutoEffortPolicy struct {
 	Max   Effort
 	// Timeout bounds one judge request.
 	Timeout time.Duration
-}
-
-// Escalation raises effort while a run is stuck.
-type Escalation struct {
-	SameFailure     int    `json:"sameFailure"`
-	NoProgressSteps int    `json:"noProgressSteps"`
-	Max             Effort `json:"max"`
 }
 
 // Provider is one catalog provider.
@@ -253,6 +502,15 @@ type Model struct {
 	Reasoning   *Reasoning  `json:"reasoning,omitempty"`
 	ToolCalling *bool       `json:"toolCalling,omitempty"`
 	Modalities  *Modalities `json:"modalities,omitempty"`
+	Cost        *Cost       `json:"cost,omitempty"`
+}
+
+// Cost is a model's list price in US dollars per million tokens (ADR-0019 §6). It prices a run's
+// usage at list price: provider cache discounts are not modelled. A model with none has an unknown
+// cost.
+type Cost struct {
+	Input  float64 `json:"input"`
+	Output float64 `json:"output"`
 }
 
 // Limit holds the token limits used by the context window builder.

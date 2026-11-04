@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -88,7 +87,7 @@ func TestTaskStateWriteFailureEndsTheRunFailed(t *testing.T) {
 	store := newState("put")
 	store.putErr = errors.New("disk full")
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c1", "shell", `{"command":"test-fail"}`)}}},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c1", "reference_suggest", `{"kind":"path","target":"result.go"}`)}}},
 	}}
 	result, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "put", Options{Session: testRef, MaxSteps: 3})
 	if err == nil {
@@ -149,7 +148,7 @@ func TestAutoDoneNeedsEvidenceAndNoObligation(t *testing.T) {
 		return store.ts.Resolution
 	}
 	pass := []protocol.ProviderResponse{
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c1", "shell", `{"command":"ok"}`)}}},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c1", "bash", `{"command":"ok"}`)}}},
 		{Message: protocol.Message{Content: "verified"}},
 	}
 
@@ -172,7 +171,7 @@ func TestAutoDoneNeedsEvidenceAndNoObligation(t *testing.T) {
 	t.Run("a cancelled unit is not acceptance", func(t *testing.T) {
 		script := []protocol.ProviderResponse{
 			{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
-				call("c1", "shell", `{"command":"ok"}`),
+				call("c1", "bash", `{"command":"ok"}`),
 				call("u1", "work_unit_update", `{"id":"extra","status":"cancelled"}`),
 			}}},
 			{Message: protocol.Message{Content: "verified"}},
@@ -184,31 +183,4 @@ func TestAutoDoneNeedsEvidenceAndNoObligation(t *testing.T) {
 			t.Fatalf("resolution = %+v", r)
 		}
 	})
-}
-
-// Design §4.5: effort escalates while Task State progress records a stall and returns to the default
-// once a completed unit resets it.
-func TestResetStallEndsEscalation(t *testing.T) {
-	store := newState("effort")
-	store.seed(t, nil, []byte(`{"workUnits":[{"id":"fix","goal":"fix it"}]}`))
-	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c1", "shell", `{"command":"test-fail"}`)}}},
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c2", "shell", `{"command":"test-fail"}`)}}},
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("u1", "work_unit_update", `{"id":"fix","status":"completed"}`)}}},
-		{Message: protocol.Message{Content: "done"}},
-	}}
-	loop := &Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
-	opts := Options{Session: testRef, MaxSteps: 5, EffortDefault: config.EffortLow,
-		Escalation: &config.Escalation{SameFailure: 2, NoProgressSteps: 0, Max: config.EffortHigh}}
-	if _, err := loop.Run(context.Background(), "effort", opts); err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, req := range provider.seen {
-		got = append(got, req.ReasoningEffort)
-	}
-	want := []string{"low", "low", "medium", "low"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("efforts = %v, want %v", got, want)
-	}
 }

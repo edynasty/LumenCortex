@@ -370,8 +370,6 @@ func updateWorkUnit(ctx context.Context, checks Checks, r *run, args map[string]
 		return nil, err
 	}
 	switch unit.Status {
-	case taskstate.WorkCompleted:
-		r.ts.Progress.ResetStall()
 	case taskstate.WorkCancelled:
 		r.ts.NoteCancelled(unit.ID)
 	}

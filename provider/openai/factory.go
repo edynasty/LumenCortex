@@ -13,7 +13,6 @@ type Options struct {
 	// none, because the request and idle timeouts live in the adapter and classify as availability.
 	HTTPClient       *http.Client
 	DisableStreaming bool
-	DisableRetries   bool
 	// Credentials resolves {secret:NAME} apiKey references. A nil Credentials leaves the factory
 	// environment-only, the CLI's mode.
 	Credentials config.CredentialResolver
@@ -37,7 +36,6 @@ func FromModel(m config.ResolvedModel, o Options) (*Client, error) {
 		ReasoningFormat:  m.ReasoningFormat,
 		ReasoningEcho:    m.ReasoningEcho,
 		DisableStreaming: o.DisableStreaming,
-		DisableRetries:   o.DisableRetries,
 		RequestTimeout:   m.RequestTimeout,
 		IdleTimeout:      m.IdleTimeout,
 	})

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -18,6 +19,10 @@ type Store struct {
 	db   *sql.DB
 	ws   *migrate.Workspace
 	path string
+	// checkProject and checkDefinitions are what WatchCheckDefinitions set: the project whose check
+	// approvals a write of one of the definition files revokes (ADR-0017). Set once before any run.
+	checkProject     string
+	checkDefinitions []string
 }
 
 type Session struct {
@@ -63,6 +68,11 @@ func Open(repositoryDir string) (*Store, error) {
 // progress. It returns migrate.ErrSchemaTooNew for a database a newer binary migrated, and
 // migrate.ErrDatabaseInUse when other processes keep the database open too long for a migration.
 func OpenContext(ctx context.Context, repositoryDir string) (*Store, error) {
+	return openStore(ctx, repositoryDir)
+}
+
+// openStore is OpenContext with migration step hooks (migrate.StepHook).
+func openStore(ctx context.Context, repositoryDir string, hooks ...migrate.StepHook) (*Store, error) {
 	if err := os.MkdirAll(repositoryDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -70,7 +80,7 @@ func OpenContext(ctx context.Context, repositoryDir string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	ws, err := migrate.Open(ctx, repositoryDir, set)
+	ws, err := migrate.Open(ctx, repositoryDir, set, hooks...)
 	if err != nil {
 		return nil, err
 	}
@@ -334,11 +344,126 @@ ON CONFLICT(session_id, step) DO UPDATE SET json = excluded.json
 	return err
 }
 
+// Journal appends one audit row. The payload is projected through the journal whitelist before it
+// is written: a journal row records what happened, never what was said. Tool arguments, tool output,
+// goals, final texts and shell commands belong to the transcript and the in-memory event stream;
+// a second copy here would be a hidden body store that no reader owns and no deletion reaches.
 func (s *Store) Journal(ctx context.Context, event string, payload any) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO journal(at, event, payload_json) VALUES(?, ?, ?)`, time.Now().UTC().Format(time.RFC3339Nano), event, string(raw))
+	projected, err := projectJournalPayload(raw)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO journal(at, event, payload_json) VALUES(?, ?, ?)`, time.Now().UTC().Format(time.RFC3339Nano), event, string(projected))
 	return err
+}
+
+// journalPayloadStrings names the fields a journal row may carry as text: the event type, the
+// session and related identifiers, sequence labels, the tool name, a status or an exit-code word,
+// an agent or model identifier, and a time. Numbers and booleans need no entry — a count, a byte
+// size, a sequence number or an exit code cannot carry a body — but a string is content unless it
+// is named here, so a field a later change adds to an event stays private until it is named.
+var journalPayloadStrings = map[string]bool{
+	// the event type
+	"type": true, "eventType": true, "event": true,
+	// identifiers and sequence labels
+	"sessionId": true, "parentSessionId": true, "childSessionId": true,
+	"id": true, "ids": true, "seq": true, "nextStep": true, "taskId": true,
+	"toolCallId": true, "callId": true, "relationId": true, "check": true,
+	"jobId": true, "runId": true, "scheduleId": true, "state": true, "source": true,
+	"modelRef": true, "nextModelRef": true, "provider": true, "model": true, "agent": true,
+	// the tool name
+	"name": true, "tool": true, "toolName": true,
+	// status and exit code
+	"status": true, "phase": true, "class": true, "kind": true, "stream": true,
+	// a provider failure's reason code and why a step stopped retrying (protocol.Reason, RecoveryStop*)
+	"failure": true, "stop": true,
+	"origin": true, "role": true, "ok": true, "denied": true, "cancelled": true,
+	// time
+	"at": true, "time": true, "timestamp": true, "startedAt": true, "endedAt": true,
+}
+
+// journalMaxString bounds a whitelisted string: identifiers, statuses, tool names, event types and
+// RFC 3339 times are short, and a longer value is content however it is keyed.
+const journalMaxString = 128
+
+// journalPayloadContainer is the one object the projection enters: the agent loop journals an
+// event as {"sessionId": ..., "data": <event data>}, and that event data is projected by the same
+// whitelist. No other object is entered, so a tool's arguments ({"args": {...}}) can never carry a
+// whitelisted key name through to its value.
+const journalPayloadContainer = "data"
+
+// projectJournalPayload returns the whitelisted projection of a marshalled payload. A payload
+// that is not an object, or that holds nothing whitelisted, becomes {}.
+func projectJournalPayload(raw []byte) ([]byte, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var payload any
+	if err := decoder.Decode(&payload); err != nil {
+		return nil, err
+	}
+	projected := projectJournalObject(payload)
+	if projected == nil {
+		return []byte("{}"), nil
+	}
+	return json.Marshal(projected)
+}
+
+// projectJournalObject keeps the whitelisted fields of one payload object and descends through
+// journalPayloadContainer. It returns nil when nothing survives.
+func projectJournalObject(value any) map[string]any {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := make(map[string]any, len(object))
+	for key, item := range object {
+		if key == journalPayloadContainer {
+			if nested := projectJournalObject(item); len(nested) > 0 {
+				out[key] = nested
+			}
+			continue
+		}
+		if projected, keep := journalField(key, item); keep {
+			out[key] = projected
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// journalField keeps what one payload field may carry: any number or boolean, and a string or an
+// array of strings only under a name journalPayloadStrings allows and only when short enough to be
+// an identifier, a status, a tool name or a time.
+func journalField(key string, value any) (any, bool) {
+	switch typed := value.(type) {
+	case bool, json.Number:
+		return typed, true
+	case string:
+		if journalPayloadStrings[key] && len(typed) <= journalMaxString {
+			return typed, true
+		}
+	case []any:
+		if !journalPayloadStrings[key] {
+			return nil, false
+		}
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			projected, keep := journalField(key, item)
+			if !keep {
+				return nil, false
+			}
+			out = append(out, projected)
+		}
+		if len(out) == 0 {
+			return nil, false
+		}
+		return out, true
+	}
+	return nil, false
 }

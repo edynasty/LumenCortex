@@ -41,7 +41,7 @@ func TestHelperHoldRun(t *testing.T) {
 	events, _ := engine.Events(512)
 	provider := &exitProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 		return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
-			{ID: "kill-1", Name: "shell", Arguments: json.RawMessage(`{"command":"echo ready && exec sleep 20"}`)},
+			{ID: "kill-1", Name: "bash", Arguments: json.RawMessage(`{"command":"echo ready && exec sleep 20"}`)},
 		}}, FinishReason: "tool_calls"}, nil
 	}}
 	if _, err := supervisor.startWith(context.Background(), os.Getenv(holderSessionEnv), provider, AgentOptions{Policy: "full", MaxSteps: 3}); err != nil {

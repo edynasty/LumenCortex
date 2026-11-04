@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -54,6 +55,32 @@ func (s *faultStore) AppendMessage(ctx context.Context, id string, m protocol.Me
 	return s.memoryStore.AppendMessage(ctx, id, m, change)
 }
 
+// AppendAnswered is where the loop stores an assistant row now: the same fault hook applies to it.
+func (s *faultStore) AppendAnswered(ctx context.Context, id, requestID string, m protocol.Message) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if s.failAppend != nil {
+		if err := s.failAppend(m); err != nil {
+			return 0, err
+		}
+	}
+	return s.memoryStore.AppendAnswered(ctx, id, requestID, m)
+}
+
+// CommitToolResult is where the loop stores a tool row now: the same fault hook applies to it.
+func (s *faultStore) CommitToolResult(ctx context.Context, c ToolResultCommit) (int64, int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+	if s.failAppend != nil {
+		if err := s.failAppend(c.Message); err != nil {
+			return 0, 0, err
+		}
+	}
+	return s.memoryStore.CommitToolResult(ctx, c)
+}
+
 // scriptTools runs fn for every tool call; the tool set is a single "shell" tool.
 type scriptTools struct {
 	fn       func(ctx context.Context, name string, args map[string]any) (protocol.ToolResult, error)
@@ -61,7 +88,7 @@ type scriptTools struct {
 }
 
 func (t *scriptTools) Specs([]string) []protocol.ToolSpec {
-	return []protocol.ToolSpec{{Name: "shell"}}
+	return []protocol.ToolSpec{{Name: "bash"}}
 }
 
 func (t *scriptTools) Execute(ctx context.Context, name string, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
@@ -83,13 +110,35 @@ func (p *funcProvider) Complete(ctx context.Context, req protocol.ProviderReques
 }
 
 func shellCall(id string) protocol.ProviderResponse {
-	return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call(id, "shell", `{"command":"x"}`)}}}
+	return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call(id, "bash", `{"command":"x"}`)}}}
 }
 
 // newState is a running session as NewSession leaves it: the goal is the first transcript row.
 func newState(id string) *memoryStore {
 	return &memoryStore{state: SessionState{ID: id, Goal: "goal", Status: "running"}, steps: map[int64]any{},
 		messages: []protocol.Message{{Role: "user", Content: "goal"}}}
+}
+
+// assertStoppedCallStored checks that a command-tool call stopped by the run's cancellation has exactly
+// one terminal tool row, the runtime's interrupted result carrying want, and that every admitted execution
+// was settled outcome_unknown - the run leaves a paired transcript and terminal provenance behind.
+func assertStoppedCallStored(t *testing.T, store *memoryStore, callID, want string) {
+	t.Helper()
+	rows := toolRows(store.messages)
+	if len(rows) != 1 || rows[0].ToolCallID != callID {
+		t.Fatalf("tool rows = %+v, want one row for %s", rows, callID)
+	}
+	if rows[0].Origin != protocol.OriginToolInterrupted || !strings.Contains(rows[0].Content, want) {
+		t.Fatalf("stopped call row = %+v, want origin tool_interrupted with %q", rows[0], want)
+	}
+	if last := store.messages[len(store.messages)-1]; last.Role != "tool" || last.ToolCallID != callID {
+		t.Fatalf("the stopped call's row is not the last row: %+v", store.messages)
+	}
+	for _, x := range store.executions {
+		if x.post == nil || x.post.Outcome != session.OutcomeUnknown {
+			t.Fatalf("execution = %+v, want settled outcome_unknown", x)
+		}
+	}
 }
 
 func assertExit(t *testing.T, store *memoryStore, result Result, wantStatus, wantKind string) {
@@ -170,11 +219,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 					return shellCall("t1"), nil
 				}}
 				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: tools}).Run(ctx, "c3", Options{Session: testRef, MaxSteps: 3})
-				for _, m := range store.messages {
-					if m.Role == "tool" {
-						t.Errorf("the output of a tool stopped by cancellation must not be saved as a result: %+v", m)
-					}
-				}
+				assertStoppedCallStored(t, store, "t1", `"cancelled":true`)
 				return store, r, err
 			},
 		},
@@ -193,6 +238,7 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 					return shellCall("t1"), nil
 				}}
 				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: tools}).Run(ctx, "c4", Options{Session: testRef, MaxSteps: 3})
+				assertStoppedCallStored(t, store, "t1", session.InterruptedToolResult)
 				return store, r, err
 			},
 		},
@@ -232,6 +278,43 @@ func TestEveryExitPathStoresStatusAndCause(t *testing.T) {
 					return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant"}}, nil
 				}}
 				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "e1", Options{Session: testRef, MaxSteps: 2})
+				return store, r, err
+			},
+		},
+		{
+			name: "reply cut at the output limit", wantStatus: StatusInterrupted, wantKind: KindOutputLimit,
+			wantErr: func(err error) bool { return err != nil && strings.Contains(err.Error(), "output token limit") },
+			run: func(t *testing.T) (*memoryStore, Result, error) {
+				store := newState("l1")
+				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+					return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", Content: "Let me write the patch: <｜DSML｜ invoke name=\"apply_patch\">"}, FinishReason: protocol.FinishLength}, nil
+				}}
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "l1", Options{Session: testRef, MaxSteps: 2})
+				return store, r, err
+			},
+		},
+		{
+			name: "conversation turn cut at the output limit", wantStatus: StatusInterrupted, wantKind: KindOutputLimit,
+			wantErr: func(err error) bool { return err != nil },
+			run: func(t *testing.T) (*memoryStore, Result, error) {
+				store := newState("l2")
+				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+					return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", Content: "The answer is"}, FinishReason: protocol.FinishLength}, nil
+				}}
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "l2", Options{Session: testRef, MaxSteps: 2, Interactive: true})
+				return store, r, err
+			},
+		},
+		{
+			// N1: a cut reply with no text is output_limit, not empty_response (both are interrupted).
+			name: "empty reply cut at the output limit", wantStatus: StatusInterrupted, wantKind: KindOutputLimit,
+			wantErr: func(err error) bool { return err != nil && strings.Contains(err.Error(), "output token limit") },
+			run: func(t *testing.T) (*memoryStore, Result, error) {
+				store := newState("l3")
+				provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+					return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant"}, FinishReason: protocol.FinishLength}, nil
+				}}
+				r, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "l3", Options{Session: testRef, MaxSteps: 2})
 				return store, r, err
 			},
 		},
@@ -525,6 +608,7 @@ func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.
 		{"plain text", `rm -rf /tmp/x`, `"rm -rf /tmp/x"`, false},
 		{"JSON string", `"x"`, `"\"x\""`, false},
 		{"JSON string holding an object", `"{\"command\":\"x\"}"`, `"\"{\\\"command\\\":\\\"x\\\"}\""`, false},
+		{"empty JSON string (arguments missing after an unproven finish)", `""`, `"\"\""`, false},
 		{"null", `null`, `null`, false},
 		{"null with whitespace", ` null `, ` null `, false},
 		{"true", `true`, `true`, false},
@@ -548,7 +632,7 @@ func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.
 			provider := &funcProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 				if n == 1 {
 					return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
-						{ID: "bad", Name: "shell", Arguments: json.RawMessage(raw)},
+						{ID: "bad", Name: "bash", Arguments: json.RawMessage(raw)},
 					}}}, nil
 				}
 				return protocol.ProviderResponse{Message: protocol.Message{Content: "fixed it"}}, nil
@@ -577,6 +661,86 @@ func TestInvalidToolArgumentsAreKeptAsStringAndAnsweredWithToolError(t *testing.
 				t.Fatalf("tool answer = %+v, want content %s", answer, wantContent)
 			}
 		})
+	}
+}
+
+// A reply cut at the output limit that still holds tool calls is not an exit (output_limit applies only
+// without a call): calls before the last were finished before the cut and run; the last call is the one
+// being written when the limit cut the reply and is answered with a tool error, whatever its arguments
+// (servers that parse the model's own call format close the JSON object themselves), and the run
+// continues. When MaxToolCallsPerStep drops the tail, every call kept was finished and runs. Under a
+// stop finish the last call runs, an argumentless one too.
+func TestOutputLimitReplyWithToolCallsRunsOnlyFinishedCalls(t *testing.T) {
+	cases := []struct {
+		name, finish, lastArgs string
+		maxCalls               int
+		wantRan                []string
+	}{
+		{"arguments cut", protocol.FinishLength, `{"command":"rm -rf /tmp/x && ec`, 0, []string{"ls"}},
+		{"cut before the first argument", protocol.FinishLength, `{}`, 0, []string{"ls"}},
+		{"whole object closed by the server", protocol.FinishLength, `{"command":"rm -rf /tmp/bu"}`, 0, []string{"ls"}},
+		{"cut call deferred by the step limit", protocol.FinishLength, `{"command":"pwd"}`, 2, []string{"ls", "pwd"}},
+		{"no arguments under stop", "stop", `{}`, 0, []string{"ls", ""}},
+		{"whole object under stop", "stop", `{"command":"pwd"}`, 0, []string{"ls", "pwd"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newState("lt")
+			var ran []string
+			tools := &scriptTools{fn: func(_ context.Context, _ string, args map[string]any) (protocol.ToolResult, error) {
+				command, _ := args["command"].(string)
+				ran = append(ran, command)
+				return protocol.ToolResult{OK: true, Content: `{"ran":true}`}, nil
+			}}
+			provider := &funcProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+				if n == 1 {
+					calls := []protocol.ToolCall{call("whole", "bash", `{"command":"ls"}`), call("last", "bash", tc.lastArgs)}
+					if tc.maxCalls > 0 {
+						calls = append(calls, call("tail", "bash", `{"command":"rm -rf /tmp/t`))
+					}
+					return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: calls}, FinishReason: tc.finish}, nil
+				}
+				return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}, nil
+			}}
+			opts := Options{Session: testRef, MaxSteps: 3, MaxToolCallsPerStep: tc.maxCalls}
+			result, err := (&Loop{Models: testModels(provider), Store: store, Tools: tools}).Run(context.Background(), "lt", opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertExit(t, store, result, StatusCompleted, "")
+			if strings.Join(ran, "|") != strings.Join(tc.wantRan, "|") {
+				t.Fatalf("ran %q, want %q", ran, tc.wantRan)
+			}
+			// goal, assistant calls, two tool answers, final answer
+			refused := strings.Contains(store.messages[3].Content, "reached the output token limit while this call was being written")
+			if len(store.messages) != 5 || store.messages[3].ToolCallID != "last" || refused != (len(tc.wantRan) == 1) {
+				t.Fatalf("messages = %+v", store.messages)
+			}
+		})
+	}
+}
+
+// A reply without a tool call cut at the output limit ends the run output_limit only where it would have
+// completed it: a completion-gate correction (here an open work unit) still applies and the run goes on,
+// as it did before output_limit existed.
+func TestOutputLimitReplyKeepsTheCompletionGateCorrection(t *testing.T) {
+	store := newState("lg")
+	store.seed(t, nil, []byte(`{"workUnits":[{"id":"fix","goal":"fix the bug"}]}`))
+	provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+		return protocol.ProviderResponse{Message: protocol.Message{Content: "I think the fix is"}, FinishReason: protocol.FinishLength}, nil
+	}}
+	result, _ := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}).Run(context.Background(), "lg", Options{Session: testRef, MaxSteps: 2})
+	if result.Status != StatusInterrupted || store.cause["kind"] != KindMaxSteps {
+		t.Fatalf("result = %+v cause %v, want interrupted/max_steps after corrections", result, store.cause)
+	}
+	blocked := 0
+	for _, m := range store.messages {
+		if m.Origin == protocol.OriginCompletionBlocked && strings.Contains(m.Content, "fix") {
+			blocked++
+		}
+	}
+	if provider.n != 2 || blocked != 2 {
+		t.Fatalf("requests %d, correction rows %d; want 2 and 2", provider.n, blocked)
 	}
 }
 

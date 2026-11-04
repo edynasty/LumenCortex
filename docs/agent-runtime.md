@@ -15,7 +15,7 @@ Goal
   -> LLM
   -> tool_calls
   -> permission gate / Tool Working Set
-  -> read / search / LSP / MCP / subagent / edit / shell
+  -> read / search / LSP / MCP / subagent / edit / bash
   -> tool observations
   -> re-ingest + index refresh after workspace mutation
   -> next reasoning turn
@@ -23,6 +23,99 @@ Goal
 ```
 
 Full session history is durable on disk. The model only receives the current Active Subgraph plus a bounded number of complete recent assistant/tool rounds.
+
+Each Start has no implicit step cap (`config.DefaultMaxSteps=-1`, shared by CLI and Loop).
+`MaxSteps=0` means unspecified; `-1` explicitly removes the cap; a positive value is the host's limit.
+A response/tool cycle consumes one step, including completion corrections; HTTP retries stay inside
+that step. Explicit exhaustion is resumable `interrupted/max_steps`, never success. Tool batches are
+uncapped unless `MaxToolCallsPerStep` is positive. Permissions and resource concurrency remain enforced.
+Immediate children inherit execution controls; `ChildExecutionOptions` lets the host override their
+step/batch caps and tighten their Deadline without extending the parent's lifetime or authority.
+There is no default global Deadline. Caller cancellation, host Cancel and explicit Deadline reach
+preparation, model requests, retry waits, tools and owned children. A run settles its owned children
+and background jobs before the supervisor publishes `run.stopped`; host-started independent runs and
+jobs are not adopted by a later Start of their historical parent session.
+See [provider retry policy](go-provider.md#retrying-availability-failures).
+
+### Explicit task delivery
+
+Hosts can set `AgentOptions.delivery` (CLI: `LCX_DELIVERY=/absolute/contract.json`):
+
+```json
+{"files":[{"path":"src/result.go","changed":true}],"branch":"fix/result","commit":true}
+```
+
+These requirements are host-selected, not inferred from model text. Task State captures native
+SHA-256 content digests, file type, size, permissions and explicit absence before execution, once.
+Baselines survive resume/context reset; a different contract in the same session is rejected.
+Paths are literal workspace-relative files; symlink files do not satisfy regular-file delivery.
+Lookup walks one component at a time from the real workspace root and follows each intermediate
+symlink, confining every step: absence counts only when it is proven inside the workspace. A link
+(dangling or not) leading outside, `..` past the root that never enters it again, an absolute target
+outside the real root or a
+link loop is `verification_unavailable`, never absence. A branch name must satisfy
+`git check-ref-format --branch` rules, checked in Go at Start, so an impossible branch is a contract
+error with or without Git.
+Absolute targets, and relative ones leaving through the root's parent, may use an existing alias of
+the workspace root to come back in. Their unvisited path components
+are never cleaned before symlink traversal: `link/..`, `missing/..` and `file/..` retain filesystem
+semantics. After hashing, verification resolves the declared path again and checks its identity and
+metadata, rejecting an intermediate link retargeted during the read. This is not an atomic multi-file
+snapshot against arbitrary external writers; blocked filesystem calls can also outlast context deadlines.
+`changed` requires a baseline delta; omit it to require existence. `absent:true` requires absence;
+combine it with `changed:true` to require an actual deletion. Timestamp changes alone are not proof.
+Hashing streams in Go without Git or external hash commands and without the Git snapshot 4 MiB cap.
+A missing/unreadable baseline makes only a `changed` (or commit) requirement unavailable, with the
+recorded capture cause, each distinct cause reported once; existence and absence are judged on the
+current state alone. A regular file where a parent directory was proves absence below it, for plain
+and committed (`absent`+`commit`) deletions alike. Old Git-only baselines are never recaptured after work.
+
+Only explicit `branch`/`commit` requirements use Git. A commit needs a descendant of the initial HEAD,
+a nonempty delivered tree delta, and clean scoped content (the workspace when no files are listed),
+including index-flag checks. Missing Git is `verification_unavailable`, not a request to install Git.
+The runtime never initializes a repository or commits for the Agent. Without `commit:true`, dirty
+files are allowed. Semantic correctness still belongs to approved Checks/Workflow or an external verifier.
+
+Delivery is **not an Agent Loop gate**. Workflow, Work Units, approved Checks, owned jobs, explicit
+execution controls and finite provider recovery retain their existing semantics. Once execution
+commits `completed` and owned work stops, the runtime verifies delivery independently. It never sends
+a delivery correction to the model or replays a successful tool to repair verification infrastructure.
+
+`AgentResult.status` is execution status. `AgentResult.delivery` and durable
+`TaskState.state.deliveryResult` independently report `pending`, `verified`, `failed`, or
+`verification_unavailable`, with run ID, per-path before/after evidence, observed changes, missing
+requirements and issues (phase/path/reason). Any inspection error takes precedence over positive or
+negative delivery conclusions; confirmed mismatches remain evidence but do not turn unavailable into
+failed. Agent Completed remains completed in all three settled delivery outcomes. Failed/interrupted
+Agent runs report and keep the Start's `pending` record. No contract leaves `delivery` absent; contract
+presence is the Start's record, never inferred from a later (possibly failing) state read.
+
+Baseline and verification inspection each have a 10 s operation timeout; recording terminal evidence
+uses bounded 5 s cleanup. These are not Agent step/request/token/cost limits and never cancel its loop.
+TaskState queries read recorded delivery evidence rather than executing a verifier. A crash between
+Agent completion and verification leaves `completed` plus `pending`, never a fabricated verification.
+Use `Engine.VerifyDelivery(ctx, sessionID)` or `lcx-go delivery-verify <session-id>` to retry only
+verification after completion, including after restart; a session without a contract returns
+`ErrNoDeliveryContract`. It holds the session/workspace locks and
+cannot run against an active Agent. A retry first records `pending` (withdrawing an evidence-based
+`done`), as a Start does; if that record cannot be written the retry returns an error and verifies
+nothing. Do not use `resume` for a verification outage: resume explicitly
+starts more Agent work. CLI exits follow execution errors, not delivery verdicts; benchmarks must
+consume the separate delivery field under their own formal rules.
+
+Only `verified` discharges the delivery obligation; it does not by itself prove semantic task success.
+Historical evidence versions remain stored. If evidence persistence itself fails, the returned/event
+result reports `verification_unavailable` with a persistence issue; the stored outcome stays the
+attempt's `pending`, never an earlier `verified`, and execution status is untouched. Every settlement
+exit, including an unreadable Task State, publishes `delivery.result`: it is how an asynchronous
+(supervised) host learns the outcome. A settlement applies queued host edits before the evidence rule
+and consumes them in the same version, so a user `done`/`dropped` is never replaced by an automatic
+`done`; an edit queued after that read is applied by the next Start or settlement, like any host edit.
+
+Child result and subagent views carry the same separate delivery result. A verification-only change
+updates the task-result cursor without changing the child's execution status; identical verification
+evidence is not re-delivered. An unverified completed child retains a parent task obligation.
+
 
 ## Built-in coding tools
 
@@ -36,17 +129,35 @@ Core workspace tools:
 - `write_file`
 - `replace_in_file`
 - `apply_patch` — validates an exact multi-hunk / multi-file create-update-delete batch before mutating targets
-- `shell` — asynchronous, timeout-bounded and cancellable; stdout/stderr stream as live Agent events; POSIX cancellation terminates the command process group
+- `bash` — runs each command in bash (`/bin/bash -lc`, else bash on PATH; POSIX `sh` when bash is not installed; on Windows Git Bash, else `cmd.exe /C`; the tool description names the program actually used); asynchronous, timeout-bounded (default 120 s, at most `execution.shellMaxTimeoutSeconds`, default 1800 s, or the run's deadline) and cancellable; stdout/stderr stream as live Agent events; POSIX cancellation terminates the command process group. `mode: "background"` submits the command to the durable job queue instead and returns its job id at once; `timeout_sec` bounds a background job's run time. Before ADR-0019 it was named `shell`: host lists naming `shell` (allowlists, denylists, workflow `allowedTools` and tool conditions) mean `bash`. `git_status`/`git_diff` are no longer agent tools; the agent runs `git` through `bash`, and the host Git API is unchanged
 - `lumencortex_context`
 - `lumencortex_ingest`
 
-LSP tools when a language server is configured:
+Background job tools, registered with `bash` and under the same `exec` permission (ADR-0019 §3):
 
+- `job_status` — state, exit code, duration and the bounded head and tail of a job's output (readable while it runs)
+- `job_wait` — waits for one of the named jobs, or for any active job of the run, bounded by `timeout_sec` and by the time left in the run; it never cancels the job
+- `job_cancel` — a queued job never starts; a running one has its process group killed
+- `job_list` — this session's recent jobs
+
+A job's row in `jobs` is its source of truth: every transition is one compare-and-set `UPDATE`, so a
+restart finds each job where its last committed transition left it. Output is written head-and-tail,
+bounded, under `<state>/jobs/<job_id>/`; the database holds byte counts only. The completion gate refuses
+a final answer while the run's own jobs are queued or running (a correction naming them, at most twice per
+run), and every run end cancels the run's remaining jobs (`run_ended`); host and schedule jobs are never
+cancelled by a run. A run whose session has queued, running or `outcome_unknown` jobs starts with one
+runtime row (origin `jobs`, ≤ 600 bytes) naming them. The manager that opens a database adopts the queued
+jobs of a dead process and records its running jobs `outcome_unknown` rather than running them again.
+
+LSP tools when a language server can serve the workspace (see LSP below):
+
+- `lsp_hover`
 - `lsp_definition`
 - `lsp_references`
-- `lsp_symbols`
-- `lsp_hover`
+- `lsp_document_symbols`
+- `lsp_workspace_symbols`
 - `lsp_diagnostics`
+- `lsp_rename` — write; applies the workspace edit through the file guard and the atomic batch
 
 Subagent tools:
 
@@ -56,7 +167,7 @@ Subagent tools:
 Configured MCP tools are dynamically registered as:
 
 ```text
-mcp_<server>_<tool>
+mcp__<server>__<tool>
 ```
 
 All tools participate in the same permission gate. File tools are workspace-scoped and reject path traversal.
@@ -64,14 +175,55 @@ All tools participate in the same permission gate. File tools are workspace-scop
 Permission policies have explicit scopes:
 
 ```text
-read-only  -> read tools only
+read-only  -> read tools, and the state tools (the run's own working notebook)
 workspace  -> reads + workspace writes; no host shell; no external MCP writes
 full       -> all configured read/write/exec tools
 ```
 
+A `state` tool writes only the run's own durable working memory - never a workspace file, a command
+or another session - so every policy admits it ([ADR-0020](adr/0020-agent-notebook.md)).
+
 Unknown policy names are rejected. Ordinary autonomous `--yes` runs default to `full`; TUI without `--yes` remains `read-only`.
 
 One-shot Agent and Chat commands bridge `SIGINT` / `SIGTERM` into the Agent `AbortSignal`, matching the TUI cancellation semantics: active provider/shell work is cancelled and the Session is stored as `interrupted` for resume.
+
+## Working notebooks
+
+A run may keep a **working notebook**: a Markdown document with `## ` sections (Plan, Checklist,
+Findings, Experiments, Decisions, Failures, Verification, Handoff) stored in the state database and
+owned by the session ([ADR-0020](adr/0020-agent-notebook.md)). It is external working memory, not
+Task State: no status transition, completion-gate decision, check result or job state depends on it,
+and a notebook cannot declare a check passed.
+
+```text
+notebook_list   {} [session_id]                     titles, versions, sizes, sections
+notebook_read   {notebook, [section], [session_id]}  the body, or one section
+notebook_update {notebook, op, content, [section], [expected_version]}
+```
+
+`op` is `create` (a new title, no version), `replace` (needs `expected_version`), `append` (adds at
+the end) or `section` (replaces one `## ` section, creating it at the end when absent). Every write
+returns the new version and size; a conflict returns `{"error", "currentVersion"}` and nothing was
+written, so the model re-reads and retries.
+
+- Limits: body 256 KiB, title 1…120 characters, 32 notebooks per session, the newest 50 revisions of
+  each notebook kept (older pruned in the same transaction).
+- Context: when a run starts and its session has notebooks, the Start appends one user row (origin
+  `notebook`) with at most 8 titles, versions, update times and section headings, capped at 600
+  bytes, plus a line telling the model to read the Handoff section before continuing. Bodies are
+  never injected: they are read with `notebook_read`. A session without notebooks gets no row.
+- Subagents: a child run has its own notebooks. A run reads its own and those of its direct children
+  (`session_id`), refuses any other session, and always writes its own - a parent merges a child's
+  findings by reading them and writing its own notebook. Reading a child is a session-source read,
+  as `read_thread` is: the result names the child, the tool row derives from it (revoking the child
+  fences the reader; deleting it removes the copy), and a child withdrawn as a source reads as
+  `{"session", "withdrawn": true}` with nothing of it.
+- Hosts: `Notebooks`, `Notebook`, `CreateNotebook`, `SaveNotebook` (compare-and-set, `updated_by`
+  `host`), `NotebookRevisions`, `NotebookRevision`, `DeleteNotebook` and `ExportNotebook` (Markdown and
+  a file name). Writes publish `notebook.updated` / `notebook.deleted` (id, version, bytes) and a
+  content-free journal row. The reads of a session withdrawn as a source return the same entries
+  marked `withdrawn` with no title, heading or body; `ExportNotebook` and `SaveNotebook` are refused
+  (`ErrNotebookWithdrawn`, checked inside the write).
 
 ## Large-repository retrieval
 
@@ -113,47 +265,83 @@ This benchmark measures exact/symbol-heavy code navigation, not semantic-natural
 
 ## LSP
 
-The LSP client implements Content-Length JSON-RPC over stdio.
+The LSP client implements Content-Length JSON-RPC over stdio. Nothing is bundled and nothing is
+installed: a language server runs only when its command is on `PATH`.
 
-Default command mapping:
-
-```text
-.java                 -> jdtls
-.ts/.tsx/.js/.jsx     -> typescript-language-server --stdio
-.py                   -> pyright-langserver --stdio
-```
-
-Override or add servers in:
+Built-in catalog (language -> command):
 
 ```text
-.lumencortex/lsp.json
+go         -> gopls
+typescript -> typescript-language-server --stdio   (.ts .tsx .mts .cts .js .jsx .mjs .cjs)
+python     -> pyright-langserver --stdio           (.py .pyi)
+rust       -> rust-analyzer                        (.rs)
 ```
 
-Example:
+Override or extend the catalog in the **global** `lumencortex.json` (`lsp` is read from the global
+file only: a server is a process on this machine, and a project file must not name a command that
+gets executed):
 
 ```json
 {
-  "servers": {
-    "java": {
-      "command": "/opt/jdtls/bin/jdtls",
-      "args": [],
-      "extensions": [".java"]
+  "lsp": {
+    "idleTimeoutSeconds": 600,
+    "maxServers": 3,
+    "startTimeoutSeconds": 20,
+    "requestTimeoutSeconds": 20,
+    "servers": {
+      "java": { "command": "/opt/jdtls/bin/jdtls", "args": [], "extensions": [".java"] }
     }
   }
 }
 ```
 
-CLI examples:
+Lifecycle, per workspace:
 
-```bash
-lcx lsp status
-lcx lsp symbols src/main/java/demo/OrderService.java
-lcx lsp definition src/main/java/demo/OrderService.java 42 18
-lcx lsp references src/main/java/demo/OrderService.java 42 18
-lcx lsp diagnostics src/main/java/demo/OrderService.java
+- **On demand.** A server starts on the first `lsp_*` call that needs its language, bounded by
+  `startTimeoutSeconds`; nothing starts at Engine open. Only a run in a trusted workspace starts one
+  (ADR-0013): in an untrusted workspace a run uses a server the host started and is offered no `lsp_*`
+  tool while none runs.
+- **Reuse.** One server per (workspace root, language); concurrent calls share it.
+- **Idle reclaim.** One manager-level ticker stops a server unused for `idleTimeoutSeconds`; the next
+  call starts it again.
+- **Concurrency limit.** At most `maxServers` run at once. Starting another stops the least recently
+  used idle server; when every server is busy the call is refused, never queued.
+- **Crash.** A server that dies is marked unavailable with `lastError` and restarted on the next need
+  after a doubling backoff (500 ms to 30 s). An explicit `LSPStart` ignores the backoff.
+- **Close.** `Engine.Close` and `LSPStop` send `shutdown`/`exit`, then kill, and wait: no child process
+  survives.
+- **Cancellation and timeouts.** The caller's cancellation and the run's tool deadline
+  (`protocol.ToolDeadline`) bound a whole `lsp_*` call: the wait behind another start of the same
+  language, the start, and the request. A call whose deadline has already passed starts and sends
+  nothing. Within that budget a start is bounded by `startTimeoutSeconds` and a request by
+  `requestTimeoutSeconds`; a cancelled request sends `$/cancelRequest`.
+- **Logging.** Start, ready, idle stop, crash and eviction are logged to the Engine's diagnostics
+  log (`language`, `workspace`, `duration_ms`, `error_code`; OBS-001) and published as `lsp.*`
+  events (`lsp.started`, `lsp.ready`, `lsp.idle_stop`, `lsp.crashed`, `lsp.evicted`,
+  `lsp.unavailable`).
+
+Tools the Agent Loop sees, and only when a server can really serve the workspace (its command is on
+`PATH` and the workspace holds a file or a marker of its language):
+
+```text
+lsp_hover  lsp_definition  lsp_references  lsp_document_symbols
+lsp_workspace_symbols  lsp_diagnostics  lsp_rename (write)
 ```
 
-The same capabilities are exposed to the Agent Loop as tools.
+A workspace without a usable server gets none of them; a call that cannot reach a server answers with
+`ok:false`, a `code` (`unavailable`, `timeout`, `busy`, `cancelled`, `failed`) and a hint telling the
+model to use `search_text` or `find_files` instead.
+
+`lsp_rename` asks the server for a workspace edit and applies it through the file tools' guard and
+atomic batch (ADR-0016): `write` permission, work-tree mutation recorded, every path checked for
+workspace confinement, protected state and symlink escape before anything is written, and the whole
+rename refused if one path is.
+
+Hosts read the state without starting anything:
+
+```go
+statuses, err := engine.LSPStatus(ctx, sessionID) // language, root, state, pid, startedAt, lastUsedAt, lastError
+```
 
 ## MCP
 
@@ -213,7 +401,27 @@ lcx mcp tools dbx
 lcx mcp call dbx query '{"sql":"select 1"}'
 ```
 
-MCP tools are also dynamically added to normal agent runs unless `--no-mcp` is supplied.
+MCP tools are also added to normal agent runs unless `--no-mcp` is supplied.
+
+### On-demand lifecycle and limits
+
+No MCP server process exists when an Engine opens. A server starts when a run needs its tool list (its
+catalog is not recorded yet) or when a tool of it is called, and stops after `idleTimeoutSeconds`
+without a call, on `MCPStop` and on `Engine.Close`. A start that fails, a crash or a hung call is a
+tool result with `ok:false` plus a `lastError`; the run continues.
+
+The server entry accepts `transport` (`stdio` default, or `streamable-http` with a `url`; a
+`unix:///abs/socket` url reaches a local daemon), `headers`, `env`, `include` (the only tools runs may
+see), `callTimeoutSeconds`, `idleTimeoutSeconds`, `maxConcurrentCalls`, `maxResultBytes`, `session`
+(ties a server-side session to the run) and `template`. A credential is only ever an `{env:NAME}`
+reference, resolved at start or per request and never persisted.
+
+`Engine.Capabilities` is the one view of everything a run could be offered — built-in, `lsp_*` and MCP
+tools — with `source`, `permission`, `availability`, `executionConstraints` and `configRequirements`.
+Listing it starts nothing. `Engine.MCPServerStates` is the per-server view (enabled, running,
+requirements, last error). Templates for the official servers are data: `lcx-go plugins templates`,
+`lcx-go plugins apply <id>`. See [plugins-mcp-templates.md](plugins-mcp-templates.md) and
+[ADR-0021](adr/0021-capability-registry-and-mcp-lifecycle.md).
 
 ## Subagents
 
@@ -222,7 +430,7 @@ Subagents are isolated durable Agent sessions with a focused system prompt and a
 Two child prompts are built in and not editable (they are part of the harness, adapted from
 oh-my-pi under MIT — see `THIRD_PARTY_NOTICES.md`):
 
-- **Explore** (read-only child): the launch forbids writes, shell and spawning; the prompt asks for
+- **Explore** (read-only child): the launch forbids writes, commands and spawning, and it has no Git tool (it reads the working tree as it is; a parent that needs a diff examined puts it in the goal); the prompt asks for
   parallel searches within the per-step call limit, one alternate strategy before concluding
   something is absent, inferred thoroughness (quick/medium/thorough, default medium), and a compact
   markdown handoff: Summary, Files as `path:start-end`, Architecture, and a full Report only when the
@@ -344,9 +552,12 @@ Every way the Go loop (`internal/agent`) ends a run, once the session row says `
 
 | Exit | Status | Kind |
 |---|---|---|
-| run context cancelled (also during a tool, or when a storage/provider error is the cancellation) | `interrupted` | `cancelled` |
+| run context cancelled by the host (also during a tool, or when a storage/provider error is the cancellation) | `interrupted` | `cancelled` |
+| run reached `Options.Deadline` (a request or tool in flight is cancelled; ADR-0019 §2) | `interrupted` | `deadline` |
 | step budget exhausted | `interrupted` | `max_steps` |
+| run budget refused the next tool call or model request (ADR-0019 §6) | `interrupted` | `budget:tool_calls`, `budget:model_requests`, `budget:tokens`, `budget:cost` |
 | no tool calls and no content | `interrupted` | `empty_response` |
+| reply cut at the output token limit (`finish_reason` `length`) without a tool call | `interrupted` | `output_limit` |
 | provider or decision-provider error | `interrupted` | `provider:availability` |
 | workflow human gate pending | `waiting_gate` | `workflow_gate` |
 | storage error | `failed` | `storage` |
@@ -356,7 +567,9 @@ Every way the Go loop (`internal/agent`) ends a run, once the session row says `
 
 If the terminal write itself fails, `Run` returns the cause joined with the write error, publishes no terminal event, and leaves the row `running`; the next run overwrites it. A panic's terminal event is `session.failed`, published after the write like the others, with the panic's stack.
 
-Tool-call arguments must be a JSON object to run. Text that is not valid JSON, and text that is a JSON string, are stored as a JSON string holding the raw text; other JSON is stored as is. Arguments that are not an object are never executed: the model receives a tool error for that call, and the OpenAI-compatible adapter sends a stored JSON string back as its raw text and any other value as its JSON text, so the model sees what it sent. A tool stopped by cancellation leaves its call without a result row.
+A reply cut at the output limit is never accepted as the answer, in a conversation turn too: it stays in the transcript as the model's message, but the run does not complete with it. It ends the run `output_limit` only where the reply would have completed it: a completion-gate correction (workflow, open work units, failed required checks) still applies and the run continues. The output limit is OpenAI `length` and Anthropic `max_tokens`, and also Anthropic `model_context_window_exceeded` (the reply filled the context window). A provider stream counts as a response only when it ended: an OpenAI-compatible stream at a `finish_reason` or `[DONE]`, an Anthropic stream at `message_stop`. A stream that closes before that, carries an error event, or ends with a `finish_reason` by which the provider says it interrupted the generation (`insufficient_system_resource`, `aborted`; also in a non-streaming response) is an availability error (`stream_incomplete`) that the loop fails over and retries (`execution.retry`, see go-provider.md); the tool calls it carried so far are never executed. A reply the provider withheld, OpenAI `content_filter` or Anthropic `refusal` (streaming or not), is not a response either: it is a bad request, not retried because the same request would meet the filter again, and the run fails `provider:bad_request` without running any call it held or keeping its text. A reply cut at the output limit that holds tool calls continues the run: the calls before the last were finished before the cut and run; the last call was being written when the limit cut the reply and is answered with a tool error and never runs, whatever its arguments, because servers that parse the model's own call format or return a parsed input object close the JSON themselves. When `MaxToolCallsPerStep` dropped the tail of the reply, every call kept was finished and runs.
+
+Tool-call arguments must be a JSON object to run. Text that is not valid JSON, and text that is a JSON string, are stored as a JSON string holding the raw text; other JSON is stored as is. Arguments that are not an object are never executed: the model receives a tool error for that call, and the OpenAI-compatible adapter sends a stored JSON string back as its raw text and any other value as its JSON text, so the model sees what it sent. A call that arrived with no arguments at all is stored as the empty object only when the provider says the model ended the reply itself (`stop`, `tool_calls`; Anthropic `end_turn`, `tool_use`, `stop_sequence`), because some servers send nothing for an argumentless call. After any other finish (`length`, an unknown reason, or an OpenAI-compatible stream that ended at `[DONE]` without a `finish_reason`) nothing shows the call was finished, so it is stored as an empty JSON string and answered with the tool error above. The `bash` tool is the exception: a command the run's cancellation or deadline stops while it executes is answered before the run ends, with one tool row carrying the command's stopped result (`origin: tool_interrupted`) and its admitted execution settled `outcome_unknown` in the same transaction, so a finishing run leaves a paired transcript and terminal provenance. Every other tool keeps the previous behaviour: a stopped call is left without a result row and Reconcile closes it at the next Start. So does `bash` when the process dies before that row commits.
 
 ## Mutation persistence
 

@@ -1,0 +1,179 @@
+// Scenario definitions: which runs are measured, and in which workspace configuration.
+
+package main
+
+// baseScenario measures the four agent profiles, a subagent child and an execution task in a plain
+// workspace: no MCP server is configured and no language server can serve the files.
+func baseScenario() scenario {
+	return scenario{
+		Name: "base",
+		Profiles: func() []profile {
+			return []profile{
+				{
+					ID:     "p1-default",
+					Label:  "普通任务: default top-level run, default options",
+					Marker: "MARK-P1",
+					// AgentOptions{} carries no policy: the runtime's own default applies.
+					Opts: profileOptions{MaxSteps: 4},
+				},
+				{
+					ID:     "p2-readonly-agent",
+					Label:  "只读 Agent: the read-only ask preset",
+					Marker: "MARK-P2",
+					Opts:   profileOptions{Agent: "ask", Policy: "read-only", MaxSteps: 4},
+				},
+				{
+					ID:     "p3-workspace",
+					Label:  "编辑 Agent: workspace policy, top-level (read + write, no command)",
+					Marker: "MARK-P3",
+					Opts:   profileOptions{Policy: "workspace", MaxSteps: 4},
+				},
+				{
+					ID:     "p4-coding-full",
+					Label:  "Coding Agent: full policy, top-level, no delegation",
+					Marker: "MARK-P4",
+					Opts:   profileOptions{Policy: "full", MaxSteps: 4},
+				},
+				{
+					ID:     "p5-complex",
+					Label:  "复杂任务: full policy, delegation isolated, spawns a child and starts a task",
+					Marker: "MARK-P5",
+					Opts:   profileOptions{Policy: "full", Delegation: "isolated", MaxSteps: 6},
+					Script: []call{
+						{ID: "c1-spawn", Name: "spawn_subagent", Args: map[string]any{"goal": childGoal}},
+						{ID: "c2-task", Name: "start_task", Args: map[string]any{"objective": taskObjective}},
+					},
+				},
+				{
+					ID:     "m1-research-min",
+					Label:  "minimal read-only research: policy read-only + four-tool allowlist",
+					Marker: "MARK-M1",
+					Opts: profileOptions{Policy: "read-only", MaxSteps: 4,
+						ToolAllowlist: []string{"read_file", "search_text", "find_files", "list_dir"}},
+				},
+				{
+					ID:     "m2-coding-min",
+					Label:  "minimal coding: full policy minus jobs, wake-ups, notebook, threads, subagents, tasks",
+					Marker: "MARK-M2",
+					Opts: profileOptions{Policy: "full", MaxSteps: 4,
+						ToolDenylist: []string{
+							"job_status", "job_wait", "job_cancel", "job_list",
+							"wakeup_schedule", "wakeup_cancel",
+							"notebook_list", "notebook_read", "notebook_update",
+							"recall", "read_thread",
+							"spawn_subagent", "list_subagents", "wait_subagent",
+							"start_task",
+						}},
+				},
+			}
+		},
+	}
+}
+
+// lspScenario adds a TypeScript workspace: typescript-language-server is on PATH, so the lsp_* tools
+// are offered. The same two profiles that matter for the delta are measured.
+func lspScenario() scenario {
+	return scenario{
+		Name:       "lsp",
+		TypeScript: true,
+		Profiles: func() []profile {
+			return []profile{
+				{
+					ID:     "p1-default",
+					Label:  "普通任务 with a language server available (read-only default)",
+					Marker: "MARK-L1",
+					Opts:   profileOptions{MaxSteps: 4},
+				},
+				{
+					ID:     "p5-complex",
+					Label:  "复杂任务 with a language server available (full + isolated)",
+					Marker: "MARK-L5",
+					Opts:   profileOptions{Policy: "full", Delegation: "isolated", MaxSteps: 4},
+				},
+			}
+		},
+	}
+}
+
+// mcpScenario configures the local stub MCP server with an include list, so the MCP tool bytes are
+// measured the same way as the built-in ones, and the include list's narrowing is visible.
+func mcpScenario() scenario {
+	return scenario{
+		Name:       "mcp",
+		MCPInclude: []string{"stub_search", "stub_fetch", "stub_stats", "stub_reindex", "stub_purge"},
+		Profiles: func() []profile {
+			return []profile{
+				{
+					ID:     "p5-complex-mcp",
+					Label:  "复杂任务 with one MCP server exposing five tools (full + isolated)",
+					Marker: "MARK-C5",
+					Opts:   profileOptions{Policy: "full", Delegation: "isolated", MaxSteps: 4},
+				},
+				{
+					ID:     "p1-default-mcp",
+					Label:  "普通任务 with one MCP server (read-only default)",
+					Marker: "MARK-C1",
+					Opts:   profileOptions{MaxSteps: 4},
+				},
+			}
+		},
+	}
+}
+
+// mcpNarrowScenario keeps the same server but includes two of its five tools.
+func mcpNarrowScenario() scenario {
+	return scenario{
+		Name:       "mcp-narrow",
+		MCPInclude: []string{"stub_search", "stub_fetch"},
+		Profiles: func() []profile {
+			return []profile{
+				{
+					ID:     "p5-complex-mcp-narrow",
+					Label:  "复杂任务 with the same MCP server narrowed to two tools",
+					Marker: "MARK-N5",
+					Opts:   profileOptions{Policy: "full", Delegation: "isolated", MaxSteps: 4},
+				},
+			}
+		},
+	}
+}
+
+func scenarioFor(name string) scenario {
+	switch name {
+	case "lsp":
+		return lspScenario()
+	case "mcp":
+		return mcpScenario()
+	case "mcp-narrow":
+		return mcpNarrowScenario()
+	case "browser":
+		return browserScenario()
+	default:
+		return baseScenario()
+	}
+}
+
+// browserScenario applies the shipped Browser (Playwright MCP) template as shipped and enables it,
+// then measures the two profiles that decide whether the template's tools reach the model.
+func browserScenario() scenario {
+	return scenario{
+		Name:                 "browser",
+		ApplyBrowserTemplate: true,
+		Profiles: func() []profile {
+			return []profile{
+				{
+					ID:     "p1-default",
+					Label:  "普通任务 (default, read-only) with the Browser template enabled",
+					Marker: "MARK-B1",
+					Opts:   profileOptions{MaxSteps: 4},
+				},
+				{
+					ID:     "p4-coding-full",
+					Label:  "Coding Agent (full) with the Browser template enabled",
+					Marker: "MARK-B4",
+					Opts:   profileOptions{Policy: "full", MaxSteps: 4},
+				},
+			}
+		},
+	}
+}

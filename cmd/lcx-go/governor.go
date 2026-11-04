@@ -16,7 +16,9 @@ const (
 
 // governorCurator builds the Governor's LLM curator from the configured default model through the
 // CLI's provider factory (D1). Without `--curator` the plan stays deterministic and no model is
-// built or called.
+// built or called. With it, the curator is built here and Engine.GovernorPlan then refuses it
+// (ErrGovernorCuratorDisabled): a curator request has no request envelope, so the plan command
+// fails closed and no model call is made.
 func governorCurator(workspace string) (*cognition.LLMGovernorCurator, error) {
 	cfg, err := config.Load(workspace)
 	if err != nil {

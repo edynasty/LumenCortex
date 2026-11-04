@@ -401,7 +401,7 @@ func TestUnimplementedReasoningFormatIsRefused(t *testing.T) {
 		if !strings.Contains(err.Error(), "reasoning format") || !strings.Contains(err.Error(), "adaptive") {
 			t.Fatalf("format %q: error %v does not name the accepted values", format, err)
 		}
-		if class, _ := classify(context.Background(), err); class != protocol.ClassBadRequest {
+		if class := classify(context.Background(), err).Class; class != protocol.ClassBadRequest {
 			t.Fatalf("format %q: class %v, want bad_request", format, class)
 		}
 	}

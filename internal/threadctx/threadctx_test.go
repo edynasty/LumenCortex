@@ -95,6 +95,48 @@ func TestMarkStaleFlagsChangedAndMissingCites(t *testing.T) {
 	}
 }
 
+// Apply's precedence: withdrawn over a missing source over a changed one; an uncited agent note (or the
+// user's rewrite of one) is unverified, an uncited user note unknown. A withdrawn note shows nothing to
+// any reader; a note whose source is gone loses its text for an agent and keeps it, labelled, for a host.
+func TestApplyDecidesApplicabilityAndWithholdsText(t *testing.T) {
+	cited := taskstate.Note{ID: "n1", Text: "cited", By: taskstate.ByAgent, Cites: []taskstate.Cite{{Path: "a.go", Blob: "aaa"}}}
+	agent := taskstate.Note{ID: "n2", Text: "agent says", By: taskstate.ByAgent}
+	user := taskstate.Note{ID: "u1", Text: "user decided", By: taskstate.ByUser}
+	rewrite := taskstate.Note{ID: "n3", Text: "user worded", By: taskstate.ByUser, From: "ts:note:n2@x"}
+	ok := SourceFacts{Origin: "agent_generated", LineageComplete: true}
+	for _, c := range []struct {
+		name     string
+		note     taskstate.Note
+		current  map[string]string
+		facts    SourceFacts
+		agent    bool
+		want     string
+		keepText bool
+	}{
+		{"unchanged cite", cited, map[string]string{"a.go": "aaa"}, ok, true, ApplicabilityChecked, true},
+		{"changed cite", cited, map[string]string{"a.go": "bbb"}, ok, true, ApplicabilityUnknown, true},
+		{"gone cite, agent", cited, map[string]string{"a.go": ""}, ok, true, ApplicabilityMissing, false},
+		{"gone cite, host", cited, map[string]string{"a.go": ""}, ok, false, ApplicabilityMissing, true},
+		{"withdrawn over gone", cited, map[string]string{"a.go": ""}, SourceFacts{Withdrawn: true}, true, ApplicabilityWithdrawn, false},
+		{"withdrawn, host", cited, map[string]string{"a.go": "aaa"}, SourceFacts{Withdrawn: true, LineageComplete: true}, false, ApplicabilityWithdrawn, false},
+		{"uncited agent", agent, nil, ok, true, ApplicabilityUnverified, true},
+		{"uncited user", user, nil, SourceFacts{}, true, ApplicabilityUnknown, true},
+		{"user rewrite of agent text", rewrite, nil, ok, true, ApplicabilityUnverified, true},
+	} {
+		v := NoteView(c.note)
+		Apply(&v, c.note, c.current, c.facts, c.agent)
+		if v.Applicability != c.want || (v.Text != "") != c.keepText {
+			t.Errorf("%s: applicability %q text %q, want %q keep=%v", c.name, v.Applicability, v.Text, c.want, c.keepText)
+		}
+		if c.want == ApplicabilityWithdrawn && (len(v.Cites) != 0 || v.Stale) {
+			t.Errorf("%s: withdrawn note keeps cites %+v", c.name, v.Cites)
+		}
+		if v.LineageIncomplete == c.facts.LineageComplete {
+			t.Errorf("%s: lineageIncomplete %v for facts %+v", c.name, v.LineageIncomplete, c.facts)
+		}
+	}
+}
+
 func TestSnippetIsBoundedAtRuneBoundaries(t *testing.T) {
 	text := strings.Repeat("前言", 200) + " target word " + strings.Repeat("后记", 200)
 	s := snippet(text, []string{"target"})

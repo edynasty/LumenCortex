@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -600,5 +601,78 @@ func TestProjectTrustIsIndependentOfTheRuntimeWorkspace(t *testing.T) {
 	}
 	if tools, err := registry.AgentTools(worktree); err != nil || len(tools) != 1 {
 		t.Fatalf("tools = %#v err=%v", tools, err)
+	}
+}
+
+// The catalog fingerprint covers every field that decides which process or endpoint answers, so an
+// edit of env or headers alone never reuses a catalog recorded for the previous definition. It hashes
+// the configured references, never the values they resolve to. A project entry's fingerprint also
+// covers its exposure (include, tools overrides, disabled, the session binding), in any order of the
+// include list; a global entry's does not.
+func TestCatalogFingerprintCoversEnvAndHeaders(t *testing.T) {
+	base := Config{
+		ID: "server", Command: "server", Args: []string{"--stdio"},
+		Env:     map[string]string{"MODE": "safe", "TOKEN": "{env:LCX_TEST_FINGERPRINT}"},
+		Headers: map[string]string{"X-Mode": "read"},
+		Include: []string{"read", "list"},
+	}
+	edited := func(edit func(*Config)) Config {
+		cfg := base
+		cfg.Env = maps.Clone(base.Env)
+		cfg.Headers = maps.Clone(base.Headers)
+		cfg.Include = append([]string(nil), base.Include...)
+		edit(&cfg)
+		return cfg
+	}
+	t.Setenv("LCX_TEST_FINGERPRINT", "first")
+	recorded := map[string]string{ScopeGlobal: catalogFingerprint(base, ScopeGlobal), ScopeProject: catalogFingerprint(base, ScopeProject)}
+	for range 16 {
+		for scope, want := range recorded {
+			if again := catalogFingerprint(base, scope); again != want {
+				t.Fatalf("%s fingerprint is not stable: %s then %s", scope, want, again)
+			}
+		}
+	}
+	for name, cfg := range map[string]Config{
+		"env value":    edited(func(c *Config) { c.Env["MODE"] = "unsafe" }),
+		"env added":    edited(func(c *Config) { c.Env["NODE_OPTIONS"] = "--require ./inject.js" }),
+		"header value": edited(func(c *Config) { c.Headers["X-Mode"] = "write" }),
+		"header added": edited(func(c *Config) { c.Headers["X-Extra"] = "1" }),
+		"env moved to a header": edited(func(c *Config) {
+			delete(c.Env, "MODE")
+			c.Headers["MODE"] = "safe"
+		}),
+	} {
+		for scope, want := range recorded {
+			if catalogFingerprint(cfg, scope) == want {
+				t.Fatalf("%s %s: an edited definition keeps the recorded fingerprint", scope, name)
+			}
+		}
+	}
+	exposure := map[string]Config{
+		"include added":       edited(func(c *Config) { c.Include = append(c.Include, "write") }),
+		"permission override": edited(func(c *Config) { c.Tools = map[string]ToolConfig{"write": {Permission: PermissionRead}} }),
+		"disabled":            edited(func(c *Config) { c.Disabled = true }),
+		"session binding": edited(func(c *Config) {
+			c.Session = &SessionBinding{Argument: "session_id", StopTool: "write", StopArgument: "value"}
+		}),
+	}
+	for name, cfg := range exposure {
+		if catalogFingerprint(cfg, ScopeProject) == recorded[ScopeProject] {
+			t.Fatalf("project %s: an exposure edit keeps the recorded fingerprint", name)
+		}
+		if catalogFingerprint(cfg, ScopeGlobal) != recorded[ScopeGlobal] {
+			t.Fatalf("global %s: an exposure edit changed the fingerprint", name)
+		}
+	}
+	reordered := edited(func(c *Config) { c.Include = []string{"list", "read"} })
+	if catalogFingerprint(reordered, ScopeProject) != recorded[ScopeProject] {
+		t.Fatal("the order of the include list changed the project fingerprint")
+	}
+	t.Setenv("LCX_TEST_FINGERPRINT", "second")
+	for scope, want := range recorded {
+		if catalogFingerprint(base, scope) != want {
+			t.Fatalf("the %s fingerprint depends on a resolved environment value", scope)
+		}
 	}
 }

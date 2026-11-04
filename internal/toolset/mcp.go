@@ -5,8 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/edynasty/LumenCortex/internal/mcp"
 	"github.com/edynasty/LumenCortex/protocol"
 )
+
+// mcpErrorContent renders a server failure as the JSON object a model reads: what failed, on which
+// server and tool, and why. No credential or environment value reaches it.
+func mcpErrorContent(binding mcp.AgentTool, err error) string {
+	raw, marshalErr := json.Marshal(map[string]any{
+		"error":    err.Error(),
+		"serverId": binding.ServerID,
+		"tool":     binding.ToolName,
+	})
+	if marshalErr != nil {
+		return `{"error":"mcp tool call failed"}`
+	}
+	return string(raw)
+}
 
 func (s *Set) registerMCPTools() {
 	bindings, err := s.mcp.AgentTools(s.workspace)
@@ -40,13 +55,15 @@ func (s *Set) registerMCPTools() {
 			Permission:  permission,
 			Parameters:  params,
 		}, func(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
-			result, err := s.mcp.CallTool(ctx, s.workspace, binding.ServerID, binding.ToolName, args)
+			result, err := s.mcp.CallToolForSession(ctx, s.workspace, binding.ServerID, binding.ToolName, s.sessionID, args)
 			if err != nil {
-				return protocol.ToolResult{}, err
+				// A failing server is a tool result, never a loop failure: the model can read the reason
+				// and try something else, and the run continues.
+				return protocol.ToolResult{OK: false, Content: mcpErrorContent(binding, err)}, nil
 			}
 			raw, err := json.Marshal(result)
 			if err != nil {
-				return protocol.ToolResult{}, err
+				return protocol.ToolResult{OK: false, Content: mcpErrorContent(binding, err)}, nil
 			}
 			return protocol.ToolResult{
 				OK:      !result.IsError,

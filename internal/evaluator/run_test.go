@@ -62,11 +62,17 @@ func (f *fixture) git(args ...string) {
 
 func (f *fixture) decide(spec Spec) Verdict {
 	f.t.Helper()
-	verdicts, err := f.ev.Decide(context.Background(), []Spec{spec}, "wu_1")
+	verdicts, err := f.ev.Decide(context.Background(), []Spec{spec}, "wu_1", nil)
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	return verdicts[0]
+}
+
+// nextRun replaces the fixture's Evaluator with a new one over the same session and workspace, as the
+// runtime builds one per run.
+func (f *fixture) nextRun() {
+	f.ev = &Evaluator{Store: f.store, SessionID: "s1", Workspace: f.dir, WorktreeID: "local"}
 }
 
 func (f *fixture) rows() []session.EvalRow {
@@ -87,7 +93,8 @@ func (f *fixture) artifact(hash string) session.Artifact {
 	return a
 }
 
-var statusOK = Spec{ID: "status", Kind: KindTest, Command: "grep -q ok status.txt", Timeout: 30 * time.Second, Required: true}
+// The fixtures' specs run under approval epoch 1, as the runtime sets it for an approved set (ADR-0017).
+var statusOK = Spec{ID: "status", Kind: KindTest, Command: "grep -q ok status.txt", Timeout: 30 * time.Second, Required: true, ApprovalEpoch: 1}
 
 // A check runs in the session's workspace; its runtime result is stored with its log, and a non-passing
 // result in a dirty tree also stores the diff its fingerprint covers. A pass at the same fingerprint is
@@ -174,6 +181,47 @@ func TestHumanAcceptanceHoldsUntilTheFingerprintChanges(t *testing.T) {
 	}
 }
 
+// ADR-0017: an unapproved definition is not run and stores nothing, cannot be accepted, and is never
+// satisfied; a pass or an acceptance under one approval epoch counts for nothing under the next.
+func TestApprovalGatesRunsAcceptanceAndReuse(t *testing.T) {
+	f := newFixture(t, true)
+	f.write("status.txt", "ok\n")
+	unapproved := statusOK
+	unapproved.ApprovalEpoch = 0
+	v := f.decide(unapproved)
+	if v.Passed || v.Result.Status != StatusSpecUnapproved || len(f.rows()) != 0 || !strings.Contains(v.Tail, "not approved") {
+		t.Fatalf("unapproved spec: %+v rows=%d", v, len(f.rows()))
+	}
+	if _, err := f.ev.Accept(context.Background(), unapproved, "desktop-user"); !errors.Is(err, ErrSpecUnapproved) {
+		t.Fatalf("accept unapproved: %v", err)
+	}
+	pass := f.decide(statusOK)
+	if !pass.Passed || pass.Result.ApprovalEpoch != 1 || pass.Result.SpecDigest != SpecDigest(statusOK) {
+		t.Fatalf("approved pass: %+v", pass)
+	}
+	if ok, _, _ := f.ev.Satisfied(context.Background(), unapproved); ok {
+		t.Fatal("an unapproved spec is satisfied by the pass of its approved twin")
+	}
+	next := statusOK
+	next.ApprovalEpoch = 2
+	if ok, _, _ := f.ev.Satisfied(context.Background(), next); ok {
+		t.Fatal("a pass of epoch 1 satisfies epoch 2")
+	}
+	before := len(f.rows())
+	if v := f.decide(next); !v.Passed || v.Reused || len(f.rows()) != before+1 || v.Result.ApprovalEpoch != 2 {
+		t.Fatalf("epoch 2 must run again: %+v", v)
+	}
+	accepted, err := f.ev.Accept(context.Background(), next, "desktop-user")
+	if err != nil || accepted.ApprovalEpoch != 2 {
+		t.Fatalf("accept: %+v %v", accepted, err)
+	}
+	third := statusOK
+	third.ApprovalEpoch = 3
+	if ok, _, _ := f.ev.Satisfied(context.Background(), third); ok {
+		t.Fatal("an acceptance of epoch 2 satisfies epoch 3")
+	}
+}
+
 // Outside git there is no fingerprint: nothing is reused, every decision runs, and nothing can be
 // accepted.
 func TestOutsideGitEveryDecisionRuns(t *testing.T) {
@@ -198,7 +246,7 @@ func TestTimeoutIsAnErrorAndCancellationStoresNothing(t *testing.T) {
 		t.Skip("process groups are POSIX")
 	}
 	f := newFixture(t, true)
-	slow := Spec{ID: "slow", Kind: KindTest, Command: "sleep 30 & wait", Timeout: 300 * time.Millisecond, Required: true}
+	slow := Spec{ID: "slow", Kind: KindTest, Command: "sleep 30 & wait", Timeout: 300 * time.Millisecond, Required: true, ApprovalEpoch: 1}
 	started := time.Now()
 	v := f.decide(slow)
 	if elapsed := time.Since(started); elapsed > 10*time.Second {
@@ -212,11 +260,207 @@ func TestTimeoutIsAnErrorAndCancellationStoresNothing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(200*time.Millisecond, cancel)
 	slow.Timeout = time.Minute
-	if _, err := f.ev.Decide(ctx, []Spec{slow}, ""); !errors.Is(err, context.Canceled) {
+	if _, err := f.ev.Decide(ctx, []Spec{slow}, "", nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled decision: %v", err)
 	}
 	if len(f.rows()) != before {
 		t.Fatal("a cancelled check stored a result")
+	}
+}
+
+// rowBySeq returns the stored row with seq.
+func (f *fixture) rowBySeq(seq int64) session.EvalRow {
+	f.t.Helper()
+	for _, r := range f.rows() {
+		if r.Seq == seq {
+			return r
+		}
+	}
+	f.t.Fatalf("no row %d", seq)
+	return session.EvalRow{}
+}
+
+// ADR-0017 episodes: a fresh pass is stored in an episode closed at the same fingerprint it began with.
+// A runtime pass is reused only by the run that closed its episode, and not after a side-effect tool;
+// a later run decides the check again. A person's acceptance holds across runs.
+func TestEpisodeReuseIsInRunOnly(t *testing.T) {
+	f := newFixture(t, true)
+	f.write("status.txt", "ok\n")
+	pass := f.decide(statusOK)
+	row := f.rowBySeq(pass.Result.Seq)
+	if !pass.Passed || pass.Episode != EpisodeClosed || row.EpisodeID == "" || row.EpisodeStatus != EpisodeClosed ||
+		row.PreFingerprint != row.Fingerprint || row.PostFingerprint != row.Fingerprint {
+		t.Fatalf("closed episode: %+v row %+v", pass, row)
+	}
+	if again := f.decide(statusOK); !again.Passed || !again.Reused || again.Result.Seq != pass.Result.Seq {
+		t.Fatalf("in-run reuse: %+v", again)
+	}
+
+	// A side-effect tool completed: the run decides again, then reuses the new episode.
+	f.ev.Mutated()
+	before := len(f.rows())
+	rerun := f.decide(statusOK)
+	if !rerun.Passed || rerun.Reused || len(f.rows()) != before+1 {
+		t.Fatalf("after a side-effect tool: %+v rows %d -> %d", rerun, before, len(f.rows()))
+	}
+	if again := f.decide(statusOK); !again.Reused || again.Result.Seq != rerun.Result.Seq {
+		t.Fatalf("reuse after the rerun: %+v", again)
+	}
+
+	// The next run: the same fingerprint, the same approval, still decided again.
+	f.nextRun()
+	if ok, _, err := f.ev.Satisfied(context.Background(), statusOK); ok || err != nil {
+		t.Fatalf("another run's pass satisfies: %v %v", ok, err)
+	}
+	before = len(f.rows())
+	if v := f.decide(statusOK); !v.Passed || v.Reused || len(f.rows()) != before+1 {
+		t.Fatalf("cross-run: %+v rows %d -> %d", v, before, len(f.rows()))
+	}
+
+	// A person's acceptance is its own closed episode and holds in the next run.
+	accepted, err := f.ev.Accept(context.Background(), statusOK, "desktop-user")
+	if err != nil || accepted.EpisodeStatus != EpisodeClosed || accepted.PreFingerprint != accepted.Fingerprint {
+		t.Fatalf("accept: %+v %v", accepted, err)
+	}
+	f.nextRun()
+	if v := f.decide(statusOK); !v.Passed || !v.Reused || v.Result.Seq != accepted.Seq {
+		t.Fatalf("acceptance in the next run: %+v", v)
+	}
+}
+
+// A check that changes a tracked file while it runs ends its episode scope_changed: its pass is kept as
+// history and decides nothing. A check that only writes ignored build output keeps it closed.
+func TestEpisodeScopeChangedAndIgnoredOutput(t *testing.T) {
+	f := newFixture(t, true)
+	f.write(".gitignore", "build/\n")
+	f.write("status.txt", "ok\n")
+	f.git("add", ".gitignore", "status.txt")
+	f.git("-c", "user.name=t", "-c", "user.email=t@e", "commit", "-q", "-m", "ok")
+
+	builds := Spec{ID: "build", Kind: KindBuild, Command: "mkdir -p build && echo out > build/out && grep -q ok status.txt", Timeout: 30 * time.Second, Required: true, ApprovalEpoch: 1}
+	v := f.decide(builds)
+	if !v.Passed || v.Episode != EpisodeClosed || f.rowBySeq(v.Result.Seq).EpisodeStatus != EpisodeClosed {
+		t.Fatalf("ignored output: %+v", v)
+	}
+
+	edits := Spec{ID: "edits", Kind: KindTest, Command: "grep -q ok status.txt && echo more >> status.txt", Timeout: 30 * time.Second, Required: true, ApprovalEpoch: 1}
+	v = f.decide(edits)
+	row := f.rowBySeq(v.Result.Seq)
+	if v.Passed || v.Result.Status != StatusPassed || v.Episode != EpisodeScopeChanged || !strings.Contains(v.Tail, "scope_changed") {
+		t.Fatalf("tracked edit: %+v", v)
+	}
+	if row.EpisodeStatus != EpisodeScopeChanged || row.PostFingerprint == row.PreFingerprint {
+		t.Fatalf("scope_changed row: %+v", row)
+	}
+	if ok, _, _ := f.ev.Satisfied(context.Background(), edits); ok {
+		t.Fatal("a scope_changed pass satisfies")
+	}
+}
+
+// When the definitions or their approval change while the episode runs, it ends spec_unapproved and
+// nothing in it passes, a reused result included; it is not reused afterwards.
+func TestEpisodeSpecChangedDuringTheRun(t *testing.T) {
+	f := newFixture(t, true)
+	f.write("status.txt", "ok\n")
+	reused := f.decide(statusOK)
+	other := Spec{ID: "other", Kind: KindTest, Command: "true", Timeout: 30 * time.Second, Required: true, ApprovalEpoch: 1}
+	changed := func(context.Context) (bool, error) { return false, nil }
+	verdicts, err := f.ev.Decide(context.Background(), []Spec{statusOK, other}, "", changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verdicts[0].Result.Seq != reused.Result.Seq || verdicts[0].Passed || verdicts[0].Episode != EpisodeSpecUnapproved {
+		t.Fatalf("reused verdict in a spec_unapproved episode: %+v", verdicts[0])
+	}
+	if verdicts[1].Passed || verdicts[1].Episode != EpisodeSpecUnapproved || f.rowBySeq(verdicts[1].Result.Seq).EpisodeStatus != EpisodeSpecUnapproved {
+		t.Fatalf("fresh verdict: %+v", verdicts[1])
+	}
+	before := len(f.rows())
+	if v := f.decide(other); v.Reused || len(f.rows()) != before+1 {
+		t.Fatalf("a spec_unapproved pass was reused: %+v", v)
+	}
+}
+
+// A cancelled episode closes its stored rows interrupted; a row left open by a crash, and a row from
+// before episodes, never satisfy and are never reused.
+func TestEpisodeInterruptedOpenAndLegacyRows(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process groups are POSIX")
+	}
+	f := newFixture(t, true)
+	f.write("status.txt", "ok\n")
+	slow := Spec{ID: "slow", Kind: KindTest, Command: "sleep 30 & wait", Timeout: time.Minute, Required: true, ApprovalEpoch: 1}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(500*time.Millisecond, cancel)
+	if _, err := f.ev.Decide(ctx, []Spec{statusOK, slow}, "", nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled episode: %v", err)
+	}
+	rows := f.rows()
+	if len(rows) != 1 || rows[0].CheckID != "status" || rows[0].EpisodeStatus != EpisodeInterrupted {
+		t.Fatalf("interrupted episode rows: %+v", rows)
+	}
+
+	env, err := f.ev.Environment(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := Fingerprint(env, statusOK)
+	base := session.EvalRow{CheckID: "status", Kind: KindTest, Status: StatusPassed, Provenance: "human:desktop-user",
+		Fingerprint: current, SpecDigest: SpecDigest(statusOK), ApprovalEpoch: 1}
+	open := base
+	open.EpisodeID, open.EpisodeStatus, open.PreFingerprint = "ep_crashed", EpisodeOpen, current
+	for _, r := range []session.EvalRow{base, open} {
+		if _, err := f.store.AppendEvalResult(context.Background(), "s1", r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ok, _, err := f.ev.Satisfied(context.Background(), statusOK); ok || err != nil {
+		t.Fatalf("an open or legacy row satisfies: %v %v", ok, err)
+	}
+	before := len(f.rows())
+	if v := f.decide(statusOK); !v.Passed || v.Reused || len(f.rows()) != before+1 {
+		t.Fatalf("an open or legacy row was reused: %+v", v)
+	}
+}
+
+// A newer row that cannot decide (an episode a crash left open, or a row from before episodes) does not
+// shadow an older closed one: a person's acceptance still holds. Closing an episode twice changes
+// nothing, and an unknown status is refused.
+func TestUndecidingRowsDoNotShadowAClosedOne(t *testing.T) {
+	f := newFixture(t, true)
+	ctx := context.Background()
+	accepted, err := f.ev.Accept(ctx, statusOK, "desktop-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := session.EvalRow{CheckID: "status", Kind: KindTest, Status: StatusPassed, Provenance: ProvenanceRuntime,
+		Fingerprint: accepted.Fingerprint, SpecDigest: accepted.SpecDigest, ApprovalEpoch: 1}
+	open := base
+	open.EpisodeID, open.EpisodeStatus, open.PreFingerprint = "ep_crashed", EpisodeOpen, accepted.Fingerprint
+	var openSeq int64
+	for _, r := range []session.EvalRow{open, base} {
+		seq, err := f.store.AppendEvalResult(ctx, "s1", r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.EpisodeID != "" {
+			openSeq = seq
+		}
+	}
+	if ok, r, err := f.ev.Satisfied(ctx, statusOK); !ok || err != nil || r.Seq != accepted.Seq {
+		t.Fatalf("acceptance shadowed: ok=%v r=%+v err=%v", ok, r, err)
+	}
+	if err := f.store.CloseEpisode(ctx, "s1", "ep_crashed", EpisodeInterrupted, map[int64]string{openSeq: ""}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.CloseEpisode(ctx, "s1", "ep_crashed", EpisodeClosed, map[int64]string{openSeq: accepted.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	if row := f.rowBySeq(openSeq); row.EpisodeStatus != EpisodeInterrupted {
+		t.Fatalf("a closed episode was closed again: %+v", row)
+	}
+	if err := f.store.CloseEpisode(ctx, "s1", "ep_crashed", "done", map[int64]string{openSeq: ""}); !errors.Is(err, session.ErrEpisodeInvalid) {
+		t.Fatalf("unknown status: %v", err)
 	}
 }
 
@@ -227,7 +471,7 @@ func TestSchemaCheck(t *testing.T) {
 	f.write("schema.json", `{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}`)
 	f.write("good.json", `{"name":"x"}`)
 	f.write("bad.json", `{"name":3}`)
-	spec := Spec{ID: "cfg", Kind: KindSchema, Schema: "schema.json", Files: []string{"good.json"}, Required: true}
+	spec := Spec{ID: "cfg", Kind: KindSchema, Schema: "schema.json", Files: []string{"good.json"}, Required: true, ApprovalEpoch: 1}
 	if v := f.decide(spec); !v.Passed {
 		t.Fatalf("valid file: %+v %s", v, v.Tail)
 	}

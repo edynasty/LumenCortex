@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"time"
@@ -76,10 +77,43 @@ WHERE child_session_id = ?
 	return relation, nil
 }
 
+// IsDirectChild reports whether child has a session_relations edge from parent. It is one indexed
+// read; a child of another session, a sibling or the parent itself is not a direct child.
+func (s *Store) IsDirectChild(ctx context.Context, parent, child string) (bool, error) {
+	if err := checkID("session id", parent); err != nil {
+		return false, err
+	}
+	if err := checkID("child session id", child); err != nil {
+		return false, err
+	}
+	var one int
+	err := s.db.QueryRowContext(ctx, `
+SELECT 1 FROM session_relations WHERE parent_session_id = ? AND child_session_id = ?
+`, parent, child).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// ChildRelations lists at most limit (1..100, else 50) of the parent's oldest children, for a view
+// that shows a bounded page. Code that decides over every child uses AllChildRelations.
 func (s *Store) ChildRelations(ctx context.Context, parentSessionID string, limit int) ([]Relation, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
+	return s.childRelations(ctx, parentSessionID, limit)
+}
+
+// AllChildRelations lists every child of the parent, oldest first: a parent can start any number of
+// children over its life, and a child past a display bound is still running, owed a result, or a
+// dependent.
+func (s *Store) AllChildRelations(ctx context.Context, parentSessionID string) ([]Relation, error) {
+	return s.childRelations(ctx, parentSessionID, -1)
+}
+
+// childRelations lists the parent's children oldest first; a negative limit is none (SQLite LIMIT -1).
+func (s *Store) childRelations(ctx context.Context, parentSessionID string, limit int) ([]Relation, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT parent_session_id, child_session_id, kind, created_at, metadata_json
 FROM session_relations
@@ -92,7 +126,7 @@ LIMIT ?
 	}
 	defer rows.Close()
 
-	out := make([]Relation, 0, limit)
+	out := []Relation{}
 	for rows.Next() {
 		var relation Relation
 		var createdAt, metadata string

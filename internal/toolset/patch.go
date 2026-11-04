@@ -90,6 +90,26 @@ func (s *Set) applyPatch(_ context.Context, args map[string]any, _ func(protocol
 	}
 
 	applied := make([]plan, 0, len(plans))
+	if err := s.applyPlans(plans, &applied); err != nil {
+		return protocol.ToolResult{}, err
+	}
+
+	result := make([]map[string]any, 0, len(plans))
+	for _, item := range plans {
+		size := 0
+		if item.operation != "delete" {
+			size = len(item.next)
+		}
+		result = append(result, map[string]any{"path": item.relative, "operation": item.operation, "bytes": size})
+	}
+	content, _ := json.Marshal(result)
+	return protocol.ToolResult{OK: true, Content: string(content), MutatesWorkspace: true}, nil
+}
+
+// applyPlans writes validated plans in order. A write that fails rolls back the plans applied before
+// it, so a batch either lands or is undone. It appends the plans it wrote to applied, which the caller
+// uses to report what changed.
+func (s *Set) applyPlans(plans []plan, applied *[]plan) error {
 	for _, item := range plans {
 		var err error
 		switch item.operation {
@@ -106,22 +126,12 @@ func (s *Set) applyPatch(_ context.Context, args map[string]any, _ func(protocol
 			}
 		}
 		if err != nil {
-			s.rollbackPlans(applied)
-			return protocol.ToolResult{}, err
+			s.rollbackPlans(*applied)
+			return err
 		}
-		applied = append(applied, item)
+		*applied = append(*applied, item)
 	}
-
-	result := make([]map[string]any, 0, len(plans))
-	for _, item := range plans {
-		size := 0
-		if item.operation != "delete" {
-			size = len(item.next)
-		}
-		result = append(result, map[string]any{"path": item.relative, "operation": item.operation, "bytes": size})
-	}
-	content, _ := json.Marshal(result)
-	return protocol.ToolResult{OK: true, Content: string(content), MutatesWorkspace: true}, nil
+	return nil
 }
 
 func (s *Set) rollbackPlans(plans []plan) {

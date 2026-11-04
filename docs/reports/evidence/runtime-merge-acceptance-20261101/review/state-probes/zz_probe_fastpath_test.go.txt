@@ -1,0 +1,64 @@
+package diag
+
+import (
+	"math/rand"
+	"strings"
+	"testing"
+)
+
+func zzFullMask(s string) string {
+	for _, p := range secretPatterns {
+		if p.re.MatchString(s) {
+			s = p.re.ReplaceAllString(s, p.repl)
+		}
+	}
+	return s
+}
+
+// PROBE F: MaskSecrets (with the b9cee65 literal pre-check) never differs from running every regexp.
+func TestZZProbeFastPathEquivalence(t *testing.T) {
+	seeds := []string{
+		"Authorization: Bearer abcdefghijkl", "authorization: bEaReR abcdefghijkl", "BEARER\tabcdefghijkl",
+		"sk-abcdefghijklmnopqrstu", "ghp_abcdefghijklmnopqrstu", "gho_abcdefghijklmnopqrstu", "ghu_abcdefghijklmnopqrst",
+		"ghs_abcdefghijklmnopqrst", "ghr_abcdefghijklmnopqrst", "github_pat_abcdefghijklmnopqrstuvwx",
+		"AKIAABCDEFGHIJKLMNOP", "xoxb-1234567890-abc", "xoxp-abcdefghijk",
+		"-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----", "-----BEGIN EC PRIVATE KEY-----x-----END EC PRIVATE KEY-----",
+		"https://user:pass@host/x", "postgres://a:b@db", "ssh+git://u:p@h",
+	}
+	alphabet := []string{"a", "Z", "0", "-", "_", ":", "/", "@", " ", "\n", "B", "e", "r", "s", "k", "x", "o", "g", "h", "p", "A", "K", "I", "=", ".", "ſ", "K", "é"}
+	rng := rand.New(rand.NewSource(1))
+	checked, diffs := 0, 0
+	for _, seed := range seeds {
+		for i := 0; i < 20000; i++ {
+			b := []rune(seed)
+			for m := rng.Intn(4); m >= 0; m-- {
+				pos := rng.Intn(len(b) + 1)
+				r := []rune(alphabet[rng.Intn(len(alphabet))])
+				switch rng.Intn(3) {
+				case 0:
+					b = append(b[:pos], append(r, b[pos:]...)...)
+				case 1:
+					if pos < len(b) {
+						b = append(b[:pos], b[pos+1:]...)
+					}
+				default:
+					if pos < len(b) {
+						b[pos] = r[0]
+					}
+				}
+			}
+			s := "prefix " + string(b) + " suffix"
+			if strings.ToUpper(s) == s && rng.Intn(2) == 0 {
+				s = strings.ToLower(s)
+			}
+			checked++
+			if MaskSecrets(s) != zzFullMask(s) {
+				diffs++
+				if diffs < 5 {
+					t.Logf("PROBE F diff: %q fast=%q full=%q", s, MaskSecrets(s), zzFullMask(s))
+				}
+			}
+		}
+	}
+	t.Logf("PROBE F checked=%d differing=%d", checked, diffs)
+}

@@ -68,7 +68,7 @@ type WorktreeInspection struct {
 	// Head is the worktree's HEAD, or the branch tip when the directory is missing.
 	Head string `json:"head,omitempty"`
 	// TargetHead is the main checkout's HEAD that UnappliedCommits is measured against.
-	TargetHead       string   `json:"targetHead,omitempty"`
+	TargetHead string   `json:"targetHead,omitempty"`
 	DirtyFiles []string `json:"dirtyFiles,omitempty"`
 	// IgnoredFiles are ignored entries ("dir/" for a fully ignored directory) that git
 	// reports clean but removing the directory deletes: build output, dependencies,
@@ -527,12 +527,33 @@ func (e *Engine) RemoveSessionWorktree(ctx context.Context, sessionID string, op
 	return plan.result, nil
 }
 
-// DeleteSession deletes a session, its transcript and its temporary descendants,
-// and cleans up its worktree under the ADR-0005 §5 matrix. It is not atomic across
-// Git and SQLite: locks, then preflight, then disk work, then one database
-// transaction. A failure before the transaction leaves the session in place and a
-// retry converges (ADR-0005 §7).
+// DeleteSession deletes a session and its temporary descendants as a privacy deletion (DATA_AND_FAILURES
+// §6 N7, plan T3-S4), and cleans up its worktree under the ADR-0005 §5 matrix. Locks, then preflight,
+// then the worktree: a failure there leaves the session in place and a retry converges (ADR-0005 §7).
+// Then one transaction commits the deletion's fences - from then on no run, read or edge uses the
+// session's content, and every session that read it is fenced as by RevokeSource - and short batches
+// remove every local copy of the content (session.PurgeStep). A deletion interrupted after its fences
+// (a crash, a cancelled ctx, an error) is cleanup_pending: the next DeleteSession of the session, or
+// the next Open, resumes it; the content is never used again in between. While another caller holds
+// one of its sessions the call fails with ErrRunHeld, and while another reader keeps the WAL from
+// being truncated it fails with ErrDeletionPending; either way the deletion stays pending. A nil error
+// means every local copy in the database files is gone.
 func (e *Engine) DeleteSession(ctx context.Context, sessionID string, opts WorktreeCleanup) (DeleteSessionResult, error) {
+	// A pending deletion is resumed first: its last batches remove the session rows, so the root may
+	// be gone while the file still owes its rebuild.
+	pending, err := e.store.PendingPrivacyDeletion(ctx, sessionID)
+	if err != nil {
+		return DeleteSessionResult{}, err
+	}
+	if pending != nil {
+		// The fences are committed and the worktree was settled before them: finish the cleanup.
+		if err := e.resumeDeletion(ctx, *pending); err != nil {
+			return DeleteSessionResult{}, err
+		}
+		result := DeleteSessionResult{SessionID: sessionID, Worktree: WorktreeCleanupResult{Action: "none"}, DeletedChildren: pending.IDs[1:]}
+		_ = e.store.Journal(ctx, "session.delete", map[string]any{"sessionId": sessionID, "deletedChildren": result.DeletedChildren})
+		return result, nil
+	}
 	lock, err := e.acquireRun(ctx, sessionID)
 	if err != nil {
 		return DeleteSessionResult{}, err
@@ -558,20 +579,124 @@ func (e *Engine) DeleteSession(ctx context.Context, sessionID string, opts Workt
 		return DeleteSessionResult{}, errors.Join(err, releaseAll())
 	}
 	ids := append([]string{sessionID}, children...)
-	err = e.store.Delete(ctx, ids...)
+	// The session's background jobs end with it: a queued job never starts, a running one has its
+	// process group killed, before the rows and the content go (ADR-0019 §3).
+	if e.jobs != nil {
+		for _, id := range ids {
+			if _, err := e.jobs.CancelSession(ctx, id); err != nil {
+				return DeleteSessionResult{}, errors.Join(err, lease.Release(), releaseAll())
+			}
+		}
+	}
+	deletion, _, err := e.store.BeginPrivacyDeletion(ctx, ids)
+	if err == nil {
+		err = e.purgeDeletion(ctx, deletion)
+	}
 	err = errors.Join(err, lease.Release(), releaseAll())
 	if err != nil {
 		return DeleteSessionResult{}, err
 	}
-	for _, id := range ids {
-		_ = runlock.Remove(e.runDir(), id)
-	}
+	e.removeRunLocks(ids)
 	if plan.result.DirectoryRemoved || (plan.prune && plan.result.Action == "removed") {
 		_ = runlock.Remove(e.runDir(), worktreeLeaseID(plan.result.Path))
 	}
 	result := DeleteSessionResult{SessionID: sessionID, Worktree: plan.result, DeletedChildren: children}
 	_ = e.store.Journal(ctx, "session.delete", map[string]any{"sessionId": sessionID, "worktree": plan.result, "deletedChildren": children})
 	return result, nil
+}
+
+// testHookPurgeStep, when set, runs after each committed PurgeStep (tests kill the process there).
+var testHookPurgeStep func()
+
+// ErrDeletionPending is returned by DeleteSession when the deletion is committed and its rows are gone
+// but the cleanup could not finish - another reader keeps the WAL from being truncated, so the content
+// may still be at rest in the database files. The session is fenced and never used again; the next
+// DeleteSession of the session or the next Open finishes the cleanup. It is not a success.
+var ErrDeletionPending = session.ErrCleanupPending
+
+// purgeDeletion runs the cleanup of a committed deletion to its end: every batch, the rebuild and the
+// WAL truncation (session.PurgeStep). The checkpoint marker is owed before the first batch, so an Open
+// after a crash also retries the truncation. A reader that blocks the truncation ends it with
+// ErrDeletionPending and the deletion stays cleanup_pending. The caller holds the run lock of every id.
+// The output files of the jobs whose rows it purged are removed when it returns, however it ends; a
+// failure there is logged and leaves them to the next resume or sweep, never undoes the deletion.
+func (e *Engine) purgeDeletion(ctx context.Context, d session.PrivacyDeletion) error {
+	if err := e.store.OweCheckpoint(); err != nil {
+		return err
+	}
+	if e.jobs != nil {
+		defer func() {
+			if err := e.jobs.RemoveOrphanOutput(ctx); err != nil {
+				e.jobs.Logger().Warn("remove the job output of a deletion", "error", err)
+			}
+		}()
+	}
+	for {
+		done, err := e.store.PurgeStep(ctx, d)
+		if err != nil {
+			return err
+		}
+		if testHookPurgeStep != nil {
+			testHookPurgeStep()
+		}
+		if done {
+			return nil
+		}
+	}
+}
+
+// acquireDeleted takes the run locks of the descendants a pending deletion deletes. A descendant
+// already gone needs none.
+func (e *Engine) acquireDeleted(ctx context.Context, ids []string) ([]*runlock.Lock, error) {
+	var locks []*runlock.Lock
+	for _, id := range ids {
+		lock, err := e.acquireRun(ctx, id)
+		if errors.Is(err, session.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return locks, err
+		}
+		locks = append(locks, lock)
+	}
+	return locks, nil
+}
+
+// removeRunLocks removes the lock files of deleted sessions.
+func (e *Engine) removeRunLocks(ids []string) {
+	for _, id := range ids {
+		_ = runlock.Remove(e.runDir(), id)
+	}
+}
+
+// resumeDeletion finishes a deletion left cleanup_pending, under the run locks of its sessions that
+// still exist. A session another caller holds fails it with ErrRunHeld; the deletion stays pending.
+func (e *Engine) resumeDeletion(ctx context.Context, d session.PrivacyDeletion) error {
+	locks, err := e.acquireDeleted(ctx, d.IDs)
+	if err == nil {
+		err = e.purgeDeletion(ctx, d)
+	}
+	for _, lock := range locks {
+		err = errors.Join(err, lock.Release())
+	}
+	if err != nil {
+		return err
+	}
+	e.removeRunLocks(d.IDs)
+	return nil
+}
+
+// resumeDeletions finishes, at Open, the privacy deletions an earlier process left cleanup_pending. A
+// deletion whose sessions another process holds stays pending; the fences keep its content unused.
+// An error leaves it pending too and does not fail Open.
+func (e *Engine) resumeDeletions(ctx context.Context) {
+	pending, err := e.store.PendingPrivacyDeletions(ctx)
+	if err != nil {
+		return
+	}
+	for _, d := range pending {
+		_ = e.resumeDeletion(ctx, d)
+	}
 }
 
 // temporaryDescendants walks the session's descendants (ADR-0005 §6). Read-only
@@ -586,7 +711,7 @@ func (e *Engine) temporaryDescendants(ctx context.Context, sessionID string) ([]
 	for len(queue) > 0 {
 		parent := queue[0]
 		queue = queue[1:]
-		relations, err := e.store.ChildRelations(ctx, parent, MaxSubagentTreeNodes)
+		relations, err := e.store.AllChildRelations(ctx, parent)
 		if err != nil {
 			return temporary, locks, dependents, err
 		}

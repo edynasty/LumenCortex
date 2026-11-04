@@ -75,7 +75,7 @@ func hasRule(decisions []Decision, rule string) bool {
 func TestLoopCapacityRetryHalvesTranscript(t *testing.T) {
 	store := &memoryStore{state: SessionState{ID: "cap", Goal: "cap", Status: "running"}, steps: map[int64]any{}, messages: oldRows(60)}
 	provider := &rejectingProvider{class: protocol.ClassCapacity, scriptedProvider: scriptedProvider{responses: []protocol.ProviderResponse{
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c1", "shell", `{"command":"ok"}`)}}, FinishReason: "tool_calls"},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c1", "bash", `{"command":"ok"}`)}}, FinishReason: "tool_calls"},
 		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
 	}}}
 	store.seed(t, nil, nil)
@@ -164,7 +164,7 @@ func TestRunGroupsTrimKeepsEveryWindow(t *testing.T) {
 				continue
 			}
 			id := fmt.Sprintf("t%d", seq)
-			full = append(full, window.Entry{Seq: seq, Msg: protocol.Message{Role: "assistant", ToolCalls: []protocol.ToolCall{{ID: id, Name: "shell", Arguments: json.RawMessage(`{}`)}}}})
+			full = append(full, window.Entry{Seq: seq, Msg: protocol.Message{Role: "assistant", ToolCalls: []protocol.ToolCall{{ID: id, Name: "bash", Arguments: json.RawMessage(`{}`)}}}})
 			seq++
 			full = append(full, window.Entry{Seq: seq, Msg: protocol.Message{Role: "tool", ToolCallID: id, Content: strings.Repeat("t", rng.IntN(800))}})
 		}

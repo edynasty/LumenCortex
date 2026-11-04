@@ -43,14 +43,20 @@ var (
 // Reference is a context attachment of the thread. Exclusion is context curation, not access control:
 // tools may still read an excluded file when the task needs it.
 type Reference struct {
-	ID     string    `json:"id"`
-	Kind   string    `json:"kind"`
-	Target string    `json:"target"`
-	Note   string    `json:"note,omitempty"`
-	State  string    `json:"state"`
-	By     string    `json:"by"`
-	At     time.Time `json:"at"`
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Target string `json:"target"`
+	Note   string `json:"note,omitempty"`
+	State  string `json:"state"`
+	By     string `json:"by"`
+	// From is set when the user took over an agent suggestion (or an earlier such take-over): the
+	// entry ref of the version replaced. Its note may still be the agent's text.
+	From string    `json:"from,omitempty"`
+	At   time.Time `json:"at"`
 }
+
+// NeedsReview reports an entry the user took over from an agent suggestion.
+func (r Reference) NeedsReview() bool { return r.From != "" }
 
 // ReferenceID is the stable id of a (kind, target) pair.
 func ReferenceID(kind, target string) string {
@@ -139,7 +145,11 @@ func (s *State) setReference(e ReferenceEdit, at time.Time) {
 	}
 	ref := Reference{ID: id, Kind: e.Kind, Target: target, State: e.State, By: ByUser, At: at}
 	if i >= 0 {
-		ref.Note = s.References[i].Note
+		prior := s.References[i]
+		ref.Note = prior.Note
+		if prior.By == ByAgent || prior.NeedsReview() {
+			ref.From = EntryRef(EntryReference, prior.ID, prior)
+		}
 	}
 	if e.Note != nil {
 		ref.Note, _ = normalizeNote(*e.Note)

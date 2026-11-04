@@ -6,6 +6,24 @@
 - **Supersedes:** none. Amends design §4.4, §4.7, §4.9, I10 and §8.2 (M3.1, M4.1 scope; adds C1–C3)
 - **Superseded by:** none
 
+**2026-11-04 execution-lifecycle amendment (isolated candidate, not merged):** Owner requires
+inherited execution controls and cascading cancellation without progress-based automatic termination.
+Immediate children now belong to the launching invocation: cancellation/deadline propagate, and normal
+run teardown also cancels and settles its owned children. Explicit host proposal/Resume is independent;
+a later run of the historical parent does not adopt it. `Cancel` reaches active descendants;
+`CancelSubtree` remains the durable-tree API. The independent-child lifetime below describes the older
+checkpoint. Authority, worktree borrowing, explicit completion contracts and recovery non-replay remain
+unchanged. See [implementation and evidence](../reports/execution-retry-review-2026-11-03.md#2026-11-04owner-新生命周期设计).
+
+**2026-11-04 Delivery isolation amendment (Owner-directed, isolated candidate):** Delivery Contract
+verification is now post-execution, not a Loop completion/correction condition. Native file snapshots
+replace required Git hashes; only explicit branch/commit requirements use Git. `completed` records
+Agent execution independently of `verified`/`failed`/`verification_unavailable` delivery. Verification
+failures never restart the Agent; verification-only retry preserves baseline and successful tools.
+Pending/unavailable delivery remains an objective obligation. This supersedes the 2026-11-03 delivery
+correction semantics below, not Workflow/Checks/Cancel/Deadline/Retry contracts. See
+[current API](../agent-runtime.md#explicit-task-delivery) and [evidence](../reports/task-delivery-2026-11-03.md).
+
 ## Context
 
 The review (`../../../LumenCortex-architecture-audit/design/handoffs/product-architecture-review-2026-10-15.md`) found three problems:
@@ -82,6 +100,20 @@ It also verified the following:
   - Approval gates and workflow tool boundaries are unchanged in every mode.
 - Execution tasks and read-only subagents are never interactive.
 - The system prompt states the run's actual authority instead of always demanding implementation.
+
+#### 2026-11-03 candidate amendment — explicit delivery obligations
+
+The task-delivery candidate adds host-selected `AgentOptions.delivery` in Task State: regular files
+that must exist/change, an optional branch and an optional commit requirement. The pre-execution file
+blobs and HEAD are captured once and retained on resume. Runtime inspection, never a final reply,
+decides them. Existing required Checks and Workflow remain the behavioral acceptance mechanism.
+An unmet explicit delivery contract is an additional obligation; it cannot latch evidence-based done.
+Interactive turns without Workflow still end normally while the objective stays open. Autonomous
+completion allows two delivery corrections, then interrupts `delivery_incomplete` for explicit resume.
+There is no unconditional dirty-workspace gate or automatic commit; undeclared requirements are not
+inferred from prose. This candidate is not merged or product-Gate approved. Evidence and limits:
+[task-delivery report](../reports/task-delivery-2026-11-03.md).
+
 
 ### D4 — Execution tasks on the subagent infrastructure (C2, after C1)
 

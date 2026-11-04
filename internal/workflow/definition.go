@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 func LoadFile(path string) (*Definition, error) {
@@ -136,7 +138,8 @@ func normalizeAllowedTools(a *Action, actionID string) error {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(*a.AllowedTools))
 	for _, name := range *a.AllowedTools {
-		name = strings.TrimSpace(name)
+		// A definition written before a tool was renamed keeps its meaning (ADR-0019 §0).
+		name = protocol.CanonicalToolName(strings.TrimSpace(name))
 		if name == "" {
 			return fmt.Errorf("allowedTools for %s must be an array of tool names", actionID)
 		}

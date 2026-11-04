@@ -29,11 +29,27 @@ type TaskStateRow struct {
 // TaskStateWrite is the next Task State version: Base+1, with the reason and JSON given. InboxThrough,
 // when positive, deletes the session's inbox edits with seq <= InboxThrough in the same transaction:
 // the edits this version applied.
+//
+// Edges are the derived edges of the entries this version introduces (a user rewrite of agent text, a
+// child the user started from a proposal, a task result delivered with its cursor; plan T1-S5, CR-1).
+// They commit with the version in the same transaction, after the same validation, cut at
+// MaxEdgesPerCommit and fence re-check as CommitToolResult's edges; a fenced session or edge source
+// writes nothing and returns ErrFenced. There is no way to store edges without a body.
 type TaskStateWrite struct {
 	Base         int64
 	Reason       string
 	JSON         json.RawMessage
 	InboxThrough int64
+	Edges        []DerivedEdge
+}
+
+func (w TaskStateWrite) validateEdges() error {
+	for _, e := range w.Edges {
+		if err := e.validate(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // InboxRow is one queued host edit.
@@ -72,28 +88,37 @@ WHERE session_id = ? ORDER BY version DESC LIMIT 1`, sessionID).Scan(&row.Versio
 	return row, nil
 }
 
-// PutTaskState writes the next version in its own transaction and returns its number.
+// PutTaskState writes the next version in its own write transaction and returns its number.
 func (s *Store) PutTaskState(ctx context.Context, sessionID string, w TaskStateWrite) (int64, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
+	if err := w.validateEdges(); err != nil {
 		return 0, err
 	}
-	defer tx.Rollback()
-	version, err := putTaskState(ctx, tx, sessionID, w)
+	var version int64
+	err := s.writeTx(ctx, func(conn *sql.Conn) error {
+		var err error
+		version, err = putTaskState(ctx, conn, sessionID, w)
+		return err
+	})
 	if err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return version, nil
 }
 
-// putTaskState inserts version w.Base+1, prunes versions older than the newest taskStateHistory and
-// consumes the applied inbox edits. The caller commits.
+// putTaskState inserts version w.Base+1, prunes versions older than the newest taskStateHistory,
+// consumes the applied inbox edits and stores w.Edges. The caller validated the edges and commits.
 func putTaskState(ctx context.Context, q querier, sessionID string, w TaskStateWrite) (int64, error) {
 	if w.Reason == "" || !json.Valid(w.JSON) {
 		return 0, errors.New("task state write needs a reason and valid JSON")
+	}
+	if len(w.Edges) > 0 {
+		fenced, err := commitFenced(ctx, q, sessionID, w.Edges)
+		if err != nil {
+			return 0, err
+		}
+		if fenced {
+			return 0, ErrFenced
+		}
 	}
 	var newest int64
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM task_states WHERE session_id = ?`, sessionID).Scan(&newest); err != nil {
@@ -116,7 +141,26 @@ func putTaskState(ctx context.Context, q querier, sessionID string, w TaskStateW
 			return 0, err
 		}
 	}
+	if err := insertEdges(ctx, q, sessionID, "", "", w.Edges); err != nil {
+		return 0, err
+	}
 	return version, nil
+}
+
+// appendMessageRow inserts one transcript row at the session's next seq and touches updated_at. It runs
+// on the caller's transaction or connection and takes no other lock.
+func appendMessageRow(ctx context.Context, q querier, sessionID, role string, raw []byte) (int64, error) {
+	var seq int64
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), -1) + 1 FROM session_messages WHERE session_id = ?`, sessionID).Scan(&seq); err != nil {
+		return 0, err
+	}
+	if _, err := q.ExecContext(ctx, `INSERT INTO session_messages(session_id, seq, role, json) VALUES(?, ?, ?, ?)`, sessionID, seq, role, string(raw)); err != nil {
+		return 0, err
+	}
+	if _, err := q.ExecContext(ctx, `UPDATE sessions SET updated_at = ? WHERE id = ?`, now(), sessionID); err != nil {
+		return 0, err
+	}
+	return seq, nil
 }
 
 // AppendMessageTaskState appends one transcript row and, when w is non-nil, the Task State version the
@@ -127,19 +171,18 @@ func (s *Store) AppendMessageTaskState(ctx context.Context, sessionID, role stri
 	if err != nil {
 		return 0, 0, err
 	}
+	if w != nil {
+		if err := w.validateEdges(); err != nil {
+			return 0, 0, err
+		}
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer tx.Rollback()
-	var seq int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), -1) + 1 FROM session_messages WHERE session_id = ?`, sessionID).Scan(&seq); err != nil {
-		return 0, 0, err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO session_messages(session_id, seq, role, json) VALUES(?, ?, ?, ?)`, sessionID, seq, role, string(raw)); err != nil {
-		return 0, 0, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at = ? WHERE id = ?`, time.Now().UTC().Format(time.RFC3339Nano), sessionID); err != nil {
+	seq, err := appendMessageRow(ctx, tx, sessionID, role, raw)
+	if err != nil {
 		return 0, 0, err
 	}
 	var version int64

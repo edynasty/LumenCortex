@@ -3,6 +3,7 @@ package runtime
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -24,8 +25,8 @@ import (
 // Execution tasks (ADR-0006 D4, C2): a child session with relation "execution", its own worktree based
 // on the parent workspace's committed HEAD, Policy workspace without shell, MCP or spawn tools, work
 // units seeded from the objective and the configured checks. It runs under its own run lock and
-// worktree lease and outlives the parent's run; its terminal transitions reach the parent as
-// task_result rows at the parent's next Start.
+// worktree lease. An immediate child belongs to the launching run; a host-started proposal/resume has
+// its own lifetime. Terminal transitions reach the parent as task_result rows at its next Start.
 
 // Relation kinds of child sessions.
 const (
@@ -72,9 +73,14 @@ type TaskResult struct {
 	Agent     string `json:"agent,omitempty"`
 	Objective string `json:"objective"`
 	Status    string `json:"status"`
-	ErrorKind string `json:"errorKind,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Final     string `json:"final,omitempty"`
+	// Withdrawn is true when a revocation or privacy fence names the child: the result carries its
+	// identity and status only - no objective, error, final, units, checks or worktree - and its
+	// delivery stores no edge citing the child.
+	Withdrawn bool            `json:"withdrawn,omitempty"`
+	ErrorKind string          `json:"errorKind,omitempty"`
+	Error     string          `json:"error,omitempty"`
+	Final     string          `json:"final,omitempty"`
+	Delivery  *DeliveryResult `json:"delivery,omitempty"`
 	// OpenUnits are the child's work units that did not reach a terminal status.
 	OpenUnits []TaskResultUnit `json:"openUnits,omitempty"`
 	// Checks are the configured checks against the worktree as it is now; empty when none are
@@ -184,8 +190,8 @@ func (s *RunSupervisor) StartProposedTask(ctx context.Context, parentID, taskID 
 		return ExecutionTask{}, err
 	}
 	var started ExecutionTask
-	// The proposal's agent and the proposing run's bounds apply: the user's Start authorizes exactly
-	// what was proposed. A proposal recorded before agents existed runs worker without bounds.
+	// The proposal's agent and durable task bounds apply. Deferred Starts use current execution.retry;
+	// a transient override of the proposing run is not persisted. Older proposals use worker defaults.
 	agentID := cmp.Or(task.Agent, config.AgentWorker)
 	bounds := proposalBounds(task.Bounds)
 	if child != "" {
@@ -197,11 +203,13 @@ func (s *RunSupervisor) StartProposedTask(ctx context.Context, parentID, taskID 
 		return ExecutionTask{}, err
 	}
 	now := time.Now().UTC()
+	before := state.Clone()
 	if err := state.StartTask(taskID, started.SessionID, now); err != nil {
 		return started, err
 	}
 	state.Reopen(now)
-	if _, err := e.putTaskState(ctx, parentID, taskstate.ReasonUser, state, 0); err != nil {
+	// The child's objective is the proposal's text: its edge derives the child from the proposal entry.
+	if _, err := e.putTaskState(ctx, parentID, taskstate.ReasonUser, state, 0, agent.HostStateEdges(before, state)); err != nil {
 		// The child runs; a retry finds it through its relation and records it.
 		return started, fmt.Errorf("task %s started as %s but recording it failed: %w", taskID, started.SessionID, err)
 	}
@@ -210,7 +218,7 @@ func (s *RunSupervisor) StartProposedTask(ctx context.Context, parentID, taskID 
 
 // proposalChild is the execution child an earlier StartProposedTask created for taskID, "" for none.
 func (e *Engine) proposalChild(ctx context.Context, parentID, taskID string) (string, error) {
-	relations, err := e.store.ChildRelations(ctx, parentID, MaxSubagentTreeNodes)
+	relations, err := e.store.AllChildRelations(ctx, parentID)
 	if err != nil {
 		return "", err
 	}
@@ -413,21 +421,20 @@ const workerPrompt = `You are a LumenCortex execution worker with one assigned o
 // delegation, never interactive. Step and output bounds, effort and the tool denylist come from the
 // parent run when there is one. agentID is the agent the child runs, pinned by its first Start.
 func executionOptions(parent AgentOptions, ref config.ModelRef, units json.RawMessage, parentID, agentID string) AgentOptions {
-	return AgentOptions{
-		ModelRef:            ref,
-		Policy:              toolset.PolicyWorkspace,
-		MaxSteps:            parent.MaxSteps,
-		MaxToolCallsPerStep: parent.MaxToolCallsPerStep,
-		ToolDenylist:        append([]string(nil), parent.ToolDenylist...),
-		WorkUnits:           units,
-		SystemPrompt:        workerPrompt + "\n" + policyAuthority(toolset.PolicyWorkspace),
-		MaxTokens:           parent.MaxTokens,
-		Temperature:         parent.Temperature,
-		parentSessionID:     parentID,
-		childAgent:          agentID,
-		disableSubagents:    true,
-		disableMCP:          true,
-	}
+	return inheritChildExecution(AgentOptions{
+		ModelRef:         ref,
+		Policy:           toolset.PolicyWorkspace,
+		ToolDenylist:     append([]string(nil), parent.ToolDenylist...),
+		WorkUnits:        units,
+		SystemPrompt:     workerPrompt + "\n" + policyAuthority(toolset.PolicyWorkspace),
+		MaxTokens:        parent.MaxTokens,
+		Temperature:      parent.Temperature,
+		parentSessionID:  parentID,
+		ownerRun:         parent.ownerRun,
+		childAgent:       agentID,
+		disableSubagents: true,
+		disableMCP:       true,
+	}, parent)
 }
 
 // constrainChild applies a child's fixed authority to a Start of that child: an explicit resume by the
@@ -468,7 +475,7 @@ func (e *Engine) constrainChild(ctx context.Context, sessionID string, opts Agen
 // activeChildren counts the parent's children of any kind that run: in this supervisor, or recorded
 // running by another process.
 func (s *RunSupervisor) activeChildren(ctx context.Context, parentID string) (int, error) {
-	relations, err := s.engine.store.ChildRelations(ctx, parentID, MaxSubagentTreeNodes)
+	relations, err := s.engine.store.AllChildRelations(ctx, parentID)
 	if err != nil {
 		return 0, err
 	}
@@ -491,20 +498,24 @@ func (s *RunSupervisor) activeChildren(ctx context.Context, parentID string) (in
 
 // CancelSubtree is the host's Stop for a session and everything it started (ADR-0006 D4): it cancels
 // the session's run and the runs of all its descendants that this supervisor executes, and returns
-// the ids it cancelled. Cancel alone never reaches a child. Runs held by another process are not
-// reachable from here.
+// the ids it cancelled. Cancel also reaches active descendants; this method enumerates durable
+// relations. Runs held by another process are not reachable from here.
 func (s *RunSupervisor) CancelSubtree(ctx context.Context, sessionID string) ([]string, error) {
 	if s == nil || s.engine == nil {
 		return nil, ErrRunSupervisorClosed
 	}
 	ids := []string{sessionID}
-	for i := 0; i < len(ids) && len(ids) <= MaxSubagentTreeNodes; i++ {
-		relations, err := s.engine.store.ChildRelations(ctx, ids[i], MaxSubagentTreeNodes)
+	seen := map[string]bool{sessionID: true}
+	for i := 0; i < len(ids); i++ {
+		relations, err := s.engine.store.AllChildRelations(ctx, ids[i])
 		if err != nil {
 			return nil, err
 		}
 		for _, r := range relations {
-			ids = append(ids, r.ChildSessionID)
+			if !seen[r.ChildSessionID] {
+				seen[r.ChildSessionID] = true
+				ids = append(ids, r.ChildSessionID)
+			}
 		}
 	}
 	var cancelled []string
@@ -529,61 +540,95 @@ func terminalStatus(status string) bool {
 // state: one row for each execution child whose terminal transition (its newest seq and status) the
 // cursor has not seen. The caller commits the rows and state in one transaction, under the parent's
 // run lock, so each transition is delivered exactly once. A child still running is delivered later.
-func (e *Engine) taskResults(ctx context.Context, parentID string, state *taskstate.State) ([]protocol.Message, error) {
-	relations, err := e.store.ChildRelations(ctx, parentID, MaxSubagentTreeNodes)
+// withdrawn are the delivered children a fence names: their rows carry no content of the child, and
+// the caller stores no edge citing them.
+func (e *Engine) taskResults(ctx context.Context, parentID string, state *taskstate.State) (rows []protocol.Message, withdrawn map[string]bool, err error) {
+	relations, err := e.store.AllChildRelations(ctx, parentID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var rows []protocol.Message
 	for _, r := range relations {
 		if r.Kind != RelationExecution {
 			continue
 		}
 		child, err := e.store.Get(ctx, r.ChildSessionID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !terminalStatus(child.Status) {
 			continue
 		}
 		seq, err := e.store.NewestMessageSeq(ctx, child.ID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		mark := taskstate.TaskMark{Seq: seq, Status: child.Status}
+		childState, err := e.loadTaskState(ctx, child.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if childState.DeliveryResult != nil {
+			raw, err := json.Marshal(childState.DeliveryResult)
+			if err != nil {
+				return nil, nil, err
+			}
+			mark.Delivery = fmt.Sprintf("%x", sha256.Sum256(raw))
+		}
 		if state.Delivered(child.ID, mark) {
 			continue
 		}
-		result, err := e.taskResult(ctx, *state, r, child)
+		fenced, err := e.store.SessionWithdrawn(ctx, child.ID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		var result TaskResult
+		if fenced {
+			result = withdrawnTaskResult(*state, r, child)
+			if withdrawn == nil {
+				withdrawn = map[string]bool{}
+			}
+			withdrawn[child.ID] = true
+		} else if result, err = e.taskResult(ctx, *state, r, child); err != nil {
+			return nil, nil, err
+		}
+		if !fenced {
+			result.Delivery = childState.DeliveryResult
 		}
 		raw, err := json.Marshal(result)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		rows = append(rows, protocol.Message{Role: "user", Origin: protocol.OriginTaskResult, Content: protocol.TaskResultHeader + "\n" + string(raw)})
 		state.MarkDelivered(child.ID, mark)
 	}
-	return rows, nil
+	return rows, withdrawn, nil
+}
+
+// withdrawnTaskResult is the result of a child a fence names: which task, which child and how it
+// ended, nothing the child produced.
+func withdrawnTaskResult(parent taskstate.State, relation session.Relation, child session.Session) TaskResult {
+	return TaskResult{TaskID: taskIDOf(parent, relation, child.ID), SessionID: child.ID, Agent: child.AgentID, Status: child.Status,
+		Withdrawn: true, Checks: []TaskResultCheck{}}
+}
+
+// taskIDOf is the task id of a child: the parent's Task State entry, else the relation's metadata.
+func taskIDOf(parent taskstate.State, relation session.Relation, childID string) string {
+	for _, t := range parent.Tasks {
+		if t.SessionID == childID {
+			return t.ID
+		}
+	}
+	var meta struct {
+		TaskID string `json:"taskId"`
+	}
+	_ = json.Unmarshal(relation.Metadata, &meta)
+	return meta.TaskID
 }
 
 // taskResult reads one child's result. Storage errors fail the Start; a worktree or checks that
 // cannot be read are reported in the result instead.
 func (e *Engine) taskResult(ctx context.Context, parent taskstate.State, relation session.Relation, child session.Session) (TaskResult, error) {
-	out := TaskResult{SessionID: child.ID, Agent: child.AgentID, Objective: truncateBytes(child.Goal, 512), Status: child.Status, Checks: []TaskResultCheck{}}
-	for _, t := range parent.Tasks {
-		if t.SessionID == child.ID {
-			out.TaskID = t.ID
-		}
-	}
-	if out.TaskID == "" {
-		var meta struct {
-			TaskID string `json:"taskId"`
-		}
-		_ = json.Unmarshal(relation.Metadata, &meta)
-		out.TaskID = meta.TaskID
-	}
+	out := TaskResult{TaskID: taskIDOf(parent, relation, child.ID), SessionID: child.ID, Agent: child.AgentID, Objective: truncateBytes(child.Goal, 512), Status: child.Status, Checks: []TaskResultCheck{}}
 	if len(child.Error) > 0 {
 		var cause struct{ Kind, Message string }
 		_ = json.Unmarshal(child.Error, &cause)
@@ -596,6 +641,7 @@ func (e *Engine) taskResult(ctx context.Context, parent taskstate.State, relatio
 	if err != nil {
 		return TaskResult{}, err
 	}
+	out.Delivery = state.DeliveryResult
 	for _, u := range state.Units().Incomplete() {
 		if len(out.OpenUnits) == maxResultUnits {
 			break

@@ -1,0 +1,21 @@
+{
+  "run_name": "pi-openrouter-mimo-v25-pro-thinking-medium-full89-n20-20260624T212411Z",
+  "pid": 2867659,
+  "log_file": "/home/robin_cline_bot/harbor/logs/pi-openrouter-mimo-v25-pro-thinking-medium-full89-n20-20260624T212411Z.log",
+  "launch_command": "PYTHONPATH=/home/robin_cline_bot/harbor/src /home/robin_cline_bot/harbor/.venv/bin/python -m harbor.cli.main run --job-name pi-openrouter-mimo-v25-pro-thinking-medium-full89-n20-20260624T212411Z -d terminal-bench@2.0 -a pi -m openrouter/xiaomi/mimo-v2.5-pro --env modal --env-file /home/robin_cline_bot/.env --timeout-multiplier 2.0 -l 89 -n 20 --ak thinking=medium",
+  "benchmark": "terminal-bench@2.0",
+  "dataset": "terminal-bench@2.0",
+  "task_limit": 89,
+  "concurrency": 20,
+  "agent": "pi",
+  "model_arg": "openrouter/xiaomi/mimo-v2.5-pro",
+  "model_id": "xiaomi/mimo-v2.5-pro",
+  "provider_route": "openrouter",
+  "reasoning": "medium",
+  "environment": "modal",
+  "timeout_multiplier": 2.0,
+  "env_file": "~/.env",
+  "source_harbor_dir": "/home/robin_cline_bot/harbor",
+  "smoke_run": "pi-openrouter-mimo-v25-pro-thinking-medium-fixgit-smoke-20260624T202836Z",
+  "notes": "Full MiMo V2.5 Pro Pi Terminal-Bench run after passing fix-git smoke. Same matrix config: OpenRouter, thinking medium, timeout multiplier 2.0, n=20."
+}

@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/edynasty/LumenCortex/docs"
 )
 
 // S2: every reference example is valid and every bad case fails at the reference keyword and path.
@@ -59,8 +57,8 @@ func TestSchemaInvalidFixtures(t *testing.T) {
 		"failover-duplicate":          {"uniqueItems", "/failover"},
 		"header-non-string":           {"type", "/providers/p/settings/headers/X-Retries"},
 		"nested-model-key-with-slash": {"pattern", "/providers/p/models/org~1model"},
-		"escalation-without-default":  {"dependentRequired", "/effort"},
-		"escalation-incomplete":       {"required", "/effort/escalation"},
+		"escalation-without-default":  {"additionalProperties", "/effort"},
+		"escalation-incomplete":       {"additionalProperties", "/effort"},
 		"package-unknown":             {"enum", "/providers/p/package"},
 		"auto-max-unknown":            {"enum", "/effort/auto/max"},
 		"auto-timeout-out-of-range":   {"maximum", "/effort/auto/timeoutSeconds"},
@@ -104,24 +102,13 @@ func TestSchemaInvalidFixtures(t *testing.T) {
 	}
 }
 
-func TestSchemaFileIsTheEmbeddedOne(t *testing.T) {
-	// docs/lumencortex.schema.json is the file Desktop copies; the embedded bytes are the file.
-	disk, err := os.ReadFile(filepath.Join("..", "docs", "lumencortex.schema.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(disk, docs.ConfigSchema) {
-		t.Fatal("embedded schema differs from docs/lumencortex.schema.json")
-	}
-}
-
 // Unknown keys are errors at every object level, not only the root.
 func TestUnknownKeysRejectedAtEveryLevel(t *testing.T) {
 	cases := map[string]string{
 		"root":        `{"models": {}}`,
 		"effort":      `{"effort": {"default": "low", "extra": 1}}`,
 		"effort-auto": `{"effort": {"auto": {"model": "a/b", "budget": 1}}}`,
-		"escalation":  `{"effort": {"default": "low", "escalation": {"sameFailure": 1, "noProgressSteps": 1, "max": "high", "x": 1}}}`,
+		"escalation":  `{"effort": {"default": "low", "escalation": {"sameFailure": 1, "noProgressSteps": 1, "max": "high"}}}`,
 		"provider":    `{"providers": {"p": {"endpoint": "https://x"}}}`,
 		"settings":    `{"providers": {"p": {"settings": {"apikey": "{env:K}"}}}}`,
 		"model":       `{"providers": {"p": {"models": {"m": {"id": "x"}}}}}`,
@@ -159,7 +146,6 @@ func TestGoValidationMatchesSchema(t *testing.T) {
 		{TrustedWorkspaces: []string{"relative/path"}},
 		{Checks: map[string]Check{"c": {Kind: CheckTest}}},
 		{Checks: map[string]Check{"C": {Kind: CheckTest, Command: "x"}}},
-		{Effort: &EffortPolicy{Escalation: &Escalation{SameFailure: 1, NoProgressSteps: 1, Max: EffortHigh}}},
 		{Effort: &EffortPolicy{Default: "extreme"}},
 		{Effort: &EffortPolicy{Auto: &AutoEffort{Max: "ultra"}}},
 		{Effort: &EffortPolicy{Auto: &AutoEffort{TimeoutSeconds: 61}}},

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/edynasty/LumenCortex/protocol"
@@ -32,6 +33,10 @@ type RunStart struct {
 	// Results are runtime rows (origin task_result) appended before Input. The Task State version
 	// that advances their delivery cursor is TaskState, so rows and cursor commit together.
 	Results []protocol.Message
+	// Notices are runtime rows appended after Input (or the resume row): the run-start index of the
+	// session's working notebooks (ADR-0020). They carry no content the session does not already hold
+	// and are never the model's turn's first row.
+	Notices []protocol.Message
 }
 
 // BeginRun is the Start transaction. The caller holds the session's run lock and
@@ -43,6 +48,11 @@ type RunStart struct {
 //   - writes the Start's Task State version and consumes the inbox edits it applied;
 //   - sets status = running and clears the previous cause and final.
 //
+// A fence on the session that no Start has projected refuses it with ErrFenced (ADR-0018 admission
+// read, one indexed read): the transaction is the Start's linearization point with a revocation, so
+// a revocation committed after the Start projected the thread's fences - while it decided its
+// constraints or resolved its effort - leaves no running session and no Task State version behind.
+//
 // All of it commits or none of it does, so a Start that fails leaves no new
 // transcript row and the session row as it was, and a Start that succeeds is
 // already running when the loop begins. It returns the session row as committed
@@ -52,6 +62,11 @@ type RunStart struct {
 // COMMIT runs without the caller's cancellation: once BeginRun returns, the commit
 // is known to have happened, and an error means it did not.
 func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) (Session, []int64, error) {
+	if start.TaskState != nil {
+		if err := start.TaskState.validateEdges(); err != nil {
+			return Session{}, nil, err
+		}
+	}
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return Session{}, nil, err
@@ -74,6 +89,11 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 		}
 		return Session{}, nil, err
 	}
+	if _, fenced, err := consumerFence(ctx, conn, sessionID); err != nil {
+		return Session{}, nil, err
+	} else if fenced {
+		return Session{}, nil, fmt.Errorf("%w: revoked before the Start committed", ErrFenced)
+	}
 	next := int64(0)
 	var newestRole sql.NullString
 	if err := conn.QueryRowContext(ctx,
@@ -91,6 +111,7 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 	} else if newestRole.Valid && newestRole.String != "user" {
 		rows = append(rows, protocol.Message{Role: "user", Origin: protocol.OriginResume, Content: protocol.ResumeContent})
 	}
+	rows = append(rows, start.Notices...)
 	seqs := make([]int64, 0, len(rows))
 	for _, row := range rows {
 		raw, err := json.Marshal(row)

@@ -221,7 +221,7 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Upgrade to latest (5)
+	// Upgrade to latest (6)
 	store, err := Open(statedir)
 	if err != nil {
 		t.Fatal(err)
@@ -260,6 +260,15 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 	if _, err := store.db.Exec(`INSERT INTO eval_results (session_id, seq, check_id, kind, status, provenance, fingerprint, artifacts_json, at) VALUES ('s1', 1, 'go-test', 'test', 'passed', 'runtime', 'h+@local#00', '[]', ?)`, now); err != nil {
 		t.Fatal(err)
 	}
+	// A working notebook and one of its revisions (0009): the down migration drops both tables.
+	doc, err := store.CreateNotebook(context.Background(), "s1", "plan", "# Plan\n\n## Handoff\ncontinue here\n", "host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateNotebook(context.Background(), "s1", doc.ID, "host", "append", doc.Version,
+		func(current string) (string, error) { return current + "\nmore\n", nil }); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
@@ -284,7 +293,7 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		}
 	}
 
-	checkVersion(5)
+	checkVersion(9)
 	hasTable := func(name string) bool {
 		t.Helper()
 		db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(filepath.Join(statedir, "lumencortex.db"))+"?mode=ro")
@@ -311,6 +320,36 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 			t.Fatal(err)
 		}
 		return n == 1
+	}
+
+	// Downgrade 9→6: the working notebooks, the job queue and the scheduled tasks go; every v6 object
+	// stays.
+	set9, err := migrate.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := migrate.Downgrade(context.Background(), statedir, set9, 6); err != nil {
+		t.Fatal(err)
+	}
+	checkVersion(6)
+	if hasTable("notebooks") || hasTable("notebook_revisions") || hasTable("jobs") || hasTable("scheduled_tasks") ||
+		!hasTable("request_envelopes") || !hasTable("check_approvals") {
+		t.Fatal("after 9→6 a v9 or v8 table remains or a v6 table is gone")
+	}
+
+	// Downgrade 6→5: provenance/approval tables and the six eval_results columns go; the evaluator row,
+	// its table and every older object stay.
+	set6, err := migrate.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := migrate.Downgrade(context.Background(), statedir, set6, 5); err != nil {
+		t.Fatal(err)
+	}
+	checkVersion(5)
+	if hasTable("request_envelopes") || hasTable("derived_origins") || hasTable("source_fences") || hasTable("check_approvals") ||
+		hasColumn("eval_results", "episode_id") || !hasTable("eval_results") || !hasColumn("sessions", "agent_id") {
+		t.Fatal("after 6→5 the v6 objects remain or a v5 object is gone")
 	}
 
 	// Downgrade 5→4: the session agent column goes, the session row and everything else stays.
@@ -400,15 +439,16 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Upgrade 1→2→3→4→5
+	// Upgrade 1→2→…→9
 	store, err = Open(statedir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	checkVersion(5)
-	if !hasTable("eval_results") || !hasTable("artifacts") || !hasColumn("sessions", "agent_id") {
-		t.Fatal("re-upgrade did not recreate the evaluator tables and the agent column")
+	checkVersion(9)
+	if !hasTable("eval_results") || !hasTable("artifacts") || !hasColumn("sessions", "agent_id") || !hasTable("jobs") ||
+		!hasTable("scheduled_tasks") || !hasTable("notebooks") || !hasTable("notebook_revisions") {
+		t.Fatal("re-upgrade did not recreate the evaluator, job, schedule and notebook tables and the agent column")
 	}
 	// The re-added column starts empty: the session gets the default agent on its next Start.
 	if s1, err := store.Get(context.Background(), "s1"); err != nil || s1.AgentID != "" {

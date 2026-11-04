@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/edynasty/LumenCortex/protocol"
@@ -59,7 +58,7 @@ func TestStreamingToolCallAssembly(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{Endpoint: server.URL, APIKey: "secret", Model: "deepseek-test", DisableRetries: true})
+	client, err := New(Config{Endpoint: server.URL, APIKey: "secret", Model: "deepseek-test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +91,7 @@ func TestNonStreamingResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{Endpoint: server.URL, Model: "test", DisableStreaming: true, DisableRetries: true})
+	client, err := New(Config{Endpoint: server.URL, Model: "test", DisableStreaming: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,39 +104,13 @@ func TestNonStreamingResponse(t *testing.T) {
 	}
 }
 
-func TestRetries429AndHonorsBoundedAttempts(t *testing.T) {
-	var attempts atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		current := attempts.Add(1)
-		if current < 3 {
-			w.Header().Set("Retry-After", "0")
-			http.Error(w, "busy", http.StatusTooManyRequests)
-			return
-		}
-		fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{}}`)
-	}))
-	defer server.Close()
-
-	client, err := New(Config{Endpoint: server.URL, Model: "test", DisableStreaming: true, MaxRetries: 2, RetryBaseDelay: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, err := client.Complete(context.Background(), protocol.ProviderRequest{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.Message.Content != "ok" || attempts.Load() != 3 {
-		t.Fatalf("response=%#v attempts=%d", response, attempts.Load())
-	}
-}
-
 func TestResponseBudget(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, strings.Repeat("x", 2048))
 	}))
 	defer server.Close()
 
-	client, err := New(Config{Endpoint: server.URL, Model: "test", DisableStreaming: true, DisableRetries: true, MaxResponseBytes: 1024})
+	client, err := New(Config{Endpoint: server.URL, Model: "test", DisableStreaming: true, MaxResponseBytes: 1024})
 	if err != nil {
 		t.Fatal(err)
 	}

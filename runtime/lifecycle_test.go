@@ -232,7 +232,7 @@ func TestToolArgumentTextReplaysExactlyThroughOpenAIAdapter(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": message, "finish_reason": finish}}})
 			}))
 			defer server.Close()
-			client, err := openai.New(openai.Config{Endpoint: server.URL, Model: "wire-test", DisableStreaming: true, DisableRetries: true})
+			client, err := openai.New(openai.Config{Endpoint: server.URL, Model: "wire-test", DisableStreaming: true})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -302,9 +302,10 @@ func TestToolArgumentTextReplaysExactlyThroughOpenAIAdapter(t *testing.T) {
 
 // Audit E4: cancelling a run while a real `shell` call runs `sleep 5` must end it
 // interrupted/cancelled instead of stranding it as running, kill the command instead of
-// waiting for it, and save no result for the stopped call. The command prints a line and
-// then becomes `sleep 5`; Cancel waits for that line. Cancelling at tool.start instead
-// lands before the process exists in most runs and only tests a refused process start.
+// waiting for it, and answer the stopped call with one terminal row carrying the partial
+// output. The command prints a line and then becomes `sleep 5`; Cancel waits for that line.
+// Cancelling at tool.start instead lands before the process exists in most runs and only
+// tests a refused process start.
 func TestCancelDuringShellSleepEndsInterruptedCancelled(t *testing.T) {
 	engine := openTestEngine(t)
 	handle := newTestSession(t, engine, "sleep")
@@ -318,7 +319,7 @@ func TestCancelDuringShellSleepEndsInterruptedCancelled(t *testing.T) {
 
 	provider := &exitProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 		return protocol.ProviderResponse{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
-			{ID: "sleep-1", Name: "shell", Arguments: json.RawMessage(`{"command":"echo ready && exec sleep 5"}`)},
+			{ID: "sleep-1", Name: "bash", Arguments: json.RawMessage(`{"command":"echo ready && exec sleep 5"}`)},
 		}}, FinishReason: "tool_calls"}, nil
 	}}
 	if _, err := supervisor.startWith(context.Background(), handle.ID, provider, AgentOptions{Policy: "full", MaxSteps: 3}); err != nil {
@@ -341,10 +342,12 @@ func TestCancelDuringShellSleepEndsInterruptedCancelled(t *testing.T) {
 	if cause == nil || cause.Kind != "cancelled" || cause.Message == "" || cause.At == "" {
 		t.Fatalf("cause = %+v", cause)
 	}
-	for _, message := range transcript(t, handle) {
-		if message.Role == "tool" {
-			t.Fatalf("the stopped call got a result row: %+v", message)
-		}
+	tools := rowsFor(transcript(t, handle), "tool")
+	if len(tools) != 1 || tools[0].ToolCallID != "sleep-1" || tools[0].Origin != protocol.OriginToolInterrupted {
+		t.Fatalf("the stopped call must have exactly one terminal row, got %+v", tools)
+	}
+	if !strings.Contains(tools[0].Content, `"cancelled":true`) || !strings.Contains(tools[0].Content, "ready") {
+		t.Fatalf("the stopped call's row lost its partial output: %s", tools[0].Content)
 	}
 	stopped := waitForEvent(t, events, "run.stopped")
 	if !strings.Contains(string(stopped.Data), "canceled") {

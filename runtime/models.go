@@ -76,8 +76,6 @@ type modelPlan struct {
 	// effort.default. effortFor holds the list entries with their own effort.
 	effort    config.Effort
 	effortFor map[config.ModelRef]config.Effort
-	// escalation is the configured effort escalation, nil for none (design §4.5).
-	escalation *config.Escalation
 	// auto is the auto effort resolver's configuration with defaults applied. It is always set;
 	// the judge client is built only when a Start actually resolves auto.
 	auto *autoPlan
@@ -181,7 +179,7 @@ func (e *Engine) planModels(req startRequest) (*modelPlan, error) {
 		agentID: agentID, agentRule: agentRule, agentDecision: agentDecision, grant: grant, instructions: def.Instructions,
 		session: ref, resolved: resolved, rule: rule, decision: decision,
 		models: map[config.ModelRef]agent.Model{}, effort: eff.EffortDefault, effortFor: map[config.ModelRef]config.Effort{},
-		escalation: eff.Escalation, auto: auto, checks: evaluator.Specs(eff.Checks),
+		auto: auto, checks: evaluator.Specs(eff.Checks),
 		spawnAgents: eff.DelegationAgents(config.AgentInfo.SpawnEligible),
 		taskAgents:  eff.DelegationAgents(config.AgentInfo.TaskEligible),
 		trusted:     eff.Trusted,
@@ -210,7 +208,7 @@ func (e *Engine) planModels(req startRequest) (*modelPlan, error) {
 		built := agent.Model{
 			Ref: candidate, ProviderID: m.ProviderID, ModelID: m.ModelID,
 			Context: m.Context, DefaultContext: !m.ContextSet, Output: m.Output, OutputSet: m.OutputSet,
-			ToolCalling: m.ToolCalling, Efforts: m.Efforts,
+			ToolCalling: m.ToolCalling, Efforts: m.Efforts, Price: m.Cost,
 		}
 		if m.ToolCalling {
 			if built.Client, err = e.providerFactory(m); err != nil {

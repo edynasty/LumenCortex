@@ -122,11 +122,14 @@ type Effective struct {
 	Catalog       []ModelInfo
 	EffortDefault Effort
 	// Auto is effort.auto with its defaults applied, nil when the configuration has no such object.
-	Auto       *AutoEffortPolicy
-	Escalation *Escalation
+	Auto *AutoEffortPolicy
 	// Concurrency is the global file's concurrency with its defaults applied.
 	Concurrency Concurrency
-	Checks      map[string]Check
+	// Execution is the global file's execution limits with their defaults applied.
+	Execution Execution
+	// LSP is the global file's language server settings with their defaults applied.
+	LSP    LSP
+	Checks map[string]Check
 	// Warnings lists ignored workspace entries and legacy files, in a stable order.
 	Warnings []Warning
 }
@@ -227,13 +230,17 @@ func (c *Config) Effective() Effective {
 	e.Failover = append([]ModelRef(nil), e.Failover...)
 	e.Agents = cloneAgentInfos(e.Agents)
 	e.Catalog = cloneModelInfos(e.Catalog)
-	if e.Escalation != nil {
-		esc := *e.Escalation
-		e.Escalation = &esc
-	}
 	if e.Auto != nil {
 		auto := *e.Auto
 		e.Auto = &auto
+	}
+	if e.Execution.Budget != nil {
+		b := *e.Execution.Budget
+		e.Execution.Budget = &b
+	}
+	if e.Execution.Retry != nil {
+		r := *e.Execution.Retry
+		e.Execution.Retry = &r
 	}
 	e.Checks = cloneChecks(e.Checks)
 	e.Warnings = append([]Warning(nil), e.Warnings...)

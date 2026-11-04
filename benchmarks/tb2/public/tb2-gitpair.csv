@@ -1,0 +1,13 @@
+task,harness,solved,attempts,mean_prompt_tokens_per_attempt,mean_output_tokens_per_attempt,cost_usd_per_attempt,fisher_p_specpi_vs_pi
+fix-git,pi,10,10,44899,2424,0.002475101,1.000000
+fix-git,specpi,10,10,62144,3165,0.003173132,1.000000
+fix-git,omp,7,7,487382,15714,0.014623466,1.000000
+fix-git,dsh,7,7,147937,5579,0.005525919,1.000000
+fix-git,opencode,7,7,106376,2937,0.002662876,1.000000
+fix-git,claude-code,7,7,211104,5927,0.005234665,1.000000
+sanitize-git-repo,pi,3,10,1112453,19491,0.023558059,0.003096
+sanitize-git-repo,specpi,10,10,455924,9441,0.014441960,0.003096
+sanitize-git-repo,omp,4,7,1122044,19518,0.021484981,0.003096
+sanitize-git-repo,dsh,6,7,1308863,26102,0.027306448,0.003096
+sanitize-git-repo,opencode,5,7,628249,14044,0.016406151,0.003096
+sanitize-git-repo,claude-code,0,7,1381863,19248,0.022663172,0.003096

@@ -3,6 +3,7 @@ package evaluator
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/session"
@@ -34,6 +36,11 @@ var ErrNoFingerprint = errors.New("workspace has no fingerprint (not a git repos
 // ErrUnknownCheck reports a check id the configuration does not define (or dropped as untrusted).
 var ErrUnknownCheck = errors.New("check is not configured")
 
+// ErrSpecUnapproved reports a check whose definition the host has not approved in its current form
+// (ADR-0017): it is not run by the completion gate or a work unit, cannot be accepted, and satisfies
+// nothing until the user approves the current check set.
+var ErrSpecUnapproved = errors.New("check definition is not approved; approve the current check set (lcx-go checks status)")
+
 // ErrStore wraps a failure to read or write results and artifacts.
 var ErrStore = errors.New("evaluator store")
 
@@ -52,46 +59,110 @@ func storeErr(ctx context.Context, err error) error {
 type Store interface {
 	PutArtifact(ctx context.Context, sessionID string, a session.Artifact) error
 	AppendEvalResult(ctx context.Context, sessionID string, row session.EvalRow) (int64, error)
-	DecidingEvalResult(ctx context.Context, sessionID, checkID, fingerprint string) (*session.EvalRow, error)
+	DecidingEvalResult(ctx context.Context, sessionID, checkID, fingerprint, specDigest string, approvalEpoch int64) (*session.EvalRow, error)
+	CloseEpisode(ctx context.Context, sessionID, episodeID, status string, post map[int64]string) error
 }
 
 // Evaluator decides checks for one session in its workspace: the session's worktree when it has one.
+// The runtime builds one per run; it remembers the episodes it closed itself, the only runtime results
+// the run may reuse (Satisfies), and forgets them all once a side-effect tool completes (Mutated). An
+// Evaluator built for a host read remembers nothing, so only a person's acceptance satisfies there.
 type Evaluator struct {
 	Store     Store
 	SessionID string
 	Workspace string
 	// WorktreeID is "local" for the main checkout, else the worktree path.
 	WorktreeID string
+
+	mu sync.Mutex
+	// generation counts the side-effect tools completed in the run; closed maps the seq of each runtime
+	// result in an episode this Evaluator closed to the generation it was closed at.
+	generation uint64
+	closed     map[int64]uint64
+}
+
+// Mutated records that a side-effect tool completed in the run: no episode closed before it is reused.
+func (e *Evaluator) Mutated() {
+	e.mu.Lock()
+	e.generation++
+	e.mu.Unlock()
+}
+
+// inRun reports whether seq is a result of an episode this Evaluator closed, with no side-effect tool
+// completed since.
+func (e *Evaluator) inRun(seq int64) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	gen, ok := e.closed[seq]
+	return ok && gen == e.generation
+}
+
+func (e *Evaluator) register(seqs []int64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed == nil {
+		e.closed = make(map[int64]uint64)
+	}
+	for _, seq := range seqs {
+		e.closed[seq] = e.generation
+	}
 }
 
 // Verdict is the decision of one check: the result that decided it, whether it passed, whether a stored
-// result was reused instead of running, and the last 2 KiB of the output of a fresh run.
+// result was reused instead of running, the last 2 KiB of the output of a fresh run, and the status of
+// the episode the check was decided in ("" when nothing ran or was looked up: an unapproved or
+// unconfigured check).
 type Verdict struct {
-	Result Result `json:"result"`
-	Passed bool   `json:"passed"`
-	Reused bool   `json:"reused"`
-	Tail   string `json:"tail,omitempty"`
+	Result  Result `json:"result"`
+	Passed  bool   `json:"passed"`
+	Reused  bool   `json:"reused"`
+	Tail    string `json:"tail,omitempty"`
+	Episode string `json:"episode,omitempty"`
 }
 
-// Decide decides specs in order against one snapshot of the workspace, as the completion gate and a
-// work unit's completion do. Fresh results are stored with workUnitID. A cancelled ctx stops the
-// decision and stores nothing for the check it interrupted.
-func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string) ([]Verdict, error) {
+// ConfigUnchanged reports whether the check definitions and their approval are still those the
+// episode's specs were taken from. The runtime reads them from the Engine workspace (configScope); the
+// evaluator only knows the session's workspace (executionScope).
+type ConfigUnchanged func(ctx context.Context) (bool, error)
+
+// Decide decides specs in order as one check episode, as the completion gate and a work unit's
+// completion do (ADR-0017). Before the first check it takes a snapshot of the workspace; each fresh
+// result is stored open in the episode with workUnitID; after the last check it takes the workspace
+// snapshot again outside any transaction, asks unchanged (nil: nothing to ask), and closes the episode
+// in one short transaction: closed when both are as before, spec_unapproved when the definitions or
+// their approval changed, scope_changed when the workspace did. A verdict passes only in a closed
+// episode; otherwise its result is kept as history and decides nothing, and the episode is not run
+// again here. A stored result is reused only as Satisfies allows. A cancelled ctx stops the decision,
+// stores nothing for the check it interrupted, and closes the episode as interrupted.
+func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string, unchanged ConfigUnchanged) ([]Verdict, error) {
 	if len(specs) == 0 {
 		return nil, nil
 	}
-	snap, err := e.snapshot(ctx, true)
+	pre, err := e.snapshot(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	episode, err := newEpisodeID()
 	if err != nil {
 		return nil, err
 	}
 	out := make([]Verdict, 0, len(specs))
+	fresh := map[int64]int{} // seq of a fresh result -> its index in out
 	for _, spec := range specs {
-		current := Fingerprint(snap.env, spec)
+		// An approved definition whose input differs here runs content nobody approved: it is decided as
+		// unapproved and not run (CHECKS-002).
+		changed := ""
+		if Approved(spec) {
+			if changed = e.changedInput(spec); changed != "" {
+				spec.ApprovalEpoch = 0
+			}
+		}
+		current := Fingerprint(pre.env, spec)
 		var stored *Result
-		if current != "" {
-			row, err := e.Store.DecidingEvalResult(ctx, e.SessionID, spec.ID, current)
+		if current != "" && Approved(spec) {
+			row, err := e.Store.DecidingEvalResult(ctx, e.SessionID, spec.ID, current, SpecDigest(spec), spec.ApprovalEpoch)
 			if err != nil {
-				return nil, storeErr(ctx, err)
+				return nil, e.interrupt(ctx, episode, fresh, storeErr(ctx, err))
 			}
 			if row != nil {
 				r := fromRow(*row)
@@ -99,17 +170,122 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string)
 			}
 		}
 		var tail string
-		result, passed, err := CheckVerdict(stored, current, func() (Result, error) {
-			r, t, err := e.run(ctx, spec, current, workUnitID, snap)
+		ran := false
+		result, passed, err := CheckVerdict(stored, current, spec, stored != nil && e.inRun(stored.Seq), func() (Result, error) {
+			ran = true
+			r, t, err := e.run(ctx, spec, current, workUnitID, pre, episode)
 			tail = t
 			return r, err
 		})
 		if err != nil {
-			return nil, err
+			return nil, e.interrupt(ctx, episode, fresh, err)
 		}
-		out = append(out, Verdict{Result: result, Passed: passed, Reused: stored != nil && passed && result.Seq == stored.Seq, Tail: tail})
+		if result.Status == StatusSpecUnapproved {
+			result.WorkUnitID, tail = workUnitID, ErrSpecUnapproved.Error()
+			if changed != "" {
+				tail = inputTail(changed)
+			}
+		}
+		if ran {
+			fresh[result.Seq] = len(out)
+		}
+		out = append(out, Verdict{Result: result, Passed: passed, Reused: !ran && passed, Tail: tail})
+	}
+	post, err := e.snapshot(ctx, false)
+	if err != nil {
+		return nil, e.interrupt(ctx, episode, fresh, err)
+	}
+	status := EpisodeClosed
+	if unchanged != nil {
+		same, err := unchanged(ctx)
+		if err != nil {
+			return nil, e.interrupt(ctx, episode, fresh, err)
+		}
+		if !same {
+			status = EpisodeSpecUnapproved
+		}
+	}
+	// An input that differs after the checks ran (or already differed) leaves the episode
+	// spec_unapproved, as a changed set does: nothing decided in it counts (CHECKS-002).
+	if status == EpisodeClosed {
+		for _, spec := range specs {
+			if Approved(spec) && e.changedInput(spec) != "" {
+				status = EpisodeSpecUnapproved
+				break
+			}
+		}
+	}
+	if status == EpisodeClosed && post.env != pre.env {
+		status = EpisodeScopeChanged
+	}
+	postFingerprints := make(map[int64]string, len(fresh))
+	for seq, i := range fresh {
+		postFingerprints[seq] = postFingerprint(post.env, specs[i])
+	}
+	if err := e.Store.CloseEpisode(ctx, e.SessionID, episode, status, postFingerprints); err != nil {
+		return nil, storeErr(ctx, err)
+	}
+	if status == EpisodeClosed {
+		seqs := make([]int64, 0, len(fresh))
+		for seq := range fresh {
+			seqs = append(seqs, seq)
+		}
+		e.register(seqs)
+	}
+	for seq, i := range fresh {
+		out[i].Result.EpisodeStatus, out[i].Result.PostFingerprint = status, postFingerprints[seq]
+	}
+	for i := range out {
+		if out[i].Result.Status == StatusSpecUnapproved {
+			continue
+		}
+		out[i].Episode = status
+		if status != EpisodeClosed && out[i].Passed {
+			out[i].Passed = false
+			out[i].Tail = episodeTail(status)
+		}
 	}
 	return out, nil
+}
+
+// postFingerprint is spec's fingerprint at the post snapshot; outside git there is none, and the
+// column stays empty.
+func postFingerprint(env Env, spec Spec) string { return Fingerprint(env, spec) }
+
+// episodeTail explains a verdict that ran or was reused but counts for nothing.
+func episodeTail(status string) string {
+	switch status {
+	case EpisodeScopeChanged:
+		return "the workspace changed while the checks ran (episode scope_changed); the result is kept as history and decides nothing"
+	case EpisodeSpecUnapproved:
+		return "the check definitions or their approval changed while the checks ran (episode spec_unapproved): " + ErrSpecUnapproved.Error()
+	}
+	return "the check episode did not close"
+}
+
+// interrupt closes the episode's open rows as interrupted, best effort and past the caller's
+// cancellation, and returns cause. A row it cannot close stays open, which satisfies nothing either.
+func (e *Evaluator) interrupt(ctx context.Context, episode string, fresh map[int64]int, cause error) error {
+	if len(fresh) == 0 {
+		return cause
+	}
+	post := make(map[int64]string, len(fresh))
+	for seq := range fresh {
+		post[seq] = ""
+	}
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	_ = e.Store.CloseEpisode(closeCtx, e.SessionID, episode, EpisodeInterrupted, post)
+	return cause
+}
+
+// newEpisodeID is a random episode id, "ep_" and 24 hex digits.
+func newEpisodeID() (string, error) {
+	var b [12]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return "ep_" + hex.EncodeToString(b[:]), nil
 }
 
 // Satisfied reports, without running anything, whether spec has a satisfying stored result at the
@@ -140,15 +316,15 @@ func (e *Evaluator) SatisfiedAll(ctx context.Context, specs []Spec) ([]bool, []*
 
 func (e *Evaluator) satisfied(ctx context.Context, spec Spec, env Env) (bool, *Result, error) {
 	current := Fingerprint(env, spec)
-	if current == "" {
+	if current == "" || !Approved(spec) || e.changedInput(spec) != "" {
 		return false, nil, nil
 	}
-	row, err := e.Store.DecidingEvalResult(ctx, e.SessionID, spec.ID, current)
+	row, err := e.Store.DecidingEvalResult(ctx, e.SessionID, spec.ID, current, SpecDigest(spec), spec.ApprovalEpoch)
 	if err != nil || row == nil {
 		return false, nil, storeErr(ctx, err)
 	}
 	r := fromRow(*row)
-	return Satisfies(r, current), &r, nil
+	return Satisfies(r, current, spec, e.inRun(r.Seq)), &r, nil
 }
 
 // Environment returns the workspace's current fingerprint environment.
@@ -157,13 +333,21 @@ func (e *Evaluator) Environment(ctx context.Context) (Env, error) {
 	return snap.env, err
 }
 
-// Accept records a person's acceptance of spec at the current fingerprint: a passed result with
-// provenance human:<actor>. It is a row, not a flag, and holds until the fingerprint changes. Outside
-// git it fails with ErrNoFingerprint.
+// Accept records a person's acceptance of spec at the current fingerprint under its approval: a passed
+// result with provenance human:<actor>, an episode of its own closed at the fingerprint the person saw.
+// It is a row, not a flag, and holds until the fingerprint or the approval changes. Outside git it
+// fails with ErrNoFingerprint; an unapproved spec, or one whose input differs in this workspace, fails
+// with ErrSpecUnapproved (ADR-0017: accepting a result is not approving the definition that produced it).
 func (e *Evaluator) Accept(ctx context.Context, spec Spec, actor string) (Result, error) {
 	actor = strings.TrimSpace(actor)
 	if actor == "" || len(actor) > 128 || strings.ContainsAny(actor, " \t\r\n") {
 		return Result{}, errors.New("actor must be 1-128 bytes without whitespace")
+	}
+	if !Approved(spec) {
+		return Result{}, ErrSpecUnapproved
+	}
+	if changed := e.changedInput(spec); changed != "" {
+		return Result{}, fmt.Errorf("%w: %s, which the check runs, is not the approved content", ErrSpecUnapproved, changed)
 	}
 	env, err := e.Environment(ctx)
 	if err != nil {
@@ -173,15 +357,23 @@ func (e *Evaluator) Accept(ctx context.Context, spec Spec, actor string) (Result
 	if current == "" {
 		return Result{}, ErrNoFingerprint
 	}
+	episode, err := newEpisodeID()
+	if err != nil {
+		return Result{}, err
+	}
 	r := Result{Check: spec.ID, Kind: spec.Kind, Status: StatusPassed, Provenance: ProvenanceHumanPrefix + actor,
-		Fingerprint: current, Artifacts: []string{}, At: time.Now().UTC()}
+		Fingerprint: current, SpecDigest: SpecDigest(spec), ApprovalEpoch: spec.ApprovalEpoch,
+		EpisodeID: episode, EpisodeStatus: EpisodeClosed, PreFingerprint: current, PostFingerprint: current,
+		Artifacts: []string{}, At: time.Now().UTC()}
 	return e.store(ctx, r)
 }
 
 func (e *Evaluator) store(ctx context.Context, r Result) (Result, error) {
 	seq, err := e.Store.AppendEvalResult(ctx, e.SessionID, session.EvalRow{
 		WorkUnitID: r.WorkUnitID, CheckID: r.Check, Kind: r.Kind, Status: r.Status, Provenance: r.Provenance,
-		Fingerprint: r.Fingerprint, Artifacts: r.Artifacts, At: r.At,
+		Fingerprint: r.Fingerprint, SpecDigest: r.SpecDigest, ApprovalEpoch: r.ApprovalEpoch,
+		EpisodeID: r.EpisodeID, EpisodeStatus: r.EpisodeStatus, PreFingerprint: r.PreFingerprint, PostFingerprint: r.PostFingerprint,
+		Artifacts: r.Artifacts, At: r.At,
 	})
 	if err != nil {
 		return Result{}, storeErr(ctx, err)
@@ -199,12 +391,14 @@ func fromRow(row session.EvalRow) Result {
 		artifacts = []string{}
 	}
 	return Result{Seq: row.Seq, WorkUnitID: row.WorkUnitID, Check: row.CheckID, Kind: row.Kind, Status: row.Status,
-		Provenance: row.Provenance, Fingerprint: row.Fingerprint, Artifacts: artifacts, At: row.At}
+		Provenance: row.Provenance, Fingerprint: row.Fingerprint, SpecDigest: row.SpecDigest, ApprovalEpoch: row.ApprovalEpoch,
+		EpisodeID: row.EpisodeID, EpisodeStatus: row.EpisodeStatus, PreFingerprint: row.PreFingerprint, PostFingerprint: row.PostFingerprint,
+		Artifacts: artifacts, At: row.At}
 }
 
-// run executes spec once and stores its runtime result, with its log and, unless it passed, the diff
-// its fingerprint covers.
-func (e *Evaluator) run(ctx context.Context, spec Spec, fingerprint, workUnitID string, snap snapshot) (Result, string, error) {
+// run executes spec once as part of episode and stores its runtime result open in it, with its log
+// and, unless it passed, the diff its fingerprint covers.
+func (e *Evaluator) run(ctx context.Context, spec Spec, fingerprint, workUnitID string, snap snapshot, episode string) (Result, string, error) {
 	var (
 		status string
 		log    []byte
@@ -235,7 +429,9 @@ func (e *Evaluator) run(ctx context.Context, spec Spec, fingerprint, workUnitID 
 		artifacts = append(artifacts, diffArtifact)
 	}
 	stored, err := e.store(ctx, Result{WorkUnitID: workUnitID, Check: spec.ID, Kind: spec.Kind, Status: status,
-		Provenance: ProvenanceRuntime, Fingerprint: fingerprint, Artifacts: artifacts, At: at})
+		Provenance: ProvenanceRuntime, Fingerprint: fingerprint, SpecDigest: SpecDigest(spec), ApprovalEpoch: spec.ApprovalEpoch,
+		EpisodeID: episode, EpisodeStatus: EpisodeOpen, PreFingerprint: fingerprint,
+		Artifacts: artifacts, At: at})
 	if err != nil {
 		return Result{}, "", err
 	}

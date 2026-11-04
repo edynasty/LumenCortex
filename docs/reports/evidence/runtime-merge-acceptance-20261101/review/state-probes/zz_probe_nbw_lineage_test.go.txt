@@ -1,0 +1,62 @@
+package runtime
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/edynasty/LumenCortex/protocol"
+)
+
+func zzDump(t *testing.T, engine *Engine, sessionID string) string {
+	t.Helper()
+	db, err := sql.Open("sqlite3", "file:"+engine.store.Path()+"?mode=ro&_busy_timeout=5000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var assistants, answered, envelopes int64
+	_ = db.QueryRow(`SELECT (SELECT COUNT(*) FROM session_messages WHERE session_id = ?1 AND role = 'assistant'),
+		(SELECT COUNT(*) FROM request_envelopes WHERE session_id = ?1 AND answered_seq IS NOT NULL),
+		(SELECT COUNT(*) FROM request_envelopes WHERE session_id = ?1)`, sessionID).Scan(&assistants, &answered, &envelopes)
+	rows, err := db.Query(`SELECT kind, target_ref, source_kind, source_ref, lineage_complete FROM derived_origins WHERE session_id = ?`, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var edges []string
+	for rows.Next() {
+		var k, tr, sk, sr string
+		var lc int
+		_ = rows.Scan(&k, &tr, &sk, &sr, &lc)
+		edges = append(edges, fmt.Sprintf("%s %s<-%s:%s complete=%d", k, tr, sk, sr, lc))
+	}
+	return fmt.Sprintf("assistants=%d answered=%d envelopes=%d edges=[%s]", assistants, answered, envelopes, strings.Join(edges, "; "))
+}
+
+// Why is the reader isolated with incomplete_lineage? Dump before any notebook read, after it, and
+// after the revocation, for the parent the fixtures build.
+func TestZZProbeNBWLineageCause(t *testing.T) {
+	engine, parent := notebookEngine(t)
+	ctx := context.Background()
+	t.Logf("PROBE L fresh parent: %s", zzDump(t, engine, parent))
+	child, _ := childWithNotebook(t, engine, parent)
+	plain := &notebookProvider{responses: []protocol.ProviderResponse{finalResponse("hi")}}
+	r0, err0 := engine.runAgentWith(ctx, parent, plain, AgentOptions{Input: "hello", Policy: "read-only", MaxSteps: 2})
+	t.Logf("PROBE L after a plain run (%q %v): %s", r0.Status, err0, zzDump(t, engine, parent))
+	p0, _ := engine.store.Projection(ctx, parent)
+	t.Logf("PROBE L projection before any read: isolated=%q open=%v", p0.Isolated, p0.Open)
+	reader := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("nb1", "notebook_read", `{"notebook":"research","session_id":"`+child+`"}`),
+	}}
+	r1, err1 := engine.runAgentWith(ctx, parent, reader, AgentOptions{Input: "read", Policy: "read-only", MaxSteps: 1})
+	t.Logf("PROBE L after the read (%q %v): %s", r1.Status, err1, zzDump(t, engine, parent))
+	t.Logf("PROBE L child: %s", zzDump(t, engine, child))
+	if _, err := engine.RevokeSource(ctx, SourceSession, child, "user_revoked"); err != nil {
+		t.Fatal(err)
+	}
+	p1, err := engine.store.Projection(ctx, parent)
+	t.Logf("PROBE L projection after the revocation: isolated=%q open=%v withheld=%v err=%v", p1.Isolated, p1.Open, p1.Withheld, err)
+}

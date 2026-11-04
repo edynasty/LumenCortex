@@ -11,13 +11,13 @@ import (
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
 	"github.com/edynasty/LumenCortex/internal/instructions"
-	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/skills"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/internal/toolset"
 	"github.com/edynasty/LumenCortex/internal/workflow"
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 // The kinds of layer a run's prompt is made of, in the order the run sends them (ADR-0013).
@@ -76,7 +76,8 @@ type PromptLayer struct {
 // PromptTool is one tool a run's step could offer.
 type PromptTool struct {
 	Name string `json:"name"`
-	// Permission is the tool's permission class: read, write, exec or delegate.
+	// Permission is the tool's permission class: read, write, exec, delegate or state (a tool that
+	// writes only the run's own durable state, admitted under every policy).
 	Permission string `json:"permission"`
 	// Source is where the tool came from: builtin, task, lsp, mcp:<serverID> or delegation.
 	Source string `json:"source"`
@@ -392,16 +393,16 @@ func (e *Engine) EffectivePrompt(ctx context.Context, req EffectivePromptRequest
 		})
 	}
 
-	allowlist := req.ToolAllowlist
+	allowlist := protocol.CanonicalToolNames(req.ToolAllowlist)
 	if wf != nil {
 		allowlist = wf.EffectiveAllowlist(allowlist)
 	}
-	tools, err := e.promptTools(workspace, policy, child, sessionID, req.Subagents, eff.DelegationAgents(config.AgentInfo.SpawnEligible), newSkillReader(prompt.Skills.Included))
+	tools, err := e.promptTools(workspace, policy, child, eff.Trusted, sessionID, req.Subagents, eff.DelegationAgents(config.AgentInfo.SpawnEligible), newSkillReader(prompt.Skills.Included))
 	if err != nil {
 		return EffectivePromptResult{}, err
 	}
 	stepTools := agent.StepTools(tools, agent.StepToolsInput{
-		Allowlist: allowlist, Denylist: req.ToolDenylist,
+		Allowlist: allowlist, Denylist: protocol.CanonicalToolNames(req.ToolDenylist),
 		Delegation: delegation, Tasks: req.Subagents && !child,
 		TaskAgents: eff.DelegationAgents(config.AgentInfo.TaskEligible),
 	})
@@ -417,21 +418,22 @@ func (e *Engine) EffectivePrompt(ctx context.Context, req EffectivePromptRequest
 
 // promptTools builds the toolset a run of the session would have, without starting anything: no MCP
 // server is launched and no provider client is built. The toolset only registers what is already
-// running, which is exactly what a run would see.
-func (e *Engine) promptTools(workspace, policy string, child bool, sessionID string, subagents bool, spawnAgents []config.AgentInfo, skillTools toolset.SkillReader) (*toolset.Set, error) {
+// running, which is exactly what a run would see. trusted is the workspace's trust, which decides the
+// language-server tools as at Start (ADR-0013).
+func (e *Engine) promptTools(workspace, policy string, child, trusted bool, sessionID string, subagents bool, spawnAgents []config.AgentInfo, skillTools toolset.SkillReader) (*toolset.Set, error) {
 	runner := e.shell
 	if workspace != e.workspace {
 		runner = shell.New(workspace)
 	}
-	var lspManager *lsp.Manager
-	e.lspMu.Lock()
-	if candidate := e.lspManagers[workspace]; candidate != nil && candidate.Status().Running {
-		lspManager = candidate
-	}
-	e.lspMu.Unlock()
+	lspAccess := e.lspForRun(workspace, trusted)
 	registry := e.mcpRegistry
 	var controller toolset.SubagentController
 	var threads toolset.ThreadReader
+	var wakeupBinding toolset.WakeupController
+	// The working notebook is bound per run to the run's session (ADR-0020). A report without a
+	// session describes a run that will have one, so it lists the session-bound tools too - the
+	// notebook, the thread readers and the wake-ups; nothing here executes them.
+	notebooks := toolset.NotebookStore(newNotebookAccess(e, sessionID, "report"))
 	if child {
 		// A child runs without MCP, without spawn tools and without threads of its own.
 		registry = nil
@@ -439,20 +441,28 @@ func (e *Engine) promptTools(workspace, policy string, child bool, sessionID str
 		if subagents {
 			controller = reportSubagents{}
 		}
-		if sessionID != "" {
-			threads = threadReader{engine: e, sessionID: sessionID, workspace: workspace}
+		threads = threadReader{engine: e, sessionID: sessionID, workspace: workspace}
+		// A thread's run schedules its own wake-ups; a child's lifecycle belongs to its parent.
+		if e.schedules != nil {
+			wakeupBinding = wakeups{engine: e, sessionID: sessionID, policy: policy}
 		}
 	}
 	return toolset.New(toolset.Options{
 		Workspace:      workspace,
 		Policy:         policy,
 		Shell:          runner,
-		LSP:            lspManager,
+		LSP:            lspAccess,
 		MCP:            registry,
 		Subagents:      controller,
 		SubagentAgents: spawnAgents,
 		Threads:        threads,
 		Skills:         skillTools,
+		Notebook:       notebooks,
+		// The run's job queue gives bash its background mode and the job tools (ADR-0019 §3); a report
+		// registers them and submits nothing.
+		Jobs:    e.runJobs(sessionID, "report", workspace),
+		Wakeups: wakeupBinding,
+		Logger:  e.log.With("session_id", sessionID),
 	})
 }
 

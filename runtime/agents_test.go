@@ -179,7 +179,7 @@ func TestAgentCeilingsCapTheGrant(t *testing.T) {
 	}
 	waitUntilIdle(t, supervisor, handle.ID, 5*time.Second)
 	names := toolNames(p.requests[0])
-	if containsString(names, "shell") || containsString(names, "write_file") || containsString(names, "start_task") {
+	if containsString(names, "bash") || containsString(names, "write_file") || containsString(names, "start_task") {
 		t.Fatalf("ask exposed write or delegation tools: %v", names)
 	}
 	if !containsString(names, "read_file") {
@@ -362,7 +362,7 @@ func TestAgentListFailoverWithPerEntryEffort(t *testing.T) {
 		Failover []string
 	}
 	for _, d := range steps(t, engine, other.ID)[0].Decisions {
-		if d.Rule == agent.RuleModelCandidates {
+		if d.Rule == agent.RuleModelCandidates || d.Rule == agent.RuleModelCandidatesRetained {
 			decodeJSON(t, d.Inputs, &cands)
 		}
 	}

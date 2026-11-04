@@ -80,7 +80,7 @@ Top level:
   "title": "Independent verification",
   "description": "Run the relevant tests.",
   "terminal": true,
-  "allowedTools": ["read_file", "shell"],
+  "allowedTools": ["read_file", "bash"],
   "requires": { "fact": "implementation.changed", "equals": true },
   "outcomes": [],
   "routes": [],
@@ -110,7 +110,7 @@ Outcome example:
   "id": "tests-pass",
   "when": {
     "all": [
-      { "tool": "shell" },
+      { "tool": "bash" },
       { "arg": "command", "contains": "test" },
       { "result": "exitCode", "equals": 0 }
     ]
@@ -215,7 +215,7 @@ Comparators:
 Matches the tool name.
 
 ```json
-{ "tool": "shell" }
+{ "tool": "bash" }
 ```
 
 May also be an array.

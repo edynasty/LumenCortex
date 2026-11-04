@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -239,11 +240,81 @@ func TestEffectivePromptMatchesARealRun(t *testing.T) {
 	}
 }
 
+// Under the full policy a run is offered bash's background mode, the job tools and the wake-up tools.
+// The prompt report, the capability registry and the schema cost all describe that same list: each
+// once listed only part of it (the report had no job queue or wake-ups, the registry only the eight
+// file and command tools).
+func TestToolCatalogsMatchAFullPolicyRun(t *testing.T) {
+	f := newPromptFixture(t, true)
+	provider := &recordingProvider{final: "answered"}
+	bindRef(f.engine, "a", provider)
+	supervisor, err := NewRunSupervisor(f.engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer supervisor.Close()
+	handle := newTestSession(t, f.engine, "run the tests in the background")
+	if _, err := supervisor.Start(context.Background(), handle.ID, AgentOptions{Policy: "full", Interactive: true, MaxSteps: 2}); err != nil {
+		t.Fatal(err)
+	}
+	waitUntilIdle(t, supervisor, handle.ID, 5*time.Second)
+	if len(provider.requests) != 1 {
+		t.Fatalf("requests=%d", len(provider.requests))
+	}
+	sent := map[string]string{}
+	for _, spec := range provider.requests[0].Tools {
+		sent[spec.Name] = spec.Permission
+	}
+	for _, name := range []string{"bash", "job_wait", "wakeup_schedule", "notebook_update", "read_thread", "read_skill", "work_unit_list"} {
+		if _, ok := sent[name]; !ok {
+			t.Fatalf("the run was not offered %s: %v", name, sent)
+		}
+	}
+
+	report, err := f.engine.EffectivePrompt(context.Background(), EffectivePromptRequest{SessionID: handle.ID, Policy: "full", Interactive: true, Subagents: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reported := map[string]string{}
+	for _, tool := range report.Tools {
+		if tool.Included {
+			reported[tool.Name] = tool.Permission
+		}
+	}
+	if !maps.Equal(reported, sent) {
+		t.Fatalf("report=%v\nrun=%v", reported, sent)
+	}
+
+	cost, err := f.engine.ToolSchemaCost(context.Background(), CapabilityQuery{SessionID: handle.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The same specs in another order marshal to the same length.
+	if cost.BuiltinTools != len(sent) || cost.BuiltinBytes != specBytes(provider.requests[0].Tools) {
+		t.Fatalf("schema cost %d tools / %d bytes, the run sent %d tools / %d bytes",
+			cost.BuiltinTools, cost.BuiltinBytes, len(sent), specBytes(provider.requests[0].Tools))
+	}
+
+	capabilities, err := f.engine.Capabilities(context.Background(), CapabilityQuery{SessionID: handle.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]string{}
+	for _, capability := range capabilities {
+		listed[capability.ToolID] = capability.Permission
+	}
+	for name, permission := range sent {
+		if listed[name] != permission {
+			t.Fatalf("capability %s: listed %q, the run sent %q", name, listed[name], permission)
+		}
+	}
+}
+
 // A tool the run withholds is still reported, with the filter that withheld it.
 func TestEffectivePromptReportsWithheldTools(t *testing.T) {
 	f := newPromptFixture(t, true)
 	report, err := f.engine.EffectivePrompt(context.Background(), EffectivePromptRequest{
-		Agent: "ask", Policy: "read-only", ToolDenylist: []string{"git_diff"},
+		Agent: "ask", Policy: "read-only", ToolDenylist: []string{"find_files"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -252,14 +323,14 @@ func TestEffectivePromptReportsWithheldTools(t *testing.T) {
 	for _, tool := range report.Tools {
 		tools[tool.Name] = tool
 	}
-	if tool := tools["shell"]; tool.Included || tool.Reason != "policy" {
-		t.Fatalf("shell=%+v", tool)
+	if tool := tools["bash"]; tool.Included || tool.Reason != "policy" {
+		t.Fatalf("bash=%+v", tool)
 	}
 	if tool := tools["write_file"]; tool.Included || tool.Reason != "policy" {
 		t.Fatalf("write_file=%+v", tool)
 	}
-	if tool := tools["git_diff"]; tool.Included || tool.Reason != "denylist" {
-		t.Fatalf("git_diff=%+v", tool)
+	if tool := tools["find_files"]; tool.Included || tool.Reason != "denylist" {
+		t.Fatalf("find_files=%+v", tool)
 	}
 	if tool := tools["start_task"]; tool.Included || tool.Reason != "delegation" {
 		t.Fatalf("start_task=%+v", tool)
@@ -369,7 +440,7 @@ func TestEffectivePromptChildAuthority(t *testing.T) {
 		t.Fatalf("child grant=%s/%q agent=%s", report.Policy, report.Delegation, report.Agent)
 	}
 	for _, tool := range report.Tools {
-		if tool.Name == "shell" && tool.Included {
+		if tool.Name == "bash" && tool.Included {
 			t.Fatalf("a child report offers shell: %+v", tool)
 		}
 		if tool.Name == "start_task" && tool.Included {

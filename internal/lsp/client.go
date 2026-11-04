@@ -20,36 +20,39 @@ import (
 )
 
 var (
-	ErrClosed        = errors.New("lsp client is closed")
-	ErrTooManyPending = errors.New("lsp pending request limit exceeded")
-	ErrMessageTooLarge = errors.New("lsp message exceeds runtime limit")
+	ErrClosed           = errors.New("lsp client is closed")
+	ErrTooManyPending   = errors.New("lsp pending request limit exceeded")
+	ErrMessageTooLarge  = errors.New("lsp message exceeds runtime limit")
 	ErrDocumentTooLarge = errors.New("lsp document exceeds runtime limit")
 )
 
 type Client struct {
-	cfg Config
-	cmd *exec.Cmd
-	stdin io.WriteCloser
+	cfg    Config
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
 	stdout *bufio.Reader
 	cancel context.CancelFunc
 
-	writeMu sync.Mutex
+	writeMu   sync.Mutex
 	pendingMu sync.Mutex
-	pending map[int64]chan response
-	nextID atomic.Int64
+	pending   map[int64]chan response
+	nextID    atomic.Int64
 
-	diagMu sync.RWMutex
+	diagMu      sync.RWMutex
 	diagnostics map[string][]Diagnostic
+	// diagUpdates is closed and replaced whenever a diagnostics notification arrives, so a waiting
+	// Diagnostics call wakes on the update instead of polling.
+	diagUpdates chan struct{}
 
-	docMu sync.Mutex
+	docMu     sync.Mutex
 	documents map[string]documentState
 
-	statusMu sync.RWMutex
+	statusMu  sync.RWMutex
 	lastError string
-	closed atomic.Bool
-	closing atomic.Bool
+	closed    atomic.Bool
+	closing   atomic.Bool
 	closeOnce sync.Once
-	done chan struct{}
+	done      chan struct{}
 }
 
 func Start(ctx context.Context, cfg Config) (*Client, error) {
@@ -83,25 +86,32 @@ func Start(ctx context.Context, cfg Config) (*Client, error) {
 	}
 	stderr := &boundedBuffer{max: 128 << 10}
 	cmd.Stderr = stderr
+	// A server that leaves a grandchild holding its pipes must not make Close wait forever.
+	cmd.WaitDelay = 2 * time.Second
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return nil, err
 	}
 
 	c := &Client{
-		cfg: cfg,
-		cmd: cmd,
-		stdin: stdin,
-		stdout: bufio.NewReaderSize(stdoutPipe, 64<<10),
-		cancel: cancel,
-		pending: make(map[int64]chan response),
+		cfg:         cfg,
+		cmd:         cmd,
+		stdin:       stdin,
+		stdout:      bufio.NewReaderSize(stdoutPipe, 64<<10),
+		cancel:      cancel,
+		pending:     make(map[int64]chan response),
 		diagnostics: make(map[string][]Diagnostic),
-		documents: make(map[string]documentState),
-		done: make(chan struct{}),
+		diagUpdates: make(chan struct{}),
+		documents:   make(map[string]documentState),
+		done:        make(chan struct{}),
 	}
 	go c.readLoop(stderr)
 
-	initCtx, initCancel := context.WithTimeout(ctx, 10*time.Second)
+	initTimeout := cfg.StartTimeout
+	if initTimeout <= 0 {
+		initTimeout = DefaultStartTimeout
+	}
+	initCtx, initCancel := context.WithTimeout(ctx, initTimeout)
 	defer initCancel()
 	var initializeResult json.RawMessage
 	if err := c.Request(initCtx, "initialize", c.initializeParams(), &initializeResult); err != nil {
@@ -118,21 +128,21 @@ func Start(ctx context.Context, cfg Config) (*Client, error) {
 func (c *Client) initializeParams() map[string]any {
 	rootURI := fileURI(c.cfg.Workspace)
 	return map[string]any{
-		"processId": os.Getpid(),
-		"rootUri": rootURI,
+		"processId":        os.Getpid(),
+		"rootUri":          rootURI,
 		"workspaceFolders": []map[string]any{{"uri": rootURI, "name": filepath.Base(c.cfg.Workspace)}},
 		"capabilities": map[string]any{
 			"textDocument": map[string]any{
-				"hover": map[string]any{},
-				"definition": map[string]any{},
-				"references": map[string]any{},
-				"documentSymbol": map[string]any{},
-				"rename": map[string]any{},
+				"hover":              map[string]any{},
+				"definition":         map[string]any{},
+				"references":         map[string]any{},
+				"documentSymbol":     map[string]any{},
+				"rename":             map[string]any{},
 				"publishDiagnostics": map[string]any{},
-				"synchronization": map[string]any{"didSave": true},
+				"synchronization":    map[string]any{"didSave": true},
 			},
 			"workspace": map[string]any{
-				"symbol": map[string]any{},
+				"symbol":           map[string]any{},
 				"workspaceFolders": true,
 			},
 		},
@@ -160,9 +170,9 @@ func (c *Client) request(ctx context.Context, method string, params any, result 
 
 	if err := c.writeMessage(map[string]any{
 		"jsonrpc": "2.0",
-		"id": id,
-		"method": method,
-		"params": params,
+		"id":      id,
+		"method":  method,
+		"params":  params,
 	}, allowClosing); err != nil {
 		c.removePending(id)
 		return err
@@ -200,8 +210,8 @@ func (c *Client) notify(method string, params any, allowClosing bool) error {
 	}
 	return c.writeMessage(map[string]any{
 		"jsonrpc": "2.0",
-		"method": method,
-		"params": params,
+		"method":  method,
+		"params":  params,
 	}, allowClosing)
 }
 
@@ -288,9 +298,13 @@ func (c *Client) handleNotification(msg envelope) {
 		}
 		c.diagMu.Lock()
 		c.diagnostics[params.URI] = append([]Diagnostic(nil), params.Diagnostics...)
+		close(c.diagUpdates)
+		c.diagUpdates = make(chan struct{})
 		c.diagMu.Unlock()
 	case "window/logMessage", "window/showMessage":
-		var payload struct { Message string `json:"message"` }
+		var payload struct {
+			Message string `json:"message"`
+		}
 		if json.Unmarshal(msg.Params, &payload) == nil && strings.TrimSpace(payload.Message) != "" {
 			c.setLastError("")
 		}
@@ -308,7 +322,9 @@ func (c *Client) handleServerRequest(msg envelope) {
 	case "client/registerCapability", "client/unregisterCapability", "window/workDoneProgress/create":
 		result = nil
 	case "workspace/configuration":
-		var params struct { Items []json.RawMessage `json:"items"` }
+		var params struct {
+			Items []json.RawMessage `json:"items"`
+		}
 		_ = json.Unmarshal(msg.Params, &params)
 		result = make([]any, len(params.Items))
 	case "workspace/workspaceFolders":
@@ -341,12 +357,12 @@ func (c *Client) Status() Status {
 	c.statusMu.RUnlock()
 
 	status := Status{
-		Running: !c.closed.Load(),
-		Name: c.cfg.Name,
-		Command: c.cfg.Command,
+		Running:         !c.closed.Load(),
+		Name:            c.cfg.Name,
+		Command:         c.cfg.Command,
 		PendingRequests: pending,
-		Diagnostics: diagnostics,
-		LastError: lastError,
+		Diagnostics:     diagnostics,
+		LastError:       lastError,
 	}
 	if c.cmd != nil && c.cmd.Process != nil {
 		status.PID = c.cmd.Process.Pid
@@ -359,15 +375,15 @@ func (c *Client) Diagnostics(ctx context.Context, path string) ([]Diagnostic, er
 	if err != nil {
 		return nil, err
 	}
+	// The server pushes diagnostics as it computes them; this waits for the push, bounded by a short
+	// timer so a server that publishes none does not hold the call.
 	deadline := time.NewTimer(350 * time.Millisecond)
 	defer deadline.Stop()
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-
 	for {
 		c.diagMu.RLock()
 		items, ok := c.diagnostics[doc.uri]
 		out := append([]Diagnostic(nil), items...)
+		updates := c.diagUpdates
 		c.diagMu.RUnlock()
 		if ok {
 			return out, nil
@@ -375,12 +391,18 @@ func (c *Client) Diagnostics(ctx context.Context, path string) ([]Diagnostic, er
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
+		case <-c.done:
+			return nil, ErrClosed
 		case <-deadline.C:
 			return []Diagnostic{}, nil
-		case <-ticker.C:
+		case <-updates:
 		}
 	}
 }
+
+// Done is closed when the server's output ends: the server exited or the client was closed. A
+// Manager watches it to notice a crash.
+func (c *Client) Done() <-chan struct{} { return c.done }
 
 func (c *Client) Close() error {
 	var closeErr error
@@ -395,9 +417,17 @@ func (c *Client) Close() error {
 			c.closed.Store(true)
 		}
 		_ = c.stdin.Close()
+		// The process is killed through the command context; a server that already exited on the
+		// exit notification reports its own exit status, which is not an error here.
 		c.cancel()
 		if c.cmd != nil {
+			// Wait reports the process's own exit status, and the kill this call just caused as the
+			// command context's error: neither is a failure of the close.
 			closeErr = c.cmd.Wait()
+			var exit *exec.ExitError
+			if errors.As(closeErr, &exit) || errors.Is(closeErr, context.Canceled) {
+				closeErr = nil
+			}
 		}
 		c.failAllPending(ErrClosed)
 	})
@@ -491,7 +521,7 @@ func fileURI(path string) string {
 }
 
 type boundedBuffer struct {
-	mu sync.Mutex
+	mu  sync.Mutex
 	buf bytes.Buffer
 	max int
 }

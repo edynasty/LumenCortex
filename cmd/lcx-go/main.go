@@ -4,16 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/cognition"
 	lcx "github.com/edynasty/LumenCortex/runtime"
 )
+
+// processStart anchors LCX_DEADLINE given as a duration: it is read on the monotonic clock.
+var processStart = time.Now()
 
 func main() {
 	if err := run(); err != nil {
@@ -122,11 +127,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		result, err := engine.RunAgent(ctx, h.ID, agentOpts)
-		if err != nil {
-			return err
-		}
-		return printJSON(result)
+		return printRunResult(engine.RunAgent(ctx, h.ID, agentOpts))
 	case "resume":
 		if len(args) != 2 {
 			return fmt.Errorf("usage: lcx-go resume <session-id>")
@@ -139,7 +140,12 @@ func run() error {
 			return err
 		}
 		// The session runs on its pinned model; the Engine reads it from the session row.
-		result, err := engine.RunAgent(ctx, args[1], agentOpts)
+		return printRunResult(engine.RunAgent(ctx, args[1], agentOpts))
+	case "delivery-verify":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: lcx-go delivery-verify <session-id>")
+		}
+		result, err := engine.VerifyDelivery(ctx, args[1])
 		if err != nil {
 			return err
 		}
@@ -217,8 +223,10 @@ func run() error {
 		return runImportCommand(ctx, engine, args[1:])
 	case "plugins":
 		return runPluginsCommand(ctx, engine, args[1:])
+	case "checks":
+		return runChecksCommand(ctx, engine, os.Stdout, args[1:])
 	default:
-		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, session-delete, shell, agent, resume, governor, approve, worktree, skills, agents, import, plugins)", args[0])
+		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, session-delete, shell, agent, resume, delivery-verify, governor, approve, worktree, skills, agents, import, plugins, checks)", args[0])
 	}
 }
 
@@ -468,9 +476,9 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 	if policy == "" {
 		policy = "read-only"
 	}
-	maxSteps := envInt("LCX_MAX_STEPS", 24)
+	maxSteps := envInt("LCX_MAX_STEPS", config.DefaultMaxSteps)
 	maxTokens := envInt("LCX_MAX_TOKENS", 0)
-	maxToolCalls := envInt("LCX_MAX_TOOL_CALLS_PER_STEP", 8)
+	maxToolCalls := envInt("LCX_MAX_TOOL_CALLS_PER_STEP", 0)
 	var workflow []byte
 	if path := strings.TrimSpace(os.Getenv("LCX_WORKFLOW")); path != "" {
 		var err error
@@ -487,16 +495,126 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 			return lcx.AgentOptions{}, fmt.Errorf("read LCX_WORK_UNITS %q: %w", path, err)
 		}
 	}
+	var delivery *lcx.DeliveryContract
+	if path := strings.TrimSpace(os.Getenv("LCX_DELIVERY")); path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return lcx.AgentOptions{}, fmt.Errorf("read LCX_DELIVERY: %w", err)
+		}
+		delivery = &lcx.DeliveryContract{}
+		if err := json.Unmarshal(raw, delivery); err != nil {
+			return lcx.AgentOptions{}, fmt.Errorf("decode LCX_DELIVERY: %w", err)
+		}
+		if err := delivery.Validate(); err != nil {
+			return lcx.AgentOptions{}, err
+		}
+	}
+	deadline, err := deadlineFromEnv(processStart)
+	if err != nil {
+		return lcx.AgentOptions{}, err
+	}
+	reserve := 0
+	if value := strings.TrimSpace(os.Getenv("LCX_DEADLINE_RESERVE")); value != "" {
+		d, err := time.ParseDuration(value)
+		if err != nil || d <= 0 {
+			return lcx.AgentOptions{}, fmt.Errorf("LCX_DEADLINE_RESERVE %q: want a positive Go duration such as 90s", value)
+		}
+		reserve = int(d.Round(time.Second) / time.Second)
+	}
+	budget, err := budgetFromEnv()
+	if err != nil {
+		return lcx.AgentOptions{}, err
+	}
+	var retry *config.Retry
+	if envBool("LCX_DISABLE_RETRIES") {
+		retry = &config.Retry{Disabled: true}
+	}
 	return lcx.AgentOptions{
-		Agent:               strings.TrimSpace(os.Getenv("LCX_AGENT")),
-		Policy:              policy,
-		MaxSteps:            maxSteps,
-		MaxTokens:           maxTokens,
-		MaxToolCallsPerStep: maxToolCalls,
-		Effort:              config.Effort(strings.TrimSpace(os.Getenv("LCX_EFFORT"))),
-		Workflow:            workflow,
-		WorkUnits:           workUnits,
+		Agent:                  strings.TrimSpace(os.Getenv("LCX_AGENT")),
+		Policy:                 policy,
+		MaxSteps:               maxSteps,
+		MaxTokens:              maxTokens,
+		MaxToolCallsPerStep:    maxToolCalls,
+		Effort:                 config.Effort(strings.TrimSpace(os.Getenv("LCX_EFFORT"))),
+		Workflow:               workflow,
+		WorkUnits:              workUnits,
+		Delivery:               delivery,
+		Deadline:               deadline,
+		DeadlineReserveSeconds: reserve,
+		Budget:                 budget,
+		Retry:                  retry,
 	}, nil
+}
+
+// budgetFromEnv reads the run's budget (ADR-0019 §6): LCX_MAX_TOOL_CALLS, LCX_MAX_MODEL_REQUESTS and
+// LCX_TOKEN_BUDGET as positive integers, LCX_COST_WARNING_USD and LCX_COST_LIMIT_USD as positive
+// numbers. Unset leaves execution.budget of the global file; a malformed value is an error, never
+// silently no limit.
+func budgetFromEnv() (*config.Budget, error) {
+	var b config.Budget
+	set := false
+	for _, v := range []struct {
+		name string
+		dst  *int64
+	}{{"LCX_TOKEN_BUDGET", &b.TokenBudget}} {
+		if value := strings.TrimSpace(os.Getenv(v.name)); value != "" {
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n <= 0 {
+				return nil, fmt.Errorf("%s %q: want a positive integer", v.name, value)
+			}
+			*v.dst, set = n, true
+		}
+	}
+	for _, v := range []struct {
+		name string
+		dst  *int
+	}{{"LCX_MAX_TOOL_CALLS", &b.MaxToolCalls}, {"LCX_MAX_MODEL_REQUESTS", &b.MaxModelRequests}} {
+		if value := strings.TrimSpace(os.Getenv(v.name)); value != "" {
+			n, err := strconv.Atoi(value)
+			if err != nil || n <= 0 {
+				return nil, fmt.Errorf("%s %q: want a positive integer", v.name, value)
+			}
+			*v.dst, set = n, true
+		}
+	}
+	for _, v := range []struct {
+		name string
+		dst  *float64
+	}{{"LCX_COST_WARNING_USD", &b.CostWarningUSD}, {"LCX_COST_LIMIT_USD", &b.CostLimitUSD}} {
+		if value := strings.TrimSpace(os.Getenv(v.name)); value != "" {
+			n, err := strconv.ParseFloat(value, 64)
+			if err != nil || !(n > 0) || math.IsInf(n, 0) {
+				return nil, fmt.Errorf("%s %q: want a positive number of US dollars", v.name, value)
+			}
+			*v.dst, set = n, true
+		}
+	}
+	if !set {
+		return nil, nil
+	}
+	return &b, nil
+}
+
+// deadlineFromEnv reads LCX_DEADLINE (ADR-0019 §2): a Go duration counted from start (the process start,
+// on the monotonic clock), or an RFC 3339 time. Unset is no deadline; anything else is an error, never
+// silently no deadline.
+func deadlineFromEnv(start time.Time) (*time.Time, error) {
+	value := strings.TrimSpace(os.Getenv("LCX_DEADLINE"))
+	if value == "" {
+		return nil, nil
+	}
+	if d, err := time.ParseDuration(value); err == nil {
+		if d <= 0 {
+			return nil, fmt.Errorf("LCX_DEADLINE %q: a duration must be positive", value)
+		}
+		at := start.Add(d)
+		return &at, nil
+	}
+	at, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, fmt.Errorf("LCX_DEADLINE %q: want a Go duration from process start (870s) or an RFC 3339 time", value)
+	}
+	return &at, nil
 }
 
 func streamEvents(engine *lcx.Engine) func() {
@@ -529,6 +647,18 @@ func envInt(name string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+// printRunResult prints the result of a run that reached an exit, an interrupted or failed one too, so
+// its status and spend are on stdout; the run's error still makes the exit code non-zero. A run that
+// never started (no session in the result) prints nothing.
+func printRunResult(result lcx.AgentResult, err error) error {
+	if result.SessionID != "" {
+		if printErr := printJSON(result); err == nil {
+			return printErr
+		}
+	}
+	return err
 }
 
 func printJSON(v any) error {

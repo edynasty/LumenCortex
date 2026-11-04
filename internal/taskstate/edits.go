@@ -18,6 +18,8 @@ type Edit struct {
 	Reference *ReferenceEdit `json:"reference,omitempty"`
 	Resolve   *ResolveEdit   `json:"resolve,omitempty"`
 	Note      *NoteEdit      `json:"note,omitempty"`
+	// Constraint selects, removes or accepts a deviation from one constraint (constraints.go).
+	Constraint *ConstraintEdit `json:"constraint,omitempty"`
 }
 
 // ReferenceEdit includes, excludes or removes one reference as the user.
@@ -81,8 +83,14 @@ func (e Edit) Validate() error {
 			return err
 		}
 	}
+	if e.Constraint != nil {
+		set++
+		if err := e.Constraint.validate(); err != nil {
+			return err
+		}
+	}
 	if set != 1 {
-		return errors.New("an edit sets exactly one of brief, reference, resolve or note")
+		return errors.New("an edit sets exactly one of brief, reference, resolve, note or constraint")
 	}
 	return nil
 }
@@ -113,6 +121,8 @@ func (s *State) Apply(edits []QueuedEdit) {
 			s.resolve(e.Resolve.State, strings.TrimSpace(e.Resolve.Actor), at)
 		case e.Note != nil:
 			s.setNote(*e.Note, at)
+		case e.Constraint != nil:
+			s.setConstraint(*e.Constraint, at)
 		}
 	}
 }

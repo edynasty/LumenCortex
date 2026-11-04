@@ -1,0 +1,733 @@
+// Tool-exposure measurement driver for LumenCortex Core (rt/execution-runtime).
+//
+// No paid model: an in-process OpenAI-compatible SSE server answers every request and records each
+// request body verbatim. Everything else is real: the Engine, its SQLite state, the run supervisor,
+// subagents, execution tasks, the toolset, MCP catalog discovery and the language-server detection.
+//
+// Per profile it records the first model request's `tools` value exactly as sent, the tool names, the
+// run's EffectivePrompt tool list and Core's own ToolSchemaCost, so the three can be compared.
+//
+// Usage:
+//
+//	lcx-tools -scenario base|lsp|mcp|off -out results/<name>.json
+//	lcx-tools -mcp-stub                    (the stdio MCP server the mcp scenario starts)
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	lcx "github.com/edynasty/LumenCortex/runtime"
+)
+
+// Profiles: the run each one measures, in the order they run.
+type profile struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	// Marker is the unique text this run's input carries, so every request of the run can be
+	// attributed to it without trusting request order.
+	Marker  string         `json:"marker"`
+	Opts    profileOptions `json:"options"`
+	Script  []call         `json:"script,omitempty"`
+	Session string         `json:"sessionId"`
+	Prompt  promptReport   `json:"effectivePrompt"`
+	Cost    *costReport    `json:"toolSchemaCost,omitempty"`
+	// CostAfter is the same measurement once the run's MCP catalog discovery has recorded the server.
+	CostAfter *costReport `json:"toolSchemaCostAfterRun,omitempty"`
+	First   *reqRecord     `json:"firstRequest,omitempty"`
+	Error   string         `json:"error,omitempty"`
+}
+
+type profileOptions struct {
+	Agent         string   `json:"agent,omitempty"`
+	Policy        string   `json:"policy,omitempty"`
+	Delegation    string   `json:"delegation,omitempty"`
+	ToolAllowlist []string `json:"toolAllowlist,omitempty"`
+	ToolDenylist  []string `json:"toolDenylist,omitempty"`
+	MaxSteps      int      `json:"maxSteps,omitempty"`
+}
+
+type promptReport struct {
+	Agent      string       `json:"agent"`
+	Policy     string       `json:"policy"`
+	Delegation string       `json:"delegation"`
+	Included   []promptTool `json:"included"`
+	Withheld   []string     `json:"withheld"`
+	Error      string       `json:"error,omitempty"`
+}
+
+// promptTool is one tool of the effective prompt: the name the request carries, its permission class
+// and where it came from.
+type promptTool struct {
+	Name       string `json:"name"`
+	Permission string `json:"permission"`
+	Source     string `json:"source"`
+}
+
+type costReport struct {
+	BuiltinBytes int            `json:"builtinBytes"`
+	BuiltinTools int            `json:"builtinTools"`
+	LSPBytes     int            `json:"lspBytes"`
+	LSPTools     int            `json:"lspTools"`
+	MCPBytes     map[string]int `json:"mcpBytes"`
+	MCPTools     map[string]int `json:"mcpTools"`
+	TotalBytes   int            `json:"totalBytes"`
+}
+
+type reqRecord struct {
+	N            int      `json:"n"`
+	Session      string   `json:"session"`
+	Model        string   `json:"model"`
+	Messages     int      `json:"messages"`
+	RequestBytes int      `json:"requestBytes"`
+	ToolsBytes   int      `json:"toolsBytes"`
+	ToolCount    int      `json:"toolCount"`
+	ToolNames    []string `json:"toolNames"`
+	ToolsJSON    string   `json:"toolsJson"`
+	System       string   `json:"system"`
+	FirstUser    string   `json:"firstUser"`
+	// MessagesJSON is the request's messages value exactly as sent, so the official chat encoding can
+	// be rendered over the real conversation.
+	MessagesJSON string `json:"messagesJson"`
+}
+
+type call struct {
+	ID   string
+	Name string
+	Args map[string]any
+}
+
+type msg struct {
+	Role       string          `json:"role"`
+	Content    any             `json:"content"`
+	ToolCallID string          `json:"tool_call_id"`
+	ToolCalls  json.RawMessage `json:"tool_calls"`
+}
+
+func (m msg) text() string {
+	switch c := m.Content.(type) {
+	case string:
+		return c
+	case nil:
+		return ""
+	default:
+		b, _ := json.Marshal(c)
+		return string(b)
+	}
+}
+
+// ---------------------------------------------------------------- mock model
+
+type server struct {
+	mu      sync.Mutex
+	records []reqRecord
+	scripts map[string][]call // marker -> the tool calls of that run's steps, in order
+}
+
+func (s *server) script(marker string, calls []call) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.scripts == nil {
+		s.scripts = map[string][]call{}
+	}
+	s.scripts[marker] = calls
+}
+
+// decide answers one request: a marker-bearing conversation replays that run's script, one call per
+// step, and answers in text once the script is spent. A conversation with no marker (a subagent child
+// or an execution task) answers in text at once.
+func (s *server) decide(msgs []msg, marker string) (string, []call) {
+	s.mu.Lock()
+	calls := s.scripts[marker]
+	s.mu.Unlock()
+	steps := 0
+	for _, m := range msgs {
+		if m.Role == "tool" {
+			steps++
+		}
+	}
+	if steps < len(calls) {
+		return "", calls[steps : steps+1]
+	}
+	return "Measured: nothing to change. " + marker, nil
+}
+
+func (s *server) serve(w http.ResponseWriter, r *http.Request) {
+	raw, _ := io.ReadAll(r.Body)
+	var body struct {
+		Model    string            `json:"model"`
+		Messages []msg             `json:"messages"`
+		Tools    json.RawMessage   `json:"tools"`
+		Stream   bool              `json:"stream"`
+		Meta     map[string]string `json:"metadata"`
+	}
+	_ = json.Unmarshal(raw, &body)
+
+	rec := reqRecord{
+		Model:        body.Model,
+		Messages:     len(body.Messages),
+		RequestBytes: len(raw),
+		ToolsBytes:   len(body.Tools),
+		ToolsJSON:    string(body.Tools),
+	}
+	var rawParts struct {
+		Messages json.RawMessage `json:"messages"`
+	}
+	_ = json.Unmarshal(raw, &rawParts)
+	rec.MessagesJSON = string(rawParts.Messages)
+	// The tools value exactly as sent: an array of {"type":"function","function":{...}}.
+	var specs []map[string]any
+	_ = json.Unmarshal(body.Tools, &specs)
+	for _, spec := range specs {
+		if fn, ok := spec["function"].(map[string]any); ok {
+			rec.ToolNames = append(rec.ToolNames, fmt.Sprint(fn["name"]))
+		}
+	}
+	rec.ToolCount = len(rec.ToolNames)
+
+	joined := make([]string, 0, len(body.Messages))
+	for _, m := range body.Messages {
+		joined = append(joined, m.text())
+	}
+	all := strings.Join(joined, "\n")
+	if len(body.Messages) > 0 {
+		rec.System = truncate(body.Messages[0].text(), 400)
+	}
+	for _, m := range body.Messages {
+		if m.Role == "user" {
+			rec.FirstUser = truncate(m.text(), 200)
+			break
+		}
+	}
+	marker := ""
+	s.mu.Lock()
+	for _, p := range profileMarkers {
+		if strings.Contains(all, p) {
+			marker = p
+			break
+		}
+	}
+	rec.Session = classify(marker, all)
+	rec.N = len(s.records) + 1
+	s.records = append(s.records, rec)
+	s.mu.Unlock()
+
+	final, calls := s.decide(body.Messages, marker)
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	n := rec.N
+	base := map[string]any{"id": fmt.Sprintf("c%d", n), "object": "chat.completion.chunk", "model": body.Model}
+	chunk := func(choices []map[string]any, usage map[string]any) {
+		c := map[string]any{}
+		for k, v := range base {
+			c[k] = v
+		}
+		c["choices"] = choices
+		if usage != nil {
+			c["usage"] = usage
+		}
+		b, _ := json.Marshal(c)
+		fmt.Fprintf(w, "data: %s\n\n", b)
+	}
+	finish := "stop"
+	if len(calls) > 0 {
+		finish = "tool_calls"
+		var tcs []map[string]any
+		for i, c := range calls {
+			args, _ := json.Marshal(c.Args)
+			tcs = append(tcs, map[string]any{"index": i, "id": c.ID, "type": "function",
+				"function": map[string]any{"name": c.Name, "arguments": string(args)}})
+		}
+		chunk([]map[string]any{{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": tcs}, "finish_reason": nil}}, nil)
+	} else {
+		chunk([]map[string]any{{"index": 0, "delta": map[string]any{"role": "assistant", "content": final}, "finish_reason": nil}}, nil)
+	}
+	chunk([]map[string]any{{"index": 0, "delta": map[string]any{}, "finish_reason": finish}}, nil)
+	chunk([]map[string]any{}, map[string]any{"prompt_tokens": len(raw) / 4, "completion_tokens": 8, "total_tokens": len(raw)/4 + 8})
+	fmt.Fprint(w, "data: [DONE]\n\n")
+}
+
+func classify(marker, all string) string {
+	switch {
+	case marker != "":
+		return "parent:" + marker
+	case strings.Contains(all, childGoal):
+		return "subagent-child"
+	case strings.Contains(all, taskObjective):
+		return "execution-task"
+	default:
+		return "other"
+	}
+}
+
+var (
+	childGoal     = "CHILD-GOAL-P5: find where the check fails"
+	taskObjective = "TASK-OBJECTIVE-P5: make tests/check.sh expect 5"
+	// profileMarkers is the marker of every profile in this scenario, matched in order.
+	profileMarkers []string
+)
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
+
+// ---------------------------------------------------------------- MCP stub
+
+// mcpStub is a minimal stdio MCP server: initialize, tools/list, tools/call. It is the local server
+// the mcp scenario configures, so MCP tool bytes are measured without any third-party process.
+func mcpStub() {
+	type request struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Method  string          `json:"method"`
+		Params  json.RawMessage `json:"params"`
+	}
+	type response struct {
+		JSONRPC string `json:"jsonrpc"`
+		ID      any    `json:"id,omitempty"`
+		Result  any    `json:"result,omitempty"`
+		Error   any    `json:"error,omitempty"`
+	}
+	tools := []map[string]any{
+		{"name": "stub_search", "description": "Search the local index for a phrase and return matches.",
+			"inputSchema": map[string]any{"type": "object",
+				"properties": map[string]any{"query": map[string]any{"type": "string"}, "limit": map[string]any{"type": "integer"}},
+				"required":   []string{"query"}},
+			"annotations": map[string]any{"readOnlyHint": true}},
+		{"name": "stub_fetch", "description": "Fetch one document from the local index by id.",
+			"inputSchema": map[string]any{"type": "object",
+				"properties": map[string]any{"id": map[string]any{"type": "string"}},
+				"required":   []string{"id"}},
+			"annotations": map[string]any{"readOnlyHint": true}},
+		{"name": "stub_stats", "description": "Report index statistics: document count, size and last update.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+			"annotations": map[string]any{"readOnlyHint": true}},
+		{"name": "stub_reindex", "description": "Rebuild the local index. Changes files under the index directory.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
+		{"name": "stub_purge", "description": "Delete every document from the local index.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
+	}
+	dec := json.NewDecoder(os.Stdin)
+	enc := json.NewEncoder(os.Stdout)
+	for {
+		var req request
+		if err := dec.Decode(&req); err != nil {
+			return
+		}
+		var id any
+		_ = json.Unmarshal(req.ID, &id)
+		switch req.Method {
+		case "initialize":
+			_ = enc.Encode(response{JSONRPC: "2.0", ID: id, Result: map[string]any{
+				"protocolVersion": "2025-06-18",
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]any{"name": "stub", "version": "1"},
+			}})
+		case "tools/list":
+			_ = enc.Encode(response{JSONRPC: "2.0", ID: id, Result: map[string]any{"tools": tools}})
+		case "tools/call":
+			_ = enc.Encode(response{JSONRPC: "2.0", ID: id, Result: map[string]any{
+				"content": []map[string]any{{"type": "text", "text": `{"ok":true}`}},
+			}})
+		case "notifications/initialized", "notifications/cancelled":
+		default:
+			if len(req.ID) > 0 {
+				_ = enc.Encode(response{JSONRPC: "2.0", ID: id, Error: map[string]any{"code": -32601, "message": "no such method"}})
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------- scenario
+
+type scenario struct {
+	Name string
+	// Workspace files. TS makes the language-server tools available; none of the others does.
+	TypeScript bool
+	// MCPInclude is the stub server's include list; nil means the server is not configured.
+	MCPInclude []string
+	// ApplyBrowserTemplate applies the shipped Browser template (disabled) and then enables it.
+	ApplyBrowserTemplate bool
+	Profiles             func() []profile
+}
+
+func main() {
+	if len(os.Args) > 1 && os.Args[1] == "-mcp-stub" {
+		mcpStub()
+		return
+	}
+	scenarioName := flag.String("scenario", "base", "base|lsp|mcp|off")
+	outPath := flag.String("out", "", "results JSON path")
+	flag.Parse()
+
+	sc := scenarioFor(*scenarioName)
+	profiles := sc.Profiles()
+	for _, p := range profiles {
+		profileMarkers = append(profileMarkers, p.Marker)
+	}
+
+	root := filepath.Join("/tmp/lcx-tools/work", sc.Name)
+	_ = os.RemoveAll(root)
+	ws := filepath.Join(root, "ws")
+	must(os.MkdirAll(filepath.Join(ws, "tests"), 0o755))
+	must(os.MkdirAll(filepath.Join(ws, "src"), 0o755))
+	must(os.WriteFile(filepath.Join(ws, "calc.sh"), []byte("#!/bin/sh\necho $(($1 + $2))\n"), 0o755))
+	must(os.WriteFile(filepath.Join(ws, "tests/check.sh"), []byte("#!/bin/sh\nset -e\n[ \"$(sh calc.sh 2 3)\" = 6 ] && echo PASS\n"), 0o755))
+	must(os.WriteFile(filepath.Join(ws, "README.md"), []byte("# fixture workspace\n\nA small fixture for the tool-exposure measurement.\n"), 0o644))
+	if sc.TypeScript {
+		must(os.WriteFile(filepath.Join(ws, "tsconfig.json"), []byte("{\"compilerOptions\":{\"strict\":true}}\n"), 0o644))
+		must(os.WriteFile(filepath.Join(ws, "src/app.ts"), []byte("export function add(a: number, b: number): number { return a + b; }\n"), 0o644))
+	}
+	runIn(ws, "git", "init", "-q")
+	runIn(ws, "git", "config", "user.email", "measure@example.com")
+	runIn(ws, "git", "config", "user.name", "Measure")
+	runIn(ws, "git", "add", ".")
+	runIn(ws, "git", "commit", "-qm", "init: a check that expects the wrong sum")
+
+	cfgDir := filepath.Join(root, "xdg", "lumencortex")
+	must(os.MkdirAll(cfgDir, 0o755))
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	must(err)
+	port := ln.Addr().(*net.TCPAddr).Port
+	mock := &server{}
+	srv := &http.Server{Handler: http.HandlerFunc(mock.serve)}
+	go srv.Serve(ln)
+
+	cfg := map[string]any{
+		"model":             "local/fake",
+		"trustedWorkspaces": []string{ws},
+		"execution":         map[string]any{"logLevel": "error"},
+		"providers": map[string]any{"local": map[string]any{
+			"name": "local", "package": "openai-compatible",
+			"settings": map[string]any{"baseURL": fmt.Sprintf("http://127.0.0.1:%d/v1", port), "apiKey": "{env:LCX_KEY}"},
+			"models": map[string]any{"fake": map[string]any{"modelID": "fake",
+				"limit": map[string]any{"context": 200000, "output": 4096}}},
+		}},
+	}
+	raw, _ := json.MarshalIndent(cfg, "", "  ")
+	must(os.WriteFile(filepath.Join(cfgDir, "lumencortex.json"), raw, 0o644))
+
+	if sc.MCPInclude != nil {
+		include := sc.MCPInclude
+		mcp := map[string]any{"servers": map[string]any{"stub": map[string]any{
+			"transport": "stdio",
+			"command":   exePath(),
+			"args":      []string{"-mcp-stub"},
+			"include":   include,
+		}}}
+		raw, _ := json.MarshalIndent(mcp, "", "  ")
+		must(os.WriteFile(filepath.Join(cfgDir, "mcp.json"), raw, 0o644))
+	}
+
+	for k, v := range map[string]string{
+		"XDG_CONFIG_HOME": filepath.Join(root, "xdg"),
+		"XDG_STATE_HOME":  filepath.Join(root, "state"),
+		"XDG_CACHE_HOME":  filepath.Join(root, "cache"),
+		"LCX_KEY":         "sk-measure-0123456789abcdef",
+	} {
+		must(os.Setenv(k, v))
+	}
+
+	engine, err := lcx.Open(lcx.Options{Workspace: ws})
+	must(err)
+	supervisor, err := lcx.NewRunSupervisor(engine)
+	must(err)
+	ctx := context.Background()
+
+	// The shipped Browser template, applied as shipped: ApplyMCPTemplate writes it disabled, and the
+	// next call turns it on. Both go through the public API, exactly as a host would.
+	var templateCfg any
+	if sc.ApplyBrowserTemplate {
+		cfg, err := engine.ApplyMCPTemplate(ctx, "global", "browser")
+		if err != nil {
+			panic("apply browser template: " + err.Error())
+		}
+		templateCfg = cfg
+		if err := engine.SetMCPServerEnabled(ctx, "global", "browser", true); err != nil {
+			panic("enable browser server: " + err.Error())
+		}
+	}
+
+	results := map[string]any{
+		"scenario":  sc.Name,
+		"workspace": ws,
+		"coreHead":  coreHead(),
+		"profiles":  profiles,
+	}
+	if templateCfg != nil {
+		results["browserTemplate"] = templateCfg
+	}
+	if global, err := engine.Skills("global"); err == nil {
+		names := make([]string, 0, len(global))
+		for _, s := range global {
+			names = append(names, s.ID)
+		}
+		sort.Strings(names)
+		results["globalSkills"] = names
+	}
+	if caps, err := engine.Capabilities(ctx, lcx.CapabilityQuery{}); err == nil {
+		bySource := map[string]int{}
+		list := make([]map[string]any, 0, len(caps))
+		for _, c := range caps {
+			bySource[c.Source]++
+			list = append(list, map[string]any{
+				"toolId": c.ToolID, "source": c.Source, "permission": c.Permission,
+				"mutatesWorkspace": c.ExecutionConstraints.MutatesWorkspace,
+				"enabled":          c.Enabled, "availability": c.Availability.State,
+			})
+		}
+		results["capabilitiesBySource"] = bySource
+		results["capabilityCount"] = len(caps)
+		results["capabilities"] = list
+	}
+	for i := range profiles {
+		p := &profiles[i]
+		handle, err := engine.NewSession(ctx, lcx.SessionOptions{Goal: p.Label})
+		if err != nil {
+			p.Error = "new session: " + err.Error()
+			continue
+		}
+		p.Session = handle.ID
+		mock.script(p.Marker, p.Script)
+
+		// Core's own view of the same run, before it starts.
+		prompt, err := engine.EffectivePrompt(ctx, lcx.EffectivePromptRequest{
+			SessionID: handle.ID, Agent: p.Opts.Agent, Policy: p.Opts.Policy, Delegation: p.Opts.Delegation,
+			ToolAllowlist: p.Opts.ToolAllowlist, ToolDenylist: p.Opts.ToolDenylist, Subagents: true,
+		})
+		if err != nil {
+			p.Prompt.Error = err.Error()
+		} else {
+			p.Prompt = summarizePrompt(prompt)
+		}
+		if cost, err := engine.ToolSchemaCost(ctx, lcx.CapabilityQuery{SessionID: handle.ID}); err == nil {
+			p.Cost = &costReport{BuiltinBytes: cost.BuiltinBytes, BuiltinTools: cost.BuiltinTools,
+				LSPBytes: cost.LSPBytes, LSPTools: cost.LSPTools,
+				MCPBytes: cost.MCPBytes, MCPTools: cost.MCPTools, TotalBytes: cost.TotalBytes}
+		}
+
+		// The registry and the schema cost after the catalog is known: the pre-run cost cannot price an
+		// MCP server whose tool list was never discovered.
+		started := len(mock.records)
+		if _, err := supervisor.Start(ctx, handle.ID, lcx.AgentOptions{
+			Input:         p.Marker + " — " + p.Label,
+			Agent:         p.Opts.Agent,
+			Policy:        p.Opts.Policy,
+			Delegation:    p.Opts.Delegation,
+			ToolAllowlist: p.Opts.ToolAllowlist,
+			ToolDenylist:  p.Opts.ToolDenylist,
+			MaxSteps:      maxInt(p.Opts.MaxSteps, 6),
+		}); err != nil {
+			p.Error = "start: " + err.Error()
+			continue
+		}
+		waitRun(ctx, engine, supervisor, handle.ID)
+		_ = started
+		if cost, err := engine.ToolSchemaCost(ctx, lcx.CapabilityQuery{SessionID: handle.ID}); err == nil {
+			p.CostAfter = &costReport{BuiltinBytes: cost.BuiltinBytes, BuiltinTools: cost.BuiltinTools,
+				LSPBytes: cost.LSPBytes, LSPTools: cost.LSPTools,
+				MCPBytes: cost.MCPBytes, MCPTools: cost.MCPTools, TotalBytes: cost.TotalBytes}
+		}
+	}
+
+	// The report for the child run and the execution task: EffectivePrompt on their own sessions, so the
+	// tool list a host would show for them can be compared with what they were actually sent.
+	parent := ""
+	for _, p := range profiles {
+		if p.ID == "p5-complex" || p.ID == "p5-complex-mcp" || p.ID == "p5-complex-mcp-narrow" {
+			parent = p.Session
+		}
+	}
+	if tree, err := supervisor.SubagentTree(ctx, parent); err == nil && parent != "" {
+		children := make([]map[string]any, 0, len(tree))
+		for _, node := range tree {
+			entry := map[string]any{"sessionId": node.SessionID, "kind": node.Kind, "agent": node.Agent, "status": node.Status}
+			if report, err := engine.EffectivePrompt(ctx, lcx.EffectivePromptRequest{SessionID: node.SessionID}); err == nil {
+				entry["prompt"] = summarizePrompt(report)
+			} else {
+				entry["promptError"] = err.Error()
+			}
+			children = append(children, entry)
+		}
+		results["children"] = children
+	}
+
+	// A sessionless report (no SessionID) describes a first run in the Engine workspace; the tool list it
+	// lists is the same set a thread run is offered, which is what the notebook/thread/wake-up binding
+	// comment in promptTools claims.
+	if report, err := engine.EffectivePrompt(ctx, lcx.EffectivePromptRequest{Policy: "full", Subagents: true}); err == nil {
+		results["sessionlessFullPolicy"] = summarizePrompt(report)
+	}
+
+	// A child run and an execution task start during the last profile's run and finish on their own.
+	expectTask := false
+	for _, p := range profiles {
+		for _, c := range p.Script {
+			if c.Name == "start_task" {
+				expectTask = true
+			}
+		}
+	}
+	deadline := time.Now()
+	if expectTask {
+		deadline = deadline.Add(90 * time.Second)
+	}
+	for time.Now().Before(deadline) {
+		mock.mu.Lock()
+		seen := map[string]bool{}
+		for _, rec := range mock.records {
+			seen[rec.Session] = true
+		}
+		mock.mu.Unlock()
+		if seen["execution-task"] {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	time.Sleep(1500 * time.Millisecond)
+
+	// First request of every run.
+	mock.mu.Lock()
+	records := append([]reqRecord(nil), mock.records...)
+	mock.mu.Unlock()
+	first := map[string]reqRecord{}
+	counts := map[string]int{}
+	for _, rec := range records {
+		counts[rec.Session]++
+		if _, ok := first[rec.Session]; !ok {
+			first[rec.Session] = rec
+		}
+	}
+	for i := range profiles {
+		p := &profiles[i]
+		if rec, ok := first["parent:"+p.Marker]; ok {
+			p.First = &rec
+		}
+	}
+	if caps, err := engine.Capabilities(ctx, lcx.CapabilityQuery{}); err == nil {
+		bySource := map[string]int{}
+		list := make([]map[string]any, 0, len(caps))
+		for _, c := range caps {
+			bySource[c.Source]++
+			list = append(list, map[string]any{
+				"toolId": c.ToolID, "source": c.Source, "permission": c.Permission,
+				"mutatesWorkspace": c.ExecutionConstraints.MutatesWorkspace,
+				"enabled":          c.Enabled, "availability": c.Availability.State,
+			})
+		}
+		results["capabilitiesAfterBySource"] = bySource
+		results["capabilitiesAfter"] = list
+	}
+	results["child"] = first["subagent-child"]
+	results["task"] = first["execution-task"]
+	// Every request, in order: the evidence for how each run ended.
+	results["requests"] = records
+	results["requestCounts"] = counts
+
+	_ = os.MkdirAll(filepath.Join("/tmp/lcx-tools/results"), 0o755)
+	target := *outPath
+	if target == "" {
+		target = filepath.Join("/tmp/lcx-tools/results", sc.Name+".json")
+	}
+	blob, _ := json.MarshalIndent(results, "", "  ")
+	must(os.WriteFile(target, blob, 0o644))
+	fmt.Printf("wrote %s (%d requests)\n", target, len(records))
+
+	supervisor.Close()
+	_ = engine.Close()
+	_ = srv.Close()
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func summarizePrompt(r lcx.EffectivePromptResult) promptReport {
+	out := promptReport{Agent: r.Agent, Policy: r.Policy, Delegation: r.Delegation}
+	for _, tool := range r.Tools {
+		if tool.Included {
+			out.Included = append(out.Included, promptTool{Name: tool.Name, Permission: tool.Permission, Source: tool.Source})
+			continue
+		}
+		out.Withheld = append(out.Withheld, tool.Name+"("+tool.Reason+")")
+	}
+	sort.Slice(out.Included, func(i, j int) bool { return out.Included[i].Name < out.Included[j].Name })
+	sort.Strings(out.Withheld)
+	return out
+}
+
+func waitRun(ctx context.Context, engine *lcx.Engine, supervisor *lcx.RunSupervisor, sessionID string) {
+	deadline := time.Now().Add(120 * time.Second)
+	for time.Now().Before(deadline) {
+		if !supervisor.Active(sessionID) {
+			if _, info, err := engine.Session(ctx, sessionID); err == nil {
+				switch info.Status {
+				case "completed", "failed", "interrupted", "cancelled", "waiting_gate":
+					return
+				}
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func exePath() string {
+	path, err := os.Executable()
+	if err != nil {
+		return "/tmp/lcx-tools/bin/lcx-tools"
+	}
+	return path
+}
+
+func coreHead() string {
+	out, err := exec.Command("git", "-C", "/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-rt", "rev-parse", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func runIn(dir string, name string, args ...string) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		panic(fmt.Sprintf("%s %s: %v: %s", name, strings.Join(args, " "), err, out))
+	}
+}
+
+func must(err error) {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		panic(err)
+	}
+}
+
+// sha256Of is used for the tokenizer provenance recorded beside the results.
+func sha256Of(path string) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}

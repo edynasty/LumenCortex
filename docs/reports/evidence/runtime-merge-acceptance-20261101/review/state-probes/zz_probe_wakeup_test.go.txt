@@ -1,0 +1,31 @@
+package runtime
+
+import (
+	"context"
+	"testing"
+	"time"
+)
+
+// PROBE: a wake-up that comes due while its own session's run (e.g. the run that scheduled it) still
+// holds the run lock is consumed as skipped_overlap and never fires afterwards.
+func TestZZProbeWakeupDuringOwnRunIsLost(t *testing.T) {
+	engine := openTestEngine(t)
+	handle := newTestSession(t, engine, "g")
+	sup := startBlockedRun(t, engine, handle.ID) // registers the agent runner; the run holds the lock
+	ctx := context.Background()
+	controller := engine.wakeupsFor(handle.ID, "read-only")
+	w, err := controller.ScheduleWakeup(ctx, 1, "resume after the build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2500 * time.Millisecond)
+	info, err := engine.Schedule(ctx, w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("PROBE while run active: status=%q next=%v fireCount=%d enabled=%v", info.LastStatus, info.NextRunAt, info.FireCount, info.Enabled)
+	sup.Close() // the creating run ends
+	time.Sleep(2500 * time.Millisecond)
+	info, _ = engine.Schedule(ctx, w.ID)
+	t.Logf("PROBE after run ended: status=%q next=%v fireCount=%d (no run was ever started for the wake-up)", info.LastStatus, info.NextRunAt, info.FireCount)
+}

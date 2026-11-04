@@ -57,3 +57,5 @@ Use [0000-template.md](0000-template.md) as the starting point.
 ## Proposed decisions
 
 - [0014 — Per-call approval for a tool call above the run's ceiling](0014-per-call-approval-above-the-ceiling.md)
+- [0019 — Execution runtime: tool timeouts, run deadlines, background jobs, timers, diagnostics](0019-execution-runtime.md)
+- [0020 — The agent's working notebook](0020-agent-notebook.md)

@@ -9,12 +9,17 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/edynasty/LumenCortex/internal/shell"
 )
 
 var (
@@ -23,6 +28,11 @@ var (
 	ErrMessageTooLarge    = errors.New("mcp message exceeds runtime limit")
 	ErrToolResultTooLarge = errors.New("mcp tool result exceeds runtime limit")
 )
+
+// closeGrace bounds how long Close waits for a server to exit on its own after its stdin closes: a
+// server that stops what it started (playwright-mcp closes its Chromium) does so on exit, and only a
+// server that does not is signalled.
+const closeGrace = 2 * time.Second
 
 type Client struct {
 	cfg    Config
@@ -52,8 +62,14 @@ func Start(ctx context.Context, cfg Config) (*Client, error) {
 	if strings.TrimSpace(cfg.ID) == "" {
 		return nil, errors.New("mcp server id is required")
 	}
+	if cfg.transport() != TransportStdio {
+		return nil, fmt.Errorf("mcp server %q: the stdio client cannot start the %s transport", cfg.ID, cfg.transport())
+	}
 	if strings.TrimSpace(cfg.Command) == "" {
 		return nil, errors.New("mcp command is required")
+	}
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
 	}
 	if cfg.ProtocolMode == "" {
 		cfg.ProtocolMode = ModeLegacy
@@ -71,9 +87,17 @@ func Start(ctx context.Context, cfg Config) (*Client, error) {
 	}
 	cfg.Workspace = workspace
 
+	env, err := resolvedEnv(cfg.Env)
+	if err != nil {
+		return nil, err
+	}
+
 	procCtx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(procCtx, cfg.Command, cfg.Args...)
 	cmd.Dir = workspace
+	// A server inherits the runtime's environment; an explicit Env entry replaces one variable and is
+	// resolved from "{env:NAME}" references only at start, so no credential is persisted.
+	cmd.Env = append(os.Environ(), env...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
@@ -86,6 +110,9 @@ func Start(ctx context.Context, cfg Config) (*Client, error) {
 	}
 	stderr := &boundedBuffer{max: 128 << 10}
 	cmd.Stderr = stderr
+	// A server leads its own process group, the same way a shell command does: cancellation kills the
+	// group rather than the server alone, and whatever the server leaves in that group dies with it.
+	shell.StartGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return nil, err
@@ -311,6 +338,7 @@ func (c *Client) Status() Status {
 		ID:              c.cfg.ID,
 		Name:            c.cfg.Name,
 		Command:         c.cfg.Command,
+		Transport:       TransportStdio,
 		Workspace:       c.cfg.Workspace,
 		ProtocolMode:    c.cfg.ProtocolMode,
 		ProtocolVersion: version,
@@ -329,18 +357,41 @@ func (c *Client) Close() error {
 	c.closeOnce.Do(func() {
 		c.closed.Store(true)
 		_ = c.stdin.Close()
+		if c.cmd != nil {
+			// A server that stops what it started does it on exit, which stdin EOF begins: give it
+			// closeGrace to end before its group is killed, so a browser it owns is closed rather than
+			// signalled.
+			select {
+			case <-c.done:
+			case <-time.After(closeGrace):
+			}
+		}
 		c.cancel()
 		if c.cmd != nil {
 			// The process is owned by this client. Cancellation/termination caused
 			// by an explicit Close is expected and must not surface as a Stop error.
 			_ = c.cmd.Wait()
+			// A server that was signalled had no chance to stop its children: the group takes them.
+			_ = shell.KillGroup(c.cmd)
 		}
 		c.failAllPending(ErrClosed)
 	})
 	return nil
 }
 
+// killGroup kills the server's process group: the processes it started are not this client's to leak.
+func (c *Client) killGroup() {
+	if c.cmd != nil {
+		_ = shell.KillGroup(c.cmd)
+	}
+}
+
 func (c *Client) withModernMeta(params map[string]any) map[string]any {
+	return withModernMeta(params)
+}
+
+// withModernMeta adds the stateless protocol metadata the modern mode requires.
+func withModernMeta(params map[string]any) map[string]any {
 	out := make(map[string]any, len(params)+1)
 	for key, value := range params {
 		out[key] = value
@@ -361,6 +412,9 @@ func (c *Client) withModernMeta(params map[string]any) map[string]any {
 func (c *Client) readLoop(stderr *boundedBuffer) {
 	defer close(c.done)
 	defer c.closed.Store(true)
+	// The server is gone (it exited, crashed or was killed): whatever it left in its process group is
+	// not this client's to leak, so the group is killed here and not only on Close.
+	defer c.killGroup()
 	for {
 		raw, err := readJSONLine(c.stdout)
 		if err != nil {
@@ -503,6 +557,28 @@ func (c *Client) failAllPending(err error) {
 		default:
 		}
 	}
+}
+
+// resolvedEnv resolves the "{env:NAME}" references of a server's environment. A missing variable is
+// an *ErrMissingEnv naming it; no value is ever put in an error or a log line.
+func resolvedEnv(env map[string]string) ([]string, error) {
+	if len(env) == 0 {
+		return nil, nil
+	}
+	names := make([]string, 0, len(env))
+	for name := range env {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		value, err := resolveEnvReference(env[name])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, name+"="+value)
+	}
+	return out, nil
 }
 
 func (c *Client) setLastError(value string) {

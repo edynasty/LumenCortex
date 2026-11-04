@@ -1,0 +1,611 @@
+{
+  "failures": 0,
+  "measures": {
+    "databaseBytes": 315392,
+    "diagnosticsStats": {
+      "log": {
+        "written": 113,
+        "dropped": 0,
+        "files": 1,
+        "bytes": 35713,
+        "queueLen": 0,
+        "queueCap": 4096
+      },
+      "events": {
+        "published": 105,
+        "dropped": 0
+      },
+      "enabled": true
+    },
+    "eventTypes": {
+      "budget.spend": 2,
+      "checkpoint.saved": 24,
+      "context.reset": 1,
+      "job.state": 5,
+      "jobs.blocked_final": 1,
+      "llm.complete": 15,
+      "llm.request": 15,
+      "notebook.updated": 3,
+      "run.started": 1,
+      "run.stopped": 1,
+      "schedule.changed": 1,
+      "schedule.fired": 1,
+      "session.complete": 2,
+      "session.message": 3,
+      "session.start": 1,
+      "skills.loaded": 2,
+      "task_state.changed": 1,
+      "tool.end": 12,
+      "tool.output": 2,
+      "tool.start": 12
+    },
+    "heapAllocBytes": 5892896,
+    "logsDirBytes": 36083,
+    "maxRequestBytes": 25365,
+    "providerAuthOK": true,
+    "requests": 15,
+    "rssKB": {
+      "afterScenario": 32480,
+      "beforeOpen": 16848
+    },
+    "schedules": [
+      {
+        "id": "schedule_cabfb85aa70b978f7db641d8",
+        "name": "wake-up: Continue: read the notebook Handoff, check the background test job and finish verification.",
+        "kind": "agent",
+        "sessionId": "session_a1374828a12229d26bfb4d93",
+        "prompt": "[runtime] Scheduled wake-up: Continue: read the notebook Handoff, check the background test job and finish verification.",
+        "policy": "full",
+        "trigger": {
+          "kind": "once",
+          "at": "2026-11-02T07:02:13Z",
+          "timezone": "UTC"
+        },
+        "timezone": "UTC",
+        "missedPolicy": "skip",
+        "enabled": true,
+        "lastFiredAt": "2026-11-02T07:02:13.001299Z",
+        "lastStatus": "fired",
+        "lastRef": "session_a1374828a12229d26bfb4d93",
+        "fireCount": 1,
+        "createdAt": "2026-11-02T07:02:01.459675Z",
+        "updatedAt": "2026-11-02T07:02:13.020516Z"
+      }
+    ],
+    "stateDirBytes": 351475,
+    "toolCount": 26,
+    "toolNames": [
+      "apply_patch",
+      "bash",
+      "find_files",
+      "job_cancel",
+      "job_list",
+      "job_status",
+      "job_wait",
+      "list_dir",
+      "notebook_list",
+      "notebook_read",
+      "notebook_update",
+      "read_file",
+      "read_skill",
+      "read_thread",
+      "recall",
+      "replace_in_file",
+      "search_text",
+      "wakeup_cancel",
+      "wakeup_schedule",
+      "write_file",
+      "work_unit_list",
+      "work_unit_create",
+      "work_unit_update",
+      "reference_suggest",
+      "note_write",
+      "note_remove"
+    ],
+    "toolsJSONBytes": 15131
+  },
+  "requests": [
+    {
+      "n": 1,
+      "tag": "c1-nb",
+      "messages": 5,
+      "requestBytes": 20440,
+      "toolsBytes": 13862,
+      "toolNames": 26,
+      "authOK": true
+    },
+    {
+      "n": 2,
+      "tag": "c1-git",
+      "messages": 7,
+      "requestBytes": 20964,
+      "toolsBytes": 13862,
+      "toolNames": 26,
+      "lastToolResult": "{\"bytes\":133,\"id\":\"1c5d86ae207cf758864b6a592f998e27\",\"title\":\"Runtime Upgrade\",\"version\":1}",
+      "authOK": true
+    },
+    {
+      "n": 3,
+      "tag": "c1-write",
+      "messages": 9,
+      "requestBytes": 21599,
+      "toolsBytes": 13862,
+      "toolNames": 26,
+      "lastToolResult": "{\"cancelled\":false,\"command\":\"git status --short \\u0026\\u0026 git log --oneline -1\",\"durationNanos\":545981000,\"exitCode\":0,\"stderr\":{\"head\":\"\",\"tail\":\"\",\"total\":0,\"truncated\":false},\"stdout\":{\"head\":\"437d200 init: a check that expects the wrong sum\\n\",\"tail\":\"437d200 init: a check that expects the w...",
+      "authOK": true
+    },
+    {
+      "n": 4,
+      "tag": "c1-bg",
+      "messages": 11,
+      "requestBytes": 21964,
+      "toolsBytes": 13862,
+      "toolNames": 26,
+      "lastToolResult": "{\"bytes\":58,\"path\":\"tests/check.sh\"}",
+      "authOK": true
+    },
+    {
+      "n": 5,
+      "tag": "c1-status",
+      "messages": 13,
+      "requestBytes": 22354,
+      "toolsBytes": 13862,
+      "toolNames": 26,
+      "lastToolResult": "{\"jobId\":\"job_e0c9afb7ddadaab84ecf5e14\",\"mode\":\"background\",\"state\":\"queued\"}",
+      "authOK": true
+    },
+    {
+      "n": 6,
+      "tag": "c1-wake",
+      "messages": 15,
+      "requestBytes": 22953,
+      "toolsBytes": 13862,
+      "toolNames": 26,
+      "lastToolResult": "{\"command\":\"sleep 3.1; GITHUB_TOKEN=ghp_E2Etoken0123456789abcdefghijklmnopqr sh tests/check.sh\",\"durationMs\":12,\"jobId\":\"job_e0c9afb7ddadaab84ecf5e14\",\"state\":\"running\",\"stderr\":{\"head\":\"\",\"omitted\":0,\"tail\":\"\",\"total\":0,\"truncated\":false},\"stdout\":{\"head\":\"\",\"omitted\":0,\"tail\":\"\",\"total\":0,\"truncat...",
+      "authOK": true
+    },
+    {
+      "n": 7,
+      "tag": "c1-final-early",
+      "messages": 17,
+      "requestBytes": 23370,
+      "toolsBytes": 13862,
+      "toolNames": 26,
+      "lastToolResult": "{\"fireAt\":\"2026-11-02T07:02:13Z\",\"wakeupId\":\"schedule_cabfb85aa70b978f7db641d8\"}",
+      "authOK": true
+    },
+    {
+      "n": 8,
+      "tag": "c1-wait",
+      "messages": 19,
+      "requestBytes": 23866,
+      "toolsBytes": 13862,
+      "toolNames": 26,
+      "authOK": true
+    },
+    {
+      "n": 9,
+      "tag": "c1-findings",
+      "messages": 21,
+      "requestBytes": 24322,
+      "toolsBytes": 13862,
+      "toolNames": 26,
+      "lastToolResult": "{\"exitCode\":0,\"finished\":\"job_e0c9afb7ddadaab84ecf5e14\",\"jobs\":[{\"exitCode\":0,\"jobId\":\"job_e0c9afb7ddadaab84ecf5e14\",\"state\":\"completed\"}],\"state\":\"completed\",\"timedOut\":false}",
+      "authOK": true
+    },
+    {
+      "n": 10,
+      "tag": "c1-handoff",
+      "messages": 23,
+      "requestBytes": 24852,
+      "toolsBytes": 13862,
+      "toolNames": 26,
+      "lastToolResult": "{\"bytes\":254,\"id\":\"1c5d86ae207cf758864b6a592f998e27\",\"title\":\"Runtime Upgrade\",\"version\":2}",
+      "authOK": true
+    },
+    {
+      "n": 11,
+      "tag": "c1-final",
+      "messages": 25,
+      "requestBytes": 25365,
+      "toolsBytes": 13862,
+      "toolNames": 26,
+      "lastToolResult": "{\"bytes\":363,\"id\":\"1c5d86ae207cf758864b6a592f998e27\",\"title\":\"Runtime Upgrade\",\"version\":3}",
+      "authOK": true
+    },
+    {
+      "n": 12,
+      "tag": "c2-nb",
+      "messages": 5,
+      "requestBytes": 22038,
+      "toolsBytes": 15131,
+      "toolNames": 29,
+      "authOK": true
+    },
+    {
+      "n": 13,
+      "tag": "c2-job",
+      "messages": 7,
+      "requestBytes": 22588,
+      "toolsBytes": 15131,
+      "toolNames": 29,
+      "lastToolResult": "{\"body\":\"Next: confirm job job_e0c9afb7ddadaab84ecf5e14 completed with exit 0, rerun sh tests/check.sh, then report.\",\"bytes\":363,\"id\":\"1c5d86ae207cf758864b6a592f998e27\",\"section\":\"Handoff\",\"session\":\"session_a1374828a12229d26bfb4d93\",\"title\":\"Runtime Upgrade\",\"version\":3}",
+      "authOK": true
+    },
+    {
+      "n": 14,
+      "tag": "c2-verify",
+      "messages": 9,
+      "requestBytes": 23214,
+      "toolsBytes": 15131,
+      "toolNames": 29,
+      "lastToolResult": "{\"command\":\"sleep 3.1; GITHUB_TOKEN=ghp_E2Etoken0123456789abcdefghijklmnopqr sh tests/check.sh\",\"durationMs\":3575,\"exitCode\":0,\"jobId\":\"job_e0c9afb7ddadaab84ecf5e14\",\"state\":\"completed\",\"stderr\":{\"head\":\"\",\"omitted\":0,\"tail\":\"\",\"total\":0,\"truncated\":false},\"stdout\":{\"head\":\"PASS\\n\",\"omitted\":0,\"tail...",
+      "authOK": true
+    },
+    {
+      "n": 15,
+      "tag": "c2-final",
+      "messages": 11,
+      "requestBytes": 23692,
+      "toolsBytes": 15131,
+      "toolNames": 29,
+      "lastToolResult": "{\"cancelled\":false,\"command\":\"sh tests/check.sh\",\"durationNanos\":454577000,\"exitCode\":0,\"stderr\":{\"head\":\"\",\"tail\":\"\",\"total\":0,\"truncated\":false},\"stdout\":{\"head\":\"PASS\\n\",\"tail\":\"PASS\\n\",\"total\":5,\"truncated\":false}}",
+      "authOK": true
+    }
+  ],
+  "results": [
+    {
+      "check": "a session exists",
+      "evidence": {
+        "sessionId": "session_a1374828a12229d26bfb4d93"
+      },
+      "status": "PASS",
+      "step": "1 create session"
+    },
+    {
+      "check": "run completed",
+      "evidence": {
+        "final": "Fixed tests/check.sh; job job_e0c9afb7ddadaab84ecf5e14 ran the check; handoff recorded.",
+        "requests": [
+          "c1-nb",
+          "c1-git",
+          "c1-write",
+          "c1-bg",
+          "c1-status",
+          "c1-wake",
+          "c1-final-early",
+          "c1-wait",
+          "c1-findings",
+          "c1-handoff",
+          "c1-final"
+        ],
+        "seconds": 4.271521541,
+        "status": "completed"
+      },
+      "status": "PASS",
+      "step": "2-10 run 1"
+    },
+    {
+      "check": "notebook created by notebook_update",
+      "evidence": {
+        "notebooks": [
+          {
+            "id": "1c5d86ae207cf758864b6a592f998e27",
+            "sessionId": "session_a1374828a12229d26bfb4d93",
+            "title": "Runtime Upgrade",
+            "version": 3,
+            "bytes": 363,
+            "updatedAt": "2026-11-02T07:02:05.025784Z",
+            "updatedBy": "agent:c3398494578c2c1e459522e53603e06e",
+            "sections": [
+              "Plan",
+              "Findings",
+              "Handoff"
+            ]
+          }
+        ]
+      },
+      "status": "PASS",
+      "step": "2 create notebook"
+    },
+    {
+      "check": "bash ran git (result names the commit)",
+      "evidence": {
+        "result": "{\"cancelled\":false,\"command\":\"git status --short \\u0026\\u0026 git log --oneline -1\",\"durationNanos\":545981000,\"exitCode\":0,\"stderr\":{\"head\":\"\",\"tail\":\"\",\"total\":0,\"truncated\":false},\"stdout\":{\"head\":\"437d200 init: a check that expects the wrong sum\\n\",\"tail\":\"437d200 init: a check that expects the w..."
+      },
+      "status": "PASS",
+      "step": "4 bash git status"
+    },
+    {
+      "check": "tests/check.sh now expects 5",
+      "evidence": {
+        "file": "#!/bin/sh\nset -e\n[ \"$(sh calc.sh 2 3)\" = 5 ] \u0026\u0026 echo PASS\n"
+      },
+      "status": "PASS",
+      "step": "5 edit test file"
+    },
+    {
+      "check": "bash mode background returned a job id",
+      "evidence": {
+        "jobId": "job_e0c9afb7ddadaab84ecf5e14",
+        "result": "{\"jobId\":\"job_e0c9afb7ddadaab84ecf5e14\",\"mode\":\"background\",\"state\":\"queued\"}"
+      },
+      "status": "PASS",
+      "step": "6 background job"
+    },
+    {
+      "check": "job_status read the job",
+      "evidence": {
+        "result": "{\"command\":\"sleep 3.1; GITHUB_TOKEN=ghp_E2Etoken0123456789abcdefghijklmnopqr sh tests/check.sh\",\"durationMs\":12,\"jobId\":\"job_e0c9afb7ddadaab84ecf5e14\",\"state\":\"running\",\"stderr\":{\"head\":\"\",\"omitted\":0,\"tail\":\"\",\"total\":0,\"truncated\":false},\"stdout\":{\"head\":\"\",\"omitted\":0,\"tail\":\"\",\"total\":0,\"truncat..."
+      },
+      "status": "PASS",
+      "step": "7 job status"
+    },
+    {
+      "check": "wakeup_schedule returned an id",
+      "evidence": {
+        "result": "{\"fireAt\":\"2026-11-02T07:02:13Z\",\"wakeupId\":\"schedule_cabfb85aa70b978f7db641d8\"}"
+      },
+      "status": "PASS",
+      "step": "8 delayed wake-up"
+    },
+    {
+      "check": "a final answer while the job ran was refused, then job_wait",
+      "evidence": {
+        "waitResult": "{\"exitCode\":0,\"finished\":\"job_e0c9afb7ddadaab84ecf5e14\",\"jobs\":[{\"exitCode\":0,\"jobId\":\"job_e0c9afb7ddadaab84ecf5e14\",\"state\":\"completed\"}],\"state\":\"completed\",\"timedOut\":false}"
+      },
+      "status": "PASS",
+      "step": "9 wait for the job"
+    },
+    {
+      "check": "the real job completed with exit 0",
+      "evidence": {
+        "job": {
+          "jobId": "job_e0c9afb7ddadaab84ecf5e14",
+          "sessionId": "session_a1374828a12229d26bfb4d93",
+          "runId": "c3398494578c2c1e459522e53603e06e",
+          "source": "agent",
+          "state": "completed",
+          "command": "sleep 3.1; GITHUB_TOKEN=ghp_E2Etoken0123456789abcdefghijklmnopqr sh tests/check.sh",
+          "exitCode": 0,
+          "createdAt": "2026-11-02T07:02:01.444697Z",
+          "startedAt": "2026-11-02T07:02:01.445195Z",
+          "finishedAt": "2026-11-02T07:02:05.021124Z",
+          "stdoutBytes": 5,
+          "stderrBytes": 0,
+          "outputTruncated": false
+        }
+      },
+      "status": "PASS",
+      "step": "9 job result"
+    },
+    {
+      "check": "Findings and Handoff written (v3)",
+      "evidence": {
+        "bytes": 363,
+        "sections": [
+          "Plan",
+          "Findings",
+          "Handoff"
+        ],
+        "version": 3
+      },
+      "status": "PASS",
+      "step": "10 notebook findings"
+    },
+    {
+      "check": "the window starts after the run's rows",
+      "evidence": {
+        "taskState": {
+          "sessionId": "session_a1374828a12229d26bfb4d93",
+          "version": 1,
+          "pendingEdits": 0,
+          "state": {
+            "resolution": {
+              "state": "open"
+            },
+            "progress": {},
+            "windowStartSeq": 23
+          },
+          "obligations": [],
+          "readyForReview": true
+        }
+      },
+      "status": "PASS",
+      "step": "11 context reset"
+    },
+    {
+      "check": "the wake-up started a run that completed",
+      "evidence": {
+        "requests": [
+          "c2-nb",
+          "c2-job",
+          "c2-verify",
+          "c2-final"
+        ]
+      },
+      "status": "PASS",
+      "step": "12 resume session"
+    },
+    {
+      "check": "the resumed request holds no pre-reset rows and carries the notebook index row",
+      "evidence": {
+        "messages": 5,
+        "notebookRow": "[runtime] Working notebooks of this session (external working memory, not Task State): Runtime Upgrade (v3, updated 2026-11-02T07:02:05Z, sections: Plan, Findings, Handoff). Read a notebook's Handoff section with notebook_read before continuing its work; bodies are not repeated here.",
+        "notebookRowBytes": 284
+      },
+      "status": "PASS",
+      "step": "12 after reset"
+    },
+    {
+      "check": "notebook_read returned the Handoff section",
+      "evidence": {
+        "result": "{\"body\":\"Next: confirm job job_e0c9afb7ddadaab84ecf5e14 completed with exit 0, rerun sh tests/check.sh, then report.\",\"bytes\":363,\"id\":\"1c5d86ae207cf758864b6a592f998e27\",\"section\":\"Handoff\",\"session\":\"session_a1374828a12229d26bfb4d93\",\"title\":\"Runtime Upgrade\",\"version\":3}"
+      },
+      "status": "PASS",
+      "step": "13 read handoff"
+    },
+    {
+      "check": "job_status reports the job completed",
+      "evidence": {
+        "result": "{\"command\":\"sleep 3.1; GITHUB_TOKEN=ghp_E2Etoken0123456789abcdefghijklmnopqr sh tests/check.sh\",\"durationMs\":3575,\"exitCode\":0,\"jobId\":\"job_e0c9afb7ddadaab84ecf5e14\",\"state\":\"completed\",\"stderr\":{\"head\":\"\",\"omitted\":0,\"tail\":\"\",\"total\":0,\"truncated\":false},\"stdout\":{\"head\":\"PASS\\n\",\"omitted\":0,\"tail..."
+      },
+      "status": "PASS",
+      "step": "14 real job status"
+    },
+    {
+      "check": "the check passes",
+      "evidence": {
+        "result": "{\"cancelled\":false,\"command\":\"sh tests/check.sh\",\"durationNanos\":454577000,\"exitCode\":0,\"stderr\":{\"head\":\"\",\"tail\":\"\",\"total\":0,\"truncated\":false},\"stdout\":{\"head\":\"PASS\\n\",\"tail\":\"PASS\\n\",\"total\":5,\"truncated\":false}}"
+      },
+      "status": "PASS",
+      "step": "15 verification"
+    },
+    {
+      "check": "the session and its job have correlated records",
+      "evidence": {
+        "byMsg": {
+          "budget.spend": 2,
+          "checkpoint.saved": 24,
+          "context.reset": 1,
+          "job tool": 2,
+          "job.state": 6,
+          "jobs.blocked_final": 1,
+          "llm.complete": 15,
+          "llm.request": 15,
+          "notebook.updated": 3,
+          "run.started": 1,
+          "run.stopped": 1,
+          "schedule.changed": 1,
+          "schedule.fired": 1,
+          "schedule: fired": 1,
+          "session.complete": 2,
+          "session.message": 3,
+          "session.start": 1,
+          "skills.loaded": 2,
+          "task_state.changed": 1,
+          "tool.end": 12,
+          "tool.output": 2,
+          "tool.start": 12
+        },
+        "jobRecords": 8,
+        "sessionRecords": 109,
+        "timeline": [
+          "07:02:00.771 INFO  session.start run= job= schedule= step=0",
+          "07:02:00.777 DEBUG skills.loaded run=c3398494 job= schedule= step=0",
+          "07:02:00.778 INFO  session.message run=c3398494 job= schedule= step=0",
+          "07:02:00.778 DEBUG llm.request run=c3398494 job= schedule= step=1",
+          "07:02:00.780 DEBUG llm.complete run=c3398494 job= schedule= step=1",
+          "07:02:00.780 INFO  tool.start run=c3398494 job= schedule= step=1",
+          "07:02:00.780 DEBUG notebook.updated run=c3398494 job= schedule= step=0",
+          "07:02:00.780 INFO  tool.end run=c3398494 job= schedule= step=1",
+          "07:02:00.780 DEBUG checkpoint.saved run=c3398494 job= schedule= step=0",
+          "07:02:00.781 DEBUG checkpoint.saved run=c3398494 job= schedule= step=0",
+          "07:02:00.782 DEBUG llm.request run=c3398494 job= schedule= step=2",
+          "07:02:00.782 DEBUG llm.complete run=c3398494 job= schedule= step=2",
+          "07:02:00.803 INFO  tool.start run=c3398494 job= schedule= step=2",
+          "07:02:01.378 DEBUG tool.output run=c3398494 job= schedule= step=2",
+          "07:02:01.414 INFO  tool.end run=c3398494 job= schedule= step=2",
+          "07:02:01.415 DEBUG checkpoint.saved run=c3398494 job= schedule= step=0",
+          "07:02:01.415 DEBUG checkpoint.saved run=c3398494 job= schedule= step=0",
+          "07:02:01.415 DEBUG llm.request run=c3398494 job= schedule= step=3",
+          "07:02:01.417 DEBUG llm.complete run=c3398494 job= schedule= step=3",
+          "07:02:01.425 INFO  tool.start run=c3398494 job= schedule= step=3",
+          "07:02:01.432 INFO  tool.end run=c3398494 job= schedule= step=3",
+          "07:02:01.433 DEBUG checkpoint.saved run=c3398494 job= schedule= step=0",
+          "07:02:01.433 DEBUG checkpoint.saved run=c3398494 job= schedule= step=0",
+          "07:02:01.434 DEBUG llm.request run=c3398494 job= schedule= step=4",
+          "07:02:01.435 DEBUG llm.complete run=c3398494 job= schedule= step=4",
+          "07:02:01.444 INFO  tool.start run=c3398494 job= schedule= step=4",
+          "07:02:01.444 INFO  job.state run=c3398494 job=job_e0c9afb7ddadaab84ecf5e14 schedule= step=0",
+          "07:02:01.444 INFO  job.state run=c3398494 job=job_e0c9afb7ddadaab84ecf5e14 schedule= step=0",
+          "07:02:01.445 INFO  job tool run=c3398494 job=job_e0c9afb7ddadaab84ecf5e14 schedule= step=0",
+          "07:02:01.446 INFO  job.state run=c3398494 job=job_e0c9afb7ddadaab84ecf5e14 schedule= step=0",
+          "07:02:01.447 INFO  job.state run=c3398494 job=job_e0c9afb7ddadaab84ecf5e14 schedule= step=0",
+          "07:02:01.453 INFO  tool.end run=c3398494 job= schedule= step=4",
+          "07:02:01.454 DEBUG checkpoint.saved run=c3398494 job= schedule= step=0",
+          "07:02:01.454 DEBUG checkpoint.saved run=c3398494 job= schedule= step=0",
+          "07:02:01.455 DEBUG llm.request run=c3398494 job= schedule= step=5",
+          "07:02:01.457 DEBUG llm.complete run=c3398494 job= schedule= step=5",
+          "07:02:01.457 INFO  tool.start run=c3398494 job= schedule= step=5",
+          "07:02:01.457 INFO  tool.end run=c3398494 job= schedule= step=5",
+          "07:02:01.457 DEBUG checkpoint.saved run=c3398494 job= schedule= step=0",
+          "07:02:01.458 DEBUG checkpoint.saved run=c3398494 job= schedule= step=0"
+        ]
+      },
+      "status": "PASS",
+      "step": "16 diagnostics timeline"
+    },
+    {
+      "check": "no secret in the exported logs",
+      "evidence": {
+        "files": [
+          "logs/lumencortex.jsonl",
+          "manifest.json"
+        ],
+        "leaks": [],
+        "path": "/tmp/lcx-e2e/lumencortex-diagnostics-20261102T070213Z.zip",
+        "stateFilesHoldingASecret": [
+          "lumencortex/workspaces/ws-520092461f4860a7/lumencortex.db-wal"
+        ]
+      },
+      "status": "PASS",
+      "step": "17 redacted export"
+    },
+    {
+      "check": "Close cancelled the running job, no process survived, no Core goroutine left, state reopens",
+      "evidence": {
+        "closeErr": "\u003cnil\u003e",
+        "goroutines": {
+          "afterClose": 5,
+          "afterCloseWithCoreFrames": 0,
+          "afterOpen": 10,
+          "beforeOpen": 2
+        },
+        "hostJobAfterReopen": "cancelled",
+        "runningBeforeClose": "43051 sleep 300.5",
+        "survivors": ""
+      },
+      "status": "PASS",
+      "step": "19 shutdown and cleanup"
+    },
+    {
+      "check": "the offered tools hold bash and no git_* tool",
+      "evidence": {
+        "gitTools": [],
+        "tools": [
+          "apply_patch",
+          "bash",
+          "find_files",
+          "job_cancel",
+          "job_list",
+          "job_status",
+          "job_wait",
+          "list_dir",
+          "notebook_list",
+          "notebook_read",
+          "notebook_update",
+          "read_file",
+          "read_skill",
+          "read_thread",
+          "recall",
+          "replace_in_file",
+          "search_text",
+          "wakeup_cancel",
+          "wakeup_schedule",
+          "write_file",
+          "work_unit_list",
+          "work_unit_create",
+          "work_unit_update",
+          "reference_suggest",
+          "note_write",
+          "note_remove"
+        ]
+      },
+      "status": "PASS",
+      "step": "independent git tool removed"
+    }
+  ],
+  "sessionId": "session_a1374828a12229d26bfb4d93",
+  "workspace": "/tmp/lcx-e2e/ws"
+}

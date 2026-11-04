@@ -3,14 +3,16 @@ package runtime
 import (
 	"cmp"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
-	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
@@ -36,9 +38,10 @@ type AgentOptions struct {
 	ModelRef config.ModelRef `json:"modelRef,omitempty"`
 	// Effort overrides the configured default reasoning effort for this run: "" (the default),
 	// none, minimal, low, medium, high, xhigh, max, or auto (classify this turn before its first request; the
-	// resolved level then acts as the run's default and escalation still raises it).
-	Effort              config.Effort   `json:"effort,omitempty"`
-	Policy              string          `json:"policy,omitempty"`
+	// resolved level then acts as the run's default).
+	Effort config.Effort `json:"effort,omitempty"`
+	Policy string        `json:"policy,omitempty"`
+	// MaxSteps: -1 means unlimited; zero inherits/defaults; positive is an explicit bound.
 	MaxSteps            int             `json:"maxSteps,omitempty"`
 	MaxToolCallsPerStep int             `json:"maxToolCallsPerStep,omitempty"`
 	ToolAllowlist       []string        `json:"toolAllowlist,omitempty"`
@@ -46,8 +49,10 @@ type AgentOptions struct {
 	SystemPrompt        string          `json:"systemPrompt,omitempty"`
 	Workflow            json.RawMessage `json:"workflow,omitempty"`
 	WorkUnits           json.RawMessage `json:"workUnits,omitempty"`
-	MaxTokens           int             `json:"maxTokens,omitempty"`
-	Temperature         *float64        `json:"temperature,omitempty"`
+	// Delivery is an explicit host contract persisted once and reused on resume.
+	Delivery    *DeliveryContract `json:"delivery,omitempty"`
+	MaxTokens   int               `json:"maxTokens,omitempty"`
+	Temperature *float64          `json:"temperature,omitempty"`
 	// Interactive marks a conversation turn (ADR-0006 D3): without a host workflow, a text answer ends
 	// the run completed and leaves open work units and checks to the thread's resolution; a run that
 	// changed the workspace still has its required checks decided. The default, false, keeps the full
@@ -58,6 +63,23 @@ type AgentOptions struct {
 	// starts execution tasks directly and needs RunSupervisor.Start. It is independent of Policy: a
 	// read-only conversation starts write-capable tasks only with this grant. Children never hold it.
 	Delegation string `json:"delegation,omitempty"`
+	// Deadline is an optional absolute execution deadline; nil sets no global time limit.
+	// Children inherit it and caller cancellation. A child's explicit deadline may only shorten it.
+	// DeadlineReserveSeconds is a delivery hint, not an earlier automatic execution stop.
+	Deadline               *time.Time `json:"deadline,omitempty"`
+	DeadlineReserveSeconds int        `json:"deadlineReserveSeconds,omitempty"`
+	// Budget is this run's budget (ADR-0019 §6): each non-zero field overrides the global file's
+	// execution.budget, which bounds every run, child runs included. The result's spend reports what
+	// the run used.
+	Budget *config.Budget `json:"budget,omitempty"`
+	// Retry overrides global execution.retry field by field; response-step recovery is finite.
+	// Immediate children inherit a copy. Deferred proposal Starts and explicit Resume use current
+	// execution policy instead of persisting this transient override in task state.
+	Retry *config.Retry `json:"retry,omitempty"`
+	// ChildExecution overrides execution controls of immediately spawned children, not authority.
+	// A host may also set AgentOptions directly when explicitly starting/resuming an existing child.
+	ChildExecution *ChildExecutionOptions `json:"childExecution,omitempty"`
+	ownerRun       *managedRun
 
 	subagents toolset.SubagentController
 	// childAgent is a child run's default agent: explore for a read-only subagent, worker for an
@@ -69,6 +91,48 @@ type AgentOptions struct {
 	disableMCP       bool
 }
 
+// ChildExecutionOptions overrides inherited limits; zero/nil inherits, -1 removes a step/batch cap.
+// Deadline cannot extend the parent's deadline or detach cancellation.
+type ChildExecutionOptions struct {
+	MaxSteps            int        `json:"maxSteps,omitempty"`
+	MaxToolCallsPerStep int        `json:"maxToolCallsPerStep,omitempty"`
+	Deadline            *time.Time `json:"deadline,omitempty"`
+}
+
+func inheritChildExecution(child, parent AgentOptions) AgentOptions {
+	child.MaxSteps, child.MaxToolCallsPerStep = parent.MaxSteps, parent.MaxToolCallsPerStep
+	child.DeadlineReserveSeconds = parent.DeadlineReserveSeconds
+	child.Retry = cloneRetry(parent.Retry)
+	if parent.Budget != nil {
+		value := *parent.Budget
+		child.Budget = &value
+	}
+	if parent.Deadline != nil {
+		value := *parent.Deadline
+		child.Deadline = &value
+	}
+	if override := parent.ChildExecution; override != nil {
+		if override.MaxSteps != 0 {
+			child.MaxSteps = override.MaxSteps
+		}
+		if override.MaxToolCallsPerStep != 0 {
+			child.MaxToolCallsPerStep = override.MaxToolCallsPerStep
+		}
+		if override.Deadline != nil && (child.Deadline == nil || override.Deadline.Before(*child.Deadline)) {
+			value := *override.Deadline
+			child.Deadline = &value
+		}
+	}
+	return child
+}
+
+func executionContext(ctx context.Context, opts AgentOptions) (context.Context, context.CancelFunc) {
+	if opts.Deadline != nil {
+		return context.WithDeadlineCause(ctx, *opts.Deadline, agent.ErrRunDeadline)
+	}
+	return context.WithCancel(ctx)
+}
+
 type AgentResult struct {
 	SessionID   string         `json:"sessionId"`
 	Status      string         `json:"status"`
@@ -76,6 +140,11 @@ type AgentResult struct {
 	Usage       protocol.Usage `json:"usage"`
 	WaitingGate bool           `json:"waitingGate,omitempty"`
 	Workflow    any            `json:"workflow,omitempty"`
+	// Spend is what the run used against its budget: tool calls, model requests, and tokens and cost
+	// split into known, estimated and unknown (ADR-0019 §6).
+	Spend agent.Spend `json:"spend"`
+	// Delivery is a separate verification outcome; it never changes Status or the Agent error.
+	Delivery *DeliveryResult `json:"delivery,omitempty"`
 }
 
 // RunAgent runs the agent loop to its exit on the calling goroutine. It holds the
@@ -83,11 +152,18 @@ type AgentResult struct {
 // nothing, when another Engine holds it. RunSupervisor.Start is the asynchronous
 // entry point with the same contract.
 func (e *Engine) RunAgent(ctx context.Context, sessionID string, opts AgentOptions) (AgentResult, error) {
+	ctx, cancel := executionContext(ctx, opts)
+	defer cancel()
 	lock, err := e.acquireRun(ctx, sessionID)
 	if err != nil {
 		return AgentResult{}, err
 	}
+	ctx, done := e.trackRun(ctx, sessionID)
+	defer done()
 	defer lock.Release()
+	if err := ctx.Err(); err != nil {
+		return AgentResult{}, err
+	}
 	if opts, err = e.constrainChild(ctx, sessionID, opts); err != nil {
 		return AgentResult{}, err
 	}
@@ -105,16 +181,36 @@ func (e *Engine) RunAgent(ctx context.Context, sessionID string, opts AgentOptio
 
 // preparedRun is a Start whose pre-run writes are done: the loop only has to execute.
 type preparedRun struct {
+	engine    *Engine
 	loop      agent.Loop
 	loopOpts  agent.Options
 	sessionID string
 	// info is the session as the Start transaction committed it: running, with the
 	// new identity and the previous outcome cleared.
-	info SessionInfo
+	info        SessionInfo
+	finishOwned func()
+	// delivery is the pending record the Start committed, nil without a delivery contract.
+	delivery *DeliveryResult
 }
 
+// execute runs under the caller's tracked lifetime, including preparation and owned cleanup.
 func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 	result, err := r.loop.Run(ctx, r.sessionID, r.loopOpts)
+	r.engine.endRunJobs(ctx, r.sessionID, r.loopOpts.RunID)
+	if r.finishOwned != nil {
+		r.finishOwned()
+	}
+	// Only a completed execution is verified; otherwise the result reports the pending record its
+	// Start committed, so it never reads as "no contract". A run without a contract settles nothing.
+	var delivery *DeliveryResult
+	if r.delivery != nil {
+		if result.Status == agent.StatusCompleted {
+			delivery = r.engine.settleDelivery(ctx, r.sessionID, r.loopOpts.RunID)
+		} else {
+			recorded := *r.delivery
+			delivery = &recorded
+		}
+	}
 	return AgentResult{
 		SessionID:   result.SessionID,
 		Status:      result.Status,
@@ -122,21 +218,44 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 		Usage:       result.Usage,
 		WaitingGate: result.WaitingGate,
 		Workflow:    result.Workflow,
+		Spend:       result.Spend,
+		Delivery:    delivery,
 	}, err
+}
+
+// newRunID is a 128-bit random run identity in lower-case hex.
+func newRunID() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("run id: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 // prepareRun is the Start sequence after the run lock is held:
 //
-//	Reconcile → validate and build → one transaction (Input, identity, running)
+//	Reconcile → run id → validate and build → one transaction (Input, identity, running)
 //
 // Everything that can reject the Start happens before the transaction, and the
 // transaction is atomic, so a rejected or failed Start leaves no new transcript
 // row and the session row as it was. The loop starts on a session that is already
 // running.
+//
+// The run's identity (runID) is drawn right after Reconcile and before anything that can call a model
+// (the Auto-effort judge): a fresh 128-bit random value per Start, kept in memory and passed to the
+// loop as agent.Options.RunID. It is never written to sessions; request and execution rows carry it
+// as a nullable column, and a restart, a takeover or a new Start is a new run.
 func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOptions) (*preparedRun, error) {
 	if _, err := e.store.Reconcile(ctx, sessionID); err != nil {
 		return nil, err
 	}
+	runID, err := newRunID()
+	if err != nil {
+		return nil, err
+	}
+	// The events the loop publishes carry no run id; the diagnostics bridge attaches this one so a
+	// trace can group them by run (diagnostics.go).
+	e.noteRunStarted(sessionID, runID)
 	if opts.Input != "" && strings.TrimSpace(opts.Input) == "" {
 		return nil, errors.New("input must not be blank")
 	}
@@ -184,15 +303,25 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		delegation = agent.DelegationNone
 	}
 	if delegation == agent.DelegationIsolated && opts.tasks == nil {
-		return nil, errors.New("delegation isolated starts tasks that outlive the run: start the run with RunSupervisor.Start")
+		return nil, errors.New("delegation isolated needs RunSupervisor.Start to manage child execution")
 	}
-	// The seeds are validated here, before anything is written; the task results of the parent's
-	// execution children are read here and commit with their cursor in the Start transaction.
-	taskState, results, err := e.startTaskState(ctx, sessionID, opts)
+	agentWorkspace, err := e.agentWorkspace(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	agentWorkspace, err := e.agentWorkspace(ctx, sessionID)
+	ev, err := e.sessionEvaluator(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	checks := runChecks{engine: e, ev: ev, specs: plan.checks, store: e.store, sessionID: sessionID}
+	// The seeds are validated here, before anything is written; the task results of the parent's
+	// execution children are read here and commit with their cursor in the Start transaction. The
+	// thread's constraints are decided here too, by the checks bound to them, in the session's workspace
+	// (plan T4-S3): that runs commands, so only once the seeds were accepted, and the decisions commit
+	// with the Start's Task State version. A pass of those checks counts for the rest of this run.
+	taskState, results, pendingDelivery, err := e.startTaskState(ctx, sessionID, runID, opts, func(ctx context.Context, state *taskstate.State) error {
+		return e.decideConstraints(ctx, runID, state, checks)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -200,12 +329,10 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if agentWorkspace != e.workspace {
 		runner = shell.New(agentWorkspace)
 	}
-	var lspManager *lsp.Manager
-	e.lspMu.Lock()
-	if candidate := e.lspManagers[agentWorkspace]; candidate != nil && candidate.Status().Running {
-		lspManager = candidate
-	}
-	e.lspMu.Unlock()
+	// The workspace's manager exists whether or not a server is running. In a trusted workspace the
+	// toolset offers the lsp_* tools when a server can serve the workspace and the first call starts it;
+	// in an untrusted one only a server the host started is used, and none is started (ADR-0013).
+	lspAccess := e.lspForRun(agentWorkspace, plan.trusted)
 	mcpRegistry := e.mcpRegistry
 	if opts.disableMCP {
 		mcpRegistry = nil
@@ -229,27 +356,62 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		agentInstructions: plan.instructions,
 		skills:            e.skillRegistry,
 	})
+	// A wake-up starts a later run on this session with this run's policy and host tool filters. A
+	// child run (a subagent or an execution task) has a lifecycle of its own that its parent owns, so it
+	// gets no wake-up tools: the thread does.
+	var wakeupBinding toolset.WakeupController
+	if opts.parentSessionID == "" {
+		wakeupBinding = e.wakeupsFor(sessionID, policy, opts.ToolAllowlist, opts.ToolDenylist)
+	}
+	// A server whose tool list was never discovered cannot be offered, so a run that may use MCP
+	// discovers the missing catalogs here, once per server, in parallel and under a bounded wait. A
+	// server whose catalog is already recorded costs nothing: this is a no-op in the steady state
+	// (ADR-0021 §3).
+	if mcpRegistry != nil {
+		e.discoverMCPCatalogs(ctx, mcpRegistry, agentWorkspace, opts.ToolAllowlist, opts.ToolDenylist)
+	}
+	execution := e.executionLimits()
 	tools, err := toolset.New(toolset.Options{
 		Workspace: agentWorkspace,
 		Policy:    policy,
 		Shell:     runner,
-		LSP:       lspManager,
+		LSP:       lspAccess,
 		MCP:       mcpRegistry,
 		Subagents: opts.subagents,
 		// Children get no spawn tool, so the list matters only to a thread's run.
-		SubagentAgents: plan.spawnAgents,
-		Threads:        threadReader{engine: e, sessionID: sessionID, workspace: agentWorkspace},
-		Skills:         newSkillReader(prompt.Skills.Included),
-		Protected:      e.protected,
+		SubagentAgents:  plan.spawnAgents,
+		Threads:         threadReader{engine: e, sessionID: sessionID, workspace: agentWorkspace},
+		Skills:          newSkillReader(prompt.Skills.Included),
+		Notebook:        newNotebookAccess(e, sessionID, runID),
+		Protected:       e.protected,
+		ShellTimeout:    time.Duration(execution.ShellTimeoutSeconds) * time.Second,
+		ShellMaxTimeout: time.Duration(execution.ShellMaxTimeoutSeconds) * time.Second,
+		// The run's background job queue: its session, its run id and the workspace its commands run in.
+		// The completion gate and the run's end use the same binding through the Engine (ADR-0019 §3).
+		Jobs:    e.runJobs(sessionID, runID, agentWorkspace),
+		Wakeups: wakeupBinding,
+		// A tool's own log lines name the session and the run they belong to.
+		Logger: e.log.With("session_id", sessionID, "run_id", runID),
+		// A server with a session binding receives this id, so an action is attributed to the run that
+		// drove it and the server-side session can be closed with the run.
+		SessionID: sessionID,
 	})
 	if err != nil {
 		return nil, err
 	}
-	ev, err := e.sessionEvaluator(ctx, sessionID)
+	// Side-effect tools are snapshotted where they act: the run's workspace, the worktree of a session
+	// that owns one (plan T1-S4).
+	snapshots, err := repository.New(agentWorkspace)
 	if err != nil {
 		return nil, err
 	}
-	checks := runChecks{ev: ev, specs: plan.checks}
+	// A revocation that reached the session is projected here, under the run lock and before anything
+	// is admitted for this Start (the auto judge included): the run withholds the rows that carry
+	// revoked content, or the Start is refused when the thread cannot be projected.
+	withheld, err := e.projectRun(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	// Auto effort is resolved once per Start, under the run lock and before the Start transaction:
 	// the previous request and last reply are in the transcript, and a cancelled judge call leaves
 	// no new row or running session behind.
@@ -263,7 +425,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		}
 	}
 	if plan.needsAuto(opts.Effort) {
-		auto, err := e.resolveAutoEffort(ctx, sessionID, opts.Input, plan.auto)
+		auto, err := e.resolveAutoEffort(ctx, sessionID, runID, opts.Input, plan.auto)
 		if err != nil {
 			return nil, err
 		}
@@ -296,7 +458,6 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Session:             plan.session,
 		Failover:            plan.failover,
 		EffortDefault:       effortDefault,
-		Escalation:          plan.escalation,
 		Effort:              effortOverride,
 		EffortAutoCeiling:   effortCeiling,
 		CandidateEfforts:    candidateEfforts,
@@ -304,7 +465,27 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Interactive:         interactive,
 		Delegation:          delegation,
 		TaskAgents:          plan.taskAgents,
+		RunID:               runID,
+		Withheld:            withheld,
+		DeadlineReserve:     time.Duration(opts.DeadlineReserveSeconds) * time.Second,
 	}
+	if opts.Deadline != nil {
+		loopOpts.Deadline = *opts.Deadline
+	}
+	if global := execution.Budget; global != nil {
+		loopOpts.Budget = *global
+	}
+	if opts.Budget != nil {
+		loopOpts.Budget = loopOpts.Budget.Over(*opts.Budget)
+	}
+	var retry config.Retry
+	if global := execution.Retry; global != nil {
+		retry = *global
+	}
+	if opts.Retry != nil {
+		retry = retry.Over(*opts.Retry)
+	}
+	loopOpts.Recovery = agent.RecoveryFrom(retry)
 
 	loopOpts.SystemLayers = systemLayers(prompt.Layers)
 	if prompt.SkillsErr != nil {
@@ -322,6 +503,18 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	// Start's one durable write: Input, the session model identity, the Start's Task State version and
 	// the running transition commit together or not at all (§3.2). Nothing above it wrote.
 	start := session.RunStart{Provider: &plan.resolved.ProviderID, Model: &plan.resolved.ModelID, TaskState: taskState, Results: results}
+	// The working notebooks of the session (ADR-0020) become one short index row in this Start: their
+	// titles, versions and sections, never a body. A session without notebooks gets no row.
+	if infos, err := e.store.ListNotebooks(ctx, sessionID); err != nil {
+		return nil, err
+	} else if row, ok := notebookIndexRow(infos); ok {
+		start.Notices = append(start.Notices, row)
+	}
+	if open, err := e.store.ListJobs(ctx, session.JobFilter{SessionID: sessionID, States: jobsIndexStates, Limit: maxJobsIndexEntries + 1}); err != nil {
+		return nil, err
+	} else if row, ok := jobsIndexRow(open); ok {
+		start.Notices = append(start.Notices, row)
+	}
 	if agent.WritesModelRef(plan.rule) {
 		ref := string(plan.session)
 		start.ModelRef = &ref
@@ -333,14 +526,20 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		start.Input = &protocol.Message{Role: "user", Content: opts.Input}
 	}
 	loopOpts.Resumed = state.Status == "interrupted"
+	if testHookBeforeBeginRun != nil {
+		testHookBeforeBeginRun()
+	}
 	committed, seqs, err := e.store.BeginRun(ctx, sessionID, start)
 	if err != nil {
 		return nil, err
 	}
+	noticeFrom := len(seqs) - len(start.Notices)
 	for i, seq := range seqs {
 		switch {
 		case i < len(results):
 			e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user", "origin": protocol.OriginTaskResult})
+		case i >= noticeFrom:
+			e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user", "origin": start.Notices[i-noticeFrom].Origin})
 		case start.Input != nil:
 			e.events.publish("session.message", sessionID, map[string]any{"seq": seq, "role": "user"})
 		default:
@@ -352,18 +551,22 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	}
 
 	return &preparedRun{
+		engine:    e,
 		sessionID: sessionID,
 		info:      sessionInfo(committed),
+		delivery:  pendingDelivery,
 		loopOpts:  loopOpts,
 		loop: agent.Loop{
-			Models:   plan.models,
-			Health:   e.health,
-			Store:    agentStore{store: e.store},
-			Tools:    tools,
-			Evidence: e.runEvidence(sessionID, checks),
-			Checks:   checks,
-			Tasks:    taskStarterFor(delegation, opts.tasks),
-			Cite:     citeIn(agentWorkspace),
+			Models:    plan.models,
+			Health:    e.health,
+			Store:     agentStore{store: e.store},
+			Tools:     tools,
+			Snapshots: snapshots,
+			Jobs:      e.jobGate(),
+			Evidence:  e.runEvidence(sessionID, checks),
+			Checks:    checks,
+			Tasks:     taskStarterFor(delegation, opts.tasks),
+			Cite:      citeIn(agentWorkspace),
 			Emit: func(event agent.Event) {
 				e.events.publish(event.Type, event.SessionID, event.Data)
 				_ = e.store.Journal(context.Background(), event.Type, map[string]any{
@@ -388,9 +591,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 func policyAuthority(policy string) string {
 	switch policy {
 	case toolset.PolicyFull:
-		return "This run can read and edit files in the workspace and run shell commands."
+		return "This run can read and edit files in the workspace and run commands with bash."
 	case toolset.PolicyWorkspace:
-		return "This run can read and edit files in the workspace; it cannot run shell commands."
+		return "This run can read and edit files in the workspace; it cannot run commands."
 	default:
 		return "This run is read-only: it can read, search and inspect the workspace, read Skills, use MCP tools marked read-only, and record notes and plan work units; it cannot change project files or run commands. Describe a needed change instead of making it."
 	}
@@ -439,7 +642,7 @@ func (e *Engine) ApproveWorkflowGate(ctx context.Context, sessionID, gateID, act
 		return nil, err
 	}
 	state.SetWorkflow(wf)
-	if _, err := e.putTaskState(ctx, sessionID, taskstate.ReasonUser, state, 0); err != nil {
+	if _, err := e.putTaskState(ctx, sessionID, taskstate.ReasonUser, state, 0, nil); err != nil {
 		return nil, err
 	}
 	e.events.publish("workflow.approved", sessionID, map[string]any{
@@ -494,6 +697,66 @@ func (s agentStore) AppendMessage(ctx context.Context, id string, message protoc
 	return s.store.AppendMessageTaskState(ctx, id, message.Role, message, write)
 }
 
+// Crash points for tests that kill the process (nil outside tests): the request is admitted but not
+// yet sent, and the model has answered but the answer is not stored. A third point, mid-call, is a
+// provider that never returns. For tools: the execution is admitted but the tool has not run, the
+// tool has run but its result is not committed, and the result is committed. Mid-execution is a
+// tool that never returns.
+var (
+	testHookAfterAdmit       func()
+	testHookBeforeAnswer     func()
+	testHookAfterExecAdmit   func()
+	testHookBeforeToolCommit func()
+	testHookAfterToolCommit  func()
+	// testHookBeforeBeginRun runs after the Start decided and projected everything, just before the
+	// Start transaction.
+	testHookBeforeBeginRun func()
+)
+
+func (s agentStore) AdmitExecution(ctx context.Context, a session.ExecutionAdmission) error {
+	err := s.store.AdmitExecution(ctx, a)
+	if err == nil && testHookAfterExecAdmit != nil {
+		testHookAfterExecAdmit()
+	}
+	return err
+}
+
+func (s agentStore) CommitToolResult(ctx context.Context, c agent.ToolResultCommit) (int64, int64, error) {
+	write, err := agentTaskStateChange(c.Change)
+	if err != nil {
+		return 0, 0, err
+	}
+	if testHookBeforeToolCommit != nil {
+		testHookBeforeToolCommit()
+	}
+	seq, version, err := s.store.CommitToolResult(ctx, session.ToolCommit{
+		SessionID: c.SessionID, RunID: c.RunID, Message: c.Message, TaskState: write, Execution: c.Execution, Edges: c.Edges,
+	})
+	if err == nil && testHookAfterToolCommit != nil {
+		testHookAfterToolCommit()
+	}
+	return seq, version, err
+}
+
+func (s agentStore) AdmitRequest(ctx context.Context, a session.RequestAdmission) (session.RequestEnvelope, error) {
+	env, err := s.store.AdmitRequest(ctx, a)
+	if err == nil && testHookAfterAdmit != nil {
+		testHookAfterAdmit()
+	}
+	return env, err
+}
+
+func (s agentStore) AppendAnswered(ctx context.Context, sessionID, requestID string, message protocol.Message) (int64, error) {
+	if testHookBeforeAnswer != nil {
+		testHookBeforeAnswer()
+	}
+	return s.store.AppendAnswered(ctx, sessionID, requestID, message)
+}
+
+func (s agentStore) SettleRequest(ctx context.Context, requestID string, st session.Settlement) error {
+	return s.store.SettleRequest(ctx, requestID, st)
+}
+
 func (s agentStore) AppendStep(ctx context.Context, id string, step int64, value any) error {
 	return s.store.AppendStep(ctx, id, step, value)
 }
@@ -513,6 +776,10 @@ func (s agentStore) TaskState(ctx context.Context, id string) (taskstate.State, 
 		return taskstate.State{}, err
 	}
 	return taskstate.Decode(row.Version, row.JSON)
+}
+
+func (s agentStore) NewestMessageSeq(ctx context.Context, id string) (int64, error) {
+	return s.store.NewestMessageSeq(ctx, id)
 }
 
 func (s agentStore) InboxEdits(ctx context.Context, id string) ([]taskstate.QueuedEdit, error) {
@@ -576,4 +843,13 @@ func citeIn(workspace string) func(context.Context, []string) ([]taskstate.Cite,
 		}
 		return cites, nil
 	}
+}
+
+// cloneRetry isolates an inherited per-run override from its parent's mutable options.
+func cloneRetry(r *config.Retry) *config.Retry {
+	if r == nil {
+		return nil
+	}
+	copy := *r
+	return &copy
 }

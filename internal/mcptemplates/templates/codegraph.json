@@ -1,0 +1,43 @@
+{
+  "id": "codegraph",
+  "name": "CodeGraph (experimental)",
+  "capability": "code.graph",
+  "description": "A code knowledge graph MCP server: call graph traversal, reference and impact queries, module and project maps. Experimental and off by default. It overlaps LumenCortex's own language-server tools (lsp_definition, lsp_references, lsp_workspace_symbols, lsp_document_symbols) and adds graph-shaped answers the LSP does not give directly — transitive callers and an impact list — at the price of an index. No measurement of its benefit on this codebase was taken; see docs/plugins-mcp-templates.md for the comparison and what was not measured.",
+  "homepage": "https://github.com/sdsrss/code-graph-mcp",
+  "auth": "None. A local stdio process with an embedded SQLite graph database.",
+  "requires": "The code-graph-mcp binary installed on PATH (npm install -g @sdsrs/code-graph). Core never installs it: with the binary absent the availability diagnostic reports the missing command.",
+  "verified": "2026-11-01 against github.com/sdsrss/code-graph-mcp README: stdio JSON-RPC server, npm package @sdsrs/code-graph, binary code-graph-mcp, tools semantic_code_search / get_call_graph / find_references / impact / project_map / module_overview / get_ast_node. Live handshake NOT_RUN: the binary is not installed on this machine, and installing it was out of scope (Core does not install executables).",
+  "experimental": true,
+  "limitations": [
+    "The server indexes the workspace on the first query tool call and re-indexes changed files on later ones. It offers no documented switch to answer graph queries without an index, so 'never indexes by default' is satisfied only by this template being off and by requiring an explicit enable.",
+    "Upstream installs a missing engine binary and self-updates by default; CODE_GRAPH_NO_AUTO_UPDATE=1 disables the update check but not the first-run install. Core requires the binary to be installed by the user instead.",
+    "Call edges are resolved by name, so qualified calls, interface dispatch and reflection produce no edge; its own README lists those boundaries.",
+    "Isolation is per workspace only because the process runs with the workspace as its working directory and keeps its index there; two workspaces share nothing, but nothing stops a second client of the same workspace from reading the index."
+  ],
+  "config": {
+    "id": "codegraph",
+    "name": "CodeGraph",
+    "transport": "stdio",
+    "command": "code-graph-mcp",
+    "args": [],
+    "protocolMode": "legacy",
+    "env": {
+      "CODE_GRAPH_NO_AUTO_UPDATE": "1"
+    },
+    "include": [
+      "semantic_code_search",
+      "get_call_graph",
+      "find_references",
+      "impact",
+      "project_map",
+      "module_overview",
+      "get_ast_node"
+    ],
+    "callTimeoutSeconds": 120,
+    "idleTimeoutSeconds": 600,
+    "maxConcurrentCalls": 2,
+    "maxResultBytes": 262144,
+    "disabled": true,
+    "template": "codegraph"
+  }
+}

@@ -414,10 +414,10 @@ func hasTool(names []string, want ...string) bool {
 var presetCountRef = regexp.MustCompile(`(?:^|[^\w])Count\s*\(`)
 
 // writeTools are the tools that change the workspace or execute commands.
-var writeTools = []string{"write_file", "replace_in_file", "apply_patch", "shell"}
+var writeTools = []string{"write_file", "replace_in_file", "apply_patch", "bash"}
 
 // readTools are the tools a read-only run may use to inspect the workspace.
-var readTools = []string{"read_file", "search_text", "find_files", "list_dir", "git_status", "git_diff", "lsp_hover", "lsp_definition", "lsp_references", "lsp_document_symbols", "lsp_workspace_symbols", "lsp_diagnostics"}
+var readTools = []string{"read_file", "read_files", "search_text", "find_files", "list_dir", "lsp_hover", "lsp_definition", "lsp_references", "lsp_document_symbols", "lsp_workspace_symbols", "lsp_diagnostics"}
 
 func TestRealModelAgentPresets(t *testing.T) {
 	if os.Getenv("LCX_REAL_MODEL") == "" {
@@ -458,12 +458,15 @@ func Mul(a, b int) int { return a + b }
 `)
 		factory := realModelEnv(t, nil, repo)
 		writeWorkspaceConfig(t, repo, presetAgents(t), nil)
+		// A read-only run has no Git tool since ADR-0019 §0, so the goal states what changed, as a host
+		// that wants a diff reviewed read-only does.
 		ev := runPresetTop(t, repo, factory, "reviewer", "read-only",
-			"Review the current uncommitted change in this repository for defects the author would want fixed before merge. Do not edit files.", 10)
+			"Review the current uncommitted change in this repository for defects the author would want fixed before merge. "+
+				"The change edits calc/calc.go: it adds Add with its comment and rewrites the body of Mul. Do not edit files.", 10)
 		names := toolNames(ev.Calls)
 		t.Logf("tools=%v final=%.2000q", names, ev.Final)
-		if !hasTool(names, "git_status", "git_diff") {
-			t.Errorf("reviewer did not inspect the diff: tools=%v", names)
+		if !hasTool(names, "read_file", "read_files") {
+			t.Errorf("reviewer did not read the changed file: tools=%v", names)
 		}
 		if hasTool(names, writeTools...) {
 			t.Errorf("reviewer used a mutating tool: %v", names)
@@ -605,8 +608,8 @@ func main() {
 		if child.Status != "completed" {
 			t.Errorf("sonic child status=%s final=%q", child.Status, child.Final)
 		}
-		if hasTool(names, "shell") {
-			t.Errorf("sonic used a shell tool under workspace policy: %v", names)
+		if hasTool(names, "bash") {
+			t.Errorf("sonic used bash under workspace policy: %v", names)
 		}
 		worktree := child.Runtime.Path
 		status := presetGitStatus(t, worktree)
@@ -638,7 +641,7 @@ func main() {
 		}
 		verified := false
 		for _, call := range calls[lastWrite+1:] {
-			if hasTool([]string{call.Tool}, "read_file", "git_diff", "git_status", "search_text") {
+			if hasTool([]string{call.Tool}, "read_file", "read_files", "search_text") {
 				verified = true
 			}
 		}
@@ -763,7 +766,7 @@ func TestClamp(t *testing.T) {
 		}
 		verified := false
 		for _, call := range calls[firstWrite+1:] {
-			if hasTool([]string{call.Tool}, "read_file", "git_diff", "git_status", "search_text") {
+			if hasTool([]string{call.Tool}, "read_file", "read_files", "search_text") {
 				verified = true
 			}
 		}

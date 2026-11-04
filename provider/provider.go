@@ -21,7 +21,6 @@ type Options struct {
 	// business: the adapters classify their own request and idle timeouts.
 	HTTPClient       *http.Client
 	DisableStreaming bool
-	DisableRetries   bool
 	// Credentials resolves {secret:NAME} apiKey references. A nil Credentials leaves every adapter
 	// environment-only, the CLI's mode; a host with a secret store passes its resolver here.
 	Credentials config.CredentialResolver
@@ -36,14 +35,12 @@ func FromModel(m config.ResolvedModel, o Options) (protocol.Provider, error) {
 		return openai.FromModel(m, openai.Options{
 			HTTPClient:       o.HTTPClient,
 			DisableStreaming: o.DisableStreaming,
-			DisableRetries:   o.DisableRetries,
 			Credentials:      o.Credentials,
 		})
 	case config.PackageAnthropicMessages:
 		return anthropic.FromModel(m, anthropic.Options{
 			HTTPClient:       o.HTTPClient,
 			DisableStreaming: o.DisableStreaming,
-			DisableRetries:   o.DisableRetries,
 			Credentials:      o.Credentials,
 		})
 	default:

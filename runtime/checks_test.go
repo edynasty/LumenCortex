@@ -38,6 +38,25 @@ func gitEngine(t *testing.T) (*Engine, string) {
 	return engine, root
 }
 
+// approveChecks approves the engine's current effective check set as a user would after reading
+// `lcx-go checks status` (ADR-0017): the fixture's checks are the user's own definitions.
+func approveChecks(t *testing.T, engine *Engine) CheckApprovalState {
+	t.Helper()
+	ctx := context.Background()
+	state, err := engine.CheckApprovalState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved, err := engine.ApproveChecks(ctx, ApproveChecksRequest{SetDigest: state.SetDigest, ApprovedBy: ApprovedByUser, Actor: "test-user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !approved.Approved {
+		t.Fatalf("approval did not take: %+v", approved)
+	}
+	return approved
+}
+
 func checkInfo(t *testing.T, engine *Engine, id, check string) CheckInfo {
 	t.Helper()
 	info, err := engine.SessionChecks(context.Background(), id)
@@ -68,6 +87,7 @@ func taskResolution(t *testing.T, engine *Engine, id string) TaskStateInfo {
 func TestHumanAcceptanceHoldsUntilTheFingerprintChanges(t *testing.T) {
 	useChecks(t, `{"status": {"kind": "test", "command": "test -f ok.txt"}}`)
 	engine, root := gitEngine(t)
+	approveChecks(t, engine)
 	ctx := context.Background()
 	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "accept"})
 	if err != nil {
@@ -118,11 +138,73 @@ func TestHumanAcceptanceHoldsUntilTheFingerprintChanges(t *testing.T) {
 	}
 }
 
+// ADR-0017 fresh-at-use with the real Engine: a run's runtime pass is stored in a closed episode, but
+// neither the host's view nor the next run takes it; the next run decides the check again at the same
+// fingerprint and approval. Only a person's acceptance carries over.
+func TestRuntimePassIsDecidedAgainInTheNextRun(t *testing.T) {
+	useChecks(t, `{"status": {"kind": "test", "command": "test -f README.md"}}`)
+	engine, _ := gitEngine(t)
+	approveChecks(t, engine)
+	ctx := context.Background()
+	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "fresh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for run := 1; run <= 2; run++ {
+		result, err := engine.runAgentWith(ctx, handle.ID, &answering{final: "done"}, AgentOptions{Input: "finish"})
+		if err != nil || result.Status != "completed" {
+			t.Fatalf("run %d: %+v err=%v", run, result, err)
+		}
+		results, err := engine.CheckResults(ctx, handle.ID, -1, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(results) != run {
+			t.Fatalf("run %d: %d stored results, want the check decided once per run", run, len(results))
+		}
+		newest := results[0]
+		if newest.Status != evaluator.StatusPassed || newest.EpisodeStatus != evaluator.EpisodeClosed || newest.EpisodeID == "" ||
+			newest.PreFingerprint != newest.Fingerprint || newest.PostFingerprint != newest.Fingerprint {
+			t.Fatalf("run %d: result %+v", run, newest)
+		}
+		if c := checkInfo(t, engine, handle.ID, "status"); c.Satisfied {
+			t.Fatalf("run %d: the host counts a past run's pass: %+v", run, c)
+		}
+	}
+}
+
+// A non-interactive run whose required check the host has not approved ends failed/spec_unapproved
+// after the model's first answer: only the user can approve, so the model is not asked again.
+func TestUnapprovedRequiredCheckEndsTheRun(t *testing.T) {
+	useChecks(t, `{"status": {"kind": "test", "command": "true"}}`)
+	engine, _ := gitEngine(t)
+	ctx := context.Background()
+	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "unapproved"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &answering{final: "done"}
+	result, err := engine.runAgentWith(ctx, handle.ID, provider, AgentOptions{Input: "finish", MaxSteps: 4})
+	if err == nil || result.Status != "failed" {
+		t.Fatalf("run=%+v err=%v", result, err)
+	}
+	if _, cause := sessionState(t, engine, handle.ID); cause == nil || cause.Kind != "spec_unapproved" {
+		t.Fatalf("cause=%+v", cause)
+	}
+	if n := provider.calls.Load(); n != 1 {
+		t.Fatalf("the model was asked %d times, want once", n)
+	}
+	if results, err := engine.CheckResults(ctx, handle.ID, -1, 0); err != nil || len(results) != 0 {
+		t.Fatalf("an unapproved check ran: %+v %v", results, err)
+	}
+}
+
 // The completion gate runs a failing required check, stores its log and the diff it covers, and
 // keeps the run going with a completion_blocked row; the host reads the artifacts back.
 func TestCompletionGateRunsRequiredChecksWithArtifacts(t *testing.T) {
 	useChecks(t, `{"status": {"kind": "test", "command": "echo checking; test -f ok.txt"}}`)
 	engine, root := gitEngine(t)
+	approveChecks(t, engine)
 	ctx := context.Background()
 	handle, err := engine.NewSession(ctx, SessionOptions{Goal: "gate"})
 	if err != nil {
@@ -187,6 +269,7 @@ func TestCompletionGateRunsRequiredChecksWithArtifacts(t *testing.T) {
 func TestChecksRunInTheWorktreeAndApplyLatchesOnlyOnEvidence(t *testing.T) {
 	useChecks(t, `{"marker": {"kind": "test", "command": "test -f marker.txt"}}`)
 	engine, root := gitEngine(t)
+	approveChecks(t, engine)
 	ctx := context.Background()
 
 	apply := func(goal string, accept bool, queueDrop bool) TaskStateInfo {
@@ -284,5 +367,30 @@ func TestUntrustedWorkspaceChecksAreDropped(t *testing.T) {
 	result, err := engine.runAgentWith(ctx, handle.ID, &answering{final: "done"}, AgentOptions{Input: "finish"})
 	if err != nil || result.Status != "completed" {
 		t.Fatalf("an untrusted check blocked completion: %+v err=%v", result, err)
+	}
+}
+
+// The definitions and their approval are read again from the Engine's configuration (configScope) when
+// the episode closes, not only from the session's workspace (executionScope). A check that rewrites its
+// own definition in the global configuration - outside the workspace, so the workspace snapshot does
+// not move - passes nothing: its episode closes spec_unapproved.
+func TestCheckThatRedefinesItselfOutsideTheWorkspacePassesNothing(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "rewrite.sh")
+	command := "sh " + script
+	useChecks(t, `{"self": {"kind": "test", "command": "`+command+`"}}`)
+	global := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "lumencortex", config.FileName)
+	redefined := strings.Replace(boundCatalog("test/b0"), `{"model"`, `{"checks": {"self": {"kind": "test", "command": "`+command+`; true"}}, "model"`, 1)
+	writeFile(t, filepath.Join(dir, "new.json"), redefined)
+	writeFile(t, script, "cp "+filepath.Join(dir, "new.json")+" "+global+"\n")
+	engine, _ := gitEngine(t)
+	approveChecks(t, engine)
+	handle, err := engine.NewSession(context.Background(), SessionOptions{Goal: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := decideNow(t, engine, handle.ID, "self")
+	if v.Passed || v.Episode != evaluator.EpisodeSpecUnapproved || v.Result.Status != evaluator.StatusPassed {
+		t.Fatalf("a check that redefined itself: %+v", v)
 	}
 }

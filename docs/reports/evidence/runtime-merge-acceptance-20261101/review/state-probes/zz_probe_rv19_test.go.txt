@@ -1,0 +1,160 @@
+package runtime
+
+import (
+	"context"
+	"sort"
+	"strings"
+	"testing"
+	"time"
+)
+
+// RV-19a: a recurring agent task that comes due at the agent limit records skipped_overlap and keeps
+// its next slot; once the slot is free, its next occurrence fires.
+func TestZZProbeRV19RecurringAtAgentLimit(t *testing.T) {
+	engine, err := Open(Options{Workspace: t.TempDir(), Budget: Budget{MaxAgents: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	other := newTestSession(t, engine, "other")
+	mine := newTestSession(t, engine, "mine")
+	sup := startBlockedRun(t, engine, other.ID)
+	ctx := context.Background()
+	info, err := engine.CreateSchedule(ctx, ScheduleRequest{
+		Name: "every minute", Kind: "agent", SessionID: mine.ID, Prompt: "check the build", Policy: "read-only",
+		Trigger: ScheduleTrigger{Kind: "interval", EverySeconds: 60},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	makeDue := func() {
+		past := time.Now().UTC().Add(-time.Second).Format("2006-01-02T15:04:05.000000000Z")
+		seedSQL(t, engine, []any{`UPDATE scheduled_tasks SET next_run_at = ? WHERE schedule_id = ?`, past, info.ID})
+		engine.schedules.Wake()
+	}
+	makeDue()
+	got, ok := zzWaitSchedule(t, engine, info.ID, func(i ScheduleInfo) bool { return i.LastStatus != "" }, 6*time.Second)
+	t.Logf("PROBE RV-19a recurring at the limit: recorded=%v status=%q error=%q fireCount=%d next=%v enabled=%v",
+		ok, got.LastStatus, got.LastError, got.FireCount, got.NextRunAt, got.Enabled)
+	sup.Cancel(other.ID)
+	time.Sleep(500 * time.Millisecond)
+	makeDue()
+	got, ok = zzWaitSchedule(t, engine, info.ID, func(i ScheduleInfo) bool { return i.LastStatus == "fired" }, 6*time.Second)
+	t.Logf("PROBE RV-19a next occurrence after the slot freed: fired=%v status=%q ref=%q fireCount=%d next=%v",
+		ok, got.LastStatus, got.LastRef, got.FireCount, got.NextRunAt)
+}
+
+// RV-19b: retry pressure while the limit stays exhausted. Three wake-ups on each of four sessions
+// (12 pending one-shots, the cap per session) retry for ~10 s. Counts the retries per task (distinct
+// next_run_at values), side effects (events by type, transcript rows, session status, journal rows),
+// and whether all 12 fire once the slot frees.
+func TestZZProbeRV19RetryPressure(t *testing.T) {
+	engine, err := Open(Options{Workspace: t.TempDir(), Budget: Budget{MaxAgents: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	ctx := context.Background()
+	holder := newTestSession(t, engine, "holder")
+	var sessions []string
+	for range 4 {
+		sessions = append(sessions, newTestSession(t, engine, "waking").ID)
+	}
+	sup := startBlockedRun(t, engine, holder.ID)
+	stream, cancelEvents := engine.Events(4096)
+	defer cancelEvents()
+	journalBefore := countRows(t, engine, `SELECT count(*) FROM journal`)
+	var ids []string
+	for _, sid := range sessions {
+		c := engine.wakeupsFor(sid, "read-only", nil, nil)
+		for i := range 3 {
+			w, err := c.ScheduleWakeup(ctx, 1, "resume "+string(rune('a'+i)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, w.ID)
+		}
+		if _, err := c.ScheduleWakeup(ctx, 1, "fourth"); err == nil {
+			t.Logf("PROBE RV-19b a fourth wake-up was accepted on %s", sid)
+		}
+	}
+	seen := map[string]map[string]bool{}
+	for _, id := range ids {
+		seen[id] = map[string]bool{}
+	}
+	start := time.Now()
+	for time.Since(start) < 10*time.Second {
+		for _, id := range ids {
+			info, err := engine.Schedule(ctx, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.NextRunAt != nil {
+				seen[id][info.NextRunAt.String()] = true
+			}
+			if info.LastStatus != "" || info.FireCount != 0 || !info.Enabled {
+				t.Logf("PROBE RV-19b %s left pending: status=%q count=%d enabled=%v", id, info.LastStatus, info.FireCount, info.Enabled)
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	var retries []int
+	for _, id := range ids {
+		retries = append(retries, len(seen[id])-1)
+	}
+	sort.Ints(retries)
+	byType := map[string]int{}
+	drain := func() {
+		for {
+			select {
+			case ev := <-stream:
+				byType[ev.Type]++
+			default:
+				return
+			}
+		}
+	}
+	drain()
+	statuses := []string{}
+	for _, sid := range sessions {
+		_, si, err := engine.Session(ctx, sid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		statuses = append(statuses, string(si.Status))
+	}
+	rows := 0
+	for _, sid := range sessions {
+		rows += countRows(t, engine, `SELECT count(*) FROM session_messages WHERE session_id = ?`, sid)
+	}
+	journalDuring := countRows(t, engine, `SELECT count(*) FROM journal`) - journalBefore
+	pending, _ := engine.wakeupsFor(sessions[0], "read-only", nil, nil).(wakeups).pending(ctx)
+	t.Logf("PROBE RV-19b 12 wake-ups, 10 s at the limit: retries per task (min..max) %d..%d; events %v; transcript rows %d; session statuses %v; journal rows +%d; pending on session 0 = %d",
+		retries[0], retries[len(retries)-1], byType, rows, statuses, journalDuring, len(pending))
+
+	sup.Cancel(holder.ID)
+	fired := 0
+	deadline := time.Now().Add(60 * time.Second)
+	for fired < len(ids) && time.Now().Before(deadline) {
+		fired = 0
+		for _, id := range ids {
+			info, _ := engine.Schedule(ctx, id)
+			if info.LastStatus == "fired" {
+				fired++
+			} else if info.LastStatus != "" {
+				t.Logf("PROBE RV-19b %s status=%q error=%q", id, info.LastStatus, info.LastError)
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	failed := 0
+	for _, id := range ids {
+		info, _ := engine.Schedule(ctx, id)
+		if info.LastStatus != "fired" {
+			failed++
+			t.Logf("PROBE RV-19b not fired: %s status=%q error=%q next=%v enabled=%v", id, info.LastStatus, info.LastError, info.NextRunAt, info.Enabled)
+		}
+	}
+	t.Logf("PROBE RV-19b after the slot freed: fired %d/%d within %s (not fired %d)", fired, len(ids), time.Since(deadline.Add(-60*time.Second)).Round(100*time.Millisecond), failed)
+	_ = strings.TrimSpace
+}

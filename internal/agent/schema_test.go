@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -31,14 +33,22 @@ func (schemaStarter) StartTask(context.Context, string, string) (string, any, er
 // properties. A schema with "required": null made a strict endpoint reject the whole request.
 func TestRequestToolSchemasAreValidJSONSchema(t *testing.T) {
 	workspace := t.TempDir()
-	manager, err := lsp.NewManager(workspace)
+	// The lsp_* tools are offered only when a server can serve the workspace: a command that exists
+	// and a file of its language. The test binary stands in for the server; nothing starts it here.
+	if err := os.WriteFile(filepath.Join(workspace, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := lsp.NewManager(lsp.Options{
+		Workspace: workspace,
+		Servers:   []lsp.LanguageServer{{Language: "go", Command: os.Args[0], Extensions: []string{".go"}}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Both delegation tools carry their agent enum, so its schema is checked too.
 	spawnAgents := []config.AgentInfo{{ID: config.AgentExplore, Description: "Reads."}, {ID: "audit", Description: "Audits."}}
 	taskAgents := []config.AgentInfo{{ID: config.AgentWorker, Description: "Edits."}}
-	tools, err := toolset.New(toolset.Options{Workspace: workspace, Policy: toolset.PolicyFull, LSP: manager, Subagents: schemaSubagents{},
+	tools, err := toolset.New(toolset.Options{Workspace: workspace, Policy: toolset.PolicyFull, LSP: manager.ForRun(true), Subagents: schemaSubagents{},
 		SubagentAgents: spawnAgents})
 	if err != nil {
 		t.Fatal(err)
@@ -71,10 +81,15 @@ func TestRequestToolSchemasAreValidJSONSchema(t *testing.T) {
 					t.Errorf("%s: %v in %s", spec.Name, err, raw)
 				}
 			}
-			for _, want := range []string{"git_status", "git_diff", "list_subagents", "spawn_subagent", "wait_subagent", "shell",
+			for _, want := range []string{"list_subagents", "spawn_subagent", "wait_subagent", "bash",
 				"apply_patch", "lsp_hover", "lsp_rename", "work_unit_update", "start_task"} {
 				if !slices.Contains(names, want) {
 					t.Errorf("request tools lack %s: %v", want, names)
+				}
+			}
+			for _, gone := range []string{"shell", "git_status", "git_diff"} {
+				if slices.Contains(names, gone) {
+					t.Errorf("request tools offer %s, removed by ADR-0019 §0: %v", gone, names)
 				}
 			}
 		})

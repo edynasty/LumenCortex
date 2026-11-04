@@ -33,6 +33,17 @@ const (
 	// OriginImportedMarker marks a user row an import wrote where the source recorded an event it does
 	// not copy: a context compaction or a return from another branch.
 	OriginImportedMarker = "imported_marker"
+	// OriginDeadline marks a user row the loop appends for a run with a deadline (ADR-0019 §2): one when
+	// the run starts, stating its budget, and one when the time left first falls within the reserve.
+	OriginDeadline = "deadline"
+	// OriginNotebook marks the user row a run appends when its session has working notebooks (ADR-0020):
+	// a short index of their titles, versions, update times and sections. It never holds a body; the
+	// model reads a notebook, or one of its sections, with notebook_read.
+	OriginNotebook = "notebook"
+	// OriginJobs marks the user row a run appends when its session has background jobs queued, running or
+	// of unknown outcome (ADR-0019 §3): their ids, states and commands, so a resumed run starts from the
+	// runtime's state, not from what its transcript last said.
+	OriginJobs = "jobs"
 )
 
 // Contents of the runtime rows that open a new turn. They are user rows the model reads.
@@ -70,10 +81,13 @@ type ToolSpec struct {
 }
 
 type ToolResult struct {
-	OK         bool   `json:"ok"`
-	Denied     bool   `json:"denied,omitempty"`
-	Permission string `json:"permission,omitempty"`
-	Content    string `json:"content"`
+	// Interrupted: the tool stopped the operation before it finished (a command past its timeout), so
+	// what it did is unknown. The execution record of such a call ends outcome_unknown, never failed.
+	Interrupted bool   `json:"interrupted,omitempty"`
+	OK          bool   `json:"ok"`
+	Denied      bool   `json:"denied,omitempty"`
+	Permission  string `json:"permission,omitempty"`
+	Content     string `json:"content"`
 	// MutatesWorkspace: this call changed the workspace, or may have when the tool cannot tell. It is
 	// set whatever OK says: a failed command can still have changed files.
 	MutatesWorkspace bool `json:"mutatesWorkspace,omitempty"`
@@ -102,6 +116,23 @@ type ProviderRequest struct {
 	// as long as Messages. Only the loop fills it, and only for the current turn's assistant
 	// messages produced by the model the request goes to (design §4.6).
 	Echo []Echo `json:"-"`
+}
+
+// FinishLength is the FinishReason of a reply the provider cut at its output token limit (OpenAI
+// "length", Anthropic "max_tokens" and "model_context_window_exceeded"): what it holds is unfinished.
+const FinishLength = "length"
+
+// MissingArguments is what an adapter stores for a tool call that arrived with no arguments at all.
+// Some servers send nothing for an argumentless call, so after a reply the model ended itself
+// (finish "stop" or "tool_calls"; OpenAI's legacy "function_call") it is the empty object. After any
+// other finish, or none, nothing shows the call was finished, so it is an empty JSON string: not an
+// object, so the loop answers the call with a tool error and never runs it.
+func MissingArguments(finish string) json.RawMessage {
+	switch finish {
+	case "stop", "tool_calls", "function_call":
+		return json.RawMessage("{}")
+	}
+	return json.RawMessage(`""`)
 }
 
 type ProviderResponse struct {

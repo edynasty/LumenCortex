@@ -28,8 +28,8 @@ func TestHelperMCPServer(t *testing.T) {
 	errorResponse := func(id any, message string) {
 		write(map[string]any{
 			"jsonrpc": "2.0",
-			"id": id,
-			"error": map[string]any{"code": -32602, "message": message},
+			"id":      id,
+			"error":   map[string]any{"code": -32602, "message": message},
 		})
 	}
 
@@ -67,33 +67,33 @@ func TestHelperMCPServer(t *testing.T) {
 		case "initialize":
 			write(map[string]any{
 				"jsonrpc": "2.0",
-				"id": id,
+				"id":      id,
 				"result": map[string]any{
 					"protocolVersion": ProtocolLegacy,
-					"capabilities": map[string]any{"tools": map[string]any{}},
-					"serverInfo": map[string]any{"name": "helper", "version": "1"},
+					"capabilities":    map[string]any{"tools": map[string]any{}},
+					"serverInfo":      map[string]any{"name": "helper", "version": "1"},
 				},
 			})
 		case "server/discover":
 			write(map[string]any{
 				"jsonrpc": "2.0",
-				"id": id,
+				"id":      id,
 				"result": map[string]any{
 					"protocolVersion": ProtocolModern,
-					"capabilities": map[string]any{"tools": map[string]any{}},
-					"serverInfo": map[string]any{"name": "helper", "version": "1"},
+					"capabilities":    map[string]any{"tools": map[string]any{}},
+					"serverInfo":      map[string]any{"name": "helper", "version": "1"},
 				},
 			})
 		case "tools/list":
 			write(map[string]any{
 				"jsonrpc": "2.0",
-				"id": id,
+				"id":      id,
 				"result": map[string]any{
 					"tools": []map[string]any{{
-						"name": "echo",
+						"name":        "echo",
 						"description": "Echo text",
 						"inputSchema": map[string]any{
-							"type": "object",
+							"type":       "object",
 							"properties": map[string]any{"text": map[string]any{"type": "string"}},
 						},
 					}},
@@ -105,7 +105,7 @@ func TestHelperMCPServer(t *testing.T) {
 			if name == "huge" {
 				write(map[string]any{
 					"jsonrpc": "2.0",
-					"id": id,
+					"id":      id,
 					"result": map[string]any{
 						"content": []map[string]any{{"type": "text", "text": strings.Repeat("x", MaxToolResultBytes+1024)}},
 					},
@@ -115,7 +115,7 @@ func TestHelperMCPServer(t *testing.T) {
 			text, _ := args["text"].(string)
 			write(map[string]any{
 				"jsonrpc": "2.0",
-				"id": id,
+				"id":      id,
 				"result": map[string]any{
 					"content": []map[string]any{{"type": "text", "text": text}},
 				},
@@ -124,8 +124,8 @@ func TestHelperMCPServer(t *testing.T) {
 			time.Sleep(2 * time.Second)
 			write(map[string]any{
 				"jsonrpc": "2.0",
-				"id": id,
-				"result": map[string]any{"late": true},
+				"id":      id,
+				"result":  map[string]any{"late": true},
 			})
 		default:
 			write(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{}})
@@ -142,11 +142,11 @@ func startHelperMCP(t *testing.T, mode ProtocolMode) *Client {
 		t.Setenv("LCX_MCP_MODERN", "0")
 	}
 	client, err := Start(context.Background(), Config{
-		ID: "helper",
-		Name: "Helper",
-		Command: os.Args[0],
-		Args: []string{"-test.run=TestHelperMCPServer"},
-		Workspace: t.TempDir(),
+		ID:           "helper",
+		Name:         "Helper",
+		Command:      os.Args[0],
+		Args:         []string{"-test.run=TestHelperMCPServer"},
+		Workspace:    t.TempDir(),
 		ProtocolMode: mode,
 	})
 	if err != nil {

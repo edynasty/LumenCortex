@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/edynasty/LumenCortex/protocol"
 )
 
 func TestReadOnlyPolicyHidesMutationTools(t *testing.T) {
@@ -15,10 +17,27 @@ func TestReadOnlyPolicyHidesMutationTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, spec := range set.Specs(nil) {
-		if spec.Permission != "read" {
+		// A state tool (the working notebook) writes only the run's own durable state, never a
+		// workspace file, so every policy admits it (ADR-0020); nothing else may pass read-only.
+		if spec.Permission != "read" && spec.Permission != PermissionState {
 			t.Fatalf("read-only exposed %s (%s)", spec.Name, spec.Permission)
 		}
 	}
+	if _, ok := findSpec(set.Specs(nil), "write_file"); ok {
+		t.Fatal("read-only exposed write_file")
+	}
+	if _, ok := findSpec(set.Specs(nil), "shell"); ok {
+		t.Fatal("read-only exposed shell")
+	}
+}
+
+func findSpec(specs []protocol.ToolSpec, name string) (protocol.ToolSpec, bool) {
+	for _, spec := range specs {
+		if spec.Name == name {
+			return spec, true
+		}
+	}
+	return protocol.ToolSpec{}, false
 }
 
 func TestResolveRejectsTraversal(t *testing.T) {
@@ -94,3 +113,34 @@ func TestReplaceRejectsAmbiguousText(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+// TestNotebookToolsNeedAStore: the three tools exist only when the runtime binds the run's notebook.
+func TestNotebookToolsNeedAStore(t *testing.T) {
+	set, err := New(Options{Workspace: t.TempDir(), Policy: PolicyFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, spec := range set.Specs(nil) {
+		if spec.Permission == PermissionState || strings.HasPrefix(spec.Name, "notebook_") {
+			t.Fatalf("a run without a notebook store offers %s", spec.Name)
+		}
+	}
+	bound, err := New(Options{Workspace: t.TempDir(), Policy: PolicyReadOnly, Notebook: stubNotebooks{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"notebook_list", "notebook_read", "notebook_update"} {
+		if _, ok := findSpec(bound.Specs(nil), name); !ok {
+			t.Fatalf("read-only run with a notebook store does not offer %s", name)
+		}
+	}
+}
+
+// stubNotebooks is a notebook store that is never called: these tests inspect the tool list only.
+type stubNotebooks struct{}
+
+func (stubNotebooks) List(context.Context, string) (any, error) { return nil, nil }
+
+func (stubNotebooks) Read(context.Context, string, string, string) (any, error) { return nil, nil }
+
+func (stubNotebooks) Update(context.Context, NotebookUpdate) (any, error) { return nil, nil }

@@ -92,6 +92,25 @@ func (c *Config) merge() error {
 		})
 	}
 	c.eff.Concurrency = g.Concurrency.Limits()
+	// Execution bounds this machine's processes and log too: global file only.
+	if w.Execution != nil {
+		c.eff.Warnings = append(c.eff.Warnings, Warning{
+			Code: WarnGlobalOnly, Path: c.workspace.Path, Key: "execution",
+			Message: fmt.Sprintf("ignored execution in %s: execution limits are read from the global file %s only",
+				c.workspace.Path, c.global.Path),
+		})
+	}
+	c.eff.Execution = g.Execution.Limits()
+	// Language servers are processes on this machine too, and a workspace file must not name a
+	// command: global file only.
+	if w.LSP != nil {
+		c.eff.Warnings = append(c.eff.Warnings, Warning{
+			Code: WarnGlobalOnly, Path: c.workspace.Path, Key: "lsp",
+			Message: fmt.Sprintf("ignored lsp in %s: language server settings are read from the global file %s only",
+				c.workspace.Path, c.global.Path),
+		})
+	}
+	c.eff.LSP = g.LSP.Limits()
 
 	for _, id := range sortedKeys(w.Providers) {
 		if !trusted {
@@ -173,7 +192,6 @@ func (c *Config) merge() error {
 	c.eff.Catalog = c.Catalog()
 	if effort != nil {
 		c.eff.EffortDefault = effort.Default
-		c.eff.Escalation = effort.Escalation
 		c.eff.Auto = resolvedAutoPolicy(effort.Auto)
 	}
 	c.eff.Checks = checks
@@ -287,6 +305,10 @@ func mergeModel(base, ws Model) Model {
 	if ws.Modalities != nil {
 		out.Modalities = &Modalities{Input: slices.Clone(ws.Modalities.Input)}
 	}
+	if ws.Cost != nil {
+		c := *ws.Cost
+		out.Cost = &c
+	}
 	return out
 }
 
@@ -303,6 +325,18 @@ func cloneFile(f File) File {
 	if f.Concurrency != nil {
 		limits := *f.Concurrency
 		out.Concurrency = &limits
+	}
+	if f.Execution != nil {
+		execution := *f.Execution
+		if f.Execution.Budget != nil {
+			b := *f.Execution.Budget
+			execution.Budget = &b
+		}
+		if f.Execution.Retry != nil {
+			r := *f.Execution.Retry
+			execution.Retry = &r
+		}
+		out.Execution = &execution
 	}
 	out.Providers = cloneProviders(f.Providers)
 	out.Checks = cloneChecks(f.Checks)
@@ -334,10 +368,6 @@ func cloneEffortPolicy(p *EffortPolicy) *EffortPolicy {
 		return nil
 	}
 	out := *p
-	if p.Escalation != nil {
-		e := *p.Escalation
-		out.Escalation = &e
-	}
 	if p.Auto != nil {
 		a := *p.Auto
 		out.Auto = &a
@@ -393,6 +423,10 @@ func cloneModel(m Model) Model {
 	}
 	if m.Modalities != nil {
 		out.Modalities = &Modalities{Input: slices.Clone(m.Modalities.Input)}
+	}
+	if m.Cost != nil {
+		c := *m.Cost
+		out.Cost = &c
 	}
 	return out
 }

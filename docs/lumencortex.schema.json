@@ -22,13 +22,12 @@
       "maxItems": 8
     },
     "effort": {
-      "description": "Reasoning effort policy. Absent → no reasoning parameter is sent (provider default) and no escalation.",
-      "dependentRequired": { "escalation": ["default"] },
+      "description": "Reasoning effort policy. Absent → no reasoning parameter is sent (provider default).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "default": {
-          "description": "Effort requested on every request unless the user overrides it for a run. Absent → no reasoning parameter is sent (provider default). \"auto\" resolves one concrete level per user turn from effort.auto before the first request; the resolved level is that run's default and escalation still raises it. Per model the request is raised to the lowest level listed in reasoning.efforts that is not below it (the highest listed level if none is), then encoded by reasoning.format.",
+          "description": "Effort requested unless overridden for a run. Absent → provider default. Auto resolves one concrete level before the first request. Tool failure counts never change it. Each model fits the level to reasoning.efforts and encodes it with reasoning.format.",
           "$ref": "#/$defs/effortRequest"
         },
         "auto": {
@@ -49,30 +48,6 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 60
-            }
-          }
-        },
-        "escalation": {
-          "description": "Raise effort while the run is stuck. Absent → escalation disabled. Requires default.",
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["sameFailure", "noProgressSteps", "max"],
-          "properties": {
-            "sameFailure": {
-              "description": "One level up when the latest tool failure signature (tool name + normalized output) has occurred this many times in the session; two levels at twice the count. Counters reset when a work unit completes or a required check passes.",
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 20
-            },
-            "noProgressSteps": {
-              "description": "One level up after this many consecutive failed tool results (any successful tool result resets the count); two levels at twice the count.",
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 50
-            },
-            "max": {
-              "description": "Upper bound for escalated effort. Escalation never goes below default.",
-              "$ref": "#/$defs/effort"
             }
           }
         }
@@ -101,6 +76,187 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 8
+        }
+      }
+    },
+    "execution": {
+      "description": "Tool execution limits of one LumenCortex process: the foreground shell timeout, the background job queue and the diagnostics log. Read from the global file only (ignored with a warning in a workspace file). Read at every run start and job submission.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shellTimeoutSeconds": {
+          "description": "Timeout of a foreground shell call that names none: its process group is terminated and the call reports timedOut. Absent → 120. Clamped to shellMaxTimeoutSeconds.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "shellMaxTimeoutSeconds": {
+          "description": "Upper bound of every foreground shell call, including one whose timeout_sec names more; the run's deadline still bounds the call. A lower value also lowers the effective default. Absent → 1800.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "maxConcurrentJobs": {
+          "description": "Background jobs running at once in this process. Absent → 2.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "maxQueuedJobs": {
+          "description": "Jobs waiting to run. A submission beyond it is refused, never dropped. Absent → 32.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        },
+        "jobOutputBytes": {
+          "description": "Output kept per job and stream (stdout, stderr): the head and the tail, the middle cut. Absent → 4194304.",
+          "type": "integer",
+          "minimum": 65536,
+          "maximum": 67108864
+        },
+        "jobRetentionDays": {
+          "description": "Days a finished job's record and output are kept. Absent → 7.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365
+        },
+        "logLevel": {
+          "description": "Level of the diagnostics log under the state directory. Secrets are redacted at every level. Absent → info.",
+          "enum": ["error", "warn", "info", "debug"]
+        },
+        "budget": {
+          "description": "Default budget of every agent run of this process (ADR-0019 §6); a run's own budget overrides it field by field. Every limit is checked before a new model request or tool call is admitted: a request already sent is settled whatever it costs, so the last one may overshoot tokenBudget and costLimitUsd by its reply. Absent field → no limit. A run's runtime limit is its deadline.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxToolCalls": {
+              "description": "Tool calls a run may execute. Reached → the run ends interrupted with kind budget:tool_calls before its next model request.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxModelRequests": {
+              "description": "Model requests a run may send, retries and failovers included. Reached → interrupted, kind budget:model_requests.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "tokenBudget": {
+              "description": "Tokens a run may use: provider-reported usage, or the request's estimate when a response carried none or a request failed after it was sent. A request whose estimated input would pass it is not sent → interrupted, kind budget:tokens.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "costWarningUsd": {
+              "description": "US dollars of known and estimated cost at which the run reports budget.warning once; a request to a model with no cost also reports it.",
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "costLimitUsd": {
+              "description": "US dollars of known and estimated cost a run may reach. A request whose input would pass it, and every request to a model with no cost (its cost is unknown, never zero), is not sent → interrupted, kind budget:cost.",
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "retry": {
+          "description": "Finite availability recovery within one response step after the initial failover sweep. Every recovery request is admitted separately; all candidates share maxRetries. Backoff uses 75-100% jitter and honours each candidate's Retry-After. Deadline, cancellation and an optional outage window also stop recovery. No whole-run token or cost budget is set here.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "disabled": {
+              "description": "End the run at the first availability failure no failover candidate answered. Absent → false.",
+              "type": "boolean"
+            },
+            "maxRetries": {
+              "description": "Additional availability recovery requests per response step across all candidates, after the initial failover sweep. Absent or zero uses 6; zero never means unlimited. disabled prevents recovery requests.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "baseDelayMs": {
+              "description": "First backoff in milliseconds; each further one doubles up to maxDelayMs. Absent → 1000.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600000
+            },
+            "maxDelayMs": {
+              "description": "Cap of the computed backoff in milliseconds; a provider's Retry-After may ask for longer and is honoured. Absent → 30000.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600000
+            },
+            "maxOutageSeconds": {
+              "description": "Optional continuous-outage time window (first failed request to next send). Absent means no extra window; finite maxRetries, Deadline and cancellation still apply.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 86400
+            }
+          }
+        }
+      }
+    },
+    "lsp": {
+      "description": "Language servers of one LumenCortex process. Read from the global file only (ignored with a warning in a workspace file): a server is a process on this machine and a project file must not name a command that gets executed. A server starts on the first lsp_* call for its language, is reused for the same workspace and language, and is stopped after lsp.idleTimeoutSeconds unused. Nothing is bundled: a server runs only when its command is on PATH. A workspace with no usable server gets no lsp_* tools, and a call that cannot reach a server tells the model to use search_text or find_files.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "idleTimeoutSeconds": {
+          "description": "Seconds a language server may stay unused before it is stopped. Absent → 600.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "maxServers": {
+          "description": "Language servers running at once in this process. Starting another stops the least recently used idle server; when every server is busy the call is refused, never queued. Absent → 3.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "startTimeoutSeconds": {
+          "description": "Seconds one start may take, from the spawn to the initialize answer. Absent → 20.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "requestTimeoutSeconds": {
+          "description": "Seconds one language-server request may take; the run's tool deadline bounds it too. Absent → 20.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "servers": {
+          "description": "Language server catalog keyed by language id, merged over the built-in one (go: gopls, typescript: typescript-language-server, python: pyright-langserver, rust: rust-analyzer). An entry with no extensions or markers keeps the built-in ones of its language.",
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][a-z0-9+-]{0,39}$" },
+          "maxProperties": 32,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["command"],
+            "properties": {
+              "command": {
+                "description": "Executable to run: a name on PATH or an absolute path. Nothing is installed.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "args": {
+                "description": "Arguments passed to the command.",
+                "type": "array",
+                "maxItems": 32,
+                "items": { "type": "string", "maxLength": 1024 }
+              },
+              "extensions": {
+                "description": "File extensions this server serves, with the leading dot. A request for another extension does not reach it.",
+                "type": "array",
+                "maxItems": 64,
+                "items": { "type": "string", "pattern": "^\\.[A-Za-z0-9.+-]{1,16}$" }
+              },
+              "markers": {
+                "description": "File names at the workspace root that show the workspace holds this language (go.mod, Cargo.toml).",
+                "type": "array",
+                "maxItems": 64,
+                "items": { "type": "string", "minLength": 1, "maxLength": 255 }
+              }
+            }
+          }
         }
       }
     },
@@ -325,6 +481,16 @@
               "uniqueItems": true,
               "minItems": 1
             }
+          }
+        },
+        "cost": {
+          "description": "List price in US dollars per million tokens, used by run budgets (ADR-0019 §6). Cache discounts are not modelled. Absent → the model's cost is unknown: runs report it as such and a run with costLimitUsd does not send to it.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input", "output"],
+          "properties": {
+            "input": { "description": "USD per million input (prompt) tokens.", "type": "number", "minimum": 0 },
+            "output": { "description": "USD per million output (completion) tokens.", "type": "number", "minimum": 0 }
           }
         }
       }

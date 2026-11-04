@@ -1,0 +1,892 @@
+[
+  {
+    "trial": "adaptive-rejection-sampler__km9XSg5",
+    "task": "adaptive-rejection-sampler",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 15653,
+    "n_output_tokens": 16753,
+    "cost_usd": 0.06321485
+  },
+  {
+    "trial": "bn-fit-modify__xJik9AK",
+    "task": "bn-fit-modify",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 139432,
+    "n_output_tokens": 10274,
+    "cost_usd": 0.06441279999999999
+  },
+  {
+    "trial": "break-filter-js-from-html__LgDt3yv",
+    "task": "break-filter-js-from-html",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 2828910,
+    "n_output_tokens": 59781,
+    "cost_usd": 0.6493031999999999
+  },
+  {
+    "trial": "build-cython-ext__jTjTNhZ",
+    "task": "build-cython-ext",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 385223,
+    "n_output_tokens": 4112,
+    "cost_usd": 0.08335405
+  },
+  {
+    "trial": "build-pmars__QNyjr3W",
+    "task": "build-pmars",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 453665,
+    "n_output_tokens": 4806,
+    "cost_usd": 0.09518175000000004
+  },
+  {
+    "trial": "build-pov-ray__CJfUF6B",
+    "task": "build-pov-ray",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 310239,
+    "n_output_tokens": 3610,
+    "cost_usd": 0.08695265
+  },
+  {
+    "trial": "caffe-cifar-10__Nr4pXXa",
+    "task": "caffe-cifar-10",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 435055,
+    "n_output_tokens": 5828,
+    "cost_usd": 0.10498045
+  },
+  {
+    "trial": "cancel-async-tasks__9TFqPhM",
+    "task": "cancel-async-tasks",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 300597,
+    "n_output_tokens": 17149,
+    "cost_usd": 0.10720805
+  },
+  {
+    "trial": "chess-best-move__FKnGQbw",
+    "task": "chess-best-move",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 3988,
+    "n_output_tokens": 16465,
+    "cost_usd": 0.0587921
+  },
+  {
+    "trial": "circuit-fibsqrt__ZtJ3nKo",
+    "task": "circuit-fibsqrt",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 18012,
+    "n_output_tokens": 16525,
+    "cost_usd": 0.0635129
+  },
+  {
+    "trial": "cobol-modernization__84BMLuD",
+    "task": "cobol-modernization",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 198288,
+    "n_output_tokens": 11446,
+    "cost_usd": 0.0851738
+  },
+  {
+    "trial": "code-from-image__4My87pZ",
+    "task": "code-from-image",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 15716,
+    "n_output_tokens": 912,
+    "cost_usd": 0.0074508
+  },
+  {
+    "trial": "compile-compcert__SRmjV7V",
+    "task": "compile-compcert",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 1688574,
+    "n_output_tokens": 12546,
+    "cost_usd": 0.3695240999999999
+  },
+  {
+    "trial": "configure-git-webserver__9wWgJey",
+    "task": "configure-git-webserver",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 138181,
+    "n_output_tokens": 8549,
+    "cost_usd": 0.05320704999999999
+  },
+  {
+    "trial": "constraints-scheduling__3DcqwB5",
+    "task": "constraints-scheduling",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 63522,
+    "n_output_tokens": 9185,
+    "cost_usd": 0.050054799999999997
+  },
+  {
+    "trial": "count-dataset-tokens__oNwwnnX",
+    "task": "count-dataset-tokens",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 166061,
+    "n_output_tokens": 5953,
+    "cost_usd": 0.051062449999999995
+  },
+  {
+    "trial": "crack-7z-hash__Q3uSE8k",
+    "task": "crack-7z-hash",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 86026,
+    "n_output_tokens": 1345,
+    "cost_usd": 0.020542399999999995
+  },
+  {
+    "trial": "custom-memory-heap-crash__6egW4AZ",
+    "task": "custom-memory-heap-crash",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 3463188,
+    "n_output_tokens": 39138,
+    "cost_usd": 0.7218185999999995
+  },
+  {
+    "trial": "db-wal-recovery__cZNQrhE",
+    "task": "db-wal-recovery",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 1492839,
+    "n_output_tokens": 8716,
+    "cost_usd": 0.27876125000000007
+  },
+  {
+    "trial": "distribution-search__9ax4PPe",
+    "task": "distribution-search",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 1873,
+    "n_output_tokens": 16384,
+    "cost_usd": 0.05783555
+  },
+  {
+    "trial": "dna-assembly__gR3VoNg",
+    "task": "dna-assembly",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 10015,
+    "n_output_tokens": 16463,
+    "cost_usd": 0.06249955
+  },
+  {
+    "trial": "dna-insert__ibWFjax",
+    "task": "dna-insert",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 506648,
+    "n_output_tokens": 46589,
+    "cost_usd": 0.2715721
+  },
+  {
+    "trial": "extract-elf__kTwBhHy",
+    "task": "extract-elf",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 148745,
+    "n_output_tokens": 14930,
+    "cost_usd": 0.08132335000000002
+  },
+  {
+    "trial": "extract-moves-from-video__7SByWsR",
+    "task": "extract-moves-from-video",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 33757,
+    "n_output_tokens": 780,
+    "cost_usd": 0.01007655
+  },
+  {
+    "trial": "feal-differential-cryptanalysis__TA5Zd7H",
+    "task": "feal-differential-cryptanalysis",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 4147,
+    "n_output_tokens": 16432,
+    "cost_usd": 0.05954705
+  },
+  {
+    "trial": "feal-linear-cryptanalysis__XoisC3G",
+    "task": "feal-linear-cryptanalysis",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 70051,
+    "n_output_tokens": 9291,
+    "cost_usd": 0.047174549999999996
+  },
+  {
+    "trial": "filter-js-from-html__KF9drcp",
+    "task": "filter-js-from-html",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 1722,
+    "n_output_tokens": 16384,
+    "cost_usd": 0.0577223
+  },
+  {
+    "trial": "financial-document-processor__VwtJPVc",
+    "task": "financial-document-processor",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 952147,
+    "n_output_tokens": 20305,
+    "cost_usd": 0.26470414999999997
+  },
+  {
+    "trial": "fix-code-vulnerability__mbhtDBR",
+    "task": "fix-code-vulnerability",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 578003,
+    "n_output_tokens": 5123,
+    "cost_usd": 0.12212154999999998
+  },
+  {
+    "trial": "fix-git__nP2WyGU",
+    "task": "fix-git",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 48661,
+    "n_output_tokens": 4384,
+    "cost_usd": 0.025229749999999995
+  },
+  {
+    "trial": "fix-ocaml-gc__CWRrV3c",
+    "task": "fix-ocaml-gc",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 7988138,
+    "n_output_tokens": 26039,
+    "cost_usd": 1.5099454
+  },
+  {
+    "trial": "gcode-to-text__Bgm6pBV",
+    "task": "gcode-to-text",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 2084990,
+    "n_output_tokens": 28303,
+    "cost_usd": 0.45978680000000005
+  },
+  {
+    "trial": "git-leak-recovery__5Ker6sG",
+    "task": "git-leak-recovery",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 41242,
+    "n_output_tokens": 1941,
+    "cost_usd": 0.0140556
+  },
+  {
+    "trial": "git-multibranch__XcFDuxh",
+    "task": "git-multibranch",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 306297,
+    "n_output_tokens": 11755,
+    "cost_usd": 0.10106464999999998
+  },
+  {
+    "trial": "gpt2-codegolf__pXvAgec",
+    "task": "gpt2-codegolf",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 13761,
+    "n_output_tokens": 17470,
+    "cost_usd": 0.06486095
+  },
+  {
+    "trial": "headless-terminal__zDeo6nq",
+    "task": "headless-terminal",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 5650,
+    "n_output_tokens": 16461,
+    "cost_usd": 0.058733999999999995
+  },
+  {
+    "trial": "hf-model-inference__AkRV98t",
+    "task": "hf-model-inference",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 26014,
+    "n_output_tokens": 1975,
+    "cost_usd": 0.011917999999999998
+  },
+  {
+    "trial": "install-windows-3.11__FxNwnMD",
+    "task": "install-windows-3.11",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 217715,
+    "n_output_tokens": 4888,
+    "cost_usd": 0.053198449999999994
+  },
+  {
+    "trial": "kv-store-grpc__FB9gTFt",
+    "task": "kv-store-grpc",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 35588,
+    "n_output_tokens": 1646,
+    "cost_usd": 0.0123796
+  },
+  {
+    "trial": "large-scale-text-editing__g8RWyUs",
+    "task": "large-scale-text-editing",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 614216,
+    "n_output_tokens": 47310,
+    "cost_usd": 0.26895899999999995
+  },
+  {
+    "trial": "largest-eigenval__DYqbZBs",
+    "task": "largest-eigenval",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 12390383,
+    "n_output_tokens": 104258,
+    "cost_usd": 2.3094572500000004
+  },
+  {
+    "trial": "llm-inference-batching-scheduler__RKHR6Ku",
+    "task": "llm-inference-batching-scheduler",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 671539,
+    "n_output_tokens": 70881,
+    "cost_usd": 0.39249975
+  },
+  {
+    "trial": "log-summary-date-ranges__z9BRdcx",
+    "task": "log-summary-date-ranges",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 44157,
+    "n_output_tokens": 2942,
+    "cost_usd": 0.02037475
+  },
+  {
+    "trial": "mailman__zg2mX5G",
+    "task": "mailman",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 17087339,
+    "n_output_tokens": 54090,
+    "cost_usd": 2.8979992500000002
+  },
+  {
+    "trial": "make-doom-for-mips__EtwipUa",
+    "task": "make-doom-for-mips",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 31085147,
+    "n_output_tokens": 92208,
+    "cost_usd": 5.106354450000001
+  },
+  {
+    "trial": "make-mips-interpreter__9QPzweB",
+    "task": "make-mips-interpreter",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 4508663,
+    "n_output_tokens": 42648,
+    "cost_usd": 0.9011992499999998
+  },
+  {
+    "trial": "mcmc-sampling-stan__Vv6JFFD",
+    "task": "mcmc-sampling-stan",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 377775,
+    "n_output_tokens": 7249,
+    "cost_usd": 0.10990595000000002
+  },
+  {
+    "trial": "merge-diff-arc-agi-task__FvRStZ8",
+    "task": "merge-diff-arc-agi-task",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 677367,
+    "n_output_tokens": 25930,
+    "cost_usd": 0.19893785
+  },
+  {
+    "trial": "model-extraction-relu-logits__SEjbRF9",
+    "task": "model-extraction-relu-logits",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 524536,
+    "n_output_tokens": 30053,
+    "cost_usd": 0.19822269999999997
+  },
+  {
+    "trial": "modernize-scientific-stack__XDf4wGP",
+    "task": "modernize-scientific-stack",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 26761,
+    "n_output_tokens": 3142,
+    "cost_usd": 0.01739735
+  },
+  {
+    "trial": "mteb-leaderboard__w7AJVG3",
+    "task": "mteb-leaderboard",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 3239655,
+    "n_output_tokens": 21551,
+    "cost_usd": 0.6317879500000001
+  },
+  {
+    "trial": "mteb-retrieve__CMkkApM",
+    "task": "mteb-retrieve",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 80932,
+    "n_output_tokens": 2813,
+    "cost_usd": 0.026108499999999996
+  },
+  {
+    "trial": "multi-source-data-merger__BMqUkFr",
+    "task": "multi-source-data-merger",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 31026,
+    "n_output_tokens": 3396,
+    "cost_usd": 0.0176211
+  },
+  {
+    "trial": "nginx-request-logging__gWb8pX9",
+    "task": "nginx-request-logging",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 31438,
+    "n_output_tokens": 1996,
+    "cost_usd": 0.014436499999999998
+  },
+  {
+    "trial": "openssl-selfsigned-cert__h55xF8F",
+    "task": "openssl-selfsigned-cert",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 46196,
+    "n_output_tokens": 3703,
+    "cost_usd": 0.0210863
+  },
+  {
+    "trial": "overfull-hbox__WfzTwKC",
+    "task": "overfull-hbox",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 2141421,
+    "n_output_tokens": 46189,
+    "cost_usd": 0.49599605
+  },
+  {
+    "trial": "password-recovery__jXXrxbi",
+    "task": "password-recovery",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 7695975,
+    "n_output_tokens": 54319,
+    "cost_usd": 1.4883231500000005
+  },
+  {
+    "trial": "path-tracing-reverse__Hq7pxSm",
+    "task": "path-tracing-reverse",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 38247594,
+    "n_output_tokens": 177853,
+    "cost_usd": 6.852768200000001
+  },
+  {
+    "trial": "path-tracing__vs7qX3E",
+    "task": "path-tracing",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 792051,
+    "n_output_tokens": 55966,
+    "cost_usd": 0.37980725
+  },
+  {
+    "trial": "polyglot-c-py__wZ8EiNH",
+    "task": "polyglot-c-py",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 42460,
+    "n_output_tokens": 6047,
+    "cost_usd": 0.0314911
+  },
+  {
+    "trial": "polyglot-rust-c__3hVPSM4",
+    "task": "polyglot-rust-c",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 1741,
+    "n_output_tokens": 16384,
+    "cost_usd": 0.058374949999999995
+  },
+  {
+    "trial": "portfolio-optimization__sXoB24z",
+    "task": "portfolio-optimization",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 58641,
+    "n_output_tokens": 5505,
+    "cost_usd": 0.036435449999999994
+  },
+  {
+    "trial": "protein-assembly__hqjw4RH",
+    "task": "protein-assembly",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 3391796,
+    "n_output_tokens": 102031,
+    "cost_usd": 0.9023891000000002
+  },
+  {
+    "trial": "prove-plus-comm__G5edTJd",
+    "task": "prove-plus-comm",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 54516,
+    "n_output_tokens": 4146,
+    "cost_usd": 0.024064199999999997
+  },
+  {
+    "trial": "pypi-server__EjXFsSr",
+    "task": "pypi-server",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 71502,
+    "n_output_tokens": 3053,
+    "cost_usd": 0.0252382
+  },
+  {
+    "trial": "pytorch-model-cli__ghcdCtu",
+    "task": "pytorch-model-cli",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 921022,
+    "n_output_tokens": 15906,
+    "cost_usd": 0.22711589999999995
+  },
+  {
+    "trial": "pytorch-model-recovery__278sZ6B",
+    "task": "pytorch-model-recovery",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 0,
+    "n_output_tokens": 0,
+    "cost_usd": null
+  },
+  {
+    "trial": "qemu-alpine-ssh__vZdA6wX",
+    "task": "qemu-alpine-ssh",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 447235,
+    "n_output_tokens": 7198,
+    "cost_usd": 0.10840805
+  },
+  {
+    "trial": "qemu-startup__8wpiAeP",
+    "task": "qemu-startup",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 207308,
+    "n_output_tokens": 9188,
+    "cost_usd": 0.07114659999999998
+  },
+  {
+    "trial": "query-optimize__FtCaxwJ",
+    "task": "query-optimize",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 2469765,
+    "n_output_tokens": 40135,
+    "cost_usd": 0.54327305
+  },
+  {
+    "trial": "raman-fitting__UPSP5XM",
+    "task": "raman-fitting",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 4393798,
+    "n_output_tokens": 91470,
+    "cost_usd": 1.0511810999999995
+  },
+  {
+    "trial": "regex-chess__5sYiwFB",
+    "task": "regex-chess",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 7813,
+    "n_output_tokens": 16458,
+    "cost_usd": 0.060579749999999995
+  },
+  {
+    "trial": "regex-log__e2mf27a",
+    "task": "regex-log",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 1829,
+    "n_output_tokens": 16384,
+    "cost_usd": 0.05780255
+  },
+  {
+    "trial": "reshard-c4-data__YyPKivC",
+    "task": "reshard-c4-data",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 10687,
+    "n_output_tokens": 16784,
+    "cost_usd": 0.061261449999999995
+  },
+  {
+    "trial": "rstan-to-pystan__LakNr9R",
+    "task": "rstan-to-pystan",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 1512309,
+    "n_output_tokens": 13792,
+    "cost_usd": 0.32031695000000004
+  },
+  {
+    "trial": "sam-cell-seg__PNEwD9z",
+    "task": "sam-cell-seg",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 631624,
+    "n_output_tokens": 18096,
+    "cost_usd": 0.18711299999999997
+  },
+  {
+    "trial": "sanitize-git-repo__L7vygNF",
+    "task": "sanitize-git-repo",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 1766788,
+    "n_output_tokens": 6742,
+    "cost_usd": 0.3390751999999999
+  },
+  {
+    "trial": "schemelike-metacircular-eval__ZfKCQmY",
+    "task": "schemelike-metacircular-eval",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 632589,
+    "n_output_tokens": 24147,
+    "cost_usd": 0.19268805
+  },
+  {
+    "trial": "sparql-university__kyf45dw",
+    "task": "sparql-university",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 127439,
+    "n_output_tokens": 13544,
+    "cost_usd": 0.07140445000000001
+  },
+  {
+    "trial": "sqlite-db-truncate__fi7pKeL",
+    "task": "sqlite-db-truncate",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 136759,
+    "n_output_tokens": 13994,
+    "cost_usd": 0.07889545
+  },
+  {
+    "trial": "sqlite-with-gcov__NLXnHxA",
+    "task": "sqlite-with-gcov",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 268705,
+    "n_output_tokens": 4577,
+    "cost_usd": 0.06580944999999998
+  },
+  {
+    "trial": "torch-pipeline-parallelism__JBEKQa4",
+    "task": "torch-pipeline-parallelism",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 1982,
+    "n_output_tokens": 16384,
+    "cost_usd": 0.0587537
+  },
+  {
+    "trial": "torch-tensor-parallelism__Twjsdyr",
+    "task": "torch-tensor-parallelism",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 1869,
+    "n_output_tokens": 16384,
+    "cost_usd": 0.057832549999999996
+  },
+  {
+    "trial": "train-fasttext__SF6bEzy",
+    "task": "train-fasttext",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": null,
+    "n_output_tokens": null,
+    "cost_usd": null
+  },
+  {
+    "trial": "tune-mjcf__EMKDsRr",
+    "task": "tune-mjcf",
+    "status": "passed",
+    "reward": 1.0,
+    "duration_sec": null,
+    "n_input_tokens": 416570,
+    "n_output_tokens": 20376,
+    "cost_usd": 0.1508319
+  },
+  {
+    "trial": "video-processing__NdqZG3L",
+    "task": "video-processing",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 3352431,
+    "n_output_tokens": 80183,
+    "cost_usd": 0.8841143499999998
+  },
+  {
+    "trial": "vulnerable-secret__NY583ey",
+    "task": "vulnerable-secret",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 132803,
+    "n_output_tokens": 10991,
+    "cost_usd": 0.06521874999999999
+  },
+  {
+    "trial": "winning-avg-corewars__hfuKVG8",
+    "task": "winning-avg-corewars",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 22869406,
+    "n_output_tokens": 254121,
+    "cost_usd": 4.4886366
+  },
+  {
+    "trial": "write-compressor__St78NYr",
+    "task": "write-compressor",
+    "status": "failed",
+    "reward": 0.0,
+    "duration_sec": null,
+    "n_input_tokens": 39552,
+    "n_output_tokens": 20561,
+    "cost_usd": 0.08261410000000001
+  }
+]

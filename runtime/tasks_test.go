@@ -336,7 +336,7 @@ func TestProposedTaskRunsConfinedAndDeliversItsResultOnce(t *testing.T) {
 	waitInactive(t, supervisor, child)
 
 	tools := fake.childTools
-	for _, forbidden := range []string{"shell", "spawn_subagent", "start_task"} {
+	for _, forbidden := range []string{"bash", "spawn_subagent", "start_task"} {
 		if contains(tools, forbidden) {
 			t.Fatalf("child has %s: %v", forbidden, tools)
 		}
@@ -424,10 +424,9 @@ func mustNewestSeq(t *testing.T, e *Engine, id string) int64 {
 	return seq
 }
 
-// isolated starts the child from the tool call. It outlives the parent's run, Cancel(parent) does not
-// reach it, CancelSubtree does; its interrupted transition is delivered, and an explicit resume of the
-// child keeps its fixed authority and yields a second, newer transition that is delivered too.
-func TestIsolatedTaskOutlivesTheParentAndStopsOnlyWithTheSubtree(t *testing.T) {
+// A child is owned by the parent's run. It is cancelled when that run ends; explicit host Resume
+// still keeps the child's authority and delivers a new transition without replaying completed tools.
+func TestIsolatedTaskStopsWithParentAndCanBeResumed(t *testing.T) {
 	root, _ := taskRepo(t)
 	engine, supervisor := openTaskEngine(t, root)
 	defer engine.Close()
@@ -462,30 +461,10 @@ func TestIsolatedTaskOutlivesTheParentAndStopsOnlyWithTheSubtree(t *testing.T) {
 		t.Fatalf("tasks = %+v", tasks)
 	}
 	child := tasks[0].SessionID
-	if !supervisor.Active(child) {
-		t.Fatal("the child did not outlive the parent's run")
-	}
-	if supervisor.Cancel(parent) {
-		t.Fatal("Cancel of an ended parent reported a run")
-	}
-	if !supervisor.Active(child) {
-		t.Fatal("Cancel(parent) reached the child")
-	}
-	// A child that runs is not delivered.
-	startAndWait(t, supervisor, parent, "status?", DelegationIsolated)
-	if rows := taskResultRows(t, engine, parent); len(rows) != 0 {
-		t.Fatalf("a running child was delivered: %+v", rows)
-	}
-	// An execution child that runs keeps the parent open (ADR-0006 D2) and is not "ready for review".
-	if info, err := engine.TaskState(ctx, parent); err != nil || !contains(info.Obligations, taskstate.ObligationTasks) || info.ReadyForReview {
-		t.Fatalf("parent view while its task runs = %+v, %v", info, err)
-	}
-
-	cancelled, err := supervisor.CancelSubtree(ctx, parent)
-	if err != nil || len(cancelled) != 1 || cancelled[0] != child {
-		t.Fatalf("CancelSubtree = %v, %v", cancelled, err)
-	}
 	waitInactive(t, supervisor, child)
+	if row, err := engine.store.Get(ctx, child); err != nil || row.Status != "interrupted" {
+		t.Fatalf("owned child did not stop: %+v %v", row, err)
+	}
 	startAndWait(t, supervisor, parent, "", DelegationIsolated)
 	rows := taskResultRows(t, engine, parent)
 	if len(rows) != 1 || rows[0].Status != "interrupted" || rows[0].TaskID != tasks[0].ID {
@@ -502,7 +481,7 @@ func TestIsolatedTaskOutlivesTheParentAndStopsOnlyWithTheSubtree(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitInactive(t, supervisor, child)
-	if tools := fake.childTools; contains(tools, "shell") || contains(tools, "start_task") || contains(tools, "spawn_subagent") {
+	if tools := fake.childTools; contains(tools, "bash") || contains(tools, "start_task") || contains(tools, "spawn_subagent") {
 		t.Fatalf("a resumed child widened its authority: %v", tools)
 	}
 	startAndWait(t, supervisor, parent, "", DelegationIsolated)

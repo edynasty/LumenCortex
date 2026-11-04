@@ -56,7 +56,7 @@ func TestReasoningContentEcho(t *testing.T) {
 			name := fmt.Sprintf("stream=%v/echo=%s", stream, mode)
 			var bodies []map[string]any
 			server := echoServer(t, stream, &bodies)
-			client, err := New(Config{Endpoint: server.URL, Model: "m", DisableStreaming: !stream, DisableRetries: true, ReasoningEcho: mode})
+			client, err := New(Config{Endpoint: server.URL, Model: "m", DisableStreaming: !stream, ReasoningEcho: mode})
 			if err != nil {
 				t.Fatal(err)
 			}

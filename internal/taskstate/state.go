@@ -39,6 +39,10 @@ type State struct {
 	Brief      string      `json:"brief,omitempty"`
 	References []Reference `json:"references,omitempty"`
 	Resolution Resolution  `json:"resolution"`
+	// Delivery contains only host-selected, mechanically checked obligations.
+	Delivery *DeliveryContract `json:"delivery,omitempty"`
+	// DeliveryResult records the latest verification attempt, never the Agent's execution status.
+	DeliveryResult *DeliveryResult `json:"deliveryResult,omitempty"`
 	// WorkUnits is nil until the host seeds units or the model creates one.
 	WorkUnits *WorkUnitState `json:"workUnits,omitempty"`
 	// Workflow is the host workflow's snapshot, nil when the session has none.
@@ -54,6 +58,9 @@ type State struct {
 	// Notes are the thread's notes, oldest first (ADR-0010 D1); NoteSeq numbers them.
 	Notes   []Note `json:"notes,omitempty"`
 	NoteSeq int64  `json:"noteSeq,omitempty"`
+	// Constraints are the constraints the host selected for the thread and how a run last decided
+	// each (constraints.go, plan T4-S3). Only host edits add or remove them; only a Start decides them.
+	Constraints []ConstraintUse `json:"constraints,omitempty"`
 }
 
 // Decode reads one stored version. Empty raw is the empty state of a session without a version.

@@ -3,15 +3,18 @@ package toolset
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
 // ThreadReader reads earlier work of this workspace for read_thread and recall (ADR-0010 D3). The
-// runtime implements it over the session store; both calls are read-only.
+// runtime implements it over the session store; both calls are read-only. ReadThread adds one page
+// of the session's visible transcript when transcript is true: the newest messages before seq
+// before, or the newest messages when before is negative (plan T2-S1).
 type ThreadReader interface {
-	ReadThread(ctx context.Context, id string) (any, error)
+	ReadThread(ctx context.Context, id string, transcript bool, before int64) (any, error)
 	Recall(ctx context.Context, query string, limit int) (any, error)
 }
 
@@ -34,11 +37,17 @@ func (s *Set) registerThreadTools() {
 	}, s.recall)
 	s.add(protocol.ToolSpec{
 		Name: "read_thread",
-		Description: "Read one earlier thread or task of this workspace by id (from recall, a thread reference, or a task): " +
-			"its objective, status, resolution, notes (each marked stale when a file it cites has changed), open work units, " +
-			"tasks, children and final answer.",
+		Description: "Read one earlier thread or task of this workspace by id (from recall, a thread reference, or a task), " +
+			"or the current thread by its own id: its objective, status, resolution, notes (each with its applicability; " +
+			"stale when a file it cites has changed), open work units, tasks, children and final answer. " +
+			"With transcript=true it also returns one page of the thread's visible messages, newest first by page, " +
+			"never splitting a tool call from its results; pass the page's nextBefore as before to read further back.",
 		Permission: "read",
-		Parameters: obj(map[string]any{"id": map[string]any{"type": "string", "description": "the session id"}}, "id"),
+		Parameters: obj(map[string]any{
+			"id":         map[string]any{"type": "string", "description": "the session id"},
+			"transcript": map[string]any{"type": "boolean", "description": "include one page of the visible messages"},
+			"before":     map[string]any{"type": "integer", "minimum": 0, "description": "read messages before this seq (implies transcript)"},
+		}, "id"),
 	}, s.readThread)
 }
 
@@ -55,7 +64,15 @@ func (s *Set) recall(ctx context.Context, args map[string]any, _ func(protocol.T
 }
 
 func (s *Set) readThread(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
-	result, err := s.threads.ReadThread(ctx, stringArg(args, "id"))
+	transcript, _ := args["transcript"].(bool)
+	before := int64(-1)
+	if v, ok := args["before"].(float64); ok {
+		if v < 0 || v != float64(int64(v)) {
+			return protocol.ToolResult{}, fmt.Errorf("before must be a non-negative integer seq")
+		}
+		before, transcript = int64(v), true
+	}
+	result, err := s.threads.ReadThread(ctx, stringArg(args, "id"), transcript, before)
 	if err != nil {
 		return protocol.ToolResult{}, err
 	}

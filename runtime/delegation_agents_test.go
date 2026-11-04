@@ -198,7 +198,7 @@ func TestSpawnRunsTheChosenAgentAndResumeKeepsIt(t *testing.T) {
 	if len(systems) < 2 || !strings.Contains(systems[0], "read-only LumenCortex subagent") || systems[len(systems)-1] != "AUDIT-RULES: cite file and line." {
 		t.Fatalf("child system messages %q", systems)
 	}
-	for _, forbidden := range []string{"write_file", "shell", "spawn_subagent", "start_task"} {
+	for _, forbidden := range []string{"write_file", "bash", "spawn_subagent", "start_task"} {
 		if containsString(toolNames(child.requests[0]), forbidden) {
 			t.Fatalf("read-only child has %s", forbidden)
 		}
@@ -232,7 +232,7 @@ func TestSpawnRunsTheChosenAgentAndResumeKeepsIt(t *testing.T) {
 		t.Fatalf("resumed child %+v", info)
 	}
 	names := toolNames(resumed.requests[0])
-	if containsString(names, "write_file") || containsString(names, "shell") || containsString(names, "start_task") {
+	if containsString(names, "write_file") || containsString(names, "bash") || containsString(names, "start_task") {
 		t.Fatalf("resume widened the read-only agent: %v", names)
 	}
 	entries := steps(t, engine, childID)

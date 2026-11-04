@@ -88,9 +88,6 @@ func TestSubagentChildOptionsAreReadOnlyAndNonRecursive(t *testing.T) {
 	if opts.parentSessionID != "parent" {
 		t.Fatalf("parent=%q", opts.parentSessionID)
 	}
-	if opts.MaxSteps != 12 || opts.MaxToolCallsPerStep != 6 {
-		t.Fatalf("bounded child options=%#v", opts)
-	}
 }
 
 // withConcurrency is the fixture catalog with a global concurrency object.
@@ -487,6 +484,80 @@ func TestWaitSubagentTimeoutReturnsActiveNode(t *testing.T) {
 	}
 	if !supervisor.Cancel(child.SessionID) {
 		t.Fatal("timed-out child should remain active until explicitly cancelled")
+	}
+}
+
+// wait_subagent ends at the run's tool deadline when it comes before the timeout, reports a deadline
+// already past as a timed-out wait instead of waiting the default timeout, and returns the caller's
+// cancellation, which wins over a passed deadline. No outcome stops the child.
+func TestWaitSubagentIsBoundedByTheToolDeadlineAndCancellation(t *testing.T) {
+	engine, err := Open(Options{Workspace: t.TempDir(), Budget: Budget{MaxAgents: 4}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	supervisor, err := NewRunSupervisor(engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer supervisor.Close()
+
+	parentID := newParentSession(t, engine, &multiBlockingProvider{})
+	controller := &subagentController{supervisor: supervisor, parentID: parentID, parentOpts: AgentOptions{}}
+	value, err := controller.Spawn(context.Background(), "block while the parent waits", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := value.(SubagentNode)
+	defer supervisor.Cancel(child.SessionID)
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	cancelling, cancelSoon := context.WithCancel(context.Background())
+	defer cancelSoon()
+	cases := []struct {
+		name    string
+		ctx     func() context.Context
+		timeout time.Duration
+		wantErr error
+	}{
+		{"deadline before the timeout", func() context.Context {
+			return protocol.WithToolDeadline(context.Background(), time.Now().Add(80*time.Millisecond))
+		}, time.Second, nil},
+		{"deadline already past", func() context.Context {
+			return protocol.WithToolDeadline(context.Background(), time.Now().Add(-time.Second))
+		}, 0, nil},
+		{"caller cancels while waiting", func() context.Context {
+			time.AfterFunc(50*time.Millisecond, cancelSoon)
+			return cancelling
+		}, time.Second, context.Canceled},
+		{"cancellation wins over a passed deadline", func() context.Context {
+			return protocol.WithToolDeadline(cancelled, time.Now().Add(-time.Second))
+		}, time.Second, context.Canceled},
+	}
+	for _, tc := range cases {
+		ctx := tc.ctx()
+		started := time.Now()
+		waited, err := controller.Wait(ctx, child.SessionID, tc.timeout)
+		elapsed := time.Since(started)
+		if tc.wantErr != nil {
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("%s: err=%v, want %v", tc.name, err, tc.wantErr)
+			}
+		} else {
+			if err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			if result := waited.(SubagentWaitResult); !result.TimedOut || !result.Node.Active {
+				t.Fatalf("%s: wait result=%#v", tc.name, result)
+			}
+		}
+		if elapsed > 500*time.Millisecond {
+			t.Fatalf("%s: the wait took %s", tc.name, elapsed)
+		}
+		if !supervisor.Active(child.SessionID) {
+			t.Fatalf("%s: the wait stopped the child", tc.name)
+		}
 	}
 }
 

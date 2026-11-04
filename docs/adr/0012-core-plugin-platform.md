@@ -172,6 +172,26 @@ in-process plugins are TODO PLUGIN-003. Neither blocks the current built-in use:
 does not start goroutines, `Start` returns immediately, and it checks cancellation between the
 sessions of a tree (one large file is read to the end once started).
 
+## Amendment 2026-11-01 — the out-of-process path and the capability view
+
+[ADR-0021](0021-capability-registry-and-mcp-lifecycle.md) adds what this ADR left out:
+
+- **One capability registry.** `Engine.Capabilities` lists built-in, language-server and MCP tools
+  together, with source, permission, availability, limits and requirements. In-process plugins are not
+  a source of tools: they provide import sources, listeners and hooks, and they stay under the rules
+  above.
+- **Third-party integrations run out of process.** An MCP server (a stdio process or a remote
+  endpoint) is the supported path for code Core does not compile in. D7's "not a sandbox" statement
+  stands: `pluginapi` remains trusted in-process code, and a local MCP server is separated by a process
+  boundary and an explicit configuration, not by an OS sandbox.
+- **On-demand lifecycle.** No MCP server starts at `Engine.Open`; a server starts when a run needs its
+  tool list or a call, and stops after an idle timeout, on `MCPStop` or on `Engine.Close`.
+- **Enablement stays where it was.** A plugin is still enabled through `<GlobalDir>/plugins.json`; an
+  MCP server and its tools are enabled through the `disabled` flag and the `include` list of its
+  `mcp.json` entry. There is no second store.
+
+The hook, listener, manifest and import-source rules of this ADR are unchanged.
+
 ## Invariants
 
 - Core opens even when every non-essential plugin fails.

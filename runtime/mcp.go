@@ -63,10 +63,10 @@ func (e *Engine) MCPStart(ctx context.Context, sessionID, serverID string) (MCPS
 	status, err := e.mcpRegistry.Start(ctx, serverID, workspace)
 	if err == nil {
 		e.events.publish("mcp.started", sessionID, map[string]any{
-			"serverId": serverID,
+			"serverId":  serverID,
 			"workspace": workspace,
-			"pid": status.PID,
-			"tools": status.Tools,
+			"pid":       status.PID,
+			"tools":     status.Tools,
 		})
 	}
 	return status, err
@@ -84,7 +84,7 @@ func (e *Engine) MCPStop(ctx context.Context, sessionID, serverID string) error 
 		return err
 	}
 	e.events.publish("mcp.stopped", sessionID, map[string]any{
-		"serverId": serverID,
+		"serverId":  serverID,
 		"workspace": workspace,
 	})
 	return nil
@@ -99,6 +99,19 @@ func (e *Engine) MCPStatuses(ctx context.Context, sessionID string) ([]MCPStatus
 		return nil, err
 	}
 	return e.mcpRegistry.Statuses(workspace)
+}
+
+// MCPServerStates lists every configured server of the session's workspace with whether it is enabled,
+// running, what it needs and its last error. Nothing is started.
+func (e *Engine) MCPServerStates(ctx context.Context, sessionID string) ([]mcp.ServerState, error) {
+	if e.mcpRegistry == nil {
+		return []mcp.ServerState{}, nil
+	}
+	workspace, err := e.lspWorkspace(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return e.mcpRegistry.States(workspace)
 }
 
 func (e *Engine) MCPTools(ctx context.Context, sessionID string) ([]MCPAgentTool, error) {

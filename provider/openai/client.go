@@ -9,17 +9,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/diag"
 	"github.com/edynasty/LumenCortex/protocol"
+	"github.com/edynasty/LumenCortex/provider/internal/retryafter"
 )
 
-const (
-	defaultMaxResponseBytes = int64(8 << 20)
-	defaultRetryBaseDelay   = 500 * time.Millisecond
-)
+const defaultMaxResponseBytes = int64(8 << 20)
 
 type Config struct {
 	Endpoint         string
@@ -29,9 +28,6 @@ type Config struct {
 	HTTPClient       *http.Client
 	Headers          map[string]string
 	DisableStreaming bool
-	DisableRetries   bool
-	MaxRetries       int
-	RetryBaseDelay   time.Duration
 	MaxResponseBytes int64
 	ReasoningFormat  string
 	// ReasoningEcho is config reasoning.echo: "reasoning_content" returns the model's reasoning_content
@@ -52,13 +48,14 @@ type Client struct {
 	httpClient       *http.Client
 	headers          map[string]string
 	stream           bool
-	maxRetries       int
-	retryBaseDelay   time.Duration
 	maxResponseBytes int64
 	reasoningFormat  string
 	echo             string
 	requestTimeout   time.Duration
 	idleTimeout      time.Duration
+	// secrets are the credential values this client sends, redacted from every error text built
+	// from what the server returned.
+	secrets []string
 }
 
 // TimeoutError reports an attempt that outlived its request or idle timeout. It deliberately has
@@ -116,17 +113,6 @@ func New(cfg Config) (*Client, error) {
 	if maxResponseBytes <= 0 {
 		maxResponseBytes = defaultMaxResponseBytes
 	}
-	retryBaseDelay := cfg.RetryBaseDelay
-	if retryBaseDelay <= 0 {
-		retryBaseDelay = defaultRetryBaseDelay
-	}
-	maxRetries := cfg.MaxRetries
-	if !cfg.DisableRetries && maxRetries <= 0 {
-		maxRetries = 2
-	}
-	if cfg.DisableRetries {
-		maxRetries = 0
-	}
 	headers := map[string]string{}
 	for key, value := range cfg.Headers {
 		headers[key] = value
@@ -138,99 +124,168 @@ func New(cfg Config) (*Client, error) {
 		httpClient:       httpClient,
 		headers:          headers,
 		stream:           !cfg.DisableStreaming,
-		maxRetries:       maxRetries,
-		retryBaseDelay:   retryBaseDelay,
 		maxResponseBytes: maxResponseBytes,
 		reasoningFormat:  strings.TrimSpace(cfg.ReasoningFormat),
 		echo:             strings.TrimSpace(cfg.ReasoningEcho),
 		requestTimeout:   cfg.RequestTimeout,
 		idleTimeout:      cfg.IdleTimeout,
+		secrets:          errorSecrets(cfg.APIKey, headers),
 	}, nil
+}
+
+// errorSecrets lists the credentials a client sends, longest first: the API key and the value of
+// every configured header whose name is secret-shaped (diag.IsSecretKey: Authorization, x-api-key,
+// …), with the credential after its scheme ("Bearer <token>"). A version or content-type header is
+// not a credential and is left alone.
+func errorSecrets(apiKey string, headers map[string]string) []string {
+	var secrets []string
+	add := func(value string) {
+		if value = strings.TrimSpace(value); value != "" {
+			secrets = append(secrets, value)
+		}
+	}
+	add(apiKey)
+	for name, value := range headers {
+		if !diag.IsSecretKey(name) {
+			continue
+		}
+		add(value)
+		if _, credential, ok := strings.Cut(strings.TrimSpace(value), " "); ok {
+			add(credential)
+		}
+	}
+	// A whole value goes before the token inside it, so "Bearer <token>" is redacted in one piece.
+	sort.Slice(secrets, func(i, j int) bool { return len(secrets[i]) > len(secrets[j]) })
+	return secrets
+}
+
+// redact replaces every credential the client sends in text a server returned: a gateway or a
+// logging proxy may echo the request's key back in an error body or a stream error event.
+func (c *Client) redact(text string) string {
+	for _, secret := range c.secrets {
+		text = strings.ReplaceAll(text, secret, diag.Redacted)
+	}
+	return text
 }
 
 func (c *Client) Model() string { return c.model }
 
-// maxInAdapterRetryAfter is the longest Retry-After the adapter sleeps through. A provider that asks
-// for more is reported at once so the runtime can fail over; the health registry records the time.
-const maxInAdapterRetryAfter = 5 * time.Second
-
-// Complete sends one request, retrying availability errors with backoff. Every error it returns
-// is a *protocol.ProviderError: the adapter classifies, the loop only reads the class.
+// Complete sends one request: one HTTP attempt. It never retries; the agent loop owns retrying, so
+// every attempt is admitted, recorded and logged there. Every error it returns is a
+// *protocol.ProviderError: the adapter classifies, the loop only reads the class.
 func (c *Client) Complete(ctx context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
-	var lastErr error
-	for attempt := 0; attempt <= c.maxRetries; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return protocol.ProviderResponse{}, &protocol.ProviderError{Class: protocol.ClassCancelled, Err: err}
-		}
-		response, err := c.completeOnce(ctx, req)
-		if err == nil {
-			return response, nil
-		}
-		lastErr = err
-		class, retryAfter := classify(ctx, err)
-		if class != protocol.ClassAvailability {
-			return protocol.ProviderResponse{}, &protocol.ProviderError{Class: class, RetryAfter: retryAfter, Err: err}
-		}
-		if attempt == c.maxRetries || retryAfter > maxInAdapterRetryAfter {
-			break
-		}
-		delay := c.retryBaseDelay << attempt
-		if delay > maxInAdapterRetryAfter {
-			delay = maxInAdapterRetryAfter
-		}
-		if retryAfter > delay {
-			delay = retryAfter
-		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return protocol.ProviderResponse{}, &protocol.ProviderError{Class: protocol.ClassCancelled, Err: ctx.Err()}
-		case <-timer.C:
-		}
+	if err := ctx.Err(); err != nil {
+		return protocol.ProviderResponse{}, &protocol.ProviderError{Class: protocol.ClassCancelled, Err: err}
 	}
-	class, retryAfter := classify(ctx, lastErr)
-	return protocol.ProviderResponse{}, &protocol.ProviderError{Class: class, RetryAfter: retryAfter, Err: lastErr}
+	response, err := c.completeOnce(ctx, req)
+	if err == nil {
+		return response, nil
+	}
+	return protocol.ProviderResponse{}, classify(ctx, err)
 }
 
 // capacityMarkers are the fragments of a 400 body that say the request exceeded the model's context.
-var capacityMarkers = []string{"context_length_exceeded", "maximum context length", "context length exceeded", "prompt is too long", "too many tokens"}
+// "content too long" is the wording of the sub2api gateway in front of DeepSeek (measured 2026-10-26:
+// 649,063 prompt tokens passed, 675K was refused with it).
+var capacityMarkers = []string{"context_length_exceeded", "maximum context length", "context length exceeded", "prompt is too long", "too many tokens", "content too long"}
 
-// classify maps one failed attempt to a class (design §4.5, in this order):
+// classify maps one failed attempt to a class and a reason (design §4.5, in this order):
 //
 //  1. the run context is done → cancelled;
-//  2. a TimeoutError, a transport error or a malformed stream → availability;
-//  3. HTTP 413, or 400 whose body names a capacity marker → capacity;
-//  4. HTTP 401, 403 → auth;
-//  5. HTTP 408, 409, 429, 5xx → availability;
-//  6. any other status → bad_request.
+//  2. a request the adapter could not build, or a reply the provider withheld → bad_request;
+//  3. a TimeoutError → availability/timeout; a cut stream, a stream error event or an interrupted
+//     generation → availability/stream_incomplete; an undecodable 2xx body or leaked tool-call
+//     delimiters → availability/malformed_response; any other error → availability/transport;
+//  4. HTTP 413, or 400 whose body names a capacity marker → capacity;
+//  5. HTTP 401, 403 → auth;
+//  6. HTTP 408 (timeout), 409 (conflict), 429 (rate_limited), 503 (overloaded), other 5xx
+//     (server_error) → availability;
+//  7. any other status → bad_request.
 //
-// It also returns the provider's Retry-After, 0 when there is none.
-func classify(ctx context.Context, err error) (protocol.ErrorClass, time.Duration) {
+// The error carries the provider's Retry-After, 0 when there is none, and the HTTP status.
+func classify(ctx context.Context, err error) *protocol.ProviderError {
 	if ctx.Err() != nil {
-		return protocol.ClassCancelled, 0
+		return &protocol.ProviderError{Class: protocol.ClassCancelled, Err: err}
 	}
 	var httpErr *HTTPError
 	if !errors.As(err, &httpErr) {
-		var bad *badRequestError
-		if errors.As(err, &bad) {
-			return protocol.ClassBadRequest, 0
-		}
-		return protocol.ClassAvailability, 0
+		return &protocol.ProviderError{Class: classOf(err), Reason: reasonOf(err), Err: err}
 	}
+	out := &protocol.ProviderError{Status: httpErr.StatusCode, RetryAfter: httpErr.RetryAfter, Err: err}
 	code, body := httpErr.StatusCode, strings.ToLower(httpErr.Body)
 	switch {
 	case code == http.StatusRequestEntityTooLarge:
-		return protocol.ClassCapacity, httpErr.RetryAfter
+		out.Class = protocol.ClassCapacity
 	case code == http.StatusBadRequest && containsAny(body, capacityMarkers):
-		return protocol.ClassCapacity, httpErr.RetryAfter
+		out.Class = protocol.ClassCapacity
 	case code == http.StatusUnauthorized || code == http.StatusForbidden:
-		return protocol.ClassAuth, httpErr.RetryAfter
-	case code == http.StatusRequestTimeout || code == http.StatusConflict || code == http.StatusTooManyRequests || code >= 500:
-		return protocol.ClassAvailability, httpErr.RetryAfter
+		out.Class = protocol.ClassAuth
+	case code == http.StatusRequestTimeout:
+		out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonTimeout
+	case code == http.StatusConflict:
+		out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonConflict
+	case code == http.StatusTooManyRequests:
+		out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonRateLimited
+	case code == http.StatusServiceUnavailable:
+		out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonOverloaded
+	case code >= 500:
+		out.Class, out.Reason = protocol.ClassAvailability, protocol.ReasonServerError
 	default:
-		return protocol.ClassBadRequest, httpErr.RetryAfter
+		out.Class = protocol.ClassBadRequest
 	}
+	return out
+}
+
+// classOf is the class of an error that is not an HTTP status: bad_request when the request could not
+// be built or the reply was withheld, availability otherwise.
+func classOf(err error) protocol.ErrorClass {
+	var bad *badRequestError
+	if errors.As(err, &bad) {
+		return protocol.ClassBadRequest
+	}
+	return protocol.ClassAvailability
+}
+
+// reasonOf refines an availability error that is not an HTTP status.
+func reasonOf(err error) protocol.Reason {
+	var (
+		bad       *badRequestError
+		timeout   *TimeoutError
+		stream    *streamError
+		malformed *malformedError
+	)
+	switch {
+	case errors.As(err, &bad):
+		return ""
+	case errors.As(err, &timeout):
+		return protocol.ReasonTimeout
+	case errors.Is(err, errStreamCut), errors.Is(err, errInterrupted), errors.As(err, &stream):
+		return protocol.ReasonStreamIncomplete
+	case errors.As(err, &malformed), errors.Is(err, errMalformedDSMLToolStop):
+		return protocol.ReasonMalformedResponse
+	default:
+		return protocol.ReasonTransport
+	}
+}
+
+// malformedError is a 2xx body that is not a response: undecodable JSON, a body past the byte limit,
+// a reply with no choices or a nameless tool call.
+type malformedError struct{ err error }
+
+func (e *malformedError) Error() string { return e.err.Error() }
+func (e *malformedError) Unwrap() error { return e.err }
+
+// malformed marks err as a malformed body unless it already says more: a withheld reply stays
+// bad_request, and a stream error event or an interrupted generation stays stream_incomplete.
+func malformed(err error) error {
+	var (
+		bad    *badRequestError
+		stream *streamError
+	)
+	if errors.As(err, &bad) || errors.As(err, &stream) || errors.Is(err, errInterrupted) {
+		return err
+	}
+	return &malformedError{err}
 }
 
 func containsAny(s string, needles []string) bool {
@@ -318,7 +373,7 @@ func (c *Client) completeOnce(ctx context.Context, req protocol.ProviderRequest)
 	defer resp.Body.Close()
 	touch()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return protocol.ProviderResponse{}, timeoutOr(readHTTPError(resp))
+		return protocol.ProviderResponse{}, timeoutOr(c.readHTTPError(resp))
 	}
 	reader := activityReader{r: resp.Body, touch: touch}
 	var out protocol.ProviderResponse
@@ -330,7 +385,28 @@ func (c *Client) completeOnce(ctx context.Context, req protocol.ProviderRequest)
 	if err != nil {
 		return protocol.ProviderResponse{}, timeoutOr(err)
 	}
+	// Some OpenAI-compatible DeepSeek gateways return a successful `stop`
+	// with proprietary tool-call closing tags in plain text instead of a
+	// structured tool call. That is not an agent final answer. Reject only
+	// the distinctive complete closing sequence, never synthesize or run
+	// a tool from the text. Availability classification lets the agent loop's
+	// retry and failover handle the malformed upstream answer.
+	if malformedDSMLToolStop(out, req) {
+		return protocol.ProviderResponse{}, errMalformedDSMLToolStop
+	}
 	return out, nil
+}
+
+var errMalformedDSMLToolStop = errors.New("provider returned malformed tool-call delimiters as assistant text without structured tool_calls")
+
+func malformedDSMLToolStop(response protocol.ProviderResponse, request protocol.ProviderRequest) bool {
+	if len(request.Tools) == 0 || len(response.Message.ToolCalls) != 0 || response.FinishReason != "stop" {
+		return false
+	}
+	content := strings.TrimSpace(response.Message.Content)
+	return strings.HasSuffix(content, "</｜｜DSML｜｜ calls>") &&
+		strings.Contains(content, "</｜｜DSML｜｜ parameter>") &&
+		strings.Contains(content, "</｜｜DSML｜｜ invoke>")
 }
 
 func (c *Client) readJSON(body io.Reader) (protocol.ProviderResponse, error) {
@@ -340,39 +416,52 @@ func (c *Client) readJSON(body io.Reader) (protocol.ProviderResponse, error) {
 		return protocol.ProviderResponse{}, err
 	}
 	if int64(len(raw)) > c.maxResponseBytes {
-		return protocol.ProviderResponse{}, fmt.Errorf("provider response exceeded %d bytes", c.maxResponseBytes)
+		return protocol.ProviderResponse{}, malformed(fmt.Errorf("provider response exceeded %d bytes", c.maxResponseBytes))
 	}
 	var decoded chatResponse
 	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return protocol.ProviderResponse{}, err
+		return protocol.ProviderResponse{}, malformed(err)
 	}
-	return decoded.toProtocol(c.echo)
+	out, err := decoded.toProtocol(c.echo)
+	if err != nil {
+		return protocol.ProviderResponse{}, malformed(err)
+	}
+	return out, nil
 }
 
+// readStream folds the SSE chunks into one response. The stream is complete at a finish_reason or
+// at [DONE]; one that ends with neither, or carries an error event, is an error (design §4.5:
+// availability), so a partial response never reaches the loop.
 func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 	reader := bufio.NewReader(io.LimitReader(body, c.maxResponseBytes+1))
 	builder := streamBuilder{maxBytes: c.maxResponseBytes}
 	var consumed int64
+	done := false
 	for {
 		line, err := reader.ReadString(10)
 		consumed += int64(len(line))
 		if consumed > c.maxResponseBytes {
-			return protocol.ProviderResponse{}, fmt.Errorf("provider stream exceeded %d bytes", c.maxResponseBytes)
+			return protocol.ProviderResponse{}, malformed(fmt.Errorf("provider stream exceeded %d bytes", c.maxResponseBytes))
 		}
 		if len(line) > 0 {
 			trimmed := strings.TrimSpace(line)
 			if strings.HasPrefix(trimmed, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
 				if payload == "[DONE]" {
+					done = true
 					break
 				}
 				if payload != "" {
 					var event streamResponse
 					if decodeErr := json.Unmarshal([]byte(payload), &event); decodeErr != nil {
-						return protocol.ProviderResponse{}, decodeErr
+						return protocol.ProviderResponse{}, malformed(decodeErr)
+					}
+					if event.Error != nil {
+						event.Error.Type = c.redact(event.Error.Type)
+						event.Error.Message = c.redact(event.Error.Message)
 					}
 					if applyErr := builder.apply(event); applyErr != nil {
-						return protocol.ProviderResponse{}, applyErr
+						return protocol.ProviderResponse{}, malformed(applyErr)
 					}
 				}
 			}
@@ -384,32 +473,20 @@ func (c *Client) readStream(body io.Reader) (protocol.ProviderResponse, error) {
 			return protocol.ProviderResponse{}, err
 		}
 	}
+	if !done && !builder.finished {
+		return protocol.ProviderResponse{}, errStreamCut
+	}
 	return builder.result(c.echo), nil
 }
 
-func readHTTPError(resp *http.Response) error {
+// readHTTPError reads a failed response. No credential the client sent reaches the error: every
+// occurrence of one in the status or the body is redacted before the error is built.
+func (c *Client) readHTTPError(resp *http.Response) error {
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	return &HTTPError{
 		StatusCode: resp.StatusCode,
-		Status:     resp.Status,
-		Body:       strings.TrimSpace(string(raw)),
-		RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+		Status:     c.redact(resp.Status),
+		Body:       c.redact(strings.TrimSpace(string(raw))),
+		RetryAfter: retryafter.Parse(resp.Header, time.Now()),
 	}
-}
-
-func parseRetryAfter(value string) time.Duration {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0
-	}
-	if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
-		return time.Duration(seconds) * time.Second
-	}
-	if at, err := http.ParseTime(value); err == nil {
-		delay := time.Until(at)
-		if delay > 0 {
-			return delay
-		}
-	}
-	return 0
 }

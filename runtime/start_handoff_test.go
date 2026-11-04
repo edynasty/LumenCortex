@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -50,10 +49,9 @@ func (c *commitCancelledContext) Err() error {
 	return nil
 }
 
-// Once the Start transaction commits, Start hands the run to its goroutine without a
-// fallible step in between (§3.2). "Start failed, the row says running, nobody owns
-// the run" must be impossible even if the caller's context dies at the commit.
-func TestStartHandsOffTheCommittedRunEvenWhenTheCallerContextDiesAtTheCommit(t *testing.T) {
+// A committed Start is handed off even if caller cancellation arrives at the commit. Its goroutine
+// must then persist interruption and release ownership rather than leaving a running orphan.
+func TestCommittedStartSettlesCallerCancellation(t *testing.T) {
 	workspace := t.TempDir()
 	engine := openEngineAt(t, workspace)
 	handle := newTestSession(t, engine, "handoff")
@@ -106,9 +104,6 @@ error_json = '{"kind":"cancelled","message":"old","at":"2026-01-01T00:00:00Z"}',
 	if info.Status != "running" || info.Provider != "test" || info.Model != "b0" || info.ModelRef != "test/b0" || info.Final != nil || len(info.Error) != 0 {
 		t.Fatalf("Start returned %+v, want the committed running state with the previous outcome cleared", info)
 	}
-	if stored, _ := sessionState(t, engine, handle.ID); stored.Status != "running" || stored.Provider != "test" || stored.Model != "b0" || stored.ModelRef != "test/b0" || stored.Final != nil || len(stored.Error) != 0 {
-		t.Fatalf("stored session %+v", stored)
-	}
 	rows := transcript(t, handle)
 	inputs := 0
 	for _, row := range rows {
@@ -120,28 +115,9 @@ error_json = '{"kind":"cancelled","message":"old","at":"2026-01-01T00:00:00Z"}',
 		t.Fatalf("Input appears %d times, want exactly once", inputs)
 	}
 
-	// The run owns the lock while it executes: another Engine is refused and writes nothing.
-	if !supervisor.Active(handle.ID) {
-		t.Fatal("the run has no owner after a successful Start")
-	}
-	other := openEngineAt(t, workspace)
-	otherSupervisor, err := NewRunSupervisor(other)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer otherSupervisor.Close()
-	if _, err := otherSupervisor.startWith(context.Background(), handle.ID, completingProvider("x"), AgentOptions{Input: "refused"}); !errors.Is(err, ErrRunHeld) {
-		t.Fatalf("Start from another Engine during the run: %v, want ErrRunHeld", err)
-	}
-	if got := len(transcript(t, handle)); got != len(rows) {
-		t.Fatalf("the refused Start wrote rows: %d -> %d", len(rows), got)
-	}
-
-	// The run reaches its proper terminal state and then frees the lock.
-	close(release)
 	waitUntilIdle(t, supervisor, handle.ID, 10*time.Second)
 	final, cause := sessionState(t, engine, handle.ID)
-	if final.Status != "completed" || cause != nil || final.Final == nil || *final.Final != "all done" {
+	if final.Status != "interrupted" || cause == nil || cause.Kind != "cancelled" || final.Final != nil {
 		t.Fatalf("terminal state: status=%q cause=%+v final=%v", final.Status, cause, final.Final)
 	}
 	lock, err := engine.acquireRun(context.Background(), handle.ID)

@@ -1,0 +1,84 @@
+# Browser (Playwright MCP) lifecycle — timeline tables
+
+## prefix-close
+
+| t | mark | detail |
+|---|---|---|
+| 1.7s | sample:before-close | browserProcsAlive=9 orphanCount=1 pidAlive=True totalRSSKB=1136272 |
+| 1.7s | engine.close.begin |  |
+| 1.7s | engine.close.done |  |
+| 3.8s | after-close | pidAlive=False |
+| 3.8s | sample:after-close | browserProcsAlive=2 orphanCount=2 pidAlive=False totalRSSKB=0 |
+
+## idle
+
+| t | mark | detail |
+|---|---|---|
+| 1.0s | run.end | lastTag=final seconds=0.9 status=completed toolsOffered=41 |
+| 1.0s | server.pid |  |
+| 1.1s | sample:after-run | browserProcsAlive=9 orphanCount=1 pidAlive=True totalRSSKB=1153616 |
+| 301.1s | sample:t+300s | browserProcsAlive=1 orphanCount=0 pidAlive=True totalRSSKB=87104 |
+| 601.1s | mcp.stopped | afterLastUseSeconds=600.0 at=2026-11-01T09:02:15.859606Z reason=idle |
+| 603.1s | sample:after-idle-stop | browserProcsAlive=0 orphanCount=0 pidAlive=False totalRSSKB=0 |
+| 603.2s | orphans.after-idle | pidAlive=False |
+| 603.2s | engine.close.begin |  |
+| 605.3s | orphans.after-close | pidAlive=False |
+
+## restart
+
+| t | mark | detail |
+|---|---|---|
+| 0.3s | mcp.start#1 | tools=25 |
+| 1.2s | sample:running#1 | browserProcsAlive=9 orphanCount=1 pidAlive=True totalRSSKB=1154784 |
+| 3.3s | after-disable | oldPidAlive=False statuses=0 treeBefore=7 |
+| 3.5s | mcp.start#2 | newPid=True oldPid=30949 tools=25 |
+| 4.2s | sample:running#2 | browserProcsAlive=9 orphanCount=1 pidAlive=True totalRSSKB=1147968 |
+| 4.2s | engine.close.begin |  |
+| 6.3s | orphans.after-close | pid1Alive=False pid2Alive=False |
+
+## crash
+
+| t | mark | detail |
+|---|---|---|
+| 1.2s | run.end | lastTag=final seconds=1.1 status=completed toolsOffered=41 |
+| 1.3s | kill | signal=SIGKILL treeBefore=['32001(rss=236048KB)', '32014(rss=148736KB)', '32015(rss=101840KB)', '32017(rss=81968KB)', '32024(rss=190800KB)', '32027(rss=102704KB)', '32028(rss=142912KB)'] |
+| 6.4s | survivors@5s | survivorCount=5 survivorRSSKB=578624 |
+| 31.6s | survivors@30s | survivorCount=5 survivorRSSKB=577264 |
+| 31.7s | run.end | lastTag=final seconds=0.0 status=completed toolsOffered=41 |
+| 31.7s | after-failed-call | pidAlive=False statuses=0 |
+| 32.6s | run.end | lastTag=final seconds=0.9 status=completed toolsOffered=41 |
+| 32.6s | restarted | isNew=True newPid=32278 oldPid=31954 |
+| 32.7s | survivors@restart | survivorCount=6 survivorRSSKB=517552 |
+| 34.9s | orphans.after-close | pid2Alive=False |
+
+## cancel
+
+| t | mark | detail |
+|---|---|---|
+| 1.0s | sample:before-cancel | browserProcsAlive=9 orphanCount=1 pidAlive=True totalRSSKB=1158752 |
+| 1.2s | cancel.inflight | callsInFlight=True |
+| 1.3s | run.cancelled | status=interrupted |
+| 4.3s | after-cancel | pidAlive=True |
+| 6.5s | after-close | pidAlive=False |
+| 6.6s | sample:after-close | browserProcsAlive=0 orphanCount=0 pidAlive=False totalRSSKB=0 |
+
+## close
+
+| t | mark | detail |
+|---|---|---|
+| 1.0s | sample:before-close | browserProcsAlive=9 orphanCount=1 pidAlive=True totalRSSKB=1154624 |
+| 1.0s | engine.close.begin |  |
+| 1.1s | engine.close.done |  |
+| 3.2s | sample:after-close | browserProcsAlive=0 orphanCount=0 pidAlive=False totalRSSKB=0 |
+
+## policy
+
+| t | mark | detail |
+|---|---|---|
+| 1.0s | run.end | lastTag=final seconds=0.9 status=completed toolsOffered=41 |
+| 1.0s | readonly.run.end | status=completed toolsOffered=23 |
+| 1.0s | capabilities:disabled | count=5 |
+| 1.0s | capabilities:enabled | count=5 |
+| 1.0s | computer-use.mcptools | count=15 |
+| 3.2s | orphans.after-close |  |
+

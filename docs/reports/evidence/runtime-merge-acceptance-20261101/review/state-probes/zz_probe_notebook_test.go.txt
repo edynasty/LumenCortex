@@ -1,0 +1,78 @@
+package runtime
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/edynasty/LumenCortex/internal/session"
+	"github.com/edynasty/LumenCortex/protocol"
+)
+
+const zzNotebookSentinel = "NOTEBOOK-SENTINEL-4b1f"
+
+func zzChildWithNotebook(t *testing.T, engine *Engine, parent string) string {
+	t.Helper()
+	ctx := context.Background()
+	child, err := engine.NewSession(ctx, SessionOptions{Goal: "child"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.store.AddRelation(ctx, session.Relation{ParentSessionID: parent, ChildSessionID: child.ID, Kind: "subagent"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.CreateNotebook(ctx, child.ID, "research", "# R\n\n## Findings\n"+zzNotebookSentinel+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	return child.ID
+}
+
+// PROBE N1: after RevokeSource(child), the parent's notebook_read still returns the child's body.
+func TestZZProbeNotebookReadIgnoresRevocation(t *testing.T) {
+	engine, parent := notebookEngine(t)
+	ctx := context.Background()
+	child := zzChildWithNotebook(t, engine, parent)
+	if _, err := engine.RevokeSource(ctx, SourceSession, child, "user_revoked"); err != nil {
+		t.Fatal(err)
+	}
+	withdrawn, _ := engine.store.SessionWithdrawn(ctx, child)
+	got, err := newNotebookAccess(engine, parent, "run1").Read(ctx, child, "research", "")
+	host, herr := engine.Notebook(ctx, child, "research")
+	t.Logf("PROBE N1 child withdrawn=%v; agent notebook_read err=%v body-has-sentinel=%v; host Notebook err=%v body-has-sentinel=%v",
+		withdrawn, err, strings.Contains(fmt.Sprint(got), zzNotebookSentinel), herr, strings.Contains(host.Body, zzNotebookSentinel))
+}
+
+// PROBE N2: a parent run reads the child's notebook; deleting the child leaves the body in the parent's transcript.
+func TestZZProbeNotebookCopySurvivesChildDeletion(t *testing.T) {
+	engine, parent := notebookEngine(t)
+	ctx := context.Background()
+	child := zzChildWithNotebook(t, engine, parent)
+	p := &notebookProvider{responses: []protocol.ProviderResponse{
+		toolCallResponse("nb1", "notebook_read", `{"notebook":"research","session_id":"`+child+`"}`),
+		finalResponse("ok"),
+	}}
+	r, err := engine.runAgentWith(ctx, parent, p, AgentOptions{Input: "read the child's notebook", Policy: "read-only", MaxSteps: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := countRows(t, engine, `SELECT count(*) FROM session_messages WHERE session_id = ? AND instr(json, ?) > 0`, parent, zzNotebookSentinel)
+	if _, err := engine.DeleteSession(ctx, child, WorktreeCleanup{}); err != nil {
+		t.Fatal(err)
+	}
+	after := countRows(t, engine, `SELECT count(*) FROM session_messages WHERE session_id = ? AND instr(json, ?) > 0`, parent, zzNotebookSentinel)
+	_, gerr := engine.store.Get(ctx, child)
+	t.Logf("PROBE N2 run=%s; parent rows holding the child's notebook body: before delete=%d, after delete=%d (child get: %v)", r.Status, before, after, gerr)
+}
+
+// PROBE N3: revision bytes vs notebook bytes for a non-ASCII body.
+func TestZZProbeNotebookRevisionBytes(t *testing.T) {
+	engine, sid := notebookEngine(t)
+	ctx := context.Background()
+	doc, err := engine.CreateNotebook(ctx, sid, "plan", "# P\n\n## Plan\n\n"+strings.Repeat("日", 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	revs, _ := engine.NotebookRevisions(ctx, sid, "plan")
+	t.Logf("PROBE N3 doc.Bytes=%d revision[0].Bytes=%d", doc.Bytes, revs[0].Bytes)
+}

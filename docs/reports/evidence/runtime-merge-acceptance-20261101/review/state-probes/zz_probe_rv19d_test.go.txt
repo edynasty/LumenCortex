@@ -1,0 +1,66 @@
+package runtime
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// RV-19d: which shape stalls the busy retry after a woken run takes the only slot? Variant A: two
+// wake-ups on the session that wins the slot plus one on another session. Samples next_run_at each
+// second and reads the scheduler's diagnostics records.
+func TestZZProbeRV19Stall(t *testing.T) {
+	engine, err := Open(Options{Workspace: t.TempDir(), Budget: Budget{MaxAgents: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	ctx := context.Background()
+	holder := newTestSession(t, engine, "holder")
+	x := newTestSession(t, engine, "x")
+	y := newTestSession(t, engine, "y")
+	sup := startBlockedRun(t, engine, holder.ID)
+	type w struct{ name, id string }
+	var ws []w
+	for _, c := range []struct {
+		name, sid string
+		delay    int
+	}{{"x1", x.ID, 1}, {"x2", x.ID, 2}, {"y1", y.ID, 3}} {
+		got, err := engine.wakeupsFor(c.sid, "read-only", nil, nil).ScheduleWakeup(ctx, c.delay, "wake "+c.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ws = append(ws, w{c.name, got.ID})
+	}
+	time.Sleep(5 * time.Second)
+	sup.Cancel(holder.ID)
+	for i := range 10 {
+		time.Sleep(time.Second)
+		var parts []string
+		for _, e := range ws {
+			info, _ := engine.Schedule(ctx, e.id)
+			next := "<nil>"
+			if info.NextRunAt != nil {
+				next = info.NextRunAt.Format("15:04:05.000")
+			}
+			parts = append(parts, e.name+"{"+info.LastStatus+" next="+next+"}")
+		}
+		t.Logf("PROBE RV-19d t+%02ds now=%s %s", i+1, time.Now().UTC().Format("15:04:05.000"), strings.Join(parts, " "))
+	}
+	if engine.diag != nil {
+		dir := engine.diag.Dir()
+		_ = engine.Close()
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			data, _ := os.ReadFile(filepath.Join(dir, e.Name()))
+			for _, line := range strings.Split(string(data), "\n") {
+				if strings.Contains(line, "schedule") && !strings.Contains(line, `"schedule.changed"`) {
+					t.Logf("PROBE RV-19d diag: %s", line)
+				}
+			}
+		}
+	}
+}

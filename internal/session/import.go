@@ -71,6 +71,27 @@ func (s *Store) ImportSessions(ctx context.Context, items []ImportedSession) err
 		if exists > 0 {
 			return fmt.Errorf("%w: %s", ErrSessionExists, item.Session.ID)
 		}
+		// A privacy deletion of this id still being cleaned up (its rows can already be gone while the
+		// rebuild or the WAL truncation is owed) refuses the import: the content must not come back
+		// before the old copies are gone, and its fences would withdraw the imported session.
+		var pending int
+		if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM source_fences
+			WHERE scope_kind = 'privacy' AND scope_ref = ? AND state = 'cleanup_pending'`, item.Session.ID).Scan(&pending); err != nil {
+			return err
+		}
+		if pending > 0 {
+			return fmt.Errorf("%w: %s", ErrCleanupPending, item.Session.ID)
+		}
+		// A privacy deletion of this id that finished is superseded: importing the source again is the
+		// user's new decision. The session fences that deletion committed on the id would withdraw the
+		// imported session, so they go; the privacy row (state cleaned) stays as the body-free record
+		// that the deletion happened.
+		if _, err := conn.ExecContext(ctx, `DELETE FROM source_fences
+			WHERE scope_kind = 'session' AND scope_ref = ? AND reason = ? AND epoch IN
+				(SELECT epoch FROM source_fences WHERE scope_kind = 'privacy' AND scope_ref = ? AND state = 'cleaned')`,
+			item.Session.ID, ReasonPrivacyDelete, item.Session.ID); err != nil {
+			return err
+		}
 		if err := insertSession(ctx, conn, item.Session); err != nil {
 			return err
 		}

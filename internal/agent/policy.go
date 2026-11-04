@@ -40,10 +40,14 @@ const (
 	RuleModelAgent      = "model.agent"      // the first model of the agent's own list; written to sessions.model_ref
 	RuleModelDefault    = "model.default"    // the config model; written to sessions.model_ref
 	RuleModelCandidates = "model.candidates" // the ordered, filtered candidate list of one step
-	RuleEffortOverride  = "effort.override"  // AgentOptions.Effort
-	RuleEffortDefault   = "effort.default"   // the candidate's default: its list entry, else the agent's, else config
-	RuleEffortEscalated = "effort.escalated" // config default raised while progress shows a stall
-	RuleEffortCapped    = "effort.capped"    // a stall would escalate, but escalation.max allows no higher level
+	// RuleModelCandidatesCooldown additionally orders restored candidates by explicit readiness.
+	RuleModelCandidatesCooldown = "model.candidates.cooldown"
+	// RuleModelCandidatesRetained keeps unhealthy candidates for later first attempts in this step.
+	RuleModelCandidatesRetained = "model.candidates.retained"
+	RuleEffortOverride          = "effort.override"  // AgentOptions.Effort
+	RuleEffortDefault           = "effort.default"   // the candidate's default: its list entry, else the agent's, else config
+	RuleEffortEscalated         = "effort.escalated" // config default raised while progress shows a stall
+	RuleEffortCapped            = "effort.capped"    // a stall would escalate, but escalation.max allows no higher level
 	// RuleEffortAuto: the Start resolved "auto" to one concrete level for this run, before the first
 	// request. The classifier input text is deliberately not persisted; the decision records only
 	// its source, length, ceiling, judge ref and result.
@@ -52,6 +56,9 @@ const (
 	// effort.auto.max, so no reasoning parameter is sent to it.
 	RuleEffortAutoUnavailable = "effort.auto_unavailable"
 	RuleFailoverPrefix        = "failover."
+	// RuleFailoverRecovery: the failover chain ended in an outage; the step waits and sends the request
+	// again to a candidate that failed with availability (Recovery).
+	RuleFailoverRecovery = "failover.recovery"
 	// RuleWindowDropped: older transcript groups were left out to fit the candidate's budget (§5).
 	RuleWindowDropped = "window.dropped"
 	// RuleWindowDefaultContext: the model configures no limit.context, so the request is budgeted on
@@ -225,17 +232,19 @@ func ValidEffortRequest(e config.Effort) bool {
 	return e == "" || e == config.EffortAuto || effortIndex(e) >= 0
 }
 
-// Stall is the part of Task State progress the effort rule reads.
-type Stall struct {
+// Legacy effort inputs exist only to replay historical decisions, never to control a live run.
+type legacyStall struct {
 	SameFailure     int `json:"sameFailure"`
 	NoProgressSteps int `json:"noProgressSteps"`
 }
 
-// EffortFor is the only effort rule (design §4.5, A6). "" means "send no reasoning parameter". The
-// per-run override wins. Otherwise the configured default is escalated one level once the same failure
-// repeats esc.SameFailure times or esc.NoProgressSteps steps pass without progress, two levels at twice
-// either threshold, never above esc.Max; progress resets the stall and with it the effort.
-func EffortFor(def, override config.Effort, esc *config.Escalation, stall Stall) (config.Effort, string) {
+type legacyEscalation struct {
+	SameFailure     int           `json:"sameFailure"`
+	NoProgressSteps int           `json:"noProgressSteps"`
+	Max             config.Effort `json:"max"`
+}
+
+func legacyEffortFor(def, override config.Effort, esc *legacyEscalation, stall legacyStall) (config.Effort, string) {
 	if override != "" {
 		return override, RuleEffortOverride
 	}
@@ -313,13 +322,13 @@ func effortAtOrBelow(supported []config.Effort, ceiling config.Effort) bool {
 	return false
 }
 
-// Health is the model health registry: one map per Engine from model reference to the time the model
-// becomes available again. It is advisory, shared by every session of its Engine, cleared by a
-// success, and never persisted.
+// Health is shared by an Engine and never persisted. Advisory failure marks may be bypassed when
+// all models are unhealthy; explicit provider cooldowns must still be honoured before sending.
 type Health struct {
-	mu    sync.Mutex
-	until map[config.ModelRef]time.Time
-	now   func() time.Time
+	mu        sync.Mutex
+	until     map[config.ModelRef]time.Time
+	notBefore map[config.ModelRef]time.Time
+	now       func() time.Time
 }
 
 // NewHealth returns an empty registry. now may be nil for the wall clock.
@@ -327,7 +336,7 @@ func NewHealth(now func() time.Time) *Health {
 	if now == nil {
 		now = time.Now
 	}
-	return &Health{until: map[config.ModelRef]time.Time{}, now: now}
+	return &Health{until: map[config.ModelRef]time.Time{}, notBefore: map[config.ModelRef]time.Time{}, now: now}
 }
 
 // Available reports whether ref may be used now.
@@ -340,19 +349,43 @@ func (h *Health) Available(ref config.ModelRef) bool {
 
 // Fail marks ref unavailable for retryAfter, or DefaultUnhealthyFor when the provider named no delay.
 func (h *Health) Fail(ref config.ModelRef, retryAfter time.Duration) {
-	if retryAfter <= 0 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := h.now()
+	if retryAfter > 0 {
+		until := now.Add(retryAfter)
+		if until.After(h.notBefore[ref]) {
+			h.notBefore[ref] = until
+		}
+	} else {
 		retryAfter = DefaultUnhealthyFor
 	}
+	until := now.Add(retryAfter)
+	if until.After(h.until[ref]) {
+		h.until[ref] = until
+	}
+}
+
+// Success clears advisory failure state, but not a concurrent request's unexpired provider hint.
+func (h *Health) Success(ref config.ModelRef) {
 	h.mu.Lock()
-	h.until[ref] = h.now().Add(retryAfter)
+	if until := h.notBefore[ref]; h.now().Before(until) {
+		h.until[ref] = until
+	} else {
+		delete(h.until, ref)
+		delete(h.notBefore, ref)
+	}
 	h.mu.Unlock()
 }
 
-// Success clears any mark on ref.
-func (h *Health) Success(ref config.ModelRef) {
+// RetryDelay returns only the explicit hint, never the guessed advisory health interval.
+func (h *Health) RetryDelay(ref config.ModelRef) time.Duration {
 	h.mu.Lock()
-	delete(h.until, ref)
-	h.mu.Unlock()
+	defer h.mu.Unlock()
+	if until := h.notBefore[ref]; h.now().Before(until) {
+		return until.Sub(h.now())
+	}
+	return 0
 }
 
 // Unavailable returns, sorted, the models among refs that are unavailable now. It is the registry's
@@ -424,6 +457,7 @@ type candidatesInputs struct {
 	Base        int                                 `json:"base"`
 	MaxTokens   int                                 `json:"maxTokens"`
 	Unavailable []config.ModelRef                   `json:"unavailable"`
+	CooldownMs  map[config.ModelRef]int64           `json:"cooldownMs,omitempty"`
 }
 
 type candidatesOutput struct {
@@ -431,11 +465,11 @@ type candidatesOutput struct {
 }
 
 type effortInputs struct {
-	Default    config.Effort      `json:"default"`
-	Override   config.Effort      `json:"override"`
-	Escalation *config.Escalation `json:"escalation,omitempty"`
-	Stall      Stall              `json:"stall"`
-	// TaskState is the Task State version the stall was read from, for tracing.
+	Default    config.Effort     `json:"default"`
+	Override   config.Effort     `json:"override"`
+	Escalation *legacyEscalation `json:"escalation,omitempty"`
+	Stall      legacyStall       `json:"stall"`
+	// TaskState identifies the state version used to construct the request.
 	TaskState int64           `json:"taskStateVersion"`
 	Efforts   []config.Effort `json:"efforts"`
 	// Ceiling is effort.auto.max when this run's effort came from auto, "" otherwise. A candidate
@@ -501,10 +535,15 @@ func candidateRefs(cands []Candidate) []candidateRef {
 
 // CandidatesDecision computes the candidate list of one step and the decision that records it.
 // unavailable is the sorted health snapshot of the models in question (Health.Unavailable).
-func CandidatesDecision(session config.ModelRef, failover []config.ModelRef, models map[config.ModelRef]Candidate, base, maxTokens int, unavailable []config.ModelRef) ([]Candidate, Decision) {
+func CandidatesDecision(session config.ModelRef, failover []config.ModelRef, models map[config.ModelRef]Candidate, base, maxTokens int, unavailable []config.ModelRef, cooldownMs map[config.ModelRef]int64) ([]Candidate, Decision) {
 	failover = sliceOrEmpty(failover)
 	unavailable = sliceOrEmpty(unavailable)
-	cands := Candidates(session, failover, models, base, maxTokens, availableExcept(unavailable))
+	cands := Candidates(session, failover, models, base, maxTokens, nil)
+	rule := RuleModelCandidates
+	if len(unavailable) > 0 || len(cooldownMs) > 0 {
+		rule = RuleModelCandidatesRetained
+		orderRetainedCandidates(cands, unavailable, cooldownMs)
+	}
 	limits := map[config.ModelRef]candidateLimits{}
 	for _, ref := range append([]config.ModelRef{session}, failover...) {
 		if c, ok := models[ref]; ok {
@@ -515,28 +554,64 @@ func CandidatesDecision(session config.ModelRef, failover []config.ModelRef, mod
 	for i, c := range cands {
 		refs[i] = c.Ref
 	}
-	return cands, newDecision(DecisionModel, RuleModelCandidates,
-		candidatesInputs{Session: session, Failover: failover, Models: limits, Base: base, MaxTokens: maxTokens, Unavailable: unavailable},
+	return cands, newDecision(DecisionModel, rule,
+		candidatesInputs{Session: session, Failover: failover, Models: limits, Base: base, MaxTokens: maxTokens, Unavailable: unavailable, CooldownMs: cooldownMs},
 		candidatesOutput{Candidates: refs})
+}
+
+// Health changes priority, never membership. Keep each deferred model available to the initial
+// sweep once its explicit hint expires; advisory-unhealthy models follow healthy ones.
+func orderRetainedCandidates(cands []Candidate, unavailable []config.ModelRef, cooldownMs map[config.ModelRef]int64) {
+	slices.SortStableFunc(cands, func(a, b Candidate) int {
+		if cooldownMs[a.Ref] < cooldownMs[b.Ref] {
+			return -1
+		}
+		if cooldownMs[a.Ref] > cooldownMs[b.Ref] {
+			return 1
+		}
+		aDown, bDown := slices.Contains(unavailable, a.Ref), slices.Contains(unavailable, b.Ref)
+		if aDown != bDown {
+			if aDown {
+				return 1
+			}
+			return -1
+		}
+		return 0
+	})
+}
+
+// Stable ordering preserves configured priority among equally ready candidates. Cooling models stay
+// in the list: a ready fallback can fail, and the deferred primary may then recover within the deadline.
+func orderByCooldown(cands []Candidate, cooldownMs map[config.ModelRef]int64) {
+	slices.SortStableFunc(cands, func(a, b Candidate) int {
+		if cooldownMs[a.Ref] < cooldownMs[b.Ref] {
+			return -1
+		}
+		if cooldownMs[a.Ref] > cooldownMs[b.Ref] {
+			return 1
+		}
+		return 0
+	})
 }
 
 func availableExcept(unavailable []config.ModelRef) func(config.ModelRef) bool {
 	return func(ref config.ModelRef) bool { return !slices.Contains(unavailable, ref) }
 }
 
-// EffortDecision applies EffortFor and ClampEffort for one candidate and records both. autoCeiling
-// is effort.auto.max when the run's level was resolved from auto, "" otherwise: a candidate whose
-// efforts list offers nothing at or below the ceiling sends no reasoning parameter and logs
-// rule effort.auto_unavailable.
-func EffortDecision(def, override config.Effort, esc *config.Escalation, stall Stall, taskState int64, supported []config.Effort, autoCeiling config.Effort) (config.Effort, Decision) {
-	requested, rule := EffortFor(def, override, esc, stall)
+// EffortDecision applies the explicit override/default and candidate clamp. Historical escalation
+// inputs are accepted only by ReplayDecision, never from live configuration or tool outcomes.
+func EffortDecision(def, override config.Effort, taskState int64, supported []config.Effort, autoCeiling config.Effort) (config.Effort, Decision) {
+	requested, rule := def, RuleEffortDefault
+	if override != "" {
+		requested, rule = override, RuleEffortOverride
+	}
 	sent := ClampEffort(requested, supported)
 	if autoCeiling != "" && len(supported) > 0 && !effortAtOrBelow(supported, autoCeiling) {
 		sent = ""
 		rule = RuleEffortAutoUnavailable
 	}
 	return sent, newDecision(DecisionEffort, rule,
-		effortInputs{Default: def, Override: override, Escalation: esc, Stall: stall, TaskState: taskState, Efforts: sliceOrEmpty(supported), Ceiling: autoCeiling},
+		effortInputs{Default: def, Override: override, TaskState: taskState, Efforts: sliceOrEmpty(supported), Ceiling: autoCeiling},
 		effortOutput{Requested: requested, Sent: sent})
 }
 
@@ -672,7 +747,7 @@ func TurnBoundary(rows []TurnRow, target config.ModelRef) (bool, Decision) {
 // and reports any difference from the recorded rule and output (I7).
 func ReplayDecision(d Decision) error {
 	switch {
-	case d.Kind == DecisionModel && d.Rule == RuleModelCandidates:
+	case d.Kind == DecisionModel && (d.Rule == RuleModelCandidates || d.Rule == RuleModelCandidatesCooldown || d.Rule == RuleModelCandidatesRetained):
 		var in candidatesInputs
 		var out candidatesOutput
 		if err := decodeDecision(d, &in, &out); err != nil {
@@ -683,6 +758,13 @@ func ReplayDecision(d Decision) error {
 			models[ref] = Candidate{Ref: ref, Context: l.Context, Output: l.Output, ToolCalling: l.ToolCalling}
 		}
 		got := Candidates(in.Session, in.Failover, models, in.Base, in.MaxTokens, availableExcept(in.Unavailable))
+		if d.Rule == RuleModelCandidatesCooldown {
+			orderByCooldown(got, in.CooldownMs)
+		}
+		if d.Rule == RuleModelCandidatesRetained {
+			got = Candidates(in.Session, in.Failover, models, in.Base, in.MaxTokens, nil)
+			orderRetainedCandidates(got, in.Unavailable, in.CooldownMs)
+		}
 		refs := make([]config.ModelRef, len(got))
 		for i, c := range got {
 			refs[i] = c.Ref
@@ -727,7 +809,7 @@ func ReplayDecision(d Decision) error {
 		if err := decodeDecision(d, &in, &out); err != nil {
 			return err
 		}
-		requested, rule := EffortFor(in.Default, in.Override, in.Escalation, in.Stall)
+		requested, rule := legacyEffortFor(in.Default, in.Override, in.Escalation, in.Stall)
 		sent := ClampEffort(requested, in.Efforts)
 		if in.Ceiling != "" && len(in.Efforts) > 0 && !effortAtOrBelow(in.Efforts, in.Ceiling) {
 			sent = ""
@@ -745,6 +827,18 @@ func ReplayDecision(d Decision) error {
 		}
 		if context, rule := EffectiveContext(in.Configured); rule != d.Rule || context != out.Context {
 			return fmt.Errorf("%s: recomputed context %d via %q, logged %d", d.Rule, context, rule, out.Context)
+		}
+	case d.Kind == DecisionFailover && d.Rule == RuleFailoverRecovery:
+		var in recoveryInputs
+		var out recoveryOutput
+		if err := decodeDecision(d, &in, &out); err != nil {
+			return err
+		}
+		if len(in.ReadyInMs) != len(in.Candidates) {
+			return fmt.Errorf("%s: %d readiness entries for %d candidates", d.Rule, len(in.ReadyInMs), len(in.Candidates))
+		}
+		if next, wait := replayRecoveryPick(in.ReadyInMs, in.Failed, in.BackoffMs); next != out.Next || wait != out.WaitMs {
+			return fmt.Errorf("%s: recomputed next=%d wait=%dms, logged next=%d wait=%dms", d.Rule, next, wait, out.Next, out.WaitMs)
 		}
 	case d.Kind == DecisionFailover:
 		var in failoverInputs
@@ -856,7 +950,7 @@ func VerifyStep(raw json.RawMessage) error {
 			return fmt.Errorf("step %d decision %d: %w", step.Step, i, err)
 		}
 		switch {
-		case d.Rule == RuleModelCandidates:
+		case d.Rule == RuleModelCandidates || d.Rule == RuleModelCandidatesCooldown || d.Rule == RuleModelCandidatesRetained:
 			var in candidatesInputs
 			var out candidatesOutput
 			if err := decodeDecision(d, &in, &out); err != nil {

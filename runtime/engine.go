@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +18,8 @@ import (
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
+	"github.com/edynasty/LumenCortex/internal/diag"
+	"github.com/edynasty/LumenCortex/internal/jobs"
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/mcp"
 	"github.com/edynasty/LumenCortex/internal/migrate"
@@ -23,6 +27,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/resource"
 	"github.com/edynasty/LumenCortex/internal/runlock"
+	"github.com/edynasty/LumenCortex/internal/schedule"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/skills"
@@ -102,7 +107,10 @@ type Engine struct {
 	plugins      *PluginRegistry
 	hooks        *hookDispatcher
 	shell        *shell.Runner
-	lspMu        sync.Mutex
+	// jobs is the background job queue of this process (ADR-0019 §3): the workers, the recovery of the
+	// jobs of a dead owner, and the retention sweep. It is closed before the store.
+	jobs  *jobs.Manager
+	lspMu sync.Mutex
 	// noteMu makes the user-note limit check and the queueing of the add one step in this Engine.
 	noteMu        sync.Mutex
 	lspManagers   map[string]*lsp.Manager
@@ -114,6 +122,26 @@ type Engine struct {
 	// fixedMaxAgents is set when the host passed Budget.MaxAgents: the configuration's
 	// concurrency.maxAgents is then not applied.
 	fixedMaxAgents bool
+	// runs are the loops executing in this Engine now, by session; a revocation cancels the ones it
+	// fences and waits for them (revoke.go). runsMu guards it.
+	runsMu  sync.Mutex
+	runs    map[string]*trackedRun
+	closing bool
+	// schedules fires the workspace's timers (ADR-0019 §4). schedMu guards the job queue and the
+	// supervisor it fires into: the host binds both after Open, and the scheduler is told when they
+	// change so it can retry the tasks that had nowhere to run.
+	schedules     *schedule.Scheduler
+	schedMu       sync.Mutex
+	scheduledJobs scheduledJobs
+	agentRunner   *RunSupervisor
+	// log is the diagnostics logger every runtime component writes to; it is never nil, a discard
+	// logger stands in when the diagnostics log could not be opened (diagnostics.go).
+	log *slog.Logger
+	// diag is the diagnostics log; nil when it could not be opened, and diagErr says why.
+	diag    *diag.Log
+	diagErr error
+	// bridge is the event-to-log goroutine's state; nil when the log is unavailable.
+	bridge *diagBridge
 }
 
 type Health struct {
@@ -151,6 +179,10 @@ type Message struct {
 	Seq       int64           `json:"seq"`
 	Role      string          `json:"role"`
 	JSON      json.RawMessage `json:"json"`
+	// Withheld marks a row whose content no run of the session sends again: it carries content of a
+	// revoked source, or the whole session is withdrawn or cannot be projected (DATA_AND_FAILURES §5).
+	// The host still reads the row; privacy deletion is what removes it.
+	Withheld bool `json:"withheld,omitempty"`
 }
 
 type StreamSnapshot struct {
@@ -215,6 +247,19 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The diagnostics log lives beside the database. A log that cannot be opened must not fail the
+	// Engine: it falls back to a discard logger and DiagnosticStats reports the reason.
+	diagLog, diagErr := openDiagnostics(repoDir, workspace)
+	var engine *Engine
+	defer func() {
+		if engine == nil && diagLog != nil {
+			_ = diagLog.Close()
+		}
+	}()
+	// A run that writes the workspace's check definition file revokes the project's check approval in
+	// the transaction that records the write (ADR-0017). The global file lies outside every workspace a
+	// run's snapshots cover; a change to it still changes the set digest.
+	store.WatchCheckDefinitions(loc.Workspace, config.FileName)
 	repoService, err := repository.New(workspace)
 	if err != nil {
 		_ = store.Close()
@@ -243,6 +288,10 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	// tool listing, against the Engine workspace and never a session worktree, so withdrawing trust
 	// blocks a project server without reopening the workspace. A configuration that does not load is
 	// not trusted.
+	// Tool catalogs are remembered under the state directory, so a run can offer a server's tools
+	// without starting it (ADR-0021 §3). A server the registry stops by itself (idle timeout, crash) is
+	// reported like an explicit stop.
+	mcpRegistry.SetStateDir(filepath.Join(repoDir, "mcp-catalog"))
 	mcpRegistry.SetProjectTrust(func() bool {
 		cfg, err := config.Load(workspace)
 		if err != nil {
@@ -268,7 +317,7 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	if factory == nil {
 		factory = defaultProviderFactory
 	}
-	engine := &Engine{
+	engine = &Engine{
 		workspace:    workspace,
 		repoDir:      repoDir,
 		state:        loc.StateInfo,
@@ -289,7 +338,34 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		skillRegistry:   skillRegistry,
 		health:          agent.NewHealth(nil),
 		providerFactory: factory,
+		log:             discardLogger(),
+		diag:            diagLog,
+		diagErr:         diagErr,
 	}
+	if diagLog != nil {
+		engine.log = diagLog.Logger()
+	}
+	engine.bridge = engine.startDiagnosticsBridge()
+	// The scheduler opens with the store and starts once the durable state is reconciled; it logs to the
+	// diagnostics log (OBS-001).
+	engine.schedules, err = schedule.New(schedule.Options{
+		Store:   store,
+		Actions: scheduleActions{engine: engine},
+		Logger:  engine.log,
+		Notify:  engine.scheduleFired,
+	})
+	if err != nil {
+		_ = engine.Close()
+		return nil, err
+	}
+	// A server the registry stops by itself (idle timeout, crash) is reported like an explicit stop.
+	mcpRegistry.SetStopHook(func(serverID, workspace, reason string) {
+		engine.events.publish("mcp.stopped", "", map[string]any{
+			"serverId":  serverID,
+			"workspace": workspace,
+			"reason":    reason,
+		})
+	})
 	engine.hooks = newHookDispatcher(engine.events)
 	engine.plugins = newPluginRegistry(engine.events, engine.hooks, pluginStatePath)
 	if err := engine.plugins.Register(ompsession.Plugin{}, true); err != nil {
@@ -306,6 +382,26 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	if err := engine.reconcileRunning(ctx); err != nil {
 		_ = engine.Close()
 		return nil, err
+	}
+	// The queue is recovered after the run reconciliation, so a session whose run died is settled
+	// before the jobs it left are, and before the Engine accepts a submission.
+	manager, err := engine.openJobs()
+	if err != nil {
+		_ = engine.Close()
+		return nil, err
+	}
+	if err := manager.Start(ctx); err != nil {
+		_ = engine.Close()
+		return nil, err
+	}
+	engine.jobs = manager
+	// Shell timers fire into this queue (ADR-0019 §4): bound before the scheduler starts, so its first
+	// pass can fire them.
+	engine.bindScheduledJobs(engine)
+	engine.resumeDeletions(ctx)
+	if err := engine.schedules.Start(ctx); err != nil {
+		_ = engine.Close()
+		return nil, fmt.Errorf("start the scheduler: %w", err)
 	}
 	return engine, nil
 }
@@ -354,10 +450,27 @@ func (e *Engine) reconcileRunning(ctx context.Context) error {
 
 func (e *Engine) Close() error {
 	var closeErr error
+	// The scheduler goes first: it starts jobs and runs, which the managers below own.
+	if e.schedules != nil {
+		closeErr = errors.Join(closeErr, e.schedules.Close())
+	}
+	e.runsMu.Lock()
+	e.closing = true
+	e.runsMu.Unlock()
+	if runner := e.agentRunnerRef(); runner != nil {
+		runner.Close()
+	}
+	closeErr = errors.Join(closeErr, e.cancelRuns(context.Background(), func(string) bool { return true }))
 	if e.plugins != nil {
 		closeErr = errors.Join(closeErr, e.plugins.StopAll(context.Background()))
 	}
 	e.events.close()
+	// The bus is closed: the bridge drains what it was delivered and returns, so no event record is
+	// lost to Close and no goroutine outlives the Engine.
+	if e.bridge != nil {
+		e.bridge.stop()
+		<-e.bridge.done
+	}
 	e.lspMu.Lock()
 	managers := make([]*lsp.Manager, 0, len(e.lspManagers))
 	for _, manager := range e.lspManagers {
@@ -371,7 +484,14 @@ func (e *Engine) Close() error {
 	if e.mcpRegistry != nil {
 		_ = e.mcpRegistry.Close()
 	}
-	return errors.Join(closeErr, e.store.Close())
+	// The job manager goes before the store: Close cancels the jobs this Engine runs and records their
+	// state while the database is still open.
+	if e.jobs != nil {
+		closeErr = errors.Join(closeErr, e.jobs.Close())
+	}
+	// The diagnostics log is closed last, after the store: everything that can log during Close has
+	// logged by then, and the writer flushes what is left.
+	return errors.Join(closeErr, e.store.Close(), e.closeDiagnostics())
 }
 
 // Plugins lists the registered extensions with their enablement, state and failures (ADR-0012).
@@ -418,6 +538,16 @@ func (e *Engine) concurrency() (config.Concurrency, error) {
 		e.resources.SetMaxAgents(limits.MaxAgents)
 	}
 	return limits, nil
+}
+
+// executionLimits is the global file's execution limits (ADR-0019) with their defaults. A configuration
+// that does not load gives the defaults: the Start that reads the catalog reports that error.
+func (e *Engine) executionLimits() config.Execution {
+	cfg, err := config.Load(e.workspace)
+	if err != nil {
+		return (*config.Execution)(nil).Limits()
+	}
+	return cfg.Effective().Execution
 }
 
 func (e *Engine) Events(buffer int) (<-chan Event, func()) { return e.events.subscribe(buffer) }
@@ -519,11 +649,7 @@ func (s *SessionHandle) RecentMessages(ctx context.Context, limit int) ([]Messag
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Message, 0, len(items))
-	for _, item := range items {
-		out = append(out, Message{SessionID: item.SessionID, Seq: item.Seq, Role: item.Role, JSON: item.JSON})
-	}
-	return out, nil
+	return s.engine.hostMessages(ctx, s.ID, items)
 }
 
 func streamSnapshot(v streambuf.Snapshot) StreamSnapshot {
@@ -565,7 +691,13 @@ func (s *SessionHandle) RunShell(ctx context.Context, command string) (ShellResu
 		payload["error"] = err.Error()
 	}
 	s.engine.events.publish("tool.end", s.ID, payload)
-	_ = s.engine.store.Journal(context.Background(), "tool.shell", payload)
+	// The journal row names the session and the outcome, never the command: the command line is
+	// content, and this row is a trace. The event above still carries it for the Desktop.
+	_ = s.engine.store.Journal(context.Background(), "tool.shell", map[string]any{
+		"sessionId": s.ID, "name": "shell", "exitCode": result.ExitCode,
+		"stdoutBytes": result.Stdout.Total, "stderrBytes": result.Stderr.Total,
+		"cancelled": result.Cancelled,
+	})
 	return shellResult(result), err
 }
 

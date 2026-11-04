@@ -13,6 +13,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/evaluator"
+	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -30,6 +31,83 @@ type memoryStore struct {
 	reasons []string
 	inbox   []taskstate.QueuedEdit
 	putErr  error
+
+	// requests are the envelopes the loop admitted, in order, with the state the store's rules give
+	// them (the real store's state machine: admitted -> answered | unknown | failed, terminal after).
+	// admitErr fails every AdmitRequest with that error (session.ErrFenced stores a failed envelope
+	// first, as the real store does); fenceAnswer makes AppendAnswered find the session fenced.
+	requests    []*session.RequestEnvelope
+	admitErr    error
+	fenceAnswer bool
+	admissions  int // AdmitRequest calls, whatever their result
+	// incompleteEnvelopes stores every envelope lineage-incomplete, as the real store does for a cut
+	// ref list.
+	incompleteEnvelopes bool
+
+	// executions are the admitted tool executions in order with their post record once committed (the
+	// real store's machine: admitted -> completed | failed | outcome_unknown). edges are the committed
+	// derived edges. execErr fails every AdmitExecution with that error; commitErr every
+	// CommitToolResult (session.ErrFenced settles the execution first, as the real store does).
+	executions []*memoryExecution
+	edges      []session.DerivedEdge
+	execErr    error
+	commitErr  error
+}
+
+type memoryExecution struct {
+	admission session.ExecutionAdmission
+	post      *session.ExecutionResult
+}
+
+func (s *memoryStore) AdmitExecution(_ context.Context, a session.ExecutionAdmission) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.execErr != nil {
+		return s.execErr
+	}
+	s.executions = append(s.executions, &memoryExecution{admission: a})
+	return nil
+}
+
+func (s *memoryStore) CommitToolResult(_ context.Context, c ToolResultCommit) (int64, int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c.Execution != nil {
+		x := s.execution(c.Execution.ExecutionID)
+		if x == nil {
+			return 0, 0, session.ErrExecutionNotFound
+		}
+		if x.post != nil {
+			return 0, 0, session.ErrInvalidTransition
+		}
+		if s.commitErr == nil || errors.Is(s.commitErr, session.ErrFenced) {
+			post := *c.Execution
+			x.post = &post
+		}
+	}
+	if s.commitErr != nil {
+		return 0, 0, s.commitErr
+	}
+	var version int64
+	if c.Change != nil {
+		v, err := s.putLocked(*c.Change)
+		if err != nil {
+			return 0, 0, err
+		}
+		version = v
+	}
+	s.messages = append(s.messages, c.Message)
+	s.edges = append(s.edges, c.Edges...)
+	return int64(len(s.messages) - 1), version, nil
+}
+
+func (s *memoryStore) execution(id string) *memoryExecution {
+	for _, x := range s.executions {
+		if x.admission.ExecutionID == id {
+			return x
+		}
+	}
+	return nil
 }
 
 func (s *memoryStore) Get(context.Context, string) (SessionState, error) {
@@ -62,6 +140,72 @@ func (s *memoryStore) AppendMessage(_ context.Context, _ string, m protocol.Mess
 	s.messages = append(s.messages, m)
 	return int64(len(s.messages) - 1), version, nil
 }
+func (s *memoryStore) AdmitRequest(_ context.Context, a session.RequestAdmission) (session.RequestEnvelope, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.admissions++
+	env := session.RequestEnvelope{
+		RequestID: a.RequestID, SessionID: a.SessionID, RunID: a.RunID, Step: a.Step, Attempt: a.Attempt, Purpose: a.Purpose,
+		State: session.RequestAdmitted, FirstSeq: a.FirstSeq, LastSeq: a.LastSeq, Refs: a.Refs, ToolSpecsDigest: a.ToolSpecsDigest,
+		ProjectionVersion: a.ProjectionVersion, LineageComplete: a.LineageComplete && !s.incompleteEnvelopes,
+	}
+	if errors.Is(s.admitErr, session.ErrFenced) {
+		env.State, env.Reason = session.RequestFailed, session.ReasonFenced
+	}
+	if s.admitErr != nil && !errors.Is(s.admitErr, session.ErrFenced) {
+		return session.RequestEnvelope{}, s.admitErr
+	}
+	s.requests = append(s.requests, &env)
+	return env, s.admitErr
+}
+func (s *memoryStore) AppendAnswered(_ context.Context, _ string, requestID string, m protocol.Message) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	env := s.request(requestID)
+	if env == nil || env.State != session.RequestAdmitted {
+		return 0, session.ErrInvalidTransition
+	}
+	if s.fenceAnswer {
+		env.State, env.Reason = session.RequestUnknown, session.ReasonFencedAnswer
+		return 0, session.ErrFenced
+	}
+	s.messages = append(s.messages, m)
+	seq := int64(len(s.messages) - 1)
+	env.State, env.AnsweredSeq = session.RequestAnswered, &seq
+	return seq, nil
+}
+func (s *memoryStore) SettleRequest(_ context.Context, requestID string, st session.Settlement) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	env := s.request(requestID)
+	if env == nil {
+		return session.ErrRequestNotFound
+	}
+	if env.State != session.RequestAdmitted {
+		return session.ErrInvalidTransition
+	}
+	env.State, env.Reason = st.To, st.Reason
+	return nil
+}
+func (s *memoryStore) request(id string) *session.RequestEnvelope {
+	for _, env := range s.requests {
+		if env.RequestID == id {
+			return env
+		}
+	}
+	return nil
+}
+
+// envelopes returns a copy of the admitted envelopes.
+func (s *memoryStore) envelopes() []session.RequestEnvelope {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]session.RequestEnvelope, len(s.requests))
+	for i, env := range s.requests {
+		out[i] = *env
+	}
+	return out
+}
 func (s *memoryStore) AppendStep(_ context.Context, _ string, step int64, v any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -75,6 +219,11 @@ func (s *memoryStore) NextStep(context.Context, string) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return int64(len(s.steps)) + 1, nil
+}
+func (s *memoryStore) NewestMessageSeq(context.Context, string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return int64(len(s.messages)) - 1, nil
 }
 func (s *memoryStore) TaskState(context.Context, string) (taskstate.State, error) {
 	s.mu.Lock()
@@ -129,6 +278,11 @@ func (s *memoryStore) queue(e taskstate.Edit) {
 }
 
 // seed stores the workflow and work-unit seeds as version 1, as a Start would.
+// seedGoal stores the user row every real session has before its first request: a request records the
+// transcript window it was built from, and a window of no rows cannot be recorded.
+func (s *memoryStore) seedGoal() {
+	s.messages = append(s.messages, protocol.Message{Role: "user", Content: s.state.Goal})
+}
 func (s *memoryStore) seed(t *testing.T, workflowJSON, workUnitsJSON []byte) {
 	t.Helper()
 	next := s.ts.Clone()
@@ -183,7 +337,7 @@ func (p *scriptedProvider) Complete(_ context.Context, req protocol.ProviderRequ
 type fakeTools struct{}
 
 func (fakeTools) Specs(allow []string) []protocol.ToolSpec {
-	all := []protocol.ToolSpec{{Name: "shell"}, {Name: "apply_patch"}}
+	all := []protocol.ToolSpec{{Name: "bash"}, {Name: "apply_patch"}}
 	if allow == nil {
 		return all
 	}
@@ -201,7 +355,7 @@ func (fakeTools) Specs(allow []string) []protocol.ToolSpec {
 }
 func (fakeTools) Execute(_ context.Context, name string, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	switch name {
-	case "shell":
+	case "bash":
 		code := 0
 		if fmt.Sprint(args["command"]) == "test-fail" {
 			code = 1
@@ -226,9 +380,9 @@ func TestLoopWorkflowAndWindowedTranscript(t *testing.T) {
 		store.messages = append(store.messages, protocol.Message{Role: "user", Content: fmt.Sprintf("old-%d %s", i, strings.Repeat("x", 200))})
 	}
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "shell", `{"command":"test-fail"}`)}}},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "bash", `{"command":"test-fail"}`)}}},
 		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("2", "apply_patch", `{}`)}}},
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("3", "shell", `{"command":"test-pass"}`)}}},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("3", "bash", `{"command":"test-pass"}`)}}},
 		{Message: protocol.Message{Content: "done"}},
 	}}
 	workflow := []byte(`{"id":"wf","entry":"diagnose","facts":{"failed":false,"changed":false,"passed":false},"actions":{"diagnose":{"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","notEquals":0},"set":{"failed":true}}],"routes":[{"to":"repair","when":{"fact":"failed","equals":true}}]},"repair":{"allowedTools":["apply_patch"],"outcomes":[{"when":{"tool":"apply_patch","ok":true},"set":{"changed":true}}],"completeWhen":{"fact":"changed","equals":true},"routes":[{"to":"verify"}]},"verify":{"terminal":true,"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","equals":0},"set":{"passed":true}}],"completeWhen":{"fact":"passed","equals":true}}}}`)
@@ -274,7 +428,8 @@ func TestLoopWorkflowAndWindowedTranscript(t *testing.T) {
 
 func TestLoopRejectsPrematureFinal(t *testing.T) {
 	store := &memoryStore{state: SessionState{ID: "s2", Goal: "verify", Status: "running"}, steps: map[int64]any{}}
-	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done too early"}}, {Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "shell", `{"command":"test-pass"}`)}}}, {Message: protocol.Message{Content: "done"}}}}
+	store.seedGoal()
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done too early"}}, {Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "bash", `{"command":"test-pass"}`)}}}, {Message: protocol.Message{Content: "done"}}}}
 	workflow := []byte(`{"id":"wf","facts":{"passed":false},"actions":{"verify":{"terminal":true,"allowedTools":["shell"],"outcomes":[{"when":{"result":"exitCode","equals":0},"set":{"passed":true}}],"completeWhen":{"fact":"passed","equals":true}}}}`)
 	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
 	store.seed(t, workflow, nil)
@@ -339,6 +494,7 @@ func TestLoopAddsSystemLayers(t *testing.T) {
 		state: SessionState{ID: "skills", Goal: "build", Status: "running"},
 		steps: map[int64]any{},
 	}
+	store.seedGoal()
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done"}}}}
 	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
 	_, err := loop.Run(context.Background(), "skills", Options{
@@ -370,17 +526,19 @@ func TestLoopAddsSystemLayers(t *testing.T) {
 	}
 }
 
+// The denylist names the command tool by its pre-ADR-0019 name: it still denies bash.
 func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
 	store := &memoryStore{
 		state: SessionState{ID: "deny", Goal: "test deny", Status: "running"},
 		steps: map[int64]any{},
 	}
+	store.seedGoal()
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
 		{
 			Message: protocol.Message{
 				Role: "assistant",
 				ToolCalls: []protocol.ToolCall{
-					call("blocked-shell", "shell", `{"command":"echo should-not-run"}`),
+					call("blocked-shell", "bash", `{"command":"echo should-not-run"}`),
 				},
 			},
 			FinishReason: "tool_calls",
@@ -406,7 +564,7 @@ func TestLoopToolDenylistHidesAndRejectsDeniedTool(t *testing.T) {
 		t.Fatal("provider did not receive request")
 	}
 	for _, spec := range provider.seen[0].Tools {
-		if spec.Name == "shell" {
+		if spec.Name == "bash" {
 			t.Fatalf("denied shell leaked into provider tools: %#v", provider.seen[0].Tools)
 		}
 	}
@@ -426,10 +584,11 @@ func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 		state: SessionState{ID: "deny", Goal: "do not shell", Status: "running"},
 		steps: map[int64]any{},
 	}
+	store.seedGoal()
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
 		{
 			Message: protocol.Message{
-				ToolCalls: []protocol.ToolCall{call("deny-1", "shell", `{"command":"echo should-not-run"}`)},
+				ToolCalls: []protocol.ToolCall{call("deny-1", "bash", `{"command":"echo should-not-run"}`)},
 			},
 			FinishReason: "tool_calls",
 		},
@@ -442,7 +601,7 @@ func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 	result, err := loop.Run(context.Background(), "deny", Options{
 		Session:      testRef,
 		MaxSteps:     3,
-		ToolDenylist: []string{"shell"},
+		ToolDenylist: []string{"bash"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -454,7 +613,7 @@ func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 		t.Fatal("provider request missing")
 	}
 	for _, spec := range provider.seen[0].Tools {
-		if spec.Name == "shell" {
+		if spec.Name == "bash" {
 			t.Fatalf("denied tool leaked into provider request: %#v", provider.seen[0].Tools)
 		}
 	}
@@ -469,6 +628,48 @@ func TestLoopToolDenylistRemovesSpecAndRejectsDirectCall(t *testing.T) {
 	}
 }
 
+// A model that calls the command tool by its old name (a resumed history still shows "shell") is told
+// the new name and nothing runs; once bash is denied as well, the old name gets the plain refusal.
+func TestLoopCallByRenamedToolNameIsCorrected(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		denylist []string
+		want     string
+	}{
+		{"offered", nil, "tool shell was renamed to bash: call bash with the same arguments"},
+		{"denied", []string{"bash"}, "tool is not allowed in the current working set"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &memoryStore{state: SessionState{ID: "renamed", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+			store.seedGoal()
+			provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+				toolStep(call("old-1", "shell", `{"command":"echo x"}`)),
+				answer("done"),
+			}}
+			tools := &tierTools{}
+			loop := Loop{Models: testModels(provider), Store: store, Tools: tools}
+			result, err := loop.Run(context.Background(), "renamed", Options{
+				Session: testRef, MaxSteps: 3, ToolDenylist: tc.denylist,
+			})
+			if err != nil || result.Status != "completed" {
+				t.Fatalf("result=%#v err=%v", result, err)
+			}
+			if len(tools.executed) != 0 {
+				t.Fatalf("executed %v, want nothing", tools.executed)
+			}
+			var content string
+			for _, message := range store.messages {
+				if message.Role == "tool" && message.ToolCallID == "old-1" {
+					content = message.Content
+				}
+			}
+			if !strings.Contains(content, tc.want) {
+				t.Fatalf("tool result = %q, want it to contain %q", content, tc.want)
+			}
+		})
+	}
+}
+
 // fakeChecks is a Checks whose verdicts come from per-check queues of statuses; an empty queue passes.
 type fakeChecks struct {
 	all, required []string
@@ -476,9 +677,15 @@ type fakeChecks struct {
 	err           error
 	calls         []string // "<workUnitID>:<ids>"
 	seq           int64
+	mutations     int  // Mutated calls: side-effect tools completed
+	setChanged    bool // the approved set was changed since: SetApproved is false
 }
 
 func (f *fakeChecks) Configured() ([]string, []string) { return f.all, f.required }
+
+func (f *fakeChecks) Mutated() { f.mutations++ }
+
+func (f *fakeChecks) SetApproved(context.Context) (bool, error) { return !f.setChanged, nil }
 
 func (f *fakeChecks) Decide(ctx context.Context, ids []string, unit string) ([]evaluator.Verdict, error) {
 	f.calls = append(f.calls, unit+":"+strings.Join(ids, ","))
@@ -497,15 +704,111 @@ func (f *fakeChecks) Decide(ctx context.Context, ids []string, unit string) ([]e
 		if !slices.Contains(f.all, id) {
 			status = evaluator.StatusError
 		}
+		// "episode:<status>" is a pass in an episode that did not close (ADR-0017): it decides nothing.
+		episode := evaluator.EpisodeClosed
+		if rest, ok := strings.CutPrefix(status, "episode:"); ok {
+			status, episode = evaluator.StatusPassed, rest
+		}
 		f.seq++
 		out = append(out, evaluator.Verdict{
 			Result: evaluator.Result{Check: id, Kind: evaluator.KindTest, Status: status, Provenance: evaluator.ProvenanceRuntime,
 				Seq: f.seq, Artifacts: []string{"sha256:" + strings.Repeat("a", 64)}},
-			Passed: status == evaluator.StatusPassed,
-			Tail:   "FAIL TestTransaction (" + status + ")",
+			Passed:  status == evaluator.StatusPassed && episode == evaluator.EpisodeClosed,
+			Tail:    "FAIL TestTransaction (" + status + ")",
+			Episode: episode,
 		})
 	}
 	return out, nil
+}
+
+// ADR-0017 at the completion gate: a required check the host has not approved, or whose definition
+// changed while its episode ran, ends a non-interactive run failed/spec_unapproved at once, without a
+// correction the model could not act on. A pass in a scope_changed episode is an ordinary failure the
+// model is told about, under the episode's status.
+func TestCompletionGateEndsOnUnapprovedChecks(t *testing.T) {
+	for _, status := range []string{evaluator.StatusSpecUnapproved, "episode:" + evaluator.EpisodeSpecUnapproved} {
+		t.Run(status, func(t *testing.T) {
+			store := &memoryStore{state: SessionState{ID: "u", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+			store.seedGoal()
+			provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+				{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
+				{Message: protocol.Message{Content: "done again"}, FinishReason: "stop"},
+			}}
+			checks := &fakeChecks{all: []string{"go-test"}, required: []string{"go-test"}, queue: map[string][]string{"go-test": {status}}}
+			result, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}, Checks: checks}).
+				Run(context.Background(), "u", Options{Session: testRef, MaxSteps: 3})
+			if !errors.Is(err, ErrChecksUnapproved) || result.Status != StatusFailed || store.cause["kind"] != KindSpecUnapproved {
+				t.Fatalf("status=%s cause=%v err=%v", result.Status, store.cause, err)
+			}
+			if len(provider.seen) != 1 {
+				t.Fatalf("the model was asked %d times, want once", len(provider.seen))
+			}
+			for _, m := range store.messages {
+				if m.Origin == protocol.OriginCompletionBlocked {
+					t.Fatalf("a correction was appended: %q", m.Content)
+				}
+			}
+		})
+	}
+	t.Run("scope_changed", func(t *testing.T) {
+		store := &memoryStore{state: SessionState{ID: "s", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+		store.seedGoal()
+		provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+			{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
+			{Message: protocol.Message{Content: "done again"}, FinishReason: "stop"},
+		}}
+		checks := &fakeChecks{all: []string{"go-test"}, required: []string{"go-test"}, queue: map[string][]string{"go-test": {"episode:" + evaluator.EpisodeScopeChanged}}}
+		result, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}, Checks: checks}).
+			Run(context.Background(), "s", Options{Session: testRef, MaxSteps: 3})
+		if err != nil || result.Status != StatusCompleted || result.Final != "done again" {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+		var blocked string
+		for _, m := range store.messages {
+			if m.Origin == protocol.OriginCompletionBlocked {
+				blocked = m.Content
+			}
+		}
+		if !strings.Contains(blocked, "go-test: scope_changed") {
+			t.Fatalf("correction: %q", blocked)
+		}
+	})
+}
+
+// The set-level gate: when the approved set was changed so that it requires nothing (emptied, its only
+// required check removed or made optional), a non-interactive run still ends spec_unapproved, and no
+// check is decided.
+func TestCompletionGateRefusesAChangedSetThatRequiresNothing(t *testing.T) {
+	store := &memoryStore{state: SessionState{ID: "e", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+	store.seedGoal()
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}}}
+	checks := &fakeChecks{setChanged: true}
+	result, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}, Checks: checks}).
+		Run(context.Background(), "e", Options{Session: testRef, MaxSteps: 3})
+	if !errors.Is(err, ErrChecksUnapproved) || result.Status != StatusFailed || store.cause["kind"] != KindSpecUnapproved || len(checks.calls) != 0 {
+		t.Fatalf("status=%s cause=%v err=%v decided=%v", result.Status, store.cause, err, checks.calls)
+	}
+}
+
+// Every side-effect tool that completes (a file tool, the shell) tells the checks, so no episode closed
+// before it is reused; a call that was denied and ran nothing does not.
+func TestSideEffectToolsInvalidateInRunEpisodes(t *testing.T) {
+	store := &memoryStore{state: SessionState{ID: "m", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+	store.seedGoal()
+	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
+			call("p", "apply_patch", `{"patch":"x"}`), call("s", "bash", `{"command":"ls"}`), call("r", "read_file", `{"path":"a"}`),
+		}}, FinishReason: "tool_calls"},
+		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
+	}}
+	checks := &fakeChecks{all: []string{"go-test"}, required: []string{"go-test"}}
+	if _, err := (&Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}, Checks: checks}).
+		Run(context.Background(), "m", Options{Session: testRef, MaxSteps: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if checks.mutations != 2 {
+		t.Fatalf("Mutated called %d times, want 2 (apply_patch, shell; not the denied read_file)", checks.mutations)
+	}
 }
 
 // I8 at the loop: work_unit_update cannot carry a check result; completing a unit decides its checks
@@ -515,6 +818,7 @@ func TestWorkUnitChecksAreDecidedByTheEvaluator(t *testing.T) {
 		state: SessionState{ID: "work-units", Goal: "repair the transaction bug", Status: "running"},
 		steps: map[int64]any{},
 	}
+	store.seedGoal()
 	complete := `{"id":"repair","status":"completed","summary":"verified","evidence":[{"requirement":"production path","ref":"service.go:42"}]}`
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
 		{Message: protocol.Message{Content: "done too early"}, FinishReason: "stop"},
@@ -573,6 +877,7 @@ func TestWorkUnitChecksAreDecidedByTheEvaluator(t *testing.T) {
 	// Without an evaluator a unit's checks cannot be decided, so it cannot complete; an unconfigured
 	// check cannot be listed.
 	store2 := &memoryStore{state: SessionState{ID: "no-eval", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+	store2.seedGoal()
 	store2.seed(t, nil, []byte(`{"workUnits":[{"id":"u","goal":"g","checks":["focused"]}]}`))
 	provider2 := &scriptedProvider{responses: []protocol.ProviderResponse{
 		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{
@@ -596,6 +901,7 @@ func TestWorkUnitChecksAreDecidedByTheEvaluator(t *testing.T) {
 // once it passes the run completes. Optional checks are not decided by the gate.
 func TestCompletionGateDecidesRequiredChecks(t *testing.T) {
 	store := &memoryStore{state: SessionState{ID: "gate", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+	store.seedGoal()
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
 		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
 		{Message: protocol.Message{Content: "done, fixed"}, FinishReason: "stop"},
@@ -643,6 +949,7 @@ func TestCheckDecisionFailuresEndTheRun(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			for _, viaUnit := range []bool{false, true} {
 				store := &memoryStore{state: SessionState{ID: "f", Goal: "g", Status: "running"}, steps: map[int64]any{}}
+				store.seedGoal()
 				first := protocol.ProviderResponse{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}
 				if viaUnit {
 					store.seed(t, nil, []byte(`{"workUnits":[{"id":"u","goal":"g","checks":["go-test"]}]}`))
@@ -668,6 +975,7 @@ func TestLoopCanCreateWorkUnitsWithoutASeed(t *testing.T) {
 		state: SessionState{ID: "dynamic-work-unit", Goal: "implement a bounded change", Status: "running"},
 		steps: map[int64]any{},
 	}
+	store.seedGoal()
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
 		{
 			Message: protocol.Message{ToolCalls: []protocol.ToolCall{
@@ -734,10 +1042,11 @@ func TestLoopFailoverTraceAcrossStepsAndHealth(t *testing.T) {
 	health := NewHealth(func() time.Time { return now })
 	pa := &outageProvider{retryAfter: time.Hour}
 	pb := &scriptedProvider{responses: []protocol.ProviderResponse{
-		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c1", "shell", `{"command":"ok"}`)}}, FinishReason: "tool_calls"},
+		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("c1", "bash", `{"command":"ok"}`)}}, FinishReason: "tool_calls"},
 		{Message: protocol.Message{Content: "done"}, FinishReason: "stop"},
 	}}
 	store := &memoryStore{state: SessionState{ID: "trace", Goal: "trace", Status: "running"}, steps: map[int64]any{}}
+	store.seedGoal()
 	loop := Loop{Models: map[config.ModelRef]Model{a: testModel(a, pa), b: testModel(b, pb)}, Health: health, Store: store, Tools: fakeTools{}}
 	_, _, startDecision := ModelDecision("", a, "", a, false, "sha256:cfg")
 	result, err := loop.Run(context.Background(), "trace", Options{Session: a, Failover: []config.ModelRef{b}, MaxSteps: 4, Decisions: []Decision{startDecision}})
@@ -763,10 +1072,10 @@ func TestLoopFailoverTraceAcrossStepsAndHealth(t *testing.T) {
 	second := store.steps[2].(stepRecord)
 	var in candidatesInputs
 	var out candidatesOutput
-	if err := decodeDecision(second.Decisions[0], &in, &out); err != nil || second.Decisions[0].Rule != RuleModelCandidates {
-		t.Fatalf("step 2 starts with %s (%v), want %s", second.Decisions[0].Rule, err, RuleModelCandidates)
+	if err := decodeDecision(second.Decisions[0], &in, &out); err != nil || second.Decisions[0].Rule != RuleModelCandidatesRetained {
+		t.Fatalf("step 2 starts with %s (%v), want %s", second.Decisions[0].Rule, err, RuleModelCandidatesRetained)
 	}
-	if in.Session != a || !slices.Equal(in.Unavailable, []config.ModelRef{a}) || !slices.Equal(out.Candidates, []config.ModelRef{b}) {
+	if in.Session != a || !slices.Equal(in.Unavailable, []config.ModelRef{a}) || !slices.Equal(out.Candidates, []config.ModelRef{b, a}) {
 		t.Fatalf("step 2 candidates: session %s unavailable %v -> %v", in.Session, in.Unavailable, out.Candidates)
 	}
 
@@ -780,11 +1089,12 @@ func TestLoopFailoverTraceAcrossStepsAndHealth(t *testing.T) {
 		t.Fatal("the model is still out after its Retry-After")
 	}
 
-	// A success clears a mark that has not expired. With every candidate marked, the registry is
-	// advisory and the run still uses a; its answer must clear a.
-	health.Fail(a, time.Hour)
+	// An advisory (no Retry-After) mark may be bypassed when no alternative is healthy.
+	// A successful request clears this guessed interval, not a live explicit provider cooldown.
+	health.Fail(a, 0)
 	pa.scriptedProvider.responses = []protocol.ProviderResponse{{Message: protocol.Message{Content: "a is back"}, FinishReason: "stop"}}
 	store2 := &memoryStore{state: SessionState{ID: "back", Goal: "back", Status: "running"}, steps: map[int64]any{}}
+	store2.seedGoal()
 	loop.Store = store2
 	if r, err := loop.Run(context.Background(), "back", Options{Session: a, MaxSteps: 2}); err != nil || r.Final != "a is back" {
 		t.Fatalf("result %+v err %v", r, err)
@@ -798,6 +1108,7 @@ func TestLoopFailoverTraceAcrossStepsAndHealth(t *testing.T) {
 // the skills prompt, then the agent's instructions (ADR-0013).
 func TestLoopOrdersSystemLayersThenInstructions(t *testing.T) {
 	store := &memoryStore{state: SessionState{ID: "order", Goal: "build", Status: "running"}, steps: map[int64]any{}}
+	store.seedGoal()
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done"}}}}
 	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
 	_, err := loop.Run(context.Background(), "order", Options{
