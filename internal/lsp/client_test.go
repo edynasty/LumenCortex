@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -189,5 +190,58 @@ func TestReadFrameRejectsOversizedMessage(t *testing.T) {
 	reader := bufio.NewReader(strings.NewReader(fmt.Sprintf("Content-Length: %d\r\n\r\n", MaxMessageBytes+1)))
 	if _, err := readFrame(reader); !errors.Is(err, ErrMessageTooLarge) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+// A request failed by the end of the server's output returns only after Done is closed, so a caller
+// (Manager.call) that checks Done on a request error always sees the server as stopped. The test
+// holds the stderr buffer's lock, which the read loop takes after the output ends: in the old order the
+// pending request was failed first and returned while Done was still open.
+func TestClientRequestFailedByServerExitSeesDone(t *testing.T) {
+	stdinR, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
+	stderr := &boundedBuffer{max: 1024}
+	c := &Client{
+		stdin:       stdinW,
+		stdout:      bufio.NewReader(stdoutR),
+		cancel:      func() {},
+		pending:     make(map[int64]chan response),
+		diagnostics: make(map[string][]Diagnostic),
+		diagUpdates: make(chan struct{}),
+		documents:   make(map[string]documentState),
+		done:        make(chan struct{}),
+	}
+	go c.readLoop(stderr)
+	sent := make(chan struct{})
+	go func() {
+		// Read the request frame so the write completes; the server then exits without answering.
+		if _, err := readFrame(bufio.NewReader(stdinR)); err == nil {
+			close(sent)
+		}
+	}()
+	returned := make(chan error, 1)
+	go func() { returned <- c.Request(context.Background(), "hover", map[string]any{}, nil) }()
+	select {
+	case <-sent:
+	case <-time.After(5 * time.Second):
+		t.Fatal("request not sent")
+	}
+	stderr.mu.Lock()
+	_ = stdoutW.Close()
+	var err error
+	select {
+	case err = <-returned:
+		stderr.mu.Unlock()
+	case <-time.After(200 * time.Millisecond):
+		stderr.mu.Unlock()
+		err = <-returned
+	}
+	if err == nil {
+		t.Fatal("request succeeded without a response")
+	}
+	select {
+	case <-c.Done():
+	default:
+		t.Fatalf("request returned %v before Done was closed", err)
 	}
 }

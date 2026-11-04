@@ -236,14 +236,14 @@ func (c *Client) writeMessage(value any, allowClosing bool) error {
 }
 
 func (c *Client) readLoop(stderr *boundedBuffer) {
-	defer close(c.done)
+	var endErr error
 	for {
 		raw, err := readFrame(c.stdout)
 		if err != nil {
 			if !c.closed.Load() && !errors.Is(err, io.EOF) {
 				c.setLastError(err.Error())
 			}
-			c.failAllPending(err)
+			endErr = err
 			break
 		}
 		var msg envelope
@@ -284,6 +284,10 @@ func (c *Client) readLoop(stderr *boundedBuffer) {
 	if text := strings.TrimSpace(stderr.String()); text != "" && c.LastError() == "" {
 		c.setLastError(text)
 	}
+	// Done closes before the pending requests fail, so a caller that sees a request fail with the
+	// end of the output can already tell the server is gone (Manager.call maps that to ErrUnavailable).
+	close(c.done)
+	c.failAllPending(endErr)
 }
 
 func (c *Client) handleNotification(msg envelope) {
