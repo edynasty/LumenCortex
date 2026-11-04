@@ -362,7 +362,7 @@ func TestAgentListFailoverWithPerEntryEffort(t *testing.T) {
 		Failover []string
 	}
 	for _, d := range steps(t, engine, other.ID)[0].Decisions {
-		if d.Rule == agent.RuleModelCandidates {
+		if d.Rule == agent.RuleModelCandidates || d.Rule == agent.RuleModelCandidatesRetained {
 			decodeJSON(t, d.Inputs, &cands)
 		}
 	}

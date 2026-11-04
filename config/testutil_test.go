@@ -57,7 +57,7 @@ const globalJSON = `{
   "model": "deepseek/chat",
   "failover": ["openrouter/sonnet"],
   "agents": {"explore": {"models": [{"model": "deepseek/coder"}]}},
-  "effort": {"default": "medium", "escalation": {"sameFailure": 2, "noProgressSteps": 6, "max": "high"}},
+  "effort": {"default": "medium"},
   "providers": {
     "deepseek": {
       "name": "DeepSeek",

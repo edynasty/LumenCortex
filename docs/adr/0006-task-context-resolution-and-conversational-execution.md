@@ -6,6 +6,15 @@
 - **Supersedes:** none. Amends design §4.4, §4.7, §4.9, I10 and §8.2 (M3.1, M4.1 scope; adds C1–C3)
 - **Superseded by:** none
 
+**2026-11-04 execution-lifecycle amendment (isolated candidate, not merged):** Owner requires
+inherited execution controls and cascading cancellation without progress-based automatic termination.
+Immediate children now belong to the launching invocation: cancellation/deadline propagate, and normal
+run teardown also cancels and settles its owned children. Explicit host proposal/Resume is independent;
+a later run of the historical parent does not adopt it. `Cancel` reaches active descendants;
+`CancelSubtree` remains the durable-tree API. The independent-child lifetime below describes the older
+checkpoint. Authority, worktree borrowing, explicit completion contracts and recovery non-replay remain
+unchanged. See [implementation and evidence](../reports/execution-retry-review-2026-11-03.md#2026-11-04owner-新生命周期设计).
+
 ## Context
 
 The review (`../../../LumenCortex-architecture-audit/design/handoffs/product-architecture-review-2026-10-15.md`) found three problems:

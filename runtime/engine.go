@@ -124,8 +124,9 @@ type Engine struct {
 	fixedMaxAgents bool
 	// runs are the loops executing in this Engine now, by session; a revocation cancels the ones it
 	// fences and waits for them (revoke.go). runsMu guards it.
-	runsMu sync.Mutex
-	runs   map[string]*trackedRun
+	runsMu  sync.Mutex
+	runs    map[string]*trackedRun
+	closing bool
 	// schedules fires the workspace's timers (ADR-0019 §4). schedMu guards the job queue and the
 	// supervisor it fires into: the host binds both after Open, and the scheduler is told when they
 	// change so it can retry the tasks that had nowhere to run.
@@ -453,6 +454,13 @@ func (e *Engine) Close() error {
 	if e.schedules != nil {
 		closeErr = errors.Join(closeErr, e.schedules.Close())
 	}
+	e.runsMu.Lock()
+	e.closing = true
+	e.runsMu.Unlock()
+	if runner := e.agentRunnerRef(); runner != nil {
+		runner.Close()
+	}
+	closeErr = errors.Join(closeErr, e.cancelRuns(context.Background(), func(string) bool { return true }))
 	if e.plugins != nil {
 		closeErr = errors.Join(closeErr, e.plugins.StopAll(context.Background()))
 	}

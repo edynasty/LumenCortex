@@ -24,8 +24,8 @@ import (
 // Execution tasks (ADR-0006 D4, C2): a child session with relation "execution", its own worktree based
 // on the parent workspace's committed HEAD, Policy workspace without shell, MCP or spawn tools, work
 // units seeded from the objective and the configured checks. It runs under its own run lock and
-// worktree lease and outlives the parent's run; its terminal transitions reach the parent as
-// task_result rows at the parent's next Start.
+// worktree lease. An immediate child belongs to the launching run; a host-started proposal/resume has
+// its own lifetime. Terminal transitions reach the parent as task_result rows at its next Start.
 
 // Relation kinds of child sessions.
 const (
@@ -188,8 +188,8 @@ func (s *RunSupervisor) StartProposedTask(ctx context.Context, parentID, taskID 
 		return ExecutionTask{}, err
 	}
 	var started ExecutionTask
-	// The proposal's agent and the proposing run's bounds apply: the user's Start authorizes exactly
-	// what was proposed. A proposal recorded before agents existed runs worker without bounds.
+	// The proposal's agent and durable task bounds apply. Deferred Starts use current execution.retry;
+	// a transient override of the proposing run is not persisted. Older proposals use worker defaults.
 	agentID := cmp.Or(task.Agent, config.AgentWorker)
 	bounds := proposalBounds(task.Bounds)
 	if child != "" {
@@ -216,7 +216,7 @@ func (s *RunSupervisor) StartProposedTask(ctx context.Context, parentID, taskID 
 
 // proposalChild is the execution child an earlier StartProposedTask created for taskID, "" for none.
 func (e *Engine) proposalChild(ctx context.Context, parentID, taskID string) (string, error) {
-	relations, err := e.store.ChildRelations(ctx, parentID, MaxSubagentTreeNodes)
+	relations, err := e.store.AllChildRelations(ctx, parentID)
 	if err != nil {
 		return "", err
 	}
@@ -419,21 +419,20 @@ const workerPrompt = `You are a LumenCortex execution worker with one assigned o
 // delegation, never interactive. Step and output bounds, effort and the tool denylist come from the
 // parent run when there is one. agentID is the agent the child runs, pinned by its first Start.
 func executionOptions(parent AgentOptions, ref config.ModelRef, units json.RawMessage, parentID, agentID string) AgentOptions {
-	return AgentOptions{
-		ModelRef:            ref,
-		Policy:              toolset.PolicyWorkspace,
-		MaxSteps:            parent.MaxSteps,
-		MaxToolCallsPerStep: parent.MaxToolCallsPerStep,
-		ToolDenylist:        append([]string(nil), parent.ToolDenylist...),
-		WorkUnits:           units,
-		SystemPrompt:        workerPrompt + "\n" + policyAuthority(toolset.PolicyWorkspace),
-		MaxTokens:           parent.MaxTokens,
-		Temperature:         parent.Temperature,
-		parentSessionID:     parentID,
-		childAgent:          agentID,
-		disableSubagents:    true,
-		disableMCP:          true,
-	}
+	return inheritChildExecution(AgentOptions{
+		ModelRef:         ref,
+		Policy:           toolset.PolicyWorkspace,
+		ToolDenylist:     append([]string(nil), parent.ToolDenylist...),
+		WorkUnits:        units,
+		SystemPrompt:     workerPrompt + "\n" + policyAuthority(toolset.PolicyWorkspace),
+		MaxTokens:        parent.MaxTokens,
+		Temperature:      parent.Temperature,
+		parentSessionID:  parentID,
+		ownerRun:         parent.ownerRun,
+		childAgent:       agentID,
+		disableSubagents: true,
+		disableMCP:       true,
+	}, parent)
 }
 
 // constrainChild applies a child's fixed authority to a Start of that child: an explicit resume by the
@@ -474,7 +473,7 @@ func (e *Engine) constrainChild(ctx context.Context, sessionID string, opts Agen
 // activeChildren counts the parent's children of any kind that run: in this supervisor, or recorded
 // running by another process.
 func (s *RunSupervisor) activeChildren(ctx context.Context, parentID string) (int, error) {
-	relations, err := s.engine.store.ChildRelations(ctx, parentID, MaxSubagentTreeNodes)
+	relations, err := s.engine.store.AllChildRelations(ctx, parentID)
 	if err != nil {
 		return 0, err
 	}
@@ -497,20 +496,24 @@ func (s *RunSupervisor) activeChildren(ctx context.Context, parentID string) (in
 
 // CancelSubtree is the host's Stop for a session and everything it started (ADR-0006 D4): it cancels
 // the session's run and the runs of all its descendants that this supervisor executes, and returns
-// the ids it cancelled. Cancel alone never reaches a child. Runs held by another process are not
-// reachable from here.
+// the ids it cancelled. Cancel also reaches active descendants; this method enumerates durable
+// relations. Runs held by another process are not reachable from here.
 func (s *RunSupervisor) CancelSubtree(ctx context.Context, sessionID string) ([]string, error) {
 	if s == nil || s.engine == nil {
 		return nil, ErrRunSupervisorClosed
 	}
 	ids := []string{sessionID}
-	for i := 0; i < len(ids) && len(ids) <= MaxSubagentTreeNodes; i++ {
-		relations, err := s.engine.store.ChildRelations(ctx, ids[i], MaxSubagentTreeNodes)
+	seen := map[string]bool{sessionID: true}
+	for i := 0; i < len(ids); i++ {
+		relations, err := s.engine.store.AllChildRelations(ctx, ids[i])
 		if err != nil {
 			return nil, err
 		}
 		for _, r := range relations {
-			ids = append(ids, r.ChildSessionID)
+			if !seen[r.ChildSessionID] {
+				seen[r.ChildSessionID] = true
+				ids = append(ids, r.ChildSessionID)
+			}
 		}
 	}
 	var cancelled []string
@@ -538,7 +541,7 @@ func terminalStatus(status string) bool {
 // withdrawn are the delivered children a fence names: their rows carry no content of the child, and
 // the caller stores no edge citing them.
 func (e *Engine) taskResults(ctx context.Context, parentID string, state *taskstate.State) (rows []protocol.Message, withdrawn map[string]bool, err error) {
-	relations, err := e.store.ChildRelations(ctx, parentID, MaxSubagentTreeNodes)
+	relations, err := e.store.AllChildRelations(ctx, parentID)
 	if err != nil {
 		return nil, nil, err
 	}

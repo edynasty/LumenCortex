@@ -11,9 +11,8 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
-// A run that started a background job cannot complete while the job runs: the gate refuses the answer
-// (bounded), the job the run left behind is cancelled when the run ends, and the next run of the session
-// starts with a runtime row naming the session's open jobs.
+// Explicit step exhaustion ends a run with a live job; cleanup cancels that job while preserving
+// host-owned jobs and the next Start's resource index.
 func TestRunJobsGateCancelAndIndexRow(t *testing.T) {
 	engine, _ := trustedProject(t, `{}`, false)
 	ctx := context.Background()
@@ -33,11 +32,11 @@ func TestRunJobsGateCancelAndIndexRow(t *testing.T) {
 		return protocol.ProviderResponse{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}, nil
 	}}
 	result, err := engine.runAgentWith(ctx, handle.ID, provider, AgentOptions{Input: "build it", Policy: "full", MaxSteps: 8})
-	if err != nil || result.Status != "completed" {
+	if err == nil || result.Status != "interrupted" {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	if len(corrections) != 2 || !strings.Contains(corrections[0], "sleep 30") || provider.n != 4 {
-		t.Fatalf("requests=%d corrections=%q, want 4 requests and 2 corrections naming the job", provider.n, corrections)
+	if len(corrections) != 6 || !strings.Contains(corrections[0], "sleep 30") || provider.n != 8 {
+		t.Fatalf("requests=%d corrections=%q, want explicit step exhaustion", provider.n, corrections)
 	}
 	jobs, err := engine.Jobs(ctx, JobQuery{SessionID: handle.ID})
 	if err != nil {

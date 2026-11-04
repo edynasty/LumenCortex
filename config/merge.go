@@ -192,7 +192,6 @@ func (c *Config) merge() error {
 	c.eff.Catalog = c.Catalog()
 	if effort != nil {
 		c.eff.EffortDefault = effort.Default
-		c.eff.Escalation = effort.Escalation
 		c.eff.Auto = resolvedAutoPolicy(effort.Auto)
 	}
 	c.eff.Checks = checks
@@ -369,10 +368,6 @@ func cloneEffortPolicy(p *EffortPolicy) *EffortPolicy {
 		return nil
 	}
 	out := *p
-	if p.Escalation != nil {
-		e := *p.Escalation
-		out.Escalation = &e
-	}
 	if p.Auto != nil {
 		a := *p.Auto
 		out.Auto = &a

@@ -122,8 +122,7 @@ type Effective struct {
 	Catalog       []ModelInfo
 	EffortDefault Effort
 	// Auto is effort.auto with its defaults applied, nil when the configuration has no such object.
-	Auto       *AutoEffortPolicy
-	Escalation *Escalation
+	Auto *AutoEffortPolicy
 	// Concurrency is the global file's concurrency with its defaults applied.
 	Concurrency Concurrency
 	// Execution is the global file's execution limits with their defaults applied.
@@ -231,10 +230,6 @@ func (c *Config) Effective() Effective {
 	e.Failover = append([]ModelRef(nil), e.Failover...)
 	e.Agents = cloneAgentInfos(e.Agents)
 	e.Catalog = cloneModelInfos(e.Catalog)
-	if e.Escalation != nil {
-		esc := *e.Escalation
-		e.Escalation = &esc
-	}
 	if e.Auto != nil {
 		auto := *e.Auto
 		e.Auto = &auto

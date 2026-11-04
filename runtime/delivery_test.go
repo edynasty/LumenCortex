@@ -33,7 +33,7 @@ func TestDeliverySurvivesResetAndResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	p = &notebookProvider{responses: []protocol.ProviderResponse{finalResponse("still not implemented"), finalResponse("still not implemented"), finalResponse("still not implemented")}}
-	second, secondErr := engine.runAgentWith(ctx, id, p, AgentOptions{Policy: "workspace", Input: "Continue the requested delivery.", MaxSteps: 12})
+	second, secondErr := engine.runAgentWith(ctx, id, p, AgentOptions{Policy: "workspace", Input: "Continue the requested delivery.", MaxSteps: 3})
 	if second.Status != "interrupted" || second.Spend.ModelRequests != 3 {
 		t.Fatalf("bounded continuation=%+v err=%v", second, secondErr)
 	}

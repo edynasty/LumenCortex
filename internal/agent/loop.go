@@ -30,7 +30,6 @@ Working strategy:
 - Keep experiments cheap and bounded: a small probe before a long run, each with a reason.
 - When the run has a deadline, spend the time left on a verified result and deliver it before the reserve rather than a better one after it.
 - Run a command that may take long (a build, a test suite, a download, a server) with bash mode "background" where it is offered, keep working, and collect it with job_wait or job_status.
-- After the same failure twice, change the approach instead of repeating it.
 - Before the final answer, check the actual result: the files hold the intended content, the commands or tests that prove it pass, and no background job is still running. If part of the task is not done, say which part and why.`
 	conversationPrompt = `You are LumenCortex Agent, a coding agent in a conversation with the user.
 Answer questions and discuss plans directly; use tools when they make an answer accurate. Change the workspace only when the user asks for a change, inspect before editing, and keep changes scoped. Your reply ends this turn, not the task: open work units and required checks stay open until evidence or the user resolves them, so say what is left instead of claiming it is done. Do not claim completion without evidence. Record what you verified that later turns or threads will need, such as a root cause, a decision or an approach that failed, with note_write. When a Workflow Contract is active, obey its current action, tool boundary, outcomes, routes, and gates; the turn ends only when the workflow can finish.`
@@ -96,9 +95,6 @@ type run struct {
 	mutated bool
 	// spend is what the run used against opts.Budget (ADR-0019 §6).
 	spend *Spend
-	// jobCorrections counts the final answers the gate refused over active jobs (maxJobCorrections).
-	jobCorrections      int
-	deliveryCorrections int
 	runTranscript
 }
 
@@ -126,10 +122,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		l.Health = NewHealth(nil)
 	}
 	if opts.MaxSteps <= 0 {
-		opts.MaxSteps = 24
-	}
-	if opts.MaxToolCallsPerStep <= 0 {
-		opts.MaxToolCallsPerStep = 8
+		opts.MaxSteps = config.DefaultMaxSteps
 	}
 	if opts.SystemPrompt == "" {
 		opts.SystemPrompt = SystemPrompt(opts.Interactive, "")
@@ -211,7 +204,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		r.appendRow(seq, notice)
 	}
 
-	for turn := 0; turn < opts.MaxSteps; turn++ {
+	for turn := 0; opts.MaxSteps < 0 || turn < opts.MaxSteps; turn++ {
 		if err := ctx.Err(); err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
 		}
@@ -284,9 +277,8 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindWindowOverflow,
 				Err: fmt.Errorf("no model can take this request: it needs about %d tokens before the reply, and no candidate of %s has the context, tool calling and health for it", base, refList(append([]config.ModelRef{opts.Session}, opts.Failover...)))})
 		}
-		stall := Stall{SameFailure: r.ts.Progress.SameFailureCount, NoProgressSteps: r.ts.Progress.NoProgressSteps}
 		sent := time.Now()
-		answered, cause := l.send(ctx, sessionID, step, opts, stall, r.ts.Version, cands, r, in, len(groups), specs, &usage, &stepDecisions)
+		answered, cause := l.send(ctx, sessionID, step, opts, r.ts.Version, cands, r, in, len(groups), specs, &usage, &stepDecisions)
 		clock.observeModel(time.Since(sent), answered.Elapsed)
 		if cause != nil {
 			return l.exit(ctx, state, usage, *cause)
@@ -296,7 +288,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		assistant := response.Message
 		assistant.Role = "assistant"
 		calls := assistant.ToolCalls
-		if len(calls) > opts.MaxToolCallsPerStep {
+		if opts.MaxToolCallsPerStep > 0 && len(calls) > opts.MaxToolCallsPerStep {
 			calls = calls[:opts.MaxToolCallsPerStep]
 			l.emit("tools.deferred", sessionID, map[string]any{"step": step, "requested": len(response.Message.ToolCalls), "executing": len(calls)})
 		}
@@ -349,7 +341,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			}
 			// Background jobs the run started come first: their results may be what the rest of the gate
 			// needs (ADR-0019 §3).
-			jobsCorrection := l.jobsCorrection(ctx, sessionID, step, opts, r)
+			jobsCorrection := l.jobsCorrection(ctx, sessionID, step, opts)
 			var correction string
 			switch {
 			case jobsCorrection != "":
@@ -403,11 +395,6 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				}
 				if len(missing) > 0 {
 					l.emit("delivery.blocked_final", sessionID, map[string]any{"step": step, "missing": missing})
-					if r.deliveryCorrections >= 2 {
-						return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindDeliveryIncomplete,
-							Err: fmt.Errorf("delivery remains incomplete: %s", strings.Join(missing, "; "))})
-					}
-					r.deliveryCorrections++
 					correction = "Delivery is incomplete: " + strings.Join(missing, "; ") + ". Continue the requested work and verify it. Do not claim completion. Only commit if the delivery contract requires it."
 				}
 			}
@@ -461,6 +448,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			cutIndex = len(calls) - 1
 		}
 		for i, call := range calls {
+			if err := ctx.Err(); err != nil {
+				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+			}
 			args, argsErr := parseToolArguments(call.Arguments)
 			var refusal string
 			switch {
@@ -504,6 +494,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				toolStarted := time.Now()
 				spend.ToolCalls++
 				l.emit("tool.start", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "args": args})
+				if err := ctx.Err(); err != nil {
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+				}
 				if call.Name == toolStartTask {
 					toolResult = l.startTask(ctx, r, opts, args, time.Now().UTC())
 					if ctx.Err() != nil {
@@ -573,7 +566,6 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				end["executionId"], end["outcome"], end["coverage"], end["snapshotNanos"] = x.id, string(post.Outcome), string(post.Coverage), x.snapshot.Nanoseconds()
 			}
 			l.emit("tool.end", sessionID, end)
-			r.ts.Progress.ObserveTool(call.Name, toolResult.OK, toolResult.Content)
 			if r.wf != nil {
 				update, wfErr := r.wf.ObserveTool(workflow.ToolObservation{Tool: call.Name, Args: args, Result: map[string]any{"ok": toolResult.OK, "denied": toolResult.Denied, "permission": toolResult.Permission, "content": toolResult.Content}, Step: step})
 				if wfErr != nil {
@@ -866,7 +858,7 @@ func outputLimitExit(response protocol.ProviderResponse) ExitCause {
 // the run's deadline is KindDeadline.
 func (l *Loop) exit(ctx context.Context, state SessionState, usage protocol.Usage, cause ExitCause) (Result, error) {
 	if ctx.Err() != nil && (cause.Kind == KindCancelled || cause.Kind == KindStorage || strings.HasPrefix(cause.Kind, "provider:")) {
-		if errors.Is(context.Cause(ctx), ErrRunDeadline) {
+		if errors.Is(context.Cause(ctx), ErrRunDeadline) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			cause = ExitCause{Status: StatusInterrupted, Kind: KindDeadline, Err: ErrRunDeadline}
 		} else if cause.Kind != KindCancelled {
 			cause = ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()}

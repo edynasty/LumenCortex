@@ -711,7 +711,7 @@ func (e *Engine) temporaryDescendants(ctx context.Context, sessionID string) ([]
 	for len(queue) > 0 {
 		parent := queue[0]
 		queue = queue[1:]
-		relations, err := e.store.ChildRelations(ctx, parent, MaxSubagentTreeNodes)
+		relations, err := e.store.AllChildRelations(ctx, parent)
 		if err != nil {
 			return temporary, locks, dependents, err
 		}

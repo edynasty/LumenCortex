@@ -321,7 +321,7 @@ func (e *Engine) workspaceEvidence(ctx context.Context, sessionID string) (bool,
 // executionEvidence lists the session's execution children with their stored run status: an open one
 // is an obligation and an unsuccessful one blocks the evidence rule (ADR-0006 D2).
 func (e *Engine) executionEvidence(ctx context.Context, sessionID string) ([]taskstate.TaskEvidence, error) {
-	relations, err := e.store.ChildRelations(ctx, sessionID, MaxSubagentTreeNodes)
+	relations, err := e.store.AllChildRelations(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}

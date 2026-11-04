@@ -138,7 +138,9 @@ type SystemLayer struct {
 
 // Options is a run's fixed inputs.
 type Options struct {
-	MaxSteps            int
+	// MaxSteps: positive is explicit, -1 is unlimited; zero uses config.DefaultMaxSteps.
+	MaxSteps int
+	// MaxToolCallsPerStep truncates batches only when explicitly positive; nonpositive is unlimited.
 	MaxToolCallsPerStep int
 	ToolAllowlist       []string
 	ToolDenylist        []string
@@ -153,12 +155,10 @@ type Options struct {
 	Temperature  *float64
 	// Session is the model the run starts on and Failover the agent's list that follows it; both
 	// must be keys of Loop.Models. EffortDefault is the default of a candidate CandidateEfforts does
-	// not name, Escalation the configured escalation (nil for none) and Effort the per-run override
-	// ("" for none), which wins over every candidate's default.
+	// not name. Effort is the per-run override ("" for none), which wins over every default.
 	Session       config.ModelRef
 	Failover      []config.ModelRef
 	EffortDefault config.Effort
-	Escalation    *config.Escalation
 	Effort        config.Effort
 	// EffortAutoCeiling is effort.auto.max when EffortDefault was resolved from auto, "" when it
 	// was not. A candidate whose reasoning.efforts offers nothing at or below it sends no
@@ -239,10 +239,9 @@ const (
 // Kinds of ExitCause the loop produces. Provider error classes and stale-run
 // recovery have their own kinds in later migration items.
 const (
-	KindCancelled          = "cancelled"
-	KindMaxSteps           = "max_steps"
-	KindDeliveryIncomplete = "delivery_incomplete"
-	KindEmptyResponse      = "empty_response"
+	KindCancelled     = "cancelled"
+	KindMaxSteps      = "max_steps"
+	KindEmptyResponse = "empty_response"
 	// KindOutputLimit: the reply hit the output token limit before it held a tool call, so it is an
 	// unfinished thought, not an answer; the run ends without completing.
 	KindOutputLimit = "output_limit"

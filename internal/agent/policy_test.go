@@ -289,34 +289,25 @@ func TestClampEffort(t *testing.T) {
 	}
 }
 
-// Design §4.5 (S5): override wins; a stall escalates the default one level at each threshold and two
-// at twice it, never above escalation.max; no default or no escalation means no escalation.
-func TestEffortFor(t *testing.T) {
-	esc := &config.Escalation{SameFailure: 2, NoProgressSteps: 6, Max: config.EffortHigh}
-	cases := []struct {
-		name          string
-		def, override config.Effort
-		esc           *config.Escalation
-		stall         Stall
-		want          config.Effort
-		rule          string
+// Historical effort decisions keep their original meaning after live escalation is removed.
+func TestLegacyEffortReplay(t *testing.T) {
+	for _, c := range []struct {
+		count           int
+		requested, rule string
 	}{
-		{"override", "low", "max", esc, Stall{SameFailure: 9}, "max", RuleEffortOverride},
-		{"default", "low", "", esc, Stall{}, "low", RuleEffortDefault},
-		{"below threshold", "low", "", esc, Stall{SameFailure: 1, NoProgressSteps: 5}, "low", RuleEffortDefault},
-		{"same failure", "low", "", esc, Stall{SameFailure: 2}, "medium", RuleEffortEscalated},
-		{"no progress", "low", "", esc, Stall{NoProgressSteps: 6}, "medium", RuleEffortEscalated},
-		{"twice the threshold", "low", "", esc, Stall{SameFailure: 4}, "high", RuleEffortEscalated},
-		{"capped by max", "medium", "", esc, Stall{SameFailure: 4}, "high", RuleEffortEscalated},
-		{"already at max", "high", "", esc, Stall{SameFailure: 4}, "high", RuleEffortCapped},
-		{"no escalation configured", "low", "", nil, Stall{SameFailure: 4}, "low", RuleEffortDefault},
-		{"nothing to send stays nothing", "", "", esc, Stall{SameFailure: 4}, "", RuleEffortDefault},
-		{"disabled threshold", "low", "", &config.Escalation{SameFailure: 0, NoProgressSteps: 6, Max: "high"}, Stall{SameFailure: 9}, "low", RuleEffortDefault},
-	}
-	for _, c := range cases {
-		got, rule := EffortFor(c.def, c.override, c.esc, c.stall)
-		if got != c.want || rule != c.rule {
-			t.Errorf("%s: EffortFor = %q/%s, want %q/%s", c.name, got, rule, c.want, c.rule)
+		{0, "low", RuleEffortDefault},
+		{2, "medium", RuleEffortEscalated},
+		{4, "high", RuleEffortEscalated},
+	} {
+		d := Decision{Kind: DecisionEffort, Rule: c.rule,
+			Inputs: json.RawMessage(fmt.Sprintf(`{"default":"low","override":"","escalation":{"sameFailure":2,"noProgressSteps":6,"max":"high"},"stall":{"sameFailure":%d,"noProgressSteps":0},"taskStateVersion":7,"efforts":["low","medium","high"]}`, c.count)),
+			Output: json.RawMessage(fmt.Sprintf(`{"requested":%q,"sent":%q}`, c.requested, c.requested))}
+		if err := ReplayDecision(d); err != nil {
+			t.Fatal(err)
+		}
+		d.Output = json.RawMessage(`{"requested":"max","sent":"max"}`)
+		if ReplayDecision(d) == nil {
+			t.Fatal("forged historical effort accepted")
 		}
 	}
 }
@@ -340,8 +331,17 @@ func TestHealthRegistry(t *testing.T) {
 		t.Fatal("the default window did not end, or the Retry-After window ended early")
 	}
 	h.Success("p/b")
-	if !h.Available("p/b") {
-		t.Fatal("Success must clear the mark")
+	if h.Available("p/b") || h.RetryDelay("p/b") <= 0 {
+		t.Fatal("a concurrent success erased the provider's explicit cooldown")
+	}
+	h.Fail("p/b", time.Second)
+	if h.RetryDelay("p/b") != time.Hour-DefaultUnhealthyFor {
+		t.Fatal("a later shorter hint shortened the existing cooldown")
+	}
+	now = now.Add(time.Hour)
+	h.Success("p/b")
+	if !h.Available("p/b") || h.RetryDelay("p/b") != 0 {
+		t.Fatal("expired cooldown was not cleared")
 	}
 }
 
@@ -353,8 +353,8 @@ func TestDecisionReplay(t *testing.T) {
 		Candidate{Ref: "p/notools", Context: 64000, Output: 4096, ToolCalling: false},
 	)
 	_, _, model := ModelDecision("", "p/a", "", "p/d", false, "sha256:cfg")
-	cands, candidates := CandidatesDecision("p/a", []config.ModelRef{"p/b", "p/notools"}, models, 2000, 0, []config.ModelRef{})
-	_, effort := EffortDecision("low", "", &config.Escalation{SameFailure: 2, NoProgressSteps: 6, Max: "max"}, Stall{SameFailure: 2}, 7, []config.Effort{"medium", "max"}, "")
+	cands, candidates := CandidatesDecision("p/a", []config.ModelRef{"p/b", "p/notools"}, models, 2000, 0, []config.ModelRef{}, nil)
+	_, effort := EffortDecision("low", "", 7, []config.Effort{"medium", "max"}, "")
 	next, failover := FailoverDecision(cands, 0, protocol.ClassCapacity)
 	if next != 1 {
 		t.Fatalf("next=%d", next)
@@ -377,7 +377,7 @@ func TestDecisionReplay(t *testing.T) {
 		t.Fatal("a default context other than config.DefaultContext replayed clean")
 	}
 	forged = effort
-	forged.Output = json.RawMessage(`{"requested":"low","sent":"medium"}`)
+	forged.Output = json.RawMessage(`{"requested":"max","sent":"max"}`)
 	if ReplayDecision(forged) == nil {
 		t.Fatal("a forged effort replayed clean")
 	}
@@ -530,13 +530,13 @@ func TestVerifyStepEnforcesTheI14Trace(t *testing.T) {
 		Candidate{Ref: "p/x", Context: 64000, Output: 1000, ToolCalling: true},
 	)
 	_, _, model := ModelDecision("", "p/a", "", "p/d", false, "sha256:cfg")
-	cands, candidates := CandidatesDecision("p/a", []config.ModelRef{"p/b"}, models, 100, 0, nil)
-	_, effort := EffortDecision("", "", nil, Stall{}, 0, nil, "")
+	cands, candidates := CandidatesDecision("p/a", []config.ModelRef{"p/b"}, models, 100, 0, nil, nil)
+	_, effort := EffortDecision("", "", 0, nil, "")
 	_, failover := FailoverDecision(cands, 0, protocol.ClassAvailability)
 	// A failover over a list the step never logged: p/x was not a candidate.
 	_, offList := FailoverDecision([]Candidate{models["p/a"], models["p/x"]}, 0, protocol.ClassAvailability)
 	// Candidates computed from a model the Start did not resolve.
-	_, wrongSession := CandidatesDecision("p/c", nil, models, 100, 0, nil)
+	_, wrongSession := CandidatesDecision("p/c", nil, models, 100, 0, nil, nil)
 	// The same move logged twice: the second leaves p/a while the run is already on p/b.
 	fromA := failover
 	forged := candidates

@@ -327,7 +327,7 @@ func eventLevel(eventType string, data map[string]any) slog.Level {
 	}
 	switch eventType {
 	case "tool.start", "run.started", "schedule.changed", "schedule.fired", "budget.spend",
-		"provider.retry", "provider.recovered":
+		"provider.retry", "provider.recovered", "provider.cooldown":
 		return slog.LevelInfo
 	}
 	if strings.HasPrefix(eventType, "session.") || strings.HasPrefix(eventType, "job.") ||

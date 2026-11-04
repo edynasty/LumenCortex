@@ -199,8 +199,8 @@ func (p spawningProvider) Complete(ctx context.Context, req protocol.ProviderReq
 	}}, FinishReason: "tool_calls"}, nil
 }
 
-// spawnBorrower runs the owner until it has ended while its read-only child still
-// runs in the owner's worktree (probe P5). Closing release lets the child finish.
+// spawnBorrower explicitly resumes the stopped child as a host-owned run after its owner ended.
+// The independent borrower's lease remains live until release is closed.
 func spawnBorrower(t *testing.T, engine *Engine, ownerID string) (*RunSupervisor, string, chan struct{}) {
 	t.Helper()
 	supervisor, err := NewRunSupervisor(engine)
@@ -218,8 +218,11 @@ func spawnBorrower(t *testing.T, engine *Engine, ownerID string) (*RunSupervisor
 		t.Fatalf("subagent tree=%v err=%v", tree, err)
 	}
 	child := tree[0].SessionID
-	if !supervisor.Active(child) {
-		t.Fatal("the child should still run after its parent ended")
+	if supervisor.Active(child) {
+		t.Fatal("owned child survived its parent")
+	}
+	if _, err := supervisor.Start(context.Background(), child, AgentOptions{}); err != nil {
+		t.Fatal(err)
 	}
 	return supervisor, child, release
 }

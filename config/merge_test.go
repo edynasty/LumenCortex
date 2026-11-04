@@ -95,7 +95,7 @@ func TestLoadGlobalOnlyAndNoWorkspace(t *testing.T) {
 	}
 	e := c.Effective()
 	if explore, _ := e.Agent(AgentExplore); e.Model != "deepseek/chat" || explore.Models[0].Model != "deepseek/coder" || !slices.Equal(e.Failover, []ModelRef{"openrouter/sonnet"}) ||
-		e.EffortDefault != EffortMedium || e.Escalation == nil || e.Escalation.Max != EffortHigh || e.Workspace != "" {
+		e.EffortDefault != EffortMedium || e.Workspace != "" {
 		t.Fatalf("effective=%+v", e)
 	}
 	if got := len(c.Catalog()); got != 3 {
@@ -127,10 +127,6 @@ func TestUntrustedWorkspaceOnlyChoosesAmongGlobalModels(t *testing.T) {
 	if explore, _ := e.Agent(AgentExplore); e.Model != "openrouter/sonnet" || explore.Models[0].Model != "deepseek/chat" ||
 		!slices.Equal(e.Failover, []ModelRef{"deepseek/chat"}) || e.EffortDefault != EffortHigh {
 		t.Fatalf("permitted overrides not applied: %+v", e)
-	}
-	// Escalation was not in the workspace effort: workspace effort replaces the whole policy.
-	if e.Escalation != nil {
-		t.Fatalf("effort must replace, not merge: %+v", e.Escalation)
 	}
 	if len(e.Checks) != 0 {
 		t.Fatalf("workspace check survived: %v", e.Checks)

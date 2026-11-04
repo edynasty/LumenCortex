@@ -55,7 +55,16 @@ func (l *Loop) candidates(opts Options, base int) ([]Candidate, Decision) {
 			models[ref] = Candidate{Ref: ref, Context: m.Context, Output: m.Output, ToolCalling: m.ToolCalling}
 		}
 	}
-	return CandidatesDecision(opts.Session, opts.Failover, models, base, opts.MaxTokens, l.Health.Unavailable(refs))
+	var cooldownMs map[config.ModelRef]int64
+	for _, ref := range refs {
+		if delay := l.Health.RetryDelay(ref); delay > 0 {
+			if cooldownMs == nil {
+				cooldownMs = make(map[config.ModelRef]int64)
+			}
+			cooldownMs[ref] = ceilMs(delay)
+		}
+	}
+	return CandidatesDecision(opts.Session, opts.Failover, models, base, opts.MaxTokens, l.Health.Unavailable(refs), cooldownMs)
 }
 
 // exitFor maps the class of the error that ended a step to the run's exit.
@@ -80,15 +89,14 @@ func exitFor(class protocol.ErrorClass, err error) ExitCause {
 // window is built for each candidate with that candidate's budget from in; groups counts the groups
 // from windowStartSeq on that the run still keeps. A window that does not fit a candidate moves to the
 // next candidate with a larger context, and a capacity rejection is retried once on the same model
-// with half the transcript (§5). A sweep that ends in an availability failure waits as opts.Recovery
-// says and sends the step again from the first candidate (recovery.go). Every move is appended to
-// decisions. It returns the exit to take when no candidate answered.
+// with half the transcript (§5). After the initial sweep, availability recovery shares a finite retry
+// allowance across candidates (recovery.go). Every move is appended to decisions. It returns the exit
+// to take when no candidate answered.
 func (l *Loop) send(
 	ctx context.Context,
 	sessionID string,
 	step int64,
 	opts Options,
-	stall Stall,
 	taskStateVersion int64,
 	cands []Candidate,
 	r *run,
@@ -106,6 +114,7 @@ func (l *Loop) send(
 	var down outage
 	recovering := false
 	exhausted := map[int]bool{}
+	pendingRetry := false
 	// recoverFrom logs the failure of cands[failed] (failure is the provider.failover event of a sent
 	// request, nil when nothing was sent), then waits and returns the candidate to send to next, or the
 	// exit when the step stops recovering.
@@ -113,9 +122,21 @@ func (l *Loop) send(
 		deadline, _ := ctx.Deadline()
 		now := time.Now()
 		readyIn := down.readyIn(len(cands), exhausted, now)
+		for i, cand := range cands {
+			if readyIn[i] >= 0 {
+				readyIn[i] = max(readyIn[i], l.Health.RetryDelay(cand.Ref))
+			}
+		}
 		backoff := opts.Recovery.backoff(down.retries+1, rand.Float64())
 		next, wait, decision := RecoveryDecision(cands, failed, class, readyIn, backoff)
-		stop := opts.Recovery.stopFor(next, wait, down.start, now, deadline)
+		if next < 0 && class == protocol.ClassCapacity {
+			if failure != nil {
+				l.emit("provider.failover", sessionID, failure)
+			}
+			cause := exitFor(class, fmt.Errorf("model %s: %w", cands[failed].Ref, err))
+			return -1, &cause
+		}
+		stop := opts.Recovery.stopFor(next, wait, down.start, now, deadline, down.retries)
 		reason, status := failureDetail(err)
 		if failure != nil {
 			if stop == "" {
@@ -138,8 +159,7 @@ func (l *Loop) send(
 			return -1, &cause
 		}
 		*decisions = append(*decisions, decision)
-		down.retries++
-		retry["retry"] = down.retries
+		retry["retry"] = down.retries + 1
 		retry["nextModelRef"] = cands[next].Ref
 		l.emit("provider.retry", sessionID, retry)
 		timer := time.NewTimer(wait)
@@ -150,6 +170,7 @@ func (l *Loop) send(
 			return -1, &cause
 		case <-timer.C:
 		}
+		pendingRetry = true
 		return next, nil
 	}
 	for i := 0; ; {
@@ -212,7 +233,7 @@ func (l *Loop) send(
 		if ce, ok := opts.CandidateEfforts[cand.Ref]; ok {
 			def, ceiling = ce.Default, ce.AutoCeiling
 		}
-		sent, effortDecision := EffortDecision(def, opts.Effort, opts.Escalation, stall, taskStateVersion, m.Efforts, ceiling)
+		sent, effortDecision := EffortDecision(def, opts.Effort, taskStateVersion, m.Efforts, ceiling)
 		*decisions = append(*decisions, effortDecision)
 		// max_tokens is what the caller asked for, else what the model's configuration says, else
 		// nothing: the effective default only reserves capacity (D4). It is never scaled by effort.
@@ -231,6 +252,36 @@ func (l *Loop) send(
 			cause := exitFor(protocol.ClassCancelled, err)
 			return attempt{}, &cause
 		}
+		// Preserve the initial sweep whenever this candidate's first attempt can still fit. Only an
+		// impossible cooldown may yield to recovery of a candidate already attempted this step.
+		if delay := l.Health.RetryDelay(cand.Ref); delay > 0 && down.failures > 0 {
+			now := time.Now()
+			deadline, _ := ctx.Deadline()
+			blocked := (!deadline.IsZero() && !now.Add(delay).Before(deadline)) ||
+				(opts.Recovery.MaxOutage > 0 && now.Add(delay).Sub(down.start) > opts.Recovery.MaxOutage)
+			if blocked {
+				ready := down.readyIn(len(cands), exhausted, now)
+				for other, remaining := range ready {
+					if remaining >= 0 {
+						ready[other] = max(remaining, l.Health.RetryDelay(cands[other].Ref))
+					}
+				}
+				// The upper jitter bound is conservative: if it fits, recoverFrom's sampled wait fits.
+				next, wait := recoveryPick(ready, i, opts.Recovery.backoff(down.retries+1, 1))
+				if opts.Recovery.stopFor(next, wait, down.start, now, deadline, down.retries) == "" {
+					recovering = true
+					next, cause := recoverFrom(i, protocol.ClassAvailability, down.last, nil)
+					if cause != nil {
+						return attempt{}, cause
+					}
+					i = next
+					continue
+				}
+			}
+		}
+		if cause := l.waitForCooldown(ctx, sessionID, step, cand.Ref, opts.Recovery, down.start); cause != nil {
+			return attempt{}, cause
+		}
 		// Every attempt (failover and capacity retries included) is a new request the budget admits
 		// before its envelope exists (ADR-0019 §6).
 		if cause := r.spend.admitRequest(opts.Budget, m, built.Tokens); cause != nil {
@@ -241,12 +292,21 @@ func (l *Loop) send(
 			return attempt{}, cause
 		}
 		attempts++
-		usage.Requests++
+		if pendingRetry {
+			down.retries++
+			pendingRetry = false
+		}
 		l.emit("llm.request", sessionID, map[string]any{
 			"step": step, "modelRef": cand.Ref, "provider": m.ProviderID, "model": m.ModelID,
 			"messages": len(built.Messages), "tools": toolNames(specs), "reasoningEffort": req.ReasoningEffort,
 			"candidateIndex": i, "windowFirstSeq": built.FirstSeq, "windowTokens": built.Tokens,
 		})
+		if err := ctx.Err(); err != nil {
+			l.settle(sessionID, requestID, reasonCancelled)
+			cause := exitFor(protocol.ClassCancelled, err)
+			return attempt{}, &cause
+		}
+		usage.Requests++
 		started := time.Now()
 		response, err := l.complete(ctx, sessionID, requestID, m, req)
 		elapsed := time.Since(started)

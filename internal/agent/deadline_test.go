@@ -194,34 +194,6 @@ func TestReserveNoticeIsAppendedOnceAndDoesNotStopTheRun(t *testing.T) {
 	}
 }
 
-// The stall detector reads a tool result before the time report is added: two identical failures are the
-// same failure although their remaining time differs.
-func TestRepeatedFailureIsDetectedUnderADeadline(t *testing.T) {
-	store := newState("d6")
-	tools := &scriptTools{fn: func(context.Context, string, map[string]any) (protocol.ToolResult, error) {
-		// The reported remainingSec (two digits, which FailureSignature keeps) differs between the results.
-		time.Sleep(1100 * time.Millisecond)
-		return protocol.ToolResult{OK: false, Content: `{"exitCode":1,"stderr":"boom"}`}, nil
-	}}
-	provider := &funcProvider{fn: func(_ context.Context, n int, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
-		if n <= 2 {
-			return shellCall("f" + string(rune('0'+n))), nil
-		}
-		return protocol.ProviderResponse{Message: protocol.Message{Content: "gave up"}}, nil
-	}}
-	if _, err := (&Loop{Models: testModels(provider), Store: store, Tools: tools}).Run(context.Background(), "d6",
-		Options{Session: testRef, MaxSteps: 4, Interactive: true, Deadline: time.Now().Add(100 * time.Second)}); err != nil {
-		t.Fatal(err)
-	}
-	rows := toolRows(store.messages)
-	if len(rows) != 2 || rows[0].Content == rows[1].Content {
-		t.Fatalf("the two stored results should differ by their time report: %+v", rows)
-	}
-	if got := store.ts.Progress.SameFailureCount; got != 2 {
-		t.Fatalf("SameFailureCount = %d, want 2", got)
-	}
-}
-
 // A tool that stopped its operation partway (Interrupted) leaves its execution outcome_unknown; a plain
 // failure is failed.
 func TestInterruptedToolResultEndsTheExecutionOutcomeUnknown(t *testing.T) {

@@ -24,6 +24,19 @@ Goal
 
 Full session history is durable on disk. The model only receives the current Active Subgraph plus a bounded number of complete recent assistant/tool rounds.
 
+Each Start has no implicit step cap (`config.DefaultMaxSteps=-1`, shared by CLI and Loop).
+`MaxSteps=0` means unspecified; `-1` explicitly removes the cap; a positive value is the host's limit.
+A response/tool cycle consumes one step, including completion corrections; HTTP retries stay inside
+that step. Explicit exhaustion is resumable `interrupted/max_steps`, never success. Tool batches are
+uncapped unless `MaxToolCallsPerStep` is positive. Permissions and resource concurrency remain enforced.
+Immediate children inherit execution controls; `ChildExecutionOptions` lets the host override their
+step/batch caps and tighten their Deadline without extending the parent's lifetime or authority.
+There is no default global Deadline. Caller cancellation, host Cancel and explicit Deadline reach
+preparation, model requests, retry waits, tools and owned children. A run settles its owned children
+and background jobs before the supervisor publishes `run.stopped`; host-started independent runs and
+jobs are not adopted by a later Start of their historical parent session.
+See [provider retry policy](go-provider.md#retrying-availability-failures).
+
 ### Explicit task delivery
 
 Hosts can set `AgentOptions.delivery` (CLI: `LCX_DELIVERY=/absolute/contract.json`):
@@ -43,9 +56,12 @@ model. Without `commit:true`, dirty files are allowed. Deletions and semantic ac
 approved Checks/Workflow rather than existence requirements.
 
 Autonomous final answers still pass Workflow, Work Units and approved required Checks, then delivery.
-Two short delivery corrections are allowed; the next unsatisfied answer ends `interrupted` with kind
-`delivery_incomplete`, retaining state and work for explicit resume. Deadlines, cancellation, step and
-request budgets still apply. Conversation turns without a host workflow may end normally with delivery
+An unmet explicit condition refuses completion and gives the model its missing requirements. The
+runtime does not infer progress, repetition or loops from tool-call patterns and does not terminate
+delivery after a fixed number of corrections. It also never accepts a final answer merely because
+a live-job correction allowance ran out. Hosts bound autonomous work with explicit step/request
+budgets, Deadline and cancellation; provider availability recovery remains finite independently.
+Conversation turns without a host workflow may end normally with delivery
 open; turn completion is not objective completion. An unmet delivery condition prevents evidence-based
 resolution. A notebook or summary is not delivery proof. No contract means no new file/commit gate;
 natural-language completion claims alone cannot prove arbitrary behavior.
@@ -492,7 +508,6 @@ Every way the Go loop (`internal/agent`) ends a run, once the session row says `
 | run budget refused the next tool call or model request (ADR-0019 §6) | `interrupted` | `budget:tool_calls`, `budget:model_requests`, `budget:tokens`, `budget:cost` |
 | no tool calls and no content | `interrupted` | `empty_response` |
 | reply cut at the output token limit (`finish_reason` `length`) without a tool call | `interrupted` | `output_limit` |
-| declared delivery remains unmet after two bounded corrections | `interrupted` | `delivery_incomplete` |
 | provider or decision-provider error | `interrupted` | `provider:availability` |
 | workflow human gate pending | `waiting_gate` | `workflow_gate` |
 | storage error | `failed` | `storage` |

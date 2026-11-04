@@ -1072,10 +1072,10 @@ func TestLoopFailoverTraceAcrossStepsAndHealth(t *testing.T) {
 	second := store.steps[2].(stepRecord)
 	var in candidatesInputs
 	var out candidatesOutput
-	if err := decodeDecision(second.Decisions[0], &in, &out); err != nil || second.Decisions[0].Rule != RuleModelCandidates {
-		t.Fatalf("step 2 starts with %s (%v), want %s", second.Decisions[0].Rule, err, RuleModelCandidates)
+	if err := decodeDecision(second.Decisions[0], &in, &out); err != nil || second.Decisions[0].Rule != RuleModelCandidatesRetained {
+		t.Fatalf("step 2 starts with %s (%v), want %s", second.Decisions[0].Rule, err, RuleModelCandidatesRetained)
 	}
-	if in.Session != a || !slices.Equal(in.Unavailable, []config.ModelRef{a}) || !slices.Equal(out.Candidates, []config.ModelRef{b}) {
+	if in.Session != a || !slices.Equal(in.Unavailable, []config.ModelRef{a}) || !slices.Equal(out.Candidates, []config.ModelRef{b, a}) {
 		t.Fatalf("step 2 candidates: session %s unavailable %v -> %v", in.Session, in.Unavailable, out.Candidates)
 	}
 
@@ -1089,9 +1089,9 @@ func TestLoopFailoverTraceAcrossStepsAndHealth(t *testing.T) {
 		t.Fatal("the model is still out after its Retry-After")
 	}
 
-	// A success clears a mark that has not expired. With every candidate marked, the registry is
-	// advisory and the run still uses a; its answer must clear a.
-	health.Fail(a, time.Hour)
+	// An advisory (no Retry-After) mark may be bypassed when no alternative is healthy.
+	// A successful request clears this guessed interval, not a live explicit provider cooldown.
+	health.Fail(a, 0)
 	pa.scriptedProvider.responses = []protocol.ProviderResponse{{Message: protocol.Message{Content: "a is back"}, FinishReason: "stop"}}
 	store2 := &memoryStore{state: SessionState{ID: "back", Goal: "back", Status: "running"}, steps: map[int64]any{}}
 	store2.seedGoal()

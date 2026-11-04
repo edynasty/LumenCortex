@@ -22,9 +22,8 @@ const BlockHeader = "[Task State — maintained by the LumenCortex runtime from 
 // Render builds the Task State block: one user message placed after the system prompt in every
 // request. It is deterministic and at most MaxBlockBytes. It shows the objective (the brief, else the
 // goal), the references the user included, the workflow, the open work units, the notes, the execution
-// tasks, and a repeated-failure
-// line once progress records the same failure twice. Completed units are counted, not listed. wf is the
-// state's workflow runtime, nil when there is none.
+// tasks. Completed units are counted, not listed. Historical failure counters do not enter the
+// prompt. wf is the state's workflow runtime, nil when there is none.
 func Render(goal string, s State, wf *workflow.Runtime) string {
 	var b strings.Builder
 	b.WriteString(BlockHeader)
@@ -81,9 +80,6 @@ func Render(goal string, s State, wf *workflow.Runtime) string {
 		renderTasks(&b, s.Tasks)
 	}
 
-	if s.Progress.SameFailureCount >= 2 {
-		fmt.Fprintf(&b, "\nRepeated failure: the same tool failure has occurred %d times. Change the approach instead of repeating it.\n", s.Progress.SameFailureCount)
-	}
 	return truncate(b.String(), MaxBlockBytes)
 }
 

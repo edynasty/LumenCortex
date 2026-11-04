@@ -100,12 +100,12 @@ func TestRecoveryStopsAtWindowDeadlineAndDisabled(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if stop := p.stopFor(c.pick, c.wait, c.start, now, c.deadline); stop != c.stop {
+			if stop := p.stopFor(c.pick, c.wait, c.start, now, c.deadline, 0); stop != c.stop {
 				t.Fatalf("stopFor = %q, want %q", stop, c.stop)
 			}
 		})
 	}
-	if stop := (Recovery{}).stopFor(0, 0, now, now, time.Time{}); stop != RecoveryStopDisabled {
+	if stop := (Recovery{}).stopFor(0, 0, now, now, time.Time{}, 0); stop != RecoveryStopDisabled {
 		t.Fatalf("the zero Recovery retried: %q", stop)
 	}
 }
@@ -127,22 +127,6 @@ func TestRecoveryDecisionReplays(t *testing.T) {
 	// A sub-millisecond backoff is recorded as 1 ms, never 0: the wait between retries is kept.
 	if _, wait, _ := RecoveryDecision(cands[:1], 0, protocol.ClassAvailability, []time.Duration{0}, 750*time.Microsecond); wait != time.Millisecond {
 		t.Fatalf("a 750µs backoff waited %s", wait)
-	}
-}
-
-func TestRecoveryFromConfig(t *testing.T) {
-	got := RecoveryFrom(config.Retry{}, true)
-	if want := (Recovery{BaseDelay: time.Second, MaxDelay: 30 * time.Second}); got != want {
-		t.Errorf("defaults with a deadline = %+v, want %+v (the deadline bounds the outage)", got, want)
-	}
-	if got := RecoveryFrom(config.Retry{}, false); got.MaxOutage != 30*time.Minute {
-		t.Errorf("defaults without a deadline: outage %s, want 30m", got.MaxOutage)
-	}
-	if got := RecoveryFrom(config.Retry{BaseDelayMs: 50, MaxDelayMs: 10, MaxOutageSeconds: 5}, true); got != (Recovery{BaseDelay: 50 * time.Millisecond, MaxDelay: 50 * time.Millisecond, MaxOutage: 5 * time.Second}) {
-		t.Errorf("configured = %+v", got)
-	}
-	if got := RecoveryFrom(config.Retry{Disabled: true, BaseDelayMs: 50}, true); got.enabled() {
-		t.Errorf("disabled = %+v, want no retries", got)
 	}
 }
 
@@ -282,7 +266,7 @@ func TestLoopStopsAtTheOutageWindowWithTheReason(t *testing.T) {
 	events := &eventLog{}
 	loop := Loop{Models: testModels(p), Store: store, Tools: fakeTools{}, Emit: events.emit}
 	opts := Options{Session: testRef, MaxSteps: 2, RunID: "r",
-		Recovery: Recovery{BaseDelay: 20 * time.Millisecond, MaxDelay: 20 * time.Millisecond, MaxOutage: 100 * time.Millisecond}}
+		Recovery: Recovery{BaseDelay: 20 * time.Millisecond, MaxDelay: 20 * time.Millisecond, MaxRetries: 100, MaxOutage: 100 * time.Millisecond}}
 	start := time.Now()
 	result, err := loop.Run(context.Background(), "out", opts)
 	if result.Status != StatusInterrupted || store.cause["kind"] != KindProviderAvailability {

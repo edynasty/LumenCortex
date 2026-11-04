@@ -161,10 +161,6 @@ func (c *subagentController) Spawn(ctx context.Context, goal, agentID string) (a
 	})
 
 	childOpts := c.childOptions(childRef, agentID)
-	if until, ok := protocol.ToolDeadline(ctx); ok {
-		// A child of a run with a deadline must be done by the time its parent's tools must be (ADR-0019 §2).
-		childOpts.Deadline = &until
-	}
 	if _, err := c.supervisor.Start(ctx, handle.ID, childOpts); err != nil {
 		status := "interrupted"
 		errorRaw, _ := json.Marshal(map[string]any{
@@ -270,28 +266,19 @@ const explorePrompt = `You are a focused read-only LumenCortex subagent. Investi
 // childOptions are a read-only child's run options. The launch fixes the authority (read-only, no
 // MCP, no spawn); agentID is the agent it runs, pinned by its first Start.
 func (c *subagentController) childOptions(childRef config.ModelRef, agentID string) AgentOptions {
-	maxSteps := c.parentOpts.MaxSteps
-	if maxSteps <= 0 || maxSteps > 12 {
-		maxSteps = 12
-	}
-	maxCalls := c.parentOpts.MaxToolCallsPerStep
-	if maxCalls <= 0 || maxCalls > 6 {
-		maxCalls = 6
-	}
-	return AgentOptions{
-		ModelRef:            childRef,
-		Policy:              toolset.PolicyReadOnly,
-		MaxSteps:            maxSteps,
-		MaxToolCallsPerStep: maxCalls,
-		ToolDenylist:        append([]string(nil), c.parentOpts.ToolDenylist...),
-		SystemPrompt:        explorePrompt,
-		MaxTokens:           c.parentOpts.MaxTokens,
-		Temperature:         c.parentOpts.Temperature,
-		parentSessionID:     c.parentID,
-		childAgent:          agentID,
-		disableSubagents:    true,
-		disableMCP:          true,
-	}
+	return inheritChildExecution(AgentOptions{
+		ModelRef:         childRef,
+		Policy:           toolset.PolicyReadOnly,
+		ToolDenylist:     append([]string(nil), c.parentOpts.ToolDenylist...),
+		SystemPrompt:     explorePrompt,
+		MaxTokens:        c.parentOpts.MaxTokens,
+		Temperature:      c.parentOpts.Temperature,
+		parentSessionID:  c.parentID,
+		ownerRun:         c.parentOpts.ownerRun,
+		childAgent:       agentID,
+		disableSubagents: true,
+		disableMCP:       true,
+	}, c.parentOpts)
 }
 
 func (c *subagentController) summary(ctx context.Context, childID string) (SubagentNode, error) {
@@ -302,7 +289,7 @@ func (s *RunSupervisor) HasActiveSubagents(ctx context.Context, parentSessionID 
 	if s == nil || s.engine == nil {
 		return false, ErrRunSupervisorClosed
 	}
-	relations, err := s.engine.store.ChildRelations(ctx, parentSessionID, 100)
+	relations, err := s.engine.store.AllChildRelations(ctx, parentSessionID)
 	if err != nil {
 		return false, err
 	}

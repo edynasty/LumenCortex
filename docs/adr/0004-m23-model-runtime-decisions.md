@@ -7,6 +7,14 @@
 - **Superseded by:** none
 - **Scope:** LumenCortex Go Core M2.3; Desktop M2.4 must consume these Core contracts
 
+**2026-11-04 execution-lifecycle amendment (isolated candidate, not merged):** candidate health no
+longer removes otherwise eligible models from the step. `model.candidates.retained` orders healthy
+candidates first and retains cooled ones for a later first attempt, respecting each Retry-After.
+Historical `model.candidates`/`model.candidates.cooldown` decisions replay their original algorithms.
+Live progress-based effort escalation is removed; old effort decisions remain replayable with private
+historical inputs. D3/D4/D5 error, output-limit and endpoint boundaries are unchanged. See the
+[current provider contract](../go-provider.md#retrying-availability-failures).
+
 ## Context
 
 The independent M2.3/M2.4 architecture handoff found six gaps between the original S5 sketches and the actual Core/Desktop implementation. Core M2.3 implemented the proposed resolutions, and the independent audit accepted the implementation subject to owner ratification. The owner explicitly approved all six resolutions on 2026-10-14, before M2.3 publication.

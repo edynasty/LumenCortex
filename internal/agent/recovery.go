@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -17,21 +18,21 @@ import (
 // no earlier than its own Retry-After; a candidate that capacity rejected for good is not sent again.
 // The wait is an exponential backoff from BaseDelay, doubling up to MaxDelay, scaled by a 75-100% jitter
 // so concurrent runs do not retry in lockstep, or the chosen candidate's remaining Retry-After when that
-// is longer. Recovery sets no request, token or cost limit: the run's deadline and cancellation bound it,
-// and MaxOutage bounds one continuous outage.
+// is longer. All candidates share a finite MaxRetries allowance for the response step; the run's
+// deadline, cancellation and an optional MaxOutage also bound recovery.
 //
 // The zero value never retries.
 type Recovery struct {
 	BaseDelay time.Duration
 	MaxDelay  time.Duration
-	// MaxOutage is the longest continuous outage, from the first failed request to the next send; 0
-	// leaves only the deadline and cancellation.
+	// MaxRetries bounds actual recovery requests across candidates; <=0 uses the finite default.
+	MaxRetries int
+	// MaxOutage optionally bounds a continuous outage; 0 disables only this additional time window.
 	MaxOutage time.Duration
 }
 
-// RecoveryFrom is the policy of execution.retry for a run that has a deadline or not. A run without a
-// deadline gets a finite outage window even when none is configured: nothing else would end it.
-func RecoveryFrom(r config.Retry, hasDeadline bool) Recovery {
+// RecoveryFrom resolves finite per-step recovery independently of the presence of a deadline.
+func RecoveryFrom(r config.Retry) Recovery {
 	if r.Disabled {
 		return Recovery{}
 	}
@@ -46,11 +47,12 @@ func RecoveryFrom(r config.Retry, hasDeadline bool) Recovery {
 	if maxDelay < base {
 		maxDelay = base
 	}
-	outage := time.Duration(r.MaxOutageSeconds) * time.Second
-	if outage == 0 && !hasDeadline {
-		outage = config.DefaultRetryMaxOutageNoDeadlineS * time.Second
+	maxRetries := r.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = config.DefaultRetryMaxRetries
 	}
-	return Recovery{BaseDelay: base, MaxDelay: maxDelay, MaxOutage: outage}
+	return Recovery{BaseDelay: base, MaxDelay: maxDelay, MaxRetries: maxRetries,
+		MaxOutage: time.Duration(r.MaxOutageSeconds) * time.Second}
 }
 
 func (p Recovery) enabled() bool { return p.BaseDelay > 0 }
@@ -72,6 +74,7 @@ func (p Recovery) backoff(n int, jitter float64) time.Duration {
 const (
 	RecoveryStopDisabled    = "retry_disabled"
 	RecoveryStopNoCandidate = "no_candidate"
+	RecoveryStopMaxRetries  = "max_retries"
 	RecoveryStopOutage      = "outage_window"
 	RecoveryStopDeadline    = "deadline"
 )
@@ -79,18 +82,27 @@ const (
 // stopFor returns why the step stops instead of waiting wait before it sends candidate pick again:
 // retrying is disabled, no candidate is left to retry (pick < 0), the wait would take the outage past
 // MaxOutage, or it would end at or after the deadline. "" means wait.
-func (p Recovery) stopFor(pick int, wait time.Duration, start, now, deadline time.Time) string {
+func (p Recovery) stopFor(pick int, wait time.Duration, start, now, deadline time.Time, retries int) string {
 	switch at := now.Add(wait); {
 	case !p.enabled():
 		return RecoveryStopDisabled
 	case pick < 0:
 		return RecoveryStopNoCandidate
+	case retries >= p.retryLimit():
+		return RecoveryStopMaxRetries
 	case p.MaxOutage > 0 && at.Sub(start) > p.MaxOutage:
 		return RecoveryStopOutage
 	case !deadline.IsZero() && !at.Before(deadline):
 		return RecoveryStopDeadline
 	}
 	return ""
+}
+
+func (p Recovery) retryLimit() int {
+	if p.MaxRetries > 0 {
+		return p.MaxRetries
+	}
+	return config.DefaultRetryMaxRetries
 }
 
 // outage is one step's run of availability failures since its last answer.
@@ -208,7 +220,7 @@ func replayRecoveryPick(readyInMs []int64, failed int, backoffMs int64) (int, in
 // RecoveryError is the final error of a step that stopped recovering from availability failures. It
 // wraps the last availability error, so its class and Retry-After stay readable.
 type RecoveryError struct {
-	// Failures counts the failed requests of the outage, Retries the waits taken.
+	// Failures counts failed requests; Retries counts admitted recovery requests, not cancelled waits.
 	Failures int
 	Retries  int
 	Outage   time.Duration
@@ -223,6 +235,8 @@ func (e *RecoveryError) Error() string {
 	switch e.Stop {
 	case RecoveryStopDisabled:
 		why = "retries are disabled"
+	case RecoveryStopMaxRetries:
+		why = "the per-step retry limit was reached"
 	case RecoveryStopNoCandidate:
 		why = "no unavailable candidate is left to retry"
 	case RecoveryStopOutage:
@@ -245,4 +259,47 @@ func failureDetail(err error) (protocol.Reason, int) {
 		return pe.Reason, pe.Status
 	}
 	return "", 0
+}
+
+// waitForCooldown enforces provider hints even when candidate filtering had to restore unhealthy
+// models. Waiting before an initial attempt is not a retry and consumes neither a step nor a request.
+func (l *Loop) waitForCooldown(ctx context.Context, sessionID string, step int64, ref config.ModelRef, policy Recovery, start time.Time) *ExitCause {
+	if start.IsZero() {
+		start = time.Now()
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			cause := exitFor(protocol.ClassCancelled, err)
+			return &cause
+		}
+		delay := l.Health.RetryDelay(ref)
+		if delay <= 0 {
+			return nil
+		}
+		now := time.Now()
+		deadline, _ := ctx.Deadline()
+		stop := ""
+		if policy.MaxOutage > 0 && now.Add(delay).Sub(start) > policy.MaxOutage {
+			stop = RecoveryStopOutage
+		} else if !deadline.IsZero() && !now.Add(delay).Before(deadline) {
+			stop = RecoveryStopDeadline
+		}
+		data := map[string]any{"step": step, "modelRef": ref, "delayMs": ceilMs(delay)}
+		if stop != "" {
+			data["stop"] = stop
+			l.emit("provider.retry_stopped", sessionID, data)
+			cause := exitFor(protocol.ClassAvailability, &protocol.ProviderError{Class: protocol.ClassAvailability,
+				RetryAfter: delay, Err: fmt.Errorf("model %s Retry-After cannot fit %s", ref, stop)})
+			return &cause
+		}
+		l.emit("provider.cooldown", sessionID, data)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			cause := exitFor(protocol.ClassCancelled, ctx.Err())
+			return &cause
+		case <-timer.C:
+		}
+	}
 }

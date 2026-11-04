@@ -202,34 +202,42 @@ type Execution struct {
 	Retry *Retry `json:"retry,omitempty"`
 }
 
-// Retry is how an agent run waits out provider availability failures (408, 409, 429, 5xx, transport
-// errors, timeouts, cut or malformed streams): the same step is sent again after an exponential backoff
-// with jitter, or after the provider's Retry-After when that is longer. It sets no request, token or cost
-// limit: the run's deadline and the host's cancellation bound the recovery, and MaxOutageSeconds bounds
-// one continuous outage. A zero field means "absent": the default applies.
+// Retry bounds availability recovery within one response step. The first candidate sweep and one
+// capacity reduction per candidate are separate; retries after that sweep share MaxRetries, never
+// multiplying it by the model count. Deadline, cancellation and an explicit outage window also apply.
+// Zero fields mean absent, not unlimited. This is not a whole-run request, token or cost budget.
 type Retry struct {
 	// Disabled ends the run at the first availability failure no failover candidate answered.
 	Disabled bool `json:"disabled,omitempty"`
+	// MaxRetries bounds additional recovery requests after the initial failover sweep. Absent: 6.
+	MaxRetries int `json:"maxRetries,omitempty"`
 	// BaseDelayMs is the first backoff; each further one doubles. Absent: 1000.
 	BaseDelayMs int `json:"baseDelayMs,omitempty"`
 	// MaxDelayMs caps the computed backoff (a provider's Retry-After may ask for more). Absent: 30000.
 	MaxDelayMs int `json:"maxDelayMs,omitempty"`
-	// MaxOutageSeconds is the longest continuous outage a run waits out. Absent: a run with a deadline
-	// waits until its deadline; a run without one waits 1800 s.
+	// MaxOutageSeconds optionally bounds one continuous outage. Absent: no additional time window;
+	// the finite retry count and the run's deadline/cancellation still apply.
 	MaxOutageSeconds int `json:"maxOutageSeconds,omitempty"`
 }
 
-// Retry defaults.
+// DefaultMaxSteps leaves response/tool cycles per Start unlimited. Positive host values bound steps;
+// zero means omitted. Provider attempts within one response step do not consume additional steps.
+const DefaultMaxSteps = -1
+
+// Retry defaults allow about a minute of backoff without imposing a task-wide request quota.
 const (
-	DefaultRetryBaseDelayMs          = 1000
-	DefaultRetryMaxDelayMs           = 30000
-	DefaultRetryMaxOutageNoDeadlineS = 1800
+	DefaultRetryMaxRetries  = 6
+	DefaultRetryBaseDelayMs = 1000
+	DefaultRetryMaxDelayMs  = 30000
 )
 
 // Over returns r with every set field of o in place of its own.
 func (r Retry) Over(o Retry) Retry {
 	if o.Disabled {
 		r.Disabled = true
+	}
+	if o.MaxRetries > 0 {
+		r.MaxRetries = o.MaxRetries
 	}
 	if o.BaseDelayMs > 0 {
 		r.BaseDelayMs = o.BaseDelayMs
@@ -425,9 +433,8 @@ func (l *LSP) Limits() LSP {
 // EffortPolicy is the reasoning effort policy. Default may be "auto": each Start then resolves a
 // concrete level from Auto's judge (or the heuristic fallback) before its first request.
 type EffortPolicy struct {
-	Default    Effort      `json:"default,omitempty"`
-	Auto       *AutoEffort `json:"auto,omitempty"`
-	Escalation *Escalation `json:"escalation,omitempty"`
+	Default Effort      `json:"default,omitempty"`
+	Auto    *AutoEffort `json:"auto,omitempty"`
 }
 
 // AutoEffort configures the auto effort resolver. Absent Model means the deterministic heuristic
@@ -454,13 +461,6 @@ type AutoEffortPolicy struct {
 	Max   Effort
 	// Timeout bounds one judge request.
 	Timeout time.Duration
-}
-
-// Escalation raises effort while a run is stuck.
-type Escalation struct {
-	SameFailure     int    `json:"sameFailure"`
-	NoProgressSteps int    `json:"noProgressSteps"`
-	Max             Effort `json:"max"`
 }
 
 // Provider is one catalog provider.

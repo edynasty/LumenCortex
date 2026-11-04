@@ -5,11 +5,6 @@
       "model": "deepseek/chat",
       "max": "medium",
       "timeoutSeconds": 3
-    },
-    "escalation": {
-      "sameFailure": 2,
-      "noProgressSteps": 6,
-      "max": "high"
     }
   },
   "providers": {

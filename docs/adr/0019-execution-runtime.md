@@ -6,6 +6,14 @@
 - **Supersedes:** none
 - **Superseded by:** none
 
+**2026-11-04 execution-lifecycle amendment (isolated candidate, not merged):** `MaxSteps=-1` is the
+default unlimited execution policy; positive step/tool-batch limits are explicit host controls. No
+global Deadline is implicit. Deadline/cancellation cover preparation (including the auto-effort request),
+Loop, recovery waits, tools and owned children; Engine close waits for tracked preparation before
+closing storage. Operation-level timeouts, explicit budgets and finite per-step provider recovery remain.
+No inferred progress/repetition detector or delivery-correction count decides when work ends. See the
+[current contract](../agent-runtime.md#runtime-loop) and [verification report](../reports/execution-retry-review-2026-11-03.md).
+
 ## Context
 
 A run executes its tool calls one at a time, and the `shell` tool waits for its command to exit with no

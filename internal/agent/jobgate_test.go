@@ -56,9 +56,8 @@ func TestJobGateRefusesFinalWhileARunJobIsActive(t *testing.T) {
 	}
 }
 
-// A job that never ends does not loop the run: after maxJobCorrections refusals the answer completes,
-// and the host cancels the job when the run ends.
-func TestJobGateIsBounded(t *testing.T) {
+// A repeated final answer cannot abandon live resources; the explicit host step limit ends the run.
+func TestJobGateObeysExplicitStepLimit(t *testing.T) {
 	store := newState("jb")
 	jobs := &scriptedJobs{answers: [][]ActiveJob{{{ID: "job_1", State: "queued", Command: "sleep 999"}}}}
 	provider := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
@@ -66,12 +65,12 @@ func TestJobGateIsBounded(t *testing.T) {
 	}}
 	result, err := (&Loop{Models: testModels(provider), Store: store, Tools: okTools(), Jobs: jobs}).Run(context.Background(), "jb",
 		Options{Session: testRef, MaxSteps: 10, RunID: "run-b"})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("expected the explicit step limit")
 	}
-	assertExit(t, store, result, StatusCompleted, "")
-	if got := len(blockedRows(store)); got != maxJobCorrections || provider.n != maxJobCorrections+1 {
-		t.Fatalf("corrections=%d requests=%d, want %d corrections and %d requests", got, provider.n, maxJobCorrections, maxJobCorrections+1)
+	assertExit(t, store, result, StatusInterrupted, KindMaxSteps)
+	if provider.n != 10 {
+		t.Fatalf("requests=%d, want 10", provider.n)
 	}
 }
 

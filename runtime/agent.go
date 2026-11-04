@@ -38,9 +38,10 @@ type AgentOptions struct {
 	ModelRef config.ModelRef `json:"modelRef,omitempty"`
 	// Effort overrides the configured default reasoning effort for this run: "" (the default),
 	// none, minimal, low, medium, high, xhigh, max, or auto (classify this turn before its first request; the
-	// resolved level then acts as the run's default and escalation still raises it).
-	Effort              config.Effort   `json:"effort,omitempty"`
-	Policy              string          `json:"policy,omitempty"`
+	// resolved level then acts as the run's default).
+	Effort config.Effort `json:"effort,omitempty"`
+	Policy string        `json:"policy,omitempty"`
+	// MaxSteps: -1 means unlimited; zero inherits/defaults; positive is an explicit bound.
 	MaxSteps            int             `json:"maxSteps,omitempty"`
 	MaxToolCallsPerStep int             `json:"maxToolCallsPerStep,omitempty"`
 	ToolAllowlist       []string        `json:"toolAllowlist,omitempty"`
@@ -62,21 +63,23 @@ type AgentOptions struct {
 	// starts execution tasks directly and needs RunSupervisor.Start. It is independent of Policy: a
 	// read-only conversation starts write-capable tasks only with this grant. Children never hold it.
 	Delegation string `json:"delegation,omitempty"`
-	// Deadline is the run's absolute deadline (ADR-0019 §2); nil means none. The model sees the time
-	// left, tools are bounded so that a reply still fits, and the run ends interrupted with kind
-	// "deadline" when it passes. A read-only subagent inherits the time by which its spawning tool call
-	// must be done. DeadlineReserveSeconds is the time before the deadline from which the model is asked
-	// to deliver; 0 takes a tenth of the budget within 30-120 s.
+	// Deadline is an optional absolute execution deadline; nil sets no global time limit.
+	// Children inherit it and caller cancellation. A child's explicit deadline may only shorten it.
+	// DeadlineReserveSeconds is a delivery hint, not an earlier automatic execution stop.
 	Deadline               *time.Time `json:"deadline,omitempty"`
 	DeadlineReserveSeconds int        `json:"deadlineReserveSeconds,omitempty"`
 	// Budget is this run's budget (ADR-0019 §6): each non-zero field overrides the global file's
 	// execution.budget, which bounds every run, child runs included. The result's spend reports what
 	// the run used.
 	Budget *config.Budget `json:"budget,omitempty"`
-	// Retry is this run's provider retry policy: each set field overrides the global file's
-	// execution.retry (CLI: LCX_DISABLE_RETRIES). The run's deadline and cancellation bound every
-	// recovery; no request, token or cost limit comes from it.
+	// Retry overrides global execution.retry field by field; response-step recovery is finite.
+	// Immediate children inherit a copy. Deferred proposal Starts and explicit Resume use current
+	// execution policy instead of persisting this transient override in task state.
 	Retry *config.Retry `json:"retry,omitempty"`
+	// ChildExecution overrides execution controls of immediately spawned children, not authority.
+	// A host may also set AgentOptions directly when explicitly starting/resuming an existing child.
+	ChildExecution *ChildExecutionOptions `json:"childExecution,omitempty"`
+	ownerRun       *managedRun
 
 	subagents toolset.SubagentController
 	// childAgent is a child run's default agent: explore for a read-only subagent, worker for an
@@ -86,6 +89,48 @@ type AgentOptions struct {
 	parentSessionID  string
 	disableSubagents bool
 	disableMCP       bool
+}
+
+// ChildExecutionOptions overrides inherited limits; zero/nil inherits, -1 removes a step/batch cap.
+// Deadline cannot extend the parent's deadline or detach cancellation.
+type ChildExecutionOptions struct {
+	MaxSteps            int        `json:"maxSteps,omitempty"`
+	MaxToolCallsPerStep int        `json:"maxToolCallsPerStep,omitempty"`
+	Deadline            *time.Time `json:"deadline,omitempty"`
+}
+
+func inheritChildExecution(child, parent AgentOptions) AgentOptions {
+	child.MaxSteps, child.MaxToolCallsPerStep = parent.MaxSteps, parent.MaxToolCallsPerStep
+	child.DeadlineReserveSeconds = parent.DeadlineReserveSeconds
+	child.Retry = cloneRetry(parent.Retry)
+	if parent.Budget != nil {
+		value := *parent.Budget
+		child.Budget = &value
+	}
+	if parent.Deadline != nil {
+		value := *parent.Deadline
+		child.Deadline = &value
+	}
+	if override := parent.ChildExecution; override != nil {
+		if override.MaxSteps != 0 {
+			child.MaxSteps = override.MaxSteps
+		}
+		if override.MaxToolCallsPerStep != 0 {
+			child.MaxToolCallsPerStep = override.MaxToolCallsPerStep
+		}
+		if override.Deadline != nil && (child.Deadline == nil || override.Deadline.Before(*child.Deadline)) {
+			value := *override.Deadline
+			child.Deadline = &value
+		}
+	}
+	return child
+}
+
+func executionContext(ctx context.Context, opts AgentOptions) (context.Context, context.CancelFunc) {
+	if opts.Deadline != nil {
+		return context.WithDeadlineCause(ctx, *opts.Deadline, agent.ErrRunDeadline)
+	}
+	return context.WithCancel(ctx)
 }
 
 type AgentResult struct {
@@ -105,11 +150,18 @@ type AgentResult struct {
 // nothing, when another Engine holds it. RunSupervisor.Start is the asynchronous
 // entry point with the same contract.
 func (e *Engine) RunAgent(ctx context.Context, sessionID string, opts AgentOptions) (AgentResult, error) {
+	ctx, cancel := executionContext(ctx, opts)
+	defer cancel()
 	lock, err := e.acquireRun(ctx, sessionID)
 	if err != nil {
 		return AgentResult{}, err
 	}
+	ctx, done := e.trackRun(ctx, sessionID)
+	defer done()
 	defer lock.Release()
+	if err := ctx.Err(); err != nil {
+		return AgentResult{}, err
+	}
 	if opts, err = e.constrainChild(ctx, sessionID, opts); err != nil {
 		return AgentResult{}, err
 	}
@@ -136,11 +188,8 @@ type preparedRun struct {
 	info SessionInfo
 }
 
-// execute runs the loop as a tracked run of the Engine, so that a revocation in this process can
-// cancel it and wait for it to end (T3-S1).
+// execute runs under the caller's tracked lifetime, including preparation and owned cleanup.
 func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
-	ctx, done := r.engine.trackRun(ctx, r.sessionID)
-	defer done()
 	result, err := r.loop.Run(ctx, r.sessionID, r.loopOpts)
 	r.engine.endRunJobs(ctx, r.sessionID, r.loopOpts.RunID)
 	return AgentResult{
@@ -234,7 +283,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		delegation = agent.DelegationNone
 	}
 	if delegation == agent.DelegationIsolated && opts.tasks == nil {
-		return nil, errors.New("delegation isolated starts tasks that outlive the run: start the run with RunSupervisor.Start")
+		return nil, errors.New("delegation isolated needs RunSupervisor.Start to manage child execution")
 	}
 	agentWorkspace, err := e.agentWorkspace(ctx, sessionID)
 	if err != nil {
@@ -389,7 +438,6 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Session:             plan.session,
 		Failover:            plan.failover,
 		EffortDefault:       effortDefault,
-		Escalation:          plan.escalation,
 		Effort:              effortOverride,
 		EffortAutoCeiling:   effortCeiling,
 		CandidateEfforts:    candidateEfforts,
@@ -417,7 +465,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if opts.Retry != nil {
 		retry = retry.Over(*opts.Retry)
 	}
-	loopOpts.Recovery = agent.RecoveryFrom(retry, opts.Deadline != nil)
+	loopOpts.Recovery = agent.RecoveryFrom(retry)
 
 	loopOpts.SystemLayers = systemLayers(prompt.Layers)
 	if prompt.SkillsErr != nil {
@@ -775,4 +823,13 @@ func citeIn(workspace string) func(context.Context, []string) ([]taskstate.Cite,
 		}
 		return cites, nil
 	}
+}
+
+// cloneRetry isolates an inherited per-run override from its parent's mutable options.
+func cloneRetry(r *config.Retry) *config.Retry {
+	if r == nil {
+		return nil
+	}
+	copy := *r
+	return &copy
 }

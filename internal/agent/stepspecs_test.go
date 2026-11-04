@@ -106,8 +106,7 @@ func TestStepToolsDelegationGrantAndDenylist(t *testing.T) {
 	if got := status["start_task"]; got.Included || got.Reason != ToolReasonDenylist {
 		t.Fatalf("denied start_task=%+v", got)
 	}
-	// Isolated without a task starter offers nothing: a run started outside a supervisor cannot
-	// start a task that outlives it.
+	// Isolated without a task starter offers nothing: child ownership requires a supervisor.
 	status = map[string]StepTool{}
 	for _, entry := range StepTools(tools, StepToolsInput{Delegation: DelegationIsolated}) {
 		status[entry.Spec.Name] = entry

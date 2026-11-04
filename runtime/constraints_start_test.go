@@ -127,8 +127,8 @@ func TestCancelledStartDuringAConstraintCheckSavesNothing(t *testing.T) {
 	}
 }
 
-// A revocation of the thread committed while a check bound to its constraint runs refuses the Start:
-// the pass the check reaches is in no Task State, nothing is admitted, the session does not run.
+// Revocation cancels a tracked preparation immediately: no constraint pass, request admission or
+// running session may commit after the fence.
 func TestRevokedDuringAConstraintCheckTheStartIsRefused(t *testing.T) {
 	c := newConstraintStart(t, `touch ${STARTED}; while [ ! -f ${RELEASE} ]; do sleep 0.05; done; true`)
 	revoked := make(chan error, 1)
@@ -142,7 +142,7 @@ func TestRevokedDuringAConstraintCheckTheStartIsRefused(t *testing.T) {
 	if rerr := <-revoked; rerr != nil {
 		t.Fatal(rerr)
 	}
-	if !errors.Is(err, session.ErrFenced) {
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Start of a thread revoked during its constraint check: %v", err)
 	}
 	c.nothingCommitted(t)

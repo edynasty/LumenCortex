@@ -88,9 +88,6 @@ func TestSubagentChildOptionsAreReadOnlyAndNonRecursive(t *testing.T) {
 	if opts.parentSessionID != "parent" {
 		t.Fatalf("parent=%q", opts.parentSessionID)
 	}
-	if opts.MaxSteps != 12 || opts.MaxToolCallsPerStep != 6 {
-		t.Fatalf("bounded child options=%#v", opts)
-	}
 }
 
 // withConcurrency is the fixture catalog with a global concurrency object.

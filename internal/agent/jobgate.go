@@ -19,17 +19,10 @@ type ActiveJob struct {
 	Command string
 }
 
-// maxJobCorrections bounds how often the gate refuses a final answer over active jobs: a model that
-// keeps answering instead of waiting or cancelling completes, and the host cancels the jobs when the
-// run ends. One open job never loops a run.
-const maxJobCorrections = 2
-
-// jobsCorrection is the completion-gate correction for a final answer given while the run still has
-// queued or running background jobs, or "" when there are none, the run has no job view, or the gate
-// already refused maxJobCorrections answers. A failed lookup does not block completion: the jobs are
-// cancelled when the run ends either way.
-func (l *Loop) jobsCorrection(ctx context.Context, sessionID string, step int64, opts Options, r *run) string {
-	if l.Jobs == nil || opts.RunID == "" || r.jobCorrections >= maxJobCorrections {
+// jobsCorrection reports unfinished owned resources. Repeated final answers never bypass the gate;
+// only the host's explicit controls or the model waiting/cancelling the jobs end this obligation.
+func (l *Loop) jobsCorrection(ctx context.Context, sessionID string, step int64, opts Options) string {
+	if l.Jobs == nil || opts.RunID == "" {
 		return ""
 	}
 	active, err := l.Jobs.ActiveJobs(ctx, opts.RunID)
@@ -40,7 +33,6 @@ func (l *Loop) jobsCorrection(ctx context.Context, sessionID string, step int64,
 	if len(active) == 0 {
 		return ""
 	}
-	r.jobCorrections++
 	ids := make([]string, 0, len(active))
 	names := make([]string, 0, len(active))
 	for _, job := range active {
@@ -51,7 +43,7 @@ func (l *Loop) jobsCorrection(ctx context.Context, sessionID string, step int64,
 		}
 		names = append(names, fmt.Sprintf("%s %s: %s", job.ID, job.State, command))
 	}
-	l.emit("jobs.blocked_final", sessionID, map[string]any{"step": step, "jobs": ids, "correction": r.jobCorrections})
+	l.emit("jobs.blocked_final", sessionID, map[string]any{"step": step, "jobs": ids})
 	return fmt.Sprintf("Completion refused: %d background job(s) this run started are still queued or running (%s). "+
 		"Wait for them with job_wait and check their results, or cancel the ones you no longer need with job_cancel, "+
 		"before you give the final answer. Jobs still active when the run ends are cancelled.",

@@ -153,7 +153,7 @@ func TestMigrateSubagentModel(t *testing.T) {
 		t.Fatalf("worker=%+v", worker)
 	}
 	// Everything else survives the rewrite.
-	if e.Model != "deepseek/chat" || e.Escalation == nil || len(c.Catalog()) != 3 {
+	if e.Model != "deepseek/chat" || e.EffortDefault != EffortMedium || len(c.Catalog()) != 3 {
 		t.Fatalf("effective=%+v", e)
 	}
 	if changed, err := MigrateSubagentModel(path); changed || err != nil {

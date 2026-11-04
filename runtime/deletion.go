@@ -40,7 +40,7 @@ func (e *Engine) DeletionPreview(ctx context.Context, sessionID string) (Deletio
 	}
 	p := DeletionPreview{SessionID: sessionID, Deleted: []string{sessionID}}
 	for queue := []string{sessionID}; len(queue) > 0; queue = queue[1:] {
-		relations, err := e.store.ChildRelations(ctx, queue[0], MaxSubagentTreeNodes)
+		relations, err := e.store.AllChildRelations(ctx, queue[0])
 		if err != nil {
 			return DeletionPreview{}, err
 		}

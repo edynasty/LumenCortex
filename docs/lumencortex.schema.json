@@ -22,13 +22,12 @@
       "maxItems": 8
     },
     "effort": {
-      "description": "Reasoning effort policy. Absent → no reasoning parameter is sent (provider default) and no escalation.",
-      "dependentRequired": { "escalation": ["default"] },
+      "description": "Reasoning effort policy. Absent → no reasoning parameter is sent (provider default).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "default": {
-          "description": "Effort requested on every request unless the user overrides it for a run. Absent → no reasoning parameter is sent (provider default). \"auto\" resolves one concrete level per user turn from effort.auto before the first request; the resolved level is that run's default and escalation still raises it. Per model the request is raised to the lowest level listed in reasoning.efforts that is not below it (the highest listed level if none is), then encoded by reasoning.format.",
+          "description": "Effort requested unless overridden for a run. Absent → provider default. Auto resolves one concrete level before the first request. Tool failure counts never change it. Each model fits the level to reasoning.efforts and encodes it with reasoning.format.",
           "$ref": "#/$defs/effortRequest"
         },
         "auto": {
@@ -49,30 +48,6 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 60
-            }
-          }
-        },
-        "escalation": {
-          "description": "Raise effort while the run is stuck. Absent → escalation disabled. Requires default.",
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["sameFailure", "noProgressSteps", "max"],
-          "properties": {
-            "sameFailure": {
-              "description": "One level up when the latest tool failure signature (tool name + normalized output) has occurred this many times in the session; two levels at twice the count. Counters reset when a work unit completes or a required check passes.",
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 20
-            },
-            "noProgressSteps": {
-              "description": "One level up after this many consecutive failed tool results (any successful tool result resets the count); two levels at twice the count.",
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 50
-            },
-            "max": {
-              "description": "Upper bound for escalated effort. Escalation never goes below default.",
-              "$ref": "#/$defs/effort"
             }
           }
         }
@@ -182,13 +157,18 @@
           }
         },
         "retry": {
-          "description": "How an agent run waits out provider availability failures (HTTP 408/409/429/5xx, transport errors, timeouts, cut or malformed streams) that no failover candidate answered: the same step is sent again, as a new admitted request, after an exponential backoff with 75-100% jitter, or after the provider's retry-after-ms/Retry-After when that is longer. Tools never run twice: a failed request returned nothing to execute. No request, token or cost limit is set here (execution.budget does that); the run's deadline and the host's cancellation bound the recovery, and maxOutageSeconds bounds one continuous outage. A wait that would pass either ends the run at once, interrupted with kind provider:availability and the reason.",
+          "description": "Finite availability recovery within one response step after the initial failover sweep. Every recovery request is admitted separately; all candidates share maxRetries. Backoff uses 75-100% jitter and honours each candidate's Retry-After. Deadline, cancellation and an optional outage window also stop recovery. No whole-run token or cost budget is set here.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "disabled": {
               "description": "End the run at the first availability failure no failover candidate answered. Absent → false.",
               "type": "boolean"
+            },
+            "maxRetries": {
+              "description": "Additional availability recovery requests per response step across all candidates, after the initial failover sweep. Absent or zero uses 6; zero never means unlimited. disabled prevents recovery requests.",
+              "type": "integer",
+              "minimum": 0
             },
             "baseDelayMs": {
               "description": "First backoff in milliseconds; each further one doubles up to maxDelayMs. Absent → 1000.",
@@ -203,7 +183,7 @@
               "maximum": 3600000
             },
             "maxOutageSeconds": {
-              "description": "Longest continuous outage (from the first failed request to the next send) a run waits out. Absent → a run with a deadline waits until its deadline; a run without one waits 1800 s.",
+              "description": "Optional continuous-outage time window (first failed request to next send). Absent means no extra window; finite maxRetries, Deadline and cancellation still apply.",
               "type": "integer",
               "minimum": 1,
               "maximum": 86400

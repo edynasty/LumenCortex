@@ -467,9 +467,9 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 	if policy == "" {
 		policy = "read-only"
 	}
-	maxSteps := envInt("LCX_MAX_STEPS", 24)
+	maxSteps := envInt("LCX_MAX_STEPS", config.DefaultMaxSteps)
 	maxTokens := envInt("LCX_MAX_TOKENS", 0)
-	maxToolCalls := envInt("LCX_MAX_TOOL_CALLS_PER_STEP", 8)
+	maxToolCalls := envInt("LCX_MAX_TOOL_CALLS_PER_STEP", 0)
 	var workflow []byte
 	if path := strings.TrimSpace(os.Getenv("LCX_WORKFLOW")); path != "" {
 		var err error

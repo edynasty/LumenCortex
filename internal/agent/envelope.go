@@ -198,5 +198,8 @@ func (l *Loop) complete(ctx context.Context, sessionID, requestID string, m Mode
 			panic(recovered)
 		}
 	}()
+	if err := ctx.Err(); err != nil {
+		return protocol.ProviderResponse{}, err
+	}
 	return m.Client.Complete(ctx, req)
 }

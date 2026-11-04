@@ -77,12 +77,15 @@ type trackedRun struct {
 	done   chan struct{}
 }
 
-// trackRun registers the run of sessionID and returns its context and the function that ends it. The
-// run lock admits one run per session, so there is at most one entry per session.
+// trackRun registers preparation through final cleanup. The caller holds the session run lock,
+// so there is at most one entry per session. Closing cancels a late arrival before it does work.
 func (e *Engine) trackRun(ctx context.Context, sessionID string) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	run := &trackedRun{cancel: cancel, done: make(chan struct{})}
 	e.runsMu.Lock()
+	if e.closing {
+		cancel()
+	}
 	if e.runs == nil {
 		e.runs = map[string]*trackedRun{}
 	}
