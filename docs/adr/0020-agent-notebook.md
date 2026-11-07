@@ -100,10 +100,10 @@ These tools see and write **working notebooks only**. An execution notebook — 
 cells, outputs and durable history, stored under the reserved title prefix `Execution notebook: ` — is
 never listed, read, replaced, appended to or created here, under every policy: its cells are the code
 a user runs and its outputs are the evidence of what ran, so a model that could write one could plant
-code and show results that never happened. `create` refuses the reserved prefix; a `replace`, `append`
-or `section` whose target is an execution notebook is refused before the write. The host's
-working-notebook API enforces the same boundary (`runtime.ErrNotebookKind`) rather than relying on a
-host UI to hide the path.
+code and show results that never happened. All writes reject raw references in the reserved
+namespace before looking up a row, including names that do not yet exist; concurrent creation cannot
+turn an absent working reference into an execution write. Existing execution IDs are also refused.
+The host's working-notebook API enforces the same boundary (`runtime.ErrNotebookKind`).
 
 ### 4. Concurrency and conflicts
 

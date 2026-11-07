@@ -333,6 +333,38 @@ func TestExecutionNotebookRefusesASecondRun(t *testing.T) {
 	}
 }
 
+// Reserved execution names are refused even before the UI creates them: creation between a
+// working-notebook precheck and its write must not turn an absent reference into an executable one.
+func TestWorkingNotebookRejectsAbsentExecutionNamespace(t *testing.T) {
+	engine, sessionID, _, _, host := executionNotebookHostForTest(t)
+	ctx := context.Background()
+	ref := executionNotebookTitlePrefix + "Pending"
+	if err := engine.checkWorkingNotebook(ctx, sessionID, ref); !errors.Is(err, ErrNotebookKind) {
+		t.Fatalf("absent execution namespace admitted: %v", err)
+	}
+	access := newNotebookAccess(engine, sessionID, "run1")
+	for _, op := range []string{"replace", "append", "section"} {
+		_, err := access.Update(ctx, toolset.NotebookUpdate{
+			Notebook: ref, Op: op, Content: "forged", Section: "Notes", Expected: -1,
+		})
+		var problem *toolset.NotebookProblem
+		if !errors.As(err, &problem) || !strings.Contains(problem.Reason, "execution") {
+			t.Fatalf("%s did not refuse the execution namespace: %v", op, err)
+		}
+	}
+	created, err := host.create(ctx, sessionID, "Pending", "python")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.SaveNotebook(ctx, sessionID, ref, "forged", -1); !errors.Is(err, ErrNotebookKind) {
+		t.Fatalf("working save reached newly created execution notebook: %v", err)
+	}
+	after, err := host.get(ctx, sessionID, created.ID)
+	if err != nil || after.Version != created.Version || len(after.Document.Cells) != 0 {
+		t.Fatalf("new execution document changed: %#v, %v", after, err)
+	}
+}
+
 // TestAgentNotebookToolsNeverReachAnExecutionNotebook is NB-02: notebook_update is admitted by every
 // policy, the read-only one included, so it must never be able to plant code a user runs, forge the
 // outputs a user reads, or corrupt the document. The stored evidence is unchanged after every attack,

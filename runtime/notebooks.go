@@ -106,6 +106,9 @@ func (e *Engine) Notebook(ctx context.Context, sessionID, id string) (NotebookDo
 // checkWorkingNotebook refuses a call that names an execution notebook. A notebook that does not exist
 // is left to the operation the caller asked for, which reports it as it always has.
 func (e *Engine) checkWorkingNotebook(ctx context.Context, sessionID, id string) error {
+	if isExecutionNotebookTitle(strings.TrimSpace(id)) {
+		return ErrNotebookKind
+	}
 	doc, err := e.store.GetNotebook(ctx, sessionID, id)
 	if err != nil {
 		return nil
@@ -412,14 +415,14 @@ func (a notebookAccess) Read(ctx context.Context, sessionID, ref, section string
 // create one could plant code the user then executes and show results that never happened. Reading it
 // is refused for the same reason. The notebook runtime's own API is the only writer.
 func (a notebookAccess) Update(ctx context.Context, update toolset.NotebookUpdate) (any, error) {
+	if isExecutionNotebookTitle(strings.TrimSpace(update.Notebook)) {
+		return nil, executionNotebookRefusal(update.Notebook)
+	}
 	author := "agent:" + a.runID
 	var doc session.NotebookDoc
 	var err error
 	switch update.Op {
 	case "create":
-		if isExecutionNotebookTitle(strings.TrimSpace(update.Notebook)) {
-			return nil, executionNotebookRefusal(update.Notebook)
-		}
 		doc, err = a.engine.store.CreateNotebook(ctx, a.sessionID, update.Notebook, update.Content, author)
 	case "replace", "append", "section":
 		// The kind is read before the write: a write names its notebook by title or id, and a title is

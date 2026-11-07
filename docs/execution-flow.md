@@ -339,6 +339,7 @@ the kernel with the highest generation, because generation counts the restarts o
 one kernel and does not order two. One run per notebook executes at a time: a
 second run is refused instead of queued, and the run in flight is Core's state,
 which a host reads (ExecutionNotebookRuns) so a route switch or a reload cannot
-start a duplicate. The agent's notebook tools and the working-notebook API never
-reach an execution notebook; Desktop consumes these Core APIs directly.
+start a duplicate. The agent's notebook tools and the working-notebook API reject
+the reserved execution namespace before lookup, even before a notebook exists;
+existing execution IDs are refused too. Desktop consumes these Core APIs directly.
 
