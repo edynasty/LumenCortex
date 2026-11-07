@@ -621,6 +621,14 @@ var ErrDeletionPending = session.ErrCleanupPending
 // The output files of the jobs whose rows it purged are removed when it returns, however it ends; a
 // failure there is logged and leaves them to the next resume or sweep, never undoes the deletion.
 func (e *Engine) purgeDeletion(ctx context.Context, d session.PrivacyDeletion) error {
+	for _, id := range d.IDs {
+		if err := e.cancelRuns(ctx, func(owner string) bool { return owner == id }); err != nil {
+			return err
+		}
+		if err := e.forgetEvalOwner(ctx, id); err != nil {
+			return err
+		}
+	}
 	if err := e.store.OweCheckpoint(); err != nil {
 		return err
 	}

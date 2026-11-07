@@ -282,3 +282,40 @@ Parallel write-capable work is guarded because real Git worktree isolation is no
 | automatic Route cycle | fail closed |
 | cancellation | persist `interrupted` |
 | max steps | persist `max_steps`, throw resumable error |
+
+## Go Unified Execution Runtime (opt-in)
+
+The Go Engine exposes versioned `evalapi` contracts backed by `evalruntime` Python,
+JavaScript and registered out-of-process workers. Host-configured executables are
+required; nothing installs dependencies or enables network access automatically.
+`AgentOptions.EvalEnabled` / `LCX_EVAL_ENABLED=1` opt in. Existing runs remain on
+the old tool catalog when disabled. `lcx-go eval runtimes` discovers configured
+workers; `lcx-go eval serve` provides the local JSON request interface.
+
+Each kernel has a private namespace and filesystem subtree. Shared kernels need an
+explicit, expiring host grant and retain the owner's authority. Tool callbacks
+intersect the current run's effective permissions and schema; nested effects use
+the same provenance, approval invalidation and transaction settlement as direct
+tools. Interrupt can retain acknowledged state; timeout/crash marks it lost and
+never automatically replays uncertain code. macOS denies worker subprocesses and
+monitors RSS rather than claiming a hard memory limit; Linux isolation requires
+bubblewrap and has separate platform verification requirements.
+
+An eval call closes its callback capability before its result is settled: active
+callbacks are cancelled and drained, queued callbacks are denied, and no callback
+can update the run's spend or journal after the loop resumes.
+
+Optional semantic verification and one independent review run before completion.
+Delivery and execution do not imply semantic correctness. Invalid review output
+blocks acceptance while retaining usage; its record survives the final gate write.
+Schema10 adds `semantic` evaluator results without rewriting historical rows;
+downgrade to schema9 refuses atomically while such rows exist.
+
+A review applies to its workspace fingerprint. A changed, known fingerprint
+requires fresh host semantic evidence for the repair; the old review remains in
+history and is not rerun. Missing fingerprints cannot bypass a failed verdict.
+
+Execution notebooks reuse the versioned Notebook store with bounded nbformat4.5
+JSON. Import/read never executes cells; explicit replay closes old kernels and
+recomputes from clean state. Desktop consumes these Core APIs directly.
+

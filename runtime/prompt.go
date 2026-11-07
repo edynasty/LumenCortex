@@ -108,7 +108,8 @@ type EffectivePromptRequest struct {
 	Interactive bool `json:"interactive,omitempty"`
 	// Subagents reports that the host starts the run through RunSupervisor.Start, which offers the
 	// subagent tools and, with delegation isolated, start_task. A child run has neither.
-	Subagents bool `json:"subagents,omitempty"`
+	Subagents   bool `json:"subagents,omitempty"`
+	EvalEnabled bool `json:"evalEnabled,omitempty"`
 }
 
 // EffectivePromptResult is the prompt a run of the request would send, layer by layer and tool by
@@ -400,6 +401,14 @@ func (e *Engine) EffectivePrompt(ctx context.Context, req EffectivePromptRequest
 	tools, err := e.promptTools(workspace, policy, child, eff.Trusted, sessionID, req.Subagents, eff.DelegationAgents(config.AgentInfo.SpawnEligible), newSkillReader(prompt.Skills.Included))
 	if err != nil {
 		return EffectivePromptResult{}, err
+	}
+	if req.EvalEnabled {
+		if e.evalOptions == nil {
+			return EffectivePromptResult{}, ErrEvalDisabled
+		}
+		if err := tools.BindEval(runEval{engine: e, sessionID: sessionID}); err != nil {
+			return EffectivePromptResult{}, err
+		}
 	}
 	stepTools := agent.StepTools(tools, agent.StepToolsInput{
 		Allowlist: allowlist, Denylist: protocol.CanonicalToolNames(req.ToolDenylist),

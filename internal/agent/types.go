@@ -207,6 +207,12 @@ type Options struct {
 	// Recovery is how a step waits out availability failures no failover candidate answered. The zero
 	// value never retries; the runtime fills it from execution.retry.
 	Recovery Recovery
+	// Verification configures the completion gate's semantic level, claim coverage and bounded repair
+	// loop (spec §24-25). Zero values keep the existing gate.
+	Verification VerificationOptions
+	// Presentation is the model profile's presentation variant (spec §26). It changes wording and
+	// length only; policy, permissions, parameters and mutating flags stay the same.
+	Presentation PresentationOptions
 }
 
 // CandidateEffort is one candidate's default effort and, when that default was resolved from auto,

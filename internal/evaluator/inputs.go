@@ -422,7 +422,7 @@ func ResolveInputs(workspace string, specs []Spec) []Spec {
 		switch specs[i].Kind {
 		case KindSchema:
 			candidates = schemaFiles(root, specs[i].Schema)
-		case KindTest, KindBuild:
+		case KindTest, KindBuild, KindSemantic:
 			candidates = commandPaths(specs[i].Command)
 		}
 		seen := map[string]bool{}

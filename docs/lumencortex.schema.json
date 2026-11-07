@@ -427,6 +427,34 @@
           "type": "string",
           "minLength": 1
         },
+        "profile": {
+          "description": "Execution profile: how this model's tool catalog and failure feedback are presented, and the run limits its sessions default to. It never changes policy, permissions, checks or tool authority.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "toolDescriptions": {
+              "description": "compact trims each tool description to its first sentence; detailed keeps the full text. Permission, parameters and the mutating flag never change.",
+              "enum": ["", "compact", "detailed"]
+            },
+            "feedback": {
+              "description": "compact shortens a blocked completion's feedback to one line per item; detailed keeps diagnostics and output tails.",
+              "enum": ["", "compact", "detailed"]
+            },
+            "maxSteps": {
+              "description": "Run step limit a session on this model starts with when the host sets none.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "maxToolCallsPerStep": {
+              "description": "Per-step tool call limit a session on this model starts with when the host sets none.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "budget": { "$ref": "#/properties/execution/properties/budget" }
+          }
+        },
         "limit": {
           "description": "Token limits used by the context window builder. Absent → runtime uses context 32768 / output 4096 and logs a warning.",
           "type": "object",
@@ -501,8 +529,8 @@
       "required": ["kind"],
       "properties": {
         "kind": {
-          "description": "test/build run command in the workspace and pass on exit 0; schema validates files against schema.",
-          "enum": ["test", "build", "schema"]
+          "description": "test/build/semantic run command in the workspace and pass on exit 0; a semantic check decides the semantic verification level and never counts as execution evidence alone; schema validates files against schema.",
+          "enum": ["test", "build", "schema", "semantic"]
         },
         "command": {
           "description": "Shell command run from the workspace root (test/build).",

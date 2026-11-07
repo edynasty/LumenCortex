@@ -12,12 +12,14 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/evalapi"
 	"github.com/edynasty/LumenCortex/internal/agent"
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/internal/toolset"
+	"github.com/edynasty/LumenCortex/internal/verify"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -79,9 +81,22 @@ type AgentOptions struct {
 	// ChildExecution overrides execution controls of immediately spawned children, not authority.
 	// A host may also set AgentOptions directly when explicitly starting/resuming an existing child.
 	ChildExecution *ChildExecutionOptions `json:"childExecution,omitempty"`
-	ownerRun       *managedRun
+	// EvalEnabled opts this run into the host's execution runtimes. It is off unless the host enabled
+	// Eval in Engine Options and set this flag: disabled keeps the legacy tool catalog unchanged.
+	EvalEnabled bool `json:"evalEnabled,omitempty"`
+	// Verification configures the completion gate's semantic level, claim coverage and bounded repair
+	// loop (spec §24-25). nil keeps the existing gate.
+	Verification *VerificationOptions `json:"verification,omitempty"`
+	// Review opts this run into the single, read-only independent review (spec §22). nil or
+	// Enabled false runs none, and no model request is made for a review.
+	Review   *ReviewOptions `json:"review,omitempty"`
+	ownerRun *managedRun
 
 	subagents toolset.SubagentController
+	// sharedEvalSession and sharedEvalLease are the host's grant of a parent kernel to this child,
+	// set by the launch, never by the child's model. The grant is created at the child's Start.
+	sharedEvalSession string
+	sharedEvalLease   time.Duration
 	// childAgent is a child run's default agent: explore for a read-only subagent, worker for an
 	// execution task. "" for a thread.
 	childAgent       string
@@ -97,6 +112,34 @@ type ChildExecutionOptions struct {
 	MaxSteps            int        `json:"maxSteps,omitempty"`
 	MaxToolCallsPerStep int        `json:"maxToolCallsPerStep,omitempty"`
 	Deadline            *time.Time `json:"deadline,omitempty"`
+	// EvalEnabled grants a child the host's execution tools. nil or false keeps them off: a child
+	// never inherits its parent's EvalEnabled, and its model can never grant itself anything.
+	EvalEnabled *bool `json:"evalEnabled,omitempty"`
+	// SharedKernel names an eval session the parent owns that the granted child may execute in. The
+	// child receives an EXECUTOR grant at its Start, bounded by SharedKernelLeaseSeconds; it never
+	// owns, resets or closes that kernel.
+	SharedKernel string `json:"sharedKernel,omitempty"`
+	// SharedKernelLeaseSeconds bounds the grant's lease. Zero or negative takes five minutes; more
+	// than an hour is capped at an hour.
+	SharedKernelLeaseSeconds int `json:"sharedKernelLeaseSeconds,omitempty"`
+}
+
+// childEvalGrant is the host's explicit grant for a child's execution tools. It is read only from the
+// parent's ChildExecution override, never from the parent's own EvalEnabled and never from model
+// input. Absent means the child has no eval tools.
+func childEvalGrant(parent AgentOptions) (bool, string, time.Duration) {
+	override := parent.ChildExecution
+	if override == nil || override.EvalEnabled == nil || !*override.EvalEnabled {
+		return false, "", 0
+	}
+	lease := time.Duration(override.SharedKernelLeaseSeconds) * time.Second
+	if lease <= 0 {
+		lease = 5 * time.Minute
+	}
+	if lease > time.Hour {
+		lease = time.Hour
+	}
+	return true, strings.TrimSpace(override.SharedKernel), lease
 }
 
 func inheritChildExecution(child, parent AgentOptions) AgentOptions {
@@ -191,6 +234,12 @@ type preparedRun struct {
 	finishOwned func()
 	// delivery is the pending record the Start committed, nil without a delivery contract.
 	delivery *DeliveryResult
+	// runID identifies this Start's run; parentSessionID is the child's parent, "" for a thread.
+	runID           string
+	parentSessionID string
+	// evalEnabled reports that this run could have opened execution kernels: its owner is closed on
+	// an abnormal end or when the run is a child.
+	evalEnabled bool
 }
 
 // execute runs under the caller's tracked lifetime, including preparation and owned cleanup.
@@ -199,6 +248,27 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 	r.engine.endRunJobs(ctx, r.sessionID, r.loopOpts.RunID)
 	if r.finishOwned != nil {
 		r.finishOwned()
+	}
+	// A kernel belongs to the run's owner. A completed top-level run keeps it for the next run of the
+	// same session (its variables are the point of a persistent runtime); an interrupted, failed or
+	// waiting run, and every child run, closes its owner's kernels here. CloseOwner is idempotent.
+	var cleanupErr error
+	if r.evalEnabled {
+		switch {
+		case r.parentSessionID != "":
+			// A child's EXECUTOR lease on the parent's kernel ends with the child's run; the kernel
+			// itself stays the owner's. Both teardown steps are reported, never swallowed.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			cleanupErr = errors.Join(r.engine.revokeEvalAgent(cleanupCtx, r.sessionID), r.engine.closeEvalOwner(r.sessionID))
+			cancel()
+		case result.Status != agent.StatusCompleted:
+			cleanupErr = r.engine.closeEvalOwner(r.sessionID)
+		}
+	}
+	if cleanupErr != nil {
+		// A leaked worker is a safety failure: the run's outcome carries the cleanup error instead of
+		// reporting a silent completion.
+		err = errors.Join(err, fmt.Errorf("eval cleanup: %w", cleanupErr))
 	}
 	// Only a completed execution is verified; otherwise the result reports the pending record its
 	// Start committed, so it never reads as "no contract". A run without a contract settles nothing.
@@ -245,7 +315,7 @@ func newRunID() (string, error) {
 // (the Auto-effort judge): a fresh 128-bit random value per Start, kept in memory and passed to the
 // loop as agent.Options.RunID. It is never written to sessions; request and execution rows carry it
 // as a nullable column, and a restart, a takeover or a new Start is a new run.
-func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOptions) (*preparedRun, error) {
+func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOptions) (prepared *preparedRun, err error) {
 	if _, err := e.store.Reconcile(ctx, sessionID); err != nil {
 		return nil, err
 	}
@@ -399,6 +469,35 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err != nil {
 		return nil, err
 	}
+	// The execution runtimes' tools are bound only when the host enabled them for this run. Their
+	// controller is the run's own; a cell's tool callback comes from the loop's context, never from
+	// model input (internal/toolset/eval.go, runtime/eval.go).
+	if err := e.executionTools(ctx, sessionID, opts, tools, runID); err != nil {
+		return nil, err
+	}
+	// A granted child receives an EXECUTOR lease on the parent's kernel. The lease bounds the grant;
+	// the owner identity and the kernel's workspace stay the parent's, and the child can neither
+	// widen them nor close the kernel.
+	if opts.parentSessionID != "" && opts.EvalEnabled && opts.sharedEvalSession != "" {
+		grant := evalapi.Grant{AgentID: sessionID, Role: evalapi.RoleExecutor,
+			ExpiresAt: time.Now().Add(opts.sharedEvalLease)}
+		if err := e.GrantEvalSession(ctx, opts.parentSessionID, opts.sharedEvalSession, grant); err != nil {
+			return nil, err
+		}
+		// A Start that fails after the grant never reaches the run that ends it, so the grant is
+		// revoked here instead of surviving until its lease expires. A successful Start keeps it for
+		// the child's run, which revokes it on exit (preparedRun.execute).
+		defer func() {
+			if err == nil {
+				return
+			}
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if revokeErr := e.revokeEvalAgent(cleanupCtx, sessionID); revokeErr != nil {
+				err = errors.Join(err, fmt.Errorf("eval grant cleanup: %w", revokeErr))
+			}
+		}()
+	}
 	// Side-effect tools are snapshotted where they act: the run's workspace, the worktree of a session
 	// that owns one (plan T1-S4).
 	snapshots, err := repository.New(agentWorkspace)
@@ -472,6 +571,24 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if opts.Deadline != nil {
 		loopOpts.Deadline = *opts.Deadline
 	}
+	// The session model's execution profile supplies the defaults its runs start with: a step or
+	// per-step cap when the host set none, its own budget, and the presentation variant. None of it
+	// changes policy, permissions or checks.
+	if profile := plan.resolved.Profile; profile != nil {
+		if loopOpts.MaxSteps == 0 && profile.MaxSteps > 0 {
+			loopOpts.MaxSteps = profile.MaxSteps
+		}
+		if loopOpts.MaxToolCallsPerStep == 0 && profile.MaxToolCallsPerStep > 0 {
+			loopOpts.MaxToolCallsPerStep = profile.MaxToolCallsPerStep
+		}
+		if profile.Budget != nil {
+			loopOpts.Budget = *profile.Budget
+		}
+		loopOpts.Presentation = agent.PresentationOptions{
+			ToolDescriptions: profile.ToolDescriptions,
+			Feedback:         profile.Feedback,
+		}
+	}
 	if global := execution.Budget; global != nil {
 		loopOpts.Budget = *global
 	}
@@ -486,6 +603,19 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		retry = retry.Over(*opts.Retry)
 	}
 	loopOpts.Recovery = agent.RecoveryFrom(retry)
+	reviewEnabled := opts.Review != nil && opts.Review.Enabled
+	verificationWanted := opts.Verification != nil && (opts.Verification.RequireSemantic ||
+		opts.Verification.RequireIndependent || opts.Verification.Review || reviewEnabled)
+	if opts.Verification != nil {
+		loopOpts.Verification = agent.VerificationOptions{
+			RequireSemantic:    opts.Verification.RequireSemantic,
+			RequireIndependent: opts.Verification.RequireIndependent,
+			MaxRepairs:         opts.Verification.MaxRepairs,
+			Review:             reviewEnabled,
+		}
+	} else if reviewEnabled {
+		loopOpts.Verification = agent.VerificationOptions{Review: true}
+	}
 
 	loopOpts.SystemLayers = systemLayers(prompt.Layers)
 	if prompt.SkillsErr != nil {
@@ -550,12 +680,25 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		e.events.publish("task.delivered", sessionID, map[string]any{"count": len(results)})
 	}
 
+	var verifier verify.Verifier
+	if verificationWanted {
+		verifier = engineVerifier{engine: e, sessionID: sessionID, checks: checks}
+	}
+	var reviewer verify.Reviewer
+	if reviewEnabled {
+		// The reviewer runs over the real provider path, metered like any request. It is built only
+		// when the host explicitly enabled it for this run.
+		reviewer = providerReviewer{engine: e, sessionID: sessionID, runID: runID, model: opts.Review.Model}
+	}
 	return &preparedRun{
-		engine:    e,
-		sessionID: sessionID,
-		info:      sessionInfo(committed),
-		delivery:  pendingDelivery,
-		loopOpts:  loopOpts,
+		engine:          e,
+		sessionID:       sessionID,
+		info:            sessionInfo(committed),
+		delivery:        pendingDelivery,
+		loopOpts:        loopOpts,
+		runID:           runID,
+		parentSessionID: opts.parentSessionID,
+		evalEnabled:     opts.EvalEnabled,
 		loop: agent.Loop{
 			Models:    plan.models,
 			Health:    e.health,
@@ -567,6 +710,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 			Checks:    checks,
 			Tasks:     taskStarterFor(delegation, opts.tasks),
 			Cite:      citeIn(agentWorkspace),
+			Hooks:     e.hookRegistryForRun(),
+			Verifier:  verifier,
+			Reviewer:  reviewer,
 			Emit: func(event agent.Event) {
 				e.events.publish(event.Type, event.SessionID, event.Data)
 				_ = e.store.Journal(context.Background(), event.Type, map[string]any{
@@ -719,6 +865,13 @@ func (s agentStore) AdmitExecution(ctx context.Context, a session.ExecutionAdmis
 		testHookAfterExecAdmit()
 	}
 	return err
+}
+
+// SettleExecution forwards a nested callback's admitted effect to the store: it settles the
+// execution and writes its derived edges without a transcript row, so the transcript keeps exactly
+// the top-level tool pairing.
+func (s agentStore) SettleExecution(ctx context.Context, sessionID string, result session.ExecutionResult, edges ...session.DerivedEdge) error {
+	return s.store.SettleExecution(ctx, sessionID, result, edges...)
 }
 
 func (s agentStore) CommitToolResult(ctx context.Context, c agent.ToolResultCommit) (int64, int64, error) {

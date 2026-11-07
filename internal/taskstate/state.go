@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/edynasty/LumenCortex/internal/verify"
 	"github.com/edynasty/LumenCortex/internal/workflow"
 )
 
@@ -61,6 +62,15 @@ type State struct {
 	// Constraints are the constraints the host selected for the thread and how a run last decided
 	// each (constraints.go, plan T4-S3). Only host edits add or remove them; only a Start decides them.
 	Constraints []ConstraintUse `json:"constraints,omitempty"`
+	// Claims are the explicit basis records of the thread (spec §23): contracts, observed facts,
+	// inferred assumptions and validation evidence, with their sources and statuses. They are typed
+	// state, never a summary of a model's reasoning.
+	Claims []verify.Claim `json:"claims,omitempty"`
+	// ClaimSeq numbers model and host claims so an id is never reused.
+	ClaimSeq int64 `json:"claimSeq,omitempty"`
+	// Verification is the last completion gate's durable outcome and its bounded repair attempts
+	// (spec §24). It never changes the thread's resolution by itself.
+	Verification *VerificationRecord `json:"verification,omitempty"`
 }
 
 // Decode reads one stored version. Empty raw is the empty state of a session without a version.

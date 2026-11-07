@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/taskstate"
+	"github.com/edynasty/LumenCortex/internal/verify"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -23,6 +24,7 @@ const (
 	toolReferenceSuggest = "reference_suggest"
 	toolNoteWrite        = "note_write"
 	toolNoteRemove       = "note_remove"
+	toolClaimWrite       = "claim_write"
 )
 
 func taskToolSpecs() []protocol.ToolSpec {
@@ -116,6 +118,23 @@ func taskToolSpecs() []protocol.ToolSpec {
 				"additionalProperties": false,
 			},
 		},
+		{
+			Name: toolClaimWrite,
+			Description: "Record an explicit basis claim in this thread's Task State: a contract the user stated, a fact you observed, " +
+				"or an assumption you inferred. A claim is proposed only; the runtime or the user settles it with evidence. " +
+				"Mark required when the task depends on it: the completion gate then needs it confirmed with fresh evidence.",
+			Permission: "read",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"kind":      map[string]any{"type": "string", "enum": []string{"contract", "fact", "assumption"}},
+					"statement": map[string]any{"type": "string", "description": fmt.Sprintf("the claim, at most %d bytes", 1024)},
+					"required":  map[string]any{"type": "boolean", "description": "whether the completion gate must find it confirmed"},
+				},
+				"required":             []string{"kind", "statement"},
+				"additionalProperties": false,
+			},
+		},
 	}
 }
 
@@ -140,7 +159,7 @@ func filterTaskToolSpecs(allow []string) []protocol.ToolSpec {
 
 func isTaskTool(name string) bool {
 	switch name {
-	case toolWorkUnitList, toolWorkUnitCreate, toolWorkUnitUpdate, toolReferenceSuggest, toolNoteWrite, toolNoteRemove:
+	case toolWorkUnitList, toolWorkUnitCreate, toolWorkUnitUpdate, toolReferenceSuggest, toolNoteWrite, toolNoteRemove, toolClaimWrite:
 		return true
 	}
 	return false
@@ -233,6 +252,17 @@ func (l *Loop) runTaskTool(ctx context.Context, r *run, name string, args map[st
 			return nil, err
 		}
 		return map[string]any{"removed": id, "notes": len(r.ts.Notes)}, nil
+	case toolClaimWrite:
+		kind, _ := args["kind"].(string)
+		statement, _ := args["statement"].(string)
+		required, _ := args["required"].(bool)
+		claim, err := r.ts.AddModelClaim(verify.Claim{
+			Kind: verify.ClaimKind(kind), Statement: statement, Required: required,
+		}, at)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"claim": claim, "claims": len(r.ts.Claims), "max": verify.MaxClaims}, nil
 	}
 	return nil, fmt.Errorf("unknown task tool: %s", name)
 }

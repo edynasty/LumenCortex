@@ -375,6 +375,10 @@ var journalPayloadStrings = map[string]bool{
 	"toolCallId": true, "callId": true, "relationId": true, "check": true,
 	"jobId": true, "runId": true, "scheduleId": true, "state": true, "source": true,
 	"modelRef": true, "nextModelRef": true, "provider": true, "model": true, "agent": true,
+	// Eval provenance is identifiers and digests, never code, paths or output bodies.
+	"evalSessionId": true, "targetSessionId": true, "artifactId": true, "sha256": true,
+	"requestId": true, "cellId": true, "runtimeId": true, "ownerId": true, "agentId": true, "trialId": true,
+	"action": true, "hookId": true, "decision": true,
 	// the tool name
 	"name": true, "tool": true, "toolName": true,
 	// status and exit code

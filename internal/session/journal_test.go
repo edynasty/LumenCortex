@@ -164,3 +164,25 @@ func TestJournalDropsLongStringsEvenUnderANamedField(t *testing.T) {
 		t.Fatalf("a %d-byte name was written: %v", len(long), got)
 	}
 }
+
+func TestEvalJournalRetainsProvenanceWithoutSourceOrOutputBodies(t *testing.T) {
+	store, journal := journalTestStore(t)
+	if err := store.Journal(context.Background(), "eval.artifact_transfer", map[string]any{
+		"sessionId": "owner", "evalSessionId": "kernel-one", "targetSessionId": "kernel-two",
+		"artifactId": "artifact-one", "source": "artifact-original", "sha256": "0123456789abcdef",
+		"action": "copy", "bytes": 32,
+		"code": "PRIVATE_CODE_SENTINEL", "stdout": "PRIVATE_OUTPUT_SENTINEL", "path": "PRIVATE_PATH_SENTINEL",
+		"args": map[string]any{"sessionId": "PRIVATE_ARGS_SENTINEL"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := journal.last()
+	if got["evalSessionId"] != "kernel-one" || got["targetSessionId"] != "kernel-two" || got["artifactId"] != "artifact-one" || got["source"] != "artifact-original" {
+		t.Fatalf("transfer provenance lost: %#v", got)
+	}
+	for _, key := range []string{"code", "stdout", "path", "args"} {
+		if _, exists := got[key]; exists {
+			t.Fatalf("private content duplicated into journal: %s", key)
+		}
+	}
+}

@@ -50,6 +50,17 @@ func (e *Engine) RevokeSource(ctx context.Context, kind, ref, reason string) (Ex
 	if err := e.cancelRuns(ctx, func(id string) bool { return rev.Expanded || fenced[id] }); err != nil {
 		return ExposureReport{}, err
 	}
+	if rev.Expanded {
+		if err := e.closeEval(); err != nil {
+			return ExposureReport{}, err
+		}
+	} else {
+		for _, id := range rev.Sessions {
+			if err := e.closeEvalOwner(id); err != nil {
+				return ExposureReport{}, err
+			}
+		}
+	}
 	e.events.publish("source.revoked", ref, map[string]any{"epoch": rev.Epoch, "sessions": rev.SessionCount, "expanded": rev.Expanded})
 	return e.ExposureReport(ctx, rev.Epoch)
 }
@@ -108,7 +119,7 @@ func (e *Engine) cancelRuns(ctx context.Context, match func(sessionID string) bo
 	e.runsMu.Lock()
 	var runs []*trackedRun
 	for id, run := range e.runs {
-		if match(id) {
+		if match(evalRunOwner(id)) {
 			runs = append(runs, run)
 		}
 	}

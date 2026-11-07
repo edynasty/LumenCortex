@@ -74,9 +74,10 @@ const (
 const (
 	PurposeMain       = "main"
 	PurposeAutoEffort = "auto_effort"
+	PurposeReview     = "review"
 )
 
-var knownPurposes = map[string]bool{PurposeMain: true, PurposeAutoEffort: true}
+var knownPurposes = map[string]bool{PurposeMain: true, PurposeAutoEffort: true, PurposeReview: true}
 
 // Origin classes (DATA_AND_FAILURES §3) plus the class of an execution row.
 const (

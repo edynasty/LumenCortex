@@ -293,7 +293,11 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		}
 	}
 
-	checkVersion(9)
+	set, err := migrate.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkVersion(set.Latest())
 	hasTable := func(name string) bool {
 		t.Helper()
 		db, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(filepath.Join(statedir, "lumencortex.db"))+"?mode=ro")
@@ -322,8 +326,8 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		return n == 1
 	}
 
-	// Downgrade 9→6: the working notebooks, the job queue and the scheduled tasks go; every v6 object
-	// stays.
+	// Downgrade the current schema to 6: notebooks, jobs and schedules go;
+	// every v6 object and representable evaluator result stays.
 	set9, err := migrate.Embedded()
 	if err != nil {
 		t.Fatal(err)
@@ -334,7 +338,7 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 	checkVersion(6)
 	if hasTable("notebooks") || hasTable("notebook_revisions") || hasTable("jobs") || hasTable("scheduled_tasks") ||
 		!hasTable("request_envelopes") || !hasTable("check_approvals") {
-		t.Fatal("after 9→6 a v9 or v8 table remains or a v6 table is gone")
+		t.Fatal("after downgrade to 6 a newer table remains or a v6 table is gone")
 	}
 
 	// Downgrade 6→5: provenance/approval tables and the six eval_results columns go; the evaluator row,
@@ -381,10 +385,6 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	set, err := migrate.Embedded()
-	if err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := migrate.Downgrade(context.Background(), statedir, set, 2); err != nil {
@@ -439,13 +439,13 @@ func TestDowngradeEveryBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Upgrade 1→2→…→9
+	// Upgrade back to the current schema.
 	store, err = Open(statedir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	checkVersion(9)
+	checkVersion(set.Latest())
 	if !hasTable("eval_results") || !hasTable("artifacts") || !hasColumn("sessions", "agent_id") || !hasTable("jobs") ||
 		!hasTable("scheduled_tasks") || !hasTable("notebooks") || !hasTable("notebook_revisions") {
 		t.Fatal("re-upgrade did not recreate the evaluator, job, schedule and notebook tables and the agent column")

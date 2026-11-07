@@ -421,19 +421,23 @@ const workerPrompt = `You are a LumenCortex execution worker with one assigned o
 // delegation, never interactive. Step and output bounds, effort and the tool denylist come from the
 // parent run when there is one. agentID is the agent the child runs, pinned by its first Start.
 func executionOptions(parent AgentOptions, ref config.ModelRef, units json.RawMessage, parentID, agentID string) AgentOptions {
+	evalEnabled, shared, lease := childEvalGrant(parent)
 	return inheritChildExecution(AgentOptions{
-		ModelRef:         ref,
-		Policy:           toolset.PolicyWorkspace,
-		ToolDenylist:     append([]string(nil), parent.ToolDenylist...),
-		WorkUnits:        units,
-		SystemPrompt:     workerPrompt + "\n" + policyAuthority(toolset.PolicyWorkspace),
-		MaxTokens:        parent.MaxTokens,
-		Temperature:      parent.Temperature,
-		parentSessionID:  parentID,
-		ownerRun:         parent.ownerRun,
-		childAgent:       agentID,
-		disableSubagents: true,
-		disableMCP:       true,
+		ModelRef:          ref,
+		Policy:            toolset.PolicyWorkspace,
+		EvalEnabled:       evalEnabled,
+		sharedEvalSession: shared,
+		sharedEvalLease:   lease,
+		ToolDenylist:      append([]string(nil), parent.ToolDenylist...),
+		WorkUnits:         units,
+		SystemPrompt:      workerPrompt + "\n" + policyAuthority(toolset.PolicyWorkspace),
+		MaxTokens:         parent.MaxTokens,
+		Temperature:       parent.Temperature,
+		parentSessionID:   parentID,
+		ownerRun:          parent.ownerRun,
+		childAgent:        agentID,
+		disableSubagents:  true,
+		disableMCP:        true,
 	}, parent)
 }
 

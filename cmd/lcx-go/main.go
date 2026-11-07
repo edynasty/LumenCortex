@@ -40,7 +40,7 @@ func run() error {
 	if len(os.Args) > 1 && os.Args[1] == "db" {
 		return runDBCommand(ctx, lcx.Options{Workspace: workspace}, os.Args[2:])
 	}
-	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: workspace, ProviderFactory: providerFactory})
+	engine, err := lcx.OpenContext(ctx, lcx.Options{Workspace: workspace, ProviderFactory: providerFactory, Eval: evalOptionsFromEnv()})
 	if err != nil {
 		return err
 	}
@@ -57,6 +57,8 @@ func run() error {
 		return printJSON(engine.Health())
 	}
 	switch args[0] {
+	case "eval":
+		return runEvalCommand(ctx, engine, args[1:])
 	case "session-new":
 		parsed, err := parseAgentCommandArgs(args[1:])
 		if err != nil {
@@ -226,7 +228,7 @@ func run() error {
 	case "checks":
 		return runChecksCommand(ctx, engine, os.Stdout, args[1:])
 	default:
-		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, session-delete, shell, agent, resume, delivery-verify, governor, approve, worktree, skills, agents, import, plugins, checks)", args[0])
+		return fmt.Errorf("unknown command %q (preview commands: health, session-new, sessions, session-delete, shell, agent, resume, delivery-verify, governor, approve, worktree, skills, agents, import, plugins, checks, eval)", args[0])
 	}
 }
 
@@ -531,6 +533,7 @@ func agentOptionsFromEnv() (lcx.AgentOptions, error) {
 	}
 	return lcx.AgentOptions{
 		Agent:                  strings.TrimSpace(os.Getenv("LCX_AGENT")),
+		EvalEnabled:            envBool("LCX_EVAL_ENABLED"),
 		Policy:                 policy,
 		MaxSteps:               maxSteps,
 		MaxTokens:              maxTokens,

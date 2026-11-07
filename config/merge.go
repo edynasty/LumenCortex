@@ -309,6 +309,14 @@ func mergeModel(base, ws Model) Model {
 		c := *ws.Cost
 		out.Cost = &c
 	}
+	if ws.Profile != nil {
+		p := *ws.Profile
+		if ws.Profile.Budget != nil {
+			b := *ws.Profile.Budget
+			p.Budget = &b
+		}
+		out.Profile = &p
+	}
 	return out
 }
 
@@ -427,6 +435,14 @@ func cloneModel(m Model) Model {
 	if m.Cost != nil {
 		c := *m.Cost
 		out.Cost = &c
+	}
+	if m.Profile != nil {
+		p := *m.Profile
+		if m.Profile.Budget != nil {
+			b := *m.Profile.Budget
+			p.Budget = &b
+		}
+		out.Profile = &p
 	}
 	return out
 }

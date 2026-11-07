@@ -30,7 +30,7 @@ type Protected struct {
 // legacyStateGlobs are the names, matched case-insensitively against the first component under
 // Protected.Legacy, that hold or guard state: the database and its sidecars, the locks, the run
 // locks, the backups, the checkpoint marker, and the copy a migration leaves.
-var legacyStateGlobs = []string{"lumencortex.db*", "db.lock", "bind.lock", "runs", "backups", "checkpoint.pending*", "legacy-state-*"}
+var legacyStateGlobs = []string{"lumencortex.db*", "db.lock", "bind.lock", "runs", "backups", "checkpoint.pending*", "legacy-state-*", "eval", "eval-workspaces"}
 
 // maxProtectedEntries bounds the walk that collects the files whose identity is compared. State
 // directories hold a few dozen files; more than this is refused rather than guessed at.

@@ -30,6 +30,10 @@ const (
 	KindTest   = "test"
 	KindBuild  = "build"
 	KindSchema = "schema"
+	// KindSemantic is a host check that decides the semantic level: it runs like a test or build
+	// command, but its result never satisfies execution alone and its failure blocks semantic
+	// acceptance (spec §24-25). It is still a host-approved definition the agent cannot change.
+	KindSemantic = "semantic"
 
 	ProvenanceRuntime = "runtime"
 	// ProvenanceHumanPrefix starts the provenance of a person's acceptance, "human:<id>".

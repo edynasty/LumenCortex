@@ -63,6 +63,9 @@ type Evidence struct {
 	// Refs are the workspace refs a latch rests on, e.g. "head:<sha>".
 	Refs              []string
 	DeliverySatisfied bool
+	// Fingerprint is the workspace state the evidence was read at (evaluator.Env's string form),
+	// "" outside git. Claims confirmed at another fingerprint are stale.
+	Fingerprint string
 }
 
 // TaskEvidence is one execution child of the session and its run status.

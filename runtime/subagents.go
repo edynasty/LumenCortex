@@ -11,7 +11,9 @@ import (
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/session"
+	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/internal/toolset"
+	"github.com/edynasty/LumenCortex/internal/verify"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -37,12 +39,19 @@ type SubagentNode struct {
 	Delivery *DeliveryResult `json:"delivery,omitempty"`
 	// Withdrawn is true when a revocation or privacy fence names the child: its goal and final are not
 	// returned, to the host or to the list_subagents/wait_subagent tools, and no edge cites it.
-	Withdrawn bool           `json:"withdrawn,omitempty"`
-	Active    bool           `json:"active"`
-	CreatedAt time.Time      `json:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt"`
-	Runtime   SessionRuntime `json:"runtime"`
-	Children  []SubagentNode `json:"children,omitempty"`
+	Withdrawn bool `json:"withdrawn,omitempty"`
+	// Verification is the child's last completion-gate status, "" when its gate never decided.
+	Verification string `json:"verification,omitempty"`
+	// Review is the child's independent review, when one ran.
+	Review *ReviewView `json:"review,omitempty"`
+	// Completion is the child's own completion check: complete, incomplete or failed. It never
+	// means the parent's task is complete.
+	Completion string         `json:"completion,omitempty"`
+	Active     bool           `json:"active"`
+	CreatedAt  time.Time      `json:"createdAt"`
+	UpdatedAt  time.Time      `json:"updatedAt"`
+	Runtime    SessionRuntime `json:"runtime"`
+	Children   []SubagentNode `json:"children,omitempty"`
 }
 
 // subagentNode is the node of one child session: its row, its runtime identity, and its content only
@@ -74,8 +83,40 @@ func (s *RunSupervisor) subagentNode(ctx context.Context, childID, parentID, kin
 		if value.Final != nil {
 			node.Final = *value.Final
 		}
+		node.Verification = ""
+		if state.Verification != nil {
+			node.Verification = state.Verification.Status
+			if review := state.Verification.Review; review != nil {
+				node.Review = &ReviewView{Passed: review.Passed, Findings: review.Findings,
+					Source: review.Source, Model: review.Model, RequestID: review.RequestID, At: review.At}
+			}
+		}
+		node.Completion = subagentCompletion(value.Status, state.DeliveryResult, state.Verification)
 	}
 	return node, nil
+}
+
+// subagentCompletion is a child's completion check, independent of its parent's task: a child that
+// ran but whose delivery or verification did not pass is incomplete, and a failed or interrupted
+// child is failed. The parent's evidence rule still decides whether the child's result is accepted.
+func subagentCompletion(status string, delivery *taskstate.DeliveryResult, verification *taskstate.VerificationRecord) string {
+	switch status {
+	case "failed", "interrupted":
+		return "failed"
+	case "completed":
+		if delivery != nil && delivery.Status != DeliveryVerified {
+			return "incomplete"
+		}
+		if verification != nil && verification.Status == string(verify.StatusFailed) {
+			return "failed"
+		}
+		if verification != nil && verification.Status == string(verify.StatusUnknown) {
+			return "incomplete"
+		}
+		return "complete"
+	default:
+		return "incomplete"
+	}
 }
 
 type SessionCheckpoint = session.Checkpoint
@@ -272,18 +313,25 @@ const explorePrompt = `You are a focused read-only LumenCortex subagent. Investi
 // childOptions are a read-only child's run options. The launch fixes the authority (read-only, no
 // MCP, no spawn); agentID is the agent it runs, pinned by its first Start.
 func (c *subagentController) childOptions(childRef config.ModelRef, agentID string) AgentOptions {
+	// A child never inherits the execution runtimes: the host grants them explicitly through the
+	// parent's ChildExecution override, and a read-only child keeps explore's authority either way.
+	// Its budget is the parent's copy, so a child can never exceed it.
+	evalEnabled, shared, lease := childEvalGrant(c.parentOpts)
 	return inheritChildExecution(AgentOptions{
-		ModelRef:         childRef,
-		Policy:           toolset.PolicyReadOnly,
-		ToolDenylist:     append([]string(nil), c.parentOpts.ToolDenylist...),
-		SystemPrompt:     explorePrompt,
-		MaxTokens:        c.parentOpts.MaxTokens,
-		Temperature:      c.parentOpts.Temperature,
-		parentSessionID:  c.parentID,
-		ownerRun:         c.parentOpts.ownerRun,
-		childAgent:       agentID,
-		disableSubagents: true,
-		disableMCP:       true,
+		ModelRef:          childRef,
+		Policy:            toolset.PolicyReadOnly,
+		EvalEnabled:       evalEnabled,
+		sharedEvalSession: shared,
+		sharedEvalLease:   lease,
+		ToolDenylist:      append([]string(nil), c.parentOpts.ToolDenylist...),
+		SystemPrompt:      explorePrompt,
+		MaxTokens:         c.parentOpts.MaxTokens,
+		Temperature:       c.parentOpts.Temperature,
+		parentSessionID:   c.parentID,
+		ownerRun:          c.parentOpts.ownerRun,
+		childAgent:        agentID,
+		disableSubagents:  true,
+		disableMCP:        true,
 	}, c.parentOpts)
 }
 

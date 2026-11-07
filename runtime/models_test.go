@@ -541,7 +541,7 @@ func TestHiddenReasoningIsNeverPersisted(t *testing.T) {
 // for capacity checks does not turn into a wire value.
 func TestMaxTokensIsSentOnlyWhenRequestedOrConfigured(t *testing.T) {
 	configured := strings.Replace(modelConfig(""), `"a": {"modelID": "a", "limit": {"context": 8000, "output": 1000}}`,
-		`"a": {"modelID": "a", "limit": {"context": 8000, "output": 1000}}, "d": {"modelID": "d", "limit": {"context": 8000}}`, 1)
+		`"a": {"modelID": "a", "limit": {"context": 8000, "output": 1000}}, "d": {"modelID": "d", "limit": {"context": 32768}}`, 1)
 	useGlobalConfig(t, configured)
 	engine := openTestEngine(t)
 	pa, pd := &answering{final: "a"}, &answering{final: "d"}
@@ -559,7 +559,9 @@ func TestMaxTokensIsSentOnlyWhenRequestedOrConfigured(t *testing.T) {
 		t.Fatalf("explicit MaxTokens sent as %d, want 77", sent(pa))
 	}
 	h2 := newTestSession(t, engine, "no output configured")
-	run(t, engine, h2.ID, AgentOptions{ModelRef: "test/d"})
+	if result, err := engine.RunAgent(context.Background(), h2.ID, AgentOptions{ModelRef: "test/d", MaxSteps: 3}); err != nil || result.Status != "completed" {
+		t.Fatalf("model without configured output never completed: %+v err=%v", result, err)
+	}
 	if sent(pd) != 0 {
 		t.Fatalf("an unconfigured output limit was sent as max_tokens=%d", sent(pd))
 	}

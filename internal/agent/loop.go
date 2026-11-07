@@ -14,6 +14,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/evaluator"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
+	"github.com/edynasty/LumenCortex/internal/verify"
 	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/internal/workflow"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -77,6 +78,13 @@ type Loop struct {
 	// Jobs lists the run's active background jobs for the completion gate (ADR-0019 §3); nil means the
 	// run has no jobs to wait for.
 	Jobs RunJobs
+	// Hooks are the host's versioned lifecycle hooks (spec §20); nil runs none.
+	Hooks *verify.Registry
+	// Verifier decides semantic verdicts in an independent context (spec §24); nil means no semantic
+	// level is decided.
+	Verifier verify.Verifier
+	// Reviewer is the single, opt-in, read-only independent review (spec §22); nil disables it.
+	Reviewer verify.Reviewer
 }
 
 // run is the Task State a run works on: the run's current state, the workflow and work units decoded
@@ -93,6 +101,11 @@ type run struct {
 	mutated bool
 	// spend is what the run used against opts.Budget (ADR-0019 §6).
 	spend *Spend
+	// reviewed: the single independent review of this run already ran.
+	reviewed bool
+	// review and its fingerprint apply only to the workspace state that was reviewed.
+	review            *verify.ReviewResult
+	reviewFingerprint string
 	runTranscript
 }
 
@@ -248,6 +261,8 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			Tasks:      l.Tasks != nil,
 			TaskAgents: opts.TaskAgents,
 		})
+		// The model profile presents the same catalog in its chosen form; authority is unchanged.
+		specs = presentSpecs(specs, opts.Presentation.ToolDescriptions)
 		activeWorkUnit, _ := r.units.EnsureActive()
 		r.ts.SetUnits(r.units)
 		// The request window (design §3.3 steps 4-6, §5): System, the Task State block and the newest
@@ -341,6 +356,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			// needs (ADR-0019 §3).
 			jobsCorrection := l.jobsCorrection(ctx, sessionID, step, opts)
 			var correction string
+			// decided are the required checks this completion already decided: the verification gate
+			// reuses them, so a check is never run twice for one proposal.
+			var decided []evaluator.Verdict
 			switch {
 			case jobsCorrection != "":
 				correction = jobsCorrection
@@ -356,9 +374,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				// results for the new state; a question-only turn runs none and latches only on results
 				// already stored.
 				if r.mutated {
-					if _, cause := l.requiredChecks(ctx); cause != nil {
+					_, all, cause := l.requiredChecksAndVerdicts(ctx)
+					if cause != nil {
 						return l.exit(ctx, state, usage, *cause)
 					}
+					decided = all
 				}
 			case len(r.units.Incomplete()) > 0:
 				remaining := r.units.Incomplete()
@@ -366,10 +386,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				l.emit("work_unit.blocked_final", sessionID, map[string]any{"step": step, "remaining": remaining})
 			default:
 				// The completion gate's last condition: every required check decided passed (§4.7).
-				failed, cause := l.requiredChecks(ctx)
+				failed, all, cause := l.requiredChecksAndVerdicts(ctx)
 				if cause != nil {
 					return l.exit(ctx, state, usage, *cause)
 				}
+				decided = all
 				if unapproved := unapprovedChecks(failed); len(unapproved) > 0 {
 					// Only the user can approve a check definition (ADR-0017): the model cannot clear
 					// this, so the run ends here instead of looping on a correction.
@@ -390,6 +411,20 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				return l.exit(ctx, state, usage, outputLimitExit(response))
 			}
 			if correction == "" {
+				// The verification levels are opt-in: a run without a host request, a required claim or
+				// an explicit verifier keeps the pre-existing completion path. When they are on, they
+				// run before the evidence rule, so a delivery or execution pass never becomes a
+				// semantic pass.
+				if l.verificationRequested(opts, r) {
+					var cause *ExitCause
+					if correction, cause = l.verificationGate(ctx, sessionID, r, opts, step, assistant.Content, &usage, decided); cause != nil {
+						return l.exit(ctx, state, usage, *cause)
+					}
+				} else {
+					correction = l.completionHooks(ctx, sessionID, opts, step)
+				}
+			}
+			if correction == "" {
 				l.latchEvidence(ctx, sessionID, r)
 			}
 			if err := l.flush(ctx, sessionID, r, taskstate.ReasonStep); err != nil {
@@ -401,7 +436,8 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 			}
 			if correction != "" {
-				blocked := protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked, Content: correction}
+				blocked := protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked,
+					Content: presentFeedback(correction, opts.Presentation.Feedback)}
 				seq, _, err := l.Store.AppendMessage(ctx, sessionID, blocked, nil)
 				if err != nil {
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
@@ -417,6 +453,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			if err := l.finish(ctx, state, usage, cause, &final); err != nil {
 				return finishFailure(state, usage, cause, err)
 			}
+			l.observeExitHook(ctx, sessionID, opts.RunID, verifyEventOnClose, map[string]any{"step": step, "status": StatusCompleted})
 			l.emit("session.complete", sessionID, map[string]any{"step": step})
 			return Result{SessionID: sessionID, Status: StatusCompleted, Final: final, Usage: usage, Workflow: workflowSummary(r.wf)}, nil
 		}
@@ -456,6 +493,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				x          *execution
 				post       *session.ExecutionResult
 				edges      []session.DerivedEdge
+				cb         *callbackDispatcher
 			)
 			if denied {
 				content := "tool is not allowed in the current working set"
@@ -465,85 +503,160 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				}
 				toolResult = protocol.ToolResult{OK: false, Denied: true, Permission: "workflow", Content: content}
 			} else {
-				// A side-effect tool runs only after its admission is durable (plan T1-S4). From here
-				// until the result commits, a crash or cancellation leaves the execution admitted, and
-				// Reconcile makes it outcome_unknown; it is never run again.
-				if tier := executionTierOf(call.Name, specs); tier != tierNone {
-					var cause *ExitCause
-					if x, cause = l.admitExecution(ctx, sessionID, opts, answered.RequestID, call, args, tier); cause != nil {
-						return l.exit(ctx, state, usage, *cause)
+				// Lifecycle hooks run before any admission or execution (spec §20). A deny answers the
+				// call without running it; a mutable hook may replace arguments, never policy.
+				pre := l.runHook(ctx, sessionID, opts.RunID, verifyEventPreToolUse, HookRequest{
+					Step: step, ToolCallID: call.ID, ToolName: call.Name, ToolArgs: args,
+				})
+				hookDenied := pre.Denied()
+				if !hookDenied && pre.Args != nil {
+					args = mergeArgs(args, pre.Args)
+					// The tool validated the model's arguments before the hook ran; a replacement is
+					// validated again against the same schema, so a hook cannot authorize input the
+					// tool itself refuses.
+					if spec, ok := toolSpecOf(specs, call.Name); ok {
+						if err := validateToolArgs(spec, args); err != nil {
+							hookDenied = true
+							pre = verify.Outcome{Decision: verify.DecisionDeny,
+								Feedback: []string{"the hook's replacement arguments are invalid for this tool: " + err.Error()}}
+						}
 					}
 				}
-				var toolErr error
-				toolStarted := time.Now()
-				spend.ToolCalls++
-				l.emit("tool.start", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "args": args})
-				if err := ctx.Err(); err != nil {
-					return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
-				}
-				if call.Name == toolStartTask {
-					toolResult = l.startTask(ctx, r, opts, args, time.Now().UTC())
-					if ctx.Err() != nil {
-						// Cancelled while starting: the call stays unanswered and the run ends. A child
-						// that did start is still delivered through its relation.
-						return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()})
-					}
-				} else if isTaskTool(call.Name) {
-					var cause *ExitCause
-					toolResult, cause = l.executeTaskTool(ctx, r, call.Name, args, time.Now().UTC())
-					if cause != nil {
-						// Deciding a unit's checks was cancelled or failed: the call stays
-						// unanswered and the run ends.
-						return l.exit(ctx, state, usage, *cause)
-					}
-				} else {
-					// The tool sees its call id (a job names the call that started it) and the time by
-					// which it must be done (ADR-0019 §2); the run's own deadline stays the hard stop.
-					toolCtx := protocol.WithToolCallID(ctx, call.ID)
-					if until, ok := clock.toolDeadline(); ok {
-						toolCtx = protocol.WithToolDeadline(toolCtx, until)
-					}
-					toolResult, toolErr = l.Tools.Execute(toolCtx, call.Name, args, func(output protocol.ToolOutput) {
-						l.emit("tool.output", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "stream": output.Stream, "chunk": output.Chunk})
+				if !hookDenied && isEvalTool(call.Name) {
+					evalPre := l.runHook(ctx, sessionID, opts.RunID, verifyEventPreEval, HookRequest{
+						Step: step, ToolCallID: call.ID, ToolName: call.Name, ToolArgs: args,
 					})
-					if ctx.Err() != nil {
-						// The command tool reports a killed command as a result, not an error, and its
-						// call is answered before the run ends: one terminal row with the partial
-						// output and its execution settled, so the transcript and the execution are
-						// terminal rather than waiting for the next Start. Every other tool keeps the
-						// older contract: its stopped call stays unanswered and Reconcile closes it.
-						if call.Name == protocol.ToolBash {
-							if closeErr := l.closeStoppedCall(ctx, sessionID, opts.RunID, call, x, toolResult, toolErr, r); closeErr != nil {
-								// The run was cancelled; its closing write failed. The cause stays the
-								// cancellation the run really had (a cancelled run's storage error is the
-								// cancellation, loop exit rule), and the failure is joined so it is reported
-								// rather than hidden. The transcript keeps the gap Reconcile closes later.
-								cause := ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: errors.Join(ctx.Err(), closeErr)}
-								if errors.Is(context.Cause(ctx), ErrRunDeadline) {
-									cause = ExitCause{Status: StatusInterrupted, Kind: KindDeadline, Err: errors.Join(ErrRunDeadline, closeErr)}
-								}
-								return l.exit(ctx, state, usage, cause)
+					if evalPre.Denied() {
+						hookDenied, pre = true, evalPre
+					}
+				}
+				if !hookDenied && isSubagentTool(call.Name) {
+					subPre := l.runHook(ctx, sessionID, opts.RunID, verifyEventPreSubagent, HookRequest{
+						Step: step, ToolCallID: call.ID, ToolName: call.Name, ToolArgs: args,
+					})
+					if subPre.Denied() {
+						hookDenied, pre = true, subPre
+					}
+				}
+				if hookDenied {
+					toolResult = protocol.ToolResult{OK: false, Denied: true, Permission: "hook",
+						Content: appendHookFeedback(toolErrorContent("denied by a lifecycle hook"), hookFeedback(pre))}
+				} else {
+					// A side-effect tool runs only after its admission is durable (plan T1-S4). From here
+					// until the result commits, a crash or cancellation leaves the execution admitted, and
+					// Reconcile makes it outcome_unknown; it is never run again.
+					if tier := executionTierOf(call.Name, specs); tier != tierNone {
+						var cause *ExitCause
+						if x, cause = l.admitExecution(ctx, sessionID, opts, answered.RequestID, call, args, tier); cause != nil {
+							return l.exit(ctx, state, usage, *cause)
+						}
+					}
+					var toolErr error
+					toolStarted := time.Now()
+					spend.ToolCalls++
+					l.emit("tool.start", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "args": args})
+					if err := ctx.Err(); err != nil {
+						return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+					}
+					if call.Name == toolStartTask {
+						toolResult = l.startTask(ctx, r, opts, args, time.Now().UTC())
+						if ctx.Err() != nil {
+							// Cancelled while starting: the call stays unanswered and the run ends. A child
+							// that did start is still delivered through its relation.
+							return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()})
+						}
+					} else if isTaskTool(call.Name) {
+						var cause *ExitCause
+						toolResult, cause = l.executeTaskTool(ctx, r, call.Name, args, time.Now().UTC())
+						if cause != nil {
+							// Deciding a unit's checks was cancelled or failed: the call stays
+							// unanswered and the run ends.
+							return l.exit(ctx, state, usage, *cause)
+						}
+					} else {
+						// The tool sees its call id (a job names the call that started it) and the time by
+						// which it must be done (ADR-0019 §2); the run's own deadline stays the hard stop.
+						toolCtx := protocol.WithToolCallID(ctx, call.ID)
+						if until, ok := clock.toolDeadline(); ok {
+							toolCtx = protocol.WithToolDeadline(toolCtx, until)
+						}
+						cancelCallbacks := context.CancelFunc(func() {})
+						if caller := l.toolCallback(sessionID, opts.RunID, answered.RequestID, step, call, specs, spend, opts.Budget, answered.Lineage); caller != nil {
+							toolCtx, cancelCallbacks = context.WithCancel(toolCtx)
+							toolCtx = protocol.WithToolCallback(toolCtx, caller)
+							if d, ok := caller.(*callbackDispatcher); ok {
+								cb = d
 							}
 						}
-						return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()})
+						toolResult, toolErr = l.Tools.Execute(toolCtx, call.Name, args, func(output protocol.ToolOutput) {
+							l.emit("tool.output", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "stream": output.Stream, "chunk": output.Chunk})
+						})
+						cancelCallbacks()
+						if cb != nil {
+							cb.close()
+						}
+						if ctx.Err() != nil {
+							// The command tool reports a killed command as a result, not an error, and its
+							// call is answered before the run ends: one terminal row with the partial
+							// output and its execution settled, so the transcript and the execution are
+							// terminal rather than waiting for the next Start. Every other tool keeps the
+							// older contract: its stopped call stays unanswered and Reconcile closes it.
+							if call.Name == protocol.ToolBash {
+								if closeErr := l.closeStoppedCall(ctx, sessionID, opts.RunID, call, x, toolResult, toolErr, r); closeErr != nil {
+									// The run was cancelled; its closing write failed. The cause stays the
+									// cancellation the run really had (a cancelled run's storage error is the
+									// cancellation, loop exit rule), and the failure is joined so it is reported
+									// rather than hidden. The transcript keeps the gap Reconcile closes later.
+									cause := ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: errors.Join(ctx.Err(), closeErr)}
+									if errors.Is(context.Cause(ctx), ErrRunDeadline) {
+										cause = ExitCause{Status: StatusInterrupted, Kind: KindDeadline, Err: errors.Join(ErrRunDeadline, closeErr)}
+									}
+									return l.exit(ctx, state, usage, cause)
+								}
+							}
+							return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()})
+						}
+						if toolErr != nil {
+							toolResult = protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, toolErr.Error())}
+						}
+						if toolResult.MutatesWorkspace {
+							// A change to the workspace is a new obligation, whether or not the call succeeded.
+							r.ts.Reopen(time.Now().UTC())
+							r.mutated = true
+						}
 					}
-					if toolErr != nil {
-						toolResult = protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, toolErr.Error())}
+					clock.observeTool(call.Name, time.Since(toolStarted))
+					if x != nil {
+						post, edges = l.postExecution(ctx, x, toolResult, toolErr, answered.RequestID, answered.Lineage)
 					}
-					if toolResult.MutatesWorkspace {
-						// A change to the workspace is a new obligation, whether or not the call succeeded.
-						r.ts.Reopen(time.Now().UTC())
-						r.mutated = true
+					if (x != nil || toolResult.MutatesWorkspace) && l.Checks != nil {
+						// No check episode closed before a side-effect tool is reused after it (ADR-0017).
+						l.Checks.Mutated()
 					}
 				}
-				clock.observeTool(call.Name, time.Since(toolStarted))
-				if x != nil {
-					post, edges = l.postExecution(ctx, x, toolResult, toolErr, answered.RequestID, answered.Lineage)
+			}
+			// Post hooks observe every call, a denied one included.
+			if isEvalTool(call.Name) {
+				evalPost := l.runHook(ctx, sessionID, opts.RunID, verifyEventPostEval, HookRequest{
+					Step: step, ToolCallID: call.ID, ToolName: call.Name, ToolArgs: args, ToolResult: &toolResult,
+				})
+				if feedback := evalPost.FeedbackText(); feedback != "" {
+					toolResult.Content = appendHookFeedback(toolResult.Content, feedback)
 				}
-				if (x != nil || toolResult.MutatesWorkspace) && l.Checks != nil {
-					// No check episode closed before a side-effect tool is reused after it (ADR-0017).
-					l.Checks.Mutated()
+			}
+			if isSubagentTool(call.Name) {
+				subPost := l.runHook(ctx, sessionID, opts.RunID, verifyEventPostSubagent, HookRequest{
+					Step: step, ToolCallID: call.ID, ToolName: call.Name, ToolArgs: args, ToolResult: &toolResult,
+				})
+				if feedback := subPost.FeedbackText(); feedback != "" {
+					toolResult.Content = appendHookFeedback(toolResult.Content, feedback)
 				}
+			}
+			postHook := l.runHook(ctx, sessionID, opts.RunID, verifyEventPostToolUse, HookRequest{
+				Step: step, ToolCallID: call.ID, ToolName: call.Name, ToolArgs: args, ToolResult: &toolResult,
+			})
+			if feedback := postHook.FeedbackText(); feedback != "" {
+				toolResult.Content = appendHookFeedback(toolResult.Content, feedback)
 			}
 			end := map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "ok": toolResult.OK, "denied": toolResult.Denied}
 			if x != nil {
@@ -591,6 +704,12 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				"ok":         toolResult.OK,
 				"denied":     toolResult.Denied,
 			})
+			if cb != nil && (len(cb.journal.Entries) > 0 || cb.journal.Dropped > 0) {
+				// Nested calls have no tool call of their own: a bounded journal replaces unmatched rows.
+				l.checkpoint(sessionID, "agent.callbacks", map[string]any{
+					"step": step, "toolCallId": call.ID, "tool": call.Name, "journal": cb.journal,
+				})
+			}
 			record.ToolCalls = append(record.ToolCalls, toolCallRecord{ID: call.ID, Name: call.Name, Args: args, OK: toolResult.OK, Denied: toolResult.Denied})
 		}
 		if err := l.flush(ctx, sessionID, r, taskstate.ReasonStep); err != nil {
@@ -665,30 +784,8 @@ func (l *Loop) latchEvidence(ctx context.Context, sessionID string, r *run) {
 // and that was changed since (emptied, a check removed or made optional) fails as a whole with one
 // spec_unapproved verdict, whatever it requires now (ADR-0017).
 func (l *Loop) requiredChecks(ctx context.Context) ([]evaluator.Verdict, *ExitCause) {
-	if l.Checks == nil {
-		return nil, nil
-	}
-	approved, err := l.Checks.SetApproved(ctx)
-	if err != nil {
-		cause := checkFailureExit(ctx, err)
-		return nil, &cause
-	}
-	if !approved {
-		return []evaluator.Verdict{{
-			Result: evaluator.Result{Check: checkSetID, Status: evaluator.StatusSpecUnapproved, Provenance: evaluator.ProvenanceRuntime, Artifacts: []string{}},
-			Tail:   "the check set changed since the host approved it (a check removed, made optional, or the set emptied)",
-		}}, nil
-	}
-	_, required := l.Checks.Configured()
-	if len(required) == 0 {
-		return nil, nil
-	}
-	verdicts, err := l.Checks.Decide(ctx, required, "")
-	if err != nil {
-		cause := checkFailureExit(ctx, err)
-		return nil, &cause
-	}
-	return failing(verdicts), nil
+	failed, _, cause := l.requiredChecksAndVerdicts(ctx)
+	return failed, cause
 }
 
 // flush writes the run's unsaved Task State on its own, if any.
@@ -840,6 +937,18 @@ func (l *Loop) exit(ctx context.Context, state SessionState, usage protocol.Usag
 	}
 	if err := l.finish(ctx, state, usage, cause, nil); err != nil {
 		return finishFailure(state, usage, cause, err)
+	}
+	message := ""
+	if cause.Err != nil {
+		message = cause.Err.Error()
+	}
+	switch {
+	case cause.Kind == KindDeadline:
+		l.observeExitHook(ctx, state.ID, "", verifyEventOnTimeout, exitHookDetail(cause.Kind, message, time.Now()))
+	case cause.Status == StatusInterrupted && cause.Kind == KindCancelled:
+		l.observeExitHook(ctx, state.ID, "", verifyEventOnCancel, exitHookDetail(cause.Kind, message, time.Now()))
+	case cause.Status == StatusFailed:
+		l.observeExitHook(ctx, state.ID, "", verifyEventOnFailure, exitHookDetail(cause.Kind, message, time.Now()))
 	}
 	event := "session.interrupted"
 	if cause.Status == StatusFailed {

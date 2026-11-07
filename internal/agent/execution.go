@@ -62,6 +62,17 @@ func executionTierOf(name string, specs []protocol.ToolSpec) executionTier {
 		// A rename writes files the language server chooses, which the call's arguments do not name:
 		// the whole work tree is snapshotted, as for shell.
 		return tierWorkspace
+	case "eval_artifact":
+		// An export writes a kernel artifact into the session workspace at a path the call names
+		// (import and copy only read it). The workspace snapshot is taken whole because the action
+		// and its path are one argument set: a pre/post pair that shows no change is complete, and a
+		// real export keeps its file edges, so a check-definition write still invalidates approval.
+		return tierWorkspace
+	case "eval", "eval_create", "eval_control", "eval_runtimes", "eval_sessions":
+		// The kernel's own directory is private to the runtime, not the session workspace: the call
+		// records no workspace pre/post snapshot. Its spec still reports MutatesWorkspace, which the
+		// loop uses to reopen the thread and to retire a closed check episode.
+		return tierNone
 	case toolStartTask, toolSpawnSubagent:
 		return tierAdmit
 	}

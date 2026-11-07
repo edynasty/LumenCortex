@@ -404,7 +404,7 @@ func (e *Evaluator) run(ctx context.Context, spec Spec, fingerprint, workUnitID 
 		log    []byte
 	)
 	switch spec.Kind {
-	case KindTest, KindBuild:
+	case KindTest, KindBuild, KindSemantic:
 		var err error
 		status, log, err = e.runCommand(ctx, spec)
 		if err != nil {

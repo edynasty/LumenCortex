@@ -111,6 +111,9 @@ const (
 	CheckTest   = "test"
 	CheckBuild  = "build"
 	CheckSchema = "schema"
+	// CheckSemantic is a host check that decides the semantic verification level (spec §24-25). It
+	// runs like a test or build command; its result never counts as execution evidence alone.
+	CheckSemantic = "semantic"
 )
 
 // File is one lumencortex.json document. A nil slice or map, a nil pointer and a zero number mean
@@ -503,6 +506,38 @@ type Model struct {
 	ToolCalling *bool       `json:"toolCalling,omitempty"`
 	Modalities  *Modalities `json:"modalities,omitempty"`
 	Cost        *Cost       `json:"cost,omitempty"`
+	// Profile is the model's execution profile: how its tool catalog and failure feedback are
+	// presented, and the run limits its sessions default to. It never changes policy, permissions,
+	// checks or tool authority.
+	Profile *ModelProfile `json:"profile,omitempty"`
+}
+
+// Model profile presentation variants. A profile may only choose a presentation; the authority a
+// tool carries (its permission, parameters and mutating flag) is never profile-dependent.
+const (
+	ProfileCompact  = "compact"
+	ProfileDetailed = "detailed"
+)
+
+// ModelProfile is a model's execution profile (spec §26).
+type ModelProfile struct {
+	// ToolDescriptions: compact trims each tool description to its first sentence; detailed (or
+	// absent) sends the full text. The schema, permission and mutating flag are unchanged.
+	ToolDescriptions string `json:"toolDescriptions,omitempty"`
+	// Feedback: compact shortens a blocked completion's feedback to one line per item; detailed (or
+	// absent) keeps diagnostics and output tails.
+	Feedback string `json:"feedback,omitempty"`
+	// MaxSteps and MaxToolCallsPerStep are the run limits a session on this model starts with when
+	// the host sets none.
+	MaxSteps            int `json:"maxSteps,omitempty"`
+	MaxToolCallsPerStep int `json:"maxToolCallsPerStep,omitempty"`
+	// Budget is this model's default run budget, overridden field by field by a run's own budget.
+	Budget *Budget `json:"budget,omitempty"`
+}
+
+// ValidPresentation reports whether v is "", compact or detailed.
+func ValidPresentation(v string) bool {
+	return v == "" || v == ProfileCompact || v == ProfileDetailed
 }
 
 // Cost is a model's list price in US dollars per million tokens (ADR-0019 §6). It prices a run's

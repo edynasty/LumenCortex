@@ -247,6 +247,13 @@ func (s *Set) policyAllows(spec protocol.ToolSpec) bool {
 	if s.policy == PolicyReadOnly {
 		return spec.Permission == "read"
 	}
+	// These tools exist only after the host opts into BindEval. They execute in
+	// private sandboxed kernels; callbacks and artifact exports retain this set's
+	// workspace policy. This grants no shell, job or MCP exec authority.
+	switch spec.Name {
+	case "eval", "eval_create", "eval_control", "eval_artifact":
+		return true
+	}
 	return spec.Permission == "read" || spec.Permission == "write"
 }
 func (s *Set) add(spec protocol.ToolSpec, fn func(context.Context, map[string]any, func(protocol.ToolOutput)) (protocol.ToolResult, error)) {

@@ -206,6 +206,11 @@ func (e *Engine) runEvidence(sessionID string, checks runChecks) func(context.Co
 			return ev, err
 		}
 		ev.PendingApplication, ev.Refs = pending, refs
+		// The fingerprint is what a claim confirmation is valid for: a workspace that moved makes a
+		// confirmation stale, and the gate asks for revalidation.
+		if env, envErr := checks.ev.Environment(ctx); envErr == nil {
+			ev.Fingerprint = env.String()
+		}
 		if ev.Tasks, err = e.executionEvidence(ctx, sessionID); err != nil {
 			return ev, err
 		}

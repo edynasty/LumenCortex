@@ -51,6 +51,8 @@ type ResolvedModel struct {
 	OutputSet bool
 	// Cost is the model's price; nil when none is configured (its cost is unknown).
 	Cost *Cost
+	// Profile is the model's execution profile; nil uses the default presentation and limits.
+	Profile *ModelProfile
 	// ContextSet reports that limit.context is configured. When false, Context is DefaultContext and
 	// the runtime logs rule window.default_context with every request it budgets on it (design §5).
 	ContextSet bool
@@ -240,6 +242,14 @@ func (c *Config) Resolve(ref ModelRef) (ResolvedModel, error) {
 	if m.Cost != nil {
 		c := *m.Cost
 		out.Cost = &c
+	}
+	if m.Profile != nil {
+		profile := *m.Profile
+		if profile.Budget != nil {
+			budget := *profile.Budget
+			profile.Budget = &budget
+		}
+		out.Profile = &profile
 	}
 	return out, nil
 }

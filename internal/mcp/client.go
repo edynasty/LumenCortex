@@ -110,6 +110,11 @@ func Start(ctx context.Context, cfg Config) (*Client, error) {
 	}
 	stderr := &boundedBuffer{max: 128 << 10}
 	cmd.Stderr = stderr
+	// stderr is not an *os.File, so exec drains it through a pipe and goroutine, and
+	// Wait waits for that goroutine. A server that leaves a descendant holding the
+	// pipe open would block Wait — and therefore Close — forever. WaitDelay bounds
+	// that drain once the process exits or the context is done.
+	cmd.WaitDelay = closeGrace
 	// A server leads its own process group, the same way a shell command does: cancellation kills the
 	// group rather than the server alone, and whatever the server leaves in that group dies with it.
 	shell.StartGroup(cmd)
