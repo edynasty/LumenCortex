@@ -70,6 +70,9 @@ func TestOwner44ScenarioDWrongFileRepairsToPass(t *testing.T) {
 	initGitRepo(t, engine.workspace)
 	checks, _ := json.Marshal(map[string]any{"answer": map[string]any{
 		"kind": "semantic", "command": `test "$(cat answer.txt)" = 42`, "required": false,
+		// The expected value is the command itself: the host declares the self-contained mode
+		// explicitly ("files": []) instead of relying on the runtime inferring it.
+		"files": []string{},
 	}})
 	useChecks(t, string(checks))
 	approveChecks(t, engine)

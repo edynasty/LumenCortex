@@ -27,8 +27,8 @@ const (
 	toolClaimWrite       = "claim_write"
 )
 
-func taskToolSpecs() []protocol.ToolSpec {
-	return []protocol.ToolSpec{
+func taskToolSpecs(includeClaims bool) []protocol.ToolSpec {
+	specs := []protocol.ToolSpec{
 		{
 			Name:        toolWorkUnitList,
 			Description: "Inspect persistent Work Units for this Agent session.",
@@ -118,29 +118,33 @@ func taskToolSpecs() []protocol.ToolSpec {
 				"additionalProperties": false,
 			},
 		},
-		{
+	}
+	if includeClaims {
+		specs = append(specs, protocol.ToolSpec{
 			Name: toolClaimWrite,
 			Description: "Record an explicit basis claim in this thread's Task State: a contract the user stated, a fact you observed, " +
-				"or an assumption you inferred. A claim is proposed only; the runtime or the user settles it with evidence. " +
-				"Mark required when the task depends on it: the completion gate then needs it confirmed with fresh evidence.",
+				"or an assumption you inferred. A claim is proposed only; the runtime or the user settles it with evidence, and only " +
+				"the host or the user can make one a condition of completion.",
 			Permission: "read",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"kind":      map[string]any{"type": "string", "enum": []string{"contract", "fact", "assumption"}},
 					"statement": map[string]any{"type": "string", "description": fmt.Sprintf("the claim, at most %d bytes", 1024)},
-					"required":  map[string]any{"type": "boolean", "description": "whether the completion gate must find it confirmed"},
+					"required":  map[string]any{"type": "boolean", "description": "a suggestion only: the host or the user decides what the completion gate requires"},
 				},
 				"required":             []string{"kind", "statement"},
 				"additionalProperties": false,
 			},
-		},
+		})
 	}
+	return specs
 }
 
 // filterTaskToolSpecs returns the task tools the allowlist admits (all of them for a nil allowlist).
-func filterTaskToolSpecs(allow []string) []protocol.ToolSpec {
-	specs := taskToolSpecs()
+// claim_write is offered only when the host opted into verification (or named it in the allowlist).
+func filterTaskToolSpecs(allow []string, includeClaims bool) []protocol.ToolSpec {
+	specs := taskToolSpecs(includeClaims)
 	if allow == nil {
 		return specs
 	}
@@ -262,7 +266,14 @@ func (l *Loop) runTaskTool(ctx context.Context, r *run, name string, args map[st
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"claim": claim, "claims": len(r.ts.Claims), "max": verify.MaxClaims}, nil
+		// A model cannot make its own statement a condition of completion: the host or the user
+		// decides that. The result says what was recorded, so the model is not misled.
+		out := map[string]any{"claim": claim, "claims": len(r.ts.Claims), "max": verify.MaxClaims,
+			"required": claim.CountsAsRequired()}
+		if required && !claim.CountsAsRequired() {
+			out["note"] = "recorded as a proposal: only the host or the user can make a claim a completion condition"
+		}
+		return out, nil
 	}
 	return nil, fmt.Errorf("unknown task tool: %s", name)
 }

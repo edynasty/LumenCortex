@@ -2,10 +2,10 @@ package evalruntime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/safefs"
 	"github.com/edynasty/LumenCortex/internal/streambuf"
 )
 
@@ -202,6 +203,11 @@ func (p *process) monitorMemory(limit int64, onLimit func(string)) {
 // (ulimit -f) cannot bound many files, so the host sums the kernel directory on a
 // short interval and terminates the worker when the aggregate exceeds the quota.
 // It is a monitored bound, never claimed as a kernel hard limit.
+//
+// Accounting fails closed: a traversal that cannot certify the total (the entry
+// or depth bound was reached, or the directory could not be read) is treated as
+// an exceeded quota, never as an undercount. Counting a capped subset would make
+// the bound unbounded in practice.
 func (p *process) monitorDisk(limit int64, root string, onLimit func(string)) {
 	ticker := time.NewTicker(diskPoll)
 	defer ticker.Stop()
@@ -213,10 +219,17 @@ func (p *process) monitorDisk(limit int64, root string, onLimit func(string)) {
 			return
 		case <-ticker.C:
 			total, err := directoryBytes(root)
-			if err != nil || total <= limit {
+			var reason string
+			switch {
+			case err == nil && total > limit:
+				reason = fmt.Sprintf("disk quota exceeded: %d > %d bytes in the kernel workspace", total, limit)
+			case errors.Is(err, safefs.ErrLimit):
+				reason = fmt.Sprintf("disk accounting could not cover the kernel workspace within %d entries; treating it as over the %d byte quota", maxScanEntries, limit)
+			case err != nil:
+				reason = fmt.Sprintf("disk accounting failed (%v); the %d byte quota cannot be certified", err, limit)
+			default:
 				continue
 			}
-			reason := fmt.Sprintf("disk quota exceeded: %d > %d bytes in the kernel workspace", total, limit)
 			p.limitHit.Store(reason)
 			if onLimit != nil {
 				onLimit(reason)
@@ -227,45 +240,14 @@ func (p *process) monitorDisk(limit int64, root string, onLimit func(string)) {
 	}
 }
 
-// directoryBytes sums regular-file sizes under root with bounded traversal: at
-// most maxScanEntries entries and maxScanDepth levels, symlinks are not followed.
+// directoryBytes uses directory descriptors; exhaustion is never an undercount.
 func directoryBytes(root string) (int64, error) {
-	var total int64
-	entries := 0
-	var walk func(dir string, depth int) error
-	walk = func(dir string, depth int) error {
-		if depth > maxScanDepth {
-			return nil
-		}
-		names, err := os.ReadDir(dir)
-		if err != nil {
-			return err
-		}
-		for _, name := range names {
-			entries++
-			if entries > maxScanEntries {
-				return nil
-			}
-			full := filepath.Join(dir, name.Name())
-			info, err := os.Lstat(full)
-			if err != nil {
-				continue
-			}
-			switch {
-			case info.Mode().IsRegular():
-				total += info.Size()
-			case info.IsDir():
-				if err := walk(full, depth+1); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
+	dir, err := safefs.Open(root)
+	if err != nil {
+		return 0, err
 	}
-	if err := walk(root, 0); err != nil {
-		return total, err
-	}
-	return total, nil
+	defer dir.Close()
+	return dir.Bytes(maxScanEntries, maxScanDepth)
 }
 
 // interrupt sends SIGINT to the process group: the worker's chance to abort the

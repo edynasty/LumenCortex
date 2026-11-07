@@ -28,7 +28,45 @@ OUT_FD = 4
 MAX_FRAME = 4 * 1024 * 1024
 MAX_REPR = 8 * 1024
 MAX_TRACEBACK = 32 * 1024
+# MAX_INLINE_DISPLAY bounds one inline display payload. Anything larger is
+# spilled to the artifact directory, so a big figure never breaks the frame.
+MAX_INLINE_DISPLAY = 256 * 1024
+# MAX_CELL_ARTIFACTS mirrors the host's per-cell adoption bound: collecting more
+# would only make the host refuse the cell.
+MAX_CELL_ARTIFACTS = 256
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def _private_mime_types():
+    """A MIME table built only from the stdlib's builtin map.
+
+    The module-level lazy init reads the host's knownfiles (/etc/mime.types and
+    friends), which the tightened sandbox denies. A private MimeTypes instance
+    with `inited` preset never touches the filesystem, and installing it as the
+    module database keeps mimetypes.guess_type from triggering that init.
+    """
+    mimetypes.inited = True
+    db = mimetypes.MimeTypes(filenames=())
+    mimetypes._db = db
+    return db
+
+
+MIME_TYPES = _private_mime_types()
+
+
+def _mime_for_name(name, fallback="application/octet-stream"):
+    guessed, _ = MIME_TYPES.guess_type(str(name or ""))
+    return guessed or fallback
+
+
+def _extension_for(mime):
+    return {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/svg+xml": ".svg",
+        "text/html": ".html",
+        "application/json": ".json",
+    }.get(mime or "", ".bin")
 
 
 class ProtocolError(Exception):
@@ -141,6 +179,7 @@ class Worker:
         self.limits = {}
         self._call_seq = 0
         self._seen_calls = set()
+        self._request_id = None
         self._artifacts = []
         self._out = None
         self._err = None
@@ -213,7 +252,8 @@ class Worker:
             "jsonrpc": "2.0",
             "id": call_id,
             "method": "tool/call",
-            "params": {"callId": call_id, "name": name, "arguments": arguments},
+            "params": {"callId": call_id, "name": name, "arguments": arguments,
+                       "requestId": self._request_id},
         })
         while True:
             msg = self._read_message()
@@ -242,12 +282,14 @@ class Worker:
         return base or default
 
     def _mime_for(self, name, fallback="application/octet-stream"):
-        guessed, _ = mimetypes.guess_type(name)
-        return guessed or fallback
+        return _mime_for_name(name, fallback)
 
     def lc_artifact(self, data, name=None, mime=None):
         if self.artifact_dir is None:
             raise RuntimeError("artifact directory is not configured")
+        if len(self._artifacts) >= MAX_CELL_ARTIFACTS:
+            raise ValueError("cell already declared %d artifacts; the limit is %d"
+                             % (len(self._artifacts), MAX_CELL_ARTIFACTS))
         if hasattr(data, "savefig"):  # a matplotlib figure
             buf = io.BytesIO()
             data.savefig(buf, format="png")
@@ -287,9 +329,35 @@ class Worker:
         if payload is None:
             return None
         kind, text, size = payload
-        self._send({"jsonrpc": "2.0", "method": "event", "params": {
-            "type": "display", "data": {"mime": mime or kind, "encoding": "utf-8", "text": text, "size": size}}})
-        return payload
+        items = []
+        self._add_display(items, mime or kind, text, size)
+        for item in items:
+            self._send({"jsonrpc": "2.0", "method": "event", "params": {
+                "type": "display", "data": item}})
+        return None
+
+    def _add_display(self, displays, mime, text, size):
+        """Append one display, keeping the control frame bounded.
+
+        A payload that would not fit inline is written to the artifact
+        directory and declared as an artifact instead: the kernel stays alive
+        and the bytes stay reachable through Manager.Artifact.
+        """
+        encoding = "base64" if mime == "image/png" else "utf-8"
+        if text and len(text) > MAX_INLINE_DISPLAY:
+            data = base64.b64decode(text, validate=True) if encoding == "base64" else text.encode("utf-8")
+            if data is not None and self.artifact_dir and len(self._artifacts) < MAX_CELL_ARTIFACTS:
+                name = self._safe_name("display-%d%s" % (len(self._artifacts) + 1, _extension_for(mime)))
+                try:
+                    os.makedirs(self.artifact_dir, exist_ok=True)
+                    with open(os.path.join(self.artifact_dir, name), "wb") as fh:
+                        fh.write(data)
+                    self._artifacts.append({"name": name, "mime": mime, "size": len(data)})
+                    return
+                except OSError:
+                    pass
+            raise ValueError("display exceeds inline limit and could not be stored as an artifact")
+        displays.append({"mime": mime, "encoding": encoding, "text": text, "size": size})
 
     # --------------------------------------------------------------- execution
     def _flush_figures(self):
@@ -320,22 +388,34 @@ class Worker:
         return displays
 
     def _collect_artifacts(self):
+        # One pass with a set of known names: the previous implementation
+        # scanned self._artifacts for every directory entry, which is quadratic
+        # and lets a flood of files exhaust the worker's CPU.
         if self.artifact_dir and os.path.isdir(self.artifact_dir):
-            for entry in sorted(os.listdir(self.artifact_dir)):
+            known = {a["name"] for a in self._artifacts}
+            try:
+                entries = sorted(os.listdir(self.artifact_dir))
+            except OSError:
+                entries = []
+            for entry in entries:
+                if len(self._artifacts) >= MAX_CELL_ARTIFACTS:
+                    break
+                if entry in known:
+                    continue
                 path = os.path.join(self.artifact_dir, entry)
-                if not os.path.isfile(path):
-                    continue
-                if any(a["name"] == entry for a in self._artifacts):
-                    continue
                 try:
+                    if not os.path.isfile(path):
+                        continue
                     size = os.path.getsize(path)
                 except OSError:
                     continue
+                known.add(entry)
                 self._artifacts.append({"name": entry, "mime": self._mime_for(entry), "size": size})
         return list(self._artifacts)
 
     def _execute(self, params):
         code = params.get("code") or ""
+        self._request_id = params.get("requestId") or None
         # The host advertises the per-execution tool surface with each cell.
         tools = params.get("tools")
         if tools is not None:
@@ -368,21 +448,45 @@ class Worker:
         except KeyboardInterrupt:
             status, error = "cancelled", "KeyboardInterrupt"
         except SystemExit as exc:
-            status, error, exit_code = "failed", "SystemExit(%r)" % (exc.code,), 0
+            code_value = exc.code
+            if code_value is None:
+                code_value = 0
+            if not isinstance(code_value, int):
+                error = str(code_value)
+                code_value = 1
+            status = "failed"
+            exit_code = code_value
+            if not error:
+                error = "SystemExit(%r)" % (exc.code,)
         except BaseException as exc:  # noqa: BLE001 - the cell's own failure is a result
             status = "failed"
             error = "%s: %s" % (type(exc).__name__, exc)
             tb = traceback.format_exc()[:MAX_TRACEBACK]
         finally:
             sys.stdout, sys.stderr = self._stdout_saved, self._stderr_saved
-        if last_value is not None:
-            payload = _display_payload(last_value)
-            if payload is not None:
-                displays.append({"mime": payload[0], "encoding": "utf-8",
-                                 "text": payload[1], "size": payload[2]})
-        displays.extend(self._flush_figures())
-        artifacts = self._collect_artifacts()
-        self._artifacts = []
+        # Post-processing is outside the cell's own try, so it needs its own
+        # guard: a KeyboardInterrupt or any error while rendering the last
+        # value, flushing figures or collecting artifacts must still produce a
+        # reply instead of losing the cell's result.
+        try:
+            if last_value is not None:
+                payload = _display_payload(last_value)
+                if payload is not None:
+                    self._add_display(displays, payload[0], payload[1], payload[2])
+            for item in self._flush_figures():
+                self._add_display(displays, item["mime"], item["text"], item["size"])
+            artifacts = self._collect_artifacts()
+        except KeyboardInterrupt:
+            status, error = "cancelled", "KeyboardInterrupt"
+            artifacts = list(self._artifacts)
+        except BaseException as exc:  # noqa: BLE001 - never die without a reply
+            status = "failed"
+            error = "%s: %s" % (type(exc).__name__, exc)
+            if not tb:
+                tb = traceback.format_exc()[:MAX_TRACEBACK]
+            artifacts = list(self._artifacts)
+        finally:
+            self._artifacts = []
         return {
             "status": status,
             "stdout": out.getvalue(),

@@ -96,6 +96,15 @@ so a notebook write does not open a new completion obligation.
 The model-visible result of a refused write is a result, not a failed call: `{"error": …}`, with
 `currentVersion` when the refusal is a conflict.
 
+These tools see and write **working notebooks only**. An execution notebook — the notebook runtime's
+cells, outputs and durable history, stored under the reserved title prefix `Execution notebook: ` — is
+never listed, read, replaced, appended to or created here, under every policy: its cells are the code
+a user runs and its outputs are the evidence of what ran, so a model that could write one could plant
+code and show results that never happened. `create` refuses the reserved prefix; a `replace`, `append`
+or `section` whose target is an execution notebook is refused before the write. The host's
+working-notebook API enforces the same boundary (`runtime.ErrNotebookKind`) rather than relying on a
+host UI to hide the path.
+
 ### 4. Concurrency and conflicts
 
 Every write is a compare-and-set inside one short write transaction:
@@ -113,11 +122,12 @@ never disagrees with the body.
 
 ### 5. Context index
 
-When a run starts and its session has notebooks, the Start transaction appends exactly one user row
+When a run starts and its session has working notebooks, the Start transaction appends exactly one user row
 (origin `notebook`) listing at most 8 notebooks as `title (vN, updated <rfc3339>, sections: A, B)`,
 capped at 600 bytes, plus one sentence telling the model to read a Handoff section with
-`notebook_read` before continuing. Never a body. A session without notebooks gets no row, so an
-ordinary run's request is byte-for-byte what it was before this ADR.
+`notebook_read` before continuing. Never a body, and never an execution notebook: the row only names
+notebooks the tools can read. A session without working notebooks gets no row, so an ordinary run's
+request is byte-for-byte what it was before this ADR.
 
 The row is a transcript row and not system-prompt text: the cached prefix is untouched, and the row is
 readable after a context reset (it is written by the next Start) and after a model switch.

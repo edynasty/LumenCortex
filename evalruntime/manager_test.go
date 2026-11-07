@@ -81,7 +81,7 @@ func TestPluginLifecycle(t *testing.T) {
 	if session.State != evalapi.StateReady {
 		t.Fatalf("state after create = %q", session.State)
 	}
-	if !strings.HasPrefix(session.Workspace, h.workspace) {
+	if !strings.HasPrefix(session.Workspace, resolvePath(h.workspace)+string(os.PathSeparator)) {
 		t.Fatalf("kernel workspace %q is not inside the host namespace %q", session.Workspace, h.workspace)
 	}
 	if session.Generation != 1 {

@@ -129,7 +129,22 @@ func (e *Engine) EvalSessions(ctx context.Context, sessionID string) ([]evalapi.
 	if err != nil {
 		return nil, err
 	}
-	return manager.Sessions(ctx, sessionID)
+	listed, err := manager.Sessions(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	// A kernel is one actor's authority domain. The manager lists kernels this
+	// agent owns *or was granted read access to*; the host-facing view is the
+	// agent's own kernels only, so a listing can never drive a cross-domain
+	// reset, close or interrupt.
+	owned := make([]evalapi.Session, 0, len(listed))
+	for _, session := range listed {
+		if session.OwnerID != "" && session.OwnerID != sessionID {
+			continue
+		}
+		owned = append(owned, session)
+	}
+	return owned, nil
 }
 
 // CreateEvalSession creates a private calculation workspace, never the host's state directory

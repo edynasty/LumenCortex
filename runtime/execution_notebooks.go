@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -103,6 +102,20 @@ type ExecutionKernel struct {
 	State      string `json:"state"`
 	Generation uint64 `json:"generation"`
 	Alive      bool   `json:"alive"`
+	// CreatedAt orders kernels of one language: the current kernel is the newest live one. Generation
+	// is not an order between kernels — it counts the restarts of one kernel — so a host that shows
+	// or controls "the" kernel of a language reads CreatedAt, never the highest generation.
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// ExecutionNotebookRun is one run of a notebook that is in flight right now. A page reads it on open
+// and after an event, so a run that started before a route switch is still shown as running.
+type ExecutionNotebookRun struct {
+	NotebookID string `json:"notebookId"`
+	// CellID is the cell being executed, empty for a whole-notebook run.
+	CellID    string    `json:"cellId,omitempty"`
+	Replay    bool      `json:"replay"`
+	StartedAt time.Time `json:"startedAt"`
 }
 
 // ExecutionArtifact is the bytes of one artifact an execution produced, with what the notebook
@@ -265,18 +278,26 @@ func (e *Engine) InterruptExecutionNotebook(ctx context.Context, sessionID, ref 
 }
 
 // ExecutionKernels lists the session's kernels with their live state, so the notebook can show the
-// current kernel of each language instead of guessing one from a stored id.
+// current kernel of each language instead of guessing one from a stored id. The list is oldest first:
+// the current kernel of a language is the last live one.
 func (e *Engine) ExecutionKernels(ctx context.Context, sessionID string) ([]ExecutionKernel, error) {
 	return e.executionNotebooks().kernels(ctx, sessionID)
 }
 
-// ResetExecutionKernel resets the newest kernel of one language to a clean session, keeping its
-// identity. A language with no kernel is a no-op: the next run creates one.
+// ExecutionNotebookRuns lists the runs of the session's notebooks that are in flight in this process.
+// A page reads it on open, so a run that started before a route switch is still shown as running and
+// offers Cancel instead of queueing a second run.
+func (e *Engine) ExecutionNotebookRuns(ctx context.Context, sessionID string) ([]ExecutionNotebookRun, error) {
+	return e.executionNotebooks().runs(ctx, sessionID)
+}
+
+// ResetExecutionKernel resets every live kernel of one language to a clean session, keeping each
+// kernel's identity. A language with no live kernel is a no-op: the next run creates one.
 func (e *Engine) ResetExecutionKernel(ctx context.Context, sessionID, language string) error {
 	return e.executionNotebooks().controlLanguage(ctx, sessionID, language, "reset")
 }
 
-// CloseExecutionKernel closes the newest kernel of one language. A language with no kernel is a
+// CloseExecutionKernel closes every live kernel of one language. A language with no live kernel is a
 // no-op.
 func (e *Engine) CloseExecutionKernel(ctx context.Context, sessionID, language string) error {
 	return e.executionNotebooks().controlLanguage(ctx, sessionID, language, "close")
@@ -402,7 +423,13 @@ func (h *executionNotebookHost) delete(ctx context.Context, sessionID, ref strin
 	if err != nil {
 		return err
 	}
-	return h.engine.DeleteNotebook(ctx, sessionID, stored.ID)
+	if err := h.engine.deleteNotebook(ctx, sessionID, stored.ID); err != nil {
+		return err
+	}
+	// The notebook's images and files are no longer referenced by anything, so the session's quota
+	// stops charging for them: a deleted notebook never leaves its artifacts behind.
+	h.collectNotebookArtifacts(ctx, sessionID)
+	return nil
 }
 
 // importNotebook implements ImportExecutionNotebook.
@@ -486,7 +513,7 @@ func (h *executionNotebookHost) inlineArtifacts(ctx context.Context, sessionID s
 			if mime == "" {
 				mime = "application/octet-stream"
 			}
-			output.Data = map[string]ipynb.MimeData{mime: ipynb.MimeData(artifactPayload(mime, data))}
+			output.Data = map[string]ipynb.MimeData{mime: ipynb.Text(ipynb.Payload(mime, data))}
 		}
 	}
 }
@@ -511,16 +538,7 @@ func (h *executionNotebookHost) artifactBytes(ctx context.Context, sessionID str
 func artifactNote(reference *ipynb.OutputLC) map[string]ipynb.MimeData {
 	note := fmt.Sprintf("[LumenCortex artifact %s, %s, %d bytes, sha256 %s]",
 		reference.ArtifactID, reference.MIME, reference.Size, reference.SHA256)
-	return map[string]ipynb.MimeData{"text/plain": ipynb.MimeData(note)}
-}
-
-// artifactPayload is the mime bundle value for an artifact's bytes: text stays text, anything else is
-// base64, as a Jupyter reader expects.
-func artifactPayload(mime string, data []byte) string {
-	if strings.HasPrefix(mime, "text/") || mime == "application/json" || strings.HasSuffix(mime, "+json") {
-		return string(data)
-	}
-	return base64.StdEncoding.EncodeToString(data)
+	return map[string]ipynb.MimeData{"text/plain": ipynb.Text(note)}
 }
 
 // addCell implements AddExecutionCell.

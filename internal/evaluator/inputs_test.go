@@ -265,9 +265,8 @@ func TestAScriptChangedDuringTheEpisodeCountsForNothing(t *testing.T) {
 	}
 }
 
-// A stored pass satisfies only while the inputs match. An untracked script bound at approval and
-// ignored afterwards no longer moves the fingerprint, so rewriting it leaves the fingerprint of the
-// pass current: the input comparison is what refuses it.
+// A stored pass satisfies only while the inputs match. A script bound at approval and ignored
+// afterwards is still content: the fingerprint covers it, and the input comparison refuses the pass.
 func TestAPassDoesNotSatisfyOnceAnIgnoredInputChanged(t *testing.T) {
 	f := newFixture(t, true)
 	if err := os.MkdirAll(filepath.Join(f.dir, "scripts"), 0o755); err != nil {
@@ -284,8 +283,12 @@ func TestAPassDoesNotSatisfyOnceAnIgnoredInputChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.write("scripts/gate.sh", "echo rewritten; exit 0\n")
-	if after, err := f.ev.Environment(context.Background()); err != nil || Fingerprint(after, approved) != Fingerprint(env, approved) {
-		t.Fatalf("the ignored script moved the fingerprint (%v)", err)
+	after, err := f.ev.Environment(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.String() == env.String() {
+		t.Fatal("the ignored script's content is not part of the fingerprint")
 	}
 	if ok, _, _ := f.ev.Satisfied(context.Background(), approved); ok {
 		t.Fatal("a pass satisfies while the ignored script is not the approved one")

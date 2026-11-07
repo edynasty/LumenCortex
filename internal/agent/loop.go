@@ -103,6 +103,9 @@ type run struct {
 	spend *Spend
 	// reviewed: the single independent review of this run already ran.
 	reviewed bool
+	// attempts are this run's repair attempts. The durable record keeps them as history, but the
+	// budget they count against is the run's own: a new turn starts with a fresh one.
+	attempts []verify.Attempt
 	// review and its fingerprint apply only to the workspace state that was reviewed.
 	review            *verify.ReviewResult
 	reviewFingerprint string
@@ -149,6 +152,12 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		var cancelDeadline context.CancelFunc
 		ctx, cancelDeadline = context.WithDeadlineCause(ctx, clock.deadline, ErrRunDeadline)
 		defer cancelDeadline()
+	}
+	// The exit path names the run it ends; the id rides the context so every exit reports it.
+	ctx = withRunID(ctx, opts.RunID)
+	// A run's bounded hook denials are its own: a new turn gets its own limits.
+	if l.Hooks != nil {
+		l.Hooks.ResetDenials(sessionID)
 	}
 
 	var (
@@ -260,6 +269,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			Delegation: opts.Delegation,
 			Tasks:      l.Tasks != nil,
 			TaskAgents: opts.TaskAgents,
+			Claims:     l.verificationOffered(opts),
 		})
 		// The model profile presents the same catalog in its chosen form; authority is unchanged.
 		specs = presentSpecs(specs, opts.Presentation.ToolDescriptions)
@@ -504,9 +514,18 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				toolResult = protocol.ToolResult{OK: false, Denied: true, Permission: "workflow", Content: content}
 			} else {
 				// Lifecycle hooks run before any admission or execution (spec §20). A deny answers the
-				// call without running it; a mutable hook may replace arguments, never policy.
+				// call without running it; a mutable hook may replace arguments, never policy. Each
+				// replacement is validated against the tool's schema before a later hook sees it, and
+				// safety hooks decide the final arguments.
 				pre := l.runHook(ctx, sessionID, opts.RunID, verifyEventPreToolUse, HookRequest{
 					Step: step, ToolCallID: call.ID, ToolName: call.Name, ToolArgs: args,
+					ValidateArgs: func(candidate map[string]any) error {
+						spec, ok := toolSpecOf(specs, call.Name)
+						if !ok {
+							return nil
+						}
+						return validateToolArgs(spec, candidate)
+					},
 				})
 				hookDenied := pre.Denied()
 				if !hookDenied && pre.Args != nil {
@@ -942,13 +961,22 @@ func (l *Loop) exit(ctx context.Context, state SessionState, usage protocol.Usag
 	if cause.Err != nil {
 		message = cause.Err.Error()
 	}
+	runID := runIDFrom(ctx)
+	// Exit hooks observe an event that already happened. They get a context that is not the run's
+	// own: the run's cancellation or deadline is what ended it, so a hook on that context could
+	// never do its work. It is bounded, and it still ends when the host cancels the session.
+	hookCtx, cancelHook := context.WithTimeout(context.WithoutCancel(ctx), exitHookTimeout)
+	defer cancelHook()
 	switch {
 	case cause.Kind == KindDeadline:
-		l.observeExitHook(ctx, state.ID, "", verifyEventOnTimeout, exitHookDetail(cause.Kind, message, time.Now()))
+		l.observeExitHook(hookCtx, state.ID, runID, verifyEventOnTimeout, exitHookDetail(cause.Kind, message, time.Now()))
 	case cause.Status == StatusInterrupted && cause.Kind == KindCancelled:
-		l.observeExitHook(ctx, state.ID, "", verifyEventOnCancel, exitHookDetail(cause.Kind, message, time.Now()))
-	case cause.Status == StatusFailed:
-		l.observeExitHook(ctx, state.ID, "", verifyEventOnFailure, exitHookDetail(cause.Kind, message, time.Now()))
+		l.observeExitHook(hookCtx, state.ID, runID, verifyEventOnCancel, exitHookDetail(cause.Kind, message, time.Now()))
+	case cause.Status == StatusFailed || cause.Status == StatusInterrupted:
+		// Every other ending that is not a completion — max steps, an exhausted verification gate, a
+		// budget limit, an empty reply — is a failure of the run to finish its task, and its exit
+		// hooks observe it.
+		l.observeExitHook(hookCtx, state.ID, runID, verifyEventOnFailure, exitHookDetail(cause.Kind, message, time.Now()))
 	}
 	event := "session.interrupted"
 	if cause.Status == StatusFailed {

@@ -70,7 +70,7 @@ func TestParseStandardNotebook(t *testing.T) {
 	if code.Outputs[0].OutputType != OutputStream || string(code.Outputs[0].Text) != "1\n" {
 		t.Fatalf("stream output = %#v", code.Outputs[0])
 	}
-	if string(code.Outputs[1].Data["image/png"]) != "aGk=" {
+	if code.Outputs[1].Data["image/png"].String() != "aGk=" {
 		t.Fatalf("image output = %#v", code.Outputs[1].Data)
 	}
 	if code.Outputs[2].OutputType != OutputError || code.Outputs[2].EName != "ValueError" || len(code.Outputs[2].Traceback) != 2 {
@@ -165,7 +165,7 @@ func TestOutputsAreBounded(t *testing.T) {
 		CellType: CellCode, ID: "c1", Source: "print()",
 		Outputs: []Output{
 			{OutputType: OutputStream, Name: StreamStdout, Text: Source(text)},
-			{OutputType: OutputDisplay, Data: map[string]MimeData{"image/png": MimeData(image)}},
+			{OutputType: OutputDisplay, Data: map[string]MimeData{"image/png": Text(image)}},
 			{OutputType: OutputStream, Name: StreamStdout, Text: "tail"},
 		},
 	}}}

@@ -76,20 +76,22 @@ func (p *evalChildProvider) Complete(_ context.Context, req protocol.ProviderReq
 		return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", Content: "child computed 10 after appending 4 to the shared values"}, FinishReason: "stop"}, nil
 	case 0:
 		p.step = 1
+		// A kernel is one actor's authority domain: the child never lists the
+		// parent's kernel and never executes in it. It creates its own.
 		return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant",
-			ToolCalls: []protocol.ToolCall{{ID: "sessions", Name: "eval_sessions", Arguments: json.RawMessage(`{}`)}}}, FinishReason: "tool_calls"}, nil
+			ToolCalls: []protocol.ToolCall{{ID: "create", Name: "eval_create", Arguments: json.RawMessage(`{"runtime_id":"python"}`)}}}, FinishReason: "tool_calls"}, nil
 	case 1:
 		p.step = 2
-		var sessions []struct {
+		var created struct {
 			ID string `json:"id"`
 		}
-		if err := json.Unmarshal([]byte(last.Content), &sessions); err != nil || len(sessions) == 0 {
-			return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", Content: "no shared kernel was granted"}, FinishReason: "stop"}, nil
+		if err := json.Unmarshal([]byte(last.Content), &created); err != nil || created.ID == "" {
+			return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant", Content: "no kernel could be created: " + last.Content}, FinishReason: "stop"}, nil
 		}
-		p.kernel = sessions[0].ID
-		// The cell reads and mutates the variable the parent seeded in the shared kernel, so an
-		// isolated `print(2+2)` (or a denied eval) cannot produce this output.
-		code := "shared_values.append(4)\nprint(sum(shared_values))"
+		p.kernel = created.ID
+		// Its own domain computes from its own state: an isolated print(2+2) or a
+		// denied eval cannot produce this output.
+		code := "values = [1, 2, 3]\nvalues.append(4)\nprint(sum(values))"
 		args, _ := json.Marshal(map[string]any{"session_id": p.kernel, "cell_id": "c1", "code": code})
 		return protocol.ProviderResponse{Message: protocol.Message{Role: "assistant",
 			ToolCalls: []protocol.ToolCall{{ID: "eval", Name: "eval", Arguments: args}}}, FinishReason: "tool_calls"}, nil
@@ -307,11 +309,12 @@ func TestScenarioCExecutionChildSharedKernelAndReview(t *testing.T) {
 	if failure != "" {
 		t.Fatalf("child eval failed: %s", failure)
 	}
-	// The parent observes the child's mutation in the same kernel it owns.
+	// The child computed in its own kernel: the parent's heap is untouched, which
+	// is the observable proof that no live object is shared across domains.
 	observed, err := engine.ExecuteEval(ctx, parent, evalapi.Request{SessionID: kernel.ID, CellID: "observe",
 		Code: "print(sum(shared_values))"})
-	if err != nil || observed.Status != "completed" || !strings.Contains(observed.Stdout, "10") {
-		t.Fatalf("the parent did not observe the child's mutation: %+v %v", observed, err)
+	if err != nil || observed.Status != "completed" || !strings.Contains(observed.Stdout, "6") {
+		t.Fatalf("the parent's own kernel changed across the child's run: %+v %v", observed, err)
 	}
 	// The child's transcript holds the real eval result, not a denial.
 	rows, err := engine.store.RecentMessages(ctx, childID, 100)

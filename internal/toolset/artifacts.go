@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
 	"path/filepath"
 
+	"github.com/edynasty/LumenCortex/internal/safefs"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -22,15 +22,26 @@ func (s *Set) ReadArtifact(ctx context.Context, path string, limit int64) ([]byt
 	if limit <= 0 || limit > 4<<20 {
 		limit = 4 << 20
 	}
-	file, _, err := s.resolve(path, false)
+	file, rel, err := s.resolve(path, false)
 	if err != nil {
 		return nil, err
 	}
-	f, info, err := s.openRead(file)
+	if testHookBeforeOpen != nil {
+		testHookBeforeOpen(file)
+	}
+	root, err := safefs.Open(s.realWorkspace)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	f, info, err := root.OpenRegular(rel, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	if err := s.denyIfProtected(info); err != nil {
+		return nil, err
+	}
 	if !info.Mode().IsRegular() {
 		return nil, errors.New("artifact source must be a regular file")
 	}
@@ -58,12 +69,20 @@ func (s *Set) WriteArtifact(ctx context.Context, path string, data []byte) error
 	if len(data) > maxEditBytes {
 		return errors.New("artifact exceeds 4 MiB workspace transfer limit")
 	}
-	file, _, err := s.resolve(path, true)
+	file, rel, err := s.resolve(path, true)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+	if testHookBeforeOpen != nil {
+		testHookBeforeOpen(file)
+	}
+	root, err := safefs.Open(s.realWorkspace)
+	if err != nil {
 		return err
 	}
-	return s.writeChecked(file, data)
+	defer root.Close()
+	if err := root.MkdirAll(filepath.ToSlash(filepath.Dir(rel))); err != nil {
+		return err
+	}
+	return root.WriteFile(rel, data, 0644)
 }

@@ -2,9 +2,9 @@ package runtime
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -13,43 +13,83 @@ import (
 	"github.com/edynasty/LumenCortex/internal/ipynb"
 )
 
-// notebookGate is the run lock of one notebook: cells of a notebook execute serially, so a run of the
-// whole notebook and a run of one cell never interleave their writes. The gate is a one-slot channel
-// rather than a mutex so waiting for it honours the caller's context.
-type notebookGate struct{ slot chan struct{} }
+// executionRunState is one run of one notebook: what it runs and when it started.
+type executionRunState struct {
+	CellID    string
+	Replay    bool
+	StartedAt time.Time
+}
 
-var notebookGates = struct {
+// executionRuns is the run in flight per notebook. A notebook runs one thing at a time, and a second
+// run of the same notebook is refused rather than queued: a page that lost its running state (a route
+// switch, a reload, a second click) must not start a duplicate run, and the Cancel a user clicks must
+// reach the run that is actually executing. The registry is also what ExecutionNotebookRuns reports,
+// so a page that opens while a run is in flight shows that run instead of guessing from its own state.
+var executionRuns = struct {
 	mu   sync.Mutex
-	held map[string]*notebookGate
-}{held: map[string]*notebookGate{}}
+	held map[string]executionRunState
+}{held: map[string]executionRunState{}}
 
-// executionNotebookGate returns the gate of one notebook of one session.
-func executionNotebookGate(sessionID, notebookID string) *notebookGate {
-	key := sessionID + "\x00" + notebookID
-	notebookGates.mu.Lock()
-	defer notebookGates.mu.Unlock()
-	gate := notebookGates.held[key]
-	if gate == nil {
-		gate = &notebookGate{slot: make(chan struct{}, 1)}
-		notebookGates.held[key] = gate
+// executionRunKey is the registry key of one notebook of one session.
+func executionRunKey(sessionID, notebookID string) string { return sessionID + "\x00" + notebookID }
+
+// beginExecutionRun claims the notebook's run slot. It reports the run already in flight, if any, so
+// the caller can say which run refused it.
+func beginExecutionRun(sessionID, notebookID, cellID string, replay bool) (executionRunState, bool) {
+	key := executionRunKey(sessionID, notebookID)
+	executionRuns.mu.Lock()
+	defer executionRuns.mu.Unlock()
+	if held, busy := executionRuns.held[key]; busy {
+		return held, false
 	}
-	return gate
+	executionRuns.held[key] = executionRunState{CellID: cellID, Replay: replay, StartedAt: time.Now().UTC()}
+	return executionRunState{}, true
 }
 
-func (g *notebookGate) acquire(ctx context.Context) error {
-	select {
-	case g.slot <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+// endExecutionRun releases the notebook's run slot.
+func endExecutionRun(sessionID, notebookID string) {
+	key := executionRunKey(sessionID, notebookID)
+	executionRuns.mu.Lock()
+	delete(executionRuns.held, key)
+	executionRuns.mu.Unlock()
 }
 
-func (g *notebookGate) release() {
-	select {
-	case <-g.slot:
-	default:
+// executionNotebookRuns lists the runs in flight in this process for one session, oldest first.
+func executionNotebookRuns(sessionID string) []ExecutionNotebookRun {
+	prefix := sessionID + "\x00"
+	executionRuns.mu.Lock()
+	defer executionRuns.mu.Unlock()
+	out := make([]ExecutionNotebookRun, 0, len(executionRuns.held))
+	for key, held := range executionRuns.held {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		out = append(out, ExecutionNotebookRun{
+			NotebookID: strings.TrimPrefix(key, prefix),
+			CellID:     held.CellID, Replay: held.Replay, StartedAt: held.StartedAt,
+		})
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.Before(out[j].StartedAt) })
+	return out
+}
+
+// ExecutionNotebookBusyError reports a run that did not start because the notebook is already
+// running. Nothing was queued and nothing was executed: the caller waits for the run in flight, or
+// interrupts it, and then runs again.
+type ExecutionNotebookBusyError struct {
+	NotebookID string
+	// CellID is the cell the run in flight executes, empty for a whole-notebook run.
+	CellID    string
+	StartedAt time.Time
+}
+
+func (e *ExecutionNotebookBusyError) Error() string {
+	target := "the notebook"
+	if e.CellID != "" {
+		target = fmt.Sprintf("cell %s of the notebook", e.CellID)
+	}
+	return fmt.Sprintf("%s is already running (started %s): wait for it to finish, or interrupt it, instead of queueing a second run",
+		target, e.StartedAt.UTC().Format(time.RFC3339))
 }
 
 // run implements RunExecutionCell (cellID set) and RunExecutionNotebook (cellID empty).
@@ -58,14 +98,13 @@ func (h *executionNotebookHost) run(ctx context.Context, sessionID, ref, cellID 
 	if err != nil {
 		return ExecutionNotebook{}, err
 	}
-	gate := executionNotebookGate(sessionID, stored.ID)
-	if err := gate.acquire(ctx); err != nil {
-		return ExecutionNotebook{}, err
+	if held, ok := beginExecutionRun(sessionID, stored.ID, cellID, replay); !ok {
+		return ExecutionNotebook{}, &ExecutionNotebookBusyError{NotebookID: stored.ID, CellID: held.CellID, StartedAt: held.StartedAt}
 	}
-	defer gate.release()
+	defer endExecutionRun(sessionID, stored.ID)
 
-	// Read again under the gate: the document the run starts from is the one nobody else is editing
-	// through this API, and a previous run has finished writing.
+	// Read again now that this run owns the notebook: the document it starts from is the one a
+	// previous run finished writing.
 	stored, err = h.stored(ctx, sessionID, stored.ID)
 	if err != nil {
 		return ExecutionNotebook{}, err
@@ -171,11 +210,13 @@ func (h *executionNotebookHost) run(ctx context.Context, sessionID, ref, cellID 
 			h.publishCell(ctx, sessionID, notebookID, id, language, cellStatus(recorded.Document, id))
 			return recorded, execErr
 		}
-		produced, artifactRefs := h.persistResultArtifacts(ctx, sessionID, kernel.ID, &result)
+		produced, artifactRefs, releaseArtifacts := h.persistResultArtifacts(ctx, sessionID, kernel.ID, &result)
 		latest, err = h.mutate(ctx, sessionID, notebookID, -1, func(next *ipynb.Document) error {
 			markCellOutcome(next, id, language, kernel, startedAt, "", "", &result, artifactRefs, produced)
 			return nil
 		})
+		// The output that references the artifacts is written: a collection may now decide about them.
+		releaseArtifacts()
 		if err != nil {
 			return ExecutionNotebook{}, err
 		}
@@ -197,7 +238,7 @@ func (h *executionNotebookHost) kernel(ctx context.Context, sessionID, language 
 	}
 	sessions, sessionErr := h.exec.sessions(ctx, sessionID)
 	if sessionErr == nil {
-		if live, ok := liveKernel(sessions, language); ok {
+		if live, ok := currentKernel(ownedKernels(sessions, sessionID), language); ok {
 			return live, nil
 		}
 	}
@@ -211,34 +252,44 @@ func (h *executionNotebookHost) kernel(ctx context.Context, sessionID, language 
 	return h.exec.create(ctx, sessionID, runtimeID)
 }
 
-// liveKernel is the newest live kernel of one language.
-func liveKernel(sessions []evalapi.Session, language string) (evalapi.Session, bool) {
-	var best evalapi.Session
-	found := false
+// ownedKernels is the kernels of one session. A kernel executes for its immutable owner and for nobody
+// else, and a kernel another agent shared with this session (an observer grant) is not this session's
+// to run, reset or close: Core lists the kernels a session owns, and the owner check here keeps the
+// notebook on the kernels it created even if a grant ever reaches that list.
+func ownedKernels(sessions []evalapi.Session, sessionID string) []evalapi.Session {
+	out := make([]evalapi.Session, 0, len(sessions))
+	for _, value := range sessions {
+		if value.OwnerID != "" && value.OwnerID != sessionID {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
+// liveKernels returns every kernel of one language that can execute, oldest first.
+func liveKernels(sessions []evalapi.Session, language string) []evalapi.Session {
+	out := make([]evalapi.Session, 0, len(sessions))
 	for _, value := range sessions {
 		if !strings.EqualFold(strings.TrimSpace(value.Language), language) || !kernelAlive(value.State) {
 			continue
 		}
-		if !found || value.Generation >= best.Generation {
-			best, found = value, true
-		}
+		out = append(out, value)
 	}
-	return best, found
+	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out
 }
 
-// newestKernel is the newest kernel of one language, alive or not.
-func newestKernel(sessions []evalapi.Session, language string) (evalapi.Session, bool) {
-	var best evalapi.Session
-	found := false
-	for _, value := range sessions {
-		if !strings.EqualFold(strings.TrimSpace(value.Language), language) {
-			continue
-		}
-		if !found || value.Generation >= best.Generation {
-			best, found = value, true
-		}
+// currentKernel is the live kernel of one language: the newest one by creation time. Generation counts
+// restarts of one kernel and never orders two kernels, so it is not used here: a stopped kernel that
+// was reset several times carries a higher generation than the kernel that is alive now, and choosing
+// by generation sends a run, a reset or an interrupt to a kernel that is gone.
+func currentKernel(sessions []evalapi.Session, language string) (evalapi.Session, bool) {
+	live := liveKernels(sessions, language)
+	if len(live) == 0 {
+		return evalapi.Session{}, false
 	}
-	return best, found
+	return live[len(live)-1], true
 }
 
 // kernelAlive reports whether a kernel can execute. A kernel that is stopped, failed or disposed is
@@ -252,34 +303,50 @@ func kernelAlive(state string) bool {
 	return true
 }
 
-// kernels implements ExecutionKernels.
+// kernels implements ExecutionKernels. The list is oldest first, so the current kernel of a language
+// is the last live one.
 func (h *executionNotebookHost) kernels(ctx context.Context, sessionID string) ([]ExecutionKernel, error) {
 	sessions, err := h.exec.sessions(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
+	sessions = ownedKernels(sessions, sessionID)
 	out := make([]ExecutionKernel, 0, len(sessions))
 	for _, value := range sessions {
 		out = append(out, ExecutionKernel{
 			Language: value.Language, RuntimeID: value.RuntimeID, SessionID: value.ID,
 			State: value.State, Generation: value.Generation, Alive: kernelAlive(value.State),
+			CreatedAt: value.CreatedAt,
 		})
 	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, nil
 }
 
-// controlLanguage implements ResetExecutionKernel and CloseExecutionKernel.
+// runs implements ExecutionNotebookRuns.
+func (h *executionNotebookHost) runs(ctx context.Context, sessionID string) ([]ExecutionNotebookRun, error) {
+	if _, err := h.engine.store.Get(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	return executionNotebookRuns(sessionID), nil
+}
+
+// controlLanguage implements ResetExecutionKernel, CloseExecutionKernel and the replay's clean start.
+// Every live kernel of the language is controlled, never the one with the highest generation: a
+// stopped kernel cannot be reset or interrupted, and a live one must not be skipped because an older
+// kernel counted more restarts. A language with no live kernel is a no-op: the next run creates one.
 func (h *executionNotebookHost) controlLanguage(ctx context.Context, sessionID, language, action string) error {
 	sessions, err := h.exec.sessions(ctx, sessionID)
 	if err != nil {
 		return err
 	}
-	kernel, ok := newestKernel(sessions, language)
-	if !ok || !kernelAlive(kernel.State) {
-		// A language with no live kernel has nothing to reset or close: the next run creates one.
-		return nil
+	var firstErr error
+	for _, kernel := range liveKernels(ownedKernels(sessions, sessionID), language) {
+		if err := h.exec.control(ctx, sessionID, kernel.ID, action); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
-	return h.exec.control(ctx, sessionID, kernel.ID, action)
+	return firstErr
 }
 
 // interrupt implements InterruptExecutionNotebook.
@@ -482,14 +549,22 @@ func resultOutputs(result evalapi.Result, kernelSessionID string, refs map[strin
 // into the session's notebook-artifact directory (bounded, content-addressed, purged with the
 // session) and the document keeps a reference. An artifact past the size or quota limit, or one whose
 // bytes cannot be read, stays a reference marked NotDurable — readable while its kernel lives, never
-// presented as a durable link. It returns every artifact the execution produced, for the history, and
-// the reference of each artifact keyed by the id its display names.
-func (h *executionNotebookHost) persistResultArtifacts(ctx context.Context, sessionID, kernelSessionID string, result *evalapi.Result) ([]evalapi.Artifact, map[string]ipynb.OutputLC) {
+// presented as a durable link. It returns every artifact the execution produced, for the history, the
+// reference of each artifact keyed by the id its display names, and the release of the artifacts it
+// kept: the caller calls it once the cell's output is written, so a collection never takes an artifact
+// between the write of its bytes and the write of the reference.
+func (h *executionNotebookHost) persistResultArtifacts(ctx context.Context, sessionID, kernelSessionID string, result *evalapi.Result) ([]evalapi.Artifact, map[string]ipynb.OutputLC, func()) {
 	produced := append([]evalapi.Artifact(nil), result.Artifacts...)
 	if len(result.Artifacts) == 0 {
-		return produced, nil
+		return produced, nil, func() {}
 	}
 	refs := make(map[string]ipynb.OutputLC, len(result.Artifacts))
+	durable := make([]string, 0, len(result.Artifacts))
+	release := func() {
+		for _, id := range durable {
+			releaseNotebookArtifact(sessionID, id)
+		}
+	}
 	for _, artifact := range result.Artifacts {
 		owner := artifact.SessionID
 		if owner == "" {
@@ -498,6 +573,8 @@ func (h *executionNotebookHost) persistResultArtifacts(ctx context.Context, sess
 		reference, data, ok := h.durableReference(ctx, sessionID, owner, artifact)
 		if !ok {
 			reference = volatileArtifactReference(artifact, owner)
+		} else {
+			durable = append(durable, reference.ArtifactID)
 		}
 		refs[reference.ArtifactID] = reference
 		// The execution runtime can report the same picture twice (an inline display and an artifact).
@@ -511,7 +588,7 @@ func (h *executionNotebookHost) persistResultArtifacts(ctx context.Context, sess
 		})
 	}
 	result.Artifacts = nil
-	return produced, refs
+	return produced, refs, release
 }
 
 // durableReference copies one artifact's bytes into the notebook's own store and returns the document
@@ -542,7 +619,7 @@ func (h *executionNotebookHost) durableReference(ctx context.Context, sessionID,
 func mergeArtifactIntoDisplay(displays []evalapi.Display, artifact evalapi.Artifact, reference ipynb.OutputLC, data []byte) bool {
 	payload := ""
 	if data != nil {
-		payload = inlinePayload(reference.MIME, data)
+		payload = ipynb.Payload(reference.MIME, data)
 	}
 	for i := range displays {
 		display := &displays[i]
@@ -571,15 +648,6 @@ func mergeArtifactIntoDisplay(displays []evalapi.Display, artifact evalapi.Artif
 		return true
 	}
 	return false
-}
-
-// inlinePayload is how the bytes of one mime type are written in a display: text stays text, anything
-// else is base64.
-func inlinePayload(mime string, data []byte) string {
-	if strings.HasPrefix(mime, "text/") || mime == "application/json" || strings.HasSuffix(mime, "+json") {
-		return string(data)
-	}
-	return base64.StdEncoding.EncodeToString(data)
 }
 
 // volatileArtifactReference is the reference of an artifact whose bytes could not be kept.
@@ -635,7 +703,7 @@ func displayOutputs(displays []evalapi.Display, kernelSessionID string, refs map
 				if payloadMime == "" {
 					payloadMime = "application/octet-stream"
 				}
-				output.Data = map[string]ipynb.MimeData{payloadMime: ipynb.MimeData(display.Text)}
+				output.Data = map[string]ipynb.MimeData{payloadMime: ipynb.Text(display.Text)}
 			}
 			out = append(out, output)
 			continue
@@ -646,7 +714,7 @@ func displayOutputs(displays []evalapi.Display, kernelSessionID string, refs map
 		if mime == "" {
 			mime = "text/plain"
 		}
-		out = append(out, ipynb.Output{OutputType: ipynb.OutputDisplay, Data: map[string]ipynb.MimeData{mime: ipynb.MimeData(display.Text)}})
+		out = append(out, ipynb.Output{OutputType: ipynb.OutputDisplay, Data: map[string]ipynb.MimeData{mime: ipynb.Text(display.Text)}})
 	}
 	return out
 }

@@ -194,7 +194,7 @@ func TestMutableArgsOnlyFromMutableHook(t *testing.T) {
 	_ = r.Register(fixed)
 	_ = r.Register(mutable)
 	out := r.Decide(context.Background(), Request{Event: EventPreToolUse, ToolArgs: map[string]any{"path": "a"}})
-	if out.Args["path"] != nil {
+	if out.Args["path"] != "a" {
 		t.Fatalf("a non-mutable hook changed arguments: %v", out.Args)
 	}
 	if out.Args["limit"] != 5 {
@@ -247,16 +247,30 @@ func TestStopDenialsAreFinite(t *testing.T) {
 	if out := r.Decide(context.Background(), Request{Event: EventStop, SessionID: "other"}); !out.Denied() {
 		t.Fatalf("a new session must get its own denials: %+v", out)
 	}
-	// A non-Stop deny is not limited.
+	// A blocking completion event is bounded the same way: a hook that keeps denying a completion it
+	// cannot be satisfied cannot hold the run open forever.
 	block := &testHook{id: "block", version: 1, events: []Event{EventPreVerify},
 		run: func(context.Context, Request) (Result, error) {
 			return Result{Decision: DecisionDeny}, nil
 		}}
 	_ = r.Register(block)
-	for range 5 {
-		if out := r.Decide(context.Background(), Request{Event: EventPreVerify, SessionID: "s"}); !out.Denied() {
-			t.Fatal("PreVerify deny must always block")
+	pre := Request{Event: EventPreVerify, SessionID: "s"}
+	for i := 0; i < DefaultStopDenials; i++ {
+		if out := r.Decide(context.Background(), pre); !out.Denied() {
+			t.Fatalf("denial %d must block: %+v", i+1, out)
 		}
+	}
+	out = r.Decide(context.Background(), pre)
+	if out.Denied() || !out.DenialLimitReached {
+		t.Fatalf("a PreVerify denial past the limit must be overridden: %+v", out)
+	}
+	if len(out.Audit) != 1 || out.Audit[0].Overridden != "denial_limit" {
+		t.Fatalf("audit=%+v", out.Audit)
+	}
+	// A fresh run of the session gets its own budget.
+	r.ResetDenials("s")
+	if out := r.Decide(context.Background(), pre); !out.Denied() {
+		t.Fatalf("a reset session must block again: %+v", out)
 	}
 }
 

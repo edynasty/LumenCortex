@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"mime"
 	"os"
 	"path/filepath"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/evalapi"
+	"github.com/edynasty/LumenCortex/internal/safefs"
 )
 
 // maxResults bounds the per-session execution history. Results carry bounded
@@ -26,9 +26,10 @@ const maxResults = 64
 // session is one persistent kernel: its private directory tree, its worker, its
 // sharing grants, its bounded result and artifact indexes.
 type session struct {
-	m        *Manager
-	id       string
-	manifest evalapi.Manifest
+	m         *Manager
+	id        string
+	manifest  evalapi.Manifest
+	readPaths []string
 
 	ownerID    string
 	agentID    string
@@ -45,6 +46,11 @@ type session struct {
 	homeDir     string
 	tmpDir      string
 	profilePath string
+	controlDir  string
+	dataFS      *safefs.Root
+	controlFS   *safefs.Root
+	spaceFS     *safefs.Root
+	fsMu        sync.Mutex
 
 	budget     evalapi.Budget
 	leaseUntil time.Time
@@ -72,6 +78,11 @@ type session struct {
 	// active is the cell currently admitted to this kernel, so a revocation or a
 	// grant expiry can cancel it instead of only refusing future calls.
 	active *executionRef
+	// executing is set while Execute owns the kernel, from the moment the cell
+	// is admitted to the moment its result is built. The worker-exit watcher
+	// reads it so an exit that Execute is already reporting is not double
+	// counted as an idle death.
+	executing bool
 }
 
 func newSession(m *Manager, p *provider, opts evalapi.CreateOptions, slot int) (*session, error) {
@@ -86,6 +97,10 @@ func newSession(m *Manager, p *provider, opts evalapi.CreateOptions, slot int) (
 	if !info.IsDir() {
 		return nil, fmt.Errorf("%w: workspace %q is not a directory", evalapi.ErrInvalid, workspace)
 	}
+	workspace, err = filepath.EvalSymlinks(workspace)
+	if err != nil {
+		return nil, err
+	}
 	owner := strings.TrimSpace(opts.OwnerID)
 	if owner == "" {
 		return nil, fmt.Errorf("%w: owner identity is required", evalapi.ErrInvalid)
@@ -99,14 +114,15 @@ func newSession(m *Manager, p *provider, opts evalapi.CreateOptions, slot int) (
 		permission = "workspace"
 	}
 	id := newID()
-	// A kernel always gets its own pre-allocated slot inside the host-provided
-	// namespace: sharing a heap never shares the owner's whole private tree, and
-	// every profile knows the other slots by name (see Manager.denyPathsFor).
-	kernel := filepath.Join(workspace, fmt.Sprintf("kernel-%d", slot))
+	// Control files are never writable by any worker. Unique directories also
+	// prevent a closed session's artifacts from becoming a later kernel's data.
+	kernel := filepath.Join(workspace, fmt.Sprintf("kernel-%d-%s", slot, id))
+	control := filepath.Join(workspace, "control-"+id)
 	s := &session{
 		m:           m,
 		id:          id,
 		manifest:    p.manifest,
+		readPaths:   append([]string(nil), p.readPaths...),
 		ownerID:     owner,
 		agentID:     agent,
 		parentID:    strings.TrimSpace(opts.ParentAgentID),
@@ -115,11 +131,12 @@ func newSession(m *Manager, p *provider, opts evalapi.CreateOptions, slot int) (
 		label:       opts.Label,
 		kernel:      kernel,
 		workDir:     filepath.Join(kernel, "work"),
-		artifactDir: filepath.Join(kernel, "artifacts"),
-		pendingDir:  filepath.Join(kernel, "artifacts", "pending"),
+		artifactDir: filepath.Join(control, "artifacts"),
+		pendingDir:  filepath.Join(kernel, "pending"),
 		homeDir:     filepath.Join(kernel, "home"),
 		tmpDir:      filepath.Join(kernel, "tmp"),
-		profilePath: filepath.Join(kernel, "sandbox.sb"),
+		profilePath: filepath.Join(control, "sandbox.sb"),
+		controlDir:  control,
 		budget:      evalapi.MergeBudget(m.defaultBudget, opts.Budget),
 		leaseUntil:  opts.LeaseUntil,
 		createdAt:   time.Now().UTC(),
@@ -130,9 +147,32 @@ func newSession(m *Manager, p *provider, opts evalapi.CreateOptions, slot int) (
 		callbackIDs: make(map[string]struct{}),
 		execSem:     make(chan struct{}, 1),
 	}
-	for _, dir := range []string{s.workDir, s.artifactDir, s.pendingDir, s.homeDir, s.tmpDir} {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			_ = os.RemoveAll(kernel)
+	s.spaceFS, err = safefs.Open(workspace)
+	if err != nil {
+		return nil, err
+	}
+	if err = s.spaceFS.MkdirAll(filepath.Base(kernel)); err != nil {
+		s.spaceFS.Close()
+		return nil, err
+	}
+	if err = s.spaceFS.MkdirAll(filepath.Base(control) + "/artifacts"); err != nil {
+		s.spaceFS.Close()
+		return nil, err
+	}
+	s.controlFS, err = safefs.Open(control)
+	if err != nil {
+		s.spaceFS.Close()
+		return nil, err
+	}
+	s.dataFS, err = safefs.Open(kernel)
+	if err != nil {
+		s.controlFS.Close()
+		s.spaceFS.Close()
+		return nil, err
+	}
+	for _, dir := range []string{"work", "pending", "home", "tmp"} {
+		if err = s.dataFS.MkdirAll(dir); err != nil {
+			_ = s.removeFiles()
 			return nil, err
 		}
 	}
@@ -148,7 +188,11 @@ func newSession(m *Manager, p *provider, opts evalapi.CreateOptions, slot int) (
 	}
 	data, err := json.MarshalIndent(meta, "", "  ")
 	if err == nil {
-		_ = os.WriteFile(filepath.Join(kernel, "meta.json"), data, 0o600)
+		err = s.controlFS.WriteFile("meta.json", data, 0600)
+	}
+	if err != nil {
+		_ = s.removeFiles()
+		return nil, err
 	}
 	return s, nil
 }
@@ -240,9 +284,15 @@ func (s *session) roleFor(agentID string) (string, bool) {
 	return grant.Role, true
 }
 
+// canExecute reports whether agentID may run a cell in this kernel. A kernel is
+// one actor's authority domain: only its immutable owner executes in it. A grant
+// shares read access to results and artifacts (the explicit data path), never the
+// owner's live heap.
 func (s *session) canExecute(agentID string) bool {
-	role, ok := s.roleFor(agentID)
-	return ok && (role == evalapi.RoleOwner || role == evalapi.RoleExecutor)
+	if agentID == "" {
+		return false
+	}
+	return agentID == s.ownerID
 }
 
 func (s *session) canRead(agentID string) bool {
@@ -250,8 +300,10 @@ func (s *session) canRead(agentID string) bool {
 	return ok
 }
 
+// canInterrupt reports whether agentID may stop this kernel's running cell. A
+// cross-domain interrupt would let another actor control the owner's process.
 func (s *session) canInterrupt(agentID string) bool {
-	return s.canExecute(agentID)
+	return agentID != "" && agentID == s.ownerID
 }
 
 func (s *session) canControl(agentID string) bool {
@@ -362,15 +414,26 @@ func mimeForName(name, fallback string) string {
 // storeArtifact writes immutable bytes and indexes them with provenance. The
 // quota is checked before anything is written.
 func (s *session) storeArtifact(cellID, name, mimeType string, data []byte) (evalapi.Artifact, error) {
+	s.fsMu.Lock()
+	defer s.fsMu.Unlock()
+	return s.storeArtifactLocked(cellID, name, mimeType, data, false)
+}
+
+func (s *session) storeArtifactLocked(cellID, name, mimeType string, data []byte, materialize bool) (evalapi.Artifact, error) {
 	if int64(len(data)) > s.budget.ArtifactBytes {
 		return evalapi.Artifact{}, fmt.Errorf("%w: artifact %q is %d bytes, limit is %d", evalapi.ErrLimit, name, len(data), s.budget.ArtifactBytes)
 	}
 	s.mu.Lock()
-	if s.artifactBytes+int64(len(data)) > s.budget.ArtifactBytes {
+	if len(s.artifacts) >= 4096 || s.artifactBytes+int64(len(data)) > s.budget.ArtifactBytes {
 		s.mu.Unlock()
 		return evalapi.Artifact{}, fmt.Errorf("%w: artifact quota %d bytes exhausted", evalapi.ErrLimit, s.budget.ArtifactBytes)
 	}
 	s.mu.Unlock()
+	if materialize {
+		if err := s.dataFS.WriteFile("work/"+name, data, 0600); err != nil {
+			return evalapi.Artifact{}, err
+		}
+	}
 
 	id := newID()
 	sum := sha256.Sum256(data)
@@ -385,13 +448,17 @@ func (s *session) storeArtifact(cellID, name, mimeType string, data []byte) (eva
 		Size:      int64(len(data)),
 		CreatedAt: time.Now().UTC(),
 	}
-	path := filepath.Join(s.artifactDir, id)
-	if err := os.WriteFile(path, data, 0o400); err != nil {
+	path := "artifacts/" + id
+	if err := s.controlFS.WriteFile(path, data, 0400); err != nil {
 		return evalapi.Artifact{}, err
 	}
 	sidecar, err := json.Marshal(artifact)
 	if err == nil {
-		_ = os.WriteFile(path+".json", sidecar, 0o400)
+		err = s.controlFS.WriteFile(path+".json", sidecar, 0400)
+	}
+	if err != nil {
+		_ = s.controlFS.RemoveAll(path)
+		return evalapi.Artifact{}, err
 	}
 	s.mu.Lock()
 	s.artifacts[id] = artifact
@@ -405,20 +472,17 @@ func (s *session) storeArtifact(cellID, name, mimeType string, data []byte) (eva
 // readArtifact returns the stored bytes after verifying size and digest, so a
 // file changed behind the manager's back is reported instead of trusted.
 func (s *session) readArtifact(id string) (evalapi.Artifact, []byte, error) {
+	s.fsMu.Lock()
+	defer s.fsMu.Unlock()
 	s.mu.Lock()
 	artifact, ok := s.artifacts[id]
 	s.mu.Unlock()
 	if !ok {
 		return evalapi.Artifact{}, nil, fmt.Errorf("%w: artifact %s", evalapi.ErrNotFound, id)
 	}
-	file, err := os.Open(filepath.Join(s.artifactDir, artifact.ID))
+	data, err := s.controlFS.ReadFile("artifacts/"+artifact.ID, artifact.Size)
 	if err != nil {
-		return evalapi.Artifact{}, nil, err
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, artifact.Size+1))
-	if err != nil {
-		return evalapi.Artifact{}, nil, err
+		return evalapi.Artifact{}, nil, fmt.Errorf("%w: artifact %s cannot be verified: %v", evalapi.ErrInvalid, id, err)
 	}
 	if int64(len(data)) != artifact.Size {
 		return evalapi.Artifact{}, nil, fmt.Errorf("%w: artifact %s size changed", evalapi.ErrInvalid, id)
@@ -430,86 +494,124 @@ func (s *session) readArtifact(id string) (evalapi.Artifact, []byte, error) {
 	return artifact, data, nil
 }
 
-// adoptPendingArtifacts moves files a worker declared from its staging directory
-// into the immutable store. Symlinks and directories are refused.
+// adoptPendingArtifacts validates and reads the same nonblocking descriptor.
+// No path-based check/read race or silent unsafe-file skipping is permitted.
 func (s *session) adoptPendingArtifacts(cellID string, declared []wireArtifact) ([]evalapi.Artifact, error) {
-	seen := make(map[string]bool, len(declared))
-	names := make([]wireArtifact, 0, len(declared))
-	for _, item := range declared {
-		name := safeArtifactName(item.Name)
-		if name == "" || seen[name] {
-			continue
-		}
-		seen[name] = true
-		names = append(names, wireArtifact{Name: name, MIME: item.MIME})
+	if len(declared) > 256 {
+		return nil, fmt.Errorf("%w: too many pending artifacts", evalapi.ErrLimit)
 	}
+	seen := make(map[string]bool, len(declared))
 	var out []evalapi.Artifact
-	for _, item := range names {
-		path := filepath.Join(s.pendingDir, item.Name)
-		info, err := os.Lstat(path)
+	for _, item := range declared {
+		if err := artifactNameAllowed(item.Name); err != nil {
+			return out, err
+		}
+		if seen[item.Name] {
+			continue
+		}
+		seen[item.Name] = true
+		s.fsMu.Lock()
+		data, err := s.dataFS.ReadFile("pending/"+item.Name, s.budget.ArtifactBytes)
+		if err == nil {
+			err = s.dataFS.RemoveAll("pending/" + item.Name)
+		}
+		s.fsMu.Unlock()
 		if err != nil {
-			continue
-		}
-		if !info.Mode().IsRegular() {
-			_ = os.Remove(path)
-			continue
-		}
-		if info.Size() > s.budget.ArtifactBytes {
-			_ = os.Remove(path)
-			return out, fmt.Errorf("%w: artifact %q is %d bytes, limit is %d", evalapi.ErrLimit, item.Name, info.Size(), s.budget.ArtifactBytes)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
+			return out, fmt.Errorf("%w: pending artifact %q: %v", evalapi.ErrInvalid, item.Name, err)
 		}
 		artifact, err := s.storeArtifact(cellID, item.Name, item.MIME, data)
 		if err != nil {
-			_ = os.Remove(path)
 			return out, err
 		}
-		_ = os.Remove(path)
 		out = append(out, artifact)
 	}
 	return out, nil
 }
 
-func (s *session) resetWorkspace() error {
-	entries, err := os.ReadDir(s.workDir)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if err := os.RemoveAll(filepath.Join(s.workDir, entry.Name())); err != nil {
-			return err
-		}
-	}
-	entries, err = os.ReadDir(s.pendingDir)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		_ = os.RemoveAll(filepath.Join(s.pendingDir, entry.Name()))
+func artifactNameAllowed(name string) error {
+	if name == "" || name == "." || name == ".." || len(name) > 120 || strings.ContainsAny(name, "/\\\x00") {
+		return fmt.Errorf("%w: artifact name must be a single filename", evalapi.ErrInvalid)
 	}
 	return nil
 }
 
-// executionRef is one admitted cell: who runs it and how to stop it.
+func (s *session) writeInput(name string, data []byte) error {
+	if err := artifactNameAllowed(name); err != nil {
+		return err
+	}
+	s.fsMu.Lock()
+	defer s.fsMu.Unlock()
+	return s.dataFS.WriteFile("work/"+name, data, 0600)
+}
+
+func (s *session) importArtifact(ctx context.Context, agentID, name, mimeType string, data []byte) (evalapi.Artifact, error) {
+	if err := artifactNameAllowed(name); err != nil {
+		return evalapi.Artifact{}, err
+	}
+	s.fsMu.Lock()
+	defer s.fsMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return evalapi.Artifact{}, err
+	}
+	if !s.canExecute(agentID) {
+		return evalapi.Artifact{}, evalapi.ErrDenied
+	}
+	s.mu.Lock()
+	closed := s.closed || s.state == evalapi.StateStopping || s.state == evalapi.StateResetting
+	s.mu.Unlock()
+	if closed {
+		return evalapi.Artifact{}, fmt.Errorf("%w: session is closing or resetting", evalapi.ErrInvalid)
+	}
+	return s.storeArtifactLocked("", name, mimeType, data, true)
+}
+
+func (s *session) resetWorkspace() error {
+	s.fsMu.Lock()
+	defer s.fsMu.Unlock()
+	if err := s.dataFS.Close(); err != nil {
+		return err
+	}
+	// The lifecycle owner has already waited for the old worker. Reopen only a
+	// host-owned root; old generation handles stay closed permanently.
+	next, err := safefs.Open(s.kernel)
+	if err != nil {
+		return err
+	}
+	s.dataFS = next
+	for _, dir := range []string{"work", "pending", "home", "tmp"} {
+		if err := next.RemoveAll(dir); err != nil {
+			return err
+		}
+		if err := next.MkdirAll(dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *session) closeFileHandles() error {
+	s.fsMu.Lock()
+	defer s.fsMu.Unlock()
+	return errors.Join(s.dataFS.Close(), s.controlFS.Close(), s.spaceFS.Close())
+}
+
+func (s *session) removeFiles() error {
+	s.fsMu.Lock()
+	defer s.fsMu.Unlock()
+	err := errors.Join(s.dataFS.Close(), s.controlFS.Close())
+	err = errors.Join(err, s.spaceFS.RemoveAll(filepath.Base(s.kernel)), s.spaceFS.RemoveAll(filepath.Base(s.controlDir)))
+	return errors.Join(err, s.spaceFS.Close())
+}
+
+// executionRef is one admitted cell: who runs it, in which kernel generation, how
+// to stop it, and when it is over. The completion channel is what ties interrupt
+// escalation and revocation to the identity of *this* execution rather than to a
+// session-wide state flag.
 type executionRef struct {
 	agentID    string
 	generation uint64
 	cancel     context.CancelFunc
-}
-
-func (s *session) setActive(ref *executionRef) {
-	s.mu.Lock()
-	s.active = ref
-	s.mu.Unlock()
-}
-
-func (s *session) clearActive() {
-	s.mu.Lock()
-	s.active = nil
-	s.mu.Unlock()
+	done       chan struct{}
 }
 
 // cancelActive cancels the running cell when it belongs to agentID ("" means any).
@@ -567,17 +669,24 @@ func (s *session) admitRequestID(id string) error {
 	return nil
 }
 
-// trackCallbackID records a worker callback id for the kernel's lifetime.
-func (s *session) trackCallbackID(id string) error {
+// trackCallbackID records a worker callback id for one kernel generation.
+//
+// A worker numbers its callbacks from its own counter, which restarts whenever
+// the process restarts. The replay guard is therefore scoped to the generation
+// that issued the id: a reset, timeout or crash starts a new process whose
+// "c1" is a different callback, while a repeated id inside one generation is
+// still refused.
+func (s *session) trackCallbackID(generation uint64, id string) error {
+	key := fmt.Sprintf("%d:%s", generation, id)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, exists := s.callbackIDs[id]; exists {
-		return fmt.Errorf("duplicate tool callback id %q", id)
+	if _, exists := s.callbackIDs[key]; exists {
+		return fmt.Errorf("duplicate tool callback id %q in kernel generation %d", id, generation)
 	}
 	if len(s.callbackIDs) >= maxTrackedCallbacks {
 		return fmt.Errorf("callback id limit reached for session %s", s.id)
 	}
-	s.callbackIDs[id] = struct{}{}
+	s.callbackIDs[key] = struct{}{}
 	return nil
 }
 

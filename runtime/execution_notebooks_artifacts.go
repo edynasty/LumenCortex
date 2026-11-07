@@ -129,9 +129,19 @@ func (h *executionNotebookHost) putNotebookArtifact(ctx context.Context, session
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return ipynb.OutputLC{}, err
 	}
+	// The file is written before the document that references it, so a collection that runs in
+	// between must not take it: the run marks it pending until its cell's output is recorded.
+	markNotebookArtifactPending(sessionID, id)
+	kept := false
+	defer func() {
+		if !kept {
+			releaseNotebookArtifact(sessionID, id)
+		}
+	}()
 	// The same content is stored once: an existing, verified artifact is returned as it is and is not
 	// charged to the quota a second time.
 	if existing, ok := readStoredArtifact(dir, id); ok && bytes.Equal(existing.data, data) {
+		kept = true
 		return ipynb.OutputLC{
 			ArtifactID: existing.meta.ArtifactID, SessionID: sessionID, MIME: existing.meta.MIME,
 			Size: existing.meta.Size, SHA256: existing.meta.SHA256,
@@ -141,6 +151,15 @@ func (h *executionNotebookHost) putNotebookArtifact(ctx context.Context, session
 	if err != nil {
 		// A quota that cannot be measured is not a quota: refuse the write instead of guessing.
 		return ipynb.OutputLC{}, err
+	}
+	if used+int64(len(data)) > ExecutionNotebookArtifactQuota {
+		// The quota bounds what the session keeps, not what it ever produced: an artifact no output
+		// shows any more (its cell was re-run, or its notebook was deleted) is collected first, and
+		// only a session that still exceeds the quota with everything it references is refused.
+		used, err = h.collectNotebookArtifactsLocked(ctx, sessionID, dir)
+		if err != nil {
+			return ipynb.OutputLC{}, err
+		}
 	}
 	if used+int64(len(data)) > ExecutionNotebookArtifactQuota {
 		return ipynb.OutputLC{}, fmt.Errorf("the session's notebook artifacts would exceed the %d byte quota", ExecutionNotebookArtifactQuota)
@@ -159,6 +178,7 @@ func (h *executionNotebookHost) putNotebookArtifact(ctx context.Context, session
 	if err := writeFileAtomic(ctx, filepath.Join(dir, id+".json"), sidecar); err != nil {
 		return ipynb.OutputLC{}, err
 	}
+	kept = true
 	return ipynb.OutputLC{
 		ArtifactID: id, SessionID: sessionID, MIME: meta.MIME, Size: meta.Size, SHA256: meta.SHA256,
 	}, nil
@@ -312,4 +332,145 @@ func writeFileAtomic(ctx context.Context, path string, data []byte) error {
 		return err
 	}
 	return nil
+}
+
+// notebookArtifactPending counts the artifacts a run has written but whose output it has not recorded
+// yet. A collection never takes one: the run is about to reference it, and a file collected in that
+// window would leave the document naming bytes that are gone.
+var notebookArtifactPending = struct {
+	mu   sync.Mutex
+	held map[string]int
+}{held: map[string]int{}}
+
+// notebookArtifactPendingKey is the registry key of one artifact of one session.
+func notebookArtifactPendingKey(sessionID, id string) string { return sessionID + "\x00" + id }
+
+// markNotebookArtifactPending records that a run is about to reference one artifact.
+func markNotebookArtifactPending(sessionID, id string) {
+	key := notebookArtifactPendingKey(sessionID, id)
+	notebookArtifactPending.mu.Lock()
+	notebookArtifactPending.held[key]++
+	notebookArtifactPending.mu.Unlock()
+}
+
+// releaseNotebookArtifact drops one pending mark, once the run recorded the reference or gave up.
+func releaseNotebookArtifact(sessionID, id string) {
+	key := notebookArtifactPendingKey(sessionID, id)
+	notebookArtifactPending.mu.Lock()
+	if count := notebookArtifactPending.held[key]; count > 1 {
+		notebookArtifactPending.held[key] = count - 1
+	} else {
+		delete(notebookArtifactPending.held, key)
+	}
+	notebookArtifactPending.mu.Unlock()
+}
+
+// notebookArtifactPendingCount reports how many runs are about to reference one artifact.
+func notebookArtifactPendingCount(sessionID, id string) int {
+	key := notebookArtifactPendingKey(sessionID, id)
+	notebookArtifactPending.mu.Lock()
+	defer notebookArtifactPending.mu.Unlock()
+	return notebookArtifactPending.held[key]
+}
+
+// collectNotebookArtifacts frees the artifacts of one session that no output references any more. It is
+// best effort: a notebook delete has already happened when it runs, and a collection that cannot read
+// the session must not turn a completed delete into a failure.
+func (h *executionNotebookHost) collectNotebookArtifacts(ctx context.Context, sessionID string) {
+	if err := checkExecutionOwner(sessionID); err != nil {
+		return
+	}
+	unlock := lockNotebookArtifacts(sessionID)
+	defer unlock()
+	_, _ = h.collectNotebookArtifactsLocked(ctx, sessionID, h.engine.notebookArtifactDir(sessionID))
+}
+
+// collectNotebookArtifactsLocked removes every stored artifact of the session that no execution
+// notebook references, and returns the bytes the session still keeps. The caller holds the session's
+// artifact lock.
+//
+// A reference is an output of a stored execution notebook: that is what a page can show and what a
+// later read can verify. The history entry of a run keeps the ids it produced as a record of what ran,
+// not as a promise that the bytes are still readable — a re-run replaces its cell's output, and the
+// bytes it replaced are collected instead of being charged to the quota forever.
+func (h *executionNotebookHost) collectNotebookArtifactsLocked(ctx context.Context, sessionID, dir string) (int64, error) {
+	referenced, err := h.referencedArtifacts(ctx, sessionID)
+	if err != nil {
+		// An unreadable notebook might be the one that references an artifact: collect nothing rather
+		// than take bytes a document still names.
+		return 0, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	var used int64
+	for _, entry := range entries {
+		id, ok := artifactFileID(entry.Name())
+		if !ok {
+			continue
+		}
+		if referenced[id] || notebookArtifactPendingCount(sessionID, id) > 0 {
+			if strings.HasSuffix(entry.Name(), ".bin") {
+				if info, err := entry.Info(); err == nil {
+					used += info.Size()
+				}
+			}
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return used, err
+		}
+	}
+	return used, nil
+}
+
+// referencedArtifacts is the set of artifact ids the session's execution notebooks reference from an
+// output, in the digest form the store writes.
+func (h *executionNotebookHost) referencedArtifacts(ctx context.Context, sessionID string) (map[string]bool, error) {
+	infos, err := h.engine.store.ListNotebooks(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(infos))
+	for _, info := range infos {
+		if !isExecutionNotebookTitle(info.Title) {
+			continue
+		}
+		stored, err := h.engine.store.GetNotebook(ctx, sessionID, info.ID)
+		if err != nil {
+			return nil, err
+		}
+		document, err := ipynb.Parse(stored.Body)
+		if err != nil {
+			return nil, err
+		}
+		for _, cell := range document.Cells {
+			for _, output := range cell.Outputs {
+				if output.LC == nil || output.LC.ArtifactID == "" {
+					continue
+				}
+				if id, err := checkArtifactID(output.LC.ArtifactID); err == nil {
+					out[id] = true
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// artifactFileID is the artifact id of one file in the artifact directory: a .bin or .json file named
+// by a 64-hex digest.
+func artifactFileID(name string) (string, bool) {
+	base := strings.TrimSuffix(strings.TrimSuffix(name, ".bin"), ".json")
+	if base == name || len(base) != 64 {
+		return "", false
+	}
+	if _, err := hex.DecodeString(base); err != nil {
+		return "", false
+	}
+	return strings.ToLower(base), true
 }

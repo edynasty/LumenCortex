@@ -115,9 +115,9 @@ type ChildExecutionOptions struct {
 	// EvalEnabled grants a child the host's execution tools. nil or false keeps them off: a child
 	// never inherits its parent's EvalEnabled, and its model can never grant itself anything.
 	EvalEnabled *bool `json:"evalEnabled,omitempty"`
-	// SharedKernel names an eval session the parent owns that the granted child may execute in. The
-	// child receives an EXECUTOR grant at its Start, bounded by SharedKernelLeaseSeconds; it never
-	// owns, resets or closes that kernel.
+	// SharedKernel grants the child read-only artifact/result access to a parent's kernel.
+	// The child executes in its own authority-domain kernel; the observer lease is
+	// bounded by SharedKernelLeaseSeconds and grants no control of the parent's process.
 	SharedKernel string `json:"sharedKernel,omitempty"`
 	// SharedKernelLeaseSeconds bounds the grant's lease. Zero or negative takes five minutes; more
 	// than an hour is capped at an hour.
@@ -256,8 +256,8 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 	if r.evalEnabled {
 		switch {
 		case r.parentSessionID != "":
-			// A child's EXECUTOR lease on the parent's kernel ends with the child's run; the kernel
-			// itself stays the owner's. Both teardown steps are reported, never swallowed.
+			// A child's observer lease ends with its run; the parent's kernel stays intact.
+			// Both teardown steps are reported, never swallowed.
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			cleanupErr = errors.Join(r.engine.revokeEvalAgent(cleanupCtx, r.sessionID), r.engine.closeEvalOwner(r.sessionID))
 			cancel()
@@ -475,11 +475,13 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err := e.executionTools(ctx, sessionID, opts, tools, runID); err != nil {
 		return nil, err
 	}
-	// A granted child receives an EXECUTOR lease on the parent's kernel. The lease bounds the grant;
-	// the owner identity and the kernel's workspace stay the parent's, and the child can neither
-	// widen them nor close the kernel.
+	// A child never executes inside the parent's kernel: a kernel is one actor's
+	// authority domain, so the child gets its own kernel (its own session
+	// identity) and the two sides exchange artifacts. The parent's kernel is
+	// shared read-only, which is what authorizes the child to import the parent's
+	// results and artifacts as explicit, bounded, digest-checked copies.
 	if opts.parentSessionID != "" && opts.EvalEnabled && opts.sharedEvalSession != "" {
-		grant := evalapi.Grant{AgentID: sessionID, Role: evalapi.RoleExecutor,
+		grant := evalapi.Grant{AgentID: sessionID, Role: evalapi.RoleObserver,
 			ExpiresAt: time.Now().Add(opts.sharedEvalLease)}
 		if err := e.GrantEvalSession(ctx, opts.parentSessionID, opts.sharedEvalSession, grant); err != nil {
 			return nil, err

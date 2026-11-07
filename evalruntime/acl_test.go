@@ -55,12 +55,12 @@ func TestGrantRoles(t *testing.T) {
 
 	// Workspace widening is refused.
 	if err := h.m.Grant(ctx, session.ID, "owner-a", evalapi.Grant{
-		AgentID: "executor-b", Role: evalapi.RoleExecutor, Workspace: h.workspace, Permission: session.Permission,
+		AgentID: "executor-b", Role: evalapi.RoleObserver, Workspace: h.workspace, Permission: session.Permission,
 	}); !errors.Is(err, evalapi.ErrDenied) {
 		t.Fatalf("grant with a broader workspace = %v", err)
 	}
 	if err := h.m.Grant(ctx, session.ID, "owner-a", evalapi.Grant{
-		AgentID: "executor-b", Role: evalapi.RoleExecutor, Workspace: session.Workspace, Permission: "full",
+		AgentID: "executor-b", Role: evalapi.RoleObserver, Workspace: session.Workspace, Permission: "full",
 	}); !errors.Is(err, evalapi.ErrDenied) {
 		t.Fatalf("grant with a broader permission = %v", err)
 	}
@@ -71,17 +71,24 @@ func TestGrantRoles(t *testing.T) {
 		t.Fatalf("grant of OWNER = %v", err)
 	}
 
+	// A kernel executes only for its owner: an executor grant is refused, because
+	// it would run another actor inside the owner's process.
 	if err := h.m.Grant(ctx, session.ID, "owner-a", evalapi.Grant{
-		AgentID: "executor-b", Role: evalapi.RoleExecutor, Workspace: session.Workspace, Permission: session.Permission,
-	}); err != nil {
-		t.Fatalf("grant executor: %v", err)
+		AgentID: "executor-b", Role: "EXECUTOR", Workspace: session.Workspace, Permission: session.Permission,
+	}); !errors.Is(err, evalapi.ErrInvalid) {
+		t.Fatalf("removed executor role = %v, want ErrInvalid", err)
 	}
-	shared := h.expectCompleted(session, "executor-b", "x + 5")
-	if len(shared.Displays) == 0 || shared.Displays[0].Text != "15" {
-		t.Fatalf("executor cannot see the shared heap: %+v", shared.Displays)
+	// The same actor shares data read-only instead.
+	if err := h.m.Grant(ctx, session.ID, "owner-a", evalapi.Grant{
+		AgentID: "executor-b", Role: evalapi.RoleObserver, Workspace: session.Workspace, Permission: session.Permission,
+	}); err != nil {
+		t.Fatalf("grant observer: %v", err)
+	}
+	if _, err := h.m.Execute(ctx, evalapi.Request{ID: "cross", SessionID: session.ID, CellID: "c", Code: "1", AgentID: "executor-b"}, nil); !errors.Is(err, evalapi.ErrAuthorityDomain) {
+		t.Fatalf("cross-domain execute = %v, want ErrAuthorityDomain", err)
 	}
 	if _, err := h.m.Results(ctx, session.ID, "executor-b"); err != nil {
-		t.Fatalf("executor cannot read results: %v", err)
+		t.Fatalf("a read grant cannot read results: %v", err)
 	}
 	if err := h.m.Reset(ctx, session.ID, "executor-b"); !errors.Is(err, evalapi.ErrDenied) {
 		t.Fatalf("executor reset = %v", err)
@@ -90,7 +97,7 @@ func TestGrantRoles(t *testing.T) {
 		t.Fatalf("executor close = %v", err)
 	}
 	if err := h.m.Grant(ctx, session.ID, "executor-b", evalapi.Grant{AgentID: "executor-c", Role: evalapi.RoleObserver}); !errors.Is(err, evalapi.ErrDenied) {
-		t.Fatalf("executor regrant = %v", err)
+		t.Fatalf("grantee regrant = %v", err)
 	}
 
 	if err := h.m.Grant(ctx, session.ID, "owner-a", evalapi.Grant{
@@ -101,7 +108,7 @@ func TestGrantRoles(t *testing.T) {
 	if _, err := h.m.Results(ctx, session.ID, "observer-c"); err != nil {
 		t.Fatalf("observer cannot read results: %v", err)
 	}
-	if _, err := h.m.Execute(ctx, evalapi.Request{ID: "obs", SessionID: session.ID, CellID: "c", Code: "1", AgentID: "observer-c"}, nil); !errors.Is(err, evalapi.ErrDenied) {
+	if _, err := h.m.Execute(ctx, evalapi.Request{ID: "obs", SessionID: session.ID, CellID: "c", Code: "1", AgentID: "observer-c"}, nil); !errors.Is(err, evalapi.ErrAuthorityDomain) {
 		t.Fatalf("observer execute = %v", err)
 	}
 	if err := h.m.Interrupt(ctx, session.ID, "observer-c"); !errors.Is(err, evalapi.ErrDenied) {
@@ -112,7 +119,10 @@ func TestGrantRoles(t *testing.T) {
 	if err := h.m.Revoke(ctx, session.ID, "owner-a", "executor-b"); err != nil {
 		t.Fatalf("Revoke: %v", err)
 	}
-	if _, err := h.m.Execute(ctx, evalapi.Request{ID: "revoked", SessionID: session.ID, CellID: "c", Code: "1", AgentID: "executor-b"}, nil); !errors.Is(err, evalapi.ErrDenied) {
+	if _, err := h.m.Results(ctx, session.ID, "executor-b"); !errors.Is(err, evalapi.ErrDenied) {
+		t.Fatalf("revoked executor can still read results: %v", err)
+	}
+	if _, err := h.m.Execute(ctx, evalapi.Request{ID: "revoked", SessionID: session.ID, CellID: "c", Code: "1", AgentID: "executor-b"}, nil); !errors.Is(err, evalapi.ErrAuthorityDomain) {
 		t.Fatalf("revoked executor = %v", err)
 	}
 }
@@ -122,16 +132,19 @@ func TestGrantExpiry(t *testing.T) {
 	ctx := context.Background()
 	session := h.create("fixture", "owner-a", "owner-a")
 	if err := h.m.Grant(ctx, session.ID, "owner-a", evalapi.Grant{
-		AgentID: "short-lived", Role: evalapi.RoleExecutor, ExpiresAt: time.Now().Add(200 * time.Millisecond),
+		AgentID: "short-lived", Role: evalapi.RoleObserver, ExpiresAt: time.Now().Add(200 * time.Millisecond),
 	}); err != nil {
 		t.Fatalf("Grant: %v", err)
 	}
-	if result := h.exec(session, "short-lived", "1 + 1", evalapi.Budget{}); !result.Succeeded() {
-		t.Fatalf("grant before expiry failed: %+v", result)
+	if _, err := h.m.Results(ctx, session.ID, "short-lived"); err != nil {
+		t.Fatalf("grant before expiry failed: %v", err)
 	}
 	time.Sleep(350 * time.Millisecond)
-	if _, err := h.m.Execute(ctx, evalapi.Request{ID: "late", SessionID: session.ID, CellID: "c", Code: "1", AgentID: "short-lived"}, nil); !errors.Is(err, evalapi.ErrDenied) {
+	if _, err := h.m.Results(ctx, session.ID, "short-lived"); !errors.Is(err, evalapi.ErrDenied) {
 		t.Fatalf("expired grant = %v", err)
+	}
+	if _, err := h.m.Execute(ctx, evalapi.Request{ID: "late", SessionID: session.ID, CellID: "c", Code: "1", AgentID: "short-lived"}, nil); !errors.Is(err, evalapi.ErrAuthorityDomain) {
+		t.Fatalf("expired grant execute = %v", err)
 	}
 }
 
@@ -285,28 +298,29 @@ func TestSessionListOnlyShowsAccessibleKernels(t *testing.T) {
 	if !shared {
 		t.Fatalf("observer grant did not appear in the agent's session list")
 	}
-	if !strings.HasPrefix(mine.Workspace, h.workspace) {
+	if !strings.HasPrefix(mine.Workspace, resolvePath(h.workspace)+string(os.PathSeparator)) {
 		t.Fatalf("kernel workspace %q outside namespace", mine.Workspace)
 	}
 }
 
-// TestRevokeCancelsQueuedAndRunningExecutions: a revoked executor cannot run a
-// cell it queued while another cell held the kernel, and a running cell stops.
+// TestRevokeCancelsQueuedAndRunningExecutions: a grantee never runs a cell in the
+// owner's kernel at all. A cross-domain cell is refused at admission, and the
+// owner's running cell is unaffected by the revocation.
 func TestRevokeCancelsQueuedAndRunningExecutions(t *testing.T) {
 	h, _ := newFixtureHarness(t)
 	ctx := context.Background()
 	session := h.create("fixture", "owner-a", "owner-a")
 	if err := h.m.Grant(ctx, session.ID, "owner-a", evalapi.Grant{
-		AgentID: "executor-b", Role: evalapi.RoleExecutor,
+		AgentID: "executor-b", Role: evalapi.RoleObserver,
 	}); err != nil {
 		t.Fatalf("Grant: %v", err)
 	}
 
-	// Hold the kernel with a long owner cell, then queue the executor behind it.
+	// Hold the kernel with a long owner cell, then attempt a grantee cell behind it.
 	ownerDone := make(chan evalapi.Result, 1)
 	go func() {
 		result, err := h.m.Execute(ctx, evalapi.Request{
-			ID: "owner-long", SessionID: session.ID, CellID: "c", AgentID: "owner-a", Code: "sleep 1200",
+			ID: "owner-long", SessionID: session.ID, CellID: "c", AgentID: "owner-a", Code: "sleep 600",
 		}, nil)
 		if err != nil {
 			ownerDone <- evalapi.Result{Status: evalapi.ResultStatusCrashed, Error: err.Error()}
@@ -329,11 +343,11 @@ func TestRevokeCancelsQueuedAndRunningExecutions(t *testing.T) {
 	}
 	select {
 	case err := <-queuedDone:
-		if !errors.Is(err, evalapi.ErrDenied) {
-			t.Fatalf("queued executor after revoke = %v, want ErrDenied", err)
+		if !errors.Is(err, evalapi.ErrAuthorityDomain) {
+			t.Fatalf("cross-domain execution = %v, want ErrAuthorityDomain", err)
 		}
 	case <-time.After(20 * time.Second):
-		t.Fatalf("queued execution did not return")
+		t.Fatalf("cross-domain execution did not return")
 	}
 	select {
 	case result := <-ownerDone:
@@ -345,44 +359,55 @@ func TestRevokeCancelsQueuedAndRunningExecutions(t *testing.T) {
 	}
 }
 
-// TestRevokeCancelsRunningGrantee: revoking while the grantee's cell runs stops it.
-func TestRevokeCancelsRunningGrantee(t *testing.T) {
+// TestRevokeDropsReadAccessImmediately: revoking a read grant removes the
+// grantee's ability to read the owner's results and artifacts.
+func TestRevokeDropsReadAccessImmediately(t *testing.T) {
 	h, _ := newFixtureHarness(t)
 	ctx := context.Background()
 	session := h.create("fixture", "owner-a", "owner-a")
 	if err := h.m.Grant(ctx, session.ID, "owner-a", evalapi.Grant{
-		AgentID: "executor-b", Role: evalapi.RoleExecutor,
+		AgentID: "observer-b", Role: evalapi.RoleObserver,
 	}); err != nil {
 		t.Fatalf("Grant: %v", err)
 	}
-	done := make(chan evalapi.Result, 1)
-	go func() {
-		result, err := h.m.Execute(ctx, evalapi.Request{
-			ID: "executor-long", SessionID: session.ID, CellID: "c", AgentID: "executor-b", Code: "sleep 20000",
-		}, nil)
-		if err != nil {
-			done <- evalapi.Result{Status: evalapi.ResultStatusCrashed, Error: err.Error()}
-			return
-		}
-		done <- result
-	}()
-	time.Sleep(400 * time.Millisecond)
+	if _, err := h.m.Results(ctx, session.ID, "observer-b"); err != nil {
+		t.Fatalf("grantee read before revoke: %v", err)
+	}
 	start := time.Now()
+	if err := h.m.Revoke(ctx, session.ID, "owner-a", "observer-b"); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	if _, err := h.m.Results(ctx, session.ID, "observer-b"); !errors.Is(err, evalapi.ErrDenied) {
+		t.Fatalf("revoked grantee can still read: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("revocation took %s", elapsed)
+	}
+}
+
+// TestGranteeCannotStartACellInTheOwnersKernel: the removed shared-heap path is
+// refused at admission, immediately and without touching the owner's process.
+func TestGranteeCannotStartACellInTheOwnersKernel(t *testing.T) {
+	h, _ := newFixtureHarness(t)
+	ctx := context.Background()
+	session := h.create("fixture", "owner-a", "owner-a")
+	if err := h.m.Grant(ctx, session.ID, "owner-a", evalapi.Grant{
+		AgentID: "executor-b", Role: evalapi.RoleObserver,
+	}); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	start := time.Now()
+	if _, err := h.m.Execute(ctx, evalapi.Request{
+		ID: "cross-domain", SessionID: session.ID, CellID: "c", AgentID: "executor-b", Code: "sleep 20000",
+	}, nil); !errors.Is(err, evalapi.ErrAuthorityDomain) {
+		t.Fatalf("cross-domain execute = %v, want ErrAuthorityDomain", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("cross-domain admission took %s", elapsed)
+	}
 	if err := h.m.Revoke(ctx, session.ID, "owner-a", "executor-b"); err != nil {
 		t.Fatalf("Revoke: %v", err)
 	}
-	select {
-	case result := <-done:
-		if result.Succeeded() {
-			t.Fatalf("revoked executor's cell completed: %+v", result)
-		}
-		if result.Status != evalapi.ResultStatusCancelled && result.Status != evalapi.ResultStatusTimeout {
-			t.Fatalf("status after revoke = %q", result.Status)
-		}
-	case <-time.After(20 * time.Second):
-		t.Fatalf("revoked execution did not stop")
-	}
-	if elapsed := time.Since(start); elapsed > 15*time.Second {
-		t.Fatalf("revocation cancellation took %s", elapsed)
-	}
+	// The owner's kernel and its capability are untouched.
+	h.expectCompleted(session, "owner-a", "let n = 1")
 }

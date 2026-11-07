@@ -569,9 +569,15 @@ type Modalities struct {
 // Check is an evaluator check (design §4.7); internal/evaluator runs it. Absent TimeoutSeconds means
 // DefaultCheckTimeout, absent Required means true.
 type Check struct {
-	Kind           string   `json:"kind"`
-	Command        string   `json:"command,omitempty"`
-	Schema         string   `json:"schema,omitempty"`
+	Kind    string `json:"kind"`
+	Command string `json:"command,omitempty"`
+	Schema  string `json:"schema,omitempty"`
+	// Files are the workspace files the definition depends on. A schema check names the files it
+	// validates. A semantic check must name the expected-truth files its command reads (a committed
+	// oracle, a fixture, a data table), including one the program opens from inside itself: only the
+	// host knows what a program reads, so an oracle is never inferred from the command text. A
+	// semantic command that carries its own expectation (grep -q '42' answer.txt, a self-contained
+	// script) declares it explicitly as "files": [].
 	Files          []string `json:"files,omitempty"`
 	TimeoutSeconds int      `json:"timeoutSeconds,omitempty"`
 	Required       *bool    `json:"required,omitempty"`

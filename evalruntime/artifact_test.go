@@ -143,7 +143,11 @@ func TestArtifactIntegrityIsVerifiedOnRead(t *testing.T) {
 	}
 	artifact := result.Artifacts[0]
 	// Tamper with the stored file: the manager must report the change, not serve it.
-	path := filepath.Join(session.Workspace, "artifacts", artifact.ID)
+	internal, err := h.m.session(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(internal.artifactDir, artifact.ID)
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
@@ -155,17 +159,13 @@ func TestArtifactIntegrityIsVerifiedOnRead(t *testing.T) {
 	}
 }
 
-func TestArtifactNamesAreSanitized(t *testing.T) {
+func TestArtifactNamesRejectTraversal(t *testing.T) {
 	h, _ := newPythonHarness(t, nil)
 	session := h.create("python", "owner", "owner")
-	artifact, err := h.m.PutArtifact(context.Background(), session.ID, "owner", "../../escape.txt", "text/plain", []byte("x"))
-	if err != nil {
-		t.Fatalf("PutArtifact: %v", err)
-	}
-	if strings.Contains(artifact.Name, "..") || strings.ContainsAny(artifact.Name, "/\\") {
-		t.Fatalf("artifact name was not sanitized: %q", artifact.Name)
+	if _, err := h.m.PutArtifact(context.Background(), session.ID, "owner", "../../escape.txt", "text/plain", []byte("x")); !errors.Is(err, evalapi.ErrInvalid) {
+		t.Fatalf("traversal accepted: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(h.workspace, "escape.txt")); err == nil {
-		t.Fatalf("artifact escaped the kernel workspace")
+		t.Fatal("artifact escaped kernel")
 	}
 }

@@ -21,6 +21,16 @@ type StepToolsInput struct {
 	Tasks      bool
 	// TaskAgents are the catalog agents start_task may run (ADR-0009 A3).
 	TaskAgents []config.AgentInfo
+	// Claims offers claim_write: the host opted this run into verification. A model's own claim can
+	// never satisfy or block a gate on its own, so a run that did not ask for verification is not
+	// offered the tool. Naming it in Allowlist is an explicit opt-in too.
+	Claims bool
+}
+
+// claimsOffered reports whether the step offers claim_write: the host opted into verification, or
+// named the tool in an explicit allowlist.
+func claimsOffered(in StepToolsInput) bool {
+	return in.Claims || (in.Allowlist != nil && slices.Contains(in.Allowlist, toolClaimWrite))
 }
 
 // StepSpecs is the tool list of one step: the toolset's own tools (policy and allowlist applied),
@@ -28,7 +38,7 @@ type StepToolsInput struct {
 // prompt report is derived from it, so the two cannot disagree.
 func StepSpecs(tools Tools, in StepToolsInput) []protocol.ToolSpec {
 	specs := tools.Specs(in.Allowlist)
-	specs = append(specs, filterTaskToolSpecs(in.Allowlist)...)
+	specs = append(specs, filterTaskToolSpecs(in.Allowlist, claimsOffered(in))...)
 	specs = append(specs, delegationSpecs(grantFor(in.Delegation, in.Tasks), in.Allowlist, in.TaskAgents)...)
 	return filterDeniedTools(specs, in.Denylist)
 }
@@ -54,6 +64,8 @@ const (
 	ToolReasonDenylist = "denylist"
 	// ToolReasonDelegation: start_task without a delegation grant.
 	ToolReasonDelegation = "delegation"
+	// ToolReasonVerification: claim_write in a run the host did not opt into verification.
+	ToolReasonVerification = "verification"
 )
 
 // ToolCatalog is a Tools that can also list every tool it registered, before the policy and allowlist
@@ -102,7 +114,7 @@ func StepTools(tools Tools, in StepToolsInput) []StepTool {
 			add(spec, "builtin")
 		}
 	}
-	for _, spec := range taskToolSpecs() {
+	for _, spec := range taskToolSpecs(true) {
 		add(spec, "task")
 	}
 	add(delegationSpec(grantFor(in.Delegation, in.Tasks), in.TaskAgents), "delegation")
@@ -116,6 +128,8 @@ func withheldReason(in StepToolsInput, name string, registered, policyVisible bo
 	switch {
 	case name == toolStartTask && grantFor(in.Delegation, in.Tasks) == DelegationNone:
 		return ToolReasonDelegation
+	case name == toolClaimWrite && !claimsOffered(in):
+		return ToolReasonVerification
 	case registered && !policyVisible:
 		return ToolReasonPolicy
 	case in.Allowlist != nil && !slices.Contains(in.Allowlist, name):

@@ -77,7 +77,6 @@ const (
 // Sharing roles. OWNER is immutable; no operation transfers it.
 const (
 	RoleOwner    = "OWNER"
-	RoleExecutor = "EXECUTOR"
 	RoleObserver = "OBSERVER"
 )
 
@@ -154,6 +153,10 @@ var (
 	ErrLimit                 = errors.New("eval: resource limit exceeded")
 	ErrInvalid               = errors.New("eval: invalid argument")
 	ErrWorker                = errors.New("eval: worker failure")
+	// ErrAuthorityDomain marks an operation that would cross an authority
+	// domain: a kernel executes only for its owner. Another actor shares data
+	// through artifacts, never through the owner's live heap.
+	ErrAuthorityDomain = errors.New("eval: crosses an authority domain")
 )
 
 // ToolCaller is the host-authorized tool surface for exactly one execution. The
@@ -598,22 +601,20 @@ func CallDepth(ctx context.Context) int {
 	return depth
 }
 
-// ValidRole reports whether role is one of the three sharing roles.
+// ValidRole reports whether role is an ownership or read-only sharing role.
 func ValidRole(role string) bool {
 	switch role {
-	case RoleOwner, RoleExecutor, RoleObserver:
+	case RoleOwner, RoleObserver:
 		return true
 	}
 	return false
 }
 
-// RoleRank orders roles for comparison: owner > executor > observer.
+// RoleRank orders owner above observer.
 func RoleRank(role string) int {
 	switch role {
 	case RoleOwner:
 		return 3
-	case RoleExecutor:
-		return 2
 	case RoleObserver:
 		return 1
 	}

@@ -23,6 +23,7 @@ type provider struct {
 	builtin   bool
 	available bool
 	reason    string
+	readPaths []string
 }
 
 type registry struct {
@@ -76,6 +77,13 @@ func major(version string) string {
 func (r *registry) register(m evalapi.Manifest, builtin bool, available bool, reason string) error {
 	if err := validateManifest(m); err != nil {
 		return err
+	}
+	if available {
+		resolved, err := trustedExecutable(m.Executable)
+		if err != nil {
+			return err
+		}
+		m.Executable = resolved
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -295,16 +303,8 @@ func pluginAvailable(m evalapi.Manifest) (bool, string) {
 	if !m.SupportsPlatform(platformName()) {
 		return false, fmt.Sprintf("platform %s is not supported by the plugin", platformName())
 	}
-	exe := m.Executable
-	if !filepath.IsAbs(exe) {
-		resolved, err := exec.LookPath(exe)
-		if err != nil {
-			return false, fmt.Sprintf("executable %q is not installed", exe)
-		}
-		exe = resolved
-	}
-	if _, err := os.Stat(exe); err != nil {
-		return false, fmt.Sprintf("executable %q is missing", exe)
+	if _, err := trustedExecutable(m.Executable); err != nil {
+		return false, err.Error()
 	}
 	return true, ""
 }

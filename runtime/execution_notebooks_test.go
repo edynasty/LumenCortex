@@ -33,6 +33,12 @@ type executionFake struct {
 	artifacts map[string][]byte
 	failWith  error
 	nextID    int
+	// answerByKernel answers a request from the state of one kernel, for the tests that model a cell
+	// whose result depends on what the kernel already holds. nil answers from answers instead.
+	answerByKernel func(kernelID, code string) (evalapi.Result, bool)
+	// block, when set, is waited on before a request is answered: a test that needs a run to be in
+	// flight observes the run registry while it is held.
+	block chan struct{}
 }
 
 func newExecutionFake() *executionFake {
@@ -79,10 +85,23 @@ func (f *executionFake) execute(_ context.Context, _ string, req evalapi.Request
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.executed = append(f.executed, req)
+	if f.block != nil {
+		block := f.block
+		f.mu.Unlock()
+		<-block
+		f.mu.Lock()
+	}
 	if f.failWith != nil {
 		return evalapi.Result{}, f.failWith
 	}
-	result, ok := f.answers[req.Code]
+	var result evalapi.Result
+	ok := false
+	if f.answerByKernel != nil {
+		result, ok = f.answerByKernel(req.SessionID, req.Code)
+	}
+	if !ok {
+		result, ok = f.answers[req.Code]
+	}
 	if !ok {
 		result = evalapi.Result{Status: evalapi.ResultStatusCompleted, Stdout: "ran " + req.Code + "\n", DurationMS: 7}
 	}
@@ -649,7 +668,7 @@ func TestExecutionNotebookOutputMapping(t *testing.T) {
 	if outputs[1].Name != ipynb.StreamStderr {
 		t.Fatalf("stderr = %#v", outputs[1])
 	}
-	if got := string(outputs[2].Data["text/plain"]); got != "42" {
+	if got := outputs[2].Data["text/plain"].String(); got != "42" {
 		t.Fatalf("display = %#v", outputs[2].Data)
 	}
 	if outputs[2].LC != nil {
@@ -666,7 +685,7 @@ func TestExecutionNotebookOutputMapping(t *testing.T) {
 	if referenced[0].LC == nil || referenced[0].LC.ArtifactID != "sha-1" || referenced[0].LC.SessionID != "s1" || referenced[0].LC.NotDurable {
 		t.Fatalf("referenced display = %#v", referenced[0].LC)
 	}
-	if got := string(referenced[0].Data["image/png"]); got != "cG5n" {
+	if got := referenced[0].Data["image/png"].String(); got != "cG5n" {
 		t.Fatalf("a small inline payload was dropped: %#v", referenced[0].Data)
 	}
 	volatile := displayOutputs([]evalapi.Display{{MIME: "image/png", ArtifactID: "runtime-1", Size: 9}}, "kernel", nil)
@@ -781,7 +800,7 @@ func TestExecutionNotebookLargeDisplayIsOneArtifactOutput(t *testing.T) {
 		t.Fatalf("the display holds no durable reference: %#v", output.LC)
 	}
 	if len(output.Data) != 0 {
-		t.Fatalf("the stored document inlined %d bytes", len(output.Data["image/png"]))
+		t.Fatalf("the stored document inlined %d bytes", len(output.Data["image/png"].String()))
 	}
 	if output.LC.Truncated {
 		t.Fatal("a display with a durable artifact was marked truncated")
@@ -883,7 +902,7 @@ func TestExecutionNotebookExportInlinesSmallArtifacts(t *testing.T) {
 	var inlined bool
 	for _, cell := range document.Cells {
 		for _, output := range cell.Outputs {
-			if output.Data != nil && len(output.Data["image/png"]) > 0 {
+			if output.Data != nil && len(output.Data["image/png"].String()) > 0 {
 				inlined = true
 			}
 		}
@@ -949,7 +968,7 @@ func TestExecutionNotebookLargeArtifactIsVolatile(t *testing.T) {
 			reference = output.LC
 		}
 		if len(output.Data) > 0 {
-			t.Fatalf("a large artifact was inlined: %d bytes", len(output.Data["image/png"]))
+			t.Fatalf("a large artifact was inlined: %d bytes", len(output.Data["image/png"].String()))
 		}
 	}
 	if reference == nil || !reference.NotDurable || reference.Size != size {

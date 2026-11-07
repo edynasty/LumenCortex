@@ -167,7 +167,9 @@ func TestAgentScientificWorkflowPassesIndependentCheckAfterLanguageRoundTrip(t *
 	// These truth values belong to the independent host fixture, never to the
 	// scripted provider's fitting code or tool prompt.
 	check := fmt.Sprintf("%q - <<'PY'\nimport json,math\nr=json.load(open('report.json'))\nassert len(r['parameters'])==4\nassert all(abs(a-b)<1e-5 for a,b in zip(r['parameters'],[1.25,0.75,1.1,0.2]))\nassert r['rows']==41 and r['residual']<1e-12\nassert abs(r['area']-1.25*1.1*math.sqrt(2*math.pi))<1e-5\nassert open('fit.png','rb').read(8)==bytes([137,80,78,71,13,10,26,10])\nprint('independent original-input check passed')\nPY", os.Getenv("LCX_TEST_PYTHON"))
-	checks, err := json.Marshal(map[string]any{"science": map[string]any{"kind": "semantic", "command": check}})
+	// The truth values are embedded in the host's command, which the definition digest covers: the
+	// self-contained mode is declared explicitly.
+	checks, err := json.Marshal(map[string]any{"science": map[string]any{"kind": "semantic", "command": check, "files": []string{}}})
 	if err != nil {
 		t.Fatal(err)
 	}

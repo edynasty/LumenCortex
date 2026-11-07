@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -59,6 +60,10 @@ type Spec struct {
 	// Inputs are the workspace files the definition depends on, with their content digests, read in the
 	// configuration scope (ResolveInputs). They are part of the digest: an approval covers them.
 	Inputs []Input `json:"inputs,omitempty"`
+	// FilesDeclared reports that the definition named Files at all, which the digest covers: a semantic
+	// check must declare the expected-truth files it reads (possibly none, "files": []), and adding
+	// that declaration is a definition change, not a no-op. It is set by Specs from the configuration.
+	FilesDeclared bool `json:"filesDeclared,omitempty"`
 	// ApprovalEpoch is the host approval this definition runs under (ADR-0017): the epoch of the
 	// approved check set it belongs to, 0 when the set or this definition is not approved. It is set
 	// by the runtime, never read from configuration, and is not part of the definition's digest.
@@ -68,15 +73,16 @@ type Spec struct {
 // specCanon is the canonical form a definition's digest covers: every field that changes what the
 // check runs or whether it is required, in a fixed order, and the content of its inputs.
 type specCanon struct {
-	ID        string   `json:"id"`
-	Kind      string   `json:"kind"`
-	Command   string   `json:"command"`
-	Schema    string   `json:"schema"`
-	Files     []string `json:"files"`
-	TimeoutMS int64    `json:"timeoutMs"`
-	Required  bool     `json:"required"`
-	Source    string   `json:"source"`
-	Inputs    []Input  `json:"inputs,omitempty"`
+	ID            string   `json:"id"`
+	Kind          string   `json:"kind"`
+	Command       string   `json:"command"`
+	Schema        string   `json:"schema"`
+	Files         []string `json:"files"`
+	TimeoutMS     int64    `json:"timeoutMs"`
+	Required      bool     `json:"required"`
+	Source        string   `json:"source"`
+	Inputs        []Input  `json:"inputs,omitempty"`
+	FilesDeclared bool     `json:"filesDeclared,omitempty"`
 }
 
 func canon(s Spec) specCanon {
@@ -85,7 +91,8 @@ func canon(s Spec) specCanon {
 		files = []string{}
 	}
 	return specCanon{ID: s.ID, Kind: s.Kind, Command: s.Command, Schema: s.Schema, Files: files,
-		TimeoutMS: s.Timeout.Milliseconds(), Required: s.Required, Source: s.Source, Inputs: s.Inputs}
+		TimeoutMS: s.Timeout.Milliseconds(), Required: s.Required, Source: s.Source, Inputs: s.Inputs,
+		FilesDeclared: s.FilesDeclared}
 }
 
 func digest(v any) string {
@@ -124,7 +131,10 @@ func Specs(checks map[string]config.Check) []Spec {
 		}
 		out = append(out, Spec{
 			ID: id, Kind: c.Kind, Command: c.Command, Schema: c.Schema, Files: slices.Clone(c.Files),
-			Timeout: time.Duration(timeout) * time.Second, Required: c.IsRequired(), Source: c.Source,
+			// "files": [] is a declaration ("the command carries its own expectation"); an absent
+			// files key is not. slices.Clone keeps nil for absent.
+			FilesDeclared: c.Files != nil,
+			Timeout:       time.Duration(timeout) * time.Second, Required: c.IsRequired(), Source: c.Source,
 		})
 	}
 	slices.SortFunc(out, func(a, b Spec) int { return strings.Compare(a.ID, b.ID) })
@@ -132,22 +142,56 @@ func Specs(checks map[string]config.Check) []Spec {
 }
 
 // Env is the workspace state a result is valid for. Head is "" outside git, and then there is no
-// fingerprint. DirtyHash is "" for a clean tree. WorktreeID is "local" or the session's worktree path.
+// fingerprint. DirtyHash is the content digest of what the run changed in git's view: the diff and
+// the untracked, non-ignored files ("" for a clean tree). IgnoredHash is the content digest of the
+// files git ignores there, or of the whole tree outside git: a claim confirmation is about workspace
+// content, and a deliverable under an ignored path is content. WorktreeID is "local" or the session's
+// worktree path.
 type Env struct {
-	Head       string `json:"head"`
-	DirtyHash  string `json:"dirtyHash"`
-	WorktreeID string `json:"worktreeId"`
+	Head        string `json:"head"`
+	DirtyHash   string `json:"dirtyHash"`
+	IgnoredHash string `json:"ignoredHash,omitempty"`
+	WorktreeID  string `json:"worktreeId"`
+	// Truncated reports that the workspace holds more content than a fingerprint hashes. The
+	// environment then has no claim fingerprint at all: a partial hash, or a stat summary, would let a
+	// same-size, same-mtime rewrite pass as unchanged, so a confirmation is refused instead of being
+	// decided on evidence nobody read.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
-func (e Env) String() string { return e.Head + "+" + e.DirtyHash + "@" + e.WorktreeID }
-
-// Fingerprint is what a result of spec is valid for: the environment plus the check's definition, so
-// editing a check invalidates its old results. Outside git it is "", and no stored result is reused.
-func Fingerprint(env Env, spec Spec) string {
-	if env.Head == "" {
+// String is the workspace state a claim confirmation is tied to. It covers the ignored content too:
+// a confirmation that survived a change to the deliverable it is about would be evidence of nothing.
+func (e Env) String() string {
+	if e.Truncated {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(strings.Join(append([]string{spec.Kind, spec.Command, spec.Schema}, spec.Files...), "\x00")))
+	return e.Head + "+" + e.DirtyHash + "+" + e.IgnoredHash + "@" + e.WorktreeID
+}
+
+// sameScope reports that two environments are the same check scope: the same commit and the same
+// git-visible content. A check's own ignored output (a build artifact, a report it generates) does not
+// move it, so a check that writes ignored files still closes its episode.
+func (e Env) sameScope(other Env) bool {
+	return e.Head == other.Head && e.DirtyHash == other.DirtyHash && e.WorktreeID == other.WorktreeID
+}
+
+// fingerprintVersion names the fingerprint algorithm. Changing what a fingerprint covers changes
+// every result's identity, so it is part of the fingerprint: a stored result from another version is
+// not reused under this one.
+const fingerprintVersion = "2"
+
+// Fingerprint is what a result of spec is valid for: the environment plus the check's definition and
+// the content of its inputs, so editing a check or the script and oracle it runs invalidates its old
+// results. Outside git, and in a workspace too large to hash, it is "" and no stored result is reused.
+func Fingerprint(env Env, spec Spec) string {
+	if env.Head == "" || env.Truncated {
+		return ""
+	}
+	parts := append([]string{fingerprintVersion, spec.Kind, spec.Command, spec.Schema}, spec.Files...)
+	for _, in := range spec.Inputs {
+		parts = append(parts, in.Path, in.Digest)
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return env.String() + "#" + hex.EncodeToString(sum[:8])
 }
 
@@ -189,7 +233,23 @@ type Result struct {
 }
 
 // Approved reports whether spec runs under a host approval.
-func Approved(spec Spec) bool { return spec.ApprovalEpoch > 0 }
+func Approved(spec Spec) bool {
+	if spec.ApprovalEpoch <= 0 {
+		return false
+	}
+	// A semantic check decides content correctness by expected truth. Which files that truth lives in
+	// is the host's statement, never the runtime's inference from a command line: without the
+	// declaration the check cannot decide the semantic level, whatever the command does. An explicit
+	// "files": [] says the command carries its own expectation.
+	return spec.Kind != KindSemantic || spec.DeclaresOracle()
+}
+
+// DeclaresOracle reports that a semantic definition named the files it reads as expected truth,
+// including the explicit empty list of a self-contained command.
+func (s Spec) DeclaresOracle() bool { return s.Files != nil }
+
+// ErrOracleUndeclared reports a semantic check that did not declare the files it decides by.
+var ErrOracleUndeclared = errors.New("semantic check does not declare the files it reads as expected truth; declare them in files, or \"files\": [] when the command carries its own expectation")
 
 // Satisfies is the one rule by which a stored result of spec counts (I8, ADR-0017), for the completion
 // gate, the evidence rule, a work unit and a person's acceptance alike: a passed result for the

@@ -542,10 +542,9 @@
           "type": "string"
         },
         "files": {
-          "description": "Workspace-relative files validated by a schema check.",
+          "description": "Workspace-relative files the definition depends on, approved by content. A schema check lists the files it validates. A semantic check MUST name the expected-truth files its command reads (a committed oracle, a fixture, a data table), including one the program opens from inside itself; the runtime never infers an oracle from the command text, and a semantic check that does not declare them decides nothing. A semantic command that carries its own expectation (grep -q '42' answer.txt, an inline script with the expected values) declares the self-contained mode explicitly as \"files\": [].",
           "type": "array",
-          "items": { "type": "string" },
-          "minItems": 1
+          "items": { "type": "string" }
         },
         "timeoutSeconds": {
           "description": "Kill the check after this many seconds and record status error. Default 600.",

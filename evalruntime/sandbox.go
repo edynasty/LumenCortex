@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/edynasty/LumenCortex/evalapi"
+	"github.com/edynasty/LumenCortex/internal/safefs"
 )
 
 // SandboxOptions selects the containment backend. It is host configuration: no
@@ -123,7 +124,6 @@ func (l *launcher) seatbeltCommand(spec launchSpec) (*exec.Cmd, error) {
 	if err := writeSeatbeltProfile(spec); err != nil {
 		return nil, err
 	}
-	exeDir := filepath.Dir(spec.exe)
 	// Seatbelt matches resolved vnodes, and macOS makes /var a symlink to
 	// /private/var (and a test workspace may be a symlink too), so every path in
 	// the profile is resolved first. The interpreter may be a symlink
@@ -135,9 +135,7 @@ func (l *launcher) seatbeltCommand(spec launchSpec) (*exec.Cmd, error) {
 		"-D", "WORKERS=" + resolvePath(spec.workersDir),
 		"-D", "EXE=" + spec.exe,
 		"-D", "EXEREAL=" + exeReal,
-		"-D", "EXEDIR=" + resolvePath(exeDir),
 	}
-	args = append(args, "-D", "PREFIX="+resolvePath(interpreterPrefix(spec.exe)))
 	script := ulimitScript(spec.cpuSeconds, spec.fileBytes)
 	args = append(args, "/bin/sh", "-c", script, "lc-eval", spec.exe)
 	args = append(args, spec.args...)
@@ -155,6 +153,7 @@ func resolvePath(path string) string {
 func (l *launcher) bubblewrapCommand(spec launchSpec) (*exec.Cmd, error) {
 	args := []string{
 		"--die-with-parent",
+		"--unshare-user",
 		"--unshare-pid",
 		"--unshare-ipc",
 		"--unshare-uts",
@@ -164,17 +163,18 @@ func (l *launcher) bubblewrapCommand(spec launchSpec) (*exec.Cmd, error) {
 	if !spec.network {
 		args = append(args, "--unshare-net")
 	}
-	for _, dir := range []string{"/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/opt", "/run"} {
+	for _, dir := range []string{"/usr", "/bin", "/sbin", "/lib", "/lib64"} {
 		args = append(args, "--ro-bind-try", dir, dir)
 	}
 	args = append(args, "--ro-bind-try", spec.workersDir, spec.workersDir)
-	exeDir := filepath.Dir(spec.exe)
-	args = append(args, "--ro-bind-try", exeDir, exeDir)
+	// Executable identity is host-validated; mounting its parent would silently
+	// grant the plugin unrelated host files and sockets.
+	args = append(args, "--ro-bind", spec.exe, spec.exe)
 	for _, extra := range spec.extraRead {
 		args = append(args, "--ro-bind-try", extra, extra)
 	}
 	args = append(args, "--bind", spec.kernelDir, spec.kernelDir)
-	args = append(args, "--chdir", spec.dir, "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp")
+	args = append(args, "--chdir", spec.dir, "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/run", "--dir", "/var", "--symlink", "/run", "/var/run")
 	script := ulimitScript(spec.cpuSeconds, spec.fileBytes)
 	args = append(args, "--", "/bin/sh", "-c", script, "lc-eval", spec.exe)
 	args = append(args, spec.args...)
@@ -197,27 +197,27 @@ func seatbeltProfile(spec launchSpec) string {
 		// on macOS and re-execs /bin/bash for the "sh" variant).
 		b.WriteString(`(allow process-exec (literal "/bin/sh") (literal "/bin/bash") (literal (param "EXE")) (literal (param "EXEREAL")))` + "\n")
 	}
-	b.WriteString("(allow sysctl-read)\n(allow mach-lookup)\n(allow ipc-posix-shm*)\n")
+	b.WriteString("(allow sysctl-read)\n(allow ipc-posix-shm*)\n")
 	// Signals are how a cell is interrupted; without this the host's SIGINT is
 	// dropped, the worker never sees the interrupt, and every timeout would be a
 	// hard kill that loses the kernel.
 	b.WriteString("(allow signal)\n")
-	// Contents are denied by default. Metadata is allowed so path resolution works,
-	// and directory data is allowed so getcwd()/process.cwd() work: denying an
-	// ancestor's data breaks Node and Python outright. Directory *listing* is the
-	// accepted cost; reading a file outside the allowlist stays denied, including
-	// other kernels (they are simply not listed) and every host document.
+	// getcwd needs ancestor directories, not a global directory-content grant.
 	b.WriteString("(allow file-read-metadata)\n")
-	b.WriteString("(allow file-read-data (vnode-type DIRECTORY))\n")
-	// Read-only system surface the loader and the language runtimes need, plus the
-	// interpreter's own installation prefix.
-	b.WriteString(`(allow file-read* (subpath "/System") (subpath "/usr") (subpath "/bin") (subpath "/sbin") (subpath "/private/etc") (subpath "/dev") (subpath (param "PREFIX")) (subpath (param "WORKERS")) (literal (param "EXE")) (literal (param "EXEREAL")))` + "\n")
-	// /private/etc is allowed for locale and hosts; its key material is not.
-	b.WriteString(`(deny file-read* file-write* (subpath "/private/etc/ssh"))` + "\n")
+	for dir := resolvePath(spec.kernelDir); ; dir = filepath.Dir(dir) {
+		fmt.Fprintf(&b, "(allow file-read-data (require-all (literal %q) (vnode-type DIRECTORY)))\n", dir)
+		if dir == "/" {
+			break
+		}
+	}
+	b.WriteString(`(allow file-read* (subpath "/System") (subpath "/usr/lib") (subpath "/usr/share") (subpath "/bin") (subpath "/sbin") (subpath "/dev") (subpath (param "WORKERS")) (literal (param "EXE")) (literal (param "EXEREAL")))` + "\n")
+	for _, file := range []string{"/private/etc/localtime", "/private/etc/hosts", "/private/etc/resolv.conf"} {
+		fmt.Fprintf(&b, "(allow file-read* (literal %q))\n", file)
+	}
 	b.WriteString(`(allow file-read* file-write* (subpath (param "KERNEL")))` + "\n")
-	b.WriteString(`(allow file-map-executable (literal (param "EXE")) (literal (param "EXEREAL")) (subpath (param "PREFIX")))` + "\n")
+	b.WriteString(`(allow file-map-executable (literal (param "EXE")) (literal (param "EXEREAL")))` + "\n")
 	for _, extra := range spec.extraRead {
-		fmt.Fprintf(&b, "(allow file-read* (subpath %q))\n", resolvePath(extra))
+		fmt.Fprintf(&b, "(allow file-read* file-map-executable (subpath %q))\n", resolvePath(extra))
 	}
 	b.WriteString(`(allow file-write* (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr") (literal "/dev/urandom") (literal "/dev/dtracehelper"))` + "\n")
 	if !spec.network {
@@ -226,18 +226,14 @@ func seatbeltProfile(spec launchSpec) string {
 	return b.String()
 }
 
-// interpreterPrefix is the installation root a runtime may read: the parent of
-// its bin directory (e.g. /opt/miniconda3/envs/x, or .../node/24).
-func interpreterPrefix(exe string) string {
-	return filepath.Dir(filepath.Dir(exe))
-}
-
 func writeSeatbeltProfile(spec launchSpec) error {
 	if spec.profilePath == "" {
 		return errors.New("eval: sandbox profile path is required")
 	}
-	if err := os.MkdirAll(filepath.Dir(spec.profilePath), 0o700); err != nil {
+	root, err := safefs.Open(resolvePath(filepath.Dir(spec.profilePath)))
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(spec.profilePath, []byte(seatbeltProfile(spec)), 0o600)
+	defer root.Close()
+	return root.WriteFile(filepath.Base(spec.profilePath), []byte(seatbeltProfile(spec)), 0600)
 }

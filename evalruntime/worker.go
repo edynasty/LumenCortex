@@ -83,6 +83,10 @@ type wireToolCall struct {
 	CallID    string         `json:"callId"`
 	Name      string         `json:"name"`
 	Arguments map[string]any `json:"arguments"`
+	// RequestID is the execution the worker believes it is serving. It is
+	// optional for third-party runtimes; when present the host refuses a
+	// callback that names a different execution.
+	RequestID string `json:"requestId,omitempty"`
 }
 
 // worker is one live runtime process and its control connection.
@@ -98,7 +102,11 @@ type worker struct {
 
 	active atomic.Pointer[activeCall]
 	dead   atomic.Bool
-	mu     sync.Mutex
+	// interrupting records that the host asked this cell to stop cooperatively.
+	// A worker that dies instead of answering is then reported as cancelled
+	// rather than as a spontaneous crash.
+	interrupting atomic.Bool
+	mu           sync.Mutex
 }
 
 func (w *worker) id() string {
@@ -126,7 +134,9 @@ func (w *worker) start(ctx context.Context) error {
 		fileBytes:       s.budget.DiskBytes,
 		network:         w.m.opts.Sandbox.AllowNetwork,
 		allowSubprocess: subprocessSupported(),
-		extraRead:       w.m.opts.Sandbox.ExtraReadPaths,
+		// Host-owned interpreter installation roots plus explicit host extras.
+		// Never derived from a cell or from an arbitrary registration.
+		extraRead: append(append([]string(nil), w.m.opts.Sandbox.ExtraReadPaths...), s.readPaths...),
 	}
 	cmd, err := w.m.launcher.command(spec)
 	if err != nil {
@@ -154,6 +164,7 @@ func (w *worker) start(ctx context.Context) error {
 		<-p.waitCh
 		w.dead.Store(true)
 		w.conn.close(errConnClosed)
+		w.s.onWorkerExit(w)
 	}()
 
 	initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -219,6 +230,9 @@ func (w *worker) execute(ctx context.Context, params wireExecute) (wireResult, e
 }
 
 func (w *worker) interrupt(reason string) {
+	if reason == "interrupt" {
+		w.interrupting.Store(true)
+	}
 	if w.conn != nil {
 		_ = w.conn.notifyPeer("interrupt", map[string]any{"reason": reason})
 	}
@@ -295,6 +309,18 @@ func (w *worker) handleRequest(ctx context.Context, method string, params json.R
 		var req wireToolCall
 		if err := json.Unmarshal(params, &req); err != nil {
 			return nil, &rpcError{Code: -32602, Message: "invalid tool/call params"}
+		}
+		// A worker that names its execution must name this one: a callback from
+		// a superseded cell never borrows the capability of the current cell.
+		if req.RequestID != "" && req.RequestID != call.requestID {
+			w.s.m.emit(evalapi.Event{
+				Type: evalapi.EventCallbackUnauthorized, SessionID: w.s.id, OwnerID: w.s.ownerID, AgentID: call.executor,
+				RequestID: req.RequestID, CellID: call.cellID, Generation: call.generation,
+				Data: map[string]any{"tool": req.Name, "callId": req.CallID,
+					"reason": fmt.Sprintf("callback names execution %q, but execution %q is active", req.RequestID, call.requestID)},
+			})
+			return map[string]any{"ok": false, "denied": true,
+				"content": fmt.Sprintf("callback names execution %q, but execution %q is active", req.RequestID, call.requestID)}, nil
 		}
 		return call.invoke(req)
 	}

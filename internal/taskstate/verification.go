@@ -83,7 +83,7 @@ func (s State) ClaimCoverage(current string) verify.Coverage {
 func (s State) RequiredClaims() []verify.Claim {
 	var out []verify.Claim
 	for _, c := range s.Claims {
-		if c.Required {
+		if c.CountsAsRequired() {
 			out = append(out, c)
 		}
 	}

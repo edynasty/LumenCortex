@@ -15,6 +15,7 @@ package ipynb
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -109,17 +110,128 @@ type Metadata struct {
 }
 
 // Kernelspec is the standard kernelspec metadata. LumenCortex writes its own name; an imported
-// notebook keeps what it carried until the document is written.
+// notebook keeps what it carried, including the subkeys this type does not interpret, which stay in
+// Extra and are written back unchanged.
 type Kernelspec struct {
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name,omitempty"`
-	Language    string `json:"language,omitempty"`
+	Name        string                     `json:"name"`
+	DisplayName string                     `json:"display_name,omitempty"`
+	Language    string                     `json:"language,omitempty"`
+	Extra       map[string]json.RawMessage `json:"-"`
 }
 
-// LanguageInfo is the standard language_info metadata.
+// LanguageInfo is the standard language_info metadata. Like Kernelspec it keeps the subkeys a
+// notebook carries (mimetype, file_extension, codemirror_mode, pygments_lexer, nbconvert_exporter and
+// anything else) verbatim, so importing and exporting a notebook does not lose them.
 type LanguageInfo struct {
-	Name    string `json:"name,omitempty"`
-	Version string `json:"version,omitempty"`
+	Name    string                     `json:"name,omitempty"`
+	Version string                     `json:"version,omitempty"`
+	Extra   map[string]json.RawMessage `json:"-"`
+}
+
+// knownField is one typed metadata subkey and whether the document carries it.
+type knownField struct {
+	key     string
+	value   any
+	present bool
+}
+
+// marshalFields writes the subkeys a notebook carried verbatim and then the typed ones, so a typed
+// value always wins over a stale copy in Extra.
+func marshalFields(extra map[string]json.RawMessage, fields ...knownField) ([]byte, error) {
+	out := make(map[string]json.RawMessage, len(extra)+len(fields))
+	for key, raw := range extra {
+		out[key] = raw
+	}
+	for _, field := range fields {
+		if !field.present {
+			continue
+		}
+		raw, err := json.Marshal(field.value)
+		if err != nil {
+			return nil, err
+		}
+		out[field.key] = raw
+	}
+	return json.Marshal(out)
+}
+
+// MarshalJSON writes the known subkeys and every subkey the notebook carried verbatim.
+func (k Kernelspec) MarshalJSON() ([]byte, error) {
+	return marshalFields(k.Extra,
+		knownField{"name", k.Name, true},
+		knownField{"display_name", k.DisplayName, k.DisplayName != ""},
+		knownField{"language", k.Language, k.Language != ""},
+	)
+}
+
+// UnmarshalJSON reads the known subkeys and keeps every other subkey verbatim.
+func (k *Kernelspec) UnmarshalJSON(data []byte) error {
+	fields, err := objectFields(data)
+	if err != nil {
+		return err
+	}
+	for key, raw := range fields {
+		if string(raw) == "null" {
+			continue
+		}
+		var err error
+		switch key {
+		case "name":
+			err = json.Unmarshal(raw, &k.Name)
+		case "display_name":
+			err = json.Unmarshal(raw, &k.DisplayName)
+		case "language":
+			err = json.Unmarshal(raw, &k.Language)
+		default:
+			if k.Extra == nil {
+				k.Extra = make(map[string]json.RawMessage, len(fields))
+			}
+			k.Extra[key] = raw
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("ipynb metadata.kernelspec.%s: %w", key, err)
+		}
+	}
+	return nil
+}
+
+// MarshalJSON writes the known subkeys and every subkey the notebook carried verbatim.
+func (l LanguageInfo) MarshalJSON() ([]byte, error) {
+	return marshalFields(l.Extra,
+		knownField{"name", l.Name, l.Name != ""},
+		knownField{"version", l.Version, l.Version != ""},
+	)
+}
+
+// UnmarshalJSON reads the known subkeys and keeps every other subkey verbatim.
+func (l *LanguageInfo) UnmarshalJSON(data []byte) error {
+	fields, err := objectFields(data)
+	if err != nil {
+		return err
+	}
+	for key, raw := range fields {
+		if string(raw) == "null" {
+			continue
+		}
+		var err error
+		switch key {
+		case "name":
+			err = json.Unmarshal(raw, &l.Name)
+		case "version":
+			err = json.Unmarshal(raw, &l.Version)
+		default:
+			if l.Extra == nil {
+				l.Extra = make(map[string]json.RawMessage, len(fields))
+			}
+			l.Extra[key] = raw
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("ipynb metadata.language_info.%s: %w", key, err)
+		}
+	}
+	return nil
 }
 
 // LCMetadata is the `lc` extension at notebook level: the default cell language, the runtime each
@@ -400,22 +512,64 @@ func (s *Source) UnmarshalJSON(data []byte) error {
 // MarshalJSON writes the source as one string.
 func (s Source) MarshalJSON() ([]byte, error) { return json.Marshal(string(s)) }
 
-// MimeData is one entry of a mime bundle. nbformat allows a string or an array of strings; binary
-// payloads are base64 in a string.
-type MimeData string
+// MimeData is one entry of a mime bundle. nbformat allows a string, an array of strings, or any
+// other JSON value; a string (or the array of lines most writers produce) is held as text, and any
+// other value is kept verbatim, so a notebook that carries a JSON object under a mime type imports
+// and exports unchanged.
+type MimeData struct {
+	text string
+	raw  json.RawMessage
+}
 
-// UnmarshalJSON accepts nbformat's string-or-array-of-strings value.
-func (d *MimeData) UnmarshalJSON(data []byte) error {
-	text, err := joinStringOrLines(data)
-	if err != nil {
-		return fmt.Errorf("ipynb mime bundle value must be a string or an array of strings: %w", err)
+// Text is a mime bundle value that is a string.
+func Text(value string) MimeData { return MimeData{text: value} }
+
+// String is the value's text: the string itself, or the JSON of a value that is not a string.
+func (d MimeData) String() string {
+	if d.raw != nil {
+		return string(d.raw)
 	}
-	*d = MimeData(text)
+	return d.text
+}
+
+// UnmarshalJSON accepts nbformat's string-or-array-of-strings value and any other JSON value.
+func (d *MimeData) UnmarshalJSON(data []byte) error {
+	if text, err := joinStringOrLines(data); err == nil {
+		*d = MimeData{text: text}
+		return nil
+	}
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		return fmt.Errorf("ipynb mime bundle value must be valid JSON: %w", err)
+	}
+	*d = MimeData{raw: append(json.RawMessage(nil), data...)}
 	return nil
 }
 
-// MarshalJSON writes the value as one string.
-func (d MimeData) MarshalJSON() ([]byte, error) { return json.Marshal(string(d)) }
+// MarshalJSON writes the text as one string and any other value as the JSON it was read from.
+func (d MimeData) MarshalJSON() ([]byte, error) {
+	if d.raw != nil {
+		return d.raw, nil
+	}
+	return json.Marshal(d.text)
+}
+
+// Payload is how the bytes of one mime type are written in a mime bundle: text stays text (and so does
+// SVG, which nbformat stores as XML text, not base64), and anything else is base64, as a Jupyter
+// reader expects.
+func Payload(mime string, data []byte) string {
+	if IsTextMIME(mime) {
+		return string(data)
+	}
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+// IsTextMIME reports whether a mime type carries text rather than base64 in a mime bundle.
+func IsTextMIME(mime string) bool {
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	return strings.HasPrefix(mime, "text/") || mime == "application/json" ||
+		strings.HasSuffix(mime, "+json") || mime == "image/svg+xml"
+}
 
 // joinStringOrLines reads a JSON string or array of strings.
 func joinStringOrLines(data []byte) (string, error) {
@@ -687,6 +841,9 @@ func (d *Document) Insert(index int, cell Cell) error {
 	if cell.ID == "" {
 		cell.ID = NewCellID()
 	}
+	if !validCellID(cell.ID) {
+		return fmt.Errorf("a cell id is 1 to 64 characters of letters, digits, '-' and '_'")
+	}
 	if d.Index(cell.ID) >= 0 {
 		return fmt.Errorf("the notebook already holds a cell %q", cell.ID)
 	}
@@ -761,6 +918,22 @@ func NewCellID() string {
 	return hex.EncodeToString(buf[:])
 }
 
+// validCellID reports whether id is a legal nbformat 4.5 cell id: 1 to 64 characters from
+// [A-Za-z0-9-_]. The pattern is the one the nbformat 4.5 schema states, and the one a validator
+// applies to an export.
+func validCellID(id string) bool {
+	if len(id) == 0 || len(id) > 64 {
+		return false
+	}
+	for _, c := range []byte(id) {
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 // Parse reads an ipynb document, normalizes it and enforces the limits above. It never executes
 // anything and never touches a kernel.
 func Parse(data string) (Document, error) {
@@ -774,9 +947,10 @@ func Parse(data string) (Document, error) {
 	return doc, nil
 }
 
-// Normalize completes and checks a document in place: nbformat 4, known cell types, unique ids, the
-// per-cell language, bounded outputs and a bounded history. A document that cannot be stored as it
-// stands is refused rather than trimmed, except for outputs, which are bounded with a visible mark.
+// Normalize completes and checks a document in place: nbformat 4.5, known cell types, legal and
+// unique ids, the per-cell language, bounded outputs and a bounded history. A document that cannot be
+// stored as it stands is refused rather than trimmed, except for outputs, which are bounded with a
+// visible mark, and ids, which are regenerated when they do not match nbformat's pattern.
 func Normalize(doc *Document) error {
 	if doc.NBFormat == 0 {
 		doc.NBFormat = Format
@@ -784,9 +958,10 @@ func Normalize(doc *Document) error {
 	if doc.NBFormat != Format {
 		return fmt.Errorf("unsupported nbformat %d.%d: only nbformat 4 is supported", doc.NBFormat, doc.NBFormatMinor)
 	}
-	if doc.NBFormatMinor < 0 || doc.NBFormatMinor > FormatMinor {
-		doc.NBFormatMinor = FormatMinor
-	}
+	// Every cell of a stored document carries an id, and nbformat only allows an id from 4.5 on: a
+	// 4.4 import gains ids, so the document it is stored as declares 4.5. Writing 4.4 while writing
+	// ids would make the export invalid for every reader that validates it.
+	doc.NBFormatMinor = FormatMinor
 	if doc.Cells == nil {
 		doc.Cells = []Cell{}
 	}
@@ -812,7 +987,10 @@ func Normalize(doc *Document) error {
 		default:
 			return fmt.Errorf("cell %d has unknown cell_type %q", i, cell.CellType)
 		}
-		if cell.ID == "" || seen[cell.ID] {
+		if cell.ID == "" || !validCellID(cell.ID) || seen[cell.ID] {
+			// An id that does not match nbformat 4.5's pattern (1..64 of [A-Za-z0-9-_]) makes the
+			// document invalid, and a duplicated one makes two cells the same cell: both are replaced,
+			// never carried into a stored or exported notebook.
 			cell.ID = NewCellID()
 			for seen[cell.ID] {
 				cell.ID = NewCellID()
@@ -915,7 +1093,7 @@ func boundPayloads(output Output) Output {
 		output = markTruncated(output)
 	}
 	for mime, data := range output.Data {
-		if len(data) <= MaxInlineBytes {
+		if len(data.String()) <= MaxInlineBytes {
 			continue
 		}
 		delete(output.Data, mime)
@@ -956,7 +1134,7 @@ func cutText(text string) string {
 func outputSize(output Output) int {
 	size := len(output.Text)
 	for _, data := range output.Data {
-		size += len(data)
+		size += len(data.String())
 	}
 	for _, line := range output.Traceback {
 		size += len(line)

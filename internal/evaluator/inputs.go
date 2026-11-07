@@ -404,6 +404,15 @@ func simpleCommand(toks []token, i int, out *[]string) int {
 // a regular file inside the workspace is bound as AbsentInput. Files git ignores in workspace are not
 // inputs: they are generated, like a binary the check builds and then runs. The content of a schema
 // check's Files is what it validates, not part of its definition.
+//
+// A semantic check's definition may also name the expected-truth files it reads (`files`), which is
+// how a host binds an oracle a script opens indirectly; a declared file is bound even when git does
+// not track it. A semantic check's data arguments are bound too, but only the ones the repository tracks: an oracle
+// the host committed is the truth the check decides by, and an approval that did not cover its bytes
+// would let a run rewrite the expected answer and pass (a check's oracle is not only the script it
+// runs). A deliverable that does not exist at approval, or that an earlier attempt left behind
+// untracked, is not bound, so producing it is not a definition change. A test or build check binds
+// only the program and scripts it runs: its data arguments are usually what the work produces.
 func ResolveInputs(workspace string, specs []Spec) []Spec {
 	root, err := filepath.EvalSymlinks(workspace)
 	if err != nil {
@@ -412,18 +421,25 @@ func ResolveInputs(workspace string, specs []Spec) []Spec {
 	type pending struct {
 		spec  int
 		paths []string
+		// declared are the files a semantic check's definition names as the expected truth it reads.
+		declared []string
 	}
 	var (
 		all   []pending
 		names []string
 	)
 	for i := range specs {
-		var candidates []string
+		var candidates, declared []string
 		switch specs[i].Kind {
 		case KindSchema:
 			candidates = schemaFiles(root, specs[i].Schema)
 		case KindTest, KindBuild, KindSemantic:
 			candidates = commandPaths(specs[i].Command)
+			if specs[i].Kind == KindSemantic {
+				// Declared, never inferred: only the host knows what a program reads as expected truth,
+				// and a file a script opens from inside itself is invisible to any command scan.
+				declared = specs[i].Files
+			}
 		}
 		seen := map[string]bool{}
 		p := pending{spec: i}
@@ -432,6 +448,12 @@ func ResolveInputs(workspace string, specs []Spec) []Spec {
 				seen[rel] = true
 				p.paths = append(p.paths, rel)
 				names = append(names, rel)
+			}
+		}
+		for _, c := range declared {
+			if rel, ok := relativeTo(root, c); ok && !seen[rel] {
+				seen[rel] = true
+				p.declared = append(p.declared, rel)
 			}
 		}
 		all = append(all, p)
@@ -443,6 +465,12 @@ func ResolveInputs(workspace string, specs []Spec) []Spec {
 			if !ignored[rel] {
 				inputs = append(inputs, Input{Path: rel, Digest: fileDigest(root, rel)})
 			}
+		}
+		for _, rel := range p.declared {
+			// A declared file is the host's own statement of what the check reads, so it is bound
+			// whatever git thinks of it: an untracked or gitignored oracle the host declared is
+			// approved content, and a change to it is a definition change like any other.
+			inputs = append(inputs, Input{Path: rel, Digest: fileDigest(root, rel)})
 		}
 		slices.SortFunc(inputs, func(a, b Input) int { return strings.Compare(a.Path, b.Path) })
 		specs[p.spec].Inputs = inputs

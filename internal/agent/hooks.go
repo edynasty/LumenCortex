@@ -83,6 +83,28 @@ func (l *Loop) runHook(ctx context.Context, sessionID, runID string, event verif
 	return out
 }
 
+// runIDKey carries the run's id on its context, so the exit path can name the run it ends without
+// every caller threading Options through.
+type runIDKey struct{}
+
+// withRunID puts the run's id on ctx. An empty id leaves ctx unchanged.
+func withRunID(ctx context.Context, id string) context.Context {
+	if id == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, runIDKey{}, id)
+}
+
+// runIDFrom returns the run id ctx carries, "" when it carries none.
+func runIDFrom(ctx context.Context) string {
+	id, _ := ctx.Value(runIDKey{}).(string)
+	return id
+}
+
+// exitHookTimeout bounds the exit hooks of one run end. It is generous: an exit hook reports what
+// already happened, and the registry still bounds each hook's own timeout.
+const exitHookTimeout = 30 * time.Second
+
 // hookExit is the exit a run takes when an exit-observing hook denies it. Exit hooks are advisory:
 // they observe a failure, cancellation or timeout that already happened, so a denial is reported,
 // not turned into a second failure.

@@ -292,10 +292,11 @@ required; nothing installs dependencies or enables network access automatically.
 the old tool catalog when disabled. `lcx-go eval runtimes` discovers configured
 workers; `lcx-go eval serve` provides the local JSON request interface.
 
-Each kernel has a private namespace and filesystem subtree. Shared kernels need an
-explicit, expiring host grant and retain the owner's authority. Tool callbacks
-intersect the current run's effective permissions and schema; nested effects use
-the same provenance, approval invalidation and transaction settlement as direct
+Each actor owns a separate persistent kernel and filesystem subtree. Cross-actor
+sharing is an explicit, expiring read-only observer grant for results and artifacts;
+no actor may execute in or control another actor's heap. The removed EXECUTOR role
+is rejected. Tool callbacks use the owning run's effective permissions and schema;
+nested effects use the same provenance, approval invalidation and transaction settlement as direct
 tools. Interrupt can retain acknowledged state; timeout/crash marks it lost and
 never automatically replays uncertain code. macOS denies worker subprocesses and
 monitors RSS rather than claiming a hard memory limit; Linux isolation requires
@@ -315,7 +316,29 @@ A review applies to its workspace fingerprint. A changed, known fingerprint
 requires fresh host semantic evidence for the repair; the old review remains in
 history and is not rerun. Missing fingerprints cannot bypass a failed verdict.
 
+Semantic checks must explicitly declare `files`: list every file supplying expected
+truth, or use `files: []` only when the command embeds its own expectation. Approved
+oracle content is SHA-256-bound even for ignored/untracked files; changed content
+invalidates approval. The runtime does not infer indirect oracle reads. Workspace
+fingerprints cover content, not timestamps; exceeding 8192 files or 16 MiB makes
+confirmation and reuse unavailable rather than trusting incomplete evidence.
+
+Python startup resolves host-selected installation metadata, including an exact
+macOS framework interpreter/library, and probes it inside the sandbox. No manifest
+grants its executable's parent directory. Reset clears private home/tmp state;
+closed-kernel artifacts remain readable. Python errors preserve observable partial
+assignments. JavaScript successful declarations persist; a new lexical declaration
+in a throwing cell does not persist, while prior/global state mutations can remain.
+
 Execution notebooks reuse the versioned Notebook store with bounded nbformat4.5
-JSON. Import/read never executes cells; explicit replay closes old kernels and
-recomputes from clean state. Desktop consumes these Core APIs directly.
+JSON. Import/read never executes cells; explicit replay closes every live kernel
+of the notebook's languages and recomputes from clean state, so a replay after a
+reset or a cancel starts on a fresh session. A run, a reset, an interrupt and a
+close act on the kernel that is alive — the newest one by creation time — never on
+the kernel with the highest generation, because generation counts the restarts of
+one kernel and does not order two. One run per notebook executes at a time: a
+second run is refused instead of queued, and the run in flight is Core's state,
+which a host reads (ExecutionNotebookRuns) so a route switch or a reload cannot
+start a duplicate. The agent's notebook tools and the working-notebook API never
+reach an execution notebook; Desktop consumes these Core APIs directly.
 

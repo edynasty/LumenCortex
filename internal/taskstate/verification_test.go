@@ -17,11 +17,15 @@ func TestClaimsAreDurableTaskState(t *testing.T) {
 	if model.ID != "c1" || model.Status != verify.ClaimProposed {
 		t.Fatalf("claim=%+v", model)
 	}
-	host, err := state.AddHostClaim(verify.Claim{Kind: verify.ClaimContract, Statement: "the report is in metres"}, at)
+	// A model cannot make its own statement a completion condition: the host or the user decides.
+	if model.Required || model.CountsAsRequired() {
+		t.Fatalf("a model's claim became required: %+v", model)
+	}
+	host, err := state.AddHostClaim(verify.Claim{Kind: verify.ClaimContract, Statement: "the report is in metres", Required: true}, at)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if host.ID != "h2" || host.Source.Kind != verify.SourceKindHost {
+	if host.ID != "h2" || host.Source.Kind != verify.SourceKindHost || !host.CountsAsRequired() {
 		t.Fatalf("claim=%+v", host)
 	}
 	if _, err := state.AddModelClaim(verify.Claim{Kind: verify.ClaimEvidence, Statement: "x"}, at); err == nil {
@@ -37,6 +41,10 @@ func TestClaimsAreDurableTaskState(t *testing.T) {
 	}
 	if settled.Status != verify.ClaimConfirmed || len(settled.Evidence) != 1 {
 		t.Fatalf("claim=%+v", settled)
+	}
+	if _, err := state.SettleClaim(host.ID, verify.ClaimConfirmed, verify.ClaimSource{Kind: verify.SourceKindCheck, Ref: "units"},
+		"fp", []string{"check:units@eval:4"}, "verified", at); err != nil {
+		t.Fatal(err)
 	}
 	coverage := state.ClaimCoverage("fp")
 	if coverage.Required != 1 || coverage.Confirmed != 1 || !coverage.Complete() {
@@ -62,15 +70,15 @@ func TestClaimsAreDurableTaskState(t *testing.T) {
 		t.Fatalf("verification=%+v", decoded.Verification)
 	}
 
-	// A moved workspace invalidates the confirmation; revalidation is explicit.
+	// A moved workspace invalidates every confirmation made at the old one; revalidation is explicit.
 	changed := decoded.InvalidateStaleClaims("other", at)
-	if len(changed) != 1 || changed[0] != "c1" {
+	if len(changed) != 2 || changed[0] != "c1" || changed[1] != "h2" {
 		t.Fatalf("changed=%v", changed)
 	}
 	if decoded.ClaimCoverage("other").Complete() {
 		t.Fatal("an invalidated claim must not count")
 	}
-	if _, err := decoded.SettleClaim("c1", verify.ClaimRevalidated, verify.ClaimSource{Kind: verify.SourceKindEval, Ref: "run"},
+	if _, err := decoded.SettleClaim("h2", verify.ClaimRevalidated, verify.ClaimSource{Kind: verify.SourceKindEval, Ref: "run"},
 		"other", []string{"eval:cell-1"}, "rechecked", at); err != nil {
 		t.Fatal(err)
 	}
@@ -81,11 +89,20 @@ func TestClaimsAreDurableTaskState(t *testing.T) {
 
 func TestRequiredClaims(t *testing.T) {
 	var state State
-	if _, err := state.AddModelClaim(verify.Claim{Kind: verify.ClaimFact, Statement: "one", Required: true}, time.Now()); err != nil {
+	at := time.Now()
+	if _, err := state.AddHostClaim(verify.Claim{Kind: verify.ClaimFact, Statement: "one", Required: true}, at); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := state.AddModelClaim(verify.Claim{Kind: verify.ClaimFact, Statement: "two"}, time.Now()); err != nil {
+	if _, err := state.AddHostClaim(verify.Claim{Kind: verify.ClaimFact, Statement: "two"}, at); err != nil {
 		t.Fatal(err)
+	}
+	// A model's own claim is a proposal even when it asks to be required.
+	model, err := state.AddModelClaim(verify.Claim{Kind: verify.ClaimFact, Statement: "three", Required: true}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.CountsAsRequired() {
+		t.Fatalf("a model's claim became required: %+v", model)
 	}
 	if got := state.RequiredClaims(); len(got) != 1 || got[0].Statement != "one" {
 		t.Fatalf("required=%+v", got)

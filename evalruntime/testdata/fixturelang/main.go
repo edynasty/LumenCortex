@@ -61,6 +61,9 @@ type worker struct {
 	tools       []toolSpec
 	callSeq     int
 	started     time.Time
+	// initDelay makes startup slow on purpose, so a host test can prove that one
+	// kernel's startup never serializes an unrelated Create.
+	initDelay time.Duration
 }
 
 type toolSpec struct {
@@ -68,11 +71,20 @@ type toolSpec struct {
 }
 
 func main() {
+	initDelay := time.Duration(0)
+	for _, arg := range os.Args[1:] {
+		if value, ok := strings.CutPrefix(arg, "--init-delay="); ok {
+			if parsed, err := time.ParseDuration(value); err == nil {
+				initDelay = parsed
+			}
+		}
+	}
 	w := &worker{
 		in:         bufio.NewReaderSize(os.NewFile(inFD, "control-in"), 64<<10),
 		out:        os.NewFile(outFD, "control-out"),
 		vars:       map[string]float64{},
 		generation: 1,
+		initDelay:  initDelay,
 	}
 	if err := w.loop(); err != nil {
 		fmt.Fprintln(os.Stderr, "fixturelang:", err)
@@ -131,6 +143,9 @@ func (w *worker) serve(msg request) {
 			SPIVersion  string     `json:"spiVersion"`
 		}
 		_ = json.Unmarshal(msg.Params, &params)
+		if w.initDelay > 0 {
+			time.Sleep(w.initDelay)
+		}
 		w.workspace = params.Workspace
 		w.artifactDir = params.ArtifactDir
 		w.tools = params.Tools

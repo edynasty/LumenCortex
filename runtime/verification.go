@@ -130,6 +130,9 @@ type LifecycleOutcome struct {
 	Args             map[string]any   `json:"args,omitempty"`
 	Audit            []LifecycleAudit `json:"audit,omitempty"`
 	StopLimitReached bool             `json:"stopLimitReached,omitempty"`
+	// DenialLimitReached reports that a PreVerify, PostVerify or Completion denial past the finite
+	// limit was overridden so a completion gate cannot hold a run open forever.
+	DenialLimitReached bool `json:"denialLimitReached,omitempty"`
 }
 
 // Denied reports a blocking outcome.
@@ -248,7 +251,7 @@ func (e *Engine) DispatchExecutionHook(ctx context.Context, req LifecycleRequest
 		ToolArgs: req.ToolArgs, ToolResult: req.ToolResult, Feedback: req.Feedback, Detail: req.Detail,
 	})
 	converted := LifecycleOutcome{Decision: HookDecision(out.Decision), Feedback: out.Feedback,
-		Args: out.Args, StopLimitReached: out.StopLimitReached}
+		Args: out.Args, StopLimitReached: out.StopLimitReached, DenialLimitReached: out.DenialLimitReached}
 	for _, entry := range out.Audit {
 		converted.Audit = append(converted.Audit, LifecycleAudit{
 			Hook: entry.Hook, Version: entry.Version, Event: LifecycleEvent(entry.Event),
@@ -338,7 +341,8 @@ type VerificationOptions struct {
 	// RequireSemantic makes a semantic-level decision a condition of completion. A required claim in
 	// Task State also turns it on.
 	RequireSemantic bool `json:"requireSemantic,omitempty"`
-	// RequireIndependent makes at least one independent source a condition of the semantic level.
+	// RequireIndependent makes at least one independent source a condition of the semantic level. It
+	// implies RequireSemantic: only an independent source can satisfy it.
 	RequireIndependent bool `json:"requireIndependent,omitempty"`
 	// MaxRepairs bounds the feedback → repair → recheck loop. Zero takes the runtime default.
 	MaxRepairs int `json:"maxRepairs,omitempty"`
@@ -457,6 +461,41 @@ func (r providerReviewer) Review(ctx context.Context, req verify.ReviewRequest) 
 	return parsed, nil
 }
 
+// ReviewBudget reports the model and the input estimate of the review request, so the loop admits
+// the review against the run's budget before it is sent (ADR-0019 §6). The review is a model request
+// like any other: a request limit, a token budget or a cost limit must be able to refuse it.
+func (r providerReviewer) ReviewBudget(ctx context.Context, req verify.ReviewRequest) agent.ReviewAdmission {
+	admission := agent.ReviewAdmission{Model: agent.Model{Ref: r.model}, InputTokens: reviewInputEstimate(req)}
+	cfg, err := config.Load(r.engine.workspace)
+	if err != nil {
+		return admission
+	}
+	eff := cfg.Effective()
+	ref := r.model
+	if ref == "" {
+		ref = eff.Model
+	}
+	resolved, err := cfg.Resolve(ref)
+	if err != nil {
+		return admission
+	}
+	admission.Model = agent.Model{Ref: ref, Price: resolved.Cost}
+	return admission
+}
+
+// reviewInputEstimate is the input tokens the review request costs, at the four-characters-per-token
+// estimate the window uses.
+func reviewInputEstimate(req verify.ReviewRequest) int {
+	size := len(req.Goal) + len(req.Final) + len(reviewSystemPrompt) + 512
+	for _, c := range req.Claims {
+		size += len(c.Statement) + 64
+	}
+	for _, v := range req.Verdicts {
+		size += len(v.Check) + len(v.Detail) + 64
+	}
+	return max(1, size/4)
+}
+
 // admit records the review request before it is sent (ADR-0018). A fenced session writes a failed
 // envelope and the review is refused.
 func (r providerReviewer) admit(ctx context.Context, resolved config.ResolvedModel) (string, error) {
@@ -533,8 +572,8 @@ func truncateText(text string, limit int) string {
 	return cut + "…"
 }
 
-// revokeEvalAgent drops every grant an agent holds. A child's EXECUTOR lease on its parent's kernel
-// ends with the child's run; the kernel and its owner's authority are untouched.
+// revokeEvalAgent drops every read-only grant an agent holds at the end of its run;
+// the parent's kernel and its owner's authority are untouched.
 func (e *Engine) revokeEvalAgent(ctx context.Context, agentID string) error {
 	e.evalMu.Lock()
 	manager := e.evalManager

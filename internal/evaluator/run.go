@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -182,8 +183,11 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string,
 		}
 		if result.Status == StatusSpecUnapproved {
 			result.WorkUnitID, tail = workUnitID, ErrSpecUnapproved.Error()
-			if changed != "" {
+			switch {
+			case changed != "":
 				tail = inputTail(changed)
+			case spec.Kind == KindSemantic && !spec.DeclaresOracle():
+				tail = spec.ID + ": " + ErrOracleUndeclared.Error()
 			}
 		}
 		if ran {
@@ -215,7 +219,7 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string,
 			}
 		}
 	}
-	if status == EpisodeClosed && post.env != pre.env {
+	if status == EpisodeClosed && !post.env.sameScope(pre.env) {
 		status = EpisodeScopeChanged
 	}
 	postFingerprints := make(map[int64]string, len(fresh))
@@ -571,18 +575,26 @@ type snapshot struct {
 	diff []byte
 }
 
-// snapshot reads HEAD, `git diff --binary HEAD` and the untracked, non-ignored files of the workspace.
-// Outside git, or in a repository without a commit, the environment has no Head and no fingerprint.
+// snapshot reads HEAD, `git diff --binary HEAD`, the untracked files of the workspace and the files
+// git ignores there. Outside git, or in a repository without a commit, it hashes the whole tree
+// instead: the environment then has no Head and no fingerprint, but its digest still moves when the
+// workspace content does.
 func (e *Evaluator) snapshot(ctx context.Context, wantDiff bool) (snapshot, error) {
 	head, err := git(ctx, e.Workspace, "rev-parse", "--verify", "-q", "HEAD")
 	if err != nil {
 		if ctx.Err() != nil {
 			return snapshot{}, ctx.Err()
 		}
-		return snapshot{env: Env{WorktreeID: e.WorktreeID}}, nil
+		// No git history: the fingerprint is unavailable, but a claim confirmation is tied to the
+		// content of the workspace, so the digest covers every file, not a constant.
+		digest, truncated, derr := treeDigest(ctx, e.Workspace)
+		if derr != nil {
+			return snapshot{}, derr
+		}
+		return snapshot{env: Env{IgnoredHash: digest, WorktreeID: e.WorktreeID, Truncated: truncated}}, nil
 	}
-	// Everything that makes the tree dirty goes through h; written counts it, so a clean tree (no diff,
-	// no untracked file) has DirtyHash "".
+	// Everything that makes the tree dirty goes through h; written counts it, so a tree with no diff
+	// and no untracked or ignored file has DirtyHash "".
 	h := sha256.New()
 	written := &countWriter{w: h}
 	diff := streambuf.New(MaxArtifactBytes/2, MaxArtifactBytes/2)
@@ -622,6 +634,22 @@ func (e *Evaluator) snapshot(ctx context.Context, wantDiff bool) (snapshot, erro
 		fmt.Fprintf(written, "\x00untracked\x00%s\x00%s", rel, sum)
 		fmt.Fprintf(&listing, "untracked %s %s\n", rel, sum)
 	}
+	// A file git ignores is still workspace content a claim may be about: a deliverable under out/ or
+	// a generated report is exactly what a confirmation must stop counting when it changes. It is not
+	// part of the diff artifact, and it is not part of the episode's scope, which keeps its meaning
+	// (what the run changed in git's view); a check that writes ignored output still closes its episode.
+	ignored, err := git(ctx, e.Workspace, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+	if err != nil {
+		if ctx.Err() != nil {
+			return snapshot{}, ctx.Err()
+		}
+		return snapshot{}, fmt.Errorf("git ls-files --ignored: %w", err)
+	}
+	ignoredDigest := sha256.New()
+	ignoredTruncated, err := hashIgnored(ctx, e.Workspace, ignored, ignoredDigest)
+	if err != nil {
+		return snapshot{}, err
+	}
 	snap := snapshot{env: Env{Head: head, WorktreeID: e.WorktreeID}}
 	if written.n > 0 {
 		snap.env.DirtyHash = hex.EncodeToString(h.Sum(nil))
@@ -630,7 +658,114 @@ func (e *Evaluator) snapshot(ctx context.Context, wantDiff bool) (snapshot, erro
 			snap.diff = append(joined, listing.Bytes()...)
 		}
 	}
+	if strings.Trim(ignored, "\x00") != "" {
+		snap.env.IgnoredHash = hex.EncodeToString(ignoredDigest.Sum(nil))
+	}
+	// Past the caps the ignored content was only partly read. No partial answer is offered: the
+	// environment has no claim fingerprint then, and a confirmation is refused rather than accepted on
+	// a digest that a same-size, same-mtime rewrite could not be told apart from.
+	snap.env.Truncated = ignoredTruncated
 	return snap, nil
+}
+
+// Fingerprint digest bounds. A workspace is hashed by content up to these caps; past them a file
+// contributes its path, size and modification time, so a change still moves the digest while an
+// enormous tree (a dependency directory, a build cache) stays cheap to fingerprint.
+var (
+	fingerprintMaxFiles       = 8192
+	fingerprintMaxBytes int64 = 16 << 20
+)
+
+// hashIgnored adds the content of the files git ignores in root to h, bounded, in path order so the
+// same tree always yields the same digest. A file past the caps contributes its path, size and
+// modification time instead of its content.
+func hashIgnored(ctx context.Context, root, list string, h io.Writer) (bool, error) {
+	rels := strings.Split(list, "\x00")
+	slices.Sort(rels)
+	files := 0
+	var bytesHashed int64
+	for _, rel := range rels {
+		if rel == "" {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		path := filepath.Join(root, rel)
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		files++
+		if files > fingerprintMaxFiles || bytesHashed >= fingerprintMaxBytes || info.Size() > fingerprintMaxBytes-bytesHashed {
+			// Past the cap the content is not read, and no weaker digest is substituted: the caller
+			// reports a truncated environment instead.
+			return true, nil
+		}
+		sum, err := fileHash(path)
+		if err != nil {
+			return false, err
+		}
+		bytesHashed += info.Size()
+		fmt.Fprintf(h, "\x00ignored\x00%s\x00%s", rel, sum)
+	}
+	return false, nil
+}
+
+// treeDigest hashes a workspace with no git history: every regular file outside .git, bounded like
+// hashIgnored. It is what makes a non-git workspace's environment move with its content instead of
+// staying the constant "+@local".
+func treeDigest(ctx context.Context, root string) (string, bool, error) {
+	h := sha256.New()
+	files := 0
+	var bytesHashed int64
+	truncated := false
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if entry.IsDir() {
+			if entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		files++
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return nil
+		}
+		if files > fingerprintMaxFiles || bytesHashed >= fingerprintMaxBytes || info.Size() > fingerprintMaxBytes-bytesHashed {
+			truncated = true
+			return filepath.SkipAll
+		}
+		sum, sumErr := fileHash(path)
+		if sumErr != nil {
+			truncated = true
+			return filepath.SkipAll
+		}
+		bytesHashed += info.Size()
+		fmt.Fprintf(h, "\x00file\x00%s\x00%s", rel, sum)
+		return nil
+	})
+	if err != nil {
+		return "", false, err
+	}
+	return hex.EncodeToString(h.Sum(nil)), truncated, nil
 }
 
 type countWriter struct {

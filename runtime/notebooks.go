@@ -38,6 +38,10 @@ var (
 	// ErrNotebookWithdrawn reports that the session is withdrawn as a source (a revocation or a
 	// privacy deletion fences it), so its notebooks are neither exported nor saved by the host.
 	ErrNotebookWithdrawn = session.ErrNotebookWithdrawn
+	// ErrNotebookKind reports a working-notebook call that names an execution notebook. The two kinds
+	// are separate APIs: a working notebook is the agent's Markdown notes, an execution notebook is the
+	// notebook runtime's cells, outputs and history, and a call of one never reaches the other.
+	ErrNotebookKind = errors.New("the notebook is an execution notebook, not a working notebook")
 )
 
 // Notebook limits, as the store enforces them (ADR-0020).
@@ -60,6 +64,15 @@ func (e *Engine) Notebooks(ctx context.Context, sessionID string) ([]NotebookInf
 	if err != nil {
 		return nil, err
 	}
+	working := infos[:0]
+	for _, info := range infos {
+		// An execution notebook belongs to the notebook runtime's API: it is not one of the agent's
+		// working notebooks and never appears in a working-notebook read.
+		if !isExecutionNotebookTitle(info.Title) {
+			working = append(working, info)
+		}
+	}
+	infos = working
 	withdrawn, err := e.store.SessionWithdrawn(ctx, sessionID)
 	if err != nil || !withdrawn {
 		return infos, err
@@ -70,11 +83,15 @@ func (e *Engine) Notebooks(ctx context.Context, sessionID string) ([]NotebookInf
 	return infos, nil
 }
 
-// Notebook returns one notebook of a session by id or title, with its body.
+// Notebook returns one working notebook of a session by id or title, with its body. An execution
+// notebook is refused with ErrNotebookKind: it is the notebook runtime's, not a working notebook.
 func (e *Engine) Notebook(ctx context.Context, sessionID, id string) (NotebookDoc, error) {
 	doc, err := e.store.GetNotebook(ctx, sessionID, id)
 	if err != nil {
 		return NotebookDoc{}, err
+	}
+	if isExecutionNotebookTitle(doc.Title) {
+		return NotebookDoc{}, ErrNotebookKind
 	}
 	withdrawn, err := e.store.SessionWithdrawn(ctx, sessionID)
 	if err != nil {
@@ -86,14 +103,34 @@ func (e *Engine) Notebook(ctx context.Context, sessionID, id string) (NotebookDo
 	return doc, nil
 }
 
+// checkWorkingNotebook refuses a call that names an execution notebook. A notebook that does not exist
+// is left to the operation the caller asked for, which reports it as it always has.
+func (e *Engine) checkWorkingNotebook(ctx context.Context, sessionID, id string) error {
+	doc, err := e.store.GetNotebook(ctx, sessionID, id)
+	if err != nil {
+		return nil
+	}
+	if isExecutionNotebookTitle(doc.Title) {
+		return ErrNotebookKind
+	}
+	return nil
+}
+
 // withdrawnNotebook is info as a host read of a withdrawn session returns it.
 func withdrawnNotebook(info NotebookInfo) NotebookInfo {
 	return NotebookInfo{ID: info.ID, SessionID: info.SessionID, Version: info.Version, Bytes: info.Bytes,
 		UpdatedAt: info.UpdatedAt, UpdatedBy: info.UpdatedBy, Sections: []string{}, Withdrawn: true}
 }
 
-// CreateNotebook creates a notebook of the session with body as version 1, attributed to the host.
+// CreateNotebook creates a working notebook of the session with body as version 1, attributed to the
+// host. The title prefix that marks an execution notebook is reserved: a working notebook is created
+// through this API, an execution notebook through CreateExecutionNotebook, and a title can never move
+// one into the other kind.
 func (e *Engine) CreateNotebook(ctx context.Context, sessionID, title, body string) (NotebookDoc, error) {
+	if isExecutionNotebookTitle(strings.TrimSpace(title)) {
+		return NotebookDoc{}, fmt.Errorf("%w: a title beginning with %q belongs to the notebook runtime; use CreateExecutionNotebook",
+			ErrNotebookKind, executionNotebookTitlePrefix)
+	}
 	doc, err := e.store.CreateNotebook(ctx, sessionID, title, body, "host")
 	if err != nil {
 		return NotebookDoc{}, err
@@ -109,6 +146,9 @@ func (e *Engine) CreateNotebook(ctx context.Context, sessionID, title, body stri
 // not the body, so the write would replace content the host never saw. The store reads the fence in
 // the write transaction, so a revocation committed after the host's read still refuses the write.
 func (e *Engine) SaveNotebook(ctx context.Context, sessionID, id, body string, expectedVersion int64) (NotebookDoc, error) {
+	if err := e.checkWorkingNotebook(ctx, sessionID, id); err != nil {
+		return NotebookDoc{}, err
+	}
 	doc, err := e.store.UpdateNotebook(ctx, sessionID, id, "host", "replace", expectedVersion,
 		func(string) (string, error) { return body, nil })
 	if err != nil {
@@ -118,8 +158,12 @@ func (e *Engine) SaveNotebook(ctx context.Context, sessionID, id, body string, e
 	return doc, nil
 }
 
-// NotebookRevisions lists the kept versions of one notebook, newest first, without their bodies.
+// NotebookRevisions lists the kept versions of one working notebook, newest first, without their
+// bodies.
 func (e *Engine) NotebookRevisions(ctx context.Context, sessionID, id string) ([]NotebookRevision, error) {
+	if err := e.checkWorkingNotebook(ctx, sessionID, id); err != nil {
+		return nil, err
+	}
 	revisions, err := e.store.NotebookRevisions(ctx, sessionID, id)
 	if err != nil {
 		return nil, err
@@ -134,8 +178,11 @@ func (e *Engine) NotebookRevisions(ctx context.Context, sessionID, id string) ([
 	return revisions, nil
 }
 
-// NotebookRevision returns one kept version of a notebook, with its body.
+// NotebookRevision returns one kept version of a working notebook, with its body.
 func (e *Engine) NotebookRevision(ctx context.Context, sessionID, id string, version int64) (NotebookRevision, error) {
+	if err := e.checkWorkingNotebook(ctx, sessionID, id); err != nil {
+		return NotebookRevision{}, err
+	}
 	revision, err := e.store.NotebookRevision(ctx, sessionID, id, version)
 	if err != nil {
 		return NotebookRevision{}, err
@@ -150,8 +197,18 @@ func (e *Engine) NotebookRevision(ctx context.Context, sessionID, id string, ver
 	return revision, nil
 }
 
-// DeleteNotebook deletes one notebook of the session and every kept revision of it.
+// DeleteNotebook deletes one working notebook of the session and every kept revision of it. An
+// execution notebook is refused with ErrNotebookKind: DeleteExecutionNotebook is its delete.
 func (e *Engine) DeleteNotebook(ctx context.Context, sessionID, id string) error {
+	if err := e.checkWorkingNotebook(ctx, sessionID, id); err != nil {
+		return err
+	}
+	return e.deleteNotebook(ctx, sessionID, id)
+}
+
+// deleteNotebook deletes one notebook of the session and every kept revision of it, whichever kind it
+// is: the kind check is the caller's, so the notebook runtime can delete its own notebook here.
+func (e *Engine) deleteNotebook(ctx context.Context, sessionID, id string) error {
 	deleted, err := e.store.DeleteNotebook(ctx, sessionID, id)
 	if err != nil {
 		return err
@@ -172,6 +229,9 @@ func (e *Engine) ExportNotebook(ctx context.Context, sessionID, id string) (mark
 	doc, err := e.store.GetNotebook(ctx, sessionID, id)
 	if err != nil {
 		return "", "", err
+	}
+	if isExecutionNotebookTitle(doc.Title) {
+		return "", "", ErrNotebookKind
 	}
 	withdrawn, err := e.store.SessionWithdrawn(ctx, sessionID)
 	if err != nil {
@@ -281,6 +341,12 @@ func (a notebookAccess) List(ctx context.Context, sessionID string) (any, error)
 	}
 	entries := make([]notebookListEntry, 0, len(infos))
 	for _, info := range infos {
+		// An execution notebook is the notebook runtime's: its cells run code and its outputs are
+		// evidence of what ran. The agent's tools neither see nor write it, so a model that can read a
+		// list cannot be talked into rewriting the evidence a user is about to trust.
+		if isExecutionNotebookTitle(info.Title) {
+			continue
+		}
 		entries = append(entries, notebookListEntry{
 			Title: info.Title, ID: info.ID, Version: info.Version, Bytes: info.Bytes,
 			UpdatedAt: info.UpdatedAt.UTC().Format(time.RFC3339), UpdatedBy: info.UpdatedBy,
@@ -317,6 +383,9 @@ func (a notebookAccess) Read(ctx context.Context, sessionID, ref, section string
 	if err != nil {
 		return nil, notebookProblem(err)
 	}
+	if isExecutionNotebookTitle(doc.Title) {
+		return nil, executionNotebookRefusal(doc.Title)
+	}
 	out := map[string]any{
 		"session": target, "title": doc.Title, "id": doc.ID, "version": doc.Version, "bytes": doc.Bytes,
 	}
@@ -337,25 +406,45 @@ func (a notebookAccess) Read(ctx context.Context, sessionID, ref, section string
 // Update implements toolset.NotebookStore: it writes the run's own notebook only, attributed to
 // "agent:<run id>". append and section read the body and write the next version in one transaction,
 // so a write without expected_version still applies to exactly the version it extended.
+//
+// An execution notebook is never written here, whatever the tool policy: its cells are the code a
+// user runs and its outputs are the evidence of what ran, so a model that could replace, append to or
+// create one could plant code the user then executes and show results that never happened. Reading it
+// is refused for the same reason. The notebook runtime's own API is the only writer.
 func (a notebookAccess) Update(ctx context.Context, update toolset.NotebookUpdate) (any, error) {
 	author := "agent:" + a.runID
 	var doc session.NotebookDoc
 	var err error
 	switch update.Op {
 	case "create":
+		if isExecutionNotebookTitle(strings.TrimSpace(update.Notebook)) {
+			return nil, executionNotebookRefusal(update.Notebook)
+		}
 		doc, err = a.engine.store.CreateNotebook(ctx, a.sessionID, update.Notebook, update.Content, author)
-	case "replace":
-		body := update.Content
-		doc, err = a.engine.store.UpdateNotebook(ctx, a.sessionID, update.Notebook, author, "replace", update.Expected,
-			func(string) (string, error) { return body, nil })
-	case "append":
-		doc, err = a.engine.store.UpdateNotebook(ctx, a.sessionID, update.Notebook, author, "append", update.Expected,
-			func(current string) (string, error) { return notebook.Append(current, update.Content), nil })
-	case "section":
-		doc, err = a.engine.store.UpdateNotebook(ctx, a.sessionID, update.Notebook, author, "section", update.Expected,
-			func(current string) (string, error) {
-				return notebook.UpsertSection(current, update.Section, update.Content), nil
-			})
+	case "replace", "append", "section":
+		// The kind is read before the write: a write names its notebook by title or id, and a title is
+		// only known once the notebook is read.
+		if existing, readErr := a.engine.store.GetNotebook(ctx, a.sessionID, update.Notebook); readErr == nil {
+			if isExecutionNotebookTitle(existing.Title) {
+				return nil, executionNotebookRefusal(existing.Title)
+			}
+		} else if !errors.Is(readErr, session.ErrNotebookNotFound) {
+			return nil, readErr
+		}
+		switch update.Op {
+		case "replace":
+			body := update.Content
+			doc, err = a.engine.store.UpdateNotebook(ctx, a.sessionID, update.Notebook, author, "replace", update.Expected,
+				func(string) (string, error) { return body, nil })
+		case "append":
+			doc, err = a.engine.store.UpdateNotebook(ctx, a.sessionID, update.Notebook, author, "append", update.Expected,
+				func(current string) (string, error) { return notebook.Append(current, update.Content), nil })
+		default:
+			doc, err = a.engine.store.UpdateNotebook(ctx, a.sessionID, update.Notebook, author, "section", update.Expected,
+				func(current string) (string, error) {
+					return notebook.UpsertSection(current, update.Section, update.Content), nil
+				})
+		}
 	default:
 		return nil, &toolset.NotebookProblem{Reason: "op must be create, replace, append or section"}
 	}
@@ -366,6 +455,15 @@ func (a notebookAccess) Update(ctx context.Context, update toolset.NotebookUpdat
 	return map[string]any{
 		"title": doc.Title, "id": doc.ID, "version": doc.Version, "bytes": doc.Bytes,
 	}, nil
+}
+
+// executionNotebookRefusal is what a working-notebook tool says when the notebook it names belongs to
+// the notebook runtime: the two kinds are separate, and an execution notebook's cells and outputs are
+// not the agent's to read or write.
+func executionNotebookRefusal(title string) error {
+	return &toolset.NotebookProblem{Reason: fmt.Sprintf(
+		"%q is an execution notebook, which these tools never read or write: its cells and outputs are the notebook runtime's evidence of what ran. "+
+			"Keep your notes in a working notebook of your own instead", executionNotebookTitle(title))}
 }
 
 // notebookProblem turns a store error into what a model can act on: a version conflict with the
@@ -395,9 +493,17 @@ const (
 	notebookIndexTail       = ". Read a notebook's Handoff section with notebook_read before continuing its work; bodies are not repeated here."
 )
 
-// notebookIndexRow is the row a run appends when its session has notebooks. ok is false when the
-// session has none: such a run gets no row.
-func notebookIndexRow(infos []session.NotebookInfo) (protocol.Message, bool) {
+// notebookIndexRow is the row a run appends when its session has working notebooks. ok is false when
+// the session has none: such a run gets no row. An execution notebook is never indexed: it is not the
+// agent's working memory, and the run that sees a title in this row must be able to read it with
+// notebook_read.
+func notebookIndexRow(all []session.NotebookInfo) (protocol.Message, bool) {
+	infos := make([]session.NotebookInfo, 0, len(all))
+	for _, info := range all {
+		if !isExecutionNotebookTitle(info.Title) {
+			infos = append(infos, info)
+		}
+	}
 	if len(infos) == 0 {
 		return protocol.Message{}, false
 	}

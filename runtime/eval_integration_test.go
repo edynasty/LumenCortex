@@ -187,7 +187,7 @@ func TestEvalHostDisabledDoesNotCreateRuntimeState(t *testing.T) {
 	}
 }
 
-// A child's EXECUTOR lease on the parent's kernel must not outlive a Start that never became a run:
+// A child's observer lease must not outlive a Start that never became a run:
 // the grant is revoked on the failed Start instead of surviving until its lease expires.
 func TestFailedChildStartRevokesTheSharedKernelGrant(t *testing.T) {
 	useGlobalConfig(t, catalogWithAgents(`{"worker": {"models": [{"model": "test/b0"}]}}`))

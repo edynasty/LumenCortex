@@ -12,7 +12,10 @@ import (
 // PermissionState is the permission of a tool that writes only the run's own durable state, never a
 // workspace file, a command or another session: notebook_update is the only one (ADR-0020). Every
 // policy admits it, the read-only one included, because a read-only run may still keep notes for
-// itself; it cannot change anything else.
+// itself; it cannot change anything else. "Its own durable state" is the run's working notebooks: an
+// execution notebook — the cells a user runs and the outputs they produced — is never read or written
+// by these tools under any policy, so a prompt cannot talk a run into planting code or forging
+// results.
 const PermissionState = "state"
 
 // NotebookStore is the working notebook of one run (ADR-0020), bound by the runtime to the run's

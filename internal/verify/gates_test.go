@@ -99,11 +99,18 @@ func TestRequiredClaimsMustBeConfirmedAtTheCurrentState(t *testing.T) {
 }
 
 func TestRejectedRequiredClaimBlocks(t *testing.T) {
-	claim := Claim{ID: "c1", Kind: ClaimAssumption, Statement: "input is sorted", Source: ClaimSource{Kind: SourceKindModel},
+	// Only a host or user claim can be required: a model's own claim is never a completion condition.
+	claim := Claim{ID: "c1", Kind: ClaimAssumption, Statement: "input is sorted", Source: ClaimSource{Kind: SourceKindHost},
 		Status: ClaimRejected, Required: true}
 	got := Evaluate(GateInput{Claims: []Claim{claim}}, time.Now())
 	if got.Passed || got.Claims.Rejected != 1 {
 		t.Fatalf("got=%+v", got)
+	}
+	// The same claim from the model is a proposal: it neither blocks nor is required.
+	model := claim
+	model.Source = ClaimSource{Kind: SourceKindModel}
+	if got := Evaluate(GateInput{Claims: []Claim{model}}, time.Now()); !got.Passed || got.Claims.Required != 0 {
+		t.Fatalf("a model's own rejected claim gated completion: %+v", got)
 	}
 }
 

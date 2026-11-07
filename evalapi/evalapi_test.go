@@ -33,15 +33,15 @@ func DefaultTestBudget() Budget {
 }
 
 func TestRoles(t *testing.T) {
-	for _, role := range []string{RoleOwner, RoleExecutor, RoleObserver} {
+	for _, role := range []string{RoleOwner, RoleObserver} {
 		if !ValidRole(role) {
 			t.Fatalf("%s is not a valid role", role)
 		}
 	}
-	if ValidRole("ADMIN") || ValidRole("") {
+	if ValidRole("ADMIN") || ValidRole("") || ValidRole("EXECUTOR") {
 		t.Fatalf("invalid role accepted")
 	}
-	if RoleRank(RoleOwner) <= RoleRank(RoleExecutor) || RoleRank(RoleExecutor) <= RoleRank(RoleObserver) {
+	if RoleRank(RoleOwner) <= RoleRank(RoleObserver) {
 		t.Fatalf("role rank is not ordered")
 	}
 	if RoleRank("ADMIN") != 0 {

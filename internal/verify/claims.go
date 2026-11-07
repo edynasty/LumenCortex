@@ -107,8 +107,10 @@ type Claim struct {
 	Statement string      `json:"statement"`
 	Source    ClaimSource `json:"source"`
 	Status    ClaimStatus `json:"status"`
-	// Required marks a claim the completion gate must find confirmed. A required assumption is a
-	// transform the task depends on; a required contract is a deliverable the user stated.
+	// Required marks a claim the completion gate must find confirmed. Only a host or user claim can
+	// be required: a model-written claim is always optional (CountsAsRequired). A required
+	// assumption is a transform the task depends on; a required contract is a deliverable the user
+	// stated.
 	Required bool `json:"required,omitempty"`
 	// Evidence are locators of what confirmed the claim, e.g. "check:io@eval:12" or "review:rq-…".
 	Evidence []string `json:"evidence,omitempty"`
@@ -163,6 +165,9 @@ func NormalizeClaim(c Claim, at time.Time) (Claim, error) {
 		c.Status = ClaimProposed
 		c.Evidence = nil
 		c.Fingerprint = ""
+		// A model cannot make its own statement a condition of completion: the host or the user
+		// decides what the gate requires, so a model-written claim is always optional.
+		c.Required = false
 	}
 	if c.Status == "" {
 		c.Status = ClaimProposed
@@ -287,11 +292,18 @@ type Coverage struct {
 // Complete reports that every required claim counts.
 func (c Coverage) Complete() bool { return c.Required == 0 || len(c.Missing) == 0 }
 
+// CountsAsRequired reports a claim the completion gate must find confirmed. A model-written claim
+// never does, whatever the stored field says: only the host or the user decides what the gate
+// requires.
+func (c Claim) CountsAsRequired() bool {
+	return c.Required && c.Source.Kind != SourceKindModel
+}
+
 // ClaimCoverage computes the coverage of claims at the current fingerprint.
 func ClaimCoverage(claims []Claim, current string) Coverage {
 	var out Coverage
 	for _, c := range claims {
-		if !c.Required {
+		if !c.CountsAsRequired() {
 			continue
 		}
 		out.Required++

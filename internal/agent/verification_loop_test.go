@@ -260,29 +260,43 @@ func TestLoopObservesCancellationHook(t *testing.T) {
 	}
 }
 
-// The claim ledger is written by the model tool and the completion gate reads it: a required claim
-// that only the model proposed is not confirmed, so completion is blocked until it is settled.
-func TestLoopClaimToolFeedsTheGate(t *testing.T) {
+// The claim ledger is written by the model tool and read by the completion gate, but a model's own
+// claim is a proposal, never a condition: the host decides what the gate requires, so a run whose
+// model asks for a required claim still completes and the model is told what was recorded.
+func TestLoopClaimToolRecordsAProposalNotACondition(t *testing.T) {
 	store := newRunningStore("claims")
 	provider := &scriptedProvider{responses: []protocol.ProviderResponse{
 		{Message: protocol.Message{ToolCalls: []protocol.ToolCall{call("1", "claim_write", `{"kind":"assumption","statement":"the input is metres","required":true}`)}}},
 		{Message: protocol.Message{Content: "done"}},
-		{Message: protocol.Message{Content: "done"}},
-		{Message: protocol.Message{Content: "done"}},
 	}}
-	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}}
-	_, err := loop.Run(context.Background(), "claims", Options{
-		Session: testRef, MaxSteps: 8, Verification: VerificationOptions{MaxRepairs: 1},
+	verifier := &scriptedVerifier{results: [][]verify.Verdict{
+		{{Level: verify.LevelSemantic, Source: verify.SourceApprovedSpec, Check: "host-check", Status: verify.StatusPassed}},
+		{{Level: verify.LevelSemantic, Source: verify.SourceApprovedSpec, Check: "host-check", Status: verify.StatusPassed}},
+	}}
+	loop := Loop{Models: testModels(provider), Store: store, Tools: fakeTools{}, Verifier: verifier}
+	result, err := loop.Run(context.Background(), "claims", Options{
+		Session: testRef, MaxSteps: 6, Verification: VerificationOptions{RequireSemantic: true, MaxRepairs: 1},
 	})
-	if !errors.Is(err, ErrSemanticUnverified) {
-		t.Fatalf("err=%v", err)
+	if err != nil || result.Status != StatusCompleted {
+		t.Fatalf("status=%s err=%v", result.Status, err)
 	}
 	if len(store.ts.Claims) != 1 || store.ts.Claims[0].Status != verify.ClaimProposed {
 		t.Fatalf("claims=%+v", store.ts.Claims)
 	}
-	blocked := completionBlocked(store)
-	if len(blocked) == 0 || !strings.Contains(blocked[0].Content, "c1") {
-		t.Fatalf("corrections=%+v", blocked)
+	if store.ts.Claims[0].CountsAsRequired() {
+		t.Fatalf("the model's claim became a completion condition: %+v", store.ts.Claims[0])
+	}
+	var toolRow string
+	for _, message := range store.messages {
+		if message.Role == "tool" {
+			toolRow = message.Content
+		}
+	}
+	if !strings.Contains(toolRow, `"required":false`) || !strings.Contains(toolRow, "only the host or the user") {
+		t.Fatalf("the model was not told what was recorded: %q", toolRow)
+	}
+	if blocked := completionBlocked(store); len(blocked) != 0 {
+		t.Fatalf("the proposal blocked completion: %+v", blocked)
 	}
 }
 

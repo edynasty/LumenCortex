@@ -26,6 +26,11 @@ const OUT_FD = 4;
 const MAX_FRAME = 4 * 1024 * 1024;
 const MAX_REPR = 8 * 1024;
 const MAX_TRACEBACK = 32 * 1024;
+// MAX_INLINE_DISPLAY bounds one inline display payload; larger payloads are
+// written to the artifact directory so the control frame stays deliverable.
+const MAX_INLINE_DISPLAY = 256 * 1024;
+// MAX_CELL_ARTIFACTS mirrors the host's per-cell adoption bound.
+const MAX_CELL_ARTIFACTS = 256;
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 function writeMessage(obj) {
@@ -424,12 +429,14 @@ class Worker {
     this.workspace = process.cwd();
     this.limits = {};
     this.callSeq = 0;
+    this.requestId = null;
     this.pending = new Map();
     this.artifacts = [];
     this.out = null;
     this.err = null;
     this.interruptRequested = false;
     this.context = null;
+    this.installOutputCapture();
   }
 
   makeContext() {
@@ -493,6 +500,30 @@ class Worker {
     if (this.err) this.err.write(text);
   }
 
+  // installOutputCapture routes process.stdout/stderr writes into the running
+  // cell's own bounded sink. Bytes that used to reach the real fd were read by
+  // the host asynchronously and could land in the *next* cell's result; now a
+  // cell's output is attributed to that cell, and output produced while no cell
+  // is running is not attributed to any cell at all.
+  installOutputCapture() {
+    if (this.outputCaptured) return;
+    this.outputCaptured = true;
+    const self = this;
+    const realOut = process.stdout.write.bind(process.stdout);
+    const realErr = process.stderr.write.bind(process.stderr);
+    const forward = (sink, real) => (chunk, encoding, cb) => {
+      if (sink()) {
+        sink().write(chunk);
+        const done = typeof encoding === 'function' ? encoding : cb;
+        if (typeof done === 'function') done();
+        return true;
+      }
+      return real(chunk, encoding, cb);
+    };
+    process.stdout.write = forward(() => self.out, realOut);
+    process.stderr.write = forward(() => self.err, realErr);
+  }
+
   safeName(name, fallback = 'artifact') {
     const base = path.basename(String(name || '').replace(/\\/g, '/')).trim();
     const cleaned = base.replace(/[^A-Za-z0-9._\- ]/g, '').replace(/\.\./g, '_').replace(/^[.\s]+|[.\s]+$/g, '');
@@ -515,8 +546,39 @@ class Worker {
     return value > 0 ? value : 8 << 20;
   }
 
+  extensionFor(mime) {
+    const table = {
+      'image/png': '.png', 'image/jpeg': '.jpg', 'image/svg+xml': '.svg',
+      'text/html': '.html', 'application/json': '.json',
+    };
+    return table[mime || ''] || '.bin';
+  }
+
+  // addDisplay keeps one display inline only while it fits the control frame;
+  // a larger payload becomes an artifact, so a big figure never kills the kernel.
+  addDisplay(displays, mime, text, size) {
+    const encoding = mime === 'image/png' ? 'base64' : 'utf-8';
+    if (text && text.length > MAX_INLINE_DISPLAY && this.artifactDir) {
+      const data = Buffer.from(text, encoding === 'base64' ? 'base64' : 'utf8');
+      if (data.length && this.artifacts.length < MAX_CELL_ARTIFACTS) {
+        const name = this.safeName(`display-${this.artifacts.length + 1}${this.extensionFor(mime)}`);
+        try {
+          fs.mkdirSync(this.artifactDir, { recursive: true });
+          fs.writeFileSync(path.join(this.artifactDir, name), data);
+          this.artifacts.push({ name, mime, size: data.length });
+          return;
+        } catch (e) { /* fall through to a bounded inline payload */ }
+      }
+      throw new Error('display exceeds inline limit and could not be stored as an artifact');
+    }
+    displays.push({ mime, encoding, text, size });
+  }
+
   artifact(data, name, mime) {
     if (!this.artifactDir) throw new Error('artifact directory is not configured');
+    if (this.artifacts.length >= MAX_CELL_ARTIFACTS) {
+      throw new Error(`cell already declared ${this.artifacts.length} artifacts; the limit is ${MAX_CELL_ARTIFACTS}`);
+    }
     let payload;
     let safeName = name;
     if (data && typeof data === 'object' && typeof data.toBuffer === 'function') {
@@ -549,22 +611,29 @@ class Worker {
   display(value) {
     const payload = displayPayload(value);
     if (!payload) return null;
-    writeMessage({
-      jsonrpc: '2.0',
-      method: 'event',
-      params: { type: 'display', data: { mime: payload.mime, encoding: 'utf-8', text: payload.text, size: payload.size } },
-    });
-    return payload;
+    const items = [];
+    this.addDisplay(items, payload.mime, payload.text, payload.size);
+    for (const item of items) {
+      writeMessage({ jsonrpc: '2.0', method: 'event', params: { type: 'display', data: item } });
+    }
+    return undefined;
   }
 
   collectArtifacts() {
     if (this.artifactDir && fs.existsSync(this.artifactDir)) {
-      for (const entry of fs.readdirSync(this.artifactDir).sort()) {
+      // One pass with a set of known names: the previous scan was quadratic in
+      // the number of artifacts, so a flood of files could exhaust the worker.
+      const known = new Set(this.artifacts.map((a) => a.name));
+      let entries = [];
+      try { entries = fs.readdirSync(this.artifactDir).sort(); } catch (e) { entries = []; }
+      for (const entry of entries) {
+        if (this.artifacts.length >= MAX_CELL_ARTIFACTS) break;
+        if (known.has(entry)) continue;
         const target = path.join(this.artifactDir, entry);
         let stat;
         try { stat = fs.statSync(target); } catch (e) { continue; }
         if (!stat.isFile()) continue;
-        if (this.artifacts.some((a) => a.name === entry)) continue;
+        known.add(entry);
         this.artifacts.push({ name: entry, mime: this.mimeFor(entry), size: stat.size });
       }
     }
@@ -580,7 +649,7 @@ class Worker {
       throw err;
     }
     const id = `w${++this.callSeq}`;
-    writeMessage({ jsonrpc: '2.0', id, method: 'tool/call', params: { callId: id, name, arguments: args } });
+    writeMessage({ jsonrpc: '2.0', id, method: 'tool/call', params: { callId: id, name, arguments: args, requestId: this.requestId } });
     const response = await new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
     });
@@ -599,6 +668,7 @@ class Worker {
 
   async execute(params) {
     const code = String(params.code || '');
+    this.requestId = params.requestId || null;
     if (Array.isArray(params.tools)) {
       this.tools = params.tools;
       this.toolNames = new Set(this.tools.map((t) => t && t.name).filter(Boolean));
@@ -621,8 +691,8 @@ class Worker {
     try {
       let value;
       if (this.tryExpression(code)) {
-        // Expression mode: restore the persisted bindings, then evaluate.
-        const script = new vm.Script(`(async () => { Object.assign(globalThis, __lc_state); return (${code}\n); })()`,
+        // The context retains live accessors for declarations from previous cells.
+        const script = new vm.Script(`(async () => { return (${code}\n); })()`,
           { filename: '<cell>', importModuleDynamically: this.importHook() });
         value = await this.awaitCell(script.runInContext(context, { timeout: remaining }), remaining);
         this.syncStateFromGlobals();
@@ -630,10 +700,13 @@ class Worker {
         const analysis = analyze(code);
         const completion = splitCompletion(analysis.transformed);
         const capture = analysis.names
-          .map((name) => `try { __lc_capture[${JSON.stringify(name)}] = ${name}; } catch (e) {}`)
+          .map((name) => `try { Object.defineProperty(globalThis, ${JSON.stringify(name)}, {configurable:true, enumerable:true, get:()=>${name}, set:(value)=>{${name}=value;}}); __lc_capture[${JSON.stringify(name)}] = ${name}; } catch (e) {}`)
           .join('\n');
         const lastExpression = completion.expression ? `(${completion.expression})` : 'undefined';
-        const wrapped = `(async () => {\nObject.assign(globalThis, __lc_state);\n${completion.body}\n;const __lc_capture = {};\n${capture}\n;Object.assign(globalThis, __lc_capture);\nconst __lc_last = ${lastExpression};\nreturn { capture: __lc_capture, last: __lc_last };\n})()`;
+        // Accessors keep closures and later cells on the same binding instead of
+        // copying primitive values. New declarations in a throwing cell remain
+        // unexported; mutations of previously published bindings survive.
+        const wrapped = `(async () => {\n${completion.body}\n;const __lc_capture = {};\n${capture}\nconst __lc_last = ${lastExpression};\nreturn { capture: __lc_capture, last: __lc_last };\n})()`;
         const script = new vm.Script(wrapped, { filename: '<cell>', importModuleDynamically: this.importHook() });
         const outcome = await this.awaitCell(script.runInContext(context, { timeout: remaining }), remaining);
         if (outcome && typeof outcome === 'object') {
@@ -645,7 +718,7 @@ class Worker {
       if (value !== undefined && value !== null) {
         this.state._ = value;
         const payload = displayPayload(value);
-        if (payload) displays.push({ mime: payload.mime, encoding: 'utf-8', text: payload.text, size: payload.size });
+        if (payload) this.addDisplay(displays, payload.mime, payload.text, payload.size);
       }
     } catch (exc) {
       if (exc && (exc.name === 'Interrupt' || exc.__lcInterrupt)) {
@@ -660,6 +733,7 @@ class Worker {
         traceback = String((exc && exc.stack) || '').slice(0, MAX_TRACEBACK);
       }
     } finally {
+      this.syncStateFromGlobals();
       this.out = null;
       this.err = null;
     }
@@ -740,6 +814,7 @@ class Worker {
     this.state = Object.create(null);
     this.artifacts = [];
     this.callSeq = 0;
+    this.requestId = null;
     this.pending.clear();
     this.makeContext();
     this.generation += 1;

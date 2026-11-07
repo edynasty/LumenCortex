@@ -130,7 +130,8 @@ type GateInput struct {
 	CurrentFingerprint string
 	// RequireSemantic makes the semantic level a condition of the final level.
 	RequireSemantic bool
-	// RequireIndependent makes at least one independent semantic source a condition.
+	// RequireIndependent makes at least one independent semantic source a condition. It implies
+	// RequireSemantic: an independent source can only decide the semantic level.
 	RequireIndependent bool
 	// MaxRepairs bounds repair attempts after a failed or unknown gate. Zero takes
 	// DefaultMaxRepairs.
@@ -182,6 +183,8 @@ func Evaluate(in GateInput, now time.Time) GateResult {
 		maxRepairs = MaxRepairsLimit
 	}
 	out := GateResult{Levels: map[Level]Status{}, Attempts: append([]Attempt(nil), in.Attempts...)}
+	// Requiring an independent source is requiring the semantic level: nothing else can satisfy it.
+	in.RequireSemantic = in.RequireSemantic || in.RequireIndependent
 	out.Levels[LevelDelivery] = levelStatus(in.Delivery, false, false)
 	out.Levels[LevelExecution] = levelStatus(in.Execution, false, false)
 	out.Levels[LevelSemantic] = semanticStatus(in.Semantic, in.RequireSemantic, in.RequireIndependent)
