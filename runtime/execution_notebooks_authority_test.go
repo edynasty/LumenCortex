@@ -311,13 +311,13 @@ func TestExecutionNotebookRefusesASecondRun(t *testing.T) {
 	if !errors.As(err, &busy) || busy.NotebookID != created.ID {
 		t.Fatalf("second run error = %v, want a busy refusal", err)
 	}
-	if len(fake.executed) != 1 {
-		t.Fatalf("the refused run executed something: %d requests", len(fake.executed))
-	}
 
 	close(release)
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+	if len(fake.executed) != 1 {
+		t.Fatalf("the refused run executed something: %d requests", len(fake.executed))
 	}
 	runs, err = engine.ExecutionNotebookRuns(ctx, sessionID)
 	if err != nil {
