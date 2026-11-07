@@ -70,6 +70,42 @@ func TestSaveRoundTripAndDigest(t *testing.T) {
 	}
 }
 
+func TestSavePreservesSemanticFilesDeclaration(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		files []string
+	}{
+		{"undeclared", nil},
+		{"self-contained", []string{}},
+		{"oracle", []string{"oracle.json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), FileName)
+			cfg := File{Checks: map[string]Check{
+				"semantic": {Kind: "semantic", Command: "test 1 = 1", Files: tc.files},
+			}}
+			digest := ""
+			for i := 0; i < 2; i++ {
+				if _, err := Save(path, cfg, digest); err != nil {
+					t.Fatal(err)
+				}
+				doc, err := ReadDocument(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := doc.File.Checks["semantic"].Files
+				if (got == nil) != (tc.files == nil) || len(got) != len(tc.files) {
+					t.Fatalf("files declaration changed: got %#v, want %#v", got, tc.files)
+				}
+				if len(got) != 0 && got[0] != tc.files[0] {
+					t.Fatalf("oracle path changed: %q", got)
+				}
+				cfg, digest = doc.File, doc.Digest
+			}
+		})
+	}
+}
+
 func TestSaveConflictDetection(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, FileName)

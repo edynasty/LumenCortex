@@ -322,6 +322,8 @@ oracle content is SHA-256-bound even for ignored/untracked files; changed conten
 invalidates approval. The runtime does not infer indirect oracle reads. Workspace
 fingerprints cover content, not timestamps; exceeding 8192 files or 16 MiB makes
 confirmation and reuse unavailable rather than trusting incomplete evidence.
+Saving configuration preserves explicit empty `files: []`, so a self-contained
+semantic check keeps its oracle declaration and approval digest after a save.
 
 Python startup resolves host-selected installation metadata, including an exact
 macOS framework interpreter/library, and probes it inside the sandbox. No manifest

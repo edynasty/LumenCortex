@@ -586,6 +586,19 @@ type Check struct {
 	Source string `json:"-"`
 }
 
+// MarshalJSON preserves an explicit empty oracle list: missing files means undeclared.
+func (c Check) MarshalJSON() ([]byte, error) {
+	type plain Check
+	out := struct {
+		plain
+		Files *[]string `json:"files,omitempty"`
+	}{plain: plain(c)}
+	if c.Files != nil {
+		out.Files = &c.Files
+	}
+	return json.Marshal(out)
+}
+
 // Check sources and defaults.
 const (
 	CheckSourceGlobal    = "global"
