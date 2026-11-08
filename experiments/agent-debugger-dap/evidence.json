@@ -1,0 +1,171 @@
+{
+  "initialize": {
+    "supportsConfigurationDoneRequest": true,
+    "supportsStepBack": null,
+    "supportsEvaluateForHovers": true
+  },
+  "breakpoint": [
+    {
+      "column": 22,
+      "id": 1,
+      "instructionReference": "0x1000004D4",
+      "line": 4,
+      "source": {
+        "name": "fixture.c",
+        "path": "/Users/tangxingpeng/IdeaProjects/me/LumenCortex/LumenCortex-Core/experiments/agent-debugger-dap/fixture.c"
+      },
+      "verified": true
+    }
+  ],
+  "stopped": {
+    "reason": "breakpoint",
+    "threadId": 46440775
+  },
+  "stack": [
+    {
+      "name": "compute_total",
+      "line": 4,
+      "source": "fixture.c",
+      "id": 524288
+    },
+    {
+      "name": "main",
+      "line": 12,
+      "source": "fixture.c",
+      "id": 524289
+    },
+    {
+      "name": "start",
+      "line": 1673,
+      "source": "start",
+      "id": 524290
+    }
+  ],
+  "locals_at_breakpoint": [
+    {
+      "name": "base",
+      "value": "12",
+      "type": "int"
+    },
+    {
+      "name": "count",
+      "value": "3",
+      "type": "int"
+    },
+    {
+      "name": "multiplier",
+      "value": "0",
+      "type": "int"
+    },
+    {
+      "name": "adjusted",
+      "value": "1073741824",
+      "type": "int"
+    },
+    {
+      "name": "result",
+      "value": "2",
+      "type": "int"
+    }
+  ],
+  "step_over_1": {
+    "reason": "step",
+    "threadId": 46440775
+  },
+  "location_after_step_1": [
+    {
+      "name": "compute_total",
+      "line": 5,
+      "source": "fixture.c"
+    },
+    {
+      "name": "main",
+      "line": 12,
+      "source": "fixture.c"
+    },
+    {
+      "name": "start",
+      "line": 1673,
+      "source": "start"
+    }
+  ],
+  "locals_after_step_1": [
+    {
+      "name": "base",
+      "value": "12",
+      "type": "int"
+    },
+    {
+      "name": "count",
+      "value": "3",
+      "type": "int"
+    },
+    {
+      "name": "multiplier",
+      "value": "0",
+      "type": "int"
+    },
+    {
+      "name": "adjusted",
+      "value": "1073741824",
+      "type": "int"
+    },
+    {
+      "name": "result",
+      "value": "2",
+      "type": "int"
+    }
+  ],
+  "step_over_2": {
+    "reason": "step",
+    "threadId": 46440775
+  },
+  "location_after_step_2": [
+    {
+      "name": "compute_total",
+      "line": 6,
+      "source": "fixture.c"
+    },
+    {
+      "name": "main",
+      "line": 12,
+      "source": "fixture.c"
+    },
+    {
+      "name": "start",
+      "line": 1673,
+      "source": "start"
+    }
+  ],
+  "locals_after_step_2": [
+    {
+      "name": "base",
+      "value": "12",
+      "type": "int"
+    },
+    {
+      "name": "count",
+      "value": "3",
+      "type": "int"
+    },
+    {
+      "name": "multiplier",
+      "value": "0",
+      "type": "int"
+    },
+    {
+      "name": "adjusted",
+      "value": "0",
+      "type": "int"
+    },
+    {
+      "name": "result",
+      "value": "2",
+      "type": "int"
+    }
+  ],
+  "exit": {
+    "exitCode": 2
+  },
+  "terminated": true
+}
