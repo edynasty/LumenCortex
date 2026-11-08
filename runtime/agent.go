@@ -505,6 +505,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err := e.debugTools(ctx, sessionID, runID, policy, plan.trusted, tools); err != nil {
 		return nil, err
 	}
+	if err := e.bindWorkerMessages(ctx, sessionID, tools); err != nil {
+		return nil, err
+	}
 	// A child never executes inside the parent's kernel: a kernel is one actor's
 	// authority domain, so the child gets its own kernel (its own session
 	// identity) and the two sides exchange artifacts. The parent's kernel is

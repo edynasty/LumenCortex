@@ -65,12 +65,15 @@ const (
 // notebook, so it is purged before notebooks through purgeWhere.
 var purgeTables = []string{"session_messages", "agent_steps", "session_checkpoints", "task_states", "task_state_inbox",
 	"artifacts", "eval_results", "request_envelopes", "derived_origins", "jobs", "scheduled_tasks",
-	"notebook_revisions", "notebooks", "runtime_events", "runtime_event_sequences", "runtime_event_retention"}
+	"notebook_revisions", "notebooks", "runtime_events", "runtime_event_sequences", "runtime_event_retention", "worker_messages"}
 
 // purgeWhere is the WHERE clause selecting the rows of the sessions named by the id list `in` for one
 // table. Every table but notebook_revisions holds session_id; a revision is reached through the
 // notebook it belongs to.
 func purgeWhere(table, in string) string {
+	if table == "worker_messages" {
+		return "EXISTS (SELECT 1 FROM sessions victim WHERE victim.id IN (" + in + ") AND (victim.id=worker_messages.session_id OR victim.id=worker_messages.sender_id OR victim.id=worker_messages.recipient_id))"
+	}
 	if table == "notebook_revisions" {
 		return "notebook_id IN (SELECT id FROM notebooks WHERE session_id IN (" + in + "))"
 	}

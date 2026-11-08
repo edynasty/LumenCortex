@@ -209,6 +209,11 @@ func (s *RunSupervisor) Start(
 				s.engine.checkpointSubagentStop(opts.parentSessionID, sessionID, runErr)
 			}
 		}()
+		defer func() {
+			if opts.parentSessionID != "" {
+				s.engine.publishHubResult(opts.parentSessionID, sessionID)
+			}
+		}()
 		_, runErr = prepared.execute(runCtx)
 	}()
 

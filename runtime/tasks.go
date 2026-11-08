@@ -185,6 +185,9 @@ func (s *RunSupervisor) StartProposedTask(ctx context.Context, parentID, taskID 
 	if task.State != taskstate.TaskProposed {
 		return ExecutionTask{}, ErrTaskProposalStarted
 	}
+	if err := e.admitHubTask(ctx, parentID, state, task); err != nil {
+		return ExecutionTask{}, err
+	}
 	child, err := e.proposalChild(ctx, parentID, taskID)
 	if err != nil {
 		return ExecutionTask{}, err
@@ -213,6 +216,7 @@ func (s *RunSupervisor) StartProposedTask(ctx context.Context, parentID, taskID 
 		// The child runs; a retry finds it through its relation and records it.
 		return started, fmt.Errorf("task %s started as %s but recording it failed: %w", taskID, started.SessionID, err)
 	}
+	e.events.publish("worker.task.assigned", parentID, map[string]any{"workerId": started.SessionID, "taskId": task.ID})
 	return started, nil
 }
 
@@ -456,6 +460,26 @@ func (e *Engine) constrainChild(ctx context.Context, sessionID string, opts Agen
 	}
 	switch relation.Kind {
 	case RelationExecution:
+		var assignment struct {
+			TaskID string `json:"taskId"`
+		}
+		if err := json.Unmarshal(relation.Metadata, &assignment); err != nil {
+			return opts, err
+		}
+		if assignment.TaskID != "" {
+			state, err := e.loadTaskState(ctx, relation.ParentSessionID)
+			if err != nil {
+				return opts, err
+			}
+			if task, found := state.FindTask(assignment.TaskID); found && task.WorkUnitID != "" {
+				if err := e.admitHubTask(ctx, relation.ParentSessionID, state, task); err != nil {
+					return opts, err
+				}
+				if opts.Debug == nil {
+					opts.Debug = &AgentDebugOptions{}
+				}
+			}
+		}
 		opts.Policy = toolset.PolicyWorkspace
 		// The launcher's agent (unexported: never a host's) is kept for the first Start; later
 		// Starts run the agent the child pinned, which outranks this default.

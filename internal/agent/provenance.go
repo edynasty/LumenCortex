@@ -134,6 +134,23 @@ func resultSessions(name, own string, result protocol.ToolResult) (sessions []st
 		return nil, true
 	}
 	switch name {
+	case "worker_inbox":
+		var page struct {
+			Messages []struct {
+				SenderID  string `json:"senderId"`
+				Withdrawn bool   `json:"withdrawn"`
+			} `json:"messages"`
+		}
+		if err := json.Unmarshal([]byte(result.Content), &page); err != nil {
+			return nil, false
+		}
+		seen := map[string]bool{}
+		for _, message := range page.Messages {
+			if !message.Withdrawn && message.SenderID != "" && message.SenderID != own && !seen[message.SenderID] {
+				seen[message.SenderID] = true
+				sessions = append(sessions, message.SenderID)
+			}
+		}
 	case toolSpawnSubagent:
 		var n subagentNode
 		if err := json.Unmarshal([]byte(result.Content), &n); err != nil || n.SessionID == "" {

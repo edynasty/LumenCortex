@@ -42,6 +42,8 @@ type Task struct {
 	// Bounds are the proposing run's step, output and tool bounds: the user's later Start of a
 	// proposal applies them, as a directly started task inherits them from its parent run.
 	Bounds *TaskBounds `json:"bounds,omitempty"`
+	// WorkUnitID binds Hub assignment to the existing WorkUnit DAG. Empty for standalone proposals.
+	WorkUnitID string `json:"workUnitId,omitempty"`
 }
 
 // TaskBounds are the run bounds a proposed task inherits from the run that proposed it.
