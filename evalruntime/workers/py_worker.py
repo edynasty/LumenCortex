@@ -568,33 +568,28 @@ class Worker:
                     # or not: figures the cell drew are flushed either way.
                     # An interrupt landing here cancels the cell.
                     self._render(displays, last_value)
-            finally:
-                # A signal raised before this line is caught below as the
-                # cell's interrupt; after it, every signal is dropped.
-                self._in_cell = False
+            except KeyboardInterrupt:
+                raise
+            except SystemExit as exc:
+                code_value = exc.code
+                if code_value is None:
+                    code_value = 0
+                if not isinstance(code_value, int):
+                    error = str(code_value)
+                    code_value = 1
+                status = "failed"
+                exit_code = code_value
+                if not error:
+                    error = "SystemExit(%r)" % (exc.code,)
+            except BaseException as exc:  # formatting may execute user code
+                status = "failed"
+                error = "%s: %s" % (type(exc).__name__, exc)
+                tb = traceback.format_exc()[:MAX_TRACEBACK]
         except KeyboardInterrupt:
             status, error = "cancelled", "KeyboardInterrupt"
-        except SystemExit as exc:
-            code_value = exc.code
-            if code_value is None:
-                code_value = 0
-            if not isinstance(code_value, int):
-                error = str(code_value)
-                code_value = 1
-            status = "failed"
-            exit_code = code_value
-            if not error:
-                error = "SystemExit(%r)" % (exc.code,)
-        except BaseException as exc:  # noqa: BLE001 - the cell's own failure is a result
-            status = "failed"
-            error = "%s: %s" % (type(exc).__name__, exc)
-            tb = traceback.format_exc()[:MAX_TRACEBACK]
         finally:
-            # The inner finally may have been cut short by the cell's own
-            # interrupt; once delivered, no other signal can raise here. No
-            # user code runs after this point: the signal state the cell
-            # left (a blocked mask, a replaced handler, a SIGINT still pending
-            # for it) is discarded before the reply is built.
+            # Rendering and exception formatting still belong to this cell.
+            # Discard its signal state only after all of them have finished.
             self._in_cell = False
             sys.stdout, sys.stderr = self._stdout_saved, self._stderr_saved
             self._restore_signal_state()

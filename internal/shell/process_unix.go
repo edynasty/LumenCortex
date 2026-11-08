@@ -15,22 +15,6 @@ import (
 	"github.com/edynasty/LumenCortex/internal/cgroupv2"
 )
 
-// StartGroup makes the command lead its own process group, so a kill reaches every process it started,
-// and makes cancellation kill that group instead of the command alone. The stdio MCP client uses it: a
-// command's own children (a browser under an MCP server) outlive it otherwise.
-func StartGroup(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return KillGroup(cmd) }
-}
-
-// KillGroup sends SIGKILL to the command's process group. A group that is already gone is not an error.
-func KillGroup(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
-		return nil
-	}
-	return killGroup(cmd.Process.Pid, syscall.SIGKILL)
-}
-
 func killGroup(pgid int, sig syscall.Signal) error {
 	if err := syscall.Kill(-pgid, sig); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return err

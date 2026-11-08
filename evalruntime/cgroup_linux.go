@@ -191,6 +191,7 @@ func (id hostIdentity) alive() bool {
 type workerGroup struct {
 	id    hostIdentity
 	pidfd int
+	leaf  *cgroupLeaf
 }
 
 // findWorkerGroup locates the in-namespace init among the leaf's members and
@@ -218,19 +219,42 @@ func findWorkerGroup(leaf *cgroupLeaf, outer int) (*workerGroup, error) {
 			_ = unix.Close(fd)
 			continue
 		}
-		return &workerGroup{id: hostIdentity{pid: pid, start: start}, pidfd: fd}, nil
+		return &workerGroup{id: hostIdentity{pid: pid, start: start}, pidfd: fd, leaf: leaf}, nil
 	}
 	return nil, errors.New("eval: the sandboxed worker's process group could not be identified")
 }
 
-// signal delivers sig to the worker's process group. The pidfd proves the group
-// leader is still the pinned process, and a process group id cannot be reused
-// while its leader lives, so the group signalled is this worker's.
+// signal pins each current member before delivery. No signal uses a numeric
+// PGID after an identity check: exit/reuse between check and send is harmless.
+// Forks may miss one cooperative signal; the host repeats it, then cgroup.kill
+// atomically stops the complete tree if cooperation fails.
 func (g *workerGroup) signal(sig syscall.Signal) error {
 	if err := unix.PidfdSendSignal(g.pidfd, 0, nil, 0); err != nil {
 		return fmt.Errorf("eval: worker group leader is gone: %w", err)
 	}
-	return syscall.Kill(-g.id.pid, sig)
+	var errs []error
+	for _, pid := range g.leaf.procs() {
+		_, pgid, start, err := procStat(pid)
+		if err != nil || pgid != g.id.pid {
+			continue
+		}
+		fd, err := unix.PidfdOpen(pid, 0)
+		if err != nil {
+			if !errors.Is(err, syscall.ESRCH) {
+				errs = append(errs, err)
+			}
+			continue
+		}
+		_, afterGroup, afterStart, checkErr := procStat(pid)
+		rel, memberErr := cgroupv2.ProcessCgroup(pid)
+		if checkErr == nil && memberErr == nil && afterStart == start && afterGroup == g.id.pid && cgroupv2.Root+rel == g.leaf.Dir() {
+			if err := unix.PidfdSendSignal(fd, unix.Signal(sig), nil, 0); err != nil && !errors.Is(err, syscall.ESRCH) {
+				errs = append(errs, err)
+			}
+		}
+		_ = unix.Close(fd)
+	}
+	return errors.Join(errs...)
 }
 
 func (g *workerGroup) close() {

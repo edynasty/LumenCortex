@@ -312,10 +312,11 @@ interrupt names the cell its own run executes. Its signal and its kill escalatio
 settling its outcome. If the cell finishes first, nothing is sent. If the
 escalation claims first, the cell is reported cancelled and its kernel lost, and
 the next cell is not admitted until the kill has returned. In the Python worker,
-SIGINT raises only while user code of the cell runs, including the rendering of
-its result (`__repr__`, `_repr_html_`, figure callbacks); a SIGINT left pending
-by a cell that blocked it is discarded once that last user code returned. Each
-cell then starts with the worker's handler and signal mask. macOS denies
+SIGINT raises only while user code of the cell runs, including result rendering
+(`__repr__`, `_repr_html_`, figure callbacks) and exception formatting (`__str__`,
+traceback). Pending SIGINT is discarded after those operations return. Linux
+signals verified members using pidfds, never a check followed by numeric PGID kill.
+Each cell then starts with the worker's handler and signal mask. macOS denies
 worker subprocesses and monitors RSS rather than claiming a hard memory limit.
 
 Linux fails closed unless two host prerequisites hold. (1) Resource isolation: the
@@ -351,6 +352,15 @@ LumenCortex starts, can still run that bwrap. AppArmor exec transitions (`px`)
 from an unconfined-mode profile are not applied, so a per-binary broker would
 need an enforce-mode profile for the host process.
 
+For caller isolation, use a dedicated non-login service UID/group, not a group
+granted to the desktop user's shell. Only the trusted launcher runs under that
+identity; arbitrary host commands must not share it. The Ubuntu Guest validation
+confirmed ordinary-user public/dedicated bwrap and `aa-exec` borrowing are denied,
+while the service executes a real LC Python cell. This is a deployment pattern,
+not an authenticated broker shipped by Core, and not production deployment
+approval. Private `/tmp` and `/run` mounts precede explicit workspace binds, so
+an authorized runtime root below `/tmp` remains usable.
+
 Host shell commands (`internal/shell`) follow one lifetime contract. Everything a
 running command starts belongs to it, including processes in a new session or
 process group (`setsid`, double fork). Cancellation, timeout, `Reap` and the
@@ -371,6 +381,14 @@ containment (for example `EMFILE`) is returned as an error and releases exactly
 what was acquired. Elsewhere, including macOS and Linux containers without a user
 manager, containment is the process group only (`shell.Containment` reports
 which).
+
+Stdio MCP uses the same guarded containment through `shell.StartManaged`.
+A single waiter reaps the server and its contained descendants after normal exit,
+crash or Close; a detached descendant cannot keep inherited pipes open forever.
+Close joins cleanup and reports `shell.ErrCleanup` rather than hiding it.
+Linux jobs wait for the stopped process group to have no live members before
+publishing cancellation; zombie records are not executing tasks. This does not
+upgrade jobs or non-Linux platforms to cgroup containment.
 
 An eval call closes its callback capability before its result is settled: active
 callbacks are cancelled and drained, queued callbacks are denied, and no callback

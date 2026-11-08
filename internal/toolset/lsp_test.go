@@ -22,6 +22,11 @@ import (
 var fakeLSPServer string
 
 func TestMain(m *testing.M) {
+	// The re-executed MCP helper exits directly on EOF and never uses LSP.
+	// Do not allocate a fixture directory that its os.Exit cannot clean up.
+	if os.Getenv("LCX_TOOLSET_MCP_HELPER") == "1" {
+		os.Exit(m.Run())
+	}
 	dir, err := os.MkdirTemp("", "lc-toolset-lsp-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

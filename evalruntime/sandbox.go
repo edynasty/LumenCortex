@@ -201,6 +201,9 @@ func (l *launcher) bubblewrapCommand(spec launchSpec) (*exec.Cmd, error) {
 	for _, path := range []string{"/etc/alternatives", "/etc/matplotlibrc"} {
 		args = append(args, "--ro-bind-try", path, path)
 	}
+	// Establish private scratch mounts before explicit runtime/workspace binds.
+	// Otherwise a legitimate root below /tmp is hidden after it was mounted.
+	args = append(args, "--tmpfs", "/tmp", "--tmpfs", "/run", "--dir", "/var", "--symlink", "/run", "/var/run")
 	args = append(args, "--ro-bind-try", spec.workersDir, spec.workersDir)
 	// Executable identity is host-validated; mounting its parent would silently
 	// grant the plugin unrelated host files and sockets.
@@ -209,7 +212,7 @@ func (l *launcher) bubblewrapCommand(spec launchSpec) (*exec.Cmd, error) {
 		args = append(args, "--ro-bind-try", extra, extra)
 	}
 	args = append(args, "--bind", spec.kernelDir, spec.kernelDir)
-	args = append(args, "--chdir", spec.dir, "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/run", "--dir", "/var", "--symlink", "/run", "/var/run")
+	args = append(args, "--chdir", spec.dir, "--proc", "/proc", "--dev", "/dev")
 	script := ulimitScript(spec.cpuSeconds, spec.fileBytes)
 	args = append(args, "--", "/bin/sh", "-c", script, "lc-eval", spec.exe)
 	args = append(args, spec.args...)

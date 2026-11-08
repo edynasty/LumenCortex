@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -27,12 +26,6 @@ func newPythonHarness(t *testing.T, mutate func(*Options)) (*harness, string) {
 		}
 	})
 	return h, exe
-}
-
-// processAlive probes a host pid. Off Linux a worker's pid is a host pid; on
-// Linux workers live in a PID namespace, so tests use hostProcessOf instead.
-func processAlive(pid int) bool {
-	return syscall.Kill(pid, 0) == nil
 }
 
 // TestPythonPersistentKernel covers §37: cross-cell state, functions, modules,

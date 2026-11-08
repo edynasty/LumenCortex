@@ -22,6 +22,9 @@ func TestHelperMCPServerWithChild(t *testing.T) {
 		return
 	}
 	child := exec.Command("sleep", "300")
+	if os.Getenv("LCX_MCP_DETACHED") == "1" {
+		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	}
 	if err := child.Start(); err != nil {
 		os.Exit(3)
 	}

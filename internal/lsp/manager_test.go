@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -109,13 +108,6 @@ func pidFromStartLog(t *testing.T, path string) int {
 		t.Fatalf("start line %q: %v", lines[0], err)
 	}
 	return pid
-}
-
-func processGone(pid int) bool {
-	if pid <= 0 {
-		return true
-	}
-	return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
 }
 
 // waitGone fails when pid is still a live (or unreaped) process after timeout.

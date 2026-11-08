@@ -240,7 +240,9 @@ func TestCancelQueuedAndRunningKillsProcessGroup(t *testing.T) {
 		t.Fatalf("running cancel state=%q error=%q", stopped.State, stopped.Error)
 	}
 	if processAlive(childPID) {
-		t.Fatalf("child process %d survived the job cancel", childPID)
+		stat, _ := os.ReadFile(fmt.Sprintf("/proc/%d/stat", childPID))
+		group, _ := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", childPID))
+		t.Fatalf("child process %d survived the job cancel: stat=%s cgroup=%s", childPID, stat, group)
 	}
 	// A terminal job is returned unchanged.
 	again, err := manager.Cancel(context.Background(), running.ID)

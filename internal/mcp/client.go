@@ -35,11 +35,14 @@ var (
 const closeGrace = 2 * time.Second
 
 type Client struct {
-	cfg    Config
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	cancel context.CancelFunc
+	cfg         Config
+	cmd         *exec.Cmd
+	process     *shell.ManagedProcess
+	processDone chan struct{}
+	cleanupErr  error
+	stdin       io.WriteCloser
+	stdout      *bufio.Reader
+	cancel      context.CancelFunc
 
 	writeMu   sync.Mutex
 	pendingMu sync.Mutex
@@ -98,16 +101,22 @@ func Start(ctx context.Context, cfg Config) (*Client, error) {
 	// A server inherits the runtime's environment; an explicit Env entry replaces one variable and is
 	// resolved from "{env:NAME}" references only at start, so no credential is persisted.
 	cmd.Env = append(os.Environ(), env...)
-	stdin, err := cmd.StdinPipe()
+	stdinReader, stdin, err := os.Pipe()
 	if err != nil {
 		cancel()
 		return nil, err
 	}
-	stdoutPipe, err := cmd.StdoutPipe()
+	cmd.Stdin = stdinReader
+	// Own stdout outside exec.Cmd: Wait must not close it before readLoop
+	// consumes the server's final response. Tree cleanup guarantees EOF.
+	stdoutPipe, stdoutWriter, err := os.Pipe()
 	if err != nil {
+		_ = stdinReader.Close()
+		_ = stdin.Close()
 		cancel()
 		return nil, err
 	}
+	cmd.Stdout = stdoutWriter
 	stderr := &boundedBuffer{max: 128 << 10}
 	cmd.Stderr = stderr
 	// stderr is not an *os.File, so exec drains it through a pipe and goroutine, and
@@ -115,24 +124,42 @@ func Start(ctx context.Context, cfg Config) (*Client, error) {
 	// pipe open would block Wait — and therefore Close — forever. WaitDelay bounds
 	// that drain once the process exits or the context is done.
 	cmd.WaitDelay = closeGrace
-	// A server leads its own process group, the same way a shell command does: cancellation kills the
-	// group rather than the server alone, and whatever the server leaves in that group dies with it.
-	shell.StartGroup(cmd)
-	if err := cmd.Start(); err != nil {
+	process, err := shell.StartManaged(cmd)
+	_ = stdinReader.Close()
+	_ = stdoutWriter.Close()
+	if err != nil {
+		_ = stdin.Close()
+		_ = stdoutPipe.Close()
 		cancel()
 		return nil, err
 	}
 
 	client := &Client{
-		cfg:     cfg,
-		cmd:     cmd,
-		stdin:   stdin,
-		stdout:  bufio.NewReaderSize(stdoutPipe, 64<<10),
-		cancel:  cancel,
-		pending: make(map[int64]chan response),
-		done:    make(chan struct{}),
+		cfg:         cfg,
+		cmd:         cmd,
+		process:     process,
+		processDone: make(chan struct{}),
+		stdin:       stdin,
+		stdout:      bufio.NewReaderSize(stdoutPipe, 64<<10),
+		cancel:      cancel,
+		pending:     make(map[int64]chan response),
+		done:        make(chan struct{}),
 	}
 	go client.readLoop(stderr)
+	go func() {
+		err := process.Wait()
+		if errors.Is(err, shell.ErrCleanup) {
+			client.cleanupErr = err
+			client.setLastError(err.Error())
+		}
+		select {
+		case <-client.done:
+		case <-time.After(closeGrace):
+			// A process-group-only platform cannot follow a detached writer.
+		}
+		_ = stdoutPipe.Close()
+		close(client.processDone)
+	}()
 
 	if err := client.negotiate(ctx); err != nil {
 		_ = client.Close()
@@ -372,22 +399,19 @@ func (c *Client) Close() error {
 			}
 		}
 		c.cancel()
-		if c.cmd != nil {
-			// The process is owned by this client. Cancellation/termination caused
-			// by an explicit Close is expected and must not surface as a Stop error.
-			_ = c.cmd.Wait()
-			// A server that was signalled had no chance to stop its children: the group takes them.
-			_ = shell.KillGroup(c.cmd)
+		if c.process != nil {
+			_ = c.process.Kill()
+			<-c.processDone
 		}
 		c.failAllPending(ErrClosed)
 	})
-	return nil
+	return c.cleanupErr
 }
 
-// killGroup kills the server's process group: the processes it started are not this client's to leak.
+// killGroup stops only this server's owned containment.
 func (c *Client) killGroup() {
-	if c.cmd != nil {
-		_ = shell.KillGroup(c.cmd)
+	if c.process != nil {
+		_ = c.process.Kill()
 	}
 }
 

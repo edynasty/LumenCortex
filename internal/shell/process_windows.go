@@ -4,18 +4,6 @@ package shell
 
 import "os/exec"
 
-// StartGroup keeps exec's default cancellation (kill cmd.exe); Windows has no POSIX process groups.
-// WaitDelay still bounds the wait for pipes a surviving child holds.
-func StartGroup(*exec.Cmd) {}
-
-// KillGroup kills cmd.exe.
-func KillGroup(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
-		return nil
-	}
-	return cmd.Process.Kill()
-}
-
 // guardedGroup is cmd.exe alone: Windows has no POSIX process groups and no crash guard.
 type guardedGroup struct {
 	cmd *exec.Cmd
@@ -34,7 +22,12 @@ func Containment() (string, error) { return "process", nil }
 // term has no graceful equivalent for cmd.exe: the grace period passes and kill follows.
 func (g *guardedGroup) term() error { return nil }
 
-func (g *guardedGroup) kill() error { return KillGroup(g.cmd) }
+func (g *guardedGroup) kill() error {
+	if g.cmd.Process == nil {
+		return nil
+	}
+	return g.cmd.Process.Kill()
+}
 
 // release kills cmd.exe for reap; there is no leaf whose cleanup could fail.
 func (g *guardedGroup) release(reap bool) error {

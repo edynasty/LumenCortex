@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -30,7 +29,7 @@ var (
 func fakeLSPServer(t *testing.T) string {
 	t.Helper()
 	fakeLSPOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "lc-runtime-lsp-")
+		dir, err := os.MkdirTemp(filepath.Join(os.Getenv(testHomeEnv), "tmp"), "lc-runtime-lsp-")
 		if err != nil {
 			fakeLSPErr = err
 			return
@@ -73,7 +72,7 @@ func waitProcessGone(t *testing.T, pid int, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		if !processRunning(pid) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

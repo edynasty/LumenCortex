@@ -62,6 +62,17 @@ func TestMain(m *testing.M) {
 	for _, name := range []string{"LCX_MODEL", "LCX_ENDPOINT", "LCX_BASE_URL", "LCX_API_KEY", "LCX_REASONING_FORMAT"} {
 		os.Unsetenv(name)
 	}
+	// Crash helpers inherit this parent-owned directory. SIGKILL cannot run
+	// helper defers, so their temporary files must live below the parent's home.
+	if owner {
+		tmp := filepath.Join(home, "tmp")
+		if err := os.MkdirAll(tmp, 0700); err != nil {
+			panic(err)
+		}
+		for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+			os.Setenv(name, tmp)
+		}
+	}
 	code := m.Run()
 	if owner {
 		os.RemoveAll(home)

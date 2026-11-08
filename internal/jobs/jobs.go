@@ -823,6 +823,12 @@ func (m *Manager) execute(ctx context.Context, job Job) {
 	m.mu.Lock()
 	stop = rj.stop
 	m.mu.Unlock()
+	if stop != nil {
+		if err := waitStoppedGroup(pid); err != nil {
+			m.finish(job, out, session.JobFailed, intPtr(-1), err.Error())
+			return
+		}
+	}
 
 	exitCode := -1
 	if state := cmd.ProcessState(); state != nil {
