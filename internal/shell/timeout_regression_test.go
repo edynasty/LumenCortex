@@ -32,7 +32,7 @@ func TestRecursiveCanarySearchTimeoutLeavesOtherSessionAlive(t *testing.T) {
 	r := New(dir)
 	r.Interpreter = System()
 	r.Interpreter.Args = []string{"-c"}
-	result, err := r.RunTimeout(context.Background(), `echo $$ > shell.pid; grep -rl "harbor-canary" controlled-root/blocked | head -40`, 150*time.Millisecond, nil)
+	result, err := r.RunTimeout(context.Background(), `echo $$ > shell.pid; ps -o pgid= -p $$ > shell.pgid; grep -rl "harbor-canary" controlled-root/blocked | head -40`, 150*time.Millisecond, nil)
 	if err != nil || !result.TimedOut || result.Cancelled {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -43,7 +43,7 @@ func TestRecursiveCanarySearchTimeoutLeavesOtherSessionAlive(t *testing.T) {
 		t.Fatal("timeout killed another session")
 	}
 	// The process group must be gone, not just the shell leader.
-	pid := readPID(t, filepath.Join(dir, "shell.pid"))
+	pid := readPID(t, filepath.Join(dir, "shell.pgid"))
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		out, _ := exec.Command("ps", "-eo", "pgid=,stat=").Output()

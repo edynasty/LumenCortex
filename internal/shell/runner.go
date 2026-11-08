@@ -96,19 +96,21 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 	cmd.Stdout = chunkWriter{bounded: stdout, stream: "stdout", onChunk: onChunk}
 	cmd.Stderr = chunkWriter{bounded: stderr, stream: "stderr", onChunk: onChunk}
 	cmd.WaitDelay = waitDelay
-	StartGroup(cmd)
 
 	if err := ctx.Err(); err != nil {
 		return Result{Command: command, ExitCode: -1, StartedAt: started, Cancelled: true}, err
 	}
-	err := cmd.Start()
+	group, err := newGuardedGroup(cmd)
+	if err != nil {
+		return Result{Command: command, ExitCode: -1, StartedAt: started}, err
+	}
+	err = cmd.Start()
 	var timedOut atomic.Bool
 	if err == nil {
 		var stopWatcher func()
 		if timeout > 0 || ctx.Done() != nil {
 			exited := make(chan struct{})
 			finished := make(chan struct{})
-			pid := cmd.Process.Pid
 			go func() {
 				defer close(finished)
 				var deadline <-chan time.Time
@@ -124,7 +126,7 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 				case <-deadline:
 					timedOut.Store(true)
 				}
-				_ = TermGroup(pid)
+				_ = group.term()
 				grace := time.NewTimer(TermGrace)
 				defer grace.Stop()
 				select {
@@ -143,9 +145,7 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 			stopWatcher()
 		}
 	}
-	if r.Reap || ctx.Err() != nil || timedOut.Load() {
-		_ = KillGroup(cmd)
-	}
+	group.release(r.Reap || ctx.Err() != nil || timedOut.Load())
 	// The shell exited successfully but a background process kept the pipes open past waitDelay: the
 	// command's own result stands.
 	if errors.Is(err, exec.ErrWaitDelay) {
