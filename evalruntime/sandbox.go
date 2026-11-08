@@ -166,6 +166,13 @@ func (l *launcher) bubblewrapCommand(spec launchSpec) (*exec.Cmd, error) {
 	for _, dir := range []string{"/usr", "/bin", "/sbin", "/lib", "/lib64"} {
 		args = append(args, "--ro-bind-try", dir, dir)
 	}
+	// Two read-only system configuration entries, never the rest of /etc:
+	// Debian/Ubuntu resolve shared libraries such as libblas.so.3 through the
+	// /etc/alternatives symlink farm (NumPy cannot load without it), and their
+	// Matplotlib reads its packaged defaults from /etc/matplotlibrc.
+	for _, path := range []string{"/etc/alternatives", "/etc/matplotlibrc"} {
+		args = append(args, "--ro-bind-try", path, path)
+	}
 	args = append(args, "--ro-bind-try", spec.workersDir, spec.workersDir)
 	// Executable identity is host-validated; mounting its parent would silently
 	// grant the plugin unrelated host files and sockets.
