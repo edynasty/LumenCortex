@@ -298,13 +298,24 @@ no actor may execute in or control another actor's heap. The removed EXECUTOR ro
 is rejected. Tool callbacks use the owning run's effective permissions and schema;
 nested effects use the same provenance, approval invalidation and transaction settlement as direct
 tools. Interrupt can retain acknowledged state; timeout/crash marks it lost and
-never automatically replays uncertain code. An interrupt acts on one execution
-only. Its signal and its kill escalation are claimed against that execution
+never automatically replays uncertain code. An interrupt names the one execution
+it stops (`Manager.InterruptExecution`, target = request id, optionally the
+kernel generation the caller saw) and never "whatever runs now": a target that
+already finished is answered `target_finished` and the running cell is left
+alone; a target still queued is `cancelled_before_start` and never runs; a
+target in another generation is `generation_mismatch`; an idle session with an
+unknown target is `no_active_execution`, and an unknown target while another
+cell runs is `ErrNotFound`. A repeat for the same target returns the recorded
+outcome and sends no signal. `Session.ActiveRequestID` names the running
+execution. The `eval_control` tool and the CLI require `request_id`; a notebook
+interrupt names the cell its own run executes. Its signal and its kill escalation are claimed against that execution
 settling its outcome. If the cell finishes first, nothing is sent. If the
 escalation claims first, the cell is reported cancelled and its kernel lost, and
 the next cell is not admitted until the kill has returned. In the Python worker,
-a SIGINT left pending by a cell that blocked it is discarded when the cell ends.
-Each cell then starts with the worker's handler and signal mask. macOS denies
+SIGINT raises only while user code of the cell runs, including the rendering of
+its result (`__repr__`, `_repr_html_`, figure callbacks); a SIGINT left pending
+by a cell that blocked it is discarded once that last user code returned. Each
+cell then starts with the worker's handler and signal mask. macOS denies
 worker subprocesses and monitors RSS rather than claiming a hard memory limit.
 
 Linux fails closed unless two host prerequisites hold. (1) Resource isolation: the
@@ -346,9 +357,18 @@ process group (`setsid`, double fork). Cancellation, timeout, `Reap` and the
 owner's death stop all of it. Without `Reap`, a command that exits on its own
 leaves its background processes running until the owner dies. On Linux with a
 delegated cgroup v2 (the same systemd user manager), each command runs in its
-own leaf and is admitted before any of its code runs. Two independent helpers
-kill the leaf when the owner dies: the command's crash guard and the shell
-pool's keeper. Elsewhere, including macOS and Linux containers without a user
+own leaf and is admitted before any of its code runs. For as long as anything
+runs in the leaf - the command or what it left in the background - two
+independent helpers kill the leaf when the owner dies: the command's crash guard
+and the shell pool's keeper. While the owner lives it supervises both: a helper
+that dies is replaced at once, and when no replacement can be started the owner
+kills what that helper protected (fail closed). A leaf that cannot be removed
+afterwards is reported, not dropped: `Result.CleanupError` and an error wrapping
+`shell.ErrCleanup` (the `bash` tool returns the command's result with
+`cleanupError`), and a background reaper retries the removal and records a
+persistent failure (`shell.CleanupFailures`). A failure while setting up the
+containment (for example `EMFILE`) is returned as an error and releases exactly
+what was acquired. Elsewhere, including macOS and Linux containers without a user
 manager, containment is the process group only (`shell.Containment` reports
 which).
 
@@ -385,10 +405,11 @@ in a throwing cell does not persist, while prior/global state mutations can rema
 Execution notebooks reuse the versioned Notebook store with bounded nbformat4.5
 JSON. Import/read never executes cells; explicit replay closes every live kernel
 of the notebook's languages and recomputes from clean state, so a replay after a
-reset or a cancel starts on a fresh session. A run, a reset, an interrupt and a
-close act on the kernel that is alive — the newest one by creation time — never on
-the kernel with the highest generation, because generation counts the restarts of
-one kernel and does not order two. One run per notebook executes at a time: a
+reset or a cancel starts on a fresh session. A run, a reset and a close act on
+the kernel that is alive — the newest one by creation time — never on the kernel
+with the highest generation, because generation counts the restarts of one kernel
+and does not order two. An interrupt of a notebook stops only the cell that
+notebook's run is executing, by its request id. One run per notebook executes at a time: a
 second run is refused instead of queued, and the run in flight is Core's state,
 which a host reads (ExecutionNotebookRuns) so a route switch or a reload cannot
 start a duplicate. The agent's notebook tools and the working-notebook API reject
