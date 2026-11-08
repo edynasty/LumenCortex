@@ -298,8 +298,14 @@ no actor may execute in or control another actor's heap. The removed EXECUTOR ro
 is rejected. Tool callbacks use the owning run's effective permissions and schema;
 nested effects use the same provenance, approval invalidation and transaction settlement as direct
 tools. Interrupt can retain acknowledged state; timeout/crash marks it lost and
-never automatically replays uncertain code. macOS denies worker subprocesses and
-monitors RSS rather than claiming a hard memory limit.
+never automatically replays uncertain code. An interrupt acts on one execution
+only. Its signal and its kill escalation are claimed against that execution
+settling its outcome. If the cell finishes first, nothing is sent. If the
+escalation claims first, the cell is reported cancelled and its kernel lost, and
+the next cell is not admitted until the kill has returned. In the Python worker,
+a SIGINT left pending by a cell that blocked it is discarded when the cell ends.
+Each cell then starts with the worker's handler and signal mask. macOS denies
+worker subprocesses and monitors RSS rather than claiming a hard memory limit.
 
 Linux fails closed unless two host prerequisites hold. (1) Resource isolation: the
 user's systemd manager must be reachable (`XDG_RUNTIME_DIR`, session bus) and
@@ -317,6 +323,34 @@ and point the runtime at it with `EvalOptions.Bubblewrap` /
 file owned by root and not group/other-writable, or startup fails. The profile
 adds no file or network confinement of its own; containment comes from bwrap's
 namespaces, the private `/proc`, `/run` and `/tmp`, and the cgroup.
+
+A path-attached profile does not tell callers apart, and with
+`kernel.apparmor_restrict_unprivileged_unconfined=0` (the Ubuntu 24.04 default
+checked on kernel 6.8) any unprivileged process can `aa-exec` into any profile
+that grants `userns`, including ones shipped by distro packages. A production
+host therefore needs both `kernel.apparmor_restrict_unprivileged_userns=1` and
+`kernel.apparmor_restrict_unprivileged_unconfined=1`, the dedicated bwrap at
+mode `0750` owned by `root` and a dedicated group, LumenCortex running with that
+group, and no `userns` profile on `/usr/bin/bwrap`. `EvalOptions.RequireCallerIsolation`
+/ `LCX_EVAL_REQUIRE_CALLER_ISOLATION=1` is the production gate: startup fails
+closed unless the switches, the file mode and the group membership hold. The
+profile itself is root-only to inspect and is not checked. Caller isolation is by
+group: every process that carries the group, including host shell commands that
+LumenCortex starts, can still run that bwrap. AppArmor exec transitions (`px`)
+from an unconfined-mode profile are not applied, so a per-binary broker would
+need an enforce-mode profile for the host process.
+
+Host shell commands (`internal/shell`) follow one lifetime contract. Everything a
+running command starts belongs to it, including processes in a new session or
+process group (`setsid`, double fork). Cancellation, timeout, `Reap` and the
+owner's death stop all of it. Without `Reap`, a command that exits on its own
+leaves its background processes running until the owner dies. On Linux with a
+delegated cgroup v2 (the same systemd user manager), each command runs in its
+own leaf and is admitted before any of its code runs. Two independent helpers
+kill the leaf when the owner dies: the command's crash guard and the shell
+pool's keeper. Elsewhere, including macOS and Linux containers without a user
+manager, containment is the process group only (`shell.Containment` reports
+which).
 
 An eval call closes its callback capability before its result is settled: active
 callbacks are cancelled and drained, queued callbacks are denied, and no callback
