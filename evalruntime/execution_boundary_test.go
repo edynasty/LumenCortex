@@ -84,7 +84,7 @@ func finishCell(t *testing.T, session evalapi.Session, id string) {
 
 func interruptAsync(h *harness, sessionID string) <-chan error {
 	errc := make(chan error, 1)
-	go func() { errc <- h.m.Interrupt(context.Background(), sessionID, "owner") }()
+	go func() { errc <- interruptActive(h, sessionID) }()
 	return errc
 }
 
@@ -316,12 +316,52 @@ func TestPendingInterruptDoesNotCrossTheCellBoundary(t *testing.T) {
 			old <- result
 		}()
 		waitForFile(t, filepath.Join(session.Workspace, "work", id+".ready"), 10*time.Second)
-		if err := h.m.Interrupt(context.Background(), session.ID, "owner"); err != nil {
+		if err := interruptRequest(h, session.ID, id); err != nil {
 			t.Fatalf("round %d: Interrupt = %v", round, err)
 		}
 		first := awaitResult(t, old)
 		if first.Status != evalapi.ResultStatusCompleted || len(first.Displays) == 0 || first.Displays[0].Text != "True" {
 			t.Fatalf("round %d: the masked cell did not complete with SIGINT pending: %s/%s %+v", round, first.Status, first.StateStatus, first.Displays)
+		}
+		next := h.exec(session, "owner", "import signal\nmask = signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})\nkept += 1\n(signal.SIGINT in mask, signal.getsignal(signal.SIGINT) not in (signal.SIG_IGN, signal.SIG_DFL), kept)", evalapi.Budget{})
+		want := fmt.Sprintf("(False, True, %d)", round)
+		if !next.Succeeded() || len(next.Displays) == 0 || next.Displays[0].Text != want {
+			t.Fatalf("round %d: next cell %s/%s %s %+v, want %s", round, next.Status, next.StateStatus, next.Error, next.Displays, want)
+		}
+		if workerProc(t, h, session.ID) != proc {
+			t.Fatalf("round %d: the worker was replaced", round)
+		}
+	}
+}
+
+// R3-SOL-P2-02: the user code that renders a cell's result runs inside the
+// cell's signal window. A __repr__ that blocks SIGINT and receives the
+// interrupt leaves it pending; it is discarded when that last user code
+// returns, so the next cell, which unblocks SIGINT, is not interrupted and the
+// kernel keeps its state.
+func TestPendingInterruptFromReprDoesNotCrossTheCellBoundary(t *testing.T) {
+	h, _ := newPythonHarness(t, nil)
+	session := h.create("python", "owner", "owner")
+	h.expectCompleted(session, "owner", "kept = 0")
+	proc := workerProc(t, h, session.ID)
+	for round := 1; round <= boundaryRounds(5); round++ {
+		id := fmt.Sprintf("repr%d", round)
+		code := fmt.Sprintf("import signal, time\nclass Masked:\n    def __repr__(self):\n        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})\n        open(%q, 'w').write('r')\n        time.sleep(0.4)\n        return repr(signal.SIGINT in signal.sigpending())\nMasked()", id+".ready")
+		old := make(chan evalapi.Result, 1)
+		go func() {
+			result, err := h.m.Execute(context.Background(), evalapi.Request{ID: id, SessionID: session.ID, AgentID: "owner", CellID: id, Code: code}, nil)
+			if err != nil {
+				result.Error = err.Error()
+			}
+			old <- result
+		}()
+		waitForFile(t, filepath.Join(session.Workspace, "work", id+".ready"), 10*time.Second)
+		if err := interruptRequest(h, session.ID, id); err != nil {
+			t.Fatalf("round %d: Interrupt = %v", round, err)
+		}
+		first := awaitResult(t, old)
+		if first.Status != evalapi.ResultStatusCompleted || len(first.Displays) == 0 || first.Displays[0].Text != "True" {
+			t.Fatalf("round %d: the repr did not complete with SIGINT pending: %s/%s %s %+v", round, first.Status, first.StateStatus, first.Error, first.Displays)
 		}
 		next := h.exec(session, "owner", "import signal\nmask = signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})\nkept += 1\n(signal.SIGINT in mask, signal.getsignal(signal.SIGINT) not in (signal.SIG_IGN, signal.SIG_DFL), kept)", evalapi.Budget{})
 		want := fmt.Sprintf("(False, True, %d)", round)
@@ -342,7 +382,7 @@ func TestCellSignalHandlerDoesNotOutliveTheCell(t *testing.T) {
 	session := h.create("python", "owner", "owner")
 	h.expectCompleted(session, "owner", "import signal\nsignal.signal(signal.SIGINT, signal.SIG_IGN)\nkept = 'heap'")
 	done := startBusyCell(t, h, session, "loop", "while True: pass")
-	if err := h.m.Interrupt(context.Background(), session.ID, "owner"); err != nil {
+	if err := interruptActive(h, session.ID); err != nil {
 		t.Fatalf("Interrupt = %v", err)
 	}
 	result := awaitResult(t, done)

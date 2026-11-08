@@ -567,9 +567,20 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 	}
 	// A request id is single-use for the kernel's lifetime, so a retry cannot
 	// silently re-execute a cell whose result was trimmed from the history.
-	if err := s.admitRequestID(req.ID); err != nil {
+	record, err := s.admitRequestID(req.ID)
+	if err != nil {
 		return evalapi.Result{}, err
 	}
+	// The request is finished on every return path: until it became the active
+	// execution here, below in the same critical section that clears it.
+	activated := false
+	defer func() {
+		if !activated {
+			s.mu.Lock()
+			s.finishRequestLocked(req.ID)
+			s.mu.Unlock()
+		}
+	}()
 	budget := evalapi.MergeBudget(s.budget, req.Budget).WithDefaults(m.defaultBudget)
 	// CPU, memory and file-size bounds belong to the kernel's process, which is
 	// already running: a lower per-request bound cannot be applied without
@@ -599,6 +610,8 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 	defer cancelWait()
 	select {
 	case s.execSem <- struct{}{}:
+	case <-record.cancel:
+		return cancelledBeforeStart(req), nil
 	case <-waitCtx.Done():
 		if ctx.Err() != nil {
 			return evalapi.Result{}, ctx.Err()
@@ -650,9 +663,18 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 	}
 	ref := newExecutionRef(agent, req.ID, cancelWatch)
 	s.mu.Lock()
+	// An interrupt that named this request while it was queued wins: the cell
+	// never runs. The check and the activation share one critical section with
+	// InterruptExecution, so the interrupt either sees the request queued (and
+	// cancels it here) or active (and signals it), never neither.
+	if record.cancelled {
+		s.mu.Unlock()
+		return cancelledBeforeStart(req), nil
+	}
 	ref.generation = s.generation
 	s.executing = true
 	s.active = ref
+	activated = true
 	s.mu.Unlock()
 	// The ref is cleared and closed on every return path: an interrupt or a
 	// revocation waits on done to know that this execution is really over.
@@ -662,6 +684,7 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 		if s.active == ref {
 			s.active = nil
 		}
+		s.finishRequestLocked(req.ID)
 		s.mu.Unlock()
 		close(ref.done)
 	}()
@@ -826,8 +849,22 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 	} else {
 		s.setState(evalapi.StateIdle, "")
 	}
+	s.mu.Lock()
+	ref.resultStatus, ref.stateStatus = result.Status, result.StateStatus
+	s.mu.Unlock()
 	m.emitResultEvent(s, result)
 	return result, nil
+}
+
+// cancelledBeforeStart is the result of a request an interrupt cancelled while
+// it waited for the kernel: it never ran, and the kernel was not touched.
+func cancelledBeforeStart(req evalapi.Request) evalapi.Result {
+	cellID := strings.TrimSpace(req.CellID)
+	if cellID == "" {
+		cellID = req.ID
+	}
+	return evalapi.Result{RequestID: req.ID, SessionID: req.SessionID, CellID: cellID, Status: evalapi.ResultStatusCancelled,
+		StateStatus: evalapi.StateStatusOK, Error: "KeyboardInterrupt: interrupted before the cell started"}
 }
 
 // terminate force-stops a cell whose budget or authority ended: the process group
@@ -993,9 +1030,18 @@ func (m *Manager) emitResultEvent(s *session, result evalapi.Result) {
 	})
 }
 
-// Interrupt asks a running cell to stop cooperatively. When the worker
-// acknowledges, its kernel and variables survive; when it does not answer within
-// the grace period the process group is terminated and the kernel is lost.
+// InterruptExecution asks the execution of target to stop cooperatively. When
+// the worker acknowledges, its kernel and variables survive; when it does not
+// answer within the grace period the process group is terminated and the kernel
+// is lost.
+//
+// The interrupt names its target. It acts only on the execution of
+// target.RequestID: a request that arrives after its target finished is
+// answered InterruptTargetFinished and never touches the cell that runs now; a
+// target still queued is cancelled and never runs; a target running in another
+// generation than target.Generation is refused. An idle session with an unknown
+// target answers InterruptNoActiveExecution; an unknown target while another
+// cell runs is ErrNotFound. Permission is checked before anything else.
 //
 // An execution has at most one interrupt operation. The first call owns it;
 // every concurrent or repeated call for the same execution waits for that
@@ -1007,39 +1053,102 @@ func (m *Manager) emitResultEvent(s *session, result evalapi.Result) {
 // while that exact execution (same generation, same worker) is still running,
 // and it waits for the kill to finish so an interrupt that reports success never
 // leaves an owned pid behind.
-func (m *Manager) Interrupt(ctx context.Context, sessionID, agentID string) error {
+func (m *Manager) InterruptExecution(ctx context.Context, sessionID, agentID string, target evalapi.InterruptTarget) (evalapi.InterruptOutcome, error) {
 	if err := m.ensureOpen(); err != nil {
-		return err
+		return evalapi.InterruptOutcome{}, err
 	}
 	s, err := m.session(sessionID)
 	if err != nil {
-		return err
+		return evalapi.InterruptOutcome{}, err
 	}
 	if !s.canInterrupt(agentID) {
-		return fmt.Errorf("%w: agent %q may not interrupt session %s", evalapi.ErrDenied, agentID, sessionID)
+		return evalapi.InterruptOutcome{}, fmt.Errorf("%w: agent %q may not interrupt session %s", evalapi.ErrDenied, agentID, sessionID)
+	}
+	id := target.RequestID
+	if strings.TrimSpace(id) == "" {
+		return evalapi.InterruptOutcome{}, fmt.Errorf("%w: an interrupt names the request id of its target", evalapi.ErrInvalid)
 	}
 	s.mu.Lock()
 	ref := s.active
-	if ref == nil {
-		s.mu.Unlock()
-		// Nothing is running: an interrupt is a no-op, not an error.
-		return nil
+	activeID := ""
+	if ref != nil {
+		activeID = ref.requestID
 	}
-	if op := ref.interrupt; op != nil {
+	record := s.requestIDs[id]
+	switch {
+	case ref != nil && ref.requestID == id:
+		// The target runs now.
+	case record != nil && record.interrupt == nil && record.signalled != nil:
+		// The target's interrupt operation is still being reported: join it.
+		ref = record.signalled
+	case record == nil:
 		s.mu.Unlock()
-		select {
-		case <-op.done:
-			return op.err
-		case <-ctx.Done():
-			return ctx.Err()
+		if ref == nil {
+			return evalapi.InterruptOutcome{Status: evalapi.InterruptNoActiveExecution, RequestID: id}, nil
+		}
+		return evalapi.InterruptOutcome{RequestID: id, ActiveRequestID: activeID},
+			fmt.Errorf("%w: request %q is not an execution of session %s", evalapi.ErrNotFound, id, sessionID)
+	case record.interrupt != nil:
+		outcome := *record.interrupt
+		s.mu.Unlock()
+		return outcome, nil
+	case record.finished:
+		s.mu.Unlock()
+		return evalapi.InterruptOutcome{Status: evalapi.InterruptTargetFinished, RequestID: id, ActiveRequestID: activeID}, nil
+	default:
+		// Admitted but not yet active: it waits for the kernel.
+		record.cancelled = true
+		close(record.cancel)
+		outcome := evalapi.InterruptOutcome{Status: evalapi.InterruptCancelledBeforeStart, RequestID: id, ActiveRequestID: activeID}
+		record.interrupt = &outcome
+		s.mu.Unlock()
+		return outcome, nil
+	}
+	if target.Generation != 0 && target.Generation != ref.generation {
+		s.mu.Unlock()
+		return evalapi.InterruptOutcome{Status: evalapi.InterruptGenerationMismatch, RequestID: id, Generation: ref.generation, ActiveRequestID: activeID}, nil
+	}
+	op := ref.interrupt
+	owner := op == nil
+	if owner {
+		op = &interruptOp{done: make(chan struct{})}
+		ref.interrupt = op
+		if record != nil {
+			record.signalled = ref
 		}
 	}
-	op := &interruptOp{done: make(chan struct{})}
-	ref.interrupt = op
 	s.mu.Unlock()
-	op.err = m.interruptExecution(s, ref)
-	close(op.done)
-	return op.err
+	if owner {
+		op.err = m.interruptExecution(s, ref)
+		close(op.done)
+	} else {
+		select {
+		case <-op.done:
+		case <-ctx.Done():
+			return evalapi.InterruptOutcome{}, ctx.Err()
+		}
+	}
+	if op.err != nil {
+		return evalapi.InterruptOutcome{RequestID: id, Generation: ref.generation}, op.err
+	}
+	// The outcome reports how the target ended, so wait until its Execute call
+	// is over: the operation may have returned as soon as the cell settled.
+	select {
+	case <-ref.done:
+	case <-ctx.Done():
+		return evalapi.InterruptOutcome{}, ctx.Err()
+	case <-time.After(interruptGrace + cleanupWindow):
+		return evalapi.InterruptOutcome{RequestID: id, Generation: ref.generation},
+			fmt.Errorf("%w: the interrupted execution did not finish", evalapi.ErrWorker)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	outcome := evalapi.InterruptOutcome{Status: evalapi.InterruptInterrupted, RequestID: id, Generation: ref.generation,
+		ResultStatus: ref.resultStatus, StateStatus: ref.stateStatus}
+	if record != nil && record.interrupt == nil {
+		record.interrupt = &outcome
+	}
+	return outcome, nil
 }
 
 // interruptExecution runs the one interrupt of ref. A cooperative runtime is

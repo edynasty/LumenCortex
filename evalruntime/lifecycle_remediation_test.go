@@ -281,7 +281,7 @@ while True:
 	time.Sleep(300 * time.Millisecond)
 
 	start := time.Now()
-	if err := h.m.Interrupt(context.Background(), session.ID, "owner"); err != nil {
+	if err := interruptActive(h, session.ID); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 20*time.Second {
@@ -555,7 +555,7 @@ Slow()
 		done <- result
 	}()
 	time.Sleep(700 * time.Millisecond)
-	if err := h.m.Interrupt(context.Background(), session.ID, "owner"); err != nil {
+	if err := interruptActive(h, session.ID); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
 	select {

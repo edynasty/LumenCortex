@@ -379,6 +379,56 @@ type Session struct {
 	UpdatedAt  time.Time `json:"updatedAt"`
 	LastError  string    `json:"lastError,omitempty"`
 	Label      string    `json:"label,omitempty"`
+	// ActiveRequestID is the request whose cell runs right now, if any: the
+	// target an interrupt names (InterruptTarget.RequestID).
+	ActiveRequestID string `json:"activeRequestId,omitempty"`
+}
+
+// InterruptTarget names the one execution an interrupt is meant for. An
+// interrupt never picks "whatever runs now": a request that arrives after its
+// target finished must not stop the next cell.
+type InterruptTarget struct {
+	// RequestID is the target execution's request id (Request.ID). Required.
+	RequestID string `json:"requestId"`
+	// Generation, when set, is the kernel generation the caller saw the target
+	// run in; a target running in another generation is refused.
+	Generation uint64 `json:"generation,omitempty"`
+}
+
+// Interrupt outcome statuses. Only InterruptInterrupted and
+// InterruptCancelledBeforeStart mean the interrupt acted on the target.
+const (
+	// InterruptInterrupted: the target was running, was signalled (and killed
+	// if it ignored the signal), and is over. ResultStatus says how it ended.
+	InterruptInterrupted = "interrupted"
+	// InterruptCancelledBeforeStart: the target was queued; it will not run.
+	InterruptCancelledBeforeStart = "cancelled_before_start"
+	// InterruptTargetFinished: the target had already finished; nothing was
+	// signalled, whatever runs now was not touched.
+	InterruptTargetFinished = "target_finished"
+	// InterruptNoActiveExecution: the target is unknown to the session and
+	// nothing runs in it.
+	InterruptNoActiveExecution = "no_active_execution"
+	// InterruptGenerationMismatch: the target runs in another kernel
+	// generation than the caller named; nothing was signalled.
+	InterruptGenerationMismatch = "generation_mismatch"
+)
+
+// InterruptOutcome reports what an execution-scoped interrupt did, so a caller
+// can confirm which execution it stopped. Repeating an interrupt for the same
+// target returns the same outcome and never signals again.
+type InterruptOutcome struct {
+	Status     string `json:"status"`
+	RequestID  string `json:"requestId"`
+	Generation uint64 `json:"generation,omitempty"`
+	// ResultStatus and StateStatus are how the target ended (for
+	// InterruptInterrupted); empty when its Execute call returned an error
+	// instead of a result.
+	ResultStatus string `json:"resultStatus,omitempty"`
+	StateStatus  string `json:"stateStatus,omitempty"`
+	// ActiveRequestID is the execution running when a refusal was decided; it
+	// was left alone.
+	ActiveRequestID string `json:"activeRequestId,omitempty"`
 }
 
 // Alive reports whether the session's kernel can accept another cell without a

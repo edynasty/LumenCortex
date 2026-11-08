@@ -141,6 +141,7 @@ type executionExecutor interface {
 	create(ctx context.Context, sessionID, runtimeID string) (evalapi.Session, error)
 	execute(ctx context.Context, sessionID string, req evalapi.Request) (evalapi.Result, error)
 	control(ctx context.Context, sessionID, evalSessionID, action string) error
+	interrupt(ctx context.Context, sessionID, evalSessionID string, target evalapi.InterruptTarget) (evalapi.InterruptOutcome, error)
 	artifact(ctx context.Context, sessionID, evalSessionID, artifactID string) (evalapi.Artifact, []byte, error)
 }
 
@@ -166,14 +167,16 @@ func (x engineExecutor) execute(ctx context.Context, sessionID string, req evala
 
 func (x engineExecutor) control(ctx context.Context, sessionID, evalSessionID, action string) error {
 	switch action {
-	case "interrupt":
-		return x.engine.EvalInterrupt(ctx, sessionID, evalSessionID)
 	case "reset":
 		return x.engine.EvalReset(ctx, sessionID, evalSessionID)
 	case "close":
 		return x.engine.EvalClose(ctx, sessionID, evalSessionID)
 	}
 	return fmt.Errorf("unknown eval control action %q", action)
+}
+
+func (x engineExecutor) interrupt(ctx context.Context, sessionID, evalSessionID string, target evalapi.InterruptTarget) (evalapi.InterruptOutcome, error) {
+	return x.engine.EvalInterrupt(ctx, sessionID, evalSessionID, target)
 }
 
 func (x engineExecutor) artifact(ctx context.Context, sessionID, evalSessionID, artifactID string) (evalapi.Artifact, []byte, error) {
@@ -271,8 +274,10 @@ func (e *Engine) RunExecutionNotebook(ctx context.Context, sessionID, ref string
 	return e.executionNotebooks().run(ctx, sessionID, ref, "", replay)
 }
 
-// InterruptExecutionNotebook interrupts the kernel of every language the notebook uses. The cell in
-// flight returns with status cancelled; nothing is replayed.
+// InterruptExecutionNotebook interrupts the cell the notebook's run is executing - that execution
+// only, by its request id: a cell another notebook or the agent runs on the same kernel is not
+// touched, and an interrupt that arrives after the cell finished stops nothing. The cell in flight
+// returns with status cancelled; nothing is replayed. A notebook that runs nothing is a no-op.
 func (e *Engine) InterruptExecutionNotebook(ctx context.Context, sessionID, ref string) error {
 	return e.executionNotebooks().interrupt(ctx, sessionID, ref)
 }

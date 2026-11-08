@@ -47,9 +47,17 @@ func startBusyCell(t *testing.T, h *harness, session evalapi.Session, id, code s
 	}
 }
 
-// interruptConcurrently issues n Interrupt calls at once and returns their errors.
+// interruptConcurrently issues n Interrupt calls for the running execution at once and returns
+// their errors.
 func interruptConcurrently(h *harness, sessionID string, n int) []error {
 	errs := make([]error, n)
+	view, err := h.m.Session(context.Background(), sessionID, "owner")
+	if err != nil || view.ActiveRequestID == "" {
+		for i := range errs {
+			errs[i] = fmt.Errorf("no active execution to interrupt: %v", err)
+		}
+		return errs
+	}
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	for i := range n {
@@ -57,7 +65,7 @@ func interruptConcurrently(h *harness, sessionID string, n int) []error {
 		go func() {
 			defer wg.Done()
 			<-start
-			errs[i] = h.m.Interrupt(context.Background(), sessionID, "owner")
+			errs[i] = interruptRequest(h, sessionID, view.ActiveRequestID)
 		}()
 	}
 	close(start)

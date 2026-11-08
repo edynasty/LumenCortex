@@ -187,7 +187,7 @@ func TestUnknownRuntimeAndSession(t *testing.T) {
 	if _, err := h.m.Session(ctx, "missing", "o"); !errors.Is(err, evalapi.ErrNotFound) {
 		t.Fatalf("Session missing = %v", err)
 	}
-	if err := h.m.Interrupt(ctx, "missing", "o"); !errors.Is(err, evalapi.ErrNotFound) {
+	if _, err := h.m.InterruptExecution(ctx, "missing", "o", evalapi.InterruptTarget{RequestID: "r"}); !errors.Is(err, evalapi.ErrNotFound) {
 		t.Fatalf("Interrupt missing = %v", err)
 	}
 }

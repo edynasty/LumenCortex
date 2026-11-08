@@ -254,7 +254,7 @@ func TestLinuxInterruptKeepsTheSandboxAndStopsChildren(t *testing.T) {
 		}
 		_ = os.Remove(pidFile)
 		child := hostProcessOf(t, h.m, session.ID, childPID)
-		if err := h.m.Interrupt(context.Background(), session.ID, "owner"); err != nil {
+		if err := interruptRequest(h, session.ID, "interrupt-"+strconv.Itoa(round)); err != nil {
 			t.Fatalf("round %d: Interrupt: %v", round, err)
 		}
 		var result evalapi.Result
@@ -298,7 +298,7 @@ func TestLinuxInterruptIsScopedToItsKernel(t *testing.T) {
 	go run(target, "target")
 	go run(other, "other")
 	time.Sleep(700 * time.Millisecond)
-	if err := h.m.Interrupt(context.Background(), target.ID, "owner"); err != nil {
+	if err := interruptRequest(h, target.ID, "target"); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
 	results := map[string]evalapi.Result{}

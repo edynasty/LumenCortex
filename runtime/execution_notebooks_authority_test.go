@@ -142,8 +142,8 @@ func TestExecutionNotebookActsOnTheLiveKernelNotTheHighestGeneration(t *testing.
 	if err := host.controlLanguage(ctx, sessionID, "python", "reset"); err != nil {
 		t.Fatal(err)
 	}
-	if err := host.interrupt(ctx, sessionID, created.ID); err != nil {
-		t.Fatal(err)
+	if executed, interrupted := interruptDuringRun(t, host, fake, sessionID, created.ID, "c1"); executed == "" || interrupted != executed {
+		t.Fatalf("the interrupt named %q, the run executes %q", interrupted, executed)
 	}
 	// The list a host reads is oldest first and names the live kernel last, so a page can show the
 	// current kernel instead of the highest generation.
@@ -225,10 +225,11 @@ func TestExecutionNotebookReplayAfterResetAndCancelIsClean(t *testing.T) {
 	if err := host.controlLanguage(ctx, sessionID, "python", "reset"); err != nil {
 		t.Fatal(err)
 	}
-	// Cancel: the interrupt reaches the live kernel and the execution it ends reports cancelled.
+	// Cancel: the interrupt reaches the live kernel, naming the execution the run waits for, and the
+	// execution it ends reports cancelled.
 	fake.controls = nil
-	if err := host.interrupt(ctx, sessionID, created.ID); err != nil {
-		t.Fatal(err)
+	if executed, interrupted := interruptDuringRun(t, host, fake, sessionID, created.ID, "bump"); executed == "" || interrupted != executed {
+		t.Fatalf("the interrupt named %q, the run executes %q", interrupted, executed)
 	}
 	if len(fake.controls) != 1 || !strings.HasPrefix(fake.controls[0], "interrupt:") {
 		t.Fatalf("interrupt controls = %v", fake.controls)

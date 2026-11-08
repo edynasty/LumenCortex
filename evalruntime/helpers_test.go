@@ -270,3 +270,29 @@ func (f *fakeCaller) callCount() int {
 	defer f.mu.Unlock()
 	return len(f.calls)
 }
+
+// interruptRequest interrupts the execution of requestID in sessionID as the owner.
+func interruptRequest(h *harness, sessionID, requestID string) error {
+	_, err := h.m.InterruptExecution(context.Background(), sessionID, "owner", evalapi.InterruptTarget{RequestID: requestID})
+	return err
+}
+
+// interruptActive interrupts, as the owner, the execution that runs in sessionID: it names the
+// execution the session reports as active, waiting briefly for one, so a test that knows a cell is
+// running but not its request id still sends an execution-scoped interrupt.
+func interruptActive(h *harness, sessionID string) error {
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		view, err := h.m.Session(context.Background(), sessionID, "owner")
+		if err != nil {
+			return err
+		}
+		if view.ActiveRequestID != "" {
+			return interruptRequest(h, sessionID, view.ActiveRequestID)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("session %s runs no execution to interrupt", sessionID)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}

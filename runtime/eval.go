@@ -208,11 +208,11 @@ func (e *Engine) executeEvalWith(ctx context.Context, sessionID string, req eval
 		req.TrialID = e.evalOptions.TrialID
 	}
 	if req.ID == "" {
-		var id [16]byte
-		if _, err := rand.Read(id[:]); err != nil {
+		id, err := newEvalRequestID()
+		if err != nil {
 			return evalapi.Result{}, err
 		}
-		req.ID = hex.EncodeToString(id[:])
+		req.ID = id
 	}
 	// Session access is checked by the manager again at execution admission.
 	if _, err := manager.Session(ctx, req.SessionID, sessionID); err != nil {
@@ -235,8 +235,21 @@ func (e *Engine) executeEvalWith(ctx context.Context, sessionID string, req eval
 	return result, execErr
 }
 
-func (e *Engine) EvalInterrupt(ctx context.Context, sessionID, evalID string) error {
-	return e.evalControl(ctx, sessionID, evalID, "interrupt")
+// EvalInterrupt interrupts exactly the execution target names; see
+// evalruntime.Manager.InterruptExecution. A late interrupt whose target already
+// finished is answered evalapi.InterruptTargetFinished and never stops the cell
+// that runs now.
+func (e *Engine) EvalInterrupt(ctx context.Context, sessionID, evalID string, target evalapi.InterruptTarget) (evalapi.InterruptOutcome, error) {
+	ctx, done, err := e.trackEval(ctx, sessionID)
+	if err != nil {
+		return evalapi.InterruptOutcome{}, err
+	}
+	defer done()
+	manager, err := e.evalHost(ctx)
+	if err != nil {
+		return evalapi.InterruptOutcome{}, err
+	}
+	return manager.InterruptExecution(ctx, evalID, sessionID, target)
 }
 func (e *Engine) EvalReset(ctx context.Context, sessionID, evalID string) error {
 	return e.evalControl(ctx, sessionID, evalID, "reset")
@@ -255,8 +268,6 @@ func (e *Engine) evalControl(ctx context.Context, sessionID, evalID, action stri
 		return err
 	}
 	switch action {
-	case "interrupt":
-		return manager.Interrupt(ctx, evalID, sessionID)
 	case "reset":
 		return manager.Reset(ctx, evalID, sessionID)
 	case "close":
@@ -356,6 +367,9 @@ func (a runEval) Execute(ctx context.Context, req evalapi.Request) (evalapi.Resu
 func (a runEval) Control(ctx context.Context, id, action string) error {
 	return a.engine.evalControl(ctx, a.sessionID, id, action)
 }
+func (a runEval) Interrupt(ctx context.Context, id string, target evalapi.InterruptTarget) (evalapi.InterruptOutcome, error) {
+	return a.engine.EvalInterrupt(ctx, a.sessionID, id, target)
+}
 func (e *Engine) executionTools(ctx context.Context, sessionID string, opts AgentOptions, set *toolset.Set, runIDs ...string) error {
 	if !opts.EvalEnabled {
 		return nil
@@ -394,4 +408,13 @@ func evalRunOwner(id string) string {
 		}
 	}
 	return id
+}
+
+// newEvalRequestID returns a fresh request id: the identity an execution-scoped interrupt names.
+func newEvalRequestID() (string, error) {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(id[:]), nil
 }

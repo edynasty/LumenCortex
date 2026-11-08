@@ -111,7 +111,7 @@ func TestGrantRoles(t *testing.T) {
 	if _, err := h.m.Execute(ctx, evalapi.Request{ID: "obs", SessionID: session.ID, CellID: "c", Code: "1", AgentID: "observer-c"}, nil); !errors.Is(err, evalapi.ErrAuthorityDomain) {
 		t.Fatalf("observer execute = %v", err)
 	}
-	if err := h.m.Interrupt(ctx, session.ID, "observer-c"); !errors.Is(err, evalapi.ErrDenied) {
+	if _, err := h.m.InterruptExecution(ctx, session.ID, "observer-c", evalapi.InterruptTarget{RequestID: "obs"}); !errors.Is(err, evalapi.ErrDenied) {
 		t.Fatalf("observer interrupt = %v", err)
 	}
 

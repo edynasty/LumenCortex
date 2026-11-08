@@ -10,20 +10,23 @@ imported modules survive a successful cell. An exception does not roll back side
 effects. A cancelled cell keeps the kernel only when the interrupt was caught;
 the host escalates to SIGKILL otherwise and starts a new generation.
 
-SIGINT is the interrupt. It raises KeyboardInterrupt only while the cell's own
-code runs: a signal that arrives while the worker reads a request, renders a
-result or writes a reply belongs to an execution that is already over and is
-dropped, so it can never cost the kernel its reply. A cell can swallow the
+SIGINT is the interrupt. It raises KeyboardInterrupt only while the cell runs:
+its own code and every piece of user code that renders its result (the last
+value's __repr__ or _repr_html_, callbacks of the figures it drew). A signal
+that arrives while the worker reads a request, collects artifacts or writes a
+reply belongs to an execution that is already over and is dropped, so it can
+never cost the kernel its reply. A cell can swallow the
 exception (a finalizer that runs when the signal lands ignores it, a cell may
 catch it), so the host repeats the signal while the cell keeps running; a
 repeat closer than INTERRUPT_SPACING to the last delivered one is dropped, which
 keeps a second exception out of the unwinding of the first. While the cell is
 inside a control-channel exchange (a tool callback, a display event) the signal
 is held and raised when the exchange is complete, so a frame is never half read
-or half written. A cell may block SIGINT or replace its handler; when the cell
-ends, a SIGINT still pending for it is discarded and the worker's own handler
-and signal mask come back, so no signal and no signal state crosses into the
-next cell.
+or half written. A cell - or the __repr__ of its result - may block SIGINT or
+replace its handler; when the last user code of the cell has returned, a SIGINT
+still pending for it is discarded and the worker's own handler and signal mask
+come back, and every cell starts from that state again, so no signal and no
+signal state crosses into the next cell.
 """
 
 import ast
@@ -503,6 +506,18 @@ class Worker:
                 self._artifacts.append({"name": entry, "mime": self._mime_for(entry), "size": size})
         return list(self._artifacts)
 
+    def _render(self, displays, last_value):
+        """Render the cell's rich output. This runs user code - the last
+        value's __repr__ or _repr_html_, matplotlib callbacks of the cell's
+        figures - so it belongs to the cell: it runs while the cell owns
+        SIGINT, before the cell's signal state is discarded."""
+        if last_value is not None:
+            payload = _display_payload(last_value)
+            if payload is not None:
+                self._add_display(displays, payload[0], payload[1], payload[2])
+        for item in self._flush_figures():
+            self._add_display(displays, item["mime"], item["text"], item["size"])
+
     def _execute(self, params):
         code = params.get("code") or ""
         self._request_id = params.get("requestId") or None
@@ -518,9 +533,12 @@ class Worker:
         sys.stdout, sys.stderr = out, err
         status, error, tb, exit_code = "completed", "", "", 0
         displays = []
-        last_value = None
         self._interrupt_pending = False
         self._last_interrupt = None
+        # Every cell starts from the worker's own signal state: whatever ran
+        # between cells (a finalizer of an earlier cell's object) cannot hand a
+        # blocked mask, a replaced handler or a pending SIGINT to this cell.
+        self._restore_signal_state()
         try:
             try:
                 # From here a SIGINT belongs to this cell. The host signals
@@ -528,21 +546,28 @@ class Worker:
                 self._in_cell = True
                 self._send_shielded({"jsonrpc": "2.0", "method": "event", "params": {
                     "type": "started", "data": {"requestId": self._request_id}}})
-                tree = ast.parse(code, filename="<cell>", mode="exec")
-                body = list(tree.body)
-                last_expr = None
-                if body and isinstance(body[-1], ast.Expr):
-                    last_expr = body.pop()
-                if body:
-                    module = ast.Module(body=body, type_ignores=[])
-                    exec(compile(module, "<cell>", "exec"), self.g)
-                if last_expr is not None:
-                    value = eval(compile(ast.Expression(last_expr.value), "<cell>", "eval"), self.g)
-                    if inspect.isawaitable(value):
-                        import asyncio
-                        value = asyncio.run(value)
-                    self.g["_"] = value
-                    last_value = value
+                last_value = None
+                try:
+                    tree = ast.parse(code, filename="<cell>", mode="exec")
+                    body = list(tree.body)
+                    last_expr = None
+                    if body and isinstance(body[-1], ast.Expr):
+                        last_expr = body.pop()
+                    if body:
+                        module = ast.Module(body=body, type_ignores=[])
+                        exec(compile(module, "<cell>", "exec"), self.g)
+                    if last_expr is not None:
+                        value = eval(compile(ast.Expression(last_expr.value), "<cell>", "eval"), self.g)
+                        if inspect.isawaitable(value):
+                            import asyncio
+                            value = asyncio.run(value)
+                        self.g["_"] = value
+                        last_value = value
+                finally:
+                    # Rendering is still the cell, whether its code finished
+                    # or not: figures the cell drew are flushed either way.
+                    # An interrupt landing here cancels the cell.
+                    self._render(displays, last_value)
             finally:
                 # A signal raised before this line is caught below as the
                 # cell's interrupt; after it, every signal is dropped.
@@ -566,25 +591,16 @@ class Worker:
             tb = traceback.format_exc()[:MAX_TRACEBACK]
         finally:
             # The inner finally may have been cut short by the cell's own
-            # interrupt; once delivered, no other signal can raise here.
+            # interrupt; once delivered, no other signal can raise here. No
+            # user code runs after this point: the signal state the cell
+            # left (a blocked mask, a replaced handler, a SIGINT still pending
+            # for it) is discarded before the reply is built.
             self._in_cell = False
             sys.stdout, sys.stderr = self._stdout_saved, self._stderr_saved
             self._restore_signal_state()
-        # Post-processing is outside the cell's own try, so it needs its own
-        # guard: a KeyboardInterrupt or any error while rendering the last
-        # value, flushing figures or collecting artifacts must still produce a
-        # reply instead of losing the cell's result.
+        # Collecting artifacts only lists the artifact directory: no user code.
         try:
-            if last_value is not None:
-                payload = _display_payload(last_value)
-                if payload is not None:
-                    self._add_display(displays, payload[0], payload[1], payload[2])
-            for item in self._flush_figures():
-                self._add_display(displays, item["mime"], item["text"], item["size"])
             artifacts = self._collect_artifacts()
-        except KeyboardInterrupt:
-            status, error = "cancelled", "KeyboardInterrupt"
-            artifacts = list(self._artifacts)
         except BaseException as exc:  # noqa: BLE001 - never die without a reply
             status = "failed"
             error = "%s: %s" % (type(exc).__name__, exc)

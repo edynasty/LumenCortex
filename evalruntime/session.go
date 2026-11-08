@@ -69,8 +69,10 @@ type session struct {
 	// requestIDs and callbackIDs are lifetime replay guards. They are never
 	// evicted: once a request or callback id is used, reusing it is refused
 	// (explicitly, with an error) rather than silently re-executed after history
-	// trimming.
-	requestIDs  map[string]struct{}
+	// trimming. A request's record also says whether it finished, and what an
+	// execution-scoped interrupt did to it, so a late interrupt is answered
+	// from the record instead of acting on whatever runs now.
+	requestIDs  map[string]*requestRecord
 	callbackIDs map[string]struct{}
 
 	// execSem serializes cells: one worker, one cell at a time.
@@ -143,7 +145,7 @@ func newSession(m *Manager, p *provider, opts evalapi.CreateOptions, slot int) (
 		state:       evalapi.StateCreated,
 		grants:      make(map[string]evalapi.Grant),
 		artifacts:   make(map[string]evalapi.Artifact),
-		requestIDs:  make(map[string]struct{}),
+		requestIDs:  make(map[string]*requestRecord),
 		callbackIDs: make(map[string]struct{}),
 		execSem:     make(chan struct{}, 1),
 	}
@@ -217,24 +219,29 @@ func (s *session) publicLocked() evalapi.Session {
 	if s.worker != nil {
 		workerID = s.worker.id()
 	}
+	activeRequestID := ""
+	if s.active != nil {
+		activeRequestID = s.active.requestID
+	}
 	return evalapi.Session{
-		ID:            s.id,
-		RuntimeID:     s.manifest.ID,
-		Language:      s.manifest.Language,
-		OwnerID:       s.ownerID,
-		AgentID:       s.agentID,
-		ParentAgentID: s.parentID,
-		Workspace:     s.kernel,
-		Permission:    s.permission,
-		WorkerID:      workerID,
-		State:         s.state,
-		Generation:    s.generation,
-		Budget:        s.budget,
-		LeaseUntil:    s.leaseUntil,
-		CreatedAt:     s.createdAt,
-		UpdatedAt:     time.Now().UTC(),
-		LastError:     s.lastError,
-		Label:         s.label,
+		ID:              s.id,
+		RuntimeID:       s.manifest.ID,
+		Language:        s.manifest.Language,
+		OwnerID:         s.ownerID,
+		AgentID:         s.agentID,
+		ParentAgentID:   s.parentID,
+		Workspace:       s.kernel,
+		Permission:      s.permission,
+		WorkerID:        workerID,
+		State:           s.state,
+		Generation:      s.generation,
+		Budget:          s.budget,
+		LeaseUntil:      s.leaseUntil,
+		CreatedAt:       s.createdAt,
+		UpdatedAt:       time.Now().UTC(),
+		LastError:       s.lastError,
+		Label:           s.label,
+		ActiveRequestID: activeRequestID,
 	}
 }
 
@@ -642,6 +649,10 @@ type executionRef struct {
 	//     only after the old worker is dead and never shares it.
 	settled   bool
 	killClaim chan struct{}
+	// resultStatus and stateStatus are how the execution ended, recorded
+	// before done closes.
+	resultStatus string
+	stateStatus  string
 }
 
 // settle marks the outcome of ref as decided. It returns the escalation claim
@@ -733,18 +744,47 @@ const (
 	maxTrackedCallbacks = 500_000
 )
 
-// admitRequestID reserves a request id for the session's lifetime.
-func (s *session) admitRequestID(id string) error {
+// admitRequestID reserves a request id for the session's lifetime and returns
+// its record.
+func (s *session) admitRequestID(id string) (*requestRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.requestIDs[id]; exists {
-		return fmt.Errorf("%w: request id %q was already used in session %s", evalapi.ErrInvalid, id, s.id)
+		return nil, fmt.Errorf("%w: request id %q was already used in session %s", evalapi.ErrInvalid, id, s.id)
 	}
 	if len(s.requestIDs) >= maxTrackedRequests {
-		return fmt.Errorf("%w: session %s reached its request id limit; start a new kernel", evalapi.ErrLimit, s.id)
+		return nil, fmt.Errorf("%w: session %s reached its request id limit; start a new kernel", evalapi.ErrLimit, s.id)
 	}
-	s.requestIDs[id] = struct{}{}
-	return nil
+	record := &requestRecord{cancel: make(chan struct{})}
+	s.requestIDs[id] = record
+	return record, nil
+}
+
+// requestRecord is what the session remembers of one request id. Guarded by
+// the session mutex.
+type requestRecord struct {
+	// finished is set when the request's Execute call is over, in the same
+	// critical section that stops it from being the active execution.
+	finished bool
+	// cancelled is set by an interrupt that found the request still queued:
+	// the request is then refused at admission and never runs. cancel closes
+	// at the same time, so a request waiting for the kernel returns at once.
+	cancelled bool
+	cancel    chan struct{}
+	// interrupt is the outcome of the interrupt that acted on the request;
+	// repeated interrupts for it return it again. signalled is the execution
+	// an interrupt operation was started for, so a repeat that arrives before
+	// that operation recorded its outcome joins it instead of reporting the
+	// target finished.
+	interrupt *evalapi.InterruptOutcome
+	signalled *executionRef
+}
+
+// finishRequest marks id finished. The caller holds s.mu.
+func (s *session) finishRequestLocked(id string) {
+	if record := s.requestIDs[id]; record != nil {
+		record.finished = true
+	}
 }
 
 // trackCallbackID records a worker callback id for one kernel generation.

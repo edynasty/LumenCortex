@@ -69,6 +69,9 @@ func runEvalCommand(ctx context.Context, engine *lcx.Engine, args []string) erro
 			ArtifactID      string          `json:"artifactId"`
 			Path            string          `json:"path"`
 			TargetSessionID string          `json:"targetSessionId"`
+			// RequestID and Generation name the execution an interrupt stops.
+			RequestID  string `json:"requestId"`
+			Generation uint64 `json:"generation"`
 		}
 		var value any
 		var err error
@@ -106,7 +109,11 @@ func runEvalCommand(ctx context.Context, engine *lcx.Engine, args []string) erro
 			case "artifact":
 				value, err = engine.TransferEvalArtifact(ctx, sessionID, call.Action, call.EvalSessionID, call.ArtifactID, call.Path, call.TargetSessionID)
 			case "interrupt":
-				err = engine.EvalInterrupt(ctx, sessionID, call.EvalSessionID)
+				if strings.TrimSpace(call.RequestID) == "" {
+					err = errors.New("interrupt needs requestId: the request id of the execution to stop")
+					break
+				}
+				value, err = engine.EvalInterrupt(ctx, sessionID, call.EvalSessionID, evalapi.InterruptTarget{RequestID: call.RequestID, Generation: call.Generation})
 			case "reset":
 				err = engine.EvalReset(ctx, sessionID, call.EvalSessionID)
 			case "close":

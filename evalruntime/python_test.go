@@ -280,7 +280,7 @@ func TestExplicitInterruptRetainsAcknowledgedKernel(t *testing.T) {
 		done <- result
 	}()
 	time.Sleep(500 * time.Millisecond)
-	if err := h.m.Interrupt(context.Background(), session.ID, "owner"); err != nil {
+	if err := interruptRequest(h, session.ID, "interrupt-me"); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
 	var result evalapi.Result

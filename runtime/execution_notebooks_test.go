@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/edynasty/LumenCortex/evalapi"
 	"github.com/edynasty/LumenCortex/internal/ipynb"
@@ -29,10 +30,12 @@ type executionFake struct {
 	created   []string
 	executed  []evalapi.Request
 	controls  []string
-	answers   map[string]evalapi.Result
-	artifacts map[string][]byte
-	failWith  error
-	nextID    int
+	// interrupted lists the request ids interrupts named.
+	interrupted []string
+	answers     map[string]evalapi.Result
+	artifacts   map[string][]byte
+	failWith    error
+	nextID      int
 	// answerByKernel answers a request from the state of one kernel, for the tests that model a cell
 	// whose result depends on what the kernel already holds. nil answers from answers instead.
 	answerByKernel func(kernelID, code string) (evalapi.Result, bool)
@@ -135,6 +138,59 @@ func (f *executionFake) control(_ context.Context, _ string, evalSessionID, acti
 		}
 	}
 	return nil
+}
+
+func (f *executionFake) interrupt(_ context.Context, _ string, evalSessionID string, target evalapi.InterruptTarget) (evalapi.InterruptOutcome, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.controls = append(f.controls, "interrupt:"+evalSessionID)
+	f.interrupted = append(f.interrupted, target.RequestID)
+	return evalapi.InterruptOutcome{Status: evalapi.InterruptInterrupted, RequestID: target.RequestID}, nil
+}
+
+// interruptDuringRun runs cellID with the answer held, interrupts the notebook while the run waits for
+// it, and returns the request id the run executed and the one the interrupt named.
+func interruptDuringRun(t *testing.T, host *executionNotebookHost, fake *executionFake, sessionID, notebookID, cellID string) (executed, interrupted string) {
+	t.Helper()
+	ctx := context.Background()
+	fake.mu.Lock()
+	before := len(fake.executed)
+	fake.block = make(chan struct{})
+	block := fake.block
+	fake.mu.Unlock()
+	done := make(chan error, 1)
+	go func() {
+		_, err := host.run(ctx, sessionID, notebookID, cellID, false)
+		done <- err
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		fake.mu.Lock()
+		n := len(fake.executed)
+		fake.mu.Unlock()
+		if n > before {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the run never reached the kernel")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := host.interrupt(ctx, sessionID, notebookID); err != nil {
+		t.Fatal(err)
+	}
+	fake.mu.Lock()
+	fake.block = nil
+	executed = fake.executed[len(fake.executed)-1].ID
+	if len(fake.interrupted) > 0 {
+		interrupted = fake.interrupted[len(fake.interrupted)-1]
+	}
+	fake.mu.Unlock()
+	close(block)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	return executed, interrupted
 }
 
 func (f *executionFake) artifact(_ context.Context, _ string, evalSessionID, artifactID string) (evalapi.Artifact, []byte, error) {
@@ -570,8 +626,15 @@ func TestExecutionNotebookKernelControlAndArtifacts(t *testing.T) {
 	if len(fake.controls) != 1 || !strings.HasPrefix(fake.controls[0], "reset:") {
 		t.Fatalf("controls = %v", fake.controls)
 	}
+	// A notebook that runs nothing has nothing to interrupt.
 	if err := host.interrupt(ctx, sessionID, created.ID); err != nil {
 		t.Fatal(err)
+	}
+	if len(fake.controls) != 1 {
+		t.Fatalf("an idle notebook's interrupt reached the runtime: %v", fake.controls)
+	}
+	if executed, interrupted := interruptDuringRun(t, host, fake, sessionID, created.ID, ""); executed == "" || interrupted != executed {
+		t.Fatalf("the interrupt named %q, the run executes %q", interrupted, executed)
 	}
 	if len(fake.controls) != 2 || !strings.HasPrefix(fake.controls[1], "interrupt:") {
 		t.Fatalf("controls = %v", fake.controls)

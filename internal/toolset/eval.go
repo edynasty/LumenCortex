@@ -17,7 +17,10 @@ type EvalController interface {
 	Sessions(context.Context) ([]evalapi.Session, error)
 	Create(context.Context, string) (evalapi.Session, error)
 	Execute(context.Context, evalapi.Request) (evalapi.Result, error)
+	// Control resets or closes a session.
 	Control(context.Context, string, string) error
+	// Interrupt stops exactly the execution the target names.
+	Interrupt(context.Context, string, evalapi.InterruptTarget) (evalapi.InterruptOutcome, error)
 	Transfer(context.Context, string, string, string, string, string) (evalapi.Artifact, error)
 }
 
@@ -100,10 +103,21 @@ func (s *Set) BindEval(controller EvalController) error {
 			result.Interrupted = value.Interrupted()
 			return result, err
 		})
-	s.add(protocol.ToolSpec{Name: "eval_control", Description: "Interrupt, reset or close your execution session. These operations stop its owned process tree; reset discards variables. Executor/observer grants cannot reset or close the owner's kernel.", Permission: "exec", Parameters: obj(map[string]any{"session_id": str(), "action": map[string]any{"type": "string", "enum": []string{"interrupt", "reset", "close"}}}, "session_id", "action")},
+	s.add(protocol.ToolSpec{Name: "eval_control", Description: "Interrupt, reset or close your execution session. These operations stop its owned process tree; reset discards variables. An interrupt names the execution it stops: pass request_id (eval_sessions shows the running one as activeRequestId); an interrupt whose execution already finished stops nothing. Executor/observer grants cannot reset or close the owner's kernel.", Permission: "exec", Parameters: obj(map[string]any{"session_id": str(), "action": map[string]any{"type": "string", "enum": []string{"interrupt", "reset", "close"}}, "request_id": str()}, "session_id", "action")},
 		func(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
-			err := controller.Control(ctx, stringArg(args, "session_id"), stringArg(args, "action"))
-			if err != nil {
+			id, action := stringArg(args, "session_id"), stringArg(args, "action")
+			if action == "interrupt" {
+				requestID := stringArg(args, "request_id")
+				if strings.TrimSpace(requestID) == "" {
+					return protocol.ToolResult{}, errors.New("interrupt needs request_id: the execution to stop (eval_sessions lists the running one as activeRequestId)")
+				}
+				outcome, err := controller.Interrupt(ctx, id, evalapi.InterruptTarget{RequestID: requestID})
+				if err != nil {
+					return protocol.ToolResult{}, err
+				}
+				return jsonResult(outcome)
+			}
+			if err := controller.Control(ctx, id, action); err != nil {
 				return protocol.ToolResult{}, err
 			}
 			return jsonResult(map[string]string{"status": "completed"})

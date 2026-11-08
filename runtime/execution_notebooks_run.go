@@ -18,6 +18,10 @@ type executionRunState struct {
 	CellID    string
 	Replay    bool
 	StartedAt time.Time
+	// KernelID and RequestID name the execution the run waits for right now, so an interrupt of the
+	// notebook stops exactly that cell and nothing else that runs on the same kernel.
+	KernelID  string
+	RequestID string
 }
 
 // executionRuns is the run in flight per notebook. A notebook runs one thing at a time, and a second
@@ -44,6 +48,25 @@ func beginExecutionRun(sessionID, notebookID, cellID string, replay bool) (execu
 	}
 	executionRuns.held[key] = executionRunState{CellID: cellID, Replay: replay, StartedAt: time.Now().UTC()}
 	return executionRunState{}, true
+}
+
+// setExecutionRunTarget records the execution the notebook's run is about to wait for.
+func setExecutionRunTarget(sessionID, notebookID, kernelID, requestID string) {
+	key := executionRunKey(sessionID, notebookID)
+	executionRuns.mu.Lock()
+	defer executionRuns.mu.Unlock()
+	if held, ok := executionRuns.held[key]; ok {
+		held.KernelID, held.RequestID = kernelID, requestID
+		executionRuns.held[key] = held
+	}
+}
+
+// executionRunTarget returns the execution the notebook's run waits for, if any.
+func executionRunTarget(sessionID, notebookID string) (kernelID, requestID string) {
+	executionRuns.mu.Lock()
+	defer executionRuns.mu.Unlock()
+	held := executionRuns.held[executionRunKey(sessionID, notebookID)]
+	return held.KernelID, held.RequestID
 }
 
 // endExecutionRun releases the notebook's run slot.
@@ -185,9 +208,15 @@ func (h *executionNotebookHost) run(ctx context.Context, sessionID, ref, cellID 
 			}
 			kernels[language] = kernel
 		}
+		requestID, err := newEvalRequestID()
+		if err != nil {
+			return ExecutionNotebook{}, err
+		}
+		setExecutionRunTarget(sessionID, notebookID, kernel.ID, requestID)
 		startedAt := time.Now().UTC()
 		h.publishCell(ctx, sessionID, notebookID, id, language, ipynb.StatusRunning)
 		result, execErr := h.exec.execute(ctx, sessionID, evalapi.Request{
+			ID:        requestID,
 			SessionID: kernel.ID,
 			CellID:    id,
 			Language:  language,
@@ -355,17 +384,13 @@ func (h *executionNotebookHost) interrupt(ctx context.Context, sessionID, ref st
 	if err != nil {
 		return err
 	}
-	document, err := ipynb.Parse(stored.Body)
-	if err != nil {
-		return fmt.Errorf("execution notebook %s: %w", stored.ID, err)
+	kernelID, requestID := executionRunTarget(sessionID, stored.ID)
+	if requestID == "" {
+		// The notebook runs nothing: there is nothing of it to stop.
+		return nil
 	}
-	var firstErr error
-	for _, language := range document.Languages() {
-		if err := h.controlLanguage(ctx, sessionID, language, "interrupt"); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
+	_, err = h.exec.interrupt(ctx, sessionID, kernelID, evalapi.InterruptTarget{RequestID: requestID})
+	return err
 }
 
 // artifact implements ExecutionArtifact.
