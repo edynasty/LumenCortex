@@ -39,6 +39,11 @@ type SandboxOptions struct {
 	// an absolute path to a regular file owned by root and writable by no one
 	// else; anything else fails closed at New.
 	BubblewrapPath string
+	// RequireCallerIsolation is the production gate of the Linux backend: New
+	// fails closed unless the user-namespace grant behind BubblewrapPath cannot
+	// be borrowed by other callers (see checkCallerIsolation). It requires
+	// BubblewrapPath. Development hosts leave it off.
+	RequireCallerIsolation bool
 }
 
 // launcher builds the sandboxed command line for one worker process.
@@ -75,9 +80,17 @@ func newLauncher(opts SandboxOptions) (*launcher, error) {
 			return nil, fmt.Errorf("%w: backend %q is not available on linux", evalapi.ErrSandboxUnsupported, backend)
 		}
 		path := strings.TrimSpace(opts.BubblewrapPath)
+		if opts.RequireCallerIsolation && path == "" {
+			return nil, fmt.Errorf("%w: caller isolation requires a dedicated bubblewrap path", evalapi.ErrSandboxUnsupported)
+		}
 		if path != "" {
 			if err := checkTrustedExecutable(path); err != nil {
 				return nil, fmt.Errorf("%w: bubblewrap path: %v", evalapi.ErrSandboxUnsupported, err)
+			}
+			if opts.RequireCallerIsolation {
+				if err := checkCallerIsolation(path); err != nil {
+					return nil, fmt.Errorf("%w: bubblewrap caller isolation: %v", evalapi.ErrSandboxUnsupported, err)
+				}
 			}
 			return &launcher{goos: goos, backend: backend, exe: path}, nil
 		}
