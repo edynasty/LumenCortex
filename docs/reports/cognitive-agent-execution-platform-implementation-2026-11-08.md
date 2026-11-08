@@ -23,7 +23,7 @@ The original 513-line design and four DAP experiment files were SHA256 verified 
 
 1. Contracts, original materials, exact baselines — verified; ADR-0022 records unified interfaces and safety ownership.
 2. Runtime Event Bus and same-store durable events — implemented; focused race regression and real Engine shell/reopen smoke passed.
-3. Inspector API and existing-layout UI — pending.
+3. Inspector API and existing-layout UI — implemented; real Shell/Notebook artifact, history/filter/reconnect/error-recovery and viewport smoke passed.
 4. Agent debugger with safe-boundary stepping — pending.
 5. DAP transport/manager/tools and real adapter integration — pending.
 6. Hub/DAG/messages/worktrees/four workers — pending.
@@ -41,4 +41,6 @@ Event implementation: `pluginapi.Event` identity, SQLite migration `0011`, conte
 
 Verification: `raw/event-foundation-race.json` records the exact successful race command over session/runtime/diag; `raw/events-real-engine-smoke.*` records real `Engine.Open → NewSession → RunShell → Query → Close → Open → Resume`, output `EVENT_SMOKE_OK lifecycle=3 cursor=3 reopened=true duplicate=false model_requests=0`. The initial regression's incorrect per-run sequence assertion failed and was corrected; its raw output remains preserved. No full-suite or Desktop validation is claimed yet.
 
-Next: Inspector Core read APIs and typed Desktop bridge/UI. Desktop's development-only Core replace now points at this task's Core worktree. Both main workspaces remain untouched; no new model requests, delegation, production changes or publication.
+Inspector: session/run-scoped transcript details, sanitized worker snapshots, typed Desktop bridge, three-column history/live UI, bounded buffers and existing Artifact Viewer. Focused Core/backend race and frontend window tests passed; TypeScript passed. Browser proof covers actual Shell output, Python-produced artifact bytes, filtered/empty history, disconnected cursor recovery, visible request failure/manual recovery, dark/light at 1440/1180/820/560 px without horizontal overflow. Transport for this smoke is a removed localhost adapter over real Desktop backend, not native Wails; native build remains a final integration gate. Raw receipts and screenshots are in the workspace evidence directory. Temporary smoke sources were removed and their owned backend shut down.
+
+Next: run-owned safe-boundary Agent Runtime Debugger; no arbitrary goroutine suspension, no side-effect replay. Desktop's development-only Core replace points at this task's Core worktree. Both main workspaces remain untouched; no new model requests, delegation, production changes or publication.

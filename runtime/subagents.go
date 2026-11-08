@@ -46,12 +46,15 @@ type SubagentNode struct {
 	Review *ReviewView `json:"review,omitempty"`
 	// Completion is the child's own completion check: complete, incomplete or failed. It never
 	// means the parent's task is complete.
-	Completion string         `json:"completion,omitempty"`
-	Active     bool           `json:"active"`
-	CreatedAt  time.Time      `json:"createdAt"`
-	UpdatedAt  time.Time      `json:"updatedAt"`
-	Runtime    SessionRuntime `json:"runtime"`
-	Children   []SubagentNode `json:"children,omitempty"`
+	Completion string          `json:"completion,omitempty"`
+	Active     bool            `json:"active"`
+	CreatedAt  time.Time       `json:"createdAt"`
+	UpdatedAt  time.Time       `json:"updatedAt"`
+	Runtime    SessionRuntime  `json:"runtime"`
+	ModelRef   string          `json:"modelRef,omitempty"`
+	Usage      json.RawMessage `json:"usage,omitempty"`
+	RunID      string          `json:"runId,omitempty"`
+	Children   []SubagentNode  `json:"children,omitempty"`
 }
 
 // subagentNode is the node of one child session: its row, its runtime identity, and its content only
@@ -74,6 +77,10 @@ func (s *RunSupervisor) subagentNode(ctx context.Context, childID, parentID, kin
 		Withdrawn: withdrawn, Active: s.Active(value.ID), CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, Runtime: identity,
 	}
 	if !withdrawn {
+		node.ModelRef, node.Usage = value.ModelRef, inspectorJSON(value.Usage)
+		s.engine.events.mu.Lock()
+		node.RunID = s.engine.events.runs[childID]
+		s.engine.events.mu.Unlock()
 		state, err := s.engine.loadTaskState(ctx, value.ID)
 		if err != nil {
 			return SubagentNode{}, err

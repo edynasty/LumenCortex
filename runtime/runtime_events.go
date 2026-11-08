@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"github.com/edynasty/LumenCortex/internal/diag"
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/session"
@@ -100,6 +101,10 @@ func (e *Engine) GetRunSnapshot(ctx context.Context, sessionID string) (RunSnaps
 	if err != nil {
 		return RunSnapshot{}, err
 	}
+	info.Usage, info.Error = inspectorJSON(info.Usage), inspectorJSON(info.Error)
+	info.Metadata = nil
+	info.Goal = diag.MaskSecrets(info.Goal)
+	info.Final = nil
 	e.runsMu.Lock()
 	_, active := e.runs[sessionID]
 	e.runsMu.Unlock()

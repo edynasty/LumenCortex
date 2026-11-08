@@ -20,3 +20,11 @@ Each Session retains at most 10,000 lifecycle metadata rows. Pages report `prune
 ## Security and recovery
 
 Core is the only event writer. Desktop/plugins cannot append authoritative events. A returned notification never authorizes a tool, marks a task completed or satisfies a verifier. Core restart retains lifecycle history but not ephemeral process state; a new Run gets a new ID. Debugger replay reads history and never re-executes a non-idempotent tool.
+
+## Inspector
+
+`RunSupervisor.GetWorkerTree` reads existing session relations, bounded by the existing depth/node limits. `GetRuntimeEventDetails(ctx,sessionID,eventID)` resolves the retained event and its run's answered request envelope; repeated provider tool-call IDs in later runs cannot select a foreign result. Transcript projection, session fences, redaction and byte bounds apply. Metadata-only events do not invent arguments or output.
+
+`execution_notebook.artifact` publishes a reference after the notebook commits its output. Durable bytes remain in the existing notebook store; volatile references name their Eval session. Artifact reads use the existing owner-checked API.
+
+The Desktop Inspector batches notifications at 100 ms, retains at most 500 events/2 MiB per window, deduplicates live/history by event ID, and polls durable cursors to recover dropped notifications. Live output is explicitly not complete history. Pausing live follow is a display choice, not execution pause. Search and session changes reset the selected detail. Errors remain visible and require explicit refresh; permission/storage failures never appear as empty success.

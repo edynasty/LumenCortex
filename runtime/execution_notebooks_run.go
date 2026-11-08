@@ -249,6 +249,13 @@ func (h *executionNotebookHost) run(ctx context.Context, sessionID, ref, cellID 
 		if err != nil {
 			return ExecutionNotebook{}, err
 		}
+		for _, reference := range artifactRefs {
+			payload := map[string]any{"notebookId": notebookID, "cellId": id, "artifactId": reference.ArtifactID, "mime": reference.MIME, "bytes": reference.Size, "sha256": reference.SHA256}
+			if reference.NotDurable {
+				payload["evalSessionId"] = reference.SessionID
+			}
+			h.engine.events.publish("execution_notebook.artifact", sessionID, payload)
+		}
 		document = latest.Document
 		status := cellStatus(document, id)
 		h.publishCell(ctx, sessionID, notebookID, id, language, status)
