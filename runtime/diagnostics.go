@@ -50,6 +50,7 @@ const maxTrackedRuns = 256
 
 // noteRunStarted records the run id the session's next events belong to.
 func (e *Engine) noteRunStarted(sessionID, runID string) {
+	e.events.noteRun(sessionID, runID)
 	if e.bridge == nil || sessionID == "" || runID == "" {
 		return
 	}
@@ -277,12 +278,9 @@ func (e *Engine) logEvent(event Event) {
 			args = append(args, "stream", stream)
 		}
 	}
-	if !filled["run_id"] {
-		// The loop's events carry no run id: the Engine knows which run of the session is live.
-		if runID := e.runFor(event.SessionID); runID != "" {
-			args = append(args, "run_id", runID)
-			filled["run_id"] = true
-		}
+	if !filled["run_id"] && event.RunID != "" {
+		args = append(args, "run_id", event.RunID)
+		filled["run_id"] = true
 	}
 	if len(data) > 0 {
 		args = append(args, "data", data)

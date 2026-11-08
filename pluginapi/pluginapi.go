@@ -75,13 +75,27 @@ type Host interface {
 	RegisterBeforeSessionImportHook(hook BeforeSessionImportHook) error
 }
 
-// Event is a Core notification. It is not authoritative state: re-read Core when it matters.
+// Event is an observable Core notification, never permission or verification authority.
+// Seq orders this process's live stream; Cursor and Sequence identify committed history.
 type Event struct {
-	Seq       uint64          `json:"seq"`
-	At        time.Time       `json:"at"`
-	Type      string          `json:"type"`
-	SessionID string          `json:"sessionId,omitempty"`
-	Data      json.RawMessage `json:"data,omitempty"`
+	ID            string          `json:"id"`
+	SchemaVersion int             `json:"schemaVersion"`
+	RunID         string          `json:"runId,omitempty"`
+	ParentRunID   string          `json:"parentRunId,omitempty"`
+	WorkerID      string          `json:"workerId,omitempty"`
+	TaskID        string          `json:"taskId,omitempty"`
+	Sequence      uint64          `json:"sequence,omitempty"`
+	Cursor        uint64          `json:"cursor,omitempty"`
+	Phase         string          `json:"phase,omitempty"`
+	CorrelationID string          `json:"correlationId,omitempty"`
+	CausationID   string          `json:"causationId,omitempty"`
+	Sensitivity   string          `json:"sensitivity"`
+	Reliability   string          `json:"reliability"`
+	Seq           uint64          `json:"seq"`
+	At            time.Time       `json:"at"`
+	Type          string          `json:"type"`
+	SessionID     string          `json:"sessionId,omitempty"`
+	Data          json.RawMessage `json:"data,omitempty"`
 }
 
 // HookFailurePolicy decides what a hook error or timeout does to the operation.

@@ -358,6 +358,17 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	if diagLog != nil {
 		engine.log = diagLog.Logger()
 	}
+	engine.events.store = store
+	engine.events.onFailure = func(sessionID string, err error) {
+		engine.log.Error("runtime event persistence failed", "session_id", sessionID, "error", err)
+		engine.runsMu.Lock()
+		for id, run := range engine.runs {
+			if evalRunOwner(id) == sessionID {
+				run.cancel()
+			}
+		}
+		engine.runsMu.Unlock()
+	}
 	engine.bridge = engine.startDiagnosticsBridge()
 	// The scheduler opens with the store and starts once the durable state is reconciled; it logs to the
 	// diagnostics log (OBS-001).
@@ -484,13 +495,6 @@ func (e *Engine) Close() error {
 	if e.plugins != nil {
 		closeErr = errors.Join(closeErr, e.plugins.StopAll(context.Background()))
 	}
-	e.events.close()
-	// The bus is closed: the bridge drains what it was delivered and returns, so no event record is
-	// lost to Close and no goroutine outlives the Engine.
-	if e.bridge != nil {
-		e.bridge.stop()
-		<-e.bridge.done
-	}
 	e.lspMu.Lock()
 	managers := make([]*lsp.Manager, 0, len(e.lspManagers))
 	for _, manager := range e.lspManagers {
@@ -508,6 +512,13 @@ func (e *Engine) Close() error {
 	// state while the database is still open.
 	if e.jobs != nil {
 		closeErr = errors.Join(closeErr, e.jobs.Close())
+	}
+	e.events.close()
+	// The bus is closed: the bridge drains what it was delivered and returns, so no event record is
+	// lost to Close and no goroutine outlives the Engine.
+	if e.bridge != nil {
+		e.bridge.stop()
+		<-e.bridge.done
 	}
 	// The diagnostics log is closed last, after the store: everything that can log during Close has
 	// logged by then, and the writer flushes what is left.

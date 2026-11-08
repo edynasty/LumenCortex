@@ -1,11 +1,16 @@
 package runtime
 
 import (
+	"context"
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/diag"
+	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/pluginapi"
 )
 
@@ -29,18 +34,26 @@ type Event = pluginapi.Event
 // concurrent publishing may show a Dropped that includes deliveries of an event
 // not yet reflected in Published.
 type EventStats struct {
-	Published uint64 `json:"published"`
-	Dropped   uint64 `json:"dropped"`
+	Published           uint64 `json:"published"`
+	Dropped             uint64 `json:"dropped"`
+	PersistenceFailures uint64 `json:"persistenceFailures"`
 }
 
 type subscriber struct {
-	ch chan Event
+	ch        chan Event
+	sessionID string
 }
 
 // eventBus fans events out to subscribers without ever waiting for one (I11).
 // publish performs only non-blocking channel operations under mu.
 type eventBus struct {
 	mu          sync.Mutex
+	writeMu     sync.Mutex
+	store       *session.Store
+	runs        map[string]string
+	onFailure   func(string, error)
+	failure     error
+	failed      atomic.Uint64
 	nextSubID   uint64
 	nextEventID atomic.Uint64
 	published   atomic.Uint64
@@ -49,12 +62,19 @@ type eventBus struct {
 	closed      bool
 }
 
-func newEventBus() *eventBus { return &eventBus{subs: map[uint64]*subscriber{}} }
+func newEventBus() *eventBus {
+	return &eventBus{subs: map[uint64]*subscriber{}, runs: map[string]string{}}
+}
 
 func (b *eventBus) subscribe(buffer int) (<-chan Event, func()) {
+	return b.subscribeSession(buffer, "")
+}
+
+func (b *eventBus) subscribeSession(buffer int, sessionID string) (<-chan Event, func()) {
 	if buffer <= 0 {
 		buffer = 128
 	}
+	buffer = min(buffer, 4096)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
@@ -64,7 +84,7 @@ func (b *eventBus) subscribe(buffer int) (<-chan Event, func()) {
 	}
 	b.nextSubID++
 	id := b.nextSubID
-	s := &subscriber{ch: make(chan Event, buffer)}
+	s := &subscriber{ch: make(chan Event, buffer), sessionID: sessionID}
 	b.subs[id] = s
 	return s.ch, func() {
 		b.mu.Lock()
@@ -77,14 +97,54 @@ func (b *eventBus) subscribe(buffer int) (<-chan Event, func()) {
 }
 
 func (b *eventBus) publish(eventType, sessionID string, payload any) Event {
-	raw, _ := json.Marshal(payload)
-	e := Event{
-		Seq:       b.nextEventID.Add(1),
-		At:        time.Now().UTC(),
-		Type:      eventType,
-		SessionID: sessionID,
-		Data:      raw,
+	b.writeMu.Lock()
+	defer b.writeMu.Unlock()
+	b.mu.Lock()
+	closed := b.closed
+	b.mu.Unlock()
+	if closed {
+		return Event{}
 	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		b.persistenceFailed(sessionID, err)
+		return Event{}
+	}
+	e := Event{ID: rand.Text(), SchemaVersion: 1, At: time.Now().UTC(), Type: eventType,
+		SessionID: sessionID, Data: diag.EventPayload(raw), Sensitivity: "session", Reliability: "live"}
+	b.mu.Lock()
+	e.RunID = b.runs[sessionID]
+	b.mu.Unlock()
+	var fields struct {
+		RunID       string `json:"runId"`
+		ParentRunID string `json:"parentRunId"`
+		WorkerID    string `json:"workerId"`
+		TaskID      string `json:"taskId"`
+		RequestID   string `json:"requestId"`
+		ToolCallID  string `json:"toolCallId"`
+		Phase       string `json:"phase"`
+	}
+	_ = json.Unmarshal(e.Data, &fields)
+	if fields.RunID != "" {
+		e.RunID = fields.RunID
+	}
+	e.ParentRunID, e.WorkerID, e.TaskID, e.Phase = fields.ParentRunID, fields.WorkerID, fields.TaskID, fields.Phase
+	e.CorrelationID, e.CausationID = fields.ToolCallID, fields.RequestID
+	if e.CorrelationID == "" {
+		e.CorrelationID = fields.RequestID
+	}
+	if b.store != nil && durableEvent(eventType, sessionID) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		stored, saveErr := b.store.AppendRuntimeEvent(ctx, e)
+		cancel()
+		if saveErr != nil {
+			b.persistenceFailed(sessionID, saveErr)
+			e.Reliability = "unavailable"
+		} else {
+			e.Cursor, e.Sequence, e.Reliability = stored.Cursor, stored.Sequence, "durable"
+		}
+	}
+	e.Seq = b.nextEventID.Add(1)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
@@ -92,6 +152,9 @@ func (b *eventBus) publish(eventType, sessionID string, payload any) Event {
 	}
 	b.published.Add(1)
 	for _, s := range b.subs {
+		if s.sessionID != "" && s.sessionID != sessionID {
+			continue
+		}
 		select {
 		case s.ch <- e:
 			continue
@@ -113,14 +176,19 @@ func (b *eventBus) publish(eventType, sessionID string, payload any) Event {
 			b.dropped.Add(1)
 		}
 	}
+	if eventType == "run.stopped" {
+		delete(b.runs, sessionID)
+	}
 	return e
 }
 
 func (b *eventBus) stats() EventStats {
-	return EventStats{Published: b.published.Load(), Dropped: b.dropped.Load()}
+	return EventStats{Published: b.published.Load(), Dropped: b.dropped.Load(), PersistenceFailures: b.failed.Load()}
 }
 
 func (b *eventBus) close() {
+	b.writeMu.Lock()
+	defer b.writeMu.Unlock()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
@@ -130,5 +198,48 @@ func (b *eventBus) close() {
 	for id, s := range b.subs {
 		close(s.ch)
 		delete(b.subs, id)
+	}
+}
+
+func durableEvent(kind, sessionID string) bool {
+	if sessionID == "" {
+		return false
+	}
+	switch kind {
+	case "tool.output", "llm.delta", "model.output", "dap.output", "shell.output", "eval.output", "subagent.event":
+		return false
+	}
+	return true
+}
+
+func (b *eventBus) persistenceFailed(sessionID string, err error) {
+	b.failed.Add(1)
+	b.mu.Lock()
+	if b.failure == nil {
+		b.failure = errors.New("runtime event persistence unavailable")
+	}
+	b.mu.Unlock()
+	if b.onFailure != nil {
+		b.onFailure(sessionID, err)
+	}
+}
+
+func (b *eventBus) persistenceError() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.failure
+}
+
+func (b *eventBus) noteRun(sessionID, runID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.runs[sessionID] = runID
+}
+
+func (b *eventBus) forgetRun(sessionID, runID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.runs[sessionID] == runID {
+		delete(b.runs, sessionID)
 	}
 }

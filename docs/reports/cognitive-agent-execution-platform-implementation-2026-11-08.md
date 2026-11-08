@@ -21,8 +21,8 @@ The original 513-line design and four DAP experiment files were SHA256 verified 
 
 ## Delivery sequence and acceptance ledger
 
-1. Contracts, original materials, exact baselines — materials/baselines verified; interface inventory in progress.
-2. Runtime Event Bus and same-store durable events — pending.
+1. Contracts, original materials, exact baselines — verified; ADR-0022 records unified interfaces and safety ownership.
+2. Runtime Event Bus and same-store durable events — implemented; focused race regression and real Engine shell/reopen smoke passed.
 3. Inspector API and existing-layout UI — pending.
 4. Agent debugger with safe-boundary stepping — pending.
 5. DAP transport/manager/tools and real adapter integration — pending.
@@ -37,6 +37,8 @@ All named acceptance criteria in Owner's task remain required. Compile-only and 
 
 ## Current checkpoint
 
-Next: extend `pluginapi.Event`/`runtime.events` with versioned event identity and reliable same-store history. Preserve nonblocking live fanout; important lifecycle persistence must return or surface errors rather than silently drop. Investigate existing session migrations, run identity and producer contracts before editing.
+Event implementation: `pluginapi.Event` identity, SQLite migration `0011`, content-free durable projection, bounded live fanout, cursor/run sequence, retention and explicit expiry, failure latch and affected-run cancellation, session-scoped query/subscribe. Contract: `docs/runtime-event-contract.md`.
 
-Verification so far: five original hashes match; five copies match; requested worktrees created from exact commits. No product behavior changed or runtime tests run yet.
+Verification: `raw/event-foundation-race.json` records the exact successful race command over session/runtime/diag; `raw/events-real-engine-smoke.*` records real `Engine.Open → NewSession → RunShell → Query → Close → Open → Resume`, output `EVENT_SMOKE_OK lifecycle=3 cursor=3 reopened=true duplicate=false model_requests=0`. The initial regression's incorrect per-run sequence assertion failed and was corrected; its raw output remains preserved. No full-suite or Desktop validation is claimed yet.
+
+Next: Inspector Core read APIs and typed Desktop bridge/UI. Desktop's development-only Core replace now points at this task's Core worktree. Both main workspaces remain untouched; no new model requests, delegation, production changes or publication.

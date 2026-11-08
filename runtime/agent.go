@@ -316,6 +316,9 @@ func newRunID() (string, error) {
 // loop as agent.Options.RunID. It is never written to sessions; request and execution rows carry it
 // as a nullable column, and a restart, a takeover or a new Start is a new run.
 func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOptions) (prepared *preparedRun, err error) {
+	if err := e.events.persistenceError(); err != nil {
+		return nil, err
+	}
 	if _, err := e.store.Reconcile(ctx, sessionID); err != nil {
 		return nil, err
 	}
@@ -326,6 +329,11 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	// The events the loop publishes carry no run id; the diagnostics bridge attaches this one so a
 	// trace can group them by run (diagnostics.go).
 	e.noteRunStarted(sessionID, runID)
+	defer func() {
+		if err != nil {
+			e.events.forgetRun(sessionID, runID)
+		}
+	}()
 	if opts.Input != "" && strings.TrimSpace(opts.Input) == "" {
 		return nil, errors.New("input must not be blank")
 	}
