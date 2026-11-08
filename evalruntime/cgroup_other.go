@@ -33,7 +33,7 @@ func (l *cgroupLeaf) memoryPeak() int64 { return 0 }
 func (l *cgroupLeaf) memoryMax() string { return "" }
 func (l *cgroupLeaf) oomKills() int64   { return 0 }
 func (l *cgroupLeaf) cpuMillis() int64  { return 0 }
-func (l *cgroupLeaf) remove()           {}
+func (l *cgroupLeaf) remove() error     { return nil }
 
 func findWorkerGroup(*cgroupLeaf, int) (*workerGroup, error) {
 	return nil, errors.New("eval: no sandbox worker group on this platform")

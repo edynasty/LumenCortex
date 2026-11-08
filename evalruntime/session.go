@@ -607,11 +607,53 @@ func (s *session) removeFiles() error {
 // to stop it, and when it is over. The completion channel is what ties interrupt
 // escalation and revocation to the identity of *this* execution rather than to a
 // session-wide state flag.
+//
+// The fields below done are guarded by the session mutex. They carry the one
+// cooperative interrupt an execution can have: every Interrupt call for the
+// same execution joins the first one instead of signalling again, because a
+// second SIGINT can land in the worker's own reply path and cost the kernel.
 type executionRef struct {
 	agentID    string
 	generation uint64
 	cancel     context.CancelFunc
 	done       chan struct{}
+
+	requestID string
+	// worker is the worker that runs this cell, bound once it has started.
+	worker *worker
+	// sent closes once the request is about to be written to the worker; an
+	// interrupt raised before that point stops the cell without running it.
+	sent chan struct{}
+	// started closes when the worker reports that the cell's code is running.
+	// A cooperative interrupt is only signalled after it: before, the worker
+	// could not attribute the signal to this cell.
+	started     chan struct{}
+	startedOnce sync.Once
+	interrupt   *interruptOp
+}
+
+// interruptOp is the single cooperative interrupt of one execution. Callers
+// that arrive while it is in flight wait for it and share its outcome.
+type interruptOp struct {
+	done chan struct{}
+	err  error
+}
+
+func newExecutionRef(agentID, requestID string, cancel context.CancelFunc) *executionRef {
+	return &executionRef{agentID: agentID, requestID: requestID, cancel: cancel,
+		done: make(chan struct{}), sent: make(chan struct{}), started: make(chan struct{})}
+}
+
+func (r *executionRef) markStarted() {
+	r.startedOnce.Do(func() { close(r.started) })
+}
+
+// interruptRequested reports whether an Interrupt has been raised for this
+// execution.
+func (s *session) interruptRequested(ref *executionRef) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return ref.interrupt != nil
 }
 
 // cancelActive cancels the running cell when it belongs to agentID ("" means any).

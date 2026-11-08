@@ -24,12 +24,15 @@ const (
 	streamChunk    = 32 << 10
 	termGrace      = 2 * time.Second
 	interruptGrace = 2 * time.Second
-	memoryPoll     = 200 * time.Millisecond
-	diskPoll       = 400 * time.Millisecond
-	maxScanEntries = 4096
-	maxScanDepth   = 8
-	trackPoll      = 150 * time.Millisecond
-	cleanupWindow  = 3 * time.Second
+	// interruptRepeat paces a repeated cooperative interrupt; the Python
+	// worker drops repeats closer than its INTERRUPT_SPACING (200ms).
+	interruptRepeat = 500 * time.Millisecond
+	memoryPoll      = 200 * time.Millisecond
+	diskPoll        = 400 * time.Millisecond
+	maxScanEntries  = 4096
+	maxScanDepth    = 8
+	trackPoll       = 150 * time.Millisecond
+	cleanupWindow   = 3 * time.Second
 )
 
 type procSpec struct {
@@ -98,30 +101,82 @@ type process struct {
 	stderrTail *streambuf.HeadTail
 
 	closeOnce sync.Once
+	closeErr  error
+	// pumps tracks the stdout/stderr readers; close waits for them so a stopped
+	// worker holds no host descriptor once close returns.
+	pumps     sync.WaitGroup
+	pumpFiles []*os.File
 }
 
-func startProcess(spec procSpec) (*process, error) {
-	inR, inW, err := os.Pipe()
+// startFault injects a failure at a named startup stage. Tests set it; it is nil
+// otherwise.
+var startFault func(stage string) error
+
+func injectStartFault(stage string) error {
+	if startFault == nil {
+		return nil
+	}
+	return startFault(stage)
+}
+
+// startProcess starts the worker command. It owns spec.cgroup until it returns:
+// on any failure every descriptor it opened is closed, a started process is
+// killed and reaped, and the leaf is removed before the error is returned, so a
+// failed start leaves nothing behind for Dispose to find. A leaf that cannot be
+// removed is reported in the error, never dropped. On success the leaf passes
+// to the returned process.
+func startProcess(spec procSpec) (_ *process, err error) {
+	var opened []*os.File
+	var cmd *exec.Cmd
+	running := false
+	defer func() {
+		if err == nil {
+			return
+		}
+		if running {
+			// Never released, or released and failed: stop the whole tree.
+			if spec.cgroup != nil {
+				_ = spec.cgroup.kill()
+			}
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+		closeAll(opened...)
+		if spec.cgroup != nil {
+			if removeErr := spec.cgroup.remove(); removeErr != nil {
+				err = errors.Join(err, removeErr)
+			}
+		}
+	}()
+	pipe := func(stage string) (*os.File, *os.File, error) {
+		if err := injectStartFault(stage); err != nil {
+			return nil, nil, err
+		}
+		r, w, err := os.Pipe()
+		if err != nil {
+			return nil, nil, err
+		}
+		opened = append(opened, r, w)
+		return r, w, nil
+	}
+	inR, inW, err := pipe("pipe:control-in")
 	if err != nil {
 		return nil, err
 	}
-	outR, outW, err := os.Pipe()
+	outR, outW, err := pipe("pipe:control-out")
 	if err != nil {
-		closeAll(inR, inW)
 		return nil, err
 	}
-	stdoutR, stdoutW, err := os.Pipe()
+	stdoutR, stdoutW, err := pipe("pipe:stdout")
 	if err != nil {
-		closeAll(inR, inW, outR, outW)
 		return nil, err
 	}
-	stderrR, stderrW, err := os.Pipe()
+	stderrR, stderrW, err := pipe("pipe:stderr")
 	if err != nil {
-		closeAll(inR, inW, outR, outW, stdoutR, stdoutW)
 		return nil, err
 	}
 
-	cmd := spec.cmd
+	cmd = spec.cmd
 	cmd.Dir = spec.dir
 	cmd.Env = spec.env
 	cmd.Stdin = nil
@@ -130,50 +185,46 @@ func startProcess(spec procSpec) (*process, error) {
 	// The child inherits fd 3 (control in) and fd 4 (control out) in this order.
 	cmd.ExtraFiles = []*os.File{inR, outW}
 	startProcessGroup(cmd)
-	var gateW *os.File
+	var gateR, gateW *os.File
 	if spec.cgroup != nil {
 		// The command runs behind a gate on fd 5: a shell that execs the sandbox
 		// only after the host wrote to the pipe. If the host closes the pipe
 		// instead, read fails and nothing is executed. The gate fd is closed
 		// before the exec, so the sandbox never inherits it.
-		gateR, w, err := os.Pipe()
+		gateR, gateW, err = pipe("pipe:gate")
 		if err != nil {
-			closeAll(inR, inW, outR, outW, stdoutR, stdoutW, stderrR, stderrW)
 			return nil, err
 		}
-		gateW = w
 		cmd.Args = append([]string{"/bin/sh", "-c", `read _ <&5 || exit 125; exec 5<&-; exec "$@"`, "lc-gate", cmd.Path}, cmd.Args[1:]...)
 		cmd.Path = "/bin/sh"
 		cmd.ExtraFiles = append(cmd.ExtraFiles, gateR)
 	}
 
-	if err := cmd.Start(); err != nil {
-		closeAll(inR, inW, outR, outW, stdoutR, stdoutW, stderrR, stderrW, gateW)
-		closeAll(cmd.ExtraFiles[2:]...)
-		if spec.cgroup != nil {
-			spec.cgroup.remove()
-		}
+	if err := injectStartFault("start"); err != nil {
 		return nil, err
 	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	running = true
 	if spec.cgroup != nil {
-		closeAll(cmd.ExtraFiles[2:]...)
-		if err := spec.cgroup.admit(cmd.Process.Pid); err != nil {
-			// Never released: closing the gate makes the shell exit unexecuted.
-			_ = gateW.Close()
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-			closeAll(inR, inW, outR, outW, stdoutR, stdoutW, stderrR, stderrW)
-			spec.cgroup.remove()
-			return nil, fmt.Errorf("resource isolation unavailable: %w", err)
+		_ = gateR.Close()
+		admitErr := injectStartFault("admit")
+		if admitErr == nil {
+			admitErr = spec.cgroup.admit(cmd.Process.Pid)
 		}
-		_, err := gateW.Write([]byte("go\n"))
+		if admitErr != nil {
+			// Never released: closing the gate (in the rollback) makes the shell
+			// exit unexecuted.
+			return nil, fmt.Errorf("resource isolation unavailable: %w", admitErr)
+		}
+		releaseErr := injectStartFault("release")
+		if releaseErr == nil {
+			_, releaseErr = gateW.Write([]byte("go\n"))
+		}
 		_ = gateW.Close()
-		if err != nil {
-			_ = spec.cgroup.kill()
-			_ = cmd.Wait()
-			closeAll(inR, inW, outR, outW, stdoutR, stdoutW, stderrR, stderrW)
-			spec.cgroup.remove()
-			return nil, err
+		if releaseErr != nil {
+			return nil, releaseErr
 		}
 	}
 	// Parent keeps only its own ends.
@@ -194,6 +245,8 @@ func startProcess(spec procSpec) (*process, error) {
 		cg:         spec.cgroup,
 		onLimit:    spec.onLimit,
 	}
+	p.pumpFiles = []*os.File{stdoutR, stderrR}
+	p.pumps.Add(2)
 	go p.pump(stdoutR, spec.onStdout)
 	go p.pump(stderrR, func(chunk []byte) {
 		_, _ = p.stderrTail.Write(chunk)
@@ -229,6 +282,7 @@ func startProcess(spec procSpec) (*process, error) {
 }
 
 func (p *process) pump(r *os.File, sink func([]byte)) {
+	defer p.pumps.Done()
 	defer r.Close()
 	buf := make([]byte, streamChunk)
 	for {
@@ -626,7 +680,9 @@ func (p *process) exitCode() int {
 	return int(p.code.Load())
 }
 
-func (p *process) close() {
+// close releases the process's host resources. It reports a worker cgroup that
+// could not be removed; every call returns the outcome of the first.
+func (p *process) close() error {
 	p.closeOnce.Do(func() {
 		close(p.stopMon)
 		if p.stopWatch != nil {
@@ -639,7 +695,7 @@ func (p *process) close() {
 		p.groupMu.Unlock()
 		if p.cg != nil {
 			// rmdir only succeeds on an empty leaf; an occupied one is killed.
-			p.cg.remove()
+			p.closeErr = p.cg.remove()
 		}
 		if p.protoIn != nil {
 			_ = p.protoIn.Close()
@@ -647,7 +703,21 @@ func (p *process) close() {
 		if p.protoOut != nil {
 			_ = p.protoOut.Close()
 		}
+		// The tree is gone, so the output pipes reach EOF at once. A writer the
+		// host could not stop keeps them open; they are closed under it then.
+		drained := make(chan struct{})
+		go func() {
+			p.pumps.Wait()
+			close(drained)
+		}()
+		select {
+		case <-drained:
+		case <-time.After(cleanupWindow):
+			closeAll(p.pumpFiles...)
+			<-drained
+		}
 	})
+	return p.closeErr
 }
 
 func (p *process) cpuMillis() int64 {

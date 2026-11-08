@@ -102,11 +102,7 @@ type worker struct {
 
 	active atomic.Pointer[activeCall]
 	dead   atomic.Bool
-	// interrupting records that the host asked this cell to stop cooperatively.
-	// A worker that dies instead of answering is then reported as cancelled
-	// rather than as a spontaneous crash.
-	interrupting atomic.Bool
-	mu           sync.Mutex
+	mu     sync.Mutex
 }
 
 func (w *worker) id() string {
@@ -174,10 +170,12 @@ func (w *worker) start(ctx context.Context) error {
 	if leaf != nil {
 		// The sandbox's own session must exist and be identifiable before the
 		// worker is used: interrupts are delivered there and nowhere else.
-		if _, err := p.workerGroup(); err != nil {
-			w.conn = nil
-			_ = w.shutdown(context.Background())
-			return fmt.Errorf("%w: %v", evalapi.ErrWorker, err)
+		groupErr := injectStartFault("group")
+		if groupErr == nil {
+			_, groupErr = p.workerGroup()
+		}
+		if groupErr != nil {
+			return w.abortStart(fmt.Errorf("%w: %v", evalapi.ErrWorker, groupErr))
 		}
 	}
 	w.idStr = fmt.Sprintf("%s#%d", s.manifest.ID, p.pid)
@@ -192,35 +190,52 @@ func (w *worker) start(ctx context.Context) error {
 
 	initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	raw, err := w.conn.call(initCtx, "initialize", wireInit{
-		SPIVersion:      evalapi.SPIVersion,
-		ProtocolVersion: evalapi.ProtocolVersion,
-		SessionID:       s.id,
-		Language:        s.manifest.Language,
-		Workspace:       s.workDir,
-		ArtifactDir:     s.pendingDir,
-		Limits:          s.budget,
-	})
+	raw, err := []byte(nil), injectStartFault("initialize")
+	if err == nil {
+		raw, err = w.conn.call(initCtx, "initialize", wireInit{
+			SPIVersion:      evalapi.SPIVersion,
+			ProtocolVersion: evalapi.ProtocolVersion,
+			SessionID:       s.id,
+			Language:        s.manifest.Language,
+			Workspace:       s.workDir,
+			ArtifactDir:     s.pendingDir,
+			Limits:          s.budget,
+		})
+	}
 	if err != nil {
 		detail := ""
 		if p.stderrText() != "" {
 			detail = ": " + p.stderrText()
 		}
-		_ = w.shutdown(context.Background())
-		return fmt.Errorf("%w: initialize: %v%s", evalapi.ErrWorker, err, detail)
+		return w.abortStart(fmt.Errorf("%w: initialize: %v%s", evalapi.ErrWorker, err, detail))
 	}
 	var init wireInitResult
 	if err := json.Unmarshal(raw, &init); err != nil {
-		_ = w.shutdown(context.Background())
-		return fmt.Errorf("%w: initialize result: %v", evalapi.ErrWorker, err)
+		return w.abortStart(fmt.Errorf("%w: initialize result: %v", evalapi.ErrWorker, err))
+	}
+	if err := injectStartFault("handshake"); err != nil {
+		init.SPIVersion = err.Error()
 	}
 	if major(init.SPIVersion) != major(evalapi.SPIVersion) {
-		_ = w.shutdown(context.Background())
-		return fmt.Errorf("%w: runtime %s negotiated SPI %q, host speaks %q",
-			evalapi.ErrUnsupportedCapability, s.manifest.ID, init.SPIVersion, evalapi.SPIVersion)
+		return w.abortStart(fmt.Errorf("%w: runtime %s negotiated SPI %q, host speaks %q",
+			evalapi.ErrUnsupportedCapability, s.manifest.ID, init.SPIVersion, evalapi.SPIVersion))
 	}
 	w.runtime = init.RuntimeVersion
 	return nil
+}
+
+// abortStart stops a worker whose process started but which failed before it
+// was handed to the session: the tree is terminated and its cgroup removed now,
+// not at Dispose. Anything that could not be cleaned up is added to cause.
+func (w *worker) abortStart(cause error) error {
+	residual := w.shutdown(context.Background())
+	if len(residual) > 0 {
+		cause = errors.Join(cause, fmt.Errorf("%w: processes still running after the failed start: %v", evalapi.ErrWorker, residual))
+	}
+	if w.proc != nil {
+		cause = errors.Join(cause, w.proc.close())
+	}
+	return cause
 }
 
 func (w *worker) onStdout(chunk []byte) {
@@ -252,13 +267,25 @@ func (w *worker) execute(ctx context.Context, params wireExecute) (wireResult, e
 	return result, nil
 }
 
+// interrupt asks the worker to stop whatever it runs, as the first step of a
+// reset, close or dispose that terminates it anyway.
 func (w *worker) interrupt(reason string) {
-	if reason == "interrupt" {
-		w.interrupting.Store(true)
-	}
+	w.notifyInterrupt(reason, "")
+	w.signalInterrupt()
+}
+
+// notifyInterrupt tells a cell blocked on the control channel (a tool
+// callback) that it is interrupted. requestID names the execution the request
+// is for ("" when it is not tied to one); the worker ignores a notification
+// that names another execution.
+func (w *worker) notifyInterrupt(reason, requestID string) {
 	if w.conn != nil {
-		_ = w.conn.notifyPeer("interrupt", map[string]any{"reason": reason})
+		_ = w.conn.notifyPeer("interrupt", map[string]any{"reason": reason, "requestId": requestID})
 	}
+}
+
+// signalInterrupt sends SIGINT to the worker's process group.
+func (w *worker) signalInterrupt() {
 	if w.proc != nil {
 		_ = w.proc.interrupt()
 	}
@@ -359,6 +386,17 @@ func (w *worker) handleNotification(method string, params json.RawMessage) {
 		Data json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(params, &event); err != nil {
+		return
+	}
+	if event.Type == "started" {
+		// The worker entered the cell's code: from now on a SIGINT is
+		// attributable to this request (see Manager.Interrupt).
+		var started struct {
+			RequestID string `json:"requestId"`
+		}
+		if json.Unmarshal(event.Data, &started) == nil {
+			w.s.markStarted(w, started.RequestID)
+		}
 		return
 	}
 	if event.Type != "display" {

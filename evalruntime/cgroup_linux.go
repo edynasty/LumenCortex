@@ -147,12 +147,12 @@ func newCgroupPool() (*cgroupPool, error) {
 
 // probeAdmission proves, once, that a gated process can be admitted into a leaf
 // and that the leaf's limits hold for it.
-func (p *cgroupPool) probeAdmission() error {
+func (p *cgroupPool) probeAdmission() (err error) {
 	leaf, err := p.newLeaf(64 << 20)
 	if err != nil {
 		return err
 	}
-	defer leaf.remove()
+	defer func() { err = errors.Join(err, leaf.remove()) }()
 	probe := exec.Command("/bin/sh", "-c", "read _ || :")
 	probe.Env = []string{"PATH=/usr/bin:/bin"}
 	gate, err := probe.StdinPipe()
@@ -200,10 +200,12 @@ func (p *cgroupPool) newLeaf(memoryBytes int64) (*cgroupLeaf, error) {
 	p.mu.Unlock()
 	leaf := &cgroupLeaf{pool: p, dir: dir, name: name}
 	fail := func(err error) (*cgroupLeaf, error) {
-		leaf.remove()
-		return nil, fmt.Errorf("worker cgroup: %w", err)
+		return nil, errors.Join(fmt.Errorf("worker cgroup: %w", err), leaf.remove())
 	}
 	if err := os.Mkdir(dir, 0o700); err != nil {
+		return fail(err)
+	}
+	if err := injectStartFault("cgroup"); err != nil {
 		return fail(err)
 	}
 	memory := "max"
@@ -328,8 +330,9 @@ func (l *cgroupLeaf) cpuMillis() int64 {
 }
 
 // remove deletes the leaf. An occupied leaf is killed first; rmdir fails while
-// any process remains, so a removed leaf proves the tree is gone.
-func (l *cgroupLeaf) remove() {
+// any process remains, so a removed leaf proves the tree is gone. A leaf that
+// cannot be removed is reported and stays registered, so close retries it.
+func (l *cgroupLeaf) remove() error {
 	if err := os.Remove(l.dir); err != nil && !errors.Is(err, os.ErrNotExist) {
 		_ = l.kill()
 		deadline := time.Now().Add(cleanupWindow)
@@ -337,12 +340,13 @@ func (l *cgroupLeaf) remove() {
 			time.Sleep(10 * time.Millisecond)
 		}
 		if err := os.Remove(l.dir); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return // keep it registered: close() retries and reports it
+			return fmt.Errorf("worker cgroup %s could not be removed: %w", l.dir, err)
 		}
 	}
 	l.pool.mu.Lock()
 	delete(l.pool.leaves, l.dir)
 	l.pool.mu.Unlock()
+	return nil
 }
 
 // liveLeaves lists the leaves that still exist (tests and Dispose use it).
@@ -375,7 +379,7 @@ func (p *cgroupPool) close() error {
 	p.mu.Unlock()
 	var stuck []string
 	for _, dir := range dirs {
-		(&cgroupLeaf{pool: p, dir: dir}).remove()
+		_ = (&cgroupLeaf{pool: p, dir: dir}).remove() // checked just below
 		if _, err := os.Stat(dir); err == nil {
 			stuck = append(stuck, dir)
 		}

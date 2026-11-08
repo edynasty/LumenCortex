@@ -9,6 +9,18 @@ The interpreter is reused for every cell of one session. Variables, functions an
 imported modules survive a successful cell. An exception does not roll back side
 effects. A cancelled cell keeps the kernel only when the interrupt was caught;
 the host escalates to SIGKILL otherwise and starts a new generation.
+
+SIGINT is the interrupt. It raises KeyboardInterrupt only while the cell's own
+code runs: a signal that arrives while the worker reads a request, renders a
+result or writes a reply belongs to an execution that is already over and is
+dropped, so it can never cost the kernel its reply. A cell can swallow the
+exception (a finalizer that runs when the signal lands ignores it, a cell may
+catch it), so the host repeats the signal while the cell keeps running; a
+repeat closer than INTERRUPT_SPACING to the last delivered one is dropped, which
+keeps a second exception out of the unwinding of the first. While the cell is
+inside a control-channel exchange (a tool callback, a display event) the signal
+is held and raised when the exchange is complete, so a frame is never half read
+or half written.
 """
 
 import ast
@@ -19,6 +31,7 @@ import io
 import json
 import mimetypes
 import os
+import signal
 import sys
 import time
 import traceback
@@ -28,6 +41,9 @@ OUT_FD = 4
 MAX_FRAME = 4 * 1024 * 1024
 MAX_REPR = 8 * 1024
 MAX_TRACEBACK = 32 * 1024
+# INTERRUPT_SPACING is the least time between two delivered interrupts of one
+# cell; the host repeats an unacknowledged interrupt at a longer interval.
+INTERRUPT_SPACING = 0.2
 # MAX_INLINE_DISPLAY bounds one inline display payload. Anything larger is
 # spilled to the artifact directory, so a big figure never breaks the frame.
 MAX_INLINE_DISPLAY = 256 * 1024
@@ -185,6 +201,40 @@ class Worker:
         self._err = None
         self._stdout_saved = None
         self._stderr_saved = None
+        # Interrupt state of the running cell, see the module docstring.
+        self._in_cell = False
+        self._shield = 0
+        self._interrupt_pending = False
+        self._last_interrupt = None
+        signal.signal(signal.SIGINT, self._on_sigint)
+
+    # --------------------------------------------------------------- interrupt
+    def _may_deliver(self):
+        last = self._last_interrupt
+        return last is None or time.monotonic() - last >= INTERRUPT_SPACING
+
+    def _deliver(self):
+        self._interrupt_pending = False
+        self._last_interrupt = time.monotonic()
+        raise KeyboardInterrupt()
+
+    def _on_sigint(self, signum, frame):
+        if not self._in_cell or not self._may_deliver():
+            return  # stale (the cell is over) or too close to the last one
+        if self._shield:
+            self._interrupt_pending = True
+            return
+        self._deliver()
+
+    def _raise_pending(self):
+        if (self._interrupt_pending and self._in_cell and not self._shield
+                and self._may_deliver()):
+            self._deliver()
+
+    def _deliver_interrupt(self):
+        """Raise the cell's interrupt from a control-channel notification."""
+        if self._may_deliver():
+            self._deliver()
 
     # ---------------------------------------------------------------- plumbing
     def _fresh_globals(self):
@@ -207,7 +257,18 @@ class Worker:
         data = json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
         if len(data) > MAX_FRAME:
             raise ProtocolError("outgoing frame exceeds limit")
-        os.write(OUT_FD, data)
+        # A signal can cut a pipe write short: finish the frame.
+        view = memoryview(data)
+        while view:
+            view = view[os.write(OUT_FD, view):]
+
+    def _send_shielded(self, obj):
+        self._shield += 1
+        try:
+            self._send(obj)
+        finally:
+            self._shield -= 1
+            self._raise_pending()
 
     def _reply(self, req_id, result=None, error=None):
         msg = {"jsonrpc": "2.0", "id": req_id}
@@ -248,31 +309,40 @@ class Worker:
         if call_id in self._seen_calls:  # defensive: ids are never reused
             raise ProtocolError("duplicate callback id")
         self._seen_calls.add(call_id)
-        self._send({
-            "jsonrpc": "2.0",
-            "id": call_id,
-            "method": "tool/call",
-            "params": {"callId": call_id, "name": name, "arguments": arguments,
-                       "requestId": self._request_id},
-        })
-        while True:
-            msg = self._read_message()
-            if "method" in msg and "id" not in msg:
-                if msg.get("method") == "interrupt":
-                    raise KeyboardInterrupt()
-                continue
-            if msg.get("id") != call_id:
-                # A stale or unexpected response: never treat it as ours.
-                continue
-            if "error" in msg:
-                raise ToolFailed(str(msg["error"].get("message", "tool call failed")))
-            result = msg.get("result") or {}
-            content = result.get("content", "")
-            if result.get("denied"):
-                raise ToolDenied(content or "tool call denied")
-            if not result.get("ok", False):
-                raise ToolFailed(content or "tool call failed")
-            return content
+        # The exchange is shielded: a SIGINT during it is held until the frame
+        # is complete. The host's interrupt notification ends the wait.
+        self._shield += 1
+        try:
+            self._send({
+                "jsonrpc": "2.0",
+                "id": call_id,
+                "method": "tool/call",
+                "params": {"callId": call_id, "name": name, "arguments": arguments,
+                           "requestId": self._request_id},
+            })
+            while True:
+                msg = self._read_message()
+                if "method" in msg and "id" not in msg:
+                    if msg.get("method") == "interrupt":
+                        target = (msg.get("params") or {}).get("requestId")
+                        if not target or target == self._request_id:
+                            self._deliver_interrupt()
+                    continue
+                if msg.get("id") != call_id:
+                    # A stale or unexpected response: never treat it as ours.
+                    continue
+                if "error" in msg:
+                    raise ToolFailed(str(msg["error"].get("message", "tool call failed")))
+                result = msg.get("result") or {}
+                content = result.get("content", "")
+                if result.get("denied"):
+                    raise ToolDenied(content or "tool call denied")
+                if not result.get("ok", False):
+                    raise ToolFailed(content or "tool call failed")
+                return content
+        finally:
+            self._shield -= 1
+            self._raise_pending()
 
     # --------------------------------------------------------------- artifacts
     def _safe_name(self, name, default="artifact"):
@@ -332,7 +402,7 @@ class Worker:
         items = []
         self._add_display(items, mime or kind, text, size)
         for item in items:
-            self._send({"jsonrpc": "2.0", "method": "event", "params": {
+            self._send_shielded({"jsonrpc": "2.0", "method": "event", "params": {
                 "type": "display", "data": item}})
         return None
 
@@ -429,22 +499,34 @@ class Worker:
         status, error, tb, exit_code = "completed", "", "", 0
         displays = []
         last_value = None
+        self._interrupt_pending = False
+        self._last_interrupt = None
         try:
-            tree = ast.parse(code, filename="<cell>", mode="exec")
-            body = list(tree.body)
-            last_expr = None
-            if body and isinstance(body[-1], ast.Expr):
-                last_expr = body.pop()
-            if body:
-                module = ast.Module(body=body, type_ignores=[])
-                exec(compile(module, "<cell>", "exec"), self.g)
-            if last_expr is not None:
-                value = eval(compile(ast.Expression(last_expr.value), "<cell>", "eval"), self.g)
-                if inspect.isawaitable(value):
-                    import asyncio
-                    value = asyncio.run(value)
-                self.g["_"] = value
-                last_value = value
+            try:
+                # From here a SIGINT belongs to this cell. The host signals
+                # only after it has read the "started" event.
+                self._in_cell = True
+                self._send_shielded({"jsonrpc": "2.0", "method": "event", "params": {
+                    "type": "started", "data": {"requestId": self._request_id}}})
+                tree = ast.parse(code, filename="<cell>", mode="exec")
+                body = list(tree.body)
+                last_expr = None
+                if body and isinstance(body[-1], ast.Expr):
+                    last_expr = body.pop()
+                if body:
+                    module = ast.Module(body=body, type_ignores=[])
+                    exec(compile(module, "<cell>", "exec"), self.g)
+                if last_expr is not None:
+                    value = eval(compile(ast.Expression(last_expr.value), "<cell>", "eval"), self.g)
+                    if inspect.isawaitable(value):
+                        import asyncio
+                        value = asyncio.run(value)
+                    self.g["_"] = value
+                    last_value = value
+            finally:
+                # A signal raised before this line is caught below as the
+                # cell's interrupt; after it, every signal is dropped.
+                self._in_cell = False
         except KeyboardInterrupt:
             status, error = "cancelled", "KeyboardInterrupt"
         except SystemExit as exc:
@@ -463,6 +545,9 @@ class Worker:
             error = "%s: %s" % (type(exc).__name__, exc)
             tb = traceback.format_exc()[:MAX_TRACEBACK]
         finally:
+            # The inner finally may have been cut short by the cell's own
+            # interrupt; once delivered, no other signal can raise here.
+            self._in_cell = False
             sys.stdout, sys.stderr = self._stdout_saved, self._stderr_saved
         # Post-processing is outside the cell's own try, so it needs its own
         # guard: a KeyboardInterrupt or any error while rendering the last
@@ -542,8 +627,8 @@ class Worker:
         req_id = msg.get("id")
         params = msg.get("params") or {}
         if req_id is None:
-            # Notification: the host asks for a cooperative interrupt. The
-            # authoritative mechanism is SIGINT, which Python raises here.
+            # Notification: an interrupt for a cell that is no longer running
+            # (a running cell reads it inside lc_tool). Nothing to do.
             return
         try:
             if method == "initialize":

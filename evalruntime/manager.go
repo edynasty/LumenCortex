@@ -648,7 +648,7 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 		expiryTimer := time.AfterFunc(time.Until(grantExpiry), cancelWatch)
 		defer expiryTimer.Stop()
 	}
-	ref := &executionRef{agentID: agent, cancel: cancelWatch, done: make(chan struct{})}
+	ref := newExecutionRef(agent, req.ID, cancelWatch)
 	s.mu.Lock()
 	ref.generation = s.generation
 	s.executing = true
@@ -676,6 +676,7 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 	// generation of this execution and not of the kernel it replaced.
 	s.mu.Lock()
 	ref.generation = w.generation
+	ref.worker = w
 	s.mu.Unlock()
 	if watchCtx.Err() != nil {
 		// The share ended while the worker was starting: never run the cell.
@@ -712,6 +713,16 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 		RunID:          req.RunID,
 		TrialID:        req.TrialID,
 	}
+	// An Interrupt raised while the worker was starting or the inputs were
+	// staged stops the cell before it reaches the worker: it never runs and the
+	// kernel it would have run in is untouched. Otherwise the request is
+	// released for signalling from here on.
+	s.mu.Lock()
+	interruptedEarly := ref.interrupt != nil
+	if !interruptedEarly {
+		close(ref.sent)
+	}
+	s.mu.Unlock()
 	s.setState(evalapi.StateBusy, "")
 	started := time.Now().UTC()
 	w.active.Store(call)
@@ -721,10 +732,15 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 
 	execCtx := context.WithoutCancel(watchCtx)
 	resCh := make(chan execOutcome, 1)
-	go func() {
-		res, execErr := w.execute(execCtx, wire)
-		resCh <- execOutcome{result: res, err: execErr}
-	}()
+	if interruptedEarly {
+		resCh <- execOutcome{result: wireResult{Status: evalapi.ResultStatusCancelled, StateStatus: evalapi.StateStatusOK,
+			Error: "KeyboardInterrupt: interrupted before the cell started"}}
+	} else {
+		go func() {
+			res, execErr := w.execute(execCtx, wire)
+			resCh <- execOutcome{result: res, err: execErr}
+		}()
+	}
 
 	timer := time.NewTimer(time.Until(deadline))
 	defer timer.Stop()
@@ -748,7 +764,7 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 
 	// An interrupt the worker did not survive is reported as cancelled, not as a
 	// spontaneous crash: the host asked for the stop.
-	if outcome.err != nil && w.interrupting.Load() && outcome.reason == "" {
+	if outcome.err != nil && s.interruptRequested(ref) && outcome.reason == "" {
 		outcome.reason = evalapi.ResultStatusCancelled
 		outcome.lost = true
 	}
@@ -970,10 +986,16 @@ func (m *Manager) emitResultEvent(s *session, result evalapi.Result) {
 // acknowledges, its kernel and variables survive; when it does not answer within
 // the grace period the process group is terminated and the kernel is lost.
 //
-// The escalation is tied to the execution it was requested for: it fires while
-// that exact execution (same agent, same generation, same worker) is still
-// running, and it waits for the kill to finish so an interrupt that reports
-// success never leaves an owned pid behind.
+// An execution has at most one interrupt operation. The first call owns it;
+// every concurrent or repeated call for the same execution waits for that
+// operation and returns its outcome, so callers never multiply the signals. The
+// operation signals the worker and, while the cell keeps running, repeats the
+// signal every interruptRepeat until the grace period ends: a cell can swallow
+// one KeyboardInterrupt (a finalizer that was running when it landed ignores
+// it). The escalation is tied to the execution it was requested for: it fires
+// while that exact execution (same generation, same worker) is still running,
+// and it waits for the kill to finish so an interrupt that reports success never
+// leaves an owned pid behind.
 func (m *Manager) Interrupt(ctx context.Context, sessionID, agentID string) error {
 	if err := m.ensureOpen(); err != nil {
 		return err
@@ -986,35 +1008,124 @@ func (m *Manager) Interrupt(ctx context.Context, sessionID, agentID string) erro
 		return fmt.Errorf("%w: agent %q may not interrupt session %s", evalapi.ErrDenied, agentID, sessionID)
 	}
 	s.mu.Lock()
-	w := s.worker
 	ref := s.active
-	s.mu.Unlock()
-	if w == nil || ref == nil {
+	if ref == nil {
+		s.mu.Unlock()
 		// Nothing is running: an interrupt is a no-op, not an error.
 		return nil
 	}
+	if op := ref.interrupt; op != nil {
+		s.mu.Unlock()
+		select {
+		case <-op.done:
+			return op.err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	op := &interruptOp{done: make(chan struct{})}
+	ref.interrupt = op
+	s.mu.Unlock()
+	op.err = m.interruptExecution(s, ref)
+	close(op.done)
+	return op.err
+}
+
+// interruptExecution runs the one interrupt of ref. A cooperative runtime is
+// signalled only once the worker has reported that the cell's code is running,
+// so the signal can be attributed to this cell; a runtime without cooperative
+// interrupt is signalled once the request has been sent, and stops.
+func (m *Manager) interruptExecution(s *session, ref *executionRef) error {
 	s.setState(evalapi.StateCancelling, "")
-	w.interrupt("interrupt")
-	// Give the cell its chance to abort cooperatively and keep its kernel.
-	timer := time.NewTimer(interruptGrace)
-	defer timer.Stop()
+	ready := ref.sent
+	if s.manifest.Supports(evalapi.CapInterrupt) {
+		ready = ref.started
+	}
+	wait := time.NewTimer(interruptGrace)
+	defer wait.Stop()
 	select {
 	case <-ref.done:
 		return nil
-	case <-timer.C:
+	case <-wait.C:
+		// The cell never reported that it runs: nothing could take the signal.
+	case <-ready:
+		// Give the cell its chance to abort cooperatively and keep its kernel.
+		wait.Reset(interruptGrace)
+		repeat := time.NewTicker(interruptRepeat)
+		defer repeat.Stop()
+	signalling:
+		for {
+			if !s.signalExecution(ref) {
+				return nil
+			}
+			select {
+			case <-ref.done:
+				return nil
+			case <-repeat.C:
+			case <-wait.C:
+				break signalling
+			}
+		}
 	}
+	s.mu.Lock()
+	w := ref.worker
+	s.mu.Unlock()
 	if !s.isActive(ref) {
 		return nil
 	}
 	// The cell ignored the request. Escalate for this execution only, and do not
-	// return before the owned tree and the cell's own goroutine are gone.
-	residual := w.kill()
+	// return before the owned tree and the cell's own goroutine are gone. A cell
+	// whose worker is still starting has nothing to kill: Execute sees the
+	// interrupt before sending the request and never runs it.
+	var residual []int
+	if w != nil {
+		residual = w.kill()
+	}
 	select {
 	case <-ref.done:
 	case <-time.After(interruptGrace + cleanupWindow):
 		return fmt.Errorf("%w: the interrupted execution did not stop after it was killed", evalapi.ErrWorker)
 	}
 	return m.reportResidual(s, residual, "interrupt")
+}
+
+// signalExecution delivers the interrupt to the worker running ref and reports
+// whether ref was still running. The notification goes first, for a cell
+// blocked on the control channel; it names the request, so a late one is
+// ignored. The SIGINT is sent under the session mutex after checking that ref
+// is still the running execution: the next cell is only admitted once Execute
+// has cleared ref under the same mutex, so the signal can never reach a later
+// cell's code.
+func (s *session) signalExecution(ref *executionRef) bool {
+	s.mu.Lock()
+	w := ref.worker
+	s.mu.Unlock()
+	if w == nil {
+		return false
+	}
+	w.notifyInterrupt("interrupt", ref.requestID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.active != ref || s.generation != ref.generation || s.closed || ref.worker != w {
+		return false
+	}
+	w.signalInterrupt()
+	return true
+}
+
+// markStarted records the worker's report that the cell of requestID is
+// running. Reports from another worker or for another request are ignored.
+func (s *session) markStarted(w *worker, requestID string) {
+	if requestID == "" {
+		return
+	}
+	s.mu.Lock()
+	ref := s.active
+	match := ref != nil && ref.worker == w && ref.requestID == requestID
+	s.mu.Unlock()
+	if match {
+		ref.markStarted()
+	}
 }
 
 // isActive reports whether ref is still the kernel's running execution in the
