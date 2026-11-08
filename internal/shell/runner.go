@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
 	"slices"
@@ -29,7 +30,15 @@ type Result struct {
 	// SIGKILL after TermGrace). Cancelled stays false: a timeout is the command's result, not the
 	// caller's cancellation.
 	TimedOut bool `json:"timedOut,omitempty"`
+	// CleanupError: the command's containment could not be fully removed (for example its cgroup leaf
+	// stayed busy). RunTimeout then also returns an error wrapping ErrCleanup; the command's own result
+	// above is still accurate. A background reaper keeps retrying the removal (see CleanupFailures).
+	CleanupError string `json:"cleanupError,omitempty"`
 }
+
+// ErrCleanup marks an error of RunTimeout that comes from removing the command's containment after
+// the command itself finished, was cancelled or timed out.
+var ErrCleanup = errors.New("shell command cleanup failed")
 
 type Runner struct {
 	Workspace string
@@ -150,7 +159,7 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 			stopWatcher()
 		}
 	}
-	group.release(r.Reap || ctx.Err() != nil || timedOut.Load())
+	cleanupErr := group.release(r.Reap || ctx.Err() != nil || timedOut.Load())
 	// The shell exited successfully but a background process kept the pipes open past waitDelay: the
 	// command's own result stands.
 	if errors.Is(err, exec.ErrWaitDelay) {
@@ -166,22 +175,25 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 		Cancelled: errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded),
 		TimedOut:  timedOut.Load() && ctx.Err() == nil,
 	}
-	if result.Cancelled {
+	var runErr error
+	switch {
+	case result.Cancelled:
 		result.ExitCode = -1
-		return result, ctx.Err()
-	}
-	if result.TimedOut {
+		runErr = ctx.Err()
+	case result.TimedOut:
 		result.ExitCode = -1
-		return result, nil
-	}
-	if err != nil {
+	case err != nil:
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
-			return result, nil
+		} else {
+			result.ExitCode = -1
+			runErr = err
 		}
-		result.ExitCode = -1
-		return result, err
 	}
-	return result, nil
+	if cleanupErr != nil {
+		result.CleanupError = cleanupErr.Error()
+		runErr = errors.Join(runErr, fmt.Errorf("%w: %w", ErrCleanup, cleanupErr))
+	}
+	return result, runErr
 }

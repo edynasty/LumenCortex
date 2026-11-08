@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -39,13 +41,46 @@ const cleanupWindow = 3 * time.Second
 // one line from the owner; end of file - what the kernel delivers when the owner
 // dies, however it dies - makes it kill every other leaf of the scope, so no
 // tree the owner placed in a leaf outlives the owner, even when the owner never
-// ran its own cleanup.
+// ran its own cleanup. $1 is the scope's unit name: the keeper acts only from
+// inside that scope (its keeper leaf, or the scope itself before it was moved
+// there), so a keeper that is not, or not yet, a member never derives a scope
+// from the owner's own cgroup and never touches a sibling of it.
 const keeperScript = `read _ || :
 while IFS= read -r line; do case $line in 0::*) self=${line#0::};; esac; done </proc/self/cgroup
-scope=/sys/fs/cgroup${self%/*}
+case $self in
+*/"$1"/keeper) scope=/sys/fs/cgroup${self%/keeper};;
+*/"$1") scope=/sys/fs/cgroup$self;;
+*) exit 0;;
+esac
 for kill in "$scope"/*/cgroup.kill; do
 	[ "$kill" = "$scope/keeper/cgroup.kill" ] || echo 1 >"$kill"
 done 2>/dev/null`
+
+// ErrPopulated reports a leaf that still holds processes after it was killed
+// and the cleanup window passed.
+var ErrPopulated = errors.New("cgroup still holds processes")
+
+// removeFault, when set by a test, is consulted before every cgroup rmdir. It
+// is read by background cleanup goroutines, so it is swapped atomically.
+var removeFault atomic.Pointer[func(dir string) error]
+
+// rmdir removes one cgroup directory, unless an injected fault refuses it.
+func rmdir(dir string) error {
+	if fault := removeFault.Load(); fault != nil {
+		if err := (*fault)(dir); err != nil {
+			return &os.PathError{Op: "remove", Path: dir, Err: err}
+		}
+	}
+	return os.Remove(dir)
+}
+
+// InjectRemoveFault makes every cgroup rmdir consult fault first: a non-nil
+// error is returned instead of removing the directory. It returns the function
+// that restores the previous behaviour. Tests only.
+func InjectRemoveFault(fault func(dir string) error) (restore func()) {
+	previous := removeFault.Swap(&fault)
+	return func() { removeFault.Store(previous) }
+}
 
 // Options name a pool and the controllers its leaves need.
 type Options struct {
@@ -71,20 +106,30 @@ type Setting struct {
 // because cgroup v2 forbids processes in a cgroup that distributes controllers.
 // When the owner closes the pool, or dies, the keeper exits and systemd collects
 // the scope.
+//
+// The owner supervises the keeper: when the keeper dies while the owner lives,
+// the owner starts a new one in the keeper leaf at once, so the scope always has
+// a process that kills its leaves when the owner dies. When no new keeper can be
+// admitted, the pool fails closed: every leaf is killed and the pool is broken
+// (Err reports why), so no tree runs on without its last line of defence.
 type Pool struct {
-	dir      string
-	unit     string
-	prefix   string
-	busctl   string
-	env      []string
+	dir    string
+	unit   string
+	prefix string
+	busctl string
+	env    []string
+	seq    atomic.Uint64
+	// supervised is closed when the keeper supervisor has returned.
+	supervised chan struct{}
+
+	mu       sync.Mutex
 	keeper   *exec.Cmd
 	keeperIn io.WriteCloser
 	exited   chan struct{}
-	seq      atomic.Uint64
-
-	mu     sync.Mutex
-	leaves map[string]struct{}
-	closed bool
+	leaves   map[string]struct{}
+	closed   bool
+	broken   error
+	respawns int
 }
 
 // NewPool creates the delegated subtree. It fails with the exact reason when
@@ -107,7 +152,7 @@ func NewPool(opts Options) (*Pool, error) {
 	_, _ = rand.Read(suffix[:])
 	unit := fmt.Sprintf("%s-%d-%s.scope", opts.Unit, os.Getpid(), hex.EncodeToString(suffix[:]))
 	keeper := exec.Command(systemdRun, "--user", "--scope", "--quiet", "--collect",
-		"-p", "Delegate=yes", "--unit="+unit, "--", "/bin/sh", "-c", keeperScript)
+		"-p", "Delegate=yes", "--unit="+unit, "--", "/bin/sh", "-c", keeperScript, "lc-keeper", unit)
 	// The keeper is a host helper: it only needs to reach the user's systemd
 	// manager.
 	env := []string{"PATH=/usr/bin:/bin"}
@@ -126,12 +171,8 @@ func NewPool(opts Options) (*Pool, error) {
 	if err := keeper.Start(); err != nil {
 		return nil, fmt.Errorf("systemd-run: %w", err)
 	}
-	exited := make(chan struct{})
-	go func() {
-		_ = keeper.Wait()
-		close(exited)
-	}()
-	pool := &Pool{unit: unit, prefix: opts.LeafPrefix, busctl: busctl, env: env, keeper: keeper, keeperIn: keeperIn, exited: exited, leaves: make(map[string]struct{})}
+	exited := waitIn(keeper)
+	pool := &Pool{unit: unit, prefix: opts.LeafPrefix, busctl: busctl, env: env, keeper: keeper, keeperIn: keeperIn, exited: exited, leaves: make(map[string]struct{}), supervised: make(chan struct{})}
 	fail := func(err error) (*Pool, error) {
 		_ = keeperIn.Close()
 		_ = keeper.Process.Kill()
@@ -184,7 +225,110 @@ func NewPool(opts Options) (*Pool, error) {
 	if err := pool.probeAdmission(); err != nil {
 		return fail(err)
 	}
+	go pool.superviseKeeper()
 	return pool, nil
+}
+
+// waitIn reaps cmd in the background; the channel closes when it has exited.
+func waitIn(cmd *exec.Cmd) chan struct{} {
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
+	return exited
+}
+
+// superviseKeeper replaces a keeper that died while the pool is open, and
+// fails the pool closed when it cannot.
+func (p *Pool) superviseKeeper() {
+	defer close(p.supervised)
+	for {
+		p.mu.Lock()
+		exited := p.exited
+		p.mu.Unlock()
+		<-exited
+		p.mu.Lock()
+		if p.closed {
+			p.mu.Unlock()
+			return
+		}
+		err := p.respawnKeeperLocked()
+		p.mu.Unlock()
+		if err != nil {
+			p.failClosed(fmt.Errorf("the keeper of %s died and no new keeper could be admitted: %w", p.unit, err))
+			return
+		}
+	}
+}
+
+// respawnKeeperLocked starts a new keeper and admits it into the keeper leaf.
+// The script acts only once it is a member of the scope, so a keeper that dies
+// or is orphaned before its admission never kills anything outside the scope.
+func (p *Pool) respawnKeeperLocked() error {
+	keeper := exec.Command("/bin/sh", "-c", keeperScript, "lc-keeper", p.unit)
+	keeper.Env = p.env
+	keeper.Dir = "/"
+	in, err := keeper.StdinPipe()
+	if err != nil {
+		return err
+	}
+	if err := keeper.Start(); err != nil {
+		return err
+	}
+	exited := waitIn(keeper)
+	if err := p.attach("keeper", keeper.Process.Pid); err != nil {
+		_ = in.Close()
+		_ = keeper.Process.Kill()
+		<-exited
+		return err
+	}
+	p.keeper, p.keeperIn, p.exited = keeper, in, exited
+	p.respawns++
+	return nil
+}
+
+// failClosed breaks the pool: every leaf is killed and removed, and no leaf can
+// be created any more.
+func (p *Pool) failClosed(cause error) {
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
+	p.closed = true
+	p.broken = cause
+	dirs := p.leafDirsLocked()
+	p.mu.Unlock()
+	for _, dir := range dirs {
+		_ = (&Leaf{pool: p, dir: dir}).Remove()
+	}
+	_ = rmdir(filepath.Join(p.dir, "keeper"))
+}
+
+// Err reports why the pool broke, or nil while it works (or was closed by its
+// owner).
+func (p *Pool) Err() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.broken
+}
+
+// KeeperRespawns counts the keepers started after the first one died.
+func (p *Pool) KeeperRespawns() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.respawns
+}
+
+// Dir is the scope's directory in the cgroup hierarchy.
+func (p *Pool) Dir() string { return p.dir }
+
+// KeeperPID is the pid of the current keeper.
+func (p *Pool) KeeperPID() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.keeper.Process.Pid
 }
 
 // probeAdmission proves, once, that a gated process can be admitted into a leaf.
@@ -214,6 +358,26 @@ func (p *Pool) probeAdmission() (err error) {
 	return nil
 }
 
+// attach moves pid into the sub-cgroup sub of the scope through the user's
+// systemd manager and confirms the kernel agrees.
+func (p *Pool) attach(sub string, pid int) error {
+	cmd := exec.Command(p.busctl, "--user", "--quiet", "call",
+		"org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager",
+		"AttachProcessesToUnit", "ssau", p.unit, "/"+sub, "1", strconv.Itoa(pid))
+	cmd.Env = p.env
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("AttachProcessesToUnit: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	rel, err := ProcessCgroup(pid)
+	if err != nil {
+		return err
+	}
+	if want := filepath.Join(p.dir, sub); filepath.Join(Root, rel) != want {
+		return fmt.Errorf("process %d is in %s, not in its cgroup %s", pid, rel, want)
+	}
+	return nil
+}
+
 // Leaf is the cgroup of one process tree. Its settings are written before the
 // tree exists. The tree's first process is started behind a gate (blocked on a
 // pipe), moved into the leaf, verified to be a member, and only then released,
@@ -234,7 +398,11 @@ type Leaf struct {
 func (p *Pool) NewLeaf(settings []Setting) (*Leaf, error) {
 	p.mu.Lock()
 	if p.closed {
+		broken := p.broken
 		p.mu.Unlock()
+		if broken != nil {
+			return nil, fmt.Errorf("cgroup pool is broken: %w", broken)
+		}
 		return nil, errors.New("cgroup pool is closed")
 	}
 	name := fmt.Sprintf("%s%d", p.prefix, p.seq.Add(1))
@@ -278,32 +446,18 @@ func (l *Leaf) Dir() string { return l.dir }
 
 // Admit moves a gated process into the leaf and confirms the kernel agrees.
 func (l *Leaf) Admit(pid int) error {
-	cmd := exec.Command(l.pool.busctl, "--user", "--quiet", "call",
-		"org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager",
-		"AttachProcessesToUnit", "ssau", l.pool.unit, "/"+l.name, "1", strconv.Itoa(pid))
-	cmd.Env = l.pool.env
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("AttachProcessesToUnit: %v: %s", err, strings.TrimSpace(string(out)))
-	}
-	rel, err := ProcessCgroup(pid)
-	if err != nil {
-		return err
-	}
-	if filepath.Join(Root, rel) != l.dir {
-		return fmt.Errorf("process %d is in %s, not in its cgroup %s", pid, rel, l.dir)
-	}
-	return nil
+	return l.pool.attach(l.name, pid)
 }
 
 // Kill stops every process of the leaf at once. cgroup.kill is atomic with
 // respect to forks and addresses processes by membership, never by a pid that
 // could have been reused, so it reaches processes that started a new session
-// or process group too.
+// or process group too, and processes in cgroups below the leaf.
 func (l *Leaf) Kill() error {
 	return WriteFile(l.dir, "cgroup.kill", "1")
 }
 
-// Populated reports whether any process is still in the leaf.
+// Populated reports whether any process is still in the leaf or below it.
 func (l *Leaf) Populated() bool {
 	events, err := ReadFile(l.dir, "cgroup.events")
 	if err != nil {
@@ -334,32 +488,90 @@ func (l *Leaf) Read(name string) (string, error) {
 	return ReadFile(l.dir, name)
 }
 
-// Remove deletes the leaf. An occupied leaf is killed first; rmdir fails while
-// any process remains, so a removed leaf proves the tree is gone. A leaf that
-// cannot be removed is reported and stays registered, so Close retries it.
+// Remove kills the leaf, waits for it to empty and deletes it, together with
+// any cgroup a member created below it. A removed leaf proves the tree is gone:
+// rmdir fails while any process remains. A leaf that cannot be removed is
+// reported with its path and the reason - ErrPopulated when processes outlived
+// the kill, otherwise the error of the directory that could not be deleted -
+// and stays registered, so a retry and Close still see it.
 func (l *Leaf) Remove() error {
-	if err := os.Remove(l.dir); err != nil && !errors.Is(err, os.ErrNotExist) {
-		_ = l.Kill()
-		deadline := time.Now().Add(cleanupWindow)
-		for l.Populated() && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
-		}
-		if err := os.Remove(l.dir); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("cgroup %s could not be removed: %w", l.dir, err)
-		}
+	if err := rmdir(l.dir); err == nil || errors.Is(err, os.ErrNotExist) {
+		l.forget()
+		return nil
+	}
+	_ = l.Kill()
+	deadline := time.Now().Add(cleanupWindow)
+	for l.Populated() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if l.Populated() {
+		return fmt.Errorf("cgroup %s could not be removed: %w (%v)", l.dir, ErrPopulated, l.Procs())
+	}
+	if err := l.removeTree(); err != nil {
+		return fmt.Errorf("cgroup %s could not be removed: %w", l.dir, err)
 	}
 	l.forget()
 	return nil
 }
 
-// RemoveIfEmpty deletes the leaf only when no process is left in it, and
-// reports whether it is gone. It never kills.
-func (l *Leaf) RemoveIfEmpty() bool {
-	if err := os.Remove(l.dir); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return false
+// RemoveIfEmpty deletes the leaf only when no process is left in it or below
+// it; it never kills. It reports removed=true when the leaf is gone; removed
+// false with a nil error when processes still run in it; and an error naming
+// the leaf when it holds no process but could not be deleted.
+func (l *Leaf) RemoveIfEmpty() (removed bool, err error) {
+	if err := rmdir(l.dir); err == nil || errors.Is(err, os.ErrNotExist) {
+		l.forget()
+		return true, nil
+	}
+	if l.Populated() {
+		return false, nil
+	}
+	if err := l.removeTree(); err != nil {
+		if l.Populated() {
+			// A process arrived after the check: it is a live tree, not a failure.
+			return false, nil
+		}
+		return false, fmt.Errorf("empty cgroup %s could not be removed: %w", l.dir, err)
 	}
 	l.forget()
-	return true
+	return true, nil
+}
+
+// removeTree deletes the leaf and every cgroup below it, deepest first. Only
+// directories under the leaf are touched; cgroupfs holds no symbolic links, and
+// WalkDir would not follow one.
+func (l *Leaf) removeTree() error {
+	var dirs []string
+	walkErr := filepath.WalkDir(l.dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			dirs = append(dirs, path)
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return walkErr
+	}
+	// Deepest first: a child path is always longer than its parent's.
+	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
+	var firstErr error
+	for _, dir := range dirs {
+		if err := rmdir(dir); err != nil && !errors.Is(err, os.ErrNotExist) && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if _, err := os.Lstat(l.dir); err == nil {
+		if firstErr == nil {
+			firstErr = &os.PathError{Op: "remove", Path: l.dir, Err: syscall.EBUSY}
+		}
+		return firstErr
+	}
+	return nil
 }
 
 func (l *Leaf) forget() {
@@ -382,8 +594,18 @@ func (p *Pool) Live() []string {
 	return out
 }
 
+func (p *Pool) leafDirsLocked() []string {
+	dirs := make([]string, 0, len(p.leaves))
+	for dir := range p.leaves {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	return dirs
+}
+
 // Close kills and removes every remaining leaf, then releases the keeper so
-// systemd collects the scope. It reports leaves that could not be removed.
+// systemd collects the scope. It reports every leaf that could not be removed
+// and why.
 func (p *Pool) Close() error {
 	p.mu.Lock()
 	if p.closed {
@@ -391,28 +613,26 @@ func (p *Pool) Close() error {
 		return nil
 	}
 	p.closed = true
-	dirs := make([]string, 0, len(p.leaves))
-	for dir := range p.leaves {
-		dirs = append(dirs, dir)
-	}
+	dirs := p.leafDirsLocked()
+	keeperIn, keeper, exited := p.keeperIn, p.keeper, p.exited
 	p.mu.Unlock()
-	var stuck []string
+	var errs []error
 	for _, dir := range dirs {
-		_ = (&Leaf{pool: p, dir: dir}).Remove() // checked just below
-		if _, err := os.Stat(dir); err == nil {
-			stuck = append(stuck, dir)
+		if err := (&Leaf{pool: p, dir: dir}).Remove(); err != nil {
+			errs = append(errs, err)
 		}
 	}
-	_ = p.keeperIn.Close()
+	_ = keeperIn.Close()
 	select {
-	case <-p.exited:
+	case <-exited:
 	case <-time.After(2 * time.Second):
-		_ = p.keeper.Process.Kill()
-		<-p.exited
+		_ = keeper.Process.Kill()
+		<-exited
 	}
-	_ = os.Remove(filepath.Join(p.dir, "keeper"))
-	if len(stuck) > 0 {
-		return fmt.Errorf("%d cgroup(s) still hold processes: %v", len(stuck), stuck)
+	<-p.supervised
+	_ = rmdir(filepath.Join(p.dir, "keeper"))
+	if len(errs) > 0 {
+		return fmt.Errorf("%d cgroup(s) could not be removed: %w", len(errs), errors.Join(errs...))
 	}
 	return nil
 }

@@ -38,4 +38,17 @@ func (l *Leaf) Populated() bool                  { return false }
 func (l *Leaf) Procs() []int                     { return nil }
 func (l *Leaf) Read(string) (string, error)      { return "", errUnsupported }
 func (l *Leaf) Remove() error                    { return nil }
-func (l *Leaf) RemoveIfEmpty() bool              { return true }
+func (l *Leaf) RemoveIfEmpty() (bool, error)     { return true, nil }
+func (p *Pool) Err() error                       { return nil }
+func (p *Pool) KeeperRespawns() int              { return 0 }
+func (p *Pool) KeeperPID() int                   { return 0 }
+func (p *Pool) Dir() string                      { return "" }
+
+// ErrPopulated reports a leaf that still holds processes after it was killed.
+var ErrPopulated = errors.New("cgroup still holds processes")
+
+// InjectRemoveFault has nothing to inject into outside Linux.
+func InjectRemoveFault(func(string) error) (restore func()) { return func() {} }
+
+// WriteFile has no cgroup file to write outside Linux.
+func WriteFile(string, string, string) error { return errUnsupported }

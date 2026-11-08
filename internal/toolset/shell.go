@@ -86,9 +86,10 @@ func (s *Set) runShell(ctx context.Context, args map[string]any, onOutput func(p
 			onOutput(protocol.ToolOutput{Stream: chunk.Stream, Chunk: string(chunk.Chunk)})
 		}
 	})
-	// A cancelled runner call still carries the output it read and the reason; only a call that could
-	// not run at all is an error.
-	if err != nil && !result.Cancelled {
+	// A cancelled runner call still carries the output it read and the reason, and so does a command
+	// whose containment could not be removed afterwards; only a call that could not run at all is an
+	// error.
+	if err != nil && !result.Cancelled && !errors.Is(err, shell.ErrCleanup) {
 		return protocol.ToolResult{}, err
 	}
 	out := map[string]any{
@@ -108,6 +109,9 @@ func (s *Set) runShell(ctx context.Context, args map[string]any, onOutput func(p
 			"total":     result.Stderr.Total,
 			"truncated": result.Stderr.Truncated,
 		},
+	}
+	if result.CleanupError != "" {
+		out["cleanupError"] = result.CleanupError
 	}
 	if result.TimedOut {
 		seconds := int64(math.Ceil(timeout.Seconds()))

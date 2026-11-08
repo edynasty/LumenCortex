@@ -36,8 +36,10 @@ func (g *guardedGroup) term() error { return nil }
 
 func (g *guardedGroup) kill() error { return KillGroup(g.cmd) }
 
-func (g *guardedGroup) release(reap bool) {
+// release kills cmd.exe for reap; there is no leaf whose cleanup could fail.
+func (g *guardedGroup) release(reap bool) error {
 	if reap {
 		_ = g.kill()
 	}
+	return nil
 }
