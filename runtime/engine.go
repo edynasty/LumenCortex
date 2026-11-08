@@ -19,6 +19,7 @@ import (
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/evalruntime"
 	"github.com/edynasty/LumenCortex/internal/agent"
+	"github.com/edynasty/LumenCortex/internal/debugger"
 	"github.com/edynasty/LumenCortex/internal/diag"
 	"github.com/edynasty/LumenCortex/internal/jobs"
 	"github.com/edynasty/LumenCortex/internal/lsp"
@@ -98,6 +99,8 @@ type Options struct {
 	Eval *EvalOptions
 	// LifecycleHooks are host-supplied versioned hooks; invalid hooks fail Open.
 	LifecycleHooks []LifecycleHook
+	// Debug is an explicit host adapter catalog; nil disables DAP execution.
+	Debug *DebugOptions
 }
 
 type Engine struct {
@@ -119,6 +122,11 @@ type Engine struct {
 	evalMu           sync.Mutex
 	evalOptions      *EvalOptions
 	evalManager      *evalruntime.Manager
+	dapManager       *debugger.Manager
+	dapMu            sync.Mutex
+	dapGrants        map[string]DebugGrant
+	dapContext       context.Context
+	dapCancel        context.CancelFunc
 	// jobs is the background job queue of this process (ADR-0019 §3): the workers, the recovery of the
 	// jobs of a dead owner, and the retention sweep. It is closed before the store.
 	jobs  *jobs.Manager
@@ -369,6 +377,10 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		}
 		engine.runsMu.Unlock()
 	}
+	if err := engine.initDebug(opts.Debug); err != nil {
+		_ = engine.Close()
+		return nil, err
+	}
 	engine.bridge = engine.startDiagnosticsBridge()
 	// The scheduler opens with the store and starts once the durable state is reconciled; it logs to the
 	// diagnostics log (OBS-001).
@@ -492,6 +504,7 @@ func (e *Engine) Close() error {
 	}
 	closeErr = errors.Join(closeErr, e.cancelRuns(context.Background(), func(string) bool { return true }))
 	closeErr = errors.Join(closeErr, e.closeEval())
+	closeErr = errors.Join(closeErr, e.closeDebug())
 	if e.plugins != nil {
 		closeErr = errors.Join(closeErr, e.plugins.StopAll(context.Background()))
 	}

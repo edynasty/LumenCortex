@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -287,6 +289,7 @@ func closeFiles(files ...*os.File) func() error {
 // a failure at any step releases exactly what was acquired before it, in reverse order, and reports
 // the failure together with any error of that rollback. cmd is changed only on success.
 func newGuardedGroup(cmd *exec.Cmd) (*guardedGroup, error) {
+	if len(cmd.ExtraFiles) > 6 { return nil, errors.New("too many inherited descriptors for admission gate") }
 	pool, err := shellPool()
 	if err != nil {
 		return nil, fmt.Errorf("shell command cgroup: %w", err)
@@ -314,9 +317,12 @@ func newGuardedGroup(cmd *exec.Cmd) (*guardedGroup, error) {
 	}
 	g := &guardedGroup{guard: guard, leaf: leaf, gate: gate, gateR: gateR}
 	if leaf != nil {
-		cmd.Args = append([]string{"/bin/sh", "-c", gateScript, "lc-shell-gate", cmd.Path}, cmd.Args[1:]...)
+		fd := strconv.Itoa(3 + len(cmd.ExtraFiles))
+		script := strings.ReplaceAll(gateScript, "<&3", "<&"+fd)
+		script = strings.ReplaceAll(script, "3<&-", fd+"<&-")
+		cmd.Args = append([]string{"/bin/sh", "-c", script, "lc-shell-gate", cmd.Path}, cmd.Args[1:]...)
 		cmd.Path = "/bin/sh"
-		cmd.ExtraFiles = []*os.File{gateR}
+		cmd.ExtraFiles = append(cmd.ExtraFiles, gateR)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: guard.pgid}
 	cmd.Cancel = g.kill

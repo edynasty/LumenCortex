@@ -653,6 +653,7 @@ func TestCatalogFingerprintCoversEnvAndHeaders(t *testing.T) {
 		"include added":       edited(func(c *Config) { c.Include = append(c.Include, "write") }),
 		"permission override": edited(func(c *Config) { c.Tools = map[string]ToolConfig{"write": {Permission: PermissionRead}} }),
 		"disabled":            edited(func(c *Config) { c.Disabled = true }),
+		"host only":           edited(func(c *Config) { c.HostOnly = true }),
 		"session binding": edited(func(c *Config) {
 			c.Session = &SessionBinding{Argument: "session_id", StopTool: "write", StopArgument: "value"}
 		}),

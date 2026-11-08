@@ -51,6 +51,19 @@ func (e *Engine) RevokeSource(ctx context.Context, kind, ref, reason string) (Ex
 	if err := e.cancelRuns(ctx, func(id string) bool { return rev.Expanded || fenced[id] }); err != nil {
 		return ExposureReport{}, err
 	}
+	if e.dapManager != nil {
+		if rev.Expanded {
+			if err := e.dapManager.Close(); err != nil {
+				return ExposureReport{}, err
+			}
+		} else {
+			for _, id := range rev.Sessions {
+				if err := e.dapManager.CloseOwner(id); err != nil {
+					return ExposureReport{}, err
+				}
+			}
+		}
+	}
 	if rev.Expanded {
 		if err := e.closeEval(); err != nil {
 			return ExposureReport{}, err

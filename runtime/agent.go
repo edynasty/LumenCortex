@@ -248,6 +248,9 @@ type preparedRun struct {
 func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 	result, err := r.loop.Run(ctx, r.sessionID, r.loopOpts)
 	r.engine.endRunJobs(ctx, r.sessionID, r.loopOpts.RunID)
+	if r.engine.dapManager != nil {
+		err = errors.Join(err, r.engine.dapManager.CloseRun(r.sessionID, r.loopOpts.RunID))
+	}
 	if r.finishOwned != nil {
 		r.finishOwned()
 	}
@@ -497,6 +500,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	// controller is the run's own; a cell's tool callback comes from the loop's context, never from
 	// model input (internal/toolset/eval.go, runtime/eval.go).
 	if err := e.executionTools(ctx, sessionID, opts, tools, runID); err != nil {
+		return nil, err
+	}
+	if err := e.debugTools(ctx, sessionID, runID, policy, plan.trusted, tools); err != nil {
 		return nil, err
 	}
 	// A child never executes inside the parent's kernel: a kernel is one actor's

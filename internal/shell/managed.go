@@ -15,6 +15,8 @@ type ManagedProcess struct {
 	group    *guardedGroup
 	mu       sync.Mutex
 	finished bool
+	killed   bool
+	killErr  error
 }
 
 // StartManaged starts behind the existing admission gate. No server instruction
@@ -44,7 +46,11 @@ func (p *ManagedProcess) Kill() error {
 	if p.finished {
 		return nil
 	}
-	return p.group.kill()
+	if !p.killed {
+		p.killed = true
+		p.killErr = p.group.kill()
+	}
+	return p.killErr
 }
 
 // Wait reaps the server, then its complete contained tree, even when a descendant

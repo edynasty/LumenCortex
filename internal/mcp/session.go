@@ -320,6 +320,9 @@ func (s *server) refreshTools(ctx context.Context) ([]Tool, error) {
 // request: a call already past it starts and contacts nothing, and a queued call gives up its wait.
 func (s *server) callTool(ctx context.Context, toolName string, sessionID string, args map[string]any) (CallToolResult, error) {
 	cfg, _ := s.config()
+	if cfg.HostOnly && sessionID != "" {
+		return CallToolResult{}, errors.New("mcp server is reserved for typed host capabilities")
+	}
 	// The include list is the server's exposure (ADR-0021 D4): a name outside it is refused here, before
 	// anything starts, whatever tool list the caller was built from.
 	if !cfg.included(toolName) {

@@ -660,7 +660,7 @@ func (r *Registry) AgentTools(workspace string) ([]AgentTool, error) {
 	for _, cfg := range configs {
 		// An entry whose session binding breaks the include rule cannot start, so its catalog is not
 		// offered either (States reports why).
-		if cfg.Disabled || (cfg.Scope == ScopeProject && !trusted) || cfg.bindingError() != nil {
+		if cfg.Disabled || cfg.HostOnly || (cfg.Scope == ScopeProject && !trusted) || cfg.bindingError() != nil {
 			continue
 		}
 		servers = append(servers, r.serverLocked(cfg, cfg.Scope, workspace))
@@ -956,6 +956,9 @@ func catalogFingerprint(cfg Config, scope string) string {
 	}
 	if scope == ScopeProject {
 		fmt.Fprintf(digest, "\x00disabled %t", cfg.Disabled)
+		if cfg.HostOnly {
+			fmt.Fprint(digest, "\x00hostOnly true")
+		}
 		for _, name := range slices.Sorted(slices.Values(cfg.Include)) {
 			fmt.Fprintf(digest, "\x00include %q", name)
 		}

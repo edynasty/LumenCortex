@@ -111,6 +111,8 @@ type Config struct {
 	Workspace    string       `json:"workspace,omitempty"`
 	ProtocolMode ProtocolMode `json:"protocolMode,omitempty"`
 	Disabled     bool         `json:"disabled,omitempty"`
+	// HostOnly excludes this server from model tools; typed host capabilities own it.
+	HostOnly bool `json:"hostOnly,omitempty"`
 	// Tools overrides the permission of individual tools of this server, keyed by the tool name the
 	// server reports. An override is honoured only when the entry is user-owned: from the global
 	// file, or from the project file of a trusted workspace.

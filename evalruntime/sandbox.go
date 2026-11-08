@@ -117,6 +117,9 @@ type launchSpec struct {
 	network         bool
 	allowSubprocess bool
 	extraRead       []string
+	debugProgram    bool
+	loopbackOnly    bool
+	debugSocket     string
 }
 
 func (l *launcher) command(spec launchSpec) (*exec.Cmd, error) {
@@ -235,6 +238,13 @@ func seatbeltProfile(spec launchSpec) string {
 		// on macOS and re-execs /bin/bash for the "sh" variant).
 		b.WriteString(`(allow process-exec (literal "/bin/sh") (literal "/bin/bash") (literal (param "EXE")) (literal (param "EXEREAL")))` + "\n")
 	}
+	if spec.debugProgram {
+		// LLDB needs the target's task port. Never permit foreign sandbox targets.
+		b.WriteString("(allow mach-priv-task-port system-debug (target same-sandbox))\n")
+		// debugserver reopens the inherited standard descriptors for posix_spawn.
+		b.WriteString("(allow file-write* (literal \"/dev/fd/1\") (literal \"/dev/fd/2\"))\n")
+		fmt.Fprintf(&b, "(allow file-read* file-write* network-bind network-inbound network-outbound (subpath %q))\n", filepath.Join(resolvePath(spec.workersDir), "tmp"))
+	}
 	b.WriteString("(allow sysctl-read)\n(allow ipc-posix-shm*)\n")
 	// Signals are how a cell is interrupted; without this the host's SIGINT is
 	// dropped, the worker never sees the interrupt, and every timeout would be a
@@ -258,8 +268,15 @@ func seatbeltProfile(spec launchSpec) string {
 		fmt.Fprintf(&b, "(allow file-read* file-map-executable (subpath %q))\n", resolvePath(extra))
 	}
 	b.WriteString(`(allow file-write* (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr") (literal "/dev/urandom") (literal "/dev/dtracehelper"))` + "\n")
+	if spec.debugSocket != "" {
+		fmt.Fprintf(&b, "(allow file-read* file-write* network-bind network-inbound network-outbound (literal %q))\n", spec.debugSocket)
+	}
 	if !spec.network {
-		b.WriteString("(deny network*)\n")
+		if spec.loopbackOnly {
+			b.WriteString("(allow network-bind network-inbound (local ip \"localhost:*\"))\n(allow network-outbound (remote ip \"localhost:*\"))\n")
+		} else if spec.debugSocket == "" {
+			b.WriteString("(deny network*)\n")
+		}
 	}
 	return b.String()
 }
