@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/edynasty/LumenCortex/evalapi"
+	"github.com/edynasty/LumenCortex/internal/cgroupv2"
 )
 
 // openFDs counts the test process's open descriptors.
@@ -31,7 +32,7 @@ func poolProcs(t *testing.T, m *Manager) []string {
 	t.Helper()
 	var out []string
 	for _, dir := range m.cgroups.liveLeaves() {
-		text, err := readCgroupFile(dir, "cgroup.procs")
+		text, err := cgroupv2.ReadFile(dir, "cgroup.procs")
 		if err == nil && text != "" {
 			out = append(out, filepath.Base(dir)+":"+text)
 		}
@@ -148,8 +149,8 @@ func TestLinuxWorkerStartDescriptorExhaustionRemovesLeaf(t *testing.T) {
 	if !errors.Is(startErr, syscall.EMFILE) {
 		t.Fatalf("start error = %v, want EMFILE", startErr)
 	}
-	if _, err := os.Stat(leaf.dir); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("failed start left its cgroup %s (stat: %v)", leaf.dir, err)
+	if _, err := os.Stat(leaf.Dir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed start left its cgroup %s (stat: %v)", leaf.Dir(), err)
 	}
 	if leaves := h.m.cgroups.liveLeaves(); len(leaves) != 0 {
 		t.Fatalf("registered leaves after the failed start = %v", leaves)

@@ -25,6 +25,12 @@ func newGuardedGroup(cmd *exec.Cmd) (*guardedGroup, error) {
 	return &guardedGroup{cmd: cmd}, nil
 }
 
+// started has nothing to admit: there is no cgroup on Windows.
+func (g *guardedGroup) started(*exec.Cmd) error { return nil }
+
+// Containment: a Windows command is contained as cmd.exe alone.
+func Containment() (string, error) { return "process", nil }
+
 // term has no graceful equivalent for cmd.exe: the grace period passes and kill follows.
 func (g *guardedGroup) term() error { return nil }
 

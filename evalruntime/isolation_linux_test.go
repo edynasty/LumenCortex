@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/evalapi"
+	"github.com/edynasty/LumenCortex/internal/cgroupv2"
 )
 
 const allocate640MiB = `
@@ -34,12 +35,12 @@ func workerCgroup(t *testing.T, m *Manager, sessionID string) string {
 	if w == nil || w.proc == nil || w.proc.cg == nil {
 		t.Fatalf("session %s has no worker cgroup", sessionID)
 	}
-	return w.proc.cg.dir
+	return w.proc.cg.Dir()
 }
 
 func readCgroupValue(t *testing.T, dir, name string) string {
 	t.Helper()
-	value, err := readCgroupFile(dir, name)
+	value, err := cgroupv2.ReadFile(dir, name)
 	if err != nil {
 		t.Fatalf("read %s/%s: %v", dir, name, err)
 	}

@@ -105,6 +105,11 @@ func (r *Runner) RunTimeout(ctx context.Context, command string, timeout time.Du
 		return Result{Command: command, ExitCode: -1, StartedAt: started}, err
 	}
 	err = cmd.Start()
+	if err == nil {
+		if err = group.started(cmd); err != nil {
+			_ = cmd.Wait()
+		}
+	}
 	var timedOut atomic.Bool
 	if err == nil {
 		var stopWatcher func()
