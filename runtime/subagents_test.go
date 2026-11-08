@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -332,7 +333,8 @@ func (p *spawnToolProvider) Complete(_ context.Context, request protocol.Provide
 
 	p.parentSawSpawn = true
 	p.parentCalls++
-	if p.parentCalls == 1 {
+	switch p.parentCalls {
+	case 1:
 		return protocol.ProviderResponse{
 			Message: protocol.Message{
 				Role: "assistant",
@@ -344,12 +346,39 @@ func (p *spawnToolProvider) Complete(_ context.Context, request protocol.Provide
 			},
 			FinishReason: "tool_calls",
 		}, nil
+	case 2:
+		// A parent that finishes cancels its still-running children, so it waits
+		// for the child before answering: the child's own outcome is the subject.
+		child := ""
+		for _, m := range request.Messages {
+			if m.Role == "tool" {
+				if match := spawnedSessionID.FindStringSubmatch(m.Content); match != nil {
+					child = match[1]
+				}
+			}
+		}
+		if child == "" {
+			return protocol.ProviderResponse{}, errors.New("spawn result names no child session")
+		}
+		return protocol.ProviderResponse{
+			Message: protocol.Message{
+				Role: "assistant",
+				ToolCalls: []protocol.ToolCall{{
+					ID:        "wait-1",
+					Name:      "wait_subagent",
+					Arguments: json.RawMessage(`{"child_session_id":"` + child + `","timeout_seconds":10}`),
+				}},
+			},
+			FinishReason: "tool_calls",
+		}, nil
 	}
 	return protocol.ProviderResponse{
 		Message:      protocol.Message{Role: "assistant", Content: "parent done"},
 		FinishReason: "stop",
 	}, nil
 }
+
+var spawnedSessionID = regexp.MustCompile(`"sessionId":\s*"([^"]+)"`)
 
 func TestTopLevelAgentGetsSpawnToolButChildCannotRecurse(t *testing.T) {
 	engine, err := Open(Options{
@@ -405,7 +434,7 @@ func TestTopLevelAgentGetsSpawnToolButChildCannotRecurse(t *testing.T) {
 
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
-	if !provider.parentSawSpawn || provider.parentCalls < 2 {
+	if !provider.parentSawSpawn || provider.parentCalls < 3 {
 		t.Fatalf("parent tool visibility calls=%d saw=%v", provider.parentCalls, provider.parentSawSpawn)
 	}
 	if provider.childRequests == 0 {
@@ -594,4 +623,108 @@ func TestWaitSubagentRejectsForeignChild(t *testing.T) {
 		t.Fatal("expected foreign child wait rejection")
 	}
 	supervisor.Cancel(child.SessionID)
+}
+
+// parentExitProvider spawns one child, waits until the child's model call is
+// running, and then finishes without waiting for it. The child's call blocks
+// until its context ends.
+type parentExitProvider struct {
+	mu            sync.Mutex
+	parentCalls   int
+	childStarted  chan struct{}
+	childCanceled chan struct{}
+}
+
+func (p *parentExitProvider) Model() string { return "parent-exit-model" }
+
+func (p *parentExitProvider) Complete(ctx context.Context, request protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+	parent := false
+	for _, spec := range request.Tools {
+		if spec.Name == "spawn_subagent" {
+			parent = true
+			break
+		}
+	}
+	if !parent {
+		close(p.childStarted)
+		<-ctx.Done()
+		close(p.childCanceled)
+		return protocol.ProviderResponse{}, ctx.Err()
+	}
+	p.mu.Lock()
+	p.parentCalls++
+	calls := p.parentCalls
+	p.mu.Unlock()
+	if calls == 1 {
+		return protocol.ProviderResponse{
+			Message: protocol.Message{
+				Role: "assistant",
+				ToolCalls: []protocol.ToolCall{{
+					ID:        "spawn-1",
+					Name:      "spawn_subagent",
+					Arguments: json.RawMessage(`{"goal":"inspect"}`),
+				}},
+			},
+			FinishReason: "tool_calls",
+		}, nil
+	}
+	select {
+	case <-p.childStarted:
+	case <-ctx.Done():
+		return protocol.ProviderResponse{}, ctx.Err()
+	}
+	return protocol.ProviderResponse{
+		Message:      protocol.Message{Role: "assistant", Content: "parent done"},
+		FinishReason: "stop",
+	}, nil
+}
+
+// A parent that finishes while its child still runs stops the child: the
+// child's model call sees its context end, the child ends interrupted and not
+// completed, and nothing of it stays active.
+func TestParentCompletionCancelsItsRunningChild(t *testing.T) {
+	engine, err := Open(Options{Workspace: t.TempDir(), Budget: Budget{MaxAgents: 4}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	supervisor, err := NewRunSupervisor(engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer supervisor.Close()
+
+	provider := &parentExitProvider{childStarted: make(chan struct{}), childCanceled: make(chan struct{})}
+	parentID := newParentSession(t, engine, provider)
+	if _, err := supervisor.startWith(context.Background(), parentID, provider, AgentOptions{
+		Policy:   toolset.PolicyReadOnly,
+		MaxSteps: 4,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-provider.childCanceled:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the child's model call was not cancelled when the parent finished")
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for supervisor.Active(parentID) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if supervisor.Active(parentID) {
+		t.Fatal("parent remained active")
+	}
+	tree, err := supervisor.SubagentTree(context.Background(), parentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tree) != 1 {
+		t.Fatalf("tree=%#v", tree)
+	}
+	if tree[0].Active || tree[0].Status != "interrupted" {
+		t.Fatalf("child=%#v", tree[0])
+	}
+	if supervisor.Active(tree[0].SessionID) {
+		t.Fatal("child run still active")
+	}
 }
