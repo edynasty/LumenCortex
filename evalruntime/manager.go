@@ -748,6 +748,7 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 	s.mu.Unlock()
 	s.setState(evalapi.StateBusy, "")
 	started := time.Now().UTC()
+	cpuBefore := w.proc.cpuMillis()
 	w.active.Store(call)
 	m.emit(evalapi.Event{Type: evalapi.EventExecutionStarted, SessionID: s.id, OwnerID: s.ownerID, AgentID: agent,
 		RequestID: req.ID, CellID: cellID, RunID: req.RunID, TrialID: req.TrialID,
@@ -822,7 +823,7 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 			cancel()
 			result.ExitCode = w.proc.exitCode()
 		}
-		result.Usage.CPUMs = w.proc.cpuMillis()
+		result.Usage.CPUMs = max(0, w.proc.cpuMillis()-cpuBefore)
 		result.Usage.MemoryPeakBytes = w.proc.memoryPeak()
 		if reason := w.proc.limitReason(); reason != "" && result.Status != evalapi.ResultStatusCompleted {
 			// The worker was stopped by its resource bound, not by a bug.

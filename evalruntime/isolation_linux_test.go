@@ -73,6 +73,9 @@ func TestLinuxWorkerCgroupBoundsTheWholeTree(t *testing.T) {
 	if got := readCgroupValue(t, dir, "pids.max"); got != strconv.Itoa(workerTasksMax) {
 		t.Fatalf("pids.max = %s", got)
 	}
+	if got := readCgroupValue(t, dir, "cpu.max"); got != "100000 100000" {
+		t.Fatalf("cpu.max = %s", got)
+	}
 	interpreter := hostProcessOf(t, h.m, session.ID, pid)
 	s, _ := h.m.session(session.ID)
 	w := installedWorker(s)
@@ -91,6 +94,33 @@ func TestLinuxWorkerCgroupBoundsTheWholeTree(t *testing.T) {
 	}
 	if group.id.pid == w.proc.pid {
 		t.Fatalf("the worker group is the outer bwrap")
+	}
+}
+
+func TestLinuxCPUQuotaThrottlesWholeTree(t *testing.T) {
+	h, _ := newPythonHarness(t, nil)
+	session := h.create("python", "owner", "owner")
+	dir := workerCgroup(t, h.m, session.ID)
+	before := cgroupv2.KeyedValue(readCgroupValue(t, dir, "cpu.stat"), "nr_throttled")
+	h.expectCompleted(session, "owner", `import subprocess, sys
+code = "import time; end=time.monotonic()+1; exec('while time.monotonic()<end: pass')"
+children = [subprocess.Popen([sys.executable, '-c', code]) for _ in range(4)]
+assert all(child.wait() == 0 for child in children)
+`)
+	after := cgroupv2.KeyedValue(readCgroupValue(t, dir, "cpu.stat"), "nr_throttled")
+	if after <= before {
+		t.Fatalf("four CPU-bound descendants were not throttled: %d -> %d", before, after)
+	}
+	t.Logf("cpu.max=100000 100000; nr_throttled delta=%d", after-before)
+}
+
+func TestLinuxCellCPUUsageExcludesPreviousCells(t *testing.T) {
+	h, _ := newPythonHarness(t, nil)
+	session := h.create("python", "owner", "owner")
+	busy := h.expectCompleted(session, "owner", "import time\nend = time.process_time() + 0.4\nwhile time.process_time() < end: pass")
+	idle := h.expectCompleted(session, "owner", "print(42)")
+	if busy.Usage.CPUMs < 300 || idle.Usage.CPUMs >= busy.Usage.CPUMs/2 {
+		t.Fatalf("CPU usage is cumulative instead of per cell: busy=%d idle=%d", busy.Usage.CPUMs, idle.Usage.CPUMs)
 	}
 }
 

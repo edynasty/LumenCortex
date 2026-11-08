@@ -450,6 +450,7 @@ func (s *session) storeArtifactLocked(cellID, name, mimeType string, data []byte
 		CellID:    cellID,
 		RuntimeID: s.manifest.ID,
 		Name:      safeArtifactName(name),
+		Path:      "artifacts/" + id,
 		MIME:      mimeForName(name, mimeType),
 		SHA256:    hex.EncodeToString(sum[:]),
 		Size:      int64(len(data)),

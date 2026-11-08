@@ -540,9 +540,12 @@ type Artifact struct {
 	CellID    string `json:"cellId,omitempty"`
 	RuntimeID string `json:"runtimeId"`
 	Name      string `json:"name,omitempty"`
-	MIME      string `json:"mime"`
-	SHA256    string `json:"sha256"`
-	Size      int64  `json:"size"`
+	// Path is relative to the host-owned artifact store, never a host pathname.
+	// Bytes still require the session-authorized Artifact API.
+	Path   string `json:"path,omitempty"`
+	MIME   string `json:"mime"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
 	// ParentID and SourceArtifactID record cross-runtime provenance: a host that
 	// transfers an artifact from another kernel journals the source id here. The
 	// manager never invents them.

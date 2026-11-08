@@ -252,6 +252,9 @@ func platformLimits(backend string, budget evalapi.Budget, allowSubprocess bool,
 		"output: bounded while streaming (head+tail), never buffered in full",
 		processTreeNote(allowSubprocess),
 	}
+	if backend == evalapi.SandboxBubblewrap && memory == evalapi.EnforcementHard {
+		limits.Notes = append(limits.Notes, "cpu: cgroup v2 cpu.max=100000 100000 limits each complete worker tree to one CPU, in addition to RLIMIT_CPU")
+	}
 	if backend == "" {
 		limits.MemoryEnforcement = evalapi.EnforcementNone
 		limits.CPUEnforcement = evalapi.EnforcementNone

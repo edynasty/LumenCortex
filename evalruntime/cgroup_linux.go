@@ -28,7 +28,7 @@ type cgroupPool struct{ *cgroupv2.Pool }
 // available to this user; the caller then refuses to run workers rather than
 // pretending a memory limit exists.
 func newCgroupPool() (*cgroupPool, error) {
-	pool, err := cgroupv2.NewPool(cgroupv2.Options{Unit: "lc-evalruntime", LeafPrefix: "w", Controllers: []string{"memory", "pids"}})
+	pool, err := cgroupv2.NewPool(cgroupv2.Options{Unit: "lc-evalruntime", LeafPrefix: "w", Controllers: []string{"memory", "pids", "cpu"}})
 	if err != nil {
 		return nil, err
 	}
@@ -52,6 +52,9 @@ func (p *cgroupPool) newLeaf(memoryBytes int64) (*cgroupLeaf, error) {
 		// survived while a helper was killed (or the reverse) has unknown state.
 		{File: "memory.oom.group", Value: "1"},
 		{File: "pids.max", Value: strconv.Itoa(workerTasksMax)},
+		// One CPU for the complete process tree, including subprocesses. The
+		// existing CPUSeconds limit remains the cumulative execution budget.
+		{File: "cpu.max", Value: "100000 100000"},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("worker cgroup: %w", err)

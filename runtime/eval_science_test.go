@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/evalapi"
 	"github.com/edynasty/LumenCortex/internal/evaluator"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -177,10 +178,12 @@ func TestAgentScientificWorkflowPassesIndependentCheckAfterLanguageRoundTrip(t *
 	approveChecks(t, engine)
 	provider := &scienceScript{pythonRuntime: executionRuntimeID(t, engine, "python"), jsRuntime: executionRuntimeID(t, engine, "javascript")}
 	result, err := engine.runAgentWith(context.Background(), owner, provider, AgentOptions{Policy: "full", EvalEnabled: true, MaxSteps: 15,
+		Retry:        &config.Retry{Disabled: true},
 		Verification: &VerificationOptions{RequireSemantic: true},
 		Delivery:     &DeliveryContract{Files: []DeliveryFile{{Path: "report.json", Changed: true}, {Path: "fit.png", Changed: true}}}})
 	if err != nil {
-		t.Fatal(err)
+		records, readErr := engine.CheckResults(context.Background(), owner, -1, 0)
+		t.Fatalf("%v; result=%+v checks=%+v read=%v", err, result, records, readErr)
 	}
 	if result.Status != "completed" {
 		t.Fatalf("workflow rejected: %#v", result)
