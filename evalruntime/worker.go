@@ -142,6 +142,19 @@ func (w *worker) start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Linux: the worker's cgroup exists, with its limits written, before the
+	// worker runs; startProcess admits the gated process into it before release.
+	// No cgroup means no worker.
+	var leaf *cgroupLeaf
+	if cgroupRequired {
+		if w.m.cgroups == nil {
+			return fmt.Errorf("%w: %s", evalapi.ErrSandboxUnsupported, firstNonEmpty(w.m.isolationReason, "resource isolation unavailable"))
+		}
+		leaf, err = w.m.cgroups.newLeaf(s.budget.MemoryBytes)
+		if err != nil {
+			return fmt.Errorf("%w: resource isolation unavailable: %v", evalapi.ErrSandboxUnsupported, err)
+		}
+	}
 	p, err := startProcess(procSpec{
 		cmd:         cmd,
 		dir:         spec.dir,
@@ -152,11 +165,21 @@ func (w *worker) start(ctx context.Context) error {
 		onStdout:    w.onStdout,
 		onStderr:    w.onStderr,
 		onLimit:     w.onLimit,
+		cgroup:      leaf,
 	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", evalapi.ErrWorker, err)
 	}
 	w.proc = p
+	if leaf != nil {
+		// The sandbox's own session must exist and be identifiable before the
+		// worker is used: interrupts are delivered there and nowhere else.
+		if _, err := p.workerGroup(); err != nil {
+			w.conn = nil
+			_ = w.shutdown(context.Background())
+			return fmt.Errorf("%w: %v", evalapi.ErrWorker, err)
+		}
+	}
 	w.idStr = fmt.Sprintf("%s#%d", s.manifest.ID, p.pid)
 	w.conn = newRPCConn(p.protoOut, p.protoIn, w.handleRequest, w.handleNotification)
 	w.conn.start()

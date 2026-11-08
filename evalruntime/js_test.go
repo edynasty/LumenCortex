@@ -141,6 +141,11 @@ await new Promise((resolve) => setTimeout(resolve, 120000));
 		cancel()
 		t.Fatalf("the cell did not publish its detached child pid")
 	}
+	child := hostProcessOf(t, h.m, session.ID, childPID)
+	if !child.alive() {
+		cancel()
+		t.Fatalf("detached child %+v was not running", child)
+	}
 	cancel()
 	select {
 	case got := <-done:
@@ -153,8 +158,8 @@ await new Promise((resolve) => setTimeout(resolve, 120000));
 	case <-time.After(30 * time.Second):
 		t.Fatalf("cancelled execution did not return")
 	}
-	if !waitProcessGone(t, childPID, 10*time.Second) {
-		t.Fatalf("detached descendant %d survived cancellation", childPID)
+	if !waitHostProcGone(child, 10*time.Second) {
+		t.Fatalf("detached descendant %+v survived cancellation", child)
 	}
 }
 
@@ -169,11 +174,15 @@ func TestJavaScriptDisposeCleansWorker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pid %q: %v", result.Displays[0].Text, err)
 	}
+	worker := hostProcessOf(t, h.m, session.ID, pid)
 	if err := h.m.Dispose(context.Background()); err != nil {
 		t.Fatalf("Dispose: %v", err)
 	}
-	if !waitProcessGone(t, pid, 10*time.Second) {
-		t.Fatalf("node worker %d survived Dispose", pid)
+	if !waitHostProcGone(worker, 10*time.Second) {
+		t.Fatalf("node worker %+v survived Dispose", worker)
+	}
+	if !workerProcessesGone(h.m) {
+		t.Fatalf("a worker cgroup survived Dispose: %v", h.m.cgroups.liveLeaves())
 	}
 }
 

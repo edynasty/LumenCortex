@@ -29,20 +29,10 @@ func newPythonHarness(t *testing.T, mutate func(*Options)) (*harness, string) {
 	return h, exe
 }
 
+// processAlive probes a host pid. Off Linux a worker's pid is a host pid; on
+// Linux workers live in a PID namespace, so tests use hostProcessOf instead.
 func processAlive(pid int) bool {
 	return syscall.Kill(pid, 0) == nil
-}
-
-func waitProcessGone(t *testing.T, pid int, timeout time.Duration) bool {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if !processAlive(pid) {
-			return true
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return false
 }
 
 // TestPythonPersistentKernel covers §37: cross-cell state, functions, modules,
@@ -65,12 +55,16 @@ func TestPythonPersistentKernel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pid %q: %v", pidText, err)
 	}
-	if !processAlive(pid) {
-		t.Fatalf("worker pid %d is not alive", pid)
+	worker := hostProcessOf(t, h.m, session.ID, pid)
+	if !worker.alive() {
+		t.Fatalf("worker %+v is not alive", worker)
 	}
 	again := strings.TrimSpace(h.expectCompleted(session, "owner", "print(os.getpid())").Stdout)
 	if again != pidText {
 		t.Fatalf("the worker restarted between cells: %s -> %s", pidText, again)
+	}
+	if still := hostProcessOf(t, h.m, session.ID, pid); !still.sameProcess(worker) || !still.alive() {
+		t.Fatalf("the worker restarted between cells: %+v -> %+v", worker, still)
 	}
 
 	// A failure reports its traceback, does not roll back side effects, and
@@ -377,8 +371,9 @@ time.sleep(120)
 		cancel()
 		t.Fatalf("the cell did not publish its detached child pid")
 	}
-	if !processAlive(childPID) {
-		t.Fatalf("detached child %d was not running", childPID)
+	child := hostProcessOf(t, h.m, session.ID, childPID)
+	if !child.alive() {
+		t.Fatalf("detached child %+v was not running", child)
 	}
 	cancel()
 	select {
@@ -392,8 +387,8 @@ time.sleep(120)
 	case <-time.After(30 * time.Second):
 		t.Fatalf("cancelled execution did not return")
 	}
-	if !waitProcessGone(t, childPID, 10*time.Second) {
-		t.Fatalf("detached descendant %d survived cancellation", childPID)
+	if !waitHostProcGone(child, 10*time.Second) {
+		t.Fatalf("detached descendant %+v survived cancellation", child)
 	}
 }
 
@@ -507,11 +502,15 @@ func TestPythonDisposeCleansWorkers(t *testing.T) {
 	if convErr != nil {
 		t.Fatalf("pid %q: %v", result.Stdout, convErr)
 	}
+	worker := hostProcessOf(t, m, session.ID, pid)
 	if err := m.Dispose(context.Background()); err != nil {
 		t.Fatalf("Dispose: %v", err)
 	}
-	if !waitProcessGone(t, pid, 10*time.Second) {
-		t.Fatalf("worker %d survived Dispose", pid)
+	if !waitHostProcGone(worker, 10*time.Second) {
+		t.Fatalf("worker %+v survived Dispose", worker)
+	}
+	if !workerProcessesGone(m) {
+		t.Fatalf("a worker cgroup survived Dispose: %v", m.cgroups.liveLeaves())
 	}
 }
 

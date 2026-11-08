@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/safefs"
@@ -41,12 +42,23 @@ type procSpec struct {
 	onStdout    func([]byte)
 	onStderr    func([]byte)
 	onLimit     func(reason string)
+	// cgroup is the worker's own cgroup leaf (Linux). When set, the kernel bounds
+	// memory and tasks, the process is admitted into the leaf behind a start
+	// gate before it executes the sandbox, and stop, kill and residual checks use
+	// cgroup membership instead of ps snapshots.
+	cgroup *cgroupLeaf
 }
 
 // process supervises one worker: its control pipes (child fds 3 and 4), its
-// stdout/stderr, its process group, a polled memory bound, and a descendant set.
+// stdout/stderr, its process group, its resource bound, and its descendants.
 //
-// Descendants are tracked by walking the process table (every 150ms, and
+// On Linux the worker lives in its own cgroup leaf: memory.max is a kernel hard
+// limit for the whole tree, cgroup.kill stops every member atomically, and
+// membership (not a pid read earlier) defines what is owned. The interpreter runs
+// in the sandbox's own session, so cooperative signals go to that group (see
+// workerGroup), never to the outer bwrap.
+//
+// Elsewhere (macOS) descendants are tracked by walking the process table (every 150ms, and
 // immediately on a kernel fork event on macOS), not only by process group: a child
 // that calls setsid() leaves the group but keeps its parent link, so the host
 // records its pid and can terminate it. This is observation, not containment: a
@@ -69,9 +81,18 @@ type process struct {
 	stopMon  chan struct{}
 	limitHit atomic.Value // string
 
-	trackMu   sync.Mutex
-	tracked   map[int]struct{}
+	trackMu sync.Mutex
+	// tracked maps a descendant pid to its start time, so a pid that was reused
+	// by an unrelated process is never signalled.
+	tracked   map[int]string
 	stopWatch func()
+
+	cg          *cgroupLeaf
+	onLimit     func(string)
+	limitOnce   sync.Once
+	groupMu     sync.Mutex
+	group       *workerGroup
+	groupClosed bool
 	// stderrTail keeps the worker's own last words, so a startup failure reports
 	// why the interpreter refused to run instead of only "channel closed".
 	stderrTail *streambuf.HeadTail
@@ -109,10 +130,51 @@ func startProcess(spec procSpec) (*process, error) {
 	// The child inherits fd 3 (control in) and fd 4 (control out) in this order.
 	cmd.ExtraFiles = []*os.File{inR, outW}
 	startProcessGroup(cmd)
+	var gateW *os.File
+	if spec.cgroup != nil {
+		// The command runs behind a gate on fd 5: a shell that execs the sandbox
+		// only after the host wrote to the pipe. If the host closes the pipe
+		// instead, read fails and nothing is executed. The gate fd is closed
+		// before the exec, so the sandbox never inherits it.
+		gateR, w, err := os.Pipe()
+		if err != nil {
+			closeAll(inR, inW, outR, outW, stdoutR, stdoutW, stderrR, stderrW)
+			return nil, err
+		}
+		gateW = w
+		cmd.Args = append([]string{"/bin/sh", "-c", `read _ <&5 || exit 125; exec 5<&-; exec "$@"`, "lc-gate", cmd.Path}, cmd.Args[1:]...)
+		cmd.Path = "/bin/sh"
+		cmd.ExtraFiles = append(cmd.ExtraFiles, gateR)
+	}
 
 	if err := cmd.Start(); err != nil {
-		closeAll(inR, inW, outR, outW, stdoutR, stdoutW, stderrR, stderrW)
+		closeAll(inR, inW, outR, outW, stdoutR, stdoutW, stderrR, stderrW, gateW)
+		closeAll(cmd.ExtraFiles[2:]...)
+		if spec.cgroup != nil {
+			spec.cgroup.remove()
+		}
 		return nil, err
+	}
+	if spec.cgroup != nil {
+		closeAll(cmd.ExtraFiles[2:]...)
+		if err := spec.cgroup.admit(cmd.Process.Pid); err != nil {
+			// Never released: closing the gate makes the shell exit unexecuted.
+			_ = gateW.Close()
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			closeAll(inR, inW, outR, outW, stdoutR, stdoutW, stderrR, stderrW)
+			spec.cgroup.remove()
+			return nil, fmt.Errorf("resource isolation unavailable: %w", err)
+		}
+		_, err := gateW.Write([]byte("go\n"))
+		_ = gateW.Close()
+		if err != nil {
+			_ = spec.cgroup.kill()
+			_ = cmd.Wait()
+			closeAll(inR, inW, outR, outW, stdoutR, stdoutW, stderrR, stderrW)
+			spec.cgroup.remove()
+			return nil, err
+		}
 	}
 	// Parent keeps only its own ends.
 	_ = inR.Close()
@@ -127,8 +189,10 @@ func startProcess(spec procSpec) (*process, error) {
 		pid:        cmd.Process.Pid,
 		waitCh:     make(chan struct{}),
 		stopMon:    make(chan struct{}),
-		tracked:    make(map[int]struct{}),
+		tracked:    make(map[int]string),
 		stderrTail: streambuf.New(4<<10, 4<<10),
+		cg:         spec.cgroup,
+		onLimit:    spec.onLimit,
 	}
 	go p.pump(stdoutR, spec.onStdout)
 	go p.pump(stderrR, func(chunk []byte) {
@@ -144,13 +208,19 @@ func startProcess(spec procSpec) (*process, error) {
 			code = cmd.ProcessState.ExitCode()
 		}
 		p.code.Store(int32(code))
+		if p.cg != nil {
+			// Record a kernel memory kill before anyone observes the exit.
+			p.noteCgroupLimit()
+		}
 		p.exited.Store(true)
 		close(p.waitCh)
 	}()
-	go p.trackDescendants()
-	p.stopWatch = startForkWatcher(p)
-	if spec.memoryBytes > 0 {
-		go p.monitorMemory(spec.memoryBytes, spec.onLimit)
+	if p.cg == nil {
+		go p.trackDescendants()
+		p.stopWatch = startForkWatcher(p)
+		if spec.memoryBytes > 0 {
+			go p.monitorMemory(spec.memoryBytes, spec.onLimit)
+		}
 	}
 	if spec.diskBytes > 0 && spec.diskRoot != "" {
 		go p.monitorDisk(spec.diskBytes, spec.diskRoot, spec.onLimit)
@@ -185,10 +255,17 @@ func (p *process) monitorMemory(limit int64, onLimit func(string)) {
 			return
 		case <-ticker.C:
 			rss, err := groupRSSBytes(p.pid)
-			if err != nil || rss <= limit {
+			var reason string
+			switch {
+			case err != nil:
+				// Accounting fails closed, like the disk monitor: a bound that
+				// cannot be measured is not reported as holding.
+				reason = fmt.Sprintf("memory accounting failed (%v); the %d byte limit cannot be certified", err, limit)
+			case rss > limit:
+				reason = fmt.Sprintf("memory limit exceeded: %d > %d bytes", rss, limit)
+			default:
 				continue
 			}
-			reason := fmt.Sprintf("memory limit exceeded: %d > %d bytes", rss, limit)
 			p.limitHit.Store(reason)
 			if onLimit != nil {
 				onLimit(reason)
@@ -250,13 +327,96 @@ func directoryBytes(root string) (int64, error) {
 	return dir.Bytes(maxScanEntries, maxScanDepth)
 }
 
-// interrupt sends SIGINT to the process group: the worker's chance to abort the
-// cell and keep its kernel.
+// interrupt sends SIGINT to the worker's process group: its chance to abort the
+// cell and keep its kernel. On Linux that is the sandbox's own session; when it
+// cannot be identified the signal is not sent anywhere else.
 func (p *process) interrupt() error {
 	if p.exited.Load() {
 		return nil
 	}
+	if p.cg != nil {
+		return p.signalWorker(sigINT)
+	}
 	return signalGroup(p.pid, sigINT)
+}
+
+// signalWorker signals the pinned sandbox worker group (Linux). The group is
+// used under groupMu, so close cannot release its pidfd mid-signal (a closed
+// descriptor number could otherwise be reused for an unrelated process).
+func (p *process) signalWorker(sig syscall.Signal) error {
+	p.groupMu.Lock()
+	defer p.groupMu.Unlock()
+	group, err := p.workerGroupLocked()
+	if err != nil {
+		return err
+	}
+	return group.signal(sig)
+}
+
+// workerGroup identifies the sandbox session once and pins it.
+func (p *process) workerGroup() (*workerGroup, error) {
+	p.groupMu.Lock()
+	defer p.groupMu.Unlock()
+	return p.workerGroupLocked()
+}
+
+// workerGroupLocked waits briefly for a freshly started worker to create its
+// session. After close it fails instead of pinning a new group.
+func (p *process) workerGroupLocked() (*workerGroup, error) {
+	if p.group != nil {
+		return p.group, nil
+	}
+	if p.groupClosed {
+		return nil, errors.New("eval: the worker is closed")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		group, err := findWorkerGroup(p.cg, p.pid)
+		if err == nil {
+			p.group = group
+			return group, nil
+		}
+		if p.exited.Load() || time.Now().After(deadline) {
+			return nil, err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// noteCgroupLimit turns a kernel OOM kill of the worker's cgroup into the
+// worker's limit reason and event, exactly once.
+func (p *process) noteCgroupLimit() {
+	kills := p.cg.oomKills()
+	if kills == 0 {
+		return
+	}
+	p.limitOnce.Do(func() {
+		reason := fmt.Sprintf("memory limit exceeded: the worker cgroup reached memory.max=%s bytes and the kernel killed it (oom_kill=%d)", p.cg.memoryMax(), kills)
+		p.limitHit.Store(reason)
+		if p.onLimit != nil {
+			p.onLimit(reason)
+		}
+	})
+}
+
+// limitReason is the resource limit that stopped the worker, or "".
+func (p *process) limitReason() string {
+	if p.cg != nil {
+		p.noteCgroupLimit()
+	}
+	if reason, ok := p.limitHit.Load().(string); ok {
+		return reason
+	}
+	return ""
+}
+
+// memoryPeak is the worker's memory high-water mark in bytes as the kernel
+// accounts it (Linux cgroup memory.peak), or 0 when it is not measured.
+func (p *process) memoryPeak() int64 {
+	if p.cg != nil {
+		return p.cg.memoryPeak()
+	}
+	return 0
 }
 
 // terminate asks the group to exit (SIGTERM), then kills the group and every
@@ -264,7 +424,11 @@ func (p *process) interrupt() error {
 // caller must not report a clean stop when that list is not empty.
 func (p *process) terminate(ctx context.Context) []int {
 	if !p.exited.Load() {
-		_ = signalGroup(p.pid, sigTERM)
+		if p.cg == nil || p.signalWorker(sigTERM) != nil {
+			// Terminating the outer bwrap also ends the sandbox: acceptable for
+			// a stop, never for an interrupt.
+			_ = signalGroup(p.pid, sigTERM)
+		}
 		select {
 		case <-p.waitCh:
 		case <-time.After(termGrace):
@@ -277,6 +441,9 @@ func (p *process) terminate(ctx context.Context) []int {
 // killTree kills the group (while its leader is alive) and every descendant seen
 // by the tracker, then waits for the tree to disappear.
 func (p *process) killTree() []int {
+	if p.cg != nil {
+		return p.killCgroup()
+	}
 	if !p.exited.Load() {
 		p.kill()
 	}
@@ -297,6 +464,22 @@ func (p *process) killTree() []int {
 	}
 }
 
+// killCgroup kills every member of the worker's cgroup and waits until the
+// kernel reports it empty. Survivors are reported by host pid.
+func (p *process) killCgroup() []int {
+	deadline := time.Now().Add(cleanupWindow)
+	for {
+		_ = p.cg.kill()
+		if !p.cg.populated() {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return p.cg.procs()
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func (p *process) kill() {
 	p.killOnce.Do(func() {
 		_ = signalGroup(p.pid, sigKILL)
@@ -313,18 +496,34 @@ func (p *process) trackedSnapshot() []int {
 	return out
 }
 
+// killTracked kills the recorded descendants that are still the processes that
+// were recorded: a pid whose start time changed now belongs to someone else.
 func (p *process) killTracked() {
-	p.trackMu.Lock()
-	pids := make([]int, 0, len(p.tracked))
-	for pid := range p.tracked {
-		pids = append(pids, pid)
+	table, err := processTable()
+	if err != nil {
+		return
 	}
-	p.trackMu.Unlock()
-	for _, pid := range pids {
-		if pid != os.Getpid() {
-			_ = signalPID(pid, sigKILL)
+	for _, pid := range p.liveTracked(table) {
+		_ = signalPID(pid, sigKILL)
+	}
+}
+
+// liveTracked lists tracked descendants present in table with the start time
+// they were recorded with.
+func (p *process) liveTracked(table []procEntry) []int {
+	starts := make(map[int]string, len(table))
+	for _, entry := range table {
+		starts[entry.pid] = entry.start
+	}
+	p.trackMu.Lock()
+	defer p.trackMu.Unlock()
+	var out []int
+	for pid, start := range p.tracked {
+		if current, ok := starts[pid]; ok && current == start && pid != os.Getpid() {
+			out = append(out, pid)
 		}
 	}
+	return out
 }
 
 // trackDescendants keeps the tracked set current while the worker lives, and
@@ -351,8 +550,10 @@ func (p *process) scanDescendants() {
 		return
 	}
 	children := make(map[int][]int, len(table))
+	starts := make(map[int]string, len(table))
 	for _, entry := range table {
 		children[entry.ppid] = append(children[entry.ppid], entry.pid)
+		starts[entry.pid] = entry.start
 	}
 	p.trackMu.Lock()
 	defer p.trackMu.Unlock()
@@ -366,13 +567,13 @@ func (p *process) scanDescendants() {
 				continue
 			}
 			seen[child] = true
-			p.tracked[child] = struct{}{}
+			p.tracked[child] = starts[child]
 			queue = append(queue, child)
 		}
 	}
 	for _, entry := range table {
 		if entry.pgid == p.pid && entry.pid != p.pid {
-			p.tracked[entry.pid] = struct{}{}
+			p.tracked[entry.pid] = entry.start
 		}
 	}
 }
@@ -384,18 +585,10 @@ func (p *process) residual() []int {
 	if err != nil {
 		return nil
 	}
-	alive := make(map[int]bool, len(table))
-	for _, entry := range table {
-		alive[entry.pid] = true
+	seen := make(map[int]struct{})
+	for _, pid := range p.liveTracked(table) {
+		seen[pid] = struct{}{}
 	}
-	p.trackMu.Lock()
-	seen := make(map[int]struct{}, len(p.tracked))
-	for pid := range p.tracked {
-		if alive[pid] && pid != os.Getpid() {
-			seen[pid] = struct{}{}
-		}
-	}
-	p.trackMu.Unlock()
 	for _, entry := range table {
 		if entry.pgid == p.pid && entry.pid != p.pid && entry.pid != os.Getpid() {
 			seen[entry.pid] = struct{}{}
@@ -439,6 +632,15 @@ func (p *process) close() {
 		if p.stopWatch != nil {
 			p.stopWatch()
 		}
+		p.groupMu.Lock()
+		p.group.close()
+		p.group = nil
+		p.groupClosed = true
+		p.groupMu.Unlock()
+		if p.cg != nil {
+			// rmdir only succeeds on an empty leaf; an occupied one is killed.
+			p.cg.remove()
+		}
 		if p.protoIn != nil {
 			_ = p.protoIn.Close()
 		}
@@ -449,6 +651,10 @@ func (p *process) close() {
 }
 
 func (p *process) cpuMillis() int64 {
+	if p.cg != nil {
+		// The whole tree's CPU, kept by the kernel even after the exit.
+		return p.cg.cpuMillis()
+	}
 	if p.exited.Load() {
 		return 0
 	}
@@ -467,17 +673,20 @@ type procEntry struct {
 	pid  int
 	ppid int
 	pgid int
+	// start is the process start time as ps prints it; with the pid it
+	// identifies one process, so a reused pid is not mistaken for a descendant.
+	start string
 }
 
 func processTable() ([]procEntry, error) {
-	out, err := exec.Command("/bin/ps", "-axo", "pid=,ppid=,pgid=").Output()
+	out, err := exec.Command("/bin/ps", "-axo", "pid=,ppid=,pgid=,lstart=").Output()
 	if err != nil {
 		return nil, err
 	}
 	entries := make([]procEntry, 0, 128)
 	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) != 3 {
+		if len(fields) < 4 {
 			continue
 		}
 		pid, err1 := strconv.Atoi(fields[0])
@@ -486,7 +695,7 @@ func processTable() ([]procEntry, error) {
 		if err1 != nil || err2 != nil || err3 != nil {
 			continue
 		}
-		entries = append(entries, procEntry{pid: pid, ppid: ppid, pgid: pgid})
+		entries = append(entries, procEntry{pid: pid, ppid: ppid, pgid: pgid, start: strings.Join(fields[3:], " ")})
 	}
 	return entries, nil
 }

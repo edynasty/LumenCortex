@@ -226,11 +226,13 @@ func subprocessNote(allow bool) string {
 	if !allow {
 		return "disabled: the sandbox denies fork, so the owned process tree is exactly one process and cleanup is complete; delegate external operations through host tool callbacks"
 	}
-	return "enabled by host opt-in: descendants are recorded from fork events and a 150ms scan, survivors are reported, and completeness is not claimed (a process that detaches and whose parent exits before observation cannot be reported)"
+	return "enabled: every descendant, detached or not, inherits the worker's cgroup and is stopped with it by cgroup.kill; pids.max bounds the task count"
 }
 
-// platformLimits reports how this host actually enforces each bound.
-func platformLimits(backend string, budget evalapi.Budget, allowSubprocess bool) evalapi.Limits {
+// platformLimits reports how this host actually enforces each bound. memory is
+// the enforcement the host verified it can apply (hard: Linux cgroup memory.max;
+// monitored: macOS RSS polling; none: no bound is applied).
+func platformLimits(backend string, budget evalapi.Budget, allowSubprocess bool, memory string) evalapi.Limits {
 	limits := evalapi.Limits{
 		WallSeconds:       budget.WallSeconds,
 		CPUSeconds:        budget.CPUSeconds,
@@ -238,14 +240,14 @@ func platformLimits(backend string, budget evalapi.Budget, allowSubprocess bool)
 		OutputBytes:       budget.OutputBytes,
 		ArtifactBytes:     budget.ArtifactBytes,
 		DiskBytes:         budget.DiskBytes,
-		MemoryEnforcement: evalapi.EnforcementMonitored,
+		MemoryEnforcement: memory,
 		CPUEnforcement:    evalapi.EnforcementHard,
 		DiskEnforcement:   evalapi.EnforcementHard,
 	}
 	limits.Notes = []string{
 		"wall clock: host timer, then SIGINT and SIGKILL to the process group",
 		"cpu: RLIMIT_CPU via ulimit -t (kernel-enforced)",
-		"memory: per-worker process-group RSS, host-monitored every 200ms and killed on exceed; not a kernel rlimit because macOS rejects RLIMIT_AS/RLIMIT_DATA. The total is at most MaxWorkers x MemoryBytes and is not enforced as an aggregate",
+		memoryNote(memory),
 		"disk: RLIMIT_FSIZE via ulimit -f bounds one file; the kernel workspace's total size is host-monitored every 400ms against DiskBytes and the worker is terminated on exceed (monitored, not a kernel hard limit); artifacts also have an explicit quota",
 		"output: bounded while streaming (head+tail), never buffered in full",
 		processTreeNote(allowSubprocess),
@@ -258,12 +260,28 @@ func platformLimits(backend string, budget evalapi.Budget, allowSubprocess bool)
 	return limits
 }
 
+// memoryNote states how memory is bounded on this host.
+func memoryNote(memory string) string {
+	switch memory {
+	case evalapi.EnforcementHard:
+		return "memory: kernel hard limit per worker: cgroup v2 memory.max=MemoryBytes with memory.swap.max=0 and memory.oom.group=1, applied before the worker exists and covering every descendant; exceeding it OOM-kills the whole worker and the kernel is lost. The total is at most MaxWorkers x MemoryBytes and is not enforced as an aggregate"
+	case evalapi.EnforcementMonitored:
+		return "memory: per-worker process-group RSS, host-monitored every 200ms and killed on exceed or when it cannot be measured; not a kernel rlimit because macOS rejects RLIMIT_AS/RLIMIT_DATA. The total is at most MaxWorkers x MemoryBytes and is not enforced as an aggregate"
+	}
+	return "memory: not bounded on this host"
+}
+
+// workerTasksMax bounds the processes and threads of one Linux worker
+// (pids.max). It stops a fork bomb inside the sandbox while leaving room for
+// thread pools (BLAS, libuv) and ordinary subprocess use.
+const workerTasksMax = 512
+
 // processTreeNote describes the actual tree guarantee of this host.
 func processTreeNote(allowSubprocess bool) string {
 	if !allowSubprocess {
 		return "process tree: fork is denied by the sandbox, so the kernel owns exactly one process; stop, reset and dispose terminate it and no descendant can exist"
 	}
-	return "process tree: the worker leads a process group; descendants are recorded from kernel fork events (macOS kqueue NOTE_FORK) plus a 150ms parent-link scan. At teardown the group and every recorded descendant are SIGKILLed and surviving pids are reported. A descendant that detaches and whose parent exits before observation cannot be reported, so the host never claims that every descendant was found or that a stop was clean"
+	return fmt.Sprintf("process tree: the worker is admitted into its own cgroup v2 leaf before it executes (started behind a gate, moved by the user's systemd manager, membership verified), inside a private PID namespace, so every descendant is a member; stop, reset, timeout and dispose write cgroup.kill and wait until the kernel reports the leaf empty, then remove it; pids.max=%d. Surviving members are reported by host pid and the stop is then not clean", workerTasksMax)
 }
 
 // loadPluginDir registers manifest JSON files a host placed under Root/plugins.

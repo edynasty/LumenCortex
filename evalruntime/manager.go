@@ -67,12 +67,16 @@ func DefaultBudget() evalapi.Budget {
 
 // Manager owns the runtime registry and every kernel of one host process.
 type Manager struct {
-	opts          Options
-	root          string
-	workersDir    string
-	launcher      *launcher
-	registry      *registry
-	defaultBudget evalapi.Budget
+	opts       Options
+	root       string
+	workersDir string
+	launcher   *launcher
+	registry   *registry
+	// cgroups is the delegated cgroup subtree that bounds every worker (Linux).
+	// isolationReason says why it is missing; no worker starts without it.
+	cgroups         *cgroupPool
+	isolationReason string
+	defaultBudget   evalapi.Budget
 	// maxKernels bounds live kernels (idle or busy) across this manager. It is a
 	// host decision; a session always owns exactly one worker.
 	maxKernels int
@@ -121,6 +125,21 @@ func New(opts Options) (*Manager, error) {
 	}
 
 	subprocessAllowed := subprocessSupported()
+	// Linux bounds every worker with its own cgroup. Without one there is no
+	// memory limit and no atomic tree stop, so no worker is started at all.
+	memoryEnforcement := evalapi.EnforcementMonitored
+	isolationReason := ""
+	if cgroupRequired {
+		memoryEnforcement = evalapi.EnforcementHard
+		pool, poolErr := newCgroupPool()
+		if poolErr != nil {
+			memoryEnforcement = evalapi.EnforcementNone
+			isolationReason = "resource isolation unavailable: " + poolErr.Error()
+		} else {
+			m.cgroups = pool
+		}
+	}
+	m.isolationReason = isolationReason
 	python, pythonReason := resolveExecutable(opts.Python, "python3")
 	pythonAvailable := python != ""
 	if pythonAvailable {
@@ -142,8 +161,11 @@ func New(opts Options) (*Manager, error) {
 	if pythonAvailable {
 		caps = pythonCapabilities(python)
 	}
-	if err := m.registry.register(pythonManifest(python, filepath.Join(workersDir, pythonWorkerName), caps, platformLimits(sandbox.backend, m.defaultBudget, subprocessAllowed), subprocessAllowed), true, pythonAvailable, pythonReason); err != nil {
-		return nil, err
+	if pythonAvailable && isolationReason != "" {
+		pythonAvailable, pythonReason = false, isolationReason
+	}
+	if err := m.registry.register(pythonManifest(python, filepath.Join(workersDir, pythonWorkerName), caps, platformLimits(sandbox.backend, m.defaultBudget, subprocessAllowed, memoryEnforcement), subprocessAllowed), true, pythonAvailable, pythonReason); err != nil {
+		return nil, m.abandon(err)
 	}
 	if p, ok := m.registry.get("python"); ok && p.available {
 		p.readPaths, err = pythonReadPaths(p.manifest.Executable)
@@ -158,14 +180,17 @@ func New(opts Options) (*Manager, error) {
 
 	js, jsReason := resolveExecutable(opts.JavaScript, "node", "nodejs")
 	jsAvailable := js != ""
+	if jsAvailable && isolationReason != "" {
+		jsAvailable, jsReason = false, isolationReason
+	}
 	if !jsAvailable {
 		js = strings.TrimSpace(opts.JavaScript)
 		if js == "" {
 			js = "node"
 		}
 	}
-	if err := m.registry.register(javascriptManifest(js, filepath.Join(workersDir, javascriptWorkerName), platformLimits(sandbox.backend, m.defaultBudget, subprocessAllowed), subprocessAllowed), true, jsAvailable, jsReason); err != nil {
-		return nil, err
+	if err := m.registry.register(javascriptManifest(js, filepath.Join(workersDir, javascriptWorkerName), platformLimits(sandbox.backend, m.defaultBudget, subprocessAllowed, memoryEnforcement), subprocessAllowed), true, jsAvailable, jsReason); err != nil {
+		return nil, m.abandon(err)
 	}
 	if p, ok := m.registry.get("javascript"); ok && p.available {
 		if probeErr := m.probeBuiltin(p); probeErr != nil {
@@ -174,14 +199,23 @@ func New(opts Options) (*Manager, error) {
 		}
 	}
 	if err := m.registry.loadPluginDir(filepath.Join(root, "plugins")); err != nil {
-		return nil, err
+		return nil, m.abandon(err)
 	}
 	return m, nil
 }
 
+// abandon releases what a failed New already acquired.
+func (m *Manager) abandon(err error) error {
+	if m.cgroups != nil {
+		_ = m.cgroups.close()
+		m.cgroups = nil
+	}
+	return err
+}
+
 // subprocessSupported reports whether this host can clean up an arbitrary
-// descendant tree. Linux runs the worker in a private PID namespace (bwrap
-// --unshare-pid), so killing the namespace kills every descendant. macOS has no
+// descendant tree. Linux runs the worker in its own cgroup inside a private PID
+// namespace, so cgroup.kill stops every descendant. macOS has no
 // equivalent, so fork is denied and the capability is declared unsupported.
 func subprocessSupported() bool { return runtime.GOOS == "linux" }
 
@@ -739,6 +773,12 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 			result.ExitCode = w.proc.exitCode()
 		}
 		result.Usage.CPUMs = w.proc.cpuMillis()
+		result.Usage.MemoryPeakBytes = w.proc.memoryPeak()
+		if reason := w.proc.limitReason(); reason != "" && result.Status != evalapi.ResultStatusCompleted {
+			// The worker was stopped by its resource bound, not by a bug.
+			result.Error = firstNonEmpty(reason+"; "+result.Error, reason)
+			result.StateStatus = evalapi.StateStatusLost
+		}
 	}
 	s.addResult(result)
 	if result.StateStatus == evalapi.StateStatusLost {
@@ -1350,6 +1390,9 @@ func (m *Manager) Dispose(ctx context.Context) error {
 		}(w, s)
 	}
 	wg.Wait()
+	if m.cgroups != nil {
+		record(m.cgroups.close())
+	}
 	return firstErr
 }
 
@@ -1423,6 +1466,8 @@ func (s *session) onWorkerExit(w *worker) {
 	s.lastError = fmt.Sprintf("worker exited unexpectedly with code %d; kernel state discarded", exitCode)
 	generation := s.generation
 	s.mu.Unlock()
+	// Release what the dead worker still holds (its cgroup leaf, pipes).
+	_ = w.shutdown(context.Background())
 	s.m.emit(evalapi.Event{Type: evalapi.EventWorkerCrashed, SessionID: s.id, OwnerID: s.ownerID, AgentID: s.agentID,
 		Generation: generation,
 		Data:       map[string]any{"stateStatus": evalapi.StateStatusLost, "exitCode": exitCode, "unplanned": true}})

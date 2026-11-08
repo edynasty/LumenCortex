@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -123,6 +124,8 @@ func TestResetLeavesNoWorkerBehind(t *testing.T) {
 	if convErr != nil {
 		t.Fatalf("pid display %q: %v", before.Displays[0].Text, convErr)
 	}
+	// The printed pid is a sandbox pid; the host identity is what must vanish.
+	first := hostProcessOf(t, h.m, session.ID, firstPID)
 
 	// A cell holds the kernel while another is queued behind it, then Reset runs.
 	var wg sync.WaitGroup
@@ -142,8 +145,8 @@ func TestResetLeavesNoWorkerBehind(t *testing.T) {
 	}
 	wg.Wait()
 
-	if processAlive(firstPID) {
-		t.Fatalf("worker %d survived Reset", firstPID)
+	if first.alive() {
+		t.Fatalf("worker %+v survived Reset", first)
 	}
 	// Exactly one worker is installed, and it is a new process.
 	s, err := h.m.session(session.ID)
@@ -162,8 +165,11 @@ func TestResetLeavesNoWorkerBehind(t *testing.T) {
 	if convErr != nil {
 		t.Fatalf("pid display %q: %v", after.Displays[0].Text, convErr)
 	}
-	if secondPID == firstPID {
-		t.Fatalf("reset reused worker pid %d", firstPID)
+	// A new PID namespace may hand out the same sandbox pid again; the host
+	// process must still be a different, live one.
+	second := hostProcessOf(t, h.m, session.ID, secondPID)
+	if second.sameProcess(first) || !second.alive() {
+		t.Fatalf("reset reused worker %+v (now %+v)", first, second)
 	}
 }
 
@@ -192,7 +198,14 @@ func TestCloseDuringRestartLeavesNoWorker(t *testing.T) {
 	}
 	<-done
 
-	if pid := int(observed.Load()); pid > 0 && processAlive(pid) {
+	// The restarted worker may print its pid and then be killed by Close, so it
+	// cannot be mapped to a host process afterwards. The kernel's record is
+	// checked instead: no worker cgroup may remain (Linux), and off Linux the
+	// sandbox pid is the host pid.
+	if !workerProcessesGone(h.m) {
+		t.Fatalf("a worker cgroup survived Close: %v", h.m.cgroups.liveLeaves())
+	}
+	if pid := int(observed.Load()); pid > 0 && runtime.GOOS != "linux" && processAlive(pid) {
 		t.Fatalf("restart worker %d survived Close", pid)
 	}
 	s, err := h.m.session(session.ID)
@@ -223,11 +236,15 @@ func TestDisposeLeavesNoWorkerBehind(t *testing.T) {
 	if convErr != nil {
 		t.Fatalf("pid display: %v", convErr)
 	}
+	worker := hostProcessOf(t, h.m, session.ID, pid)
 	if err := h.m.Dispose(context.Background()); err != nil {
 		t.Fatalf("Dispose: %v", err)
 	}
-	if processAlive(pid) {
-		t.Fatalf("worker %d survived Dispose", pid)
+	if worker.alive() {
+		t.Fatalf("worker %+v survived Dispose", worker)
+	}
+	if !workerProcessesGone(h.m) {
+		t.Fatalf("a worker cgroup survived Dispose: %v", h.m.cgroups.liveLeaves())
 	}
 }
 
@@ -260,6 +277,7 @@ while True:
 	if convErr != nil {
 		t.Fatalf("pid file: %v", convErr)
 	}
+	worker := hostProcessOf(t, h.m, session.ID, pid)
 	time.Sleep(300 * time.Millisecond)
 
 	start := time.Now()
@@ -270,8 +288,8 @@ while True:
 		t.Fatalf("interrupt escalation took %s", elapsed)
 	}
 	// The guarantee: after Interrupt returns, the owned pid is gone.
-	if processAlive(pid) {
-		t.Fatalf("worker %d survived an ignored interrupt", pid)
+	if worker.alive() {
+		t.Fatalf("worker %+v survived an ignored interrupt", worker)
 	}
 	select {
 	case result := <-done:
