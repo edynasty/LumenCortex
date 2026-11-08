@@ -27,7 +27,7 @@ The original 513-line design and four DAP experiment files were SHA256 verified 
 4. Agent debugger with safe-boundary stepping — implemented; real file-write/UI stepping, once breakpoint, cancellation, read-only denial and asynchronous child completion checks passed.
 5. DAP — transport, registry, Engine grants, run-bound tools, owned Attach, IntelliJ MCP reuse and Desktop panel implemented. Five real adapters and targeted race checks passed; final crash/security matrix and native Wails integration remain under the unified gates below.
 6. Hub/DAG/messages/worktrees/four workers — implemented; real Core/Desktop localhost UI path, four concurrent worktrees, dependent fifth task, scoped pause/resume, messages and source revalidation passed. Full-platform lifecycle gate remains below.
-7. Persistent Eval reused and extended with tree CPU quota, per-cell CPU accounting and confined artifact paths; Linux resource/scientific race proof passed. FA-07 host assertion and FA-01 broker remain in progress.
+7. Persistent Eval reused and extended with tree CPU quota, per-cell CPU accounting and confined artifact paths; Linux resource/scientific race proof passed. FA-07 versioned host assertion and real Harbor 0.25.0 refusal verified; FA-01 broker remains in progress.
 8. Existing hooks extension and permission invariants — pending.
 9. Cognitive/provenance/verification integration — pending.
 10. Full Desktop integration, deterministic capability experiments, full regression/security gates — pending.
@@ -61,4 +61,6 @@ Hub: `raw/hub-regression.json` records Core/session race coverage (four concurre
 
 Hub commits: Core `ccf632b`, Desktop `a42fd2f`. Eval: `raw/eval-linux-targeted-final.*` proves four descendants throttled (`nr_throttled +10`), per-cell CPU excludes earlier work, cgroup-bound tree and real scientific round trip with independent semantic/delivery checks. `raw/eval-integration-lifecycle.*` covers macOS real Python/JS/artifact/interrupt/reset paths. Miniconda SciPy is locally malformed (`__thread_bss` load failure); scientific macOS case is not PASS. The deterministic science fixture now disables provider retries so a failed transition cannot advance its script. No system dependency installation occurred.
 
-Next: implement versioned FA-07 host assertion and FA-01 independent-UID broker. Final Desktop resource/health integration stays in the Desktop integration gate. Development-only Desktop replace remains this task's Core worktree. No main changes, production action or publication.
+FA-07: `docs/host-boundary.md` specifies schema/admission. `raw/boundary-real-manager-smoke-corrected.*` proves actual Python side effects allowed only in the explicit development mode and refused under the required boundary; Linux race identity/reset/refusal and installed Harbor 0.25.0 rejection passed. The host report is FAIL (same UID, public bwrap, unconfined restriction disabled), not production PASS. No environment changes or formal Trials occurred.
+
+Next: implement FA-01 independent-UID broker and reversible Ubuntu security matrix. Final Desktop resource/health integration stays in the Desktop integration gate. Development-only Desktop replace remains this task's Core worktree. No main changes, production action or publication.

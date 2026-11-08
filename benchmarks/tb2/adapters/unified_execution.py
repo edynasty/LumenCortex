@@ -8,27 +8,30 @@ No formal job is created by importing this module.
 import json
 import re
 from pathlib import Path
+import uuid
+
+from boundary import assert_host_boundary
 
 
 class UnifiedExecutionMixin:
     def __init__(self, *args, eval_enabled=False, eval_python=None,
-                 eval_javascript=None, **kwargs):
+                 eval_javascript=None, eval_cohort_id=None, **kwargs):
         if not isinstance(eval_enabled, bool):
             raise TypeError("eval_enabled must be boolean")
         self.eval_enabled = eval_enabled
         self.eval_python = eval_python
         self.eval_javascript = eval_javascript
+        self.eval_cohort_id = eval_cohort_id
         super().__init__(*args, **kwargs)
 
     async def setup(self, environment):
-        # Always let the canonical adapter perform its real boundary and identity
-        # checks. A flag is not a sandbox attestation.
+        if self.eval_enabled:
+            binding = self._boundary_binding("setup")
+            await assert_host_boundary(environment, binding)
+        # Eval OFF uses the identical canonical environment and setup path.
         await super().setup(environment)
         if not self.eval_enabled:
             return
-        if not callable(getattr(environment, "assert_boundary", None)):
-            raise RuntimeError("Eval requires the canonical verified sandbox environment")
-        await environment.assert_boundary()
         for executable in (self.eval_python, self.eval_javascript):
             # None (the constructor default) and a blank value both mean "no explicit
             # interpreter": Core trims LCX_EVAL_PYTHON/LCX_EVAL_JAVASCRIPT and falls back to
@@ -38,6 +41,15 @@ class UnifiedExecutionMixin:
                 continue
             if not executable.startswith("/") or "\0" in executable:
                 raise ValueError("runtime executable must be an explicit absolute sandbox path")
+
+    def _boundary_binding(self, request_id):
+        binding = {"cohortId": self.eval_cohort_id, "jobId": self.logs_dir.parents[1].name,
+                   "trialId": self.logs_dir.parent.name, "executionId": str(uuid.uuid4()),
+                   "requestId": request_id}
+        if not all(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,180}", value)
+                   for value in binding.values()):
+            raise ValueError("Eval requires explicit cohort and valid job/trial/execution/request IDs")
+        return binding
 
     async def run(self, instruction, environment, context):
         if not self.eval_enabled:
@@ -55,9 +67,15 @@ class UnifiedExecutionMixin:
             async def exec(self, *args, **kwargs):
                 env = kwargs.get("env")
                 if env and env.get("LCX_POLICY"):
+                    binding = owner._boundary_binding(str(uuid.uuid4()))
+                    # Recheck immediately before each executable invocation, not
+                    # only at setup. Never consume container-generated proof.
+                    await assert_host_boundary(environment, binding)
                     env = dict(env)
                     env.update(LCX_EVAL_ENABLED="1", LCX_EVENTS="1",
-                               LCX_EVAL_TRIAL_ID=trial_id, LCX_EVAL_RUN_ID=run_id)
+                               LCX_EVAL_TRIAL_ID=trial_id, LCX_EVAL_RUN_ID=run_id,
+                               LCX_EVAL_REQUIRE_BOUNDARY="1", LCX_EVAL_COHORT_ID=binding["cohortId"],
+                               LCX_EVAL_EXECUTION_ID=binding["executionId"])
                     if owner.eval_python:
                         env["LCX_EVAL_PYTHON"] = owner.eval_python
                     if owner.eval_javascript:

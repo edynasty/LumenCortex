@@ -46,6 +46,9 @@ type Options struct {
 	Budget     evalapi.Budget
 	OnEvent    func(evalapi.Event)
 	Sandbox    SandboxOptions
+	// Boundary enables fresh host inspection before every cell. Nil preserves
+	// the explicitly selected local-development execution path.
+	Boundary *evalapi.BoundaryContext
 }
 
 // DefaultBudget is the host fallback when neither Options.Budget nor a request
@@ -93,6 +96,14 @@ type Manager struct {
 func New(opts Options) (*Manager, error) {
 	if strings.TrimSpace(opts.Root) == "" {
 		return nil, fmt.Errorf("%w: Root is required", evalapi.ErrInvalid)
+	}
+	if opts.Boundary != nil {
+		binding := *opts.Boundary
+		binding.RequestID = "admission"
+		if err := binding.Validate(); err != nil {
+			return nil, err
+		}
+		opts.Boundary = &binding
 	}
 	root, err := filepath.Abs(opts.Root)
 	if err != nil {
@@ -704,6 +715,9 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 	if watchCtx.Err() != nil {
 		// The share ended while the worker was starting: never run the cell.
 		return evalapi.Result{}, fmt.Errorf("%w: agent %q lost access to session %s before the cell started", evalapi.ErrDenied, agent, s.id)
+	}
+	if err := m.admitBoundary(waitCtx, w, req.ID); err != nil {
+		return evalapi.Result{}, err
 	}
 	if err := s.materializeInputs(agent, req.Inputs); err != nil {
 		return evalapi.Result{}, err

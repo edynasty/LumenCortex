@@ -32,6 +32,8 @@ type EvalOptions struct {
 	RequireCallerIsolation bool   `json:"requireCallerIsolation,omitempty"`
 	RunID                  string `json:"runId,omitempty"`
 	TrialID                string `json:"trialId,omitempty"`
+	// Boundary is host configuration; model requests cannot supply or disable it.
+	Boundary *evalapi.BoundaryContext `json:"boundary,omitempty"`
 }
 
 var ErrEvalDisabled = errors.New("execution runtimes are disabled by the host")
@@ -41,6 +43,10 @@ func cloneEvalOptions(in *EvalOptions) *EvalOptions {
 		return nil
 	}
 	out := *in
+	if in.Boundary != nil {
+		binding := *in.Boundary
+		out.Boundary = &binding
+	}
 	return &out
 }
 
@@ -62,7 +68,7 @@ func (e *Engine) evalHost(ctx context.Context) (*evalruntime.Manager, error) {
 	if e.evalManager != nil {
 		return e.evalManager, nil
 	}
-	manager, err := evalruntime.New(evalruntime.Options{Root: filepath.Join(e.repoDir, "eval"), Python: e.evalOptions.Python, JavaScript: e.evalOptions.JavaScript, Budget: e.evalOptions.Budget, Sandbox: evalruntime.SandboxOptions{BubblewrapPath: e.evalOptions.Bubblewrap, RequireCallerIsolation: e.evalOptions.RequireCallerIsolation}, OnEvent: func(event evalapi.Event) {
+	manager, err := evalruntime.New(evalruntime.Options{Root: filepath.Join(e.repoDir, "eval"), Python: e.evalOptions.Python, JavaScript: e.evalOptions.JavaScript, Budget: e.evalOptions.Budget, Boundary: e.evalOptions.Boundary, Sandbox: evalruntime.SandboxOptions{BubblewrapPath: e.evalOptions.Bubblewrap, RequireCallerIsolation: e.evalOptions.RequireCallerIsolation}, OnEvent: func(event evalapi.Event) {
 		e.events.publish("eval."+event.Type, event.OwnerID, event)
 	}})
 	if err != nil {

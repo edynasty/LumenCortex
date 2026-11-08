@@ -18,7 +18,11 @@ func evalOptionsFromEnv() *lcx.EvalOptions {
 	if !envBool("LCX_EVAL_ENABLED") {
 		return nil
 	}
-	return &lcx.EvalOptions{Python: strings.TrimSpace(os.Getenv("LCX_EVAL_PYTHON")), JavaScript: strings.TrimSpace(os.Getenv("LCX_EVAL_JAVASCRIPT")), Bubblewrap: strings.TrimSpace(os.Getenv("LCX_EVAL_BUBBLEWRAP")), RequireCallerIsolation: envBool("LCX_EVAL_REQUIRE_CALLER_ISOLATION"), RunID: strings.TrimSpace(os.Getenv("LCX_EVAL_RUN_ID")), TrialID: strings.TrimSpace(os.Getenv("LCX_EVAL_TRIAL_ID"))}
+	opts := &lcx.EvalOptions{Python: strings.TrimSpace(os.Getenv("LCX_EVAL_PYTHON")), JavaScript: strings.TrimSpace(os.Getenv("LCX_EVAL_JAVASCRIPT")), Bubblewrap: strings.TrimSpace(os.Getenv("LCX_EVAL_BUBBLEWRAP")), RequireCallerIsolation: envBool("LCX_EVAL_REQUIRE_CALLER_ISOLATION"), RunID: strings.TrimSpace(os.Getenv("LCX_EVAL_RUN_ID")), TrialID: strings.TrimSpace(os.Getenv("LCX_EVAL_TRIAL_ID"))}
+	if envBool("LCX_EVAL_REQUIRE_BOUNDARY") {
+		opts.Boundary = &evalapi.BoundaryContext{CohortID: os.Getenv("LCX_EVAL_COHORT_ID"), JobID: opts.RunID, TrialID: opts.TrialID, ExecutionID: os.Getenv("LCX_EVAL_EXECUTION_ID")}
+	}
+	return opts
 }
 
 // serve retains the same Engine and workers across JSONL requests. Closing stdin or
