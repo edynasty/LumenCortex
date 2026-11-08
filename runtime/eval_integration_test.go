@@ -17,8 +17,10 @@ import (
 
 func executionTestEngine(t *testing.T) (*Engine, string) {
 	t.Helper()
-	if goruntime.GOOS != "darwin" {
-		t.Skip("native seatbelt integration requires macOS; platform worker tests cover other backends")
+	// The engine runs cells in the platform sandbox: Seatbelt on macOS,
+	// bubblewrap plus a per-worker cgroup on Linux. Elsewhere there is none.
+	if goruntime.GOOS != "darwin" && goruntime.GOOS != "linux" {
+		t.Skip("no supported sandbox backend on this platform")
 	}
 	python := os.Getenv("LCX_TEST_PYTHON")
 	if python == "" {
