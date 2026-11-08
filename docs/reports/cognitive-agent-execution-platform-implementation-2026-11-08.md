@@ -24,7 +24,7 @@ The original 513-line design and four DAP experiment files were SHA256 verified 
 1. Contracts, original materials, exact baselines — verified; ADR-0022 records unified interfaces and safety ownership.
 2. Runtime Event Bus and same-store durable events — implemented; focused race regression and real Engine shell/reopen smoke passed.
 3. Inspector API and existing-layout UI — implemented; real Shell/Notebook artifact, history/filter/reconnect/error-recovery and viewport smoke passed.
-4. Agent debugger with safe-boundary stepping — pending.
+4. Agent debugger with safe-boundary stepping — implemented; real file-write/UI stepping, once breakpoint, cancellation, read-only denial and asynchronous child completion checks passed.
 5. DAP transport/manager/tools and real adapter integration — pending.
 6. Hub/DAG/messages/worktrees/four workers — pending.
 7. Persistent Eval + FA-07 host assertion + FA-01 UID broker — pending.
@@ -43,4 +43,6 @@ Verification: `raw/event-foundation-race.json` records the exact successful race
 
 Inspector: session/run-scoped transcript details, sanitized worker snapshots, typed Desktop bridge, three-column history/live UI, bounded buffers and existing Artifact Viewer. Focused Core/backend race and frontend window tests passed; TypeScript passed. Browser proof covers actual Shell output, Python-produced artifact bytes, filtered/empty history, disconnected cursor recovery, visible request failure/manual recovery, dark/light at 1440/1180/820/560 px without horizontal overflow. Transport for this smoke is a removed localhost adapter over real Desktop backend, not native Wails; native build remains a final integration gate. Raw receipts and screenshots are in the workspace evidence directory. Temporary smoke sources were removed and their owned backend shut down.
 
-Next: run-owned safe-boundary Agent Runtime Debugger; no arbitrary goroutine suspension, no side-effect replay. Desktop's development-only Core replace points at this task's Core worktree. Both main workspaces remain untouched; no new model requests, delegation, production changes or publication.
+Debugger: run-owned controller, bounded exact-match/once breakpoints, revision-bound controls, safe model/tool/turn stepping, actual asynchronous child completion latch and revocation checks. Race receipts: `raw/agent-debugger-final-race.json`, `raw/agent-debugger-async-final.json`. Real UI receipts: `raw/agent-debugger-real-ui.json`, `raw/agent-debugger-breakpoint-ui.json`; deterministic local provider, zero external requests. TypeScript and Desktop backend targeted race passed. Smoke host exited 0 and temporary sources were removed. Full regression and native Wails remain final integration gates.
+
+Next: DAP transport, trusted adapter registry, owned process lifecycle and permission-scoped tools. Desktop's development-only Core replace points at this task's Core worktree. Both main workspaces remain untouched; no new model requests, delegation, production changes or publication.

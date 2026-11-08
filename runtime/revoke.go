@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/edynasty/LumenCortex/internal/agent"
 	"github.com/edynasty/LumenCortex/internal/session"
 )
 
@@ -86,6 +87,7 @@ func (e *Engine) ExposureReport(ctx context.Context, epoch int64) (ExposureRepor
 type trackedRun struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	debug  *agent.DebugControl
 }
 
 // trackRun registers preparation through final cleanup. The caller holds the session run lock,
@@ -108,6 +110,9 @@ func (e *Engine) trackRun(ctx context.Context, sessionID string) (context.Contex
 			delete(e.runs, sessionID)
 		}
 		e.runsMu.Unlock()
+		if run.debug != nil {
+			run.debug.Close()
+		}
 		cancel()
 		close(run.done)
 	}

@@ -84,7 +84,8 @@ type Loop struct {
 	// level is decided.
 	Verifier verify.Verifier
 	// Reviewer is the single, opt-in, read-only independent review (spec §22); nil disables it.
-	Reviewer verify.Reviewer
+	Reviewer      verify.Reviewer
+	DebugBoundary func(context.Context, DebugBoundary) error
 }
 
 // run is the Task State a run works on: the run's current state, the workflow and work units decoded
@@ -335,6 +336,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		r.appendAssistant(seq, assistant, answered.Model.Ref, response.Echo)
+		if err := l.debugBoundary(ctx, DebugBoundary{Event: "AfterModelCall", Step: step}); err != nil {
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+		}
 		record := stepRecord{
 			Step:         step,
 			FinishReason: response.FinishReason,
@@ -361,6 +365,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					return l.exit(ctx, state, usage, outputLimitExit(response))
 				}
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindEmptyResponse, Err: errors.New("model returned neither tool calls nor final content")})
+			}
+			if err := l.debugBoundary(ctx, DebugBoundary{Event: "BeforeDelivery", Step: step}); err != nil {
+				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
 			}
 			// Background jobs the run started come first: their results may be what the rest of the gate
 			// needs (ADR-0019 §3).
@@ -482,6 +489,14 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			if err := ctx.Err(); err != nil {
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
 			}
+			if err := l.debugBoundary(ctx, DebugBoundary{Event: "BeforeToolCall", Step: step, Tool: call.Name, ToolCallID: call.ID}); err != nil {
+				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+			}
+			if call.Name == toolStartTask || call.Name == toolSpawnSubagent {
+				if err := l.debugBoundary(ctx, DebugBoundary{Event: "BeforeSubagentStart", Step: step, Tool: call.Name, ToolCallID: call.ID}); err != nil {
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+				}
+			}
 			args, argsErr := parseToolArguments(call.Arguments)
 			var refusal string
 			switch {
@@ -494,6 +509,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				rejected := protocol.ToolResult{OK: false, Content: clock.annotate(toolErrorContent(refusal), time.Now())}
 				if _, err := l.persistToolResult(ctx, sessionID, opts.RunID, call, rejected, nil, nil, nil, r); err != nil {
 					return l.exit(ctx, state, usage, *storeExit(err))
+				}
+				for _, point := range []string{"AfterToolCall", "ToolFailure"} {
+					if err := l.debugBoundary(ctx, DebugBoundary{Event: point, Step: step, Tool: call.Name, ToolCallID: call.ID, Failed: true}); err != nil {
+						return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+					}
 				}
 				continue
 			}
@@ -682,6 +702,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				end["executionId"], end["outcome"], end["coverage"], end["snapshotNanos"] = x.id, string(post.Outcome), string(post.Coverage), x.snapshot.Nanoseconds()
 			}
 			l.emit("tool.end", sessionID, end)
+			workflowTransition := false
 			if r.wf != nil {
 				update, wfErr := r.wf.ObserveTool(workflow.ToolObservation{Tool: call.Name, Args: args, Result: map[string]any{"ok": toolResult.OK, "denied": toolResult.Denied, "permission": toolResult.Permission, "content": toolResult.Content}, Step: step})
 				if wfErr != nil {
@@ -691,6 +712,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					l.emit("workflow.facts", sessionID, map[string]any{"step": step, "facts": update.ChangedFacts})
 				}
 				if update.Transition != nil {
+					workflowTransition = true
 					l.emit("workflow.transition", sessionID, map[string]any{"step": step, "from": update.Transition.From, "to": update.Transition.To, "reason": update.Transition.Reason})
 				}
 				r.ts.SetWorkflow(r.wf)
@@ -723,6 +745,20 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				"ok":         toolResult.OK,
 				"denied":     toolResult.Denied,
 			})
+			points := []string{"AfterToolCall"}
+			if toolResult.Denied {
+				points = append(points, "PermissionDenied")
+			} else if !toolResult.OK {
+				points = append(points, "ToolFailure")
+			}
+			if workflowTransition {
+				points = append(points, "WorkflowTransition")
+			}
+			for _, point := range points {
+				if err := l.debugBoundary(ctx, DebugBoundary{Event: point, Step: step, Tool: call.Name, ToolCallID: call.ID, Failed: !toolResult.OK, Denied: toolResult.Denied}); err != nil {
+					return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+				}
+			}
 			if cb != nil && (len(cb.journal.Entries) > 0 || cb.journal.Dropped > 0) {
 				// Nested calls have no tool call of their own: a bounded journal replaces unmatched rows.
 				l.checkpoint(sessionID, "agent.callbacks", map[string]any{

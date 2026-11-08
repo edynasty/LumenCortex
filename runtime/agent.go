@@ -89,7 +89,9 @@ type AgentOptions struct {
 	Verification *VerificationOptions `json:"verification,omitempty"`
 	// Review opts this run into the single, read-only independent review (spec §22). nil or
 	// Enabled false runs none, and no model request is made for a review.
-	Review   *ReviewOptions `json:"review,omitempty"`
+	Review *ReviewOptions `json:"review,omitempty"`
+	// Debug configures safe-boundary observation; it never grants tool authority.
+	Debug    *AgentDebugOptions `json:"debug,omitempty"`
 	ownerRun *managedRun
 
 	subagents toolset.SubagentController
@@ -281,6 +283,14 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 			delivery = &recorded
 		}
 	}
+	if r.parentSessionID != "" {
+		r.engine.runsMu.Lock()
+		parent := r.engine.runs[r.parentSessionID]
+		if parent != nil && parent.debug != nil {
+			parent.debug.Observe(agent.DebugBoundary{Event: "AfterSubagentEnd", Agent: r.info.Agent, Failed: result.Status != agent.StatusCompleted})
+		}
+		r.engine.runsMu.Unlock()
+	}
 	return AgentResult{
 		SessionID:   result.SessionID,
 		Status:      result.Status,
@@ -323,6 +333,12 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		return nil, err
 	}
 	runID, err := newRunID()
+	if err != nil {
+		return nil, err
+	}
+	debugControl, err := agent.NewDebugControl(runID, opts.Debug, func(snapshot agent.DebugSnapshot) {
+		e.events.publish("debug.agent.state", sessionID, map[string]any{"runId": runID, "status": snapshot.State, "phase": snapshot.Boundary.Event, "step": snapshot.Boundary.Step, "toolCallId": snapshot.Boundary.ToolCallID, "name": snapshot.Boundary.Tool, "reason": snapshot.Reason})
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -700,6 +716,15 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		// when the host explicitly enabled it for this run.
 		reviewer = providerReviewer{engine: e, sessionID: sessionID, runID: runID, model: opts.Review.Model}
 	}
+	e.runsMu.Lock()
+	tracked := e.runs[sessionID]
+	if tracked != nil {
+		tracked.debug = debugControl
+	}
+	e.runsMu.Unlock()
+	if tracked == nil {
+		return nil, errors.New("agent run lifetime is unavailable")
+	}
 	return &preparedRun{
 		engine:          e,
 		sessionID:       sessionID,
@@ -723,6 +748,16 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 			Hooks:     e.hookRegistryForRun(),
 			Verifier:  verifier,
 			Reviewer:  reviewer,
+			DebugBoundary: func(ctx context.Context, point agent.DebugBoundary) error {
+				point.Agent = plan.agentID
+				if err := e.runtimeEventAccess(ctx, sessionID); err != nil {
+					return err
+				}
+				if err := debugControl.Boundary(ctx, point); err != nil {
+					return err
+				}
+				return e.runtimeEventAccess(ctx, sessionID)
+			},
 			Emit: func(event agent.Event) {
 				e.events.publish(event.Type, event.SessionID, event.Data)
 				_ = e.store.Journal(context.Background(), event.Type, map[string]any{

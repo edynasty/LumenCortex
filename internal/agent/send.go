@@ -282,6 +282,10 @@ func (l *Loop) send(
 		if cause := l.waitForCooldown(ctx, sessionID, step, cand.Ref, opts.Recovery, down.start); cause != nil {
 			return attempt{}, cause
 		}
+		if err := l.debugBoundary(ctx, DebugBoundary{Event: "BeforeModelCall", Step: step}); err != nil {
+			cause := exitFor(protocol.ClassCancelled, err)
+			return attempt{}, &cause
+		}
 		// Every attempt (failover and capacity retries included) is a new request the budget admits
 		// before its envelope exists (ADR-0019 §6).
 		if cause := r.spend.admitRequest(opts.Budget, m, built.Tokens); cause != nil {
@@ -332,6 +336,10 @@ func (l *Loop) send(
 		class := Classify(ctx, err)
 		// The request was sent; an error does not prove it was not delivered, so it is unknown.
 		l.settle(sessionID, requestID, settleReason(class))
+		if pauseErr := l.debugBoundary(ctx, DebugBoundary{Event: "AfterModelCall", Step: step, Failed: true}); pauseErr != nil {
+			cause := exitFor(protocol.ClassCancelled, pauseErr)
+			return attempt{}, &cause
+		}
 		if class == protocol.ClassCancelled {
 			cause := exitFor(class, ctx.Err())
 			return attempt{}, &cause
