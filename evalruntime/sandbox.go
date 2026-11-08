@@ -31,6 +31,14 @@ type SandboxOptions struct {
 	// ExtraReadPaths are additional host paths the worker may read. They are
 	// host-owned and never derived from a cell.
 	ExtraReadPaths []string
+
+	// BubblewrapPath is the bwrap the Linux backend runs. Empty means "bwrap" on
+	// PATH. A deployment that grants user namespaces to one dedicated, LC-only
+	// copy through an AppArmor profile attached to that path (rather than to the
+	// public /usr/bin/bwrap, which any caller could use) names it here. It must be
+	// an absolute path to a regular file owned by root and writable by no one
+	// else; anything else fails closed at New.
+	BubblewrapPath string
 }
 
 // launcher builds the sandboxed command line for one worker process.
@@ -65,6 +73,13 @@ func newLauncher(opts SandboxOptions) (*launcher, error) {
 		}
 		if backend != evalapi.SandboxBubblewrap {
 			return nil, fmt.Errorf("%w: backend %q is not available on linux", evalapi.ErrSandboxUnsupported, backend)
+		}
+		path := strings.TrimSpace(opts.BubblewrapPath)
+		if path != "" {
+			if err := checkTrustedExecutable(path); err != nil {
+				return nil, fmt.Errorf("%w: bubblewrap path: %v", evalapi.ErrSandboxUnsupported, err)
+			}
+			return &launcher{goos: goos, backend: backend, exe: path}, nil
 		}
 		path, err := exec.LookPath("bwrap")
 		if err != nil {

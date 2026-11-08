@@ -18,7 +18,7 @@ func evalOptionsFromEnv() *lcx.EvalOptions {
 	if !envBool("LCX_EVAL_ENABLED") {
 		return nil
 	}
-	return &lcx.EvalOptions{Python: strings.TrimSpace(os.Getenv("LCX_EVAL_PYTHON")), JavaScript: strings.TrimSpace(os.Getenv("LCX_EVAL_JAVASCRIPT")), RunID: strings.TrimSpace(os.Getenv("LCX_EVAL_RUN_ID")), TrialID: strings.TrimSpace(os.Getenv("LCX_EVAL_TRIAL_ID"))}
+	return &lcx.EvalOptions{Python: strings.TrimSpace(os.Getenv("LCX_EVAL_PYTHON")), JavaScript: strings.TrimSpace(os.Getenv("LCX_EVAL_JAVASCRIPT")), Bubblewrap: strings.TrimSpace(os.Getenv("LCX_EVAL_BUBBLEWRAP")), RunID: strings.TrimSpace(os.Getenv("LCX_EVAL_RUN_ID")), TrialID: strings.TrimSpace(os.Getenv("LCX_EVAL_TRIAL_ID"))}
 }
 
 // serve retains the same Engine and workers across JSONL requests. Closing stdin or

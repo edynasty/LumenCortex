@@ -23,6 +23,9 @@ type EvalOptions struct {
 	Python     string         `json:"python,omitempty"`
 	JavaScript string         `json:"javascript,omitempty"`
 	Budget     evalapi.Budget `json:"budget"`
+	// Bubblewrap is the root-owned bwrap the Linux sandbox runs; empty means
+	// "bwrap" on PATH. See evalruntime.SandboxOptions.BubblewrapPath.
+	Bubblewrap string `json:"bubblewrap,omitempty"`
 	RunID      string         `json:"runId,omitempty"`
 	TrialID    string         `json:"trialId,omitempty"`
 }
@@ -55,7 +58,7 @@ func (e *Engine) evalHost(ctx context.Context) (*evalruntime.Manager, error) {
 	if e.evalManager != nil {
 		return e.evalManager, nil
 	}
-	manager, err := evalruntime.New(evalruntime.Options{Root: filepath.Join(e.repoDir, "eval"), Python: e.evalOptions.Python, JavaScript: e.evalOptions.JavaScript, Budget: e.evalOptions.Budget, OnEvent: func(event evalapi.Event) {
+	manager, err := evalruntime.New(evalruntime.Options{Root: filepath.Join(e.repoDir, "eval"), Python: e.evalOptions.Python, JavaScript: e.evalOptions.JavaScript, Budget: e.evalOptions.Budget, Sandbox: evalruntime.SandboxOptions{BubblewrapPath: e.evalOptions.Bubblewrap}, OnEvent: func(event evalapi.Event) {
 		e.events.publish("eval."+event.Type, event.OwnerID, event)
 	}})
 	if err != nil {

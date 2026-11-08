@@ -299,8 +299,24 @@ is rejected. Tool callbacks use the owning run's effective permissions and schem
 nested effects use the same provenance, approval invalidation and transaction settlement as direct
 tools. Interrupt can retain acknowledged state; timeout/crash marks it lost and
 never automatically replays uncertain code. macOS denies worker subprocesses and
-monitors RSS rather than claiming a hard memory limit; Linux isolation requires
-bubblewrap and has separate platform verification requirements.
+monitors RSS rather than claiming a hard memory limit.
+
+Linux fails closed unless two host prerequisites hold. (1) Resource isolation: the
+user's systemd manager must be reachable (`XDG_RUNTIME_DIR`, session bus) and
+delegate the `memory` and `pids` controllers; each worker runs in its own cgroup
+v2 leaf with `memory.max`, `memory.swap.max=0` and `pids.max`, and Reset/restart
+create a new leaf. Without it no runtime is offered. (2) Bubblewrap with user
+namespaces: on Ubuntu 24.04 `kernel.apparmor_restrict_unprivileged_userns=1`
+denies them unless an AppArmor profile grants `userns` to the exact bwrap
+binary. That profile is an exception for every caller of that path, so grant it
+to a dedicated root-owned copy used only by LumenCortex (for example
+`/opt/lumencortex/bin/bwrap`, profile `flags=(unconfined) { userns, }` attached
+to that path) rather than to `/usr/bin/bwrap`, keep the global restriction on,
+and point the runtime at it with `EvalOptions.Bubblewrap` /
+`LCX_EVAL_BUBBLEWRAP`. A named bwrap must be an absolute, non-symlink regular
+file owned by root and not group/other-writable, or startup fails. The profile
+adds no file or network confinement of its own; containment comes from bwrap's
+namespaces, the private `/proc`, `/run` and `/tmp`, and the cgroup.
 
 An eval call closes its callback capability before its result is settled: active
 callbacks are cancelled and drained, queued callbacks are denied, and no callback
