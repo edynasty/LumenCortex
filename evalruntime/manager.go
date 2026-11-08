@@ -757,6 +757,17 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 		// Revoked, or the grant expired while the cell ran.
 		outcome = m.terminate(w, resCh, evalapi.ResultStatusCancelled)
 	}
+	// Settle the outcome before anything else can happen: from here on no
+	// interrupt signal or escalation of this execution reaches the worker. An
+	// escalation that claimed the kill first wins instead: wait for its kill,
+	// and report the kernel lost, so the next cell starts on a new worker.
+	if claim := s.settle(ref); claim != nil {
+		<-claim
+		if outcome.reason == "" {
+			outcome.reason = evalapi.ResultStatusCancelled
+		}
+		outcome.lost = true
+	}
 	w.active.Store(nil)
 	// Any tool callback still in flight belongs to an execution that is over:
 	// cancel it now instead of letting it run to its own timeout.
@@ -1067,20 +1078,28 @@ func (m *Manager) interruptExecution(s *session, ref *executionRef) error {
 			}
 		}
 	}
-	s.mu.Lock()
-	w := ref.worker
-	s.mu.Unlock()
-	if !s.isActive(ref) {
+	// The cell ignored the request. Escalate for this execution only: the kill
+	// is claimed atomically against Execute settling the outcome (see
+	// executionRef.killClaim), so it can only reach the worker of a cell that
+	// is still running, and the next cell is not admitted until the kill has
+	// returned. Do not return before the owned tree and the cell's own
+	// goroutine are gone.
+	escalationPoint("claim")
+	w, claim, ok := s.claimKill(ref)
+	if !ok {
+		// The cell settled first, is no longer running, or never reached a
+		// worker (Execute sees the interrupt before sending the request and
+		// never runs it). Either way there is nothing of this execution to kill.
+		select {
+		case <-ref.done:
+		case <-time.After(interruptGrace + cleanupWindow):
+			return fmt.Errorf("%w: the interrupted execution did not stop", evalapi.ErrWorker)
+		}
 		return nil
 	}
-	// The cell ignored the request. Escalate for this execution only, and do not
-	// return before the owned tree and the cell's own goroutine are gone. A cell
-	// whose worker is still starting has nothing to kill: Execute sees the
-	// interrupt before sending the request and never runs it.
-	var residual []int
-	if w != nil {
-		residual = w.kill()
-	}
+	escalationPoint("kill")
+	residual := w.kill()
+	close(claim)
 	select {
 	case <-ref.done:
 	case <-time.After(interruptGrace + cleanupWindow):
@@ -1089,13 +1108,24 @@ func (m *Manager) interruptExecution(s *session, ref *executionRef) error {
 	return m.reportResidual(s, residual, "interrupt")
 }
 
+// escalationHook, when set by a test, runs at the named points of an interrupt
+// escalation so a test can hold it there.
+var escalationHook func(point string)
+
+func escalationPoint(point string) {
+	if escalationHook != nil {
+		escalationHook(point)
+	}
+}
+
 // signalExecution delivers the interrupt to the worker running ref and reports
 // whether ref was still running. The notification goes first, for a cell
 // blocked on the control channel; it names the request, so a late one is
 // ignored. The SIGINT is sent under the session mutex after checking that ref
-// is still the running execution: the next cell is only admitted once Execute
-// has cleared ref under the same mutex, so the signal can never reach a later
-// cell's code.
+// is still the running execution and its outcome is not settled: Execute
+// settles the outcome under the same mutex as soon as it has the worker's
+// answer, before the next cell can be admitted, so the signal can never reach a
+// later cell's code.
 func (s *session) signalExecution(ref *executionRef) bool {
 	s.mu.Lock()
 	w := ref.worker
@@ -1106,7 +1136,7 @@ func (s *session) signalExecution(ref *executionRef) bool {
 	w.notifyInterrupt("interrupt", ref.requestID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active != ref || s.generation != ref.generation || s.closed || ref.worker != w {
+	if ref.settled || s.active != ref || s.generation != ref.generation || s.closed || ref.worker != w {
 		return false
 	}
 	w.signalInterrupt()
@@ -1126,14 +1156,6 @@ func (s *session) markStarted(w *worker, requestID string) {
 	if match {
 		ref.markStarted()
 	}
-}
-
-// isActive reports whether ref is still the kernel's running execution in the
-// generation it was admitted in.
-func (s *session) isActive(ref *executionRef) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.active == ref && s.generation == ref.generation && !s.closed
 }
 
 // Reset discards the kernel state: the worker is stopped and a new generation is

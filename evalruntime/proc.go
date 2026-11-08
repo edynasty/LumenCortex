@@ -23,16 +23,21 @@ import (
 const (
 	streamChunk    = 32 << 10
 	termGrace      = 2 * time.Second
+	memoryPoll     = 200 * time.Millisecond
+	diskPoll       = 400 * time.Millisecond
+	maxScanEntries = 4096
+	maxScanDepth   = 8
+	trackPoll      = 150 * time.Millisecond
+	cleanupWindow  = 3 * time.Second
+)
+
+// Interrupt timing. They are variables only so that tests can shorten the grace
+// period; nothing else changes them.
+var (
 	interruptGrace = 2 * time.Second
 	// interruptRepeat paces a repeated cooperative interrupt; the Python
 	// worker drops repeats closer than its INTERRUPT_SPACING (200ms).
 	interruptRepeat = 500 * time.Millisecond
-	memoryPoll      = 200 * time.Millisecond
-	diskPoll        = 400 * time.Millisecond
-	maxScanEntries  = 4096
-	maxScanDepth    = 8
-	trackPoll       = 150 * time.Millisecond
-	cleanupWindow   = 3 * time.Second
 )
 
 type procSpec struct {

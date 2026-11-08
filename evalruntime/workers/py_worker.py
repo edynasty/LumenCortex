@@ -20,7 +20,10 @@ repeat closer than INTERRUPT_SPACING to the last delivered one is dropped, which
 keeps a second exception out of the unwinding of the first. While the cell is
 inside a control-channel exchange (a tool callback, a display event) the signal
 is held and raised when the exchange is complete, so a frame is never half read
-or half written.
+or half written. A cell may block SIGINT or replace its handler; when the cell
+ends, a SIGINT still pending for it is discarded and the worker's own handler
+and signal mask come back, so no signal and no signal state crosses into the
+next cell.
 """
 
 import ast
@@ -207,6 +210,9 @@ class Worker:
         self._interrupt_pending = False
         self._last_interrupt = None
         signal.signal(signal.SIGINT, self._on_sigint)
+        # The signal mask every cell starts with: whatever the worker
+        # inherited, without SIGINT, which is the interrupt.
+        self._base_mask = signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT}) - {signal.SIGINT}
 
     # --------------------------------------------------------------- interrupt
     def _may_deliver(self):
@@ -235,6 +241,20 @@ class Worker:
         """Raise the cell's interrupt from a control-channel notification."""
         if self._may_deliver():
             self._deliver()
+
+    def _restore_signal_state(self):
+        """End a cell's ownership of SIGINT.
+
+        A cell can block SIGINT or replace its handler. A SIGINT sent for that
+        cell then stays pending, and would interrupt whichever later cell
+        unblocks it. Setting the disposition to SIG_IGN discards a pending
+        SIGINT, blocked or not (POSIX), so the signal of a finished cell is
+        gone; then the worker's handler and signal mask come back, and every
+        cell starts with the same signal state.
+        """
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGINT, self._on_sigint)
+        signal.pthread_sigmask(signal.SIG_SETMASK, self._base_mask)
 
     # ---------------------------------------------------------------- plumbing
     def _fresh_globals(self):
@@ -549,6 +569,7 @@ class Worker:
             # interrupt; once delivered, no other signal can raise here.
             self._in_cell = False
             sys.stdout, sys.stderr = self._stdout_saved, self._stderr_saved
+            self._restore_signal_state()
         # Post-processing is outside the cell's own try, so it needs its own
         # guard: a KeyboardInterrupt or any error while rendering the last
         # value, flushing figures or collecting artifacts must still produce a

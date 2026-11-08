@@ -630,6 +630,42 @@ type executionRef struct {
 	started     chan struct{}
 	startedOnce sync.Once
 	interrupt   *interruptOp
+
+	// settled and killClaim decide, under the session mutex, which of two
+	// racing events owns the end of this execution: Execute settling the cell's
+	// outcome, or an interrupt escalation claiming the right to kill its
+	// worker. Whichever comes first wins and the other gives way:
+	//   - settled first: the outcome stands, the claim is refused, and no
+	//     signal or kill for this execution reaches the worker again;
+	//   - claimed first: Execute waits until killClaim closes (the kill has
+	//     returned) and reports the kernel lost, so the next cell is admitted
+	//     only after the old worker is dead and never shares it.
+	settled   bool
+	killClaim chan struct{}
+}
+
+// settle marks the outcome of ref as decided. It returns the escalation claim
+// that won the race, or nil when the outcome stands.
+func (s *session) settle(ref *executionRef) chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ref.settled = true
+	return ref.killClaim
+}
+
+// claimKill reserves the right to kill ref's worker. It fails when the outcome
+// has been settled, the execution is no longer the running one of its
+// generation, the session is closed or no worker runs the cell yet. The caller
+// must close the returned channel once its kill has returned.
+func (s *session) claimKill(ref *executionRef) (*worker, chan struct{}, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w := ref.worker
+	if ref.settled || s.active != ref || s.generation != ref.generation || s.closed || w == nil {
+		return nil, nil, false
+	}
+	ref.killClaim = make(chan struct{})
+	return w, ref.killClaim, true
 }
 
 // interruptOp is the single cooperative interrupt of one execution. Callers
