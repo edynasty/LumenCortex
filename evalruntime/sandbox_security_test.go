@@ -103,7 +103,13 @@ func TestOpusLinuxRunSocketIsolation(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("requires Linux bubblewrap")
 	}
+	// The listener must live under the host's real /run. An ordinary user cannot
+	// create entries in /run itself, but owns /run/user/<uid>; either location
+	// is shadowed by the sandbox's private /run in exactly the same way.
 	dir, err := os.MkdirTemp("/run", "lc-socket-")
+	if err != nil {
+		dir, err = os.MkdirTemp(fmt.Sprintf("/run/user/%d", os.Getuid()), "lc-socket-")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
