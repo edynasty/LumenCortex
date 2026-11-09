@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"sync"
@@ -110,7 +109,12 @@ func (b *eventBus) publish(eventType, sessionID string, payload any) Event {
 		b.persistenceFailed(sessionID, err)
 		return Event{}
 	}
-	e := Event{ID: rand.Text(), SchemaVersion: 1, At: time.Now().UTC(), Type: eventType,
+	id, err := newRunID()
+	if err != nil {
+		b.persistenceFailed(sessionID, err)
+		return Event{}
+	}
+	e := Event{ID: id, SchemaVersion: 1, At: time.Now().UTC(), Type: eventType,
 		SessionID: sessionID, Data: diag.EventPayload(raw), Sensitivity: "session", Reliability: "live"}
 	b.mu.Lock()
 	e.RunID = b.runs[sessionID]

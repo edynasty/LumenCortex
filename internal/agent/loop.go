@@ -341,7 +341,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		}
 		r.appendAssistant(seq, assistant, answered.Model.Ref, response.Echo)
 		if err := l.debugBoundary(ctx, DebugBoundary{Event: "AfterModelCall", Step: step}); err != nil {
-			return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+			return l.exit(ctx, state, usage, debugFailureExit(err))
 		}
 		record := stepRecord{
 			Step:         step,
@@ -371,7 +371,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindEmptyResponse, Err: errors.New("model returned neither tool calls nor final content")})
 			}
 			if err := l.debugBoundary(ctx, DebugBoundary{Event: "BeforeDelivery", Step: step}); err != nil {
-				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+				return l.exit(ctx, state, usage, debugFailureExit(err))
 			}
 			// Background jobs the run started come first: their results may be what the rest of the gate
 			// needs (ADR-0019 §3).
@@ -494,11 +494,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
 			}
 			if err := l.debugBoundary(ctx, DebugBoundary{Event: "BeforeToolCall", Step: step, Tool: call.Name, ToolCallID: call.ID}); err != nil {
-				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+				return l.exit(ctx, state, usage, debugFailureExit(err))
 			}
 			if call.Name == toolStartTask || call.Name == toolSpawnSubagent {
 				if err := l.debugBoundary(ctx, DebugBoundary{Event: "BeforeSubagentStart", Step: step, Tool: call.Name, ToolCallID: call.ID}); err != nil {
-					return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+					return l.exit(ctx, state, usage, debugFailureExit(err))
 				}
 			}
 			args, argsErr := parseToolArguments(call.Arguments)
@@ -516,7 +516,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				}
 				for _, point := range []string{"AfterToolCall", "ToolFailure"} {
 					if err := l.debugBoundary(ctx, DebugBoundary{Event: point, Step: step, Tool: call.Name, ToolCallID: call.ID, Failed: true}); err != nil {
-						return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+						return l.exit(ctx, state, usage, debugFailureExit(err))
 					}
 				}
 				continue
@@ -761,7 +761,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			}
 			for _, point := range points {
 				if err := l.debugBoundary(ctx, DebugBoundary{Event: point, Step: step, Tool: call.Name, ToolCallID: call.ID, Failed: !toolResult.OK, Denied: toolResult.Denied}); err != nil {
-					return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err})
+					return l.exit(ctx, state, usage, debugFailureExit(err))
 				}
 			}
 			if cb != nil && (len(cb.journal.Entries) > 0 || cb.journal.Dropped > 0) {

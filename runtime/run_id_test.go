@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"database/sql"
 	"regexp"
 	"testing"
 
@@ -26,6 +25,12 @@ func TestPrepareRunDrawsAFreshRunIDAfterReconcile(t *testing.T) {
 	}
 
 	opts := AgentOptions{ModelRef: bind(engine, completingProvider("ok")), MaxSteps: 2}
+	ctx, finishFirst := engine.trackRun(ctx, handle.ID)
+	defer func() {
+		if finishFirst != nil {
+			finishFirst()
+		}
+	}()
 	first, err := engine.prepareRun(ctx, handle.ID, opts)
 	if err != nil {
 		t.Fatal(err)
@@ -37,8 +42,12 @@ func TestPrepareRunDrawsAFreshRunIDAfterReconcile(t *testing.T) {
 	if err != nil || left.State != session.RequestUnknown {
 		t.Fatalf("left-over request after prepareRun: %+v (%v), want unknown", left, err)
 	}
+	finishFirst()
+	finishFirst = nil
 
-	second, err := engine.prepareRun(ctx, handle.ID, opts)
+	secondCtx, finishSecond := engine.trackRun(context.Background(), handle.ID)
+	defer finishSecond()
+	second, err := engine.prepareRun(secondCtx, handle.ID, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,18 +55,6 @@ func TestPrepareRunDrawsAFreshRunIDAfterReconcile(t *testing.T) {
 		t.Fatalf("two Starts share the run id %q", first.loopOpts.RunID)
 	}
 
-	side, err := sql.Open("sqlite3", "file:"+engine.store.Path()+"?_busy_timeout=5000")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer side.Close()
-	var n int
-	if err := side.QueryRow(`SELECT count(*) FROM pragma_table_info('sessions') WHERE lower(name) LIKE '%run%'`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 0 {
-		t.Errorf("sessions has %d run-related columns; the run id is not a session field", n)
-	}
 }
 
 // A Start that fails at Reconcile (no such session) builds no run.

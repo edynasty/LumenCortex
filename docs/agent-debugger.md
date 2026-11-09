@@ -26,3 +26,7 @@ Session existence, fences and persistence health are rechecked before and after 
 `BeforeSubagentStart` runs only for actual spawn/task-start tools. `AfterSubagentEnd` is observed when the child run has finished cleanup; it latches a matching breakpoint on the parent and pauses at the parent's next safe boundary. A child never blocks its parent waiting for a debug callback.
 
 Pause consumes real wall-clock time: deadlines/cancellation/revocation end it. Breakpoints, snapshots and live controllers are not persisted as recoverable execution state. State changes enter the existing bounded Runtime Event Bus with metadata only. The Desktop renders snapshots and forwards typed commands; it never decides whether a step may execute.
+
+Revocation observed at any model/tool/delivery debug boundary retains the terminal
+`fenced` cause, rather than being relabelled as user cancellation. The same
+cross-process admission fence and bystander isolation still apply.

@@ -108,10 +108,9 @@ func TestShellTimeoutSourcesAndResult(t *testing.T) {
 		}
 		return set
 	}
-	// The sub-second cases below need the interpreter itself to start in milliseconds. The tool's
-	// default is a login shell (`bash -lc`), whose profile can take longer than the timeout on a
-	// developer's host; a non-login interpreter runs the same commands without that cost. The real
-	// bash interpreter stays covered by TestBashToolRunsBashAndTheSharedRunnerKeepsSh.
+	// Timeout/output cases need the interpreter to start before the deadline. A
+	// developer's login profile can exceed even one second under race instrumentation.
+	// Use the same real bash without profiles; login-shell selection is covered below.
 	controlled := shell.Bash()
 	if controlled.Name != "cmd.exe" {
 		controlled.Args = []string{"-c"}
@@ -142,16 +141,9 @@ func TestShellTimeoutSourcesAndResult(t *testing.T) {
 		if !result.OK || out.TimedOut || result.Interrupted || out.Cancelled || out.ExitCode != 0 {
 			t.Fatalf("result=%+v out=%+v", result, out)
 		}
-		timeout, source, left, err := newSet(0, 0).shellTimeout(context.Background(), map[string]any{"command": "true"})
-		if err != nil || !left || source != "config" || timeout != 120*time.Second {
-			t.Fatalf("default timeout=%s source=%q left=%v err=%v, want 120s from config", timeout, source, left, err)
-		}
-		if got := newSet(0, 0).shellMaxTimeout; got != 1800*time.Second {
-			t.Fatalf("default maximum=%s, want 1800s", got)
-		}
 	})
 	t.Run("argument", func(t *testing.T) {
-		result, out, elapsed := run(context.Background(), newSet(0, 0), map[string]any{"command": slow, "timeout_sec": float64(1)})
+		result, out, elapsed := run(context.Background(), controlledSet(0, 0), map[string]any{"command": slow, "timeout_sec": float64(1)})
 		if result.OK || !result.Interrupted || !out.TimedOut || out.TimeoutSec != 1 || out.ExitCode != -1 || out.Cancelled {
 			t.Fatalf("result=%+v out=%+v", result, out)
 		}

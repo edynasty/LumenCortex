@@ -31,3 +31,14 @@ The existing control epoch, workspace path checks and evaluation grants apply. R
 ## Host configuration
 
 Desktop reads only the absolute host `LCX_DEBUG_CONFIG` path. Oversized input, unknown fields, concatenated JSON and relative paths are rejected. Adapter commands/environment are not model or UI inputs. `raw/dap-host-config-regression.json` and `raw/dap-mcp-regression.json` record the targeted configuration and MCP checks.
+
+Final transport evidence: `raw/dap-real-adapter-crash-matrix.*` kills the actual
+LLDB/Delve/debugpy/Node adapter and observes process reaping, closed transport and
+rejected subsequent requests. `raw/dap-stderr-drain.*` proves a 2 MiB stderr stream
+drains without stalling and retains no more than 8 KiB. The four-language fault
+experiment observes initialized input=41/value=40 and independently executes the
+repaired program to PASS; it is not an LLM accuracy benchmark.
+
+Effective Prompt and capability/schema-cost reports bind the same worker messaging
+and authorized DAP tools as execution. Inspecting a catalog does not launch an
+adapter, send a message or acquire a debug grant.

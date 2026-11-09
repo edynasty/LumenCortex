@@ -398,7 +398,7 @@ func (e *Engine) EffectivePrompt(ctx context.Context, req EffectivePromptRequest
 	if wf != nil {
 		allowlist = wf.EffectiveAllowlist(allowlist)
 	}
-	tools, err := e.promptTools(workspace, policy, child, eff.Trusted, sessionID, req.Subagents, eff.DelegationAgents(config.AgentInfo.SpawnEligible), newSkillReader(prompt.Skills.Included))
+	tools, err := e.promptTools(ctx, workspace, policy, child, eff.Trusted, sessionID, req.Subagents, eff.DelegationAgents(config.AgentInfo.SpawnEligible), newSkillReader(prompt.Skills.Included))
 	if err != nil {
 		return EffectivePromptResult{}, err
 	}
@@ -429,7 +429,7 @@ func (e *Engine) EffectivePrompt(ctx context.Context, req EffectivePromptRequest
 // server is launched and no provider client is built. The toolset only registers what is already
 // running, which is exactly what a run would see. trusted is the workspace's trust, which decides the
 // language-server tools as at Start (ADR-0013).
-func (e *Engine) promptTools(workspace, policy string, child, trusted bool, sessionID string, subagents bool, spawnAgents []config.AgentInfo, skillTools toolset.SkillReader) (*toolset.Set, error) {
+func (e *Engine) promptTools(ctx context.Context, workspace, policy string, child, trusted bool, sessionID string, subagents bool, spawnAgents []config.AgentInfo, skillTools toolset.SkillReader) (*toolset.Set, error) {
 	runner := e.shell
 	if workspace != e.workspace {
 		runner = shell.New(workspace)
@@ -456,7 +456,7 @@ func (e *Engine) promptTools(workspace, policy string, child, trusted bool, sess
 			wakeupBinding = wakeups{engine: e, sessionID: sessionID, policy: policy}
 		}
 	}
-	return toolset.New(toolset.Options{
+	tools, err := toolset.New(toolset.Options{
 		Workspace:      workspace,
 		Policy:         policy,
 		Shell:          runner,
@@ -473,6 +473,18 @@ func (e *Engine) promptTools(workspace, policy string, child, trusted bool, sess
 		Wakeups: wakeupBinding,
 		Logger:  e.log.With("session_id", sessionID),
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err := e.bindWorkerMessages(ctx, sessionID, tools); err != nil {
+		return nil, err
+	}
+	if sessionID != "" {
+		if err := e.debugTools(ctx, sessionID, "report", policy, trusted, tools); err != nil {
+			return nil, err
+		}
+	}
+	return tools, nil
 }
 
 // reportSubagents stands in for a run's subagent controller in EffectivePrompt: the toolset only

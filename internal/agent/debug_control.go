@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/verify"
 	"sync"
 )
@@ -322,4 +323,12 @@ func (l *Loop) debugBoundary(ctx context.Context, p DebugBoundary) error {
 		}
 	}
 	return nil
+}
+
+// Debug observation cannot relabel a permission fence as a user cancellation.
+func debugFailureExit(err error) ExitCause {
+	if errors.Is(err, session.ErrFenced) {
+		return *storeExit(err)
+	}
+	return ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: err}
 }

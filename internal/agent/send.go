@@ -291,7 +291,7 @@ func (l *Loop) send(
 			return attempt{}, cause
 		}
 		if err := l.debugBoundary(ctx, DebugBoundary{Event: "BeforeModelCall", Step: step}); err != nil {
-			cause := exitFor(protocol.ClassCancelled, err)
+			cause := debugFailureExit(err)
 			return attempt{}, &cause
 		}
 		// Every attempt (failover and capacity retries included) is a new request the budget admits
@@ -345,7 +345,7 @@ func (l *Loop) send(
 		// The request was sent; an error does not prove it was not delivered, so it is unknown.
 		l.settle(sessionID, requestID, settleReason(class))
 		if pauseErr := l.debugBoundary(ctx, DebugBoundary{Event: "AfterModelCall", Step: step, Failed: true}); pauseErr != nil {
-			cause := exitFor(protocol.ClassCancelled, pauseErr)
+			cause := debugFailureExit(pauseErr)
 			return attempt{}, &cause
 		}
 		if class == protocol.ClassCancelled {

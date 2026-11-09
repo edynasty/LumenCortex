@@ -221,7 +221,7 @@ func (e *Engine) coreTools(workspace, sessionID string, delegation bool) ([]prot
 	eff := cfg.Effective()
 	// read_skill exists when the prompt lists skills, as at Start.
 	prompt := assemblePrompt(promptInput{workspace: e.workspace, globalDir: eff.GlobalDir, trusted: eff.Trusted, skills: e.skillRegistry})
-	tools, err := e.promptTools(workspace, toolset.PolicyFull, false, eff.Trusted, sessionID, true,
+	tools, err := e.promptTools(context.Background(), workspace, toolset.PolicyFull, false, eff.Trusted, sessionID, true,
 		eff.DelegationAgents(config.AgentInfo.SpawnEligible), newSkillReader(prompt.Skills.Included))
 	if err != nil {
 		return nil, err

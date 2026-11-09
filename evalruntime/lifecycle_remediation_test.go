@@ -462,7 +462,12 @@ import threading, time, os
 threading.Thread(target=lambda: (time.sleep(0.6), os._exit(9)), daemon=True).start()
 'armed'
 `)
-	time.Sleep(1800 * time.Millisecond)
+	// State is marked failed before owned-process cleanup emits worker_crashed.
+	// Wait for that observable completion instead of assuming cleanup takes 1.8s.
+	deadline := time.Now().Add(15 * time.Second)
+	for len(h.events.byType(evalapi.EventWorkerCrashed)) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	public, err := h.m.Session(context.Background(), session.ID, "owner")
 	if err != nil {

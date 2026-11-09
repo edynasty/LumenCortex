@@ -287,7 +287,8 @@ func TestNoteApplicabilityFollowsSourcesAndFences(t *testing.T) {
 	if c := notes()["cited"]; c.Applicability != threadctx.ApplicabilityMissing || !strings.Contains(c.Text, "retries") || len(c.Cites) != 1 {
 		t.Fatalf("host view after removal %+v, want source_missing with the text and the cite", c)
 	}
-	raw, err := threadReader{engine: engine, sessionID: "reader", workspace: root}.ReadThread(ctx, threadA.ID, false, -1)
+	reader := newTestSession(t, engine, "read source applicability")
+	raw, err := threadReader{engine: engine, sessionID: reader.ID, workspace: root}.ReadThread(ctx, threadA.ID, false, -1)
 	if err != nil {
 		t.Fatal(err)
 	}

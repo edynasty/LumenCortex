@@ -219,7 +219,9 @@ func TestDeliveryCancelledVerificationKeepsCompleted(t *testing.T) {
 	p := &notebookProvider{responses: []protocol.ProviderResponse{toolCallResponse("write", "write_file", `{"path":"result.txt","content":"done"}`), finalResponse("done")}}
 	opts := AgentOptions{Policy: "workspace", Delivery: &DeliveryContract{Files: []DeliveryFile{{Path: "result.txt"}}}}
 	opts.ModelRef = bind(engine, p)
-	prepared, err := engine.prepareRun(context.Background(), id, opts)
+	life, done := engine.trackRun(context.Background(), id)
+	defer done()
+	prepared, err := engine.prepareRun(life, id, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,15 +308,24 @@ func TestDeliveryCompletionCrashWindowDoesNotReplayAgent(t *testing.T) {
 	ctx := context.Background()
 	p := &notebookProvider{responses: []protocol.ProviderResponse{toolCallResponse("once", "bash", `{"command":"printf 'ONCE\\n' >> marker.txt"}`), finalResponse("done")}}
 	opts := AgentOptions{Policy: "full", ModelRef: bind(engine, p), Delivery: &DeliveryContract{Files: []DeliveryFile{{Path: "marker.txt", Changed: true}}}}
-	prepared, err := engine.prepareRun(ctx, id, opts)
+	life, done := engine.trackRun(ctx, id)
+	// The simulated crashed run ends before this test reopens its store.
+	defer func() {
+		if done != nil {
+			done()
+		}
+	}()
+	prepared, err := engine.prepareRun(life, id, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Simulate process loss after the execution terminal commit, before verification.
-	r, err := prepared.loop.Run(ctx, id, prepared.loopOpts)
+	r, err := prepared.loop.Run(life, id, prepared.loopOpts)
 	if err != nil || r.Status != "completed" {
 		t.Fatalf("execution=%+v %v", r, err)
 	}
+	done()
+	done = nil
 	workspace := engine.workspace
 	if err := engine.Close(); err != nil {
 		t.Fatal(err)
