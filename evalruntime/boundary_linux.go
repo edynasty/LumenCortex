@@ -110,9 +110,25 @@ func (m *Manager) inspectBoundary(ctx context.Context, w *worker, binding evalap
 		gid, gerr := strconv.Atoi(firstBoundaryField(fields["Gid"]))
 		r.Process.UID, r.Process.GID = uid, gid
 		set("credentials", uerr == nil && gerr == nil && uid != 0 && fields["NoNewPrivs"] == "1" && fields["CapEff"] == "0000000000000000", "host UID/GID, NoNewPrivs and effective capabilities observed")
+		set("seccomp", fields["Seccomp"] == "2", "kernel seccomp mode="+fields["Seccomp"])
 		// A path/group restriction alone cannot distinguish an untrusted host shell
 		// that carries the same identity. This is deliberately not a broker PASS.
 		set("callerIsolation", uerr == nil && uid != os.Geteuid(), "worker must not carry the trusted host UID")
+		if identity := m.opts.identity; identity != nil {
+			clean := uid == identity.uid && gid == identity.gid && fields["Groups"] == ""
+			for _, cap := range []string{"CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"} {
+				clean = clean && fields[cap] == "0000000000000000"
+			}
+			fds, e := os.ReadDir(root + "/fd")
+			clean = clean && e == nil
+			for _, fd := range fds {
+				target, e := os.Readlink(root + "/fd/" + fd.Name())
+				if e != nil || strings.HasPrefix(target, "user:[") || strings.Contains(target, "lc-seccomp") {
+					clean = false
+				}
+			}
+			set("callerIsolation", clean && os.Geteuid() == 0, "broker worker credentials and absence of namespace/seccomp launch descriptors observed")
+		}
 	}
 	for _, name := range []string{"user", "pid", "mnt", "net", "ipc", "uts"} {
 		observed, e := os.Readlink(root + "/ns/" + name)
@@ -158,8 +174,21 @@ func (m *Manager) inspectBoundary(ctx context.Context, w *worker, binding evalap
 		trusted := checkTrustedExecutable(m.launcher.exe)
 		set("bubblewrap", se == nil && os.SameFile(actual, configured) && trusted == nil, "outer executable inode and trusted root-owned path checked")
 	}
-	if e := checkCallerIsolation(m.launcher.exe); e != nil {
-		set("callerIsolation", false, e.Error())
+	if m.opts.identity == nil {
+		if e := checkCallerIsolation(m.launcher.exe); e != nil {
+			set("callerIsolation", false, e.Error())
+		}
+	} else {
+		info, e := os.Stat(m.launcher.exe)
+		if e != nil || info.Mode().Perm()&0077 != 0 {
+			set("callerIsolation", false, "broker executable is not root-only")
+		}
+		for _, name := range []string{"apparmor_restrict_unprivileged_userns", "apparmor_restrict_unprivileged_unconfined"} {
+			value, e := boundaryRead("/proc/sys/kernel/" + name)
+			if e != nil || value != "1" {
+				set("callerIsolation", false, "host userns restriction unavailable: "+name)
+			}
+		}
 	}
 	if ctx.Err() != nil || !id.alive() || unix.PidfdSendSignal(fd, 0, nil, 0) != nil || !slices.Contains(p.cg.procs(), id.pid) {
 		set("identity", false, "process changed or observation cancelled")
@@ -216,6 +245,16 @@ func checkBoundaryMounts(m *Manager, w *worker, procRoot, text string) error {
 		binds[path] = true
 	}
 	seen := make(map[string]bool)
+	// bubblewrap remounts kernel-global proc controls read-only. Accept only
+	// self-binds of the sandbox's own proc instance, never another proc tree.
+	procID, procDevice := "", ""
+	for _, line := range strings.Split(text, "\n") {
+		f := strings.Fields(line)
+		sep := slices.Index(f, "-")
+		if len(f) >= 7 && sep >= 6 && len(f) > sep+2 && f[4] == "/proc" && f[3] == "/" && f[sep+1] == "proc" {
+			procID, procDevice = f[0], f[2]
+		}
+	}
 	for _, line := range strings.Split(text, "\n") {
 		f := strings.Fields(line)
 		sep := slices.Index(f, "-")
@@ -243,6 +282,11 @@ func checkBoundaryMounts(m *Manager, w *worker, procRoot, text string) error {
 			continue
 		}
 		if path == "/proc" && fs == "proc" {
+			continue
+		}
+		if fs == "proc" && procID != "" && f[1] == procID && f[2] == procDevice &&
+			slices.Contains([]string{"/proc/sys", "/proc/sysrq-trigger", "/proc/irq", "/proc/bus"}, path) &&
+			boundaryMountPath(f[3]) == strings.TrimPrefix(path, "/proc") && slices.Contains(strings.Split(f[5], ","), "ro") {
 			continue
 		}
 		if path == "/dev/pts" && fs == "devpts" {

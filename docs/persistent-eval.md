@@ -12,6 +12,8 @@ CPU usage on a result is the execution's delta, not the lifetime counter of a pe
 
 Output is bounded while streaming. Artifact bytes and total workspace usage are bounded independently. Filesystem and network policy are host-selected; no cell selects executable, mounts or host environment. FA-01 broker and FA-07 boundary assertion are additional Linux deployment gates, not established merely by kernel or cgroup success.
 
+Linux hosts may select `EvalOptions.Broker` instead of an in-process Manager. This uses the same typed Host contract, permissions, artifact metadata and lifecycle operations through a process-bound Unix connection; it does not fall back on broker failure. Resource requests may only tighten administrator ceilings. Required boundary observations happen before every Cell. See [execution platform security](security/execution-platform-security.md) for the dedicated Ubuntu verification, setup and limitations.
+
 ## Artifacts and transfer
 
 Artifacts include ID, kernel SessionID, name, MIME, confined store-relative path, size, SHA256 and creation time. Bytes are obtained only through session-authorized APIs, never through a caller-selected host path. `Engine.TransferEvalArtifact` imports workspace bytes, copies between same-owner kernels, or exports through the existing protected workspace resolver. Every transfer checks identity and source digest and journals source/destination references. PNG, CSV, JSON, Parquet, text and arbitrary bounded data files use this one byte-preserving path; format-specific readers run inside the real language kernel.

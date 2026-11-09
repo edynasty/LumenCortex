@@ -120,6 +120,7 @@ type launchSpec struct {
 	debugProgram    bool
 	loopbackOnly    bool
 	debugSocket     string
+	identity        *brokerIdentity
 }
 
 func (l *launcher) command(spec launchSpec) (*exec.Cmd, error) {
@@ -191,11 +192,21 @@ func (l *launcher) bubblewrapCommand(spec launchSpec) (*exec.Cmd, error) {
 		"--unshare-cgroup-try",
 		"--new-session",
 	}
+	if spec.identity != nil {
+		// fd 5 is the existing launch gate; fd 6 is the mapped user namespace.
+		args[1] = "--userns"
+		args = append(args[:2], append([]string{"6"}, args[2:]...)...)
+		args = append(args, "--cap-add", "CAP_SETUID", "--cap-add", "CAP_SETGID", "--cap-add", "CAP_SETPCAP", "--seccomp", "7")
+	}
 	if !spec.network {
 		args = append(args, "--unshare-net")
 	}
 	for _, dir := range []string{"/usr", "/bin", "/sbin", "/lib", "/lib64"} {
 		args = append(args, "--ro-bind-try", dir, dir)
+	}
+	if spec.identity != nil {
+		// /etc is private scaffolding; no host /etc directory is exposed.
+		args = append(args, "--perms", "0755", "--dir", "/etc")
 	}
 	// Two read-only system configuration entries, never the rest of /etc:
 	// Debian/Ubuntu resolve shared libraries such as libblas.so.3 through the
@@ -207,6 +218,24 @@ func (l *launcher) bubblewrapCommand(spec launchSpec) (*exec.Cmd, error) {
 	// Establish private scratch mounts before explicit runtime/workspace binds.
 	// Otherwise a legitimate root below /tmp is hidden after it was mounted.
 	args = append(args, "--tmpfs", "/tmp", "--tmpfs", "/run", "--dir", "/var", "--symlink", "/run", "/var/run")
+	if spec.identity != nil {
+		// These parents are synthetic directories in the private root, not host
+		// binds. bwrap otherwise copies their host 0700 mode, blocking the dropped UID.
+		seen := make(map[string]bool)
+		for _, leaf := range []string{spec.workersDir, spec.kernelDir} {
+			var parents []string
+			for dir := filepath.Dir(leaf); dir != "/"; dir = filepath.Dir(dir) {
+				parents = append(parents, dir)
+			}
+			for i := len(parents) - 1; i >= 0; i-- {
+				dir := parents[i]
+				if !seen[dir] {
+					args = append(args, "--perms", "0755", "--dir", dir, "--chmod", "0755", dir)
+					seen[dir] = true
+				}
+			}
+		}
+	}
 	args = append(args, "--ro-bind-try", spec.workersDir, spec.workersDir)
 	// Executable identity is host-validated; mounting its parent would silently
 	// grant the plugin unrelated host files and sockets.
@@ -217,7 +246,12 @@ func (l *launcher) bubblewrapCommand(spec launchSpec) (*exec.Cmd, error) {
 	args = append(args, "--bind", spec.kernelDir, spec.kernelDir)
 	args = append(args, "--chdir", spec.dir, "--proc", "/proc", "--dev", "/dev")
 	script := ulimitScript(spec.cpuSeconds, spec.fileBytes)
-	args = append(args, "--", "/bin/sh", "-c", script, "lc-eval", spec.exe)
+	args = append(args, "--")
+	if spec.identity != nil {
+		script = "exec 6<&-; " + script
+		args = append(args, "/usr/bin/setpriv", fmt.Sprintf("--reuid=%d", spec.identity.uid), fmt.Sprintf("--regid=%d", spec.identity.gid), "--clear-groups", "--bounding-set=-all", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs")
+	}
+	args = append(args, "/bin/sh", "-c", script, "lc-eval", spec.exe)
 	args = append(args, spec.args...)
 	return exec.Command(l.exe, args...), nil
 }

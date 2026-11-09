@@ -49,6 +49,8 @@ type Options struct {
 	// Boundary enables fresh host inspection before every cell. Nil preserves
 	// the explicitly selected local-development execution path.
 	Boundary *evalapi.BoundaryContext
+	// Set only by the privileged broker, never decoded from a client message.
+	identity *brokerIdentity
 }
 
 // DefaultBudget is the host fallback when neither Options.Budget nor a request

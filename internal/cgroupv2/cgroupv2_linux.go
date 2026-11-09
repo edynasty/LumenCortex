@@ -113,12 +113,13 @@ type Setting struct {
 // admitted, the pool fails closed: every leaf is killed and the pool is broken
 // (Err reports why), so no tree runs on without its last line of defence.
 type Pool struct {
-	dir    string
-	unit   string
-	prefix string
-	busctl string
-	env    []string
-	seq    atomic.Uint64
+	dir      string
+	unit     string
+	prefix   string
+	busctl   string
+	busScope string
+	env      []string
+	seq      atomic.Uint64
 	// supervised is closed when the keeper supervisor has returned.
 	supervised chan struct{}
 
@@ -151,7 +152,11 @@ func NewPool(opts Options) (*Pool, error) {
 	var suffix [6]byte
 	_, _ = rand.Read(suffix[:])
 	unit := fmt.Sprintf("%s-%d-%s.scope", opts.Unit, os.Getpid(), hex.EncodeToString(suffix[:]))
-	keeper := exec.Command(systemdRun, "--user", "--scope", "--quiet", "--collect",
+	busScope := "--user"
+	if os.Geteuid() == 0 {
+		busScope = "--system"
+	}
+	keeper := exec.Command(systemdRun, busScope, "--scope", "--quiet", "--collect",
 		"-p", "Delegate=yes", "--unit="+unit, "--", "/bin/sh", "-c", keeperScript, "lc-keeper", unit)
 	// The keeper is a host helper: it only needs to reach the user's systemd
 	// manager.
@@ -172,7 +177,7 @@ func NewPool(opts Options) (*Pool, error) {
 		return nil, fmt.Errorf("systemd-run: %w", err)
 	}
 	exited := waitIn(keeper)
-	pool := &Pool{unit: unit, prefix: opts.LeafPrefix, busctl: busctl, env: env, keeper: keeper, keeperIn: keeperIn, exited: exited, leaves: make(map[string]struct{}), supervised: make(chan struct{})}
+	pool := &Pool{unit: unit, prefix: opts.LeafPrefix, busctl: busctl, busScope: busScope, env: env, keeper: keeper, keeperIn: keeperIn, exited: exited, leaves: make(map[string]struct{}), supervised: make(chan struct{})}
 	fail := func(err error) (*Pool, error) {
 		_ = keeperIn.Close()
 		_ = keeper.Process.Kill()
@@ -361,7 +366,7 @@ func (p *Pool) probeAdmission() (err error) {
 // attach moves pid into the sub-cgroup sub of the scope through the user's
 // systemd manager and confirms the kernel agrees.
 func (p *Pool) attach(sub string, pid int) error {
-	cmd := exec.Command(p.busctl, "--user", "--quiet", "call",
+	cmd := exec.Command(p.busctl, p.busScope, "--quiet", "call",
 		"org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager",
 		"AttachProcessesToUnit", "ssau", p.unit, "/"+sub, "1", strconv.Itoa(pid))
 	cmd.Env = p.env

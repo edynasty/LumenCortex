@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 
 SCHEMA_VERSION = 1
-REQUIRED_CHECKS = ("identity", "generation", "cgroup", "credentials", "user", "pid",
+REQUIRED_CHECKS = ("identity", "generation", "cgroup", "credentials", "seccomp", "user", "pid",
                    "mnt", "net", "ipc", "uts", "mounts", "sockets", "networkPolicy",
                    "bubblewrap", "apparmor", "callerIsolation")
 

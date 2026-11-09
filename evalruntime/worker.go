@@ -133,11 +133,17 @@ func (w *worker) start(ctx context.Context) error {
 		// Host-owned interpreter installation roots plus explicit host extras.
 		// Never derived from a cell or from an arbitrary registration.
 		extraRead: append(append([]string(nil), w.m.opts.Sandbox.ExtraReadPaths...), s.readPaths...),
+		identity:  w.m.opts.identity,
 	}
 	cmd, err := w.m.launcher.command(spec)
 	if err != nil {
 		return err
 	}
+	launchFiles, releaseLaunch, err := prepareBrokerLaunch(w.m.opts.identity)
+	if err != nil {
+		return err
+	}
+	defer releaseLaunch()
 	// Linux: the worker's cgroup exists, with its limits written, before the
 	// worker runs; startProcess admits the gated process into it before release.
 	// No cgroup means no worker.
@@ -162,6 +168,7 @@ func (w *worker) start(ctx context.Context) error {
 		onStderr:    w.onStderr,
 		onLimit:     w.onLimit,
 		cgroup:      leaf,
+		launchFiles: launchFiles,
 	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", evalapi.ErrWorker, err)

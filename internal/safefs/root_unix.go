@@ -125,6 +125,23 @@ func (r *Root) MkdirAll(path string) error {
 	return unix.Close(fd)
 }
 
+// ChownDir changes only an opened directory below the pinned root, without
+// following symlinks. Used before a broker releases an unprivileged worker.
+func (r *Root) ChownDir(path string, uid, gid int) error {
+	parts, err := components(path, true)
+	if err != nil {
+		return err
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	fd, err := r.dir(parts, false)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(fd)
+	return unix.Fchown(fd, uid, gid)
+}
+
 // OpenRegular opens nonblocking before fstat, rejecting FIFO/socket/device/dir
 // without reading them. The returned descriptor is the exact object validated.
 func (r *Root) OpenRegular(path string, limit int64) (*os.File, os.FileInfo, error) {

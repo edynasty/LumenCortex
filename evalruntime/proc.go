@@ -54,7 +54,8 @@ type procSpec struct {
 	// memory and tasks, the process is admitted into the leaf behind a start
 	// gate before it executes the sandbox, and stop, kill and residual checks use
 	// cgroup membership instead of ps snapshots.
-	cgroup *cgroupLeaf
+	cgroup      *cgroupLeaf
+	launchFiles []*os.File // trusted broker namespace/seccomp, after gate fd 5
 }
 
 // process supervises one worker: its control pipes (child fds 3 and 4), its
@@ -204,6 +205,7 @@ func startProcess(spec procSpec) (_ *process, err error) {
 		cmd.Path = "/bin/sh"
 		cmd.ExtraFiles = append(cmd.ExtraFiles, gateR)
 	}
+	cmd.ExtraFiles = append(cmd.ExtraFiles, spec.launchFiles...)
 
 	if err := injectStartFault("start"); err != nil {
 		return nil, err

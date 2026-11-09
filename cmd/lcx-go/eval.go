@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/edynasty/LumenCortex/evalapi"
+	"github.com/edynasty/LumenCortex/evalruntime"
 	lcx "github.com/edynasty/LumenCortex/runtime"
 )
 
@@ -21,6 +22,12 @@ func evalOptionsFromEnv() *lcx.EvalOptions {
 	opts := &lcx.EvalOptions{Python: strings.TrimSpace(os.Getenv("LCX_EVAL_PYTHON")), JavaScript: strings.TrimSpace(os.Getenv("LCX_EVAL_JAVASCRIPT")), Bubblewrap: strings.TrimSpace(os.Getenv("LCX_EVAL_BUBBLEWRAP")), RequireCallerIsolation: envBool("LCX_EVAL_REQUIRE_CALLER_ISOLATION"), RunID: strings.TrimSpace(os.Getenv("LCX_EVAL_RUN_ID")), TrialID: strings.TrimSpace(os.Getenv("LCX_EVAL_TRIAL_ID"))}
 	if envBool("LCX_EVAL_REQUIRE_BOUNDARY") {
 		opts.Boundary = &evalapi.BoundaryContext{CohortID: os.Getenv("LCX_EVAL_COHORT_ID"), JobID: opts.RunID, TrialID: opts.TrialID, ExecutionID: os.Getenv("LCX_EVAL_EXECUTION_ID")}
+	}
+	if socket := strings.TrimSpace(os.Getenv("LCX_EVAL_BROKER_SOCKET")); socket != "" {
+		opts.Broker = &evalruntime.BrokerOptions{Socket: socket, GrantID: os.Getenv("LCX_EVAL_BROKER_GRANT")}
+		// A process-bound grant is consumed at connect; do not leave it in the
+		// environment inherited by any subsequent command.
+		_ = os.Unsetenv("LCX_EVAL_BROKER_GRANT")
 	}
 	return opts
 }

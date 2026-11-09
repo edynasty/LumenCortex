@@ -178,6 +178,10 @@ func newSession(m *Manager, p *provider, opts evalapi.CreateOptions, slot int) (
 			return nil, err
 		}
 	}
+	if err = s.prepareIdentity(); err != nil {
+		_ = s.removeFiles()
+		return nil, err
+	}
 	meta := map[string]any{
 		"id":            s.id,
 		"runtime":       p.manifest.ID,
@@ -437,7 +441,7 @@ func (s *session) storeArtifactLocked(cellID, name, mimeType string, data []byte
 	}
 	s.mu.Unlock()
 	if materialize {
-		if err := s.dataFS.WriteFile("work/"+name, data, 0600); err != nil {
+		if err := s.writeInputLocked(name, data); err != nil {
 			return evalapi.Artifact{}, err
 		}
 	}
@@ -549,7 +553,30 @@ func (s *session) writeInput(name string, data []byte) error {
 	}
 	s.fsMu.Lock()
 	defer s.fsMu.Unlock()
-	return s.dataFS.WriteFile("work/"+name, data, 0600)
+	return s.writeInputLocked(name, data)
+}
+
+func (s *session) writeInputLocked(name string, data []byte) error {
+	mode := os.FileMode(0600)
+	if s.m.opts.identity != nil {
+		// Kernel is accessible only to its dedicated UID. Keep imported immutable
+		// bytes root-owned but readable; the worker can replace them in its work dir.
+		mode = 0644
+	}
+	return s.dataFS.WriteFile("work/"+name, data, mode)
+}
+
+func (s *session) prepareIdentity() error {
+	identity := s.m.opts.identity
+	if identity == nil {
+		return nil
+	}
+	for _, dir := range []string{"", "work", "pending", "home", "tmp"} {
+		if err := s.dataFS.ChownDir(dir, identity.uid, identity.gid); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *session) importArtifact(ctx context.Context, agentID, name, mimeType string, data []byte) (evalapi.Artifact, error) {
@@ -594,7 +621,7 @@ func (s *session) resetWorkspace() error {
 			return err
 		}
 	}
-	return nil
+	return s.prepareIdentity()
 }
 
 func (s *session) closeFileHandles() error {

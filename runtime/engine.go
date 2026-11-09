@@ -121,7 +121,7 @@ type Engine struct {
 	shell            *shell.Runner
 	evalMu           sync.Mutex
 	evalOptions      *EvalOptions
-	evalManager      *evalruntime.Manager
+	evalManager      evalruntime.Host
 	dapManager       *debugger.Manager
 	dapMu            sync.Mutex
 	dapGrants        map[string]DebugGrant

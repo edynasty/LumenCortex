@@ -33,7 +33,8 @@ type EvalOptions struct {
 	RunID                  string `json:"runId,omitempty"`
 	TrialID                string `json:"trialId,omitempty"`
 	// Boundary is host configuration; model requests cannot supply or disable it.
-	Boundary *evalapi.BoundaryContext `json:"boundary,omitempty"`
+	Boundary *evalapi.BoundaryContext   `json:"boundary,omitempty"`
+	Broker   *evalruntime.BrokerOptions `json:"broker,omitempty"`
 }
 
 var ErrEvalDisabled = errors.New("execution runtimes are disabled by the host")
@@ -47,10 +48,14 @@ func cloneEvalOptions(in *EvalOptions) *EvalOptions {
 		binding := *in.Boundary
 		out.Boundary = &binding
 	}
+	if in.Broker != nil {
+		broker := *in.Broker
+		out.Broker = &broker
+	}
 	return &out
 }
 
-func (e *Engine) evalHost(ctx context.Context) (*evalruntime.Manager, error) {
+func (e *Engine) evalHost(ctx context.Context) (evalruntime.Host, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -68,9 +73,14 @@ func (e *Engine) evalHost(ctx context.Context) (*evalruntime.Manager, error) {
 	if e.evalManager != nil {
 		return e.evalManager, nil
 	}
-	manager, err := evalruntime.New(evalruntime.Options{Root: filepath.Join(e.repoDir, "eval"), Python: e.evalOptions.Python, JavaScript: e.evalOptions.JavaScript, Budget: e.evalOptions.Budget, Boundary: e.evalOptions.Boundary, Sandbox: evalruntime.SandboxOptions{BubblewrapPath: e.evalOptions.Bubblewrap, RequireCallerIsolation: e.evalOptions.RequireCallerIsolation}, OnEvent: func(event evalapi.Event) {
-		e.events.publish("eval."+event.Type, event.OwnerID, event)
-	}})
+	onEvent := func(event evalapi.Event) { e.events.publish("eval."+event.Type, event.OwnerID, event) }
+	var manager evalruntime.Host
+	var err error
+	if e.evalOptions.Broker != nil {
+		manager, err = evalruntime.DialBroker(ctx, *e.evalOptions.Broker, onEvent)
+	} else {
+		manager, err = evalruntime.New(evalruntime.Options{Root: filepath.Join(e.repoDir, "eval"), Python: e.evalOptions.Python, JavaScript: e.evalOptions.JavaScript, Budget: e.evalOptions.Budget, Boundary: e.evalOptions.Boundary, Sandbox: evalruntime.SandboxOptions{BubblewrapPath: e.evalOptions.Bubblewrap, RequireCallerIsolation: e.evalOptions.RequireCallerIsolation}, OnEvent: onEvent})
+	}
 	if err != nil {
 		return nil, err
 	}

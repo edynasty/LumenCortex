@@ -60,7 +60,7 @@ type BoundaryReport struct {
 }
 
 func BoundaryRequiredChecks() []string {
-	return []string{"identity", "generation", "cgroup", "credentials", "user", "pid", "mnt", "net", "ipc", "uts", "mounts", "sockets", "networkPolicy", "bubblewrap", "apparmor", "callerIsolation"}
+	return []string{"identity", "generation", "cgroup", "credentials", "seccomp", "user", "pid", "mnt", "net", "ipc", "uts", "mounts", "sockets", "networkPolicy", "bubblewrap", "apparmor", "callerIsolation"}
 }
 
 // Decide is fail closed: missing observations never become successful checks.
