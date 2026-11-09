@@ -18,7 +18,7 @@ On macOS, program mode alone adds `mach-priv-task-port` and `system-debug` restr
 
 `raw/dap-transport-race.json`: out-of-order request correlation, interleaved events, malformed/oversized/truncated frames and cancellation.
 
-`raw/dap-five-adapter-integrated.json`: real sandboxed LLDB, Delve, debugpy and Node; real IntelliJ MCP Java session; initialized `value=42`, stack and owned stop. Engine tests cover separate Attach authorization, pinned prepared same-sandbox target, revocation and durable lifecycle. `raw/dap-real-ui.json` covers Desktop backend → Core → LLDB, including step into/out. Native Wails and Linux adapter/security acceptance remain separate final gates.
+`raw/dap-five-adapter-integrated.json`: real sandboxed LLDB, Delve, debugpy and Node; real IntelliJ MCP Java session; initialized `value=42`, stack and owned stop. Engine tests cover separate Attach authorization, pinned prepared same-sandbox target, revocation and durable lifecycle. `raw/dap-real-ui.json` covers Desktop backend → Core → LLDB, including step into/out. Native Wails build/self-check passed; native interactive and Linux adapter acceptance are not claimed.
 
 ## IntelliJ MCP
 

@@ -1,6 +1,6 @@
 # Cognitive Agent Execution Platform implementation
 
-Task: LC-COGNITIVE-AGENT-EXECUTION-PLATFORM-001. Status: IN_PROGRESS.
+Task: LC-COGNITIVE-AGENT-EXECUTION-PLATFORM-001. Status: LOCAL_IMPLEMENTATION_VERIFIED — READY_FOR_INDEPENDENT_REVIEW (2026-11-09). This is not a release, production Linux acceptance or independently reviewed PASS.
 
 ## Authority and preservation
 
@@ -25,13 +25,13 @@ The original 513-line design and four DAP experiment files were SHA256 verified 
 2. Runtime Event Bus and same-store durable events — implemented; focused race regression and real Engine shell/reopen smoke passed.
 3. Inspector API and existing-layout UI — implemented; real Shell/Notebook artifact, history/filter/reconnect/error-recovery and viewport smoke passed.
 4. Agent debugger with safe-boundary stepping — implemented; real file-write/UI stepping, once breakpoint, cancellation, read-only denial and asynchronous child completion checks passed.
-5. DAP — transport, registry, Engine grants, run-bound tools, owned Attach, IntelliJ MCP reuse and Desktop panel implemented. Five real adapters and targeted race checks passed; final crash/security matrix and native Wails integration remain under the unified gates below.
-6. Hub/DAG/messages/worktrees/four workers — implemented; real Core/Desktop localhost UI path, four concurrent worktrees, dependent fifth task, scoped pause/resume, messages and source revalidation passed. Full-platform lifecycle gate remains below.
-7. Persistent Eval and FA-07 implemented; FA-01 independent-UID broker and reversible dedicated Ubuntu security/lifecycle matrix verified. Full-platform integration remains below.
-8. Unified hooks implemented: versioned Before/After vocabulary, explicit modifications, security-denial persistence, observation policy, nested validation, recursion bound and sandboxed process hooks; targeted race and public-process smoke passed. Full-platform gates remain below.
-9. Cognitive/provenance/verification integration — implemented: bounded Go-store graph/Attention, committed execution identity, source revalidation, explicit read_thread evidence and authority separation; targeted race and standalone public API file/reopen smoke passed. Desktop rendering follows below.
-10. Full Desktop integration, deterministic capability experiments, full regression/security gates — pending.
-11. Scoped local commits, documentation, evidence hashes and independent-review handoff — pending.
+5. DAP — five real adapters, owned Attach, grants, revocation, real four-adapter crash matrix, bounded stderr and four-language fault/repair experiment passed. Linux DAP adapter acceptance is not claimed.
+6. Hub/DAG/messages/worktrees — four real concurrent isolated writers, dependent fifth task, control/message/UI paths and source revalidation passed.
+7. Persistent Eval — real Python/JS lifecycle, artifacts and Ubuntu scientific round trip passed; FA-07 refuses unsupported Harbor admission; FA-01 dedicated Ubuntu independent-UID broker matrix passed and VM changes were rolled back.
+8. Unified hooks — versioned vocabulary, policy narrowing/denial, timeout/recursion bounds and real sandboxed process smoke passed; in-process hooks remain trusted code.
+9. Cognitive integration — bounded provenance-checked graph/Attention, explicit thread evidence, workflow/verification authority separation and actual file/reopen smoke passed.
+10. All 15 Desktop surfaces implemented and exercised through real Core/backend paths. Native Wails arm64 build/self-check, full Go race and Vitest passed. Browser captures are not native interactive acceptance.
+11. Scoped phase commits, interface documents, complete evidence indexes and independent-review handoff delivered. Workspace evidence is outside both Git repositories; its SHA256 manifest is the integrity receipt.
 
 All named acceptance criteria in Owner's task remain required. Compile-only and mock-provider tests do not establish real adapter operation, complete delivery or improved LLM success rates.
 
@@ -39,7 +39,7 @@ All named acceptance criteria in Owner's task remain required. Compile-only and 
 
 Event implementation: `pluginapi.Event` identity, SQLite migration `0011`, content-free durable projection, bounded live fanout, cursor/run sequence, retention and explicit expiry, failure latch and affected-run cancellation, session-scoped query/subscribe. Contract: `docs/runtime-event-contract.md`.
 
-Verification: `raw/event-foundation-race.json` records the exact successful race command over session/runtime/diag; `raw/events-real-engine-smoke.*` records real `Engine.Open → NewSession → RunShell → Query → Close → Open → Resume`, output `EVENT_SMOKE_OK lifecycle=3 cursor=3 reopened=true duplicate=false model_requests=0`. The initial regression's incorrect per-run sequence assertion failed and was corrected; its raw output remains preserved. No full-suite or Desktop validation is claimed yet.
+Foundation verification: `raw/event-foundation-race.json` and `raw/events-real-engine-smoke.*` prove real Engine shell execution and durable reopen/cursor recovery. Earlier failure receipts are retained. Final assembled validation is recorded below and in `FULL_REGRESSION_RESULTS.json`.
 
 Inspector: session/run-scoped transcript details, sanitized worker snapshots, typed Desktop bridge, three-column history/live UI, bounded buffers and existing Artifact Viewer. Focused Core/backend race and frontend window tests passed; TypeScript passed. Browser proof covers actual Shell output, Python-produced artifact bytes, filtered/empty history, disconnected cursor recovery, visible request failure/manual recovery, dark/light at 1440/1180/820/560 px without horizontal overflow. Transport for this smoke is a removed localhost adapter over real Desktop backend, not native Wails; native build remains a final integration gate. Raw receipts and screenshots are in the workspace evidence directory. Temporary smoke sources were removed and their owned backend shut down.
 
@@ -69,4 +69,53 @@ Hooks: `raw/hooks-runtime-confirmed.*` passes targeted race policy and real Engi
 
 Cognitive integration: `raw/cognitive-integrated-race.*` passes graph/forgery/staleness/exclusion/revocation and existing event/notes/projection regressions. `raw/cognitive-public-smoke.*` proves a real file write, grounded execution record, public API and Engine reopen (zero external model requests). `tool.end` now publishes after result commit. No Node tables, new DB, all-log injection, Workflow writer or semantic-success shortcut; contract `docs/context-evidence.md`. Explicit thread retrieval carries only bounded Attention plus cross-session lineage. Final full-platform gates remain pending.
 
-Next: cognitive/Desktop integration and final regressions. Development-only Desktop replace remains this task's Core worktree. No main changes or publication.
+Desktop context/resource integration: `raw/context-real-ui.json` proves committed execution sources, explicit failure/content clearing/manual recovery, session isolation, real Python/JavaScript Notebook output and Reset generation without stale usage. Sixteen Inspector/Notebook light/dark viewport captures (1440/1180/820/560) show no horizontal overflow. Resource limits bind each kernel's budget; memory peak unavailable is unknown; disk per-file and aggregate semantics are disclosed. `raw/desktop-resource-contract-race.*` passes actual reset/isolation and `raw/desktop-context-final-types.*` passes TypeScript. Temporary hosts exited 0 and smoke entries were removed. Native build/full regression remain separate gates.
+
+Final admission correction: Desktop previously always opted into Eval, contradicting the current default-off requirement. It now requires `LCX_EVAL_ENABLED=1`; Linux also requires an administrator-issued independent-UID broker connection, without in-process fallback. `raw/desktop-eval-explicit-opt-in.*` proves default refusal and explicit execution/reset under the existing macOS boundary. This is a real host-boundary fix, not a new runtime owner. A final native rebuild follows the correction.
+
+Final gate corrections: the Effective Prompt/capability catalog omitted worker messaging and granted DAP tools; it now uses the existing dynamic bindings. A synthetic nonexistent reader ID and direct `prepareRun` fixtures were migrated to real session/tracked lifetimes without weakening fence, delivery or replay assertions. `rand.Text` exceeded the module's Go 1.23 contract; events now reuse the existing random 128-bit ID helper. The one-second timeout fixture now uses its existing non-login Bash so user profiles cannot consume the entire command deadline; partial output and timeout assertions remain.
+
+The final race run exposed a real classification regression: Debugger boundary revocation was reported as `cancelled` instead of `fenced`. All debug-boundary exit paths now preserve `ErrFenced`. `raw/fence-debug-boundary-cleared.*` proves six real cross-process fence trials and unaffected concurrent work. A deterministic loop regression pins the model/tool/delivery boundary cases.
+
+Default-off UI proof: `raw/default-off-ui-final.json` and PNG show actual document creation/edit/save through Desktop/Core with execution disabled. Runtime/health/resource failures remain visible, not fabricated empty results. A language-less cell is refused without executing. The first smoke incorrectly requested a runtime-bound Python notebook while Eval was off; the next interactive host expired unused; both failures are preserved. The final host exited 0 and all three temporary sources were removed. Full native and browser evidence have distinct scope; native visual product acceptance remains an Owner check.
+
+Full race fixture correction: `TestIdleWorkerDeathIsReportedAsLost` checked the crash event after a fixed 1.8s sleep, but the existing implementation marks failed before process/cgroup cleanup and emits only after cleanup. It now waits boundedly for the actual crash event, preserving failed state, explicit lost-state event and new-generation assertions. No Eval implementation or cleanup order was changed.
+
+## Frozen delivery and final verification
+
+Core implementation commit: `a3c322d0c52b71a0c9f89a4e96a9cac108382240`, branch `feat/agent-debugger-execution-platform`; Desktop: `31f5297f90528c453224f1175c76c9a4773c2a2d`, branch `feat/agent-debugger-execution-platform-ui`. A following Core documentation-only commit records this report; `GIT_STATE.txt` records its exact HEAD and every phase commit/file change. Desktop deliberately retains the local Core replace, not a release pin.
+
+| Final check | Observed result | Receipt |
+|---|---|---|
+| Core ordinary full suite | 2292 PASS, 36 SKIP, 0 FAIL | `raw/core-normal-verified.*` |
+| Core full race suite | 2292 PASS, 36 SKIP, 0 FAIL | `raw/core-race-verified.*` |
+| Core build / vet | exit 0 / 0 | `raw/core-build-verified.*`, `raw/core-vet-verified.*` |
+| Desktop Go race | 175 PASS, 0 FAIL | `raw/desktop-race-verified.*` |
+| Desktop vet | exit 0 | `raw/desktop-vet-verified.*` |
+| Vitest | 78 files, 433 tests PASS | `raw/frontend-vitest-stable.*` |
+| Frontend + Wails macOS build | exit 0; arm64, ad-hoc signature, self-check PASS | `raw/desktop-native-verified.*` |
+
+Go counts include named subtests, excluding package summaries. Opt-in adapter cases skipped in generic suites have separate real receipts. Full suite runs are macOS; Ubuntu safety/resource receipts are targeted real VM experiments. The early pipe-interrupted suite is incomplete evidence, never a passing run.
+
+Native development artifact: `wt/desktop-agent-debugger-execution-platform/build/local/LumenCortex Desktop.app`, built from Desktop `31f5297` and Core `a3c322d`, runtime `0.1.4-preview`, app `0.1.0`. No DMG/release, notarization, remote Core pin or publication is claimed.
+
+## Public contracts and storage changes
+
+- Events: versioned identity, per-run sequence, bounded durable cursors/query/resume/subscribe, snapshots/tree/timeline/details; `docs/runtime-event-contract.md`.
+- Agent controls: `AgentOptions.Debug`, revision-bound snapshots/controls and safe-boundary breakpoints; `docs/agent-debugger.md`.
+- DAP: explicit adapters, separate grants/Attach/evaluation, run-owned sessions and ten typed tools; `docs/dap-debugger.md`.
+- Hub: existing tasks/work units/relations plus dependency admission, bounded messages and worktree isolation; `docs/agent-hub.md`.
+- Eval: per-cell resources, host assertions, typed peer-authorized broker; `docs/persistent-eval.md`, `docs/host-boundary.md`, `docs/security/execution-platform-security.md`.
+- Hooks/context: versioned lifecycle narrowing, read-time grounded graph/Attention without a second database; `docs/runtime-hooks.md`, `docs/context-evidence.md`.
+- SQLite additions: `0011_runtime_events.sql`, `0012_worker_messages.sql` and their down migrations in the existing migration owner. No persisted private reasoning or new Session Manager.
+- Desktop: typed Wails adapters and domain DTOs; explicit `LCX_EVAL_ENABLED=1`, Linux broker socket/grant required, no fallback.
+
+## Definition of Done and remaining gates
+
+Inspector, Agent Debugger, DAP on the listed macOS adapters, Hub, Eval on the documented macOS/Ubuntu boundaries, Hooks, cognitive integration and Desktop backend/browser integration are locally verified by the named receipts. No known applicable P0/P1 implementation failure remains in the exercised scope. This is implementer evidence, not an independent security PASS.
+
+`COGNITIVE_AGENT_EXECUTION_PLATFORM_COMPLETE` is **not issued as a platform-wide acceptance claim**: interactive native Wails acceptance and independent Opus review remain open; Linux DAP adapters/command hooks and other platforms were not validated. The exact per-module classification is in workspace `ACCEPTANCE_DECISION.md`; these limits do not imply missing code was replaced with mocks.
+
+Owner checks: (1) independent read-only Opus review of these two candidate branches and evidence; (2) native packaged-app acceptance; (3) any production AppArmor/broker installation; (4) any real-model experiment, main merge, push/tag/release. None is authorized by local completion. macOS SciPy remains locally malformed; the scientific case passed on Ubuntu without changing system packages. Broker remains one authorized client with bounded kernels, not a multi-tenant service. Default-off UI repeats resource-disabled warnings; no measured usage is invented.
+
+Cleanup: task frontend/isolated IDE and temporary backend services stopped; final local process scan found no exact task-worktree/isolated-IDE/DAP-path matches. Ubuntu owned broker/worker scan was empty after restoring original profiles/sysctls. No main/source originals, historical benchmark rewards/cost ledgers or Sub2API settings were edited. Core main remains `937e161`, Desktop main `4a6c2f3`. Original five material hashes still match. No real model requests, paid trials or publication occurred. Earlier sections are chronological checkpoints; this section is the final state.

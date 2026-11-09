@@ -37,3 +37,8 @@ Failure receipts remain immutable: namespace FD 6 leaked to the interpreter befo
 ## Limits and independent gates
 
 Verified platform is Ubuntu ARM64 with systemd/cgroup v2 and bubblewrap 0.9.0. AppArmor profile was a root-only-bwrap userns exception, not a general syscall sandbox; mounts, seccomp, credentials and cgroups provide the other boundaries. The experiment temporarily removed public-bwrap exceptions and enabled `apparmor_restrict_unprivileged_unconfined`; original VM settings are restored. No production policy or service was installed. macOS/Windows do not offer this broker; no cross-platform security PASS. Host-process attacks against the Core account and administrator account compromise are not covered by the worker isolation proof. Final unified regression, independent Opus review and production installation remain distinct gates.
+
+Final assembled macOS ordinary/race/build/vet and Desktop regression/build gates
+passed; see workspace `FULL_REGRESSION_RESULTS.json`. Those checks do not replace
+the dedicated Ubuntu matrix or establish Linux DAP/command-hook acceptance.
+Independent Opus review and production installation remain separate Owner gates.
