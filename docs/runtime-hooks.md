@@ -41,4 +41,4 @@ macOS sandbox execution is exercised. Linux uses the existing verified caller-is
 
 Workspace evidence: `bench/evidence/cognitive-agent-execution-platform-20261108/raw/hooks-runtime-confirmed.*`, `hooks-public-smoke.*`. The former exercises real Engine writes, no-request model denial, schema/security/recursion/observation policy, same-action workflow approval, real sandboxed process protocol and timeout. The latter runs a standalone public API program: sandboxed process denial and exactly one durable hook event. All providers are deterministic fixtures; no external model requests.
 
-Earlier failure receipt `hooks-runtime-integration.*` is preserved: same-action gate approval initially bypassed transition hooks; the corrected approval path and regression now pass. Full assembled-platform regression and independent review are separate gates.
+Earlier failure receipt `hooks-runtime-integration.*` is preserved: same-action gate approval initially bypassed transition hooks; the corrected approval path and regression now pass. Full assembled-platform macOS regression passed; independent review remains a separate Owner gate.

@@ -10,7 +10,7 @@ Hub extends the existing `RunSupervisor`, Task State work-unit DAG and repositor
 - `Engine.SendWorkerMessage(ctx, root, sender, recipient, id, body)` admits only root/direct-worker membership. IDs are idempotent for identical content; conflicting reuse is rejected.
 - `Engine.WorkerMessages(ctx, root, reader, after, limit, receive)` returns cursor pages. Root host inspection can view the timeline without acknowledging an inbox; agent reads are recipient-only. An acknowledgement means read, not execution or verification.
 
-Agent `worker_message` and `worker_inbox` bind sender/root to the current run and cannot choose authority. Inbox results carry source provenance. Messages never directly modify recipient Task State or grant permissions.
+Agent `worker_send_message` and `worker_inbox` bind sender/root to the current run and cannot choose authority. Inbox results carry source provenance. Messages never directly modify recipient Task State or grant permissions.
 
 ## Storage and privacy
 
@@ -24,4 +24,4 @@ Desktop's Inspector embeds Hub, task dependency rows and message timeline. Selec
 
 ## Exercised evidence
 
-Workspace evidence `bench/evidence/cognitive-agent-execution-platform-20261108/raw/`: `hub-regression.json` (Core/session race, four concurrent workers, dependency gating, idempotence, membership, restart/fence/privacy); `hub-real-ui.json` (real Desktop backend/Core over a temporary localhost transport, four isolated writers, paused/continued worker, message and fifth dependent worker); `hub-message-revalidation.json` (UI withdrawn/error refresh). These use deterministic local providers and zero external model requests. Native Wails and full-platform regression are separate final gates, not implied by these receipts.
+Workspace evidence `bench/evidence/cognitive-agent-execution-platform-20261108/raw/`: `hub-regression.json` (Core/session race, four concurrent workers, dependency gating, idempotence, membership, restart/fence/privacy); `hub-real-ui.json` (real Desktop backend/Core over a temporary localhost transport, four isolated writers, paused/continued worker, message and fifth dependent worker); `hub-message-revalidation.json` (UI withdrawn/error refresh). These use deterministic local providers and zero external model requests. Native Wails build/self-check and full-platform macOS regression passed in the final implementation report; native interactive acceptance remains separate.
