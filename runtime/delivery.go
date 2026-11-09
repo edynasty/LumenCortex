@@ -105,6 +105,13 @@ func (e *Engine) verifyDelivery(ctx context.Context, sessionID, runID string) De
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	result := inspectDelivery(func() DeliveryResult {
+		pre, err := e.DispatchExecutionHook(ctx, LifecycleRequest{Event: LifecycleBeforeDelivery, SessionID: sessionID, RunID: runID})
+		if err != nil {
+			return unavailableDelivery("hook", "", err)
+		}
+		if pre.Denied() {
+			return unavailableDelivery("hook", "", errors.New("delivery denied: "+pre.FeedbackText()))
+		}
 		workspace, err := e.agentWorkspace(ctx, sessionID)
 		if err != nil {
 			return unavailableDelivery("workspace", "", err)
@@ -151,6 +158,7 @@ func (e *Engine) verifyDelivery(ctx context.Context, sessionID, runID string) De
 	if resolved {
 		e.events.publish("task_state.resolved", sessionID, map[string]any{"state": state.Resolution.State, "by": state.Resolution.By})
 	}
+	_, _ = e.DispatchExecutionHook(saveCtx, LifecycleRequest{Event: LifecycleAfterDelivery, SessionID: sessionID, RunID: runID, Detail: map[string]any{"status": result.Status}})
 	return result
 }
 

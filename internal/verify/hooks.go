@@ -22,34 +22,52 @@ import (
 
 // Version is the hook protocol version. A registry reports it and refuses a hook that implements
 // another one, so an event or decision can never silently change meaning between versions.
-const Version = "1.0"
+const Version = "2.0"
 
 // Event is one lifecycle point a hook may observe.
 type Event string
 
 const (
-	EventPreToolUse     Event = "PreToolUse"
-	EventPostToolUse    Event = "PostToolUse"
-	EventPreEval        Event = "PreEval"
-	EventPostEval       Event = "PostEval"
-	EventPreSubagent    Event = "PreSubagent"
-	EventPostSubagent   Event = "PostSubagent"
-	EventPreVerify      Event = "PreVerify"
-	EventPostVerify     Event = "PostVerify"
-	EventOnFailure      Event = "OnFailure"
-	EventOnCancel       Event = "OnCancel"
-	EventOnTimeout      Event = "OnTimeout"
-	EventOnSessionClose Event = "OnSessionClose"
-	EventStop           Event = "Stop"
-	EventCompletion     Event = "Completion"
+	EventBeforeToolCall           Event = "BeforeToolCall"
+	EventAfterToolCall            Event = "AfterToolCall"
+	EventBeforeEval               Event = "BeforeEval"
+	EventAfterEval                Event = "AfterEval"
+	EventBeforeSubagentStart      Event = "BeforeSubagentStart"
+	EventAfterSubagentStart       Event = "AfterSubagentStart"
+	EventBeforeVerification       Event = "BeforeVerification"
+	EventAfterVerification        Event = "AfterVerification"
+	EventOnFailure                Event = "OnFailure"
+	EventOnCancel                 Event = "OnCancel"
+	EventOnTimeout                Event = "OnTimeout"
+	EventSessionEnd               Event = "SessionEnd"
+	EventStop                     Event = "Stop"
+	EventCompletion               Event = "Completion"
+	EventSessionStart             Event = "SessionStart"
+	EventBeforeModelCall          Event = "BeforeModelCall"
+	EventAfterModelCall           Event = "AfterModelCall"
+	EventToolFailure              Event = "ToolFailure"
+	EventBeforeSubagentEnd        Event = "BeforeSubagentEnd"
+	EventAfterSubagentEnd         Event = "AfterSubagentEnd"
+	EventBeforeDebugStart         Event = "BeforeDebugStart"
+	EventAfterDebugStop           Event = "AfterDebugStop"
+	EventBeforeWorkflowTransition Event = "BeforeWorkflowTransition"
+	EventAfterWorkflowTransition  Event = "AfterWorkflowTransition"
+	EventBeforeDelivery           Event = "BeforeDelivery"
+	EventAfterDelivery            Event = "AfterDelivery"
+	EventBeforeCompact            Event = "BeforeCompact"
+	EventAfterCompact             Event = "AfterCompact"
 )
 
 // Events is every lifecycle event in documentation order.
 func Events() []Event {
 	return []Event{
-		EventPreToolUse, EventPostToolUse, EventPreEval, EventPostEval, EventPreSubagent,
-		EventPostSubagent, EventPreVerify, EventPostVerify, EventOnFailure, EventOnCancel,
-		EventOnTimeout, EventOnSessionClose, EventStop, EventCompletion,
+		EventBeforeToolCall, EventAfterToolCall, EventBeforeEval, EventAfterEval, EventBeforeSubagentStart,
+		EventAfterSubagentStart, EventBeforeVerification, EventAfterVerification, EventOnFailure, EventOnCancel,
+		EventOnTimeout, EventSessionEnd, EventStop, EventCompletion,
+		EventSessionStart, EventBeforeModelCall, EventAfterModelCall, EventToolFailure,
+		EventBeforeSubagentEnd, EventAfterSubagentEnd, EventBeforeDebugStart, EventAfterDebugStop,
+		EventBeforeWorkflowTransition, EventAfterWorkflowTransition, EventBeforeDelivery, EventAfterDelivery,
+		EventBeforeCompact, EventAfterCompact,
 	}
 }
 
@@ -63,22 +81,32 @@ func (e Event) Valid() bool {
 	return false
 }
 
+// observation reports events that cannot authorize or undo completed work.
+func (e Event) observation() bool {
+	switch e {
+	case EventAfterModelCall, EventAfterToolCall, EventToolFailure, EventAfterSubagentStart,
+		EventBeforeSubagentEnd, EventAfterSubagentEnd, EventAfterEval, EventAfterDebugStop,
+		EventAfterWorkflowTransition, EventAfterDelivery, EventAfterCompact, EventSessionEnd,
+		EventOnFailure, EventOnCancel, EventOnTimeout:
+		return true
+	}
+	return false
+}
+
 // Decision is what a hook decided at its event.
 type Decision string
 
 const (
-	// DecisionAllow permits the action. Like Continue it never overrides a later Deny.
-	DecisionAllow Decision = "allow"
 	// DecisionContinue has no opinion: the remaining hooks of the event still run.
 	DecisionContinue Decision = "continue"
-	// DecisionDeny blocks the action at an event that can block (PreToolUse, PreEval,
-	// PreSubagent, PreVerify, Stop, Completion). At an observing event it is reported, not enforced.
-	DecisionDeny Decision = "deny"
+	// DecisionDeny blocks admission. At an observing event it is recorded only.
+	DecisionDeny                Decision = "deny"
+	DecisionModifyAllowedFields Decision = "modify_allowed_fields"
 )
 
 // Valid reports whether d is a decision.
 func (d Decision) Valid() bool {
-	return d == DecisionAllow || d == DecisionContinue || d == DecisionDeny
+	return d == DecisionContinue || d == DecisionDeny || d == DecisionModifyAllowedFields
 }
 
 // FailPolicy is what an event does when a hook errors or times out. The zero value is FailClosed:
@@ -134,15 +162,15 @@ type Request struct {
 	ToolCallID string
 	ToolName   string
 	ToolArgs   map[string]any
-	// ToolResult is set at PostToolUse, PostEval and PostSubagent.
+	// ToolResult is set for completed tool, Eval and subagent operations.
 	ToolResult *protocol.ToolResult
 	// Feedback is the bounded feedback the event already holds, for Stop and Completion.
 	Feedback string
 	// Detail is bounded, typed context for the event (check verdicts, review findings). It must not
 	// carry model reasoning.
 	Detail map[string]any
-	// ValidateArgs checks arguments a mutable hook replaced, before any later hook sees them and
-	// before the loop runs the call. The loop supplies the tool's schema; nil accepts anything.
+	// ValidateArgs checks replacements before later hooks or execution. Without
+	// the host's schema validator, argument modification is refused.
 	ValidateArgs func(map[string]any) error
 }
 
@@ -154,7 +182,7 @@ type Result struct {
 	// Feedback is what the model is told when this decision blocks or corrects it. The registry
 	// bounds it; the loop appends it as one completion_blocked row or tool feedback.
 	Feedback string
-	// Args replaces tool arguments when the hook declares MutableArgs.
+	// Args patches tool arguments only with DecisionModifyAllowedFields.
 	Args map[string]any
 }
 
@@ -236,6 +264,10 @@ const (
 	// maxAuditEntries bounds the audit entries one event returns.
 	maxAuditEntries = 64
 )
+
+type hookDepthKey struct{}
+
+const maxHookDepth = 4
 
 // NewRegistry returns an empty registry for the current hook protocol version. A version other
 // than Version is refused: an old hook would not know the events it is asked about.
@@ -384,11 +416,16 @@ func (r *Registry) ResetDenials(sessionID string) {
 // own replacement is refused.
 func (r *Registry) Decide(ctx context.Context, req Request) Outcome {
 	if r == nil {
-		return Outcome{Decision: DecisionAllow}
+		return Outcome{Decision: DecisionContinue}
 	}
 	if !req.Event.Valid() {
 		return Outcome{Decision: DecisionDeny, Audit: []Audit{{Event: req.Event, Decision: DecisionDeny, Reason: "unknown event"}}}
 	}
+	depth, _ := ctx.Value(hookDepthKey{}).(int)
+	if depth >= maxHookDepth {
+		return Outcome{Decision: DecisionDeny, Audit: []Audit{{Event: req.Event, Decision: DecisionDeny, Reason: "hook recursion limit"}}}
+	}
+	ctx = context.WithValue(ctx, hookDepthKey{}, depth+1)
 	if req.Version == "" {
 		req.Version = r.Version
 	}
@@ -412,13 +449,13 @@ func (r *Registry) Decide(ctx context.Context, req Request) Outcome {
 	}
 	sortHooks(hooks)
 
-	out := Outcome{Decision: DecisionAllow, StopDenials: priorStopDenials, Denials: priorDenials}
+	out := Outcome{Decision: DecisionContinue, StopDenials: priorStopDenials, Denials: priorDenials}
 	feedbackBytes := 0
 	// The working arguments: a copy the caller's map never shares with a hook. replaced reports a
 	// mutable hook changed them, so only a real replacement travels back to the loop.
 	working := cloneArgs(req.ToolArgs)
 	replaced := false
-	blockingEvent := req.Event == EventPreVerify || req.Event == EventPostVerify || req.Event == EventCompletion
+	blockingEvent := req.Event == EventBeforeVerification || req.Event == EventAfterVerification || req.Event == EventCompletion
 
 	// Two passes: ordinary hooks decide the arguments, then safety hooks decide the final ones. A
 	// safety hook never sees arguments a later mutable hook could still replace.
@@ -428,7 +465,7 @@ func (r *Registry) Decide(ctx context.Context, req Request) Outcome {
 				continue
 			}
 			if len(out.Audit) >= maxAuditEntries {
-				break
+				return Outcome{Decision: DecisionDeny, Audit: append(out.Audit, Audit{Event: req.Event, Decision: DecisionDeny, Reason: "hook audit limit"})}
 			}
 			hookReq := req
 			hookReq.ToolArgs = cloneArgs(working)
@@ -442,6 +479,9 @@ func (r *Registry) Decide(ctx context.Context, req Request) Outcome {
 				ElapsedMS: time.Since(started).Milliseconds()}
 			if err != nil {
 				policy := effectivePolicy(h)
+				if req.Event.observation() && !h.Safety() {
+					policy = FailOpen
+				}
 				entry.FailPolicy = policy
 				entry.Err = truncate(err.Error(), MaxReasonBytes)
 				if policy == FailOpen {
@@ -463,6 +503,9 @@ func (r *Registry) Decide(ctx context.Context, req Request) Outcome {
 				entry.Err = "invalid decision " + string(decision)
 				entry.Decision = DecisionDeny
 				entry.FailPolicy = effectivePolicy(h)
+				if req.Event.observation() && !h.Safety() {
+					entry.FailPolicy = FailOpen
+				}
 				if entry.FailPolicy == FailOpen {
 					entry.Decision = DecisionContinue
 					out.Audit = append(out.Audit, entry)
@@ -476,27 +519,23 @@ func (r *Registry) Decide(ctx context.Context, req Request) Outcome {
 			entry.Reason = truncate(result.Reason, MaxReasonBytes)
 			if result.Args != nil {
 				switch {
-				case h.MutableArgs() && !h.Safety():
+				case decision == DecisionModifyAllowedFields && h.MutableArgs() && !h.Safety() && req.Event == EventBeforeToolCall && req.ValidateArgs != nil:
 					next := cloneArgs(working)
 					if next == nil {
 						next = map[string]any{}
 					}
 					for key, value := range result.Args {
-						next[key] = value
+						next[key] = cloneValue(value)
 					}
-					if req.ValidateArgs != nil {
-						if verr := req.ValidateArgs(cloneArgs(next)); verr != nil {
-							// A replacement that no longer satisfies the tool's schema is refused: a
-							// hook cannot authorize input the tool itself rejects.
-							entry.ArgsIgnored = true
-							entry.Decision = DecisionDeny
-							entry.Reason = "replacement arguments are invalid"
-							entry.Err = truncate(verr.Error(), MaxReasonBytes)
-							out.Feedback = appendBoundedFeedback(out.Feedback, "the hook's replacement arguments are invalid for this tool: "+verr.Error(), &feedbackBytes, maxFeedback)
-							out.Audit = append(out.Audit, entry)
-							out.Decision = DecisionDeny
-							return out
-						}
+					if verr := req.ValidateArgs(cloneArgs(next)); verr != nil {
+						entry.ArgsIgnored = true
+						entry.Decision = DecisionDeny
+						entry.Reason = "replacement arguments are invalid"
+						entry.Err = truncate(verr.Error(), MaxReasonBytes)
+						out.Feedback = appendBoundedFeedback(out.Feedback, "the hook's replacement arguments are invalid for this tool: "+verr.Error(), &feedbackBytes, maxFeedback)
+						out.Audit = append(out.Audit, entry)
+						out.Decision = DecisionDeny
+						return out
 					}
 					working, replaced = next, true
 				default:
@@ -509,12 +548,17 @@ func (r *Registry) Decide(ctx context.Context, req Request) Outcome {
 				out.Feedback = appendBoundedFeedback(out.Feedback, text, &feedbackBytes, maxFeedback)
 			}
 			if decision == DecisionDeny {
+				if req.Event.observation() && !h.Safety() {
+					entry.Overridden = "observation_only"
+					out.Audit = append(out.Audit, entry)
+					continue
+				}
 				switch {
 				case req.Event == EventStop:
 					// A Stop denial is bounded per session: the run must always be able to end.
-					if priorStopDenials >= maxStop {
+					if !h.Safety() && priorStopDenials >= maxStop {
 						entry.Overridden = "stop_denial_limit"
-						entry.Decision = DecisionAllow
+						entry.Decision = DecisionContinue
 						out.Audit = append(out.Audit, entry)
 						out.StopLimitReached = true
 						continue
@@ -526,9 +570,9 @@ func (r *Registry) Decide(ctx context.Context, req Request) Outcome {
 				case blockingEvent:
 					// A completion gate hook is bounded too: a denial the model cannot satisfy must
 					// not hold the run open past the repair budget.
-					if priorDenials >= maxBlocking {
+					if !h.Safety() && priorDenials >= maxBlocking {
 						entry.Overridden = "denial_limit"
-						entry.Decision = DecisionAllow
+						entry.Decision = DecisionContinue
 						out.Audit = append(out.Audit, entry)
 						out.DenialLimitReached = true
 						continue
@@ -550,7 +594,7 @@ func (r *Registry) Decide(ctx context.Context, req Request) Outcome {
 		switch req.Event {
 		case EventStop:
 			delete(r.stopDenials, req.SessionID)
-		case EventPreVerify, EventPostVerify, EventCompletion:
+		case EventBeforeVerification, EventAfterVerification, EventCompletion:
 			delete(r.blockingDenials, denialKey)
 		}
 		r.mu.Unlock()
@@ -648,7 +692,7 @@ func cloneDetail(detail map[string]any) map[string]any {
 	}
 	out := make(map[string]any, len(detail))
 	for k, v := range detail {
-		out[k] = v
+		out[k] = cloneValue(v)
 	}
 	return out
 }

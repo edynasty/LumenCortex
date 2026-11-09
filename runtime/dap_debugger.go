@@ -115,6 +115,13 @@ func (e *Engine) startProgramDebug(ctx, owner context.Context, opts DebugStartOp
 	if err != nil {
 		return DebugSnapshot{}, err
 	}
+	pre, err := e.DispatchExecutionHook(ctx, LifecycleRequest{Event: LifecycleBeforeDebugStart, SessionID: opts.SessionID, RunID: opts.RunID})
+	if err != nil {
+		return DebugSnapshot{}, err
+	}
+	if pre.Denied() {
+		return DebugSnapshot{}, errors.New("debug start denied: " + pre.FeedbackText())
+	}
 	identity, err := e.SessionRuntime(ctx, opts.SessionID)
 	if err != nil {
 		return DebugSnapshot{}, err
@@ -158,6 +165,10 @@ func (e *Engine) startProgramDebug(ctx, owner context.Context, opts DebugStartOp
 		case <-owner.Done():
 		}
 		cancel()
+		<-done // AfterDebugStop observes completed cleanup, never just cancellation.
+		hookCtx, doneHook := context.WithTimeout(context.Background(), 5*time.Second)
+		defer doneHook()
+		_, _ = e.DispatchExecutionHook(hookCtx, LifecycleRequest{Event: LifecycleAfterDebugStop, SessionID: opts.SessionID, RunID: opts.RunID, Detail: map[string]any{"debugSessionId": result.ID}})
 	}()
 	return result, nil
 }

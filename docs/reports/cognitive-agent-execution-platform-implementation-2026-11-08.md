@@ -28,7 +28,7 @@ The original 513-line design and four DAP experiment files were SHA256 verified 
 5. DAP — transport, registry, Engine grants, run-bound tools, owned Attach, IntelliJ MCP reuse and Desktop panel implemented. Five real adapters and targeted race checks passed; final crash/security matrix and native Wails integration remain under the unified gates below.
 6. Hub/DAG/messages/worktrees/four workers — implemented; real Core/Desktop localhost UI path, four concurrent worktrees, dependent fifth task, scoped pause/resume, messages and source revalidation passed. Full-platform lifecycle gate remains below.
 7. Persistent Eval and FA-07 implemented; FA-01 independent-UID broker and reversible dedicated Ubuntu security/lifecycle matrix verified. Full-platform integration remains below.
-8. Existing hooks extension and permission invariants — pending.
+8. Unified hooks implemented: versioned Before/After vocabulary, explicit modifications, security-denial persistence, observation policy, nested validation, recursion bound and sandboxed process hooks; targeted race and public-process smoke passed. Full-platform gates remain below.
 9. Cognitive/provenance/verification integration — pending.
 10. Full Desktop integration, deterministic capability experiments, full regression/security gates — pending.
 11. Scoped local commits, documentation, evidence hashes and independent-review handoff — pending.
@@ -65,4 +65,6 @@ FA-07: `docs/host-boundary.md` specifies schema/admission. `raw/boundary-real-ma
 
 FA-01: real Core Engine → Unix Broker → independent UID/GID 62081 Python/Node and required host assertions passed. `raw/broker-security-matrix-race.*` covers four kernels, isolation, artifact permissions, interrupt/state retention, timeout, OOM/bystander, restart and Dispose under race instrumentation. Raw replay/foreign-peer, revoke/client SIGKILL, broker SIGKILL/restart and keeper SIGKILL cases passed. The leaked namespace FD, synthetic-directory access, callback absence, proc-self-bind admission and stale-socket recovery defects were fixed; failure receipts remain unchanged. Original Ubuntu profiles/sysctls are restored, temporary broker installation removed and owned-process count is zero. `BROKER_SECURITY_RESULTS.json` and `docs/security/execution-platform-security.md` record exact coverage and limits. This is not production deployment or independent Opus review.
 
-Next: unified lifecycle hooks, then cognitive/Desktop integration and final regressions. Development-only Desktop replace remains this task's Core worktree. No main changes or publication.
+Hooks: `raw/hooks-runtime-confirmed.*` passes targeted race policy and real Engine file-write/no-request/approval scenarios. `raw/hooks-public-smoke.*` runs the standalone public API and observes a sandboxed process denial plus one durable event. macOS external command isolation/timeout is real; Linux command hooks require the existing caller-isolation setup and are not covered by that macOS receipt. Same-action workflow approval initially bypassed hooks; the failure is preserved in `raw/hooks-runtime-integration.*` and fixed. Contract: `docs/runtime-hooks.md`.
+
+Next: cognitive/Desktop integration and final regressions. Development-only Desktop replace remains this task's Core worktree. No main changes or publication.

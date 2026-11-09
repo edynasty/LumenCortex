@@ -16,7 +16,7 @@ type heldReadCallback struct {
 
 func (*heldReadCallback) ID() string                       { return "hold-detached-read" }
 func (*heldReadCallback) Version() int                     { return 1 }
-func (*heldReadCallback) Events() []LifecycleEvent         { return []LifecycleEvent{LifecyclePreToolUse} }
+func (*heldReadCallback) Events() []LifecycleEvent         { return []LifecycleEvent{LifecycleBeforeToolCall} }
 func (*heldReadCallback) Priority() int                    { return 0 }
 func (*heldReadCallback) Timeout() time.Duration           { return time.Second * 5 }
 func (*heldReadCallback) FailurePolicy() HookFailurePolicy { return HookFailClosed }
@@ -24,7 +24,7 @@ func (*heldReadCallback) MutableArgs() bool                { return false }
 func (*heldReadCallback) Safety() bool                     { return true }
 func (h *heldReadCallback) Handle(ctx context.Context, r LifecycleRequest) (LifecycleResult, error) {
 	if r.ToolName != "read_file" {
-		return LifecycleResult{Decision: HookAllow}, nil
+		return LifecycleResult{Decision: HookContinue}, nil
 	}
 	h.once.Do(func() { close(h.entered) })
 	<-ctx.Done()

@@ -341,7 +341,7 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (Snapshot, error
 		defer identityRead.Close()
 		defer identityWrite.Close()
 	}
-	cmd, err := evalruntime.ProgramCommand(life, evalruntime.ProgramOptions{Sandbox: m.opts.Sandbox, Executable: a.Command, Args: args, Workspace: root, PrivateDir: s.dir, ReadPaths: a.ReadPaths, Loopback: a.Loopback, Socket: socket, PrepareTarget: prepare, TargetArgs: opts.Args, TargetIdentity: identityWrite, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + root, "TMPDIR=" + filepath.Join(s.dir, "tmp")}, CPUSeconds: int(m.opts.Lifetime.Seconds()), FileBytes: 64 << 20})
+	cmd, err := evalruntime.ProgramCommand(life, evalruntime.ProgramOptions{Debug: true, Sandbox: m.opts.Sandbox, Executable: a.Command, Args: args, Workspace: root, PrivateDir: s.dir, ReadPaths: a.ReadPaths, Loopback: a.Loopback, Socket: socket, PrepareTarget: prepare, TargetArgs: opts.Args, TargetIdentity: identityWrite, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + root, "TMPDIR=" + filepath.Join(s.dir, "tmp")}, CPUSeconds: int(m.opts.Lifetime.Seconds()), FileBytes: 64 << 20})
 	if err != nil {
 		return fail(err)
 	}

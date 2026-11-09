@@ -36,7 +36,7 @@ func TestRealLLDBTransport(t *testing.T) {
 	if out, err := exec.CommandContext(ctx, "cc", "-g", "-O0", source, "-o", program).CombinedOutput(); err != nil {
 		t.Fatalf("compile: %v %s", err, out)
 	}
-	cmd, err := evalruntime.ProgramCommand(ctx, evalruntime.ProgramOptions{Executable: string(path[:len(path)-1]), Workspace: root, PrivateDir: t.TempDir(), ReadPaths: []string{"/Applications/Xcode.app"}, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + root, "TMPDIR=" + root}, CPUSeconds: 20, FileBytes: 16 << 20})
+	cmd, err := evalruntime.ProgramCommand(ctx, evalruntime.ProgramOptions{Debug: true, Executable: string(path[:len(path)-1]), Workspace: root, PrivateDir: t.TempDir(), ReadPaths: []string{"/Applications/Xcode.app"}, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + root, "TMPDIR=" + root}, CPUSeconds: 20, FileBytes: 16 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}

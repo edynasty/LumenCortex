@@ -223,9 +223,10 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 	}
 	d.spend.ToolCalls++
 
-	// PreToolUse hooks run for a nested call exactly as for a top-level one.
-	pre := d.loop.runHook(ctx, d.sessionID, d.runID, verifyEventPreToolUse, HookRequest{
+	// Nested calls use the same BeforeToolCall authorization as top-level calls.
+	pre := d.loop.runHook(ctx, d.sessionID, d.runID, verifyEventBeforeToolCall, HookRequest{
 		Step: d.step, ToolCallID: d.parentCall, ToolName: name, ToolArgs: args,
+		ValidateArgs: func(candidate map[string]any) error { return validateToolArgs(spec, candidate) },
 	})
 	if pre.Denied() {
 		return deny("denied by a lifecycle hook: " + pre.FeedbackText())
@@ -279,7 +280,7 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 			}
 		}
 	}
-	post := d.loop.runHook(ctx, d.sessionID, d.runID, verifyEventPostToolUse, HookRequest{
+	post := d.loop.runHook(ctx, d.sessionID, d.runID, verifyEventAfterToolCall, HookRequest{
 		Step: d.step, ToolCallID: d.parentCall, ToolName: name, ToolArgs: args, ToolResult: &result,
 	})
 	if feedback := post.FeedbackText(); feedback != "" {

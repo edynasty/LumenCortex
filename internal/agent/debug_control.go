@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edynasty/LumenCortex/internal/verify"
 	"sync"
 )
 
@@ -303,8 +304,22 @@ func (d *DebugControl) Boundary(ctx context.Context, p DebugBoundary) error {
 }
 
 func (l *Loop) debugBoundary(ctx context.Context, p DebugBoundary) error {
-	if l.DebugBoundary == nil {
-		return ctx.Err()
+	if l.DebugBoundary != nil {
+		if err := l.DebugBoundary(ctx, p); err != nil {
+			return err
+		}
 	}
-	return l.DebugBoundary(ctx, p)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Existing tool/eval/subagent dispatchers own their full authorization
+	// context. Here only model boundaries and failure observation are added.
+	if p.Event == "BeforeModelCall" || p.Event == "AfterModelCall" || p.Event == "ToolFailure" || p.Event == "BeforeDelivery" {
+		sessionID, _ := ctx.Value(hookSessionKey{}).(string)
+		out := l.runHook(ctx, sessionID, runIDFrom(ctx), verify.Event(p.Event), HookRequest{Step: p.Step, ToolName: p.Tool, ToolCallID: p.ToolCallID, Detail: map[string]any{"failed": p.Failed, "denied": p.Denied}})
+		if out.Denied() && (p.Event == "BeforeModelCall" || p.Event == "BeforeDelivery") {
+			return fmt.Errorf("lifecycle %s denied: %s", p.Event, hookFeedback(out))
+		}
+	}
+	return nil
 }

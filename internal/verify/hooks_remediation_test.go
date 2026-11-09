@@ -20,31 +20,36 @@ import (
 func TestSafetyHooksDecideTheFinalArguments(t *testing.T) {
 	r := testRegistry(t)
 	if err := r.Register(&testHook{id: "a-rewriter", version: 1, priority: 0, mutable: true,
-		events: []Event{EventPreToolUse},
+		events: []Event{EventBeforeToolCall},
 		run: func(context.Context, Request) (Result, error) {
-			return Result{Decision: DecisionAllow, Args: map[string]any{"command": "rm -rf ~/danger"}}, nil
+			return Result{Decision: DecisionModifyAllowedFields, Args: map[string]any{"command": "rm -rf ~/danger"}}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}
 	var safetySaw, observerSaw string
 	if err := r.Register(&testHook{id: "z-safety", version: 1, priority: 10, safety: true,
-		events: []Event{EventPreToolUse},
+		events: []Event{EventBeforeToolCall},
 		run: func(_ context.Context, req Request) (Result, error) {
 			safetySaw, _ = req.ToolArgs["command"].(string)
-			return Result{Decision: DecisionAllow}, nil
+			return Result{Decision: DecisionContinue}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}
 	// An ordinary hook registered after the safety one still runs before it: safety decides last.
 	if err := r.Register(&testHook{id: "b-observer", version: 1, priority: 20,
-		events: []Event{EventPreToolUse},
+		events: []Event{EventBeforeToolCall},
 		run: func(_ context.Context, req Request) (Result, error) {
 			observerSaw, _ = req.ToolArgs["command"].(string)
 			return Result{Decision: DecisionContinue}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}
-	out := r.Decide(context.Background(), Request{Event: EventPreToolUse, ToolArgs: map[string]any{"command": "ls"}})
+	out := r.Decide(context.Background(), Request{Event: EventBeforeToolCall, ToolArgs: map[string]any{"command": "ls"}, ValidateArgs: func(args map[string]any) error {
+		if _, ok := args["command"].(string); !ok {
+			return errors.New("command must be string")
+		}
+		return nil
+	}})
 	if safetySaw != "rm -rf ~/danger" {
 		t.Fatalf("the safety hook saw %q, not the arguments that would run", safetySaw)
 	}
@@ -61,18 +66,18 @@ func TestSafetyHooksDecideTheFinalArguments(t *testing.T) {
 func TestInvalidArgumentReplacementIsRefused(t *testing.T) {
 	r := testRegistry(t)
 	if err := r.Register(&testHook{id: "a-broken", version: 1, mutable: true,
-		events: []Event{EventPreToolUse},
+		events: []Event{EventBeforeToolCall},
 		run: func(context.Context, Request) (Result, error) {
-			return Result{Decision: DecisionAllow, Args: map[string]any{"command": 12345}}, nil
+			return Result{Decision: DecisionModifyAllowedFields, Args: map[string]any{"command": 12345}}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}
 	ran := false
 	if err := r.Register(&testHook{id: "z-safety", version: 1, safety: true,
-		events: []Event{EventPreToolUse},
+		events: []Event{EventBeforeToolCall},
 		run: func(context.Context, Request) (Result, error) {
 			ran = true
-			return Result{Decision: DecisionAllow}, nil
+			return Result{Decision: DecisionContinue}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +87,7 @@ func TestInvalidArgumentReplacementIsRefused(t *testing.T) {
 		}
 		return nil
 	}
-	out := r.Decide(context.Background(), Request{Event: EventPreToolUse,
+	out := r.Decide(context.Background(), Request{Event: EventBeforeToolCall,
 		ToolArgs: map[string]any{"command": "ls"}, ValidateArgs: validate})
 	if !out.Denied() {
 		t.Fatalf("a replacement the tool's schema refuses was accepted: %+v", out)
@@ -103,7 +108,7 @@ func TestHooksHoldNoLiveReferences(t *testing.T) {
 	result := &protocol.ToolResult{OK: false, Content: `{"exitCode":1}`}
 	detail := map[string]any{"status": "failed"}
 	if err := r.Register(&testHook{id: "a-mutator", version: 1,
-		events: []Event{EventPreToolUse, EventPostToolUse},
+		events: []Event{EventBeforeToolCall, EventAfterToolCall},
 		run: func(_ context.Context, req Request) (Result, error) {
 			if req.ToolArgs != nil {
 				req.ToolArgs["command"] = "rm -rf ~/danger"
@@ -120,7 +125,7 @@ func TestHooksHoldNoLiveReferences(t *testing.T) {
 		}}); err != nil {
 		t.Fatal(err)
 	}
-	out := r.Decide(context.Background(), Request{Event: EventPreToolUse, ToolArgs: args, Detail: detail})
+	out := r.Decide(context.Background(), Request{Event: EventBeforeToolCall, ToolArgs: args, Detail: detail})
 	if args["command"] != "ls" {
 		t.Fatalf("a hook mutated the caller's arguments: %v", args)
 	}
@@ -133,7 +138,7 @@ func TestHooksHoldNoLiveReferences(t *testing.T) {
 	if out.Args != nil {
 		t.Fatalf("an in-place mutation was reported as a replacement: %v", out.Args)
 	}
-	post := r.Decide(context.Background(), Request{Event: EventPostToolUse, ToolResult: result})
+	post := r.Decide(context.Background(), Request{Event: EventAfterToolCall, ToolResult: result})
 	if result.OK || result.Content != `{"exitCode":1}` {
 		t.Fatalf("a hook rewrote the result the model is shown: %+v", result)
 	}
@@ -145,15 +150,15 @@ func TestHooksHoldNoLiveReferences(t *testing.T) {
 func TestHookTimeoutStopsWaitingForTheHook(t *testing.T) {
 	r := testRegistry(t)
 	if err := r.Register(&testHook{id: "ignores-ctx", version: 1, timeout: 20 * time.Millisecond,
-		events: []Event{EventPreVerify},
+		events: []Event{EventBeforeVerification},
 		run: func(context.Context, Request) (Result, error) {
 			time.Sleep(300 * time.Millisecond)
-			return Result{Decision: DecisionAllow}, nil
+			return Result{Decision: DecisionContinue}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}
 	started := time.Now()
-	out := r.Decide(context.Background(), Request{Event: EventPreVerify})
+	out := r.Decide(context.Background(), Request{Event: EventBeforeVerification})
 	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
 		t.Fatalf("waited %s for a 20ms hook", elapsed)
 	}
@@ -163,14 +168,14 @@ func TestHookTimeoutStopsWaitingForTheHook(t *testing.T) {
 	// A fail-open hook's timeout is reported and does not block.
 	open := testRegistry(t)
 	if err := open.Register(&testHook{id: "ignores-ctx-open", version: 1, timeout: 20 * time.Millisecond, policy: FailOpen,
-		events: []Event{EventPostToolUse},
+		events: []Event{EventAfterToolCall},
 		run: func(context.Context, Request) (Result, error) {
 			time.Sleep(300 * time.Millisecond)
-			return Result{Decision: DecisionAllow}, nil
+			return Result{Decision: DecisionContinue}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}
-	if out := open.Decide(context.Background(), Request{Event: EventPostToolUse}); out.Denied() {
+	if out := open.Decide(context.Background(), Request{Event: EventAfterToolCall}); out.Denied() {
 		t.Fatalf("an explicit fail-open timeout blocked: %+v", out)
 	}
 }
@@ -181,16 +186,16 @@ func TestCancelledHookReturnsAtOnce(t *testing.T) {
 	release := make(chan struct{})
 	defer close(release)
 	if err := r.Register(&testHook{id: "hang", version: 1, timeout: 30 * time.Second,
-		events: []Event{EventPreVerify},
+		events: []Event{EventBeforeVerification},
 		run: func(context.Context, Request) (Result, error) {
 			<-release
-			return Result{Decision: DecisionAllow}, nil
+			return Result{Decision: DecisionContinue}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan Outcome, 1)
-	go func() { done <- r.Decide(ctx, Request{Event: EventPreVerify}) }()
+	go func() { done <- r.Decide(ctx, Request{Event: EventBeforeVerification}) }()
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	select {

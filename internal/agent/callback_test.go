@@ -163,10 +163,10 @@ func TestCallbackHookArgsAreRevalidated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.Register(&lifecycleTestHook{id: "rewrite", version: 1, events: []verify.Event{verify.EventPreToolUse},
+	if err := registry.Register(&lifecycleTestHook{id: "rewrite", version: 1, events: []verify.Event{verify.EventBeforeToolCall},
 		mutable: true,
 		run: func(context.Context, verify.Request) (verify.Result, error) {
-			return verify.Result{Decision: verify.DecisionAllow, Args: map[string]any{"path": 42}}, nil
+			return verify.Result{Decision: verify.DecisionModifyAllowedFields, Args: map[string]any{"path": 42}}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}

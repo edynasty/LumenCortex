@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/verify"
 	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -225,6 +226,13 @@ func (l *Loop) send(
 			}
 			i = next
 			continue
+		}
+		if built.Dropped > 0 {
+			pre := l.runHook(ctx, sessionID, opts.RunID, verify.EventBeforeCompact, HookRequest{Step: step, Detail: map[string]any{"droppedGroups": built.Dropped}})
+			if pre.Denied() {
+				return attempt{}, &ExitCause{Status: StatusInterrupted, Kind: "hook_denied", Err: errors.New(hookFeedback(pre))}
+			}
+			l.runHook(ctx, sessionID, opts.RunID, verify.EventAfterCompact, HookRequest{Step: step, Detail: map[string]any{"droppedGroups": built.Dropped}})
 		}
 		if built.Dropped+r.trimmed > 0 {
 			*decisions = append(*decisions, WindowDroppedDecision(cand.Ref, b, fixed, groups+r.trimmed, built.Costs))

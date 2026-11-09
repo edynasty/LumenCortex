@@ -247,6 +247,15 @@ type preparedRun struct {
 // execute runs under the caller's tracked lifetime, including preparation and owned cleanup.
 func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 	result, err := r.loop.Run(ctx, r.sessionID, r.loopOpts)
+	// Terminal observers also run after cancellation, under a separate bounded context.
+	observeEnd := func(event LifecycleEvent) {
+		hookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_, _ = r.engine.DispatchExecutionHook(hookCtx, LifecycleRequest{Event: event, SessionID: r.parentSessionID, RunID: r.runID, Detail: map[string]any{"childSessionId": r.sessionID, "status": result.Status}})
+	}
+	if r.parentSessionID != "" {
+		observeEnd(LifecycleBeforeSubagentEnd)
+	}
 	r.engine.endRunJobs(ctx, r.sessionID, r.loopOpts.RunID)
 	if r.engine.dapManager != nil {
 		err = errors.Join(err, r.engine.dapManager.CloseRun(r.sessionID, r.loopOpts.RunID))
@@ -293,6 +302,7 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 			parent.debug.Observe(agent.DebugBoundary{Event: "AfterSubagentEnd", Agent: r.info.Agent, Failed: result.Status != agent.StatusCompleted})
 		}
 		r.engine.runsMu.Unlock()
+		observeEnd(LifecycleAfterSubagentEnd)
 	}
 	return AgentResult{
 		SessionID:   result.SessionID,
@@ -664,6 +674,15 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		}
 		e.events.publish("skills.loaded", sessionID, data)
 	}
+	if opts.parentSessionID != "" {
+		pre, hookErr := e.DispatchExecutionHook(ctx, LifecycleRequest{Event: LifecycleBeforeSubagentStart, SessionID: opts.parentSessionID, RunID: runID, Detail: map[string]any{"childSessionId": sessionID}})
+		if hookErr != nil {
+			return nil, hookErr
+		}
+		if pre.Denied() {
+			return nil, errors.New("subagent start denied: " + pre.FeedbackText())
+		}
+	}
 
 	// Start's one durable write: Input, the session model identity, the Start's Task State version and
 	// the running transition commit together or not at all (§3.2). Nothing above it wrote.
@@ -733,6 +752,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	e.runsMu.Unlock()
 	if tracked == nil {
 		return nil, errors.New("agent run lifetime is unavailable")
+	}
+	if opts.parentSessionID != "" {
+		_, _ = e.DispatchExecutionHook(ctx, LifecycleRequest{Event: LifecycleAfterSubagentStart, SessionID: opts.parentSessionID, RunID: runID, Detail: map[string]any{"childSessionId": sessionID}})
 	}
 	return &preparedRun{
 		engine:          e,
@@ -837,9 +859,20 @@ func (e *Engine) ApproveWorkflowGate(ctx context.Context, sessionID, gateID, act
 	if wf == nil {
 		return nil, errNoWorkflow
 	}
+	beforeAction := wf.CurrentAction
 	transition, err := wf.Approve(gateID, actor)
 	if err != nil {
 		return nil, err
+	}
+	// A human gate changes authority-bearing workflow state even when the
+	// action remains the same (for example a terminal action awaiting approval).
+	detail := map[string]any{"from": beforeAction, "to": wf.CurrentAction, "gate": gateID}
+	pre, hookErr := e.DispatchExecutionHook(ctx, LifecycleRequest{Event: LifecycleBeforeWorkflowTransition, SessionID: sessionID, Detail: detail})
+	if hookErr != nil {
+		return nil, hookErr
+	}
+	if pre.Denied() {
+		return nil, errors.New("workflow transition denied: " + pre.FeedbackText())
 	}
 	state.SetWorkflow(wf)
 	if _, err := e.putTaskState(ctx, sessionID, taskstate.ReasonUser, state, 0, nil); err != nil {
@@ -848,6 +881,7 @@ func (e *Engine) ApproveWorkflowGate(ctx context.Context, sessionID, gateID, act
 	e.events.publish("workflow.approved", sessionID, map[string]any{
 		"gate": gateID, "actor": actor, "transition": transition, "workflow": wf.Summary(),
 	})
+	_, _ = e.DispatchExecutionHook(ctx, LifecycleRequest{Event: LifecycleAfterWorkflowTransition, SessionID: sessionID, Detail: detail})
 	return wf.Summary(), nil
 }
 

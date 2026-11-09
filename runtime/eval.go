@@ -237,7 +237,7 @@ func (e *Engine) executeEvalWith(ctx context.Context, sessionID string, req eval
 	// Host lifecycle hooks run on every path, the UI's ExecuteEval included: a configured PreEval
 	// safety hook can refuse an execution, and PostEval observes what it decided. This is the same
 	// dispatch the agent loop uses, so the two paths cannot diverge.
-	pre, err := e.DispatchExecutionHook(ctx, LifecycleRequest{Event: LifecyclePreEval, SessionID: sessionID, RunID: req.RunID, ToolCallID: req.ID, ToolName: "eval", Detail: map[string]any{"evalSessionId": req.SessionID, "cellId": req.CellID, "language": req.Language}})
+	pre, err := e.DispatchExecutionHook(ctx, LifecycleRequest{Event: LifecycleBeforeEval, SessionID: sessionID, RunID: req.RunID, ToolCallID: req.ID, ToolName: "eval", Detail: map[string]any{"evalSessionId": req.SessionID, "cellId": req.CellID, "language": req.Language}})
 	if err != nil {
 		return evalapi.Result{}, err
 	}
@@ -247,7 +247,7 @@ func (e *Engine) executeEvalWith(ctx context.Context, sessionID string, req eval
 	result, execErr := manager.Execute(ctx, req, caller)
 	// PostEval is advisory: the execution already happened, so a deny is recorded by the hook's audit
 	// entry and never rewrites the result.
-	_, _ = e.DispatchExecutionHook(ctx, LifecycleRequest{Event: LifecyclePostEval, SessionID: sessionID, RunID: req.RunID, ToolCallID: req.ID, ToolName: "eval", Detail: map[string]any{"evalSessionId": req.SessionID, "cellId": req.CellID, "status": result.Status, "stateStatus": result.StateStatus}})
+	_, _ = e.DispatchExecutionHook(ctx, LifecycleRequest{Event: LifecycleAfterEval, SessionID: sessionID, RunID: req.RunID, ToolCallID: req.ID, ToolName: "eval", Detail: map[string]any{"evalSessionId": req.SessionID, "cellId": req.CellID, "status": result.Status, "stateStatus": result.StateStatus}})
 	return result, execErr
 }
 

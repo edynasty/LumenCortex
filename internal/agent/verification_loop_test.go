@@ -192,12 +192,12 @@ func TestLoopPreToolUseDenySkipsExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.Register(&lifecycleTestHook{id: "no-bash", version: 1, events: []verify.Event{verify.EventPreToolUse},
+	if err := registry.Register(&lifecycleTestHook{id: "no-bash", version: 1, events: []verify.Event{verify.EventBeforeToolCall},
 		run: func(_ context.Context, req verify.Request) (verify.Result, error) {
 			if req.ToolName == "bash" {
 				return verify.Result{Decision: verify.DecisionDeny, Feedback: "bash is not allowed for this task"}, nil
 			}
-			return verify.Result{Decision: verify.DecisionAllow}, nil
+			return verify.Result{Decision: verify.DecisionContinue}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}

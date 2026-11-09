@@ -29,39 +29,53 @@ import (
 type LifecycleEvent string
 
 const (
-	LifecyclePreToolUse     LifecycleEvent = "PreToolUse"
-	LifecyclePostToolUse    LifecycleEvent = "PostToolUse"
-	LifecyclePreEval        LifecycleEvent = "PreEval"
-	LifecyclePostEval       LifecycleEvent = "PostEval"
-	LifecyclePreSubagent    LifecycleEvent = "PreSubagent"
-	LifecyclePostSubagent   LifecycleEvent = "PostSubagent"
-	LifecyclePreVerify      LifecycleEvent = "PreVerify"
-	LifecyclePostVerify     LifecycleEvent = "PostVerify"
-	LifecycleOnFailure      LifecycleEvent = "OnFailure"
-	LifecycleOnCancel       LifecycleEvent = "OnCancel"
-	LifecycleOnTimeout      LifecycleEvent = "OnTimeout"
-	LifecycleOnSessionClose LifecycleEvent = "OnSessionClose"
-	LifecycleStop           LifecycleEvent = "Stop"
-	LifecycleCompletion     LifecycleEvent = "Completion"
+	LifecycleBeforeToolCall           LifecycleEvent = "BeforeToolCall"
+	LifecycleAfterToolCall            LifecycleEvent = "AfterToolCall"
+	LifecycleBeforeEval               LifecycleEvent = "BeforeEval"
+	LifecycleAfterEval                LifecycleEvent = "AfterEval"
+	LifecycleBeforeSubagentStart      LifecycleEvent = "BeforeSubagentStart"
+	LifecycleAfterSubagentStart       LifecycleEvent = "AfterSubagentStart"
+	LifecycleBeforeVerification       LifecycleEvent = "BeforeVerification"
+	LifecycleAfterVerification        LifecycleEvent = "AfterVerification"
+	LifecycleOnFailure                LifecycleEvent = "OnFailure"
+	LifecycleOnCancel                 LifecycleEvent = "OnCancel"
+	LifecycleOnTimeout                LifecycleEvent = "OnTimeout"
+	LifecycleSessionEnd               LifecycleEvent = "SessionEnd"
+	LifecycleStop                     LifecycleEvent = "Stop"
+	LifecycleCompletion               LifecycleEvent = "Completion"
+	LifecycleSessionStart             LifecycleEvent = "SessionStart"
+	LifecycleBeforeModelCall          LifecycleEvent = "BeforeModelCall"
+	LifecycleAfterModelCall           LifecycleEvent = "AfterModelCall"
+	LifecycleToolFailure              LifecycleEvent = "ToolFailure"
+	LifecycleBeforeSubagentEnd        LifecycleEvent = "BeforeSubagentEnd"
+	LifecycleAfterSubagentEnd         LifecycleEvent = "AfterSubagentEnd"
+	LifecycleBeforeDebugStart         LifecycleEvent = "BeforeDebugStart"
+	LifecycleAfterDebugStop           LifecycleEvent = "AfterDebugStop"
+	LifecycleBeforeWorkflowTransition LifecycleEvent = "BeforeWorkflowTransition"
+	LifecycleAfterWorkflowTransition  LifecycleEvent = "AfterWorkflowTransition"
+	LifecycleBeforeDelivery           LifecycleEvent = "BeforeDelivery"
+	LifecycleAfterDelivery            LifecycleEvent = "AfterDelivery"
+	LifecycleBeforeCompact            LifecycleEvent = "BeforeCompact"
+	LifecycleAfterCompact             LifecycleEvent = "AfterCompact"
 )
 
 // LifecycleEvents lists every event in documentation order.
 func LifecycleEvents() []LifecycleEvent {
-	return []LifecycleEvent{
-		LifecyclePreToolUse, LifecyclePostToolUse, LifecyclePreEval, LifecyclePostEval,
-		LifecyclePreSubagent, LifecyclePostSubagent, LifecyclePreVerify, LifecyclePostVerify,
-		LifecycleOnFailure, LifecycleOnCancel, LifecycleOnTimeout, LifecycleOnSessionClose,
-		LifecycleStop, LifecycleCompletion,
+	events := verify.Events()
+	out := make([]LifecycleEvent, len(events))
+	for i, event := range events {
+		out[i] = LifecycleEvent(event)
 	}
+	return out
 }
 
 // HookDecision is what a host hook decided.
 type HookDecision string
 
 const (
-	HookAllow    HookDecision = "allow"
-	HookContinue HookDecision = "continue"
-	HookDeny     HookDecision = "deny"
+	HookContinue            HookDecision = "continue"
+	HookDeny                HookDecision = "deny"
+	HookModifyAllowedFields HookDecision = "modify_allowed_fields"
 )
 
 // HookFailurePolicy is what an event does when a hook errors or times out. The zero value is
@@ -243,7 +257,7 @@ func (e *Engine) hookRegistryForRun() *verify.Registry {
 func (e *Engine) DispatchExecutionHook(ctx context.Context, req LifecycleRequest) (LifecycleOutcome, error) {
 	registry := e.hookRegistryForRun()
 	if registry == nil {
-		return LifecycleOutcome{Decision: HookAllow}, nil
+		return LifecycleOutcome{Decision: HookContinue}, nil
 	}
 	out := registry.Decide(ctx, verify.Request{
 		Version: registry.Version, Event: verify.Event(req.Event), SessionID: req.SessionID,

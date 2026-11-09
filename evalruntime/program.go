@@ -26,6 +26,8 @@ type ProgramOptions struct {
 	Env        []string
 	CPUSeconds int
 	FileBytes  int64
+	// Debug permits debugger-only process inspection; ordinary hook programs leave it false.
+	Debug bool
 	// Loopback is an explicit adapter host grant. It permits localhost services,
 	// not external network; ordinary Eval workers never receive it.
 	Loopback bool
@@ -71,7 +73,7 @@ func ProgramCommand(ctx context.Context, opts ProgramOptions) (*exec.Cmd, error)
 		return nil, errors.New("program sandbox requires verified Linux caller isolation")
 	}
 	spec := launchSpec{exe: exe, args: opts.Args, dir: workspace, kernelDir: workspace, workersDir: private, profilePath: filepath.Join(private, "adapter.sb"), allowSubprocess: true, network: opts.Sandbox.AllowNetwork, cpuSeconds: opts.CPUSeconds, fileBytes: opts.FileBytes, extraRead: opts.ReadPaths}
-	spec.debugProgram = true
+	spec.debugProgram = opts.Debug
 	spec.loopbackOnly = opts.Loopback
 	if err := os.Mkdir(filepath.Join(private, "tmp"), 0700); err != nil {
 		return nil, err

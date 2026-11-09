@@ -48,7 +48,7 @@ func testRegistry(t *testing.T) *Registry {
 
 func TestRegistryRefusesInvalidHooks(t *testing.T) {
 	r := testRegistry(t)
-	if _, err := NewRegistry("2.0"); err == nil {
+	if _, err := NewRegistry("unsupported"); err == nil {
 		t.Fatal("an unknown protocol version must be refused")
 	}
 	cases := []struct {
@@ -66,7 +66,7 @@ func TestRegistryRefusesInvalidHooks(t *testing.T) {
 		}
 	}
 	good := &testHook{id: "a", version: 1, events: []Event{EventStop}, run: func(context.Context, Request) (Result, error) {
-		return Result{Decision: DecisionAllow}, nil
+		return Result{Decision: DecisionContinue}, nil
 	}}
 	if err := r.Register(good); err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestHooksRunInDeterministicOrder(t *testing.T) {
 	r := testRegistry(t)
 	var order []string
 	mk := func(id string, priority int) *testHook {
-		return &testHook{id: id, version: 1, events: []Event{EventPreToolUse}, priority: priority,
+		return &testHook{id: id, version: 1, events: []Event{EventBeforeToolCall}, priority: priority,
 			run: func(context.Context, Request) (Result, error) {
 				order = append(order, id)
 				return Result{Decision: DecisionContinue}, nil
@@ -95,8 +95,8 @@ func TestHooksRunInDeterministicOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	out := r.Decide(context.Background(), Request{Event: EventPreToolUse})
-	if out.Decision != DecisionAllow {
+	out := r.Decide(context.Background(), Request{Event: EventBeforeToolCall})
+	if out.Decision != DecisionContinue {
 		t.Fatalf("decision=%s", out.Decision)
 	}
 	if !slices.Equal(order, []string{"b", "c", "a"}) {
@@ -110,18 +110,18 @@ func TestHooksRunInDeterministicOrder(t *testing.T) {
 func TestDenyShortCircuits(t *testing.T) {
 	r := testRegistry(t)
 	ran := false
-	deny := &testHook{id: "a", version: 1, events: []Event{EventPreToolUse}, priority: 0,
+	deny := &testHook{id: "a", version: 1, events: []Event{EventBeforeToolCall}, priority: 0,
 		run: func(context.Context, Request) (Result, error) {
 			return Result{Decision: DecisionDeny, Reason: "no"}, nil
 		}}
-	after := &testHook{id: "b", version: 1, events: []Event{EventPreToolUse}, priority: 1,
+	after := &testHook{id: "b", version: 1, events: []Event{EventBeforeToolCall}, priority: 1,
 		run: func(context.Context, Request) (Result, error) {
 			ran = true
-			return Result{Decision: DecisionAllow}, nil
+			return Result{Decision: DecisionContinue}, nil
 		}}
 	_ = r.Register(deny)
 	_ = r.Register(after)
-	out := r.Decide(context.Background(), Request{Event: EventPreToolUse})
+	out := r.Decide(context.Background(), Request{Event: EventBeforeToolCall})
 	if !out.Denied() || ran {
 		t.Fatalf("out=%+v ran=%v", out, ran)
 	}
@@ -132,7 +132,7 @@ func TestDenyShortCircuits(t *testing.T) {
 
 func TestHookTimeoutFailsClosed(t *testing.T) {
 	r := testRegistry(t)
-	slow := &testHook{id: "slow", version: 1, events: []Event{EventPreVerify}, timeout: time.Millisecond,
+	slow := &testHook{id: "slow", version: 1, events: []Event{EventBeforeVerification}, timeout: time.Millisecond,
 		run: func(ctx context.Context, _ Request) (Result, error) {
 			<-ctx.Done()
 			return Result{}, ctx.Err()
@@ -140,7 +140,7 @@ func TestHookTimeoutFailsClosed(t *testing.T) {
 	if err := r.Register(slow); err != nil {
 		t.Fatal(err)
 	}
-	out := r.Decide(context.Background(), Request{Event: EventPreVerify})
+	out := r.Decide(context.Background(), Request{Event: EventBeforeVerification})
 	if !out.Denied() {
 		t.Fatalf("a timed-out hook must fail closed, out=%+v", out)
 	}
@@ -151,14 +151,14 @@ func TestHookTimeoutFailsClosed(t *testing.T) {
 
 func TestExplicitFailOpenContinues(t *testing.T) {
 	r := testRegistry(t)
-	broken := &testHook{id: "open", version: 1, events: []Event{EventPostToolUse}, policy: FailOpen,
+	broken := &testHook{id: "open", version: 1, events: []Event{EventAfterToolCall}, policy: FailOpen,
 		run: func(context.Context, Request) (Result, error) {
 			return Result{}, errors.New("boom")
 		}}
 	if err := r.Register(broken); err != nil {
 		t.Fatal(err)
 	}
-	out := r.Decide(context.Background(), Request{Event: EventPostToolUse})
+	out := r.Decide(context.Background(), Request{Event: EventAfterToolCall})
 	if out.Denied() {
 		t.Fatalf("an explicitly fail-open hook must not block: %+v", out)
 	}
@@ -169,31 +169,36 @@ func TestExplicitFailOpenContinues(t *testing.T) {
 
 func TestSafetyHookAlwaysFailsClosed(t *testing.T) {
 	r := testRegistry(t)
-	safety := &testHook{id: "safe", version: 1, events: []Event{EventPreToolUse}, policy: FailOpen, safety: true,
+	safety := &testHook{id: "safe", version: 1, events: []Event{EventBeforeToolCall}, policy: FailOpen, safety: true,
 		run: func(context.Context, Request) (Result, error) {
 			return Result{}, errors.New("guard failed")
 		}}
 	if err := r.Register(safety); err != nil {
 		t.Fatal(err)
 	}
-	if out := r.Decide(context.Background(), Request{Event: EventPreToolUse}); !out.Denied() {
+	if out := r.Decide(context.Background(), Request{Event: EventBeforeToolCall}); !out.Denied() {
 		t.Fatalf("a safety hook must fail closed: %+v", out)
 	}
 }
 
 func TestMutableArgsOnlyFromMutableHook(t *testing.T) {
 	r := testRegistry(t)
-	fixed := &testHook{id: "fixed", version: 1, events: []Event{EventPreToolUse}, mutable: false,
+	fixed := &testHook{id: "fixed", version: 1, events: []Event{EventBeforeToolCall}, mutable: false,
 		run: func(context.Context, Request) (Result, error) {
-			return Result{Decision: DecisionAllow, Args: map[string]any{"path": "other"}}, nil
+			return Result{Decision: DecisionModifyAllowedFields, Args: map[string]any{"path": "other"}}, nil
 		}}
-	mutable := &testHook{id: "mutable", version: 1, events: []Event{EventPreToolUse}, priority: 1, mutable: true,
+	mutable := &testHook{id: "mutable", version: 1, events: []Event{EventBeforeToolCall}, priority: 1, mutable: true,
 		run: func(context.Context, Request) (Result, error) {
-			return Result{Decision: DecisionAllow, Args: map[string]any{"limit": 5}}, nil
+			return Result{Decision: DecisionModifyAllowedFields, Args: map[string]any{"limit": 5}}, nil
 		}}
 	_ = r.Register(fixed)
 	_ = r.Register(mutable)
-	out := r.Decide(context.Background(), Request{Event: EventPreToolUse, ToolArgs: map[string]any{"path": "a"}})
+	out := r.Decide(context.Background(), Request{Event: EventBeforeToolCall, ToolArgs: map[string]any{"path": "a"}, ValidateArgs: func(args map[string]any) error {
+		if _, ok := args["path"].(string); !ok {
+			return errors.New("path must be string")
+		}
+		return nil
+	}})
 	if out.Args["path"] != "a" {
 		t.Fatalf("a non-mutable hook changed arguments: %v", out.Args)
 	}
@@ -249,12 +254,12 @@ func TestStopDenialsAreFinite(t *testing.T) {
 	}
 	// A blocking completion event is bounded the same way: a hook that keeps denying a completion it
 	// cannot be satisfied cannot hold the run open forever.
-	block := &testHook{id: "block", version: 1, events: []Event{EventPreVerify},
+	block := &testHook{id: "block", version: 1, events: []Event{EventBeforeVerification},
 		run: func(context.Context, Request) (Result, error) {
 			return Result{Decision: DecisionDeny}, nil
 		}}
 	_ = r.Register(block)
-	pre := Request{Event: EventPreVerify, SessionID: "s"}
+	pre := Request{Event: EventBeforeVerification, SessionID: "s"}
 	for i := 0; i < DefaultStopDenials; i++ {
 		if out := r.Decide(context.Background(), pre); !out.Denied() {
 			t.Fatalf("denial %d must block: %+v", i+1, out)
@@ -277,14 +282,14 @@ func TestStopDenialsAreFinite(t *testing.T) {
 func TestHookSeesTypedToolResult(t *testing.T) {
 	r := testRegistry(t)
 	var seen *protocol.ToolResult
-	h := &testHook{id: "observe", version: 1, events: []Event{EventPostEval},
+	h := &testHook{id: "observe", version: 1, events: []Event{EventAfterEval},
 		run: func(_ context.Context, req Request) (Result, error) {
 			seen = req.ToolResult
 			return Result{Decision: DecisionContinue}, nil
 		}}
 	_ = r.Register(h)
 	result := protocol.ToolResult{OK: true, Content: "x"}
-	r.Decide(context.Background(), Request{Event: EventPostEval, ToolResult: &result})
+	r.Decide(context.Background(), Request{Event: EventAfterEval, ToolResult: &result})
 	if seen == nil || !seen.OK || seen.Content != "x" {
 		t.Fatalf("seen=%+v", seen)
 	}

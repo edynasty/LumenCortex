@@ -18,20 +18,18 @@ import (
 type HookEvent = verify.Event
 
 const (
-	verifyEventPreToolUse   = verify.EventPreToolUse
-	verifyEventPostToolUse  = verify.EventPostToolUse
-	verifyEventPreEval      = verify.EventPreEval
-	verifyEventPostEval     = verify.EventPostEval
-	verifyEventPreSubagent  = verify.EventPreSubagent
-	verifyEventPostSubagent = verify.EventPostSubagent
-	verifyEventPreVerify    = verify.EventPreVerify
-	verifyEventPostVerify   = verify.EventPostVerify
-	verifyEventOnFailure    = verify.EventOnFailure
-	verifyEventOnCancel     = verify.EventOnCancel
-	verifyEventOnTimeout    = verify.EventOnTimeout
-	verifyEventOnClose      = verify.EventOnSessionClose
-	verifyEventStop         = verify.EventStop
-	verifyEventCompletion   = verify.EventCompletion
+	verifyEventBeforeToolCall     = verify.EventBeforeToolCall
+	verifyEventAfterToolCall      = verify.EventAfterToolCall
+	verifyEventBeforeEval         = verify.EventBeforeEval
+	verifyEventAfterEval          = verify.EventAfterEval
+	verifyEventBeforeVerification = verify.EventBeforeVerification
+	verifyEventAfterVerification  = verify.EventAfterVerification
+	verifyEventOnFailure          = verify.EventOnFailure
+	verifyEventOnCancel           = verify.EventOnCancel
+	verifyEventOnTimeout          = verify.EventOnTimeout
+	verifyEventOnClose            = verify.EventSessionEnd
+	verifyEventStop               = verify.EventStop
+	verifyEventCompletion         = verify.EventCompletion
 )
 
 // HookRequest is the observable input of one lifecycle event.
@@ -48,7 +46,7 @@ func (l *Loop) hookRegistry() *verify.Registry { return l.Hooks }
 func (l *Loop) runHook(ctx context.Context, sessionID, runID string, event verify.Event, req HookRequest) verify.Outcome {
 	registry := l.hookRegistry()
 	if registry == nil {
-		return verify.Outcome{Decision: verify.DecisionAllow}
+		return verify.Outcome{Decision: verify.DecisionContinue}
 	}
 	req.Version = registry.Version
 	req.Event = event
@@ -86,6 +84,7 @@ func (l *Loop) runHook(ctx context.Context, sessionID, runID string, event verif
 // runIDKey carries the run's id on its context, so the exit path can name the run it ends without
 // every caller threading Options through.
 type runIDKey struct{}
+type hookSessionKey struct{}
 
 // withRunID puts the run's id on ctx. An empty id leaves ctx unchanged.
 func withRunID(ctx context.Context, id string) context.Context {
@@ -113,12 +112,6 @@ func (l *Loop) observeExitHook(ctx context.Context, sessionID, runID string, eve
 		return
 	}
 	l.runHook(ctx, sessionID, runID, event, HookRequest{Detail: detail})
-}
-
-// isSubagentTool reports the tools that start or observe another agent: their events are
-// PreSubagent and PostSubagent in addition to the tool events.
-func isSubagentTool(name string) bool {
-	return name == toolStartTask || name == toolSpawnSubagent || name == "wait_subagent" || name == "list_subagents"
 }
 
 // hookFeedback is the bounded text a blocking hook adds to a completion_blocked row.

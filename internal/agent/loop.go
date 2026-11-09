@@ -156,6 +156,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 	}
 	// The exit path names the run it ends; the id rides the context so every exit reports it.
 	ctx = withRunID(ctx, opts.RunID)
+	ctx = context.WithValue(ctx, hookSessionKey{}, sessionID)
 	// A run's bounded hook denials are its own: a new turn gets its own limits.
 	if l.Hooks != nil {
 		l.Hooks.ResetDenials(sessionID)
@@ -191,6 +192,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		return Result{}, fmt.Errorf("session %s is %q: Run needs a Start that has set it to running", sessionID, state.Status)
 	}
 	usage = state.Usage
+	if pre := l.runHook(ctx, sessionID, opts.RunID, verify.EventSessionStart, HookRequest{}); pre.Denied() {
+		return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: "hook_denied", Err: errors.New(hookFeedback(pre))})
+	}
 	ts, err := l.Store.TaskState(ctx, sessionID)
 	if err != nil {
 		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
@@ -537,7 +541,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				// call without running it; a mutable hook may replace arguments, never policy. Each
 				// replacement is validated against the tool's schema before a later hook sees it, and
 				// safety hooks decide the final arguments.
-				pre := l.runHook(ctx, sessionID, opts.RunID, verifyEventPreToolUse, HookRequest{
+				pre := l.runHook(ctx, sessionID, opts.RunID, verifyEventBeforeToolCall, HookRequest{
 					Step: step, ToolCallID: call.ID, ToolName: call.Name, ToolArgs: args,
 					ValidateArgs: func(candidate map[string]any) error {
 						spec, ok := toolSpecOf(specs, call.Name)
@@ -562,19 +566,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					}
 				}
 				if !hookDenied && isEvalTool(call.Name) {
-					evalPre := l.runHook(ctx, sessionID, opts.RunID, verifyEventPreEval, HookRequest{
+					evalPre := l.runHook(ctx, sessionID, opts.RunID, verifyEventBeforeEval, HookRequest{
 						Step: step, ToolCallID: call.ID, ToolName: call.Name, ToolArgs: args,
 					})
 					if evalPre.Denied() {
 						hookDenied, pre = true, evalPre
-					}
-				}
-				if !hookDenied && isSubagentTool(call.Name) {
-					subPre := l.runHook(ctx, sessionID, opts.RunID, verifyEventPreSubagent, HookRequest{
-						Step: step, ToolCallID: call.ID, ToolName: call.Name, ToolArgs: args,
-					})
-					if subPre.Denied() {
-						hookDenied, pre = true, subPre
 					}
 				}
 				if hookDenied {
@@ -676,22 +672,14 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			}
 			// Post hooks observe every call, a denied one included.
 			if isEvalTool(call.Name) {
-				evalPost := l.runHook(ctx, sessionID, opts.RunID, verifyEventPostEval, HookRequest{
+				evalPost := l.runHook(ctx, sessionID, opts.RunID, verifyEventAfterEval, HookRequest{
 					Step: step, ToolCallID: call.ID, ToolName: call.Name, ToolArgs: args, ToolResult: &toolResult,
 				})
 				if feedback := evalPost.FeedbackText(); feedback != "" {
 					toolResult.Content = appendHookFeedback(toolResult.Content, feedback)
 				}
 			}
-			if isSubagentTool(call.Name) {
-				subPost := l.runHook(ctx, sessionID, opts.RunID, verifyEventPostSubagent, HookRequest{
-					Step: step, ToolCallID: call.ID, ToolName: call.Name, ToolArgs: args, ToolResult: &toolResult,
-				})
-				if feedback := subPost.FeedbackText(); feedback != "" {
-					toolResult.Content = appendHookFeedback(toolResult.Content, feedback)
-				}
-			}
-			postHook := l.runHook(ctx, sessionID, opts.RunID, verifyEventPostToolUse, HookRequest{
+			postHook := l.runHook(ctx, sessionID, opts.RunID, verifyEventAfterToolCall, HookRequest{
 				Step: step, ToolCallID: call.ID, ToolName: call.Name, ToolArgs: args, ToolResult: &toolResult,
 			})
 			if feedback := postHook.FeedbackText(); feedback != "" {
@@ -703,15 +691,28 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			}
 			l.emit("tool.end", sessionID, end)
 			workflowTransition := false
+			var workflowDenied bool
 			if r.wf != nil {
-				update, wfErr := r.wf.ObserveTool(workflow.ToolObservation{Tool: call.Name, Args: args, Result: map[string]any{"ok": toolResult.OK, "denied": toolResult.Denied, "permission": toolResult.Permission, "content": toolResult.Content}, Step: step})
+				candidate := r.wf
+				if l.Hooks != nil {
+					snapshot := r.wf.Snapshot()
+					candidate = &workflow.Runtime{Definition: snapshot.Definition, CurrentAction: snapshot.CurrentAction, Facts: snapshot.Facts, FactSources: snapshot.FactSources, History: snapshot.History, Status: snapshot.Status}
+				}
+				update, wfErr := candidate.ObserveTool(workflow.ToolObservation{Tool: call.Name, Args: args, Result: map[string]any{"ok": toolResult.OK, "denied": toolResult.Denied, "permission": toolResult.Permission, "content": toolResult.Content}, Step: step})
 				if wfErr != nil {
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindConfig, Err: wfErr})
 				}
-				if len(update.ChangedFacts) > 0 {
+				if update.Transition != nil {
+					pre := l.runHook(ctx, sessionID, opts.RunID, verify.EventBeforeWorkflowTransition, HookRequest{Step: step, Detail: map[string]any{"from": update.Transition.From, "to": update.Transition.To}})
+					workflowDenied = pre.Denied()
+				}
+				if !workflowDenied {
+					r.wf = candidate
+				}
+				if !workflowDenied && len(update.ChangedFacts) > 0 {
 					l.emit("workflow.facts", sessionID, map[string]any{"step": step, "facts": update.ChangedFacts})
 				}
-				if update.Transition != nil {
+				if !workflowDenied && update.Transition != nil {
 					workflowTransition = true
 					l.emit("workflow.transition", sessionID, map[string]any{"step": step, "from": update.Transition.From, "to": update.Transition.To, "reason": update.Transition.Reason})
 				}
@@ -736,6 +737,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			if err != nil {
 				return l.exit(ctx, state, usage, *storeExit(err))
 			}
+			if workflowDenied {
+				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: "hook_denied", Err: errors.New("workflow transition denied by lifecycle hook")})
+			}
 			l.checkpoint(sessionID, "agent.safe", map[string]any{
 				"phase":      "tool_result",
 				"step":       step,
@@ -752,6 +756,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				points = append(points, "ToolFailure")
 			}
 			if workflowTransition {
+				l.runHook(ctx, sessionID, opts.RunID, verify.EventAfterWorkflowTransition, HookRequest{Step: step, Detail: map[string]any{"action": r.wf.CurrentAction}})
 				points = append(points, "WorkflowTransition")
 			}
 			for _, point := range points {
@@ -1014,6 +1019,7 @@ func (l *Loop) exit(ctx context.Context, state SessionState, usage protocol.Usag
 		// hooks observe it.
 		l.observeExitHook(hookCtx, state.ID, runID, verifyEventOnFailure, exitHookDetail(cause.Kind, message, time.Now()))
 	}
+	l.observeExitHook(hookCtx, state.ID, runID, verifyEventOnClose, exitHookDetail(cause.Kind, message, time.Now()))
 	event := "session.interrupted"
 	if cause.Status == StatusFailed {
 		event = "session.failed"
@@ -1035,6 +1041,10 @@ func (l *Loop) panicExit(ctx context.Context, started bool, state SessionState, 
 	if err := l.finish(ctx, state, usage, cause, nil); err != nil {
 		return finishFailure(state, usage, cause, err)
 	}
+	hookCtx, cancelHook := context.WithTimeout(context.WithoutCancel(ctx), exitHookTimeout)
+	defer cancelHook()
+	l.observeExitHook(hookCtx, state.ID, runIDFrom(ctx), verifyEventOnFailure, exitHookDetail(cause.Kind, err.Error(), time.Now()))
+	l.observeExitHook(hookCtx, state.ID, runIDFrom(ctx), verifyEventOnClose, exitHookDetail(cause.Kind, err.Error(), time.Now()))
 	l.emit("session.failed", state.ID, map[string]any{"kind": cause.Kind, "error": err.Error(), "stack": stack})
 	return Result{SessionID: state.ID, Status: cause.Status, Usage: usage}, err
 }

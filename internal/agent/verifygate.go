@@ -45,7 +45,7 @@ func (l *Loop) verificationGate(ctx context.Context, sessionID string, r *run, o
 	// The repair budget is the run's own: a new turn starts with a fresh one, however many attempts
 	// the previous turn recorded (the record keeps them as history).
 	attempt := len(r.attempts) + 1
-	pre := l.runHook(ctx, sessionID, opts.RunID, verifyEventPreVerify, HookRequest{
+	pre := l.runHook(ctx, sessionID, opts.RunID, verifyEventBeforeVerification, HookRequest{
 		Step: step, Detail: map[string]any{"attempt": attempt},
 	})
 	if pre.Denied() {
@@ -179,7 +179,7 @@ func (l *Loop) verificationGate(ctx context.Context, sessionID string, r *run, o
 		"passed": result.Passed, "attempt": attempt, "exhausted": result.Exhausted,
 		"claimsRequired": result.Claims.Required, "claimsConfirmed": result.Claims.Confirmed})
 
-	post := l.runHook(ctx, sessionID, opts.RunID, verifyEventPostVerify, HookRequest{
+	post := l.runHook(ctx, sessionID, opts.RunID, verifyEventAfterVerification, HookRequest{
 		Step: step, Detail: map[string]any{"status": string(result.Status), "passed": result.Passed, "attempt": attempt},
 	})
 	// An exhausted repair budget ends the run whatever a hook says: a PostVerify denial can correct a

@@ -12,7 +12,7 @@ type denyHostEval struct{}
 
 func (denyHostEval) ID() string                       { return "deny-host-eval" }
 func (denyHostEval) Version() int                     { return 1 }
-func (denyHostEval) Events() []LifecycleEvent         { return []LifecycleEvent{LifecyclePreEval} }
+func (denyHostEval) Events() []LifecycleEvent         { return []LifecycleEvent{LifecycleBeforeEval} }
 func (denyHostEval) Priority() int                    { return 0 }
 func (denyHostEval) Timeout() time.Duration           { return time.Second }
 func (denyHostEval) FailurePolicy() HookFailurePolicy { return HookFailClosed }

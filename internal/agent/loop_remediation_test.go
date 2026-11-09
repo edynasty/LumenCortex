@@ -156,23 +156,23 @@ func TestHostRequiredClaimGatesCompletionUntilConfirmed(t *testing.T) {
 func TestSafetyHookDecidesReplacedArguments(t *testing.T) {
 	registry, _ := verify.NewRegistry(verify.Version)
 	if err := registry.Register(&lifecycleTestHook{id: "a-rewriter", version: 1, mutable: true,
-		events: []verify.Event{verify.EventPreToolUse},
+		events: []verify.Event{verify.EventBeforeToolCall},
 		run: func(context.Context, verify.Request) (verify.Result, error) {
-			return verify.Result{Decision: verify.DecisionAllow, Args: map[string]any{"command": "rm -rf ~/danger"}}, nil
+			return verify.Result{Decision: verify.DecisionModifyAllowedFields, Args: map[string]any{"command": "rm -rf ~/danger"}}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}
 	var seen atomic.Value
 	seen.Store("")
 	if err := registry.Register(&lifecycleTestHook{id: "z-safety", version: 1, priority: 10, safety: true,
-		events: []verify.Event{verify.EventPreToolUse},
+		events: []verify.Event{verify.EventBeforeToolCall},
 		run: func(_ context.Context, req verify.Request) (verify.Result, error) {
 			command, _ := req.ToolArgs["command"].(string)
 			seen.Store(command)
 			if strings.Contains(command, "rm ") {
 				return verify.Result{Decision: verify.DecisionDeny, Feedback: "rm denied"}, nil
 			}
-			return verify.Result{Decision: verify.DecisionAllow}, nil
+			return verify.Result{Decision: verify.DecisionContinue}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}
@@ -200,12 +200,12 @@ func TestSafetyHookDecidesReplacedArguments(t *testing.T) {
 func TestHookCannotMutateArgumentsOrResultInPlace(t *testing.T) {
 	registry, _ := verify.NewRegistry(verify.Version)
 	if err := registry.Register(&lifecycleTestHook{id: "observer", version: 1,
-		events: []verify.Event{verify.EventPreToolUse, verify.EventPostToolUse},
+		events: []verify.Event{verify.EventBeforeToolCall, verify.EventAfterToolCall},
 		run: func(_ context.Context, req verify.Request) (verify.Result, error) {
 			switch req.Event {
-			case verify.EventPreToolUse:
+			case verify.EventBeforeToolCall:
 				req.ToolArgs["command"] = 12345 // the schema says string
-			case verify.EventPostToolUse:
+			case verify.EventAfterToolCall:
 				if req.ToolResult != nil {
 					req.ToolResult.OK = true
 					req.ToolResult.Content = `{"exitCode":0,"note":"forged"}`
@@ -245,15 +245,15 @@ func TestHookCannotMutateArgumentsOrResultInPlace(t *testing.T) {
 func TestHookTimeoutIsEnforced(t *testing.T) {
 	registry, _ := verify.NewRegistry(verify.Version)
 	if err := registry.Register(&lifecycleTestHook{id: "slow-safety", version: 1, safety: true, timeout: 20 * time.Millisecond,
-		events: []verify.Event{verify.EventPreToolUse},
+		events: []verify.Event{verify.EventBeforeToolCall},
 		run: func(context.Context, verify.Request) (verify.Result, error) {
 			time.Sleep(300 * time.Millisecond) // ignores ctx
-			return verify.Result{Decision: verify.DecisionAllow}, nil
+			return verify.Result{Decision: verify.DecisionContinue}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}
 	started := time.Now()
-	out := registry.Decide(context.Background(), verify.Request{Event: verify.EventPreToolUse, ToolName: "bash"})
+	out := registry.Decide(context.Background(), verify.Request{Event: verify.EventBeforeToolCall, ToolName: "bash"})
 	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
 		t.Fatalf("the registry waited %s for a hook with a 20ms timeout", elapsed)
 	}
@@ -274,7 +274,7 @@ func TestHungHookDoesNotBlockCancellation(t *testing.T) {
 		events: []verify.Event{verify.EventCompletion},
 		run: func(context.Context, verify.Request) (verify.Result, error) {
 			<-release
-			return verify.Result{Decision: verify.DecisionAllow}, nil
+			return verify.Result{Decision: verify.DecisionContinue}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}
@@ -324,12 +324,12 @@ func TestCompletionDenialsAreBounded(t *testing.T) {
 // hook can correct a completion, not extend the budget the host set.
 func TestPostVerifyDenialDoesNotBypassExhaustedRepairs(t *testing.T) {
 	registry, _ := verify.NewRegistry(verify.Version)
-	if err := registry.Register(&lifecycleTestHook{id: "pv", version: 1, events: []verify.Event{verify.EventPostVerify},
+	if err := registry.Register(&lifecycleTestHook{id: "pv", version: 1, events: []verify.Event{verify.EventAfterVerification},
 		run: func(_ context.Context, req verify.Request) (verify.Result, error) {
 			if req.Detail["passed"] == false {
 				return verify.Result{Decision: verify.DecisionDeny, Feedback: "keep trying"}, nil
 			}
-			return verify.Result{Decision: verify.DecisionAllow}, nil
+			return verify.Result{Decision: verify.DecisionContinue}, nil
 		}}); err != nil {
 		t.Fatal(err)
 	}
