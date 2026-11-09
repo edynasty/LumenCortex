@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 
 	"github.com/edynasty/LumenCortex/internal/session"
@@ -121,6 +122,9 @@ type threadResult struct {
 	Hits      []struct {
 		ID string `json:"id"`
 	} `json:"hits"`
+	Evidence struct {
+		Sources []string `json:"sources"`
+	} `json:"evidence"`
 }
 
 // resultSessions returns the sessions whose content a successful tool result carries: the spawned,
@@ -198,6 +202,11 @@ func resultSessions(name, own string, result protocol.ToolResult) (sessions []st
 			for _, c := range t.Children {
 				if !c.Withdrawn && c.ID != "" && c.ID != own {
 					sessions = append(sessions, c.ID)
+				}
+			}
+			for _, source := range t.Evidence.Sources {
+				if source != "" && source != own && !slices.Contains(sessions, source) {
+					sessions = append(sessions, source)
 				}
 			}
 		}

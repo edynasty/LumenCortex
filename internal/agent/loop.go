@@ -689,7 +689,6 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			if x != nil {
 				end["executionId"], end["outcome"], end["coverage"], end["snapshotNanos"] = x.id, string(post.Outcome), string(post.Coverage), x.snapshot.Nanoseconds()
 			}
-			l.emit("tool.end", sessionID, end)
 			workflowTransition := false
 			var workflowDenied bool
 			if r.wf != nil {
@@ -737,6 +736,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			if err != nil {
 				return l.exit(ctx, state, usage, *storeExit(err))
 			}
+			l.emit("tool.end", sessionID, end)
 			if workflowDenied {
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: "hook_denied", Err: errors.New("workflow transition denied by lifecycle hook")})
 			}

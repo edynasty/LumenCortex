@@ -56,6 +56,14 @@ type ThreadView struct {
 	Final      string        `json:"final,omitempty"`
 	// Transcript is one page of the session's visible messages, when the reader asked for it.
 	Transcript *threadTranscript `json:"transcript,omitempty"`
+	// Evidence is bounded explicit retrieval, never automatic event-log injection.
+	Evidence *ThreadEvidence `json:"evidence,omitempty"`
+}
+
+type ThreadEvidence struct {
+	Items     []AttentionItem `json:"items"`
+	Sources   []string        `json:"sources,omitempty"`
+	Truncated bool            `json:"truncated"`
 }
 
 type threadUnit struct {
@@ -176,6 +184,11 @@ func (e *Engine) readThread(ctx context.Context, id, workspace string, agent boo
 		}
 		view.Transcript = &tr
 	}
+	graph, err := e.contextGraph(ctx, id, state, view.Notes)
+	if err != nil {
+		return ThreadView{}, err
+	}
+	view.Evidence = &ThreadEvidence{Items: graph.Attention, Sources: graph.Sources, Truncated: graph.Truncated || graph.PrunedThrough > 0}
 	return view, nil
 }
 
@@ -300,7 +313,17 @@ type threadReader struct {
 }
 
 func (r threadReader) ReadThread(ctx context.Context, id string, transcript bool, before int64) (any, error) {
-	return r.engine.readThread(ctx, id, r.workspace, true, transcriptRequest{want: transcript, before: before})
+	r.engine.events.publish("context.retrieval.started", r.sessionID, map[string]any{"targetSessionId": id})
+	view, err := r.engine.readThread(ctx, id, r.workspace, true, transcriptRequest{want: transcript, before: before})
+	status := "completed"
+	if err != nil {
+		status = "failed"
+	}
+	r.engine.events.publish("context.retrieval."+status, r.sessionID, map[string]any{"targetSessionId": id, "status": status})
+	if err == nil && view.Evidence != nil {
+		r.engine.events.publish("attention.updated", r.sessionID, map[string]any{"targetSessionId": id, "count": len(view.Evidence.Items), "truncated": view.Evidence.Truncated})
+	}
+	return view, err
 }
 
 func (r threadReader) Recall(ctx context.Context, query string, limit int) (any, error) {

@@ -28,6 +28,8 @@ Persistent Eval uses the hardened Eval SPI/registry/manager. Linux untrusted exe
 
 Lifecycle integration extends the existing `internal/verify.Registry` dispatcher and plugin host. Hooks may deny or narrow allowed fields, never widen permission or author workflow/verification facts. Context Graph/Attention consume bounded provenance-validated summaries, not raw logs. Delivery remains independently verified.
 
+The 2026-11-09 integration follows ADR-0007: Node `graph_nodes/graph_edges` remain forbidden. The Context Graph is a bounded read-time projection over Go's durable Runtime Events, Task State references/notes and existing execution/source records. No second memory database or generic graph writer is introduced. Event summaries are candidates until their session/run and authoritative execution or verifier record are checked; a successful tool is not semantic verification. Attention ranks only those bounded, provenance-checked summaries and user-selected references, explains its reason, and does not inject all logs or mutate Workflow. The existing `read_thread` tool can expose the bounded evidence context on explicit retrieval. Full model-based continuity claims remain outside the authorized deterministic experiments.
+
 ## Compatibility and review
 
 Desktop remains embedded and calls typed Core APIs through its existing bridge; the broker is a narrow Linux privilege separation boundary, not a duplicate general runtime daemon. Original DAP design bytes and P0 evidence are preserved. Implementation phase commits record focused behavior evidence; final full suites and actual UI/adapter experiments validate the assembled candidate. No new model calls or publication are authorized.
