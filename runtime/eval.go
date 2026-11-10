@@ -273,6 +273,32 @@ func (e *Engine) EvalReset(ctx context.Context, sessionID, evalID string) error 
 func (e *Engine) EvalClose(ctx context.Context, sessionID, evalID string) error {
 	return e.evalControl(ctx, sessionID, evalID, "close")
 }
+
+// EvalRestart replaces the kernel process, discarding live state but keeping the
+// kernel's workspace files. It is host/UI access, not a tool: the agent reaches
+// it as eval_control{action:"restart"}.
+func (e *Engine) EvalRestart(ctx context.Context, sessionID, evalID string) error {
+	return e.evalControl(ctx, sessionID, evalID, "restart")
+}
+
+// EvalInspect lists the names and types a kernel holds, without evaluating a cell
+// or rendering a value.
+func (e *Engine) EvalInspect(ctx context.Context, sessionID, evalID string, opts evalapi.InspectOptions) (evalapi.Inspection, error) {
+	ctx, done, err := e.trackEval(ctx, sessionID)
+	if err != nil {
+		return evalapi.Inspection{}, err
+	}
+	defer done()
+	manager, err := e.evalHost(ctx)
+	if err != nil {
+		return evalapi.Inspection{}, err
+	}
+	inspector, ok := manager.(evalruntime.KernelInspector)
+	if !ok {
+		return evalapi.Inspection{}, fmt.Errorf("%w: kernel inspection is not available through this host (the Linux UID broker does not expose it)", evalapi.ErrUnsupportedCapability)
+	}
+	return inspector.Inspect(ctx, evalID, sessionID, opts)
+}
 func (e *Engine) evalControl(ctx context.Context, sessionID, evalID, action string) error {
 	ctx, done, err := e.trackEval(ctx, sessionID)
 	if err != nil {
@@ -286,6 +312,12 @@ func (e *Engine) evalControl(ctx context.Context, sessionID, evalID, action stri
 	switch action {
 	case "reset":
 		return manager.Reset(ctx, evalID, sessionID)
+	case "restart":
+		restarter, ok := manager.(evalruntime.KernelRestarter)
+		if !ok {
+			return fmt.Errorf("%w: restart is not available through this host", evalapi.ErrUnsupportedCapability)
+		}
+		return restarter.Restart(ctx, evalID, sessionID)
 	case "close":
 		return manager.Close(ctx, evalID, sessionID)
 	default:
@@ -385,6 +417,9 @@ func (a runEval) Control(ctx context.Context, id, action string) error {
 }
 func (a runEval) Interrupt(ctx context.Context, id string, target evalapi.InterruptTarget) (evalapi.InterruptOutcome, error) {
 	return a.engine.EvalInterrupt(ctx, a.sessionID, id, target)
+}
+func (a runEval) Inspect(ctx context.Context, id string, opts evalapi.InspectOptions) (evalapi.Inspection, error) {
+	return a.engine.EvalInspect(ctx, a.sessionID, id, opts)
 }
 func (e *Engine) executionTools(ctx context.Context, sessionID string, opts AgentOptions, set *toolset.Set, runIDs ...string) error {
 	if !opts.EvalEnabled {

@@ -806,7 +806,7 @@ class Worker {
       language: 'javascript',
       pid: process.pid,
       capabilities: ['persistent_execution', 'modules', 'file_io', 'tool_callback',
-        'artifact', 'display', 'subprocess', 'notebook'],
+        'artifact', 'display', 'subprocess', 'notebook', 'inspect'],
     };
   }
 
@@ -819,6 +819,29 @@ class Worker {
     this.makeContext();
     this.generation += 1;
     return { generation: this.generation, pid: process.pid };
+  }
+
+  // inspect reports the kernel's live names and their kinds. Values are not
+  // rendered: util.inspect could trigger getters or throw during what is meant
+  // to be a side-effect-free look at the state.
+  inspect(params) {
+    let limit = Number(params.limit || 100);
+    if (!Number.isFinite(limit) || limit <= 0 || limit > 1000) limit = 100;
+    const keep = new Set(Array.isArray(params.names) ? params.names.filter((n) => typeof n === 'string') : []);
+    let names = Object.keys(this.state).filter((name) => !name.startsWith('__'));
+    if (keep.size) names = names.filter((name) => keep.has(name));
+    names.sort();
+    const entries = names.slice(0, limit).map((name) => {
+      let kind = 'unknown';
+      try {
+        const value = this.state[name];
+        if (value === null) kind = 'null';
+        else if (Array.isArray(value)) kind = 'array';
+        else kind = typeof value;
+      } catch (e) { /* inspection never fails a kernel */ }
+      return { name, type: kind };
+    });
+    return { generation: this.generation, pid: process.pid, entries, total: names.length, truncated: names.length > limit };
   }
 
   health() {
@@ -841,6 +864,7 @@ class Worker {
       if (method === 'initialize') result = this.initialize(params);
       else if (method === 'execute') result = await this.execute(params);
       else if (method === 'reset') result = this.reset();
+      else if (method === 'inspect') result = this.inspect(params);
       else if (method === 'health') result = this.health();
       else if (method === 'close') {
         reply(id, { closed: true });

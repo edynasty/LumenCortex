@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/evalapi"
+	"github.com/edynasty/LumenCortex/internal/procrt"
 	"github.com/edynasty/LumenCortex/internal/streambuf"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -71,6 +72,24 @@ type wireResult struct {
 	Artifacts       []wireArtifact `json:"artifacts"`
 	DurationMS      int64          `json:"durationMs"`
 	OutputTruncated bool           `json:"outputTruncated"`
+}
+
+type wireInspect struct {
+	Names []string `json:"names,omitempty"`
+	Limit int      `json:"limit,omitempty"`
+}
+
+type wireInspectEntry struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+type wireInspectResult struct {
+	Generation uint64             `json:"generation"`
+	PID        int                `json:"pid"`
+	Entries    []wireInspectEntry `json:"entries"`
+	Total      int                `json:"total"`
+	Truncated  bool               `json:"truncated"`
 }
 
 type wireHealth struct {
@@ -135,6 +154,12 @@ func (w *worker) start(ctx context.Context) error {
 		extraRead: append(append([]string(nil), w.m.opts.Sandbox.ExtraReadPaths...), s.readPaths...),
 		identity:  w.m.opts.identity,
 	}
+	if s.manifest.Language == "javascript" {
+		// V8's heap cap is interpreter-enforced; it must precede the worker
+		// script. External memory (Buffer) stays under the RSS bound.
+		spec.args = append(javascriptRuntimeArgs(s.budget.MemoryBytes), spec.args...)
+	}
+	enforcement := enforcementView(w.m.sandboxBackend(), s.manifest.Language, s.budget, w.m.memoryEnforcement)
 	cmd, err := w.m.launcher.command(spec)
 	if err != nil {
 		return err
@@ -162,11 +187,17 @@ func (w *worker) start(ctx context.Context) error {
 		dir:         spec.dir,
 		env:         spec.env,
 		memoryBytes: s.budget.MemoryBytes,
+		cpuSeconds:  s.budget.CPUSeconds,
 		diskBytes:   s.budget.DiskBytes,
 		diskRoot:    s.kernel,
 		onStdout:    w.onStdout,
 		onStderr:    w.onStderr,
 		onLimit:     w.onLimit,
+		// SessionID is the Core session whose revocation must stop this kernel;
+		// ObjectID is the eval kernel that owns the process.
+		owner: procrt.Owner{SessionID: s.ownerID, Component: procrt.ComponentEval,
+			ObjectID: s.id},
+		enforcement: procrtEnforcement(enforcement),
 		cgroup:      leaf,
 		launchFiles: launchFiles,
 	})
@@ -303,6 +334,21 @@ func (w *worker) kill() []int {
 		return nil
 	}
 	return w.proc.killTree()
+}
+
+// inspect asks the worker for the names it holds. A runtime that does not
+// implement it answers -32601; the caller must then report the capability as
+// unsupported instead of returning an empty state as if it were the truth.
+func (w *worker) inspect(ctx context.Context, opts wireInspect) (wireInspectResult, error) {
+	raw, err := w.conn.call(ctx, "inspect", opts)
+	if err != nil {
+		return wireInspectResult{}, err
+	}
+	var out wireInspectResult
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return wireInspectResult{}, fmt.Errorf("%w: inspect result: %v", evalapi.ErrWorker, err)
+	}
+	return out, nil
 }
 
 func (w *worker) health(ctx context.Context) (wireHealth, error) {

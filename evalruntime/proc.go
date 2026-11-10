@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/procrt"
 	"github.com/edynasty/LumenCortex/internal/safefs"
 	"github.com/edynasty/LumenCortex/internal/streambuf"
 )
@@ -23,7 +24,6 @@ import (
 const (
 	streamChunk    = 32 << 10
 	termGrace      = 2 * time.Second
-	memoryPoll     = 200 * time.Millisecond
 	diskPoll       = 400 * time.Millisecond
 	maxScanEntries = 4096
 	maxScanDepth   = 8
@@ -38,6 +38,11 @@ var (
 	// interruptRepeat paces a repeated cooperative interrupt; the Python
 	// worker drops repeats closer than its INTERRUPT_SPACING (200ms).
 	interruptRepeat = 500 * time.Millisecond
+	// memoryPoll is the supervision interval of a memory bound that the OS does
+	// not enforce. The overshoot a cell can reach before the kill is at most
+	// what it allocates within one interval; memoryPollMS in the enforcement
+	// report names it.
+	memoryPoll = 200 * time.Millisecond
 )
 
 type procSpec struct {
@@ -45,11 +50,16 @@ type procSpec struct {
 	dir         string
 	env         []string
 	memoryBytes int64
+	cpuSeconds  int
 	diskBytes   int64
 	diskRoot    string
 	onStdout    func([]byte)
 	onStderr    func([]byte)
 	onLimit     func(reason string)
+	// owner and enforcement are the procrt census identity and the truthful
+	// resource report for this process. An empty owner is not registered.
+	owner       procrt.Owner
+	enforcement procrt.Enforcement
 	// cgroup is the worker's own cgroup leaf (Linux). When set, the kernel bounds
 	// memory and tasks, the process is admitted into the leaf behind a start
 	// gate before it executes the sandbox, and stop, kill and residual checks use
@@ -84,11 +94,34 @@ type process struct {
 	pid    int
 	waitCh chan struct{}
 	code   atomic.Int32
-	exited atomic.Bool
+	// exitSignal is the signal that killed the worker (0 when it exited
+	// normally). It is recorded by the wait goroutine, never read from
+	// cmd.ProcessState, which that goroutine owns.
+	exitSignal atomic.Int32
+	exited     atomic.Bool
 
 	killOnce sync.Once
 	stopMon  chan struct{}
 	limitHit atomic.Value // string
+	// limitResource and limitEnforcement say which bound stopped the worker and
+	// how it was applied (hard, runtime, supervised), so a result can report
+	// "limit=memory enforcement=supervised" instead of only an error string.
+	limitResource    atomic.Value // string
+	limitEnforcement atomic.Value // string
+	// rssPeak is the highest resident set this host observed for the worker's
+	// group. It is the measurement a supervised bound's overshoot is computed
+	// from; 0 means it was never sampled, never that it was zero.
+	rssPeak atomic.Int64
+	// memoryLimit and cpuSeconds are the bounds this process started with; they
+	// are what an exit is attributed to.
+	memoryLimit int64
+	cpuSeconds  int
+	// enforcement is the report registered with procrt and attached to results.
+	enforcement procrt.Enforcement
+	// unregister removes this process from the procrt census. It is written
+	// before the helper goroutines start and withdrawn exactly once.
+	unregister     func()
+	unregisterOnce sync.Once
 
 	trackMu sync.Mutex
 	// tracked maps a descendant pid to its start time, so a pid that was reused
@@ -241,16 +274,25 @@ func startProcess(spec procSpec) (_ *process, err error) {
 	_ = stderrW.Close()
 
 	p := &process{
-		cmd:        cmd,
-		protoIn:    inW,
-		protoOut:   outR,
-		pid:        cmd.Process.Pid,
-		waitCh:     make(chan struct{}),
-		stopMon:    make(chan struct{}),
-		tracked:    make(map[int]string),
-		stderrTail: streambuf.New(4<<10, 4<<10),
-		cg:         spec.cgroup,
-		onLimit:    spec.onLimit,
+		cmd:         cmd,
+		protoIn:     inW,
+		protoOut:    outR,
+		pid:         cmd.Process.Pid,
+		waitCh:      make(chan struct{}),
+		stopMon:     make(chan struct{}),
+		tracked:     make(map[int]string),
+		stderrTail:  streambuf.New(4<<10, 4<<10),
+		cg:          spec.cgroup,
+		onLimit:     spec.onLimit,
+		memoryLimit: spec.memoryBytes,
+		cpuSeconds:  spec.cpuSeconds,
+		enforcement: spec.enforcement,
+	}
+	if spec.owner.SessionID != "" || spec.owner.Component != "" {
+		// The census row exists while the process can. Registration happens
+		// before any helper goroutine reads it, and the exit path withdraws it
+		// so a dead process never stays in the census.
+		p.unregister = procrt.Default().Register(spec.owner, procHandle{p})
 	}
 	p.pumpFiles = []*os.File{stdoutR, stderrR}
 	p.pumps.Add(2)
@@ -268,12 +310,18 @@ func startProcess(spec procSpec) (_ *process, err error) {
 			code = cmd.ProcessState.ExitCode()
 		}
 		p.code.Store(int32(code))
+		if cmd.ProcessState != nil {
+			if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+				p.exitSignal.Store(int32(status.Signal()))
+			}
+		}
 		if p.cg != nil {
 			// Record a kernel memory kill before anyone observes the exit.
 			p.noteCgroupLimit()
 		}
 		p.exited.Store(true)
 		close(p.waitCh)
+		p.unregisterCensus()
 	}()
 	if p.cg == nil {
 		go p.trackDescendants()
@@ -316,6 +364,9 @@ func (p *process) monitorMemory(limit int64, onLimit func(string)) {
 			return
 		case <-ticker.C:
 			rss, err := groupRSSBytes(p.pid)
+			if err == nil {
+				p.recordRSS(rss)
+			}
 			var reason string
 			switch {
 			case err != nil:
@@ -323,15 +374,26 @@ func (p *process) monitorMemory(limit int64, onLimit func(string)) {
 				// cannot be measured is not reported as holding.
 				reason = fmt.Sprintf("memory accounting failed (%v); the %d byte limit cannot be certified", err, limit)
 			case rss > limit:
-				reason = fmt.Sprintf("memory limit exceeded: %d > %d bytes", rss, limit)
+				// The poll interval is the overshoot window: the worker can
+				// allocate for at most this long after crossing the bound, so
+				// the observed overshoot is measured, never assumed to be zero.
+				reason = fmt.Sprintf("memory limit exceeded: observed RSS %d bytes > %d byte limit (supervised, polled every %s; overshoot %d bytes)",
+					rss, limit, memoryPoll, rss-limit)
 			default:
 				continue
 			}
-			p.limitHit.Store(reason)
-			if onLimit != nil {
-				onLimit(reason)
-			}
+			p.noteLimit("memory", procrt.Supervised, reason, onLimit)
 			p.killTree()
+			return
+		}
+	}
+}
+
+// recordRSS keeps the highest resident set this host observed.
+func (p *process) recordRSS(rss int64) {
+	for {
+		peak := p.rssPeak.Load()
+		if rss <= peak || p.rssPeak.CompareAndSwap(peak, rss) {
 			return
 		}
 	}
@@ -368,10 +430,7 @@ func (p *process) monitorDisk(limit int64, root string, onLimit func(string)) {
 			default:
 				continue
 			}
-			p.limitHit.Store(reason)
-			if onLimit != nil {
-				onLimit(reason)
-			}
+			p.noteLimit("disk", procrt.Supervised, reason, onLimit)
 			p.killTree()
 			return
 		}
@@ -451,22 +510,94 @@ func (p *process) noteCgroupLimit() {
 	if kills == 0 {
 		return
 	}
+	// record directly: noteLimit takes the same sync.Once, and Once.Do is not
+	// re-entrant (calling it here would deadlock the wait goroutine).
 	p.limitOnce.Do(func() {
 		reason := fmt.Sprintf("memory limit exceeded: the worker cgroup reached memory.max=%s bytes and the kernel killed it (oom_kill=%d)", p.cg.memoryMax(), kills)
-		p.limitHit.Store(reason)
-		if p.onLimit != nil {
-			p.onLimit(reason)
-		}
+		p.recordLimit("memory", procrt.Hard, reason)
 	})
+}
+
+// noteLimit records the bound that stopped the worker exactly once, so a later
+// observer cannot relabel an OOM kill as a crash.
+func (p *process) noteLimit(resource, enforcement, reason string, onLimit func(string)) {
+	if reason == "" {
+		return
+	}
+	fired := false
+	p.limitOnce.Do(func() {
+		fired = true
+		p.recordLimit(resource, enforcement, reason)
+	})
+	if fired && onLimit != nil {
+		onLimit(reason)
+	}
+}
+
+// recordLimit stores the attribution and emits the event. Callers must already
+// hold limitOnce.
+func (p *process) recordLimit(resource, enforcement, reason string) {
+	p.limitHit.Store(reason)
+	p.limitResource.Store(resource)
+	p.limitEnforcement.Store(enforcement)
+	if p.onLimit != nil {
+		p.onLimit(reason)
+	}
+}
+
+// detectCrashLimit attributes an exit to a bound the host did not observe
+// directly: a V8 heap exhaustion (interpreter-enforced) and SIGXCPU
+// (RLIMIT_CPU, kernel-enforced). It runs after the process is reaped and before
+// the result is built, so the attribution is never invented after the fact.
+func (p *process) detectCrashLimit() {
+	if p == nil {
+		return
+	}
+	if p.cg != nil {
+		p.noteCgroupLimit()
+	}
+	if reason, ok := p.limitHit.Load().(string); ok && reason != "" {
+		return
+	}
+	if syscall.Signal(p.exitSignal.Load()) == syscall.SIGXCPU {
+		p.noteLimit("cpu", procrt.Hard,
+			fmt.Sprintf("cpu limit exceeded: RLIMIT_CPU killed the worker with SIGXCPU (hard, kernel-enforced; %d s)", p.cpuSeconds), p.onLimit)
+		return
+	}
+	if p.memoryLimit > 0 && p.enforcement.MemoryRuntimeCapBytes > 0 {
+		stderr := p.stderrText()
+		if strings.Contains(stderr, "JavaScript heap out of memory") || strings.Contains(stderr, "Reached heap limit") {
+			p.noteLimit("memory", procrt.Runtime,
+				fmt.Sprintf("memory limit exceeded: V8 reached its %d byte heap cap (--max-old-space-size, interpreter-enforced) and aborted the worker", p.enforcement.MemoryRuntimeCapBytes), p.onLimit)
+		}
+	}
 }
 
 // limitReason is the resource limit that stopped the worker, or "".
 func (p *process) limitReason() string {
-	if p.cg != nil {
-		p.noteCgroupLimit()
-	}
+	p.detectCrashLimit()
 	if reason, ok := p.limitHit.Load().(string); ok {
 		return reason
+	}
+	return ""
+}
+
+// limitResourceName is the resource ("memory", "cpu", "disk") a bound stopped
+// the worker on, or "".
+func (p *process) limitResourceName() string {
+	p.detectCrashLimit()
+	if resource, ok := p.limitResource.Load().(string); ok {
+		return resource
+	}
+	return ""
+}
+
+// limitEnforcementLabel is how that bound was applied (hard, runtime,
+// supervised), or "".
+func (p *process) limitEnforcementLabel() string {
+	p.detectCrashLimit()
+	if label, ok := p.limitEnforcement.Load().(string); ok {
+		return label
 	}
 	return ""
 }
@@ -477,7 +608,9 @@ func (p *process) memoryPeak() int64 {
 	if p.cg != nil {
 		return p.cg.memoryPeak()
 	}
-	return 0
+	// On a host without cgroups this is the highest RSS the supervisor sampled.
+	// 0 means "not measured", never a zero-resident-set claim.
+	return p.rssPeak.Load()
 }
 
 // terminate asks the group to exit (SIGTERM), then kills the group and every
@@ -691,6 +824,7 @@ func (p *process) exitCode() int {
 // could not be removed; every call returns the outcome of the first.
 func (p *process) close() error {
 	p.closeOnce.Do(func() {
+		p.unregisterCensus()
 		close(p.stopMon)
 		if p.stopWatch != nil {
 			p.stopWatch()
@@ -745,6 +879,54 @@ func closeAll(files ...*os.File) {
 		}
 	}
 }
+
+// unregisterCensus withdraws the process from the census once, whether the
+// worker exited on its own or is being closed.
+func (p *process) unregisterCensus() {
+	p.unregisterOnce.Do(func() {
+		if p.unregister != nil {
+			p.unregister()
+		}
+	})
+}
+
+// procHandle presents a supervised worker to the procrt census. It is a thin
+// adapter: the supervision itself (groups, cgroup, descendant tracking, cleanup
+// window) stays in this package, and procrt only decides the escalation order.
+type procHandle struct{ p *process }
+
+func (h procHandle) PID() int { return h.p.pid }
+
+func (h procHandle) TreePIDs() []int {
+	if h.p.cg != nil {
+		return h.p.cg.procs()
+	}
+	return h.p.trackedSnapshot()
+}
+
+func (h procHandle) State() string {
+	if h.p.exited.Load() {
+		return procrt.StateExited
+	}
+	return procrt.StateRunning
+}
+
+func (h procHandle) Usage() procrt.Usage {
+	return procrt.Usage{
+		CPUMs:           h.p.cpuMillis(),
+		MemoryPeakBytes: h.p.memoryPeak(),
+	}
+}
+
+func (h procHandle) Enforcement() procrt.Enforcement { return h.p.enforcement }
+
+func (h procHandle) Interrupt() error { return h.p.interrupt() }
+
+func (h procHandle) Terminate(ctx context.Context) []int { return h.p.terminate(ctx) }
+
+func (h procHandle) Kill() []int { return h.p.killTree() }
+
+func (h procHandle) Done() <-chan struct{} { return h.p.waitCh }
 
 type procEntry struct {
 	pid  int

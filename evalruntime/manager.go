@@ -81,7 +81,11 @@ type Manager struct {
 	// isolationReason says why it is missing; no worker starts without it.
 	cgroups         *cgroupPool
 	isolationReason string
-	defaultBudget   evalapi.Budget
+	// memoryEnforcement is how this host really bounds a worker's memory:
+	// hard (Linux cgroup memory.max), supervised (RSS monitor) or none. It is
+	// reported, never guessed per call.
+	memoryEnforcement string
+	defaultBudget     evalapi.Budget
 	// maxKernels bounds live kernels (idle or busy) across this manager. It is a
 	// host decision; a session always owns exactly one worker.
 	maxKernels int
@@ -140,7 +144,7 @@ func New(opts Options) (*Manager, error) {
 	subprocessAllowed := subprocessSupported()
 	// Linux bounds every worker with its own cgroup. Without one there is no
 	// memory limit and no atomic tree stop, so no worker is started at all.
-	memoryEnforcement := evalapi.EnforcementMonitored
+	memoryEnforcement := evalapi.EnforcementSupervised
 	isolationReason := ""
 	if cgroupRequired {
 		memoryEnforcement = evalapi.EnforcementHard
@@ -153,6 +157,7 @@ func New(opts Options) (*Manager, error) {
 		}
 	}
 	m.isolationReason = isolationReason
+	m.memoryEnforcement = memoryEnforcement
 	python, pythonReason := resolveExecutable(opts.Python, "python3")
 	pythonAvailable := python != ""
 	if pythonAvailable {
@@ -537,6 +542,79 @@ func (m *Manager) Health(ctx context.Context, sessionID, agentID string) (evalap
 	return health, nil
 }
 
+// Inspect lists the names and types the kernel holds, without rendering values
+// and without running a cell. A kernel whose worker is not running is reported
+// as not alive with no entries: that is a fact, not an empty state.
+func (m *Manager) Inspect(ctx context.Context, sessionID, agentID string, opts evalapi.InspectOptions) (evalapi.Inspection, error) {
+	if err := m.ensureOpen(); err != nil {
+		return evalapi.Inspection{}, err
+	}
+	s, err := m.session(sessionID)
+	if err != nil {
+		return evalapi.Inspection{}, err
+	}
+	if !s.canRead(agentID) {
+		return evalapi.Inspection{}, fmt.Errorf("%w: agent %q has no access to session %s", evalapi.ErrDenied, agentID, sessionID)
+	}
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	s.mu.Lock()
+	w := s.worker
+	state := s.state
+	generation := s.generation
+	s.mu.Unlock()
+	value := evalapi.Inspection{
+		SessionID:   s.id,
+		RuntimeID:   s.manifest.ID,
+		Language:    s.manifest.Language,
+		Generation:  generation,
+		Enforcement: s.enforcement,
+	}
+	if w == nil || !w.alive() {
+		return value, nil
+	}
+	value.Alive = true
+	if state == evalapi.StateBusy || state == evalapi.StateCancelling {
+		// Inspecting would queue behind the running cell; say the worker is
+		// alive and return no entries instead of blocking an inspection on a
+		// long-running computation.
+		return value, nil
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	res, probeErr := w.inspect(probeCtx, wireInspect{Names: opts.Names, Limit: limit})
+	if probeErr != nil {
+		if isMethodNotFound(probeErr) {
+			return evalapi.Inspection{}, fmt.Errorf("%w: runtime %s does not implement inspection", evalapi.ErrUnsupportedCapability, s.manifest.ID)
+		}
+		return evalapi.Inspection{}, probeErr
+	}
+	value.PID = res.PID
+	value.Generation = res.Generation
+	value.Total = res.Total
+	value.Truncated = res.Truncated
+	value.Entries = make([]evalapi.InspectEntry, 0, len(res.Entries))
+	for _, entry := range res.Entries {
+		value.Entries = append(value.Entries, evalapi.InspectEntry{Name: entry.Name, Type: entry.Type})
+	}
+	return value, nil
+}
+
+// isMethodNotFound classifies a JSON-RPC -32601 from a runtime that does not
+// implement an optional method.
+func isMethodNotFound(err error) bool {
+	var rpcErr *rpcError
+	if errors.As(err, &rpcErr) {
+		return rpcErr.Code == -32601
+	}
+	return false
+}
+
 // Execute runs one cell. Admission is checked here again: a grant authorizes the
 // heap, never a broader workspace, permission or tool policy.
 func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evalapi.ToolCaller) (evalapi.Result, error) {
@@ -842,9 +920,13 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 		result.Usage.CPUMs = max(0, w.proc.cpuMillis()-cpuBefore)
 		result.Usage.MemoryPeakBytes = w.proc.memoryPeak()
 		if reason := w.proc.limitReason(); reason != "" && result.Status != evalapi.ResultStatusCompleted {
-			// The worker was stopped by its resource bound, not by a bug.
+			// The worker was stopped by its resource bound, not by a bug. The
+			// result names the bound and how it was applied, so a supervised
+			// kill is never read as a kernel guarantee.
 			result.Error = firstNonEmpty(reason+"; "+result.Error, reason)
 			result.StateStatus = evalapi.StateStatusLost
+			result.Limit = w.proc.limitResourceName()
+			result.Enforcement = w.proc.limitEnforcementLabel()
 		}
 	}
 	s.addResult(result)
@@ -1287,6 +1369,19 @@ func (s *session) markStarted(w *worker, requestID string) {
 // Reset discards the kernel state: the worker is stopped and a new generation is
 // started. Variables, modules and in-memory objects do not survive.
 func (m *Manager) Reset(ctx context.Context, sessionID, agentID string) error {
+	return m.reset(ctx, sessionID, agentID, true)
+}
+
+// Restart replaces the kernel process and discards its live state while keeping
+// the kernel's workspace files: data a cell wrote stays, variables, functions
+// and imported modules do not. Reset is the same operation plus a workspace
+// wipe. Both advance the generation, so a caller can never mistake the new
+// heap for the old one.
+func (m *Manager) Restart(ctx context.Context, sessionID, agentID string) error {
+	return m.reset(ctx, sessionID, agentID, false)
+}
+
+func (m *Manager) reset(ctx context.Context, sessionID, agentID string, clearWorkspace bool) error {
 	if err := m.ensureOpen(); err != nil {
 		return err
 	}
@@ -1340,16 +1435,18 @@ func (m *Manager) Reset(ctx context.Context, sessionID, agentID string) error {
 			return err
 		}
 	}
-	if err := s.resetWorkspace(); err != nil {
-		s.setState(evalapi.StateFailed, err.Error())
-		return err
+	if clearWorkspace {
+		if err := s.resetWorkspace(); err != nil {
+			s.setState(evalapi.StateFailed, err.Error())
+			return err
+		}
 	}
 	if _, err := s.startWorker(ctx); err != nil {
 		s.setState(evalapi.StateFailed, err.Error())
 		return err
 	}
 	m.emit(evalapi.Event{Type: evalapi.EventSessionReset, SessionID: s.id, OwnerID: s.ownerID, AgentID: agentID,
-		Generation: s.generationValue()})
+		Generation: s.generationValue(), Data: map[string]any{"workspaceCleared": clearWorkspace}})
 	return nil
 }
 

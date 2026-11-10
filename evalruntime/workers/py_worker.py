@@ -207,6 +207,9 @@ class Worker:
         self._err = None
         self._stdout_saved = None
         self._stderr_saved = None
+        # One event loop for the kernel's lifetime: an asyncio task, client or
+        # connection created in one cell is usable in the next.
+        self._loop = None
         # Interrupt state of the running cell, see the module docstring.
         self._in_cell = False
         self._shield = 0
@@ -258,6 +261,34 @@ class Worker:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGINT, self._on_sigint)
         signal.pthread_sigmask(signal.SIG_SETMASK, self._base_mask)
+
+    def _eval_compiled(self, compiled):
+        """Run one compiled cell fragment and return its value, if any.
+
+        eval() is used for both modes: an exec-mode code object returns None,
+        an eval-mode one returns the expression's value, and a coroutine code
+        object (module-level await) returns a coroutine that must be driven.
+        exec() would silently drop the coroutine and the expression value.
+        """
+        value = eval(compiled, self.g)
+        return self._run_awaitable(value)
+
+    def _run_awaitable(self, value):
+        """Drive an awaitable on the kernel's one event loop.
+
+        The loop lives as long as the kernel, so asyncio tasks, clients and
+        connections created in one cell are usable in the next. asyncio.run()
+        would create and close a fresh loop for every cell and break that.
+        """
+        if not inspect.isawaitable(value):
+            return value
+        import asyncio
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self._loop = loop
+        return loop.run_until_complete(value)
 
     # ---------------------------------------------------------------- plumbing
     def _fresh_globals(self):
@@ -548,19 +579,35 @@ class Worker:
                     "type": "started", "data": {"requestId": self._request_id}}})
                 last_value = None
                 try:
-                    tree = ast.parse(code, filename="<cell>", mode="exec")
+                    # Parse to an AST with both flags: PyCF_ALLOW_TOP_LEVEL_AWAIT
+                    # makes module-level await (`x = await f()`) legal on every
+                    # supported CPython, and PyCF_ONLY_AST stops at the tree so
+                    # the trailing expression can still be split off for REPL
+                    # display. ast.parse() alone rejects that code on some
+                    # versions.
+                    tree = compile(code, "<cell>", "exec",
+                                   ast.PyCF_ONLY_AST | ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                                   dont_inherit=True)
                     body = list(tree.body)
                     last_expr = None
                     if body and isinstance(body[-1], ast.Expr):
                         last_expr = body.pop()
                     if body:
                         module = ast.Module(body=body, type_ignores=[])
-                        exec(compile(module, "<cell>", "exec"), self.g)
+                        # A wait in the body makes the module a coroutine;
+                        # compiling it with the flag returns CO_COROUTINE, so it
+                        # must be driven, not merely exec'd.
+                        compiled = compile(module, "<cell>", "exec",
+                                           ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                                           dont_inherit=True)
+                        value = self._eval_compiled(compiled)
+                        if value is not None:
+                            self.g["_"] = value
                     if last_expr is not None:
-                        value = eval(compile(ast.Expression(last_expr.value), "<cell>", "eval"), self.g)
-                        if inspect.isawaitable(value):
-                            import asyncio
-                            value = asyncio.run(value)
+                        compiled = compile(ast.Expression(last_expr.value), "<cell>",
+                                           "eval", ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                                           dont_inherit=True)
+                        value = self._eval_compiled(compiled)
                         self.g["_"] = value
                         last_value = value
                 finally:
@@ -634,7 +681,7 @@ class Worker:
             "pid": os.getpid(),
             "capabilities": ["persistent_execution", "modules", "file_io", "scientific",
                              "plotting", "tool_callback", "artifact", "display",
-                             "interrupt", "subprocess", "notebook"],
+                             "interrupt", "subprocess", "notebook", "inspect"],
         }
 
     def _reset(self, params):
@@ -649,6 +696,44 @@ class Worker:
         self._seen_calls = set()
         self.generation += 1
         return {"generation": self.generation, "pid": os.getpid()}
+
+    _INSPECT_HIDDEN = frozenset({
+        "__name__", "__doc__", "__builtins__", "__package__", "__file__",
+        "lc_tool", "lc_tools", "lc_artifact", "display", "lc_display",
+        "ToolDenied", "ToolFailed",
+    })
+
+    def _inspect(self, params):
+        """Names and types of the kernel's live user state.
+
+        Values are never rendered: repr() would run user code (a side effect, a
+        block, an exception) during what is meant to be an inspection.
+        """
+        limit = params.get("limit") or 100
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = 100
+        if limit <= 0 or limit > 1000:
+            limit = 100
+        wanted = params.get("names") or []
+        keep = {name for name in wanted if isinstance(name, str)} if isinstance(wanted, list) else set()
+        names = [name for name in self.g
+                 if isinstance(name, str) and name not in self._INSPECT_HIDDEN
+                 and not name.startswith("__")]
+        if keep:
+            names = [name for name in names if name in keep]
+        names.sort()
+        entries = []
+        for name in names[:limit]:
+            try:
+                kind = type(self.g[name]).__name__
+            except Exception:  # noqa: BLE001 - inspection never fails a kernel
+                kind = "unknown"
+            entries.append({"name": name, "type": kind})
+        return {"generation": self.generation, "pid": os.getpid(),
+                "entries": entries, "total": len(names),
+                "truncated": len(names) > limit}
 
     def _health(self, params):
         return {"status": "ok", "generation": self.generation, "pid": os.getpid(),
@@ -669,6 +754,8 @@ class Worker:
                 result = self._execute(params)
             elif method == "reset":
                 result = self._reset(params)
+            elif method == "inspect":
+                result = self._inspect(params)
             elif method == "health":
                 result = self._health(params)
             elif method == "close":

@@ -52,9 +52,12 @@ type session struct {
 	spaceFS     *safefs.Root
 	fsMu        sync.Mutex
 
-	budget     evalapi.Budget
-	leaseUntil time.Time
-	createdAt  time.Time
+	budget evalapi.Budget
+	// enforcement is how this kernel's bounds are really applied on this host.
+	// It is computed once, from the platform and the runtime, and reported.
+	enforcement evalapi.EnforcementView
+	leaseUntil  time.Time
+	createdAt   time.Time
 
 	mu            sync.Mutex
 	state         string
@@ -140,6 +143,7 @@ func newSession(m *Manager, p *provider, opts evalapi.CreateOptions, slot int) (
 		profilePath: filepath.Join(control, "sandbox.sb"),
 		controlDir:  control,
 		budget:      evalapi.MergeBudget(m.defaultBudget, opts.Budget),
+		enforcement: enforcementView(m.sandboxBackend(), p.manifest.Language, evalapi.MergeBudget(m.defaultBudget, opts.Budget), m.memoryEnforcement),
 		leaseUntil:  opts.LeaseUntil,
 		createdAt:   time.Now().UTC(),
 		state:       evalapi.StateCreated,
@@ -246,6 +250,7 @@ func (s *session) publicLocked() evalapi.Session {
 		LastError:       s.lastError,
 		Label:           s.label,
 		ActiveRequestID: activeRequestID,
+		Enforcement:     s.enforcement,
 	}
 }
 
