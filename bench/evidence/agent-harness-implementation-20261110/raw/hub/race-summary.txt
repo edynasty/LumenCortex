@@ -1,2 +1,0 @@
-ok  	github.com/edynasty/LumenCortex/runtime	18.241s
-ok  	github.com/edynasty/LumenCortex/internal/migrate	8.778s
