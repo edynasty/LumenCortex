@@ -224,7 +224,13 @@ func (m *Manager) discover(ctx context.Context) {
 	defer cancel()
 	for _, candidate := range ProbePresets(ctx, m.prober) {
 		m.mu.Lock()
-		_, configured := m.adapters[candidate.ID]
+		existing, configured := m.adapters[candidate.ID]
+		if configured && existing.Version == "" && candidate.Available {
+			// A host-configured adapter keeps its own command, but discovery
+			// can still report the version it probed.
+			existing.Version = candidate.Version
+			m.adapters[candidate.ID] = existing
+		}
 		m.mu.Unlock()
 		if configured {
 			continue
