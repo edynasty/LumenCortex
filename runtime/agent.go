@@ -968,6 +968,9 @@ var (
 	// testHookBeforeRunStopped runs in a supervised run's cleanup after the run released its resources,
 	// just before it publishes run.stopped and closes its done channel.
 	testHookBeforeRunStopped func()
+	// testHookBeforeStopCheckpoint runs in a supervised child run's cleanup after it published
+	// run.stopped, just before it writes the parent's subagent.stopped checkpoint.
+	testHookBeforeStopCheckpoint func()
 )
 
 func (s agentStore) AdmitExecution(ctx context.Context, a session.ExecutionAdmission) error {

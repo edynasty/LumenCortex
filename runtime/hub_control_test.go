@@ -534,3 +534,114 @@ func TestHubCancelThenCloseDoesNotKeepThePause(t *testing.T) {
 		t.Fatalf("a cancelled run kept its pause across the restart: %+v", view.Agents[0])
 	}
 }
+
+// closeWhileHeld closes e while hold blocks a run's cleanup, reports whether Close returned before the
+// cleanup was released, and returns once Close finished.
+func closeWhileHeld(t *testing.T, e *Engine, held <-chan struct{}, release chan<- struct{}) (returnedEarly bool) {
+	t.Helper()
+	select {
+	case <-held:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the run's cleanup never reached the hook")
+	}
+	closed := make(chan struct{})
+	go func() {
+		e.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		returnedEarly = true
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-closed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Engine.Close did not return after the cleanup was released")
+	}
+	return returnedEarly
+}
+
+// TestEngineCloseWaitsForARunThatAlreadyLeft pins that Engine.Close waits for the cleanup of a run that
+// ended on its own and already left the supervisor: its run.stopped is durable after a reopen. The hook
+// holds the cleanup right after the run left; before the fix nothing waited for that run.
+func TestEngineCloseWaitsForARunThatAlreadyLeft(t *testing.T) {
+	useGlobalConfig(t, withConcurrency(4, 3))
+	dir := t.TempDir()
+	e, err := Open(Options{Workspace: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup, err := NewRunSupervisor(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := newParentSession(t, e, &finalProvider{})
+	held, release := make(chan struct{}), make(chan struct{})
+	testHookAfterRunLeaves = func() { close(held); <-release }
+	defer func() { testHookAfterRunLeaves = nil }()
+	ctx := context.Background()
+	if _, err := sup.Start(ctx, id, AgentOptions{Policy: "read-only", MaxSteps: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if closeWhileHeld(t, e, held, release) {
+		t.Fatal("Engine.Close returned while a run that left the supervisor was still stopping")
+	}
+
+	e, err = Open(Options{Workspace: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	page, err := e.QueryRuntimeEvents(ctx, RuntimeEventQuery{SessionID: id, Type: "run.stopped", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Events) != 1 {
+		t.Fatalf("run.stopped events after reopen = %d", len(page.Events))
+	}
+}
+
+// TestEngineCloseWaitsForAChildStopCheckpoint pins that the parent's subagent.stopped checkpoint is
+// written before Engine.Close returns: the hook holds a finished child after its run.stopped, just
+// before the checkpoint, and Close must wait for it.
+func TestEngineCloseWaitsForAChildStopCheckpoint(t *testing.T) {
+	useGlobalConfig(t, withConcurrency(4, 3))
+	dir := t.TempDir()
+	e, err := Open(Options{Workspace: dir, Budget: Budget{MaxAgents: 4}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup, err := NewRunSupervisor(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentID := newParentSession(t, e, &finalProvider{})
+	held, release := make(chan struct{}), make(chan struct{})
+	testHookBeforeStopCheckpoint = func() { close(held); <-release }
+	defer func() { testHookBeforeStopCheckpoint = nil }()
+	controller := &subagentController{supervisor: sup, parentID: parentID, parentOpts: AgentOptions{}}
+	if _, err := controller.Spawn(context.Background(), "finish quickly", ""); err != nil {
+		t.Fatal(err)
+	}
+	if closeWhileHeld(t, e, held, release) {
+		t.Fatal("Engine.Close returned while a child was still stopping")
+	}
+
+	e, err = Open(Options{Workspace: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	checkpoints, err := e.SessionCheckpoints(context.Background(), parentID, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, checkpoint := range checkpoints {
+		if checkpoint.Reason == "subagent.stopped" {
+			return
+		}
+	}
+	t.Fatalf("no subagent.stopped checkpoint after reopen: %+v", checkpoints)
+}

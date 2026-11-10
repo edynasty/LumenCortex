@@ -56,6 +56,9 @@ type RunSupervisor struct {
 	// bounded to maxHubRunRecords entries (oldest forgotten first).
 	lastRuns map[string]hubRunRecord
 	closed   bool
+	// stopping counts runs whose cleanup has not finished, including runs that already left runs: Close
+	// waits for all of them, so no run.stopped or stop checkpoint is written after the Engine closes.
+	stopping sync.WaitGroup
 }
 
 // maxHubRunRecords bounds the run records kept for retry.
@@ -161,6 +164,7 @@ func (s *RunSupervisor) Start(
 		return SessionInfo{}, ErrRunSupervisorClosed
 	}
 	s.runs[sessionID] = run
+	s.stopping.Add(1)
 	s.mu.Unlock()
 	defer func() {
 		if !handedOff {
@@ -171,6 +175,7 @@ func (s *RunSupervisor) Start(
 			s.mu.Unlock()
 			cancel()
 			close(run.done)
+			s.stopping.Done()
 		}
 	}()
 
@@ -243,11 +248,15 @@ func (s *RunSupervisor) Start(
 			}
 			s.engine.events.publish("run.stopped", sessionID, data)
 			if opts.parentSessionID != "" {
+				if testHookBeforeStopCheckpoint != nil {
+					testHookBeforeStopCheckpoint()
+				}
 				s.engine.checkpointSubagentStop(opts.parentSessionID, sessionID, runErr)
 			}
-			// done closes last: RunSupervisor.Close and Engine.Close wait on it, so the stopped event and
-			// the parent's checkpoint are written before the Engine closes its event bus and store.
+			// done closes last: RunSupervisor.Close and Engine.Close wait on it (and on stopping), so the
+			// stopped event and the parent's checkpoint are written before the Engine closes its bus and store.
 			close(run.done)
+			s.stopping.Done()
 		}()
 		defer func() {
 			if opts.parentSessionID != "" {
@@ -364,7 +373,6 @@ func (s *RunSupervisor) Close() {
 		return
 	}
 	s.closed = true
-	runs := make([]*managedRun, 0, len(s.runs))
 	for sessionID, run := range s.runs {
 		// Closing the supervisor is a shutdown, not a cancel of the run: a paused run keeps its pause. A run
 		// the host already cancelled stays cancelled, so its pause clears as it ends.
@@ -373,12 +381,11 @@ func (s *RunSupervisor) Close() {
 		}
 		run.cancelRequested = true
 		run.cancel()
-		runs = append(runs, run)
 	}
 	s.mu.Unlock()
 
-	for _, run := range runs {
-		<-run.done
-	}
+	// Start adds to stopping only while the supervisor is open, so no Add races this Wait. It also covers
+	// a run that ended on its own and left runs but is still publishing its stop.
+	s.stopping.Wait()
 	s.engine.clearAgentRunner(s)
 }
