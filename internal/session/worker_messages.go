@@ -13,6 +13,16 @@ import (
 
 const MaxWorkerMessages = 1000
 
+// Push delivery states of one worker message, and the bounded redelivery of an unacked one.
+const (
+	WorkerMessageQueued    = "queued"
+	WorkerMessageDelivered = "delivered"
+	WorkerMessageAcked     = "acked"
+	// MaxWorkerMessageAttempts bounds how many runs write one message into a request window before it
+	// stops being redelivered unacked; a host still reads it with worker_inbox.
+	MaxWorkerMessageAttempts = 3
+)
+
 type WorkerMessage struct {
 	Seq         int64      `json:"seq"`
 	RootID      string     `json:"rootId"`
@@ -23,6 +33,15 @@ type WorkerMessage struct {
 	CreatedAt   time.Time  `json:"createdAt"`
 	ReceivedAt  *time.Time `json:"receivedAt,omitempty"`
 	Withdrawn   bool       `json:"withdrawn,omitempty"`
+	// Delivery is the push state (migration 0013): queued until a run wrote it into a request window,
+	// then delivered, then acked by the recipient. DeliveredSeq is the transcript row it became,
+	// DeliveredRun the run that wrote it (an unacked message is redelivered once per run, bounded).
+	Delivery     string     `json:"delivery"`
+	DeliveredSeq int64      `json:"deliveredSeq,omitempty"`
+	DeliveredRun string     `json:"deliveredRun,omitempty"`
+	DeliveredAt  *time.Time `json:"deliveredAt,omitempty"`
+	AckedAt      *time.Time `json:"ackedAt,omitempty"`
+	Attempts     int        `json:"attempts,omitempty"`
 }
 type WorkerMessagePage struct {
 	Messages []WorkerMessage `json:"messages"`
@@ -64,6 +83,7 @@ func (s *Store) SendWorkerMessage(ctx context.Context, m WorkerMessage) (WorkerM
 	m.CreatedAt = time.Now().UTC()
 	m.ReceivedAt = nil
 	m.Withdrawn = false
+	m.Delivery = WorkerMessageQueued
 	err := s.writeTx(ctx, func(conn *sql.Conn) error {
 		if err := workerMember(ctx, conn, m.RootID, m.SenderID); err != nil {
 			return err
@@ -129,14 +149,16 @@ func (s *Store) ReadWorkerMessages(ctx context.Context, root, reader string, aft
 			args = append(args, reader)
 		}
 		args = append(args, limit+1)
-		rows, err := conn.QueryContext(ctx, `SELECT seq,sender_id,recipient_id,message_id,body,created_at,received_at FROM worker_messages WHERE `+clause+` ORDER BY seq LIMIT ?`, args...)
+		rows, err := conn.QueryContext(ctx, `SELECT seq,sender_id,recipient_id,message_id,body,created_at,received_at,
+delivery_state,delivered_seq,delivered_run,delivered_at,acked_at,attempts FROM worker_messages WHERE `+clause+` ORDER BY seq LIMIT ?`, args...)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
 			m := WorkerMessage{RootID: root}
-			var created, received string
-			if err = rows.Scan(&m.Seq, &m.SenderID, &m.RecipientID, &m.ID, &m.Body, &created, &received); err != nil {
+			var created, received, deliveredAt, ackedAt string
+			if err = rows.Scan(&m.Seq, &m.SenderID, &m.RecipientID, &m.ID, &m.Body, &created, &received,
+				&m.Delivery, &m.DeliveredSeq, &m.DeliveredRun, &deliveredAt, &ackedAt, &m.Attempts); err != nil {
 				rows.Close()
 				return err
 			}
@@ -144,6 +166,14 @@ func (s *Store) ReadWorkerMessages(ctx context.Context, root, reader string, aft
 			if received != "" {
 				at := parseTime(received)
 				m.ReceivedAt = &at
+			}
+			if deliveredAt != "" {
+				at := parseTime(deliveredAt)
+				m.DeliveredAt = &at
+			}
+			if ackedAt != "" {
+				at := parseTime(ackedAt)
+				m.AckedAt = &at
 			}
 			page.Messages = append(page.Messages, m)
 		}
@@ -170,13 +200,114 @@ func (s *Store) ReadWorkerMessages(ctx context.Context, root, reader string, aft
 			}
 			if ack && m.ReceivedAt == nil {
 				at := time.Now().UTC()
-				if _, err = conn.ExecContext(ctx, `UPDATE worker_messages SET received_at=? WHERE seq=? AND received_at=''`, at.Format(time.RFC3339Nano), m.Seq); err != nil {
+				// An explicit inbox read is the recipient's acknowledgement, so the push state moves to
+				// acked as well: a message read on purpose is not redelivered.
+				if _, err = conn.ExecContext(ctx, `UPDATE worker_messages SET received_at=?, delivery_state=?, acked_at=? WHERE seq=? AND received_at=''`,
+					at.Format(time.RFC3339Nano), WorkerMessageAcked, at.Format(time.RFC3339Nano), m.Seq); err != nil {
 					return err
 				}
-				m.ReceivedAt = &at
+				m.ReceivedAt, m.AckedAt, m.Delivery = &at, &at, WorkerMessageAcked
 			}
 		}
 		return nil
 	})
 	return page, err
+}
+
+// PendingWorkerMessages returns the messages a run of recipient must still write into its request
+// window: queued ones, and unacked delivered ones that no run has redelivered yet (bounded attempts).
+// A message the run that receives it now already wrote is not returned again for that run.
+func (s *Store) PendingWorkerMessages(ctx context.Context, root, recipient, runID string, limit int) ([]WorkerMessage, error) {
+	if root == "" || recipient == "" {
+		return nil, ErrInvalid
+	}
+	if limit <= 0 {
+		limit = 4
+	}
+	limit = min(limit, 16)
+	rows, err := s.db.QueryContext(ctx, `SELECT seq,sender_id,recipient_id,message_id,body,created_at,received_at,
+delivery_state,delivered_seq,delivered_run,delivered_at,acked_at,attempts FROM worker_messages
+WHERE session_id=? AND recipient_id=? AND (
+  delivery_state='queued'
+  OR (delivery_state='delivered' AND acked_at='' AND delivered_run<>? AND attempts < ?))
+ORDER BY seq LIMIT ?`, root, recipient, runID, MaxWorkerMessageAttempts, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []WorkerMessage{}
+	for rows.Next() {
+		m := WorkerMessage{RootID: root}
+		var created, received, deliveredAt, ackedAt string
+		if err := rows.Scan(&m.Seq, &m.SenderID, &m.RecipientID, &m.ID, &m.Body, &created, &received,
+			&m.Delivery, &m.DeliveredSeq, &m.DeliveredRun, &deliveredAt, &ackedAt, &m.Attempts); err != nil {
+			return nil, err
+		}
+		m.CreatedAt = parseTime(created)
+		if received != "" {
+			at := parseTime(received)
+			m.ReceivedAt = &at
+		}
+		if deliveredAt != "" {
+			at := parseTime(deliveredAt)
+			m.DeliveredAt = &at
+		}
+		if ackedAt != "" {
+			at := parseTime(ackedAt)
+			m.AckedAt = &at
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// DeliveredWorkerMessage records the transcript row one message became in one run.
+type DeliveredWorkerMessage struct {
+	Seq           int64
+	TranscriptSeq int64
+}
+
+// MarkWorkerMessagesDelivered moves messages to delivered (or to acked, when the recipient fenced the
+// body away) and records the run and transcript row that carried them. The mark is idempotent: a seq
+// already delivered by the same run keeps its row.
+func (s *Store) MarkWorkerMessagesDelivered(ctx context.Context, root, recipient, runID string, messages []DeliveredWorkerMessage) error {
+	if root == "" || recipient == "" || len(messages) == 0 {
+		return nil
+	}
+	at := time.Now().UTC().Format(time.RFC3339Nano)
+	err := s.writeTx(ctx, func(conn *sql.Conn) error {
+		for _, m := range messages {
+			if _, err := conn.ExecContext(ctx, `UPDATE worker_messages
+SET delivery_state='delivered', delivered_run=?, delivered_seq=?, delivered_at=?, attempts=attempts+1,
+    received_at=CASE WHEN received_at='' THEN ? ELSE received_at END
+WHERE session_id=? AND recipient_id=? AND seq=? AND acked_at='' AND (delivered_run<>? OR delivered_seq<0)`,
+				runID, m.TranscriptSeq, at, at, root, recipient, m.Seq, runID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return err
+}
+
+// AckWorkerMessages acknowledges every message for recipient up to and including through, so a
+// redelivery stops. It returns how many rows moved to acked.
+func (s *Store) AckWorkerMessages(ctx context.Context, root, recipient string, through int64) (int, error) {
+	if root == "" || recipient == "" || through < 0 {
+		return 0, ErrInvalid
+	}
+	var changed int64
+	err := s.writeTx(ctx, func(conn *sql.Conn) error {
+		if err := workerMember(ctx, conn, root, recipient); err != nil {
+			return err
+		}
+		result, err := conn.ExecContext(ctx, `UPDATE worker_messages SET delivery_state=?, acked_at=?
+WHERE session_id=? AND recipient_id=? AND seq<=? AND acked_at=''`, WorkerMessageAcked, now(), root, recipient, through)
+		if err != nil {
+			return err
+		}
+		changed, err = result.RowsAffected()
+		return err
+	})
+	return int(changed), err
 }

@@ -177,6 +177,10 @@ type Options struct {
 	// It lives in memory for the run's lifetime and is the nullable run_id column of request and
 	// execution rows; it is not a session field. "" means the caller supplied none.
 	RunID string
+	// WorkerRoot is the root session of the run's message scope (the session itself for a thread, its
+	// root for a child). The loop pushes the root's undelivered worker messages into the request window
+	// as bounded asides (Hub collaboration §4); "" disables push delivery.
+	WorkerRoot string
 	// Withheld are the transcript seqs whose content this run must not send: rows that carry content of
 	// a revoked source, as the Start's projection found them (DATA_AND_FAILURES §5 step 3). Their
 	// rows stay in the window with the same role, tool call id and order, and their content replaced

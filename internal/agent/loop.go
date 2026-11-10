@@ -235,7 +235,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		}
 		step := startStep + int64(turn)
 		// Host edits queued since the last step become visible before this step's request is built.
-		if err := l.applyInbox(ctx, sessionID, r); err != nil {
+		if _, err := l.applyPendingInputs(ctx, sessionID, state.Goal, opts, r, nil); err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		if notice, ok := clock.reserveNotice(time.Now()); ok {
@@ -306,7 +306,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				Err: fmt.Errorf("no model can take this request: it needs about %d tokens before the reply, and no candidate of %s has the context, tool calling and health for it", base, refList(append([]config.ModelRef{opts.Session}, opts.Failover...)))})
 		}
 		sent := time.Now()
-		answered, cause := l.send(ctx, sessionID, step, opts, r.ts.Version, cands, r, in, len(groups), specs, &usage, &stepDecisions)
+		answered, cause := l.send(ctx, sessionID, state.Goal, step, opts, r.ts.Version, cands, r, in, len(groups), specs, &usage, &stepDecisions)
 		clock.observeModel(time.Since(sent), answered.Elapsed)
 		if cause != nil {
 			return l.exit(ctx, state, usage, *cause)
@@ -802,21 +802,26 @@ func (l *Loop) recordStep(ctx context.Context, sessionID string, step int64, rec
 	return nil
 }
 
-// applyInbox applies the host edits queued since the last read (ADR-0006 D1′): one Task State version
-// with reason "user" that also consumes them. Edits never touch the workflow or work units.
-func (l *Loop) applyInbox(ctx context.Context, sessionID string, r *run) error {
+// applyInbox applies the host inputs queued since the last read (ADR-0006 D1′): one Task State version
+// with reason "user" that also consumes the queued edits, the free-text steers behind a decision the
+// host made while the run worked, and the root's pushed worker messages. Edits never touch the workflow
+// or work units. It reports whether anything was applied.
+func (l *Loop) applyInbox(ctx context.Context, sessionID string, r *run) (bool, error) {
 	edits, err := l.Store.InboxEdits(ctx, sessionID)
-	if err != nil || len(edits) == 0 {
-		return err
+	if err != nil {
+		return false, err
+	}
+	if len(edits) == 0 {
+		return false, nil
 	}
 	before := r.ts.Clone()
 	r.ts.Apply(edits)
 	change := &TaskStateChange{Reason: taskstate.ReasonUser, Next: r.ts, InboxThrough: edits[len(edits)-1].Seq, Edges: HostStateEdges(before, r.ts)}
 	if err := l.putTaskState(ctx, sessionID, r, change); err != nil {
-		return err
+		return false, err
 	}
 	l.emit("task_state.edits_applied", sessionID, map[string]any{"version": r.ts.Version, "edits": len(edits)})
-	return nil
+	return true, nil
 }
 
 // latchEvidence applies the evidence rule to the run's state when a run completes (ADR-0006 D2): an

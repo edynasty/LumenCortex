@@ -1,0 +1,32 @@
+{
+  "experiment": "E5 pause/resume/steer/cancel semantics, ported as Go regression tests",
+  "where": "runtime/hub_e5_test.go",
+  "source_experiment": "bench/evidence/agent-harness-capability-roadmap-20261110/prototypes/e5-control-semantics",
+  "external_model_requests": 0,
+  "provider": "scripted protocol.Provider (records every request)",
+  "pass": 10,
+  "total": 10,
+  "checks": [
+    "C1 PauseOnStart blocks before the first model request",
+    "C2 mid-run user message via second RunAgent is refused",
+    "C3 steer (EditTaskState brief) queued while paused is visible in the next model request",
+    "C3b injected text through RunAgent never reached the model",
+    "C3c the steer is not one model turn late: it reaches request 1 and is applied once",
+    "C4 stale-revision control refused",
+    "C5 pause during a running tool settles at the next safe boundary after the tool finishes",
+    "C6 cancel while paused stops the run without a further model request",
+    "C7 resume = new Start; the completed bash call is not replayed",
+    "C8 Hub view is available for a plain session"
+  ],
+  "additional": [
+    "TestE5SteerDuringToolLandsInTheToolFollowUpRequest (HUB-A3 first half)",
+    "TestE5MultipleSteersApplyInOrder (deterministic sequence order)",
+    "TestE5SteerIsDurableAndAppliedOnce (durable inbox, host text only)"
+  ],
+  "commands": {
+    "focused": "go test -count=1 ./runtime/ -run TestE5 -v",
+    "race": "go test -race -count=1 ./runtime/ -run 'TestE5|TestHub|TestBusyWorker|TestUnackedWorker|TestWorkerMessageAck'"
+  },
+  "result": "PASS (4/4 E5 test functions; 10/10 checks)",
+  "note": "E5 C5's original file-existence observation was ambiguous (the raw run reported tool_output_exists=true for a completed tool); this port asserts the tool's own result row is present instead, which is the property C5 is about."
+}
