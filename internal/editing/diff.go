@@ -179,7 +179,14 @@ func UnifiedDiff(path string, before, after []byte) string {
 		}
 		fmt.Fprintf(&b, "@@ -%s +%s @@\n", hunkRange(baseFrom, baseCount), hunkRange(nextFrom, nextCount))
 		for _, op := range ops[s.start:s.end] {
-			b.WriteString(string(op.kind))
+			switch op.kind {
+			case 'd':
+				b.WriteByte('-')
+			case 'a':
+				b.WriteByte('+')
+			default:
+				b.WriteByte(' ')
+			}
 			b.WriteString(op.text)
 			b.WriteString("\n")
 		}

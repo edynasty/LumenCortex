@@ -206,7 +206,9 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 	prep := make([]*prepared, 0, len(plan.Changes))
 	seen := make(map[string]bool, len(plan.Changes))
 	for i, change := range plan.Changes {
-		abs, rel, err := e.host.Resolve(change.Path, change.Create || change.AllowCreate)
+		// A missing file is resolved too, so a delete or an update of a vanished file reports
+		// not_found rather than a raw lstat error; the guard still checks the deepest existing part.
+		abs, rel, err := e.host.Resolve(change.Path, true)
 		if err != nil {
 			return Result{}, err
 		}
@@ -223,6 +225,11 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 
 	for _, p := range prep {
 		if err := e.lease.Check(plan.Actor.Session, p.key); err != nil {
+			var conflict *LeaseConflict
+			if errors.As(err, &conflict) {
+				err = &Error{Code: CodeLeaseConflict, Path: p.rel, Holder: conflict.Holder,
+					Detail: fmt.Sprintf("a write lease is held until %s", conflict.Until.UTC().Format(time.RFC3339))}
+			}
 			return Result{}, e.refuse(plan, p, err)
 		}
 	}

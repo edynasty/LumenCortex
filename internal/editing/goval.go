@@ -81,7 +81,7 @@ func checkGoPackage(dir string, planned map[string][]byte) []Diagnostic {
 	var diags []Diagnostic
 	pkgName := ""
 	for _, path := range paths {
-		content, ok := planned[path]
+		content, ok := planned[canonicalPath(path)]
 		if !ok {
 			raw, readErr := os.ReadFile(path)
 			if readErr != nil {
