@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/editing"
 	"github.com/edynasty/LumenCortex/internal/toolset"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -318,5 +320,59 @@ func TestEditEventsReachSubscribers(t *testing.T) {
 	conflict := seen["edit.conflict"]
 	if conflict["code"] != "conflict" || conflict["path"] != "a.txt" {
 		t.Fatalf("edit.conflict = %v", conflict)
+	}
+}
+
+// TestFileRevisionAndEditDiff: the host reads a file's editing revision and the diff of a committed
+// edit; revisions outside the bounded history, files no commit wrote, and escaping paths are refused.
+func TestFileRevisionAndEditDiff(t *testing.T) {
+	engine, root := gitEngine(t)
+	ctx := context.Background()
+	session := newTestSession(t, engine, "diff edits")
+	set, err := toolset.New(toolset.Options{Workspace: root, Policy: toolset.PolicyFull, SessionID: session.ID, Editing: engine.editing})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rev, err := engine.FileRevision(ctx, "a.txt"); err != nil || rev != "" {
+		t.Fatalf("missing file revision = %q, %v", rev, err)
+	}
+	for _, content := range []string{"alpha\nbeta\n", "alpha\ngamma\n"} {
+		if result, execErr := set.Execute(ctx, "write_file", map[string]any{"path": "a.txt", "content": content}, nil); execErr != nil || !result.OK {
+			t.Fatalf("write = %s, %v", result.Content, execErr)
+		}
+	}
+	first := editing.RevOf([]byte("alpha\nbeta\n"))
+	second, err := engine.FileRevision(ctx, "a.txt")
+	if err != nil || second != editing.RevOf([]byte("alpha\ngamma\n")) {
+		t.Fatalf("revision = %q, %v", second, err)
+	}
+	diff, err := engine.EditDiff(ctx, "a.txt", first, second)
+	if err != nil || !strings.Contains(diff, "-beta") || !strings.Contains(diff, "+gamma") || strings.Contains(diff, "+alpha") {
+		t.Fatalf("diff = %q, %v", diff, err)
+	}
+	created, err := engine.EditDiff(ctx, "a.txt", "", first)
+	if err != nil || !strings.Contains(created, "+alpha") || !strings.Contains(created, "+beta") {
+		t.Fatalf("creation diff = %q, %v", created, err)
+	}
+	// An empty after is the current content, including a change made outside the engine.
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("alpha\ngamma\ndelta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	current, err := engine.EditDiff(ctx, "a.txt", second, "")
+	if err != nil || !strings.Contains(current, "+delta") {
+		t.Fatalf("current diff = %q, %v", current, err)
+	}
+	var editErr *editing.Error
+	if _, err := engine.EditDiff(ctx, "a.txt", "zzzzzzzz", second); !errors.As(err, &editErr) || editErr.Code != editing.CodeUnknownRev {
+		t.Fatalf("unknown revision err = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "b.txt"), []byte("secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.EditDiff(ctx, "b.txt", "", ""); !errors.As(err, &editErr) || editErr.Code != editing.CodeUnknownRev {
+		t.Fatalf("diff of a file no commit wrote err = %v", err)
+	}
+	if _, err := engine.FileRevision(ctx, "../outside.txt"); err == nil {
+		t.Fatal("escaping path was not refused")
 	}
 }

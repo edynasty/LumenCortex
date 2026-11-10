@@ -48,6 +48,7 @@ func (r runMessenger) Inbox(ctx context.Context, after int64, limit int) (any, e
 	}
 	return r.engine.WorkerMessages(ctx, r.root, r.sender, after, limit, true)
 }
+
 // workerRoot is the session's message scope: itself for a thread, its root for a child.
 func (e *Engine) workerRoot(ctx context.Context, id string) (string, error) {
 	root := id

@@ -142,6 +142,8 @@ type Engine struct {
 	snaps *SnapshotStore
 	lease *LeaseStore
 	now   func() time.Time
+	// history holds the content of recently committed and replaced revisions for host diffs.
+	history *revisionHistory
 	// stripes serialize commits per canonical path; 256 stripes bound the memory a workspace with many
 	// paths would otherwise take, and a shared stripe only serializes two unrelated files.
 	stripes [stripeCount]sync.Mutex
@@ -167,7 +169,7 @@ func New(opts Options) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	e := &Engine{host: opts.Host, root: root, snaps: opts.Snapshots, lease: opts.Leases, now: opts.Now}
+	e := &Engine{host: opts.Host, root: root, snaps: opts.Snapshots, lease: opts.Leases, now: opts.Now, history: newRevisionHistory()}
 	if e.snaps == nil {
 		e.snaps = NewSnapshotStore()
 	}
@@ -288,6 +290,7 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 			continue
 		}
 		e.register(p, plan)
+		e.history.record(p)
 		host.Event("edit.committed", plan.Actor.Session, map[string]any{
 			"path": p.rel, "oldRev": p.rev, "newRev": RevOf(p.next), "actor": plan.Actor.Session,
 			"runId": plan.Actor.Run, "tool": plan.Tool, "created": p.created, "deleted": p.deleted,

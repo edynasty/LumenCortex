@@ -117,3 +117,24 @@ func leaseTTL(req WriteLeaseRequest) time.Duration {
 	}
 	return time.Duration(req.TTLSeconds) * time.Second
 }
+
+// FileRevision returns the editing revision (the rev read_file and edit events name) of a workspace
+// file. A missing file has revision "" and no error; a path escaping the workspace is refused.
+func (e *Engine) FileRevision(ctx context.Context, path string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	rev, _, err := e.editing.FileRevision(nil, path)
+	return rev, err
+}
+
+// EditDiff returns the unified diff of one workspace file between two revisions that commits produced
+// or replaced. An empty afterRev means the current content on disk; an empty beforeRev means the file
+// before it existed. Only files a commit wrote are diffable, from a bounded recent history; a revision
+// it no longer holds is refused with an editing error of code unknown_rev, never approximated.
+func (e *Engine) EditDiff(ctx context.Context, path, beforeRev, afterRev string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return e.editing.Diff(nil, path, beforeRev, afterRev)
+}
