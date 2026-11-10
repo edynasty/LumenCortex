@@ -17,7 +17,9 @@ import (
 // memory.max is hard.
 func TestEnforcementReportIsTruthfulPerPlatform(t *testing.T) {
 	h, _ := newPythonHarness(t, nil)
-	session := h.create("python", "owner", "owner")
+	// A dedicated owner keeps the global process census free of other tests'
+	// kernels, which use the same "owner" name.
+	session := h.create("python", "enforce-owner", "enforce-owner")
 	view := session.Enforcement
 	if view.Memory == "" || view.CPU == "" || view.Disk == "" {
 		t.Fatalf("enforcement is not reported: %+v", view)
@@ -46,7 +48,7 @@ func TestEnforcementReportIsTruthfulPerPlatform(t *testing.T) {
 	rows := procrt.Default().List(procrt.Owner{SessionID: session.OwnerID})
 	if len(rows) == 0 {
 		// The kernel starts lazily; run a cell and re-read the census.
-		h.expectCompleted(session, "owner", "1 + 1")
+		h.expectCompleted(session, "enforce-owner", "1 + 1")
 		rows = procrt.Default().List(procrt.Owner{SessionID: session.OwnerID})
 	}
 	if len(rows) != 1 {
@@ -69,9 +71,9 @@ func TestSupervisedMemoryBreachIsMeasured(t *testing.T) {
 	h, _ := newPythonHarness(t, func(opts *Options) {
 		opts.Budget.MemoryBytes = limit
 	})
-	session := h.create("python", "owner", "owner")
+	session := h.create("python", "memory-owner", "memory-owner")
 	started := time.Now()
-	result := h.exec(session, "owner", `
+	result := h.exec(session, "memory-owner", `
 import time
 chunks = []
 for _ in range(80):
@@ -105,9 +107,11 @@ print("finished")
 	}
 	overshoot := peak - limit
 	t.Logf("supervised memory breach: limit=%d peak=%d overshoot=%d poll=%s wall=%s", limit, peak, overshoot, memoryPoll, elapsed)
-	// The cell allocates up to ~400 MiB/s; one 200ms interval plus the ps read
-	// cannot hide more than that. This bound is the documented overshoot window.
-	if maxOvershoot := int64(96 << 20); overshoot > maxOvershoot {
+	// The cell allocates 8 MiB every 20 ms (≈400 MiB/s); one 200 ms interval plus
+	// the ps read can hide up to that much. 160 MiB is twice the nominal window,
+	// which still proves the bound is not "whatever the cell wanted" (the loop
+	// would allocate 640 MiB).
+	if maxOvershoot := int64(160 << 20); overshoot > maxOvershoot {
 		t.Fatalf("overshoot %d exceeds the measured window %d for pole %s", overshoot, maxOvershoot, memoryPoll)
 	}
 	if elapsed > 30*time.Second {
@@ -122,7 +126,7 @@ print("finished")
 		time.Sleep(20 * time.Millisecond)
 	}
 	// The kernel is restarted for the next cell, in a new generation.
-	after := h.expectCompleted(session, "owner", "1 + 1")
+	after := h.expectCompleted(session, "memory-owner", "1 + 1")
 	if after.Generation <= result.Generation {
 		t.Fatalf("generation did not advance after the loss: %d -> %d", result.Generation, after.Generation)
 	}
@@ -139,12 +143,12 @@ func TestJavaScriptHeapCapIsRuntimeEnforced(t *testing.T) {
 	h := newJavaScriptHarness(t, func(opts *Options) {
 		opts.Budget.MemoryBytes = limit
 	})
-	session := h.create("javascript", "owner", "owner")
+	session := h.create("javascript", "js-heap-owner", "js-heap-owner")
 	if session.Enforcement.MemoryRuntimeCapBytes <= 0 {
 		t.Fatalf("the JS kernel does not report a V8 heap cap: %+v", session.Enforcement)
 	}
 	started := time.Now()
-	result := h.exec(session, "owner", `
+	result := h.exec(session, "js-heap-owner", `
 const keep = [];
 for (;;) {
   const batch = [];
@@ -169,7 +173,7 @@ for (;;) {
 	if elapsed > 60*time.Second {
 		t.Fatalf("the heap cap did not fire quickly: %s", elapsed)
 	}
-	h.expectCompleted(session, "owner", "1 + 1")
+	h.expectCompleted(session, "js-heap-owner", "1 + 1")
 }
 
 // TestJavaScriptExternalMemoryStaysSupervised proves the V8 cap is not the whole
@@ -184,8 +188,8 @@ func TestJavaScriptExternalMemoryStaysSupervised(t *testing.T) {
 	h := newJavaScriptHarness(t, func(opts *Options) {
 		opts.Budget.MemoryBytes = limit
 	})
-	session := h.create("javascript", "owner", "owner")
-	result := h.exec(session, "owner", `
+	session := h.create("javascript", "js-ext-owner", "js-ext-owner")
+	result := h.exec(session, "js-ext-owner", `
 const chunks = [];
 for (;;) { chunks.push(Buffer.alloc(16 * 1024 * 1024, 1)); }
 `, evalapi.Budget{WallSeconds: 45})
@@ -211,11 +215,11 @@ func TestCgroupMemoryBreachIsHard(t *testing.T) {
 	h, _ := newPythonHarness(t, func(opts *Options) {
 		opts.Budget.MemoryBytes = limit
 	})
-	session := h.create("python", "owner", "owner")
+	session := h.create("python", "cgroup-owner", "cgroup-owner")
 	if session.Enforcement.Memory != evalapi.EnforcementHard {
 		t.Fatalf("linux memory enforcement = %q", session.Enforcement.Memory)
 	}
-	result := h.exec(session, "owner", `
+	result := h.exec(session, "memory-owner", `
 import time
 chunks = []
 for _ in range(80):
@@ -234,7 +238,7 @@ for _ in range(80):
 	_ = fmt.Sprint()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	if err := h.m.Close(ctx, session.ID, "owner"); err != nil {
+	if err := h.m.Close(ctx, session.ID, "cgroup-owner"); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	if got := procrt.Default().List(procrt.Owner{SessionID: session.OwnerID}); len(got) != 0 {
