@@ -12,10 +12,10 @@ import (
 	"github.com/edynasty/LumenCortex/internal/debugger/dapfake"
 )
 
-// TestProbeE1D2OldReferenceSilentlyEmpty asserts the target behaviour for
+// TestE1D2OldReferenceIsRejected asserts the target behaviour for
 // E1-D2 against the pre-fix Manager: an old variablesReference must be an
 // error, not an empty variable list.
-func TestProbeE1D2OldReferenceSilentlyEmpty(t *testing.T) {
+func TestE1D2OldReferenceIsRejected(t *testing.T) {
 	ctx := context.Background()
 	m, snap, root := probeFixture(t, dapfake.Config{StopDelayMS: 200, StaleEmptyVariables: true})
 	_ = root
@@ -62,9 +62,9 @@ func TestProbeE1D2OldReferenceSilentlyEmpty(t *testing.T) {
 	}
 }
 
-// TestProbeE1D3UnboundedValues asserts that a 200 KiB adapter value must not
+// TestE1D3InspectionIsBounded asserts that a 200 KiB adapter value must not
 // reach the caller whole.
-func TestProbeE1D3UnboundedValues(t *testing.T) {
+func TestE1D3InspectionIsBounded(t *testing.T) {
 	ctx := context.Background()
 	m, snap, _ := probeFixture(t, dapfake.Config{StopDelayMS: 5, LargeValueBytes: 200 << 10})
 	c := Control{SessionID: snap.SessionID, DebugID: snap.ID, Epoch: snap.Epoch, Actor: "agent"}

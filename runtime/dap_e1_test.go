@@ -57,9 +57,9 @@ func fakeDebugEngine(t *testing.T, cfg dapfake.Config) (*Engine, string, string)
 	return e, session.ID, root
 }
 
-// TestProbeE1D4EvaluateGrantConflated asserts the target behaviour for E1-D4:
+// TestE1D4EvaluateGrantIsDistinct asserts the target behaviour for E1-D4:
 // a missing evaluation grant is not "debugging is disabled".
-func TestProbeE1D4EvaluateGrantConflated(t *testing.T) {
+func TestE1D4EvaluateGrantIsDistinct(t *testing.T) {
 	ctx := context.Background()
 	e, sessionID, root := fakeDebugEngine(t, dapfake.Config{StopDelayMS: 5})
 	snap, err := e.DebugStart(ctx, DebugStartOptions{SessionID: sessionID, AdapterID: "fake", Program: filepath.Join(root, "fixture.c")})
@@ -105,9 +105,9 @@ func TestProbeE1D4EvaluateGrantConflated(t *testing.T) {
 	}
 }
 
-// TestProbeE1D5ModuleEventsAreLive asserts that adapter module events never
+// TestE1D5ModuleEventsStayLive asserts that adapter module events never
 // reach durable runtime history.
-func TestProbeE1D5ModuleEventsAreLive(t *testing.T) {
+func TestE1D5ModuleEventsStayLive(t *testing.T) {
 	ctx := context.Background()
 	e, sessionID, root := fakeDebugEngine(t, dapfake.Config{StopDelayMS: 5, Modules: 25})
 	snap, err := e.DebugStart(ctx, DebugStartOptions{SessionID: sessionID, AdapterID: "fake", Program: filepath.Join(root, "fixture.c")})
@@ -151,9 +151,9 @@ stopped:
 	}
 }
 
-// TestProbeE1D1ContinueDoesNotReturnStop asserts the target behaviour of the
+// TestE1D1ContinueReturnsStopInOneCall asserts the target behaviour of the
 // Agent-facing continue tool: one call returns the stop and its frames.
-func TestProbeE1D1ContinueDoesNotReturnStop(t *testing.T) {
+func TestE1D1ContinueReturnsStopInOneCall(t *testing.T) {
 	ctx := context.Background()
 	e, sessionID, root := fakeDebugEngine(t, dapfake.Config{StopDelayMS: 40})
 	snap, err := e.startProgramDebug(ctx, e.dapContext, DebugStartOptions{SessionID: sessionID, AdapterID: "fake", Program: filepath.Join(root, "fixture.c")}, "agent")
