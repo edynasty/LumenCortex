@@ -15,7 +15,7 @@ prototypes `prototypes/e3-hashline` (S1–S9) and `prototypes/e4-ast-edit` (8 ca
 | write_file stale-read race (E3 S7b) fixed | Validated | `TestWriteFileRefusesStaleReadThroughToolset`, `TestWriteFileRefusesAStaleReadInTheRunRegistry`, `TestWholeFileWriteRefusesStaleBaseRevision` |
 | Shared write leases (engine + runtime host API) | Validated | `TestWriteLeaseRefusesOtherHolder`, `TestWriteLeasePrefixAndExpiry`, `TestWriteLeaseBlocksAnotherSessionsWriteTool` |
 | Go AST editing (`edit_go`) | Validated (Go only) | E4 1–8 ports, `TestEditGoThroughToolset` |
-| `edit.committed` / `edit.conflict` events | Implemented | published through `e.events.publish`; not asserted by a dedicated test (see limitations) |
+| `edit.committed` / `edit.conflict` events | Implemented (live) | published through `e.events.publish`; live-only by decision; not asserted by a dedicated subscriber test (see limitations) |
 | Agent loop end-to-end | Validated | `TestAgentLoopEditsLinesAndRejectsAStaleEdit` (scripted provider) |
 | TS/JS/Python structured editing | Not in this slice | remains the existing LSP path (`lsp_rename`, code actions); no AST claim for those languages |
 
@@ -143,16 +143,25 @@ invariant, and is not a Go test.
   post-write rehash only in the sense that it is *reported* (`concurrent_write_detected`); the other
   writer's bytes may already have replaced ours. An OS-level lock would be needed to prevent it.
 - Leases are in-memory: they do not coordinate two Core processes on one work tree.
-- No dedicated assertion on the `edit.committed` payload: events are published through the same bus as
-  every other runtime event and the payload is built in `Engine.Commit`; a subscriber-level test is
-  deferred (P3) because the event bus already has coverage and the fields are part of the payload map
-  only.
+- No dedicated assertion on the `edit.committed` payload: the event is published on the live bus (the
+  durable path is covered by the bus tests), its payload is built in `Engine.Commit`, and a
+  subscriber-level test is deferred (P3). Because it is live-only, a subscriber that connects after an
+  edit does not replay it; the transcript tool result and the execution record carry the change.
+- The prompt budget: with the full catalog a run needs about 6 400 estimated tokens, so a fixture or
+  deployment with an 8 000-token window and a 1 000-token output reservation has almost no headroom.
+  Two test fixtures now use 16 000 (documented in place); a real deployment should configure
+  `limit.context` accordingly.
 - TS/JS/Python: no AST editing, and none is claimed. Their structured edits stay with the language
   server through `lsp_rename` and the existing LSP tools.
 - No database migration was needed or added.
 
 ## Decisions
 
+- `edit.committed` / `edit.conflict` are published on the live event bus but are **not durable**: the
+  tool result and the execution record already carry the change, and persisting an event per edited
+  file broke the cost invariant that a side-effecting step costs exactly one more write transaction
+  than a read-only one (`TestRealEngineSideEffectStepTakesOneMoreWriteTransaction`, 74 vs 72 before the
+  change). Desktop's diff view subscribes live and still sees every revision.
 - The engine takes its path guard per commit (`Plan.Host`) rather than per engine: the runtime shares
   one engine (and therefore one snapshot and lease store) between every toolset of every workspace it
   serves, while each toolset keeps its own guard instance. This avoids duplicating the guard and
@@ -164,6 +173,13 @@ invariant, and is not a Go test.
   semantically correct structural edit.
 - Rollback restores the previous bytes through the same guarded descriptor; a concurrent write that
   happens during the rollback itself is not detected, matching the pre-existing `apply_patch` policy.
+- Two new tools cost prompt tokens: with the first draft of their descriptions the full tool catalog
+  grew from 3 310 to 6 127 JSON bytes (1 108 → 2 047 estimated tokens), which pushed two runtime
+  fixtures over an 8 000-token model window (`TestToolCatalogsMatchAFullPolicyRun`,
+  `TestRealEngineEndToEndProvenance`). The descriptions were cut to what the model needs (catalog now
+  5 363 bytes / 1 792 tokens, +684 tokens over the base catalog), and those two fixtures — whose
+  subject is provenance and catalog equality, not the window — now use a 16 000-token model with a
+  comment saying why. Their assertions are unchanged.
 
 ## Next actions (deferred, not blockers)
 
