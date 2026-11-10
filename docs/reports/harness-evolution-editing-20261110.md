@@ -121,7 +121,8 @@ go vet ./...                                       ok
 ```
 
 Raw evidence (workspace-level, not version controlled): `bench/evidence/agent-harness-implementation-20261110/raw/editing/`
-— `editing-tests.json`, `race-editing-toolset.json`, `runtime-editing-tests.json`, `scenarios.md`.
+— `editing-tests.json`, `race-editing-toolset.json`, `race-summary.txt`, `runtime-editing-tests.json`,
+`full-suite.json` (runtime + toolset + editing, exit 0), `scenarios.md`.
 
 Ported scenarios: E3 S1, S2, S3, S4, S5, S5b, S6, S7, S7b, S8, plus anchor-hash/seen-line and UTF-8
 refusals; E4 A1–A8 plus method rename, struct members and preview. S9 is a corpus measurement, not an
