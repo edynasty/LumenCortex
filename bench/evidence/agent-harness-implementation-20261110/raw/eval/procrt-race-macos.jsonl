@@ -1,0 +1,28 @@
+{"Time":"2026-11-11T01:16:57.77556+08:00","Action":"start","Package":"github.com/edynasty/LumenCortex/internal/procrt"}
+{"Time":"2026-11-11T01:16:58.171023+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestRegistryCensusFilteringAndUnregister"}
+{"Time":"2026-11-11T01:16:58.171112+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestRegistryCensusFilteringAndUnregister","Output":"=== RUN   TestRegistryCensusFilteringAndUnregister\n"}
+{"Time":"2026-11-11T01:16:58.171152+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestRegistryCensusFilteringAndUnregister","Output":"--- PASS: TestRegistryCensusFilteringAndUnregister (0.00s)\n"}
+{"Time":"2026-11-11T01:16:58.171163+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestRegistryCensusFilteringAndUnregister","Elapsed":0}
+{"Time":"2026-11-11T01:16:58.171178+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestCloseOwnerEscalatesInterruptThenTerminateThenKill"}
+{"Time":"2026-11-11T01:16:58.171185+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestCloseOwnerEscalatesInterruptThenTerminateThenKill","Output":"=== RUN   TestCloseOwnerEscalatesInterruptThenTerminateThenKill\n"}
+{"Time":"2026-11-11T01:16:58.275441+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestCloseOwnerEscalatesInterruptThenTerminateThenKill","Output":"--- PASS: TestCloseOwnerEscalatesInterruptThenTerminateThenKill (0.10s)\n"}
+{"Time":"2026-11-11T01:16:58.275555+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestCloseOwnerEscalatesInterruptThenTerminateThenKill","Elapsed":0.1}
+{"Time":"2026-11-11T01:16:58.275607+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestCloseOwnerReportsSurvivorsAsError"}
+{"Time":"2026-11-11T01:16:58.275619+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestCloseOwnerReportsSurvivorsAsError","Output":"=== RUN   TestCloseOwnerReportsSurvivorsAsError\n"}
+{"Time":"2026-11-11T01:16:58.310223+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestCloseOwnerReportsSurvivorsAsError","Output":"--- PASS: TestCloseOwnerReportsSurvivorsAsError (0.03s)\n"}
+{"Time":"2026-11-11T01:16:58.310336+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestCloseOwnerReportsSurvivorsAsError","Elapsed":0.03}
+{"Time":"2026-11-11T01:16:58.310383+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestCloseOwnerLeavesOtherOwnersAlone"}
+{"Time":"2026-11-11T01:16:58.310397+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestCloseOwnerLeavesOtherOwnersAlone","Output":"=== RUN   TestCloseOwnerLeavesOtherOwnersAlone\n"}
+{"Time":"2026-11-11T01:16:58.345858+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestCloseOwnerLeavesOtherOwnersAlone","Output":"--- PASS: TestCloseOwnerLeavesOtherOwnersAlone (0.04s)\n"}
+{"Time":"2026-11-11T01:16:58.34599+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestCloseOwnerLeavesOtherOwnersAlone","Elapsed":0.04}
+{"Time":"2026-11-11T01:16:58.346016+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestRegisterCommandCensusAndClose"}
+{"Time":"2026-11-11T01:16:58.346032+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestRegisterCommandCensusAndClose","Output":"=== RUN   TestRegisterCommandCensusAndClose\n"}
+{"Time":"2026-11-11T01:16:58.454109+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestRegisterCommandCensusAndClose","Output":"--- PASS: TestRegisterCommandCensusAndClose (0.11s)\n"}
+{"Time":"2026-11-11T01:16:58.454301+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestRegisterCommandCensusAndClose","Elapsed":0.11}
+{"Time":"2026-11-11T01:16:58.454346+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestRingIsBounded"}
+{"Time":"2026-11-11T01:16:58.454369+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestRingIsBounded","Output":"=== RUN   TestRingIsBounded\n"}
+{"Time":"2026-11-11T01:16:58.454782+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestRingIsBounded","Output":"--- PASS: TestRingIsBounded (0.00s)\n"}
+{"Time":"2026-11-11T01:16:58.45488+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/internal/procrt","Test":"TestRingIsBounded","Elapsed":0}
+{"Time":"2026-11-11T01:16:58.454901+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Output":"PASS\n"}
+{"Time":"2026-11-11T01:16:59.46856+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/procrt","Output":"ok  \tgithub.com/edynasty/LumenCortex/internal/procrt\t1.693s\n"}
+{"Time":"2026-11-11T01:16:59.468772+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/internal/procrt","Elapsed":1.693}

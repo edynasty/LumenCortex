@@ -94,7 +94,11 @@ type process struct {
 	pid    int
 	waitCh chan struct{}
 	code   atomic.Int32
-	exited atomic.Bool
+	// exitSignal is the signal that killed the worker (0 when it exited
+	// normally). It is recorded by the wait goroutine, never read from
+	// cmd.ProcessState, which that goroutine owns.
+	exitSignal atomic.Int32
+	exited     atomic.Bool
 
 	killOnce sync.Once
 	stopMon  chan struct{}
@@ -298,6 +302,11 @@ func startProcess(spec procSpec) (_ *process, err error) {
 			code = cmd.ProcessState.ExitCode()
 		}
 		p.code.Store(int32(code))
+		if cmd.ProcessState != nil {
+			if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+				p.exitSignal.Store(int32(status.Signal()))
+			}
+		}
 		if p.cg != nil {
 			// Record a kernel memory kill before anyone observes the exit.
 			p.noteCgroupLimit()
@@ -535,12 +544,10 @@ func (p *process) detectCrashLimit() {
 	if reason, ok := p.limitHit.Load().(string); ok && reason != "" {
 		return
 	}
-	if st := p.cmd.ProcessState; st != nil {
-		if status, ok := st.Sys().(syscall.WaitStatus); ok && status.Signaled() && status.Signal() == syscall.SIGXCPU {
-			p.noteLimit("cpu", procrt.Hard,
-				fmt.Sprintf("cpu limit exceeded: RLIMIT_CPU killed the worker with SIGXCPU (hard, kernel-enforced; %d s)", p.cpuSeconds), p.onLimit)
-			return
-		}
+	if syscall.Signal(p.exitSignal.Load()) == syscall.SIGXCPU {
+		p.noteLimit("cpu", procrt.Hard,
+			fmt.Sprintf("cpu limit exceeded: RLIMIT_CPU killed the worker with SIGXCPU (hard, kernel-enforced; %d s)", p.cpuSeconds), p.onLimit)
+		return
 	}
 	if p.memoryLimit > 0 && p.enforcement.MemoryRuntimeCapBytes > 0 {
 		stderr := p.stderrText()
