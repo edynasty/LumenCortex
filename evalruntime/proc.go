@@ -118,8 +118,10 @@ type process struct {
 	cpuSeconds  int
 	// enforcement is the report registered with procrt and attached to results.
 	enforcement procrt.Enforcement
-	// unregister removes this process from the procrt census.
-	unregister func()
+	// unregister removes this process from the procrt census. It is written
+	// before the helper goroutines start and withdrawn exactly once.
+	unregister     func()
+	unregisterOnce sync.Once
 
 	trackMu sync.Mutex
 	// tracked maps a descendant pid to its start time, so a pid that was reused
@@ -286,6 +288,12 @@ func startProcess(spec procSpec) (_ *process, err error) {
 		cpuSeconds:  spec.cpuSeconds,
 		enforcement: spec.enforcement,
 	}
+	if spec.owner.SessionID != "" || spec.owner.Component != "" {
+		// The census row exists while the process can. Registration happens
+		// before any helper goroutine reads it, and the exit path withdraws it
+		// so a dead process never stays in the census.
+		p.unregister = procrt.Default().Register(spec.owner, procHandle{p})
+	}
 	p.pumpFiles = []*os.File{stdoutR, stderrR}
 	p.pumps.Add(2)
 	go p.pump(stdoutR, spec.onStdout)
@@ -313,6 +321,7 @@ func startProcess(spec procSpec) (_ *process, err error) {
 		}
 		p.exited.Store(true)
 		close(p.waitCh)
+		p.unregisterCensus()
 	}()
 	if p.cg == nil {
 		go p.trackDescendants()
@@ -323,11 +332,6 @@ func startProcess(spec procSpec) (_ *process, err error) {
 	}
 	if spec.diskBytes > 0 && spec.diskRoot != "" {
 		go p.monitorDisk(spec.diskBytes, spec.diskRoot, spec.onLimit)
-	}
-	if spec.owner.SessionID != "" || spec.owner.Component != "" {
-		// The census row exists for exactly as long as the process may. Closing
-		// the process removes it, so a revoked session leaves no row behind.
-		p.unregister = procrt.Default().Register(spec.owner, procHandle{p})
 	}
 	return p, nil
 }
@@ -820,10 +824,7 @@ func (p *process) exitCode() int {
 // could not be removed; every call returns the outcome of the first.
 func (p *process) close() error {
 	p.closeOnce.Do(func() {
-		if p.unregister != nil {
-			p.unregister()
-			p.unregister = nil
-		}
+		p.unregisterCensus()
 		close(p.stopMon)
 		if p.stopWatch != nil {
 			p.stopWatch()
@@ -877,6 +878,16 @@ func closeAll(files ...*os.File) {
 			_ = f.Close()
 		}
 	}
+}
+
+// unregisterCensus withdraws the process from the census once, whether the
+// worker exited on its own or is being closed.
+func (p *process) unregisterCensus() {
+	p.unregisterOnce.Do(func() {
+		if p.unregister != nil {
+			p.unregister()
+		}
+	})
 }
 
 // procHandle presents a supervised worker to the procrt census. It is a thin

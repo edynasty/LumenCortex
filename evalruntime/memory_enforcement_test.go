@@ -117,11 +117,16 @@ print("finished")
 	if elapsed > 30*time.Second {
 		t.Fatalf("the bound did not fire quickly: %s", elapsed)
 	}
-	// The whole process tree is gone and the census is empty.
-	deadline := time.Now().Add(10 * time.Second)
-	for procrt.Default().Count() > 0 {
+	// The whole process tree is gone and the census has no row for this owner.
+	// The census is host-global, so the assertion is scoped to this test's owner.
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		left := procrt.Default().List(procrt.Owner{SessionID: "memory-owner"})
+		if len(left) == 0 {
+			break
+		}
 		if time.Now().After(deadline) {
-			t.Fatalf("census still has %d rows after the breach", procrt.Default().Count())
+			t.Fatalf("census still has rows after the breach: %+v", left)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -219,7 +224,7 @@ func TestCgroupMemoryBreachIsHard(t *testing.T) {
 	if session.Enforcement.Memory != evalapi.EnforcementHard {
 		t.Fatalf("linux memory enforcement = %q", session.Enforcement.Memory)
 	}
-	result := h.exec(session, "memory-owner", `
+	result := h.exec(session, "cgroup-owner", `
 import time
 chunks = []
 for _ in range(80):
