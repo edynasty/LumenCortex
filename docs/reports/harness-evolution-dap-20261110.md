@@ -114,6 +114,7 @@ Raw JSON/logs are under `bench/evidence/agent-harness-implementation-20261110/ra
 | Debugger packages, full | `go test -count=1 ./internal/debugger/...` | pass (34 tests under `-race`) |
 | Runtime DAP subset | `LC_TEST_LLDB=... LC_TEST_DELVE=... go test -count=1 ./runtime/ -run 'TestAgentLoopDebugs\|TestE1\|TestRealLLDB\|TestDelve\|TestDebugEngine\|TestDebugTools'` | pass: 12 tests, 0 failures (`runtime-dap-final.json`) |
 | Whole debugger + runtime packages | `LC_TEST_LLDB=... LC_TEST_DELVE=... go test -count=1 ./internal/debugger/... ./runtime/` | pass: 608 tests, 0 failures, 21 skips (`full-dap-packages.json`) |
+| Focused DAP suite after review fixes | same env, debugger + runtime with the DAP `-run` filter | pass: 46 tests, 0 failures (`final-dap-suite.json`) |
 | Race, debugger + runtime DAP | `go test -race -count=1 ./internal/debugger/...` and `-race` runtime DAP subset | `race-debugger-final2.json` (34 pass, 0 fail), `race-dap-final.json` (34 pass, 0 fail), `race-dap-real.json` — 0 failures |
 | Real lldb Agent loop | `LC_TEST_LLDB=... go test -run TestAgentLoopDebugsRealLLDB -v ./runtime/` | pass, 10.7 s, 22 tool turns |
 | Real Delve Agent loop | `LC_TEST_DELVE=$HOME/go/bin/dlv go test -run TestAgentLoopDebugsRealDelve -v ./runtime/` | pass |
