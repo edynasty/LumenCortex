@@ -31,6 +31,7 @@ type Process struct {
 	Client *Client
 	Stderr *streambuf.HeadTail
 	owned  *shell.ManagedProcess
+	pid    int
 	done   chan struct{}
 	err    error
 }
@@ -64,7 +65,7 @@ func Start(ctx context.Context, cmd *exec.Cmd) (*Process, error) {
 	}
 	_ = inR.Close()
 	_ = outW.Close()
-	p := &Process{Client: New(&pipeConnection{reader: outR, writer: inW}), Stderr: stderr, owned: owned, done: make(chan struct{})}
+	p := &Process{Client: New(&pipeConnection{reader: outR, writer: inW}), Stderr: stderr, owned: owned, pid: cmd.Process.Pid, done: make(chan struct{})}
 	go func() { p.err = owned.Wait(); p.Client.fail(io.EOF); close(p.done) }()
 	go func() {
 		select {
@@ -78,6 +79,9 @@ func Start(ctx context.Context, cmd *exec.Cmd) (*Process, error) {
 	return p, nil
 }
 func (p *Process) Done() <-chan struct{} { return p.done }
+
+// PID is the adapter process, reported for host observability only.
+func (p *Process) PID() int { return p.pid }
 func (p *Process) Close() error {
 	_ = p.Client.Close()
 	err := p.owned.Kill()

@@ -52,7 +52,10 @@ type Options struct {
 	MaxSessions int
 	Lifetime    time.Duration
 	MCP         *mcp.Registry
-	OnEvent     func(sessionID, event string, data map[string]any)
+	// Discover probes the built-in adapter presets and registers the ones this
+	// host can actually run. It never installs an adapter.
+	Discover bool
+	OnEvent  func(sessionID, event string, data map[string]any)
 }
 type StartOptions struct {
 	SessionID        string   `json:"sessionId"`
@@ -93,6 +96,11 @@ type Snapshot struct {
 	DroppedOutput uint64    `json:"droppedOutput"`
 	Error         string    `json:"error,omitempty"`
 	TargetPID     int       `json:"targetPid,omitempty"`
+	AdapterPID    int       `json:"adapterPid,omitempty"`
+	StopEpoch     uint64    `json:"stopEpoch,omitempty"`
+	StopReason    string    `json:"stopReason,omitempty"`
+	// ExceptionFilters are the adapter's exception breakpoint filters.
+	ExceptionFilters []string `json:"exceptionFilters,omitempty"`
 }
 type session struct {
 	snapshot       Snapshot
@@ -119,6 +127,14 @@ type session struct {
 	ideUncertain   bool
 	// Protected by Manager.mu, as are snapshot and the manager's registry.
 	capabilities map[string]bool
+	// stop tracking: stopEpoch increments on every stopped/continued; refEpoch
+	// maps each reference the Manager handed out to the epoch that minted it.
+	stopEpoch        uint64
+	stopReady        chan struct{}
+	lastStop         *StopInfo
+	refEpoch         map[int]uint64
+	exceptionFilters []string
+	closing          bool
 }
 type Manager struct {
 	mu       sync.Mutex
@@ -269,7 +285,7 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (Snapshot, error
 	}
 	life, cancel := context.WithTimeout(ctx, m.opts.Lifetime)
 	deadline, _ := life.Deadline()
-	s := &session{snapshot: Snapshot{ID: id, SessionID: opts.SessionID, RunID: opts.RunID, AdapterID: a.ID, State: "starting", Owner: opts.Actor, Epoch: 1, StartedAt: time.Now().UTC(), Deadline: deadline}, opts: opts, adapter: a, cancel: cancel, initialized: make(chan struct{}), op: make(chan struct{}, 1), done: make(chan struct{})}
+	s := &session{snapshot: Snapshot{ID: id, SessionID: opts.SessionID, RunID: opts.RunID, AdapterID: a.ID, State: "starting", Owner: opts.Actor, Epoch: 1, StartedAt: time.Now().UTC(), Deadline: deadline}, opts: opts, adapter: a, cancel: cancel, initialized: make(chan struct{}), op: make(chan struct{}, 1), done: make(chan struct{}), stopReady: make(chan struct{}), refEpoch: make(map[int]uint64)}
 	s.life = life
 	// Hold the operation slot until initial setup completes; Close may cancel it but
 	// cannot dispose a process which Start has not yet published.
@@ -359,6 +375,7 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (Snapshot, error
 	s.process = process
 	s.client = process.Client
 	s.socket = socket
+	s.snapshot.AdapterPID = process.PID()
 	s.breakpoints = make(map[string][]Breakpoint)
 	m.mu.Unlock()
 	if a.Language == "javascript" && a.Transport == "unix" {
@@ -377,6 +394,16 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (Snapshot, error
 	if err = s.process.Client.Request(initCtx, "initialize", map[string]any{"clientID": "lumencortex", "adapterID": a.ID, "pathFormat": "path", "linesStartAt1": true, "columnsStartAt1": true, "supportsVariableType": true, "supportsVariablePaging": true, "supportsRunInTerminalRequest": false}, &caps); err != nil {
 		return fail(err)
 	}
+	var filters []string
+	if items, ok := caps["exceptionBreakpointFilters"].([]any); ok {
+		for _, item := range items {
+			if entry, ok := item.(map[string]any); ok {
+				if name, ok := entry["filter"].(string); ok && name != "" && len(filters) < 32 {
+					filters = append(filters, name)
+				}
+			}
+		}
+	}
 	m.mu.Lock()
 	s.capabilities = make(map[string]bool)
 	for k, v := range caps {
@@ -384,6 +411,8 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (Snapshot, error
 			s.capabilities[k] = b
 		}
 	}
+	s.exceptionFilters = filters
+	s.snapshot.ExceptionFilters = slices.Clone(filters)
 	m.mu.Unlock()
 	if opts.PrepareForAttach {
 		_ = identityWrite.Close()
@@ -483,31 +512,129 @@ func (m *Manager) emit(s *session, event string, data map[string]any) {
 }
 func (m *Manager) events(s *session, client *dap.Client) {
 	for event := range client.Events() {
-		var body struct {
-			ThreadID int    `json:"threadId"`
-			Reason   string `json:"reason"`
-			ExitCode int    `json:"exitCode"`
+		var body stopEvent
+		var exitBody struct {
+			ExitCode int `json:"exitCode"`
 		}
 		_ = json.Unmarshal(event.Body, &body)
+		_ = json.Unmarshal(event.Body, &exitBody)
 		m.mu.Lock()
 		if s.snapshot.State != "closed" && (client == s.client || event.Event == "initialized") {
 			switch event.Event {
 			case "initialized":
 				s.initOnce.Do(func() { close(s.initialized) })
 			case "stopped":
+				s.stopEpoch++
 				s.snapshot.State = "stopped"
 				s.snapshot.ThreadID = body.ThreadID
+				s.snapshot.StopEpoch = s.stopEpoch
+				s.snapshot.StopReason = body.Reason
+				epoch := s.stopEpoch
+				m.mu.Unlock()
+				m.emit(s, "debug."+event.Event, map[string]any{"reason": body.Reason, "threadId": body.ThreadID, "stopEpoch": epoch})
+				m.captureStop(s, body)
+				continue
 			case "continued":
+				s.stopEpoch++
 				s.snapshot.State = "running"
+				s.snapshot.StopEpoch = s.stopEpoch
+				s.snapshot.StopReason = ""
 			case "terminated", "exited":
+				s.stopEpoch++
 				s.snapshot.State = "terminated"
+				s.snapshot.StopEpoch = s.stopEpoch
+				s.snapshot.StopReason = event.Event
+				reason := event.Event
+				stop := &StopInfo{Reason: reason, ThreadID: s.snapshot.ThreadID, StopEpoch: s.stopEpoch, State: "terminated"}
+				s.lastStop = stop
+				close(s.stopReady)
+				s.stopReady = make(chan struct{})
 			}
 		}
 		m.mu.Unlock()
 		// Never persist raw adapter expressions, environment, output or variables.
-		m.emit(s, "debug."+event.Event, map[string]any{"reason": body.Reason, "threadId": body.ThreadID, "exitCode": body.ExitCode})
+		m.emit(s, "debug."+event.Event, map[string]any{"reason": body.Reason, "threadId": body.ThreadID, "exitCode": exitBody.ExitCode})
+	}
+	// The transport ended: a disconnect we initiated is expected; anything else
+	// is an adapter crash and must be observable as a lost session.
+	m.mu.Lock()
+	graceful := s.closing || s.snapshot.State == "terminated" || s.snapshot.State == "closed" || s.snapshot.State == "cleanup_failed"
+	lost := false
+	if !graceful && s.snapshot.State != "lost" {
+		s.stopEpoch++
+		s.snapshot.State = "lost"
+		s.snapshot.StopEpoch = s.stopEpoch
+		s.snapshot.StopReason = "lost"
+		if client.Err() != nil {
+			s.snapshot.Error = "debug adapter connection lost"
+		}
+		s.lastStop = &StopInfo{Reason: "lost", ThreadID: s.snapshot.ThreadID, StopEpoch: s.stopEpoch, State: "lost"}
+		close(s.stopReady)
+		s.stopReady = make(chan struct{})
+		lost = true
+	}
+	m.mu.Unlock()
+	if lost {
+		m.emit(s, "debug.session.lost", map[string]any{"reason": "adapter exited unexpectedly"})
 	}
 	go m.stopSession(s)
+}
+
+// captureStop bounds the stop into a StopInfo after the state transition. A
+// stop superseded by a newer transition is dropped from lastStop but still
+// wakes waiters, which re-read the live state.
+func (m *Manager) captureStop(s *session, body stopEvent) {
+	stop := StopInfo{Reason: body.Reason, ThreadID: body.ThreadID, StopEpoch: m.stopEpochOf(s), State: "stopped"}
+	ctx, cancel := context.WithTimeout(s.life, 5*time.Second)
+	defer cancel()
+	var stack struct {
+		Frames []struct {
+			ID     int    `json:"id"`
+			Name   string `json:"name"`
+			Line   int    `json:"line"`
+			Source struct {
+				Path string `json:"path"`
+			} `json:"source"`
+		} `json:"stackFrames"`
+	}
+	if s.client != nil && body.ThreadID > 0 {
+		if err := s.client.Request(ctx, "stackTrace", map[string]any{"threadId": body.ThreadID, "startFrame": 0, "levels": 5}, &stack); err == nil {
+			for _, frame := range stack.Frames {
+				if len(stop.TopFrames) == 5 {
+					break
+				}
+				stop.TopFrames = append(stop.TopFrames, FrameSummary{ID: frame.ID, Name: clip(frame.Name, 512), Line: frame.Line, Path: clip(frame.Source.Path, 1024)})
+			}
+		}
+	}
+	if body.Reason == "exception" {
+		info := &ExceptionInfo{Description: clip(body.Description, 1024)}
+		if body.Text != "" {
+			info.Message = clip(body.Text, 1024)
+		}
+		var details exceptionBody
+		if s.client != nil && body.ThreadID > 0 {
+			if err := s.client.Request(ctx, "exceptionInfo", map[string]any{"threadId": body.ThreadID}, &details); err == nil {
+				info.ID = clip(details.ExceptionID, 256)
+				info.BreakMode = clip(details.BreakMode, 64)
+				if details.Description != "" {
+					info.Description = clip(details.Description, 1024)
+				}
+				if details.Details.Message != "" {
+					info.Message = clip(details.Details.Message, 1024)
+				}
+			}
+		}
+		stop.Exception = info
+	}
+	m.mu.Lock()
+	if s.stopEpoch == stop.StopEpoch {
+		s.lastStop = &stop
+	}
+	ready := s.stopReady
+	s.stopReady = make(chan struct{})
+	m.mu.Unlock()
+	close(ready)
 }
 func (m *Manager) lookup(sessionID, id string) (*session, error) {
 	m.mu.Lock()
@@ -576,15 +703,8 @@ func (m *Manager) request(ctx context.Context, s *session, command string, args 
 	return out, err
 }
 func (m *Manager) Control(ctx context.Context, c Control) (Snapshot, error) {
-	if c.Action == "stop" && c.Actor == "human" {
-		s, err := m.lookup(c.SessionID, c.DebugID)
-		if err != nil {
-			return Snapshot{}, err
-		}
-		err = m.stopSession(s)
-		m.mu.Lock()
-		snapshot := s.snapshot
-		m.mu.Unlock()
+	if c.Action == "stop" {
+		snapshot, _, err := m.Disconnect(ctx, c, true)
 		return snapshot, err
 	}
 	s, unlock, err := m.lock(ctx, c)
@@ -607,9 +727,6 @@ func (m *Manager) Control(ctx context.Context, c Control) (Snapshot, error) {
 		command = "stepIn"
 	case "step_out":
 		command = "stepOut"
-	case "stop":
-		s.cancel()
-		return m.Snapshot(c.SessionID, c.DebugID)
 	default:
 		return Snapshot{}, ErrDenied
 	}
@@ -670,10 +787,33 @@ func (m *Manager) Breakpoints(ctx context.Context, c Control, path string, point
 		}
 	}
 	out, err := m.request(ctx, s, "setBreakpoints", map[string]any{"source": map[string]string{"path": path}, "breakpoints": points, "sourceModified": false})
-	if err == nil {
-		s.breakpoints[path] = slices.Clone(points)
+	if err != nil {
+		return nil, err
 	}
-	return out, err
+	s.breakpoints[path] = slices.Clone(points)
+	// The caller reads the adapter's verification (verified/line/message), never
+	// an echo of the request.
+	m.mu.Lock()
+	supported := slicesClone(s.exceptionFilters)
+	m.mu.Unlock()
+	if len(out) == 0 {
+		out = json.RawMessage(`{}`)
+	}
+	var body map[string]any
+	if err = json.Unmarshal(out, &body); err != nil {
+		return nil, err
+	}
+	if raw, ok := body["breakpoints"].([]any); ok {
+		for _, item := range raw {
+			if entry, ok := item.(map[string]any); ok {
+				if _, ok := entry["verified"]; !ok {
+					entry["verified"] = false
+				}
+			}
+		}
+	}
+	body["exceptionFilters"] = supported
+	return boundJSON(mustMarshal(body), m.stopEpochOf(s)), nil
 }
 func (m *Manager) Inspect(ctx context.Context, c Control, kind string, reference, start, count int) (json.RawMessage, error) {
 	s, unlock, err := m.lock(ctx, c)
@@ -687,19 +827,94 @@ func (m *Manager) Inspect(ctx context.Context, c Control, kind string, reference
 	if count == 0 {
 		count = 20
 	}
-	args := map[string]any{}
+	m.mu.Lock()
+	state := s.snapshot.State
+	m.mu.Unlock()
+	if kind != "threads" && state != "stopped" {
+		return nil, fmt.Errorf("%w: target is %s; stack, scopes and variables need a stopped target", ErrState, state)
+	}
 	switch kind {
 	case "threads":
+		raw, err := m.request(ctx, s, kind, map[string]any{})
+		if err != nil {
+			return nil, err
+		}
+		return boundJSON(raw, m.stopEpochOf(s)), nil
 	case "stackTrace":
-		args = map[string]any{"threadId": reference, "startFrame": start, "levels": min(count, 20)}
-	case "scopes":
-		args["frameId"] = reference
-	case "variables":
-		args = map[string]any{"variablesReference": reference, "start": start, "count": count}
+		args := map[string]any{"threadId": reference, "startFrame": start, "levels": min(count, 20)}
+		raw, err := m.request(ctx, s, kind, args)
+		if err != nil {
+			return nil, err
+		}
+		m.recordFrames(s, raw)
+		return boundJSON(raw, m.stopEpochOf(s)), nil
+	case "scopes", "variables":
+		if err = m.staleReference(s, reference); err != nil {
+			return nil, err
+		}
+		args := map[string]any{"frameId": reference}
+		if kind == "variables" {
+			args = map[string]any{"variablesReference": reference, "start": start, "count": count}
+		}
+		raw, err := m.request(ctx, s, kind, args)
+		if err != nil {
+			return nil, err
+		}
+		m.recordChildReferences(s, kind, raw)
+		return boundJSON(raw, m.stopEpochOf(s)), nil
 	default:
 		return nil, ErrDenied
 	}
-	return m.request(ctx, s, kind, args)
+}
+
+// recordFrames registers the frame IDs of a stack trace at the current stop.
+func (m *Manager) recordFrames(s *session, raw json.RawMessage) {
+	var body struct {
+		StackFrames []struct {
+			ID int `json:"id"`
+		} `json:"stackFrames"`
+	}
+	if json.Unmarshal(raw, &body) != nil {
+		return
+	}
+	refs := make([]int, 0, len(body.StackFrames))
+	for _, frame := range body.StackFrames {
+		refs = append(refs, frame.ID)
+	}
+	m.recordReferences(s, refs...)
+}
+
+// recordChildReferences registers the references a scopes/variables response
+// hands out so a later stop can reject them.
+func (m *Manager) recordChildReferences(s *session, kind string, raw json.RawMessage) {
+	refs := []int{}
+	switch kind {
+	case "scopes":
+		var body struct {
+			Scopes []struct {
+				VariablesReference int `json:"variablesReference"`
+			} `json:"scopes"`
+		}
+		if json.Unmarshal(raw, &body) != nil {
+			return
+		}
+		for _, scope := range body.Scopes {
+			refs = append(refs, scope.VariablesReference)
+		}
+	case "variables":
+		var body struct {
+			Variables []struct {
+				VariablesReference int `json:"variablesReference"`
+			} `json:"variables"`
+		}
+		if json.Unmarshal(raw, &body) != nil {
+			return
+		}
+		for _, variable := range body.Variables {
+			refs = append(refs, variable.VariablesReference)
+		}
+	}
+	m.recordReferences(s, refs...)
 }
 
 var identifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
@@ -713,11 +928,24 @@ func (m *Manager) Evaluate(ctx context.Context, c Control, frame int, expression
 	if len(expression) > 1024 || frame < 0 {
 		return nil, ErrDenied
 	}
+	m.mu.Lock()
+	state := s.snapshot.State
+	m.mu.Unlock()
+	if state != "stopped" {
+		return nil, fmt.Errorf("%w: target is %s; evaluation needs a stopped target", ErrState, state)
+	}
+	if err = m.staleReference(s, frame); err != nil {
+		return nil, err
+	}
 	if sideEffects {
 		if !s.opts.AllowEvaluate {
-			return nil, ErrDenied
+			return nil, ErrEvaluateNotGranted
 		}
-		return m.request(ctx, s, "evaluate", map[string]any{"expression": expression, "frameId": frame, "context": "watch"})
+		raw, err := m.request(ctx, s, "evaluate", map[string]any{"expression": expression, "frameId": frame, "context": "watch"})
+		if err != nil {
+			return nil, err
+		}
+		return boundJSON(raw, m.stopEpochOf(s)), nil
 	}
 	// Read-only evaluation is variable lookup, not adapter evaluation. Even getters
 	// and overloaded operators must not execute target code under a read grant.
@@ -754,10 +982,7 @@ func (m *Manager) Evaluate(ctx context.Context, c Control, frame int, expression
 		}
 		for _, v := range vars.Variables {
 			if v.Name == expression {
-				if len(v.Value) > 8192 {
-					v.Value = v.Value[:8192]
-				}
-				return json.Marshal(map[string]any{"result": v.Value, "type": v.Type, "variablesReference": v.Reference})
+				return boundJSON(mustMarshal(map[string]any{"result": v.Value, "type": v.Type, "variablesReference": v.Reference}), m.stopEpochOf(s)), nil
 			}
 		}
 	}

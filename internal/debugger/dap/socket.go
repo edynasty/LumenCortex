@@ -26,7 +26,7 @@ func StartUnix(ctx context.Context, cmd *exec.Cmd, socket string) (*Process, err
 	if err != nil {
 		return nil, err
 	}
-	p := &Process{Stderr: stderr, owned: owned, done: make(chan struct{})}
+	p := &Process{Stderr: stderr, owned: owned, pid: cmd.Process.Pid, done: make(chan struct{})}
 	go func() { p.err = owned.Wait(); close(p.done) }()
 	connect, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
