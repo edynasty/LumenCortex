@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -121,13 +122,21 @@ func TestHubCommandIdempotencyAndRevisionFence(t *testing.T) {
 	if !errors.Is(err, ErrHubStaleRevision) {
 		t.Fatalf("stale revision: %v", err)
 	}
-	// End the run so the test leaves nothing running.
-	current, err := e.AgentDebugSnapshot(ctx, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := hubCommand(t, sup, HubCommand{SessionID: id, CommandID: "cmd-cancel-end", ExpectedRevision: current.Revision, Verb: HubVerbCancel}); err != nil {
-		t.Fatal(err)
+	// End the run so the test leaves nothing running. The accepted step is still advancing the run, and
+	// each boundary it reaches bumps the revision, so a cancel may be refused as stale; like any host, the
+	// test refreshes the view and sends a new command. The run may also finish on its own first.
+	for attempt := 0; ; attempt++ {
+		current, err := e.AgentDebugSnapshot(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = hubCommand(t, sup, HubCommand{SessionID: id, CommandID: fmt.Sprintf("cmd-cancel-end-%d", attempt), ExpectedRevision: current.Revision, Verb: HubVerbCancel})
+		if err == nil || errors.Is(err, ErrHubRunInactive) {
+			break
+		}
+		if !errors.Is(err, ErrHubStaleRevision) || attempt == 50 {
+			t.Fatalf("cancel at the end (attempt %d): %v", attempt, err)
+		}
 	}
 	waitInactive(t, sup, id)
 	// A command for a session with no live run needs revision 0.
