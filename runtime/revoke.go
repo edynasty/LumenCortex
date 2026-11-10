@@ -101,8 +101,6 @@ type trackedRun struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	debug  *agent.DebugControl
-	// retryOf names the run this one retries, set by the Hub's retry verb (metadata only).
-	retryOf string
 }
 
 // trackRun registers preparation through final cleanup. The caller holds the session run lock,

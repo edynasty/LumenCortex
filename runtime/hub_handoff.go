@@ -74,7 +74,9 @@ func (s *RunSupervisor) Handoff(ctx context.Context, h HubHandoff) (string, erro
 	if agentID == "" {
 		agentID = config.AgentDefault
 	}
-	if err := e.delegationAgent(agentID, nil); err != nil {
+	// Any configured agent may take the work over: the handoff is the host's explicit choice, and the
+	// target run's own Start still narrows its grant to the agent's ceilings.
+	if err := e.delegationAgent(agentID, func(config.AgentInfo) bool { return true }); err != nil {
 		return "", err
 	}
 	// Nothing of the source may run while the target starts: the two never hold the workspace together.

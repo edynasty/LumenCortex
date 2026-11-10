@@ -115,6 +115,36 @@ WHERE session_id = ? AND applied_at = '' ORDER BY seq LIMIT ?`, sessionID, limit
 	return out, rows.Err()
 }
 
+// SteerMessages returns the session's steer messages in sequence order, applied ones included: the host
+// reads what it queued and which transcript row each became.
+func (s *Store) SteerMessages(ctx context.Context, sessionID string, limit int) ([]SteerMessage, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	limit = min(limit, 200)
+	rows, err := s.db.QueryContext(ctx, `SELECT seq, run_id, command_id, body, created_at, applied_at, applied_seq
+FROM steer_messages WHERE session_id = ? ORDER BY seq LIMIT ?`, sessionID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SteerMessage{}
+	for rows.Next() {
+		m := SteerMessage{SessionID: sessionID}
+		var created, applied string
+		if err := rows.Scan(&m.Seq, &m.RunID, &m.CommandID, &m.Body, &created, &applied, &m.AppliedSeq); err != nil {
+			return nil, err
+		}
+		m.CreatedAt = parseTime(created)
+		if applied != "" {
+			at := parseTime(applied)
+			m.AppliedAt = &at
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 // MarkSteerApplied records the transcript row a steer message became. The write is idempotent: a message
 // already applied keeps its first row.
 func (s *Store) MarkSteerApplied(ctx context.Context, sessionID string, seq, appliedSeq int64) error {

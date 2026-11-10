@@ -287,7 +287,6 @@ func (s *RunSupervisor) hubAgent(ctx context.Context, sessionID, role, parent st
 	if tracked != nil && tracked.debug != nil {
 		copied := tracked.debug.Snapshot()
 		snapshot = &copied
-		out.RetryOf = tracked.retryOf
 	}
 	e.runsMu.Unlock()
 	if snapshot != nil {
@@ -307,6 +306,13 @@ func (s *RunSupervisor) hubAgent(ctx context.Context, sessionID, role, parent st
 	if !out.Live && out.Paused != nil && out.State == HubStateInterrupted {
 		out.State = HubStateInterruptedStop
 	}
+	// RetryOf is the supervisor's record of this run, which outlives the run: a retried run names the
+	// run it continued from even after it ended.
+	s.mu.RLock()
+	if record, ok := s.lastRuns[sessionID]; ok && (out.RunID == "" || out.RunID == record.retryOfRun) {
+		out.RetryOf = record.retryOf
+	}
+	s.mu.RUnlock()
 	// Program debugging and Eval kernels are optional subsystems: a session without the grant reports
 	// none instead of failing the whole projection.
 	if e.dapManager != nil {
@@ -549,8 +555,10 @@ func (s *RunSupervisor) hubRetry(ctx context.Context, c HubCommand) (HubCommandR
 		return rejectedHub(c, err), err
 	}
 	s.mu.Lock()
-	if run := s.runs[c.SessionID]; run != nil {
-		run.retryOf = prior.runID
+	if record, ok := s.lastRuns[c.SessionID]; ok {
+		record.retryOf = prior.runID
+		record.retryOfRun = record.runID
+		s.lastRuns[c.SessionID] = record
 	}
 	s.mu.Unlock()
 	e := s.engine
@@ -692,6 +700,11 @@ func (e *Engine) noteDebugState(sessionID, runID string, snapshot agent.DebugSna
 			"step": snapshot.Boundary.Step, "revision": snapshot.Revision,
 		})
 	case "running", "closed":
+		// A resume clears the pause. A run that ends clears it too — except when the process is shutting
+		// down, where the pause row is what lets the reopened Engine report interrupted(paused).
+		if snapshot.State == "closed" && e.closingNow() {
+			return
+		}
 		if err := e.store.ClearRunPause(ctx, sessionID); err != nil {
 			e.events.publish("hub.state.error", sessionID, map[string]any{"phase": "resume", "error": err.Error()})
 			return
@@ -700,4 +713,11 @@ func (e *Engine) noteDebugState(sessionID, runID string, snapshot agent.DebugSna
 			e.events.publish("agent.resumed", sessionID, map[string]any{"runId": runID, "revision": snapshot.Revision})
 		}
 	}
+}
+
+// closingNow reports that the Engine is shutting down, so a run's terminal state is not the run's own.
+func (e *Engine) closingNow() bool {
+	e.runsMu.Lock()
+	defer e.runsMu.Unlock()
+	return e.closing
 }

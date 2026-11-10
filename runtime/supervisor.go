@@ -30,8 +30,6 @@ type managedRun struct {
 	parentID        string
 	ownerRun        *managedRun
 	releaseAgent    func()
-	// retryOf names the run this one retries (Hub retry), empty otherwise.
-	retryOf string
 }
 
 // hubRunRecord is what the Hub remembers of a session's most recent run: its run id and the options a
@@ -41,6 +39,9 @@ type managedRun struct {
 type hubRunRecord struct {
 	runID string
 	opts  AgentOptions
+	// retryOf names the run this run was started to retry, and retryOfRun the run it belongs to.
+	retryOf    string
+	retryOfRun string
 }
 
 // RunSupervisor is the process-local source of truth for active agent executions
