@@ -35,7 +35,10 @@ func newPromptFixture(t *testing.T, trusted bool) promptFixture {
 	if trusted {
 		keys = `"trustedWorkspaces": [` + quoteJSON(workspace) + `]`
 	}
-	useGlobalConfig(t, modelConfig(keys))
+	// 16 000 tokens, not 8 000: this fixture's runs send the real tool catalog, which includes the
+	// editing tools added with Hashline, and a full prompt no longer fits an 8 000-token window. The
+	// tests here are about the prompt report, the catalog and the schema cost, not about the window.
+	useGlobalConfig(t, strings.ReplaceAll(modelConfig(keys), `"context": 8000`, `"context": 16000`))
 	globalDir, err := globalDirPath()
 	if err != nil {
 		t.Fatal(err)

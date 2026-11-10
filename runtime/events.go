@@ -212,6 +212,11 @@ func durableEvent(kind, sessionID string) bool {
 	switch kind {
 	case "tool.output", "llm.delta", "model.output", "dap.output", "shell.output", "eval.output", "subagent.event":
 		return false
+	case "edit.committed", "edit.conflict":
+		// An edit event is live: Desktop's diff view and any subscriber see the new revision at once, and
+		// the tool result and the execution record already carry the change durably. Persisting an event
+		// per edited file would add a write per edit and duplicate the transcript.
+		return false
 	}
 	return true
 }

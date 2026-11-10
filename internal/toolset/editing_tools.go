@@ -30,27 +30,21 @@ func editSpecs() []protocol.ToolSpec {
 	return []protocol.ToolSpec{
 		{
 			Name: "edit_lines",
-			Description: "Edit a file by line, against the revision and anchors read_file showed. ops address lines of that " +
-				"revision: replace, delete, insert_before, insert_after. Every anchor must be a line this session was " +
-				"shown; if the file changed since, the edit is refused as stale (or relocated when the change is " +
-				"outside the edited lines and their neighbours), so no concurrent change is lost. Returns the new " +
-				"revision and fresh anchors around what changed.",
+			Description: "Edit lines at the revision read_file showed: op replace|delete|insert_before|insert_after, " +
+				"start (and end) anchors N:hhh. Refused as stale when those lines or their neighbours changed.",
 			Permission:       "write",
 			MutatesWorkspace: true,
 			Parameters: obj(map[string]any{
 				"path": str(),
-				"rev":  map[string]any{"type": "string", "description": "The rev= value of the read_file header the anchors came from."},
+				"rev":  map[string]any{"type": "string", "description": "rev= from the read_file header."},
 				"ops":  map[string]any{"type": "array", "minItems": 1, "items": opSchema},
 			}, "path", "rev", "ops"),
 		},
 		{
 			Name: "edit_go",
-			Description: "Edit a Go package structurally. The AST locates the target and the edit lands as a byte splice, so " +
-				"comments and formatting outside it are preserved. ops: replace_body, replace_decl, add_param, " +
-				"remove_param, rename_param, rename, add_member, remove_member, replace_member, add_import, " +
-				"remove_import, find. A symbol is pkg.Name, (*T).M, T.M, or Func.param. A rename is scope-aware " +
-				"and refuses a name it would capture; a package-level rename reaches every file of the package. " +
-				"Syntax and types are checked before anything is written; preview returns a diff and writes nothing.",
+			Description: "Structural Go edit by symbol (pkg.Name, (*T).M, T.M, Func.param): find, replace_body, " +
+				"replace_decl, add|remove|rename_param, rename, add|remove|replace_member, add|remove_import. " +
+				"Byte splices keep surrounding code; syntax and types are checked; preview returns a diff.",
 			Permission:       "write",
 			MutatesWorkspace: true,
 			Parameters: obj(map[string]any{

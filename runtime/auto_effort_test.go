@@ -24,10 +24,13 @@ func autoConfig(main, judge, max, mainExtra string) string {
 	if mainExtra != "" {
 		extra = ", " + mainExtra
 	}
+	// 16 000 tokens, not 8 000: the run's tool catalog now carries the editing tools (edit_lines,
+	// edit_go), and a real prompt with the full catalog no longer fits an 8 000-token window. These
+	// fixtures test effort, provenance and envelopes, not the window, so the window is set to fit.
 	return fmt.Sprintf(`{"model": %q, "effort": {"default": "auto", "auto": %s},
 	  "providers": {"test": {"settings": {"baseURL": "http://127.0.0.1:9/v1"}, "models": {
-	    "b0": {"modelID": "b0", "limit": {"context": 8000, "output": 1000}%s},
-	    "b1": {"modelID": "b1", "limit": {"context": 8000, "output": 1000}}
+	    "b0": {"modelID": "b0", "limit": {"context": 16000, "output": 1000}%s},
+	    "b1": {"modelID": "b1", "limit": {"context": 16000, "output": 1000}}
 	  }}}}`, main, auto, extra)
 }
 
