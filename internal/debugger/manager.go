@@ -21,6 +21,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/debugger/dap"
 	"github.com/edynasty/LumenCortex/internal/diag"
 	"github.com/edynasty/LumenCortex/internal/mcp"
+	"github.com/edynasty/LumenCortex/internal/procrt"
 	"github.com/edynasty/LumenCortex/internal/shell"
 )
 
@@ -108,10 +109,13 @@ type Snapshot struct {
 	ExceptionFilters []string `json:"exceptionFilters,omitempty"`
 }
 type session struct {
-	snapshot       Snapshot
-	opts           StartOptions
-	adapter        Adapter
-	process        *dap.Process
+	snapshot Snapshot
+	opts     StartOptions
+	adapter  Adapter
+	process  *dap.Process
+	// unregister withdraws the adapter from the process census once the
+	// session is torn down.
+	unregister     func()
 	cancel         context.CancelFunc
 	dir            string
 	initialized    chan struct{}
@@ -406,6 +410,7 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (Snapshot, error
 	s.socket = socket
 	s.snapshot.AdapterPID = process.PID()
 	s.breakpoints = make(map[string][]Breakpoint)
+	s.unregister = procrt.RegisterCommand(procrt.Owner{SessionID: s.opts.SessionID, RunID: s.opts.RunID, Component: procrt.ComponentDAP, ObjectID: s.snapshot.ID}, cmd)
 	m.mu.Unlock()
 	if a.Language == "javascript" && a.Transport == "unix" {
 		process.Client.SetReverseHandler(func(ctx context.Context, msg dap.Message) error {
@@ -1030,6 +1035,12 @@ func (m *Manager) stopSession(s *session) error {
 		}
 		if s.process != nil {
 			s.closeErr = s.process.Close()
+		}
+		m.mu.Lock()
+		unregister := s.unregister
+		m.mu.Unlock()
+		if unregister != nil {
+			unregister()
 		}
 		if s.dir != "" {
 			s.closeErr = errors.Join(s.closeErr, os.RemoveAll(s.dir))
