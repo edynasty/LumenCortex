@@ -489,8 +489,11 @@ func TestCrossProcessFenceIsLinearizedWithAdmission(t *testing.T) {
 			t.Fatalf("trial %d: %d provider requests began after the fence committed, fence seen as %q: %v", trial, late, fenceSeen, states)
 		}
 		if fenceSeen == "" {
-			// Every request was answered, so the fence met a tool call of the last answer (its admission
-			// or its commit): that call has no result of its own in the transcript.
+			// Every request was answered. Either the fence met a tool call of the last answer (its
+			// admission or its commit), and that call has no result of its own in the transcript; or it
+			// committed after the last result and the run saw it at the next step boundary, before the
+			// next request's admission. Both are linearized: the checks above and below prove that no
+			// request and no execution began after the fence.
 			calls, results := 0, 0
 			for _, m := range transcriptRows(t, engine, f.ID) {
 				calls += len(m.ToolCalls)
@@ -498,10 +501,10 @@ func TestCrossProcessFenceIsLinearizedWithAdmission(t *testing.T) {
 					results++
 				}
 			}
-			if results >= calls {
-				t.Fatalf("trial %d: the run ended fenced but no envelope carries the fence and every tool call has a result (%d calls): %v", trial, calls, states)
+			fenceSeen = "step boundary"
+			if results < calls {
+				fenceSeen = "tool call"
 			}
-			fenceSeen = "tool call"
 		}
 		seen[fenceSeen]++
 		rows, err = db.Query(`SELECT created_at FROM derived_origins WHERE session_id = ? AND kind = 'execution'`, f.ID)
