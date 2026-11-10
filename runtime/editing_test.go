@@ -380,3 +380,50 @@ func TestFileRevisionAndEditDiff(t *testing.T) {
 		t.Fatal("escaping path was not refused")
 	}
 }
+
+// TestAgentLoopEditsGoStructurally drives edit_go through the Agent loop: the scripted model replaces a
+// function body by symbol, the doc comment survives, and an unknown symbol comes back to the model as
+// unknown_symbol with nothing written.
+func TestAgentLoopEditsGoStructurally(t *testing.T) {
+	engine, root := gitEngine(t)
+	target := filepath.Join(root, "demo.go")
+	const source = "package demo\n\n// Add adds.\nfunc Add(a, b int) int {\n\treturn a - b\n}\n"
+	if err := os.WriteFile(target, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	session := newTestSession(t, engine, "fix Add structurally")
+	provider := &recordingScriptedProvider{responses: []protocol.ProviderResponse{
+		toolCalls(tc("fix", "edit_go", `{"path":"demo.go","ops":[{"op":"replace_body","symbol":"demo.Add","text":"{\n\treturn a + b\n}"}]}`)),
+		toolCalls(tc("bad", "edit_go", `{"path":"demo.go","ops":[{"op":"replace_body","symbol":"demo.Nope","text":"{}"}]}`)),
+		{Message: protocol.Message{Content: "done"}},
+	}}
+	result, err := engine.runAgentWith(ctx, session.ID, provider, AgentOptions{Policy: "full", MaxSteps: 6})
+	if err != nil || result.Status != "completed" {
+		t.Fatalf("run = %+v, %v", result, err)
+	}
+	got := readTestWorkspaceFile(t, target)
+	if !strings.Contains(got, "return a + b") || !strings.Contains(got, "// Add adds.") || strings.Contains(got, "return a - b") {
+		t.Fatalf("file after edit_go:\n%s", got)
+	}
+	refusal := resultOf(provider.last, "bad")
+	if !strings.Contains(refusal, "unknown_symbol") {
+		t.Fatalf("unknown symbol result = %q", refusal)
+	}
+}
+
+// recordingScriptedProvider replays responses and keeps the last request, so a test can read the tool
+// results the loop handed back.
+type recordingScriptedProvider struct {
+	responses []protocol.ProviderResponse
+	last      protocol.ProviderRequest
+}
+
+func (p *recordingScriptedProvider) Model() string { return "scripted" }
+
+func (p *recordingScriptedProvider) Complete(_ context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+	p.last = req
+	response := p.responses[0]
+	p.responses = p.responses[1:]
+	return response, nil
+}
