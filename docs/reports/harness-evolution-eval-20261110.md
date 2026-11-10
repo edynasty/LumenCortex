@@ -5,6 +5,11 @@ arm64 container. Branch `feat/harness-evo-eval`, worktree
 `wt/core-harness-evo-eval`, baseline Core commit `696eb74`
 (`feat/agent-debugger-execution-platform`).
 
+Commits: `696eb74..92245c4` (9 commits: procrt + enforcement, inspection/restart/
+module-level await, agent-loop proof, memory/census tests, exit-signal race fix,
+cgroup once deadlock fix, test isolation, census-on-exit + cgroup test actor, this
+report).
+
 Scope: the Eval + managed-process slice of the agent-harness capability roadmap
 (`bench/evidence/agent-harness-capability-roadmap-20261110/`), spec
 `DAP_AND_PERSISTENT_EVAL_DESIGN.md` §3–§4. No DAP files were edited.
@@ -226,7 +231,9 @@ cd /home/lc/w && go test -json -count=1 ./evalruntime/... ./evalapi/... ./intern
   `TestSubprocessIsDeniedByDefault` (declared Linux-only variant).
 - `TestCgroupMemoryBreachIsHard` passed: the OOM kill is reported as
   `limit=memory`, `enforcement=hard`, `stateStatus=lost`, and the census is empty
-  after Close. This is the Linux half of the memory proof.
+  after Close. This is the Linux half of the memory proof. A hard bound has no
+  overshoot to measure: `memory.peak` is the kernel's own accounting and the test
+  asserts it stays within 2x `memory.max` (the observed value is under the limit).
 - Baseline for comparison (unmodified `696eb74`, same image):
   283 pass / 0 fail / 4 skip for `./evalruntime ./evalapi ./config`
   (`raw/integration/linux-systemd-baseline-696eb74-eval.jsonl`); this slice adds
