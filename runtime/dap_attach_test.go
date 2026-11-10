@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -20,20 +19,17 @@ func TestDebugEngineRealPreparedAttach(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
-	adapter, err := exec.CommandContext(ctx, "xcrun", "--find", "lldb-dap").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
+	adapter := testLLDB(t)
 	root := t.TempDir()
 	source := filepath.Join(root, "fixture.c")
 	program := filepath.Join(root, "fixture")
-	if err = os.WriteFile(source, []byte("#include <unistd.h>\nint main(void) {\n volatile int value=42;\n for (;;) {\n  usleep(10000);\n  value=42;\n }\n}\n"), 0600); err != nil {
+	if err := os.WriteFile(source, []byte("#include <unistd.h>\nint main(void) {\n volatile int value=42;\n for (;;) {\n  usleep(10000);\n  value=42;\n }\n}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.CommandContext(ctx, "cc", "-g", "-O0", source, "-o", program).CombinedOutput(); err != nil {
 		t.Fatalf("compile %v %s", err, out)
 	}
-	e, err := Open(Options{Workspace: root, Debug: &DebugOptions{Adapters: []DebugAdapter{{ID: "lldb", Command: strings.TrimSpace(string(adapter)), ReadPaths: []string{"/Applications/Xcode.app"}, AttachPIDField: "pid", Attach: map[string]any{"waitFor": false}}}}})
+	e, err := Open(Options{Workspace: root, Debug: &DebugOptions{Sandbox: testSandbox(t), Adapters: []DebugAdapter{{ID: "lldb", Command: adapter, ReadPaths: testReadPaths(adapter), AttachPIDField: "pid", Attach: map[string]any{"waitFor": false}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

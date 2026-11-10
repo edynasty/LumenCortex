@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -19,21 +18,18 @@ func TestRealLLDBManagerPermissionAndOwnership(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	adapter, err := exec.CommandContext(ctx, "xcrun", "--find", "lldb-dap").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
+	adapter := testLLDB(t)
 	root := t.TempDir()
 	source := filepath.Join(root, "fixture.c")
 	program := filepath.Join(root, "fixture")
-	if err = os.WriteFile(source, []byte("int main(void) {\n int value=41;\n value++;\n return value==42?0:1;\n}\n"), 0600); err != nil {
+	if err := os.WriteFile(source, []byte("int main(void) {\n int value=41;\n value++;\n return value==42?0:1;\n}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.CommandContext(ctx, "cc", "-g", "-O0", source, "-o", program).CombinedOutput(); err != nil {
 		t.Fatalf("compile %v %s", err, out)
 	}
 	events := make(chan string, 64)
-	m, err := New(Options{Adapters: []Adapter{{ID: "lldb", Command: strings.TrimSpace(string(adapter)), ReadPaths: []string{"/Applications/Xcode.app"}, Launch: map[string]any{"disableASLR": false}}}, OnEvent: func(_ string, event string, _ map[string]any) {
+	m, err := New(Options{Sandbox: testSandbox(t), Adapters: []Adapter{{ID: "lldb", Command: adapter, ReadPaths: xcodeReadPaths(adapter), Launch: map[string]any{"disableASLR": false}}}, OnEvent: func(_ string, event string, _ map[string]any) {
 		select {
 		case events <- event:
 		default:

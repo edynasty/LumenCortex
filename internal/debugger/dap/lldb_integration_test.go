@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -18,25 +17,19 @@ func TestRealLLDBTransport(t *testing.T) {
 	if os.Getenv("LC_TEST_LLDB") == "" {
 		t.Skip("set LC_TEST_LLDB for installed LLDB integration")
 	}
-	if runtime.GOOS != "darwin" {
-		t.Skip("Xcode LLDB fixture")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	path, err := exec.Command("xcrun", "--find", "lldb-dap").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
+	path := testLLDB(t)
 	root := t.TempDir()
 	source := filepath.Join(root, "fixture.c")
 	program := filepath.Join(root, "fixture")
-	if err = os.WriteFile(source, []byte("#include <stdio.h>\nint main(void) {\n int value = 41;\n value += 1;\n printf(\"%d\\n\", value);\n return value == 42 ? 0 : 1;\n}\n"), 0600); err != nil {
+	if err := os.WriteFile(source, []byte("#include <stdio.h>\nint main(void) {\n int value = 41;\n value += 1;\n printf(\"%d\\n\", value);\n return value == 42 ? 0 : 1;\n}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.CommandContext(ctx, "cc", "-g", "-O0", source, "-o", program).CombinedOutput(); err != nil {
 		t.Fatalf("compile: %v %s", err, out)
 	}
-	cmd, err := evalruntime.ProgramCommand(ctx, evalruntime.ProgramOptions{Debug: true, Executable: string(path[:len(path)-1]), Workspace: root, PrivateDir: t.TempDir(), ReadPaths: []string{"/Applications/Xcode.app"}, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + root, "TMPDIR=" + root}, CPUSeconds: 20, FileBytes: 16 << 20})
+	cmd, err := evalruntime.ProgramCommand(ctx, evalruntime.ProgramOptions{Debug: true, Sandbox: testSandbox(t), Executable: path, Workspace: root, PrivateDir: t.TempDir(), ReadPaths: testReadPaths(path), Env: []string{"PATH=/usr/bin:/bin", "HOME=" + root, "TMPDIR=" + root}, CPUSeconds: 20, FileBytes: 16 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}

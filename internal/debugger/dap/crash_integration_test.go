@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/edynasty/LumenCortex/evalruntime"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,10 +14,7 @@ func TestRealAdapterCrashClosesTransport(t *testing.T) {
 	if os.Getenv("LC_CAPABILITY_EXPERIMENT") != "1" {
 		t.Skip("explicit real adapter crash matrix")
 	}
-	lldb, err := exec.Command("xcrun", "--find", "lldb-dap").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
+	lldb := testLLDB(t)
 	python, node := os.Getenv("LC_TEST_PYTHON"), os.Getenv("LC_TEST_NODE")
 	py, js := os.Getenv("LC_TEST_DEBUGPY"), os.Getenv("LC_TEST_JS_DEBUG")
 	for _, tc := range []struct {
@@ -26,12 +22,15 @@ func TestRealAdapterCrashClosesTransport(t *testing.T) {
 		args, reads    []string
 		unix, loopback bool
 	}{
-		{"lldb", strings.TrimSpace(string(lldb)), nil, []string{"/Applications/Xcode.app"}, false, false},
+		{"lldb", lldb, nil, testReadPaths(lldb), false, false},
 		{"delve", os.Getenv("LC_TEST_DELVE"), []string{"dap", "--listen=unix:{socket}"}, []string{"/Library/Developer/CommandLineTools/Library/PrivateFrameworks/LLDB.framework"}, true, true},
 		{"debugpy", python, []string{"-I", py}, []string{filepath.Dir(filepath.Dir(python)), filepath.Dir(filepath.Dir(py))}, false, true},
 		{"node", node, []string{js, "{socket}"}, []string{filepath.Dir(filepath.Dir(node)), filepath.Dir(filepath.Dir(js))}, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.command == "" {
+				t.Skip("adapter not configured on this host")
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			private, err := os.MkdirTemp("/tmp", "lc-dap-crash-")
@@ -52,7 +51,7 @@ func TestRealAdapterCrashClosesTransport(t *testing.T) {
 				args[i] = strings.ReplaceAll(args[i], "{socket}", socket)
 			}
 			root := t.TempDir()
-			cmd, err := evalruntime.ProgramCommand(ctx, evalruntime.ProgramOptions{Debug: true, Executable: tc.command, Args: args, Workspace: root, PrivateDir: private, ReadPaths: tc.reads, Loopback: tc.loopback, Socket: socket, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + root, "TMPDIR=" + root}, CPUSeconds: 20, FileBytes: 16 << 20})
+			cmd, err := evalruntime.ProgramCommand(ctx, evalruntime.ProgramOptions{Debug: true, Sandbox: testSandbox(t), Executable: tc.command, Args: args, Workspace: root, PrivateDir: private, ReadPaths: tc.reads, Loopback: tc.loopback, Socket: socket, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + root, "TMPDIR=" + root}, CPUSeconds: 20, FileBytes: 16 << 20})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -250,7 +250,7 @@ func durableEvent(kind, sessionID string) bool {
 		return false
 	}
 	switch kind {
-	case "tool.output", "llm.delta", "model.output", "dap.output", "shell.output", "eval.output", "subagent.event":
+	case "tool.output", "llm.delta", "model.output", "dap.output", "debug.module", "shell.output", "eval.output", "subagent.event":
 		return false
 	}
 	return true

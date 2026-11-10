@@ -15,12 +15,19 @@ type DebugSnapshot = debugger.Snapshot
 type DebugStartOptions = debugger.StartOptions
 type DebugControl = debugger.Control
 type DebugBreakpoint = debugger.Breakpoint
+type DebugWaitOptions = debugger.WaitOptions
+type DebugStopInfo = debugger.StopInfo
+type DebugFrameSummary = debugger.FrameSummary
+type DebugExceptionInfo = debugger.ExceptionInfo
 
 type DebugOptions struct {
 	Adapters        []DebugAdapter             `json:"adapters"`
 	Sandbox         evalruntime.SandboxOptions `json:"sandbox"`
 	MaxSessions     int                        `json:"maxSessions,omitempty"`
 	LifetimeSeconds int                        `json:"lifetimeSeconds,omitempty"`
+	// Discover probes the built-in adapter presets (lldb, delve, debugpy,
+	// js-debug) at Open. It never installs anything.
+	Discover bool `json:"discover,omitempty"`
 }
 
 // DebugGrant is host authority for one Session. It is never accepted from tool
@@ -33,11 +40,16 @@ type DebugGrant struct {
 
 var ErrDebugDisabled = errors.New("program debugging is disabled or not authorized")
 
+// ErrEvaluateNotGranted is the refusal of expression evaluation alone; the
+// session itself is enabled. A caller must not read it as "debugging was
+// revoked" and abandon the debugging task.
+var ErrEvaluateNotGranted = debugger.ErrEvaluateNotGranted
+
 func (e *Engine) initDebug(opts *DebugOptions) error {
 	if opts == nil {
 		return nil
 	}
-	m, err := debugger.New(debugger.Options{Adapters: opts.Adapters, Sandbox: opts.Sandbox, MaxSessions: opts.MaxSessions, Lifetime: time.Duration(opts.LifetimeSeconds) * time.Second, MCP: e.mcpRegistry, OnEvent: func(id, event string, data map[string]any) { e.events.publish(event, id, data) }})
+	m, err := debugger.New(debugger.Options{Adapters: opts.Adapters, Sandbox: opts.Sandbox, MaxSessions: opts.MaxSessions, Lifetime: time.Duration(opts.LifetimeSeconds) * time.Second, MCP: e.mcpRegistry, Discover: opts.Discover, OnEvent: func(id, event string, data map[string]any) { e.events.publish(event, id, data) }})
 	if err != nil {
 		return err
 	}
@@ -197,6 +209,44 @@ func (e *Engine) programControl(ctx context.Context, c DebugControl) (DebugSnaps
 	}
 	return e.dapManager.Control(ctx, c)
 }
+
+// DebugControlAndWait resumes, steps or pauses this session's owned target and
+// reports the resulting stop, so one Agent tool call suffices.
+func (e *Engine) DebugControlAndWait(ctx context.Context, c DebugControl, w DebugWaitOptions) (DebugSnapshot, DebugStopInfo, error) {
+	c.Actor = "human"
+	return e.programControlAndWait(ctx, c, w)
+}
+func (e *Engine) programControlAndWait(ctx context.Context, c DebugControl, w DebugWaitOptions) (DebugSnapshot, DebugStopInfo, error) {
+	if _, err := e.debugAccess(ctx, c.SessionID); err != nil {
+		return DebugSnapshot{}, DebugStopInfo{}, err
+	}
+	return e.dapManager.ControlAndWait(ctx, c, w)
+}
+
+// DebugSetExceptionBreakpoints replaces the exception filters of this session.
+func (e *Engine) DebugSetExceptionBreakpoints(ctx context.Context, c DebugControl, filters []string) (json.RawMessage, error) {
+	c.Actor = "human"
+	return e.programSetExceptionBreakpoints(ctx, c, filters)
+}
+func (e *Engine) programSetExceptionBreakpoints(ctx context.Context, c DebugControl, filters []string) (json.RawMessage, error) {
+	if _, err := e.debugAccess(ctx, c.SessionID); err != nil {
+		return nil, err
+	}
+	return e.dapManager.SetExceptionBreakpoints(ctx, c, filters)
+}
+
+// DebugDisconnect stops this session's owned target gracefully and reports the
+// cleanup that ran: disconnect, detach or kill.
+func (e *Engine) DebugDisconnect(ctx context.Context, c DebugControl, terminateDebuggee bool) (DebugSnapshot, string, error) {
+	c.Actor = "human"
+	return e.programDisconnect(ctx, c, terminateDebuggee)
+}
+func (e *Engine) programDisconnect(ctx context.Context, c DebugControl, terminateDebuggee bool) (DebugSnapshot, string, error) {
+	if _, err := e.debugAccess(ctx, c.SessionID); err != nil {
+		return DebugSnapshot{}, "", err
+	}
+	return e.dapManager.Disconnect(ctx, c, terminateDebuggee)
+}
 func (e *Engine) DebugTakeover(ctx context.Context, c DebugControl, owner string) (DebugSnapshot, error) {
 	if _, err := e.debugAccess(ctx, c.SessionID); err != nil {
 		return DebugSnapshot{}, err
@@ -234,7 +284,7 @@ func (e *Engine) programEvaluate(ctx context.Context, c DebugControl, frame int,
 		return nil, err
 	}
 	if sideEffects && !grant.AllowEvaluate {
-		return nil, ErrDebugDisabled
+		return nil, ErrEvaluateNotGranted
 	}
 	return e.dapManager.Evaluate(ctx, c, frame, expression, sideEffects)
 }
