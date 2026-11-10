@@ -216,14 +216,15 @@ func (s *RunSupervisor) Start(
 		defer func() {
 			_ = lease.Release()
 			_ = lock.Release()
+			// A finished or cancelled worker leaves no Task Lease behind: its units are ready for the next
+			// worker without waiting for the expiry. This runs before the run leaves the supervisor, so a
+			// host that sees the run stopped also sees its claims released.
+			s.engine.releaseHeldLeases(sessionID)
 			s.mu.Lock()
 			if current, ok := s.runs[sessionID]; ok && current == run {
 				delete(s.runs, sessionID)
 			}
 			s.mu.Unlock()
-			// A finished or cancelled worker leaves no Task Lease behind: its units are ready for the next
-			// worker without waiting for the expiry.
-			s.engine.releaseHeldLeases(sessionID)
 			run.releaseAgent()
 			cancel()
 			close(run.done)

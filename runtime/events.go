@@ -48,16 +48,7 @@ type subscriber struct {
 	lost     int
 }
 
-// lostRange takes the losses recorded since the last call: the first and last dropped cursor and how
-// many events were dropped. Zero lost means nothing was dropped. Safe on a nil subscriber.
-func (s *subscriber) lostRange() (from, to uint64, lost int) {
-	if s == nil {
-		return 0, 0, 0
-	}
-	return s.lostFrom, s.lostTo, s.lost
-}
-
-// recordLost notes that one durable cursor was dropped for this subscriber.
+// recordLost notes that one durable cursor was dropped for this subscriber. The caller holds b.mu.
 func (s *subscriber) recordLost(cursor uint64) {
 	if cursor == 0 {
 		return
@@ -69,9 +60,17 @@ func (s *subscriber) recordLost(cursor uint64) {
 	s.lost++
 }
 
-// clearLost forgets the recorded losses after a reader reported them.
-func (s *subscriber) clearLost() {
+// takeLost returns and clears the losses recorded since the last call. b.mu makes it safe against
+// publish, which records a loss while it holds the same lock.
+func (b *eventBus) takeLost(s *subscriber) (from, to uint64, lost int) {
+	if s == nil {
+		return 0, 0, 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	from, to, lost = s.lostFrom, s.lostTo, s.lost
 	s.lostFrom, s.lostTo, s.lost = 0, 0, 0
+	return from, to, lost
 }
 
 // eventBus fans events out to subscribers without ever waiting for one (I11).

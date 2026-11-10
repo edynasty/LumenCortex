@@ -79,7 +79,9 @@ func purgeWhere(table, in string) string {
 		return "notebook_id IN (SELECT id FROM notebooks WHERE session_id IN (" + in + "))"
 	}
 	if table == "work_unit_leases" {
-		return "root_id IN (" + in + ") OR holder IN (" + in + ")"
+		// A claim names a unit of the root's DAG; a deleted holder's claim is left to expire rather than
+		// matched here, so this clause keeps one placeholder set like every other table.
+		return "root_id IN (" + in + ")"
 	}
 	return "session_id IN (" + in + ")"
 }

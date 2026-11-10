@@ -55,9 +55,8 @@ func (e *Engine) SubscribeRuntimeEvents(ctx context.Context, sessionID string, b
 				}
 				// A loss is reported before the next delivery, so a reader never mistakes the stream for
 				// complete: the missing range is the durable cursors it must read again.
-				if from, to, lost := sub.lostRange(); lost > 0 {
+				if from, to, lost := e.events.takeLost(sub); lost > 0 {
 					gap := e.events.gapEvent(sessionID, from, to, lost)
-					sub.clearLost()
 					select {
 					case output <- gap:
 					case <-ctx.Done():
