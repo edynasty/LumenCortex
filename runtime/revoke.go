@@ -101,6 +101,9 @@ type trackedRun struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	debug  *agent.DebugControl
+	// shutdown marks a run its host ended by shutting down (RunSupervisor.Close), not by a decision
+	// about the run: its durable pause outlives it, as when the Engine itself closes.
+	shutdown bool
 }
 
 // trackRun registers preparation through final cleanup. The caller holds the session run lock,
@@ -118,16 +121,27 @@ func (e *Engine) trackRun(ctx context.Context, sessionID string) (context.Contex
 	e.runs[sessionID] = run
 	e.runsMu.Unlock()
 	return ctx, func() {
+		// The DebugControl closes while the run is still tracked, so the pause projection can tell a
+		// shutdown (pause kept) from the run's own end (pause cleared).
+		if run.debug != nil {
+			run.debug.Close()
+		}
 		e.runsMu.Lock()
 		if e.runs[sessionID] == run {
 			delete(e.runs, sessionID)
 		}
 		e.runsMu.Unlock()
-		if run.debug != nil {
-			run.debug.Close()
-		}
 		cancel()
 		close(run.done)
+	}
+}
+
+// markRunShutdown records that the session's tracked run ends because its host is shutting down.
+func (e *Engine) markRunShutdown(sessionID string) {
+	e.runsMu.Lock()
+	defer e.runsMu.Unlock()
+	if run := e.runs[sessionID]; run != nil {
+		run.shutdown = true
 	}
 }
 

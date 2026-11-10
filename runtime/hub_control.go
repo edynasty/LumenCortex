@@ -700,9 +700,10 @@ func (e *Engine) noteDebugState(sessionID, runID string, snapshot agent.DebugSna
 			"step": snapshot.Boundary.Step, "revision": snapshot.Revision,
 		})
 	case "running", "closed":
-		// A resume clears the pause. A run that ends clears it too — except when the process is shutting
-		// down, where the pause row is what lets the reopened Engine report interrupted(paused).
-		if snapshot.State == "closed" && e.closingNow() {
+		// A resume clears the pause. A run that ends clears it too — except when the process or the
+		// run's supervisor is shutting down, where the pause row is what lets the reopened Engine report
+		// interrupted(paused).
+		if snapshot.State == "closed" && e.shuttingDown(sessionID) {
 			return
 		}
 		if err := e.store.ClearRunPause(ctx, sessionID); err != nil {
@@ -715,9 +716,14 @@ func (e *Engine) noteDebugState(sessionID, runID string, snapshot agent.DebugSna
 	}
 }
 
-// closingNow reports that the Engine is shutting down, so a run's terminal state is not the run's own.
-func (e *Engine) closingNow() bool {
+// shuttingDown reports that the Engine, or the supervisor of the session's run, is shutting down, so a
+// run's terminal state is not the run's own.
+func (e *Engine) shuttingDown(sessionID string) bool {
 	e.runsMu.Lock()
 	defer e.runsMu.Unlock()
-	return e.closing
+	if e.closing {
+		return true
+	}
+	run := e.runs[sessionID]
+	return run != nil && run.shutdown
 }

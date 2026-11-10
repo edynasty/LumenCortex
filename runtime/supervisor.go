@@ -360,7 +360,9 @@ func (s *RunSupervisor) Close() {
 	}
 	s.closed = true
 	runs := make([]*managedRun, 0, len(s.runs))
-	for _, run := range s.runs {
+	for sessionID, run := range s.runs {
+		// Closing the supervisor is a shutdown, not a cancel of the run: a paused run keeps its pause.
+		s.engine.markRunShutdown(sessionID)
 		run.cancelRequested = true
 		run.cancel()
 		runs = append(runs, run)
