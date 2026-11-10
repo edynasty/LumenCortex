@@ -73,7 +73,9 @@ func (h *revisionHistory) touchLocked(key string) {
 	h.order = append(h.order, key)
 }
 
-// lookup returns the content of rev for key. The empty rev names the absent file.
+// lookup returns the content of rev for key. The empty rev names the absent file; so does the revision
+// of empty content, which is the oldRev an edit.committed event reports for a created file. An empty
+// file and an absent one render the same diff, so either entry serves.
 func (h *revisionHistory) lookup(key, rev string) ([]byte, bool, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -81,8 +83,9 @@ func (h *revisionHistory) lookup(key, rev string) ([]byte, bool, bool) {
 	if !tracked {
 		return nil, false, false
 	}
+	empty := rev == "" || rev == RevOf(nil)
 	for _, e := range entries {
-		if rev == "" && e.absent {
+		if e.absent && empty {
 			return nil, true, true
 		}
 		if !e.absent && e.rev == rev {

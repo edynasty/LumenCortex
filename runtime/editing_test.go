@@ -354,6 +354,10 @@ func TestFileRevisionAndEditDiff(t *testing.T) {
 	if err != nil || !strings.Contains(created, "+alpha") || !strings.Contains(created, "+beta") {
 		t.Fatalf("creation diff = %q, %v", created, err)
 	}
+	// A create's edit.committed event names the empty content's revision as oldRev; it is diffable too.
+	if fromEvent, err := engine.EditDiff(ctx, "a.txt", editing.RevOf(nil), first); err != nil || fromEvent != created {
+		t.Fatalf("creation diff from the event's oldRev = %q, %v", fromEvent, err)
+	}
 	// An empty after is the current content, including a change made outside the engine.
 	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("alpha\ngamma\ndelta\n"), 0o644); err != nil {
 		t.Fatal(err)
