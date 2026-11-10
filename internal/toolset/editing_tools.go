@@ -111,6 +111,7 @@ func (s *Set) editLines(ctx context.Context, args map[string]any, _ func(protoco
 		return editOutcome(err)
 	}
 	result, err := s.edit.Commit(ctx, editing.Plan{
+		Host:     s,
 		Actor:    s.actor(),
 		Tool:     "edit_lines",
 		Changes:  []editing.FileChange{{Path: file, BaseRev: rev, LineOps: lineOps}},
@@ -206,6 +207,7 @@ func (s *Set) editGo(ctx context.Context, args map[string]any, _ func(protocol.T
 	}
 	preview := boolArg(args, "preview")
 	result, err := s.edit.Commit(ctx, editing.Plan{
+		Host:     s,
 		Actor:    s.actor(),
 		Tool:     "edit_go",
 		Changes:  plan.Changes,

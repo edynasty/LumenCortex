@@ -62,7 +62,7 @@ func (s *Set) applyWorkspaceEdit(ctx context.Context, edit lsp.WorkspaceEdit) (a
 	if len(changes) == 0 {
 		return nil, nil
 	}
-	result, err := s.edit.Commit(ctx, editing.Plan{Actor: s.actor(), Tool: "lsp_rename", Changes: changes})
+	result, err := s.edit.Commit(ctx, editing.Plan{Host: s, Actor: s.actor(), Tool: "lsp_rename", Changes: changes})
 	if err != nil {
 		return nil, err
 	}

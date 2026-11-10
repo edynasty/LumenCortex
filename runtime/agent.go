@@ -502,6 +502,12 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		// A server with a session binding receives this id, so an action is attributed to the run that
 		// drove it and the server-side session can be closed with the run.
 		SessionID: sessionID,
+		// The one editing engine of the workspace: a session's read snapshots and the collaboration
+		// layer's write leases outlive this run.
+		Editing: e.editing,
+		// Edit outcomes are runtime events: edit.committed and edit.conflict carry the path and the
+		// revisions, so Desktop's diff view and the durable history see every change.
+		Events: func(kind, sid string, payload map[string]any) { e.events.publish(kind, sid, payload) },
 	})
 	if err != nil {
 		return nil, err

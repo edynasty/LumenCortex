@@ -137,6 +137,7 @@ func (s *Set) writeFile(ctx context.Context, args map[string]any, _ func(protoco
 	body := []byte(content)
 	result, err := s.edit.Commit(ctx, editing.Plan{
 		Actor: s.actor(),
+		Host:  s,
 		Tool:  "write_file",
 		Changes: []editing.FileChange{{
 			Path: file, BaseRev: stringArg(args, "base_rev"), Content: &body,
@@ -180,6 +181,7 @@ func (s *Set) replaceFile(ctx context.Context, args map[string]any, _ func(proto
 	splices := []editing.Splice{{Start: first, End: first + len(old), Text: next}}
 	result, err := s.edit.Commit(ctx, editing.Plan{
 		Actor: s.actor(),
+		Host:  s,
 		Tool:  "replace_in_file",
 		Changes: []editing.FileChange{{
 			Path: file, BaseRev: editing.RevOf(raw), Splices: splices,

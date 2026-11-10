@@ -97,7 +97,7 @@ func (s *Set) applyPatch(ctx context.Context, args map[string]any, _ func(protoc
 		}
 	}
 
-	if _, err := s.edit.Commit(ctx, editing.Plan{Actor: s.actor(), Tool: "apply_patch", Changes: changes}); err != nil {
+	if _, err := s.edit.Commit(ctx, editing.Plan{Host: s, Actor: s.actor(), Tool: "apply_patch", Changes: changes}); err != nil {
 		return editOutcome(err)
 	}
 	content, _ := json.Marshal(reported)

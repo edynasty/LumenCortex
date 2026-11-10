@@ -79,8 +79,12 @@ type Validator func(files map[string][]byte) []Diagnostic
 
 // Plan is what a front end asks the engine to commit, all files or none.
 type Plan struct {
-	Actor    Actor
-	Tool     string
+	Actor Actor
+	Tool  string
+	// Host is the caller's file layer: its workspace guard and descriptor-level protected-state check.
+	// Nil uses the engine's own host (LocalHost for a standalone engine). The runtime shares one engine
+	// between toolsets, so the guard travels with the call rather than the engine.
+	Host     Host
 	Changes  []FileChange
 	Validate []Validator
 	// Preview computes the result and the diffs but writes nothing.
@@ -218,12 +222,16 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 	if plan.Actor.Session == "" {
 		return Result{}, &Error{Code: CodeInvalid, Detail: "a commit needs an actor session"}
 	}
+	host := plan.Host
+	if host == nil {
+		host = e.host
+	}
 	prep := make([]*prepared, 0, len(plan.Changes))
 	seen := make(map[string]bool, len(plan.Changes))
 	for i, change := range plan.Changes {
 		// A missing file is resolved too, so a delete or an update of a vanished file reports
 		// not_found rather than a raw lstat error; the guard still checks the deepest existing part.
-		abs, rel, err := e.host.Resolve(change.Path, true)
+		abs, rel, err := host.Resolve(change.Path, true)
 		if err != nil {
 			return Result{}, err
 		}
@@ -245,17 +253,17 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 				err = &Error{Code: CodeLeaseConflict, Path: p.rel, Holder: conflict.Holder,
 					Detail: fmt.Sprintf("a write lease is held until %s", conflict.Until.UTC().Format(time.RFC3339))}
 			}
-			return Result{}, e.refuse(plan, p, err)
+			return Result{}, e.refuse(host, plan, p, err)
 		}
 	}
 	for _, p := range prep {
-		if err := e.prepare(p, plan); err != nil {
-			return Result{}, e.refuse(plan, p, err)
+		if err := e.prepare(host, p, plan); err != nil {
+			return Result{}, e.refuse(host, plan, p, err)
 		}
 	}
 	diagnostics, err := e.validate(ctx, plan, prep)
 	if err != nil {
-		return Result{}, e.refuse(plan, nil, err)
+		return Result{}, e.refuse(host, plan, nil, err)
 	}
 	if plan.Preview {
 		result := Result{Diagnostics: diagnostics}
@@ -265,15 +273,15 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 		}
 		return result, nil
 	}
-	written, err := e.write(plan, prep)
+	written, err := e.write(host, plan, prep)
 	if err != nil {
-		return Result{}, e.refuse(plan, nil, err)
+		return Result{}, e.refuse(host, plan, nil, err)
 	}
 	result := Result{Diagnostics: diagnostics}
 	for _, p := range written {
 		result.Files = append(result.Files, fileResult(p))
 		e.register(p, plan)
-		e.host.Event("edit.committed", plan.Actor.Session, map[string]any{
+		host.Event("edit.committed", plan.Actor.Session, map[string]any{
 			"path": p.rel, "oldRev": p.rev, "newRev": RevOf(p.next), "actor": plan.Actor.Session,
 			"runId": plan.Actor.Run, "tool": plan.Tool, "created": p.created, "deleted": p.deleted,
 		})
@@ -364,7 +372,7 @@ func (e *Engine) LatestRev(actor Actor, path string) string {
 }
 
 // prepare reads a file, enforces its preconditions, and computes the planned bytes.
-func (e *Engine) prepare(p *prepared, plan Plan) error {
+func (e *Engine) prepare(host Host, p *prepared, plan Plan) error {
 	change := p.change
 	info, statErr := os.Stat(p.abs)
 	existed := statErr == nil
@@ -387,7 +395,7 @@ func (e *Engine) prepare(p *prepared, plan Plan) error {
 	}
 	var original []byte
 	if existed {
-		f, err := e.host.Open(p.abs, false)
+		f, err := host.Open(p.abs, false)
 		if err != nil {
 			return err
 		}
@@ -553,16 +561,16 @@ func (e *Engine) validate(ctx context.Context, plan Plan, prep []*prepared) ([]D
 }
 
 // write applies the prepared content, all or none: a failure restores every file already written.
-func (e *Engine) write(plan Plan, prep []*prepared) ([]*prepared, error) {
+func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, error) {
 	written := make([]*prepared, 0, len(prep))
 	for _, p := range prep {
 		if p.deleted {
-			if _, _, err := e.host.Resolve(p.rel, false); err != nil {
-				e.rollback(written)
+			if _, _, err := host.Resolve(p.rel, false); err != nil {
+				e.rollback(host, written)
 				return nil, err
 			}
 			if err := os.Remove(p.abs); err != nil {
-				e.rollback(written)
+				e.rollback(host, written)
 				return nil, err
 			}
 			written = append(written, p)
@@ -572,14 +580,14 @@ func (e *Engine) write(plan Plan, prep []*prepared) ([]*prepared, error) {
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(p.abs), 0o755); err != nil {
-			e.rollback(written)
+			e.rollback(host, written)
 			return nil, err
 		}
 		if e.beforeWrite != nil {
 			e.beforeWrite(p.abs)
 		}
-		if err := e.writeCAS(p); err != nil {
-			e.rollback(written)
+		if err := e.writeCAS(host, p); err != nil {
+			e.rollback(host, written)
 			return nil, err
 		}
 		written = append(written, p)
@@ -590,8 +598,8 @@ func (e *Engine) write(plan Plan, prep []*prepared) ([]*prepared, error) {
 // writeCAS writes the prepared bytes only if the file still has the revision that was validated. The
 // check and the write happen on the same descriptor, which is opened without truncating and refused
 // when it is protected state, so a refused write leaves the file as it was.
-func (e *Engine) writeCAS(p *prepared) error {
-	f, err := e.host.Open(p.abs, true)
+func (e *Engine) writeCAS(host Host, p *prepared) error {
+	f, err := host.Open(p.abs, true)
 	if err != nil {
 		return err
 	}
@@ -633,11 +641,11 @@ func (e *Engine) writeCAS(p *prepared) error {
 }
 
 // rollback restores the files already written, newest first.
-func (e *Engine) rollback(written []*prepared) {
+func (e *Engine) rollback(host Host, written []*prepared) {
 	for i := len(written) - 1; i >= 0; i-- {
 		p := written[i]
 		if p.deleted {
-			if err := e.writeRestore(p.abs, p.original); err != nil {
+			if err := e.writeRestore(host, p.abs, p.original); err != nil {
 				continue
 			}
 			continue
@@ -646,15 +654,15 @@ func (e *Engine) rollback(written []*prepared) {
 			_ = os.Remove(p.abs)
 			continue
 		}
-		_ = e.writeRestore(p.abs, p.original)
+		_ = e.writeRestore(host, p.abs, p.original)
 	}
 }
 
-func (e *Engine) writeRestore(path string, data []byte) error {
+func (e *Engine) writeRestore(host Host, path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	f, err := e.host.Open(path, true)
+	f, err := host.Open(path, true)
 	if err != nil {
 		return err
 	}
@@ -678,7 +686,7 @@ func (e *Engine) register(p *prepared, plan Plan) {
 }
 
 // refuse publishes edit.conflict and returns the refusal.
-func (e *Engine) refuse(plan Plan, p *prepared, err error) error {
+func (e *Engine) refuse(host Host, plan Plan, p *prepared, err error) error {
 	payload := map[string]any{"actor": plan.Actor.Session, "runId": plan.Actor.Run, "tool": plan.Tool,
 		"code": CodeOf(err), "error": err.Error()}
 	if p != nil {
@@ -696,7 +704,7 @@ func (e *Engine) refuse(plan Plan, p *prepared, err error) error {
 			payload["holder"] = editErr.Holder
 		}
 	}
-	e.host.Event("edit.conflict", plan.Actor.Session, payload)
+	host.Event("edit.conflict", plan.Actor.Session, payload)
 	return err
 }
 
@@ -729,6 +737,10 @@ func stripeOf(key string) int {
 	_, _ = h.Write([]byte(key))
 	return int(h.Sum32() % uint32(stripeCount))
 }
+
+// CanonicalPath resolves the symlinks of the part of path that exists and appends the rest. Two
+// spellings of one file then take one lock, one lease and one snapshot entry.
+func CanonicalPath(path string) string { return canonicalPath(path) }
 
 // canonicalPath resolves the symlinks of the part of path that exists and appends the rest, so two
 // spellings of one file take one lock, one lease and one snapshot entry.
