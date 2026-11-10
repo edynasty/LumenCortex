@@ -476,7 +476,7 @@ func (e *Engine) promptTools(ctx context.Context, workspace, policy string, chil
 	if err != nil {
 		return nil, err
 	}
-	if err := e.bindWorkerMessages(ctx, sessionID, tools); err != nil {
+	if _, err := e.bindWorkerMessages(ctx, sessionID, tools); err != nil {
 		return nil, err
 	}
 	if sessionID != "" {

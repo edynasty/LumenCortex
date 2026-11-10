@@ -48,13 +48,22 @@ func (r runMessenger) Inbox(ctx context.Context, after int64, limit int) (any, e
 	}
 	return r.engine.WorkerMessages(ctx, r.root, r.sender, after, limit, true)
 }
-func (e *Engine) bindWorkerMessages(ctx context.Context, id string, set *toolset.Set) error {
+// workerRoot is the session's message scope: itself for a thread, its root for a child.
+func (e *Engine) workerRoot(ctx context.Context, id string) (string, error) {
 	root := id
 	relation, err := e.store.ParentRelation(ctx, id)
 	if err == nil {
 		root = relation.ParentSessionID
 	} else if !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return "", err
 	}
-	return set.BindWorkerMessages(runMessenger{engine: e, life: ctx, root: root, sender: id})
+	return root, nil
+}
+
+func (e *Engine) bindWorkerMessages(ctx context.Context, id string, set *toolset.Set) (string, error) {
+	root, err := e.workerRoot(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return root, set.BindWorkerMessages(runMessenger{engine: e, life: ctx, root: root, sender: id})
 }

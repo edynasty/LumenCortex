@@ -41,6 +41,37 @@ type EventStats struct {
 type subscriber struct {
 	ch        chan Event
 	sessionID string
+	// lostFrom and lostTo delimit the durable cursors a full buffer made undeliverable since the
+	// subscriber last asked: a reader reports them as one gap and repairs it by resuming from its cursor.
+	lostFrom uint64
+	lostTo   uint64
+	lost     int
+}
+
+// lostRange takes the losses recorded since the last call: the first and last dropped cursor and how
+// many events were dropped. Zero lost means nothing was dropped. Safe on a nil subscriber.
+func (s *subscriber) lostRange() (from, to uint64, lost int) {
+	if s == nil {
+		return 0, 0, 0
+	}
+	return s.lostFrom, s.lostTo, s.lost
+}
+
+// recordLost notes that one durable cursor was dropped for this subscriber.
+func (s *subscriber) recordLost(cursor uint64) {
+	if cursor == 0 {
+		return
+	}
+	if s.lostFrom == 0 {
+		s.lostFrom = cursor
+	}
+	s.lostTo = cursor
+	s.lost++
+}
+
+// clearLost forgets the recorded losses after a reader reported them.
+func (s *subscriber) clearLost() {
+	s.lostFrom, s.lostTo, s.lost = 0, 0, 0
 }
 
 // eventBus fans events out to subscribers without ever waiting for one (I11).
@@ -70,6 +101,14 @@ func (b *eventBus) subscribe(buffer int) (<-chan Event, func()) {
 }
 
 func (b *eventBus) subscribeSession(buffer int, sessionID string) (<-chan Event, func()) {
+	ch, _, unsubscribe := b.subscribeSessionLoss(buffer, sessionID)
+	return ch, unsubscribe
+}
+
+// subscribeSessionLoss subscribes like subscribeSession and also returns the subscriber, whose lostRange
+// reports the durable cursors a full buffer made undeliverable: a reader turns them into one
+// hub.events.gap and repairs the loss by resuming from its own cursor.
+func (b *eventBus) subscribeSessionLoss(buffer int, sessionID string) (<-chan Event, *subscriber, func()) {
 	if buffer <= 0 {
 		buffer = 128
 	}
@@ -79,13 +118,13 @@ func (b *eventBus) subscribeSession(buffer int, sessionID string) (<-chan Event,
 	if b.closed {
 		ch := make(chan Event)
 		close(ch)
-		return ch, func() {}
+		return ch, nil, func() {}
 	}
 	b.nextSubID++
 	id := b.nextSubID
 	s := &subscriber{ch: make(chan Event, buffer), sessionID: sessionID}
 	b.subs[id] = s
-	return s.ch, func() {
+	return s.ch, s, func() {
 		b.mu.Lock()
 		defer b.mu.Unlock()
 		if current, ok := b.subs[id]; ok {
@@ -170,14 +209,16 @@ func (b *eventBus) publish(eventType, sessionID string, payload any) Event {
 		// consumer may have drained the buffer meanwhile, in which case nothing
 		// was discarded.
 		select {
-		case <-s.ch:
+		case dropped := <-s.ch:
 			b.dropped.Add(1)
+			s.recordLost(dropped.Cursor)
 		default:
 		}
 		select {
 		case s.ch <- e:
 		default:
 			b.dropped.Add(1)
+			s.recordLost(e.Cursor)
 		}
 	}
 	if eventType == "run.stopped" {
@@ -245,5 +286,20 @@ func (b *eventBus) forgetRun(sessionID, runID string) {
 	defer b.mu.Unlock()
 	if b.runs[sessionID] == runID {
 		delete(b.runs, sessionID)
+	}
+}
+
+// gapEvent is the subscriber-facing record of lost deliveries: the durable cursor range it must read
+// again. It is built for one subscriber, so it never enters the bus or another subscriber's stream.
+func (b *eventBus) gapEvent(sessionID string, from, to uint64, lost int) Event {
+	raw, _ := json.Marshal(map[string]any{"from": from, "to": to, "lost": lost})
+	id, _ := newRunID()
+	b.mu.Lock()
+	runID := b.runs[sessionID]
+	b.mu.Unlock()
+	return Event{
+		ID: id, SchemaVersion: 1, At: time.Now().UTC(), Type: "hub.events.gap",
+		SessionID: sessionID, RunID: runID, Data: raw, Sensitivity: "session", Reliability: "live",
+		Seq: b.nextEventID.Add(1),
 	}
 }

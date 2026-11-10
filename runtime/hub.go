@@ -29,6 +29,8 @@ type HubTask struct {
 	Agent        string   `json:"agent,omitempty"`
 	Verification string   `json:"verification,omitempty"`
 	Error        string   `json:"error,omitempty"`
+	// Lease is the live Task Lease claim of this unit, nil when no worker holds one.
+	Lease *HubTaskLease `json:"lease,omitempty"`
 }
 type HubSnapshot struct {
 	SessionID string         `json:"sessionId"`

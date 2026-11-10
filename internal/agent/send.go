@@ -96,6 +96,7 @@ func exitFor(class protocol.ErrorClass, err error) ExitCause {
 func (l *Loop) send(
 	ctx context.Context,
 	sessionID string,
+	goal string,
 	step int64,
 	opts Options,
 	taskStateVersion int64,
@@ -293,6 +294,35 @@ func (l *Loop) send(
 		if err := l.debugBoundary(ctx, DebugBoundary{Event: "BeforeModelCall", Step: step}); err != nil {
 			cause := debugFailureExit(err)
 			return attempt{}, &cause
+		}
+		// F-STEER-1: a run released from a BeforeModelCall pause may have been steered while it was
+		// held. The window built above is stale then, so the queued inputs are applied and this
+		// candidate's window is rebuilt before anything is admitted or sent. Without a pause nothing is
+		// queued here and the request is unchanged.
+		if rebuiltInputs, err := l.applyPendingInputs(ctx, sessionID, goal, opts, r, &in); err != nil {
+			cause := ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err}
+			return attempt{}, &cause
+		} else if rebuiltInputs {
+			fixed = window.Fixed(in)
+			b = r.budget(cand, opts.MaxTokens, fixed)
+			if g, gerr := r.groups(l.maxContext()); gerr == nil {
+				groups = len(g)
+			}
+			rebuilt, buildErr := window.Build(in, b)
+			if buildErr != nil {
+				// The new aside no longer fits this model: fail over exactly as an initial overflow does.
+				l.emit("window.overflow", sessionID, map[string]any{"step": step, "modelRef": cand.Ref, "error": buildErr.Error()})
+				exhausted[i] = true
+				if next, decision := FailoverDecision(cands, i, protocol.ClassCapacity); next >= 0 {
+					*decisions = append(*decisions, decision)
+					i = next
+					continue
+				}
+				return attempt{}, &ExitCause{Status: StatusFailed, Kind: KindWindowOverflow,
+					Err: fmt.Errorf("model %s: %w", cand.Ref, buildErr)}
+			}
+			built = rebuilt
+			req.Messages = built.Messages
 		}
 		// Every attempt (failover and capacity retries included) is a new request the budget admits
 		// before its envelope exists (ADR-0019 §6).

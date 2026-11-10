@@ -351,6 +351,10 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	}
 	debugControl, err := agent.NewDebugControl(runID, opts.Debug, func(snapshot agent.DebugSnapshot) {
 		e.events.publish("debug.agent.state", sessionID, map[string]any{"runId": runID, "status": snapshot.State, "phase": snapshot.Boundary.Event, "step": snapshot.Boundary.Step, "toolCallId": snapshot.Boundary.ToolCallID, "name": snapshot.Boundary.Tool, "reason": snapshot.Reason})
+		// A pause is durable state: the Hub shows interrupted(paused) after a restart instead of guessing.
+		if snapshot.State == "paused" || snapshot.State == "running" || snapshot.State == "closed" {
+			e.noteDebugState(sessionID, runID, snapshot)
+		}
 	})
 	if err != nil {
 		return nil, err
@@ -515,7 +519,8 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err := e.debugTools(ctx, sessionID, runID, policy, plan.trusted, tools); err != nil {
 		return nil, err
 	}
-	if err := e.bindWorkerMessages(ctx, sessionID, tools); err != nil {
+	workerRoot, err := e.bindWorkerMessages(ctx, sessionID, tools)
+	if err != nil {
 		return nil, err
 	}
 	// A child never executes inside the parent's kernel: a kernel is one actor's
@@ -610,6 +615,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Delegation:          delegation,
 		TaskAgents:          plan.taskAgents,
 		RunID:               runID,
+		WorkerRoot:          workerRoot,
 		Withheld:            withheld,
 		DeadlineReserve:     time.Duration(opts.DeadlineReserveSeconds) * time.Second,
 	}
@@ -783,6 +789,11 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 				point.Agent = plan.agentID
 				if err := e.runtimeEventAccess(ctx, sessionID); err != nil {
 					return err
+				}
+				// A worker renews its Task Lease claims at the model step boundary: the lease then expires
+				// only for a worker that stopped making progress.
+				if point.Event == "AfterModelCall" {
+					e.renewHeldLeases(sessionID)
 				}
 				if err := debugControl.Boundary(ctx, point); err != nil {
 					return err
@@ -1029,6 +1040,42 @@ func (s agentStore) InboxEdits(ctx context.Context, id string) ([]taskstate.Queu
 		return nil, err
 	}
 	return queuedEdits(rows), nil
+}
+
+// PendingSteers and MarkSteerApplied make the store the loop's steer inbox (agent.SteerStore): the loop
+// injects a queued instruction at the request window it builds next.
+func (s agentStore) PendingSteers(ctx context.Context, id string, limit int) ([]session.SteerMessage, error) {
+	return s.store.PendingSteerMessages(ctx, id, limit)
+}
+
+func (s agentStore) MarkSteerApplied(ctx context.Context, id string, seq, appliedSeq int64) error {
+	return s.store.MarkSteerApplied(ctx, id, seq, appliedSeq)
+}
+
+// PendingWorkerMessages and MarkWorkerMessagesDelivered make the store the loop's push message queue
+// (agent.WorkerMessageStore): a busy recipient reads them in its next request without calling
+// worker_inbox.
+func (s agentStore) PendingWorkerMessages(ctx context.Context, root, recipient, runID string, limit int) ([]session.WorkerMessage, error) {
+	page, err := s.store.PendingWorkerMessages(ctx, root, recipient, runID, limit)
+	if err != nil {
+		return nil, err
+	}
+	// A fenced sender's body is not readable: the row says so and the delivery still records.
+	for i := range page {
+		fenced, err := s.store.SessionFenced(ctx, page[i].SenderID)
+		if err != nil {
+			return nil, err
+		}
+		if fenced {
+			page[i].Withdrawn = true
+			page[i].Body = ""
+		}
+	}
+	return page, nil
+}
+
+func (s agentStore) MarkWorkerMessagesDelivered(ctx context.Context, root, recipient, runID string, messages []session.DeliveredWorkerMessage) error {
+	return s.store.MarkWorkerMessagesDelivered(ctx, root, recipient, runID, messages)
 }
 
 func (s agentStore) PutTaskState(ctx context.Context, id string, change agent.TaskStateChange) (int64, error) {

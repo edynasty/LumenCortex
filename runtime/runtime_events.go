@@ -28,12 +28,14 @@ func (e *Engine) ResumeRuntimeEvents(ctx context.Context, query RuntimeEventQuer
 }
 
 // SubscribeRuntimeEvents subscribes before the caller queries history. Deduplicate durable
-// notifications by ID/Cursor. A live gap is repaired with Resume, never assumed complete.
+// notifications by ID/Cursor. A live gap is repaired with Resume, never assumed complete: when the
+// subscriber's bounded buffer had to drop events, the next delivery is preceded by one
+// hub.events.gap{from,to,lost} for the durable cursors that were lost.
 func (e *Engine) SubscribeRuntimeEvents(ctx context.Context, sessionID string, buffer int) (<-chan Event, func(), error) {
 	if err := e.runtimeEventAccess(ctx, sessionID); err != nil {
 		return nil, nil, err
 	}
-	source, unsubscribe := e.events.subscribeSession(buffer, sessionID)
+	source, sub, unsubscribe := e.events.subscribeSessionLoss(buffer, sessionID)
 	ctx, cancel := context.WithCancel(ctx)
 	output := make(chan Event, min(max(buffer, 1), 4096))
 	go func() {
@@ -50,6 +52,17 @@ func (e *Engine) SubscribeRuntimeEvents(ctx context.Context, sessionID string, b
 				}
 				if e.runtimeEventAccess(ctx, sessionID) != nil {
 					return
+				}
+				// A loss is reported before the next delivery, so a reader never mistakes the stream for
+				// complete: the missing range is the durable cursors it must read again.
+				if from, to, lost := sub.lostRange(); lost > 0 {
+					gap := e.events.gapEvent(sessionID, from, to, lost)
+					sub.clearLost()
+					select {
+					case output <- gap:
+					case <-ctx.Done():
+						return
+					}
 				}
 				// Subscriber backpressure stays here, never in the producer; the source is bounded.
 				select {

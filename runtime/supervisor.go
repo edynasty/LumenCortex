@@ -30,6 +30,17 @@ type managedRun struct {
 	parentID        string
 	ownerRun        *managedRun
 	releaseAgent    func()
+	// retryOf names the run this one retries (Hub retry), empty otherwise.
+	retryOf string
+}
+
+// hubRunRecord is what the Hub remembers of a session's most recent run: its run id and the options a
+// retry reuses. It is process-local on purpose — a retry resumes an execution this process observed, and
+// after a restart a host passes the options it wants instead (the run's transcript and Task State are the
+// checkpoint, not this record).
+type hubRunRecord struct {
+	runID string
+	opts  AgentOptions
 }
 
 // RunSupervisor is the process-local source of truth for active agent executions
@@ -40,16 +51,23 @@ type RunSupervisor struct {
 	mu     sync.RWMutex
 	engine *Engine
 	runs   map[string]*managedRun
-	closed bool
+	// lastRuns holds each session's most recent run identity and options for the Hub's retry verb,
+	// bounded to maxHubRunRecords entries (oldest forgotten first).
+	lastRuns map[string]hubRunRecord
+	closed   bool
 }
+
+// maxHubRunRecords bounds the run records kept for retry.
+const maxHubRunRecords = 256
 
 func NewRunSupervisor(engine *Engine) (*RunSupervisor, error) {
 	if engine == nil {
 		return nil, errors.New("engine is required")
 	}
 	sup := &RunSupervisor{
-		engine: engine,
-		runs:   map[string]*managedRun{},
+		engine:   engine,
+		runs:     map[string]*managedRun{},
+		lastRuns: map[string]hubRunRecord{},
 	}
 	// Agent schedules start their runs here (ADR-0019 §4): without a registered supervisor they stay
 	// due, and registering one retries them.
@@ -178,6 +196,12 @@ func (s *RunSupervisor) Start(
 	info = prepared.info
 	handedOff = true
 
+	// The Hub's retry verb reuses the options of a session's most recent run; the record is bounded and
+	// process-local (a restart reconciles the session, and a retry after it needs explicit options).
+	if tracked := s.engine.trackedRun(sessionID); tracked != nil && tracked.debug != nil {
+		s.rememberRun(sessionID, tracked.debug.Snapshot().RunID, opts)
+	}
+
 	s.engine.events.publish("run.started", sessionID, map[string]any{
 		"startedAt": run.startedAt,
 	})
@@ -196,6 +220,9 @@ func (s *RunSupervisor) Start(
 				delete(s.runs, sessionID)
 			}
 			s.mu.Unlock()
+			// A finished or cancelled worker leaves no Task Lease behind: its units are ready for the next
+			// worker without waiting for the expiry.
+			s.engine.releaseHeldLeases(sessionID)
 			run.releaseAgent()
 			cancel()
 			close(run.done)
