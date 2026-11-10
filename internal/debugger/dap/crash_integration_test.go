@@ -28,6 +28,9 @@ func TestRealAdapterCrashClosesTransport(t *testing.T) {
 		{"node", node, []string{js, "{socket}"}, []string{filepath.Dir(filepath.Dir(node)), filepath.Dir(filepath.Dir(js))}, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.command == "" {
+				t.Skip("adapter not configured on this host")
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			private, err := os.MkdirTemp("/tmp", "lc-dap-crash-")

@@ -42,7 +42,7 @@ func fakeDebugEngine(t *testing.T, cfg dapfake.Config) (*Engine, string, string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	e, err := Open(Options{Workspace: root, Debug: &DebugOptions{Adapters: []DebugAdapter{{ID: "fake", Command: exe, Args: dapfake.Args(configPath)}}}})
+	e, err := Open(Options{Workspace: root, Debug: &DebugOptions{Sandbox: testSandbox(t), Adapters: []DebugAdapter{{ID: "fake", Command: exe, Args: dapfake.Args(configPath)}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,5 +191,45 @@ func TestE1D1ContinueReturnsStopInOneCall(t *testing.T) {
 	}
 	if stop.Reason != "breakpoint" || len(stop.TopFrames) == 0 || stop.TopFrames[0].Line != 4 {
 		t.Fatalf("E1-D1 present: %s", raw)
+	}
+}
+
+// TestDebugToolsExceptionFiltersAndStopCleanup covers the tool surface added
+// with the Manager contract: exception_filters on debug_set_breakpoint and the
+// cleanup method in debug_stop.
+func TestDebugToolsExceptionFiltersAndStopCleanup(t *testing.T) {
+	ctx := context.Background()
+	e, sessionID, root := fakeDebugEngine(t, dapfake.Config{StopDelayMS: 5})
+	snap, err := e.startProgramDebug(ctx, e.dapContext, DebugStartOptions{SessionID: sessionID, AdapterID: "fake", Program: filepath.Join(root, "fixture.c")}, "agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := toolset.New(toolset.Options{Workspace: root, Policy: toolset.PolicyFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = e.debugTools(ctx, sessionID, "", toolset.PolicyFull, true, set); err != nil {
+		t.Fatal(err)
+	}
+	call := func(name string, args map[string]any) string {
+		t.Helper()
+		result, err := set.Execute(ctx, name, args, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return result.Content
+	}
+	base := map[string]any{"debug_id": snap.ID, "epoch": snap.Epoch, "path": filepath.Join(root, "fixture.c"), "breakpoints": []any{map[string]any{"line": 4}}, "exception_filters": []any{"all"}}
+	out := call("debug_set_breakpoint", base)
+	if !strings.Contains(out, `"exceptionFilters":["all","uncaught"]`) {
+		t.Fatalf("supported exception filters not reported: %s", out)
+	}
+	res, err := set.Execute(ctx, "debug_set_breakpoint", map[string]any{"debug_id": snap.ID, "epoch": snap.Epoch, "path": filepath.Join(root, "fixture.c"), "breakpoints": []any{map[string]any{"line": 4}}, "exception_filters": []any{"not-a-filter"}}, nil)
+	if err == nil {
+		t.Fatalf("unknown exception filter accepted: %s", res.Content)
+	}
+	stop := call("debug_stop", map[string]any{"debug_id": snap.ID, "epoch": snap.Epoch, "terminate_debuggee": true})
+	if !strings.Contains(stop, `"cleanup":"disconnect"`) || !strings.Contains(stop, `"state":"closed"`) {
+		t.Fatalf("stop result missing cleanup: %s", stop)
 	}
 }

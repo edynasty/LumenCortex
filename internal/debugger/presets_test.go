@@ -3,6 +3,7 @@ package debugger
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
@@ -108,4 +109,22 @@ func TestManagerDiscoveryRegistersOnlyProbedAdapters(t *testing.T) {
 	if _, err := m.Start(context.Background(), StartOptions{SessionID: "s", AdapterID: "lldb", Workspace: t.TempDir(), Program: testExecutable(t), Actor: "human"}); err != nil && err != ErrNotFound {
 		t.Logf("probed adapter start reached the sandbox layer: %v", err)
 	}
+}
+
+// TestFindLLDBResolvesOnThisHost proves the host-independent resolution path
+// (xcrun on macOS, PATH including versioned names on Linux).
+func TestFindLLDBResolvesOnThisHost(t *testing.T) {
+	path := os.Getenv("LC_TEST_LLDB")
+	if path == "" {
+		var err error
+		path, err = FindLLDB()
+		if err != nil {
+			t.Skipf("no lldb-dap on this host: %v", err)
+		}
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("resolved %q: %v", path, err)
+	}
+	t.Logf("LLDB_DISCOVERY: %s", path)
 }

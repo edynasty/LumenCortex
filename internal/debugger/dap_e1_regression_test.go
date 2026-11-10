@@ -115,7 +115,7 @@ func probeFixture(t *testing.T, cfg dapfake.Config) (*Manager, Snapshot, string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := New(Options{Adapters: []Adapter{{ID: "fake", Command: exe, Args: dapfake.Args(configPath), Launch: map[string]any{}}}})
+	m, err := New(Options{Sandbox: testSandbox(t), Adapters: []Adapter{{ID: "fake", Command: exe, Args: dapfake.Args(configPath), Launch: map[string]any{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

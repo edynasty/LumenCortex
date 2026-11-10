@@ -55,7 +55,7 @@ func fakeFixture(t *testing.T, cfg dapfake.Config) (*Manager, Snapshot, string, 
 		t.Fatal(err)
 	}
 	log := &eventLog{}
-	m, err := New(Options{Adapters: []Adapter{{ID: "fake", Command: exe, Args: dapfake.Args(configPath), Launch: map[string]any{}}}, OnEvent: log.add})
+	m, err := New(Options{Sandbox: testSandbox(t), Adapters: []Adapter{{ID: "fake", Command: exe, Args: dapfake.Args(configPath), Launch: map[string]any{}}}, OnEvent: log.add})
 	if err != nil {
 		t.Fatal(err)
 	}
