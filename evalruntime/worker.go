@@ -193,8 +193,10 @@ func (w *worker) start(ctx context.Context) error {
 		onStdout:    w.onStdout,
 		onStderr:    w.onStderr,
 		onLimit:     w.onLimit,
-		owner: procrt.Owner{SessionID: s.id, Component: procrt.ComponentEval,
-			ObjectID: s.manifest.ID},
+		// SessionID is the Core session whose revocation must stop this kernel;
+		// ObjectID is the eval kernel that owns the process.
+		owner: procrt.Owner{SessionID: s.ownerID, Component: procrt.ComponentEval,
+			ObjectID: s.id},
 		enforcement: procrtEnforcement(enforcement),
 		cgroup:      leaf,
 		launchFiles: launchFiles,
