@@ -207,6 +207,8 @@ type prepared struct {
 	rebased  bool
 	moved    map[int]int
 	ops      []LineOp
+	// wrote records that the commit really wrote this file, so a no-op change emits no event.
+	wrote bool
 }
 
 // Commit applies the plan: every file or none. It resolves and locks the paths, checks write leases,
@@ -273,13 +275,18 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 		}
 		return result, nil
 	}
-	written, err := e.write(host, plan, prep)
-	if err != nil {
+	if _, err := e.write(host, plan, prep); err != nil {
 		return Result{}, e.refuse(host, plan, nil, err)
 	}
 	result := Result{Diagnostics: diagnostics}
-	for _, p := range written {
+	for _, p := range prep {
+		// Every file of the plan is reported, changed or not, so a caller can read the current revision
+		// even when the edit was a no-op; only a file that was really written is registered and emits an
+		// event.
 		result.Files = append(result.Files, fileResult(p))
+		if !p.wrote {
+			continue
+		}
 		e.register(p, plan)
 		host.Event("edit.committed", plan.Actor.Session, map[string]any{
 			"path": p.rel, "oldRev": p.rev, "newRev": RevOf(p.next), "actor": plan.Actor.Session,
@@ -573,6 +580,7 @@ func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, err
 				e.rollback(host, written)
 				return nil, err
 			}
+			p.wrote = true
 			written = append(written, p)
 			continue
 		}
@@ -590,6 +598,7 @@ func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, err
 			e.rollback(host, written)
 			return nil, err
 		}
+		p.wrote = true
 		written = append(written, p)
 	}
 	return written, nil
