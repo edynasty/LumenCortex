@@ -528,3 +528,81 @@
 {"Time":"2026-11-11T01:20:52.941726+08:00","Action":"skip","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonCancelCleansDetachedDescendants","Elapsed":0}
 {"Time":"2026-11-11T01:20:52.941734+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonEnvAllowlistHidesHostSecrets"}
 {"Time":"2026-11-11T01:20:52.941741+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonEnvAllowlistHidesHostSecrets","Output":"=== RUN   TestPythonEnvAllowlistHidesHostSecrets\n"}
+{"Time":"2026-11-11T01:20:53.274994+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonEnvAllowlistHidesHostSecrets","Output":"--- PASS: TestPythonEnvAllowlistHidesHostSecrets (0.33s)\n"}
+{"Time":"2026-11-11T01:20:53.275046+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonEnvAllowlistHidesHostSecrets","Elapsed":0.33}
+{"Time":"2026-11-11T01:20:53.275059+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonFileIsolationBetweenKernels"}
+{"Time":"2026-11-11T01:20:53.275067+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonFileIsolationBetweenKernels","Output":"=== RUN   TestPythonFileIsolationBetweenKernels\n"}
+{"Time":"2026-11-11T01:20:53.711507+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonFileIsolationBetweenKernels","Output":"--- PASS: TestPythonFileIsolationBetweenKernels (0.44s)\n"}
+{"Time":"2026-11-11T01:20:53.711553+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonFileIsolationBetweenKernels","Elapsed":0.44}
+{"Time":"2026-11-11T01:20:53.711563+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonNetworkIsDenied"}
+{"Time":"2026-11-11T01:20:53.71157+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonNetworkIsDenied","Output":"=== RUN   TestPythonNetworkIsDenied\n"}
+{"Time":"2026-11-11T01:20:54.043883+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonNetworkIsDenied","Output":"--- PASS: TestPythonNetworkIsDenied (0.33s)\n"}
+{"Time":"2026-11-11T01:20:54.043925+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonNetworkIsDenied","Elapsed":0.33}
+{"Time":"2026-11-11T01:20:54.043936+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonDisposeCleansWorkers"}
+{"Time":"2026-11-11T01:20:54.044258+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonDisposeCleansWorkers","Output":"=== RUN   TestPythonDisposeCleansWorkers\n"}
+{"Time":"2026-11-11T01:20:54.401507+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonDisposeCleansWorkers","Output":"--- PASS: TestPythonDisposeCleansWorkers (0.36s)\n"}
+{"Time":"2026-11-11T01:20:54.401582+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestPythonDisposeCleansWorkers","Elapsed":0.36}
+{"Time":"2026-11-11T01:20:54.401597+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestSubprocessIsDeniedByDefault"}
+{"Time":"2026-11-11T01:20:54.401605+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestSubprocessIsDeniedByDefault","Output":"=== RUN   TestSubprocessIsDeniedByDefault\n"}
+{"Time":"2026-11-11T01:20:54.757929+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestSubprocessIsDeniedByDefault","Output":"--- PASS: TestSubprocessIsDeniedByDefault (0.36s)\n"}
+{"Time":"2026-11-11T01:20:54.75797+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestSubprocessIsDeniedByDefault","Elapsed":0.36}
+{"Time":"2026-11-11T01:20:54.757984+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCFrameLimit"}
+{"Time":"2026-11-11T01:20:54.75799+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCFrameLimit","Output":"=== RUN   TestRPCFrameLimit\n"}
+{"Time":"2026-11-11T01:20:54.799151+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCFrameLimit","Output":"--- PASS: TestRPCFrameLimit (0.04s)\n"}
+{"Time":"2026-11-11T01:20:54.799306+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCFrameLimit","Elapsed":0.04}
+{"Time":"2026-11-11T01:20:54.799322+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCCorrelation"}
+{"Time":"2026-11-11T01:20:54.799331+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCCorrelation","Output":"=== RUN   TestRPCCorrelation\n"}
+{"Time":"2026-11-11T01:20:54.799639+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCCorrelation","Output":"--- PASS: TestRPCCorrelation (0.00s)\n"}
+{"Time":"2026-11-11T01:20:54.799687+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCCorrelation","Elapsed":0}
+{"Time":"2026-11-11T01:20:54.799698+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCInboundRequestsAndNotifications"}
+{"Time":"2026-11-11T01:20:54.799707+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCInboundRequestsAndNotifications","Output":"=== RUN   TestRPCInboundRequestsAndNotifications\n"}
+{"Time":"2026-11-11T01:20:54.799903+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCInboundRequestsAndNotifications","Output":"--- PASS: TestRPCInboundRequestsAndNotifications (0.00s)\n"}
+{"Time":"2026-11-11T01:20:54.799926+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCInboundRequestsAndNotifications","Elapsed":0}
+{"Time":"2026-11-11T01:20:54.799935+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCErrorPropagates"}
+{"Time":"2026-11-11T01:20:54.799942+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCErrorPropagates","Output":"=== RUN   TestRPCErrorPropagates\n"}
+{"Time":"2026-11-11T01:20:54.800131+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCErrorPropagates","Output":"--- PASS: TestRPCErrorPropagates (0.00s)\n"}
+{"Time":"2026-11-11T01:20:54.800144+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCErrorPropagates","Elapsed":0}
+{"Time":"2026-11-11T01:20:54.80015+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCContextCancellation"}
+{"Time":"2026-11-11T01:20:54.800156+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCContextCancellation","Output":"=== RUN   TestRPCContextCancellation\n"}
+{"Time":"2026-11-11T01:20:54.95209+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCContextCancellation","Output":"--- PASS: TestRPCContextCancellation (0.15s)\n"}
+{"Time":"2026-11-11T01:20:54.952183+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestRPCContextCancellation","Elapsed":0.15}
+{"Time":"2026-11-11T01:20:54.952207+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusPluginExecutableDoesNotGrantParentRead"}
+{"Time":"2026-11-11T01:20:54.952219+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusPluginExecutableDoesNotGrantParentRead","Output":"=== RUN   TestOpusPluginExecutableDoesNotGrantParentRead\n"}
+{"Time":"2026-11-11T01:20:55.002939+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusPluginExecutableDoesNotGrantParentRead","Output":"--- PASS: TestOpusPluginExecutableDoesNotGrantParentRead (0.05s)\n"}
+{"Time":"2026-11-11T01:20:55.002977+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusPluginExecutableDoesNotGrantParentRead","Elapsed":0.05}
+{"Time":"2026-11-11T01:20:55.003005+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusRuntimeExecutableMustBeRegular"}
+{"Time":"2026-11-11T01:20:55.003015+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusRuntimeExecutableMustBeRegular","Output":"=== RUN   TestOpusRuntimeExecutableMustBeRegular\n"}
+{"Time":"2026-11-11T01:20:55.004136+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusRuntimeExecutableMustBeRegular","Output":"--- PASS: TestOpusRuntimeExecutableMustBeRegular (0.00s)\n"}
+{"Time":"2026-11-11T01:20:55.004158+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusRuntimeExecutableMustBeRegular","Elapsed":0}
+{"Time":"2026-11-11T01:20:55.004169+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusSandboxDeniesUnrelatedDirectoryListing"}
+{"Time":"2026-11-11T01:20:55.004177+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusSandboxDeniesUnrelatedDirectoryListing","Output":"=== RUN   TestOpusSandboxDeniesUnrelatedDirectoryListing\n"}
+{"Time":"2026-11-11T01:20:55.343891+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusSandboxDeniesUnrelatedDirectoryListing","Output":"--- PASS: TestOpusSandboxDeniesUnrelatedDirectoryListing (0.34s)\n"}
+{"Time":"2026-11-11T01:20:55.343953+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusSandboxDeniesUnrelatedDirectoryListing","Elapsed":0.34}
+{"Time":"2026-11-11T01:20:55.343964+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusLinuxRunSocketIsolation"}
+{"Time":"2026-11-11T01:20:55.343971+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusLinuxRunSocketIsolation","Output":"=== RUN   TestOpusLinuxRunSocketIsolation\n"}
+{"Time":"2026-11-11T01:20:55.343996+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusLinuxRunSocketIsolation","Output":"    sandbox_security_test.go:104: requires Linux bubblewrap\n"}
+{"Time":"2026-11-11T01:20:55.344022+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusLinuxRunSocketIsolation","Output":"--- SKIP: TestOpusLinuxRunSocketIsolation (0.00s)\n"}
+{"Time":"2026-11-11T01:20:55.344035+08:00","Action":"skip","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusLinuxRunSocketIsolation","Elapsed":0}
+{"Time":"2026-11-11T01:20:55.344057+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusResetClearsHomeAndTemporaryState"}
+{"Time":"2026-11-11T01:20:55.344076+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusResetClearsHomeAndTemporaryState","Output":"=== RUN   TestOpusResetClearsHomeAndTemporaryState\n"}
+{"Time":"2026-11-11T01:20:55.97022+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusResetClearsHomeAndTemporaryState","Output":"--- PASS: TestOpusResetClearsHomeAndTemporaryState (0.63s)\n"}
+{"Time":"2026-11-11T01:20:55.970264+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusResetClearsHomeAndTemporaryState","Elapsed":0.63}
+{"Time":"2026-11-11T01:20:55.970288+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusArtifactClosedKernelRemainsReadable"}
+{"Time":"2026-11-11T01:20:55.9703+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusArtifactClosedKernelRemainsReadable","Output":"=== RUN   TestOpusArtifactClosedKernelRemainsReadable\n"}
+{"Time":"2026-11-11T01:20:56.349017+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusArtifactClosedKernelRemainsReadable","Output":"--- PASS: TestOpusArtifactClosedKernelRemainsReadable (0.38s)\n"}
+{"Time":"2026-11-11T01:20:56.349102+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestOpusArtifactClosedKernelRemainsReadable","Elapsed":0.38}
+{"Time":"2026-11-11T01:20:56.349141+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestSandboxFailsClosedWithoutABackend"}
+{"Time":"2026-11-11T01:20:56.34915+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestSandboxFailsClosedWithoutABackend","Output":"=== RUN   TestSandboxFailsClosedWithoutABackend\n"}
+{"Time":"2026-11-11T01:20:56.349704+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestSandboxFailsClosedWithoutABackend","Output":"--- PASS: TestSandboxFailsClosedWithoutABackend (0.00s)\n"}
+{"Time":"2026-11-11T01:20:56.349728+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestSandboxFailsClosedWithoutABackend","Elapsed":0}
+{"Time":"2026-11-11T01:20:56.349753+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestWorkerScriptsAreMaterialized"}
+{"Time":"2026-11-11T01:20:56.349766+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestWorkerScriptsAreMaterialized","Output":"=== RUN   TestWorkerScriptsAreMaterialized\n"}
+{"Time":"2026-11-11T01:20:56.566342+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestWorkerScriptsAreMaterialized","Output":"--- PASS: TestWorkerScriptsAreMaterialized (0.22s)\n"}
+{"Time":"2026-11-11T01:20:56.566384+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestWorkerScriptsAreMaterialized","Elapsed":0.22}
+{"Time":"2026-11-11T01:20:56.566395+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestManifestLimitsDescribeRealEnforcement"}
+{"Time":"2026-11-11T01:20:56.566402+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestManifestLimitsDescribeRealEnforcement","Output":"=== RUN   TestManifestLimitsDescribeRealEnforcement\n"}
+{"Time":"2026-11-11T01:20:56.943321+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestManifestLimitsDescribeRealEnforcement","Output":"--- PASS: TestManifestLimitsDescribeRealEnforcement (0.38s)\n"}
+{"Time":"2026-11-11T01:20:56.943384+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Test":"TestManifestLimitsDescribeRealEnforcement","Elapsed":0.38}
+{"Time":"2026-11-11T01:20:56.943402+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Output":"PASS\n"}
+{"Time":"2026-11-11T01:20:57.95731+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/evalruntime","Output":"ok  \tgithub.com/edynasty/LumenCortex/evalruntime\t111.965s\n"}
+{"Time":"2026-11-11T01:20:57.957366+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/evalruntime","Elapsed":111.966}

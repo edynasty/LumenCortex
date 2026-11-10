@@ -579,39 +579,37 @@ class Worker:
                     "type": "started", "data": {"requestId": self._request_id}}})
                 last_value = None
                 try:
-                    await_flags = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
-                    try:
-                        tree = ast.parse(code, filename="<cell>", mode="exec")
-                    except SyntaxError:
-                        # An older parser rejects module-level await outright.
-                        # Compile the whole cell with the flag; the last
-                        # expression's display is unavailable in this path.
-                        whole = compile(code, "<cell>", "exec", await_flags, dont_inherit=True)
-                        value = self._eval_compiled(whole)
+                    # Parse to an AST with both flags: PyCF_ALLOW_TOP_LEVEL_AWAIT
+                    # makes module-level await (`x = await f()`) legal on every
+                    # supported CPython, and PyCF_ONLY_AST stops at the tree so
+                    # the trailing expression can still be split off for REPL
+                    # display. ast.parse() alone rejects that code on some
+                    # versions.
+                    tree = compile(code, "<cell>", "exec",
+                                   ast.PyCF_ONLY_AST | ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                                   dont_inherit=True)
+                    body = list(tree.body)
+                    last_expr = None
+                    if body and isinstance(body[-1], ast.Expr):
+                        last_expr = body.pop()
+                    if body:
+                        module = ast.Module(body=body, type_ignores=[])
+                        # A wait in the body makes the module a coroutine;
+                        # compiling it with the flag returns CO_COROUTINE, so it
+                        # must be driven, not merely exec'd.
+                        compiled = compile(module, "<cell>", "exec",
+                                           ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                                           dont_inherit=True)
+                        value = self._eval_compiled(compiled)
+                        if value is not None:
+                            self.g["_"] = value
+                    if last_expr is not None:
+                        compiled = compile(ast.Expression(last_expr.value), "<cell>",
+                                           "eval", ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                                           dont_inherit=True)
+                        value = self._eval_compiled(compiled)
                         self.g["_"] = value
                         last_value = value
-                    else:
-                        body = list(tree.body)
-                        last_expr = None
-                        if body and isinstance(body[-1], ast.Expr):
-                            last_expr = body.pop()
-                        if body:
-                            module = ast.Module(body=body, type_ignores=[])
-                            # A wait in the body (x = await f()) makes the module
-                            # a coroutine; compiling it with the flag returns
-                            # CO_COROUTINE, so it must be driven, not merely
-                            # exec'd.
-                            compiled = compile(module, "<cell>", "exec", await_flags,
-                                               dont_inherit=True)
-                            value = self._eval_compiled(compiled)
-                            if value is not None:
-                                self.g["_"] = value
-                        if last_expr is not None:
-                            compiled = compile(ast.Expression(last_expr.value), "<cell>",
-                                               "eval", await_flags, dont_inherit=True)
-                            value = self._eval_compiled(compiled)
-                            self.g["_"] = value
-                            last_value = value
                 finally:
                     # Rendering is still the cell, whether its code finished
                     # or not: figures the cell drew are flushed either way.

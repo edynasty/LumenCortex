@@ -506,9 +506,11 @@ func (p *process) noteCgroupLimit() {
 	if kills == 0 {
 		return
 	}
+	// record directly: noteLimit takes the same sync.Once, and Once.Do is not
+	// re-entrant (calling it here would deadlock the wait goroutine).
 	p.limitOnce.Do(func() {
 		reason := fmt.Sprintf("memory limit exceeded: the worker cgroup reached memory.max=%s bytes and the kernel killed it (oom_kill=%d)", p.cg.memoryMax(), kills)
-		p.noteLimit("memory", procrt.Hard, reason, p.onLimit)
+		p.recordLimit("memory", procrt.Hard, reason)
 	})
 }
 
@@ -521,12 +523,21 @@ func (p *process) noteLimit(resource, enforcement, reason string, onLimit func(s
 	fired := false
 	p.limitOnce.Do(func() {
 		fired = true
-		p.limitHit.Store(reason)
-		p.limitResource.Store(resource)
-		p.limitEnforcement.Store(enforcement)
+		p.recordLimit(resource, enforcement, reason)
 	})
 	if fired && onLimit != nil {
 		onLimit(reason)
+	}
+}
+
+// recordLimit stores the attribution and emits the event. Callers must already
+// hold limitOnce.
+func (p *process) recordLimit(resource, enforcement, reason string) {
+	p.limitHit.Store(reason)
+	p.limitResource.Store(resource)
+	p.limitEnforcement.Store(enforcement)
+	if p.onLimit != nil {
+		p.onLimit(reason)
 	}
 }
 
