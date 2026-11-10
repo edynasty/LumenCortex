@@ -176,8 +176,8 @@ func (e *Engine) ApplySessionWorktree(ctx context.Context, sessionID string) (Wo
 		return WorktreeApplyResult{Plan: plan, Action: action}, err
 	}
 	e.events.publish("worktree.applied", sessionID, map[string]any{
-		"branch":     plan.Runtime.Branch,
-		"commits":    len(plan.Commits),
+		"branch": plan.Runtime.Branch,
+		"commits": len(plan.Commits),
 		"targetHead": head,
 	})
 	// Applying discharges pending application only; the thread is latched done only if that was the
