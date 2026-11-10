@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"testing"
+	"time"
 
 	"github.com/edynasty/LumenCortex/internal/toolset"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -258,5 +259,64 @@ func TestWriteFileRefusesAStaleReadInTheRunRegistry(t *testing.T) {
 	}
 	if got := readTestWorkspaceFile(t, path); got != "alpha\nconcurrent\n" {
 		t.Fatalf("the concurrent write was lost: %q", got)
+	}
+}
+
+// A commit publishes edit.committed on the run's event bus with the path and both revisions, and a
+// refused edit publishes edit.conflict with its code.
+func TestEditEventsReachSubscribers(t *testing.T) {
+	engine, root := gitEngine(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	session := newTestSession(t, engine, "watch edits")
+	events, unsubscribe, err := engine.SubscribeRuntimeEvents(ctx, session.ID, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsubscribe()
+	set, err := toolset.New(toolset.Options{Workspace: root, Policy: toolset.PolicyFull, SessionID: session.ID,
+		Editing: engine.editing,
+		Events:  func(kind, sid string, payload map[string]any) { engine.events.publish(kind, sid, payload) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, execErr := set.Execute(ctx, "write_file", map[string]any{"path": "a.txt", "content": "alpha\n"}, nil); execErr != nil || !result.OK {
+		t.Fatalf("write = %s, %v", result.Content, execErr)
+	}
+	// A read then an external change makes the next whole-file write a conflict.
+	if result, execErr := set.Execute(ctx, "read_file", map[string]any{"path": "a.txt"}, nil); execErr != nil || !result.OK {
+		t.Fatalf("read = %s, %v", result.Content, execErr)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("alpha\nother\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if result, execErr := set.Execute(ctx, "write_file", map[string]any{"path": "a.txt", "content": "beta\n"}, nil); execErr != nil || result.OK {
+		t.Fatalf("stale write = %s, %v", result.Content, execErr)
+	}
+
+	seen := map[string]map[string]any{}
+	deadline := time.After(5 * time.Second)
+	for len(seen) < 2 {
+		select {
+		case event := <-events:
+			var payload map[string]any
+			if err := json.Unmarshal(event.Data, &payload); err != nil {
+				t.Fatalf("%s payload: %v", event.Type, err)
+			}
+			seen[event.Type] = payload
+		case <-deadline:
+			t.Fatalf("events seen: %v", seen)
+		}
+	}
+	committed := seen["edit.committed"]
+	if committed["path"] != "a.txt" || committed["tool"] != "write_file" || committed["actor"] != session.ID {
+		t.Fatalf("edit.committed = %v", committed)
+	}
+	if committed["newRev"] == "" || committed["newRev"] == committed["oldRev"] {
+		t.Fatalf("edit.committed revisions = %v", committed)
+	}
+	conflict := seen["edit.conflict"]
+	if conflict["code"] != "conflict" || conflict["path"] != "a.txt" {
+		t.Fatalf("edit.conflict = %v", conflict)
 	}
 }

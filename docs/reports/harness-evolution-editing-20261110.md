@@ -15,7 +15,7 @@ prototypes `prototypes/e3-hashline` (S1–S9) and `prototypes/e4-ast-edit` (8 ca
 | write_file stale-read race (E3 S7b) fixed | Validated | `TestWriteFileRefusesStaleReadThroughToolset`, `TestWriteFileRefusesAStaleReadInTheRunRegistry`, `TestWholeFileWriteRefusesStaleBaseRevision` |
 | Shared write leases (engine + runtime host API) | Validated | `TestWriteLeaseRefusesOtherHolder`, `TestWriteLeasePrefixAndExpiry`, `TestWriteLeaseBlocksAnotherSessionsWriteTool` |
 | Go AST editing (`edit_go`) | Validated (Go only) | E4 1–8 ports, `TestEditGoThroughToolset` |
-| `edit.committed` / `edit.conflict` events | Implemented (live) | published through `e.events.publish`; live-only by decision; not asserted by a dedicated subscriber test (see limitations) |
+| `edit.committed` / `edit.conflict` events | Validated (live) | `TestEditEventsReachSubscribers`; live-only by decision |
 | Agent loop end-to-end | Validated | `TestAgentLoopEditsLinesAndRejectsAStaleEdit` (scripted provider) |
 | TS/JS/Python structured editing | Not in this slice | remains the existing LSP path (`lsp_rename`, code actions); no AST claim for those languages |
 
@@ -115,7 +115,7 @@ go test -count=1 ./internal/editing/...            ok  (engine 0.5s, goedit 2.7s
 go test -race -count=1 ./internal/editing/... ./internal/toolset/...   ok  (31.6s)
 go test -count=1 ./internal/toolset/               ok  (23–25s, legacy guard/apply-patch/replace tests included)
 go test -count=1 ./runtime/ -run 'TestAgentLoopEditsLinesAndRejectsAStaleEdit|TestWriteLeaseBlocksAnotherSessionsWriteTool|TestWriteFileRefusesAStaleReadInTheRunRegistry|TestCapabilities'  ok
-go test -count=1 ./runtime/                        see note below
+go test -count=1 ./runtime/ ./internal/toolset/ ./internal/editing/...   ok (exit 0, skip-only)
 go build ./...                                     ok
 go vet ./...                                       ok
 ```
@@ -143,10 +143,9 @@ invariant, and is not a Go test.
   post-write rehash only in the sense that it is *reported* (`concurrent_write_detected`); the other
   writer's bytes may already have replaced ours. An OS-level lock would be needed to prevent it.
 - Leases are in-memory: they do not coordinate two Core processes on one work tree.
-- No dedicated assertion on the `edit.committed` payload: the event is published on the live bus (the
-  durable path is covered by the bus tests), its payload is built in `Engine.Commit`, and a
-  subscriber-level test is deferred (P3). Because it is live-only, a subscriber that connects after an
-  edit does not replay it; the transcript tool result and the execution record carry the change.
+- Edit events are live-only by decision, and `TestEditEventsReachSubscribers` asserts the committed
+  and conflict payloads. A subscriber that connects after an edit does not replay it; the transcript
+  tool result and the execution record carry the change.
 - The prompt budget: with the full catalog a run needs about 6 400 estimated tokens, so a fixture or
   deployment with an 8 000-token window and a 1 000-token output reservation has almost no headroom.
   Two test fixtures now use 16 000 (documented in place); a real deployment should configure
