@@ -965,6 +965,9 @@ var (
 	// testHookAfterRunLeaves runs in a supervised run's cleanup just after the run left the supervisor
 	// (Active reports false), before the rest of the cleanup.
 	testHookAfterRunLeaves func()
+	// testHookBeforeRunStopped runs in a supervised run's cleanup after the run released its resources,
+	// just before it publishes run.stopped and closes its done channel.
+	testHookBeforeRunStopped func()
 )
 
 func (s agentStore) AdmitExecution(ctx context.Context, a session.ExecutionAdmission) error {

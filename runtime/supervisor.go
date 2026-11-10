@@ -233,7 +233,9 @@ func (s *RunSupervisor) Start(
 			}
 			run.releaseAgent()
 			cancel()
-			close(run.done)
+			if testHookBeforeRunStopped != nil {
+				testHookBeforeRunStopped()
+			}
 
 			data := map[string]any{}
 			if runErr != nil {
@@ -243,6 +245,9 @@ func (s *RunSupervisor) Start(
 			if opts.parentSessionID != "" {
 				s.engine.checkpointSubagentStop(opts.parentSessionID, sessionID, runErr)
 			}
+			// done closes last: RunSupervisor.Close and Engine.Close wait on it, so the stopped event and
+			// the parent's checkpoint are written before the Engine closes its event bus and store.
+			close(run.done)
 		}()
 		defer func() {
 			if opts.parentSessionID != "" {
@@ -361,8 +366,11 @@ func (s *RunSupervisor) Close() {
 	s.closed = true
 	runs := make([]*managedRun, 0, len(s.runs))
 	for sessionID, run := range s.runs {
-		// Closing the supervisor is a shutdown, not a cancel of the run: a paused run keeps its pause.
-		s.engine.markRunShutdown(sessionID)
+		// Closing the supervisor is a shutdown, not a cancel of the run: a paused run keeps its pause. A run
+		// the host already cancelled stays cancelled, so its pause clears as it ends.
+		if !run.cancelRequested {
+			s.engine.markRunShutdown(sessionID)
+		}
 		run.cancelRequested = true
 		run.cancel()
 		runs = append(runs, run)

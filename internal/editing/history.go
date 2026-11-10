@@ -2,6 +2,7 @@ package editing
 
 import (
 	"os"
+	"slices"
 	"sync"
 )
 
@@ -49,7 +50,9 @@ func (h *revisionHistory) add(key string, entry historyEntry) {
 	h.bytes += len(entry.content)
 	for len(entries) > historyRevsPerPath {
 		h.bytes -= len(entries[0].content)
-		entries = entries[1:]
+		// Delete shifts the slice and clears the freed slot, so the evicted content is not kept alive by
+		// the backing array (entries[1:] would keep it reachable while no longer counted in h.bytes).
+		entries = slices.Delete(entries, 0, 1)
 	}
 	h.paths[key] = entries
 	h.touchLocked(key)

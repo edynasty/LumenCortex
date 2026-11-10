@@ -451,3 +451,86 @@ func TestHubCancelWhilePausedIsNotReportedPausedOnceStopped(t *testing.T) {
 		t.Fatalf("stopped run still reported paused: state=%s paused=%+v", view.Agents[0].State, view.Agents[0].Paused)
 	}
 }
+
+// TestEngineCloseWaitsForRunStopped pins the end of a supervised run's cleanup: Engine.Close waits until
+// the run published run.stopped, so the event is durable after a reopen. The hook holds the cleanup just
+// before it publishes; when done closed earlier, Close finished first and the event was dropped.
+func TestEngineCloseWaitsForRunStopped(t *testing.T) {
+	useGlobalConfig(t, withConcurrency(4, 3))
+	dir := t.TempDir()
+	e, err := Open(Options{Workspace: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup, err := NewRunSupervisor(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := newParentSession(t, e, &hubScriptProvider{})
+	ctx := context.Background()
+	if _, err := sup.Start(ctx, id, AgentOptions{Policy: "read-only", Interactive: true, Debug: &AgentDebugOptions{PauseOnStart: true}}); err != nil {
+		t.Fatal(err)
+	}
+	awaitPause(t, e, id, 0)
+	testHookBeforeRunStopped = func() { time.Sleep(50 * time.Millisecond) }
+	e.Close()
+	testHookBeforeRunStopped = nil
+
+	e, err = Open(Options{Workspace: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	page, err := e.QueryRuntimeEvents(ctx, RuntimeEventQuery{SessionID: id, Type: "run.stopped", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Events) != 1 {
+		t.Fatalf("run.stopped events after reopen = %d", len(page.Events))
+	}
+}
+
+// TestHubCancelThenCloseDoesNotKeepThePause pins the difference between a host's cancel and a shutdown:
+// a paused run the host cancelled reads interrupted after a restart even when the supervisor closed
+// before the run's cleanup ran; only a run that was still paused at shutdown keeps its pause.
+func TestHubCancelThenCloseDoesNotKeepThePause(t *testing.T) {
+	useGlobalConfig(t, withConcurrency(4, 3))
+	dir := t.TempDir()
+	e, err := Open(Options{Workspace: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup, err := NewRunSupervisor(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := newParentSession(t, e, &hubScriptProvider{})
+	ctx := context.Background()
+	if _, err := sup.Start(ctx, id, AgentOptions{Policy: "read-only", Interactive: true, Debug: &AgentDebugOptions{PauseOnStart: true}}); err != nil {
+		t.Fatal(err)
+	}
+	snap := awaitPause(t, e, id, 0)
+	if _, err := hubCommand(t, sup, HubCommand{SessionID: id, CommandID: "cmd-cancel-then-close", ExpectedRevision: snap.Revision, Verb: HubVerbCancel}); err != nil {
+		t.Fatal(err)
+	}
+	sup.Close()
+	e.Close()
+
+	e, err = Open(Options{Workspace: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	sup, err = NewRunSupervisor(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sup.Close()
+	view, err := sup.View(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Agents[0].Paused != nil || view.Agents[0].State == HubStateInterruptedStop {
+		t.Fatalf("a cancelled run kept its pause across the restart: %+v", view.Agents[0])
+	}
+}
