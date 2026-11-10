@@ -144,12 +144,14 @@ Raw empirical checks on this macOS host:
   (peak RSS ≈ 122 MB for a 64 MiB heap cap).
 - `node --max-old-space-size=64` on a `Buffer.alloc` loop → no heap abort, RSS
   reached 2.7 GB: external memory is outside the cap, so it must stay supervised.
-- Supervised Python breach (limit 128 MiB): killed after 688 ms wall, sampled peak
-  190,496,768 B → **overshoot 56,279,040 B (53.7 MiB)** at ~400 MB/s allocation.
-- Supervised JS `Buffer.alloc` breach (limit 192 MiB): observed RSS 572,178,432 B
-  → **overshoot 370,851,840 B (353.7 MiB)** at ~1.8 GB/s allocation. The overshoot
-  window is one poll interval, so its byte size scales with the allocation rate;
-  this is why it is reported as supervised, never hard.
+- Supervised Python breach (limit 128 MiB), four runs: killed after 533–691 ms wall,
+  sampled peaks 140.2–199.4 MB → **overshoot 5.7–65.2 MB (≈5–62 MiB)** at ~400 MB/s
+  allocation (the variance is `ps` sampling latency under load).
+- Supervised JS `Buffer.alloc` breach (limit 192 MiB), two runs: observed RSS
+  504.5–572.2 MB → **overshoot 303–371 MB (≈289–354 MiB)** at ~1.8 GB/s allocation.
+  The overshoot window is one poll interval, so its byte size scales with the
+  allocation rate; this is why it is reported as supervised, never hard, and why
+  the test asserts the interval rather than an exact byte ceiling.
 
 ## 4. Tests
 
@@ -183,14 +185,101 @@ Run in this worktree, `-count=1`, raw JSON kept:
 
 | Command | Result | Raw |
 |---|---|---|
-| `go test -count=1 -json ./evalruntime/... ./evalapi/... ./internal/procrt/...` | **169 pass / 0 fail / 4 skip** (skip: two detached-descendant tests that need `subprocess` enabled, the Linux cgroup test, the Linux socket-isolation test) | `raw/eval/packages-macos.jsonl` |
+| `go test -count=1 -json ./evalruntime/... ./evalapi/... ./internal/procrt/...` | **169 pass / 0 fail / 4 skip** (test-level; evalruntime 145, evalapi 18, procrt 6) (skip: two detached-descendant tests that need `subprocess` enabled, the Linux cgroup test, the Linux socket-isolation test) | `raw/eval/packages-macos.jsonl` |
 | `go test -race -count=1 -json ./internal/procrt/` | 7 pass / 0 fail | `raw/eval/procrt-race-macos.jsonl` |
 | `go test -race -count=1 -json ./evalruntime/` | 146 pass / 0 fail | `raw/eval/evalruntime-race-macos.jsonl` |
 | `go test -race -count=1 -json -run 'TestAgentKeeps\|TestProcessesReportsEvalCensus\|TestEvalInspectAndRestartThroughTheEngine\|TestAgentUsesPersistentRuntime…\|TestAgentEvalCallbacks…' ./runtime/` | 7 pass / 0 fail | `raw/eval/runtime-eval-race-macos.jsonl` |
+| `go test -count=1 ./internal/toolset/ ./internal/agent/` | ok (tool registry + eval-callback policy unaffected) | — |
 | `go build ./... && go vet ./...` | clean | — |
 
 The agent-loop tests use a **scripted provider** (`local-eval-persistence-fixture`),
 so no model request was made.
+
+### 5.1 Linux
+
+Environment label: **Ubuntu 24.04 arm64 userland in a privileged Docker Desktop
+container** (LinuxKit kernel; image `lc-ubuntu-systemd:24.04` rebuilt from
+`lc-ubuntu-go:24.04` + systemd/dbus-user-session). It is a container, not an
+Ubuntu VM/host.
+
+Exact invocation (`bench/evidence/.../raw/integration/lc-linux-run.sh`):
+
+```text
+docker run -d --privileged --cgroupns=host --memory 2g \
+  -v <worktree>:/src:ro -v $HOME/go/pkg/mod:/gomod:ro -v /tmp/lc-linux-bin:/opt/lcbin:ro \
+  lc-ubuntu-systemd:24.04
+# tests as uid 1000 user "lc" with a lingering user manager:
+export XDG_RUNTIME_DIR=/run/user/1000 GOMODCACHE=/gomod GOPROXY=off \
+       GOCACHE=/home/lc/.cache/go-build GOFLAGS='-buildvcs=false -mod=mod' CGO_ENABLED=1
+cd /home/lc/w && go test -json -count=1 ./evalruntime/... ./evalapi/... ./internal/procrt/...
+```
+
+- cgroup v2 writes: **allowed** through the systemd user manager (the delegation
+  `Delegate=cpu cpuset io memory pids`); `systemd-run --user --scope` succeeds and
+  every worker gets its own leaf.
+- bubblewrap: **available** (0.9.0) and used by the Linux launcher; no
+  `bwrap`-unavailable fallback was needed and none was exercised.
+- Result: **210 pass / 0 fail / 6 skip** (test-level;
+  `raw/eval/packages-linux.jsonl`). Skips: caller-isolation probe (needs a
+  dedicated bwrap path), the two macOS-only supervised-memory tests, NumPy/
+  Matplotlib capability probes (not installed in the image), and
+  `TestSubprocessIsDeniedByDefault` (declared Linux-only variant).
+- `TestCgroupMemoryBreachIsHard` passed: the OOM kill is reported as
+  `limit=memory`, `enforcement=hard`, `stateStatus=lost`, and the census is empty
+  after Close. This is the Linux half of the memory proof.
+- Baseline for comparison (unmodified `696eb74`, same image):
+  283 pass / 0 fail / 4 skip for `./evalruntime ./evalapi ./config`
+  (`raw/integration/linux-systemd-baseline-696eb74-eval.jsonl`); this slice adds
+  `./internal/procrt` and 20+ new tests.
+
+### 5.2 Files changed
+
+```text
+evalapi/evalapi.go                              additive: EnforcementView, Session.Enforcement,
+                                                Result.Limit/Enforcement, runtime|supervised labels, CapInspect
+evalruntime/enforcement.go                      new: truthful view, V8 heap cap/args
+evalruntime/proc.go                             procrt registration, exit-signal + peak attribution,
+                                                supervised overshoot text, crash-limit attribution
+evalruntime/worker.go                           owner/enforcement/CPU seconds + JS heap flags, inspect RPC
+evalruntime/manager.go                          Restart/reset(clearWorkspace), Inspect, Limit propagation,
+                                                memoryEnforcement field
+evalruntime/session.go                          per-kernel EnforcementView
+evalruntime/registry.go                         truthful platformLimits/memoryNote, inspect capability
+evalruntime/host.go                             optional KernelInspector/KernelRestarter
+evalruntime/workers/py_worker.py                module-level await on PyCF_ONLY_AST, persistent loop, inspect
+evalruntime/workers/js_worker.js                inspect RPC, inspect capability
+internal/procrt/procrt.go                       new: Owner/census/CloseOwner/ladder/Enforcement/Ring
+internal/procrt/command_{unix,windows}.go       new: CmdHandle + RegisterCommand (DAP hook)
+internal/toolset/eval.go                        eval_inspect tool, restart action, Inspect controller method
+runtime/eval.go                                 EvalRestart, EvalInspect, restart control
+runtime/eval_processes.go                       new: Engine.Processes census API
+evalruntime/capability_inventory_test.go        new tests
+evalruntime/memory_enforcement_test.go          new tests
+evalruntime/census_test.go                      new tests
+internal/procrt/procrt_test.go                  new tests
+runtime/eval_persistence_agent_test.go          new agent-loop tests
+runtime/eval_processes_test.go                  new host-API tests
+docs/reports/harness-evolution-eval-20261110.md this report
+```
+
+### 5.3 Public API changes (all additive)
+
+- `evalapi`: `EnforcementRuntime`, `EnforcementSupervised`
+  (`EnforcementMonitored` now aliases supervised), `EnforcementView`,
+  `Session.Enforcement`, `Result.Limit`, `Result.Enforcement`, `CapInspect`,
+  `InspectOptions`, `InspectEntry`, `Inspection`.
+- `evalruntime`: `Manager.Inspect`, `Manager.Restart`,
+  `KernelInspector`/`KernelRestarter` optional host interfaces;
+  `Options`/`Evaluate` signatures unchanged.
+- `runtime`: `Engine.EvalInspect`, `Engine.EvalRestart`, `Engine.Processes`,
+  `ProcessInfo`.
+- `internal/procrt`: new package.
+- Tools: `eval_inspect` (new, permission read); `eval_control.actions` gains
+  `restart`. `eval_sessions`/`eval` results now include `enforcement`, `limit`.
+- Semantics changed: macOS memory is now reported as `supervised` instead of
+  `monitored` (the old string remains an accepted alias); `Usage.MemoryPeakBytes`
+  is populated on macOS from sampled RSS; `eval_control{action:"reset"}` is
+  unchanged.
 
 ## 6. Limitations and unverified claims
 
