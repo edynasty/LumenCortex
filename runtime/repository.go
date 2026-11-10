@@ -36,7 +36,6 @@ func (e *Engine) GitDiff(ctx context.Context, path string, staged bool) (GitDiff
 	return e.repo.GitDiff(ctx, path, staged)
 }
 
-
 func (e *Engine) GitStage(ctx context.Context, path string) (GitActionResult, error) {
 	return e.repo.GitStage(ctx, path)
 }
@@ -56,7 +55,6 @@ func (e *Engine) GitCommit(ctx context.Context, message string) (GitActionResult
 func (e *Engine) GitPush(ctx context.Context) (GitActionResult, error) {
 	return e.repo.GitPush(ctx)
 }
-
 
 func (e *Engine) sessionRepository(ctx context.Context, sessionID string) (*repository.Service, error) {
 	workspace, err := e.agentWorkspace(ctx, sessionID)

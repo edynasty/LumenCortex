@@ -44,8 +44,8 @@ func TestRunSupervisorOwnsActiveRunLifecycle(t *testing.T) {
 
 	provider := &blockingProvider{started: make(chan struct{})}
 	started, err := supervisor.startWith(context.Background(), handle.ID, provider, AgentOptions{
-		
-		Policy:       "read-only",
+
+		Policy: "read-only",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -131,11 +131,10 @@ func TestRunSupervisorCloseCancelsOwnedRuns(t *testing.T) {
 	}
 }
 
-
 func TestRunSupervisorEnforcesMaxAgentsAndReusesReleasedSlots(t *testing.T) {
 	engine, err := Open(Options{
 		Workspace: t.TempDir(),
-		Budget: Budget{MaxAgents: 2},
+		Budget:    Budget{MaxAgents: 2},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -28,7 +28,7 @@ func TestRealDelveManager(t *testing.T) {
 	if out, err := exec.CommandContext(ctx, "go", "build", "-gcflags=all=-N -l", "-o", program, source).CombinedOutput(); err != nil {
 		t.Fatalf("compile: %v %s", err, out)
 	}
-	m, err := New(Options{Adapters: []Adapter{{ID: "dlv", Command: dlv, Args: []string{"dap", "--listen=unix:{socket}"}, ReadPaths: []string{"/Library/Developer/CommandLineTools/Library/PrivateFrameworks/LLDB.framework"}, Transport: "unix", Loopback: true, Launch: map[string]any{"mode": "exec"}}}})
+	m, err := New(Options{Sandbox: testSandbox(t), Adapters: []Adapter{{ID: "dlv", Command: dlv, Args: []string{"dap", "--listen=unix:{socket}"}, ReadPaths: []string{"/Library/Developer/CommandLineTools/Library/PrivateFrameworks/LLDB.framework"}, Transport: "unix", Loopback: true, Launch: map[string]any{"mode": "exec"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

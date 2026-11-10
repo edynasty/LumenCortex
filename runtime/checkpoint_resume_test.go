@@ -47,7 +47,7 @@ func (p *checkpointProvider) Complete(ctx context.Context, _ protocol.ProviderRe
 		return protocol.ProviderResponse{}, ctx.Err()
 	}
 	return protocol.ProviderResponse{
-		Message: protocol.Message{Role: "assistant", Content: "unexpected"},
+		Message:      protocol.Message{Role: "assistant", Content: "unexpected"},
 		FinishReason: "stop",
 	}, nil
 }
@@ -58,7 +58,7 @@ func (p *resumeProvider) Model() string { return "resume-model" }
 
 func (p *resumeProvider) Complete(_ context.Context, _ protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 	return protocol.ProviderResponse{
-		Message: protocol.Message{Role: "assistant", Content: "resumed safely"},
+		Message:      protocol.Message{Role: "assistant", Content: "resumed safely"},
 		FinishReason: "stop",
 	}, nil
 }

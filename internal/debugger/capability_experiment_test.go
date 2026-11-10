@@ -20,17 +20,14 @@ func TestCapabilityFourLanguageFaults(t *testing.T) {
 	}
 	python, node := os.Getenv("LC_TEST_PYTHON"), os.Getenv("LC_TEST_NODE")
 	pyAdapter, jsAdapter := os.Getenv("LC_TEST_DEBUGPY"), os.Getenv("LC_TEST_JS_DEBUG")
-	lldb, err := exec.Command("xcrun", "--find", "lldb-dap").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
+	lldb := testLLDB(t)
 	cases := []struct {
 		name, extension, source string
 		line                    int
 		adapter                 Adapter
 		runner                  string
 	}{
-		{"c", "c", "#include <stdio.h>\nint main(void) {\n int input=41;\n int value=input-1;\n puts(value==42 ? \"PASS\" : \"FAIL\");\n return value==42?0:1;\n}\n", 5, Adapter{ID: "lldb", Command: strings.TrimSpace(string(lldb)), ReadPaths: []string{"/Applications/Xcode.app"}, Launch: map[string]any{"disableASLR": false}}, ""},
+		{"c", "c", "#include <stdio.h>\nint main(void) {\n int input=41;\n int value=input-1;\n puts(value==42 ? \"PASS\" : \"FAIL\");\n return value==42?0:1;\n}\n", 5, Adapter{ID: "lldb", Command: lldb, ReadPaths: xcodeReadPaths(lldb), Launch: map[string]any{"disableASLR": false}}, ""},
 		{"go", "go", "package main\nimport (\"fmt\";\"os\")\nfunc main(){\n input:=41\n value:=input-1\n if value!=42 {fmt.Println(\"FAIL\");os.Exit(1)}\n fmt.Println(\"PASS\")\n}\n", 6, Adapter{ID: "dlv", Command: os.Getenv("LC_TEST_DELVE"), Args: []string{"dap", "--listen=unix:{socket}"}, ReadPaths: []string{"/Library/Developer/CommandLineTools/Library/PrivateFrameworks/LLDB.framework"}, Transport: "unix", Loopback: true, Launch: map[string]any{"mode": "exec"}}, ""},
 		{"python", "py", "input=41\nvalue=input-1\nprint('PASS' if value==42 else 'FAIL')\nraise SystemExit(0 if value==42 else 1)\n", 3, Adapter{ID: "debugpy", Command: python, Args: []string{"-I", pyAdapter}, ReadPaths: []string{filepath.Dir(filepath.Dir(python)), filepath.Dir(filepath.Dir(pyAdapter))}, Loopback: true, Launch: map[string]any{"python": []string{python}, "justMyCode": true}}, python},
 		{"javascript", "js", "let input=41;\nlet value=input-1;\nconsole.log(value===42 ? 'PASS' : 'FAIL');\nprocess.exit(value===42 ? 0 : 1);\n", 3, Adapter{ID: "js-debug", Language: "javascript", Command: node, Args: []string{jsAdapter, "{socket}"}, ReadPaths: []string{filepath.Dir(filepath.Dir(node)), filepath.Dir(filepath.Dir(jsAdapter))}, Transport: "unix", Loopback: true, Launch: map[string]any{"type": "pwa-node", "request": "launch", "runtimeExecutable": node, "autoAttachChildProcesses": false, "sourceMaps": false, "outputCapture": "std"}}, node},
@@ -71,7 +68,7 @@ func TestCapabilityFourLanguageFaults(t *testing.T) {
 			if err == nil || strings.TrimSpace(string(before)) != "FAIL" {
 				t.Fatalf("fault absent: %s %v", before, err)
 			}
-			m, err := New(Options{Adapters: []Adapter{tc.adapter}})
+			m, err := New(Options{Sandbox: testSandbox(t), Adapters: []Adapter{tc.adapter}})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -45,6 +45,11 @@ type Adapter struct {
 	AttachPIDField string         `json:"attachPidField,omitempty"`
 	// MCPServer reuses an explicitly configured, dedicated IntelliJ MCP endpoint.
 	MCPServer string `json:"mcpServer,omitempty"`
+	// Discovery status, reported by Adapters(); these never affect Start.
+	Available bool   `json:"available"`
+	Version   string `json:"version,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Preset    bool   `json:"preset,omitempty"`
 }
 type Options struct {
 	Adapters    []Adapter
@@ -140,6 +145,8 @@ type Manager struct {
 	mu       sync.Mutex
 	opts     Options
 	adapters map[string]Adapter
+	presets  []Adapter
+	prober   PresetProber
 	sessions map[string]*session
 	closed   bool
 }
@@ -157,60 +164,82 @@ func New(opts Options) (*Manager, error) {
 	if opts.Lifetime < time.Second || opts.Lifetime > time.Hour {
 		return nil, errors.New("debug lifetime must be 1s..1h")
 	}
-	m := &Manager{opts: opts, adapters: make(map[string]Adapter), sessions: make(map[string]*session)}
+	m := &Manager{opts: opts, adapters: make(map[string]Adapter), sessions: make(map[string]*session), prober: DefaultProber()}
 	for _, a := range opts.Adapters {
-		if a.ID == "" || len(a.ID) > 128 || (a.MCPServer == "" && !filepath.IsAbs(a.Command)) {
-			return nil, errors.New("adapter needs an ID and absolute host command or MCP server")
-		}
 		if _, ok := m.adapters[a.ID]; ok {
 			return nil, errors.New("duplicate debug adapter")
 		}
-		if a.Transport != "" && a.Transport != "stdio" && a.Transport != "unix" {
-			return nil, errors.New("unsupported debug adapter transport")
-		}
-		if a.AttachPIDField != "" && a.AttachPIDField != "pid" && a.AttachPIDField != "processId" {
-			return nil, errors.New("unsupported attach PID field")
-		}
-		if a.MCPServer != "" {
-			if opts.MCP == nil || a.Command != "" || len(a.Args) != 0 || len(a.Launch) != 0 || len(a.Attach) != 0 || a.Transport != "" {
-				return nil, errors.New("IntelliJ adapter needs only a configured MCP server")
-			}
-			m.adapters[a.ID] = a
-			continue
-		}
-		info, err := os.Stat(a.Command)
+		prepared, err := prepareAdapter(a, opts.MCP)
 		if err != nil {
 			return nil, err
 		}
-		if !info.Mode().IsRegular() || info.Mode()&0111 == 0 {
-			return nil, errors.New("adapter is not executable")
-		}
-		a.Args = slices.Clone(a.Args)
-		a.ReadPaths = slices.Clone(a.ReadPaths)
-		raw, err := json.Marshal(a.Launch)
-		if err != nil || len(raw) > 64<<10 {
-			return nil, errors.New("invalid adapter launch options")
-		}
-		if err = json.Unmarshal(raw, &a.Launch); err != nil {
-			return nil, err
-		}
-		raw, err = json.Marshal(a.Attach)
-		if err != nil || len(raw) > 64<<10 {
-			return nil, errors.New("invalid adapter attach options")
-		}
-		if err = json.Unmarshal(raw, &a.Attach); err != nil {
-			return nil, err
-		}
-		m.adapters[a.ID] = a
+		prepared.Available = true
+		m.adapters[prepared.ID] = prepared
+	}
+	if opts.Discover {
+		m.discover(context.Background())
 	}
 	return m, nil
 }
+
+// prepareAdapter validates one adapter definition and clones its host-owned
+// maps, so a caller cannot mutate a running session's launch configuration.
+func prepareAdapter(a Adapter, registry *mcp.Registry) (Adapter, error) {
+	if a.ID == "" || len(a.ID) > 128 || (a.MCPServer == "" && !filepath.IsAbs(a.Command)) {
+		return Adapter{}, errors.New("adapter needs an ID and absolute host command or MCP server")
+	}
+	if a.Transport != "" && a.Transport != "stdio" && a.Transport != "unix" {
+		return Adapter{}, errors.New("unsupported debug adapter transport")
+	}
+	if a.AttachPIDField != "" && a.AttachPIDField != "pid" && a.AttachPIDField != "processId" {
+		return Adapter{}, errors.New("unsupported attach PID field")
+	}
+	if a.MCPServer != "" {
+		if registry == nil || a.Command != "" || len(a.Args) != 0 || len(a.Launch) != 0 || len(a.Attach) != 0 || a.Transport != "" {
+			return Adapter{}, errors.New("IntelliJ adapter needs only a configured MCP server")
+		}
+		return a, nil
+	}
+	info, err := os.Stat(a.Command)
+	if err != nil {
+		return Adapter{}, err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&0111 == 0 {
+		return Adapter{}, errors.New("adapter is not executable")
+	}
+	a.Args = slices.Clone(a.Args)
+	a.ReadPaths = slices.Clone(a.ReadPaths)
+	raw, err := json.Marshal(a.Launch)
+	if err != nil || len(raw) > 64<<10 {
+		return Adapter{}, errors.New("invalid adapter launch options")
+	}
+	if err = json.Unmarshal(raw, &a.Launch); err != nil {
+		return Adapter{}, err
+	}
+	raw, err = json.Marshal(a.Attach)
+	if err != nil || len(raw) > 64<<10 {
+		return Adapter{}, errors.New("invalid adapter attach options")
+	}
+	if err = json.Unmarshal(raw, &a.Attach); err != nil {
+		return Adapter{}, err
+	}
+	return a, nil
+}
+
+// Adapters reports the configured adapters plus the built-in preset status.
+// Host commands and launch templates stay private to the Manager.
 func (m *Manager) Adapters() []Adapter {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]Adapter, 0, len(m.adapters))
+	out := make([]Adapter, 0, len(m.adapters)+len(m.presets))
 	for _, a := range m.adapters {
-		out = append(out, Adapter{ID: a.ID, Language: a.Language})
+		out = append(out, Adapter{ID: a.ID, Language: a.Language, Available: true, Version: a.Version, Preset: a.Preset})
+	}
+	for _, status := range m.presets {
+		if _, configured := m.adapters[status.ID]; configured {
+			continue
+		}
+		out = append(out, Adapter{ID: status.ID, Language: status.Language, Available: status.Available, Version: status.Version, Reason: status.Reason, Preset: true})
 	}
 	slices.SortFunc(out, func(a, b Adapter) int { return strings.Compare(a.ID, b.ID) })
 	return out

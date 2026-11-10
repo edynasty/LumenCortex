@@ -125,7 +125,6 @@ func (e *Engine) AttachWorktree(ctx context.Context, sessionID, base string) (Se
 	return identity, nil
 }
 
-
 func (e *Engine) agentWorkspace(ctx context.Context, sessionID string) (string, error) {
 	identity, err := e.SessionRuntime(ctx, sessionID)
 	if err != nil {
