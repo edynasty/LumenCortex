@@ -110,13 +110,14 @@ func TestE1D4EvaluateGrantIsDistinct(t *testing.T) {
 func TestE1D5ModuleEventsStayLive(t *testing.T) {
 	ctx := context.Background()
 	e, sessionID, root := fakeDebugEngine(t, dapfake.Config{StopDelayMS: 5, Modules: 25})
+	// Subscribe before start: module events arrive during launch.
+	live, stop := e.events.subscribeSession(256, sessionID)
+	defer stop()
 	snap, err := e.DebugStart(ctx, DebugStartOptions{SessionID: sessionID, AdapterID: "fake", Program: filepath.Join(root, "fixture.c")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := DebugControl{SessionID: sessionID, DebugID: snap.ID, Epoch: snap.Epoch}
-	live, stop := e.events.subscribeSession(64, sessionID)
-	defer stop()
 	c.Action = "configure"
 	if _, err = e.DebugCommand(ctx, c); err != nil {
 		t.Fatal(err)
