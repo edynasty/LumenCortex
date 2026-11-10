@@ -114,7 +114,7 @@ func (p *delveScript) Complete(_ context.Context, req protocol.ProviderRequest) 
 		if err := json.Unmarshal([]byte(prev), &stop); err != nil || stop.Reason != "breakpoint" || len(stop.TopFrames) == 0 {
 			return protocol.ProviderResponse{}, fmt.Errorf("delve continue stop missing: %s", prev)
 		}
-		if stop.TopFrames[0].Name != "main" || stop.TopFrames[0].Line != 15 {
+		if !strings.HasSuffix(stop.TopFrames[0].Name, "main") || stop.TopFrames[0].Line != 15 {
 			return protocol.ProviderResponse{}, fmt.Errorf("wrong first delve stop: %s", prev)
 		}
 		p.threadID = stop.ThreadID
@@ -123,7 +123,7 @@ func (p *delveScript) Complete(_ context.Context, req protocol.ProviderRequest) 
 		return p.tool("debug_step", p.dbg(map[string]any{"action": "step_into", "thread_id": p.threadID}))
 	case "step_into":
 		var stop stopShape
-		if err := json.Unmarshal([]byte(prev), &stop); err != nil || len(stop.TopFrames) == 0 || stop.TopFrames[0].Name != "scale" {
+		if err := json.Unmarshal([]byte(prev), &stop); err != nil || len(stop.TopFrames) == 0 || !strings.HasSuffix(stop.TopFrames[0].Name, "scale") {
 			return protocol.ProviderResponse{}, fmt.Errorf("step_into did not enter scale: %s", prev)
 		}
 		p.facts["step_into"] = stop.TopFrames[0]
@@ -149,13 +149,16 @@ func (p *delveScript) Complete(_ context.Context, req protocol.ProviderRequest) 
 		}
 		p.oldRef = body.Scopes[0].Ref
 		p.phase = "vars"
+		p.facts["scopes"] = prev
 		return p.tool("debug_variables", p.dbg(map[string]any{"variables_reference": p.oldRef}))
 	case "vars":
 		p.facts["vars"] = prev
+		// Delve's Locals at function entry may not include a not-yet-evaluated
+		// local; evaluate a parameter that is certainly live instead.
 		p.phase = "evaluate"
-		return p.tool("debug_evaluate", p.dbg(map[string]any{"frame_id": p.frameID, "expression": "multiplier"}))
+		return p.tool("debug_evaluate", p.dbg(map[string]any{"frame_id": p.frameID, "expression": "count"}))
 	case "evaluate":
-		if !strings.Contains(prev, `"result"`) {
+		if !strings.Contains(prev, `"result":"3"`) {
 			return protocol.ProviderResponse{}, fmt.Errorf("evaluate failed: %s", prev)
 		}
 		p.facts["evaluate"] = prev
