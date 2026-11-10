@@ -37,6 +37,10 @@ func ParseOps(snap *Snapshot, ops []AnchorOp) ([]LineOp, error) {
 	if snap == nil {
 		return nil, &Error{Code: CodeUnknownRev, Detail: "the revision was not read in this session"}
 	}
+	if snap.Doc.Rev == "" {
+		return nil, &Error{Code: CodeUnknownRev, Path: snap.Path, Rev: snap.Rev,
+			Detail: "that revision was read without anchors, so its lines are not available"}
+	}
 	if len(ops) == 0 {
 		return nil, &Error{Code: CodeInvalid, Path: snap.Path, Detail: "ops must contain at least one operation"}
 	}

@@ -220,6 +220,46 @@ func Render(path string, d Doc, from, to int) string {
 	return b.String()
 }
 
+// RenderWindows renders a header and the rows of several 1-based inclusive line windows, merged and
+// sorted, with an ellipsis line where rows are skipped. It is what a committed line edit returns so a
+// model can make the next edit without re-reading the whole file.
+func RenderWindows(path string, d Doc, windows [][2]int) string {
+	merged := make([][2]int, 0, len(windows))
+	for _, window := range windows {
+		from, to := window[0], window[1]
+		if from < 1 {
+			from = 1
+		}
+		if to > len(d.Lines) {
+			to = len(d.Lines)
+		}
+		if from > to {
+			continue
+		}
+		merged = append(merged, [2]int{from, to})
+	}
+	sort.Slice(merged, func(i, j int) bool { return merged[i][0] < merged[j][0] })
+	var b strings.Builder
+	fmt.Fprintf(&b, "@@ %s rev=%s lines=%d eol=%s bom=%t\n", path, d.Rev, len(d.Lines), d.EOL, d.BOM)
+	previous := 0
+	for _, window := range merged {
+		if window[0] <= previous {
+			if window[1] <= previous {
+				continue
+			}
+			window[0] = previous + 1
+		}
+		if previous > 0 && window[0] > previous+1 {
+			b.WriteString("...\n")
+		}
+		for line := window[0]; line <= window[1]; line++ {
+			fmt.Fprintf(&b, "%d:%s|%s\n", line, LineHash(d.Lines[line-1]), d.Lines[line-1])
+		}
+		previous = max(previous, window[1])
+	}
+	return b.String()
+}
+
 // Splice replaces the bytes [Start, End) of the BaseRev content with Text. Text is normalized to the
 // file's dominant terminator when it spans lines.
 type Splice struct {

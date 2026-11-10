@@ -66,6 +66,10 @@ type FileChange struct {
 	Create bool
 	// AllowCreate lets a Content change create a missing file (write_file).
 	AllowCreate bool
+	// RejectStaleRead refuses a Content change when the session read this file before and the file has
+	// changed since. It is what makes a whole-file write computed from an old read fail loudly instead
+	// of silently dropping another writer's change.
+	RejectStaleRead bool
 }
 
 // Validator checks the planned content of the whole commit before anything is written. files maps a
@@ -91,6 +95,16 @@ type FileResult struct {
 	Created bool   `json:"created,omitempty"`
 	Deleted bool   `json:"deleted,omitempty"`
 	Changed bool   `json:"changed"`
+	// Landed is where each line operation ended up in the new file, 1-based and inclusive, so a caller
+	// can render fresh anchors around the edit without re-reading the whole file.
+	Landed []LandedOp `json:"landed,omitempty"`
+}
+
+// LandedOp is one line operation after the commit, in the new file's line numbers.
+type LandedOp struct {
+	Kind  string `json:"kind"`
+	Start int    `json:"start"`
+	End   int    `json:"end"`
 }
 
 // Result is a commit's outcome.
@@ -188,6 +202,7 @@ type prepared struct {
 	deleted  bool
 	rebased  bool
 	moved    map[int]int
+	ops      []LineOp
 }
 
 // Commit applies the plan: every file or none. It resolves and locks the paths, checks write leases,
@@ -276,7 +291,76 @@ func fileResult(p *prepared) FileResult {
 		Path: p.rel, OldRev: p.rev, NewRev: RevOf(p.next),
 		Created: p.created, Deleted: p.deleted,
 		Changed: p.created || p.deleted || RevOf(p.next) != p.rev,
+		Landed:  landedOps(p.ops),
 	}
+}
+
+// landedOps maps each line operation from the coordinates it was resolved in to the new file's lines,
+// so a caller can render fresh anchors around exactly what changed.
+func landedOps(ops []LineOp) []LandedOp {
+	if len(ops) == 0 {
+		return nil
+	}
+	sorted := append([]LineOp(nil), ops...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].Start != sorted[j].Start {
+			return sorted[i].Start < sorted[j].Start
+		}
+		return opRank(sorted[i].Kind) < opRank(sorted[j].Kind)
+	})
+	out := make([]LandedOp, 0, len(sorted))
+	delta := 0
+	for _, op := range sorted {
+		start := op.Start + delta
+		switch op.Kind {
+		case OpReplace:
+			end := start + len(op.Text) - 1
+			out = append(out, LandedOp{Kind: op.Kind, Start: start, End: end})
+			delta += len(op.Text) - (op.End - op.Start + 1)
+		case OpDelete:
+			out = append(out, LandedOp{Kind: op.Kind, Start: start, End: start + (op.End - op.Start)})
+			delta -= op.End - op.Start + 1
+		case OpInsertAfter:
+			out = append(out, LandedOp{Kind: op.Kind, Start: start + 1, End: start + len(op.Text)})
+			delta += len(op.Text)
+		case OpInsertBefore:
+			out = append(out, LandedOp{Kind: op.Kind, Start: start, End: start + len(op.Text) - 1})
+			delta += len(op.Text)
+		}
+	}
+	return out
+}
+
+// SnapshotFor returns the session's snapshot of path at rev. It is how a line-edit tool turns a revision
+// and anchors into resolved operations.
+func (e *Engine) SnapshotFor(actor Actor, path, rev string) (*Snapshot, error) {
+	snap, ok := e.snaps.Lookup(actor.Session, canonicalPath(path), rev)
+	if !ok {
+		return nil, &Error{Code: CodeUnknownRev, Path: path, Rev: rev,
+			Detail: "that revision of this file was not read in this session"}
+	}
+	return snap, nil
+}
+
+// RegisterRead records that a session read path at rev without anchored lines.
+func (e *Engine) RegisterRead(actor Actor, path, rev string) {
+	e.snaps.RegisterRev(actor.Session, canonicalPath(path), rev)
+}
+
+// RegisterAnchoredRead records a read of path and returns the snapshot, whose seen set holds exactly
+// the lines the caller is about to show.
+func (e *Engine) RegisterAnchoredRead(actor Actor, path string, doc Doc, from, to int) *Snapshot {
+	return e.snaps.Register(actor.Session, canonicalPath(path), doc, from, to)
+}
+
+// LatestRev is the revision of the session's most recent read or write of path, or "" when the session
+// never saw it. A whole-file write uses it to tell that it would overwrite a change it never saw.
+func (e *Engine) LatestRev(actor Actor, path string) string {
+	snap, ok := e.snaps.Latest(actor.Session, canonicalPath(path))
+	if !ok {
+		return ""
+	}
+	return snap.Rev
 }
 
 // prepare reads a file, enforces its preconditions, and computes the planned bytes.
@@ -337,6 +421,12 @@ func (e *Engine) prepare(p *prepared, plan Plan) error {
 		if err := staleUnless(change.BaseRev, p.rev); err != nil {
 			return refuseStale(err, p)
 		}
+		if change.BaseRev == "" && change.RejectStaleRead {
+			if latest, ok := e.snaps.Latest(plan.Actor.Session, p.key); ok && latest.Rev != "" && latest.Rev != p.rev {
+				return &Error{Code: CodeConflict, Path: p.rel, Rev: latest.Rev, CurrentRev: p.rev,
+					Detail: "the file changed since this session last read it"}
+			}
+		}
 		p.next = append([]byte(nil), (*change.Content)...)
 	case len(change.Edits) > 0:
 		if err := staleUnless(change.BaseRev, p.rev); err != nil {
@@ -367,6 +457,10 @@ func (e *Engine) prepare(p *prepared, plan Plan) error {
 		}
 		ops := change.LineOps
 		if snap != nil && snap.Doc.Rev != p.rev {
+			if snap.Doc.Rev == "" {
+				return &Error{Code: CodeUnknownRev, Path: p.rel, Rev: change.BaseRev, CurrentRev: p.rev,
+					Detail: "that revision was read without anchors, so it cannot be relocated"}
+			}
 			relocated, moved, err := rebaseLineOps(snap.Doc, doc, ops)
 			if err != nil {
 				return &Error{Code: CodeStale, Path: p.rel, Rev: change.BaseRev, CurrentRev: p.rev, Detail: err.Error()}
@@ -377,6 +471,7 @@ func (e *Engine) prepare(p *prepared, plan Plan) error {
 		if err != nil {
 			return &Error{Code: CodeInvalid, Path: p.rel, Detail: err.Error()}
 		}
+		p.ops = ops
 		p.next = next
 	default:
 		return &Error{Code: CodeInvalid, Path: p.rel, Detail: "the change carries no content"}

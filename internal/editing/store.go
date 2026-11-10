@@ -89,6 +89,30 @@ func (s *SnapshotStore) Register(session, path string, doc Doc, from, to int) *S
 	return snap
 }
 
+// RegisterRev records that a session read path at rev without being shown anchored lines. It is the
+// light registration a plain read makes: enough for a whole-file write to notice that the file moved
+// on, without keeping the text.
+func (s *SnapshotStore) RegisterRev(session, path, rev string) {
+	if rev == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seq++
+	ss := s.sessions[session]
+	if ss == nil {
+		ss = &sessionSnapshots{}
+		s.sessions[session] = ss
+	}
+	snap := s.find(ss, path, rev)
+	if snap == nil {
+		snap = &Snapshot{Path: path, Rev: rev, Seen: map[int]bool{}}
+		ss.entries = append(ss.entries, snap)
+	}
+	snap.at = s.seq
+	s.prune(ss, path)
+}
+
 // Lookup returns the snapshot of path at rev, if this session read it.
 func (s *SnapshotStore) Lookup(session, path, rev string) (*Snapshot, bool) {
 	s.mu.Lock()
