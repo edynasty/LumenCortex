@@ -208,7 +208,6 @@ func (s *RunSupervisor) Start(
 	})
 
 	go func() {
-		defer done()
 		var runErr error
 		// Cleanup order: the loop has already persisted the terminal status and
 		// published its terminal event; the lock is released before the run leaves
@@ -220,11 +219,18 @@ func (s *RunSupervisor) Start(
 			// worker without waiting for the expiry. This runs before the run leaves the supervisor, so a
 			// host that sees the run stopped also sees its claims released.
 			s.engine.releaseHeldLeases(sessionID)
+			// The Engine's run record ends here too, before the run leaves the supervisor: that closes the
+			// run's DebugControl, which clears a durable pause, so a host that sees the run stopped never
+			// reads interrupted(paused) for a run that was cancelled while paused.
+			done()
 			s.mu.Lock()
 			if current, ok := s.runs[sessionID]; ok && current == run {
 				delete(s.runs, sessionID)
 			}
 			s.mu.Unlock()
+			if testHookAfterRunLeaves != nil {
+				testHookAfterRunLeaves()
+			}
 			run.releaseAgent()
 			cancel()
 			close(run.done)

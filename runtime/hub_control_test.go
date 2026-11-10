@@ -394,3 +394,51 @@ func TestHubEventReplayReconnectAndGap(t *testing.T) {
 
 // bytesContains reports whether raw contains needle, for reading a durable event's metadata.
 func bytesContains(raw []byte, needle string) bool { return strings.Contains(string(raw), needle) }
+
+// TestHubCancelWhilePausedIsNotReportedPausedOnceStopped pins the run-exit order: a run cancelled while
+// paused has cleared its durable pause before it leaves the supervisor, so a host that sees the run
+// stopped reads interrupted, never interrupted(paused). The hook holds cleanup right after the run left
+// the supervisor; before the fix the pause was cleared only after that point.
+func TestHubCancelWhilePausedIsNotReportedPausedOnceStopped(t *testing.T) {
+	useGlobalConfig(t, withConcurrency(4, 3))
+	e := openTestEngine(t)
+	sup, err := NewRunSupervisor(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sup.Close()
+	release := make(chan struct{})
+	var once sync.Once
+	releaseCleanup := func() { once.Do(func() { close(release) }) }
+	left := make(chan struct{})
+	testHookAfterRunLeaves = func() { <-release; close(left) }
+	defer func() {
+		releaseCleanup()
+		// The hook is reset only after the run's cleanup returned from it, so the reset does not race
+		// the cleanup's read of the hook.
+		select {
+		case <-left:
+		case <-time.After(10 * time.Second):
+		}
+		testHookAfterRunLeaves = nil
+	}()
+
+	id := newParentSession(t, e, &hubScriptProvider{})
+	ctx := context.Background()
+	if _, err := sup.Start(ctx, id, AgentOptions{Policy: "workspace", Interactive: true, MaxSteps: 5, Debug: &AgentDebugOptions{PauseOnStart: true}}); err != nil {
+		t.Fatal(err)
+	}
+	snap := awaitPause(t, e, id, 0)
+	if _, err := hubCommand(t, sup, HubCommand{SessionID: id, CommandID: "cmd-cancel-paused", ExpectedRevision: snap.Revision, Verb: HubVerbCancel}); err != nil {
+		t.Fatal(err)
+	}
+	waitInactive(t, sup, id)
+	view, err := sup.View(ctx, id)
+	releaseCleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Agents[0].Live || view.Agents[0].State != HubStateInterrupted || view.Agents[0].Paused != nil {
+		t.Fatalf("stopped run still reported paused: state=%s paused=%+v", view.Agents[0].State, view.Agents[0].Paused)
+	}
+}

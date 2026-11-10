@@ -962,6 +962,9 @@ var (
 	// testHookBeforeBeginRun runs after the Start decided and projected everything, just before the
 	// Start transaction.
 	testHookBeforeBeginRun func()
+	// testHookAfterRunLeaves runs in a supervised run's cleanup just after the run left the supervisor
+	// (Active reports false), before the rest of the cleanup.
+	testHookAfterRunLeaves func()
 )
 
 func (s agentStore) AdmitExecution(ctx context.Context, a session.ExecutionAdmission) error {
