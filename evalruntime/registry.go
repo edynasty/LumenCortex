@@ -231,7 +231,9 @@ func subprocessNote(allow bool) string {
 
 // platformLimits reports how this host actually enforces each bound. memory is
 // the enforcement the host verified it can apply (hard: Linux cgroup memory.max;
-// monitored: macOS RSS polling; none: no bound is applied).
+// supervised: macOS RSS polling — darwin rejects RLIMIT_AS and RLIMIT_DATA with
+// EINVAL; runtime: only when the interpreter has its own heap cap; none: no
+// bound is applied).
 func platformLimits(backend string, budget evalapi.Budget, allowSubprocess bool, memory string) evalapi.Limits {
 	limits := evalapi.Limits{
 		WallSeconds:       budget.WallSeconds,
@@ -241,14 +243,15 @@ func platformLimits(backend string, budget evalapi.Budget, allowSubprocess bool,
 		ArtifactBytes:     budget.ArtifactBytes,
 		DiskBytes:         budget.DiskBytes,
 		MemoryEnforcement: memory,
-		CPUEnforcement:    evalapi.EnforcementHard,
-		DiskEnforcement:   evalapi.EnforcementHard,
+		// RLIMIT_CPU (ulimit -t) is enforced by the kernel on every backend.
+		CPUEnforcement:  evalapi.EnforcementHard,
+		DiskEnforcement: evalapi.EnforcementHard,
 	}
 	limits.Notes = []string{
 		"wall clock: host timer, then SIGINT and SIGKILL to the process group",
 		"cpu: RLIMIT_CPU via ulimit -t (kernel-enforced)",
 		memoryNote(memory),
-		"disk: RLIMIT_FSIZE via ulimit -f bounds one file; the kernel workspace's total size is host-monitored every 400ms against DiskBytes and the worker is terminated on exceed (monitored, not a kernel hard limit); artifacts also have an explicit quota",
+		"disk: RLIMIT_FSIZE via ulimit -f bounds one file (hard); the kernel workspace's total size is host-supervised every 400ms against DiskBytes and the worker is terminated on exceed (supervised, not a kernel hard limit); artifacts also have an explicit quota",
 		"output: bounded while streaming (head+tail), never buffered in full",
 		processTreeNote(allowSubprocess),
 	}
@@ -268,8 +271,8 @@ func memoryNote(memory string) string {
 	switch memory {
 	case evalapi.EnforcementHard:
 		return "memory: kernel hard limit per worker: cgroup v2 memory.max=MemoryBytes with memory.swap.max=0 and memory.oom.group=1, applied before the worker exists and covering every descendant; exceeding it OOM-kills the whole worker and the kernel is lost. The total is at most MaxWorkers x MemoryBytes and is not enforced as an aggregate"
-	case evalapi.EnforcementMonitored:
-		return "memory: per-worker process-group RSS, host-monitored every 200ms and killed on exceed or when it cannot be measured; not a kernel rlimit because macOS rejects RLIMIT_AS/RLIMIT_DATA. The total is at most MaxWorkers x MemoryBytes and is not enforced as an aggregate"
+	case evalapi.EnforcementSupervised:
+		return "memory: per-worker process-group RSS, host-supervised every 200ms and killed on exceed or when it cannot be measured; not a kernel rlimit because macOS rejects RLIMIT_AS/RLIMIT_DATA with EINVAL, so the process may overshoot the bound by what it allocates within one poll interval. The total is at most MaxWorkers x MemoryBytes and is not enforced as an aggregate"
 	}
 	return "memory: not bounded on this host"
 }

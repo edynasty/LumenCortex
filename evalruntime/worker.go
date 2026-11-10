@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/evalapi"
+	"github.com/edynasty/LumenCortex/internal/procrt"
 	"github.com/edynasty/LumenCortex/internal/streambuf"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -135,6 +136,12 @@ func (w *worker) start(ctx context.Context) error {
 		extraRead: append(append([]string(nil), w.m.opts.Sandbox.ExtraReadPaths...), s.readPaths...),
 		identity:  w.m.opts.identity,
 	}
+	if s.manifest.Language == "javascript" {
+		// V8's heap cap is interpreter-enforced; it must precede the worker
+		// script. External memory (Buffer) stays under the RSS bound.
+		spec.args = append(javascriptRuntimeArgs(s.budget.MemoryBytes), spec.args...)
+	}
+	enforcement := enforcementView(w.m.sandboxBackend(), s.manifest.Language, s.budget, w.m.memoryEnforcement)
 	cmd, err := w.m.launcher.command(spec)
 	if err != nil {
 		return err
@@ -162,11 +169,15 @@ func (w *worker) start(ctx context.Context) error {
 		dir:         spec.dir,
 		env:         spec.env,
 		memoryBytes: s.budget.MemoryBytes,
+		cpuSeconds:  s.budget.CPUSeconds,
 		diskBytes:   s.budget.DiskBytes,
 		diskRoot:    s.kernel,
 		onStdout:    w.onStdout,
 		onStderr:    w.onStderr,
 		onLimit:     w.onLimit,
+		owner: procrt.Owner{SessionID: s.id, Component: procrt.ComponentEval,
+			ObjectID: s.manifest.ID},
+		enforcement: procrtEnforcement(enforcement),
 		cgroup:      leaf,
 		launchFiles: launchFiles,
 	})

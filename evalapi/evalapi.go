@@ -126,11 +126,21 @@ const (
 )
 
 // Enforcement values report how a limit is actually applied. They are the
-// difference between a kernel-enforced bound and a host-monitored one; the host
-// never reports a soft limit as hard.
+// difference between a kernel-enforced bound, an interpreter-enforced one and a
+// host-monitored one; the host never reports a supervised limit as hard.
 const (
-	EnforcementHard      = "hard"
-	EnforcementMonitored = "monitored"
+	// EnforcementHard is enforced by the OS or kernel: a cgroup v2 controller or
+	// an rlimit.
+	EnforcementHard = "hard"
+	// EnforcementRuntime is enforced by the interpreter itself, such as V8's
+	// heap cap. It bounds what that runtime accounts for, not the whole RSS.
+	EnforcementRuntime = "runtime"
+	// EnforcementSupervised is a host monitor that kills the process after it
+	// observes the overshoot; the overshoot itself is not prevented.
+	EnforcementSupervised = "supervised"
+	// EnforcementMonitored is the legacy spelling of EnforcementSupervised,
+	// kept so a stored declaration still parses. New reports use supervised.
+	EnforcementMonitored = EnforcementSupervised
 	EnforcementNone      = "none"
 )
 
@@ -289,6 +299,31 @@ type Limits struct {
 	Notes             []string `json:"notes,omitempty"`
 }
 
+// EnforcementView reports how each bound of one live kernel is actually
+// applied on this host. It is a report, not a promise: a field is Hard only
+// when the OS or kernel refuses the operation, Runtime when the interpreter
+// bounds its own heap, Supervised when a host monitor kills after observing an
+// overshoot, and None when nothing bounds it.
+type EnforcementView struct {
+	Memory string `json:"memory"`
+	CPU    string `json:"cpu"`
+	Disk   string `json:"disk"`
+	// MemoryLimitBytes is the memory bound in force (0: none).
+	MemoryLimitBytes int64 `json:"memoryLimitBytes,omitempty"`
+	// MemoryRuntimeCapBytes is the interpreter heap cap (V8
+	// --max-old-space-size), when the runtime has one. It is not the RSS bound.
+	MemoryRuntimeCapBytes int64 `json:"memoryRuntimeCapBytes,omitempty"`
+	// MemoryPollMS is the supervision interval for a supervised memory bound;
+	// the measured overshoot window is at most this long.
+	MemoryPollMS int64    `json:"memoryPollMs,omitempty"`
+	Notes        []string `json:"notes,omitempty"`
+}
+
+// Zero reports whether nothing is known about the kernel's bounds.
+func (v EnforcementView) Zero() bool {
+	return v.Memory == "" && v.CPU == "" && v.Disk == ""
+}
+
 // Manifest is a runtime plugin's declaration. It is validated by the registry and
 // confers no authority: executable paths, workspaces and grants are host-owned.
 type Manifest struct {
@@ -382,6 +417,9 @@ type Session struct {
 	// ActiveRequestID is the request whose cell runs right now, if any: the
 	// target an interrupt names (InterruptTarget.RequestID).
 	ActiveRequestID string `json:"activeRequestId,omitempty"`
+	// Enforcement says how this kernel's bounds are actually applied. It lets a
+	// Hub show "memory: supervised" instead of implying a hard limit.
+	Enforcement EnforcementView `json:"enforcement,omitempty"`
 }
 
 // InterruptTarget names the one execution an interrupt is meant for. An
@@ -593,6 +631,13 @@ type Result struct {
 	Usage          Usage      `json:"usage"`
 	StartedAt      time.Time  `json:"startedAt"`
 	CompletedAt    time.Time  `json:"completedAt"`
+	// Limit names the resource bound that stopped this execution ("memory",
+	// "cpu", "disk"), or is empty when no bound fired.
+	Limit string `json:"limit,omitempty"`
+	// Enforcement is how that bound was applied (hard, runtime, supervised). It
+	// is set together with Limit, so a caller never reads a supervised kill as a
+	// kernel guarantee.
+	Enforcement string `json:"enforcement,omitempty"`
 }
 
 // Succeeded reports whether the cell ran to completion. It is not an acceptance

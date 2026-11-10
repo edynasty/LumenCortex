@@ -81,7 +81,11 @@ type Manager struct {
 	// isolationReason says why it is missing; no worker starts without it.
 	cgroups         *cgroupPool
 	isolationReason string
-	defaultBudget   evalapi.Budget
+	// memoryEnforcement is how this host really bounds a worker's memory:
+	// hard (Linux cgroup memory.max), supervised (RSS monitor) or none. It is
+	// reported, never guessed per call.
+	memoryEnforcement string
+	defaultBudget     evalapi.Budget
 	// maxKernels bounds live kernels (idle or busy) across this manager. It is a
 	// host decision; a session always owns exactly one worker.
 	maxKernels int
@@ -140,7 +144,7 @@ func New(opts Options) (*Manager, error) {
 	subprocessAllowed := subprocessSupported()
 	// Linux bounds every worker with its own cgroup. Without one there is no
 	// memory limit and no atomic tree stop, so no worker is started at all.
-	memoryEnforcement := evalapi.EnforcementMonitored
+	memoryEnforcement := evalapi.EnforcementSupervised
 	isolationReason := ""
 	if cgroupRequired {
 		memoryEnforcement = evalapi.EnforcementHard
@@ -153,6 +157,7 @@ func New(opts Options) (*Manager, error) {
 		}
 	}
 	m.isolationReason = isolationReason
+	m.memoryEnforcement = memoryEnforcement
 	python, pythonReason := resolveExecutable(opts.Python, "python3")
 	pythonAvailable := python != ""
 	if pythonAvailable {
@@ -842,9 +847,13 @@ func (m *Manager) Execute(ctx context.Context, req evalapi.Request, caller evala
 		result.Usage.CPUMs = max(0, w.proc.cpuMillis()-cpuBefore)
 		result.Usage.MemoryPeakBytes = w.proc.memoryPeak()
 		if reason := w.proc.limitReason(); reason != "" && result.Status != evalapi.ResultStatusCompleted {
-			// The worker was stopped by its resource bound, not by a bug.
+			// The worker was stopped by its resource bound, not by a bug. The
+			// result names the bound and how it was applied, so a supervised
+			// kill is never read as a kernel guarantee.
 			result.Error = firstNonEmpty(reason+"; "+result.Error, reason)
 			result.StateStatus = evalapi.StateStatusLost
+			result.Limit = w.proc.limitResourceName()
+			result.Enforcement = w.proc.limitEnforcementLabel()
 		}
 	}
 	s.addResult(result)
