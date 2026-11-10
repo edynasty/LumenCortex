@@ -22,6 +22,8 @@ type EvalController interface {
 	// Interrupt stops exactly the execution the target names.
 	Interrupt(context.Context, string, evalapi.InterruptTarget) (evalapi.InterruptOutcome, error)
 	Transfer(context.Context, string, string, string, string, string) (evalapi.Artifact, error)
+	// Inspect lists the kernel's live names and types without running a cell.
+	Inspect(context.Context, string, evalapi.InspectOptions) (evalapi.Inspection, error)
 }
 
 // BindEval registers the language-neutral surface only for an explicitly enabled host.
@@ -30,7 +32,7 @@ func (s *Set) BindEval(controller EvalController) error {
 	if controller == nil {
 		return errors.New("eval controller is required")
 	}
-	for _, name := range []string{"eval_runtimes", "eval_sessions", "eval_create", "eval", "eval_control", "eval_artifact"} {
+	for _, name := range []string{"eval_runtimes", "eval_sessions", "eval_create", "eval", "eval_control", "eval_artifact", "eval_inspect"} {
 		if _, exists := s.tools[name]; exists {
 			return fmt.Errorf("duplicate tool: %s", name)
 		}
@@ -103,7 +105,7 @@ func (s *Set) BindEval(controller EvalController) error {
 			result.Interrupted = value.Interrupted()
 			return result, err
 		})
-	s.add(protocol.ToolSpec{Name: "eval_control", Description: "Interrupt, reset or close your execution session. These operations stop its owned process tree; reset discards variables. An interrupt names the execution it stops: pass request_id (eval_sessions shows the running one as activeRequestId); an interrupt whose execution already finished stops nothing. Executor/observer grants cannot reset or close the owner's kernel.", Permission: "exec", Parameters: obj(map[string]any{"session_id": str(), "action": map[string]any{"type": "string", "enum": []string{"interrupt", "reset", "close"}}, "request_id": str()}, "session_id", "action")},
+	s.add(protocol.ToolSpec{Name: "eval_control", Description: "Interrupt, reset, restart or close your execution session. restart replaces the kernel process: live variables, functions and imported modules are discarded, files it wrote are kept. reset additionally clears the kernel workspace. These operations stop its owned process tree; reset discards variables. An interrupt names the execution it stops: pass request_id (eval_sessions shows the running one as activeRequestId); an interrupt whose execution already finished stops nothing. Executor/observer grants cannot reset or close the owner's kernel.", Permission: "exec", Parameters: obj(map[string]any{"session_id": str(), "action": map[string]any{"type": "string", "enum": []string{"interrupt", "reset", "restart", "close"}}, "request_id": str()}, "session_id", "action")},
 		func(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 			id, action := stringArg(args, "session_id"), stringArg(args, "action")
 			if action == "interrupt" {
@@ -121,6 +123,26 @@ func (s *Set) BindEval(controller EvalController) error {
 				return protocol.ToolResult{}, err
 			}
 			return jsonResult(map[string]string{"status": "completed"})
+		})
+	s.add(protocol.ToolSpec{Name: "eval_inspect", Description: "List names and types held by your kernel without running code. Values are never rendered, so inspection cannot execute a __repr__ or block the kernel. Use it after a cell to confirm which names exist before a later cell assumes them; it is not evidence that the values are correct.", Permission: "read", Parameters: obj(map[string]any{"session_id": str(), "names": map[string]any{"type": "array", "maxItems": 100, "items": str()}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000}}, "session_id")},
+		func(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
+			id := strings.TrimSpace(stringArg(args, "session_id"))
+			if id == "" {
+				return protocol.ToolResult{}, errors.New("session_id is required")
+			}
+			opts := evalapi.InspectOptions{Limit: intArg(args, "limit", 0)}
+			if raw, ok := args["names"].([]any); ok {
+				for _, item := range raw {
+					if name, ok := item.(string); ok && strings.TrimSpace(name) != "" {
+						opts.Names = append(opts.Names, strings.TrimSpace(name))
+					}
+				}
+			}
+			value, err := controller.Inspect(ctx, id, opts)
+			if err != nil {
+				return protocol.ToolResult{}, err
+			}
+			return jsonResult(value)
 		})
 	s.add(protocol.ToolSpec{Name: "eval_artifact", Description: "Explicitly transfer a bounded artifact: import from your authorized workspace into a kernel; export a kernel artifact to your workspace; copy a granted artifact to another authorized runtime. Data provenance and hashes are retained. Kernel files are private until explicitly exported.", Permission: "exec", MutatesWorkspace: true, Parameters: obj(map[string]any{"action": map[string]any{"type": "string", "enum": []string{"import", "export", "copy"}}, "session_id": str(), "artifact_id": str(), "path": str(), "target_session_id": str()}, "action", "session_id")},
 		func(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {

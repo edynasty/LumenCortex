@@ -74,6 +74,24 @@ type wireResult struct {
 	OutputTruncated bool           `json:"outputTruncated"`
 }
 
+type wireInspect struct {
+	Names []string `json:"names,omitempty"`
+	Limit int      `json:"limit,omitempty"`
+}
+
+type wireInspectEntry struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+type wireInspectResult struct {
+	Generation uint64             `json:"generation"`
+	PID        int                `json:"pid"`
+	Entries    []wireInspectEntry `json:"entries"`
+	Total      int                `json:"total"`
+	Truncated  bool               `json:"truncated"`
+}
+
 type wireHealth struct {
 	Status     string `json:"status"`
 	Generation uint64 `json:"generation"`
@@ -314,6 +332,21 @@ func (w *worker) kill() []int {
 		return nil
 	}
 	return w.proc.killTree()
+}
+
+// inspect asks the worker for the names it holds. A runtime that does not
+// implement it answers -32601; the caller must then report the capability as
+// unsupported instead of returning an empty state as if it were the truth.
+func (w *worker) inspect(ctx context.Context, opts wireInspect) (wireInspectResult, error) {
+	raw, err := w.conn.call(ctx, "inspect", opts)
+	if err != nil {
+		return wireInspectResult{}, err
+	}
+	var out wireInspectResult
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return wireInspectResult{}, fmt.Errorf("%w: inspect result: %v", evalapi.ErrWorker, err)
+	}
+	return out, nil
 }
 
 func (w *worker) health(ctx context.Context) (wireHealth, error) {

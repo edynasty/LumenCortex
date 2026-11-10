@@ -30,4 +30,22 @@ type Host interface {
 	AssertBoundary(context.Context, string, string, evalapi.BoundaryContext) (evalapi.BoundaryReport, error)
 }
 
-var _ Host = (*Manager)(nil)
+// KernelInspector is an optional Host extension: a kernel can list the names it
+// holds without running a cell. It is separate from Host because a remote host
+// (the Linux UID broker) does not expose it yet; the Engine reports that as an
+// unsupported capability instead of pretending the state is empty.
+type KernelInspector interface {
+	Inspect(context.Context, string, string, evalapi.InspectOptions) (evalapi.Inspection, error)
+}
+
+// KernelRestarter is an optional Host extension: replace a kernel's process and
+// discard its live state while keeping its workspace files.
+type KernelRestarter interface {
+	Restart(context.Context, string, string) error
+}
+
+var (
+	_ Host            = (*Manager)(nil)
+	_ KernelInspector = (*Manager)(nil)
+	_ KernelRestarter = (*Manager)(nil)
+)

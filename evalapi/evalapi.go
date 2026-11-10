@@ -96,6 +96,9 @@ const (
 	CapDisplay      = "display"
 	CapSubprocess   = "subprocess"
 	CapStreaming    = "streaming"
+	// CapInspect declares that a runtime can list its live names and types
+	// without executing user code.
+	CapInspect = "inspect"
 )
 
 // Event types published through Options.OnEvent. They mirror the SPI lifecycle.
@@ -477,6 +480,38 @@ func (s Session) Alive() bool {
 		return true
 	}
 	return false
+}
+
+// InspectOptions bounds one kernel-state inspection. Inspect returns names and
+// types only: it never renders a value, so reading a kernel's state cannot run
+// user code (a __repr__ with side effects) or block the kernel.
+type InspectOptions struct {
+	// Names limits the result to these names when non-empty.
+	Names []string `json:"names,omitempty"`
+	// Limit bounds the entries returned (default 100, max 1000).
+	Limit int `json:"limit,omitempty"`
+}
+
+// InspectEntry is one user-visible name in a kernel's live state.
+type InspectEntry struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// Inspection is the bounded, code-free view of a kernel's live names. A kernel
+// without a live worker reports Alive=false and no entries; it never invents
+// one.
+type Inspection struct {
+	SessionID   string          `json:"sessionId"`
+	RuntimeID   string          `json:"runtimeId"`
+	Language    string          `json:"language"`
+	Generation  uint64          `json:"generation"`
+	PID         int             `json:"pid,omitempty"`
+	Alive       bool            `json:"alive"`
+	Entries     []InspectEntry  `json:"entries,omitempty"`
+	Total       int             `json:"total"`
+	Truncated   bool            `json:"truncated,omitempty"`
+	Enforcement EnforcementView `json:"enforcement,omitempty"`
 }
 
 // Grant is an explicit, expiring sharing grant on one kernel. Workspace and

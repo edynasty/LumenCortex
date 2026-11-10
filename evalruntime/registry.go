@@ -148,6 +148,7 @@ func pythonManifest(exe, worker string, caps map[string]bool, limits evalapi.Lim
 		{Name: evalapi.CapInterrupt, Supported: true, Notes: "SIGINT to the process group; a C extension that ignores it is escalated to group termination and the kernel is lost"},
 		{Name: evalapi.CapSubprocess, Supported: allowSubprocess, Notes: subprocessNote(allowSubprocess)},
 		{Name: evalapi.CapNotebook, Supported: true},
+		{Name: evalapi.CapInspect, Supported: true, Notes: "names and types of live globals; values are never rendered"},
 		{Name: evalapi.CapScientific, Supported: caps["numpy"] && caps["scipy"], Notes: dependencyProbe(caps, "numpy", "scipy", "pandas")},
 		{Name: evalapi.CapPlotting, Supported: caps["matplotlib"], Notes: dependencyProbe(caps, "matplotlib")},
 	}
@@ -188,6 +189,7 @@ func javascriptManifest(exe, worker string, limits evalapi.Limits, allowSubproce
 			{Name: evalapi.CapInterrupt, Supported: false, Notes: "synchronous V8 execution cannot be preempted in-process; the host terminates the worker group and the kernel state is lost"},
 			{Name: evalapi.CapSubprocess, Supported: allowSubprocess, Notes: subprocessNote(allowSubprocess)},
 			{Name: evalapi.CapNotebook, Supported: true},
+			{Name: evalapi.CapInspect, Supported: true, Notes: "names and types of the kernel state; values are never rendered"},
 		},
 		Dependencies:  []string{"node"},
 		Platforms:     []string{"darwin", "linux"},
