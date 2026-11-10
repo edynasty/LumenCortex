@@ -21,6 +21,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/agent"
 	"github.com/edynasty/LumenCortex/internal/debugger"
 	"github.com/edynasty/LumenCortex/internal/diag"
+	"github.com/edynasty/LumenCortex/internal/editing"
 	"github.com/edynasty/LumenCortex/internal/jobs"
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/mcp"
@@ -162,6 +163,9 @@ type Engine struct {
 	diagErr error
 	// bridge is the event-to-log goroutine's state; nil when the log is unavailable.
 	bridge *diagBridge
+	// editing is the single write path every file tool commits through: its snapshot store is per session
+	// and its write leases are shared by every run, so the collaboration layer can take one.
+	editing *editing.Engine
 }
 
 type Health struct {
@@ -366,6 +370,15 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	if diagLog != nil {
 		engine.log = diagLog.Logger()
 	}
+	// One editing engine per workspace: a session's read snapshots and the collaboration layer's write
+	// leases outlive a run. Each commit carries its toolset's path guard (editing.Plan.Host), so this
+	// engine never writes through a guard of its own.
+	editingEngine, err := editing.New(editing.Options{Root: workspace})
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	engine.editing = editingEngine
 	engine.events.store = store
 	engine.events.onFailure = func(sessionID string, err error) {
 		engine.log.Error("runtime event persistence failed", "session_id", sessionID, "error", err)

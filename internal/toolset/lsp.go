@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edynasty/LumenCortex/internal/editing"
+
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -181,16 +183,20 @@ func (s *Set) lspRename(ctx context.Context, args map[string]any, _ func(protoco
 			return protocol.ToolResult{OK: false, Content: `{"error":"the language server returned an edit that is not a workspace edit","hint":"nothing was written; use search_text and replace_in_file instead"}`}, nil
 		}
 	}
-	applied, wrote, err := s.applyWorkspaceEdit(edit)
+	applied, err := s.applyWorkspaceEdit(ctx, edit)
 	if err != nil {
+		code, hint := "refused", "the rename was refused as a whole; use search_text and replace_in_file instead"
+		if editErr, ok := editing.AsError(err); ok {
+			code, hint = editErr.Code, editErr.Hint()
+		}
 		content, _ := json.Marshal(map[string]any{
 			"error": err.Error(),
-			"code":  "refused",
-			"hint":  "the rename was refused as a whole; use search_text and replace_in_file instead",
+			"code":  code,
+			"hint":  hint,
 		})
-		s.log.Warn("lsp rename refused", "tool", "lsp_rename", "error_code", "refused",
+		s.log.Warn("lsp rename refused", "tool", "lsp_rename", "error_code", code,
 			"duration_ms", time.Since(started).Milliseconds(), "tool_call_id", protocol.ToolCallID(ctx))
-		return protocol.ToolResult{OK: false, Content: string(content), MutatesWorkspace: wrote}, nil
+		return protocol.ToolResult{OK: false, Content: string(content)}, nil
 	}
 	content, err := json.Marshal(map[string]any{"applied": applied, "filesChanged": len(applied)})
 	if err != nil {

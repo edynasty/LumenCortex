@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/editing"
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/internal/mcp"
 	"github.com/edynasty/LumenCortex/internal/repository"
@@ -65,6 +66,13 @@ type Options struct {
 	// SessionID is the session the run belongs to. A server configured with a session binding receives
 	// it instead of a model-supplied id (a computer session is bound to the run that opened it).
 	SessionID string
+	// Editing is the editing engine the file tools commit through. The runtime passes one per Engine so
+	// every run of a session shares its snapshots and the collaboration layer shares its leases; nil
+	// builds a private one over the toolset's workspace.
+	Editing *editing.Engine
+	// Events publishes a runtime event; nil discards it. The runtime binds it to the event bus, so an
+	// edit.committed or edit.conflict reaches Desktop and the session's durable history.
+	Events func(kind, sessionID string, payload map[string]any)
 }
 type Set struct {
 	workspace      string
@@ -89,7 +97,11 @@ type Set struct {
 	log             *slog.Logger
 	// sessionID is Options.SessionID.
 	sessionID string
-	tools     map[string]tool
+	// edit is the editing engine every write commits through.
+	edit *editing.Engine
+	// events publishes edit events; nil discards them.
+	events func(kind, sessionID string, payload map[string]any)
+	tools  map[string]tool
 }
 type tool struct {
 	spec    protocol.ToolSpec
@@ -153,7 +165,19 @@ func New(opts Options) (*Set, error) {
 	if shellTimeout > shellMaxTimeout {
 		shellTimeout = shellMaxTimeout
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, notebooks: opts.Notebook, protected: opts.Protected, shellTimeoutDefault: shellTimeout, shellMaxTimeout: shellMaxTimeout, jobs: opts.Jobs, wakeups: opts.Wakeups, log: newToolsetLogger(opts.Logger), sessionID: opts.SessionID, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, notebooks: opts.Notebook, protected: opts.Protected, shellTimeoutDefault: shellTimeout, shellMaxTimeout: shellMaxTimeout, jobs: opts.Jobs, wakeups: opts.Wakeups, log: newToolsetLogger(opts.Logger), sessionID: opts.SessionID, events: opts.Events, tools: map[string]tool{}}
+	// Every write goes through one editing engine. The runtime passes a shared one (so a session's
+	// snapshots and the collaboration layer's leases outlive a run); a toolset built on its own gets a
+	// private one, which keeps the same commit path in tests and in the capability catalog.
+	if opts.Editing != nil {
+		s.edit = opts.Editing
+	} else {
+		engine, err := editing.New(editing.Options{Root: root, Host: s})
+		if err != nil {
+			return nil, err
+		}
+		s.edit = engine
+	}
 	s.registerBuiltins()
 	return s, nil
 }
@@ -270,10 +294,10 @@ func builtinSpecs(interp shell.Interpreter, background bool) []protocol.ToolSpec
 	return []protocol.ToolSpec{
 		{Name: "search_text", Description: "Search repository text with bounded results. Uses ripgrep when available.", Permission: "read", Parameters: obj(map[string]any{"query": str(), "path": str(), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000}}, "query")},
 		{Name: "find_files", Description: "Find repository files by bounded glob/name pattern.", Permission: "read", Parameters: obj(map[string]any{"pattern": str(), "path": str(), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000}}, "pattern")},
-		{Name: "read_file", Description: "Read a bounded UTF-8 file inside the workspace.", Permission: "read", Parameters: obj(map[string]any{"path": str()}, "path")},
+		{Name: "read_file", Description: "Read a UTF-8 file inside the workspace. anchors=true prints a rev header and N:hhh|text rows for edit_lines; start_line and end_line page it.", Permission: "read", Parameters: obj(map[string]any{"path": str(), "start_line": map[string]any{"type": "integer", "minimum": 1}, "end_line": map[string]any{"type": "integer", "minimum": 1}, "anchors": map[string]any{"type": "boolean"}}, "path")},
 		{Name: "list_dir", Description: "List a bounded number of entries in a workspace directory.", Permission: "read", Parameters: obj(map[string]any{"path": str()}, "path")},
-		{Name: "write_file", Description: "Create or replace a UTF-8 file inside the workspace.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "content": str()}, "path", "content")},
-		{Name: "replace_in_file", Description: "Replace one exact text occurrence in a UTF-8 workspace file.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "old_text": str(), "new_text": str()}, "path", "old_text", "new_text")},
+		{Name: "write_file", Description: "Create or replace a UTF-8 file. Refused when the file changed since this session read it; pass base_rev to name the revision.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "content": str(), "base_rev": str()}, "path", "content")},
+		{Name: "replace_in_file", Description: "Replace one exact text occurrence in a UTF-8 workspace file. Refused when the file changed since it was read.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "old_text": str(), "new_text": str(), "base_rev": str()}, "path", "old_text", "new_text")},
 		{Name: "apply_patch", Description: "Apply a validated atomic batch of exact text edits, creates or deletes inside the workspace.", Permission: "write", MutatesWorkspace: true, Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{"patches": map[string]any{
@@ -344,6 +368,7 @@ func (s *Set) registerBuiltins() {
 	s.registerSkillTools()
 	s.registerWakeupTools()
 	s.registerNotebookTools()
+	s.registerEditingTools()
 }
 
 func str() map[string]any { return map[string]any{"type": "string"} }

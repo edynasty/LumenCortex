@@ -54,13 +54,14 @@ const toolSpawnSubagent = "spawn_subagent"
 // tool without one is exec.
 func executionTierOf(name string, specs []protocol.ToolSpec) executionTier {
 	switch name {
-	case "write_file", "replace_in_file", "apply_patch":
+	case "write_file", "replace_in_file", "apply_patch", "edit_lines":
 		return tierFiles
 	case protocol.ToolBash:
 		return tierWorkspace
-	case "lsp_rename":
-		// A rename writes files the language server chooses, which the call's arguments do not name:
-		// the whole work tree is snapshotted, as for shell.
+	case "lsp_rename", "edit_go":
+		// A rename or a structural Go edit writes files the call's arguments do not name (the language
+		// server chooses them; a package rename reaches sibling files), so the whole work tree is
+		// snapshotted, as for shell.
 		return tierWorkspace
 	case "eval_artifact":
 		// An export writes a kernel artifact into the session workspace at a path the call names
@@ -94,7 +95,7 @@ func executionTierOf(name string, specs []protocol.ToolSpec) executionTier {
 // none; such a call changes nothing.
 func fileTargets(name string, args map[string]any) []string {
 	switch name {
-	case "write_file", "replace_in_file":
+	case "write_file", "replace_in_file", "edit_lines":
 		if p, ok := args["path"].(string); ok {
 			return []string{p}
 		}

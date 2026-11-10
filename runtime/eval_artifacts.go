@@ -22,7 +22,9 @@ func (e *Engine) TransferEvalArtifact(ctx context.Context, sessionID, action, ev
 	if err != nil {
 		return evalapi.Artifact{}, err
 	}
-	files, err := toolset.New(toolset.Options{Workspace: workspace, Policy: toolset.PolicyWorkspace, Protected: e.protected, SessionID: sessionID})
+	files, err := toolset.New(toolset.Options{Workspace: workspace, Policy: toolset.PolicyWorkspace, Protected: e.protected, SessionID: sessionID,
+		Editing: e.editing,
+		Events:  func(kind, sid string, payload map[string]any) { e.events.publish(kind, sid, payload) }})
 	if err != nil {
 		return evalapi.Artifact{}, err
 	}

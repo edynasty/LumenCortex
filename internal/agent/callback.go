@@ -44,6 +44,9 @@ var callbackAllowedBuiltins = map[string]bool{
 	// the workspace the toolset confines them to, and their file edges still invalidate a check
 	// definition write.
 	"write_file": true, "replace_in_file": true, "apply_patch": true,
+	// edit_lines names one path, like replace_in_file; edit_go is left out because a structural rename
+	// can write sibling files the call does not name, and a nested call's journal names its targets.
+	"edit_lines": true,
 }
 
 // callbackDeniedPrefixes are tool families a callback never reaches.

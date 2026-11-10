@@ -6,13 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
+	"github.com/edynasty/LumenCortex/internal/editing"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
-func (s *Set) applyPatch(_ context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
+// applyPatch applies a validated atomic batch of exact text edits, creates and deletes. Every patch is
+// resolved and validated before anything is written, and the batch is committed through the editing
+// engine: one file's failure rolls back the files already written.
+func (s *Set) applyPatch(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	raw, err := json.Marshal(args["patches"])
 	if err != nil {
 		return protocol.ToolResult{}, err
@@ -26,7 +29,8 @@ func (s *Set) applyPatch(_ context.Context, args map[string]any, _ func(protocol
 	}
 
 	seen := map[string]bool{}
-	plans := make([]plan, 0, len(patches))
+	changes := make([]editing.FileChange, 0, len(patches))
+	reported := make([]map[string]any, 0, len(patches))
 	for index, item := range patches {
 		file, relative, err := s.resolve(item.Path, item.Operation == "create")
 		if err != nil {
@@ -49,18 +53,23 @@ func (s *Set) applyPatch(_ context.Context, args map[string]any, _ func(protocol
 			if len(item.Edits) == 0 {
 				return protocol.ToolResult{}, fmt.Errorf("update requires edits: %s", relative)
 			}
-			originalBytes, err := s.readChecked(file)
+			original, err := s.readChecked(file)
 			if err != nil {
 				return protocol.ToolResult{}, err
 			}
-			next, err := applyExactEdits(string(originalBytes), item.Edits, relative)
+			next, err := applyExactEdits(string(original), item.Edits, relative)
 			if err != nil {
 				return protocol.ToolResult{}, err
 			}
 			if len(next) > maxEditBytes {
 				return protocol.ToolResult{}, fmt.Errorf("updated file exceeds 4 MiB limit: %s", relative)
 			}
-			plans = append(plans, plan{operation: item.Operation, file: file, relative: relative, original: string(originalBytes), next: next})
+			edits := make([]editing.TextEdit, 0, len(item.Edits))
+			for _, edit := range item.Edits {
+				edits = append(edits, editing.TextEdit{Old: edit.OldText, New: edit.NewText})
+			}
+			changes = append(changes, editing.FileChange{Path: file, BaseRev: editing.RevOf(original), Edits: edits})
+			reported = append(reported, map[string]any{"path": relative, "operation": item.Operation, "bytes": len(next)})
 		case "create":
 			if _, err := os.Lstat(file); err == nil {
 				return protocol.ToolResult{}, fmt.Errorf("create target already exists: %s", relative)
@@ -70,7 +79,9 @@ func (s *Set) applyPatch(_ context.Context, args map[string]any, _ func(protocol
 			if len(item.Content) > maxEditBytes {
 				return protocol.ToolResult{}, fmt.Errorf("create content exceeds 4 MiB limit: %s", relative)
 			}
-			plans = append(plans, plan{operation: item.Operation, file: file, relative: relative, next: item.Content})
+			content := []byte(item.Content)
+			changes = append(changes, editing.FileChange{Path: file, Content: &content, Create: true})
+			reported = append(reported, map[string]any{"path": relative, "operation": item.Operation, "bytes": len(content)})
 		case "delete":
 			info, err := os.Stat(file)
 			if err != nil || !info.Mode().IsRegular() {
@@ -79,74 +90,22 @@ func (s *Set) applyPatch(_ context.Context, args map[string]any, _ func(protocol
 			if info.Size() > maxEditBytes {
 				return protocol.ToolResult{}, fmt.Errorf("delete target exceeds 4 MiB rollback limit: %s", relative)
 			}
-			originalBytes, err := s.readChecked(file)
-			if err != nil {
-				return protocol.ToolResult{}, err
-			}
-			plans = append(plans, plan{operation: item.Operation, file: file, relative: relative, original: string(originalBytes)})
+			changes = append(changes, editing.FileChange{Path: file, Delete: true})
+			reported = append(reported, map[string]any{"path": relative, "operation": item.Operation, "bytes": 0})
 		default:
 			return protocol.ToolResult{}, fmt.Errorf("unsupported patch operation at index %d: %s", index, item.Operation)
 		}
 	}
 
-	applied := make([]plan, 0, len(plans))
-	if err := s.applyPlans(plans, &applied); err != nil {
-		return protocol.ToolResult{}, err
+	if _, err := s.edit.Commit(ctx, editing.Plan{Host: s, Actor: s.actor(), Tool: "apply_patch", Changes: changes}); err != nil {
+		return editOutcome(err)
 	}
-
-	result := make([]map[string]any, 0, len(plans))
-	for _, item := range plans {
-		size := 0
-		if item.operation != "delete" {
-			size = len(item.next)
-		}
-		result = append(result, map[string]any{"path": item.relative, "operation": item.operation, "bytes": size})
-	}
-	content, _ := json.Marshal(result)
+	content, _ := json.Marshal(reported)
 	return protocol.ToolResult{OK: true, Content: string(content), MutatesWorkspace: true}, nil
 }
 
-// applyPlans writes validated plans in order. A write that fails rolls back the plans applied before
-// it, so a batch either lands or is undone. It appends the plans it wrote to applied, which the caller
-// uses to report what changed.
-func (s *Set) applyPlans(plans []plan, applied *[]plan) error {
-	for _, item := range plans {
-		var err error
-		switch item.operation {
-		case "delete":
-			// Remove acts on a name, so the path is validated again right before it.
-			if _, _, err = s.resolve(item.file, false); err == nil {
-				err = os.Remove(item.file)
-			}
-		default:
-			if mkdirErr := os.MkdirAll(filepath.Dir(item.file), 0o755); mkdirErr != nil {
-				err = mkdirErr
-			} else {
-				err = s.writeChecked(item.file, []byte(item.next))
-			}
-		}
-		if err != nil {
-			s.rollbackPlans(*applied)
-			return err
-		}
-		*applied = append(*applied, item)
-	}
-	return nil
-}
-
-func (s *Set) rollbackPlans(plans []plan) {
-	for i := len(plans) - 1; i >= 0; i-- {
-		item := plans[i]
-		switch item.operation {
-		case "create":
-			_ = os.Remove(item.file)
-		case "update", "delete":
-			_ = os.MkdirAll(filepath.Dir(item.file), 0o755)
-			_ = s.writeChecked(item.file, []byte(item.original))
-		}
-	}
-}
-
+// applyExactEdits validates a patch's edits against the current content, applying them in order the way
+// the engine will: each old_text must occur exactly once.
 func applyExactEdits(source string, edits []edit, relative string) (string, error) {
 	next := source
 	for index, item := range edits {

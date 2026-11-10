@@ -467,7 +467,7 @@ func builtinCapability(name string) string {
 	switch name {
 	case "search_text", "find_files", "read_file", "list_dir":
 		return "repo.read"
-	case "write_file", "replace_in_file", "apply_patch":
+	case "write_file", "replace_in_file", "apply_patch", "edit_lines", "edit_go":
 		return "repo.write"
 	case protocol.ToolBash, "job_status", "job_wait", "job_cancel", "job_list":
 		// The job tools act on the commands bash started in the background.
