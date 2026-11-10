@@ -26,8 +26,6 @@ const defaultWait = 10 * time.Second
 
 // WaitOptions controls whether a control command returns when the target stops.
 type WaitOptions struct {
-	// Until lists the states to wait for; empty means stopped, terminated, exited and lost.
-	Until []string
 	// Timeout bounds the wait; zero selects the default and anything above
 	// MaxWait is clamped. It never exceeds the caller's context deadline.
 	Timeout time.Duration
@@ -357,10 +355,8 @@ func boundJSON(raw json.RawMessage, stopEpoch uint64) json.RawMessage {
 			}
 			return out
 		}
-		if budget > 64 {
-			budget /= 2
-			continue
-		}
+		// Drop array tails first: keeping 20 values at full fidelity is
+		// more useful to a caller than 100 clipped ones.
 		progress := false
 		for key, length := range lengths {
 			if kept := length - drops[key]; kept > 1 {
@@ -368,9 +364,14 @@ func boundJSON(raw json.RawMessage, stopEpoch uint64) json.RawMessage {
 				progress = true
 			}
 		}
-		if !progress {
-			break
+		if progress {
+			continue
 		}
+		if budget > 64 {
+			budget /= 2
+			continue
+		}
+		break
 	}
 	var doc any
 	if err := json.Unmarshal(raw, &doc); err != nil {

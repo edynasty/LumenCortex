@@ -122,9 +122,13 @@ func TestE1D5ModuleEventsStayLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.After(8 * time.Second)
+	liveModules := 0
 	for {
 		select {
 		case event := <-live:
+			if event.Type == "debug.module" {
+				liveModules++
+			}
 			if event.Type == "debug.stopped" {
 				goto stopped
 			}
@@ -133,6 +137,9 @@ func TestE1D5ModuleEventsStayLive(t *testing.T) {
 		}
 	}
 stopped:
+	if liveModules == 0 {
+		t.Fatal("live bus received no module events; they must stay live even though they are not durable")
+	}
 	if _, err = e.DebugCommand(ctx, DebugControl{SessionID: sessionID, DebugID: snap.ID, Epoch: snap.Epoch, Action: "stop"}); err != nil {
 		t.Fatal(err)
 	}
