@@ -59,6 +59,11 @@ func NewSnapshotStore() *SnapshotStore {
 
 // Register records a read of path: its decoded document, and the line range the session was shown.
 // from and to are 1-based and inclusive; a from of 0 records no shown line. It returns the snapshot.
+//
+// A published *Snapshot is never mutated: the registration installs a fresh Snapshot and replaces the
+// entry for (path, rev), carrying the lines shown so far forward. A caller that already holds the
+// previous snapshot may read its Doc and Seen without the store lock, so a concurrent registration
+// for the same revision (two parallel reads of one file in a session) must not rewrite them in place.
 func (s *SnapshotStore) Register(session, path string, doc Doc, from, to int) *Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -68,27 +73,40 @@ func (s *SnapshotStore) Register(session, path string, doc Doc, from, to int) *S
 		ss = &sessionSnapshots{}
 		s.sessions[session] = ss
 	}
-	snap := s.find(ss, path, doc.Rev)
-	if snap == nil {
-		snap = &Snapshot{Path: path, Rev: doc.Rev, Seen: map[int]bool{}}
-		ss.entries = append(ss.entries, snap)
-		ss.bytes += len(doc.Raw)
-	} else {
-		ss.bytes += len(doc.Raw) - len(snap.Doc.Raw)
-	}
-	snap.Doc = doc
-	snap.at = s.seq
+	prev := s.find(ss, path, doc.Rev)
+	snap := &Snapshot{Path: path, Rev: doc.Rev, Doc: doc, Seen: map[int]bool{}, at: s.seq}
 	if from < 1 {
 		from = 1
 	}
 	if to <= 0 || to > len(doc.Lines) {
 		to = len(doc.Lines)
 	}
+	if prev != nil {
+		for line := range prev.Seen {
+			snap.Seen[line] = true
+		}
+		ss.bytes += len(doc.Raw) - len(prev.Doc.Raw)
+		s.replace(ss, prev, snap)
+	} else {
+		ss.entries = append(ss.entries, snap)
+		ss.bytes += len(doc.Raw)
+	}
 	for line := from; line <= to; line++ {
 		snap.Seen[line] = true
 	}
 	s.prune(ss, path)
 	return snap
+}
+
+// replace installs snap in place of prev, so the entry order (and the LRU tie at) is unchanged.
+func (s *SnapshotStore) replace(ss *sessionSnapshots, prev, snap *Snapshot) {
+	for i, entry := range ss.entries {
+		if entry == prev {
+			ss.entries[i] = snap
+			return
+		}
+	}
+	ss.entries = append(ss.entries, snap)
 }
 
 // RegisterRev records that a session read path at rev without being shown anchored lines. It is the

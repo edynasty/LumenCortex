@@ -20,6 +20,10 @@ func (s *Set) Resolve(input string, allowMissing bool) (string, string, error) {
 
 // Open opens a file for the engine's compare-and-swap read and write. It opens without truncating and
 // refuses protected state on the descriptor, so a write the guard refuses leaves the file as it was.
+// It also re-applies the workspace guard to the descriptor: a path component swapped for a symlink
+// between Resolve and the open would otherwise let the descriptor (and the write that follows on it)
+// reach a file outside the workspace, which the descriptor-level protected-state check alone does not
+// stop.
 func (s *Set) Open(path string, create bool) (*os.File, error) {
 	if testHookBeforeOpen != nil {
 		testHookBeforeOpen(path)
@@ -36,11 +40,33 @@ func (s *Set) Open(path string, create bool) (*os.File, error) {
 	if err == nil {
 		err = s.denyIfProtected(info)
 	}
+	if err == nil {
+		err = s.verifyOpenedDescriptor(path, info)
+	}
 	if err != nil {
 		f.Close()
 		return nil, err
 	}
 	return f, nil
+}
+
+// verifyOpenedDescriptor re-runs the workspace guard on an opened descriptor. The path is resolved
+// again and must still name the inode that was opened: a swap between the open and this check makes
+// os.SameFile false, and a swap to a symlink out of the workspace makes resolve refuse. Editing a
+// symlink whose target is inside the workspace stays allowed, as resolve validates its real target.
+func (s *Set) verifyOpenedDescriptor(path string, info os.FileInfo) error {
+	canonical, _, err := s.resolve(path, true)
+	if err != nil {
+		return err
+	}
+	current, err := os.Stat(canonical)
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(info, current) {
+		return fmt.Errorf("file identity changed after resolve: %s", path)
+	}
+	return nil
 }
 
 // Event publishes an edit event on the runtime's bus. A toolset built without a bus discards it.
