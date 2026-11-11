@@ -78,6 +78,12 @@ func (e *Engine) WriteLeases(ctx context.Context) ([]WriteLease, error) {
 }
 
 // resolveLease turns a request into the canonical target the engine checks commits against.
+//
+// A path is inside the workspace when it is lexically under Root, or when its canonical form is under
+// Root's canonical form. The second case is the Target a listed lease carries: for a workspace opened
+// through a symlink, Root keeps the workspace as it was spelled while Target names the real path, and
+// a host renews or releases a lease by passing that Target back. A path outside the workspace's real
+// directory is still refused, and the returned Root keeps its spelling.
 func (e *Engine) resolveLease(req WriteLeaseRequest) (root, target string, prefix bool, err error) {
 	if strings.TrimSpace(req.Path) == "" {
 		return "", "", false, errors.New("a write lease needs a path")
@@ -98,8 +104,7 @@ func (e *Engine) resolveLease(req WriteLeaseRequest) (root, target string, prefi
 		target = filepath.Join(root, target)
 	}
 	target = filepath.Clean(target)
-	rel, relErr := filepath.Rel(root, target)
-	if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if !leaseContained(root, target) && !leaseContained(editing.CanonicalPath(root), editing.CanonicalPath(target)) {
 		return "", "", false, fmt.Errorf("write lease path escapes the workspace: %s", req.Path)
 	}
 	prefix = req.Prefix || strings.HasSuffix(req.Path, string(filepath.Separator))
@@ -109,6 +114,12 @@ func (e *Engine) resolveLease(req WriteLeaseRequest) (root, target string, prefi
 		}
 	}
 	return root, editing.CanonicalPath(target), prefix, nil
+}
+
+// leaseContained reports whether target is root or a path under it.
+func leaseContained(root, target string) bool {
+	rel, err := filepath.Rel(root, target)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func leaseTTL(req WriteLeaseRequest) time.Duration {

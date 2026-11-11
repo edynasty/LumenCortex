@@ -88,6 +88,11 @@ prototypes `prototypes/e3-hashline` (S1–S9) and `prototypes/e4-ast-edit` (8 ca
   with `WriteLeaseRequest{Root, Path, Holder, Prefix, TTLSeconds}`; `WriteLease` aliases
   `editing.Lease`. Paths are canonicalized and confined to the workspace; holder defaults to the
   session by convention.
+  - Correction 2026-11-11 (FFINAL-EDIT-01): a listed lease keeps `Root` as the workspace was spelled
+    and `Target` with symlinks resolved. A path is inside the workspace when it is lexically under
+    `Root` or canonically under `Root`'s real directory, so renewing or releasing by the listed
+    `Target` works through a symlinked workspace; a really outside path is still refused
+    (`TestWriteLeaseByListedTargetThroughASymlinkedWorkspace`).
 - Tool classification: `edit_lines` is a `tierFiles` tool and names its path; `edit_go` is
   `tierWorkspace` like `lsp_rename` because a rename can write sibling files the arguments do not
   name. Both are `repo.write` capabilities. `edit_lines` is allowed in nested eval callbacks
