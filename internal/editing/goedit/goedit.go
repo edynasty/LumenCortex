@@ -782,6 +782,9 @@ func (p *pkg) renameSelector(op Op, fd *ast.FuncDecl, kind string) ([]splice, []
 	if existing, _, _ := types.LookupFieldOrMethod(sig.Recv().Type(), true, target.Pkg(), op.NewName); existing != nil && existing != target {
 		return nil, nil, "", editing.Errorf(editing.CodeAmbiguous, "receiver already has member %q", op.NewName)
 	}
+	if err := rejectReverseMethodCapture(info, target, fd.Name.Name, op.NewName); err != nil {
+		return nil, nil, "", err
+	}
 	for _, selection := range info.Selections {
 		method, ok := selection.Obj().(*types.Func)
 		if !ok || method.Origin() != target.Origin() {
@@ -807,7 +810,25 @@ func (p *pkg) renameSelector(op Op, fd *ast.FuncDecl, kind string) ([]splice, []
 	}
 	return splices, symbols, fmt.Sprintf("renamed %d occurrence(s) of %s", len(splices), fd.Name.Name), nil
 }
-
+func rejectReverseMethodCapture(info *types.Info, target *types.Func, oldName, newName string) error {
+	for _, object := range info.Defs {
+		typeName, ok := object.(*types.TypeName)
+		if !ok {
+			continue
+		}
+		for _, candidate := range []types.Type{typeName.Type(), types.NewPointer(typeName.Type())} {
+			old, _, _ := types.LookupFieldOrMethod(candidate, true, target.Pkg(), oldName)
+			oldMethod, ok := old.(*types.Func)
+			if !ok || oldMethod.Origin() != target.Origin() {
+				continue
+			}
+			if replacement, index, _ := types.LookupFieldOrMethod(candidate, true, target.Pkg(), newName); replacement != nil || index != nil {
+				return editing.Errorf(editing.CodeAmbiguous, "rename would rebind existing method selection %q", newName)
+			}
+		}
+	}
+	return nil
+}
 func (p *pkg) typeInfo() (*types.Info, error) {
 	info := &types.Info{
 		Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object),

@@ -48,6 +48,28 @@ func TestReviewMethodRenameRejectsPromotedFieldCapture(t *testing.T) {
 	}
 }
 
+func TestReviewMethodRenameRejectsReversePromotedCapture(t *testing.T) {
+	original := "package demo\ntype A struct{}\nfunc (A) Foo() int { return 1 }\ntype F struct{}\nfunc (F) Bar() int { return 2 }\ntype E struct{ F }\ntype C struct{ A; E }\nfunc Use() int { return C{}.Bar() }\n"
+	got, err := reviewRename(t, original, "A.Foo", "Bar")
+	if err == nil {
+		t.Fatal("rename rebound a shallower promoted selector")
+	}
+	if got != original {
+		t.Fatalf("refused rename mutated source:\n%s", got)
+	}
+}
+
+func TestReviewMethodRenameRejectsReversePromotedInterfaceCapture(t *testing.T) {
+	original := "package demo\ntype A struct{}\nfunc (A) Foo() int { return 1 }\ntype F struct{}\nfunc (F) Bar() int { return 2 }\ntype E struct{ F }\ntype C struct{ A; E }\nfunc Use() int { var i interface{ Bar() int } = C{}; return i.Bar() }\n"
+	got, err := reviewRename(t, original, "A.Foo", "Bar")
+	if err == nil {
+		t.Fatal("rename changed interface dispatch")
+	}
+	if got != original {
+		t.Fatalf("refused rename mutated source:\n%s", got)
+	}
+}
+
 func TestReviewPackageRenameRejectsUniverseCapture(t *testing.T) {
 	original := "package demo\nfunc Size(s string) int { return 0 }\nfunc Use() int { return len(\"ab\") }\n"
 	got, err := reviewRename(t, original, "Size", "len")
