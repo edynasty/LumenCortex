@@ -967,6 +967,7 @@ var (
 	testHookAfterRunLeaves func()
 	// testHookAfterHandoffLeaseDecision pauses cleanup after it records lease retention.
 	testHookAfterHandoffLeaseDecision func()
+	// testHookBeforeRunStopped runs in a supervised run's cleanup after the run released its resources,
 	// just before it publishes run.stopped and closes its done channel.
 	testHookBeforeRunStopped func()
 	// testHookBeforeStopCheckpoint runs in a supervised child run's cleanup after it published
