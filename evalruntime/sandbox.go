@@ -282,8 +282,10 @@ func seatbeltProfile(spec launchSpec) string {
 	b.WriteString("(allow sysctl-read)\n(allow ipc-posix-shm*)\n")
 	// Signals are how a cell is interrupted; without this the host's SIGINT is
 	// dropped, the worker never sees the interrupt, and every timeout would be a
-	// hard kill that loses the kernel.
-	b.WriteString("(allow signal)\n")
+	// hard kill that loses the kernel. The grant is limited to this sandbox: the
+	// process, its children and a debugger's target. The host, other kernels and
+	// every other process of the user are out of reach.
+	b.WriteString("(allow signal (target same-sandbox))\n")
 	// getcwd needs ancestor directories, not a global directory-content grant.
 	b.WriteString("(allow file-read-metadata)\n")
 	for dir := resolvePath(spec.kernelDir); ; dir = filepath.Dir(dir) {
