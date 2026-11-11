@@ -578,8 +578,9 @@ func TestConcurrentFirstOpenMakesOneStateAndBinding(t *testing.T) {
 		goFile := filepath.Join(t.TempDir(), "go")
 
 		type child struct {
-			cmd *exec.Cmd
-			out *bytes.Buffer
+			cmd  *exec.Cmd
+			out  *bytes.Buffer
+			read chan struct{}
 		}
 		var children []child
 		var ready sync.WaitGroup
@@ -594,9 +595,11 @@ func TestConcurrentFirstOpenMakesOneStateAndBinding(t *testing.T) {
 			if err := cmd.Start(); err != nil {
 				t.Fatal(err)
 			}
-			children = append(children, child{cmd, buf})
+			read := make(chan struct{})
+			children = append(children, child{cmd, buf, read})
 			ready.Add(1)
 			go func() {
+				defer close(read)
 				scanner := bufio.NewScanner(stdout)
 				signalled := false
 				for scanner.Scan() {
@@ -618,6 +621,8 @@ func TestConcurrentFirstOpenMakesOneStateAndBinding(t *testing.T) {
 		var paths []string
 		var workspaces []string
 		for _, c := range children {
+			// os/exec: Wait closes the stdout pipe, so every read must finish before it is called.
+			<-c.read
 			if err := c.cmd.Wait(); err != nil {
 				t.Fatalf("round %d: helper failed: %v\n%s", round, err, c.out.String())
 			}
