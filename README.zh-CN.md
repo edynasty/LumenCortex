@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/brand/lumencortex-mark.svg" alt="LumenCortex 品牌标识" width="88">
+  <img src="docs/assets/brand/lumencortex-app-icon.png" alt="LumenCortex Desktop 应用图标" width="112">
 </p>
 
 <h1 align="center">LumenCortex</h1>

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/brand/lumencortex-mark.svg" alt="LumenCortex logo" width="88">
+  <img src="docs/assets/brand/lumencortex-app-icon.png" alt="LumenCortex Desktop app icon" width="112">
 </p>
 
 <h1 align="center">LumenCortex</h1>
