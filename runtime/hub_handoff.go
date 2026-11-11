@@ -129,25 +129,37 @@ func (s *RunSupervisor) Handoff(ctx context.Context, h HubHandoff) (string, erro
 	return target, nil
 }
 
-// stopForHandoff cancels the source's run and waits for it to leave the supervisor, so no goroutine of
-// the source writes after the handoff note.
+// stopForHandoff cancels the source's run and waits for its cleanup to finish, so no goroutine of the
+// source writes after the handoff note. The run is marked as stopped for a handoff first, so its end keeps
+// the session's Task Leases for the handoff to move. A run that ended on its own before the mark released
+// them as any run does; the handoff then moves none.
 func (s *RunSupervisor) stopForHandoff(ctx context.Context, sessionID string) error {
-	if !s.Active(sessionID) {
+	s.mu.Lock()
+	run := s.runs[sessionID]
+	if run != nil {
+		run.handoff = true
+	}
+	s.mu.Unlock()
+	if run == nil {
 		return nil
 	}
 	s.Cancel(sessionID)
-	deadline := time.Now().Add(handoffStopWait)
-	for s.Active(sessionID) {
-		if time.Now().After(deadline) {
-			return fmt.Errorf("the source run of %s did not stop within %s", sessionID, handoffStopWait)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(5 * time.Millisecond):
-		}
+	timer := time.NewTimer(handoffStopWait)
+	defer timer.Stop()
+	var err error
+	select {
+	case <-run.done:
+		return nil
+	case <-ctx.Done():
+		err = ctx.Err()
+	case <-timer.C:
+		err = fmt.Errorf("the source run of %s did not stop within %s", sessionID, handoffStopWait)
 	}
-	return nil
+	// No handoff follows: the run's end releases its claims as any run's does.
+	s.mu.Lock()
+	run.handoff = false
+	s.mu.Unlock()
+	return err
 }
 
 // writeHandoffNote records the handoff in the source's Task State, under the run lock the stopped run
