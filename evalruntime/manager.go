@@ -595,7 +595,6 @@ func (m *Manager) Inspect(ctx context.Context, sessionID, agentID string, opts e
 		return evalapi.Inspection{}, probeErr
 	}
 	value.PID = res.PID
-	value.Generation = res.Generation
 	value.Total = res.Total
 	value.Truncated = res.Truncated
 	value.Entries = make([]evalapi.InspectEntry, 0, len(res.Entries))

@@ -187,6 +187,45 @@ func TestJavaScriptInspectAndModulePersistence(t *testing.T) {
 	}
 }
 
+// TestInspectReportsTheKernelGeneration: eval_inspect reports the generation that
+// eval and eval_sessions report, also after Restart and Reset replaced the
+// worker process, whose own counter starts again.
+func TestInspectReportsTheKernelGeneration(t *testing.T) {
+	cases := []struct {
+		runtime string
+		harness func(*testing.T) *harness
+	}{
+		{"python", func(t *testing.T) *harness { h, _ := newPythonHarness(t, nil); return h }},
+		{"javascript", func(t *testing.T) *harness { return newJavaScriptHarness(t, nil) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.runtime, func(t *testing.T) {
+			h := tc.harness(t)
+			ctx := context.Background()
+			session := h.create(tc.runtime, "owner", "owner")
+			h.expectCompleted(session, "owner", "1")
+			if err := h.m.Restart(ctx, session.ID, "owner"); err != nil {
+				t.Fatalf("Restart: %v", err)
+			}
+			if err := h.m.Reset(ctx, session.ID, "owner"); err != nil {
+				t.Fatalf("Reset: %v", err)
+			}
+			h.expectCompleted(session, "owner", "2")
+			view, err := h.m.Session(ctx, session.ID, "owner")
+			if err != nil {
+				t.Fatalf("Session: %v", err)
+			}
+			inspection, err := h.m.Inspect(ctx, session.ID, "owner", evalapi.InspectOptions{})
+			if err != nil {
+				t.Fatalf("Inspect: %v", err)
+			}
+			if view.Generation < 3 || inspection.Generation != view.Generation {
+				t.Fatalf("inspect reports generation %d, the session %d", inspection.Generation, view.Generation)
+			}
+		})
+	}
+}
+
 // TestInspectReportsOnlyItsOwnKernel proves inspection is scoped to one kernel:
 // two sessions never see each other's names.
 func TestInspectReportsOnlyItsOwnKernel(t *testing.T) {

@@ -85,11 +85,10 @@ type wireInspectEntry struct {
 }
 
 type wireInspectResult struct {
-	Generation uint64             `json:"generation"`
-	PID        int                `json:"pid"`
-	Entries    []wireInspectEntry `json:"entries"`
-	Total      int                `json:"total"`
-	Truncated  bool               `json:"truncated"`
+	PID       int                `json:"pid"`
+	Entries   []wireInspectEntry `json:"entries"`
+	Total     int                `json:"total"`
+	Truncated bool               `json:"truncated"`
 }
 
 type wireHealth struct {
