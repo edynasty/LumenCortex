@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"go/ast"
 	"go/format"
+	"go/importer"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -745,49 +747,33 @@ func (p *pkg) renameObject(op Op, obj *ast.Object) ([]splice, []Symbol, string, 
 // type declares the same name, because a selector cannot be attributed to a type without a full type
 // check of every package that uses it.
 func (p *pkg) renameSelector(op Op, fd *ast.FuncDecl, kind string) ([]splice, []Symbol, string, error) {
-	from := fd.Name.Name
-	var conflicts []string
-	for path, file := range p.files {
-		for _, decl := range file.Decls {
-			if gen, ok := decl.(*ast.GenDecl); ok && gen.Tok == token.TYPE {
-				for _, item := range gen.Specs {
-					ts, ok := item.(*ast.TypeSpec)
-					if !ok {
-						continue
-					}
-					if name := memberName(ts.Type, op.NewName); name != "" {
-						conflicts = append(conflicts, fmt.Sprintf("%s.%s", ts.Name.Name, name))
-					}
-				}
-			}
-		}
-		_ = path
+	info, err := p.typeInfo()
+	if err != nil {
+		return nil, nil, "", err
 	}
-	if len(conflicts) > 0 {
-		return nil, nil, "", editing.Errorf(editing.CodeAmbiguous, "rename to %q would collide with %s", op.NewName, strings.Join(conflicts, ", "))
+	target, ok := info.Defs[fd.Name].(*types.Func)
+	if !ok {
+		return nil, nil, "", editing.Errorf(editing.CodeUnknownSymbol, "method identity is unresolved")
+	}
+	sig := target.Type().(*types.Signature)
+	if existing, _, _ := types.LookupFieldOrMethod(sig.Recv().Type(), true, target.Pkg(), op.NewName); existing != nil && existing != target {
+		return nil, nil, "", editing.Errorf(editing.CodeAmbiguous, "receiver already has member %q", op.NewName)
 	}
 	var splices []splice
 	var symbols []Symbol
 	for _, file := range p.sortedFiles() {
-		walkIdents(file, func(parent ast.Node, id *ast.Ident) {
-			matches := false
-			if id.Name == from {
-				if selector, ok := parent.(*ast.SelectorExpr); ok && selector.Sel == id {
-					matches = true
-				}
-			}
-			if fd.Name == id {
-				matches = true
-			}
-			if !matches {
+		walkIdents(file, func(_ ast.Node, id *ast.Ident) {
+			obj := info.ObjectOf(id)
+			method, ok := obj.(*types.Func)
+			if !ok || method.Origin() != target.Origin() {
 				return
 			}
 			line, column := p.lineColumn(id.Pos())
 			splices = append(splices, splice{file: p.fileOf(id.Pos()), start: p.offset(id.Pos()), end: p.offset(id.End()), text: op.NewName})
-			symbols = append(symbols, Symbol{Symbol: from, Kind: kind, Path: p.fileOf(id.Pos()), Line: line, Column: column})
+			symbols = append(symbols, Symbol{Symbol: fd.Name.Name, Kind: kind, Path: p.fileOf(id.Pos()), Line: line, Column: column})
 		})
 	}
-	return splices, symbols, fmt.Sprintf("renamed %d occurrence(s) of %s", len(splices), from), nil
+	return splices, symbols, fmt.Sprintf("renamed %d occurrence(s) of %s", len(splices), fd.Name.Name), nil
 }
 
 // member declares the member name of a struct or interface type, or "" when it has none.
@@ -981,4 +967,16 @@ func walkIdents(root ast.Node, visit func(parent ast.Node, id *ast.Ident)) {
 // formatNode prints an expression the way a symbol path spells it.
 func formatNode(b *bytes.Buffer, expr ast.Expr) error {
 	return format.Node(b, token.NewFileSet(), expr)
+}
+
+func (p *pkg) typeInfo() (*types.Info, error) {
+	info := &types.Info{
+		Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object),
+		Scopes: make(map[ast.Node]*types.Scope), Selections: make(map[*ast.SelectorExpr]*types.Selection),
+	}
+	config := types.Config{Importer: importer.ForCompiler(p.fset, "source", nil)}
+	if _, err := config.Check(p.name, p.fset, p.sortedFiles(), info); err != nil {
+		return nil, editing.Errorf(editing.CodeType, "rename requires resolved types: %v", err)
+	}
+	return info, nil
 }
