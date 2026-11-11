@@ -14,6 +14,10 @@ The transport uses the existing `shell.StartManaged` admission and crash-guard l
 
 On macOS, program mode alone adds `mach-priv-task-port` and `system-debug` restricted to `target same-sandbox`. Ordinary Eval workers do not receive these permissions. The kernel originally denied both operations against LLDB's own fixture; narrow grants were driven by recorded denial logs, not a global sandbox exemption. Outside workspace writes and network remain denied. Foreign-sandbox attach is not implied by these grants. Every program profile (adapter, debuggee, command hook) may signal only processes of its own sandbox.
 
+## Stops and session end
+
+Every reference the Manager hands out carries the stop epoch that minted it: stack frames, including the top frames of a continue/step stop report, scopes and variables. After the next stop the reference is refused as stale, never forwarded to an adapter that may answer an unknown reference with an empty list.
+
 ## Current verified behavior
 
 `raw/dap-transport-race.json`: out-of-order request correlation, interleaved events, malformed/oversized/truncated frames and cancellation.
