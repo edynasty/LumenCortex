@@ -962,6 +962,20 @@ func (m *Manager) recordChildReferences(s *session, kind string, raw json.RawMes
 	m.recordReferences(s, false, refs...)
 }
 
+// recordEvaluateReferences registers the variables reference an evaluate
+// response hands to the caller. Like a scopes or variables response, it names
+// values of this stop: after the next stop it is stale even when an adapter
+// reuses the number (Delve restarts its reference counter at every stop).
+func (m *Manager) recordEvaluateReferences(s *session, raw json.RawMessage) {
+	var body struct {
+		VariablesReference int `json:"variablesReference"`
+	}
+	if json.Unmarshal(raw, &body) != nil {
+		return
+	}
+	m.recordReferences(s, false, body.VariablesReference)
+}
+
 var identifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
 
 func (m *Manager) Evaluate(ctx context.Context, c Control, frame int, expression string, sideEffects bool) (json.RawMessage, error) {
@@ -990,6 +1004,7 @@ func (m *Manager) Evaluate(ctx context.Context, c Control, frame int, expression
 		if err != nil {
 			return nil, err
 		}
+		m.recordEvaluateReferences(s, raw)
 		return boundJSON(raw, m.stopEpochOf(s)), nil
 	}
 	// Read-only evaluation is variable lookup, not adapter evaluation. Even getters
@@ -1009,6 +1024,7 @@ func (m *Manager) Evaluate(ctx context.Context, c Control, frame int, expression
 	if err = json.Unmarshal(raw, &scopes); err != nil {
 		return nil, err
 	}
+	m.recordChildReferences(s, "scopes", raw)
 	for _, scope := range scopes.Scopes[:min(len(scopes.Scopes), 8)] {
 		raw, err = m.request(ctx, s, "variables", map[string]int{"variablesReference": scope.Reference, "start": 0, "count": 100})
 		if err != nil {
@@ -1025,8 +1041,10 @@ func (m *Manager) Evaluate(ctx context.Context, c Control, frame int, expression
 		if err = json.Unmarshal(raw, &vars); err != nil {
 			return nil, err
 		}
+		m.recordChildReferences(s, "variables", raw)
 		for _, v := range vars.Variables {
 			if v.Name == expression {
+				m.recordReferences(s, false, v.Reference)
 				return boundJSON(mustMarshal(map[string]any{"result": v.Value, "type": v.Type, "variablesReference": v.Reference}), m.stopEpochOf(s)), nil
 			}
 		}
