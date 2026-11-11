@@ -427,6 +427,9 @@ func (e *Engine) prepare(host Host, p *prepared, plan Plan) error {
 		if !existed {
 			return &Error{Code: CodeNotFound, Path: p.rel, Detail: "delete target does not exist"}
 		}
+		if err := staleUnless(change.BaseRev, p.rev); err != nil {
+			return refuseStale(err, p)
+		}
 		p.next, p.deleted = nil, true
 		return nil
 	}
@@ -574,12 +577,11 @@ func (e *Engine) validate(ctx context.Context, plan Plan, prep []*prepared) ([]D
 func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, error) {
 	written := make([]*prepared, 0, len(prep))
 	for _, p := range prep {
+		if e.beforeWrite != nil {
+			e.beforeWrite(p.abs)
+		}
 		if p.deleted {
-			if _, _, err := host.Resolve(p.rel, false); err != nil {
-				e.rollback(host, written)
-				return nil, err
-			}
-			if err := os.Remove(p.abs); err != nil {
+			if err := e.deleteCAS(host, p); err != nil {
 				e.rollback(host, written)
 				return nil, err
 			}
@@ -594,9 +596,6 @@ func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, err
 			e.rollback(host, written)
 			return nil, err
 		}
-		if e.beforeWrite != nil {
-			e.beforeWrite(p.abs)
-		}
 		if err := e.writeCAS(host, p); err != nil {
 			e.rollback(host, written)
 			return nil, err
@@ -605,6 +604,39 @@ func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, err
 		written = append(written, p)
 	}
 	return written, nil
+}
+
+// deleteCAS rechecks both bytes and descriptor identity before unlinking. In-process
+// writers are serialized; an uncooperative external writer can still race unlink.
+func (e *Engine) deleteCAS(host Host, p *prepared) error {
+	if _, _, err := host.Resolve(p.rel, false); err != nil {
+		return err
+	}
+	f, err := host.Open(p.abs, false)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	current, err := readLimited(f, MaxFileBytes)
+	if err != nil {
+		return err
+	}
+	if rev := RevOf(current); rev != p.rev {
+		return &Error{Code: CodeConflict, Path: p.rel, Rev: p.rev, CurrentRev: rev,
+			Detail: "delete target changed after validation; nothing was removed"}
+	}
+	opened, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	named, err := os.Lstat(p.abs)
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(opened, named) {
+		return &Error{Code: CodeConflict, Path: p.rel, Detail: "delete target identity changed"}
+	}
+	return os.Remove(p.abs)
 }
 
 // writeCAS writes the prepared bytes only if the file still has the revision that was validated. The
