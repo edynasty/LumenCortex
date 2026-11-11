@@ -298,26 +298,3 @@ func (s *Set) readChecked(path string) ([]byte, error) {
 	defer f.Close()
 	return io.ReadAll(f)
 }
-
-// writeChecked replaces the file's content. It opens without truncating, refuses protected state on
-// the descriptor, and only then truncates, so a refused write leaves the file as it was.
-func (s *Set) writeChecked(path string, data []byte) error {
-	if testHookBeforeOpen != nil {
-		testHookBeforeOpen(path)
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o644)
-	if err != nil {
-		return err
-	}
-	info, err := f.Stat()
-	if err == nil {
-		err = s.denyIfProtected(info)
-	}
-	if err == nil {
-		err = f.Truncate(0)
-	}
-	if err == nil {
-		_, err = f.Write(data)
-	}
-	return errors.Join(err, f.Close())
-}

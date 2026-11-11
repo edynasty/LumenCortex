@@ -90,7 +90,13 @@ func (s *Set) applyPatch(ctx context.Context, args map[string]any, _ func(protoc
 			if info.Size() > maxEditBytes {
 				return protocol.ToolResult{}, fmt.Errorf("delete target exceeds 4 MiB rollback limit: %s", relative)
 			}
-			changes = append(changes, editing.FileChange{Path: file, Delete: true})
+			// Capture the revision the patch was resolved against, so a concurrent write that lands
+			// between this check and the commit is refused as stale instead of being deleted.
+			original, err := s.readChecked(file)
+			if err != nil {
+				return protocol.ToolResult{}, err
+			}
+			changes = append(changes, editing.FileChange{Path: file, BaseRev: editing.RevOf(original), Delete: true})
 			reported = append(reported, map[string]any{"path": relative, "operation": item.Operation, "bytes": 0})
 		default:
 			return protocol.ToolResult{}, fmt.Errorf("unsupported patch operation at index %d: %s", index, item.Operation)
