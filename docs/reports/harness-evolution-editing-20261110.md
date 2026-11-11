@@ -187,3 +187,36 @@ invariant, and is not a Go test.
 - P2: LSP diagnostics attached to the next tool result after a commit (design §4.2 step 5).
 - P3: persist snapshot revisions if session continuation across restarts should support anchored
   edits without a re-read.
+
+## Independent review remediation — 2026-11-11
+
+The original validation above describes the delivery baseline, not independent closure.
+The independent full review identified eight defects; their repairs are now implemented
+and targeted regressions pass. Independent delta review remains pending.
+
+| Finding | Repair | Regression |
+|---|---|---|
+| F-EDIT-01 | Delete checks BaseRev, then rechecks bytes and descriptor identity before unlink | TestReviewDeletePreservesChangedFile |
+| F-EDIT-02 | Final lease admission holds the lease mutation lock through write/rollback | TestReviewLeaseAcquiredDuringValidation; TestReviewLeaseAcquisitionWaitsForCommit |
+| F-EDIT-03 | Newest-first bounded eviction, exact byte accounting, cleared backing references | TestReviewSnapshotBudget |
+| F-EDIT-04 | A bounded session-level eviction fence requires reread or explicit revision for unknown existing files | TestReviewEvictedReadRequiresFreshRevision |
+| F-EDIT-05 | Cancellation checked after validation and after lease admission, before mutation | TestReviewCancelledValidationDoesNotMutate |
+| F-AST-01 | Method rename resolves go/types object identity, including receiver identity | TestReviewMethodRenameResolvesReceiver |
+| F-AST-02 | Package rename checks destination resolution at each renamed use | TestReviewPackageRenameRejectsCapture |
+| F-INTEGRATION-01 | Binary artifact export uses Commit admission, revisions, history/events and descriptor-relative replacement | TestReviewArtifactExportRespectsLease; TestReviewArtifactExportRejectsStaleRead |
+
+Verification executed on macOS: targeted red regressions, corresponding green
+regressions, then `go test -race -count=1 -json ./internal/editing/... ./internal/toolset ./internal/safefs`
+(exit 0). Raw command receipts are in workspace
+`bench/evidence/agent-harness-review-remediation-20261111/raw/Editing/`.
+
+Updated boundaries: renames require successful type resolution and refuse unresolved
+module imports rather than guessing. Other structural edits retain the documented
+syntax-only degradation. The eviction fence is conservative: after history eviction,
+an unknown existing path needs a fresh read even if it was never read previously;
+creating a genuinely absent file remains allowed. Binary artifact writes retain
+no-link descriptor traversal and atomic replacement; they do not use text decoding.
+Lease admission is process-local and serializes mutation against lease acquisition,
+renewal and release. No cross-process lock or crash-atomic multi-file transaction
+is claimed. External writers can still race the final check and unlink/rename.
+
