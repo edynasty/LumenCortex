@@ -40,6 +40,13 @@ func (l *eventLog) count(prefix string) int {
 // the live snapshot and the workspace.
 func fakeFixture(t *testing.T, cfg dapfake.Config) (*Manager, Snapshot, string, *eventLog) {
 	t.Helper()
+	return fakeFixtureWith(t, cfg, 0, "")
+}
+
+// fakeFixtureWith is fakeFixture with a session lifetime (0 keeps the default)
+// and the Agent run the session belongs to.
+func fakeFixtureWith(t *testing.T, cfg dapfake.Config, lifetime time.Duration, runID string) (*Manager, Snapshot, string, *eventLog) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 	root := t.TempDir()
@@ -55,12 +62,12 @@ func fakeFixture(t *testing.T, cfg dapfake.Config) (*Manager, Snapshot, string, 
 		t.Fatal(err)
 	}
 	log := &eventLog{}
-	m, err := New(Options{Sandbox: testSandbox(t), Adapters: []Adapter{{ID: "fake", Command: exe, Args: dapfake.Args(configPath), Launch: map[string]any{}}}, OnEvent: log.add})
+	m, err := New(Options{Sandbox: testSandbox(t), Adapters: []Adapter{{ID: "fake", Command: exe, Args: dapfake.Args(configPath), Launch: map[string]any{}}}, Lifetime: lifetime, OnEvent: log.add})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { m.Close() })
-	snap, err := m.Start(ctx, StartOptions{SessionID: "s", AdapterID: "fake", Workspace: root, Program: filepath.Join(root, "fixture.c"), Actor: "agent"})
+	snap, err := m.Start(ctx, StartOptions{SessionID: "s", RunID: runID, AdapterID: "fake", Workspace: root, Program: filepath.Join(root, "fixture.c"), Actor: "agent"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,6 +480,52 @@ func TestAdapterCrashPublishesLost(t *testing.T) {
 	}
 	if err := sendSignal0(snap.AdapterPID); err == nil {
 		t.Fatalf("adapter process %d still alive", snap.AdapterPID)
+	}
+}
+
+// TestHostCloseIsNotReportedAsLost ends a live, stopped session the ways the
+// host does: session revocation, run end, Manager shutdown and lifetime expiry.
+// Each is a stop the host chose; "debug.session.lost" is reserved for an
+// adapter that exits on its own (TestAdapterCrashPublishesLost).
+func TestHostCloseIsNotReportedAsLost(t *testing.T) {
+	cases := []struct {
+		name     string
+		lifetime time.Duration
+		close    func(*Manager, Snapshot) error
+	}{
+		{name: "close owner", close: func(m *Manager, s Snapshot) error { return m.CloseOwner(s.SessionID) }},
+		{name: "close run", close: func(m *Manager, s Snapshot) error { return m.CloseRun(s.SessionID, s.RunID) }},
+		{name: "manager close", close: func(m *Manager, _ Snapshot) error { return m.Close() }},
+		{name: "lifetime expiry", lifetime: time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			m, snap, _, log := fakeFixtureWith(t, dapfake.Config{StopDelayMS: 5}, tc.lifetime, "run-1")
+			c := control(snap)
+			c.Action = "configure"
+			if _, _, err := m.ControlAndWait(ctx, c, WaitOptions{Timeout: 5 * time.Second}); err != nil {
+				t.Fatal(err)
+			}
+			if tc.close != nil {
+				if err := tc.close(m, snap); err != nil {
+					t.Fatalf("close: %v", err)
+				}
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for log.count("debug.session.stopped") == 0 && time.Now().Before(deadline) {
+				time.Sleep(10 * time.Millisecond)
+			}
+			if log.count("debug.session.stopped") != 1 {
+				t.Fatalf("session never stopped: %v", log.events)
+			}
+			// The adapter's transport ends asynchronously after the stop; give
+			// its classification time to happen before asserting it did not.
+			time.Sleep(500 * time.Millisecond)
+			if n := log.count("debug.session.lost"); n != 0 {
+				t.Fatalf("host close reported as %d lost adapter(s): %v", n, log.events)
+			}
+		})
 	}
 }
 

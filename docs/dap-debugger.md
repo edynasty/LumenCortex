@@ -18,6 +18,8 @@ On macOS, program mode alone adds `mach-priv-task-port` and `system-debug` restr
 
 Every reference the Manager hands out carries the stop epoch that minted it: stack frames, including the top frames of a continue/step stop report, scopes and variables. After the next stop the reference is refused as stale, never forwarded to an adapter that may answer an unknown reference with an empty list.
 
+`debug.session.lost` means the adapter exited on its own. A stop the host chose (disconnect, revocation, run end, Manager close, lifetime expiry) ends as `debug.session.stopped`.
+
 ## Current verified behavior
 
 `raw/dap-transport-race.json`: out-of-order request correlation, interleaved events, malformed/oversized/truncated frames and cancellation.
