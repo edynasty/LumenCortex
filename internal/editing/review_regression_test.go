@@ -2,7 +2,9 @@ package editing
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -86,5 +88,31 @@ func TestReviewLeaseAcquisitionWaitsForCommit(t *testing.T) {
 	}
 	if got := readFileContent(t, root, "a"); got != "committed" {
 		t.Fatalf("commit lost: %q", got)
+	}
+}
+
+func TestReviewSnapshotBudget(t *testing.T) {
+	for _, samePath := range []bool{true, false} {
+		s := NewSnapshotStore()
+		for i := 0; i < 24; i++ {
+			path := "/w/a"
+			if !samePath {
+				path = fmt.Sprintf("/w/%d", i)
+			}
+			s.Register("a", path, DecodeDoc([]byte(fmt.Sprintf("%02d", i)+strings.Repeat("x", (3<<20)-2))), 1, 1)
+			ss := s.sessions["a"]
+			actual := 0
+			for _, entry := range ss.entries {
+				actual += len(entry.Doc.Raw)
+			}
+			if actual != ss.bytes || actual > snapshotBytesPerSession {
+				t.Fatalf("samePath=%v iteration=%d accounted=%d actual=%d limit=%d", samePath, i, ss.bytes, actual, snapshotBytesPerSession)
+			}
+			for _, entry := range ss.entries[len(ss.entries):cap(ss.entries)] {
+				if entry != nil {
+					t.Fatal("evicted snapshot retained in backing array")
+				}
+			}
+		}
 	}
 }

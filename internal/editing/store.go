@@ -176,10 +176,8 @@ func (s *SnapshotStore) ForgetPath(session, path string) {
 		}
 		kept = append(kept, entry)
 	}
+	clear(ss.entries[len(kept):])
 	ss.entries = kept
-	if ss.bytes < 0 {
-		ss.bytes = 0
-	}
 }
 
 // Reset drops every session's snapshots. Tests use it between independent cases.
@@ -201,82 +199,23 @@ func (s *SnapshotStore) find(ss *sessionSnapshots, path, rev string) *Snapshot {
 // prune enforces the byte bound, the per-path revision bound and the per-session file bound. The
 // entry just registered (keepPath) is never evicted.
 func (s *SnapshotStore) prune(ss *sessionSnapshots, keepPath string) {
-	byPath := map[string][]*Snapshot{}
-	for _, entry := range ss.entries {
-		byPath[entry.Path] = append(byPath[entry.Path], entry)
-	}
-	drop := map[*Snapshot]bool{}
-	for _, entries := range byPath {
-		if len(entries) <= snapshotRevsPerPath {
-			continue
-		}
-		sort.Slice(entries, func(i, j int) bool { return entries[i].at < entries[j].at })
-		for _, entry := range entries[:len(entries)-snapshotRevsPerPath] {
-			drop[entry] = true
-		}
-	}
-	// Byte bound: evict the least recently used entries, except the one being registered.
-	for ss.bytes > snapshotBytesPerSession {
-		var oldest *Snapshot
-		for _, entry := range ss.entries {
-			if drop[entry] || entry.Path == keepPath {
-				continue
-			}
-			if oldest == nil || entry.at < oldest.at {
-				oldest = entry
-			}
-		}
-		if oldest == nil {
-			break
-		}
-		drop[oldest] = true
-		ss.bytes -= len(oldest.Doc.Raw)
-	}
-	// Path bound: drop the least recently used paths beyond the limit.
-	paths := make([]string, 0, len(byPath))
-	for path := range byPath {
-		paths = append(paths, path)
-	}
-	if len(paths) > snapshotFilesPerSession {
-		type pathUse struct {
-			path string
-			at   uint64
-		}
-		uses := make([]pathUse, 0, len(paths))
-		for _, path := range paths {
-			var at uint64
-			for _, entry := range byPath[path] {
-				if entry.at > at {
-					at = entry.at
-				}
-			}
-			uses = append(uses, pathUse{path: path, at: at})
-		}
-		sort.Slice(uses, func(i, j int) bool { return uses[i].at < uses[j].at })
-		for _, use := range uses[:len(uses)-snapshotFilesPerSession] {
-			if use.path == keepPath {
-				continue
-			}
-			for _, entry := range byPath[use.path] {
-				drop[entry] = true
-			}
-		}
-	}
-	if len(drop) == 0 {
-		return
-	}
+	sort.Slice(ss.entries, func(i, j int) bool { return ss.entries[i].at > ss.entries[j].at })
+	counts := make(map[string]int)
 	kept := ss.entries[:0]
+	bytes := 0
 	for _, entry := range ss.entries {
-		if drop[entry] {
-			ss.bytes -= len(entry.Doc.Raw)
+		_, known := counts[entry.Path]
+		if counts[entry.Path] >= snapshotRevsPerPath ||
+			(!known && len(counts) >= snapshotFilesPerSession) ||
+			bytes+len(entry.Doc.Raw) > snapshotBytesPerSession {
 			continue
 		}
+		counts[entry.Path]++
+		bytes += len(entry.Doc.Raw)
 		kept = append(kept, entry)
 	}
-	ss.entries = kept
-	if ss.bytes < 0 {
-		ss.bytes = 0
-	}
+	clear(ss.entries[len(kept):])
+	ss.entries, ss.bytes = kept, bytes
 }
 
 // Lease is a write lease: a path or directory prefix one holder may write for a bounded time. It is
