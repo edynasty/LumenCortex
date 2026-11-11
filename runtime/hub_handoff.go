@@ -161,10 +161,15 @@ func (s *RunSupervisor) stopForHandoff(ctx context.Context, sessionID string) er
 	case <-timer.C:
 		err = fmt.Errorf("the source run of %s did not stop within %s", sessionID, handoffStopWait)
 	}
-	// No handoff follows: the run's end releases its claims as any run's does.
+	// The wait failed. If cleanup already retained the source leases, reclaim them here; otherwise
+	// clearing handoff under the same lock makes the run cleanup release them.
 	s.mu.Lock()
 	run.handoff = false
+	leasesKept := run.leasesKept
 	s.mu.Unlock()
+	if leasesKept {
+		s.engine.releaseHeldLeases(sessionID)
+	}
 	return err
 }
 

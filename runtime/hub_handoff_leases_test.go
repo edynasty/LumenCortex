@@ -65,3 +65,71 @@ func TestHubHandoffOfALiveSourceKeepsItsTaskLeases(t *testing.T) {
 		})
 	}
 }
+
+func TestHubCancelledHandoffReleasesLeasesRetainedByCleanup(t *testing.T) {
+	useGlobalConfig(t, withConcurrency(8, 4))
+	e := openTestEngine(t)
+	sup, err := NewRunSupervisor(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sup.Close()
+	p := &handoffProvider{hold: true, gate: make(chan struct{})}
+	source := newParentSession(t, e, p)
+	other := newParentSession(t, e, p)
+	ctx := context.Background()
+	if err := e.ConfigureHub(ctx, source, []HubTaskSpec{{ID: "u1", Goal: "HUB:unit"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sup.Start(ctx, source, AgentOptions{Policy: "read-only", Interactive: true, MaxSteps: 3}); err != nil {
+		t.Fatal(err)
+	}
+	p.waitRequest(t)
+	if _, err := e.ClaimHubTask(ctx, HubLeaseRequest{Root: source, Unit: "u1", Holder: source, TTL: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	decision, release := make(chan struct{}), make(chan struct{})
+	testHookAfterHandoffLeaseDecision = func() { close(decision); <-release }
+	defer func() { testHookAfterHandoffLeaseDecision = nil }()
+	handoffCtx, cancel := context.WithCancel(ctx)
+	result := make(chan error, 1)
+	go func() {
+		_, err := sup.Handoff(handoffCtx, HubHandoff{Source: source, Target: other, Note: "cancel during stop"})
+		result <- err
+	}()
+	select {
+	case <-decision:
+	case <-time.After(5 * time.Second):
+		t.Fatal("source cleanup did not reach its handoff lease decision")
+	}
+	cancel()
+	close(release)
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("handoff error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelled handoff did not return")
+	}
+	waitInactive(t, sup, source)
+	leases, err := e.HubTaskLeases(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leases) != 0 {
+		t.Fatalf("source still holds leases after canceled handoff: %+v", leases)
+	}
+	if _, err := e.ClaimHubTask(ctx, HubLeaseRequest{Root: source, Unit: "u1", Holder: other, TTL: time.Minute}); err != nil {
+		t.Fatalf("third worker could not immediately claim released unit: %v", err)
+	}
+	page, err := e.QueryRuntimeEvents(ctx, RuntimeEventQuery{SessionID: source, Limit: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range page.Events {
+		if event.Type == "agent.handoff" {
+			t.Fatalf("canceled handoff published success event: %+v", event)
+		}
+	}
+}

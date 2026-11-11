@@ -35,7 +35,8 @@ type managedRun struct {
 	hostCancelled bool
 	// handoff marks a run stopped for a handoff: its end keeps the session's Task Leases, which the
 	// handoff moves to the target, so no unit is unowned while the work changes hands. Guarded by mu.
-	handoff bool
+	handoff    bool
+	leasesKept bool
 }
 
 // hubRunRecord is what the Hub remembers of a session's most recent run: its run id and the options a
@@ -227,12 +228,17 @@ func (s *RunSupervisor) Start(
 			_ = lease.Release()
 			_ = lock.Release()
 			// A finished or cancelled worker leaves no Task Lease behind: its units are ready for the next
-			// worker without waiting for the expiry. This runs before the run leaves the supervisor, so a
-			// host that sees the run stopped also sees its claims released. A run stopped for a handoff keeps
-			// them: the handoff hands them on.
+			// worker without waiting for the expiry. A run stopped for handoff keeps them only after cleanup
+			// records that decision under the supervisor lock.
 			s.mu.Lock()
 			handoff := run.handoff
+			if handoff {
+				run.leasesKept = true
+			}
 			s.mu.Unlock()
+			if handoff && testHookAfterHandoffLeaseDecision != nil {
+				testHookAfterHandoffLeaseDecision()
+			}
 			if !handoff {
 				s.engine.releaseHeldLeases(sessionID)
 			}
