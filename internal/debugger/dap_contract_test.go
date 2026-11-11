@@ -388,6 +388,40 @@ func TestExceptionStopCarriesInfoAndFilters(t *testing.T) {
 	}
 }
 
+// TestExceptionFiltersCanBeCleared replaces enabled exception breakpoints with
+// an empty list. The fake target throws whenever it resumes, and its adapter
+// stops on that only while it holds an exception filter, so the stop reason
+// shows which filters the adapter really has, not what the Manager reported.
+func TestExceptionFiltersCanBeCleared(t *testing.T) {
+	ctx := context.Background()
+	m, snap, _, _ := fakeFixture(t, dapfake.Config{StopDelayMS: 5, ThrowOnResume: true})
+	c := control(snap)
+	if _, err := m.SetExceptionBreakpoints(ctx, c, []string{"all"}); err != nil {
+		t.Fatal(err)
+	}
+	c.Action = "configure"
+	_, stop, err := m.ControlAndWait(ctx, c, WaitOptions{Timeout: 5 * time.Second})
+	if err != nil || stop.Reason != "exception" {
+		t.Fatalf("enabled filter: stop %+v %v", stop, err)
+	}
+	applied, err := m.SetExceptionBreakpoints(ctx, c, []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(applied), `"filters":[]`) {
+		t.Fatalf("cleared filters reported as %s", applied)
+	}
+	c.ThreadID = stop.ThreadID
+	c.Action = "continue"
+	_, stop, err = m.ControlAndWait(ctx, c, WaitOptions{Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop.Reason != "breakpoint" || stop.Exception != nil {
+		t.Fatalf("the adapter still stops on exceptions after the filters were cleared: %+v", stop)
+	}
+}
+
 // TestBreakpointsReportAdapterVerifiedState checks the response mirrors the
 // adapter's verified flag and line instead of echoing the request.
 func TestBreakpointsReportAdapterVerifiedState(t *testing.T) {
