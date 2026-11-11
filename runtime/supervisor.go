@@ -30,6 +30,9 @@ type managedRun struct {
 	parentID        string
 	ownerRun        *managedRun
 	releaseAgent    func()
+	// handoff marks a run stopped for a handoff: its end keeps the session's Task Leases, which the
+	// handoff moves to the target, so no unit is unowned while the work changes hands. Guarded by mu.
+	handoff bool
 }
 
 // hubRunRecord is what the Hub remembers of a session's most recent run: its run id and the options a
@@ -222,8 +225,14 @@ func (s *RunSupervisor) Start(
 			_ = lock.Release()
 			// A finished or cancelled worker leaves no Task Lease behind: its units are ready for the next
 			// worker without waiting for the expiry. This runs before the run leaves the supervisor, so a
-			// host that sees the run stopped also sees its claims released.
-			s.engine.releaseHeldLeases(sessionID)
+			// host that sees the run stopped also sees its claims released. A run stopped for a handoff keeps
+			// them: the handoff hands them on.
+			s.mu.Lock()
+			handoff := run.handoff
+			s.mu.Unlock()
+			if !handoff {
+				s.engine.releaseHeldLeases(sessionID)
+			}
 			// The Engine's run record ends here too, before the run leaves the supervisor: that closes the
 			// run's DebugControl, which clears a durable pause, so a host that sees the run stopped never
 			// reads interrupted(paused) for a run that was cancelled while paused.

@@ -138,6 +138,8 @@ func (s *RunSupervisor) Command(ctx, HubCommand) (HubCommandResult, error)
 
 - 语义：停止源（cancel + 等待离开 supervisor，上限 20s）→ 在源的 Task State 写 `## Handoff` note（≤512 B，无 reasoning）
   → 目标 session 若不同则转移 Task Lease（`TransferHubTaskLeases`）→ `Start` 目标（`Input` 只指向 note）。
+  源运行因 handoff 而停止时**不释放**其租约（复审 HUB-F1：此前运行结束清理先释放，活动源的租约在转移前
+  已丢失、第三方可抢占）；租约由 handoff 转给目标，同 session 换 agent 时留在该 session，由新运行续租。
 - 源与目标不会并发：目标 `Start` 前源必须已离开 supervisor；测试用 in-flight 计数断言 max in-flight == 1。
 - 失败恢复：目标 Start 失败 → 租约回滚到源；目标在启动前被撤销 → 在写 note 前直接拒绝，租约完全不动。
 - **工作树所有权按现有 owner/borrower 规则**：工作树目录按持有 session 命名绑定（`worktreeRole`），
