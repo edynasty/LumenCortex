@@ -75,9 +75,15 @@ func (s *RunSupervisor) Command(ctx, HubCommand) (HubCommandResult, error)
     重启后无该记录时**显式拒绝**（不猜默认值）；
   - `steer` → `SteerAgent`；`handoff` → `RunSupervisor.Handoff`；
   - `attach/detach` 接受但无执行副作用（观察走 `SubscribeRuntimeEvents`+`View.Cursor`），结果里写明。
-- **幂等**：命令结果持久化在 `hub_commands`（每会话保留最近 1000 条）。同一 `CommandID` 返回首次结果且
-  `Status=duplicate`；同一 id 换 verb/session 直接报错，绝不静默重放。选择持久化而非内存表的理由：
-  host 在 UI 重连后重试 cancel/pause 是最常见场景，进程重启后仍须确定性；结果只含元数据（≤16 KiB）。
+- **幂等**：命令 id 在执行动词**之前**写入 `hub_commands`（每会话保留最近 1000 条；`INSERT … ON CONFLICT DO NOTHING`
+  原子预留，记录为 `pending`），执行后用结果替换。同一 `CommandID`：已记录结果 → 返回首次结果且 `Status=duplicate`；
+  结果尚未记录（首次执行仍在进行、或进程在记录前结束）→ `Status=pending` + `ErrHubCommandPending`，**绝不按猜测重跑**，
+  host 应 `View` 刷新后用新 id；同一 id 换 verb/session 直接报错。预留失败则命令不执行；结果无法记录时返回结果并附
+  `ErrHubCommandUnrecorded`（显式上报，重试得到 pending）。超过一行上限（16 KiB）的结果记录时去掉 agent 的列表投影
+  （debug/eval/jobs/holdings，可用 `View` 重读），保留状态、身份、revision。复审 HUB-F2：此前结果超过 16 KiB
+  或记录失败时被 `_ =` 静默丢弃，重试同一 id 会再次执行（`TestHubCommandIDHoldsForAResultLargerThanTheJournalRow`、
+  `TestHubCommandIDInFlightIsNotRunAgain`、`TestHubCommandWithoutARecordedOutcomeIsNotRunAfterRestart`、
+  `TestHubCommandOutcomeThatCannotBeJournalledIsReported`）。
 - **revision fence**：活动运行必须等值于 `HubAgent.Revision`（DebugControl revision）；无活动运行时必须为 0，
   否则 `ErrHubStaleRevision`。`RunID` 不一致同样按 stale 处理（E5 C4 规则扩展到全部 verb）。
 - **重启后的暂停投影**：`run_pauses` 在暂停时写入、恢复/运行结束时清除、**仅在 Engine 关闭时保留**；

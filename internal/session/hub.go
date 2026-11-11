@@ -496,47 +496,79 @@ type HubCommandRecord struct {
 	CreatedAt time.Time
 }
 
-// RecordHubCommand stores a command's result. A command id that already has a record keeps it: the first
-// result is the one every retry returns.
-func (s *Store) RecordHubCommand(ctx context.Context, r HubCommandRecord) error {
-	if r.CommandID == "" || len(r.CommandID) > 128 || r.SessionID == "" || len(r.RunID) > 128 || r.Verb == "" || len(r.Verb) > 32 ||
-		len(r.Result) == 0 || len(r.Result) > MaxHubCommandResultBytes {
-		return ErrInvalid
+// ReserveHubCommand journals a command id before the command runs, with r.Result as its provisional
+// result. When the id is already journalled - by an execution that finished, is still running, or died
+// before recording its outcome - nothing is written and the existing record is returned with
+// reserved=false, so one command id is executed at most once.
+func (s *Store) ReserveHubCommand(ctx context.Context, r HubCommandRecord) (record HubCommandRecord, reserved bool, err error) {
+	if err := validHubCommandRecord(r); err != nil {
+		return HubCommandRecord{}, false, err
 	}
 	if r.CreatedAt.IsZero() {
 		r.CreatedAt = time.Now().UTC()
 	}
-	err := s.writeTx(ctx, func(conn *sql.Conn) error {
+	err = s.writeTx(ctx, func(conn *sql.Conn) error {
 		if err := sessionExists(ctx, conn, r.SessionID); err != nil {
 			return err
 		}
-		if _, err := conn.ExecContext(ctx, `INSERT INTO hub_commands(command_id, session_id, run_id, verb, result, created_at) VALUES(?,?,?,?,?,?)
-ON CONFLICT(command_id) DO NOTHING`, r.CommandID, r.SessionID, r.RunID, r.Verb, string(r.Result), r.CreatedAt.Format(time.RFC3339Nano)); err != nil {
+		result, err := conn.ExecContext(ctx, `INSERT INTO hub_commands(command_id, session_id, run_id, verb, result, created_at) VALUES(?,?,?,?,?,?)
+ON CONFLICT(command_id) DO NOTHING`, r.CommandID, r.SessionID, r.RunID, r.Verb, string(r.Result), r.CreatedAt.Format(time.RFC3339Nano))
+		if err != nil {
 			return err
 		}
-		// Retention: a command result is only useful while a host may retry it.
-		_, err := conn.ExecContext(ctx, `DELETE FROM hub_commands WHERE session_id=? AND command_id NOT IN
+		inserted, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if inserted == 0 {
+			var created, raw string
+			if err := conn.QueryRowContext(ctx, `SELECT command_id, session_id, run_id, verb, result, created_at FROM hub_commands WHERE command_id=?`, r.CommandID).
+				Scan(&record.CommandID, &record.SessionID, &record.RunID, &record.Verb, &raw, &created); err != nil {
+				return err
+			}
+			record.Result, record.CreatedAt = []byte(raw), parseTime(created)
+			return nil
+		}
+		record, reserved = r, true
+		// Retention: a command record is only useful while a host may retry it.
+		_, err = conn.ExecContext(ctx, `DELETE FROM hub_commands WHERE session_id=? AND command_id NOT IN
 (SELECT command_id FROM hub_commands WHERE session_id=? ORDER BY created_at DESC LIMIT 1000)`, r.SessionID, r.SessionID)
 		return err
 	})
-	return err
+	if err != nil {
+		return HubCommandRecord{}, false, err
+	}
+	return record, reserved, nil
 }
 
-// HubCommand returns the stored result of commandID, ErrNotFound when it has none.
-func (s *Store) HubCommand(ctx context.Context, commandID string) (HubCommandRecord, error) {
-	var (
-		r       HubCommandRecord
-		created string
-		raw     string
-	)
-	err := s.db.QueryRowContext(ctx, `SELECT command_id, session_id, run_id, verb, result, created_at FROM hub_commands WHERE command_id=?`, commandID).
-		Scan(&r.CommandID, &r.SessionID, &r.RunID, &r.Verb, &raw, &created)
-	if errors.Is(err, sql.ErrNoRows) {
-		return HubCommandRecord{}, ErrNotFound
+// CompleteHubCommand replaces the provisional result of a reserved command id with the command's
+// outcome. ErrNotFound reports that the reservation is gone (its session was deleted, or retention
+// evicted it), so the outcome could not be recorded.
+func (s *Store) CompleteHubCommand(ctx context.Context, r HubCommandRecord) error {
+	if err := validHubCommandRecord(r); err != nil {
+		return err
 	}
-	if err != nil {
-		return HubCommandRecord{}, err
+	return s.writeTx(ctx, func(conn *sql.Conn) error {
+		result, err := conn.ExecContext(ctx, `UPDATE hub_commands SET run_id=?, result=? WHERE command_id=? AND session_id=? AND verb=?`,
+			r.RunID, string(r.Result), r.CommandID, r.SessionID, r.Verb)
+		if err != nil {
+			return err
+		}
+		changed, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if changed == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
+}
+
+func validHubCommandRecord(r HubCommandRecord) error {
+	if r.CommandID == "" || len(r.CommandID) > 128 || r.SessionID == "" || len(r.RunID) > 128 || r.Verb == "" || len(r.Verb) > 32 ||
+		len(r.Result) == 0 || len(r.Result) > MaxHubCommandResultBytes {
+		return ErrInvalid
 	}
-	r.Result, r.CreatedAt = []byte(raw), parseTime(created)
-	return r, nil
+	return nil
 }
