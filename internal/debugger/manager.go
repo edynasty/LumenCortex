@@ -589,10 +589,12 @@ func (m *Manager) events(s *session, client *dap.Client) {
 		// Never persist raw adapter expressions, environment, output or variables.
 		m.emit(s, "debug."+event.Event, map[string]any{"reason": body.Reason, "threadId": body.ThreadID, "exitCode": exitBody.ExitCode})
 	}
-	// The transport ended: a disconnect we initiated is expected; anything else
-	// is an adapter crash and must be observable as a lost session.
+	// The transport ended: a disconnect we initiated is expected, and so is the
+	// end of the session's life the host chose - close, revocation, run end and
+	// lifetime expiry all end it before the adapter goes. Anything else is an
+	// adapter crash and must be observable as a lost session.
 	m.mu.Lock()
-	graceful := s.closing || s.snapshot.State == "terminated" || s.snapshot.State == "closed" || s.snapshot.State == "cleanup_failed"
+	graceful := s.closing || s.life.Err() != nil || s.snapshot.State == "terminated" || s.snapshot.State == "closed" || s.snapshot.State == "cleanup_failed"
 	lost := false
 	if !graceful && s.snapshot.State != "lost" {
 		s.stopEpoch++
