@@ -205,12 +205,14 @@ func (s *SnapshotStore) prune(ss *sessionSnapshots, keepPath string) {
 	counts := make(map[string]int)
 	kept := ss.entries[:0]
 	bytes := 0
+	droppedPaths := make(map[string]bool)
 	for _, entry := range ss.entries {
 		_, known := counts[entry.Path]
-		if counts[entry.Path] >= snapshotRevsPerPath ||
+		if droppedPaths[entry.Path] || counts[entry.Path] >= snapshotRevsPerPath ||
 			(!known && len(counts) >= snapshotFilesPerSession) ||
 			bytes+len(entry.Doc.Raw) > snapshotBytesPerSession {
 			ss.evicted = true
+			droppedPaths[entry.Path] = true
 			continue
 		}
 		counts[entry.Path]++
@@ -236,6 +238,7 @@ type Lease struct {
 	// Root is the workspace the target was resolved in.
 	Root string `json:"root"`
 	// Target is the canonical absolute path or directory the lease covers.
+
 	Target string `json:"target"`
 	// Holder is the actor holding it, normally a session id.
 	Holder string `json:"holder"`

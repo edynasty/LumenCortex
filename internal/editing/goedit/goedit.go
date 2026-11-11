@@ -725,6 +725,9 @@ func (p *pkg) renameObject(op Op, obj *ast.Object) ([]splice, []Symbol, string, 
 		return nil, nil, "", editing.Errorf(editing.CodeAmbiguous, "package %s already declares %q (%s:%d:%d)",
 			p.name, op.NewName, filepath.Base(p.fileOf(existing.Pos())), line, column)
 	}
+	if builtin := types.Universe.Lookup(op.NewName); builtin != nil {
+		return nil, nil, "", editing.Errorf(editing.CodeAmbiguous, "rename would shadow universe declaration %q", builtin.Name())
+	}
 	info, err := p.typeInfo()
 	if err != nil {
 		return nil, nil, "", err
@@ -778,6 +781,15 @@ func (p *pkg) renameSelector(op Op, fd *ast.FuncDecl, kind string) ([]splice, []
 	sig := target.Type().(*types.Signature)
 	if existing, _, _ := types.LookupFieldOrMethod(sig.Recv().Type(), true, target.Pkg(), op.NewName); existing != nil && existing != target {
 		return nil, nil, "", editing.Errorf(editing.CodeAmbiguous, "receiver already has member %q", op.NewName)
+	}
+	for _, selection := range info.Selections {
+		method, ok := selection.Obj().(*types.Func)
+		if !ok || method.Origin() != target.Origin() {
+			continue
+		}
+		if existing, index, _ := types.LookupFieldOrMethod(selection.Recv(), true, target.Pkg(), op.NewName); existing != nil || index != nil {
+			return nil, nil, "", editing.Errorf(editing.CodeAmbiguous, "rename would rebind a promoted %s selection", kind)
+		}
 	}
 	var splices []splice
 	var symbols []Symbol
