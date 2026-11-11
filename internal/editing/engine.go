@@ -269,6 +269,9 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 	if err != nil {
 		return Result{}, e.refuse(host, plan, nil, err)
 	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, e.refuse(host, plan, nil, err)
+	}
 	if plan.Preview {
 		result := Result{Diagnostics: diagnostics}
 		for _, p := range prep {
@@ -289,6 +292,10 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 				Detail: fmt.Sprintf("a write lease is held until %s", conflict.Until.UTC().Format(time.RFC3339))}
 		}
 		return Result{}, e.refuse(host, plan, nil, err)
+	}
+	if err := ctx.Err(); err != nil {
+		release()
+		return Result{}, err
 	}
 	if _, err := e.write(host, plan, prep); err != nil {
 		release()

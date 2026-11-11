@@ -2,7 +2,9 @@ package editing
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -137,5 +139,24 @@ func TestReviewEvictedReadRequiresFreshRevision(t *testing.T) {
 	e.RegisterRead(testActor(), filepath.Join(root, "a"), RevOf([]byte("new user content")))
 	if _, err := e.Commit(context.Background(), plan); err != nil {
 		t.Fatalf("fresh reread must unblock write: %v", err)
+	}
+}
+
+func TestReviewCancelledValidationDoesNotMutate(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "a", "original")
+	e := newTestEngine(t, root)
+	next := []byte("cancelled")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, err := e.Commit(ctx, Plan{Actor: testActor(), Changes: []FileChange{{Path: "a", Content: &next}}, Validate: []Validator{func(map[string][]byte) []Diagnostic { cancel(); return nil }}})
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("want cancellation, got %v", err)
+	}
+	if got := readFileContent(t, root, "a"); got != "original" {
+		t.Fatalf("cancelled commit mutated file: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(root, "a")); err != nil {
+		t.Fatal(err)
 	}
 }
