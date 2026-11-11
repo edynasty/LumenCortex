@@ -343,6 +343,52 @@ func TestStopReportFramesBecomeStale(t *testing.T) {
 	}
 }
 
+// TestReusedNumbersKeepTheirOwnEpochs is E1-D2 with Delve's numbering: frame ids
+// and variables references both start at 1000 at every stop. Re-reading the
+// stack after a step, as debug_step tells the Agent to, mints frame 1000 again;
+// that must not make the previous stop's variables reference 1000 current,
+// which the adapter would resolve against the new stop.
+func TestReusedNumbersKeepTheirOwnEpochs(t *testing.T) {
+	ctx := context.Background()
+	m, snap, _, _ := fakeFixture(t, dapfake.Config{StopDelayMS: 5, ReuseReferences: true})
+	c := control(snap)
+	c.Action = "configure"
+	_, first, err := m.ControlAndWait(ctx, c, WaitOptions{Timeout: 5 * time.Second})
+	if err != nil || len(first.TopFrames) == 0 {
+		t.Fatalf("first stop %+v %v", first, err)
+	}
+	c.ThreadID = first.ThreadID
+	scopes, err := m.Inspect(ctx, c, "scopes", first.TopFrames[0].ID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sc struct {
+		Scopes []struct {
+			VariablesReference int `json:"variablesReference"`
+		} `json:"scopes"`
+	}
+	if err = json.Unmarshal(scopes, &sc); err != nil || len(sc.Scopes) == 0 {
+		t.Fatalf("scopes %s %v", scopes, err)
+	}
+	locals := sc.Scopes[0].VariablesReference
+	if locals != first.TopFrames[0].ID {
+		t.Fatalf("fixture must reuse one number for frame and locals: frame %d, locals %d", first.TopFrames[0].ID, locals)
+	}
+	if _, err = m.Inspect(ctx, c, "variables", locals, 0, 20); err != nil {
+		t.Fatalf("fresh locals: %v", err)
+	}
+	c.Action = "step_over"
+	if _, _, err = m.ControlAndWait(ctx, c, WaitOptions{Timeout: 5 * time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Inspect(ctx, c, "stackTrace", c.ThreadID, 0, 5); err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := m.Inspect(ctx, c, "variables", locals, 0, 20); !errors.Is(err, ErrStaleReference) {
+		t.Fatalf("the previous stop's locals reference %d = %s, %v; want ErrStaleReference", locals, raw, err)
+	}
+}
+
 // TestWaitTimeoutReturnsAsyncState covers the explicit asynchronous result.
 func TestWaitTimeoutReturnsAsyncState(t *testing.T) {
 	ctx := context.Background()
