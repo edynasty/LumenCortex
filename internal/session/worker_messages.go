@@ -198,15 +198,25 @@ delivery_state,delivered_seq,delivered_run,delivered_at,acked_at,attempts FROM w
 				m.Body = ""
 				continue
 			}
-			if ack && m.ReceivedAt == nil {
+			if ack && (m.ReceivedAt == nil || m.AckedAt == nil) {
 				at := time.Now().UTC()
+				stamp := at.Format(time.RFC3339Nano)
 				// An explicit inbox read is the recipient's acknowledgement, so the push state moves to
-				// acked as well: a message read on purpose is not redelivered.
-				if _, err = conn.ExecContext(ctx, `UPDATE worker_messages SET received_at=?, delivery_state=?, acked_at=? WHERE seq=? AND received_at=''`,
-					at.Format(time.RFC3339Nano), WorkerMessageAcked, at.Format(time.RFC3339Nano), m.Seq); err != nil {
+				// acked as well: a message read on purpose is not redelivered, whether or not a run already
+				// wrote it into a request window. Each stamp keeps its first value.
+				if _, err = conn.ExecContext(ctx, `UPDATE worker_messages
+SET received_at=CASE WHEN received_at='' THEN ? ELSE received_at END,
+    acked_at=CASE WHEN acked_at='' THEN ? ELSE acked_at END, delivery_state=?
+WHERE seq=? AND (received_at='' OR acked_at='')`, stamp, stamp, WorkerMessageAcked, m.Seq); err != nil {
 					return err
 				}
-				m.ReceivedAt, m.AckedAt, m.Delivery = &at, &at, WorkerMessageAcked
+				if m.ReceivedAt == nil {
+					m.ReceivedAt = &at
+				}
+				if m.AckedAt == nil {
+					m.AckedAt = &at
+				}
+				m.Delivery = WorkerMessageAcked
 			}
 		}
 		return nil
@@ -267,9 +277,9 @@ type DeliveredWorkerMessage struct {
 	TranscriptSeq int64
 }
 
-// MarkWorkerMessagesDelivered moves messages to delivered (or to acked, when the recipient fenced the
-// body away) and records the run and transcript row that carried them. The mark is idempotent: a seq
-// already delivered by the same run keeps its row.
+// MarkWorkerMessagesDelivered moves messages to delivered and records the run and transcript row that
+// carried them. The mark is idempotent: a seq already delivered by the same run keeps its row. A delivery
+// is not a read: received_at stays the recipient's explicit inbox read.
 func (s *Store) MarkWorkerMessagesDelivered(ctx context.Context, root, recipient, runID string, messages []DeliveredWorkerMessage) error {
 	if root == "" || recipient == "" || len(messages) == 0 {
 		return nil
@@ -278,10 +288,9 @@ func (s *Store) MarkWorkerMessagesDelivered(ctx context.Context, root, recipient
 	err := s.writeTx(ctx, func(conn *sql.Conn) error {
 		for _, m := range messages {
 			if _, err := conn.ExecContext(ctx, `UPDATE worker_messages
-SET delivery_state='delivered', delivered_run=?, delivered_seq=?, delivered_at=?, attempts=attempts+1,
-    received_at=CASE WHEN received_at='' THEN ? ELSE received_at END
+SET delivery_state='delivered', delivered_run=?, delivered_seq=?, delivered_at=?, attempts=attempts+1
 WHERE session_id=? AND recipient_id=? AND seq=? AND acked_at='' AND (delivered_run<>? OR delivered_seq<0)`,
-				runID, m.TranscriptSeq, at, at, root, recipient, m.Seq, runID); err != nil {
+				runID, m.TranscriptSeq, at, root, recipient, m.Seq, runID); err != nil {
 				return err
 			}
 		}
