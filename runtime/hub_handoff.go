@@ -24,7 +24,9 @@ import (
 //   - A shared-workspace write lease does not move: the source stopped writing when the handoff stopped
 //     it, so its claims are released before the target starts. Editing refuses another holder's covered
 //     path, so a claim left behind would refuse the target's own writes until it expired; the target
-//     takes the leases it needs when it writes.
+//     takes the leases it needs when it writes. Each claim is released by the canonical target the lease
+//     store holds it under, never re-resolved against the workspace's own spelling, so a workspace opened
+//     through a symlink (whose leases name the real path) frees them too.
 //   - A worktree stays with the session that owns it. A worktree directory is bound to its session by
 //     name (worktreeRole: the directory's session is the owner), so a handoff to another session while
 //     the source owns a worktree is refused instead of faked: the host applies the worktree first
@@ -153,19 +155,26 @@ func (s *RunSupervisor) Handoff(ctx context.Context, h HubHandoff) (string, erro
 // stopped writing when the handoff stopped it, and editing refuses a write by any other holder of a
 // covered path, so its claim would refuse the target's writes until the lease expired. It reports how
 // many leases it dropped.
+//
+// A listed lease is released by the identity it is stored under (its canonical Target and Holder). It is
+// not turned back into a WriteLeaseRequest: Root keeps the workspace as it was spelled while Target has
+// its symlinks resolved, so re-resolving Target against Root refuses it as a workspace escape whenever
+// the workspace was opened through a symlink.
 func (e *Engine) releaseHandoffWriteLeases(ctx context.Context, sessionID string) (int, error) {
 	leases, err := e.WriteLeases(ctx)
 	if err != nil {
 		return 0, err
 	}
+	store := e.editing.Leases()
 	released := 0
 	for _, lease := range leases {
 		if lease.Holder != sessionID {
 			continue
 		}
-		if err := e.ReleaseWriteLease(ctx, WriteLeaseRequest{Root: lease.Root, Path: lease.Target, Holder: lease.Holder, Prefix: lease.Prefix}); err != nil {
+		if err := ctx.Err(); err != nil {
 			return released, err
 		}
+		store.Release(lease.Target, lease.Holder)
 		released++
 	}
 	return released, nil
