@@ -22,6 +22,8 @@ Linked execution workers expose the existing safe-boundary Agent debugger. Pause
 
 `RunSupervisor.Handoff` to another session stops the source, moves its Task Leases to the target with a fresh `DefaultHubTaskLeaseTTL`, and releases the source's shared-workspace write leases (counted as `writeLeases` in `agent.handoff`) before the target starts; other holders' leases are untouched. Write leases are released by the canonical target they are stored under, so this also holds for a workspace opened through a symlink (FFINAL-HUB-01, `TestHubHandoffThroughASymlinkedWorkspaceReleasesTheSourcesWriteLeases`).
 
+Supervisor shutdown rejects new handoffs and joins handoffs already in flight before the Engine closes its store. If shutdown refuses the target's Start after a Task Lease was transferred, the claim is returned to the source before Close completes; concurrent Close callers join the same completion. The rollback owner and the source's durable stop remain observable after reopening (FFINAL-HUB-02, `TestHubShutdownWaitsForHandoffRollback`).
+
 Desktop's Inspector embeds Hub, task dependency rows and message timeline. Selecting a worker binds Inspector/debug controls; opening its thread exposes the existing transcript and artifact surfaces. Core remains authoritative for admission, resource budgets and verification. Worktree integration continues through the existing verified handoff API; no automatic main merge exists.
 
 ## Exercised evidence

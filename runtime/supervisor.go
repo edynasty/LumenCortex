@@ -61,11 +61,15 @@ type RunSupervisor struct {
 	runs   map[string]*managedRun
 	// lastRuns holds each session's most recent run identity and options for the Hub's retry verb,
 	// bounded to maxHubRunRecords entries (oldest forgotten first).
-	lastRuns map[string]hubRunRecord
-	closed   bool
+	lastRuns  map[string]hubRunRecord
+	closed    bool
+	closeDone chan struct{}
 	// stopping counts runs whose cleanup has not finished, including runs that already left runs: Close
 	// waits for all of them, so no run.stopped or stop checkpoint is written after the Engine closes.
 	stopping sync.WaitGroup
+	// handoffs counts operations that can touch the store after the source run stops. Close must
+	// wait for them before Engine.Close closes SQLite, including rollback after a refused Start.
+	handoffs sync.WaitGroup
 }
 
 // maxHubRunRecords bounds the run records kept for retry.
@@ -76,9 +80,10 @@ func NewRunSupervisor(engine *Engine) (*RunSupervisor, error) {
 		return nil, errors.New("engine is required")
 	}
 	sup := &RunSupervisor{
-		engine:   engine,
-		runs:     map[string]*managedRun{},
-		lastRuns: map[string]hubRunRecord{},
+		engine:    engine,
+		runs:      map[string]*managedRun{},
+		lastRuns:  map[string]hubRunRecord{},
+		closeDone: make(chan struct{}),
 	}
 	// Agent schedules start their runs here (ADR-0019 §4): without a registered supervisor they stay
 	// due, and registering one retries them.
@@ -397,10 +402,13 @@ func (s *RunSupervisor) Runs() []ActiveRun {
 func (s *RunSupervisor) Close() {
 	s.mu.Lock()
 	if s.closed {
+		done := s.closeDone
 		s.mu.Unlock()
+		<-done
 		return
 	}
 	s.closed = true
+	defer close(s.closeDone)
 	for sessionID, run := range s.runs {
 		// Closing the supervisor is a shutdown, not a cancel of the run: a paused run keeps its pause. A run
 		// the host already cancelled stays cancelled, so its pause clears as it ends.
@@ -412,6 +420,9 @@ func (s *RunSupervisor) Close() {
 	}
 	s.mu.Unlock()
 
+	// No Handoff can enter after closed is set under mu. An in-flight handoff may still
+	// transfer a claim and then need to return it when Start refuses shutdown.
+	s.handoffs.Wait()
 	// Start adds to stopping only while the supervisor is open, so no Add races this Wait. It also covers
 	// a run that ended on its own and left runs but is still publishing its stop.
 	s.stopping.Wait()

@@ -50,11 +50,24 @@ var ErrHubWorktreeOwned = errors.New("the source owns a worktree; apply the work
 // handoffStopWait bounds how long a handoff waits for the source run to settle.
 const handoffStopWait = 20 * time.Second
 
+// Test-only boundary for a shutdown after the task claim moved but before the target starts.
+var testHookAfterHandoffLeaseTransfer func()
+
 // Handoff stops the source and starts the target with the handoff note, returning the target session.
 func (s *RunSupervisor) Handoff(ctx context.Context, h HubHandoff) (string, error) {
 	if s == nil || s.engine == nil {
 		return "", ErrRunSupervisorClosed
 	}
+	// A handoff can outlive the source's run cleanup. Keep the store open until it
+	// has either started the target or returned its claims after shutdown.
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return "", ErrRunSupervisorClosed
+	}
+	s.handoffs.Add(1)
+	s.mu.Unlock()
+	defer s.handoffs.Done()
 	e := s.engine
 	if h.Source == "" {
 		return "", errors.New("a handoff needs a source session")
@@ -127,6 +140,9 @@ func (s *RunSupervisor) Handoff(ctx context.Context, h HubHandoff) (string, erro
 		if err != nil {
 			return "", err
 		}
+	}
+	if testHookAfterHandoffLeaseTransfer != nil {
+		testHookAfterHandoffLeaseTransfer()
 	}
 	e.events.publish("agent.handoff", h.Source, map[string]any{
 		"target": target, "agent": agentID, "leases": moved, "writeLeases": released, "commandId": h.CommandID,
