@@ -394,14 +394,17 @@ func (s *Store) ReleaseTaskLeasesOf(ctx context.Context, holder string) ([]TaskL
 	return out, err
 }
 
-// MoveTaskLeases reassigns every lease of from to to, the handoff of a unit's ownership. The holder's
-// lease ids are replaced with the new holder's so the transfer is observable in every row.
-func (s *Store) MoveTaskLeases(ctx context.Context, from, to string) (int, error) {
-	if from == "" || to == "" || from == to {
+// MoveTaskLeases reassigns every lease of from to to, the handoff of a unit's ownership, and gives the
+// moved rows the ttl of the new holder's claim: the target renews only at its step boundaries, and its
+// first one is a whole model request away, so the source's remaining time cannot bound the new claim.
+// A non-positive ttl is refused rather than silently keeping an expiry meant for another holder.
+func (s *Store) MoveTaskLeases(ctx context.Context, from, to string, ttl time.Duration) (int, error) {
+	if from == "" || to == "" || from == to || ttl <= 0 {
 		return 0, ErrInvalid
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE work_unit_leases SET holder=?, updated_at=? WHERE holder=?`,
-		to, now(), from)
+	at := time.Now().UTC()
+	result, err := s.db.ExecContext(ctx, `UPDATE work_unit_leases SET holder=?, expires_at=?, updated_at=? WHERE holder=?`,
+		to, at.Add(ttl).Format(time.RFC3339Nano), at.Format(time.RFC3339Nano), from)
 	if err != nil {
 		return 0, err
 	}

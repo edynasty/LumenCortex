@@ -21,6 +21,10 @@ import (
 //
 //   - The task and its Task Lease claims move to the target when the target is another session: the
 //     holder becomes the target, so exactly one worker owns each unit throughout.
+//   - A shared-workspace write lease does not move: the source stopped writing when the handoff stopped
+//     it, so its claims are released before the target starts. Editing refuses another holder's covered
+//     path, so a claim left behind would refuse the target's own writes until it expired; the target
+//     takes the leases it needs when it writes.
 //   - A worktree stays with the session that owns it. A worktree directory is bound to its session by
 //     name (worktreeRole: the directory's session is the owner), so a handoff to another session while
 //     the source owns a worktree is refused instead of faked: the host applies the worktree first
@@ -102,6 +106,16 @@ func (s *RunSupervisor) Handoff(ctx context.Context, h HubHandoff) (string, erro
 	if s.Active(target) {
 		return "", ErrRunHeld
 	}
+	// The source stopped writing with the run the handoff stopped, so its shared-workspace write leases
+	// go with it: editing refuses another holder's covered path, and a claim left behind would refuse the
+	// target's own writes for the rest of its life. The target takes what it needs when it writes.
+	var released int
+	if target != h.Source {
+		released, err = e.releaseHandoffWriteLeases(ctx, h.Source)
+		if err != nil {
+			return "", err
+		}
+	}
 	if err := e.writeHandoffNote(ctx, h.Source, target, agentID, h.Note); err != nil {
 		return "", err
 	}
@@ -113,10 +127,10 @@ func (s *RunSupervisor) Handoff(ctx context.Context, h HubHandoff) (string, erro
 		}
 	}
 	e.events.publish("agent.handoff", h.Source, map[string]any{
-		"target": target, "agent": agentID, "leases": moved, "commandId": h.CommandID,
+		"target": target, "agent": agentID, "leases": moved, "writeLeases": released, "commandId": h.CommandID,
 	})
 	_, _ = e.store.AppendCheckpoint(context.Background(), h.Source, "agent.handoff", map[string]any{
-		"target": target, "agent": agentID, "leases": moved,
+		"target": target, "agent": agentID, "leases": moved, "writeLeases": released,
 	})
 	// The target reads the handoff note through the Task State block of its next request, so its input
 	// is only a pointer.
@@ -133,6 +147,28 @@ func (s *RunSupervisor) Handoff(ctx context.Context, h HubHandoff) (string, erro
 		return "", err
 	}
 	return target, nil
+}
+
+// releaseHandoffWriteLeases frees the shared-workspace write leases a handoff left behind: the source
+// stopped writing when the handoff stopped it, and editing refuses a write by any other holder of a
+// covered path, so its claim would refuse the target's writes until the lease expired. It reports how
+// many leases it dropped.
+func (e *Engine) releaseHandoffWriteLeases(ctx context.Context, sessionID string) (int, error) {
+	leases, err := e.WriteLeases(ctx)
+	if err != nil {
+		return 0, err
+	}
+	released := 0
+	for _, lease := range leases {
+		if lease.Holder != sessionID {
+			continue
+		}
+		if err := e.ReleaseWriteLease(ctx, WriteLeaseRequest{Root: lease.Root, Path: lease.Target, Holder: lease.Holder, Prefix: lease.Prefix}); err != nil {
+			return released, err
+		}
+		released++
+	}
+	return released, nil
 }
 
 // stopForHandoff cancels the source's run and waits for its cleanup to finish, so no goroutine of the

@@ -165,15 +165,16 @@ func (e *Engine) RecoverExpiredHubTaskLeases(ctx context.Context, root string) (
 	return expired, nil
 }
 
-// TransferHubTaskLeases moves every claim of from to to: the handoff of a work unit's ownership. It
-// reports how many moved.
+// TransferHubTaskLeases moves every claim of from to to: the handoff of a work unit's ownership. The
+// moved claims take the receiver's full lease lifetime, because the receiver's first renewal is its
+// first model step. It reports how many moved.
 func (e *Engine) TransferHubTaskLeases(ctx context.Context, from, to string) (int, error) {
-	n, err := e.store.MoveTaskLeases(ctx, from, to)
+	n, err := e.store.MoveTaskLeases(ctx, from, to, DefaultHubTaskLeaseTTL)
 	if err != nil {
 		return 0, err
 	}
 	if n > 0 {
-		e.events.publish("task.lease.transferred", from, map[string]any{"from": from, "to": to, "count": n})
+		e.events.publish("task.lease.transferred", from, map[string]any{"from": from, "to": to, "count": n, "ttlMs": DefaultHubTaskLeaseTTL.Milliseconds()})
 	}
 	return n, nil
 }
