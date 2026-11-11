@@ -725,6 +725,27 @@ func (p *pkg) renameObject(op Op, obj *ast.Object) ([]splice, []Symbol, string, 
 		return nil, nil, "", editing.Errorf(editing.CodeAmbiguous, "package %s already declares %q (%s:%d:%d)",
 			p.name, op.NewName, filepath.Base(p.fileOf(existing.Pos())), line, column)
 	}
+	info, err := p.typeInfo()
+	if err != nil {
+		return nil, nil, "", err
+	}
+	for id, used := range info.Uses {
+		if id.Obj != obj {
+			continue
+		}
+		var inner *types.Scope
+		for _, scope := range info.Scopes {
+			if scope.Contains(id.Pos()) && (inner == nil || scope.Pos() >= inner.Pos() && scope.End() <= inner.End()) {
+				inner = scope
+			}
+		}
+		if inner != nil {
+			_, captured := inner.LookupParent(op.NewName, id.Pos())
+			if captured != nil && captured != used {
+				return nil, nil, "", editing.Errorf(editing.CodeAmbiguous, "rename would capture existing %q at %s", op.NewName, p.fset.Position(id.Pos()))
+			}
+		}
+	}
 	var splices []splice
 	var symbols []Symbol
 	for _, file := range p.sortedFiles() {
