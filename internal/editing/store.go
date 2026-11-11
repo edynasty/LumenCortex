@@ -238,7 +238,6 @@ type Lease struct {
 	// Root is the workspace the target was resolved in.
 	Root string `json:"root"`
 	// Target is the canonical absolute path or directory the lease covers.
-
 	Target string `json:"target"`
 	// Holder is the actor holding it, normally a session id.
 	Holder string `json:"holder"`
