@@ -56,6 +56,12 @@ type Config struct {
 	// StaleEmptyVariables is the adapter behaviour of resolving an unknown
 	// variablesReference with an empty list instead of an error.
 	StaleEmptyVariables bool `json:"staleEmptyVariables"`
+	// EvaluateReference is the adapter behaviour of returning the current
+	// Locals variables reference from evaluate, the way Delve returns a child
+	// reference for a struct or pointer. With ReuseReferences that number also
+	// names the next stop's Locals, so an old evaluate reference must not be
+	// forwarded unchecked.
+	EvaluateReference bool `json:"evaluateReference"`
 	// LargeValueBytes adds a Blob local of this size.
 	LargeValueBytes int `json:"largeValueBytes"`
 	// Locals overrides the default Locals scope.
@@ -368,12 +374,20 @@ func (s *server) handle(req message) error {
 			Expression string `json:"expression"`
 		}
 		_ = json.Unmarshal(req.Arguments, &args)
+		ref := 0
+		if s.cfg.EvaluateReference {
+			s.mu.Lock()
+			seq := s.stopSeq
+			s.mu.Unlock()
+			_, locals, _ := s.references(seq)
+			ref = locals
+		}
 		for _, v := range s.cfg.locals() {
 			if v.Name == args.Expression {
-				return s.reply(req, map[string]any{"result": v.Value, "type": v.Type, "variablesReference": 0})
+				return s.reply(req, map[string]any{"result": v.Value, "type": v.Type, "variablesReference": ref})
 			}
 		}
-		return s.reply(req, map[string]any{"result": "43", "type": "int", "variablesReference": 0})
+		return s.reply(req, map[string]any{"result": "43", "type": "int", "variablesReference": ref})
 	case "exceptionInfo":
 		return s.reply(req, map[string]any{"exceptionId": "SIGABRT", "description": "aborted()", "breakMode": "always", "details": map[string]any{"message": "fake exception"}})
 	case "next", "stepIn", "stepOut":
