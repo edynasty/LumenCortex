@@ -48,6 +48,8 @@ type SnapshotStore struct {
 type sessionSnapshots struct {
 	entries []*Snapshot
 	bytes   int
+	// evicted fences unknown paths after bounded history has been discarded.
+	evicted bool
 }
 
 // NewSnapshotStore returns an empty store.
@@ -196,8 +198,8 @@ func (s *SnapshotStore) find(ss *sessionSnapshots, path, rev string) *Snapshot {
 	return nil
 }
 
-// prune enforces the byte bound, the per-path revision bound and the per-session file bound. The
-// entry just registered (keepPath) is never evicted.
+// prune protects only the newly registered revision, never every revision of its
+// path. Compaction drops backing references and accounts every byte exactly once.
 func (s *SnapshotStore) prune(ss *sessionSnapshots, keepPath string) {
 	sort.Slice(ss.entries, func(i, j int) bool { return ss.entries[i].at > ss.entries[j].at })
 	counts := make(map[string]int)
@@ -208,6 +210,7 @@ func (s *SnapshotStore) prune(ss *sessionSnapshots, keepPath string) {
 		if counts[entry.Path] >= snapshotRevsPerPath ||
 			(!known && len(counts) >= snapshotFilesPerSession) ||
 			bytes+len(entry.Doc.Raw) > snapshotBytesPerSession {
+			ss.evicted = true
 			continue
 		}
 		counts[entry.Path]++
@@ -216,6 +219,13 @@ func (s *SnapshotStore) prune(ss *sessionSnapshots, keepPath string) {
 	}
 	clear(ss.entries[len(kept):])
 	ss.entries, ss.bytes = kept, bytes
+}
+
+func (s *SnapshotStore) incomplete(session string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ss := s.sessions[session]
+	return ss != nil && ss.evicted
 }
 
 // Lease is a write lease: a path or directory prefix one holder may write for a bounded time. It is
@@ -363,6 +373,22 @@ func (s *LeaseStore) Check(holder, path string) error {
 	return nil
 }
 
+// admit holds the lease mutation lock from the final admission check through
+// mutation/rollback. A lease cannot be acquired or reassigned during that window.
+func (s *LeaseStore) admit(holder string, paths []string) (func(), error) {
+	s.mu.Lock()
+	s.pruneLocked(s.now())
+	for _, path := range paths {
+		for _, held := range s.leases {
+			if held.Holder != holder && held.Covers(path) {
+				s.mu.Unlock()
+				return nil, &LeaseConflict{Path: path, Holder: held.Holder, Until: held.Expires}
+			}
+		}
+	}
+	return s.mu.Unlock, nil
+}
+
 // List returns the active leases, sorted by target then holder.
 func (s *LeaseStore) List() []Lease {
 	s.mu.Lock()
@@ -386,18 +412,4 @@ func (s *LeaseStore) pruneLocked(now time.Time) {
 		}
 	}
 	s.leases = kept
-}
-
-func (s *LeaseStore) admit(holder string, paths []string) (func(), error) {
-	s.mu.Lock()
-	s.pruneLocked(s.now())
-	for _, path := range paths {
-		for _, held := range s.leases {
-			if held.Holder != holder && held.Covers(path) {
-				s.mu.Unlock()
-				return nil, &LeaseConflict{Path: path, Holder: held.Holder, Until: held.Expires}
-			}
-		}
-	}
-	return s.mu.Unlock, nil
 }

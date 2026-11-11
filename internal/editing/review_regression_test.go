@@ -116,3 +116,26 @@ func TestReviewSnapshotBudget(t *testing.T) {
 		}
 	}
 }
+
+func TestReviewEvictedReadRequiresFreshRevision(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "a", "old")
+	e := newTestEngine(t, root)
+	e.RegisterRead(testActor(), filepath.Join(root, "a"), RevOf([]byte("old")))
+	for i := 0; i < 65; i++ {
+		e.RegisterRead(testActor(), filepath.Join(root, fmt.Sprintf("f%d", i)), "known")
+	}
+	writeFile(t, root, "a", "new user content")
+	next := []byte("from old")
+	plan := Plan{Actor: testActor(), Changes: []FileChange{{Path: "a", Content: &next, RejectStaleRead: true}}}
+	if _, err := e.Commit(context.Background(), plan); err == nil {
+		t.Error("evicted stale read silently accepted")
+	}
+	if got := readFileContent(t, root, "a"); got != "new user content" {
+		t.Fatalf("new content lost: %q", got)
+	}
+	e.RegisterRead(testActor(), filepath.Join(root, "a"), RevOf([]byte("new user content")))
+	if _, err := e.Commit(context.Background(), plan); err != nil {
+		t.Fatalf("fresh reread must unblock write: %v", err)
+	}
+}

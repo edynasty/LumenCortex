@@ -458,7 +458,12 @@ func (e *Engine) prepare(host Host, p *prepared, plan Plan) error {
 			return refuseStale(err, p)
 		}
 		if change.BaseRev == "" && change.RejectStaleRead {
-			if latest, ok := e.snaps.Latest(plan.Actor.Session, p.key); ok && latest.Rev != "" && latest.Rev != p.rev {
+			latest, ok := e.snaps.Latest(plan.Actor.Session, p.key)
+			if !ok && e.snaps.incomplete(plan.Actor.Session) && existed {
+				return &Error{Code: CodeUnknownRev, Path: p.rel, CurrentRev: p.rev,
+					Detail: "read history was evicted; reread this file before replacing it"}
+			}
+			if ok && latest.Rev != "" && latest.Rev != p.rev {
 				return &Error{Code: CodeConflict, Path: p.rel, Rev: latest.Rev, CurrentRev: p.rev,
 					Detail: "the file changed since this session last read it"}
 			}
