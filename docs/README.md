@@ -1,117 +1,51 @@
-# LumenCortex Documentation
+# Documentation index
 
-This directory is the authoritative technical documentation set for LumenCortex.
+LumenCortex is a Go-based cognitive coding-agent system. **Go is the sole production Runtime.** Node.js source and package metadata remain as historical reference only; they are not a second production runtime or a feature-parity target. Node.js test results are not Go production acceptance evidence.
 
-The README at the repository root is intentionally a quick-start and product summary. Detailed architecture, runtime semantics, evidence, safety boundaries, and maintenance rules live here.
+## Start here
 
-<p align="center">
-  <img src="assets/architecture/system-architecture.webp" alt="LumenCortex system architecture" width="100%">
-</p>
+- [System overview](system-overview.md)
+- [Architecture](architecture.md)
+- [Architecture diagrams](architecture-diagrams.md)
+- [Agent execution flow](execution-flow.md)
+- [Agent runtime](agent-runtime.md)
+- [Go production runtime and migration history](go-runtime-migration.md)
 
-[Open the full visual architecture index →](architecture-diagrams.md)
+## Agent Harness
 
-## Recommended reading order
+- [Hashline and AST editing](reports/harness-evolution-editing-20261110.md)
+- [DAP debugger](dap-debugger.md)
+- [Persistent Eval](persistent-eval.md)
+- [Agent Hub](agent-hub.md)
+- [Workflow Contract](workflow-contract.md)
+- [Security and trust](security-and-trust.md)
 
-### I want to understand the system
+## Cognitive architecture
 
-1. [System overview](system-overview.md)
-2. [Architecture diagrams](architecture-diagrams.md)
-3. [Execution flow](execution-flow.md)
-4. [Architecture details](architecture.md)
-5. [Attention Light algorithm](attention-light-algorithm.md)
-6. [Cognitive control plane](cognitive-control-plane.md)
-7. [Data model](data-model.md)
+- [Cognitive control plane](cognitive-control-plane.md) — historical design record; current Go capabilities are defined by Go source and tests.
+- [Attention Light algorithm](attention-light-algorithm.md)
+- [Data model](data-model.md)
+- [Architecture Decision Records](adr/README.md)
 
-### I want to understand the autonomous coding runtime
+## Development and validation
 
-1. [Agent runtime](agent-runtime.md)
-2. [Workflow Contract](workflow-contract.md)
-3. [Security and trust](security-and-trust.md)
-4. [Validation evidence](validation.md)
-5. [Standalone readiness](standalone-readiness.md)
-
-### I am changing the project
-
-1. [Documentation guide](documentation-guide.md)
-2. [ADR guide and template](adr/README.md)
-3. [Validation evidence](validation.md)
-
-
-### I want to follow the Go runtime migration
-
-1. [Go runtime migration](go-runtime-migration.md)
-2. [ADR 0001 — Go runtime migration](adr/0001-go-runtime-migration.md)
-3. [ADR 0002 — Bounded-memory runtime](adr/0002-bounded-memory-runtime.md)
-
-## Document authority
-
-| Topic | Canonical document | Purpose |
-|---|---|---|
-| Product summary / quick start | `README.md` | Short user-facing entry point |
-| System boundaries and component map | `docs/system-overview.md` | First architecture document to read |
-| Architecture invariants and cognitive design | `docs/architecture.md` | Deep architecture specification |
-| Attention/retrieval algorithms and parameters | `docs/attention-light-algorithm.md` | Canonical algorithm specification |
-| Decision Layer, Category model chains, Think effort, and graph governance | `docs/cognitive-control-plane.md` | Target cognitive control architecture |
-| Diagrams | `docs/architecture-diagrams.md` | Visual architecture source |
-| Agent lifecycle and failure behavior | `docs/execution-flow.md` | End-to-end runtime logic |
-| Agent tools/providers/sessions | `docs/agent-runtime.md` | Runtime implementation reference |
-| Workflow schema and semantics | `docs/workflow-contract.md` | Workflow Contract reference |
-| Persistent structures | `docs/data-model.md` | Data and persistence reference |
-| Permission/trust/safety boundaries | `docs/security-and-trust.md` | Security model and known gaps |
-| Verified claims | `docs/validation.md` | Evidence, benchmarks, real-model runs |
-| Product readiness / gaps | `docs/standalone-readiness.md` | What can and cannot currently be claimed |
-| Documentation conventions | `docs/documentation-guide.md` | How future docs should be written |
-| Architecture decisions | `docs/adr/` | Why important decisions were made |
-
-## Status vocabulary
-
-Use only these labels for implementation state:
-
-- **Implemented** — code exists.
-- **Validated** — the real execution path is covered by automated or real-model evidence.
-- **Partial** — useful implementation exists but a meaningful part is missing.
-- **Planned** — design target only.
-- **Evidence gap** — implementation exists, but the required proof does not yet exist.
-
-Do not use “complete”, “production ready”, “safe”, or “OpenCode parity” merely because a module exists.
-
-## Core design model
-
-LumenCortex has three deliberately separate state domains:
-
-```text
-Workflow State
-Facts / Action / Route / Outcome / Gate
-        │
-        │ constrains legal progress
-        ▼
-Execution State
-Agent / LLM / Tools / Shell / LSP / MCP / Sessions
-        ▲
-        │ supplies evidence and context
-        │
-Cognitive State
-Evidence / Belief / Attention Light / Context Graph
-```
-
-The separation is intentional:
-
-- Workflow decides what is legal and what counts as proven completion.
-- Cognitive memory decides what should be remembered and attended to.
-- Execution performs the actual coding work.
+- [Standalone readiness and known gaps](standalone-readiness.md)
+- [Validation evidence](validation.md)
+- [Go provider configuration](go-provider.md)
+- [Plugin and MCP templates](plugins-mcp-templates.md)
 
 ## Current major engineering gaps
 
-The authoritative list is [Standalone readiness](standalone-readiness.md). The highest-value remaining gaps are currently:
+The authoritative implementation and evidence matrix is [Standalone readiness](standalone-readiness.md). Current limitations include:
 
-1. transactional real Git worktree isolation for an Agent run,
-2. rollback of arbitrary workspace mutations produced by shell commands,
-3. semantic/vector retrieval as an optional recall layer,
-4. reusable Skills,
-5. richer TUI navigation and interaction,
-6. vision/browser tools,
-7. credentialed DeepSeek real-model validation,
-8. live Jev/Laya validation and routing-quality benchmarks,
-9. Graph Governor Curator/Planner, semantic canonicalization, physical hot/warm/cold storage, and Cortex Epoch execution.
+1. **Local-session rollback** — arbitrary workspace mutations made by shell commands do not have whole-run rollback. Go session Worktrees can be isolated and safely discarded or handed off.
+2. **Mandatory isolation** — Worktree execution is available as an option; it is not mandatory for every Agent run.
+3. **Vision and browser automation** — not implemented as built-in runtime capabilities.
+4. **TUI interaction depth** — editor-grade navigation and interaction remain UX work; the current Go CLI is a source-run preview surface.
+5. **Model calibration** — live Jev/Laya validation and broad multi-model routing calibration remain open.
+6. **Graph governance** — Go main exposes read-only Analyze / Plan / Validate. Model Curator is disabled before provider invocation until request-envelope admission exists; Apply and Cortex Epoch execution are not claimed in Go main.
+7. **Physical storage tiers and GC** — hot/warm/cold metadata exists, but separate physical stores and destructive cognitive garbage collection are not claimed.
+8. **Linux and Desktop release gates** — real Linux DAP, host/VM cgroup and UID Broker, and native interactive Wails acceptance require their own platform evidence.
+9. **Cognitive Core P0** — the expanded Scope / Time / Evidence and Experimental Experience candidate is not part of Core `main` until its inherited baseline and migrations pass independent review.
 
-When one of these changes, update the readiness and validation documents in the same change.
+Historical Node.js capabilities may be described in historical design documents, but they must not be presented as current Go production capabilities.

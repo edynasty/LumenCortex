@@ -134,7 +134,7 @@ Reality / Evidence updated
 
 The LLM does not own durable truth. It performs temporary computation over selected evidence.
 
-The Node.js reference runtime now includes a baseline Cognitive Kernel above the existing Agent Loop: an advisory Decision Layer, ordered Category model chains, framework-owned Think routing with dynamic effort, failure/progress signals, semantic Graph Governor curation, validated Governor execution, and an opt-in post-Agent Governor scheduler. See [Cognitive control plane](cognitive-control-plane.md).
+The historical Node.js v0.6 runtime included a Cognitive Kernel above its Agent Loop. That implementation is retained as read-only design history, not as a current production authority or a parity target. Go is the sole production Runtime. Current Go cognitive capabilities and limitations are defined by the Go source, Go tests, and the explicitly scoped [Cognitive control plane](cognitive-control-plane.md) record.
 
 ## Workflow and cognition are complementary
 

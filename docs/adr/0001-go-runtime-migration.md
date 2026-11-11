@@ -1,5 +1,7 @@
 # ADR 0001: Migrate the LumenCortex runtime to Go incrementally
 
+> **Superseded production policy (Owner decision, 2026-11-11):** This ADR records the original migration-era decision. The current policy is Go-only: Go is the sole production Runtime; Node.js source is retained as historical read-only reference, with no Node/Go parity backlog. Do not use the original migration wording below as the current production policy.
+
 - Status: Accepted
 - Date: 2026-09-21
 

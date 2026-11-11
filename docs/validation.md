@@ -1,8 +1,12 @@
 # Validation status
 
+> **Go-only production policy (Owner decision, 2026-11-11):** Go is the sole production Runtime. Node.js test results and Node-only feature evidence below are historical reference only; they are not current Go production acceptance evidence or a Node/Go parity target. The expanded Cognitive Core P0 candidate is not part of Core `main` at `208ad6b`.
+
 This document separates architecture claims from evidence.
 
-## Automated core tests
+## Historical Node.js reference-suite evidence
+
+The Node.js 22/24 results and Node-specific scenarios in this section document the retained historical implementation. They must not be used to accept Go production behavior.
 
 Latest validated core suite:
 
@@ -29,9 +33,14 @@ Latest validated core suite:
 - Cognitive control validation: algorithmic DecisionProvider, Jev/Laya-compatible `/v1/systemone` adapter shape, bounded generative DecisionProvider fallback, strict/fenced JSON parsing, confidence discount, malformed-output circuit fallback, framework Think/effort routing, confidence/relation-constrained retrieval arbitration, OpenRouter/Groq/DeepSeek effort mapping, ordered Category model chains, shared circuit breakers, provider-chain failover, failure signatures, and session model-latency telemetry
 - Work Unit validation: dependency-cycle rejection, model/provider/category field rejection, required-evidence/verification completion gates, ordered activation, and Agent premature-final blocking
 - Graph Governor validation: global analyzer candidates, model Curator JSON plans, reproduced-evidence archive protection, semantic plan validation, provenance-preserving canonicalization, branch preservation, global promotion, and reversible Cortex Epoch commits
-- Storage-tier validation: SQLite schema-v3 additive backfill, indexed hot/warm/cold metadata, Attention access telemetry without graph-revision changes, protected evidence GC filtering, and derived-cache-only cold archive compaction
-- Go cognitive-control parity validation: shared cognition-profile parsing, Algorithm Router, Jev/Laya-compatible System One HTTP signals, bounded generative DecisionProvider over the shared generative-provider contract, explicit-zero probability handling, retrieval confidence/relation gates, ordered Category provider failover, shared circuit breakers, provider-specific reasoning effort, Think token-budget scaling, persistent Work Unit tools/evidence gates, evaluator checks (only `runtime` or `human:*` results at the current workspace fingerprint pass the completion gate or complete a unit; `work_unit_update` cannot write a result), and per-step provider/model traces
-- Go Graph Governor validation: Node-parity Analyzer thresholds/formulas, deterministic safe plan, semantic Curator plan generation, deterministic validator, read-only shared SQLite graph snapshot, and no-mutation assertions
+- Storage-tier validation: historical SQLite schema-v3 additive backfill, indexed hot/warm/cold metadata, Attention access telemetry without graph-revision changes, protected evidence GC filtering, and derived-cache-only cold archive compaction
+
+## Go runtime validation evidence
+
+The following entries describe Go implementation tests, not Node/Go parity:
+
+- Go cognitive-control contract validation: shared cognition-profile parsing, Algorithm Router, Jev/Laya-compatible System One HTTP signals, bounded generative DecisionProvider over the shared generative-provider contract, explicit-zero probability handling, retrieval confidence/relation gates, ordered Category provider failover, shared circuit breakers, provider-specific reasoning effort, Think token-budget scaling, persistent Work Unit tools/evidence gates, evaluator checks (only `runtime` or `human:*` results at the current workspace fingerprint pass the completion gate or complete a unit; `work_unit_update` cannot write a result), and per-step provider/model traces
+- Go Graph Governor validation: historically derived Analyzer thresholds/formulas exercised by Go tests, deterministic safe plan, deterministic validator, read-only shared SQLite graph snapshot, no-mutation assertions, and Curator refusal before provider invocation while request-envelope admission is unavailable. This does not claim semantic Curator planning, Apply, or Cortex Epoch execution in Go main.
 
 Covered behaviors include:
 
@@ -48,6 +57,18 @@ Covered behaviors include:
 - a 20-tool-round / 21-reasoning-step long-loop runtime test,
 - atomic cognitive worker commit/rollback,
 - workspace path traversal protection.
+
+
+## Current Go Core main evidence (208ad6b)
+
+The current Go production baseline is Core `main` at `208ad6b`. Post-merge checks on that exact candidate recorded:
+
+- `go build ./...`: exit 0.
+- `go vet ./...`: exit 0.
+- `go test ./internal/migrate/...`: exit 0.
+- Sol final Harness review: macOS full-package coverage 2504 PASS / 34 SKIP (package-composed, not one all-repository invocation); Hub/Handoff/Lease targeted Race 45 PASS.
+
+See `bench/evidence/agent-harness-final-independent-review-20261111/TEST_RESULTS.md` and `bench/evidence/agent-harness-main-merge-20261111/MERGE_PUSH_CLEANUP_REPORT.md` for the exact scope. Desktop `main` is still pinned to Core `v0.1.4`; Wails interactive acceptance and Linux real DAP / host cgroup / UID Broker remain separate release gates. Cognitive Core P0 is not included in this mainline evidence.
 
 ## Long-task runtime test
 
@@ -119,7 +140,7 @@ The standalone real coding workflow also completed successfully in run `35549612
 - test-file SHA256 hashes were unchanged,
 - durable Session `session_e01a914ce26344bc` finished as `completed` with seven reasoning steps and persisted shell/edit evidence.
 
-This closes the baseline real local-model coding gate. It does not imply parity with mature coding products on every repository or model.
+This closes the historical Node.js reference-runner local-model coding gate. It does not establish Go production acceptance or equivalent results for every repository/model.
 
 ## DeepSeek validation
 
@@ -212,7 +233,7 @@ The following are not represented as complete features:
 - Context-diversity validation: default greedy preservation, optional bounded MMR replacement of redundant nodes, shared weighted/PPR selector behavior, token-budget enforcement, and invalid-parameter fallback.
 
 
-- Embedding/Hybrid validation: OpenAI-compatible `/embeddings` wire shape, response-order normalization, persistent SQLite schema v3, content-hash incremental reuse, single-node re-embedding, model dimension protection, exact cosine ranking, deterministic RRF fusion, pure semantic candidate seeding into Attention, unconfigured-provider fallback, shared cognition-profile configuration, Agent next-turn async Hybrid routing, and CLI Hybrid search.
+- Historical Node.js Embedding/Hybrid validation: OpenAI-compatible `/embeddings` wire shape, response-order normalization, persistent SQLite schema v3, content-hash incremental reuse, single-node re-embedding, model dimension protection, exact cosine ranking, deterministic RRF fusion, pure semantic candidate seeding into Attention, unconfigured-provider fallback, shared cognition-profile configuration, Agent next-turn async Hybrid routing, and CLI Hybrid search.
 
 
 - LSP refactoring validation: `textDocument/rename`, `textDocument/codeAction`, optional `codeAction/resolve`, bidirectional JSON-RPC server requests, authorized `workspace/executeCommand` + `workspace/applyEdit`, rejection of unsolicited server edits, UTF-16 WorkspaceEdit range application, ordered `CreateFile`/`RenameFile`/`DeleteFile` file-resource operations, overwrite/ignore semantics, workspace/symlink containment, whole-edit prevalidation, multi-file rollback safety, opened-document close/reopen synchronization after rename, and Agent write-tool integration.
@@ -223,7 +244,7 @@ The following are not represented as complete features:
 
 
 - Governor-scheduler validation: opt-in disable gate, revision-delta and cooldown debounce, pressure triggers, deterministic no-Curator path, explicit Curator opt-in, persistent pending plan across scheduler instances, deterministic `autoApplySafe` tier/archive application, Curator auto-apply suppression, no-safe-change pending preservation, journal entries, dry-run preservation, graph-revision stale-plan rejection, Agent-completion invocation, scheduler-error isolation, and CLI run/status/apply/clear lifecycle.
-- Node Skills validation: global/project override semantics, persisted enable state, bounded prompt generation, main Agent prompt injection, delegated Subagent propagation, and isolated CLI save/list/show/enable/disable/delete lifecycle.
+- Historical Node.js Skills validation: global/project override semantics, persisted enable state, bounded prompt generation, main Agent prompt injection, delegated Subagent propagation, and isolated CLI save/list/show/enable/disable/delete lifecycle.
 
 
 - Cognitive-routing benchmark validation: 12 labeled workloads spanning quick edits, visual engineering, writing, comparative research, deep debugging, production migration risk, dependency lookup, historical regression analysis, repeated-failure ultrabrain escalation, and distributed-performance investigation. The benchmark checks Category, Think decision, minimum/exact effort, and retrieval direction through the production deterministic router, and is available as `lcx cognition benchmark --strict` without any model/API cost.

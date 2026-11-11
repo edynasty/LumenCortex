@@ -1,5 +1,7 @@
 # LumenCortex Architecture — v0.6 SQLite cognitive runtime
 
+> **Current production policy (Owner decision, 2026-11-11):** Go is the sole production Runtime. This architecture document retains v0.6 design history; Node.js implementation descriptions are historical reference only, not current production authority or a parity target. Use Go source and tests for current behavior.
+
 LumenCortex is a versioned cognitive runtime and coding-agent loop.
 
 The architecture has three separate state domains:
@@ -101,7 +103,7 @@ The next architecture stage separates adaptive cognition into five roles:
 | Category model chains | ordered generative-model preferences by work category | Implemented baseline |
 | Graph Governor | analyzer + semantic Curator + validated tier/archive/branch/promotion/canonicalization + Cortex Epochs | Implemented baseline |
 
-These roles remain separate from deterministic Attention Light and the Agent Loop; the first Node.js reference implementation is now wired into the Agent Loop. The exact Decision Layer contracts, Category-chain semantics, Think-effort formulas, and Graph Governor lifecycle are defined in [Cognitive control plane](cognitive-control-plane.md).
+These roles remain separate from deterministic Attention Light and the Agent Loop. The Node.js implementation described in the historical control-plane sections is retained only as read-only design history; it is not the production authority or a Go parity target. Current Go production behavior is defined by Go source and tests. The earlier Decision Layer and Category-chain design history is documented in [Cognitive control plane](cognitive-control-plane.md).
 
 The core boundary is:
 

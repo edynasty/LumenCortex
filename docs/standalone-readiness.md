@@ -1,5 +1,7 @@
 # Standalone coding-agent readiness
 
+> **Go-only production policy (Owner decision, 2026-11-11):** Go is the sole production Runtime. This matrix contains historical Node.js evidence from earlier development stages. Node-only results are historical reference, not current Go acceptance evidence or a Node/Go parity target. Use Go source, Go tests, and the current Core release gates for production decisions. The expanded Cognitive Core P0 candidate is not yet part of Core `main`.
+
 This document is the evidence gate for claiming that LumenCortex is ready to serve as a primary standalone coding agent.
 
 A feature being present in source code is not enough. Readiness claims require an automated or real-model proof that exercises the same execution path.
@@ -12,7 +14,7 @@ A feature being present in source code is not enough. Readiness claims require a
 | Bounded long-task context | Complete | deterministic 20-tool-round test + real Qwen3 graph-memory VM proof | Ready |
 | SQLite WAL / restart persistence | Complete | Core CI, integrity/checkpoint/concurrency tests | Ready |
 | Large-repository lexical/symbol retrieval | Complete | 100k-node FTS5/symbol benchmark | Ready for exact/symbol-heavy lookup |
-| Semantic/vector retrieval | Complete optional baseline | Core CI: SQLite embedding cache, incremental content-hash sync, exact cosine, RRF Hybrid, pure-semantic recall and CLI path | Ready optional baseline; ANN/HNSW/IVF acceleration remains a scale optimization |
+| Semantic/vector retrieval | Historical Node.js reference only | Historical Node tests and benchmarks | Not a Go production capability claim; Go semantic retrieval requires separate implementation and validation. |
 | Workspace read/search/write tools | Complete | Core CI, including bounded batch `read_files` | Ready |
 | Atomic multi-file patching | Complete | Batch validation/ambiguity/traversal tests | Ready |
 | Shell execution | Complete | async/timeout/process-tree/cancel tests | Ready |
@@ -32,21 +34,20 @@ A feature being present in source code is not enough. Readiness claims require a
 | Cognitive Git | Complete for cognitive graph | Core CI | Ready for cognition history |
 | Session ↔ real Git worktree isolation | Complete Go baseline | Go runtime lifecycle, Agent workspace routing, shell isolation, status/diff, overlap-conflict and safe handoff/apply tests; Go CLI lifecycle tests | Ready optional baseline for isolated Go sessions; not the same as Cognitive-Git branch ↔ worktree transactional binding |
 | Workspace rollback after arbitrary shell mutation | Partial | Worktree-session isolation/removal tests | Worktree sessions can be discarded safely; local-session arbitrary shell mutation still has no whole-run rollback |
-| Skills layer | Complete Node + Go baseline | layered registry tests, Node/Go Agent prompt injection, Node Subagent propagation, Node/Go CLI lifecycle tests | Ready baseline with global/project layering and enable state |
+| Skills layer | Go baseline | Go layered registry, Agent prompt, and CLI lifecycle tests | Current Go implementation; Node-era evidence is excluded from Go acceptance. |
 | Vision/browser tools | Not implemented | None | Gap |
 | Adaptive cognitive routing / Think mode | Implemented baseline | Core CI cognitive-control tests + 12-case labeled deterministic routing benchmark + strict CLI gate + captured local `deepseek-v4.1-flash` canonical-prompt calibration scored 12/12 and re-scored in CI | Experimental baseline; one generative model is calibrated, while live Jev/Laya and broader multi-model calibration remain open |
-| Decision Layer + Category model chains | Implemented baseline | Core CI: algorithm/System-One adapters, bounded generative Decision fallback, ordered route/circuit fallback, confidence-constrained retrieval arbitration, provider effort mapping, session trace tests | Ready for experimental use; live Jev/Laya validation pending |
+| Decision Layer + Category model chains | Historical Node.js reference; Go capabilities listed separately below | Historical Node test evidence | Do not count Node implementation or tests as current Go production capability. |
 | Persistent Work Units | Implemented baseline | dependency/evidence/verification/final-answer gate tests | Ready experimental baseline |
 | Hot/warm/cold storage metadata | Implemented baseline | SQLite schema-v3/backfill/access/compaction tests | Logical graph remains intact; physical tier separation is not claimed |
-| Graph Governor / Cortex Epochs | Implemented baseline + opt-in scheduler | Core CI: analyzer, semantic Curator, validator, canonicalization/branch/promotion, reversible epoch tests, persistent scheduler debounce/stale-plan/CLI/Agent lifecycle tests, deterministic safe auto-apply boundaries | Experimental governance baseline; scheduler can auto-plan and optionally auto-apply deterministic tier/archive changes, while Curator/semantic/Epoch plans remain explicit |
-| Go cognitive-control parity | Implemented baseline | Go CI: shared profile, System One HTTP, bounded generative Decision fallback, retrieval confidence/relation gates, Category failover/circuit, dynamic Think effort, Work Unit gates | Governor write/apply is intentionally not duplicated |
-| Go Graph Governor read path | Implemented baseline | Go CI: shared SQLite snapshot + Analyzer/Curator/Validator + no-mutation assertions | Read-only; Node remains mutation authority |
+| Graph Governor / Cortex Epochs | Go main: read-only Analyze / Plan / Validate | Go Engine shared-SQLite snapshot, deterministic plan, validation, and no-mutation tests | Model Curator fails closed before provider invocation; Apply and Cortex Epoch execution are not claimed in Go main. Expanded P0 remains unmerged. |
+| Go cognitive-control baseline | Implemented baseline | Go CI: shared profile, System One HTTP, bounded generative Decision fallback, retrieval confidence/relation gates, Category failover/circuit, dynamic Think effort, Work Unit gates | This is a Go implementation baseline, not a Node/Go parity commitment. |
 
 ## Primary-agent evidence gates
 
 LumenCortex may be described as a primary standalone coding agent only when all mandatory gates below remain green.
 
-1. **Core correctness** — Node 22 and Node 24 core CI pass.
+1. **Core correctness** — supported Go toolchain CI, Go unit/integration tests, build, and vet pass.
 2. **Storage durability** — SQLite WAL, restart/reopen, cross-process Session writes and integrity checks pass.
 3. **Long-horizon memory** — the real-model graph-memory workflow proves that evidence outside the recent chat window is reactivated from the Context Graph.
 4. **Coding mutation** — a real model runs failing tests, edits implementation files, reruns tests and passes an independent verifier without changing the tests.
@@ -64,7 +65,7 @@ real model uses coding tools
         ↓
 implementation files change
         ↓
-independent npm test passes
+independent Go test suite passes
         ↓
 test-file SHA256 hashes are unchanged
         ↓
@@ -80,13 +81,13 @@ In particular, the current architecture does not yet claim:
 - mandatory Git worktree isolation for every Agent run; the Go runtime supports explicit per-session worktrees, but local sessions remain valid,
 - whole-run rollback of arbitrary local-session workspace changes produced by shell commands,
 - directory-oriented LSP resource operations are not claimed; file-based create/rename/delete and authorized command-backed code actions are implemented,
-- approximate-nearest-neighbor embedding indexes; the optional exact-cosine/RRF baseline is implemented,
+- semantic/vector retrieval in Go; exact-cosine/RRF evidence belongs to the historical Node.js reference and is not a Go production capability,
 - vision/browser automation,
 - polished terminal navigation equivalent to mature editor-grade TUIs,
 - live Jev/Laya endpoint validation and broader multi-model calibration; the deterministic benchmark and one captured local DeepSeek V4.1 Flash 12/12 routing calibration are implemented,
-- automatic Curator/semantic Governor application or production-calibrated governance policy; deterministic tier/archive auto-apply is available only through explicit `autoApplySafe` opt-in,
+- Go Curator/semantic Governor application, autonomous graph mutation, or production-calibrated governance policy; current Go main exposes read-only Analyze / Plan / Validate,
 - separate physical hot/warm/cold data stores or destructive cognitive GC (not currently claimed),
 - broader provider-specific reasoning controls,
-- Go Graph Governor mutation/executor parity; the current Go Governor is intentionally read-only against the shared SQLite graph.
+- Go Graph Governor Apply, autonomous graph mutation, and Cortex Epoch execution; the current Go mainline Governor is intentionally read-only against the shared SQLite graph.
 
 These are tracked as explicit product gaps rather than being inferred from the existence of generic shell or MCP tools.

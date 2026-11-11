@@ -2,570 +2,133 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-**LumenCortex** is a standalone persistent cognitive coding agent with a full-screen TUI and CLI.
+LumenCortex is a cognitive coding-agent system for long-running software tasks. It combines evidence-oriented memory, bounded attention, controlled agent execution, repository editing, debugging, evaluation, and workflow verification.
+
+LumenCortex is a coding-agent harness with its own cognitive architecture. It is not tied to one model provider and is not a copy of another agent framework.
 
 > Graph is Memory. Light is Attention. Decision is Judgment. Think is Deliberation. Agent is Execution.
-
-The primary interface is the full-screen TUI. Run `lumencortex` or the short command `lcx` with no arguments to open it directly. Shell/test stdout and stderr are streamed into the active Agent view while commands are still running. While an agent run is active, `Ctrl+C` cancels the provider/tool execution, persists the Session as `interrupted`, and leaves it resumable with `--session`.
 
 <p align="center">
   <img src="docs/assets/architecture/system-architecture.webp" alt="LumenCortex system architecture" width="100%">
 </p>
 
-> Visual architecture overview. Detailed diagrams and maintainable topology sources live in [docs/architecture-diagrams.md](docs/architecture-diagrams.md).
+## Current source and release baseline
 
-## v0.6 LumenCortex runtime
+Snapshot: **2026-11-11**. Source commits, runtime identity, release tags, and Desktop dependencies are separate version surfaces.
+
+| Surface | Current baseline |
+|---|---|
+| Core `main` | `208ad6b` — Agent Harness Core integrated and pushed to `origin/main`. |
+| Latest Core release tag | `v0.1.4` at `42ee234`; older than current `main`. |
+| Go Engine identity | `0.1.4-preview` (`runtime.GoRuntimePreviewVersion`); this is not a new Git release tag. |
+| Desktop `main` | `4a6c2f3`. |
+| Desktop Core dependency | `v0.1.4`; Desktop has not yet been upgraded to a release containing Core `208ad6b`. |
+| Legacy Node package metadata | `0.6.0`; retained as historical reference, not the production runtime. |
+
+Core `main` at `208ad6b` is newer than `v0.1.4` and has not yet received a new SemVer tag. Do not treat the `v0.1.4` module as equivalent to current `main`. Desktop must move to an exact new Core release before its corresponding release.
+
+## Runtime policy: Go only
+
+**Go is the sole production runtime for LumenCortex.** New runtime behavior, production integrations, and acceptance evidence belong to the Go implementation.
+
+The Node.js source and package remain in the repository as historical, read-only reference material. They are not a second maintained production runtime, a feature-parity target, or an authority for current production behavior. Node.js tests do not establish that Go behavior is correct.
+
+The Go Engine is the production runtime implementation. `cmd/lcx-go` is the current source-run CLI/host entrypoint; its command surface is still identified by the program as a preview CLI and should not be confused with a separately packaged release binary.
+
+## Core capabilities
+
+The current Core `main` includes the Agent Harness integration at `208ad6b`.
+
+### Agent execution and workflow
+
+- Multi-turn Agent execution, provider adapters, persistent Sessions, resume, cancellation, and run supervision.
+- Workspace file reading, search, writing, exact replacement, and validated multi-file patches.
+- Workflow Contracts with Facts, Actions, Routes, Outcomes, Gates, approval, and delivery verification.
+- Tool permissions, workspace trust, bounded shell output, and managed process lifecycle.
+- MCP over stdio and HTTP, LSP navigation/diagnostics/actions, Skills, Subagents, and parallel Sessions.
+
+### Editing and code intelligence
+
+- A shared revision-aware Editing Engine for file mutations.
+- Hashline anchors, stale-revision rejection, compare-and-swap writes, write leases, and atomic multi-file application.
+- Go AST-aware structural editing and scope-aware symbol rename. AST editing is currently Go-specific; other languages use their LSP capabilities.
+
+### Debugging and evaluation
+
+- DAP-based debug sessions with adapter lifecycle, stop-epoch validation, stack/frame inspection, and controlled execution.
+- Persistent Python and JavaScript Eval kernels, artifact transfer, session isolation, and managed process cleanup.
+- Agent Hub task state, worker messaging, pause/cancel controls, handoff, and lease-aware ownership.
+
+Platform limits remain explicit: Linux real-adapter DAP and host/VM cgroup/UID Broker acceptance are not established by container tests; native interactive Wails acceptance is a separate Desktop release gate. macOS RSS supervision is not a hard memory limit. JavaScript forced interruption may discard the worker and its in-memory state. See the linked design and release-gate documents for exact boundaries.
 
 ### Cognitive runtime
 
-- persistent Context Graph
-- Evidence / Belief separation
-- evidence grades instead of fake numeric confidence
-- Cognitive Git: commit / branch / checkout / merge / conflict / revert / blame / cherry-pick / rebase
-- non-destructive structural cut/restore + explicit graph graft
-- Attention Light with propagation and token budgets
-- per-run Tool Working Set allowlist and per-step tool-call fanout limits
-- provider retry / timeout / empty-turn recovery for long-running agents
-- exploit / explore / contrarian / anomaly lights
-- manual + active Promotion without destructive compaction
-- incremental repository ingestion
-- SQLite WAL persistence for graph, sessions, Cognitive Git, journal, symbols, FTS5 retrieval, and optional embedding vectors
-- persistent FTS5 + symbol search index for large repositories
-- indexed candidate generation before Attention Light (avoids full-graph seed scans)
-- transitive source/evidence invalidation across explicit dependency relations
+- Persistent Context Graph and Attention Light foundations.
+- Go Graph Governor read-only Analyze / Plan / Validate against the shared SQLite graph.
+- The model Curator path fails closed until request-envelope admission is available; Go main does not claim graph Apply or Cortex Epoch execution.
+- The expanded Cognitive Core P0 work (Scope / Time / Evidence and Experimental Experience Learning) is still a separate, unmerged candidate. Do not count it as part of Core `main` yet.
 
-### Adaptive cognitive control
+### Extension points
 
-The Node.js reference runtime now includes the first executable cognitive-control slice:
+LumenCortex supports MCP servers, Skills, and a host-supplied Go Plugin API. The Plugin API is an extension interface, not a public plugin marketplace.
 
-- **Decision Layer** — deterministic algorithmic judgment plus optional Jev/Laya-compatible System One providers or bounded generative Decision-provider routes.
-- **Framework-owned routing** — the runtime owns final Category selection, whether Think is needed, and the current Think effort.
-- **Ordered Category model chains** — each Category lists generative models in explicit preference order; unavailable entries advance to the next configured model.
-- **Dynamic Think effort** — `low / medium / high / max` is recomputed from task complexity, evidence, repeated failure, and progress signals.
-- **Progress Monitor** — normalized failure signatures make repeated equivalent failures visible to the router.
-- **Session traces** — Category, Think state, effort, retrieval direction, decision errors, and selected model candidates are persisted per step.
-- **Model telemetry** — successful/failed model calls and EWMA total latency are recorded per concrete model in Session cognition metadata; explicit Category order remains authoritative.
-- **Persistent Work Units** — dependency-aware execution units with required evidence/verification gates; Work Units cannot choose models/providers/Categories.
-- **Graph Governor baseline** — global Analyzer, separately configured semantic Curator, deterministic validation, safe tier/archive plus opt-in branch/promotion/canonicalization execution, and reversible Cortex Epoch commits.
-- **Storage tiers** — SQLite schema v2 indexes hot/warm/cold tier, access recency/count, archive time, and compaction state; safe compaction removes derived search caches without deleting graph cognition.
-- **Deterministic baseline** — if no Jev/Laya endpoint or model-backed Decision route is present, LumenCortex still runs with algorithmic judgment and the CLI-selected execution provider.
+## Build and try the Go CLI
 
-Jev/Laya are decision providers only. They do not execute coding Work Units and never appear inside Category generative-model chains. A normal generative provider may be configured as a bounded Decision fallback, but that adapter also has no tools and does not execute the task.
-### Workflow Contract
+Requirements:
 
-- durable Facts → Action → Route → Outcome → Gate state inside normal Sessions
-- per-Action tool visibility plus execution-time enforcement
-- deterministic tool-result Outcomes that write Facts with provenance
-- final-answer gate: model claims cannot bypass required evidence
-- human gates pause as `waiting_gate` and resume after explicit approval
-- independent from the Cognitive Graph: Workflow controls legal progress; Attention Light controls remembered evidence
+- Go 1.23 or newer.
+- A C toolchain when building SQLite-backed packages with CGO enabled.
 
-### Standalone agent
-
-- complete multi-turn Agent Loop with per-step moving Attention Light
-- OpenAI-compatible provider adapter
-- OpenRouter / Groq / DeepSeek official presets
-- generic local/API provider mode
-- workspace tools: single/batch read (`read_file` / `read_files`), list, indexed `code_search`, write, exact replace, validated multi-file `apply_patch`, asynchronous cancellable shell
-- LSP tools: definition, references, symbols, hover, diagnostics
-- MCP client: 2026 modern + legacy negotiation, stdio + HTTP transports
-- focused Subagent + parallel Subagent tools
-- multi-session parallel runner and full-screen TUI
-- LumenCortex context and ingest tools inside the loop
-- permission gate for read / write / exec
-- automatic graph refresh after workspace mutation
-- persistent resumable full sessions + bounded model Working-Set Pager
-- interactive chat CLI
-- max-step guard
-- per-session usage accounting
-- real-model free-tier smoke test
-
-## Install
+From the Core repository:
 
 ```bash
-npm install -g github:edynasty/LumenCortex
+go run ./cmd/lcx-go health
+go run ./cmd/lcx-go sessions
+go run ./cmd/lcx-go agent "inspect this repository and fix the failing tests"
 ```
 
-Inside a repository:
+The Agent command requires a configured Go provider/model. Provider configuration is documented in [Go provider configuration](docs/go-provider.md). The CLI identifies its current command surface as a preview; Core `main` itself is not a new SemVer release.
+
+## Development and validation
+
+Use Go tests and Go runtime evidence for production acceptance:
 
 ```bash
-lcx init
-lcx ingest .
-lcx commit "baseline"
+go test ./...
+go vet ./...
 ```
 
-## Free LLM quick start
-
-### OpenRouter
-
-```bash
-export OPENROUTER_API_KEY=sk-or-...
-lcx agent "inspect this project, find the bug, fix it and run the relevant tests" \
-  --provider openrouter \
-  --model openrouter/free \
-  --yes
-```
-
-### Groq
-
-```bash
-export GROQ_API_KEY=gsk_...
-lcx agent "inspect this project, find the bug, fix it and run the relevant tests" \
-  --provider groq \
-  --model openai/gpt-oss-120b \
-  --yes
-```
-
-### DeepSeek official
-
-```bash
-export DEEPSEEK_API_KEY=...
-lcx agent "inspect this project, fix the failure and verify it" \
-  --provider deepseek \
-  --model deepseek-flash \
-  --yes
-```
-
-### DeepSeek V4 Flash 0731 free through OpenRouter
-
-```bash
-export OPENROUTER_API_KEY=sk-or-...
-lcx agent "inspect this project, fix the failure and verify it" \
-  --provider openrouter-deepseek-free \
-  --model deepseek/deepseek-v4-flash-0731:free \
-  --yes
-```
-
-### Local vLLM / any OpenAI-compatible API
-
-```bash
-export LUMENCORTEX_BASE_URL=http://127.0.0.1:8000/v1
-export LUMENCORTEX_MODEL=Qwen/Qwen2.5-32B-Instruct-AWQ
-export LUMENCORTEX_API_KEY=dummy
-lcx agent "run the tests and repair failures" --provider generic --yes
-```
-
-## Cognitive routing configuration
-
-Cognitive control is enabled by default for CLI agent runs. Without a config file, the current `--provider/--model` remains the generative fallback and the Decision Layer uses deterministic algorithmic judgment.
-
-Create `.lumencortex/cognition.json` or pass `--cognition path/to/cognition.json`. See [`examples/cognition.json`](examples/cognition.json).
-
-```json
-{
-  "decision": {
-    "providers": [
-      { "type": "laya", "baseURL": "http://127.0.0.1:8000" },
-      { "type": "jev", "model": "jev-latest" },
-      {
-        "type": "generative",
-        "name": "decision-fallback",
-        "provider": "deepseek",
-        "model": "deepseek-flash",
-        "reasoningEffort": "low",
-        "maxTokens": 700
-      }
-    ]
-  },
-  "categories": {
-    "general": {
-      "default": true,
-      "models": [
-        { "provider": "openrouter", "model": "openrouter/free" }
-      ]
-    },
-    "deep": {
-      "models": [
-        { "provider": "openrouter", "model": "your-strong-reasoning-model" },
-        { "provider": "groq", "model": "openai/gpt-oss-120b" }
-      ]
-    },
-    "visual-engineering": {
-      "models": [
-        { "provider": "openrouter", "model": "your-visual-model" },
-        { "provider": "openrouter", "model": "openrouter/free" }
-      ]
-    }
-  }
-}
-```
-
-Category chains contain task-execution generative models. Decision providers are configured separately. Optional Decision routes may be Jev/Laya or a bounded generative adapter; the latter still receives no tools and cannot execute a Work Unit. The Algorithm DecisionProvider remains available regardless of the optional route list, and final Category/Think/effort/retrieval decisions remain framework-owned.
-
-Useful controls:
-
-```text
---cognition path/to/cognition.json
---no-cognition
-lcx cognition defaults
-lcx governor analyze
-lcx governor storage
-lcx governor compact --retention-days 30
-lcx governor compact --retention-days 30 --yes
-lcx governor plan
-lcx governor apply plan.json --dry-run
-lcx governor apply plan.json --yes
-lcx governor apply plan.json --semantic --epoch --yes
-```
-## Agent CLI
-
-One-shot autonomous run:
-
-```bash
-lcx agent "add pagination to the user API and test it" --yes
-```
-
-Interactive session:
-
-```bash
-lumencortex                         # opens TUI directly
-lcx                                 # short form, also opens TUI
-lcx chat --provider groq --model openai/gpt-oss-120b --yes
-lcx tui --provider groq --model openai/gpt-oss-120b --yes
-```
-
-Large-repository code intelligence:
-
-```bash
-lcx index build
-lcx search "reserveInventory"
-lcx lsp references src/main/java/.../InventoryService.java 42 18
-```
-
-The CI performance gate currently validates a synthetic 100k-node SQLite/FTS5 index. Recent runs show roughly 3.4–5.0s full index build, sub-millisecond exact/symbol query p95 (latest 0.29ms), and a separate single-node mutation gate below 500ms (recent successful runs 129–213ms).
-
-MCP:
-
-```bash
-# configure .lumencortex/mcp.json
-lcx mcp status
-lcx mcp tools my-server
-```
-
-Parallel sessions:
-
-```bash
-lcx parallel tasks.json --concurrency 4
-```
-
-Workflow-constrained coding:
-
-```bash
-lcx workflow validate examples/workflows/verified-code-fix.json
-lcx agent "fix the failing tests" --workflow examples/workflows/verified-code-fix.json --yes
-
-# Human gate, when present
-lcx workflow status session_xxx
-lcx workflow approve session_xxx release-approval
-lcx agent --session session_xxx --yes
-```
-
-Resume:
-
-```bash
-lcx sessions
-lcx agent "continue and fix the remaining failure" --session session_xxx --yes
-```
-
-Database health:
-
-```bash
-lcx db status
-lcx db integrity
-lcx db checkpoint
-lcx db journal 50
-```
-
-Check providers:
-
-```bash
-lcx providers
-lcx doctor --provider openrouter
-lcx doctor --provider openrouter --live
-```
-
-Useful controls:
-
-```text
---provider openrouter|groq|deepseek|generic
---model MODEL
---base-url URL
---max-steps 24
---max-tokens N
---budget 24000
---recent-rounds 6
---working-chars 120000
---timeout-ms 120000
---tools read_file,code_search,apply_patch,shell
---workflow examples/workflows/verified-code-fix.json
---work-units examples/work-units.json
---max-tool-calls-per-step 1
---no-auto-promote
---cognition path/to/cognition.json
---no-cognition
---policy read-only|workspace|full
---yes
---session ID
---no-ingest
---cognitive-commit
---json
-```
-
-Without `--yes`, write and shell actions require interactive approval. Non-interactive runs deny those actions unless explicitly approved.
-
-Permission policies are scope-aware:
-
-- `read-only` — read tools only.
-- `workspace` — workspace reads and writes, but no host shell execution and no external MCP write tools.
-- `full` — workspace access plus host shell execution and external write-capable tools.
-
-Unknown policy names fail closed instead of silently becoming full access. For normal autonomous coding with `--yes`, the default remains `full`.
-
-For one-shot `lcx agent` and interactive `lcx chat`, `SIGINT` / `SIGTERM` are forwarded into the active Agent run. Provider/tool work is cancelled and the durable Session is persisted as `interrupted` so it can be resumed.
-
-For non-trivial edits, `apply_patch` can validate multiple exact hunks across multiple files before mutating any target. It supports update/create/delete operations, rejects ambiguous hunks and workspace traversal, and is treated as a mutating tool by the parallel-session safety gate.
-
-## Persistence
-
-Each workspace keeps one local database:
-
-```text
-.lumencortex/
-├── lumencortex.db
-├── lumencortex.db-wal
-├── lumencortex.db-shm
-├── lsp.json        # optional
-└── mcp.json        # optional
-```
-
-SQLite runs in WAL mode. Repository, Runtime/SearchIndex, and SessionStore connections are explicitly closed when the TUI/agent harness exits. The database stores the Cognitive Graph, Cognitive Git commits/refs, durable Sessions, Agent steps/messages, runtime journal, code symbols and FTS5 search data. Graph snapshots use structural sharing plus transient mutation hints, so the normal single-node mutation path avoids full-table scans and full deep copies. Cognitive commits store graph diffs rather than a full graph snapshot per commit. Sparse SQLite checkpoints are written roughly every 50 first-parent commits, so long histories do not need to replay from genesis after every restart; reconstructed snapshots are also cached in memory.
-
-Existing pre-v0.6 JSON-based `.lumencortex` repositories are imported automatically once and moved into a timestamped `json-backup-*` directory after successful migration.
-
-## Real-model smoke test
-
-The included smoke test creates a temporary repository, ingests it, asks the LLM to retrieve a hidden value by calling tools, loops over tool results, and checks the final answer.
-
-```bash
-OPENROUTER_API_KEY=... npm run smoke:free
-```
-
-or:
-
-```bash
-LUMENCORTEX_PROVIDER=groq GROQ_API_KEY=... npm run smoke:free
-```
-
-
-## Core cognitive commands
-
-```text
-lcx init [dir]
-lcx ingest [dir]
-lcx light <goal> [--budget N] [--multi]
-lcx promote <title> <nodeId> [nodeId...]
-lcx verify
-lcx status
-lcx commit <message>
-lcx log
-lcx branch [name]
-lcx checkout <branch>
-lcx merge <branch>
-lcx revert <commit>
-lcx blame <node-or-edge-id> [limit]
-lcx cherry-pick <commit>
-lcx rebase <branch>
-lcx edge cut <edgeId> [reason]
-lcx edge restore <edgeId>
-lcx edge graft <from> <type> <to> [weight] [reason]
-lcx governor analyze
-lcx governor storage
-lcx governor compact [--retention-days 30] [--yes]
-lcx governor plan
-lcx governor apply <plan.json> --dry-run|--yes [--semantic] [--epoch]
-```
-
-## Go runtime migration preview
-
-LumenCortex is being migrated incrementally from the validated Node.js reference runtime to a bounded-memory Go runtime. The production `lcx` path remains on Node.js until parity gates are met; the current Go vertical slice exposes a public `runtime.Engine`, compatible SQLite-backed Sessions, bounded event streams, explicit memory budgets, and bounded streaming shell output. See [Go runtime migration](docs/go-runtime-migration.md).
-
-## Development
-
-```bash
-npm test
-npm run benchmark
-npm run benchmark:search
-npm run smoke:free   # requires a free provider API key
-```
-
-The core has zero runtime npm dependencies and requires Node.js 22.13+ because persistence uses the built-in `node:sqlite` module.
+`npm test` and other Node.js scripts exercise retained historical reference code only. They are not substitutes for Go tests and must not be used as Go production acceptance evidence. Node.js 22.13+ is needed only if a developer explicitly runs those legacy reference tools/tests.
 
 ## Documentation
 
-Start with **[`docs/README.md`](docs/README.md)**.
-
-Core documents:
+Start with the [documentation index](docs/README.md).
 
 - [System overview](docs/system-overview.md)
 - [Architecture diagrams](docs/architecture-diagrams.md)
 - [Agent execution flow](docs/execution-flow.md)
-- [Architecture details](docs/architecture.md)
-- [Attention Light algorithm](docs/attention-light-algorithm.md)
-- [Cognitive control plane](docs/cognitive-control-plane.md)
 - [Agent runtime](docs/agent-runtime.md)
+- [Hashline and AST editing](docs/reports/harness-evolution-editing-20261110.md)
+- [DAP debugger](docs/dap-debugger.md)
+- [Persistent Eval](docs/persistent-eval.md)
+- [Agent Hub](docs/agent-hub.md)
 - [Workflow Contract](docs/workflow-contract.md)
-- [Data model](docs/data-model.md)
 - [Security and trust](docs/security-and-trust.md)
 - [Validation evidence](docs/validation.md)
-- [Standalone readiness](docs/standalone-readiness.md)
-- [Documentation guide](docs/documentation-guide.md)
+- [Standalone readiness and known gaps](docs/standalone-readiness.md)
+- [Go production runtime and migration history](docs/go-runtime-migration.md)
+- [Go provider configuration](docs/go-provider.md)
+- [Plugin and MCP templates](docs/plugins-mcp-templates.md)
 - [Architecture Decision Records](docs/adr/README.md)
 
-## Implementation honesty
+## Current release boundaries
 
-Implemented in the reference runtime and covered by automated tests: moving Attention Light, bounded long-task working context, Active Promotion, source-change invalidation, Cognitive Git, standalone Agent Loop, deterministic Workflow Contracts, SQLite FTS5/symbol retrieval, incremental graph/index persistence, optimistic graph revisions, layered Skills with Agent/Subagent prompt injection, LSP protocol client/tools, MCP modern+legacy client, Subagents, parallel sessions, shared durable SessionStore, TUI, provider abstraction, tools and resumable sessions, plus the cognitive-control baseline (Decision Layer, ordered Category chains, provider-specific dynamic Think effort, circuit breakers, Progress Monitor, persistent Work Units, model telemetry, per-step cognitive traces) and the Graph Governor baseline (Analyzer, optional semantic Curator, validator, branch/promotion/canonicalization executor, reversible Cortex Epochs, indexed storage tiers, safe derived-cache compaction, opt-in post-Agent scheduling with persistent pending plans, and optional deterministic tier/archive auto-apply).
-
-Still planned rather than claimed as complete: approximate-nearest-neighbor embedding indexes (the current optional baseline is persistent exact cosine + RRF Hybrid), one-to-one Cognitive-Git branch ↔ real Git-worktree transactions and whole-run rollback for local sessions (Go already supports explicit isolated session worktrees with safe handoff/apply), live Jev/Laya endpoint validation and broader multi-model routing calibration, automatic Curator/semantic Governor application and policy calibration, separate physical hot/warm/cold node stores or destructive cognitive GC, vision/browser tooling, and Go Graph Governor mutation/executor parity. The Go runtime already has a control-plane baseline for System One decisions, Category chains, dynamic Think effort, circuit breakers, Work Units, shared cognition profiles, and read-only Governor Analyze/Plan/Validate over the shared SQLite graph.
-
-## Current engineering direction
-
-v0.6 intentionally keeps the orchestration/control plane in Node.js. Full-graph seed scans and per-query index rebuilds have been removed from the normal retrieval path: SQLite FTS5/symbol lookup generates candidates, graph writes use optimistic revisions, and dirty-node queues incrementally synchronize search rows. The next data-plane optimizations are ANN acceleration for the now-implemented optional embedding baseline, richer semantic calibration/benchmarks, and further physical graph-tier work; revision-scoped Attention adjacency caching and a stable max-heap propagation frontier are already implemented; a Rust core is only justified if profiling later shows a native data-plane bottleneck.
+- Core `main` is at `208ad6b`; the latest published Core tag in this repository is still `v0.1.4`.
+- Desktop remains pinned to Core `v0.1.4`; exact dependency upgrade and native Wails acceptance are pending.
+- Linux DAP, cgroup, and UID Broker host/VM acceptance remain platform gates if Linux support is claimed.
+- Cognitive Core P0 is not part of this `main` snapshot.
+- Vision/browser automation, whole-run rollback of arbitrary local-session shell mutations, and production-calibrated autonomous cognitive governance are not claimed.
 
 ## License
 
 MIT
-
-
-### DeepSeek provider distinction
-
-- `--provider deepseek` defaults to `deepseek-flash`, the current official DeepSeek Flash API model.
-- `--provider openrouter-deepseek-free` defaults to `deepseek/deepseek-v4-flash-0731:free`, the zero-token-price OpenRouter V4 Flash 0731 route.
-- The OpenRouter free route still requires an `OPENROUTER_API_KEY` for authentication even though prompt/completion token price is zero.
-
-
-
-### Go cognitive-control preview
-
-The Go runtime no longer reads `.lumencortex/cognition.json` (M2.3): the Decision Layer, Laya/Jev providers, Category provider chains, the Router, provider presets and the circuit-breaker configuration were removed. Models, failover and effort come from `lumencortex.json` ([Go provider configuration](docs/go-provider.md#configuration)). `LCX_COGNITION=true`, `LCX_COGNITION_PROFILE` or a workspace `cognition.json` still turns the cognition switch on (Progress and Work Units) until M3.1; the file's contents are not read. `lcx-go governor plan` is deterministic; `lcx-go governor plan --curator` asks the configured default model for one JSON plan.
-
-```bash
-LCX_COGNITION=true \
-lcx-go agent "debug the transaction path"
-
-lcx-go governor analyze
-lcx-go governor plan
-lcx-go governor validate plan.json
-```
-
-The Go Governor commands are intentionally read-only. Durable Graph Governor mutation/apply and Cortex Epoch execution remain owned by the Node reference runtime so the project does not create two competing Cognitive Graph transaction authorities.
-
-
-### Optional embedding + Hybrid retrieval
-
-Node runtime supports an opt-in OpenAI-compatible embedding cache with exact cosine scoring and RRF fusion against symbol/FTS retrieval. It is disabled by default; configure `retrieval.embeddings` in `.lumencortex/cognition.json` with an explicit embedding model.
-
-```bash
-lcx index embeddings
-lcx search "warehouse contention" --semantic
-lcx search "warehouse contention" --hybrid
-lcx light "why is warehouse acceptance inconsistent?" --mode hybrid --json
-```
-
-This baseline is not ANN: vectors are persisted incrementally in SQLite and exact cosine-scored. HNSW/IVF or another approximate-nearest-neighbor backend remains a future optimization.
-
-
-### LSP refactoring
-
-Configured language servers can now drive validated workspace refactors rather than only navigation:
-
-```bash
-# preview WorkspaceEdit
-lcx lsp rename src/file.ts 12 8 NewName
-
-# apply only with explicit approval
-lcx lsp rename src/file.ts 12 8 NewName --yes
-
-lcx lsp actions src/file.ts 20 1 20 80
-lcx lsp apply-action src/file.ts 20 1 20 80 0 --yes
-```
-
-Agent tools expose the same rename/code-action path. Workspace edits are prevalidated across all files and rolled back on write failure. Ordered file-based LSP CreateFile/RenameFile/DeleteFile operations are supported with overwrite/ignore semantics and symlink/workspace containment. Command-backed code actions can execute through bidirectional JSON-RPC; server `workspace/applyEdit` is accepted only while an explicitly selected action is executing, and unsolicited server edits are rejected.
-
-
-### Go session worktrees and Skills
-
-The Go runtime can isolate a Session in a managed Git worktree. Agent tools, shell, LSP and repository operations use that session workspace; safe handoff/apply checks dirty targets and overlapping files before bringing committed work back.
-
-Only the session that created a worktree owns it; read-only subagents borrow it and can only unbind. Runs and host writes hold a cross-process lease on the worktree, so remove, discard, apply and deletion fail with `ErrWorktreeBusy` while it is in use; concurrent applies are serialized on the main checkout. Removal and session deletion refuse by default when the worktree has uncommitted changes, unapplied commits, ignored files (such as `.env` or `node_modules/`, which `git worktree remove` would delete) or uncertain ownership; `--keep-branch` keeps the branch, and `--discard` destroys only the state (HEAD and status digest) that `worktree inspect` printed ([ADR-0005](docs/adr/0005-session-worktree-ownership-and-deletion.md)).
-
-```bash
-lcx-go worktree attach <session-id> [base]
-lcx-go worktree status <session-id>
-lcx-go worktree inspect <session-id>
-lcx-go worktree plan <session-id>
-lcx-go worktree apply <session-id> --yes
-lcx-go worktree conflicts
-lcx-go worktree remove <session-id> [--keep-branch | --discard <head> <status-digest>]
-lcx-go session-delete <session-id> [--keep-branch | --discard <head> <status-digest>]
-```
-
-Go also has layered reusable Skills (global + project) that are injected into the Agent system prompt:
-
-```bash
-lcx-go skills list [effective|global|project]
-lcx-go skills show project my-skill
-lcx-go skills save project my-skill ./SKILL.md
-lcx-go skills disable project my-skill
-lcx-go skills enable project my-skill
-lcx-go skills delete project my-skill
-```
-
-These are Go-runtime baselines. They do not imply Node Skills parity or a one-to-one transaction between Cognitive Git branches and real Git worktrees.
-
-
-### Governor scheduling
-
-Global graph governance can be checked automatically after completed Node Agent runs. By default the scheduler only persists a revision-bound pending plan; optional `autoApplySafe` may apply deterministic tier/archive changes after a dry-run preview.
-
-```bash
-lcx governor scheduler status
-lcx governor scheduler run --force
-lcx governor scheduler apply --dry-run
-lcx governor scheduler apply --yes
-lcx governor scheduler apply --semantic --epoch --yes
-```
-
-`governor.scheduler.useCurator` defaults to `false`; enabling it explicitly allows the separately configured Governor model to curate scheduled plans. `governor.scheduler.autoApplySafe` also defaults to `false`; when enabled without Curator, only deterministic tier/archive changes may auto-apply after a dry-run preview. Semantic actions and Cortex Epoch creation remain explicit. A pending plan is rejected if the graph revision changes before apply.
-
-
-### Cognitive routing benchmark
-
-The deterministic Decision Layer / Think router has a labeled, zero-model-cost regression benchmark:
-
-```bash
-lcx cognition benchmark
-lcx cognition benchmark --strict
-lcx cognition benchmark --strict --json
-lcx cognition benchmark --prompt
-lcx cognition benchmark --prompt --ids quick-readme-typo,deep-concurrency-root-cause
-lcx cognition benchmark --predictions predictions.jsonl --strict --json
-```
-
-The built-in fixture currently covers 12 representative workloads and validates Category, Think activation, reasoning effort, and retrieval direction. The prompt command emits the same unlabeled routing rubric used by runtime Decision questions, so external model calibration does not maintain a separate policy prompt.
-
-A captured local OMP calibration on 2026-09-26 using `local/deepseek-v4.1-flash` and the canonical prompt scored 12/12; its JSONL output is versioned at `benchmarks/predictions/deepseek-v4.1-flash-2026-09-26.jsonl` and re-scored in CI. This is one generative-model calibration sample; it does not replace live Jev/Laya validation or the separate full DeepSeek coding-agent proof.
-
-
-## Coding-agent benchmark: two external baselines
-
-LumenCortex evaluates **coding-task completion**, separately from the 12-case deterministic cognitive-routing fixture above. The local benchmark uses **Harbor** and preserves official verifier outcomes, raw attempts, request/usage coverage, and infrastructure/provider interruptions. The public comparisons below are references, **not a controlled same-condition ranking**.
-
-| Reference | Published result | Test conditions and limits |
-|---|---|---|
-| **A · DeepSeek official** | `deepseek-v4.1-flash-1017`: Terminal-Bench **4.0: 42.3%**; DeepSWE **v1.1: 77.0%** | Respectively **Claude Code** and **Mini-SWE-V2** harnesses; different datasets from TB2, and some run settings are unpublished. |
-| **B · SpecPi and peers** | Terminal-Bench **2.0**, same **13 widened tasks**: **SpecPi 62/77 (80.5%)**, **OpenCode 29/39 (74.4%)**, **Oh My Pi 84/116 (72.4%)**, **Pi 134/195 (68.7%)**, **Claude Code 50/77 (64.9%)**, **DeepSeek Harness 21/38 (55.3%)** | Published `deepseek-v4.1-flash` results, pooled across unequal attempts/sittings. SpecPi **0.33.0, Jev off**; evaluation data generated **2026-09-24**. The exact model checkpoint and individual trajectories are not published. |
-| **LumenCortex local W13** | **Raw 9/13 (69.23%)**, one attempt per same widened task; separate post-environment-repair artifact check **10/13**, **not** a replacement for the raw score | Development/regression subset, **not** the complete TB2 leaderboard; affected trials include provider/verifier issues. Different attempt counts, environment, and checkpoint provenance prevent attributing the percentage gap to the harness alone. |
-
-The public page's *overall* aggregates include other calibration tasks; do **not** mix them with the 13-task widened slice above. In particular, a single W13 run cannot establish a harness ranking. Compare matching tasks and report raw Reward, valid/infra-interrupted status, input/output/cache Tokens (without double-counting cache), wall/tool time, attempts, and observed local billing separately. Future benchmark Trials use `combo/deepseek-v4.1-flash` as requested; preserve the older `deepseek-v4.1-flash` route in historical evidence and record actual provider/failover when observable. A combo route is not proof that every provider serves the same model checkpoint.
-
-Sources: [SpecPi evaluations](https://tannermidd.github.io/SpecPi/evaluations/) ([raw TB2 data](https://tannermidd.github.io/SpecPi/evaluations/terminal-bench-2.json)); repository/workspace evidence: `bench/public/PUBLIC_BASELINES.md`, `bench/baselines/BASELINE_A_DEEPSEEK_OFFICIAL.md`, `bench/baselines/BASELINE_B_SPECPI_HARNESS.md`, and `bench/evidence/bench002-20261102/bench002-astra-w13-20261102-191656/RESULTS.json` (paths relative to the **parent LumenCortex workspace**, not all tracked in this Core checkout).
