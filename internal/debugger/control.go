@@ -281,29 +281,39 @@ func (m *Manager) stopEpochOf(s *session) uint64 {
 	return s.stopEpoch
 }
 
-// staleReference rejects a reference minted at an earlier stop. References the
-// Manager never issued are forwarded: only the adapter can judge them.
-func (m *Manager) staleReference(s *session, reference int) error {
+// minted returns the epochs of frame ids or of variables references. They are
+// separate DAP namespaces, and adapters reuse one number in both (Delve starts
+// each at 1000 at every stop): a frame minted now must not refresh an old
+// variables reference with the same number.
+func (s *session) minted(frames bool) map[int]uint64 {
+	if frames {
+		return s.frameEpoch
+	}
+	return s.refEpoch
+}
+
+// staleReference rejects a frame id or variables reference minted at an earlier
+// stop. References the Manager never issued are forwarded: only the adapter can
+// judge them.
+func (m *Manager) staleReference(s *session, frames bool, reference int) error {
 	if reference <= 0 {
 		return nil
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if epoch, ok := s.refEpoch[reference]; ok && epoch != s.stopEpoch {
+	if epoch, ok := s.minted(frames)[reference]; ok && epoch != s.stopEpoch {
 		return fmt.Errorf("%w: reference %d belongs to stop epoch %d, current %d", ErrStaleReference, reference, epoch, s.stopEpoch)
 	}
 	return nil
 }
 
-func (m *Manager) recordReferences(s *session, refs ...int) {
+func (m *Manager) recordReferences(s *session, frames bool, refs ...int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if s.refEpoch == nil {
-		s.refEpoch = make(map[int]uint64)
-	}
+	epochs := s.minted(frames)
 	for _, ref := range refs {
 		if ref > 0 {
-			s.refEpoch[ref] = s.stopEpoch
+			epochs[ref] = s.stopEpoch
 		}
 	}
 }

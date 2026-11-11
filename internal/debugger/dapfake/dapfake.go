@@ -48,6 +48,11 @@ type Config struct {
 	// exception breakpoint filter, at the breakpoint otherwise. Only filters this
 	// adapter received through setExceptionBreakpoints count.
 	ThrowOnResume bool `json:"throwOnResume"`
+	// ReuseReferences numbers references the way Delve does: every stop's
+	// frames start again at 1000 and the Locals scope's variablesReference is
+	// 1000 as well, so one number is both a frame id and a variables reference,
+	// and an old reference resolves against the new stop.
+	ReuseReferences bool `json:"reuseReferences"`
 	// StaleEmptyVariables is the adapter behaviour of resolving an unknown
 	// variablesReference with an empty list instead of an error.
 	StaleEmptyVariables bool `json:"staleEmptyVariables"`
@@ -230,6 +235,15 @@ func (s *server) resumeReason() string {
 	return "breakpoint"
 }
 
+// references returns the first frame id and the Locals and Globals references
+// of stop seq.
+func (s *server) references(seq int) (frame, locals, globals int) {
+	if s.cfg.ReuseReferences {
+		return 1000, 1000, 1001
+	}
+	return 1000 * seq, 5000 + seq, 6000 + seq
+}
+
 func stopDescription(reason string) string {
 	if reason == "exception" {
 		return "signal SIGABRT"
@@ -299,12 +313,13 @@ func (s *server) handle(req message) error {
 		return s.reply(req, map[string]any{"threads": []map[string]any{{"id": 1, "name": "Thread 1"}}})
 	case "stackTrace":
 		s.mu.Lock()
-		stopped, base := s.stopped, 1000*s.stopSeq
+		stopped, seq := s.stopped, s.stopSeq
 		s.mu.Unlock()
 		if !stopped {
 			return s.reply(req, map[string]any{"stackFrames": []any{}})
 		}
-		line := 4 + (base / 1000) - 1
+		base, _, _ := s.references(seq)
+		line := 4 + seq - 1
 		return s.reply(req, map[string]any{"stackFrames": []map[string]any{
 			{"id": base, "name": "scale", "line": line, "column": 18, "source": map[string]any{"name": "fixture.c", "path": s.launchPath}},
 			{"id": base + 1, "name": "main", "line": 8, "column": 15, "source": map[string]any{"name": "fixture.c", "path": s.launchPath}},
@@ -317,12 +332,13 @@ func (s *server) handle(req message) error {
 		s.mu.Lock()
 		stopped, seq := s.stopped, s.stopSeq
 		s.mu.Unlock()
-		if !stopped || args.FrameID < 1000*seq || args.FrameID >= 1000*seq+100 {
+		base, locals, globals := s.references(seq)
+		if !stopped || args.FrameID < base || args.FrameID >= base+100 {
 			return s.reply(req, map[string]any{"scopes": []any{}})
 		}
 		return s.reply(req, map[string]any{"scopes": []map[string]any{
-			{"name": "Locals", "variablesReference": 5000 + seq, "presentationHint": "locals", "expensive": false},
-			{"name": "Globals", "variablesReference": 6000 + seq, "presentationHint": "globals", "expensive": false},
+			{"name": "Locals", "variablesReference": locals, "presentationHint": "locals", "expensive": false},
+			{"name": "Globals", "variablesReference": globals, "presentationHint": "globals", "expensive": false},
 		}})
 	case "variables":
 		var args struct {
@@ -332,14 +348,15 @@ func (s *server) handle(req message) error {
 		s.mu.Lock()
 		seq := s.stopSeq
 		s.mu.Unlock()
+		_, locals, globals := s.references(seq)
 		switch args.Reference {
-		case 5000 + seq:
+		case locals:
 			out := make([]map[string]any, 0, len(s.cfg.locals()))
 			for _, v := range s.cfg.locals() {
 				out = append(out, map[string]any{"name": v.Name, "value": v.Value, "type": v.Type, "variablesReference": 0})
 			}
 			return s.reply(req, map[string]any{"variables": out})
-		case 6000 + seq:
+		case globals:
 			return s.reply(req, map[string]any{"variables": []any{}})
 		default:
 			// An adapter resolving an unknown reference with an empty list is

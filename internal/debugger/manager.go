@@ -136,11 +136,13 @@ type session struct {
 	ideUncertain   bool
 	// Protected by Manager.mu, as are snapshot and the manager's registry.
 	capabilities map[string]bool
-	// stop tracking: stopEpoch increments on every stopped/continued; refEpoch
-	// maps each reference the Manager handed out to the epoch that minted it.
+	// stop tracking: stopEpoch increments on every stopped/continued;
+	// frameEpoch and refEpoch map each frame id and variables reference the
+	// Manager handed out to the epoch that minted it.
 	stopEpoch        uint64
 	stopReady        chan struct{}
 	lastStop         *StopInfo
+	frameEpoch       map[int]uint64
 	refEpoch         map[int]uint64
 	exceptionFilters []string
 	closing          bool
@@ -318,7 +320,7 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (Snapshot, error
 	}
 	life, cancel := context.WithTimeout(ctx, m.opts.Lifetime)
 	deadline, _ := life.Deadline()
-	s := &session{snapshot: Snapshot{ID: id, SessionID: opts.SessionID, RunID: opts.RunID, AdapterID: a.ID, State: "starting", Owner: opts.Actor, Epoch: 1, StartedAt: time.Now().UTC(), Deadline: deadline}, opts: opts, adapter: a, cancel: cancel, initialized: make(chan struct{}), op: make(chan struct{}, 1), done: make(chan struct{}), stopReady: make(chan struct{}), refEpoch: make(map[int]uint64)}
+	s := &session{snapshot: Snapshot{ID: id, SessionID: opts.SessionID, RunID: opts.RunID, AdapterID: a.ID, State: "starting", Owner: opts.Actor, Epoch: 1, StartedAt: time.Now().UTC(), Deadline: deadline}, opts: opts, adapter: a, cancel: cancel, initialized: make(chan struct{}), op: make(chan struct{}, 1), done: make(chan struct{}), stopReady: make(chan struct{}), frameEpoch: make(map[int]uint64), refEpoch: make(map[int]uint64)}
 	s.life = life
 	// Hold the operation slot until initial setup completes; Close may cancel it but
 	// cannot dispose a process which Start has not yet published.
@@ -670,7 +672,7 @@ func (m *Manager) captureStop(s *session, body stopEvent) {
 		// next stop makes them stale (E1-D2).
 		for _, frame := range stop.TopFrames {
 			if frame.ID > 0 {
-				s.refEpoch[frame.ID] = stop.StopEpoch
+				s.frameEpoch[frame.ID] = stop.StopEpoch
 			}
 		}
 	}
@@ -892,7 +894,7 @@ func (m *Manager) Inspect(ctx context.Context, c Control, kind string, reference
 		m.recordFrames(s, raw)
 		return boundJSON(raw, m.stopEpochOf(s)), nil
 	case "scopes", "variables":
-		if err = m.staleReference(s, reference); err != nil {
+		if err = m.staleReference(s, kind == "scopes", reference); err != nil {
 			return nil, err
 		}
 		args := map[string]any{"frameId": reference}
@@ -924,7 +926,7 @@ func (m *Manager) recordFrames(s *session, raw json.RawMessage) {
 	for _, frame := range body.StackFrames {
 		refs = append(refs, frame.ID)
 	}
-	m.recordReferences(s, refs...)
+	m.recordReferences(s, true, refs...)
 }
 
 // recordChildReferences registers the references a scopes/variables response
@@ -957,7 +959,7 @@ func (m *Manager) recordChildReferences(s *session, kind string, raw json.RawMes
 			refs = append(refs, variable.VariablesReference)
 		}
 	}
-	m.recordReferences(s, refs...)
+	m.recordReferences(s, false, refs...)
 }
 
 var identifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
@@ -977,7 +979,7 @@ func (m *Manager) Evaluate(ctx context.Context, c Control, frame int, expression
 	if state != "stopped" {
 		return nil, fmt.Errorf("%w: target is %s; evaluation needs a stopped target", ErrState, state)
 	}
-	if err = m.staleReference(s, frame); err != nil {
+	if err = m.staleReference(s, true, frame); err != nil {
 		return nil, err
 	}
 	if sideEffects {

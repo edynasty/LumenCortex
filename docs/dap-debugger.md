@@ -16,7 +16,7 @@ On macOS, program mode alone adds `mach-priv-task-port` and `system-debug` restr
 
 ## Stops and session end
 
-Every reference the Manager hands out carries the stop epoch that minted it: stack frames, including the top frames of a continue/step stop report, scopes and variables. After the next stop the reference is refused as stale, never forwarded to an adapter that may answer an unknown reference with an empty list.
+Every reference the Manager hands out carries the stop epoch that minted it: stack frames, including the top frames of a continue/step stop report, scopes and variables. After the next stop the reference is refused as stale, never forwarded to an adapter that may answer an unknown reference with an empty list. Frame ids and variables references are tracked separately: adapters such as Delve reuse one number in both, so a frame minted at the new stop does not make an old variables reference current.
 
 An empty `exception_filters` list reaches the adapter and clears its exception breakpoints.
 
