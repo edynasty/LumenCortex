@@ -720,13 +720,20 @@ func (e *Engine) noteDebugState(sessionID, runID string, snapshot agent.DebugSna
 }
 
 // shuttingDown reports that the Engine, or the supervisor of the session's run, is shutting down, so a
-// run's terminal state is not the run's own.
+// run's terminal state is not the run's own. A run the host cancelled before the Engine began closing is
+// the exception: it ends cancelled, whichever order the host closes the supervisor and the Engine in.
 func (e *Engine) shuttingDown(sessionID string) bool {
 	e.runsMu.Lock()
-	defer e.runsMu.Unlock()
-	if e.closing {
-		return true
-	}
+	closing := e.closing
 	run := e.runs[sessionID]
-	return run != nil && run.shutdown
+	marked := run != nil && run.shutdown
+	e.runsMu.Unlock()
+	if marked || !closing {
+		return marked
+	}
+	// The supervisor is read outside runsMu: RunSupervisor.Close takes runsMu while it holds its own lock.
+	if runner := e.agentRunnerRef(); runner != nil && runner.hostCancelled(sessionID) {
+		return false
+	}
+	return true
 }

@@ -30,6 +30,9 @@ type managedRun struct {
 	parentID        string
 	ownerRun        *managedRun
 	releaseAgent    func()
+	// hostCancelled marks a run the host cancelled (Cancel), as opposed to one its supervisor or Engine
+	// shut down: it ends cancelled, so its pause clears even when the Engine closes meanwhile. Guarded by mu.
+	hostCancelled bool
 	// handoff marks a run stopped for a handoff: its end keeps the session's Task Leases, which the
 	// handoff moves to the target, so no unit is unowned while the work changes hands. Guarded by mu.
 	handoff bool
@@ -337,6 +340,7 @@ func (s *RunSupervisor) Cancel(sessionID string) bool {
 	for id, run := range s.runs {
 		if ids[id] {
 			run.cancelRequested = true
+			run.hostCancelled = true
 			cancels = append(cancels, run.cancel)
 		}
 	}
@@ -345,6 +349,15 @@ func (s *RunSupervisor) Cancel(sessionID string) bool {
 		cancel()
 	}
 	return len(cancels) > 0
+}
+
+// hostCancelled reports that the host cancelled the session's supervised run. A run is still registered
+// while its DebugControl closes, which is when the pause projection asks.
+func (s *RunSupervisor) hostCancelled(sessionID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	run := s.runs[sessionID]
+	return run != nil && run.hostCancelled
 }
 
 func (s *RunSupervisor) Active(sessionID string) bool {

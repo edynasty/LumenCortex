@@ -81,7 +81,9 @@ func (s *RunSupervisor) Command(ctx, HubCommand) (HubCommandResult, error)
 - **revision fence**：活动运行必须等值于 `HubAgent.Revision`（DebugControl revision）；无活动运行时必须为 0，
   否则 `ErrHubStaleRevision`。`RunID` 不一致同样按 stale 处理（E5 C4 规则扩展到全部 verb）。
 - **重启后的暂停投影**：`run_pauses` 在暂停时写入、恢复/运行结束时清除、**仅在 Engine 关闭时保留**；
-  重开引擎后 `HubAgent.State == "interrupted(paused)"` 且带 `Paused`。
+  重开引擎后 `HubAgent.State == "interrupted(paused)"` 且带 `Paused`。host 已取消的暂停运行在两种关闭顺序下
+  （先 `RunSupervisor.Close` 再 `Engine.Close`，或只调 `Engine.Close`）都按取消结束、清除暂停
+  （复审 HUB-F5：此前只调 `Engine.Close` 时 `e.closing` 覆盖了 host 的取消，`TestHubCancelThenCloseClearsThePauseOnEveryShutdownPath`）。
   重启后 `resume` 不是恢复旧 goroutine，而是新的 `Start`（`State` 为 interrupted 时 `resume/pause/step` 返回
   `ErrHubRunInactive`）。
 
