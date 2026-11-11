@@ -70,6 +70,17 @@ func TestReviewMethodRenameRejectsReversePromotedInterfaceCapture(t *testing.T) 
 	}
 }
 
+func TestReviewMethodRenameRejectsAnonymousPromotedCapture(t *testing.T) {
+	original := "package demo\ntype A struct{}\nfunc (A) Foo() int { return 1 }\ntype F struct{}\nfunc (F) Bar() int { return 2 }\ntype E struct{ F }\nfunc Use() int { return struct{ A; E }{}.Bar() }\n"
+	got, err := reviewRename(t, original, "A.Foo", "Bar")
+	if err == nil {
+		t.Fatal("rename rebound anonymous struct selector")
+	}
+	if got != original {
+		t.Fatalf("refused rename mutated source:\n%s", got)
+	}
+}
+
 func TestReviewPackageRenameRejectsUniverseCapture(t *testing.T) {
 	original := "package demo\nfunc Size(s string) int { return 0 }\nfunc Use() int { return len(\"ab\") }\n"
 	got, err := reviewRename(t, original, "Size", "len")

@@ -810,20 +810,35 @@ func (p *pkg) renameSelector(op Op, fd *ast.FuncDecl, kind string) ([]splice, []
 	}
 	return splices, symbols, fmt.Sprintf("renamed %d occurrence(s) of %s", len(splices), fd.Name.Name), nil
 }
+
 func rejectReverseMethodCapture(info *types.Info, target *types.Func, oldName, newName string) error {
+	check := func(candidate types.Type) error {
+		old, _, _ := types.LookupFieldOrMethod(candidate, true, target.Pkg(), oldName)
+		oldMethod, ok := old.(*types.Func)
+		if !ok || oldMethod.Origin() != target.Origin() {
+			return nil
+		}
+		if replacement, index, _ := types.LookupFieldOrMethod(candidate, true, target.Pkg(), newName); replacement != nil || index != nil {
+			return editing.Errorf(editing.CodeAmbiguous, "rename would rebind existing method selection %q", newName)
+		}
+		return nil
+	}
+	for selector, selection := range info.Selections {
+		if selector.Sel.Name != newName {
+			continue
+		}
+		if err := check(selection.Recv()); err != nil {
+			return err
+		}
+	}
 	for _, object := range info.Defs {
 		typeName, ok := object.(*types.TypeName)
 		if !ok {
 			continue
 		}
 		for _, candidate := range []types.Type{typeName.Type(), types.NewPointer(typeName.Type())} {
-			old, _, _ := types.LookupFieldOrMethod(candidate, true, target.Pkg(), oldName)
-			oldMethod, ok := old.(*types.Func)
-			if !ok || oldMethod.Origin() != target.Origin() {
-				continue
-			}
-			if replacement, index, _ := types.LookupFieldOrMethod(candidate, true, target.Pkg(), newName); replacement != nil || index != nil {
-				return editing.Errorf(editing.CodeAmbiguous, "rename would rebind existing method selection %q", newName)
+			if err := check(candidate); err != nil {
+				return err
 			}
 		}
 	}
