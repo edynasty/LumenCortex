@@ -10,7 +10,7 @@ The local draft also contained stale baseline references to Core `937e161`, desc
 
 ## Current facts reflected in the docs
 
-- Core `main`: `208ad6b`.
+- Go runtime code baseline in Core `main`: `208ad6b`.
 - Latest Core tag in this checkout: `v0.1.4` at `42ee234`, older than current main.
 - Go Engine identity: `0.1.4-preview`.
 - Desktop `main`: `4a6c2f3`.

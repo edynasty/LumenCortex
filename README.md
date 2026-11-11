@@ -1,4 +1,10 @@
-# LumenCortex
+<p align="center">
+  <img src="docs/assets/brand/lumencortex-mark.svg" alt="LumenCortex logo" width="88">
+</p>
+
+<h1 align="center">LumenCortex</h1>
+
+<p align="center"><strong>Cognitive Coding Agent Harness</strong></p>
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -9,8 +15,10 @@ LumenCortex is a coding-agent harness with its own cognitive architecture. It is
 > Graph is Memory. Light is Attention. Decision is Judgment. Think is Deliberation. Agent is Execution.
 
 <p align="center">
-  <img src="docs/assets/architecture/system-architecture.webp" alt="LumenCortex system architecture" width="100%">
+  <img src="docs/assets/architecture/system-architecture.png" alt="LumenCortex system architecture" width="100%">
 </p>
+
+[Open the full-size architecture diagram](docs/assets/architecture/system-architecture.png).
 
 ## Current source and release baseline
 
@@ -18,14 +26,14 @@ Snapshot: **2026-11-11**. Source commits, runtime identity, release tags, and De
 
 | Surface | Current baseline |
 |---|---|
-| Core `main` | `208ad6b` — Agent Harness Core integrated and pushed to `origin/main`. |
+| Go runtime code baseline | `208ad6b` — Agent Harness Core integrated into `main`. |
 | Latest Core release tag | `v0.1.4` at `42ee234`; older than current `main`. |
 | Go Engine identity | `0.1.4-preview` (`runtime.GoRuntimePreviewVersion`); this is not a new Git release tag. |
 | Desktop `main` | `4a6c2f3`. |
 | Desktop Core dependency | `v0.1.4`; Desktop has not yet been upgraded to a release containing Core `208ad6b`. |
 | Legacy Node package metadata | `0.6.0`; retained as historical reference, not the production runtime. |
 
-Core `main` at `208ad6b` is newer than `v0.1.4` and has not yet received a new SemVer tag. Do not treat the `v0.1.4` module as equivalent to current `main`. Desktop must move to an exact new Core release before its corresponding release.
+The Go runtime code baseline `208ad6b` is newer than `v0.1.4` and has not yet received a new SemVer tag. Subsequent documentation-only commits do not change that code baseline. Do not treat the `v0.1.4` module as equivalent to current `main`. Desktop must move to an exact new Core release before its corresponding release.
 
 ## Runtime policy: Go only
 
@@ -37,7 +45,7 @@ The Go Engine is the production runtime implementation. `cmd/lcx-go` is the curr
 
 ## Core capabilities
 
-The current Core `main` includes the Agent Harness integration at `208ad6b`.
+The current Core `main` carries the Go Agent Harness code baseline `208ad6b`.
 
 ### Agent execution and workflow
 
@@ -98,7 +106,7 @@ go test ./...
 go vet ./...
 ```
 
-`npm test` and other Node.js scripts exercise retained historical reference code only. They are not substitutes for Go tests and must not be used as Go production acceptance evidence. Node.js 22.13+ is needed only if a developer explicitly runs those legacy reference tools/tests.
+`npm test` and other Node.js scripts exercise retained historical reference code only. They are not substitutes for Go tests and must not be used as Go production acceptance evidence. Node.js 22.13+ is needed only if a developer explicitly runs those legacy reference tools/tests or regenerates the Mermaid documentation diagrams; it is not a production runtime requirement.
 
 ## Documentation
 
@@ -123,7 +131,7 @@ Start with the [documentation index](docs/README.md).
 
 ## Current release boundaries
 
-- Core `main` is at `208ad6b`; the latest published Core tag in this repository is still `v0.1.4`.
+- The Go runtime code baseline in Core `main` is `208ad6b`; the latest published Core tag remains `v0.1.4`.
 - Desktop remains pinned to Core `v0.1.4`; exact dependency upgrade and native Wails acceptance are pending.
 - Linux DAP, cgroup, and UID Broker host/VM acceptance remain platform gates if Linux support is claimed.
 - Cognitive Core P0 is not part of this `main` snapshot.

@@ -1,4 +1,10 @@
-# LumenCortex
+<p align="center">
+  <img src="docs/assets/brand/lumencortex-mark.svg" alt="LumenCortex 品牌标识" width="88">
+</p>
+
+<h1 align="center">LumenCortex</h1>
+
+<p align="center"><strong>认知型编程 Agent Harness</strong></p>
 
 [English](README.md) | **简体中文**
 
@@ -11,8 +17,10 @@ LumenCortex 是拥有自身认知架构的 Coding Agent Harness，不绑定单�
 > 图是记忆，Light 是注意力，Decision 是判断，Think 是深度推理，Agent 是执行。
 
 <p align="center">
-  <img src="docs/assets/architecture/system-architecture.webp" alt="LumenCortex 系统架构" width="100%">
+  <img src="docs/assets/architecture/system-architecture.png" alt="LumenCortex 系统架构" width="100%">
 </p>
+
+[查看完整尺寸的系统架构图](docs/assets/architecture/system-architecture.png)。
 
 ## 当前源码与发布基线
 
@@ -20,14 +28,14 @@ LumenCortex 是拥有自身认知架构的 Coding Agent Harness，不绑定单�
 
 | 范围 | 当前基线 |
 |---|---|
-| Core `main` | `208ad6b`，Agent Harness Core 已合并并推送到 `origin/main`。 |
+| Go Runtime 代码基线 | `208ad6b`，Agent Harness Core 已合入 `main`。 |
 | 最新 Core Release Tag | `v0.1.4`，Commit `42ee234`，早于当前 `main`。 |
 | Go Engine 标识 | `0.1.4-preview`（`runtime.GoRuntimePreviewVersion`），这不是新的 Git Release Tag。 |
 | Desktop `main` | `4a6c2f3`。 |
 | Desktop Core 依赖 | `v0.1.4`，尚未升级到包含 Core `208ad6b` 的新 Release。 |
 | 历史 Node 包元数据 | `0.6.0`，仅保留为历史参考，不是生产 Runtime。 |
 
-Core `main` 的 `208ad6b` 新于 `v0.1.4`，目前尚未打新的 SemVer Tag。不能把 `v0.1.4` 模块等同于当前 `main`。Desktop 必须在 Core 发布新的精确版本后再升级依赖。
+Go Runtime 代码基线 `208ad6b` 新于 `v0.1.4`，目前尚未打新的 SemVer Tag；后续纯文档提交不会改变该代码基线。不能把 `v0.1.4` 模块等同于当前 `main`。Desktop 必须在 Core 发布新的精确版本后再升级依赖。
 
 ## Runtime 决策：只使用 Go
 
@@ -39,7 +47,7 @@ Go Engine 是正式生产 Runtime 实现。`cmd/lcx-go` 是当前从源码运行
 
 ## Core 当前能力
 
-当前 Core `main` 已包含 `208ad6b` 的 Agent Harness 集成。
+当前 Core `main` 包含 `208ad6b` 的 Go Agent Harness 代码基线。
 
 ### Agent 执行与工作流
 
@@ -100,7 +108,7 @@ go test ./...
 go vet ./...
 ```
 
-`npm test` 和其他 Node.js 脚本只用于保留的历史参考代码，不能替代 Go 测试，也不能作为 Go 生产实现的验收证据。只有开发者明确运行这些历史参考工具/测试时才需要 Node.js 22.13+。
+`npm test` 和其他 Node.js 脚本只用于保留的历史参考代码，不能替代 Go 测试，也不能作为 Go 生产实现的验收证据。只有开发者明确运行这些历史参考工具/测试或重新生成 Mermaid 架构图时才需要 Node.js 22.13+；它不是生产 Runtime 的依赖。
 
 ## 文档
 
@@ -125,7 +133,7 @@ go vet ./...
 
 ## 当前发布边界
 
-- Core `main` 为 `208ad6b`；仓库最新已发布 Core Tag 仍是 `v0.1.4`。
+- Core `main` 中的 Go Runtime 代码基线为 `208ad6b`；仓库最新已发布 Core Tag 仍是 `v0.1.4`。
 - Desktop 仍固定依赖 Core `v0.1.4`；精确依赖升级和原生 Wails 验收尚未完成。
 - 如果声明 Linux 支持，仍需完成 Linux DAP、cgroup 和 UID Broker 主机/VM 验收。
 - Cognitive Core P0 尚未进入当前 `main`。

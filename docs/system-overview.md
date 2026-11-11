@@ -20,7 +20,7 @@ The central design goal is to allow long coding tasks to retain useful knowledge
 ## System architecture
 
 <p align="center">
-  <img src="assets/architecture/system-architecture.webp" alt="LumenCortex system architecture" width="100%">
+  <img src="assets/architecture/system-architecture.png" alt="LumenCortex system architecture" width="100%">
 </p>
 
 _Maintainable topology source: [`diagrams/system-architecture.mmd`](diagrams/system-architecture.mmd)._

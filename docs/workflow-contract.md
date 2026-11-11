@@ -11,7 +11,7 @@ It is deliberately separate from the Cognitive Graph.
 ## Relationship to cognition
 
 <p align="center">
-  <img src="assets/architecture/workflow-cognitive-dual-plane.webp" alt="Workflow and Cognitive Graph dual control plane" width="100%">
+  <img src="assets/architecture/workflow-cognitive-dual-plane.png" alt="Workflow and Cognitive Graph dual control plane" width="100%">
 </p>
 
 _Maintainable topology source: [`diagrams/workflow-cognitive-dual-plane.mmd`](diagrams/workflow-cognitive-dual-plane.mmd)._

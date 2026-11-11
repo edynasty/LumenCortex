@@ -8,7 +8,7 @@ This document records the historical Node-to-Go transition and the current produ
 
 - The Go `runtime.Engine` is the sole production runtime implementation.
 - New runtime behavior, production integrations, and acceptance tests must target Go.
-- Desktop and other hosts consume the Go Core contract. Desktop `main` currently pins Core `v0.1.4`; it does not automatically consume the newer Core `main` at `208ad6b`.
+- Desktop and other hosts consume the Go Core contract. Desktop `main` currently pins Core `v0.1.4`; it does not automatically consume the newer Go runtime code baseline at `208ad6b`.
 - The Go runtime owns current Session, Workflow, tool execution, permission, persistence, and managed process semantics.
 - Go uses its own SQLite schema and migration runner. It does not share the legacy Node database format.
 - Legacy Node databases are refused by Go with `ErrLegacyNodeDatabase`; they are not silently converted or partially opened.
@@ -16,7 +16,7 @@ This document records the historical Node-to-Go transition and the current produ
 
 ## Current Core main baseline
 
-- Core `main`: `208ad6b` (2026-11-11).
+- Go runtime code baseline in `main`: `208ad6b` (2026-11-11).
 - Latest Core tag in this checkout: `v0.1.4` at `42ee234`, older than `main`.
 - Go Engine identity: `0.1.4-preview`.
 - Desktop `main`: `4a6c2f3`, pinned to Core `v0.1.4`.
@@ -67,7 +67,7 @@ go test ./...
 go vet ./...
 ```
 
-Node.js 22.13+ is needed only for explicitly running retained historical Node.js reference tests/tools. Their results do not establish Go production correctness.
+Node.js 22.13+ is needed only for explicitly running retained historical Node.js reference tests/tools or regenerating Mermaid documentation diagrams. Neither use makes Node.js a production runtime.
 
 ## Non-goals
 

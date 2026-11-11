@@ -5,7 +5,7 @@ This document describes the runtime logic of one autonomous Agent run, including
 ## End-to-end logic
 
 <p align="center">
-  <img src="assets/architecture/agent-execution-flow.webp" alt="LumenCortex agent execution flow" width="100%">
+  <img src="assets/architecture/agent-execution-flow.png" alt="LumenCortex agent execution flow" width="100%">
 </p>
 
 _Maintainable topology source: [`diagrams/agent-execution-flow.mmd`](diagrams/agent-execution-flow.mmd)._

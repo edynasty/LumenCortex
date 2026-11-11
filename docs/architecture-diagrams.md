@@ -21,7 +21,7 @@ Question answered:
 > What are the major runtime layers, and how do they interact?
 
 <p align="center">
-  <img src="assets/architecture/system-architecture.webp" alt="LumenCortex system architecture" width="100%">
+  <img src="assets/architecture/system-architecture.png" alt="LumenCortex system architecture" width="100%">
 </p>
 
 _Maintainable topology source: [`diagrams/system-architecture.mmd`](diagrams/system-architecture.mmd)._
@@ -60,7 +60,7 @@ Question answered:
 > What exactly happens from a user goal until completion, pause, or resume?
 
 <p align="center">
-  <img src="assets/architecture/agent-execution-flow.webp" alt="LumenCortex agent execution flow" width="100%">
+  <img src="assets/architecture/agent-execution-flow.png" alt="LumenCortex agent execution flow" width="100%">
 </p>
 
 _Maintainable topology source: [`diagrams/agent-execution-flow.mmd`](diagrams/agent-execution-flow.mmd)._
@@ -76,7 +76,7 @@ Question answered:
 > Why are Workflow Contract and Context Graph separate instead of being one graph?
 
 <p align="center">
-  <img src="assets/architecture/workflow-cognitive-dual-plane.webp" alt="Workflow and Cognitive Graph dual control plane" width="100%">
+  <img src="assets/architecture/workflow-cognitive-dual-plane.png" alt="Workflow and Cognitive Graph dual control plane" width="100%">
 </p>
 
 _Maintainable topology source: [`diagrams/workflow-cognitive-dual-plane.mmd`](diagrams/workflow-cognitive-dual-plane.mmd)._
@@ -98,7 +98,7 @@ Question answered:
 > What survives process restart and where is it stored?
 
 <p align="center">
-  <img src="assets/architecture/persistence-data-flow.webp" alt="LumenCortex persistence and data flow" width="100%">
+  <img src="assets/architecture/persistence-data-flow.png" alt="LumenCortex persistence and data flow" width="100%">
 </p>
 
 _Maintainable topology source: [`diagrams/persistence-data-flow.mmd`](diagrams/persistence-data-flow.mmd)._

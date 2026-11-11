@@ -296,7 +296,7 @@ idempotently and without executing or resending anything.
 ## Persistence data flow
 
 <p align="center">
-  <img src="assets/architecture/persistence-data-flow.webp" alt="LumenCortex persistence and data flow" width="100%">
+  <img src="assets/architecture/persistence-data-flow.png" alt="LumenCortex persistence and data flow" width="100%">
 </p>
 
 _Maintainable topology source: [`diagrams/persistence-data-flow.mmd`](diagrams/persistence-data-flow.mmd)._

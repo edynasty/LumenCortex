@@ -59,9 +59,9 @@ Covered behaviors include:
 - workspace path traversal protection.
 
 
-## Current Go Core main evidence (208ad6b)
+## Current Go Core code-baseline evidence (208ad6b)
 
-The current Go production baseline is Core `main` at `208ad6b`. Post-merge checks on that exact candidate recorded:
+The Go production code baseline merged into Core `main` is `208ad6b`. Post-merge checks on that exact code candidate recorded:
 
 - `go build ./...`: exit 0.
 - `go vet ./...`: exit 0.

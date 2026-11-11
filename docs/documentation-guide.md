@@ -117,21 +117,23 @@ Avoid claims such as:
 Use two layers:
 
 - `docs/diagrams/*.mmd` — maintainable logical/topology source,
-- `docs/assets/architecture/*.webp` — curated presentation visuals used by README and architecture documents.
+- `docs/assets/architecture/*.png` — curated presentation visuals used by README and architecture documents.
 
-The static visual is the primary reader-facing artifact when one exists. The Mermaid source is the maintainable structural reference, not a requirement that the WebP be a pixel-for-pixel renderer output.
+The static PNG is the primary reader-facing artifact when one exists. The Mermaid source is the maintainable structural reference; generated images must be decoded and visually checked before they are committed.
 
 Rules:
 
 1. each diagram answers one architectural question,
 2. keep the logical topology source in `docs/diagrams/*.mmd`,
-3. keep the reviewed presentation asset in `docs/assets/architecture/*.webp`,
+3. keep the reviewed presentation asset in `docs/assets/architecture/*.png`,
 4. use consistent semantic colors by architectural role,
 5. planned components remain visually distinct, preferably dashed/gray,
 6. never hide known product gaps in a presentation image,
 7. when topology changes, update both the `.mmd` source and the corresponding static visual in the same change,
 8. README and overview documents should reference the static visual rather than embedding a large Mermaid graph,
 9. verify text labels in generated visuals manually before merging.
+
+Render with Mermaid CLI 12.2.0 on Node.js 22.13+ (the renderer is a documentation tool, not a LumenCortex runtime dependency). Use PNG output for GitHub README compatibility. Confirm each generated file with an image decoder; do not trust a successful file write or a WebP header alone.
 
 Recommended semantic palette:
 
