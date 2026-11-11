@@ -305,6 +305,37 @@ func TestContinueWaitsForStopAndReturnsFrames(t *testing.T) {
 	}
 }
 
+// TestStopReportFramesBecomeStale is E1-D2 for the frames a continue/step call
+// returns with its stop: they are references like stackTrace frames, so after
+// the next stop scopes and evaluate must reject them instead of forwarding them
+// to an adapter that answers an unknown frame with an empty list.
+func TestStopReportFramesBecomeStale(t *testing.T) {
+	ctx := context.Background()
+	m, snap, _, _ := fakeFixture(t, dapfake.Config{StopDelayMS: 5})
+	c := control(snap)
+	c.Action = "configure"
+	_, first, err := m.ControlAndWait(ctx, c, WaitOptions{Timeout: 5 * time.Second})
+	if err != nil || len(first.TopFrames) == 0 {
+		t.Fatalf("first stop %+v %v", first, err)
+	}
+	frame := first.TopFrames[0].ID
+	scopes, err := m.Inspect(ctx, c, "scopes", frame, 0, 0)
+	if err != nil || !strings.Contains(string(scopes), `"Locals"`) {
+		t.Fatalf("a frame of the current stop report did not resolve: %s %v", scopes, err)
+	}
+	c.ThreadID = first.ThreadID
+	c.Action = "step_over"
+	if _, _, err = m.ControlAndWait(ctx, c, WaitOptions{Timeout: 5 * time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := m.Inspect(ctx, c, "scopes", frame, 0, 0); !errors.Is(err, ErrStaleReference) {
+		t.Fatalf("scopes of a frame from the previous stop report = %s, %v; want ErrStaleReference", raw, err)
+	}
+	if raw, err := m.Evaluate(ctx, c, frame, "count", false); !errors.Is(err, ErrStaleReference) {
+		t.Fatalf("evaluate in a frame from the previous stop report = %s, %v; want ErrStaleReference", raw, err)
+	}
+}
+
 // TestWaitTimeoutReturnsAsyncState covers the explicit asynchronous result.
 func TestWaitTimeoutReturnsAsyncState(t *testing.T) {
 	ctx := context.Background()

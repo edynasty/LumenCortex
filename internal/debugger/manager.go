@@ -664,6 +664,13 @@ func (m *Manager) captureStop(s *session, body stopEvent) {
 	m.mu.Lock()
 	if s.stopEpoch == stop.StopEpoch {
 		s.lastStop = &stop
+		// The report's frame ids are references like stackTrace frames: the
+		// next stop makes them stale (E1-D2).
+		for _, frame := range stop.TopFrames {
+			if frame.ID > 0 {
+				s.refEpoch[frame.ID] = stop.StopEpoch
+			}
+		}
 	}
 	ready := s.stopReady
 	s.stopReady = make(chan struct{})
