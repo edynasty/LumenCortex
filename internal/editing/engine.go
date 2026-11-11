@@ -277,9 +277,24 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 		}
 		return result, nil
 	}
-	if _, err := e.write(host, plan, prep); err != nil {
+	keys := make([]string, len(prep))
+	for i, p := range prep {
+		keys[i] = p.key
+	}
+	release, err := e.lease.admit(plan.Actor.Session, keys)
+	if err != nil {
+		var conflict *LeaseConflict
+		if errors.As(err, &conflict) {
+			err = &Error{Code: CodeLeaseConflict, Path: conflict.Path, Holder: conflict.Holder,
+				Detail: fmt.Sprintf("a write lease is held until %s", conflict.Until.UTC().Format(time.RFC3339))}
+		}
 		return Result{}, e.refuse(host, plan, nil, err)
 	}
+	if _, err := e.write(host, plan, prep); err != nil {
+		release()
+		return Result{}, e.refuse(host, plan, nil, err)
+	}
+	release()
 	result := Result{Diagnostics: diagnostics}
 	for _, p := range prep {
 		// Every file of the plan is reported, changed or not, so a caller can read the current revision

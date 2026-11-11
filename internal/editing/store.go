@@ -448,3 +448,17 @@ func (s *LeaseStore) pruneLocked(now time.Time) {
 	}
 	s.leases = kept
 }
+
+func (s *LeaseStore) admit(holder string, paths []string) (func(), error) {
+	s.mu.Lock()
+	s.pruneLocked(s.now())
+	for _, path := range paths {
+		for _, held := range s.leases {
+			if held.Holder != holder && held.Covers(path) {
+				s.mu.Unlock()
+				return nil, &LeaseConflict{Path: path, Holder: held.Holder, Until: held.Expires}
+			}
+		}
+	}
+	return s.mu.Unlock, nil
+}
