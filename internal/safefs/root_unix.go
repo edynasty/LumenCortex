@@ -6,6 +6,7 @@
 package safefs
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -206,6 +207,22 @@ func (r *Root) ReadFile(path string, limit int64) ([]byte, error) {
 // and renamed relative to the pinned parent; a replacement symlink is replaced,
 // never followed. Existing non-regular entries are explicitly refused.
 func (r *Root) WriteFile(path string, data []byte, mode os.FileMode) error {
+	return r.writeFile(path, data, mode, nil)
+}
+
+type expectedFile struct {
+	data   []byte
+	exists bool
+}
+
+// CompareAndSwap replaces only the expected regular file (or expected absence).
+// The parent is pinned; links are never followed. External writers can still
+// race the final check and rename; callers serialize cooperating writers.
+func (r *Root) CompareAndSwap(path string, before, after []byte, existed bool) error {
+	return r.writeFile(path, after, 0644, &expectedFile{data: before, exists: existed})
+}
+
+func (r *Root) writeFile(path string, data []byte, mode os.FileMode, expected *expectedFile) error {
 	parts, err := components(path, false)
 	if err != nil {
 		return err
@@ -248,6 +265,29 @@ func (r *Root) WriteFile(path string, data []byte, mode os.FileMode) error {
 	}
 	if closeErr != nil {
 		return closeErr
+	}
+	if expected != nil {
+		n, err := unix.Openat(fd, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+		if errors.Is(err, unix.ENOENT) && !expected.exists {
+			return unix.Renameat(fd, tmp, fd, name)
+		}
+		if err != nil {
+			return err
+		}
+		f := os.NewFile(uintptr(n), path)
+		info, statErr := f.Stat()
+		if statErr != nil || !info.Mode().IsRegular() || !expected.exists {
+			f.Close()
+			return fmt.Errorf("destination identity changed: %q", path)
+		}
+		current, readErr := io.ReadAll(io.LimitReader(f, int64(len(expected.data))+1))
+		closeErr := f.Close()
+		if readErr != nil || closeErr != nil {
+			return errors.Join(readErr, closeErr)
+		}
+		if !bytes.Equal(current, expected.data) {
+			return fmt.Errorf("destination content changed: %q", path)
+		}
 	}
 	return unix.Renameat(fd, tmp, fd, name)
 }

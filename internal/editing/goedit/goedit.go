@@ -764,9 +764,8 @@ func (p *pkg) renameObject(op Op, obj *ast.Object) ([]splice, []Symbol, string, 
 	return splices, symbols, fmt.Sprintf("renamed %d occurrence(s) of %s", len(splices), obj.Name), nil
 }
 
-// renameSelector renames a method or field and every selector that names it, refusing when another
-// type declares the same name, because a selector cannot be attributed to a type without a full type
-// check of every package that uses it.
+// renameSelector resolves receiver identity; unresolved packages are refused rather
+// than falling back to selector spelling.
 func (p *pkg) renameSelector(op Op, fd *ast.FuncDecl, kind string) ([]splice, []Symbol, string, error) {
 	info, err := p.typeInfo()
 	if err != nil {
@@ -795,6 +794,18 @@ func (p *pkg) renameSelector(op Op, fd *ast.FuncDecl, kind string) ([]splice, []
 		})
 	}
 	return splices, symbols, fmt.Sprintf("renamed %d occurrence(s) of %s", len(splices), fd.Name.Name), nil
+}
+
+func (p *pkg) typeInfo() (*types.Info, error) {
+	info := &types.Info{
+		Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object),
+		Scopes: make(map[ast.Node]*types.Scope), Selections: make(map[*ast.SelectorExpr]*types.Selection),
+	}
+	config := types.Config{Importer: importer.ForCompiler(p.fset, "source", nil)}
+	if _, err := config.Check(p.name, p.fset, p.sortedFiles(), info); err != nil {
+		return nil, editing.Errorf(editing.CodeType, "rename requires resolved types: %v", err)
+	}
+	return info, nil
 }
 
 // member declares the member name of a struct or interface type, or "" when it has none.
@@ -988,16 +999,4 @@ func walkIdents(root ast.Node, visit func(parent ast.Node, id *ast.Ident)) {
 // formatNode prints an expression the way a symbol path spells it.
 func formatNode(b *bytes.Buffer, expr ast.Expr) error {
 	return format.Node(b, token.NewFileSet(), expr)
-}
-
-func (p *pkg) typeInfo() (*types.Info, error) {
-	info := &types.Info{
-		Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object),
-		Scopes: make(map[ast.Node]*types.Scope), Selections: make(map[*ast.SelectorExpr]*types.Selection),
-	}
-	config := types.Config{Importer: importer.ForCompiler(p.fset, "source", nil)}
-	if _, err := config.Check(p.name, p.fset, p.sortedFiles(), info); err != nil {
-		return nil, editing.Errorf(editing.CodeType, "rename requires resolved types: %v", err)
-	}
-	return info, nil
 }

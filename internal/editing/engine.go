@@ -56,6 +56,8 @@ type FileChange struct {
 	Delete bool
 	// Content replaces the whole file.
 	Content *[]byte
+	// Binary permits a whole-file artifact replacement without text decoding.
+	Binary bool
 	// Edits applies exact, unique replacements to the base content.
 	Edits []TextEdit
 	// Splices replaces byte ranges of the base content.
@@ -455,10 +457,15 @@ func (e *Engine) prepare(host Host, p *prepared, plan Plan) error {
 		p.next, p.deleted = nil, true
 		return nil
 	}
-	if existed && !utf8.Valid(original) {
+	if existed && !change.Binary && !utf8.Valid(original) {
 		return &Error{Code: CodeNotUTF8, Path: p.rel, Detail: "the file is not UTF-8"}
 	}
-	doc := DecodeDoc(original)
+	var doc Doc
+	if !change.Binary {
+		doc = DecodeDoc(original)
+	} else if change.Content == nil || len(change.Edits)+len(change.Splices)+len(change.LineOps) != 0 {
+		return &Error{Code: CodeInvalid, Path: p.rel, Detail: "binary changes require whole-file content"}
+	}
 	switch {
 	case change.Content != nil:
 		if err := staleUnless(change.BaseRev, p.rev); err != nil {
@@ -527,7 +534,7 @@ func (e *Engine) prepare(host Host, p *prepared, plan Plan) error {
 	if len(p.next) > MaxFileBytes {
 		return &Error{Code: CodeTooLarge, Path: p.rel, Detail: fmt.Sprintf("the result is %d bytes, over the %d byte limit", len(p.next), MaxFileBytes)}
 	}
-	if !utf8.Valid(p.next) {
+	if !change.Binary && !utf8.Valid(p.next) {
 		return &Error{Code: CodeNotUTF8, Path: p.rel, Detail: "the result is not UTF-8"}
 	}
 	p.created = !existed
@@ -619,9 +626,11 @@ func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, err
 		if p.existed && !p.created && string(p.next) == string(p.original) {
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(p.abs), 0o755); err != nil {
-			e.rollback(host, written)
-			return nil, err
+		if !p.change.Binary {
+			if err := os.MkdirAll(filepath.Dir(p.abs), 0o755); err != nil {
+				e.rollback(host, written)
+				return nil, err
+			}
 		}
 		if err := e.writeCAS(host, p); err != nil {
 			e.rollback(host, written)
@@ -670,6 +679,13 @@ func (e *Engine) deleteCAS(host Host, p *prepared) error {
 // check and the write happen on the same descriptor, which is opened without truncating and refused
 // when it is protected state, so a refused write leaves the file as it was.
 func (e *Engine) writeCAS(host Host, p *prepared) error {
+	if p.change.Binary {
+		if replacer, ok := host.(interface {
+			ReplaceFile(path string, before, after []byte, existed bool) error
+		}); ok {
+			return replacer.ReplaceFile(p.abs, p.original, p.next, p.existed)
+		}
+	}
 	f, err := host.Open(p.abs, true)
 	if err != nil {
 		return err
@@ -725,6 +741,14 @@ func (e *Engine) rollback(host Host, written []*prepared) {
 			_ = os.Remove(p.abs)
 			continue
 		}
+		if p.change.Binary {
+			if replacer, ok := host.(interface {
+				ReplaceFile(path string, before, after []byte, existed bool) error
+			}); ok {
+				_ = replacer.ReplaceFile(p.abs, p.next, p.original, true)
+				continue
+			}
+		}
 		_ = e.writeRestore(host, p.abs, p.original)
 	}
 }
@@ -751,6 +775,10 @@ func (e *Engine) writeRestore(host Host, path string, data []byte) error {
 // a whole-file write can tell it is stale.
 func (e *Engine) register(p *prepared, plan Plan) {
 	if p.deleted {
+		return
+	}
+	if p.change.Binary {
+		e.snaps.RegisterRev(plan.Actor.Session, p.key, RevOf(p.next))
 		return
 	}
 	e.snaps.Register(plan.Actor.Session, p.key, DecodeDoc(p.next), 0, 0)

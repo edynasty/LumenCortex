@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 
+	"github.com/edynasty/LumenCortex/internal/editing"
 	"github.com/edynasty/LumenCortex/internal/safefs"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -69,14 +71,46 @@ func (s *Set) WriteArtifact(ctx context.Context, path string, data []byte) error
 	if len(data) > maxEditBytes {
 		return errors.New("artifact exceeds 4 MiB workspace transfer limit")
 	}
-	file, rel, err := s.resolve(path, true)
+	_, err := s.edit.Commit(ctx, editing.Plan{Host: artifactHost{s}, Actor: s.actor(), Tool: "artifact_export",
+		Changes: []editing.FileChange{{Path: path, Content: &data, Binary: true, AllowCreate: true, RejectStaleRead: true}},
+	})
+	return err
+}
+
+// artifactHost retains descriptor-relative no-link access while sharing the
+// engine's revision, lease, cancellation, history and event admission.
+type artifactHost struct{ *Set }
+
+func (h artifactHost) Open(path string, create bool) (*os.File, error) {
+	_, rel, err := h.resolve(path, false)
+	if err != nil {
+		return nil, err
+	}
+	if testHookBeforeOpen != nil {
+		testHookBeforeOpen(path)
+	}
+	root, err := safefs.Open(h.realWorkspace)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	f, info, err := root.OpenRegular(rel, maxEditBytes)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.denyIfProtected(info); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+func (h artifactHost) ReplaceFile(path string, before, after []byte, existed bool) error {
+	_, rel, err := h.resolve(path, true)
 	if err != nil {
 		return err
 	}
-	if testHookBeforeOpen != nil {
-		testHookBeforeOpen(file)
-	}
-	root, err := safefs.Open(s.realWorkspace)
+	root, err := safefs.Open(h.realWorkspace)
 	if err != nil {
 		return err
 	}
@@ -84,5 +118,5 @@ func (s *Set) WriteArtifact(ctx context.Context, path string, data []byte) error
 	if err := root.MkdirAll(filepath.ToSlash(filepath.Dir(rel))); err != nil {
 		return err
 	}
-	return root.WriteFile(rel, data, 0644)
+	return root.CompareAndSwap(rel, before, after, existed)
 }

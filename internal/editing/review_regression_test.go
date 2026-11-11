@@ -56,43 +56,6 @@ func TestReviewLeaseAcquiredDuringValidation(t *testing.T) {
 	}
 }
 
-func TestReviewLeaseAcquisitionWaitsForCommit(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, root, "a", "original")
-	e := newTestEngine(t, root)
-	entered, finish := make(chan struct{}), make(chan struct{})
-	e.beforeWrite = func(string) { close(entered); <-finish }
-	committed := make(chan error, 1)
-	go func() {
-		next := []byte("committed")
-		_, err := e.Commit(context.Background(), Plan{Actor: testActor(), Changes: []FileChange{{Path: "a", Content: &next}}})
-		committed <- err
-	}()
-	<-entered
-	acquired := make(chan error, 1)
-	go func() {
-		_, err := e.Leases().Acquire(root, CanonicalPath(filepath.Join(root, "a")), "other", false, time.Minute)
-		acquired <- err
-	}()
-	select {
-	case err := <-acquired:
-		close(finish)
-		<-committed
-		t.Fatalf("lease completed while commit was inside its mutation window: %v", err)
-	case <-time.After(20 * time.Millisecond):
-	}
-	close(finish)
-	if err := <-committed; err != nil {
-		t.Fatal(err)
-	}
-	if err := <-acquired; err != nil {
-		t.Fatal(err)
-	}
-	if got := readFileContent(t, root, "a"); got != "committed" {
-		t.Fatalf("commit lost: %q", got)
-	}
-}
-
 func TestReviewSnapshotBudget(t *testing.T) {
 	for _, samePath := range []bool{true, false} {
 		s := NewSnapshotStore()
@@ -158,5 +121,42 @@ func TestReviewCancelledValidationDoesNotMutate(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "a")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestReviewLeaseAcquisitionWaitsForCommit(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "a", "original")
+	e := newTestEngine(t, root)
+	entered, finish := make(chan struct{}), make(chan struct{})
+	e.beforeWrite = func(string) { close(entered); <-finish }
+	committed := make(chan error, 1)
+	go func() {
+		next := []byte("committed")
+		_, err := e.Commit(context.Background(), Plan{Actor: testActor(), Changes: []FileChange{{Path: "a", Content: &next}}})
+		committed <- err
+	}()
+	<-entered
+	acquired := make(chan error, 1)
+	go func() {
+		_, err := e.Leases().Acquire(root, CanonicalPath(filepath.Join(root, "a")), "other", false, time.Minute)
+		acquired <- err
+	}()
+	select {
+	case err := <-acquired:
+		close(finish)
+		<-committed
+		t.Fatalf("lease completed while commit was inside its mutation window: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(finish)
+	if err := <-committed; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-acquired; err != nil {
+		t.Fatal(err)
+	}
+	if got := readFileContent(t, root, "a"); got != "committed" {
+		t.Fatalf("commit lost: %q", got)
 	}
 }

@@ -26,8 +26,9 @@ func (*Root) ChownDir(string, int, int) error { return errUnsupported }
 func (*Root) OpenRegular(string, int64) (*os.File, os.FileInfo, error) {
 	return nil, nil, errUnsupported
 }
-func (*Root) ReadFile(string, int64) ([]byte, error)      { return nil, errUnsupported }
-func (*Root) WriteFile(string, []byte, os.FileMode) error { return errUnsupported }
-func (*Root) Entries(string, int) ([]Entry, error)        { return nil, errUnsupported }
-func (*Root) RemoveAll(string) error                      { return errUnsupported }
-func (*Root) Bytes(int, int) (int64, error)               { return 0, errUnsupported }
+func (*Root) ReadFile(string, int64) ([]byte, error)            { return nil, errUnsupported }
+func (*Root) WriteFile(string, []byte, os.FileMode) error       { return errUnsupported }
+func (*Root) CompareAndSwap(string, []byte, []byte, bool) error { return errUnsupported }
+func (*Root) Entries(string, int) ([]Entry, error)              { return nil, errUnsupported }
+func (*Root) RemoveAll(string) error                            { return errUnsupported }
+func (*Root) Bytes(int, int) (int64, error)                     { return 0, errUnsupported }
