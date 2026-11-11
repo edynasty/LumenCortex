@@ -432,6 +432,29 @@ func (s *Store) TaskLeases(ctx context.Context, root string) ([]TaskLease, error
 	return out, rows.Err()
 }
 
+// TaskLeasesHeldBy returns the leases holder owns, whatever their root. Expired rows are reported with
+// Expired set, as TaskLeases does.
+func (s *Store) TaskLeasesHeldBy(ctx context.Context, holder string) ([]TaskLease, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT root_id, unit_id, lease_id, expires_at, updated_at FROM work_unit_leases WHERE holder=? ORDER BY root_id, unit_id`, holder)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	at := time.Now().UTC()
+	out := []TaskLease{}
+	for rows.Next() {
+		l := TaskLease{Holder: holder}
+		var expires, updated string
+		if err := rows.Scan(&l.RootID, &l.UnitID, &l.LeaseID, &expires, &updated); err != nil {
+			return nil, err
+		}
+		l.ExpiresAt, l.UpdatedAt = parseTime(expires), parseTime(updated)
+		l.Expired = !l.ExpiresAt.After(at)
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
 // RecoverExpiredTaskLeases deletes the expired leases under root and returns them: their work units are
 // ready again, and the next claim by any worker wins.
 func (s *Store) RecoverExpiredTaskLeases(ctx context.Context, root string) ([]TaskLease, error) {

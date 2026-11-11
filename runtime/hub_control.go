@@ -101,7 +101,8 @@ type HubAgent struct {
 	Debug       []DebugSnapshot   `json:"debug,omitempty"`
 	Eval        []ExecutionKernel `json:"eval,omitempty"`
 	Jobs        []JobInfo         `json:"jobs,omitempty"`
-	Holdings    []HubTaskLease    `json:"holdings,omitempty"`
+	// Holdings are the live Task Lease claims this agent holds.
+	Holdings []HubTaskLease `json:"holdings,omitempty"`
 	// Revision is the command concurrency token: the live run's debug revision, or 0 with no live run.
 	Revision uint64 `json:"revision"`
 	// RetryOf is the run this run was started to retry, for the run after an `agent.retry`.
@@ -330,7 +331,9 @@ func (s *RunSupervisor) hubAgent(ctx context.Context, sessionID, role, parent st
 			out.Jobs = jobs
 		}
 	}
-	if leases, err := e.store.TaskLeases(ctx, sessionID); err == nil {
+	// Holdings are the claims this agent holds, under whichever root's DAG; the root's whole claim table is
+	// HubView.Leases.
+	if leases, err := e.store.TaskLeasesHeldBy(ctx, sessionID); err == nil {
 		for _, lease := range leases {
 			if lease.Expired {
 				continue
