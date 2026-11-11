@@ -87,8 +87,17 @@ func TestPushedMessageReadWithInboxIsAckedAndNotRedelivered(t *testing.T) {
 	if len(reqs) < 3 {
 		t.Fatalf("the second run made no request (%d requests)", len(reqs))
 	}
-	if strings.Contains(rendered(reqs[2]), "PUSHED-AND-READ") {
-		t.Error("a message the recipient read with worker_inbox was written into the next run again")
+	// The second run's request carries the session's transcript, which holds the first run's aside and
+	// inbox result; a redelivery would add another copy and count another attempt.
+	if before, after := strings.Count(rendered(reqs[1]), "PUSHED-AND-READ"), strings.Count(rendered(reqs[2]), "PUSHED-AND-READ"); after != before {
+		t.Errorf("the next run's request carries the message %d times, the transcript before it %d", after, before)
+	}
+	page, err = e.store.ReadWorkerMessages(ctx, root, worker, 0, 10, false)
+	if err != nil || len(page.Messages) != 1 {
+		t.Fatalf("read %+v %v", page, err)
+	}
+	if m := page.Messages[0]; m.Attempts != 1 || m.Delivery != session.WorkerMessageAcked {
+		t.Errorf("a message the recipient read with worker_inbox was delivered again: attempts=%d delivery=%s", m.Attempts, m.Delivery)
 	}
 }
 
