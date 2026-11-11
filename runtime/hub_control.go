@@ -36,6 +36,8 @@ const (
 	HubAccepted  = "accepted"
 	HubRejected  = "rejected"
 	HubDuplicate = "duplicate"
+	// HubPending answers a command id whose first execution has no recorded outcome yet.
+	HubPending = "pending"
 )
 
 // Hub agent states. pause_requested and paused come from the run's DebugControl; the rest are the
@@ -63,7 +65,18 @@ var (
 	ErrHubRejected = errors.New("hub command rejected")
 	// ErrHubCommandInvalid: the command is malformed or reuses a command id for another effect.
 	ErrHubCommandInvalid = errors.New("invalid hub command")
+	// ErrHubCommandPending: the command id is journalled but its outcome is not - its first execution is
+	// still running, or ended before the outcome was recorded. The command is not run again on a guess: the
+	// host reads the agent with View and sends a new command id if it still wants the effect.
+	ErrHubCommandPending = errors.New("hub command outcome is not recorded yet; refresh the agent view")
+	// ErrHubCommandUnrecorded: the command ran, but its outcome could not be journalled. The result is
+	// returned with it; a retry of the id reports ErrHubCommandPending instead of running it again.
+	ErrHubCommandUnrecorded = errors.New("hub command ran but its outcome was not recorded")
 )
+
+// testHookHubCommandApplied, when set, runs after a command's verb ran and before its outcome is
+// journalled.
+var testHookHubCommandApplied func(HubCommand)
 
 // HubSpend is the session's recorded usage. Core does not persist a price per request, so the cost is
 // reported as unknown instead of estimated here (ADR-0019 §6).
@@ -123,8 +136,8 @@ type HubView struct {
 	Leases      []HubTaskLease `json:"leases,omitempty"`
 }
 
-// HubCommand is a host command. CommandID makes it idempotent: the same id always returns the result the
-// first execution produced. ExpectedRevision must equal the addressed agent's Revision (0 when it has no
+// HubCommand is a host command. CommandID makes it idempotent: the id is journalled before the command
+// runs, so it is executed at most once, and a retry returns the result the first execution produced. ExpectedRevision must equal the addressed agent's Revision (0 when it has no
 // live run), so a delayed UI action cannot drive a run it has not seen.
 type HubCommand struct {
 	SessionID        string          `json:"sessionId"`
@@ -344,8 +357,11 @@ func (s *RunSupervisor) hubAgent(ctx context.Context, sessionID, role, parent st
 	return out, nil
 }
 
-// Command routes one host command to the live runtime and records its result under its CommandID, so a
-// retry returns the first result instead of a second effect.
+// Command routes one host command to the live runtime under its CommandID. The id is journalled before
+// the verb runs, so it names one execution: a retry returns the first outcome as duplicate, and a retry
+// while that outcome is not recorded - the first execution is still running, or ended without recording
+// it - returns ErrHubCommandPending. Neither runs the verb again. A command whose id cannot be journalled
+// does not run; one whose outcome cannot be recorded returns its result with ErrHubCommandUnrecorded.
 func (s *RunSupervisor) Command(ctx context.Context, c HubCommand) (HubCommandResult, error) {
 	if s == nil || s.engine == nil {
 		return HubCommandResult{}, ErrRunSupervisorClosed
@@ -357,21 +373,30 @@ func (s *RunSupervisor) Command(ctx context.Context, c HubCommand) (HubCommandRe
 	if err := e.runtimeEventAccess(ctx, c.SessionID); err != nil {
 		return HubCommandResult{}, err
 	}
-	if record, err := e.store.HubCommand(ctx, c.CommandID); err == nil {
-		return duplicateHubResult(c, record)
-	} else if !errors.Is(err, session.ErrNotFound) {
+	provisional, err := json.Marshal(HubCommandResult{Status: HubPending, Verb: c.Verb, CommandID: c.CommandID})
+	if err != nil {
 		return HubCommandResult{}, err
+	}
+	record, reserved, err := e.store.ReserveHubCommand(ctx, session.HubCommandRecord{
+		CommandID: c.CommandID, SessionID: c.SessionID, Verb: c.Verb, Result: provisional,
+	})
+	if err != nil {
+		return HubCommandResult{}, fmt.Errorf("journal hub command %s: %w", c.CommandID, err)
+	}
+	if !reserved {
+		return duplicateHubResult(c, record)
 	}
 	result, err := s.applyHubCommand(ctx, c)
-	if err != nil && errors.Is(err, session.ErrNotFound) {
-		return HubCommandResult{}, err
+	if result.Status == "" && err != nil {
+		// The command failed before it had an outcome (the agent could not be read): nothing ran.
+		result = rejectedHub(c, err)
 	}
 	result.CommandID, result.Verb = c.CommandID, c.Verb
-	if stored, marshalErr := json.Marshal(result); marshalErr == nil {
-		_ = e.store.RecordHubCommand(ctx, session.HubCommandRecord{
-			CommandID: c.CommandID, SessionID: c.SessionID, RunID: result.Agent.RunID,
-			Verb: c.Verb, Result: stored,
-		})
+	if testHookHubCommandApplied != nil {
+		testHookHubCommandApplied(c)
+	}
+	if recordErr := e.completeHubCommand(ctx, c, result); recordErr != nil {
+		err = errors.Join(err, fmt.Errorf("%w: %w", ErrHubCommandUnrecorded, recordErr))
 	}
 	data := map[string]any{"verb": c.Verb, "commandId": c.CommandID, "status": result.Status}
 	if result.Error != "" {
@@ -385,8 +410,30 @@ func (s *RunSupervisor) Command(ctx context.Context, c HubCommand) (HubCommandRe
 	return result, err
 }
 
-// duplicateHubResult returns the recorded result of a repeated CommandID. A reused id that names another
-// verb or session is an error, never a silent replay.
+// completeHubCommand records a command's outcome under its reserved id. It is written even when the
+// caller has gone away, because the command already ran. A result larger than a journal row is recorded
+// without the agent's lists (debug sessions, kernels, jobs, holdings), which are projections the host
+// reads again with View; the outcome and the agent's identity, state and revision are kept.
+func (e *Engine) completeHubCommand(ctx context.Context, c HubCommand, result HubCommandResult) error {
+	stored, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	if len(stored) > session.MaxHubCommandResultBytes {
+		result.Agent.Debug, result.Agent.Eval, result.Agent.Jobs, result.Agent.Holdings = nil, nil, nil, nil
+		if stored, err = json.Marshal(result); err != nil {
+			return err
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return e.store.CompleteHubCommand(ctx, session.HubCommandRecord{
+		CommandID: c.CommandID, SessionID: c.SessionID, RunID: result.Agent.RunID, Verb: c.Verb, Result: stored,
+	})
+}
+
+// duplicateHubResult answers a repeated CommandID from its journal record. A reused id that names another
+// verb or session is an error, never a silent replay; an id whose outcome is not recorded is pending.
 func duplicateHubResult(c HubCommand, record session.HubCommandRecord) (HubCommandResult, error) {
 	var stored HubCommandResult
 	if err := json.Unmarshal(record.Result, &stored); err != nil {
@@ -395,6 +442,10 @@ func duplicateHubResult(c HubCommand, record session.HubCommandRecord) (HubComma
 	if record.SessionID != c.SessionID || record.Verb != c.Verb {
 		return HubCommandResult{Status: HubRejected, Verb: c.Verb, CommandID: c.CommandID,
 			Error: "command id already names another command"}, fmt.Errorf("%w: command id reused", ErrHubCommandInvalid)
+	}
+	if stored.Status == HubPending {
+		return HubCommandResult{Status: HubPending, Verb: c.Verb, CommandID: c.CommandID,
+			Error: ErrHubCommandPending.Error()}, ErrHubCommandPending
 	}
 	stored.Status = HubDuplicate
 	return stored, nil
@@ -571,20 +622,23 @@ func (s *RunSupervisor) hubRetry(ctx context.Context, c HubCommand) (HubCommandR
 }
 
 // hubResult reads the agent back after a command, so the caller always gets the state its command
-// produced.
+// produced. The command already had its effect, so a failed read keeps the outcome and returns the error
+// with it.
 func (s *RunSupervisor) hubResult(ctx context.Context, c HubCommand, status, note string) (HubCommandResult, error) {
+	out := HubCommandResult{Status: status, Verb: c.Verb, CommandID: c.CommandID, Note: note}
 	pauses, err := s.engine.store.RunPauses(ctx, []string{c.SessionID})
 	if err != nil {
-		return HubCommandResult{}, err
+		return out, err
 	}
 	view, err := s.hubAgent(ctx, c.SessionID, "", "", pauses[c.SessionID])
 	if err != nil {
-		return HubCommandResult{}, err
+		return out, err
 	}
 	if view.Role == "" {
 		view.Role = "main"
 	}
-	return HubCommandResult{Status: status, Verb: c.Verb, CommandID: c.CommandID, Agent: view, Note: note}, nil
+	out.Agent = view
+	return out, nil
 }
 
 func rejectedHub(c HubCommand, err error) HubCommandResult {
