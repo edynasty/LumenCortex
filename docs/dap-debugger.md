@@ -12,7 +12,7 @@ The transport uses the existing `shell.StartManaged` admission and crash-guard l
 
 `evalruntime.ProgramCommand` reuses the Eval launcher without creating a new kernel or RPC. Host configuration names executable, installation read paths, workspace, private directory and exact environment. Defaults do not inherit host credentials. Linux program mode requires verified caller isolation; unavailable isolation fails closed.
 
-On macOS, program mode alone adds `mach-priv-task-port` and `system-debug` restricted to `target same-sandbox`. Ordinary Eval workers do not receive these permissions. The kernel originally denied both operations against LLDB's own fixture; narrow grants were driven by recorded denial logs, not a global sandbox exemption. Outside workspace writes and network remain denied. Foreign-sandbox attach is not implied by these grants.
+On macOS, program mode alone adds `mach-priv-task-port` and `system-debug` restricted to `target same-sandbox`. Ordinary Eval workers do not receive these permissions. The kernel originally denied both operations against LLDB's own fixture; narrow grants were driven by recorded denial logs, not a global sandbox exemption. Outside workspace writes and network remain denied. Foreign-sandbox attach is not implied by these grants. Every program profile (adapter, debuggee, command hook) may signal only processes of its own sandbox.
 
 ## Current verified behavior
 

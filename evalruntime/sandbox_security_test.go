@@ -55,6 +55,122 @@ func TestOpusPluginExecutableDoesNotGrantParentRead(t *testing.T) {
 	}
 }
 
+// startVictim starts a process outside any sandbox that only this test owns. The
+// returned alive reports, after a short grace for signal delivery, whether it
+// still runs.
+func startVictim(t *testing.T) (pid int, alive func() bool) {
+	t.Helper()
+	cmd := exec.Command("/bin/sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(done)
+	}()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		<-done
+	})
+	return cmd.Process.Pid, func() bool {
+		select {
+		case <-done:
+			return false
+		case <-time.After(200 * time.Millisecond):
+			return true
+		}
+	}
+}
+
+// TestSandboxSignalsStayInsideTheSandbox exercises the actual launcher with both
+// profiles: the Eval kernel's (no fork) and the program profile DAP adapters and
+// command hooks run under. A sandboxed process may signal itself and its own
+// children - interrupts and debuggers need that - but never a process outside
+// its sandbox: the host, the user's other processes or another kernel. The
+// outside process here is a sleep this test owns.
+func TestSandboxSignalsStayInsideTheSandbox(t *testing.T) {
+	exe, err := trustedExecutable("/bin/sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	launcher, err := newLauncher(SandboxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name    string
+		program bool
+		inside  string
+		want    string
+	}{
+		{name: "eval", inside: `kill -0 $$ && echo inside=ok`, want: "inside=ok"},
+		{name: "program", program: true, inside: `/bin/sleep 30 & child=$!; kill -TERM $child; wait $child; echo inside=$?`, want: "inside=143"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pid, alive := startVictim(t)
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			kernel := filepath.Join(root, "kernel")
+			if err := os.Mkdir(kernel, 0700); err != nil {
+				t.Fatal(err)
+			}
+			script := fmt.Sprintf(`%s; if kill -TERM %d 2>/dev/null; then echo foreign=sent; else echo foreign=denied; fi`, tc.inside, pid)
+			spec := launchSpec{exe: exe, args: []string{"-c", script}, kernelDir: kernel, dir: kernel, workersDir: kernel, profilePath: filepath.Join(root, "sandbox.sb"), cpuSeconds: 5, fileBytes: 1 << 20, allowSubprocess: tc.program, debugProgram: tc.program}
+			cmd, err := launcher.command(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			run := exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
+			run.Dir = kernel
+			run.Env = []string{"HOME=" + kernel, "PATH=/usr/bin:/bin"}
+			data, err := run.CombinedOutput()
+			if err != nil {
+				t.Fatalf("sandbox command: %v: %s", err, data)
+			}
+			out := string(data)
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("a signal inside the sandbox failed: %q", out)
+			}
+			if !strings.Contains(out, "foreign=denied") || !alive() {
+				t.Fatalf("a sandboxed process signalled pid %d outside its sandbox: %q", pid, out)
+			}
+		})
+	}
+}
+
+// TestCellCannotSignalAnotherKernel gives a cell the host PID of another kernel's
+// worker, which the process census publishes. Signalling it must fail, and the
+// other kernel must keep running with its state.
+func TestCellCannotSignalAnotherKernel(t *testing.T) {
+	h, _ := newPythonHarness(t, nil)
+	attacker := h.create("python", "signal-owner", "signal-owner")
+	target := h.create("python", "signal-owner", "signal-owner")
+	before := h.expectCompleted(target, "signal-owner", "kept = 41")
+	pid := 0
+	for _, row := range censusRows("signal-owner") {
+		if row.Owner.ObjectID == target.ID {
+			pid = row.PID
+		}
+	}
+	if pid <= 0 {
+		t.Fatalf("census has no worker for %s: %+v", target.ID, censusRows("signal-owner"))
+	}
+	result := h.expectCompleted(attacker, "signal-owner", fmt.Sprintf("import os, signal\ntry:\n    os.kill(%d, signal.SIGKILL)\n    print('sent')\nexcept OSError as exc:\n    print('denied', type(exc).__name__)\n", pid))
+	if !strings.Contains(result.Stdout, "denied") {
+		t.Fatalf("a cell signalled another kernel's worker %d: %q", pid, result.Stdout)
+	}
+	after := h.expectCompleted(target, "signal-owner", "print(kept + 1)")
+	if strings.TrimSpace(after.Stdout) != "42" || after.Generation != before.Generation {
+		t.Fatalf("the other kernel lost its state: %q, generation %d -> %d", after.Stdout, before.Generation, after.Generation)
+	}
+}
+
 func TestOpusRuntimeExecutableMustBeRegular(t *testing.T) {
 	root := t.TempDir()
 	if _, err := trustedExecutable(root); err == nil {
