@@ -259,6 +259,29 @@ func TestOpusResetClearsHomeAndTemporaryState(t *testing.T) {
 	}
 }
 
+// TestResetClearsTheWholeKernelDirectory: a cell may write anywhere in its
+// kernel directory, not only below work/. Restart keeps such files like every
+// kernel file; Reset must not hand them to the next generation.
+func TestResetClearsTheWholeKernelDirectory(t *testing.T) {
+	h, _ := newPythonHarness(t, nil)
+	s := h.create("python", "owner", "owner")
+	h.expectCompleted(s, "owner", "import os\nos.makedirs('../outside/nested', exist_ok=True)\nopen('../outside/nested/poison', 'w').write('old')\nopen('../poison', 'w').write('old')")
+	if err := h.m.Restart(context.Background(), s.ID, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	kept := h.expectCompleted(s, "owner", "import os\nprint(os.path.exists('../poison'), os.path.exists('../outside/nested/poison'))")
+	if strings.TrimSpace(kept.Stdout) != "True True" {
+		t.Fatalf("restart discarded kernel files: %q", kept.Stdout)
+	}
+	if err := h.m.Reset(context.Background(), s.ID, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	r := h.expectCompleted(s, "owner", "import os\nprint(os.path.exists('../poison'), os.path.exists('../outside'))")
+	if strings.TrimSpace(r.Stdout) != "False False" {
+		t.Fatalf("reset handed kernel files outside work/ to the next generation: %q", r.Stdout)
+	}
+}
+
 func TestOpusArtifactClosedKernelRemainsReadable(t *testing.T) {
 	h, _ := newPythonHarness(t, nil)
 	s := h.create("python", "owner", "owner")

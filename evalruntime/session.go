@@ -618,16 +618,28 @@ func (s *session) resetWorkspace() error {
 		return err
 	}
 	s.dataFS = next
-	for _, dir := range []string{"work", "pending", "home", "tmp"} {
-		if err := next.RemoveAll(dir); err != nil {
+	// A cell may write anywhere in its kernel directory, not only in the
+	// directories it is given: every entry goes, then those are recreated.
+	entries, err := next.Entries("", maxResetEntries)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := next.RemoveAll(entry.Name); err != nil {
 			return err
 		}
+	}
+	for _, dir := range []string{"work", "pending", "home", "tmp"} {
 		if err := next.MkdirAll(dir); err != nil {
 			return err
 		}
 	}
 	return s.prepareIdentity()
 }
+
+// maxResetEntries bounds the kernel directory listing of a reset like
+// safefs.RemoveAll bounds the tree below each entry.
+const maxResetEntries = 100000
 
 func (s *session) closeFileHandles() error {
 	s.fsMu.Lock()
