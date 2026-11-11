@@ -129,7 +129,8 @@ func (s *RunSupervisor) Command(ctx, HubCommand) (HubCommandResult, error)
 - 注入点与 steer 相同：接收者的下一次请求窗口写入 bounded aside（`protocol.OriginWorkerMessage`），
   无需接收者调用 `worker_inbox`（`TestBusyWorkerReceivesMessageWithoutInbox`：忙碌运行的第 2 次请求携带消息）。
 - 未 ack 重投：每个新 run 最多重投一次，总尝试 ≤3（`MaxWorkerMessageAttempts`），之后仍可用 `worker_inbox` 读取。
-- ack：`Engine.AckWorkerMessages(root, recipient, through)`；显式 `worker_inbox` 读取也视为 ack（保留 `received_at` 语义）。
+- ack：`Engine.AckWorkerMessages(root, recipient, through)`；显式 `worker_inbox` 读取也视为 ack，包括已推送进请求窗口的消息
+  （复审 HUB-F4：推送不再写 `received_at`，该列只记录显式读取；读取按 `acked_at` 判断，故已推送消息读后不再重投）。
 - 重启持久：排队与 ack 均跨 `Open` 保留（`TestWorkerMessageAckSurvivesRestart`）。
 - 唤醒空闲接收者：`RunSupervisor.Wake(ctx, sessionID, input)`（显式 host 调用，不自动唤醒关闭/撤销会话）。
 
