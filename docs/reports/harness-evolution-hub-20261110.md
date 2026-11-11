@@ -142,6 +142,8 @@ func (s *RunSupervisor) Command(ctx, HubCommand) (HubCommandResult, error)
   已丢失、第三方可抢占）；租约由 handoff 转给目标，同 session 换 agent 时留在该 session，由新运行续租。
 - 源与目标不会并发：目标 `Start` 前源必须已离开 supervisor；测试用 in-flight 计数断言 max in-flight == 1。
 - 失败恢复：目标 Start 失败 → 租约回滚到源；目标在启动前被撤销 → 在写 note 前直接拒绝，租约完全不动。
+  目标忙（`ErrRunHeld`）或源拥有工作树（`ErrHubWorktreeOwned`）在停止源**之前**拒绝（复审 HUB-F6：此前先取消
+  活动源再拒绝）；仅当目标在检查与停止之间被并发启动时，停止后的复检仍会拒绝，此时源已停止、租约留在源。
 - **工作树所有权按现有 owner/borrower 规则**：工作树目录按持有 session 命名绑定（`worktreeRole`），
   因此「源拥有工作树时跨 session handoff」被显式拒绝（`ErrHubWorktreeOwned`），要求先执行
   `WorktreeHandoffPlan/ApplyWorktreeHandoff`；同一 session 内换 agent 则工作树、transcript、Task State 自然延续。

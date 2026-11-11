@@ -79,15 +79,12 @@ func (s *RunSupervisor) Handoff(ctx context.Context, h HubHandoff) (string, erro
 	if err := e.delegationAgent(agentID, func(config.AgentInfo) bool { return true }); err != nil {
 		return "", err
 	}
-	// Nothing of the source may run while the target starts: the two never hold the workspace together.
-	if err := s.stopForHandoff(ctx, h.Source); err != nil {
-		return "", err
-	}
-	// Both sessions must be free before the note and the leases move.
-	if s.Active(target) {
-		return "", ErrRunHeld
-	}
+	// A handoff the target's state refuses is refused before the source is touched: a busy target or a
+	// worktree the source owns never costs the source its run.
 	if target != h.Source {
+		if s.Active(target) {
+			return "", ErrRunHeld
+		}
 		identity, err := e.SessionRuntime(ctx, h.Source)
 		if err != nil {
 			return "", err
@@ -95,6 +92,15 @@ func (s *RunSupervisor) Handoff(ctx context.Context, h HubHandoff) (string, erro
 		if identity.Kind == RuntimeWorktree && identity.Owner == h.Source {
 			return "", ErrHubWorktreeOwned
 		}
+	}
+	// Nothing of the source may run while the target starts: the two never hold the workspace together.
+	if err := s.stopForHandoff(ctx, h.Source); err != nil {
+		return "", err
+	}
+	// Both sessions must be free before the note and the leases move; a target started meanwhile still
+	// refuses the handoff here.
+	if s.Active(target) {
+		return "", ErrRunHeld
 	}
 	if err := e.writeHandoffNote(ctx, h.Source, target, agentID, h.Note); err != nil {
 		return "", err
