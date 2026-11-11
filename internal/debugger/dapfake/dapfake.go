@@ -43,6 +43,11 @@ type Config struct {
 	Unverified bool `json:"unverified"`
 	// ExitOnContinue terminates the target instead of stopping again.
 	ExitOnContinue bool `json:"exitOnContinue"`
+	// ThrowOnResume is a target that throws whenever it resumes: configurationDone
+	// and continue stop with reason "exception" while the adapter holds an
+	// exception breakpoint filter, at the breakpoint otherwise. Only filters this
+	// adapter received through setExceptionBreakpoints count.
+	ThrowOnResume bool `json:"throwOnResume"`
 	// StaleEmptyVariables is the adapter behaviour of resolving an unknown
 	// variablesReference with an empty list instead of an error.
 	StaleEmptyVariables bool `json:"staleEmptyVariables"`
@@ -160,6 +165,9 @@ type server struct {
 	stopped    bool
 	launchPath string
 	breakpoint int
+	// exceptionFilters is the last setExceptionBreakpoints request's list; only
+	// the request loop reads or writes it.
+	exceptionFilters []string
 }
 
 func (s *server) write(m map[string]any) error {
@@ -214,6 +222,14 @@ func (s *server) stop(reason string) {
 	}()
 }
 
+// resumeReason is the stop a resumed target reaches.
+func (s *server) resumeReason() string {
+	if s.cfg.Exception || (s.cfg.ThrowOnResume && len(s.exceptionFilters) > 0) {
+		return "exception"
+	}
+	return "breakpoint"
+}
+
 func stopDescription(reason string) string {
 	if reason == "exception" {
 		return "signal SIGABRT"
@@ -254,11 +270,7 @@ func (s *server) handle(req message) error {
 		if err := s.reply(req, nil); err != nil {
 			return err
 		}
-		reason := "breakpoint"
-		if s.cfg.Exception {
-			reason = "exception"
-		}
-		s.stop(reason)
+		s.stop(s.resumeReason())
 		return nil
 	case "setBreakpoints":
 		var args struct {
@@ -281,6 +293,7 @@ func (s *server) handle(req message) error {
 			Filters []string `json:"filters"`
 		}
 		_ = json.Unmarshal(req.Arguments, &args)
+		s.exceptionFilters = args.Filters
 		return s.reply(req, map[string]any{"filters": args.Filters})
 	case "threads":
 		return s.reply(req, map[string]any{"threads": []map[string]any{{"id": 1, "name": "Thread 1"}}})
@@ -381,11 +394,7 @@ func (s *server) handle(req message) error {
 		if err := s.event("continued", map[string]any{"threadId": 1, "allThreadsContinued": true}); err != nil {
 			return err
 		}
-		reason := "breakpoint"
-		if s.cfg.Exception {
-			reason = "exception"
-		}
-		s.stop(reason)
+		s.stop(s.resumeReason())
 		return nil
 	case "pause":
 		if err := s.reply(req, nil); err != nil {

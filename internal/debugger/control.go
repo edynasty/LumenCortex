@@ -195,7 +195,9 @@ func (m *Manager) SetExceptionBreakpoints(ctx context.Context, c Control, filter
 		}
 	}
 	out := map[string]any{"filters": filters, "supported": supported}
-	if len(filters) > 0 {
+	// The request replaces the adapter's filters, so an empty list must reach it
+	// to clear them; DAP sends it to every adapter that declared filters.
+	if len(supported) > 0 {
 		raw, err := m.request(ctx, s, "setExceptionBreakpoints", map[string]any{"filters": filters})
 		if err != nil {
 			return nil, err
