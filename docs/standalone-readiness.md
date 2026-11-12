@@ -22,7 +22,8 @@ A feature being present in source code is not enough. Readiness claims require a
 | Agent cancellation / resume | Complete | AbortSignal + TUI + process SIGINT/SIGTERM tests; interrupted Session persists | Ready |
 | Permission policy tiers | Complete | dedicated policy tests; unknown policy fails closed | Ready: read-only/workspace/full have distinct scope semantics |
 | LSP definition/references/symbols/hover/diagnostics | Complete | isolated LSP harness | Ready for navigation/diagnostics |
-| LSP rename/code actions | Complete baseline | isolated bidirectional Content-Length LSP harness + atomic WorkspaceEdit + Agent-tool tests + command-backed action tests + create/rename/delete file-resource rollback tests | Ready for edit-backed and command-backed actions plus file resource operations; unsolicited server edits are rejected outside explicit command execution |
+| LSP rename | Complete (Go) | Go `internal/lsp` harness + guarded atomic text WorkspaceEdit + Agent-tool tests | Ready for guarded symbol rename; Go applies text edits only and refuses LSP resource operations |
+| LSP Code Actions (`textDocument/codeAction`) | Not implemented (Go) | No Go request handler, Agent tool, or CLI command; implementation and tests exist only in retained Node.js reference source | Not a Go production capability; preserve as a possible Go backlog item, not as completed functionality |
 | MCP stdio/HTTP | Complete | modern + legacy fallback harness | Ready |
 | Focused Subagents | Complete | durable isolated Session tests | Ready |
 | Parallel Sessions | Complete | overlap assertion + mutation safety gate | Ready |
@@ -80,7 +81,7 @@ In particular, the current architecture does not yet claim:
 
 - mandatory Git worktree isolation for every Agent run; the Go runtime supports explicit per-session worktrees, but local sessions remain valid,
 - whole-run rollback of arbitrary local-session workspace changes produced by shell commands,
-- directory-oriented LSP resource operations are not claimed; file-based create/rename/delete and authorized command-backed code actions are implemented,
+- Go LSP Code Actions (`textDocument/codeAction` / `codeAction/resolve` / `workspace/executeCommand`) and LSP file-resource operations are not implemented or claimed; Go main supports guarded rename text edits only,
 - semantic/vector retrieval in Go; exact-cosine/RRF evidence belongs to the historical Node.js reference and is not a Go production capability,
 - vision/browser automation,
 - polished terminal navigation equivalent to mature editor-grade TUIs,

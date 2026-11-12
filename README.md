@@ -53,13 +53,13 @@ The current Core `main` carries the Go Agent Harness code baseline `208ad6b`.
 - Workspace file reading, search, writing, exact replacement, and validated multi-file patches.
 - Workflow Contracts with Facts, Actions, Routes, Outcomes, Gates, approval, and delivery verification.
 - Tool permissions, workspace trust, bounded shell output, and managed process lifecycle.
-- MCP over stdio and HTTP, LSP navigation/diagnostics/actions, Skills, Subagents, and parallel Sessions.
+- MCP over stdio and HTTP, LSP navigation, diagnostics and guarded symbol rename, Skills, Subagents, and parallel Sessions.
 
 ### Editing and code intelligence
 
 - A shared revision-aware Editing Engine for file mutations.
 - Hashline anchors, stale-revision rejection, compare-and-swap writes, write leases, and atomic multi-file application.
-- Go AST-aware structural editing and scope-aware symbol rename. AST editing is currently Go-specific; other languages use their LSP capabilities.
+- Go AST-aware structural editing and scope-aware symbol rename. AST editing is currently Go-specific; other languages use their available LSP navigation and guarded rename capabilities; Go Code Actions are not yet implemented.
 
 ### Debugging and evaluation
 

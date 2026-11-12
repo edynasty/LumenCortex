@@ -55,13 +55,13 @@ Go Engine 是正式生产 Runtime 实现。`cmd/lcx-go` 是当前从源码运行
 - Workspace 文件读取、搜索、写入、精确替换和经过校验的多文件 Patch。
 - Workflow Contract：Facts、Actions、Routes、Outcomes、Gates、审批和交付验证。
 - 工具权限、Workspace Trust、有界 Shell 输出和托管进程生命周期。
-- 支持 stdio / HTTP 的 MCP、LSP 导航与诊断、Skills、Subagents 和并行 Session。
+- 支持 stdio / HTTP 的 MCP、LSP 导航、诊断与受保护的符号 Rename、Skills、Subagents 和并行 Session。
 
 ### 编辑与代码智能
 
 - 统一的、基于 Revision 的 Editing Engine。
 - Hashline 锚点、过期 Revision 拒绝、Compare-and-Swap 写入、Write Lease 和原子多文件应用。
-- Go AST 结构化编辑和作用域感知符号 Rename。目前 AST 编辑仅针对 Go；其他语言使用对应 LSP 能力。
+- Go AST 结构化编辑和作用域感知符号 Rename。目前 AST 编辑仅针对 Go；其他语言使用已有的 LSP 导航和受保护 Rename。Go 版 LSP Code Actions 尚未实现。
 
 ### 调试与 Eval
 

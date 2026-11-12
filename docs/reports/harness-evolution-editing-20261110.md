@@ -17,7 +17,7 @@ prototypes `prototypes/e3-hashline` (S1–S9) and `prototypes/e4-ast-edit` (8 ca
 | Go AST editing (`edit_go`) | Validated (Go only) | E4 1–8 ports, `TestEditGoThroughToolset` |
 | `edit.committed` / `edit.conflict` events | Validated (live) | `TestEditEventsReachSubscribers`; live-only by decision |
 | Agent loop end-to-end | Validated | `TestAgentLoopEditsLinesAndRejectsAStaleEdit` (scripted provider) |
-| TS/JS/Python structured editing | Not in this slice | remains the existing LSP path (`lsp_rename`, code actions); no AST claim for those languages |
+| TS/JS/Python structured editing | Not in this slice | Go currently exposes LSP navigation and guarded `lsp_rename`; Go Code Actions are not implemented. The retained Node.js reference has historical Code Actions code, which is not Go acceptance evidence. |
 
 ## What existed before
 
@@ -156,8 +156,9 @@ invariant, and is not a Go test.
   deployment with an 8 000-token window and a 1 000-token output reservation has almost no headroom.
   Two test fixtures now use 16 000 (documented in place); a real deployment should configure
   `limit.context` accordingly.
-- TS/JS/Python: no AST editing, and none is claimed. Their structured edits stay with the language
-  server through `lsp_rename` and the existing LSP tools.
+- TS/JS/Python: no AST editing, and none is claimed. Go currently offers LSP navigation and guarded
+  `lsp_rename`; `textDocument/codeAction` is not implemented in the Go runtime. Any Code Actions code
+  under the retained Node.js source is historical reference only.
 - No database migration was needed or added.
 
 ## Decisions
