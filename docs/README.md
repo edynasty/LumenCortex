@@ -4,12 +4,12 @@ LumenCortex is a Go-based cognitive coding-agent system. **Go is the sole produc
 
 ## Start here
 
-- [System overview](system-overview.md)
-- [Architecture](architecture.md)
-- [Architecture diagrams](architecture-diagrams.md)
-- [Agent execution flow](execution-flow.md)
-- [Agent runtime](agent-runtime.md)
-- [Go production runtime and migration history](go-runtime-migration.md)
+- [System overview (English)](system-overview.md) · [中文](system-overview.zh-CN.md)
+- [Architecture (English)](architecture.md) · [中文](architecture.zh-CN.md)
+- [Architecture diagrams (English)](architecture-diagrams.md) · [中文](architecture-diagrams.zh-CN.md)
+- [Agent execution flow (English)](execution-flow.md) · [中文](execution-flow.zh-CN.md)
+- [Agent runtime (English)](agent-runtime.md) · [中文](agent-runtime.zh-CN.md)
+- [Go runtime migration (English)](go-runtime-migration.md) · [中文](go-runtime-migration.zh-CN.md)
 
 ## Agent Harness
 
@@ -17,11 +17,13 @@ LumenCortex is a Go-based cognitive coding-agent system. **Go is the sole produc
 - [Harness capability matrix (English)](harness/capabilities.md) · [中文](harness/capabilities.zh-CN.md)
 - [Harness roadmap (English)](harness/roadmap.md) · [中文](harness/roadmap.zh-CN.md)
 - [Hashline and AST editing](reports/harness-evolution-editing-20261110.md)
-- [DAP debugger](dap-debugger.md)
-- [Persistent Eval](persistent-eval.md)
-- [Agent Hub](agent-hub.md)
-- [Workflow Contract](workflow-contract.md)
-- [Security and trust](security-and-trust.md)
+- [DAP debugger (English)](dap-debugger.md) · [中文](dap-debugger.zh-CN.md)
+- [Persistent Eval (English)](persistent-eval.md) · [中文](persistent-eval.zh-CN.md)
+- [Agent Hub (English)](agent-hub.md) · [中文](agent-hub.zh-CN.md)
+- [Agent debugger (English)](agent-debugger.md) · [中文](agent-debugger.zh-CN.md)
+- [Workflow Contract (English)](workflow-contract.md) · [中文](workflow-contract.zh-CN.md)
+- [Security and trust (English)](security-and-trust.md) · [中文](security-and-trust.zh-CN.md)
+- [Host boundary (English)](host-boundary.md) · [中文](host-boundary.zh-CN.md)
 
 ## Cognitive architecture
 
@@ -30,17 +32,21 @@ LumenCortex is a Go-based cognitive coding-agent system. **Go is the sole produc
 - [Cognitive capability matrix (English)](cognitive-core/capabilities.md) · [中文](cognitive-core/capabilities.zh-CN.md)
 - [Memory lifecycle (English)](cognitive-core/memory-lifecycle.md) · [中文](cognitive-core/memory-lifecycle.zh-CN.md)
 - [Cognitive roadmap (English)](cognitive-core/roadmap.md) · [中文](cognitive-core/roadmap.zh-CN.md)
-- [Cognitive control plane](cognitive-control-plane.md) — historical design record; current Go capabilities are defined by Go source and tests.
-- [Attention Light algorithm](attention-light-algorithm.md)
-- [Data model](data-model.md)
+- [Cognitive control plane (English)](cognitive-control-plane.md) · [中文](cognitive-control-plane.zh-CN.md) — historical design record; current Go capabilities are defined by Go source and tests.
+- [Attention Light (English)](attention-light-algorithm.md) · [中文](attention-light-algorithm.zh-CN.md)
+- [Context and Evidence (English)](context-evidence.md) · [中文](context-evidence.zh-CN.md)
+- [Data model (English)](data-model.md) · [中文](data-model.zh-CN.md)
 - [Architecture Decision Records](adr/README.md)
 
 ## Development and validation
 
-- [Standalone readiness and known gaps](standalone-readiness.md)
-- [Validation evidence](validation.md)
-- [Go provider configuration](go-provider.md)
-- [Plugin and MCP templates](plugins-mcp-templates.md)
+- [Standalone readiness (English)](standalone-readiness.md) · [中文](standalone-readiness.zh-CN.md)
+- [Validation (English)](validation.md) · [中文](validation.zh-CN.md)
+- [Go provider configuration (English)](go-provider.md) · [中文](go-provider.zh-CN.md)
+- [Plugin and MCP templates (English)](plugins-mcp-templates.md) · [中文](plugins-mcp-templates.zh-CN.md)
+- [Runtime event contract (English)](runtime-event-contract.md) · [中文](runtime-event-contract.zh-CN.md)
+- [Runtime hooks (English)](runtime-hooks.md) · [中文](runtime-hooks.zh-CN.md)
+- [Documentation guide (English)](documentation-guide.md) · [中文](documentation-guide.zh-CN.md)
 
 ## Current major engineering gaps
 

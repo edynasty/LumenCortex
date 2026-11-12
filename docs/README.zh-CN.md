@@ -4,12 +4,12 @@ LumenCortex 是 Go 实现的认知型编程 Agent。Go 是唯一正式生产 Run
 
 ## 从这里开始
 
-- [系统介绍](system-overview.md)
-- [总体架构](architecture.md)
-- [架构图](architecture-diagrams.md)
-- [Agent 执行流程](execution-flow.md)
-- [Agent Runtime](agent-runtime.md)
-- [Go Runtime 和迁移历史](go-runtime-migration.md)
+- [系统介绍](system-overview.zh-CN.md)
+- [总体架构](architecture.zh-CN.md)
+- [架构图](architecture-diagrams.zh-CN.md)
+- [Agent 执行流程](execution-flow.zh-CN.md)
+- [Agent Runtime](agent-runtime.zh-CN.md)
+- [Go Runtime 和迁移历史](go-runtime-migration.zh-CN.md)
 
 ## Agent Harness（执行框架）
 
@@ -17,11 +17,13 @@ LumenCortex 是 Go 实现的认知型编程 Agent。Go 是唯一正式生产 Run
 - [Harness 能力清单（中文）](harness/capabilities.zh-CN.md) · [English](harness/capabilities.md)
 - [Harness 后续方向（中文）](harness/roadmap.zh-CN.md) · [English](harness/roadmap.md)
 - [Hashline 和 AST 编辑](reports/harness-evolution-editing-20261110.md)
-- [DAP 程序调试](dap-debugger.md)
-- [持久化 Eval](persistent-eval.md)
-- [Agent Hub](agent-hub.md)
-- [Workflow Contract](workflow-contract.md)
-- [安全与信任](security-and-trust.md)
+- [DAP 程序调试](dap-debugger.zh-CN.md)
+- [持久化 Eval](persistent-eval.zh-CN.md)
+- [Agent Hub](agent-hub.zh-CN.md)
+- [Agent 调试器](agent-debugger.zh-CN.md)
+- [Workflow Contract](workflow-contract.zh-CN.md)
+- [安全与信任](security-and-trust.zh-CN.md)
+- [Host 边界](host-boundary.zh-CN.md)
 
 ## Cognitive Core（认知核心）
 
@@ -30,17 +32,21 @@ LumenCortex 是 Go 实现的认知型编程 Agent。Go 是唯一正式生产 Run
 - [能力现状（中文）](cognitive-core/capabilities.zh-CN.md) · [English](cognitive-core/capabilities.md)
 - [记忆管理（中文）](cognitive-core/memory-lifecycle.zh-CN.md) · [English](cognitive-core/memory-lifecycle.md)
 - [后续工作（中文）](cognitive-core/roadmap.zh-CN.md) · [English](cognitive-core/roadmap.md)
-- [认知控制平面](cognitive-control-plane.md)
-- [Attention Light 算法](attention-light-algorithm.md)
-- [数据模型](data-model.md)
+- [认知控制平面（历史设计）](cognitive-control-plane.zh-CN.md)
+- [Attention Light 算法](attention-light-algorithm.zh-CN.md)
+- [Context 与 Evidence](context-evidence.zh-CN.md)
+- [数据模型](data-model.zh-CN.md)
 - [架构决策记录](adr/README.md)
 
 ## 开发与验证
 
-- [独立运行状态和已知限制](standalone-readiness.md)
-- [验证记录](validation.md)
-- [Go Provider 配置](go-provider.md)
-- [Plugin 和 MCP 模板](plugins-mcp-templates.md)
+- [独立运行状态和已知限制](standalone-readiness.zh-CN.md)
+- [验证记录](validation.zh-CN.md)
+- [Go Provider 配置](go-provider.zh-CN.md)
+- [Plugin 和 MCP 模板](plugins-mcp-templates.zh-CN.md)
+- [Runtime 事件约定](runtime-event-contract.zh-CN.md)
+- [Runtime 生命周期 Hook](runtime-hooks.zh-CN.md)
+- [文档编写规范](documentation-guide.zh-CN.md)
 
 ## 当前主要限制
 

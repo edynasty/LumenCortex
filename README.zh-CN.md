@@ -115,6 +115,8 @@ go vet ./...
 
 建议从[中文文档目录](docs/README.zh-CN.md)开始；[English documentation index](docs/README.md)。
 
+常用文档：[Agent Runtime](docs/agent-runtime.zh-CN.md) · [Agent Hub](docs/agent-hub.zh-CN.md) · [DAP 调试](docs/dap-debugger.zh-CN.md) · [持久化 Eval](docs/persistent-eval.zh-CN.md) · [安全与信任](docs/security-and-trust.zh-CN.md) · [Cognitive Core](docs/cognitive-core/README.zh-CN.md)。
+
 - [Cognitive Core 总览](docs/cognitive-core/README.zh-CN.md)
 - [Cognitive Core 总体架构](docs/cognitive-core/architecture.zh-CN.md)
 - [认知能力现状](docs/cognitive-core/capabilities.zh-CN.md)
