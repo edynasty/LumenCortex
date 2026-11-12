@@ -13,6 +13,9 @@ LumenCortex is a Go-based cognitive coding-agent system. **Go is the sole produc
 
 ## Agent Harness
 
+- [Harness overview and current status](harness/README.md)
+- [Harness capability matrix](harness/capabilities.md)
+- [Harness roadmap](harness/roadmap.md)
 - [Hashline and AST editing](reports/harness-evolution-editing-20261110.md)
 - [DAP debugger](dap-debugger.md)
 - [Persistent Eval](persistent-eval.md)
@@ -22,6 +25,11 @@ LumenCortex is a Go-based cognitive coding-agent system. **Go is the sole produc
 
 ## Cognitive architecture
 
+- [Cognitive Core overview](cognitive-core/README.md) — seven domains, current status, design sources and evidence boundary.
+- [Unified cognitive architecture](cognitive-core/architecture.md) — domain responsibilities, shared semantics and authority boundaries.
+- [Cognitive capability matrix](cognitive-core/capabilities.md) — main vs candidate vs design target.
+- [Memory lifecycle](cognitive-core/memory-lifecycle.md) — working/episodic/semantic/procedural memory, consolidation, compression, frequency, recency and retention.
+- [Cognitive roadmap](cognitive-core/roadmap.md)
 - [Cognitive control plane](cognitive-control-plane.md) — historical design record; current Go capabilities are defined by Go source and tests.
 - [Attention Light algorithm](attention-light-algorithm.md)
 - [Data model](data-model.md)
@@ -36,6 +44,8 @@ LumenCortex is a Go-based cognitive coding-agent system. **Go is the sole produc
 
 ## Current major engineering gaps
 
+The [Cognitive Core capability matrix](cognitive-core/capabilities.md) and [Harness capability matrix](harness/capabilities.md) distinguish implemented Go main behavior from unmerged candidates and design targets.
+
 The authoritative implementation and evidence matrix is [Standalone readiness](standalone-readiness.md). Current limitations include:
 
 1. **Local-session rollback** — arbitrary workspace mutations made by shell commands do not have whole-run rollback. Go session Worktrees can be isolated and safely discarded or handed off.
@@ -46,6 +56,6 @@ The authoritative implementation and evidence matrix is [Standalone readiness](s
 6. **Graph governance** — Go main exposes read-only Analyze / Plan / Validate. Model Curator is disabled before provider invocation until request-envelope admission exists; Apply and Cortex Epoch execution are not claimed in Go main.
 7. **Physical storage tiers and GC** — hot/warm/cold metadata exists, but separate physical stores and destructive cognitive garbage collection are not claimed.
 8. **Linux and Desktop release gates** — real Linux DAP, host/VM cgroup and UID Broker, and native interactive Wails acceptance require their own platform evidence.
-9. **Cognitive Core P0** — the expanded Scope / Time / Evidence and Experimental Experience candidate is not part of Core `main` until its inherited baseline and migrations pass independent review.
+9. **Expanded Cognitive Core** — Scope / Time / Evidence and Experimental Experience have been developed and reviewed in local candidates, but those candidate commits are not part of Core `main`. See the [Cognitive Core capability matrix](cognitive-core/capabilities.md) and the finalization evidence before making merge or release claims.
 
 Historical Node.js capabilities may be described in historical design documents, but they must not be presented as current Go production capabilities.

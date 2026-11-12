@@ -22,7 +22,7 @@ LumenCortex is a coding-agent harness with its own cognitive architecture. It is
 
 ## Current source and release baseline
 
-Snapshot: **2026-11-11**. Source commits, runtime identity, release tags, and Desktop dependencies are separate version surfaces.
+Snapshot: **2026-11-12**. Core main is `883c63e`; the Go runtime code baseline remains `208ad6b`. Source commits, runtime identity, release tags, and Desktop dependencies are separate version surfaces.
 
 | Surface | Current baseline |
 |---|---|
@@ -71,10 +71,11 @@ Platform limits remain explicit: Linux real-adapter DAP and host/VM cgroup/UID B
 
 ### Cognitive runtime
 
-- Persistent Context Graph and Attention Light foundations.
+- Persistent Context Graph, Notes/Recall and Attention Light foundations.
 - Go Graph Governor read-only Analyze / Plan / Validate against the shared SQLite graph.
 - The model Curator path fails closed until request-envelope admission is available; Go main does not claim graph Apply or Cortex Epoch execution.
-- The expanded Cognitive Core P0 work (Scope / Time / Evidence and Experimental Experience Learning) is still a separate, unmerged candidate. Do not count it as part of Core `main` yet.
+- The expanded Cognitive Core work adds richer Scope / Time / Evidence and Experimental Experience mechanisms, but the final Astra/Fable/Gemini candidates remain separate from this `main` snapshot. Do not count their candidate-only capabilities as current main behavior.
+- The seven-domain cognitive architecture, capability/evidence matrix, memory lifecycle and roadmap are documented in [Cognitive Core](docs/cognitive-core/README.md).
 
 ### Extension points
 
@@ -112,6 +113,15 @@ go vet ./...
 
 Start with the [documentation index](docs/README.md).
 
+- [Cognitive Core architecture and capability status](docs/cognitive-core/README.md)
+- [Seven cognitive domains and shared contracts](docs/cognitive-core/architecture.md)
+- [Cognitive capability and evidence matrix](docs/cognitive-core/capabilities.md)
+- [Memory lifecycle: working/episodic/semantic/procedural, consolidation and retention](docs/cognitive-core/memory-lifecycle.md)
+- [Cognitive architecture roadmap](docs/cognitive-core/roadmap.md)
+- [Agent Harness overview and capability status](docs/harness/README.md)
+- [Agent Harness capability matrix](docs/harness/capabilities.md)
+- [Agent Harness roadmap](docs/harness/roadmap.md)
+
 - [System overview](docs/system-overview.md)
 - [Architecture diagrams](docs/architecture-diagrams.md)
 - [Agent execution flow](docs/execution-flow.md)
@@ -134,7 +144,8 @@ Start with the [documentation index](docs/README.md).
 - The Go runtime code baseline in Core `main` is `208ad6b`; the latest published Core tag remains `v0.1.4`.
 - Desktop remains pinned to Core `v0.1.4`; exact dependency upgrade and native Wails acceptance are pending.
 - Linux DAP, cgroup, and UID Broker host/VM acceptance remain platform gates if Linux support is claimed.
-- Cognitive Core P0 is not part of this `main` snapshot.
+- The expanded Cognitive Core candidate is not part of this `main` snapshot; see [Cognitive Core status](docs/cognitive-core/README.md).
+- Harness Evolution follow-up work and Desktop-specific acceptance must be checked against their exact branch, Core tag and Desktop dependency; see [Harness status](docs/harness/README.md).
 - Vision/browser automation, whole-run rollback of arbitrary local-session shell mutations, and production-calibrated autonomous cognitive governance are not claimed.
 
 ## License

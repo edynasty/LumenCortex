@@ -24,7 +24,7 @@ LumenCortex 是拥有自身认知架构的 Coding Agent Harness，不绑定单�
 
 ## 当前源码与发布基线
 
-快照：**2026-11-11**。源码提交、Runtime 标识、Release Tag 和 Desktop 依赖属于不同版本维度。
+快照：**2026-11-12**。Core main 为 `883c63e`，Go Runtime 代码基线仍为 `208ad6b`。源码提交、Runtime 标识、Release Tag 和 Desktop 依赖属于不同版本维度。
 
 | 范围 | 当前基线 |
 |---|---|
@@ -73,10 +73,11 @@ Go Engine 是正式生产 Runtime 实现。`cmd/lcx-go` 是当前从源码运行
 
 ### 认知运行时
 
-- 持久化 Context Graph 和 Attention Light 基础能力。
+- 持久化 Context Graph、Notes/Recall 和 Attention Light 基础能力。
 - Go Graph Governor 基于共享 SQLite Graph 提供只读 Analyze / Plan / Validate。
 - 在 Request Envelope Admission 完整之前，模型 Curator 路径必须 fail-closed；Go main 不声明 Graph Apply 或 Cortex Epoch 执行能力。
-- 扩展的 Cognitive Core P0（Scope / Time / Evidence 和 Experimental Experience Learning）仍是独立、尚未合并的候选，不能算作当前 Core `main` 已有能力。
+- 扩展的 Cognitive Core 工作增加了更丰富的 Scope / Time / Evidence 和 Experimental Experience 机制，但 Astra/Fable/Gemini 最终候选仍与当前 main 分离。候选能力不能算作当前 main 已有能力。
+- 七大认知领域、能力与证据矩阵、记忆生命周期和演进路线见 [Cognitive Core 文档](docs/cognitive-core/README.md)。
 
 ### 扩展接口
 
@@ -114,6 +115,15 @@ go vet ./...
 
 建议从[文档索引](docs/README.md)开始。
 
+- [Cognitive Core 认知架构与能力状态](docs/cognitive-core/README.md)
+- [七大认知领域与统一契约](docs/cognitive-core/architecture.md)
+- [认知能力与证据矩阵](docs/cognitive-core/capabilities.md)
+- [记忆生命周期：工作/情景/语义/程序性记忆、巩固与保留](docs/cognitive-core/memory-lifecycle.md)
+- [认知架构演进路线](docs/cognitive-core/roadmap.md)
+- [Agent Harness 总览与能力状态](docs/harness/README.md)
+- [Agent Harness 能力矩阵](docs/harness/capabilities.md)
+- [Agent Harness 路线图](docs/harness/roadmap.md)
+
 - [系统概览](docs/system-overview.md)
 - [架构图](docs/architecture-diagrams.md)
 - [Agent 执行流程](docs/execution-flow.md)
@@ -136,7 +146,8 @@ go vet ./...
 - Core `main` 中的 Go Runtime 代码基线为 `208ad6b`；仓库最新已发布 Core Tag 仍是 `v0.1.4`。
 - Desktop 仍固定依赖 Core `v0.1.4`；精确依赖升级和原生 Wails 验收尚未完成。
 - 如果声明 Linux 支持，仍需完成 Linux DAP、cgroup 和 UID Broker 主机/VM 验收。
-- Cognitive Core P0 尚未进入当前 `main`。
+- 扩展 Cognitive Core 候选尚未进入当前 `main`，见 [Cognitive Core 状态](docs/cognitive-core/README.md)。
+- Harness Evolution 后续工作和 Desktop 验收必须按准确分支、Core Tag 和 Desktop 依赖判断，见 [Harness 状态](docs/harness/README.md)。
 - 不宣称已提供 Vision/Browser 自动化、本地 Session 任意 Shell 变更的全流程回滚，或生产级自主认知治理。
 
 ## License
