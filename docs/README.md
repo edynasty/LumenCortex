@@ -13,9 +13,9 @@ LumenCortex is a Go-based cognitive coding-agent system. **Go is the sole produc
 
 ## Agent Harness
 
-- [Harness overview and current status](harness/README.md)
-- [Harness capability matrix](harness/capabilities.md)
-- [Harness roadmap](harness/roadmap.md)
+- [Harness overview (English)](harness/README.md) · [中文](harness/README.zh-CN.md)
+- [Harness capability matrix (English)](harness/capabilities.md) · [中文](harness/capabilities.zh-CN.md)
+- [Harness roadmap (English)](harness/roadmap.md) · [中文](harness/roadmap.zh-CN.md)
 - [Hashline and AST editing](reports/harness-evolution-editing-20261110.md)
 - [DAP debugger](dap-debugger.md)
 - [Persistent Eval](persistent-eval.md)
@@ -25,11 +25,11 @@ LumenCortex is a Go-based cognitive coding-agent system. **Go is the sole produc
 
 ## Cognitive architecture
 
-- [Cognitive Core overview](cognitive-core/README.md) — seven domains, current status, design sources and evidence boundary.
-- [Unified cognitive architecture](cognitive-core/architecture.md) — domain responsibilities, shared semantics and authority boundaries.
-- [Cognitive capability matrix](cognitive-core/capabilities.md) — main vs candidate vs design target.
-- [Memory lifecycle](cognitive-core/memory-lifecycle.md) — working/episodic/semantic/procedural memory, consolidation, compression, frequency, recency and retention.
-- [Cognitive roadmap](cognitive-core/roadmap.md)
+- [Cognitive Core overview (English)](cognitive-core/README.md) · [中文](cognitive-core/README.zh-CN.md)
+- [Unified cognitive architecture (English)](cognitive-core/architecture.md) · [中文](cognitive-core/architecture.zh-CN.md)
+- [Cognitive capability matrix (English)](cognitive-core/capabilities.md) · [中文](cognitive-core/capabilities.zh-CN.md)
+- [Memory lifecycle (English)](cognitive-core/memory-lifecycle.md) · [中文](cognitive-core/memory-lifecycle.zh-CN.md)
+- [Cognitive roadmap (English)](cognitive-core/roadmap.md) · [中文](cognitive-core/roadmap.zh-CN.md)
 - [Cognitive control plane](cognitive-control-plane.md) — historical design record; current Go capabilities are defined by Go source and tests.
 - [Attention Light algorithm](attention-light-algorithm.md)
 - [Data model](data-model.md)

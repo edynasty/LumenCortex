@@ -113,14 +113,14 @@ go vet ./...
 
 Start with the [documentation index](docs/README.md).
 
-- [Cognitive Core architecture and capability status](docs/cognitive-core/README.md)
-- [Seven cognitive domains and shared contracts](docs/cognitive-core/architecture.md)
-- [Cognitive capability and evidence matrix](docs/cognitive-core/capabilities.md)
-- [Memory lifecycle: working/episodic/semantic/procedural, consolidation and retention](docs/cognitive-core/memory-lifecycle.md)
-- [Cognitive architecture roadmap](docs/cognitive-core/roadmap.md)
-- [Agent Harness overview and capability status](docs/harness/README.md)
-- [Agent Harness capability matrix](docs/harness/capabilities.md)
-- [Agent Harness roadmap](docs/harness/roadmap.md)
+- [Cognitive Core overview (English)](docs/cognitive-core/README.md) · [中文](docs/cognitive-core/README.zh-CN.md)
+- [Cognitive architecture (English)](docs/cognitive-core/architecture.md) · [中文](docs/cognitive-core/architecture.zh-CN.md)
+- [Capability matrix (English)](docs/cognitive-core/capabilities.md) · [中文](docs/cognitive-core/capabilities.zh-CN.md)
+- [Memory lifecycle (English)](docs/cognitive-core/memory-lifecycle.md) · [中文](docs/cognitive-core/memory-lifecycle.zh-CN.md)
+- [Cognitive roadmap (English)](docs/cognitive-core/roadmap.md) · [中文](docs/cognitive-core/roadmap.zh-CN.md)
+- [Agent Harness overview (English)](docs/harness/README.md) · [中文](docs/harness/README.zh-CN.md)
+- [Harness capabilities (English)](docs/harness/capabilities.md) · [中文](docs/harness/capabilities.zh-CN.md)
+- [Harness roadmap (English)](docs/harness/roadmap.md) · [中文](docs/harness/roadmap.zh-CN.md)
 
 - [System overview](docs/system-overview.md)
 - [Architecture diagrams](docs/architecture-diagrams.md)

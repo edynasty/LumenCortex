@@ -113,16 +113,16 @@ go vet ./...
 
 ## 文档
 
-建议从[文档索引](docs/README.md)开始。
+建议从[中文文档目录](docs/README.zh-CN.md)开始；[English documentation index](docs/README.md)。
 
-- [Cognitive Core 认知架构与能力状态](docs/cognitive-core/README.md)
-- [七大认知领域与统一契约](docs/cognitive-core/architecture.md)
-- [认知能力与证据矩阵](docs/cognitive-core/capabilities.md)
-- [记忆生命周期：工作/情景/语义/程序性记忆、巩固与保留](docs/cognitive-core/memory-lifecycle.md)
-- [认知架构演进路线](docs/cognitive-core/roadmap.md)
-- [Agent Harness 总览与能力状态](docs/harness/README.md)
-- [Agent Harness 能力矩阵](docs/harness/capabilities.md)
-- [Agent Harness 路线图](docs/harness/roadmap.md)
+- [Cognitive Core 总览](docs/cognitive-core/README.zh-CN.md)
+- [Cognitive Core 总体架构](docs/cognitive-core/architecture.zh-CN.md)
+- [认知能力现状](docs/cognitive-core/capabilities.zh-CN.md)
+- [记忆管理：短期、长期、压缩和保留](docs/cognitive-core/memory-lifecycle.zh-CN.md)
+- [Cognitive Core 后续工作](docs/cognitive-core/roadmap.zh-CN.md)
+- [Agent Harness 总览](docs/harness/README.zh-CN.md)
+- [Agent Harness 能力清单](docs/harness/capabilities.zh-CN.md)
+- [Agent Harness 后续改进方向](docs/harness/roadmap.zh-CN.md)
 
 - [系统概览](docs/system-overview.md)
 - [架构图](docs/architecture-diagrams.md)
