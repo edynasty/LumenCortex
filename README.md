@@ -137,7 +137,9 @@ Start with the [documentation index](docs/README.md).
 - [Go production runtime and migration history](docs/go-runtime-migration.md)
 - [Go provider configuration](docs/go-provider.md)
 - [Plugin and MCP templates](docs/plugins-mcp-templates.md)
-- [Architecture Decision Records](docs/adr/README.md)
+- [Architecture Decision Records](docs/adr/README.md) · [中文](docs/adr/README.zh-CN.md)
+- [Implementation principles](docs/implementation-principles.md) · [中文](docs/implementation-principles.zh-CN.md)
+- [Implementation and review reports](docs/reports/README.md) · [中文](docs/reports/README.zh-CN.md)
 
 ## Current release boundaries
 

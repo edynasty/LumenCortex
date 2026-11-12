@@ -141,7 +141,9 @@ go vet ./...
 - [Go 生产 Runtime 与迁移历史](docs/go-runtime-migration.md)
 - [Go Provider 配置](docs/go-provider.md)
 - [Plugin 与 MCP 模板](docs/plugins-mcp-templates.md)
-- [架构决策记录](docs/adr/README.md)
+- [架构决策记录（中文）](docs/adr/README.zh-CN.md) · [English](docs/adr/README.md)
+- [LumenCortex 实现原则](docs/implementation-principles.zh-CN.md) · [English](docs/implementation-principles.md)
+- [实施与审查报告目录](docs/reports/README.zh-CN.md) · [English](docs/reports/README.md)
 
 ## 当前发布边界
 

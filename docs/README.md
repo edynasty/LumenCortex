@@ -36,7 +36,9 @@ LumenCortex is a Go-based cognitive coding-agent system. **Go is the sole produc
 - [Attention Light (English)](attention-light-algorithm.md) · [中文](attention-light-algorithm.zh-CN.md)
 - [Context and Evidence (English)](context-evidence.md) · [中文](context-evidence.zh-CN.md)
 - [Data model (English)](data-model.md) · [中文](data-model.zh-CN.md)
-- [Architecture Decision Records](adr/README.md)
+- [Architecture Decision Records](adr/README.md) · [中文](adr/README.zh-CN.md)
+- [Implementation principles](implementation-principles.md) · [中文](implementation-principles.zh-CN.md)
+- [Implementation/review reports](reports/README.md) · [中文](reports/README.zh-CN.md)
 
 ## Development and validation
 

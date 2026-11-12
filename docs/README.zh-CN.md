@@ -36,7 +36,9 @@ LumenCortex 是 Go 实现的认知型编程 Agent。Go 是唯一正式生产 Run
 - [Attention Light 算法](attention-light-algorithm.zh-CN.md)
 - [Context 与 Evidence](context-evidence.zh-CN.md)
 - [数据模型](data-model.zh-CN.md)
-- [架构决策记录](adr/README.md)
+- [架构决策记录 ADR](adr/README.zh-CN.md) · [English](adr/README.md)
+- [LumenCortex 实现原则](implementation-principles.zh-CN.md) · [English](implementation-principles.md)
+- [实施与审查报告目录](reports/README.zh-CN.md) · [English](reports/README.md)
 
 ## 开发与验证
 
