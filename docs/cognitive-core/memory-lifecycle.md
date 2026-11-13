@@ -1,138 +1,68 @@
 # Cognitive Memory Lifecycle
 
-## Purpose
+**Unmerged completion candidate, 2026-11-13.** [中文](memory-lifecycle.zh-CN.md) · [Architecture](architecture.md) · [Evidence](../reports/cognitive-core-final-completion-2026-11-13.md).
 
-This document defines the memory concepts that the Cognitive Core must distinguish. These are logical memory roles, not a requirement to create four databases or four independent services.
+## Four roles, one store
 
-The current Go main has durable Sessions, Notes, context/knowledge foundations, bounded context selection and recency-aware recall. It does **not** yet provide one unified memory lifecycle that performs episodic consolidation, semantic compression, utility-aware retention and safe long-term capacity management.
-
-## Four logical memory roles
-
-| Role | Meaning | Typical content | Lifetime |
-|---|---|---|---|
-| **Working memory** | The bounded state needed for the current reasoning/action cycle | Current goal, constraints, active evidence, open questions, selected context, pending decisions | Current Run / task window; durable task state may survive restart |
-| **Episodic memory** | A record of what happened in a particular task or interaction | Session events, tool observations, decisions, failures, checks, outcomes and provenance | Retained as history subject to privacy and retention policy |
-| **Semantic memory** | Generalized claims about the world, project, system, or domain | Facts, relationships, concepts, conditions, evidence, validity and conflicts | Long-lived, but must be revised or invalidated when evidence/conditions change |
-| **Procedural memory** | Reusable methods for achieving outcomes under stated conditions | Strategies, workflows, diagnostic steps, code patterns, failure-avoidance methods | Long-lived only while preconditions and supporting evidence remain applicable |
-
-Short-term and long-term describe retention and lifecycle policy, not necessarily separate physical stores:
-
-- Short-term information is recent, task-local, provisional, or awaiting consolidation.
-- Long-term information is retained because it has durable value and sufficient provenance, not merely because it is old or frequently accessed.
-- An episode can remain as historical evidence even after a semantic summary is created.
-- A procedural experience must retain its preconditions, exclusions, origin and validation history.
-
-## Consolidation: episode to reusable knowledge
-
-A target consolidation path is:
-
-    Episode / task outcome
-      -> extract candidate patterns
-      -> separate observation from interpretation
-      -> abstract preconditions, strategy, expected result and exclusions
-      -> bind source and evidence
-      -> check applicability and counterexamples
-      -> accept only within supported scope
-      -> expose as a candidate for future retrieval/use
-      -> record consumer-specific use and outcome
-      -> revise, narrow, invalidate, archive or retain
-
-This is not an automatic summarization step. A summary can reduce words while losing the conditions that made an action successful. Consolidation must preserve:
-
-- what was observed versus inferred;
-- the source episode and exact evidence;
-- the context and preconditions;
-- what action was taken and what outcome was observed;
-- what did not work and known counterexamples;
-- where the experience must not be applied;
-- which consumers used it and their separate outcomes.
-
-A single successful episode supports an instance-specific observation. It does not automatically establish a general rule.
-
-## Compression: three different operations
-
-Do not conflate these operations:
-
-1. **Context-window selection/compression** — choose a bounded subset of relevant information for the next model request. This is a per-request projection; it must not silently rewrite durable memory.
-2. **Episodic summarization** — create a derived summary of a task episode while retaining the original episode and provenance.
-3. **Semantic consolidation** — abstract multiple observations into a conditional knowledge/experience object, preserve counterexamples and evidence, then validate it before broader reuse.
-
-Lossy truncation is not semantic compression. If a derived summary cannot be traced back to its source, it must not replace the source as authoritative evidence.
-
-## Frequency, recency, utility and confidence
-
-These are distinct signals:
-
-| Signal | Question answered | What it must not mean |
+| Role | Authoritative data | How it becomes useful later |
 |---|---|---|
-| Recency | When was this item last observed or used? | Recent does not mean true or important |
-| Frequency | How often has it been independently accessed or applied? | Repeated access does not mean independent confirmation |
-| Utility | Did using it improve an outcome or reduce cost/risk? | A successful outcome may have other causes |
-| Evidence strength | What supports this claim and how directly? | Model confidence is not evidence |
-| Applicability | Do current conditions satisfy its preconditions? | Similar wording is not sufficient |
-| Stability | How likely is the underlying fact to change? | Old does not automatically mean stale |
-| Dependency | Which decisions or experiences rely on it? | Deleting a consumer must not erase unrelated consumers |
+| Working | Task State, Notes/notebooks and the bounded current context | The ordinary Agent reads its goal, constraints, open questions and checked outcomes. Compaction does not turn private reasoning into durable memory. |
+| Episodic | Session/run identity, answered requests, execution IDs, terminal outcomes and `eval_results` | Extraction refers to the actual episode and its source version, not the model's claimed success. Failed and incomplete executions remain distinct. |
+| Semantic | Maintenance candidates plus native `belief`, `entity`, `abstraction` and related graph nodes | Structured assertions gain evidence only through host-bound checks. Summaries keep `Sources` and pinned `Dependencies`; text remains a proposal. |
+| Procedural | Typed `Experience` in native graph revisions | Current conditions, original action trace and explicit independent application connect a prior episode to a later task. |
 
-A future retrieval policy may combine these signals, but it must keep their meanings inspectable. Repeated reuse should be deduplicated by independent Run/episode identity; retries or repeated reads of the same event must not inflate frequency.
+Short/long term are roles and retention policies, not separate databases. `MemoryClass()` exposes the graph's logical class; Task State and Session history keep their existing storage contracts.
 
-Current Go thread recall contains a recency factor in ranking (the existing implementation uses a 30-day half-life component). That is a retrieval weight, not an expiry rule, correctness score, or general memory-decay policy. The current code does not provide a unified, evidence-aware frequency/utility manager for all cognitive memory.
+## From episode to future application
 
-## Retention, decay, archive and deletion
+1. `propose_experience` records one bounded structured candidate for the active run. No source identity, result or verification grade is accepted from the model.
+2. At the existing terminal boundary, `finalizeCognitiveRun` calls extraction and validation against the real source. Origin task/run, tool argument digests, executions, cited blobs and check identities are immutable evidence.
+3. An incomplete/truncated trace, missing approval, failed condition or unsupported expected result cannot validate a positive procedure. Negative expected results retain their negative meaning.
+4. Recall selects relevant scoped locators. Adoption independently checks current conditions, records a one-use identity and only then returns strategy.
+5. `apply_experience` explicitly receives the observed tool/argument sequence. It checks conditions and definition, commits admission, and calls ordinary policy-controlled tools. Each action observes the live Workflow and atomically settles Task State/execution/source edges before continuing; gates and background-shell refusal cannot be bypassed.
+6. A complete sequence of distinct, ordered dispatcher-issued execution identities and terminal outcomes, including real failures, is use evidence. Feedback independently checks the declared outcome. Pending, denied, interrupted, partial or unknown execution remains unknown; identical arguments cannot borrow another action's receipt.
+7. A counterexample appends `needs_revision`. The origin may propose a changed definition, but validation resets and historical Uses/feedback remain. The next consumer must establish conditions again.
+8. Restart finishes memory settlement under the existing run lock without replaying actions. Check/storage errors appear separately in `AgentResult.Cognition` and recovery events.
 
-Never apply plain LRU/TTL deletion to authoritative cognitive knowledge.
+## Compression and consolidation
 
-A retention decision should consider:
+These operations deliberately have different authority:
 
-- evidence quality and source availability;
-- scope and time validity;
-- stability and expiry conditions;
-- independent use and observed utility;
-- safety, legal, privacy and owner-preservation requirements;
-- dependency graph and downstream consumers;
-- whether the item is a unique historical failure or counterexample.
+- **Context selection/compaction:** existing context budgeting and Notes/recall make a bounded request projection. No change to durable truth, evidence or source history.
+- **Episode summary:** model-supplied, bounded Experience fields or a host-proposed `abstraction` refer to sources and pinned premises. It is not an independently verified summary of arbitrary prose.
+- **Semantic consolidation:** Governor may archive equivalent aliases with a `Memory.Canonical` exact revision. Owner, scope, kind, assertion, body, source/evidence, dependencies and validity must match. A new binding requires a current active target unchanged in the same batch. Generic writes cannot alter aliases; later target changes do not block revocation with the historical pin. History is retained, not deleted.
 
-Low retrieval frequency is not enough to delete an invariant, safety rule, rare failure mode, or unique counterexample. A high-frequency item can still be wrong.
+Non-equivalent facts, failed counterexamples and different valid intervals are not flattened into one summary. Broader interpretation requires a new proposal with provenance and new checks. There is no automatic universal generalization claim.
 
-Distinguish:
+## Separate signals
 
-- **deprioritize** — lower retrieval priority without changing validity;
-- **expire/stale** — no longer current under its time or source rule;
-- **invalidate/revoke** — no longer usable due to source, privacy or correctness event;
-- **archive** — remove from the active working set while retaining governed history;
-- **delete/purge** — remove data under an explicit privacy/retention contract and clean dependent material appropriately.
+`Engine.CognitiveMemory(readerID, nodeID)` exposes only the reader's own access and outcome information.
 
-## Capacity management
+| Signal | Stored/computed meaning | Not a correctness claim |
+|---|---|---|
+| `Access.Count` / `LastAccess` | Reader-local `recall_experiences` tool exposure count/time in `cognition_access`; direct host reads are uncounted | Repeated viewing is not independent use or evidence. |
+| `Outcomes.Adoptions` | Unique visible adoption records | Adoption itself does not mean any action happened. |
+| Success/failure/unknown/unconfirmed | Derived from immutable visible feedback | Outcome match does not establish causal benefit. |
+| Model confidence | Optional proposal confidence | Never upgrades applicability or bypasses a check. |
+| Importance/retention | Host-owned `MemoryPolicy` | Important information can be uncertain or false. |
+| Evidence/applicability | Exact approved result plus current source/time/scope | Retrieval rank, age and frequency cannot manufacture evidence. |
+| `Utility` | `causal_benefit_unmeasured` | No synthetic reward or unmeasured learning gain. |
 
-Capacity management should first bound projections and work per operation, then govern durable storage separately.
+Thread recall's existing 30-day recency component remains a ranking weight, not a TTL. All native revisions preserve actual feedback; summaries do not replace it with a mutable score.
 
-Required design properties:
+## Retention, archive, revoke and restore
 
-- bounded working set and per-request token budget;
-- bounded recall candidate count and graph traversal;
-- bounded consolidation batches;
-- explicit limits for history, artifacts and derived summaries;
-- source-preserving summaries and deterministic recovery;
-- observable pressure and refusal reasons;
-- no silent truncation of evidence or silent loss of unacknowledged data.
+- `MaintainCognitiveMemory(owner, capacity)` controls the active owned set. It archives only already stale/dormant, unprotected, unreferenced records, lowest host importance first, at most 512 revisions per transaction.
+- Protected: task nodes, negative nodes, failed/contradicting evidence, negative-origin/negative-result Experiences, counterexample feedback, `needs_revision`, safety/counterexample retention and importance at least 0.8. Dependencies and graph references are protected during capacity maintenance.
+- **Archive** removes a record from active use but keeps its history. Generic node revisions and lifecycle APIs cannot evade protection by dropping retention metadata in the same archival write.
+- **Restore** requires current source, dependency and valid-time checks; it does not validate content. Revoked/invalidated identities cannot be revived; a corrected claim requires a new identity.
+- **Revoke** appends an immutable invalidation. Source revocation uses the existing fence graph and prevents dependent reuse.
+- **Privacy delete** uses the existing stop/fence/secure-purge/rebuild/WAL recovery path and removes all relevant revisions, applications and access rows. It is not a capacity shortcut and is not reversed by Restore.
 
-Physical hot/warm/cold stores and destructive cognitive garbage collection are not current Go main claims. Existing hot/warm/cold metadata is logical metadata, not proof of separate physical tiers.
+If the active/protected set exceeds the requested capacity, `Pressure=true` is returned. The system does not delete a rare safety fact or counterexample merely to hit a number. Hot/warm/cold is logical metadata, not physical storage tiers.
 
-## Current implementation boundary
+## Bounds and limitations
 
-| Mechanism | Current Go main status |
-|---|---|
-| Session / episodic history | Implemented |
-| Notes and durable context | Implemented baseline |
-| Bounded active context / token budget | Implemented baseline |
-| Recency-aware thread recall | Implemented, limited ranking signal |
-| Structured knowledge / evidence | Partial baseline; richer Scope/Time/Evidence is in the unmerged candidate |
-| Experience extraction and adoption | Candidate, not current main |
-| Episodic-to-semantic consolidation | Not complete |
-| Semantic compression with source-preserving abstraction | Not complete |
-| Unified frequency + utility policy | Not complete |
-| Evidence-aware memory decay and retention | Not complete |
-| Separate physical storage tiers / cognitive GC | Not claimed |
+Native nodes remain at most 64 KiB; source refs at most 8, dependencies at most 16, dependency depth at most 32. Assessment returns at most 16 records and marks incomplete coverage; an application has at most 8 actions, an Experience at most 8 Uses. The serialized byte bound may be reached earlier. These are refusal boundaries, not silent eviction or compression of evidence.
 
-## Design principle
-
-**Keep the original episode, derive reusable knowledge from it, and never confuse frequency, recency, similarity, or compression with truth.**
+Large Experience sets and whole-graph Governor diagnostics still scan the selected domain; this candidate adds no ANN/embedding database or automatic destructive GC. Source advancement can make old Experiences unavailable; re-extraction from a new genuine episode is required. Privacy protection covers Core-owned live state, not external backups or forensic erasure. No longitudinal learning benefit is measured.

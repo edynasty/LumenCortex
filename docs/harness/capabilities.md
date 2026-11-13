@@ -22,10 +22,16 @@
 | Browser / vision / computer use | External integration direction | MCP templates / host integrations | Not a native built-in Core runtime claim |
 | Retry / handoff / collaboration controls | Core Hub baseline | Hub APIs, leases, durable messages and handoff | Host/Desktop must use the authoritative Core APIs |
 | Native Wails UI for every capability | Separate Desktop surface | Desktop repository and release evidence | Core API availability does not prove UI availability |
-| Cognitive architecture | Separate cognitive layer | Cognitive Core docs | Expanded Cognitive Core candidate is not part of this main snapshot |
+| Cognitive architecture | Main has context/Light/read-only Governor foundations | [Cognitive Core](../cognitive-core/README.md) | Unmerged completion candidate adds scoped learning/assessment tools and host lifecycle; not main/release availability |
 
 ## Harness capability status versus Harness Evolution
 
 The 2026-11-10 Harness Capability Audit compared three different surfaces: Core main, the then-current Desktop product pinned to an older Core tag, and an unmerged execution-platform branch. Its findings and prototypes are historical, branch-specific evidence. Later Go code landed in Core main, so the old matrix must not be copied as if it were a current status table.
 
 The separate Harness Evolution implementation/review work also included candidate-only changes and Desktop integration constraints. A local candidate or a successful isolated test does not mean it has been merged, tagged, pushed, or shipped in Desktop. Check the exact commit, ancestry, release tag and Desktop go.mod dependency before making a release claim.
+
+## Cognitive completion candidate interface
+
+The isolated 2026-11-13 candidate binds five cognitive tools to the normal admitted run: propose, recall, adopt, explicitly apply and assess. `apply_experience` reuses ordinary tool specs, policy, workflow, budget and hooks; it does not grant Exec to Eval or add an Agent Loop. Main task outcome and `AgentResult.Cognition` settlement are separate. Recovery does not replay tools; Governor lifecycle/approval/privacy authority remains host-only. [ADR-0023](../adr/0023-unified-cognitive-lifecycle.md) and the [API](../cognitive-core/COGNITIVE_CORE_API.md) define this Core boundary. No Desktop or unrelated Harness capability was implemented by this completion task.
+
+Application callbacks use the same Workflow observer and transition hooks, atomically settle each execution with Task State/source edges, and recompute authority before the next action. They refuse background submission and cannot cross a human gate. Exact execution outcomes come from the dispatcher, not model output or a latest-matching-record query. Nested retrieval preserves the ordinary source-withdrawal boundary. This integration changes no Desktop contract.

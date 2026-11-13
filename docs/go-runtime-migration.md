@@ -25,9 +25,9 @@ The Core mainline includes the Go Agent Harness foundations: persistent Sessions
 
 ## Cognitive Core boundary
 
-The expanded Cognitive Core P0 work (Go Scope / Time / Evidence, read-only Graph Governor validation, and Experimental Experience Learning) remains a separate unmerged candidate as of Core `208ad6b`. It must not be represented as part of current `main` until its inherited baseline, migrations, and final independent review are accepted.
+The expanded Cognitive Core remains an unmerged candidate on main `00344b5`, with committed historical `91af861` work and the completion changes. The schema sequence preserves Hub 0013 and adds cognition 0014, support 0015, native graph 0016 and completion 0017. [Migration/rollback contract](cognitive-core/COGNITIVE_P0_STORAGE_DECISION.md) and [current report](reports/cognitive-core-final-completion-2026-11-13.md) record actual evidence.
 
-The Go Graph Governor currently claims read-only Analyze / Plan / Validate. The model Curator fails closed before sending a provider request while request-envelope admission is unavailable. Go main does not claim Graph Apply, autonomous graph mutation, or Cortex Epoch execution.
+Main claims read-only Governor foundations. The candidate adds host-only CAS lifecycle Apply, ordinary Agent conditional Experience application and memory settlement; it does not enable the unadmitted model Curator or autonomous Epoch. No production database was migrated. New completion data/metadata prevents destructive downgrade to an older reader.
 
 ## Go CLI entrypoint
 

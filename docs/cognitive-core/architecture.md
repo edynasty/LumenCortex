@@ -1,82 +1,62 @@
 # Unified Cognitive Architecture
 
-## Purpose
+**Candidate:** `feat/cognitive-core-final-completion-20261113`, based on main `00344b5` plus the committed `91af861` cognitive candidate. Not merged or released. [中文](architecture.zh-CN.md) · [Verification and exact commits](../reports/cognitive-core-final-completion-2026-11-13.md).
 
-This document consolidates Astra's seven-domain target architecture with Fable's implementation and evidence constraints. The seven domains are cognitive responsibilities, not seven independent services, databases, Agents, or loops.
+## One system, seven responsibilities
 
-The intended cycle is:
+Core keeps one Go `runtime.Engine`, one Agent Loop, one SQLite store, the existing evaluator, maintenance lease, Governor and source-fence/purge machinery. The domains below describe responsibilities, not separate services.
 
-    Current cognitive state
-      -> understand task and context
-      -> attend to relevant knowledge and evidence
-      -> reason, identify unknowns and decide
-      -> verify claims and authority
-      -> act through the Agent runtime
-      -> capture outcomes and experience
-      -> revise beliefs and govern lifecycle
-      -> updated cognitive state for the next task
+```mermaid
+flowchart LR
+  T[Task State and current task] --> A[Attention: scoped bounded recall]
+  A --> R[Reasoning: assertions, premises, unknowns, conflicts]
+  R --> V[Verification: approved checks and evidence]
+  V --> X[Ordinary authorized Agent tools]
+  X --> O[Durable executions and terminal outcome]
+  O --> L[Learning: candidate, validation, adoption, application, feedback]
+  L --> B[Belief revision and dependency invalidation]
+  B --> G[Governor: retention, consolidation, lifecycle]
+  G --> A
+```
 
-The cycle is a target relationship. Not every transition is fully implemented in current Go main.
-
-## Seven cognitive domains
-
-| Domain | Responsibility | Inputs | Outputs / state changes | Current implementation boundary |
-|---|---|---|---|---|
-| **Memory** | Preserve grounded episodes, facts, relationships, evidence, and reusable experience | Sessions, tool observations, human input, verified checks, task outcomes | Durable records with source, scope, time, and lifecycle | Go main has Sessions, Notes, context/knowledge foundations and persistent stores. Expanded Cognitive Core candidate adds richer Scope/Time/Evidence and Experience semantics. |
-| **Attention** | Select what is relevant to the current task under a finite context budget | Goal, current state, scope, query, graph links, evidence, freshness | Ranked, bounded working set with provenance and exclusions | Go main has lexical/symbol retrieval and Attention Light foundations. Advanced semantic/hybrid retrieval in historical Node references is not Go production capability. |
-| **Reasoning** | Form hypotheses, compare explanations, infer consequences, and decide what information/action is needed | Working set, evidence, constraints, uncertainty, task objective | Hypotheses, decision proposals, questions, plans, or explicit unknown | Model reasoning and Go cognitive-control routing exist. A general evidence-sufficiency and causal reasoning framework is not established as a complete Core capability. |
-| **Learning** | Turn task episodes into conditional, validated, reusable experience | Episode, actions, observations, outcome, context, counterexamples | Experience candidates, preconditions, strategies, limits, feedback and revised experience | Expanded candidate contains extraction, validation, adoption, feedback and revision foundations. General abstraction, transfer and demonstrated future-task improvement remain open. |
-| **Belief Revision** | Update, qualify, invalidate, or retain beliefs as evidence and conditions change | New evidence, contradiction, source status, time, scope, failures | New version/status, conflict, stale/unknown state, dependency invalidation | Go knowledge semantics and candidate mechanisms cover parts of provenance, freshness, conflict, invalidation and revision. General-purpose logical revision is not claimed. |
-| **Governance** | Enforce cognitive policy, lifecycle, resource bounds, privacy and safe state transitions | Proposed changes, graph state, evidence, policy, budgets, lifecycle events | Allowed/rejected plans, maintenance actions, durable transitions | Go main Graph Governor supports read-only Analyze / Plan / Validate. Curator Apply and autonomous graph mutation are not claimed in main. |
-| **Verification** | Establish whether a claim or transition is supported by an authorized, relevant check | Claim, source, scope, time, check definition, host observation | Verified/failed/unknown evidence bound to source and version | Go has host-approved checks, provenance, transactional and freshness controls. Verification proves only what the check actually establishes; it does not prove arbitrary semantic truth. |
-
-## Shared cognitive contracts
-
-The domains must share a small set of semantics. These are cross-cutting contracts, not optional metadata that each subsystem can interpret differently.
-
-### Identity and scope
-
-Every durable claim or experience must identify what it is about and where it applies: project/repository, environment, component, task class, actor, or other relevant scope. A claim must not silently widen from one project or environment to another.
-
-### Time and validity
-
-Distinguish observation time, effective time, expiry/validity conditions, and the time at which a reader uses the claim. Recency is a ranking signal; it is not proof of validity. A recent claim can be wrong, and an old invariant can remain valid.
-
-### Evidence and provenance
-
-Record who or what produced the information, the source locator/version, the check or observation that supports it, and its derivation chain. A model-generated statement is a proposal, not independent evidence.
-
-### Applicability and uncertainty
-
-Represent preconditions, exclusions, confidence/evidence strength, conflicts, unknowns, and stale status explicitly. If applicability cannot be established, the system must not silently treat the item as current.
-
-### Lifecycle and revision
-
-Knowledge and experience need explicit transitions: proposed, checked, accepted within a scope, applied, observed, challenged, revised, invalidated, archived, or deleted. Exact state names belong to the implementation contract; the invariant is that state changes are explicit, attributable, and recoverable.
-
-### Ownership, privacy, and dependency
-
-Separate origin ownership, shared definition, consumer-specific adoption, and consumer-specific outcomes. A consumer deletion must not accidentally delete unrelated consumers' private or valid state; origin revocation must invalidate all dependent uses that rely on that origin. Reads must enforce the same privacy semantics as writes, replay, context projection, and purge.
-
-## Roles and authority
-
-| Actor | May do | Must not do |
+| Domain | Problem and implementation | Shared output / boundary |
 |---|---|---|
-| Model | Interpret context, propose hypotheses, candidate knowledge, experience, plans, and uncertainty | Self-authorize checks, fabricate evidence, promote its own proposal, bypass privacy or policy |
-| Agent | Execute authorized work and produce observable outcomes | Turn its own assertion into verified evidence |
-| Host / tools | Perform real checks and return observations under explicit authority | Claim a check proves more than it actually checks |
-| Go Cognitive Core | Bind identity/scope/time/provenance, validate transitions, enforce privacy/freshness, persist and recover state | Treat unverified model text as authoritative knowledge |
-| Governance | Analyze and validate permitted lifecycle plans | Apply mutations beyond its current implemented authority |
+| Memory | Task State and bounded context hold working memory; Sessions/executions/checks are episodes; `cognition_candidates` and native graph beliefs are semantic records; typed Experience is procedural memory. | Source-preserving immutable revisions in the same store. No second memory database. |
+| Attention | Existing Notes/thread recall and Context Graph remain the retrieval foundation. `knowledgeIndexRow` ranks task-relevant locators; `RecallExperiences` uses `threadctx.Tokens` and prioritizes matching warnings. | A score selects attention, never truth. Limits and required dependencies remain explicit. |
+| Reasoning | The model interprets the task and proposes action. `AssessCognition`/`assess_cognition` evaluates exact assertions, pinned premises, freshness and contradictory peers. | `fact`, `inference`, `hypothesis`, `decision`, `unknown`, `experience`; `current`, `candidate_only`, `unknown`, `stale`, `conflict` applicability. Framework does not implement a universal proof engine. |
+| Learning | `propose_experience` queues bounded structure. Terminal finalization extracts from the real episode and runs host-bound checks. Recall/adopt/apply connect that result to later Agent actions. | Adoption is not execution. Application receipts and independently checked feedback determine success/failure/unknown. |
+| Belief Revision | Native revisions pin dependencies; any changed premise invalidates current applicability. Counterexample feedback requires an explicit new Experience definition before revalidation. | History, old outcome, reason and source identity remain. No model self-approval. |
+| Governance | Analyze/Plan/Validate remain deterministic. Host-only `GovernorApply`, `SetCognitiveLifecycle`, `MaintainCognitiveMemory` implement owned CAS lifecycle transactions. | Archive/tier/equivalent consolidation only; unsupported claim promotion/branch/epoch plans are refused. |
+| Verification | Existing approved check/spec/binding + closed stable episode + source/fingerprint/approval epoch/privacy epoch establishes exact evidence. | An unexecuted or unapproved check never counts; process evidence is not portable between runs. |
 
-## What is not yet a completed theory
+## Shared semantics
 
-The seven-domain model is a useful responsibility decomposition, but it is not by itself a complete cognitive theory. The following relationships still require explicit design closure:
+- **Scope and ownership:** `knowledge.Scope`/`Reader` are derived from Engine/session/project/workspace identity. A revision cannot widen its audience. There is no implicit global knowledge authority. `readerID` is a trusted host API argument, not network authentication.
+- **Time:** `Times` separates observation, recording, verification, valid interval and invalidation. Read-time freshness is evaluated against the reader now. CAS revision, not wall clock, orders writes.
+- **Provenance:** `SourceRef` identifies the exact terminal session/run/version. `NodeRef` pins a premise revision. Existing `derived_origins` materializes exposure, including summaries, decisions and Experience consumers.
+- **Evidence versus confidence:** only framework-created observations reference approved results. `ModelConfidence` is optional model judgment and grants no evidence level or execution permission.
+- **Revision:** immutable graph versions use expected-version CAS; checks execute outside write transactions and authority/source/fences are rechecked inside. Lifecycle batches commit all or nothing. A canonical target cannot change in the same batch as aliases that pin it.
+- **Privacy:** origin definition and consumer feedback are different disclosures. Public reads and mutation replies expose only the reader's own `Uses`. Origin-only readers do not inherit other consumers; reading a counterexample warning does create its actual aggregate dependency. Revocation overrides history availability.
 
-- a unified cognitive state transition model across facts, hypotheses, experiences, evidence, and decisions;
-- a decision process that can choose between acting, gathering evidence, asking, deferring, or stopping;
-- experience abstraction and conditional transfer, not only storage and exact matching;
-- metacognitive monitoring that can detect knowledge gaps, failed reasoning assumptions, and experience mismatch;
-- consumer-safe provenance and privacy semantics across every read and mutation path;
-- memory consolidation, compression, retention, and capacity policy.
+## Data and execution flow
 
-Do not create a new service for each gap by default. First determine whether the shared contracts and existing domains can express the required behavior.
+1. Host enables cognition and approves exact assertions/checks. These are separate permissions.
+2. A normal run gets bounded relevant locators, reads Notes/knowledge/Experience as untrusted context and records evidence-aware decisions. A requested `continue` is not endorsed if prerequisites remain unknown, stale, incomplete or conflicting. Ask/defer/stop are explicit proposals, not hidden autonomous work.
+3. The model may propose a structured conditional lesson during the run. It cannot provide source IDs, execution success, evidence or authority as self-certification.
+4. The existing terminal boundary extracts the proposal against actual run/task/execution/check records. Complete failed episodes and negative outcomes are retained; an answer-only or incomplete episode cannot validate a procedure.
+5. A later independent consumer checks every condition before adoption, then explicitly submits the same observed action sequence for application. `apply_experience` matches tool names/canonical argument digests; existing callback dispatch enforces ordinary policy, allowlists, workflow, budget and hooks. No commands are auto-replayed from stored prose.
+6. The application receipt records durable execution IDs, including settled tool failures. Full settled application plus an independent expected-outcome check supports feedback. Denial, cancellation, partial execution or unknown settlement never counts as success.
+7. Counterexamples append `needs_revision` and retain all prior evidence. A changed definition returns to candidate state; a revoked identity cannot be restored. Archive/restore do not manufacture evidence.
+8. Restart completes pending memory settlement under the session run lock; pending actions become unknown, never replay. Memory errors are separate from the already-observed Agent result.
+
+Semantic extraction through `MaintainCognition` remains the existing optional, bounded maintainer path with the same approvals and source contracts. It is not a second learning loop or a substitute for application feedback.
+
+## Boundaries and trade-offs
+
+- Only host-bound structured assertions can be checked as facts. Free prose, proposed causes and causal links are interpretations; a successful outcome proves neither the entire explanation nor causal benefit.
+- Conditional reuse is deliberately exact-action: the model can recognize a related problem and select a procedure, but cannot silently parameterize or substitute its observed actions. New actions require a new observed candidate. This is not universal transfer.
+- Memory consolidation only archives aliases with the same owned scope, assertion, body, source/evidence, dependencies and validity. Broader summaries remain new unverified proposals with source dependencies; lossy text is not a fact.
+- Retention preserves safety, failures, counterexamples, high importance and dependencies. If only protected/active content remains, pressure is reported rather than deleting it. Logical tiers are not physical storage tiers.
+- In-process local host trust remains the boundary. External backups/exports, physical SSD erasure, cross-project sharing and general autonomous learning gains are not claimed.
+
+[Memory lifecycle](memory-lifecycle.md) · [API](COGNITIVE_CORE_API.md) · [Implementation](COGNITIVE_CORE_IMPLEMENTATION.md) · [ADR-0023](../adr/0023-unified-cognitive-lifecycle.md).

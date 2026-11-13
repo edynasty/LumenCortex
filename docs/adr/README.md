@@ -53,6 +53,7 @@ Use [0000-template.md](0000-template.md) as the starting point.
 - [0011 — OMP session import](0011-omp-session-import.md)
 - [0012 — Core plugin platform and session import sources](0012-core-plugin-platform.md)
 - [0013 — Project inputs and workspace trust](0013-project-inputs-and-workspace-trust.md)
+- [0023 — Unified cognitive lifecycle and observed application](0023-unified-cognitive-lifecycle.md) (accepted in the isolated candidate; not merge/release approval)
 
 ## Proposed decisions
 

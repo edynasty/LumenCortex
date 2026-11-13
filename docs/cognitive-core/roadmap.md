@@ -15,7 +15,7 @@ Purpose: make every cognitive object safe to interpret and use.
 - Transactional revision, revocation and recovery.
 - One authoritative Go persistence and governance boundary.
 
-The expanded P0 candidate has been implemented and reviewed in several local candidates. It is not part of Core main merely by virtue of those local results; use the current release/merge record for availability.
+The completion candidate closes the shared Scope/Time/Evidence, CAS/dependency, lifecycle and reader-privacy implementation paths. It is still unmerged; exact engineering/independent-review status is in the completion report.
 
 ## P1 — Conditional experience reuse and correction
 
@@ -29,7 +29,7 @@ Purpose: turn task episodes into reusable but bounded experience.
 - Record consumer-specific adoption and outcome.
 - Revise, narrow, invalidate or forget experience after feedback.
 
-The open architectural issue is generalization: moving from one concrete episode to a reusable method without losing conditions or overclaiming universality.
+Ordinary Agent proposal → terminal extraction/validation → independent adoption/application → outcome feedback/revision is implemented. Exact-action conditional reuse is the deliberate authority boundary. Arbitrary parameterized transfer and measured longitudinal task improvement remain evidence/product work, not claims made by this implementation.
 
 ## P2 — Evidence-driven reasoning and metacognition
 
@@ -42,7 +42,7 @@ Purpose: let the system recognize what it knows, what it does not know, and what
 - Revisit conclusions when supporting evidence changes.
 - Keep model proposals advisory; framework owns authority and durable transitions.
 
-Metacognition is a cross-cutting responsibility, not necessarily a separate service or another Agent loop.
+`assess_cognition` now records exact-revision, evidence-aware decisions; conflicting propositions and unresolved premises cannot be silently treated as facts. The model chooses hypotheses and gather/ask/defer/stop; framework evidence does not replace general reasoning or establish causality.
 
 ## P3 — Scale and long-horizon memory management
 
@@ -54,6 +54,8 @@ Purpose: keep cognition useful as history and knowledge grow.
 - Evidence-aware retention, archival and capacity controls.
 - Large graph/experience query optimization.
 - Physical storage tiers only if a measured product need justifies them.
+
+The candidate implements protected logical retention, owned active-capacity maintenance, equivalent-evidence canonicalization, reader-local accesses and separate observed outcomes. Physical storage tiers, very large selected-domain query optimization and causal benefit estimation require measured need. Do not create a second memory manager or a speculative benchmark now.
 
 ## Architecture guardrails
 

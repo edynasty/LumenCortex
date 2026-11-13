@@ -21,9 +21,16 @@
 | 多语言 AST 编辑 | 未实现为 Go 生产能力 | 仅有历史 Node/研究参考 | 有对应 LSP 能力时优先使用 LSP |
 | Browser / 视觉 / 电脑操作 | 外部集成方向 | MCP 模板和 Host 集成 | 不是 Core 内置运行时 |
 | Desktop 原生界面 | 独立产品范围 | Desktop 仓库和发布证据 | Core API 存在不代表 Desktop 已接入 |
+| 认知架构 | main 有 Context/Light/只读 Governor 基础 | [Cognitive Core](../cognitive-core/README.zh-CN.md) | 完整候选新增学习/评估工具与宿主生命周期，尚未进入 main/Release |
 
 ## 如何判断 Harness Evolution 状态
 
 2026-11-10 的旧审计比较了 Core main、当时依赖旧 Core Tag 的 Desktop，以及尚未合并的执行平台分支。它是历史快照，不能直接当作当前能力表。
 
 Harness Evolution 的本地候选、测试通过和 Desktop 联调，都不等于已经合并、打 Tag 或发布。必须核对准确 Commit、合并记录、Core Tag 和 Desktop 的 `go.mod`。
+
+## Cognitive Core 完整候选接口
+
+2026-11-13 独立候选把提案、召回、采纳、明确应用和评估五种工具绑定到普通已准入 Run。`apply_experience` 复用原有工具集合、Policy、Workflow、预算和 Hook，不向 Eval 授予 Exec，不增加第二个 Agent Loop。主任务结果与 `AgentResult.Cognition` 记忆结算分开；恢复不重放工具，Governor 生命周期、检查批准和隐私权限仍在宿主。详见 [ADR-0023](../adr/0023-unified-cognitive-lifecycle.zh-CN.md)与 [API](../cognitive-core/COGNITIVE_CORE_API.zh-CN.md)。本任务没有实现 Desktop 或无关 Harness 新功能。
+
+每个应用 Callback 复用同一 Workflow 观察与转换 Hook，执行结果和 Task State/来源边原子提交，下一步重算权限；拒绝后台提交，不能跨人工 Gate。执行结果来自调度器的确切身份，不相信模型文字或查询“最近同参数记录”。内嵌检索保留普通来源撤销边界，不改变 Desktop 契约。

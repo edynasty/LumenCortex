@@ -22,7 +22,7 @@ LumenCortex is a coding-agent harness with its own cognitive architecture. It is
 
 ## Current source and release baseline
 
-Snapshot: **2026-11-12**. Core main is `883c63e`; the Go runtime code baseline remains `208ad6b`. Source commits, runtime identity, release tags, and Desktop dependencies are separate version surfaces.
+Snapshot: **2026-11-13**. Verified GitHub main is `00344b5`; the Go Harness code baseline remains `208ad6b`. This checkout is the **unmerged Cognitive Core completion candidate**, not main or a release. See the [completion report](docs/reports/cognitive-core-final-completion-2026-11-13.md) for exact commits and verification. Source, runtime identity, release tags and Desktop dependencies are separate version surfaces.
 
 | Surface | Current baseline |
 |---|---|
@@ -71,11 +71,11 @@ Platform limits remain explicit: Linux real-adapter DAP and host/VM cgroup/UID B
 
 ### Cognitive runtime
 
-- Persistent Context Graph, Notes/Recall and Attention Light foundations.
-- Go Graph Governor read-only Analyze / Plan / Validate against the shared SQLite graph.
-- The model Curator path fails closed until request-envelope admission is available; Go main does not claim graph Apply or Cortex Epoch execution.
-- The expanded Cognitive Core work adds richer Scope / Time / Evidence and Experimental Experience mechanisms, but the final Astra/Fable/Gemini candidates remain separate from this `main` snapshot. Do not count their candidate-only capabilities as current main behavior.
-- The seven-domain cognitive architecture, capability/evidence matrix, memory lifecycle and roadmap are documented in [Cognitive Core](docs/cognitive-core/README.md).
+- Main `00344b5` has persistent Context Graph, Notes/Recall, Attention Light and read-only Governor foundations.
+- **This candidate** adds unified scope/time/evidence, versioned beliefs and dependencies, task-relevant recall, and explicit evidence-based decisions. Unknown, conflicting and stale claims remain distinct from facts.
+- Ordinary cognition-enabled Agent runs can propose, recall, adopt and explicitly apply conditional Experiences; real tool execution and host-approved checks produce feedback. Restart settles memory without replaying actions.
+- Host-only Governor lifecycle transactions manage logical tiers, equivalent-evidence consolidation, protected retention, archive, restore and revocation. Privacy deletion reuses the shared source-fence/purge mechanism. The unadmitted model Curator and autonomous Epoch execution remain disabled.
+- Cognition is opt-in with `EnableCognition`; no paid request is needed by the offline demo. **Mechanism verification is not evidence of long-term autonomous learning benefit.** See [Cognitive Core](docs/cognitive-core/README.md).
 
 ### Extension points
 

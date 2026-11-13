@@ -1,5 +1,7 @@
 # Cognitive Core（认知核心）
 
+**2026-11-13 未合并候选。**main 为 `00344b5`；本候选整合已提交的 `91af861` 和本轮学习/生命周期修复。实现、自验、独立审查分别记录，详见[交付报告](../reports/cognitive-core-final-completion-2026-11-13.md)。[English](README.md)。
+
 Cognitive Core 的目标，是让 Agent 不只完成当前任务，还能利用过去积累的知识和经验，判断信息是否可靠，在发现错误时修正，并把有效经验用于后续任务。
 
 **不要把“存下来了”当成“学会了”，也不要把“检索到了”当成“理解了”。**
@@ -10,12 +12,14 @@ Cognitive Core 的目标，是让 Agent 不只完成当前任务，还能利用�
 - [能力现状](capabilities.zh-CN.md)：哪些已经进入 Go main，哪些只在候选分支，哪些还没有实现。
 - [记忆管理](memory-lifecycle.zh-CN.md)：短期、长期、压缩、频率、保留和删除。
 - [后续工作](roadmap.zh-CN.md)：按依赖关系整理的改进方向。
+- [实现原理](COGNITIVE_CORE_IMPLEMENTATION.zh-CN.md)、[公开 API](COGNITIVE_CORE_API.zh-CN.md)、[数据模型](COGNITIVE_CORE_DATA_MODEL.md)、[Migration](COGNITIVE_P0_STORAGE_DECISION.md)与 [Finding Ledger](finding-ledger.md)。
+- [ADR-0023](../adr/0023-unified-cognitive-lifecycle.zh-CN.md)：当前生命周期、权限和原操作序列学习的统一决策。
 
 ## 当前状态
 
-本仓库 main 的基线是 `c74ed36`。它包含已有的 Go Agent Runtime、Context、Knowledge 和 Attention Light 基础能力。
+核实的 GitHub main 为 `00344b5`，已有 `208ad6b` Go Harness、Context、Knowledge、Attention Light 和只读 Governor 基础。
 
-更完整的 Scope / Time / Evidence、Experience Learning 等实现曾在独立候选分支开发和审查。**没有合并进 main 的代码，不能算作 main 已有能力。** 是否已合并，以当前 Git 提交记录为准。
+本候选补齐范围/时间/证据、正常 SQLite 原生 Graph 与 Experience、普通 Agent 学习工具、证据评估、依赖修订、保留归并及恢复。**候选代码不能算作 main 或 Release 已有能力。**是否合并以提交记录为准。
 
 ## 设计原则
 

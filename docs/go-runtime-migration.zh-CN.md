@@ -22,3 +22,9 @@ Go 是 LumenCortex 唯一正式生产 Runtime。历史 Node.js 代码和测试�
 - Node 历史功能不计入 Go 能力。
 - 交叉编译不等于目标平台原生运行。
 - 文档和报告必须写明准确 Commit/Tag。
+
+## Cognitive Core 完整候选
+
+本轮基于 main `00344b5`，整合历史 `91af861` 并补齐认知调用链，尚未合并/发布。Schema 保留 Hub 0013，随后为 cognition 0014、support 0015、原生 Graph 0016、completion 0017。0017 增加应用/提案/决策/私有访问记录；含有新数据或新 Node 语义时拒绝降回旧读取器，空库回滚与故障恢复由现有 Runner 验证。
+
+main 的 Governor 仍是只读基础；候选提供宿主 CAS 生命周期 Apply、普通 Agent 条件经验应用和记忆结算，不启用无准入的模型 Curator 或自主 Epoch。本轮只使用临时 SQLite，未迁移生产数据。详见[Migration 契约](cognitive-core/COGNITIVE_P0_STORAGE_DECISION.md)与[实测报告](reports/cognitive-core-final-completion-2026-11-13.md)。

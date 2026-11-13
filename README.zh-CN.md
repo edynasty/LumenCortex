@@ -24,7 +24,7 @@ LumenCortex 是拥有自身认知架构的 Coding Agent Harness，不绑定单�
 
 ## 当前源码与发布基线
 
-快照：**2026-11-12**。Core main 为 `883c63e`，Go Runtime 代码基线仍为 `208ad6b`。源码提交、Runtime 标识、Release Tag 和 Desktop 依赖属于不同版本维度。
+快照：**2026-11-13**。已核实的 GitHub main 为 `00344b5`，Go Harness 代码基线仍为 `208ad6b`。本工作树是**尚未合并的 Cognitive Core 完整实现候选**，不是 main 或 Release。精确提交和验证见[交付报告](docs/reports/cognitive-core-final-completion-2026-11-13.md)。源码、Runtime 标识、Release Tag 和 Desktop 依赖分别记录。
 
 | 范围 | 当前基线 |
 |---|---|
@@ -73,11 +73,11 @@ Go Engine 是正式生产 Runtime 实现。`cmd/lcx-go` 是当前从源码运行
 
 ### 认知运行时
 
-- 持久化 Context Graph、Notes/Recall 和 Attention Light 基础能力。
-- Go Graph Governor 基于共享 SQLite Graph 提供只读 Analyze / Plan / Validate。
-- 在 Request Envelope Admission 完整之前，模型 Curator 路径必须 fail-closed；Go main 不声明 Graph Apply 或 Cortex Epoch 执行能力。
-- 扩展的 Cognitive Core 工作增加了更丰富的 Scope / Time / Evidence 和 Experimental Experience 机制，但 Astra/Fable/Gemini 最终候选仍与当前 main 分离。候选能力不能算作当前 main 已有能力。
-- 七大认知领域、能力与证据矩阵、记忆生命周期和演进路线见 [Cognitive Core 文档](docs/cognitive-core/README.md)。
+- main `00344b5` 已有 Context Graph、Notes/Recall、Attention Light 和只读 Governor 基础。
+- **本候选**统一范围、时间、证据、信念版本和依赖，提供任务相关召回与证据判断；未知、冲突、过期信息不会冒充事实。
+- 启用认知的普通 Agent 可以提出、召回、采纳并明确应用有条件的经验；真实工具执行和宿主批准的检查产生反馈。重启只补全记忆结算，不重放操作。
+- 宿主通过 Governor 事务管理逻辑冷热层、等价证据归并、重要记忆保留、归档、恢复和撤销。隐私删除复用来源 Fence 与清理机制；没有获准请求入口的模型 Curator 和自主 Epoch 执行仍禁用。
+- 通过 `EnableCognition` 显式启用；离线示例无需付费请求。**工程闭环通过验证，不等于长期自主学习收益已经得到证明。** 详见 [Cognitive Core 文档](docs/cognitive-core/README.zh-CN.md)。
 
 ### 扩展接口
 

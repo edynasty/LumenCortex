@@ -1,0 +1,69 @@
+# Experimental Experience Learning — P0 design
+
+Status: 2026-11-13 unmerged completion candidate. The typed P0 model and ordinary Agent lifecycle are implemented; actual engineering and independent status are in the [completion report](../reports/cognitive-core-final-completion-2026-11-13.md). No real-model/long-term benefit is claimed. Historical review sections retain their original scope and are superseded by the current application contract below.
+
+## Authority and storage
+
+Reuse `knowledge.Scope`, `Times`, `SourceRef`, exact `Assertion`, qualified `Evidence`, native `Node` revisions, the existing Engine SQLite Store and `derived_origins`. No second database or autonomous background learning. A dedicated internal maintenance session owns each experience's content and derives from the terminal origin session; its audience is the origin's explicitly selected project/workspace/session/reader scope. Thus privacy deletion can erase all derived experience revisions without deleting unrelated user transcript. Public graph host APIs cannot insert or change an Experience payload; only the Experimental pipeline can.
+
+Model/host proposals contain bounded structured problem/condition/strategy fields, not an Agent final answer or private reasoning. Framework assigns source identity, run/task references, evidence, timestamps, state and revisions. It alone runs current approved checks and decides promotion. Retrieval rank and model confidence confer no authority.
+
+## Information model
+
+- Native node ID/version/scope and recorded times identify immutable revisions. Experience has immutable created time and a separate definition version; feedback revisions do not pretend to change the proposed strategy.
+- Origin: source session/run/version and Task State revision reference, terminal outcome. No copied goal/final transcript.
+- Problem pattern/type, trigger/environment context, proposed root cause and strategy are explicit bounded sanitized fields. They remain a conditional proposal, not a causal proof.
+- Preconditions and expected outcome are existing exact equality Assertions bound to host-approved checks. Applicable conditions are those assertions plus exact scope, current source versions and time validity, not a bag of keywords.
+- Trace: actual run execution IDs/tool names/argument digests/outcomes, relative file/blob references, and check/result identities. Never raw shell credentials, absolute/private paths, logs or source-file contents. Unsupported or incomplete trace is disclosed, not invented.
+- Validation: framework method, condition observations, expected-outcome observation, status/reason and last verified time. Missing evidence/approval is `needs_evidence`; failing conditions/outcome retain a candidate or reject, never validate.
+- Confidence is qualitative and conditional; uncertainty remains explicit after successful verification. Usage/success/failure counts derive from unique adoption/feedback identities. They are not mutable model confidence values.
+- Feedback records consumer session/run/source version, adopted flag, whether conditions held, independent result, counterexample/adjustment need and the definition version used. Earlier versions and original outcomes are unchanged except privacy erasure.
+
+## Pipeline
+
+1. `ExtractExperience`: lock terminal origin; project authoritative source/run/task/tool/file/check references; invoke a caller-supplied deterministic/scripted extractor or accept its structured proposal; validate safety/shape; deduplicate by source/version/scope/definition; store candidate with derivation edges.
+2. `ValidateExperience`: read current definition/source; execute approved condition and outcome checks with the existing evaluator; require real closed qualified results, current approved binding and stable source versions at commit. Append `validated`, `needs_evidence` or `rejected` revision. Negative examples never become successes.
+3. `RecallExperiences`: read-only scoped retrieval of sanitized candidates matching an explicit problem pattern. Recheck owner/source/reader fences and source versions/time. No automatic adoption or process-result reuse.
+4. `AdoptExperience`: current reader checks every condition independently, verifies source/definition unchanged and commits one-use adoption/provenance before returning strategy. Unknown, expired, revoked or unverified => refused. Ordinary Agent `apply_experience` then matches the complete original tool/argument digest sequence, rechecks conditions before actions and uses existing policy/workflow/hooks/budget. Strategy text is never automatically replayed.
+5. `RecordExperienceFeedback`: the later terminal consumer run must have a complete settled application receipt and exact execution identities before an independent expected-outcome check. Real tool failure may establish a counterexample; pending, denied, interrupted and partial sequences stay unknown. Success/failure/unknown and revision need append once per adoption; historical outcomes are unchanged.
+6. `ReviseExperience`: preserve old definition/feedback history; changed strategy/conditions requires a new candidate definition and independent revalidation. A fresh validation is not permission to erase counterexamples or raise confidence permanently.
+
+Every operation has a bounded input and a terminal error/state; no hidden retry loop or real model calls. Checks run outside Store transactions; commit rechecks CAS, versions and fences. Runtime locks serialize the sessions involved; Store CAS handles concurrent revisions. Crashes before commit leave no partial promoted record; unconsumed adoptions remain unconfirmed, not successes.
+
+## Privacy and safety
+
+Only bounded structured proposal text passing existing secret-format detection plus private-path/credential-field rejection may be stored. No raw final chat or hidden/provider reasoning is read for extraction. File references must be clean workspace-relative paths; opaque execution/argument hashes bind commands without retaining secret arguments. Unknown secret-shaped content is rejected before any Experience row is persisted. This is a local host API boundary, not a claim that arbitrary user prose is automatically declassified.
+
+Source/consumer revocation overrides validity, evidence and history retention. The maintenance owner derives from every consumer whose observations it stores; an adopter derives from the **origin** whose strategy it received. `ReadExperience`, `ReadCognitiveNode` and every Experience mutation response expose only the named consumer's own `Uses`, including historical versions and idempotent replies. An origin or project-only reader receives no consumer uses. Original definition, origin validation and coarse conditional/contested state remain shared under the Experience scope; per-reader statistics describe only the visible uses. Internal transitions retain the full immutable record, not the public projection (ACR-001).
+
+Context and `read_thread` locators of the origin definition name the origin as provenance, not the aggregate owner. Their owner visibility is still checked. A `needs_revision` warning conveys consumer-derived information, so its model reader retains the aggregate-owner provenance without exposing individual consumer IDs (ACR-002). Withdrawing a consumer hides the combined record for all readers but does not fence a co-consumer that received only the origin strategy; withdrawing the origin still reaches every adopter. A model reader that actually consumed a counterexample warning is fenced. Host reads are diagnostic views, not automatic session ingestion or authority to bypass ordinary approvals.
+
+Privacy deletion conservatively removes the whole combined Experience, all historical revisions and touching edges through bounded secure-delete/rebuild/WAL settlement; it does not splice a sanitized revision into history. An unaffected consumer may retain its already received origin strategy, but cannot freshly adopt the removed record. Existing wider lineage edges are never deleted or narrowed, and previously exported host data cannot be recalled. No unrelated chat is erased; no physical SSD erasure is claimed.
+
+## Verification and limits
+
+Required cases include successful/failed origins, unapproved/failed verification, unrelated and changed conditions, separate consumers, actual application failure, source/privacy/CAS, restart and the public offline demo. They exercise real Engine/tools/SQLite with deterministic providers. Exact-action conditional reuse is not general semantic transfer or causal benefit. Host-only Governor lifecycle is implemented; no GraphRAG, new service, autonomous Epoch or Harness redesign.
+
+## Model checkpoint
+
+`internal/knowledge/experience.go`, `experience_transition.go`, native `Node.Experience` and eight focused Go model tests define strict proposals, source/trace locators, exact observations, conditional confidence, adoption/feedback, immutable definition revisions and bounded records. `raw/stage3-model.txt` records the executed model check. Qualified host checks made after a run have no invented `Evidence.RunID`; their `Evidence.Source` names the terminal run they verify, and any nonempty run binding must agree. Origin/definition evidence, consumer feedback and current applicability remain distinct.
+
+## Exercised feedback milestone
+
+Implementation checkpoint `7e5279c` and public demo `c5ce2ae` implement the full conditional pipeline. `raw/stage5-lifecycle-repair.*` records a real consumer tool deleting the expected artifact, a qualified failed outcome, `needs_revision` / `contested`, unchanged origin and original validation, historical reads, refusal to revalidate without a changed definition, candidate revision and independent revalidation. Successful feedback and one-use idempotency are exercised in `raw/stage4-engine-first.*`; `raw/stage5-public-demo-run.*` independently runs the public demo and reopens the record.
+
+Mechanism Correctness: deterministic Go Engine paths are exercised. Retrieval Quality: exact-pattern hits/misses and condition/scope filtering only; no semantic-relevance benchmark. Real-world Task Improvement: unmeasured; no real model/task transfer, success delta or causal improvement is claimed. Failure counts remain historical after a new definition validates; current confidence refers to that definition and its qualified conditions, never an unconditional success rate.
+
+The mechanism uses one combined closed check episode for validation and fresh combined conditions for adoption. A returned adoption is a host observation, not a queued execution or authority lease. Ordinary `RunAgent` permission policy remains separate; `workspace` permits file tools but not shell, while the isolated negative-feedback test explicitly selects `full` for its one local command.
+
+## Current ordinary-run contract (supersedes older tool.end heuristic)
+
+`propose_experience` saves a bounded active-run proposal. Terminal finalization calls extraction/validation against actual source records; `recall_experiences`, `adopt_experience`, `apply_experience` make the procedure available to future normal Agent tasks. Source conditions are checked again at use time. `Application.Executed()` distinguishes the complete settled sequence (including tool failures) from non-execution; an unrelated read or pre-existing artifact is never sufficient.
+
+Open/restart recovers pending memory work under the run lock and marks unconfirmed applications unknown without replay. `AgentResult.Cognition` exposes memory settlement errors independently of the Agent result. CC-001 and CC-007 red/green receipts are in the current report. Older paragraphs below describing any successful `tool.end` as sufficient are retained solely as historical review evidence; that algorithm is no longer current.
+
+## Independent review correction (2026-11-11)
+
+Finding P0-REVIEW-F01: feedback counted a use as `success` with `used: true` when the consumer's later run executed no tool and the origin's outcome was still present in the workspace. The initial correction used the presence of side-effect execution locators. Maintainer review found that a refused write still has such an admission, while a successful read-only tool has none. Feedback now queries existing durable `tool.end` metadata for the exact later consumer run and requires `ok:true` with an explicit `denied:false`. It does not inspect transcript bodies, alter permissions or add storage/events. A run without confirmed successful execution records `unknown`, `used:false`, no outcome observation and no state change; the outcome check is not run. The reason distinguishes no terminal tools from refused/unsuccessful or pruned execution evidence.
+
+Missing completion evidence, including a failed/interrupted tool which may have acted, was not enough to credit reuse in that historical algorithm. A retained positive completion qualified even when other events were pruned. That heuristic did not rewrite older feedback or migration 0015, but allowed a successful unrelated tool followed by a matching outcome to count as checked-outcome feedback. Successful read-only tools were not excluded merely for lacking side-effect admissions. `TestExperienceFeedbackWithoutExecutionIsNotSuccess` and `experience_maintainer_review_test.go` covered answer-only, refused-write, real read-only and previous-run boundaries. The historical maintainer review remains available at imported commit `91af861:docs/cognitive-core/MAINTAINER_REVIEW.md`; current behavior and stronger application-bound regressions are recorded in the [completion report](../reports/cognitive-core-final-completion-2026-11-13.md).

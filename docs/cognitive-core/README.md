@@ -1,6 +1,6 @@
 # Cognitive Core
 
-**Status snapshot: 2026-11-12.** This documentation separates the current Go main baseline from the expanded Cognitive Core candidate. A capability described as a target, partial, experimental, or candidate is not a claim that it is available in the current main runtime.
+**Status snapshot: 2026-11-13.** Main is `00344b5`; this unmerged completion candidate integrates the committed `91af861` work and the final lifecycle/learning fixes. Availability, self-verification and independent review are separate; see the [completion report](../reports/cognitive-core-final-completion-2026-11-13.md). [中文](README.zh-CN.md).
 
 LumenCortex's cognitive objective is to help an Agent understand its current task, use grounded knowledge and experience, reason under uncertainty, act, learn from outcomes, correct outdated beliefs, and improve future behavior. The Core must not equate storage, summarization, retrieval, or reflection text with cognition.
 
@@ -10,6 +10,8 @@ LumenCortex's cognitive objective is to help an Agent understand its current tas
 - [Capability and evidence matrix](capabilities.md) — what exists in Go main, what exists only in a candidate, what is partial, and what remains a design goal.
 - [Memory lifecycle](memory-lifecycle.md) — working, episodic, semantic, and procedural memory; consolidation, context compression, recency, frequency, utility, retention, and deletion.
 - [Architecture evolution](roadmap.md) — Astra's existing roadmap reconciled with Fable's implementation review and current owner direction.
+- [Implementation](COGNITIVE_CORE_IMPLEMENTATION.md), [public API](COGNITIVE_CORE_API.md), [data model](COGNITIVE_CORE_DATA_MODEL.md), [migration](COGNITIVE_P0_STORAGE_DECISION.md) and [Finding Ledger](finding-ledger.md).
+- [ADR-0023](../adr/0023-unified-cognitive-lifecycle.md) — current lifecycle, authority and exact-action learning decision.
 
 ## Authoritative design sources
 
@@ -26,9 +28,9 @@ The workspace evidence directory is not automatically part of the Core Git repos
 
 ## Current baseline and claim boundary
 
-- Core main at this documentation snapshot is 883c63e.
-- Core main has a Go cognitive-control baseline, persistent context/knowledge foundations, Attention Light, and a read-only Graph Governor path.
-- The expanded Scope / Time / Evidence and Experimental Experience Learning work is a separate candidate, not part of this main snapshot.
+- Verified Core main baseline is `00344b5`; it contains the prior Go Harness code at `208ad6b`.
+- Main has cognitive-control, context/knowledge, Attention Light and read-only Graph Governor foundations.
+- This candidate adds Scope/Time/Evidence, normal SQLite native graph and Experience, ordinary Agent learning tools, evidence assessment, dependency revisions, governed retention/consolidation and recovery. None is a new main/release claim.
 - Final Astra/Fable/Gemini review candidates and their fixes must not be described as merged or released merely because their local branches have test evidence.
 - Current implementation is not proof of general intelligence, autonomous learning, universal reasoning, or measured improvement on future tasks.
 

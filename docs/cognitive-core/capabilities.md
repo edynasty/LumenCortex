@@ -1,39 +1,28 @@
 # Cognitive Capability and Evidence Matrix
 
-**Snapshot:** Core main 883c63e (2026-11-12 documentation worktree base). Expanded Cognitive Core candidates are tracked separately.
+**2026-11-13:** main `00344b5`; completion branch `feat/cognitive-core-final-completion-20261113` is unmerged. [中文](capabilities.zh-CN.md). Exact commands/results, platform limits and commit identities live in the [completion report](../reports/cognitive-core-final-completion-2026-11-13.md); a source-level mechanism is not independent acceptance.
 
-Status meanings:
+| Capability | Main | Completion candidate / source | Evidence and limit |
+|---|---|---|---|
+| Working/episodic memory | Existing Task State, Notes and Sessions | Reused, no second memory system | Durable context, restart and provenance regressions; hidden reasoning is not memory. |
+| Scope/time/evidence | Existing harness boundary | `knowledge.Scope`, `Times`, `Evidence`, native graph | Scope, narrowed history, CAS, current evidence and privacy regressions. Five structured assertion families only. |
+| Task-relevant attention | Existing lexical/symbol Light and thread recall | `knowledgeIndexRow`, tokenized `RecallExperiences` | Relevant locators and warning priority; similarity is not applicability or broad retrieval-quality evidence. |
+| Evidence-based decisions | Model + Work Unit framework | `AssessCognition`, `assess_cognition`, pinned premises and conflicting peers | CC-005 red/green and actual decision-tool/withdrawal regression. Not general causal reasoning. |
+| Experience extraction | Not the expanded candidate | Active-run proposal + terminal `ExtractExperience`/validation | `TestCompletionLearningThroughOrdinaryTools`; no self-assigned execution/evidence. |
+| Independent adoption/application | Not the expanded candidate | `adopt_experience`, `apply_experience`, normal dispatch | Exact origin action sequence, fresh conditions, permission/hook/budget and SQLite receipt. No parameterized replay. |
+| Feedback and negative learning | Not the expanded candidate | Complete execution identity + independent check, `needs_revision` | Unrelated/denied/unknown cases and true failed-tool counterexamples; outcome is not causal benefit. |
+| Belief/dependency revision | Partial foundations | Native CAS revisions, `NodeRef`, source lineage | Changed premise, invalidation history, source withdrawal/deletion tests. Read-time rather than autonomous watchers. |
+| Logical retention/consolidation | Not unified | `MemoryPolicy`, `GovernorApply`, `MaintainCognitiveMemory` | Protected counterexamples, equal-evidence aliases, atomic rejection and pressure. No physical tiers or lossy fact merging. |
+| Read-only Governor | Existing | Normal Go SQLite Analyze/Plan/Validate retained | Native graph/no-mutation tests. Model Curator still fails closed before a request. |
+| Authorized Governor Apply | Not available | Host-only owned lifecycle batch | Archive/tier/canonicalization only; branch/promote/epoch remain proposals, not executable truth changes. |
+| Recovery | Existing run/persistence recovery | Memory-finalization recovery in `Engine.Open` | Real SQLite injected settlement faults, no repeated actions; pending becomes unknown. |
+| Consumer privacy | Existing source/fence boundary | Reader-private Uses, decisions/applications/access cleanup | Public API, actual tools, historical reads and reopen cases; trusted local host only. |
+| Measured frequency and utility | Existing recency ranking | Reader-local access versus independent use/outcomes | Recall never increments successful reuse. Causal utility explicitly unmeasured. |
+| General task transfer / sustained learning gain | Not established | Not claimed | Deterministic fixture proves the mechanism, not improved real-task success or human-level cognition. |
 
-- **Implemented in main** — Go production code exists on the stated main baseline.
-- **Candidate** — implementation exists on an unmerged branch/commit; not available as main capability.
-- **Partial** — only a bounded subset is implemented.
-- **Design target** — documented direction without a complete production mechanism.
-- **Evidence gap** — code may exist, but the stated behavior or effect has not been established.
+## Interpretation
 
-| Domain / capability | Current Go main | Candidate / historical evidence | What evidence supports | Remaining boundary |
-|---|---|---|---|---|
-| Durable sessions and task history | Implemented | Earlier continuity work | Persistence, resume, WAL/recovery tests | Durable history alone is not learning |
-| Notes and bounded recall | Implemented | Context continuity reports | Recall ranking and recency tests | Not a unified short/long-term memory manager |
-| Context Graph / knowledge foundations | Implemented baseline | Cognitive Core P0/finalization candidates | Go store, provenance and graph tests | Expanded candidate semantics not merged |
-| Scope / Time / Evidence contracts | Partial baseline | P0 and finalization candidates | Candidate-level schema, tests and review records | Candidate is not main; broad semantics still need closure |
-| Attention Light | Implemented baseline | Astra architecture / Node research | Go lexical/symbol candidate retrieval and bounded propagation | Node FTS/PPR/embedding/RRF results are not Go evidence |
-| Task-specific working set | Partial | Attention target | Context budget and bounded context selection | Unified attention policy and coverage/unknown detection remain incomplete |
-| General evidence-driven reasoning | Partial | Cognitive roadmap | Model reasoning, Work Units, evidence and decision routing | No general-purpose proof of evidence sufficiency or causal reasoning |
-| Experience extraction | Candidate | Cognitive Core P0 | Candidate extraction and persistence tests | Not a universal experience abstraction mechanism |
-| Experience validation and adoption | Candidate | Cognitive Core P0/finalization | Host-bound checks, conditions, adoption and privacy tests | Not general transfer across arbitrary tasks |
-| Outcome feedback and revision | Candidate | Cognitive Core P0/finalization | Feedback and revision state-transition tests | Long-term behavior improvement not established |
-| Belief conflict / freshness / invalidation | Partial baseline; expanded candidate | Fable/Astra review records | Specific conflict, stale, revocation and revision regressions | General belief logic and all cross-domain transitions not complete |
-| Governor Analyze / Plan / Validate | Implemented, read-only | Cognitive P0 candidate extends semantics | Go shared-store tests and no-mutation tests | Apply/Curator execution is not claimed in main |
-| Verification and provenance | Implemented baseline | P0 candidate extends scope/time/evidence | Host-approved checks, source identity, transactional evidence | Validity is bounded by each check's actual meaning |
-| Metacognitive gap detection | Design target / partial signals | Astra roadmap | Unknown/stale/conflict and progress signals | No unified metacognitive control loop |
-| Experience generalization / transfer | Design target / partial conditional reuse | Astra Learning pipeline | Preconditions and constrained adoption foundations | Abstraction, counterexamples and robust transfer remain incomplete |
-| Memory consolidation / semantic compression | Design target | Astra capability roadmap | Context selection and bounded storage only | No unified episodic-to-semantic consolidation pipeline |
-| Frequency / utility-based memory management | Partial signals | Memory lifecycle proposal | Some usage/recency and bounded retention mechanisms | No unified evidence-aware frequency/utility policy |
-| Long-term cognitive evolution | Not established | Longitudinal direction | Maintenance and revision foundations | No basis to claim sustained autonomous improvement |
-
-## Evidence interpretation
-
-- Passing Go tests establish tested mechanisms and invariants, not general cognitive competence.
-- Historical Node.js algorithms and tests are reference material only. They do not establish Go production capabilities.
-- Unmerged Cognitive Core candidates may be discussed as candidate work, never as current main behavior.
-- No current evidence in this matrix proves that LC autonomously improves its future task success over time.
+- **Implemented candidate** means real Go code and a reachable path, not merged main, a product release or independent PASS.
+- Ordinary tests, Race, migration checks, offline demo and platform compilation/runtime results are reported separately. SKIP and unrun platforms are not PASS.
+- Model-proposed causes, confidence and unverified summaries do not become verified facts. Unknown/conflict/expired knowledge remains explicit.
+- Historical Node code and historical reports are reference inputs, not production implementation or current test results.
