@@ -58,7 +58,7 @@ func TestFableVerifiedFactIsNotContestedByUnverifiedClaims(t *testing.T) {
 		}
 		verified, unverified := good.Inserted[0], bad.Inserted[0]
 		p := scripted(readStep("r1", verified), readStep("r2", unverified))
-		f.run(t, "use the project's cognition", p)
+		f.run(t, "use the service port from project cognition", p)
 		index := startApplicability(p.request(t, 0), verified)
 		view := viewIn(t, p.request(t, 1), "r1")
 		if index != knowledge.Current || view.Applicability != knowledge.Current || view.Claim != portFact("8080").Render() {
@@ -83,7 +83,7 @@ func TestFableVerifiedFactIsNotContestedByUnverifiedClaims(t *testing.T) {
 		// nothing, and the claim it contradicted is a plain unverified candidate again.
 		f.write(t, "defaults.env", "BASE=9090\n")
 		q := scripted(readStep("r1", verified), readStep("r2", unverified))
-		c := f.run(t, "use the project's cognition after the change", q)
+		c := f.run(t, "use the service port after the change", q)
 		if v := viewIn(t, q.request(t, 1), "r1"); v.Applicability != knowledge.Stale {
 			t.Errorf("the old fact after the change %s (%s)", v.Applicability, v.Reason)
 		}
@@ -97,7 +97,7 @@ func TestFableVerifiedFactIsNotContestedByUnverifiedClaims(t *testing.T) {
 			t.Fatalf("the correction %+v", corrected)
 		}
 		r := scripted(readStep("r1", corrected.Inserted[0]), readStep("r2", verified))
-		f.run(t, "use the corrected cognition", r)
+		f.run(t, "use the corrected service port", r)
 		if index := startApplicability(r.request(t, 0), corrected.Inserted[0]); index != knowledge.Current {
 			t.Errorf("the corrected fact in the index: %s (%q)", index, indexRow(r.request(t, 0)))
 		}
@@ -132,7 +132,7 @@ func TestFableVerifiedFactIsNotContestedByUnverifiedClaims(t *testing.T) {
 		}
 		verified := good.Inserted[0]
 		p := scripted(readStep("r1", verified), readStep("r2", bad.Inserted[0]), readStep("r3", bad.Inserted[1]))
-		f.run(t, "use the project's cognition", p)
+		f.run(t, "use the service port from project cognition", p)
 		index := startApplicability(p.request(t, 0), verified)
 		if view := viewIn(t, p.request(t, 1), "r1"); index != knowledge.Current || view.Applicability != knowledge.Current {
 			t.Errorf("the verified fact: index %s, read %s (%s)", index, view.Applicability, view.Reason)

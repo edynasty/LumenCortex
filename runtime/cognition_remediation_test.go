@@ -293,7 +293,7 @@ func TestIndependentFreshAtUse(t *testing.T) {
 			before += len(g.observations(t, id))
 		}
 		p := scripted()
-		g.run(t, "use the services", p)
+		g.run(t, "use the ports of alpha, beta and gamma", p)
 		counts := map[knowledge.Applicability]int{}
 		after := 0
 		for _, id := range r.Inserted {
