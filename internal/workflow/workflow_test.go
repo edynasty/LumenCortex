@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -105,6 +106,37 @@ func TestVerifiedCodeFixParity(t *testing.T) {
 	passed, _ := getPath(rt.Facts, "tests.passed")
 	if passed != true {
 		t.Fatalf("tests.passed=%v", passed)
+	}
+}
+
+func TestEffectiveAllowlistPreservesDenyAll(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		action string
+		base   []string
+		want   []string
+	}{
+		{name: "unrestricted", action: "null"},
+		{name: "base_deny_all", action: "null", base: []string{}, want: []string{}},
+		{name: "action_deny_all", action: "[]", want: []string{}},
+		{name: "base_only", action: "null", base: []string{"read_file"}, want: []string{"read_file"}},
+		{name: "action_only", action: `["read_file"]`, want: []string{"read_file"}},
+		{name: "disjoint", action: `["write_file"]`, base: []string{"read_file"}, want: []string{}},
+		{name: "intersection", action: `["read_file","write_file"]`, base: []string{"read_file", "recall"}, want: []string{"read_file"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			def, err := Parse([]byte(`{"id":"allowlist","entry":"act","actions":{"act":{"terminal":true,"allowedTools":` + tc.action + `}}}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			rt, err := New(def, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := rt.EffectiveAllowlist(tc.base); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("permission set = %#v, want %#v (nil is unrestricted; empty denies all)", got, tc.want)
+			}
+		})
 	}
 }
 

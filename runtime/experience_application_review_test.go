@@ -39,7 +39,7 @@ func reviewObservedProcedure(t *testing.T, f *cognitionFixture, actions []experi
 }
 
 func TestReviewExperienceActionsObserveLiveWorkflow(t *testing.T) {
-	for _, mode := range []string{"allowed", "restricted", "human_gate", "hook_denied"} {
+	for _, mode := range []string{"allowed", "restricted", "deny_all", "human_gate", "hook_denied"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := context.Background()
 			f := newCognitionFixture(t, true)
@@ -62,6 +62,9 @@ func TestReviewExperienceActionsObserveLiveWorkflow(t *testing.T) {
 			next := `{"terminal":true,"allowedTools":["write_file"],"outcomes":[{"when":{"tool":"write_file","ok":true},"set":{"second":true}}],"completeWhen":{"fact":"second","equals":true}}`
 			if mode == "restricted" {
 				next = `{"terminal":true,"allowedTools":["read_file"],"completeWhen":{"fact":"first","equals":true}}`
+			}
+			if mode == "deny_all" {
+				next = `{"terminal":true,"allowedTools":[],"completeWhen":{"fact":"first","equals":true}}`
 			}
 			if mode == "human_gate" {
 				next = `{"terminal":true,"allowedTools":["write_file"],"completeWhen":{"fact":"first","equals":true},"gates":[{"id":"approve-second","type":"human","fact":"approved","equals":true}]}`
@@ -137,6 +140,9 @@ func TestReviewExperienceActionsObserveLiveWorkflow(t *testing.T) {
 			} else {
 				if !errors.Is(secondErr, os.ErrNotExist) || receipt.State != "unknown" || receipt.Executed() || before.Load() != 1 {
 					t.Fatalf("workflow boundary bypass: result=%+v err=%v second=%v receipt=%+v hooks=%d/%d", result, runErr, secondErr, receipt, before.Load(), after.Load())
+				}
+				if mode == "deny_all" && (wf.CurrentAction != "next" || after.Load() != 1 || secondSawCommittedState.Load()) {
+					t.Fatalf("deny-all transition not durable before refusal: state=%+v hooks=%d/%d second=%v", wf, before.Load(), after.Load(), secondSawCommittedState.Load())
 				}
 				if mode == "human_gate" && (result.Status != "waiting_gate" || len(wf.WaitingHumanGates()) != 1) {
 					t.Fatalf("human gate lost: %+v %v %+v", result, runErr, wf)

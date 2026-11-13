@@ -3,6 +3,7 @@ package workflow
 import (
 	"errors"
 	"fmt"
+	"slices"
 )
 
 func New(def *Definition, restored *State) (*Runtime, error) {
@@ -72,10 +73,10 @@ func (r *Runtime) IsToolAllowed(name string) bool {
 func (r *Runtime) EffectiveAllowlist(base []string) []string {
 	actionTools := r.Action().AllowedTools
 	if actionTools == nil {
-		return append([]string(nil), base...)
+		return slices.Clone(base)
 	}
 	if base == nil {
-		return append([]string(nil), (*actionTools)...)
+		return slices.Clone(*actionTools)
 	}
 	baseSet := map[string]bool{}
 	for _, name := range base {
