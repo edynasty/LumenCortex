@@ -3,6 +3,7 @@ package evalruntime
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -392,23 +393,20 @@ func TestPythonEnvAllowlistHidesHostSecrets(t *testing.T) {
 	h, _ := newPythonHarness(t, nil)
 	session := h.create("python", "owner", "owner")
 	result := h.expectCompleted(session, "owner", fmt.Sprintf(`
-import os
-print(repr(os.environ.get(%q)))
-print(repr(os.environ.get("SSH_AUTH_SOCK")))
-print(repr(os.environ.get("HOME")))
+import json, os
+print(json.dumps([os.environ.get(%q), os.environ.get("SSH_AUTH_SOCK"), os.environ.get("HOME")]))
 `, secretName))
-	if strings.Contains(result.Stdout, "should-not-leak") {
-		t.Fatalf("host secret leaked into the worker environment: %q", result.Stdout)
+	var values []*string
+	if err := json.Unmarshal([]byte(result.Stdout), &values); err != nil {
+		t.Fatalf("decode worker environment: %v; output %q", err, result.Stdout)
 	}
-	if strings.Contains(result.Stdout, "definitely-not-a-socket") {
-		t.Fatalf("SSH_AUTH_SOCK leaked: %q", result.Stdout)
+	if len(values) != 3 || values[0] != nil || values[1] != nil || values[2] == nil {
+		t.Fatalf("unexpected worker environment: %q", result.Stdout)
 	}
-	if !strings.Contains(result.Stdout, "None") {
-		t.Fatalf("secret variable was defined: %q", result.Stdout)
-	}
-	// HOME points at the private kernel, not the host home.
-	if strings.Contains(result.Stdout, os.Getenv("HOME")) {
-		t.Fatalf("worker HOME is the host home: %q", result.Stdout)
+	// Compare values, not Python repr quoting or a substring of the host HOME.
+	wantHome := filepath.Join(session.Workspace, "home")
+	if *values[2] != wantHome || wantHome == os.Getenv("HOME") {
+		t.Fatalf("worker HOME = %q, want the private kernel home %q (host HOME %q)", *values[2], wantHome, os.Getenv("HOME"))
 	}
 }
 

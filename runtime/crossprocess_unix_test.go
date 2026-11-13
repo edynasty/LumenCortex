@@ -36,6 +36,7 @@ const (
 	xpSigEnv     = "LCX_XP_SIG"  // busy: the file the shell creates when it starts
 	xpStopEnv    = "LCX_XP_STOP" // poller: stop when this file exists
 	xpPauseEnv   = "LCX_XP_PAUSE"
+	xpHoldEnv    = "LCX_XP_HOLD" // deterministic barrier: point:nth occurrence
 )
 
 // xpResult is what a helper process reports on its last stdout line, after "XP ".
@@ -126,6 +127,9 @@ func TestHelperCrossProcess(t *testing.T) {
 				}}, FinishReason: "tool_calls"}
 			}
 		}
+		if hold := os.Getenv(xpHoldEnv); hold != "" {
+			xpHold(engine, id, hold, os.Getenv(xpSigEnv))
+		}
 		result, err := engine.runAgentWith(ctx, id, p, AgentOptions{Policy: "full", MaxSteps: steps + 2})
 		r := xpResult{Status: result.Status, Calls: p.calls, CallAt: p.callAt}
 		if err != nil {
@@ -168,6 +172,42 @@ func TestHelperCrossProcess(t *testing.T) {
 			r.Reads++
 		}
 		xpReport(r)
+	}
+}
+
+// xpHold makes a worker stop the n-th time its run reaches point ("<point>:<n>"): it creates sig and
+// goes on only once its own store reads the session's fence. A fence that another process commits
+// after sig exists therefore lands exactly at point, and the run's next store transaction is the first
+// to meet it.
+func xpHold(engine *Engine, sessionID, spec, sig string) {
+	point, nth, _ := strings.Cut(spec, ":")
+	n, _ := strconv.Atoi(nth)
+	reached := 0
+	hold := func() {
+		if reached++; reached != n {
+			return
+		}
+		err := os.WriteFile(sig, nil, 0o600)
+		for deadline := time.Now().Add(time.Minute); err == nil; {
+			var fenced bool
+			if fenced, err = engine.store.SessionFenced(context.Background(), sessionID); fenced {
+				return
+			}
+			if err == nil && time.Now().After(deadline) {
+				err = fmt.Errorf("no fence was committed")
+			}
+			time.Sleep(time.Millisecond)
+		}
+		xpReport(xpResult{Status: "hold_failed", Err: err.Error()})
+		os.Exit(3)
+	}
+	switch point {
+	case "request_admitted":
+		testHookAfterAdmit = hold
+	case "execution_admitted":
+		testHookAfterExecAdmit = hold
+	case "tool_result_committed":
+		testHookAfterToolCommit = hold
 	}
 }
 
@@ -489,11 +529,8 @@ func TestCrossProcessFenceIsLinearizedWithAdmission(t *testing.T) {
 			t.Fatalf("trial %d: %d provider requests began after the fence committed, fence seen as %q: %v", trial, late, fenceSeen, states)
 		}
 		if fenceSeen == "" {
-			// Every request was answered. Either the fence met a tool call of the last answer (its
-			// admission or its commit), and that call has no result of its own in the transcript; or it
-			// committed after the last result and the run saw it at the next step boundary, before the
-			// next request's admission. Both are linearized: the checks above and below prove that no
-			// request and no execution began after the fence.
+			// Every request was answered, so the fence must have met a tool call of the last answer
+			// (its admission or its commit): that call has no result of its own in the transcript.
 			calls, results := 0, 0
 			for _, m := range transcriptRows(t, engine, f.ID) {
 				calls += len(m.ToolCalls)
@@ -501,10 +538,10 @@ func TestCrossProcessFenceIsLinearizedWithAdmission(t *testing.T) {
 					results++
 				}
 			}
-			fenceSeen = "step boundary"
-			if results < calls {
-				fenceSeen = "tool call"
+			if results >= calls {
+				t.Fatalf("trial %d: the run ended fenced but no envelope carries the fence and every tool call has a result (%d calls): %v", trial, calls, states)
 			}
+			fenceSeen = "tool call"
 		}
 		seen[fenceSeen]++
 		rows, err = db.Query(`SELECT created_at FROM derived_origins WHERE session_id = ? AND kind = 'execution'`, f.ID)
@@ -532,4 +569,96 @@ func TestCrossProcessFenceIsLinearizedWithAdmission(t *testing.T) {
 		}
 	}
 	t.Logf("where the fence was seen over 6 trials: %v", seen)
+}
+
+// A session fence committed by another process at a known point of a worker's run. The worker stops at
+// the point and goes on only once its own store reads the fence, so the run's next store transaction
+// is the first to meet the fence and it is known which one that is. Wherever the fence lands it leaves
+// exactly one record. The answer of an admitted request is refused: the request was sent after the
+// fence and its envelope is unknown/"fenced_before_answer". The result of an admitted execution is
+// refused: its tool call has no result. After a committed tool result the next request is refused at
+// its admission: a failed/"fenced" envelope, and the request is never sent. Nothing but that record is
+// admitted after the fence, and the run ends fenced.
+func TestCrossProcessFenceAtAKnownPointLeavesOneRecord(t *testing.T) {
+	for _, c := range []struct {
+		point  string // where the worker stops: the n-th time its run gets there
+		n      int
+		record string // the fence's one record: an envelope's state/reason, or "tool call"
+		calls  int    // provider requests of the run
+		late   int    // those that began after the fence committed
+	}{
+		{"request_admitted", 2, "unknown/fenced_before_answer", 2, 1},
+		{"execution_admitted", 1, "tool call", 1, 0},
+		{"tool_result_committed", 2, "failed/fenced", 2, 0},
+	} {
+		t.Run(c.point, func(t *testing.T) {
+			workspace := xpWorkspace(t)
+			engine := openEngineAt(t, workspace)
+			db := stateDB(t, engine)
+			f := newTestSession(t, engine, "fenced at "+c.point)
+			sig := filepath.Join(t.TempDir(), "held")
+			worker := xpStart(t, append(xpEnv("worker", workspace, f.ID, "f", 30),
+				fmt.Sprintf("%s=%s:%d", xpHoldEnv, c.point, c.n), xpSigEnv+"="+sig)...)
+			deadline := time.Now().Add(time.Minute)
+			for {
+				if _, err := os.Stat(sig); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("the worker never reached the point")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			// The worker is stopped: the executions it has now are all those admitted before the fence.
+			executions := func() (n int) {
+				if err := db.QueryRow(`SELECT count(*) FROM derived_origins WHERE session_id = ? AND kind = 'execution'`, f.ID).Scan(&n); err != nil {
+					t.Fatal(err)
+				}
+				return n
+			}
+			admitted := executions()
+			before := time.Now()
+			if _, err := db.Exec(`INSERT INTO source_fences(scope_kind, scope_ref, epoch, reason, state, created_at, updated_at)
+				VALUES('session', ?, 1, 'revoked', 'active', 't', 't')`, f.ID); err != nil {
+				t.Fatal(err)
+			}
+			rf := worker.wait(t, 2*time.Minute)
+			if rf.Status == "completed" || rf.Calls != c.calls {
+				t.Fatalf("the fenced worker = %+v, want %d provider requests and a run that did not complete", rf, c.calls)
+			}
+			if _, cause := sessionState(t, engine, f.ID); cause == nil || cause.Kind != "fenced" {
+				t.Fatalf("fenced session cause = %+v", cause)
+			}
+			late := 0
+			for _, at := range rf.CallAt {
+				if time.Unix(0, at).After(before) {
+					late++
+				}
+			}
+			var records, envelopes []string
+			for _, e := range envelopeRows(t, engine, f.ID) {
+				envelopes = append(envelopes, e.State+"/"+e.Reason.String)
+				if e.State != "answered" {
+					records = append(records, e.State+"/"+e.Reason.String)
+				}
+			}
+			calls, results := 0, 0
+			for _, m := range transcriptRows(t, engine, f.ID) {
+				calls += len(m.ToolCalls)
+				if m.Role == "tool" && m.Origin != protocol.OriginToolInterrupted {
+					results++
+				}
+			}
+			for i := results; i < calls; i++ {
+				records = append(records, "tool call")
+			}
+			if len(records) != 1 || records[0] != c.record || late != c.late {
+				t.Fatalf("the fence left %q (envelopes %q, %d results for %d tool calls) and %d provider requests began after it, want only %q and %d",
+					records, envelopes, results, calls, late, c.record, c.late)
+			}
+			if n := executions(); n != admitted {
+				t.Fatalf("%d executions were admitted after the fence committed", n-admitted)
+			}
+		})
+	}
 }

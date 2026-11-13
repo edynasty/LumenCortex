@@ -106,6 +106,9 @@ type AgentOptions struct {
 	parentSessionID  string
 	disableSubagents bool
 	disableMCP       bool
+	// maintenance marks the maintainer's run (runtime/cognition.go). Only a session Core created for
+	// maintenance runs with it, and such a session runs with nothing else.
+	maintenance bool
 }
 
 // ChildExecutionOptions overrides inherited limits; zero/nil inherits, -1 removes a step/batch cap.
@@ -190,6 +193,8 @@ type AgentResult struct {
 	Spend agent.Spend `json:"spend"`
 	// Delivery is a separate verification outcome; it never changes Status or the Agent error.
 	Delivery *DeliveryResult `json:"delivery,omitempty"`
+	// Cognition is a separate terminal memory outcome, never a task success claim.
+	Cognition *CognitionCompletion `json:"cognition,omitempty"`
 }
 
 // RunAgent runs the agent loop to its exit on the calling goroutine. It holds the
@@ -242,6 +247,9 @@ type preparedRun struct {
 	// evalEnabled reports that this run could have opened execution kernels: its owner is closed on
 	// an abnormal end or when the run is a child.
 	evalEnabled bool
+	// cognitionSource: the run's terminal status may be a cognition source (a top-level run that is not
+	// maintenance), so its end triggers background maintenance when the Engine enabled it.
+	cognitionSource bool
 }
 
 // execute runs under the caller's tracked lifetime, including preparation and owned cleanup.
@@ -304,6 +312,21 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 		r.engine.runsMu.Unlock()
 		observeEnd(LifecycleAfterSubagentEnd)
 	}
+	var cognitionReport *CognitionCompletion
+	if r.cognitionSource {
+		finalCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		report := r.engine.finalizeCognitiveRun(finalCtx, r.sessionID)
+		cancel()
+		if report.Extracted > 0 || report.Feedback > 0 || len(report.Errors) > 0 {
+			cognitionReport = &report
+			r.engine.events.publish("cognition.finalized", r.sessionID, map[string]any{"runId": r.runID, "extracted": report.Extracted, "feedback": report.Feedback, "errors": report.Errors})
+		}
+	}
+	if r.cognitionSource {
+		// Delivery can change the source version after the terminal status.
+		// Start maintenance only after those writes have also committed.
+		r.engine.triggerCognition()
+	}
 	return AgentResult{
 		SessionID:   result.SessionID,
 		Status:      result.Status,
@@ -313,6 +336,7 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 		Workflow:    result.Workflow,
 		Spend:       result.Spend,
 		Delivery:    delivery,
+		Cognition:   cognitionReport,
 	}, err
 }
 
@@ -374,6 +398,21 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if err != nil {
 		return nil, err
 	}
+	// A maintenance session runs only the maintainer, under the maintainer's authority: a host Start,
+	// a resume or a wake-up of it is refused, and the maintainer runs on nothing else.
+	purpose, err := e.store.SessionPurpose(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	maintenance := purpose == session.PurposeMaintenance
+	if maintenance != opts.maintenance {
+		return nil, errors.New("a maintenance session runs only as cognitive maintenance, and maintenance only on one")
+	}
+	_, cognitionErr := e.store.ReadMaintenanceState(ctx)
+	if cognitionErr != nil && !errors.Is(cognitionErr, session.ErrMaintenanceOff) {
+		return nil, cognitionErr
+	}
+	cognitionOn := cognitionErr == nil
 	delegation, err := normalizeDelegation(opts.Delegation)
 	if err != nil {
 		return nil, err
@@ -482,6 +521,13 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		e.discoverMCPCatalogs(ctx, mcpRegistry, agentWorkspace, opts.ToolAllowlist, opts.ToolDenylist)
 	}
 	execution := e.executionLimits()
+	// read_knowledge is offered once the project enabled cognition, to every run but the maintainer's.
+	var knowledgeAccess toolset.KnowledgeReader
+	var cognitiveTools toolset.CognitiveAccess
+	if cognitionOn && !maintenance {
+		knowledgeAccess = knowledgeReader{engine: e, sessionID: sessionID, runID: runID, workspace: agentWorkspace, ev: ev}
+		cognitiveTools = cognitiveAccess{engine: e, sessionID: sessionID, runID: runID}
+	}
 	tools, err := toolset.New(toolset.Options{
 		Workspace: agentWorkspace,
 		Policy:    policy,
@@ -492,6 +538,8 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		// Children get no spawn tool, so the list matters only to a thread's run.
 		SubagentAgents:  plan.spawnAgents,
 		Threads:         threadReader{engine: e, sessionID: sessionID, workspace: agentWorkspace},
+		Knowledge:       knowledgeAccess,
+		Cognitive:       cognitiveTools,
 		Skills:          newSkillReader(prompt.Skills.Included),
 		Notebook:        newNotebookAccess(e, sessionID, runID),
 		Protected:       e.protected,
@@ -602,28 +650,29 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		decisions = append(decisions, instructionsDecision(text))
 	}
 	loopOpts := agent.Options{
-		MaxSteps:            opts.MaxSteps,
-		MaxToolCallsPerStep: opts.MaxToolCallsPerStep,
-		ToolAllowlist:       opts.ToolAllowlist,
-		ToolDenylist:        opts.ToolDenylist,
-		SystemPrompt:        systemPrompt,
-		Instructions:        plan.instructions,
-		MaxTokens:           opts.MaxTokens,
-		Temperature:         opts.Temperature,
-		Session:             plan.session,
-		Failover:            plan.failover,
-		EffortDefault:       effortDefault,
-		Effort:              effortOverride,
-		EffortAutoCeiling:   effortCeiling,
-		CandidateEfforts:    candidateEfforts,
-		Decisions:           decisions,
-		Interactive:         interactive,
-		Delegation:          delegation,
-		TaskAgents:          plan.taskAgents,
-		RunID:               runID,
-		WorkerRoot:          workerRoot,
-		Withheld:            withheld,
-		DeadlineReserve:     time.Duration(opts.DeadlineReserveSeconds) * time.Second,
+		MaxSteps:                opts.MaxSteps,
+		MaxToolCallsPerStep:     opts.MaxToolCallsPerStep,
+		RecordExperienceActions: cognitionOn && !maintenance,
+		ToolAllowlist:           opts.ToolAllowlist,
+		ToolDenylist:            opts.ToolDenylist,
+		SystemPrompt:            systemPrompt,
+		Instructions:            plan.instructions,
+		MaxTokens:               opts.MaxTokens,
+		Temperature:             opts.Temperature,
+		Session:                 plan.session,
+		Failover:                plan.failover,
+		EffortDefault:           effortDefault,
+		Effort:                  effortOverride,
+		EffortAutoCeiling:       effortCeiling,
+		CandidateEfforts:        candidateEfforts,
+		Decisions:               decisions,
+		Interactive:             interactive,
+		Delegation:              delegation,
+		TaskAgents:              plan.taskAgents,
+		RunID:                   runID,
+		WorkerRoot:              workerRoot,
+		Withheld:                withheld,
+		DeadlineReserve:         time.Duration(opts.DeadlineReserveSeconds) * time.Second,
 	}
 	if opts.Deadline != nil {
 		loopOpts.Deadline = *opts.Deadline
@@ -696,6 +745,23 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		}
 	}
 
+	// A top-level Start inherits the project's cognition as one bounded index row of locators, after a
+	// bounded revalidation in this session's scope (runtime/knowledge.go). It never holds a claim's
+	// text. Cognition that cannot be read is reported and left out: the run starts without it.
+	var knowledgeNotice *protocol.Message
+	var knowledgeSources []string
+	if cognitionOn && !maintenance && opts.parentSessionID == "" {
+		notice, sources, ok, err := e.knowledgeIndexRow(ctx, sessionID, runID, agentWorkspace, row.Goal+" "+opts.Input, checks)
+		switch {
+		case err != nil && ctx.Err() != nil:
+			return nil, ctx.Err()
+		case err != nil:
+			e.events.publish("cognition.inheritance.failed", sessionID, map[string]any{"runId": runID, "error": err.Error()})
+		case ok:
+			knowledgeNotice = &notice
+			knowledgeSources = sources
+		}
+	}
 	// Start's one durable write: Input, the session model identity, the Start's Task State version and
 	// the running transition commit together or not at all (§3.2). Nothing above it wrote.
 	start := session.RunStart{Provider: &plan.resolved.ProviderID, Model: &plan.resolved.ModelID, TaskState: taskState, Results: results}
@@ -710,6 +776,10 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		return nil, err
 	} else if row, ok := jobsIndexRow(open); ok {
 		start.Notices = append(start.Notices, row)
+	}
+	if knowledgeNotice != nil {
+		start.Notices = append(start.Notices, *knowledgeNotice)
+		start.NoticeSources = knowledgeSources
 	}
 	if agent.WritesModelRef(plan.rule) {
 		ref := string(plan.session)
@@ -776,6 +846,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		loopOpts:        loopOpts,
 		runID:           runID,
 		parentSessionID: opts.parentSessionID,
+		cognitionSource: cognitionOn && opts.parentSessionID == "" && !maintenance,
 		evalEnabled:     opts.EvalEnabled,
 		loop: agent.Loop{
 			Models:    plan.models,
@@ -793,18 +864,12 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 			Reviewer:  reviewer,
 			DebugBoundary: func(ctx context.Context, point agent.DebugBoundary) error {
 				point.Agent = plan.agentID
-				if err := e.runtimeEventAccess(ctx, sessionID); err != nil {
-					return err
-				}
 				// A worker renews its Task Lease claims at the model step boundary: the lease then expires
 				// only for a worker that stopped making progress.
 				if point.Event == "AfterModelCall" {
 					e.renewHeldLeases(sessionID)
 				}
-				if err := debugControl.Boundary(ctx, point); err != nil {
-					return err
-				}
-				return e.runtimeEventAccess(ctx, sessionID)
+				return debugControl.Boundary(ctx, point, func() error { return e.runtimeEventAccess(ctx, sessionID) })
 			},
 			Emit: func(event agent.Event) {
 				e.events.publish(event.Type, event.SessionID, event.Data)

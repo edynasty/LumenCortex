@@ -580,7 +580,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					// A side-effect tool runs only after its admission is durable (plan T1-S4). From here
 					// until the result commits, a crash or cancellation leaves the execution admitted, and
 					// Reconcile makes it outcome_unknown; it is never run again.
-					if tier := executionTierOf(call.Name, specs); tier != tierNone {
+					tier := executionTierOf(call.Name, specs)
+					if tier == tierNone && opts.RecordExperienceActions && callbackAllowedBuiltins[call.Name] {
+						tier = tierAdmit
+					}
+					if tier != tierNone {
 						var cause *ExitCause
 						if x, cause = l.admitExecution(ctx, sessionID, opts, answered.RequestID, call, args, tier); cause != nil {
 							return l.exit(ctx, state, usage, *cause)
@@ -652,7 +656,8 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 							return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: KindCancelled, Err: ctx.Err()})
 						}
 						if toolErr != nil {
-							toolResult = protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, toolErr.Error())}
+							toolResult.OK = false
+							toolResult.Content = fmt.Sprintf(`{"error":%q}`, toolErr.Error())
 						}
 						if toolResult.MutatesWorkspace {
 							// A change to the workspace is a new obligation, whether or not the call succeeded.
@@ -664,8 +669,8 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					if x != nil {
 						post, edges = l.postExecution(ctx, x, toolResult, toolErr, answered.RequestID, answered.Lineage)
 					}
-					if (x != nil || toolResult.MutatesWorkspace) && l.Checks != nil {
-						// No check episode closed before a side-effect tool is reused after it (ADR-0017).
+					if l.Checks != nil && ((x != nil && (x.tier != tierAdmit || !opts.RecordExperienceActions || !callbackAllowedBuiltins[call.Name])) || toolResult.MutatesWorkspace) {
+						// Recorded local reads do not invalidate a closed check episode.
 						l.Checks.Mutated()
 					}
 				}

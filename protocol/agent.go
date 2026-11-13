@@ -44,6 +44,10 @@ const (
 	// of unknown outcome (ADR-0019 §3): their ids, states and commands, so a resumed run starts from the
 	// runtime's state, not from what its transcript last said.
 	OriginJobs = "jobs"
+	// OriginKnowledge marks the user row a top-level run appends when the project's cognition holds
+	// adopted candidates that apply (R1b/T5a): their ids, types, applicability, cited paths and check ids.
+	// It never holds a claim's text; the model reads a candidate with read_knowledge.
+	OriginKnowledge = "knowledge"
 	// OriginSteer marks the user row a free-text steer message becomes (Hub §3.3): the host's instruction
 	// to a run that is already working, injected at the next request-window construction.
 	OriginSteer = "steer"

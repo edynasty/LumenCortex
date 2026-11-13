@@ -141,7 +141,7 @@ func openShared(ctx context.Context, path, stateDir string, set *Set, shared *ru
 	}
 	// A newer or a Node database is refused, and an older one released for migration, before the
 	// read-write pool opens: its close would checkpoint and delete a WAL the refused file still has.
-	v, err := checkVersion(ctx, path, set.Latest())
+	v, err := checkVersion(ctx, path, set)
 	if err != nil {
 		return fail(nil, v, needNothing, err)
 	}

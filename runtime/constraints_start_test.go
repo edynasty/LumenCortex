@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -29,9 +30,9 @@ func newConstraintStart(t *testing.T, command string) constraintStart {
 	dir := t.TempDir()
 	c := constraintStart{started: filepath.Join(dir, "started"), release: filepath.Join(dir, "release"), late: filepath.Join(dir, "late")}
 	cmd := os.Expand(command, func(k string) string {
-		return map[string]string{"STARTED": c.started, "RELEASE": c.release, "LATE": c.late}[k]
+		return quoteCheckPath(map[string]string{"STARTED": c.started, "RELEASE": c.release, "LATE": c.late}[k])
 	})
-	engine, _ := trustedProject(t, `{"gate": {"kind": "test", "command": "`+cmd+`", "required": false}}`, false)
+	engine, _ := trustedProject(t, fmt.Sprintf(`{"gate": {"kind": "test", "command": %q, "required": false}}`, cmd), false)
 	approveChecks(t, engine)
 	bindConstraint(t, engine, testConstraintRef, testConstraintDigest, "gate", testConstraintScope)
 	handle, err := engine.NewSession(context.Background(), SessionOptions{Goal: "g"})
@@ -47,19 +48,37 @@ func newConstraintStart(t *testing.T, command string) constraintStart {
 	return c
 }
 
-// waitFile waits until path exists.
-func waitFile(t *testing.T, path string) {
+// afterConstraintStart joins its waiter even if the check fails before creating the file.
+func afterConstraintStart(t *testing.T, path string, action func() error) <-chan error {
 	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		if _, err := os.Stat(path); err == nil {
-			return
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	done := make(chan error, 1)
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			if _, err := os.Stat(path); err == nil {
+				done <- action()
+				return
+			} else if !os.IsNotExist(err) {
+				done <- err
+				return
+			}
+			select {
+			case <-ctx.Done():
+				done <- fmt.Errorf("%s never appeared: %w", path, ctx.Err())
+				return
+			case <-ticker.C:
+			}
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("%s never appeared", path)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		for range done {
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	})
+	return done
 }
 
 // nothingCommitted asserts that the refused Start left the thread as it was: no new Task State
@@ -95,14 +114,18 @@ func (c constraintStart) nothingCommitted(t *testing.T) {
 func TestCancelledStartDuringAConstraintCheckSavesNothing(t *testing.T) {
 	c := newConstraintStart(t, `touch ${STARTED}; if [ ! -f ${RELEASE} ]; then sleep 3; touch ${LATE}; fi; true`)
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		waitFile(t, c.started)
+	defer cancel()
+	cancelled := afterConstraintStart(t, c.started, func() error {
 		cancel()
-	}()
+		return nil
+	})
 	began := time.Now()
 	_, err := c.engine.runAgentWith(ctx, c.id, &answering{final: "done"}, AgentOptions{Input: "go", MaxSteps: 2})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled Start: %v", err)
+	}
+	if err := <-cancelled; err != nil {
+		t.Fatal(err)
 	}
 	if took := time.Since(began); took > 3*time.Second {
 		t.Fatalf("the cancelled Start waited %v for the check", took)
@@ -131,13 +154,10 @@ func TestCancelledStartDuringAConstraintCheckSavesNothing(t *testing.T) {
 // running session may commit after the fence.
 func TestRevokedDuringAConstraintCheckTheStartIsRefused(t *testing.T) {
 	c := newConstraintStart(t, `touch ${STARTED}; while [ ! -f ${RELEASE} ]; do sleep 0.05; done; true`)
-	revoked := make(chan error, 1)
-	go func() {
-		waitFile(t, c.started)
+	revoked := afterConstraintStart(t, c.started, func() error {
 		_, err := c.engine.RevokeSource(context.Background(), SourceSession, c.id, "test")
-		revoked <- err
-		_ = os.WriteFile(c.release, nil, 0o644)
-	}()
+		return errors.Join(err, os.WriteFile(c.release, nil, 0o644))
+	})
 	_, err := c.engine.runAgentWith(context.Background(), c.id, &answering{final: "done"}, AgentOptions{Input: "go", MaxSteps: 2})
 	if rerr := <-revoked; rerr != nil {
 		t.Fatal(rerr)
@@ -175,16 +195,13 @@ func TestApprovalEpochChangedDuringAConstraintCheckSatisfiesNothing(t *testing.T
 	c := newConstraintStart(t, `touch ${STARTED}; while [ ! -f ${RELEASE} ]; do sleep 0.05; done; true`)
 	ctx := context.Background()
 	before := approvalState(t, c.engine)
-	reapproved := make(chan error, 1)
-	go func() {
-		waitFile(t, c.started)
+	reapproved := afterConstraintStart(t, c.started, func() error {
 		_, err := c.engine.RevokeApproval(ctx, RevokeApprovalRequest{Kind: RevokeChecks})
 		if err == nil {
 			_, err = c.engine.ApproveChecks(ctx, ApproveChecksRequest{SetDigest: before.SetDigest, ApprovedBy: ApprovedByUser, Actor: "u"})
 		}
-		reapproved <- err
-		_ = os.WriteFile(c.release, nil, 0o644)
-	}()
+		return errors.Join(err, os.WriteFile(c.release, nil, 0o644))
+	})
 	if _, err := c.engine.runAgentWith(ctx, c.id, &answering{final: "rule:tests-pass is satisfied"}, AgentOptions{Input: "go", MaxSteps: 2}); err != nil {
 		t.Fatal(err)
 	}

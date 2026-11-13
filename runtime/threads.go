@@ -134,6 +134,12 @@ func (e *Engine) readThread(ctx context.Context, id, workspace string, agent boo
 	if err != nil {
 		return ThreadView{}, err
 	}
+	// A maintenance session holds a batch of other sessions' projections as they were when it ran, and
+	// the maintainer's untrusted answer: an agent reads cognition through read_knowledge, which decides
+	// applicability now, never through the maintainer's transcript.
+	if agent && row.Purpose == session.PurposeMaintenance {
+		return ThreadView{}, fmt.Errorf("thread %q is a cognitive maintenance session; read its candidates with read_knowledge", id)
+	}
 	if row.Fenced {
 		return ThreadView{Context: threadctx.Framing, ID: thread.ID, Kind: thread.Kind, ParentID: thread.ParentID,
 			Status: thread.Status, Withdrawn: true, UpdatedAt: thread.UpdatedAt}, nil
@@ -249,8 +255,9 @@ func (e *Engine) rankThreads(ctx context.Context, query string, limit int, exclu
 	threads := make([]threadctx.Thread, 0, len(rows))
 	byID := map[string]threadctx.Thread{}
 	for _, row := range rows {
-		// A fenced session is withdrawn: it is not a candidate, so nothing of it ranks or shows.
-		if excluded[row.ID] || row.Fenced {
+		// A fenced session is withdrawn: it is not a candidate, so nothing of it ranks or shows. A
+		// maintenance session is Core's own work, not a thread of the project.
+		if excluded[row.ID] || row.Fenced || row.Purpose == session.PurposeMaintenance {
 			continue
 		}
 		// A notes value that does not decode (a foreign writer) leaves the thread recallable by its goal.

@@ -54,7 +54,9 @@ type Revocation struct {
 // The transaction is the linearization point. A request or execution admitted before it is in the
 // report; any admission after it reads the fence and is refused; an edge committed after it that cites
 // a fenced session is refused (sourceFenced). reason is a short machine code. The walk is index reads
-// only, at most MaxRevokeSessions sessions; past that every session is fenced.
+// only, at most MaxRevokeSessions sessions; past that every session is fenced. A source that only
+// shared a maintenance batch with a fenced session is queued for maintenance again in the same
+// transaction (requeueCoBatchedSources).
 func (s *Store) RevokeSession(ctx context.Context, sourceID, reason string) (Revocation, error) {
 	if err := checkID("session id", sourceID); err != nil {
 		return Revocation{}, err
@@ -83,7 +85,7 @@ func revokeIn(ctx context.Context, conn *sql.Conn, sourceID, reason string) (Rev
 	if err := conn.QueryRowContext(ctx, `SELECT COALESCE(MAX(epoch), 0) + 1 FROM source_fences`).Scan(&epoch); err != nil {
 		return Revocation{}, err
 	}
-	reached, expanded, err := revocationReach(ctx, conn, sourceID)
+	reached, expanded, err := revocationReach(ctx, conn, sourceID, MaxRevokeSessions)
 	if err != nil {
 		return Revocation{}, err
 	}
@@ -111,12 +113,19 @@ func revokeIn(ctx context.Context, conn *sql.Conn, sourceID, reason string) (Rev
 			return Revocation{}, err
 		}
 	}
+	// Every session is fenced after an expanded walk: no source is left to maintain again.
+	if !expanded {
+		if err := requeueCoBatchedSources(ctx, conn, epoch, parseTime(at)); err != nil {
+			return Revocation{}, err
+		}
+	}
 	return rev, nil
 }
 
-// revocationReach returns sourceID and every session the reverse walk reaches from it, source first,
-// or every session of the database with expanded = true once more than MaxRevokeSessions are reached.
-func revocationReach(ctx context.Context, conn *sql.Conn, sourceID string) ([]string, bool, error) {
+// revocationReach returns sourceID and every session the reverse walk reaches from it,
+// source first. With a positive limit it expands to every session past that limit.
+// Privacy deletion uses zero to distinguish actual copies from a wider admission fence.
+func revocationReach(ctx context.Context, conn *sql.Conn, sourceID string, limit int) ([]string, bool, error) {
 	reached := []string{sourceID}
 	seen := map[string]bool{sourceID: true}
 	for i := 0; i < len(reached); i++ {
@@ -132,7 +141,7 @@ func revocationReach(ctx context.Context, conn *sql.Conn, sourceID string) ([]st
 			if id == "" || seen[id] {
 				continue
 			}
-			if len(reached) == MaxRevokeSessions {
+			if limit > 0 && len(reached) == limit {
 				all, err := selectStrings(ctx, conn, `SELECT id FROM sessions WHERE id <> ? ORDER BY id`, sourceID)
 				if err != nil {
 					return nil, false, err

@@ -2,114 +2,85 @@ package runtime
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"path/filepath"
-	"time"
 
 	"github.com/edynasty/LumenCortex/internal/cognition"
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/edynasty/LumenCortex/internal/knowledge"
 )
 
 type GovernorPlanResult struct {
-	Analysis cognition.GovernorAnalysis `json:"analysis"`
-	Plan cognition.GovernorPlan `json:"plan"`
-	Validation cognition.GovernorValidation `json:"validation"`
-	Curator bool `json:"curator"`
-	CuratorModel string `json:"curatorModel,omitempty"`
+	Analysis     cognition.GovernorAnalysis   `json:"analysis"`
+	Plan         cognition.GovernorPlan       `json:"plan"`
+	Validation   cognition.GovernorValidation `json:"validation"`
+	Curator      bool                         `json:"curator"`
+	CuratorModel string                       `json:"curatorModel,omitempty"`
 }
 
+// Public aliases expose the already-existing read-only Governor contract to hosts outside Core.
+type GovernorAnalyzeOptions = cognition.GovernorAnalyzeOptions
+type GovernorAnalysis = cognition.GovernorAnalysis
+type GovernorPlan = cognition.GovernorPlan
+type GovernorValidation = cognition.GovernorValidation
+
+// CognitiveGraphSnapshot reads a native Go graph through the Engine store. Scope/fence filtering
+// happens before projection; historical evidence grades are not a current-use authorization.
 func (e *Engine) CognitiveGraphSnapshot(ctx context.Context) (cognition.GraphState, map[string]cognition.StorageTelemetry, error) {
 	if e == nil || e.store == nil {
 		return cognition.GraphState{}, nil, errors.New("runtime store is not initialized")
 	}
-	dsn := fmt.Sprintf("file:%s?mode=ro&_busy_timeout=5000&_foreign_keys=on", filepath.ToSlash(e.store.Path()))
-	db, err := sql.Open("sqlite3", dsn)
-	if err != nil { return cognition.GraphState{}, nil, err }
-	defer db.Close()
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil { return cognition.GraphState{}, nil, err }
-	defer tx.Rollback()
-	if !sqliteTableExists(ctx, tx, "graph_nodes") || !sqliteTableExists(ctx, tx, "graph_edges") {
-		return cognition.GraphState{}, nil, errors.New("cognitive graph tables are not initialized in shared SQLite store")
-	}
-
-	graph := cognition.GraphState{
-		Version: 1,
-		Nodes: map[string]cognition.GraphNode{},
-		Edges: map[string]cognition.GraphEdge{},
-		Metadata: map[string]any{},
-	}
-	rows, err := tx.QueryContext(ctx, "SELECT id, json FROM graph_nodes ORDER BY id")
-	if err != nil { return cognition.GraphState{}, nil, err }
-	for rows.Next() {
-		var id, raw string
-		if err := rows.Scan(&id, &raw); err != nil { rows.Close(); return cognition.GraphState{}, nil, err }
-		var node cognition.GraphNode
-		if err := json.Unmarshal([]byte(raw), &node); err != nil { rows.Close(); return cognition.GraphState{}, nil, fmt.Errorf("decode graph node %s: %w", id, err) }
-		if node.ID == "" { node.ID = id }
-		graph.Nodes[id] = node
-	}
-	if err := rows.Close(); err != nil { return cognition.GraphState{}, nil, err }
-
-	edgeRows, err := tx.QueryContext(ctx, "SELECT id, json FROM graph_edges ORDER BY id")
-	if err != nil { return cognition.GraphState{}, nil, err }
-	for edgeRows.Next() {
-		var id, raw string
-		if err := edgeRows.Scan(&id, &raw); err != nil { edgeRows.Close(); return cognition.GraphState{}, nil, err }
-		var edge cognition.GraphEdge
-		if err := json.Unmarshal([]byte(raw), &edge); err != nil { edgeRows.Close(); return cognition.GraphState{}, nil, fmt.Errorf("decode graph edge %s: %w", id, err) }
-		if edge.ID == "" { edge.ID = id }
-		graph.Edges[id] = edge
-	}
-	if err := edgeRows.Close(); err != nil { return cognition.GraphState{}, nil, err }
-
-	var graphVersion string
-	if err := tx.QueryRowContext(ctx, "SELECT value FROM metadata WHERE key = ?", "graph_version").Scan(&graphVersion); err == nil {
-		var version int
-		if _, scanErr := fmt.Sscanf(graphVersion, "%d", &version); scanErr == nil && version > 0 { graph.Version = version }
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	nodes, edges, err := e.nativeGraph(ctx)
+	if err != nil {
 		return cognition.GraphState{}, nil, err
 	}
-	var graphMetadata string
-	if err := tx.QueryRowContext(ctx, "SELECT value FROM metadata WHERE key = ?", "graph_metadata").Scan(&graphMetadata); err == nil {
-		if graphMetadata != "" {
-			if err := json.Unmarshal([]byte(graphMetadata), &graph.Metadata); err != nil { return cognition.GraphState{}, nil, fmt.Errorf("decode graph metadata: %w", err) }
+	graph := cognition.GraphState{Version: 1, Nodes: make(map[string]cognition.GraphNode, len(nodes)), Edges: make(map[string]cognition.GraphEdge, len(edges)), Metadata: map[string]any{"authority": "go-native", "readOnly": true}}
+	for _, n := range nodes {
+		status, grade, trust := n.Status, "hypothesis", "model_inferred"
+		if n.Kind == "entity" || n.Kind == "task" {
+			grade, trust = "static", "user_provided"
 		}
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return cognition.GraphState{}, nil, err
-	}
-
-	storage := map[string]cognition.StorageTelemetry{}
-	if sqliteTableExists(ctx, tx, "graph_node_storage") {
-		storageRows, err := tx.QueryContext(ctx, "SELECT node_id, tier, last_access_at, access_count FROM graph_node_storage ORDER BY node_id")
-		if err != nil { return cognition.GraphState{}, nil, err }
-		for storageRows.Next() {
-			var id, tier string
-			var lastAccess sql.NullString
-			var accessCount int
-			if err := storageRows.Scan(&id, &tier, &lastAccess, &accessCount); err != nil { storageRows.Close(); return cognition.GraphState{}, nil, err }
-			item := cognition.StorageTelemetry{Tier: tier, AccessCount: accessCount}
-			if lastAccess.Valid && lastAccess.String != "" {
-				if parsed, parseErr := time.Parse(time.RFC3339Nano, lastAccess.String); parseErr == nil { item.LastAccessAt = parsed }
+		limitation := n.Times.TimeState(e.now())
+		for _, source := range n.Sources {
+			version, err := e.store.SourceVersion(ctx, source.SessionID)
+			if err != nil {
+				return cognition.GraphState{}, nil, err
 			}
-			storage[id] = item
+			if source.Digest != version {
+				limitation = "source_version_changed"
+			}
 		}
-		if err := storageRows.Close(); err != nil { return cognition.GraphState{}, nil, err }
+		// Not yet valid is pending, not stale: the stored lifecycle stands and the limitation says
+		// why the record is not usable now, so the analyzer never proposes archiving it.
+		pending := limitation == "not_yet_valid" || limitation == "future_observation"
+		if limitation != "" && !pending && status != "invalid" && status != "archived" {
+			status = "stale"
+		}
+		for _, evidence := range n.Evidence {
+			if evidence.Verification == "passed" {
+				grade, trust = "runtime", "runtime_verified"
+			}
+		}
+		graph.Nodes[n.ID] = cognition.GraphNode{ID: n.ID, Kind: n.Kind, Title: n.Title, Body: n.Body, Tags: n.Tags, Status: status, Grade: grade, TrustZone: trust, Metadata: map[string]any{"version": n.Version, "scope": n.Scope, "times": n.Times, "evidence": n.Evidence, "useLimitation": limitation, "applicability": knowledge.Unknown}}
+		node := graph.Nodes[n.ID]
+		node.Metadata["protectedMemory"] = n.ProtectedMemory()
+		node.Metadata["memoryClass"] = n.MemoryClass()
+		node.Metadata["memory"] = n.Memory
+		node.Metadata["dependencies"] = n.Dependencies
+		graph.Nodes[n.ID] = node
 	}
-	if err := tx.Commit(); err != nil { return cognition.GraphState{}, nil, err }
-	return graph, storage, nil
+	for _, edge := range edges {
+		graph.Edges[edge.ID] = cognition.GraphEdge{ID: edge.ID, From: edge.From, To: edge.To, Type: edge.Type, Weight: edge.Weight}
+	}
+	return graph, map[string]cognition.StorageTelemetry{}, nil
 }
 
 func (e *Engine) GovernorAnalyze(ctx context.Context, options cognition.GovernorAnalyzeOptions) (cognition.GovernorAnalysis, error) {
 	graph, storage, err := e.CognitiveGraphSnapshot(ctx)
-	if err != nil { return cognition.GovernorAnalysis{}, err }
-	if options.StorageByNode == nil { options.StorageByNode = storage }
+	if err != nil {
+		return cognition.GovernorAnalysis{}, err
+	}
+	if options.StorageByNode == nil {
+		options.StorageByNode = storage
+	}
 	return (cognition.GovernorAnalyzer{}).Analyze(graph, options), nil
 }
 
@@ -127,8 +98,12 @@ func (e *Engine) GovernorPlan(ctx context.Context, curator *cognition.LLMGoverno
 		return GovernorPlanResult{}, ErrGovernorCuratorDisabled
 	}
 	graph, storage, err := e.CognitiveGraphSnapshot(ctx)
-	if err != nil { return GovernorPlanResult{}, err }
-	if options.StorageByNode == nil { options.StorageByNode = storage }
+	if err != nil {
+		return GovernorPlanResult{}, err
+	}
+	if options.StorageByNode == nil {
+		options.StorageByNode = storage
+	}
 	analysis := (cognition.GovernorAnalyzer{}).Analyze(graph, options)
 	plan := cognition.DeterministicGovernorPlan(analysis)
 	validation := cognition.ValidateGovernorPlan(plan, graph)
@@ -137,12 +112,8 @@ func (e *Engine) GovernorPlan(ctx context.Context, curator *cognition.LLMGoverno
 
 func (e *Engine) GovernorValidate(ctx context.Context, plan cognition.GovernorPlan) (cognition.GovernorValidation, error) {
 	graph, _, err := e.CognitiveGraphSnapshot(ctx)
-	if err != nil { return cognition.GovernorValidation{}, err }
+	if err != nil {
+		return cognition.GovernorValidation{}, err
+	}
 	return cognition.ValidateGovernorPlan(plan, graph), nil
-}
-
-func sqliteTableExists(ctx context.Context, tx *sql.Tx, name string) bool {
-	var value string
-	err := tx.QueryRowContext(ctx, "SELECT name FROM sqlite_master WHERE type = ? AND name = ?", "table", name).Scan(&value)
-	return err == nil && value == name
 }

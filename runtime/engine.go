@@ -102,6 +102,9 @@ type Options struct {
 	LifecycleHooks []LifecycleHook
 	// Debug is an explicit host adapter catalog; nil disables DAP execution.
 	Debug *DebugOptions
+	// Cognition says how this Engine maintains the project's cognition once EnableCognition was called
+	// (R1b/T5a); nil uses the default model, no background maintenance and the default bounds.
+	Cognition *CognitionOptions
 }
 
 type Engine struct {
@@ -166,6 +169,19 @@ type Engine struct {
 	// editing is the single write path every file tool commits through: its snapshot store is per session
 	// and its write leases are shared by every run, so the collaboration layer can take one.
 	editing *editing.Engine
+	// cognitionMu serializes pass admission with shutdown; cognitionWG joins automatic loops and
+	// complete manual passes after cognitionCancel cancels their shared Engine lifetime.
+	cognition       *CognitionOptions
+	cognitionMu     sync.Mutex
+	cognitionBusy   bool
+	cognitionAgain  bool
+	cognitionClosed bool
+	cognitionWG     sync.WaitGroup
+	cognitionCtx    context.Context
+	cognitionCancel context.CancelFunc
+	// clock is the maintenance lease's time source; nil is the wall clock. A test sets it to stand in
+	// for time passing (a lease expiring while its holder is stuck).
+	clock func() time.Time
 }
 
 type Health struct {
@@ -367,6 +383,11 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 		diag:            diagLog,
 		diagErr:         diagErr,
 	}
+	if opts.Cognition != nil {
+		c := *opts.Cognition
+		engine.cognition = &c
+	}
+	engine.cognitionCtx, engine.cognitionCancel = context.WithCancel(context.Background())
 	if diagLog != nil {
 		engine.log = diagLog.Logger()
 	}
@@ -454,6 +475,10 @@ func OpenContext(ctx context.Context, opts Options) (*Engine, error) {
 	// pass can fire them.
 	engine.bindScheduledJobs(engine)
 	engine.resumeDeletions(ctx)
+	if err := engine.recoverCognitiveRuns(ctx); err != nil {
+		_ = engine.Close()
+		return nil, fmt.Errorf("recover cognition: %w", err)
+	}
 	if err := engine.schedules.Start(ctx); err != nil {
 		_ = engine.Close()
 		return nil, fmt.Errorf("start the scheduler: %w", err)
@@ -512,10 +537,14 @@ func (e *Engine) Close() error {
 	e.runsMu.Lock()
 	e.closing = true
 	e.runsMu.Unlock()
+	e.stopCognition()
 	if runner := e.agentRunnerRef(); runner != nil {
 		runner.Close()
 	}
 	closeErr = errors.Join(closeErr, e.cancelRuns(context.Background(), func(string) bool { return true }))
+	// Every admitted maintenance pass settles its lease while the store is still open, including
+	// manual verification that continues after the nested model run ended.
+	e.cognitionWG.Wait()
 	closeErr = errors.Join(closeErr, e.closeEval())
 	closeErr = errors.Join(closeErr, e.closeDebug())
 	if e.plugins != nil {
@@ -639,8 +668,10 @@ func (e *Engine) NewSession(ctx context.Context, opts SessionOptions) (*SessionH
 	return e.createSession(ctx, opts)
 }
 
-// createSession is the core path: opts.Metadata may carry core-owned keys.
-func (e *Engine) createSession(ctx context.Context, opts SessionOptions) (*SessionHandle, error) {
+// createSession is the core path: opts.Metadata may carry core-owned keys. When the first row is
+// composed from other sessions' content, derivedFrom names them: the row is recorded as derived from
+// each in the creating transaction, so revoking one of them reaches the new session.
+func (e *Engine) createSession(ctx context.Context, opts SessionOptions, derivedFrom ...string) (*SessionHandle, error) {
 	if strings.TrimSpace(opts.Goal) == "" {
 		return nil, errors.New("session goal is required")
 	}
@@ -665,7 +696,13 @@ func (e *Engine) createSession(ctx context.Context, opts SessionOptions) (*Sessi
 	if first == "" {
 		first = opts.Goal
 	}
-	if err := e.store.CreateWithMessage(ctx, v, protocol.Message{Role: "user", Content: first}); err != nil {
+	msg := protocol.Message{Role: "user", Content: first}
+	if len(derivedFrom) > 0 {
+		err = e.store.CreateDerivedSession(ctx, v, msg, derivedFrom)
+	} else {
+		err = e.store.CreateWithMessage(ctx, v, msg)
+	}
+	if err != nil {
 		return nil, err
 	}
 	e.events.publish("session.start", id, map[string]any{"goal": opts.Goal})

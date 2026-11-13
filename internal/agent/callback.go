@@ -87,17 +87,18 @@ func (j *callbackJournal) add(entry callbackEntry) {
 
 // callbackDispatcher implements protocol.ToolCaller for one admitted eval call.
 type callbackDispatcher struct {
-	loop       *Loop
-	sessionID  string
-	runID      string
-	requestID  string
-	step       int64
-	parentCall string
-	specs      []protocol.ToolSpec
-	spend      *Spend
-	budget     config.Budget
-	lineage    bool
-	journal    *callbackJournal
+	loop        *Loop
+	sessionID   string
+	runID       string
+	requestID   string
+	step        int64
+	parentCall  string
+	specs       []protocol.ToolSpec
+	spend       *Spend
+	budget      config.Budget
+	lineage     bool
+	application bool
+	journal     *callbackJournal
 	// mu serializes Call: an active call in a JavaScript kernel can dispatch several callbacks at
 	// once, and the dispatcher mutates the run's Spend and its own journal.
 	mu     sync.Mutex
@@ -105,15 +106,15 @@ type callbackDispatcher struct {
 	closed bool
 }
 
-// toolCallback binds a dispatcher for one eval call. It returns nil for any other tool: a callback is
-// a capability of the eval tool alone.
+// toolCallback binds the existing dispatcher for an eval or explicit Experience
+// application. Both keep the same sandbox/tool/budget policy; neither recurses.
 func (l *Loop) toolCallback(sessionID, runID, requestID string, step int64, call protocol.ToolCall, specs []protocol.ToolSpec, spend *Spend, budget config.Budget, lineage bool) protocol.ToolCaller {
-	if !isEvalTool(call.Name) {
+	if !isEvalTool(call.Name) && call.Name != "apply_experience" {
 		return nil
 	}
 	return &callbackDispatcher{
 		loop: l, sessionID: sessionID, runID: runID, requestID: requestID, step: step,
-		parentCall: call.ID, specs: specs, spend: spend, budget: budget, lineage: lineage,
+		parentCall: call.ID, specs: specs, spend: spend, budget: budget, lineage: lineage, application: call.Name == "apply_experience",
 		journal: &callbackJournal{},
 	}
 }
@@ -155,6 +156,15 @@ func callbackSpec(spec protocol.ToolSpec) bool {
 	return callbackAllowedBuiltins[name]
 }
 
+// An explicit application is already in the host-authorized main run; it may
+// execute a foreground bash action. Eval cells keep their narrower sandbox.
+func (d *callbackDispatcher) allowed(spec protocol.ToolSpec) bool {
+	if d.application && spec.Name == protocol.ToolBash {
+		return true
+	}
+	return callbackSpec(spec)
+}
+
 // Tools returns the specs a nested call may use: the current step's effective list, filtered by the
 // sandbox policy.
 func (d *callbackDispatcher) Tools(ctx context.Context) ([]protocol.ToolSpec, error) {
@@ -168,7 +178,7 @@ func (d *callbackDispatcher) Tools(ctx context.Context) ([]protocol.ToolSpec, er
 	}
 	out := make([]protocol.ToolSpec, 0, len(d.specs))
 	for _, spec := range d.specs {
-		if callbackSpec(spec) {
+		if d.allowed(spec) {
 			out = append(out, spec)
 		}
 	}
@@ -218,8 +228,14 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 			break
 		}
 	}
-	if !callbackSpec(spec) {
+	if !d.allowed(spec) {
 		return deny("tool is outside the execution sandbox: a cell may use workspace read/state tools, workspace file writes whose execution the store can settle, and read-only MCP tools; it cannot run bash, background jobs, eval, delegation or native exec")
+	}
+	if d.application && name == protocol.ToolBash && args["background"] == true {
+		return deny("experience actions must finish in the current run")
+	}
+	if err := validateToolArgs(spec, args); err != nil {
+		return deny(err.Error())
 	}
 	if d.budget.MaxToolCalls > 0 && d.spend.ToolCalls >= d.budget.MaxToolCalls {
 		return deny(fmt.Sprintf("the run executed %d tool calls, its limit", d.spend.ToolCalls))
@@ -235,6 +251,13 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 		return deny("denied by a lifecycle hook: " + pre.FeedbackText())
 	}
 	if pre.Args != nil {
+		if d.application {
+			before, _ := json.Marshal(args)
+			after, _ := json.Marshal(mergeArgs(args, pre.Args))
+			if string(before) != string(after) {
+				return deny("a hook changed the observed procedure; use a new explicit action")
+			}
+		}
 		args = mergeArgs(args, pre.Args)
 		if err := validateToolArgs(spec, args); err != nil {
 			return deny("the hook's replacement arguments are invalid for this tool: " + err.Error())
@@ -242,12 +265,15 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 	}
 
 	tier := executionTierOf(name, d.specs)
+	if tier == tierNone && d.application {
+		tier = tierAdmit
+	}
 	var x *execution
 	var settler executionSettler
 	if tier != tierNone {
 		// A nested effect needs a store that can settle its execution without a transcript row.
 		settler, _ = d.loop.Store.(executionSettler)
-		if settler == nil || tier == tierWorkspace {
+		if settler == nil || (tier == tierWorkspace && !d.application) {
 			return deny("tool has side effects and cannot be admitted inside a cell; call it from the run")
 		}
 		var cause *ExitCause
@@ -262,7 +288,8 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 	}
 	result, err := d.loop.Tools.Execute(toolCtx, name, args, nil)
 	if err != nil {
-		result = protocol.ToolResult{OK: false, Content: toolErrorContent(err.Error())}
+		result.OK = false
+		result.Content = toolErrorContent(err.Error())
 	}
 	if x != nil {
 		settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishTimeout)

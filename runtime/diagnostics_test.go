@@ -408,7 +408,8 @@ func TestEngineDiagnosticTrace(t *testing.T) {
 		"step": 2, "provider": "test", "model": "b1", "class": "availability", "error": "boom",
 	})
 	engine.events.publish("session.complete", sessionID, map[string]any{"step": 1})
-	waitForRecords(t, engine, sessionID, 10)
+	// session.start from newTestSession plus the ten events above, the last being session.complete.
+	waitForRecords(t, engine, sessionID, 11)
 
 	spans, err := engine.DiagnosticTrace(ctx, sessionID, "")
 	if err != nil {

@@ -11,8 +11,8 @@ import (
 
 // A downgrade below version 6 drops source_fences. While a fence is active or awaiting cleanup that
 // would undo a committed revocation or an unfinished privacy cleanup (DATA §7), so it is refused
-// before the backup with the database, its WAL and every fence row unchanged; a database whose fences
-// are all cleaned, or that has none, still downgrades.
+// before the backup with the database, its WAL and every fence row unchanged. Without live fences,
+// no fences or cleaned non-privacy fences may downgrade; v16 retains even cleaned privacy epochs.
 
 const insertFence = `INSERT INTO source_fences(scope_kind, scope_ref, epoch, reason, state, created_at, updated_at)
 	VALUES(?, ?, 1, 'test', ?, '2026-10-25T00:00:00Z', '2026-10-25T00:00:00Z')`
@@ -74,15 +74,15 @@ func TestDowngradeBelowSixIsRefusedWhileAFenceIsLive(t *testing.T) {
 	}
 }
 
-func TestDowngradeBelowSixProceedsWithoutLiveFences(t *testing.T) {
-	for name, state := range map[string]string{"no fence": "", "only cleaned fences": "cleaned"} {
+func TestDowngradeBelowSixProceedsWithoutLiveFencesOrPrivacyEpoch(t *testing.T) {
+	for name, state := range map[string]string{"no fence": "", "only cleaned source fences": "cleaned"} {
 		t.Run(name, func(t *testing.T) {
 			var dir string
 			if state == "" {
 				dir = newFixture(t, fixtureGo)
 				closeWS(t, open(t, dir, embeddedSet(t)))
 			} else {
-				dir = fencedV6(t, "privacy", state)
+				dir = fencedV6(t, "source", state)
 			}
 			from, now, err := Downgrade(context.Background(), dir, embeddedSet(t), 5)
 			if err != nil || from != embeddedSet(t).Latest() || now != 5 {

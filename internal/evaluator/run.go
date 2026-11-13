@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -76,10 +77,28 @@ type Evaluator struct {
 	WorktreeID string
 
 	mu sync.Mutex
-	// generation counts the side-effect tools completed in the run; closed maps the seq of each runtime
-	// result in an episode this Evaluator closed to the generation it was closed at.
+	// Closed evidence is private to this evaluator and binds both tool generation and the
+	// inherited process environment. Environment values and their digest are never persisted.
 	generation uint64
-	closed     map[int64]uint64
+	closed     map[int64]runEvidence
+}
+
+type runEvidence struct {
+	generation  uint64
+	environment [sha256.Size]byte
+}
+
+func processEnvironmentDigest() [sha256.Size]byte {
+	env := os.Environ()
+	slices.Sort(env)
+	h := sha256.New()
+	for _, value := range env {
+		h.Write([]byte(value))
+		h.Write([]byte{0})
+	}
+	var digest [sha256.Size]byte
+	h.Sum(digest[:0])
+	return digest
 }
 
 // Mutated records that a side-effect tool completed in the run: no episode closed before it is reused.
@@ -94,18 +113,23 @@ func (e *Evaluator) Mutated() {
 func (e *Evaluator) inRun(seq int64) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	gen, ok := e.closed[seq]
-	return ok && gen == e.generation
+	evidence, ok := e.closed[seq]
+	return ok && evidence.generation == e.generation && evidence.environment == processEnvironmentDigest()
 }
 
-func (e *Evaluator) register(seqs []int64) {
+// InRun reports whether seq is a runtime result of an episode this Evaluator closed in its run, with no
+// side-effect tool completed since: the only results the run may reuse. Persistent cognition uses it
+// to decide whether an observation of a run-bound check is still fresh for the run that made it.
+func (e *Evaluator) InRun(seq int64) bool { return e.inRun(seq) }
+
+func (e *Evaluator) register(seqs []int64, evidence runEvidence) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.closed == nil {
-		e.closed = make(map[int64]uint64)
+		e.closed = make(map[int64]runEvidence)
 	}
 	for _, seq := range seqs {
-		e.closed[seq] = e.generation
+		e.closed[seq] = evidence
 	}
 }
 
@@ -143,6 +167,9 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string,
 	if err != nil {
 		return nil, err
 	}
+	e.mu.Lock()
+	evidence := runEvidence{generation: e.generation, environment: processEnvironmentDigest()}
+	e.mu.Unlock()
 	episode, err := newEpisodeID()
 	if err != nil {
 		return nil, err
@@ -222,6 +249,9 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string,
 	if status == EpisodeClosed && !post.env.sameScope(pre.env) {
 		status = EpisodeScopeChanged
 	}
+	if status == EpisodeClosed && evidence.environment != processEnvironmentDigest() {
+		status = EpisodeScopeChanged
+	}
 	postFingerprints := make(map[int64]string, len(fresh))
 	for seq, i := range fresh {
 		postFingerprints[seq] = postFingerprint(post.env, specs[i])
@@ -234,7 +264,7 @@ func (e *Evaluator) Decide(ctx context.Context, specs []Spec, workUnitID string,
 		for seq := range fresh {
 			seqs = append(seqs, seq)
 		}
-		e.register(seqs)
+		e.register(seqs, evidence)
 	}
 	for seq, i := range fresh {
 		out[i].Result.EpisodeStatus, out[i].Result.PostFingerprint = status, postFingerprints[seq]
@@ -494,6 +524,45 @@ func (e *Evaluator) runSchema(spec Spec) (string, []byte) {
 		return StatusError, b.Bytes()
 	}
 	compiler := jsonschema.NewCompiler()
+	// The default loader can read arbitrary file URLs. Schema evidence is version-bound
+	// only when every dependency stays inside the workspace fingerprint.
+	compiler.LoadURL = func(rawURL string) (io.ReadCloser, error) {
+		u, err := url.Parse(rawURL)
+		if err != nil || u.Scheme != "file" || u.Host != "" || u.RawQuery != "" {
+			return nil, errors.New("schema dependency must be a local workspace file")
+		}
+		root, err := filepath.EvalSymlinks(e.Workspace)
+		if err != nil {
+			return nil, err
+		}
+		path := filepath.FromSlash(u.Path)
+		if filepath.VolumeName(root) != "" {
+			path = strings.TrimPrefix(path, string(filepath.Separator))
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil, err
+		}
+		var approved string
+		for _, input := range spec.Inputs {
+			if input.Path == filepath.ToSlash(rel) {
+				approved = input.Digest
+				break
+			}
+		}
+		if approved == "" || approved == AbsentInput {
+			return nil, errors.New("schema dependency is outside the approved input set")
+		}
+		raw, ok := readSchemaFile(root, rel)
+		if !ok {
+			return nil, errors.New("schema dependency is not a bounded regular workspace file")
+		}
+		digest := sha256.Sum256(raw)
+		if "sha256:"+hex.EncodeToString(digest[:]) != approved {
+			return nil, ErrSpecUnapproved
+		}
+		return io.NopCloser(bytes.NewReader(raw)), nil
+	}
 	url := "file:///" + filepath.ToSlash(strings.TrimPrefix(schemaPath, "/"))
 	if err := compiler.AddResource(url, bytes.NewReader(raw)); err != nil {
 		fmt.Fprintf(&b, "error: schema is not valid JSON: %v\n", err)

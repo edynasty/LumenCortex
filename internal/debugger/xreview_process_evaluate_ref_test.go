@@ -1,3 +1,5 @@
+//go:build unix
+
 package debugger
 
 // Cross-review (B2 process/eval/DAP), PED-7 residual: a variables reference an

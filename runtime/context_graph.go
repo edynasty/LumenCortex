@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/diag"
+	"github.com/edynasty/LumenCortex/internal/knowledge"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/internal/threadctx"
@@ -215,6 +216,35 @@ func (e *Engine) contextGraph(ctx context.Context, id string, state taskstate.St
 			validation = "record_checked"
 		}
 		add(ContextNode{ID: "note:" + note.ID, Kind: "note", Summary: note.Text, SourceRef: "note:" + note.ID, Status: "context", Validation: validation, Freshness: note.Applicability}, "cites")
+	}
+	reader, err := e.cognitiveReader(ctx, id)
+	if err != nil {
+		return ContextGraphView{}, err
+	}
+	cognitive, err := e.store.ExperienceContext(ctx, reader)
+	if err != nil {
+		return ContextGraphView{}, err
+	}
+	for _, n := range cognitive {
+		x := n.Experience
+		add(ContextNode{ID: "experience:" + n.ID, Kind: "experience", Summary: x.Definition.ProblemPattern,
+			SourceRef: fmt.Sprintf("cognition:%s@%d", n.ID, n.Version), Status: x.State, Validation: x.Confidence, Freshness: "requires_condition_check"}, "experience")
+		if !seen["experience:"+n.ID] {
+			continue
+		}
+		// The locator carries the origin's definition, not the aggregate owner's private Uses.
+		// Keep the owner's withdrawal check without making this reader derive from co-consumers.
+		if err := e.runtimeEventAccess(ctx, n.SessionID); err != nil {
+			return ContextGraphView{}, err
+		}
+		if origin := x.Origin.Source.SessionID; !slices.Contains(view.Sources, origin) {
+			view.Sources = append(view.Sources, origin)
+		}
+		// A current counterexample warning does convey consumer-derived information. Its readers
+		// must remain reachable by withdrawal, unlike readers of the origin-only validated locator.
+		if x.State == knowledge.ExperienceNeedsRevision && !slices.Contains(view.Sources, n.SessionID) {
+			view.Sources = append(view.Sources, n.SessionID)
+		}
 	}
 	view.Attention = contextAttention(view.Nodes)
 	// Revalidate cross-session sources before returning a cached projection.

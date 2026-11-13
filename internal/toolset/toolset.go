@@ -42,6 +42,9 @@ type Options struct {
 	SubagentAgents []config.AgentInfo
 	// Threads backs read_thread and recall (ADR-0010 D3); nil offers neither.
 	Threads ThreadReader
+	// Knowledge backs read_knowledge (R1b/T5a); nil (cognition not enabled) does not offer it.
+	Knowledge KnowledgeReader
+	Cognitive CognitiveAccess
 	// Skills backs read_skill; nil (a run whose catalog offers no skill) does not offer it.
 	Skills SkillReader
 	// Notebook backs notebook_list/read/update (ADR-0020); nil offers none of them.
@@ -85,6 +88,8 @@ type Set struct {
 	subagents      SubagentController
 	subagentAgents []config.AgentInfo
 	threads        ThreadReader
+	knowledge      KnowledgeReader
+	cognitive      CognitiveAccess
 	skills         SkillReader
 	notebooks      NotebookStore
 	protected      Protected
@@ -165,7 +170,7 @@ func New(opts Options) (*Set, error) {
 	if shellTimeout > shellMaxTimeout {
 		shellTimeout = shellMaxTimeout
 	}
-	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, skills: opts.Skills, notebooks: opts.Notebook, protected: opts.Protected, shellTimeoutDefault: shellTimeout, shellMaxTimeout: shellMaxTimeout, jobs: opts.Jobs, wakeups: opts.Wakeups, log: newToolsetLogger(opts.Logger), sessionID: opts.SessionID, events: opts.Events, tools: map[string]tool{}}
+	s := &Set{workspace: root, realWorkspace: real, policy: policy, shell: runner, repository: repoService, lsp: opts.LSP, mcp: opts.MCP, subagents: opts.Subagents, subagentAgents: opts.SubagentAgents, threads: opts.Threads, knowledge: opts.Knowledge, skills: opts.Skills, notebooks: opts.Notebook, protected: opts.Protected, shellTimeoutDefault: shellTimeout, shellMaxTimeout: shellMaxTimeout, jobs: opts.Jobs, wakeups: opts.Wakeups, log: newToolsetLogger(opts.Logger), sessionID: opts.SessionID, events: opts.Events, tools: map[string]tool{}}
 	// Every write goes through one editing engine. The runtime passes a shared one (so a session's
 	// snapshots and the collaboration layer's leases outlive a run); a toolset built on its own gets a
 	// private one, which keeps the same commit path in tests and in the capability catalog.
@@ -178,6 +183,8 @@ func New(opts Options) (*Set, error) {
 		}
 		s.edit = engine
 	}
+	s.cognitive = opts.Cognitive
+	s.registerCognitiveTools()
 	s.registerBuiltins()
 	return s, nil
 }
@@ -365,6 +372,7 @@ func (s *Set) registerBuiltins() {
 		s.registerJobTools()
 	}
 	s.registerThreadTools()
+	s.registerKnowledgeTool()
 	s.registerSkillTools()
 	s.registerWakeupTools()
 	s.registerNotebookTools()

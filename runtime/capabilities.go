@@ -472,7 +472,7 @@ func builtinCapability(name string) string {
 	case protocol.ToolBash, "job_status", "job_wait", "job_cancel", "job_list":
 		// The job tools act on the commands bash started in the background.
 		return "process.exec"
-	case "read_thread", "recall", "read_skill":
+	case "read_thread", "recall", "read_skill", "read_knowledge":
 		return "context.read"
 	case "notebook_list", "notebook_read", "notebook_update", "wakeup_schedule", "wakeup_cancel",
 		"work_unit_list", "work_unit_create", "work_unit_update", "reference_suggest", "note_write", "note_remove":

@@ -20,3 +20,6 @@ func signalGroup(pgid int, sig syscall.Signal) error {
 func signalPID(pid int, sig syscall.Signal) error {
 	return errors.New("eval: process signals are not supported on windows")
 }
+
+// Windows has no POSIX RLIMIT_CPU signal; its worker sandbox remains unsupported.
+func isCPULimitSignal(int32) bool { return false }

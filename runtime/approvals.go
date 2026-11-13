@@ -12,6 +12,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/evaluator"
+	"github.com/edynasty/LumenCortex/internal/knowledge"
 	"github.com/edynasty/LumenCortex/internal/session"
 )
 
@@ -237,8 +238,13 @@ func (e *Engine) ApproveChecks(ctx context.Context, req ApproveChecksRequest) (C
 
 // bindingDigest is the digest a ConstraintBinding is approved and used by: "sha256:<hex>" of the
 // canonical JSON of the constraint ref and digest, the check id and spec digest, and the scope.
+// Cognitive assertions also bind their interpretation policy. Ordinary ADR-0017 bindings do not change.
 func bindingDigest(constraintRef, constraintDigest, checkID, specDigest, scope string) string {
-	raw, _ := json.Marshal([]string{constraintRef, constraintDigest, checkID, specDigest, scope})
+	parts := []string{constraintRef, constraintDigest, checkID, specDigest, scope}
+	if _, ok := knowledge.ParseAssertionRef(constraintRef); ok {
+		parts = append(parts, knowledge.PolicyVersion)
+	}
+	raw, _ := json.Marshal(parts)
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }

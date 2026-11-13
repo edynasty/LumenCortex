@@ -160,8 +160,8 @@ func (s *Store) AppendEvalResult(ctx context.Context, sessionID string, row Eval
 		epoch = row.ApprovalEpoch
 	}
 	if _, err := conn.ExecContext(ctx, `INSERT INTO eval_results(session_id, seq, work_unit_id, check_id, kind, status, provenance, fingerprint, artifacts_json, at, spec_digest, approval_epoch,
-			episode_id, episode_status, pre_fingerprint, post_fingerprint)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			episode_id, episode_status, pre_fingerprint, post_fingerprint, cognition_epoch)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(epoch), 0) FROM source_fences))`,
 		sessionID, seq, unit, row.CheckID, row.Kind, row.Status, row.Provenance, row.Fingerprint, string(raw), at.UTC().Format(time.RFC3339Nano),
 		specDigest, epoch, nullString(row.EpisodeID), nullString(row.EpisodeStatus), nullString(row.PreFingerprint), nullString(row.PostFingerprint)); err != nil {
 		return 0, err

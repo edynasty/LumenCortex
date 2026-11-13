@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -245,6 +246,19 @@ func withheldRows(ctx context.Context, tx *sql.Tx, sessionID string) (map[int64]
 // task result row delivering the child of "task_result:<child>@<seq>". None: the target names no row.
 func edgeRows(ctx context.Context, tx *sql.Tx, sessionID, target string) ([]int64, error) {
 	switch {
+	case strings.HasPrefix(target, "message:"+sessionID+":"):
+		seq, err := strconv.ParseInt(strings.TrimPrefix(target, "message:"+sessionID+":"), 10, 64)
+		if err != nil || seq < 0 {
+			return nil, nil
+		}
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM session_messages WHERE session_id = ? AND seq = ?)`, sessionID, seq).Scan(&exists); err != nil {
+			return nil, err
+		}
+		if exists == 0 {
+			return nil, nil
+		}
+		return []int64{seq}, nil
 	case strings.HasPrefix(target, "tool:"):
 		requestID, callID, ok := strings.Cut(strings.TrimPrefix(target, "tool:"), ":")
 		if !ok || requestID == "" || callID == "" {

@@ -34,3 +34,8 @@ func signalPID(pid int, sig syscall.Signal) error {
 	}
 	return err
 }
+
+// isCPULimitSignal recognizes the kernel RLIMIT_CPU exit signal.
+func isCPULimitSignal(signal int32) bool {
+	return syscall.Signal(signal) == syscall.SIGXCPU
+}

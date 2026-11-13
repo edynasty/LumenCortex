@@ -617,10 +617,11 @@ var ErrDeletionPending = session.ErrCleanupPending
 // purgeDeletion runs the cleanup of a committed deletion to its end: every batch, the rebuild and the
 // WAL truncation (session.PurgeStep). The checkpoint marker is owed before the first batch, so an Open
 // after a crash also retries the truncation. A reader that blocks the truncation ends it with
-// ErrDeletionPending and the deletion stays cleanup_pending. The caller holds the run lock of every id.
+// ErrDeletionPending and the deletion stays cleanup_pending. The caller holds the run locks of d.IDs;
+// this function also stops and locks every derived maintainer before erasing its content.
 // The output files of the jobs whose rows it purged are removed when it returns, however it ends; a
 // failure there is logged and leaves them to the next resume or sweep, never undoes the deletion.
-func (e *Engine) purgeDeletion(ctx context.Context, d session.PrivacyDeletion) error {
+func (e *Engine) purgeDeletion(ctx context.Context, d session.PrivacyDeletion) (err error) {
 	for _, id := range d.IDs {
 		if err := e.cancelRuns(ctx, func(owner string) bool { return owner == id }); err != nil {
 			return err
@@ -628,6 +629,23 @@ func (e *Engine) purgeDeletion(ctx context.Context, d session.PrivacyDeletion) e
 		if err := e.forgetEvalOwner(ctx, id); err != nil {
 			return err
 		}
+	}
+	// A fenced run can still be finishing its last step. Cancellation alone is
+	// insufficient across Engines: hold the same on-disk lock as RunAgent until
+	// both the rows and WAL have been cleaned. A remote owner leaves this pending.
+	for _, id := range d.Derived {
+		if err := e.cancelRuns(ctx, func(owner string) bool { return owner == id }); err != nil {
+			return err
+		}
+	}
+	locks, err := e.acquireDeleted(ctx, d.Derived)
+	defer func() {
+		for _, lock := range locks {
+			err = errors.Join(err, lock.Release())
+		}
+	}()
+	if err != nil {
+		return err
 	}
 	if err := e.store.OweCheckpoint(); err != nil {
 		return err

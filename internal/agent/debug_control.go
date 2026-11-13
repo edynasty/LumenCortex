@@ -228,7 +228,9 @@ func (d *DebugControl) Observe(point DebugBoundary) {
 	}
 }
 
-func (d *DebugControl) Boundary(ctx context.Context, p DebugBoundary) error {
+// Boundary rechecks session access only around an actual pause. An unpaused run must observe
+// revocation in its next admission or settlement transaction, which records the refusal.
+func (d *DebugControl) Boundary(ctx context.Context, p DebugBoundary, recheck func() error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -272,6 +274,17 @@ func (d *DebugControl) Boundary(ctx context.Context, p DebugBoundary) error {
 		d.mu.Unlock()
 		return ctx.Err()
 	}
+	d.mu.Unlock()
+	if recheck != nil {
+		if err := recheck(); err != nil {
+			return err
+		}
+	}
+	d.mu.Lock()
+	if d.snapshot.State == "closed" {
+		d.mu.Unlock()
+		return ErrDebugState
+	}
 	d.snapshot.State = "paused"
 	d.snapshot.Reason = reason
 	d.mode = ""
@@ -294,7 +307,10 @@ func (d *DebugControl) Boundary(ctx context.Context, p DebugBoundary) error {
 			return ErrDebugState
 		}
 		if state != "paused" {
-			return ctx.Err()
+			if err := ctx.Err(); err != nil || recheck == nil {
+				return err
+			}
+			return recheck()
 		}
 		select {
 		case <-ctx.Done():

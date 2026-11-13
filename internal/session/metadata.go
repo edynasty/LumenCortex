@@ -20,6 +20,9 @@ const (
 	// MetadataKeyImport is the provenance of a session an import created (ADR-0011), written once
 	// with the session.
 	MetadataKeyImport = "import"
+	// MetadataKeyPurpose names a session Core created for its own work, written once with the session:
+	// "maintenance" for a cognitive maintenance session (migration 0014). A host cannot claim it.
+	MetadataKeyPurpose = "purpose"
 )
 
 var (
@@ -35,7 +38,7 @@ var metadataKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
 
 // IsCoreMetadataKey reports whether key is one of the core-owned metadata keys.
 func IsCoreMetadataKey(key string) bool {
-	return key == MetadataKeyRuntime || key == MetadataKeySubagent || key == MetadataKeyImport
+	return key == MetadataKeyRuntime || key == MetadataKeySubagent || key == MetadataKeyImport || key == MetadataKeyPurpose
 }
 
 // CheckHostMetadata rejects session metadata that sets a core-owned key. It

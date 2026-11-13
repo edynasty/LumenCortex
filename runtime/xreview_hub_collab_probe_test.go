@@ -221,8 +221,10 @@ func TestXReviewHubExpiredLeaseFormerOwnerIsNotTheOwner(t *testing.T) {
 }
 
 // TestXReviewHubDuplicateCommandIDFromConcurrentCallersRunsTheVerbOnce pins the journal under a real
-// race: concurrent callers of one command id, none of which is pending yet, produce exactly one
-// execution of the verb.
+// race: concurrent callers of one command id produce exactly one execution of the verb. A caller that
+// reaches the journal while the winner still runs is answered pending; one that reaches it after the
+// winner recorded its outcome is answered with that outcome as a duplicate (Command's contract). Which
+// of the two a loser sees is scheduling, so both are accepted; neither may run the verb.
 func TestXReviewHubDuplicateCommandIDFromConcurrentCallersRunsTheVerbOnce(t *testing.T) {
 	useGlobalConfig(t, withConcurrency(8, 4))
 	e := openTestEngine(t)
@@ -264,6 +266,7 @@ func TestXReviewHubDuplicateCommandIDFromConcurrentCallersRunsTheVerbOnce(t *tes
 		case errs[i] == nil && results[i].Status == HubAccepted:
 			accepted++
 		case errors.Is(errs[i], ErrHubCommandPending) && results[i].Status == HubPending:
+		case errs[i] == nil && results[i].Status == HubDuplicate && results[i].Note == "steer queued" && results[i].CommandID == "steer-once":
 		default:
 			t.Fatalf("caller %d: %+v %v", i, results[i], errs[i])
 		}

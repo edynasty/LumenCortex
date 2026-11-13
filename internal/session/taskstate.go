@@ -144,6 +144,9 @@ func putTaskState(ctx context.Context, q querier, sessionID string, w TaskStateW
 	if err := insertEdges(ctx, q, sessionID, "", "", w.Edges); err != nil {
 		return 0, err
 	}
+	if err := enqueueSourceChange(ctx, q, sessionID, time.Now().UTC()); err != nil {
+		return 0, err
+	}
 	return version, nil
 }
 
@@ -158,6 +161,9 @@ func appendMessageRow(ctx context.Context, q querier, sessionID, role string, ra
 		return 0, err
 	}
 	if _, err := q.ExecContext(ctx, `UPDATE sessions SET updated_at = ? WHERE id = ?`, now(), sessionID); err != nil {
+		return 0, err
+	}
+	if err := enqueueSourceChange(ctx, q, sessionID, time.Now().UTC()); err != nil {
 		return 0, err
 	}
 	return seq, nil

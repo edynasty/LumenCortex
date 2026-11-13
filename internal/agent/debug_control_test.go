@@ -15,12 +15,12 @@ func TestDebugBreakpointOnceConditionsAndStaleControl(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err = d.Boundary(ctx, DebugBoundary{Event: "BeforeToolCall", Tool: "read_file", Agent: "worker", Step: 2}); err != nil {
+	if err = d.Boundary(ctx, DebugBoundary{Event: "BeforeToolCall", Tool: "read_file", Agent: "worker", Step: 2}, nil); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- d.Boundary(ctx, DebugBoundary{Event: "BeforeToolCall", Tool: "write_file", Agent: "worker", Step: 2})
+		done <- d.Boundary(ctx, DebugBoundary{Event: "BeforeToolCall", Tool: "write_file", Agent: "worker", Step: 2}, nil)
 	}()
 	var s DebugSnapshot
 	select {
@@ -45,30 +45,97 @@ func TestDebugBreakpointOnceConditionsAndStaleControl(t *testing.T) {
 	if err = <-done; err != nil {
 		t.Fatal(err)
 	}
-	if err = d.Boundary(ctx, DebugBoundary{Event: "BeforeToolCall", Tool: "write_file", Agent: "worker", Step: 2}); err != nil {
+	if err = d.Boundary(ctx, DebugBoundary{Event: "BeforeToolCall", Tool: "write_file", Agent: "worker", Step: 2}, nil); err != nil {
 		t.Fatal("once breakpoint fired again", err)
 	}
 	d.Close()
-	if err = d.Boundary(ctx, DebugBoundary{Event: "BeforeModelCall"}); !errors.Is(err, ErrDebugState) {
+	if err = d.Boundary(ctx, DebugBoundary{Event: "BeforeModelCall"}, nil); !errors.Is(err, ErrDebugState) {
 		t.Fatalf("closed controller %v", err)
 	}
 }
 
 func TestDebugChildCompletionWaitsForParentBoundary(t *testing.T) {
 	paused := make(chan DebugSnapshot, 4)
-	d, err := NewDebugControl("parent", &DebugOptions{Breakpoints: []DebugBreakpoint{{ID:"child-done", Event:"AfterSubagentEnd", Enabled:true, Once:true}}}, func(s DebugSnapshot){ paused <- s })
-	if err != nil { t.Fatal(err) }
-	d.Observe(DebugBoundary{Event:"AfterSubagentEnd",Agent:"worker"})
-	if d.Snapshot().State != "running" { t.Fatal("child callback suspended parent outside safe boundary") }
-	ctx,cancel := context.WithTimeout(context.Background(),time.Second)
+	d, err := NewDebugControl("parent", &DebugOptions{Breakpoints: []DebugBreakpoint{{ID: "child-done", Event: "AfterSubagentEnd", Enabled: true, Once: true}}}, func(s DebugSnapshot) { paused <- s })
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Observe(DebugBoundary{Event: "AfterSubagentEnd", Agent: "worker"})
+	if d.Snapshot().State != "running" {
+		t.Fatal("child callback suspended parent outside safe boundary")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	done := make(chan error,1)
-	go func(){done <- d.Boundary(ctx,DebugBoundary{Event:"BeforeModelCall"})}()
+	done := make(chan error, 1)
+	go func() { done <- d.Boundary(ctx, DebugBoundary{Event: "BeforeModelCall"}, nil) }()
 	select {
 	case s := <-paused:
-		if s.Reason != "child-done" || s.Boundary.Event != "BeforeModelCall" { t.Fatalf("incorrect async pause %+v",s) }
-		if _,err=d.Command(s.Revision,"continue",nil);err!=nil{t.Fatal(err)}
-	case <-ctx.Done(): t.Fatal(ctx.Err())
+		if s.Reason != "child-done" || s.Boundary.Event != "BeforeModelCall" {
+			t.Fatalf("incorrect async pause %+v", s)
+		}
+		if _, err = d.Command(s.Revision, "continue", nil); err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
 	}
-	if err=<-done;err!=nil{t.Fatal(err)}
+	if err = <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A running boundary leaves fence recording to the next Store transaction; paused boundaries recheck.
+func TestDebugBoundaryRechecksOnlyAroundAPause(t *testing.T) {
+	refused := errors.New("refused")
+	for _, c := range []struct {
+		name   string
+		pause  bool
+		failAt int   // the recheck that refuses; 0 refuses none
+		checks int   // rechecks the boundary makes
+		held   bool  // whether the run was paused
+		err    error // what the boundary returns
+	}{
+		{"no pause", false, 1, 0, false, nil},
+		{"refused before the pause", true, 1, 1, false, refused},
+		{"refused after the pause", true, 2, 2, true, refused},
+		{"allowed", true, 0, 2, true, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			paused := make(chan DebugSnapshot, 1)
+			d, err := NewDebugControl("run", &DebugOptions{PauseOnStart: c.pause}, func(s DebugSnapshot) {
+				if s.State == "paused" {
+					paused <- s
+				}
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			checks := 0
+			done := make(chan error, 1)
+			go func() {
+				done <- d.Boundary(ctx, DebugBoundary{Event: "BeforeModelCall"}, func() error {
+					if checks++; checks == c.failAt {
+						return refused
+					}
+					return nil
+				})
+			}()
+			held := false
+			var got error
+			select {
+			case s := <-paused:
+				held = true
+				if _, err := d.Command(s.Revision, "continue", nil); err != nil {
+					t.Fatal(err)
+				}
+				got = <-done
+			case got = <-done:
+			}
+			if !errors.Is(got, c.err) || checks != c.checks || held != c.held {
+				t.Fatalf("boundary returned %v after %d rechecks (paused: %v), want %v after %d (paused: %v)", got, checks, held, c.err, c.checks, c.held)
+			}
+		})
+	}
 }

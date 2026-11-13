@@ -28,6 +28,9 @@ type ContextRow struct {
 	// Fenced is true when a revocation or privacy fence names the session (ADR-0018): its content is
 	// withdrawn and a reader shows none of it.
 	Fenced bool
+	// Purpose is the core-owned purpose of a session Core created for its own work ("maintenance"),
+	// "" for every other session.
+	Purpose string
 }
 
 const contextSelect = `
@@ -36,7 +39,8 @@ SELECT s.id, COALESCE(r.parent_session_id, ''), COALESCE(r.kind, ''), s.status, 
        COALESCE(json_extract(t.json, '$.brief'), ''),
        COALESCE(json_extract(t.json, '$.resolution.state'), ''),
        COALESCE(json_extract(t.json, '$.notes'), ''),
-       EXISTS(SELECT 1 FROM source_fences f WHERE f.scope_kind = 'session' AND f.scope_ref = s.id)
+       EXISTS(SELECT 1 FROM source_fences f WHERE f.scope_kind = 'session' AND f.scope_ref = s.id),
+       CASE WHEN json_valid(s.metadata_json) THEN COALESCE(json_extract(s.metadata_json, '$.purpose'), '') ELSE '' END
 FROM sessions s
 LEFT JOIN session_relations r ON r.child_session_id = s.id
 LEFT JOIN task_states t ON t.session_id = s.id
@@ -126,7 +130,7 @@ func scanContextRow(sc scanner) (ContextRow, error) {
 	var row ContextRow
 	var updated, notes string
 	if err := sc.Scan(&row.ID, &row.ParentID, &row.Kind, &row.Status, &row.AgentID, &row.Goal, &row.Final, &updated,
-		&row.Brief, &row.Resolution, &notes, &row.Fenced); err != nil {
+		&row.Brief, &row.Resolution, &notes, &row.Fenced, &row.Purpose); err != nil {
 		return ContextRow{}, err
 	}
 	row.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)

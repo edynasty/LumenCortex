@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -63,15 +64,38 @@ const (
 // the job manager once their row is gone. Notebooks are the agent's working memory (ADR-0020): their
 // bodies and revisions are content and are deleted with the session; notebook_revisions is keyed by
 // notebook, so it is purged before notebooks through purgeWhere.
-var purgeTables = []string{"session_messages", "agent_steps", "session_checkpoints", "task_states", "task_state_inbox",
+var purgeTables = []string{"cognition_access", "cognition_applications", "cognition_proposals", "cognition_decisions", "cognition_edges", "cognition_nodes", "session_messages", "agent_steps", "session_checkpoints", "task_states", "task_state_inbox",
 	"artifacts", "eval_results", "request_envelopes", "derived_origins", "jobs", "scheduled_tasks",
 	"notebook_revisions", "notebooks", "runtime_events", "runtime_event_sequences", "runtime_event_retention", "worker_messages",
 	"steer_messages", "run_pauses", "work_unit_leases", "hub_commands"}
+
+// derivedPurgeTables are the tables holding the content of a maintenance session derived from a deleted
+// session (PrivacyDeletion.Derived): its transcript (the batch input with the sources' projections, the
+// maintainer's answer and its read_thread results), steps, checkpoints, Task State and anything else a
+// run can write. The session row stays, without its final answer, so the content-free tombstones of its
+// candidates keep their maintenance session; its check results and their logs (workspace checks, not
+// session content), request envelopes and provenance edges stay. Runtime events are content too:
+// tool.start can carry arguments the maintainer copied from a private source.
+var derivedPurgeTables = []string{"cognition_access", "cognition_applications", "cognition_proposals", "cognition_decisions", "cognition_edges", "cognition_nodes", "session_messages", "agent_steps", "session_checkpoints", "task_states", "task_state_inbox",
+	"jobs", "scheduled_tasks", "notebook_revisions", "notebooks", "worker_messages", "runtime_events", "runtime_event_sequences", "runtime_event_retention"}
 
 // purgeWhere is the WHERE clause selecting the rows of the sessions named by the id list `in` for one
 // table. Every table but notebook_revisions holds session_id; a revision is reached through the
 // notebook it belongs to.
 func purgeWhere(table, in string) string {
+	if table == "cognition_applications" || table == "cognition_access" {
+		column := "experience_id"
+		if table == "cognition_access" {
+			column = "node_id"
+		}
+		return "EXISTS (SELECT 1 FROM sessions victim WHERE victim.id IN (" + in + ") AND (victim.id=" + table + ".session_id OR EXISTS (SELECT 1 FROM cognition_nodes n WHERE n.id=" + table + "." + column + " AND (n.session_id=victim.id OR EXISTS (SELECT 1 FROM json_each(n.json,'$.sources') src WHERE json_extract(src.value,'$.sessionId')=victim.id)))))"
+	}
+	if table == "cognition_nodes" {
+		return "EXISTS (SELECT 1 FROM sessions victim WHERE victim.id IN (" + in + ") AND (victim.id=cognition_nodes.session_id OR EXISTS (SELECT 1 FROM json_each(cognition_nodes.json, '$.sources') src WHERE json_extract(src.value, '$.sessionId')=victim.id)))"
+	}
+	if table == "cognition_edges" {
+		return "EXISTS (SELECT 1 FROM sessions victim WHERE victim.id IN (" + in + ") AND (victim.id=cognition_edges.session_id OR EXISTS (SELECT 1 FROM cognition_nodes n WHERE n.id IN (cognition_edges.from_id,cognition_edges.to_id) AND (n.session_id=victim.id OR EXISTS (SELECT 1 FROM json_each(n.json, '$.sources') src WHERE json_extract(src.value, '$.sessionId')=victim.id)))))"
+	}
 	if table == "worker_messages" {
 		return "EXISTS (SELECT 1 FROM sessions victim WHERE victim.id IN (" + in + ") AND (victim.id=worker_messages.session_id OR victim.id=worker_messages.sender_id OR victim.id=worker_messages.recipient_id))"
 	}
@@ -87,11 +111,14 @@ func purgeWhere(table, in string) string {
 }
 
 // PrivacyDeletion is one deletion in progress: the root session the user deleted, every id it deletes
-// (the root first, then the temporary descendants deleted with it) and the epoch of its fences.
+// (the root first, then the temporary descendants deleted with it), the maintenance sessions whose
+// cognition derives from them (Derived: their content and their candidates' text are purged, their
+// rows stay as content-free tombstones) and the epoch of its fences.
 type PrivacyDeletion struct {
-	Root  string   `json:"root"`
-	IDs   []string `json:"ids"`
-	Epoch int64    `json:"epoch"`
+	Root    string   `json:"root"`
+	IDs     []string `json:"ids"`
+	Derived []string `json:"derived,omitempty"`
+	Epoch   int64    `json:"epoch"`
 }
 
 // BeginPrivacyDeletion commits the fences of a deletion of ids (root first; each must exist): the
@@ -125,7 +152,29 @@ func (s *Store) BeginPrivacyDeletion(ctx context.Context, ids []string) (Privacy
 		if rev, err = revokeIn(ctx, conn, ids[0], ReasonPrivacyDelete); err != nil {
 			return err
 		}
-		d = PrivacyDeletion{Root: ids[0], IDs: ids, Epoch: rev.Epoch}
+		// The revocation fenced, at its epoch, every maintenance session that read one of ids, directly
+		// or through a session that did: their batch input, answer and candidates carry its content.
+		derived, err := selectStrings(ctx, conn, `SELECT f.scope_ref FROM source_fences f JOIN sessions s ON s.id = f.scope_ref
+			WHERE f.scope_kind = 'session' AND f.epoch = ? AND json_valid(s.metadata_json) AND json_extract(s.metadata_json, '$.purpose') = ?
+			ORDER BY f.scope_ref`, rev.Epoch, PurposeMaintenance)
+		if err != nil {
+			return err
+		}
+		if rev.Expanded {
+			// Widening an admission fence is fail-closed; widening destruction is
+			// data loss. Only actual reverse dependencies can contain this source.
+			reached, _, err := revocationReach(ctx, conn, ids[0], 0)
+			if err != nil {
+				return err
+			}
+			actual := make(map[string]bool, len(reached))
+			for _, id := range reached {
+				actual[id] = true
+			}
+			derived = slices.DeleteFunc(derived, func(id string) bool { return !actual[id] })
+		}
+		derived = slices.DeleteFunc(derived, func(id string) bool { return slices.Contains(ids, id) })
+		d = PrivacyDeletion{Root: ids[0], IDs: ids, Derived: derived, Epoch: rev.Epoch}
 		at := now()
 		pointer, err := json.Marshal(map[string]any{"revocation": ids[0], "epoch": rev.Epoch})
 		if err != nil {
@@ -274,19 +323,39 @@ func (s *Store) PurgeStep(ctx context.Context, d PrivacyDeletion) (done bool, er
 			rebuild, settle = cursor.Rebuild, cursor.Settle
 			return nil
 		}
+		// The text of the derived candidates goes first, in the first step: from then on no row holds
+		// it, whatever the rest of the cleanup still owes.
+		if err := purgeDerivedText(ctx, conn, d.Derived); err != nil {
+			return err
+		}
 		budget := int64(PurgeBatchRows)
-		for _, table := range purgeTables {
-			res, err := conn.ExecContext(ctx, `DELETE FROM `+table+` WHERE rowid IN
-				(SELECT rowid FROM `+table+` WHERE `+purgeWhere(table, in)+` LIMIT ?)`, append(args, budget)...)
-			if err != nil {
-				return err
-			}
-			n, err := res.RowsAffected()
-			if err != nil {
-				return err
-			}
-			if budget -= n; budget == 0 {
-				return nil
+		passes := []struct {
+			tables []string
+			in     string
+			args   []any
+		}{{purgeTables, in, args}}
+		if len(d.Derived) > 0 {
+			din, dargs := idList(d.Derived)
+			passes = append(passes, struct {
+				tables []string
+				in     string
+				args   []any
+			}{derivedPurgeTables, din, dargs})
+		}
+		for _, p := range passes {
+			for _, table := range p.tables {
+				res, err := conn.ExecContext(ctx, `DELETE FROM `+table+` WHERE rowid IN
+					(SELECT rowid FROM `+table+` WHERE `+purgeWhere(table, p.in)+` LIMIT ?)`, append(slices.Clip(p.args), budget)...)
+				if err != nil {
+					return err
+				}
+				n, err := res.RowsAffected()
+				if err != nil {
+					return err
+				}
+				if budget -= n; budget == 0 {
+					return nil
+				}
 			}
 		}
 		if budget < PurgeBatchRows {
@@ -298,10 +367,14 @@ func (s *Store) PurgeStep(ctx context.Context, d PrivacyDeletion) (done bool, er
 		}
 		if cursor.Scan < newest.Int64 {
 			through := cursor.Scan + purgeScanRows
-			if err := removeCopies(ctx, conn, d.IDs, cursor.Scan, through); err != nil {
+			copied, err := copiedIDs(ctx, conn, d)
+			if err != nil {
 				return err
 			}
-			_, err := conn.ExecContext(ctx, `UPDATE source_fences SET tombstone_json = json_set(tombstone_json, '$.scan', ?), updated_at = ?
+			if err := removeCopies(ctx, conn, copied, cursor.Scan, through); err != nil {
+				return err
+			}
+			_, err = conn.ExecContext(ctx, `UPDATE source_fences SET tombstone_json = json_set(tombstone_json, '$.scan', ?), updated_at = ?
 				WHERE scope_kind = 'privacy' AND scope_ref = ? AND epoch = ?`, through, now(), d.Root, d.Epoch)
 			return err
 		}
@@ -362,15 +435,54 @@ func idList(ids []string) (string, []any) {
 	return strings.TrimSuffix(strings.Repeat("?,", len(ids)), ","), args
 }
 
-// copyFilter selects the rows of other sessions that carry content of a deleted session: tool results
-// and task results that name a deleted id. Every exit that returns content of a session names it
-// (read_thread, recall, spawn/wait/list_subagents, notebook_list/notebook_read, a task result), with
-// or without an edge: rows written before request provenance have none. A row the user or a model
-// authored is not a copy and is kept.
+// purgeDerivedText removes, from the maintenance sessions derived from a deleted session, every text
+// that can carry its content: each candidate's subject, claim, assertion, rationale, cited paths and
+// status reason (the raw answer of a rejected one included), and the session's final answer and error.
+// What stays is a content-free tombstone: ids, claim type, status, source refs (ids and digests), the
+// check ids and observations of the host's own checks, and purged_at. A candidate derived from several
+// sources is purged whole: the maintainer read them together, so no part of its text is separable. The
+// claim and support identities become unique placeholders, so a purged row never makes a later
+// candidate a duplicate. Running it again writes nothing.
+func purgeDerivedText(ctx context.Context, conn *sql.Conn, derived []string) error {
+	if len(derived) == 0 {
+		return nil
+	}
+	in, args := idList(derived)
+	if _, err := conn.ExecContext(ctx, `UPDATE cognition_candidates SET subject = '', subject_key = '', proposed_claim = '', rationale = '',
+		assertion_json = '', cited_paths_json = '[]', status_reason = '', claim_digest = 'purged:' || candidate_id,
+		support_digest = 'purged:' || candidate_id, purged_at = ? WHERE maintenance_session_id IN (`+in+`) AND purged_at = ''`,
+		append([]any{now()}, args...)...); err != nil {
+		return err
+	}
+	_, err := conn.ExecContext(ctx, `UPDATE sessions SET final = NULL, error_json = NULL
+		WHERE id IN (`+in+`) AND (final IS NOT NULL OR error_json IS NOT NULL)`, args...)
+	return err
+}
+
+// copiedIDs are the ids whose mention marks a copy of deleted content in another session's transcript:
+// the deleted ids, the derived maintenance sessions and their candidates (a read_knowledge result names
+// the candidate it returns).
+func copiedIDs(ctx context.Context, conn *sql.Conn, d PrivacyDeletion) ([]string, error) {
+	ids := append(slices.Clone(d.IDs), d.Derived...)
+	if len(d.Derived) == 0 {
+		return ids, nil
+	}
+	in, args := idList(d.Derived)
+	candidates, err := selectStrings(ctx, conn, `SELECT candidate_id FROM cognition_candidates WHERE maintenance_session_id IN (`+in+`)
+		ORDER BY candidate_id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	return append(ids, candidates...), nil
+}
+
+// copyFilter selects other sessions' tool results, task results and Core-generated
+// knowledge indexes that name deleted content. A knowledge locator's cited paths
+// can contain private text too. User- and model-authored rows are not rewritten.
 func copyFilter(ids []string) (string, []any) {
 	in, args := idList(ids)
 	match := strings.TrimSuffix(strings.Repeat("instr(json, ?) > 0 OR ", len(ids)), " OR ")
-	return `session_id NOT IN (` + in + `) AND (role = 'tool' OR (role = 'user' AND json_extract(json, '$.origin') = 'task_result'))
+	return `session_id NOT IN (` + in + `) AND (role = 'tool' OR (role = 'user' AND json_extract(json, '$.origin') IN ('task_result','knowledge')))
 		AND (` + match + `)`, append(args, args...)
 }
 
@@ -596,7 +708,7 @@ func (s *Store) DeletionPreview(ctx context.Context, ids []string) (DeletionPrev
 	for _, id := range ids {
 		deleted[id] = true
 	}
-	reached, expanded, err := revocationReach(ctx, conn, ids[0])
+	reached, expanded, err := revocationReach(ctx, conn, ids[0], MaxRevokeSessions)
 	if err != nil {
 		return DeletionPreview{}, err
 	}

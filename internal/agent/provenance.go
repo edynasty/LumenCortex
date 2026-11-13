@@ -90,12 +90,14 @@ func HostStateEdges(before, after taskstate.State) []session.DerivedEdge {
 }
 
 // Tools whose result carries other sessions: the subagent tools (internal/toolset/subagents.go), the
-// thread tools (internal/toolset/threads.go) and the notebook reads (internal/toolset/notebook.go).
+// thread and knowledge tools (internal/toolset/threads.go) and the notebook reads
+// (internal/toolset/notebook.go).
 const (
 	toolWaitSubagent  = "wait_subagent"
 	toolListSubagents = "list_subagents"
 	toolReadThread    = "read_thread"
 	toolRecall        = "recall"
+	toolReadKnowledge = "read_knowledge"
 	toolNotebookList  = "notebook_list"
 	toolNotebookRead  = "notebook_read"
 	maxResultSources  = session.MaxEdgesPerCommit
@@ -134,10 +136,22 @@ type threadResult struct {
 // never a source of itself. Anything else names none. ok is false when the result could not be read
 // or held more sessions than one commit stores, so what is recorded is incomplete.
 func resultSessions(name, own string, result protocol.ToolResult) (sessions []string, ok bool) {
-	if !result.OK {
+	if !result.OK && name != "apply_experience" {
 		return nil, true
 	}
 	switch name {
+	case "recall_experiences", "adopt_experience", "apply_experience", "assess_cognition":
+		var view struct {
+			Sources []string `json:"sourceSessions"`
+		}
+		if err := json.Unmarshal([]byte(result.Content), &view); err != nil {
+			return nil, false
+		}
+		for _, source := range view.Sources {
+			if source != "" && source != own && !slices.Contains(sessions, source) {
+				sessions = append(sessions, source)
+			}
+		}
 	case "worker_inbox":
 		var page struct {
 			Messages []struct {
@@ -213,6 +227,34 @@ func resultSessions(name, own string, result protocol.ToolResult) (sessions []st
 		for _, h := range t.Hits {
 			if h.ID != "" && h.ID != own {
 				sessions = append(sessions, h.ID)
+			}
+		}
+	case toolReadKnowledge:
+		// Claims and list locators both carry source content (including cited paths).
+		var k struct {
+			Sources []struct {
+				SessionID string `json:"sessionId"`
+				Withdrawn bool   `json:"withdrawn"`
+			} `json:"sources"`
+			MaintenanceSessionID string `json:"maintenanceSessionId"`
+			Candidates           []struct {
+				MaintenanceSessionID string `json:"maintenanceSessionId"`
+			} `json:"candidates"`
+		}
+		if err := json.Unmarshal([]byte(result.Content), &k); err != nil {
+			return nil, false
+		}
+		for _, s := range k.Sources {
+			if !s.Withdrawn && s.SessionID != "" && s.SessionID != own && !slices.Contains(sessions, s.SessionID) {
+				sessions = append(sessions, s.SessionID)
+			}
+		}
+		if id := k.MaintenanceSessionID; id != "" && id != own && !slices.Contains(sessions, id) {
+			sessions = append(sessions, id)
+		}
+		for _, c := range k.Candidates {
+			if id := c.MaintenanceSessionID; id != "" && id != own && !slices.Contains(sessions, id) {
+				sessions = append(sessions, id)
 			}
 		}
 	case toolNotebookList, toolNotebookRead:

@@ -177,6 +177,9 @@ type Options struct {
 	// It lives in memory for the run's lifetime and is the nullable run_id column of request and
 	// execution rows; it is not a session field. "" means the caller supplied none.
 	RunID string
+	// RecordExperienceActions gives eligible read tools durable execution identities
+	// for opt-in learning. It grants no additional tool permission.
+	RecordExperienceActions bool
 	// WorkerRoot is the root session of the run's message scope (the session itself for a thread, its
 	// root for a child). The loop pushes the root's undelivered worker messages into the request window
 	// as bounded asides (Hub collaboration §4); "" disables push delivery.

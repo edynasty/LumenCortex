@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/edynasty/LumenCortex/protocol"
@@ -197,6 +198,55 @@ func (s *Store) CreateWithMessage(ctx context.Context, v Session, first protocol
 		return err
 	}
 	return tx.Commit()
+}
+
+// CreateDerivedSession is CreateWithMessage for a first row Core composed from other sessions'
+// content: in the same write transaction it records that row as derived from each of sources (one
+// message edge per source, as of the source's newest seq), so a revocation of a source reaches the new
+// session (revocationReach) and fences its copy. A source fenced or deleted since the caller read it
+// refuses the creation with ErrFenced or ErrNotFound; nothing is written.
+func (s *Store) CreateDerivedSession(ctx context.Context, v Session, first protocol.Message, sources []string) error {
+	if len(sources) > MaxEdgesPerCommit {
+		return invalid("a derived session cites at most %d sources", MaxEdgesPerCommit)
+	}
+	raw, err := json.Marshal(first)
+	if err != nil {
+		return err
+	}
+	return s.writeTx(ctx, func(conn *sql.Conn) error {
+		edges := make([]DerivedEdge, 0, len(sources))
+		for _, id := range sources {
+			if err := sessionExists(ctx, conn, id); err != nil {
+				return err
+			}
+			if _, fenced, err := sessionFence(ctx, conn, id); err != nil {
+				return err
+			} else if fenced {
+				return fmt.Errorf("%w: source %s", ErrFenced, id)
+			}
+			var seq int64
+			if err := conn.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM session_messages WHERE session_id = ?`, id).Scan(&seq); err != nil {
+				return err
+			}
+			edges = append(edges, DerivedEdge{
+				Kind: "message", TargetRef: fmt.Sprintf("message:%s:0", v.ID), SourceKind: SourceSession, SourceRef: id,
+				OriginClass: OriginAgentGen, DerivedFrom: fmt.Sprintf("session:%s@%d", id, seq), LineageComplete: true,
+			})
+		}
+		for _, e := range edges {
+			if err := e.validate(); err != nil {
+				return err
+			}
+		}
+		if err := insertSession(ctx, conn, v); err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx, `INSERT INTO session_messages(session_id, seq, role, json) VALUES(?, 0, ?, ?)`,
+			v.ID, first.Role, string(raw)); err != nil {
+			return err
+		}
+		return insertEdges(ctx, conn, v.ID, "", "", edges)
+	})
 }
 
 // Delete removes the sessions in one transaction; their messages, steps, relations

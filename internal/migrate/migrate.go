@@ -39,6 +39,10 @@ import (
 // ErrSchemaTooNew means the database was migrated by a newer binary; nothing is written.
 var ErrSchemaTooNew = errors.New("database schema is newer than this binary")
 
+// ErrSchemaMismatch means a development branch reused a version for a different schema.
+// The database must be opened with its original binary, not relabeled or partially migrated.
+var ErrSchemaMismatch = errors.New("database schema does not match this migration sequence")
+
 // ErrDatabaseInUse means a lock could not be taken because another process kept db.lock for the whole
 // LockWait. Opening needs it shared while a schema change runs; a schema change needs it exclusive
 // while any process has the workspace open. The caller closes the other processes and retries.
@@ -211,15 +215,10 @@ func rejectLegacyNode(ctx context.Context, q querier, path string) error {
 	return nil
 }
 
-// checkVersion reads user_version and refuses what this binary must not touch: a newer schema
-// (ErrSchemaTooNew) and, below the latest version, a Node database (ErrLegacyNodeDatabase), so that a
-// refused file — main file and WAL — is left byte-identical. The last read-write connection to a WAL
-// database checkpoints the WAL into the main file and deletes it when it closes, so a WAL that exists
-// (frames a crashed owner left) is read through a read-only connection, which cannot. Without a WAL
-// file a read-write connection is used: a read-only one would create an empty -wal and -shm it cannot
-// remove, while a read-write one removes them on close and, with no frames, writes nothing. A missing
-// database file is version 0 with nothing to refuse.
-func checkVersion(ctx context.Context, path string, latest int) (int, error) {
+// checkVersion checks the version and the identity of the cognition migration sequence before any
+// write. Historical Harness and Cognitive branches both used version 13 for different schemas.
+// A refused main file and hot WAL stay byte-identical through readOnlySource.
+func checkVersion(ctx context.Context, path string, set *Set) (int, error) {
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return 0, nil
 	}
@@ -234,14 +233,46 @@ func checkVersion(ctx context.Context, path string, latest int) (int, error) {
 		return 0, err
 	}
 	switch {
-	case v > latest:
-		return v, fmt.Errorf("%w: have user_version %d, binary knows %d", ErrSchemaTooNew, v, latest)
-	case v < latest:
+	case v > set.Latest():
+		return v, fmt.Errorf("%w: have user_version %d, binary knows %d", ErrSchemaTooNew, v, set.Latest())
+	case v < set.Latest():
 		if err := rejectLegacyNode(ctx, db, path); err != nil {
 			return v, err
 		}
 	}
+	if err := checkCognitionSchema(ctx, db, v, set); err != nil {
+		return v, err
+	}
 	return v, nil
+}
+
+// Canonical mainline owns Hub version 13; the isolated historical Cognitive branch reused 13.
+// Verify the branch family before any writer opens. No new schema version authority is stored.
+func checkCognitionSchema(ctx context.Context, q querier, version int, set *Set) error {
+	if version < 13 || len(set.up) < 13 || set.up[12].name != "0013_hub_control.sql" {
+		return nil
+	}
+	var valid bool
+	err := q.QueryRowContext(ctx, `SELECT
+		(SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN
+		('steer_messages','run_pauses','work_unit_leases','hub_commands')) = 4
+		AND (SELECT count(*) FROM pragma_table_info('worker_messages') WHERE name IN
+		('delivery_state','delivered_run','delivered_seq','delivered_at','acked_at','attempts')) = 6
+		AND (? < 14 OR (SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN
+		('maintenance_state','maintenance_sources','maintenance_dedupe','cognition_candidates','cognition_observations')) = 5)
+		AND (? < 15 OR (SELECT count(*) FROM pragma_table_info('cognition_candidates') WHERE name IN
+		('assertion_json','binding_digest','support_digest','purged_at')) = 4)
+		AND (? < 16 OR ((SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN
+		('cognition_nodes','cognition_edges')) = 2 AND EXISTS(SELECT 1 FROM pragma_table_info('eval_results') WHERE name='cognition_epoch')))
+		AND (? < 17 OR (SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN
+		('cognition_applications','cognition_proposals','cognition_decisions','cognition_access')) = 4)`, version, version, version, version).Scan(&valid)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return fmt.Errorf("%w at version %d: expected Hub 13, cognition 14, support 15, graph 16, completion 17; preserve this state and use its original branch binary", ErrSchemaMismatch, version)
+	}
+	return nil
 }
 
 // readOnlySource opens a database for a check that must not change it: read-only when a WAL exists,
@@ -301,7 +332,7 @@ var testHookAfterCommit func(version int)
 // stopped before the rebuild that removes stripped reasoning from free space (see scrubKind).
 func upgradeLocked(ctx context.Context, path, stateDir string, set *Set, hooks ...StepHook) (from, to int, err error) {
 	// Before the journal mode, the backup or any write: a newer or a Node database is refused untouched.
-	v, err := checkVersion(ctx, path, set.Latest())
+	v, err := checkVersion(ctx, path, set)
 	if err != nil {
 		return v, v, err
 	}
@@ -477,7 +508,7 @@ func Downgrade(ctx context.Context, stateDir string, set *Set, to int) (from, no
 
 	// Validate the request before the read-write pool opens (checkVersion): a refused or no-op
 	// downgrade leaves the main file and the WAL byte-identical.
-	v, err := checkVersion(ctx, path, set.Latest())
+	v, err := checkVersion(ctx, path, set)
 	if err != nil {
 		return v, v, err
 	}

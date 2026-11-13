@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"strings"
 	"time"
@@ -29,10 +30,13 @@ func (s *Store) NextStep(ctx context.Context, sessionID string) (int64, error) {
 }
 
 // Update changes only the columns the patch names, in one statement, so it
-// cannot overwrite a column another writer changed in the meantime.
+// cannot overwrite a column another writer changed in the meantime. A completed
+// or failed status is a cognition source (migration 0014): its dirty mark is
+// written in the same transaction, so neither commits without the other.
 func (s *Store) Update(ctx context.Context, sessionID string, patch Patch) error {
+	now := time.Now().UTC()
 	sets := []string{"updated_at = ?"}
-	args := []any{time.Now().UTC().Format(time.RFC3339Nano)}
+	args := []any{now.Format(time.RFC3339Nano)}
 	if patch.Status != nil {
 		sets = append(sets, "status = ?")
 		args = append(args, *patch.Status)
@@ -70,7 +74,21 @@ func (s *Store) Update(ctx context.Context, sessionID string, patch Patch) error
 		args = append(args, errorJSON)
 	}
 	args = append(args, sessionID)
-	result, err := s.db.ExecContext(ctx, "UPDATE sessions SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
+	statement := "UPDATE sessions SET " + strings.Join(sets, ", ") + " WHERE id = ?"
+	if patch.Status != nil || patch.Final != nil || patch.ClearFinal {
+		return s.writeTx(ctx, func(conn *sql.Conn) error {
+			if err := updateOne(ctx, conn, statement, args); err != nil {
+				return err
+			}
+			return enqueueSourceChange(ctx, conn, sessionID, now)
+		})
+	}
+	return updateOne(ctx, s.db, statement, args)
+}
+
+// updateOne runs an UPDATE of one session and reports ErrNotFound when it changed no row.
+func updateOne(ctx context.Context, db execer, statement string, args []any) error {
+	result, err := db.ExecContext(ctx, statement, args...)
 	if err != nil {
 		return err
 	}

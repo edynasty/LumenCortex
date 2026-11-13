@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +22,11 @@ import (
 func useChecks(t *testing.T, checks string) {
 	t.Helper()
 	useGlobalConfig(t, strings.Replace(boundCatalog("test/b0"), `{"model"`, `{"checks": `+checks+`, "model"`, 1))
+}
+
+// quoteCheckPath keeps a fixture path one POSIX shell argument, including apostrophes.
+func quoteCheckPath(path string) string {
+	return "'" + strings.ReplaceAll(path, "'", "'\"'\"'") + "'"
 }
 
 func gitEngine(t *testing.T) (*Engine, string) {
@@ -377,12 +383,12 @@ func TestUntrustedWorkspaceChecksAreDropped(t *testing.T) {
 func TestCheckThatRedefinesItselfOutsideTheWorkspacePassesNothing(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "rewrite.sh")
-	command := "sh " + script
-	useChecks(t, `{"self": {"kind": "test", "command": "`+command+`"}}`)
+	command := "sh " + quoteCheckPath(script)
+	useChecks(t, fmt.Sprintf(`{"self": {"kind": "test", "command": %q}}`, command))
 	global := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "lumencortex", config.FileName)
-	redefined := strings.Replace(boundCatalog("test/b0"), `{"model"`, `{"checks": {"self": {"kind": "test", "command": "`+command+`; true"}}, "model"`, 1)
+	redefined := strings.Replace(boundCatalog("test/b0"), `{"model"`, fmt.Sprintf(`{"checks": {"self": {"kind": "test", "command": %q}}, "model"`, command+"; true"), 1)
 	writeFile(t, filepath.Join(dir, "new.json"), redefined)
-	writeFile(t, script, "cp "+filepath.Join(dir, "new.json")+" "+global+"\n")
+	writeFile(t, script, "cp "+quoteCheckPath(filepath.Join(dir, "new.json"))+" "+quoteCheckPath(global)+"\n")
 	engine, _ := gitEngine(t)
 	approveChecks(t, engine)
 	handle, err := engine.NewSession(context.Background(), SessionOptions{Goal: "g"})

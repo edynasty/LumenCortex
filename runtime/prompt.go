@@ -456,6 +456,20 @@ func (e *Engine) promptTools(ctx context.Context, workspace, policy string, chil
 			wakeupBinding = wakeups{engine: e, sessionID: sessionID, policy: policy}
 		}
 	}
+	var knowledgeTools toolset.KnowledgeReader
+	var cognitiveTools toolset.CognitiveAccess
+	if _, err := e.store.ReadMaintenanceState(ctx); err == nil {
+		purpose, err := e.store.SessionPurpose(ctx, sessionID)
+		if err != nil && sessionID != "" {
+			return nil, err
+		}
+		if purpose != session.PurposeMaintenance {
+			knowledgeTools = knowledgeReader{engine: e, sessionID: sessionID, workspace: workspace}
+			cognitiveTools = cognitiveAccess{engine: e, sessionID: sessionID}
+		}
+	} else if !errors.Is(err, session.ErrMaintenanceOff) {
+		return nil, err
+	}
 	tools, err := toolset.New(toolset.Options{
 		Workspace:      workspace,
 		Policy:         policy,
@@ -465,6 +479,8 @@ func (e *Engine) promptTools(ctx context.Context, workspace, policy string, chil
 		Subagents:      controller,
 		SubagentAgents: spawnAgents,
 		Threads:        threads,
+		Knowledge:      knowledgeTools,
+		Cognitive:      cognitiveTools,
 		Skills:         skillTools,
 		Notebook:       notebooks,
 		// The run's job queue gives bash its background mode and the job tools (ADR-0019 §3); a report

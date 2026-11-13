@@ -559,7 +559,7 @@ func (p *process) detectCrashLimit() {
 	if reason, ok := p.limitHit.Load().(string); ok && reason != "" {
 		return
 	}
-	if syscall.Signal(p.exitSignal.Load()) == syscall.SIGXCPU {
+	if isCPULimitSignal(p.exitSignal.Load()) {
 		p.noteLimit("cpu", procrt.Hard,
 			fmt.Sprintf("cpu limit exceeded: RLIMIT_CPU killed the worker with SIGXCPU (hard, kernel-enforced; %d s)", p.cpuSeconds), p.onLimit)
 		return

@@ -37,6 +37,9 @@ type RunStart struct {
 	// session's working notebooks (ADR-0020). They carry no content the session does not already hold
 	// and are never the model's turn's first row.
 	Notices []protocol.Message
+	// NoticeSources names source sessions whose content is carried by knowledge notices.
+	// Their fences and dependencies commit atomically with Start.
+	NoticeSources []string
 }
 
 // BeginRun is the Start transaction. The caller holds the session's run lock and
@@ -62,6 +65,14 @@ type RunStart struct {
 // COMMIT runs without the caller's cancellation: once BeginRun returns, the commit
 // is known to have happened, and an error means it did not.
 func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) (Session, []int64, error) {
+	if len(start.NoticeSources) > MaxEdgesPerCommit {
+		return Session{}, nil, invalid("Start notices cite at most %d sources", MaxEdgesPerCommit)
+	}
+	for _, id := range start.NoticeSources {
+		if err := checkID("notice source", id); err != nil {
+			return Session{}, nil, err
+		}
+	}
 	if start.TaskState != nil {
 		if err := start.TaskState.validateEdges(); err != nil {
 			return Session{}, nil, err
@@ -94,6 +105,16 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 	} else if fenced {
 		return Session{}, nil, fmt.Errorf("%w: revoked before the Start committed", ErrFenced)
 	}
+	for _, id := range start.NoticeSources {
+		if err := sessionExists(ctx, conn, id); err != nil {
+			return Session{}, nil, err
+		}
+		if _, fenced, err := sessionFence(ctx, conn, id); err != nil {
+			return Session{}, nil, err
+		} else if fenced {
+			return Session{}, nil, fmt.Errorf("%w: a Start notice source was revoked", ErrFenced)
+		}
+	}
 	next := int64(0)
 	var newestRole sql.NullString
 	if err := conn.QueryRowContext(ctx,
@@ -124,6 +145,21 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 			return Session{}, nil, err
 		}
 		seqs = append(seqs, next)
+		if row.Origin == protocol.OriginKnowledge {
+			edges := make([]DerivedEdge, 0, len(start.NoticeSources))
+			for _, id := range start.NoticeSources {
+				var seq int64
+				if err := conn.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), -1) FROM session_messages WHERE session_id = ?`, id).Scan(&seq); err != nil {
+					return Session{}, nil, err
+				}
+				edges = append(edges, DerivedEdge{Kind: "message", TargetRef: fmt.Sprintf("message:%s:%d", sessionID, next),
+					SourceKind: SourceSession, SourceRef: id, OriginClass: OriginAgentGen,
+					DerivedFrom: fmt.Sprintf("session:%s@%d", id, seq), LineageComplete: true})
+			}
+			if err := insertEdges(ctx, conn, sessionID, "", "", edges); err != nil {
+				return Session{}, nil, err
+			}
+		}
 		next++
 	}
 	sets := `status = 'running', final = NULL, error_json = NULL, updated_at = ?`
