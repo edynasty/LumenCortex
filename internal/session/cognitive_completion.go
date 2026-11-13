@@ -130,17 +130,20 @@ func (s *Store) FinishExperienceApplication(ctx context.Context, a knowledge.App
 		if a.State != "completed" && a.State != "failed" && a.State != "unknown" {
 			return invalid("invalid application outcome")
 		}
+		var previousRow int64
 		for i, action := range a.Actions {
-			if action.Tool != old.Actions[i].Tool || action.ArgsDigest != old.Actions[i].ArgsDigest || (a.State == "completed" && !action.Completed) {
+			if action.Tool != old.Actions[i].Tool || action.ArgsDigest != old.Actions[i].ArgsDigest || (a.State == "completed" && action.Outcome != "completed") {
 				return ErrNotQualified
 			}
 			if action.ExecutionID != "" {
 				var outcome string
-				err := conn.QueryRowContext(ctx, `SELECT outcome FROM derived_origins WHERE session_id=? AND run_id=? AND execution_id=? AND kind='execution' AND tool_name=? AND args_digest=? AND created_at>=?`, a.SessionID, a.RunID, action.ExecutionID, action.Tool, action.ArgsDigest, stamp(old.At)).Scan(&outcome)
-				if err != nil || (outcome != "completed" && outcome != "failed") || (action.Completed && outcome != "completed") {
+				var row int64
+				err := conn.QueryRowContext(ctx, `SELECT rowid,outcome FROM derived_origins WHERE session_id=? AND run_id=? AND execution_id=? AND kind='execution' AND tool_name=? AND args_digest=? AND created_at>=?`, a.SessionID, a.RunID, action.ExecutionID, action.Tool, action.ArgsDigest, stamp(old.At)).Scan(&row, &outcome)
+				if err != nil || row <= previousRow || action.Outcome != outcome || (outcome != "completed" && outcome != "failed" && !(a.State == "unknown" && outcome == "outcome_unknown")) {
 					return ErrNotQualified
 				}
-			} else if action.Completed || a.State == "completed" {
+				previousRow = row
+			} else if action.Outcome != "" || a.State == "completed" {
 				return ErrNotQualified
 			}
 		}

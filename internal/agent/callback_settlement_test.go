@@ -23,12 +23,12 @@ type contextCheckingSettler struct {
 	settled bool
 }
 
-func (s *contextCheckingSettler) SettleExecution(ctx context.Context, _ string, _ session.ExecutionResult, _ ...session.DerivedEdge) error {
+func (s *contextCheckingSettler) SettleExecution(ctx context.Context, _ string, _ session.ExecutionResult, _ *TaskStateChange, _ ...session.DerivedEdge) (int64, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return 0, err
 	}
 	s.settled = true
-	return nil
+	return 0, nil
 }
 func TestCallbackCompletedWriteSettlesAfterEvalCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

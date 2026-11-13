@@ -108,6 +108,11 @@ type ToolResult struct {
 	// MutatesWorkspace: this call changed the workspace, or may have when the tool cannot tell. It is
 	// set whatever OK says: a failed command can still have changed files.
 	MutatesWorkspace bool `json:"mutatesWorkspace,omitempty"`
+	// Callback metadata is assigned by the dispatcher only after durable settlement.
+	// It is host-only: tools, model text and serialized results cannot grant execution credit.
+	ExecutionID      string   `json:"-"`
+	ExecutionOutcome string   `json:"-"`
+	SourceSessions   []string `json:"-"`
 }
 
 type ToolOutput struct {

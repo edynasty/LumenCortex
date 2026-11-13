@@ -224,7 +224,9 @@ func (s *Store) CommitCognitiveLifecycle(ctx context.Context, nodes []knowledge.
 					return err
 				}
 			}
-			if n.Memory != nil && n.Memory.Canonical != nil {
+			// An unchanged pin on an inactive alias is historical provenance. Withdrawing
+			// it must not depend on the target still being current or active.
+			if n.Memory != nil && n.Memory.Canonical != nil && (old.Memory == nil || !reflect.DeepEqual(old.Memory.Canonical, n.Memory.Canonical) || n.Status == "active") {
 				if _, changing := expected[n.Memory.Canonical.ID]; changing {
 					return invalid("canonical target cannot change in the same lifecycle batch")
 				}

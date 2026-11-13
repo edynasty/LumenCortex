@@ -285,12 +285,16 @@ func resultSessions(name, own string, result protocol.ToolResult) (sessions []st
 // leaves that edge without a seq, which the Store stores incomplete.
 func (l *Loop) sessionResultEdges(ctx context.Context, sessionID string, call protocol.ToolCall, result protocol.ToolResult, requestID string, lineage bool) []session.DerivedEdge {
 	sources, ok := resultSessions(call.Name, sessionID, result)
+	return l.sessionSourceEdges(ctx, call, requestID, lineage, sources, ok)
+}
+
+func (l *Loop) sessionSourceEdges(ctx context.Context, call protocol.ToolCall, requestID string, lineage bool, sources []string, complete bool) []session.DerivedEdge {
 	var edges []session.DerivedEdge
 	for _, source := range sources {
 		if call.Name == toolSpawnSubagent {
 			edges = append(edges, session.DerivedEdge{
 				Kind: "child_session", TargetRef: sessionRef(source), SourceKind: session.SourceRequest, SourceRef: requestID,
-				OriginClass: session.OriginAgentGen, LineageComplete: lineage && ok,
+				OriginClass: session.OriginAgentGen, LineageComplete: lineage && complete,
 			})
 			continue
 		}
@@ -300,7 +304,7 @@ func (l *Loop) sessionResultEdges(ctx context.Context, sessionID string, call pr
 		}
 		edges = append(edges, session.DerivedEdge{
 			Kind: "message", TargetRef: toolRowRef(requestID, call.ID), SourceKind: session.SourceSession, SourceRef: source,
-			OriginClass: session.OriginAgentGen, DerivedFrom: from, LineageComplete: ok,
+			OriginClass: session.OriginAgentGen, DerivedFrom: from, LineageComplete: complete,
 		})
 	}
 	return edges

@@ -10,6 +10,8 @@ import (
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/session"
+	"github.com/edynasty/LumenCortex/internal/taskstate"
+	"github.com/edynasty/LumenCortex/internal/verify"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -28,7 +30,7 @@ import (
 // executionSettler is implemented by a Store that can settle an admitted execution on its own. A
 // nested callback effect uses it so the transcript keeps exactly the top-level tool pairing.
 type executionSettler interface {
-	SettleExecution(ctx context.Context, sessionID string, result session.ExecutionResult, edges ...session.DerivedEdge) error
+	SettleExecution(ctx context.Context, sessionID string, result session.ExecutionResult, change *TaskStateChange, edges ...session.DerivedEdge) (int64, error)
 }
 
 // callbackAllowedBuiltins are the non-exec tools a nested call may use. They read the workspace or
@@ -99,6 +101,9 @@ type callbackDispatcher struct {
 	lineage     bool
 	application bool
 	journal     *callbackJournal
+	run         *run
+	stepTools   StepToolsInput
+	stop        *ExitCause
 	// mu serializes Call: an active call in a JavaScript kernel can dispatch several callbacks at
 	// once, and the dispatcher mutates the run's Spend and its own journal.
 	mu     sync.Mutex
@@ -165,6 +170,23 @@ func (d *callbackDispatcher) allowed(spec protocol.ToolSpec) bool {
 	return callbackSpec(spec)
 }
 
+func (d *callbackDispatcher) effectiveSpecs() []protocol.ToolSpec {
+	if !d.application || d.run == nil {
+		return d.specs
+	}
+	if d.stop != nil {
+		return nil
+	}
+	input := d.stepTools
+	if d.run.wf != nil {
+		if len(d.run.wf.WaitingHumanGates()) > 0 {
+			return nil
+		}
+		input.Allowlist = d.run.wf.EffectiveAllowlist(input.Allowlist)
+	}
+	return StepSpecs(d.loop.Tools, input)
+}
+
 // Tools returns the specs a nested call may use: the current step's effective list, filtered by the
 // sandbox policy.
 func (d *callbackDispatcher) Tools(ctx context.Context) ([]protocol.ToolSpec, error) {
@@ -176,8 +198,9 @@ func (d *callbackDispatcher) Tools(ctx context.Context) ([]protocol.ToolSpec, er
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	out := make([]protocol.ToolSpec, 0, len(d.specs))
-	for _, spec := range d.specs {
+	specs := d.effectiveSpecs()
+	out := make([]protocol.ToolSpec, 0, len(specs))
+	for _, spec := range specs {
 		if d.allowed(spec) {
 			out = append(out, spec)
 		}
@@ -188,8 +211,7 @@ func (d *callbackDispatcher) Tools(ctx context.Context) ([]protocol.ToolSpec, er
 // Call runs one nested call under the run's own admission, budget and hooks. A refused call returns a
 // denied result (the cell can handle it); a failure returns an error the bridge reports.
 func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[string]any) (protocol.ToolResult, error) {
-	// One callback at a time: concurrent active-call dispatches must not race the shared Spend or
-	// journal, and the admission is bounded by the caller's deadline.
+	// One callback at a time; its live authority, state and budget have one owner.
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.closed {
@@ -197,6 +219,7 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 	}
 	started := time.Now()
 	d.seq++
+	callID := fmt.Sprintf("%s:cb%d", d.parentCall, d.seq)
 	entry := callbackEntry{Seq: d.seq, Tool: name}
 	deny := func(reason string) (protocol.ToolResult, error) {
 		entry.Denied, entry.Reason, entry.DurationMS = true, reason, time.Since(started).Milliseconds()
@@ -217,21 +240,21 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 	if err := ctx.Err(); err != nil {
 		return protocol.ToolResult{}, err
 	}
-	// The effective step list is the authority: a tool the run does not offer is not offered here.
-	if !containsTool(d.specs, name) {
+	specs := d.effectiveSpecs()
+	if !containsTool(specs, name) {
 		return deny("tool is not allowed in the current working set")
 	}
 	var spec protocol.ToolSpec
-	for _, candidate := range d.specs {
+	for _, candidate := range specs {
 		if candidate.Name == name {
 			spec = candidate
 			break
 		}
 	}
 	if !d.allowed(spec) {
-		return deny("tool is outside the execution sandbox: a cell may use workspace read/state tools, workspace file writes whose execution the store can settle, and read-only MCP tools; it cannot run bash, background jobs, eval, delegation or native exec")
+		return deny("tool is outside the execution sandbox: callbacks cannot recurse, delegate or start background jobs; only explicit Experience applications may run foreground bash")
 	}
-	if d.application && name == protocol.ToolBash && args["background"] == true {
+	if d.application && name == protocol.ToolBash && args["mode"] == "background" {
 		return deny("experience actions must finish in the current run")
 	}
 	if err := validateToolArgs(spec, args); err != nil {
@@ -241,10 +264,8 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 		return deny(fmt.Sprintf("the run executed %d tool calls, its limit", d.spend.ToolCalls))
 	}
 	d.spend.ToolCalls++
-
-	// Nested calls use the same BeforeToolCall authorization as top-level calls.
 	pre := d.loop.runHook(ctx, d.sessionID, d.runID, verifyEventBeforeToolCall, HookRequest{
-		Step: d.step, ToolCallID: d.parentCall, ToolName: name, ToolArgs: args,
+		Step: d.step, ToolCallID: callID, ToolName: name, ToolArgs: args,
 		ValidateArgs: func(candidate map[string]any) error { return validateToolArgs(spec, candidate) },
 	})
 	if pre.Denied() {
@@ -263,15 +284,13 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 			return deny("the hook's replacement arguments are invalid for this tool: " + err.Error())
 		}
 	}
-
-	tier := executionTierOf(name, d.specs)
+	tier := executionTierOf(name, specs)
 	if tier == tierNone && d.application {
 		tier = tierAdmit
 	}
 	var x *execution
 	var settler executionSettler
 	if tier != tierNone {
-		// A nested effect needs a store that can settle its execution without a transcript row.
 		settler, _ = d.loop.Store.(executionSettler)
 		if settler == nil || (tier == tierWorkspace && !d.application) {
 			return deny("tool has side effects and cannot be admitted inside a cell; call it from the run")
@@ -282,45 +301,99 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 		}
 		entry.ExecutionID = x.id
 	}
-	toolCtx := protocol.WithToolCallID(ctx, fmt.Sprintf("%s:cb%d", d.parentCall, d.seq))
+	toolCtx := protocol.WithToolCallID(ctx, callID)
 	if until, ok := protocol.ToolDeadline(ctx); ok {
 		toolCtx = protocol.WithToolDeadline(toolCtx, until)
 	}
-	result, err := d.loop.Tools.Execute(toolCtx, name, args, nil)
-	if err != nil {
+	result, toolErr := d.loop.Tools.Execute(toolCtx, name, args, nil)
+	// A tool cannot manufacture dispatcher-owned execution or provenance metadata.
+	result.ExecutionID, result.ExecutionOutcome, result.SourceSessions = "", "", nil
+	if toolErr != nil {
 		result.OK = false
-		result.Content = toolErrorContent(err.Error())
+		result.Content = toolErrorContent(toolErr.Error())
+	}
+	var sources []string
+	sourceComplete := true
+	if d.application {
+		sources, sourceComplete = resultSessions(name, d.sessionID, result)
+		if !sourceComplete {
+			result.OK, result.Interrupted = false, true
+			result.Content = toolErrorContent("nested result provenance is incomplete; content withheld")
+		}
+	}
+	postHook := d.loop.runHook(ctx, d.sessionID, d.runID, verifyEventAfterToolCall, HookRequest{
+		Step: d.step, ToolCallID: callID, ToolName: name, ToolArgs: args, ToolResult: &result,
+	})
+	if feedback := postHook.FeedbackText(); feedback != "" {
+		result.Content = appendHookFeedback(result.Content, feedback)
+	}
+	var transitioned, workflowDenied bool
+	if d.application && d.run != nil {
+		if result.MutatesWorkspace {
+			d.run.ts.Reopen(time.Now().UTC())
+			d.run.mutated = true
+		}
+		if d.loop.Checks != nil && (tier != tierAdmit || !callbackAllowedBuiltins[name] || result.MutatesWorkspace) {
+			d.loop.Checks.Mutated()
+		}
+		var wfErr error
+		transitioned, workflowDenied, wfErr = d.loop.observeWorkflow(ctx, d.run, d.sessionID, d.runID, d.step, name, args, result)
+		if wfErr != nil {
+			d.stop = &ExitCause{Status: StatusFailed, Kind: KindConfig, Err: wfErr}
+		} else if workflowDenied {
+			d.stop = &ExitCause{Status: StatusInterrupted, Kind: "hook_denied", Err: fmt.Errorf("workflow transition denied by lifecycle hook")}
+		}
 	}
 	if x != nil {
 		settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishTimeout)
 		defer cancel()
-		post, edges := d.loop.postExecution(settleCtx, x, result, err, d.requestID, d.lineage)
-		if post != nil {
-			if settleErr := settler.SettleExecution(settleCtx, d.sessionID, *post, edges...); settleErr != nil {
-				// The tool may have acted and its admission is still open: the store's Reconcile turns
-				// it outcome_unknown. A worker must not see this as a successful call, so the callback
-				// returns the failure and an interrupted result. ErrFenced is terminal for the run.
-				entry.OK, entry.Reason = false, "settlement failed: "+settleErr.Error()
-				entry.DurationMS = time.Since(started).Milliseconds()
-				d.journal.add(entry)
-				d.loop.emit("eval.callback", d.sessionID, map[string]any{"step": d.step, "tool": name,
-					"executionId": entry.ExecutionID, "settleError": settleErr.Error()})
-				return protocol.ToolResult{Interrupted: true, OK: false, Permission: "sandbox",
-					Content: toolErrorContent("the tool ran but its execution could not be settled: " + settleErr.Error())}, settleErr
+		post, edges := d.loop.postExecution(settleCtx, x, result, toolErr, d.requestID, d.lineage)
+		// Sources bind to the actual parent tool row, not an unmatched nested row.
+		edges = append(edges, d.loop.sessionSourceEdges(settleCtx, protocol.ToolCall{ID: d.parentCall, Name: name}, d.requestID, d.lineage, sources, sourceComplete)...)
+		var change *TaskStateChange
+		var settleErr error
+		if d.application && d.run != nil {
+			change, settleErr = d.run.change(taskstate.ReasonToolPrefix + name)
+			if settleErr == nil && change != nil {
+				var before taskstate.State
+				before, settleErr = taskstate.Decode(0, d.run.saved)
+				if settleErr == nil {
+					edges = append(edges, modelStateEdges(before, change.Next, d.requestID, d.lineage)...)
+				}
 			}
 		}
+		var version int64
+		if settleErr == nil {
+			version, settleErr = settler.SettleExecution(settleCtx, d.sessionID, *post, change, edges...)
+		}
+		if settleErr != nil {
+			d.stop = storeExit(settleErr)
+			entry.OK, entry.Reason = false, "settlement failed: "+settleErr.Error()
+			entry.DurationMS = time.Since(started).Milliseconds()
+			d.journal.add(entry)
+			d.loop.emit("eval.callback", d.sessionID, map[string]any{"step": d.step, "tool": name,
+				"executionId": entry.ExecutionID, "settleError": settleErr.Error()})
+			return protocol.ToolResult{Interrupted: true, MutatesWorkspace: result.MutatesWorkspace, Permission: "sandbox",
+				Content: toolErrorContent("the tool ran but its execution could not be settled: " + settleErr.Error())}, settleErr
+		}
+		if change != nil {
+			d.run.stored(change, version)
+		}
+		result.ExecutionID, result.ExecutionOutcome = x.id, string(post.Outcome)
+		result.SourceSessions = sources
 	}
-	post := d.loop.runHook(ctx, d.sessionID, d.runID, verifyEventAfterToolCall, HookRequest{
-		Step: d.step, ToolCallID: d.parentCall, ToolName: name, ToolArgs: args, ToolResult: &result,
-	})
-	if feedback := post.FeedbackText(); feedback != "" {
-		result.Content = appendHookFeedback(result.Content, feedback)
+	if transitioned {
+		d.loop.runHook(ctx, d.sessionID, d.runID, verify.EventAfterWorkflowTransition, HookRequest{Step: d.step, Detail: map[string]any{"action": d.run.wf.CurrentAction}})
+	}
+	if d.stop != nil {
+		result.OK, result.Interrupted = false, true
+		toolErr = d.stop.Err
 	}
 	entry.OK, entry.DurationMS = result.OK, time.Since(started).Milliseconds()
 	d.journal.add(entry)
 	d.loop.emit("eval.callback", d.sessionID, map[string]any{"step": d.step, "tool": name, "ok": result.OK,
 		"executionId": entry.ExecutionID, "durationMs": entry.DurationMS})
-	return result, nil
+	return result, toolErr
 }
 
 // admitCallbackExecution is admitExecution for a nested call: it takes the pre-state and records the

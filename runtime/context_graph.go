@@ -361,11 +361,16 @@ func contextAttention(nodes []ContextNode) []AttentionItem {
 	}
 	candidates := make([]candidate, 0, len(nodes))
 	for _, node := range nodes {
-		if node.Validation != "record_checked" {
+		if node.Kind != "experience" && node.Validation != "record_checked" {
 			continue
 		}
 		priority, reason := 0, ""
 		switch node.Kind {
+		case "experience":
+			priority, reason = 1, "experience_condition_check"
+			if node.Status == knowledge.ExperienceNeedsRevision {
+				priority, reason = 5, "experience_counterexample"
+			}
 		case "verification":
 			if node.Status != "passed" || node.Freshness != "current" {
 				priority, reason = 5, "unresolved_verification"

@@ -72,6 +72,9 @@ func putCognitiveNode(ctx context.Context, conn *sql.Conn, n knowledge.Node, exp
 	if err := n.Validate(); err != nil {
 		return err
 	}
+	if n.Memory != nil && n.Memory.Canonical != nil {
+		return invalid("canonical bindings require the lifecycle commit path")
+	}
 	if n.Version != expected+1 {
 		return ErrCognitiveRevision
 	}
@@ -97,6 +100,9 @@ func putCognitiveNode(ctx context.Context, conn *sql.Conn, n knowledge.Node, exp
 		}
 		if old.SessionID != n.SessionID || old.Kind != n.Kind || !old.Scope.Contains(n.Scope) {
 			return invalid("node revision changed ownership/kind or widened scope")
+		}
+		if old.Memory != nil && old.Memory.Canonical != nil {
+			return invalid("consolidated aliases require the lifecycle commit path")
 		}
 		if old.Status == "invalid" && n.Status != "invalid" {
 			return invalid("invalid identity requires a new record")

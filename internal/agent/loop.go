@@ -129,6 +129,39 @@ func (r *run) stored(change *TaskStateChange, version int64) {
 	r.ts.Version = version
 }
 
+// observeWorkflow is shared by top-level tools and the actions of an Experience.
+// The caller commits its Task State change with the exact execution result.
+func (l *Loop) observeWorkflow(ctx context.Context, r *run, sessionID, runID string, step int64, name string, args map[string]any, result protocol.ToolResult) (transitioned, denied bool, err error) {
+	if r.wf == nil {
+		return false, false, nil
+	}
+	candidate := r.wf
+	if l.Hooks != nil {
+		snapshot := r.wf.Snapshot()
+		candidate = &workflow.Runtime{Definition: snapshot.Definition, CurrentAction: snapshot.CurrentAction, Facts: snapshot.Facts, FactSources: snapshot.FactSources, History: snapshot.History, Status: snapshot.Status}
+	}
+	update, err := candidate.ObserveTool(workflow.ToolObservation{Tool: name, Args: args, Result: map[string]any{"ok": result.OK, "denied": result.Denied, "permission": result.Permission, "content": result.Content}, Step: step})
+	if err != nil {
+		return false, false, err
+	}
+	if update.Transition != nil {
+		pre := l.runHook(ctx, sessionID, runID, verify.EventBeforeWorkflowTransition, HookRequest{Step: step, Detail: map[string]any{"from": update.Transition.From, "to": update.Transition.To}})
+		denied = pre.Denied()
+	}
+	if !denied {
+		r.wf = candidate
+		if len(update.ChangedFacts) > 0 {
+			l.emit("workflow.facts", sessionID, map[string]any{"step": step, "facts": update.ChangedFacts})
+		}
+		if update.Transition != nil {
+			transitioned = true
+			l.emit("workflow.transition", sessionID, map[string]any{"step": step, "from": update.Transition.From, "to": update.Transition.To, "reason": update.Transition.Reason})
+		}
+	}
+	r.ts.SetWorkflow(r.wf)
+	return transitioned, denied, nil
+}
+
 func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result Result, err error) {
 	if len(l.Models) == 0 || l.Store == nil || l.Tools == nil {
 		return Result{}, errors.New("models, store, and tools are required")
@@ -521,7 +554,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				}
 				continue
 			}
-			denied := !containsTool(specs, call.Name) || (r.wf != nil && !r.wf.IsToolAllowed(call.Name))
+			denied := !containsTool(specs, call.Name) || (r.wf != nil && (!r.wf.IsToolAllowed(call.Name) || len(r.wf.WaitingHumanGates()) > 0))
 			var (
 				toolResult protocol.ToolResult
 				x          *execution
@@ -625,6 +658,10 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 							toolCtx = protocol.WithToolCallback(toolCtx, caller)
 							if d, ok := caller.(*callbackDispatcher); ok {
 								cb = d
+								if d.application {
+									d.run = r
+									d.stepTools = StepToolsInput{Allowlist: opts.ToolAllowlist, Denylist: opts.ToolDenylist, Delegation: opts.Delegation, Tasks: l.Tasks != nil, TaskAgents: opts.TaskAgents, Claims: l.verificationOffered(opts)}
+								}
 							}
 						}
 						toolResult, toolErr = l.Tools.Execute(toolCtx, call.Name, args, func(output protocol.ToolOutput) {
@@ -633,6 +670,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 						cancelCallbacks()
 						if cb != nil {
 							cb.close()
+						}
+						if cb != nil && cb.stop != nil && (cb.stop.Kind == KindStorage || cb.stop.Kind == KindFenced) {
+							// Its state/lineage transaction did not commit; never publish the
+							// in-memory transition in the outer tool response.
+							return l.exit(ctx, state, usage, *cb.stop)
 						}
 						if ctx.Err() != nil {
 							// The command tool reports a killed command as a result, not an error, and its
@@ -694,33 +736,15 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			if x != nil {
 				end["executionId"], end["outcome"], end["coverage"], end["snapshotNanos"] = x.id, string(post.Outcome), string(post.Coverage), x.snapshot.Nanoseconds()
 			}
-			workflowTransition := false
-			var workflowDenied bool
-			if r.wf != nil {
-				candidate := r.wf
-				if l.Hooks != nil {
-					snapshot := r.wf.Snapshot()
-					candidate = &workflow.Runtime{Definition: snapshot.Definition, CurrentAction: snapshot.CurrentAction, Facts: snapshot.Facts, FactSources: snapshot.FactSources, History: snapshot.History, Status: snapshot.Status}
-				}
-				update, wfErr := candidate.ObserveTool(workflow.ToolObservation{Tool: call.Name, Args: args, Result: map[string]any{"ok": toolResult.OK, "denied": toolResult.Denied, "permission": toolResult.Permission, "content": toolResult.Content}, Step: step})
+			var workflowTransition, workflowDenied bool
+			// Application actions were already observed and committed individually.
+			// Observing the wrapper again would apply one action to a later Workflow stage.
+			if cb == nil || !cb.application {
+				var wfErr error
+				workflowTransition, workflowDenied, wfErr = l.observeWorkflow(ctx, r, sessionID, opts.RunID, step, call.Name, args, toolResult)
 				if wfErr != nil {
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindConfig, Err: wfErr})
 				}
-				if update.Transition != nil {
-					pre := l.runHook(ctx, sessionID, opts.RunID, verify.EventBeforeWorkflowTransition, HookRequest{Step: step, Detail: map[string]any{"from": update.Transition.From, "to": update.Transition.To}})
-					workflowDenied = pre.Denied()
-				}
-				if !workflowDenied {
-					r.wf = candidate
-				}
-				if !workflowDenied && len(update.ChangedFacts) > 0 {
-					l.emit("workflow.facts", sessionID, map[string]any{"step": step, "facts": update.ChangedFacts})
-				}
-				if !workflowDenied && update.Transition != nil {
-					workflowTransition = true
-					l.emit("workflow.transition", sessionID, map[string]any{"step": step, "from": update.Transition.From, "to": update.Transition.To, "reason": update.Transition.Reason})
-				}
-				r.ts.SetWorkflow(r.wf)
 			}
 			// The Task State change this result caused commits with its row (design §4.4), with the
 			// edges of the entries it wrote and of the sessions a subagent or thread tool carried (T1-S5, T3-S1).
@@ -742,6 +766,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				return l.exit(ctx, state, usage, *storeExit(err))
 			}
 			l.emit("tool.end", sessionID, end)
+			if cb != nil && cb.stop != nil {
+				return l.exit(ctx, state, usage, *cb.stop)
+			}
 			if workflowDenied {
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusInterrupted, Kind: "hook_denied", Err: errors.New("workflow transition denied by lifecycle hook")})
 			}

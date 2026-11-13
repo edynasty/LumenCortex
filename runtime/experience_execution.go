@@ -219,6 +219,7 @@ func (a cognitiveAccess) apply(ctx context.Context, id, adoptionID string, actio
 	}
 	result := protocol.ToolResult{OK: true}
 	var results []protocol.ToolResult
+	sources := []string{n.Experience.Origin.Source.SessionID}
 	receipt.State = "completed"
 	for index, action := range actions {
 		if err = a.engine.runtimeEventAccess(ctx, a.sessionID); err == nil {
@@ -251,21 +252,24 @@ func (a cognitiveAccess) apply(ctx context.Context, id, adoptionID string, actio
 		nested, callErr := caller.Call(ctx, action.Tool, action.Arguments)
 		result.MutatesWorkspace = result.MutatesWorkspace || nested.MutatesWorkspace
 		results = append(results, nested)
-		if !nested.Denied && !nested.Interrupted && callErr == nil {
-			receipt.Actions[index].ExecutionID, callErr = a.engine.store.ExperienceActionExecution(context.WithoutCancel(ctx), a.sessionID, a.runID, action.Tool, receipt.Actions[index].ArgsDigest, receipt.At)
+		receipt.Actions[index].ExecutionID = nested.ExecutionID
+		receipt.Actions[index].Outcome = nested.ExecutionOutcome
+		for _, source := range nested.SourceSessions {
+			if !slices.Contains(sources, source) {
+				sources = append(sources, source)
+			}
 		}
-		if callErr != nil || !nested.OK || nested.Denied || nested.Interrupted {
+		if callErr != nil || !nested.OK || nested.Denied || nested.Interrupted || nested.ExecutionOutcome != string(session.OutcomeComplete) {
 			err = callErr
 			result.OK = false
 			result.Denied = nested.Denied
 			result.Interrupted = nested.Interrupted
-			receipt.State = "failed"
-			if ctx.Err() != nil || nested.Interrupted {
-				receipt.State = "unknown"
+			receipt.State = "unknown"
+			if nested.ExecutionOutcome == string(session.OutcomeFailed) && !nested.Denied && !nested.Interrupted && ctx.Err() == nil {
+				receipt.State = "failed"
 			}
 			break
 		}
-		receipt.Actions[index].Completed = true
 	}
 	receipt.FinishedAt = a.engine.now()
 	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -279,7 +283,7 @@ func (a cognitiveAccess) apply(ctx context.Context, id, adoptionID string, actio
 		Results       []protocol.ToolResult `json:"results"`
 		Sources       []string              `json:"sourceSessions"`
 		Error         string                `json:"error,omitempty"`
-	}{receipt.ID, receipt.State, results, []string{n.Experience.Origin.Source.SessionID}, ""}
+	}{receipt.ID, receipt.State, results, sources, ""}
 	if err != nil {
 		out.Error = err.Error()
 	}

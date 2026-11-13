@@ -9,16 +9,22 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
-// SettleExecution commits a callback's admitted effect and provenance without a
-// transcript tool row. Its parent Eval result supplies the single model-visible
-// tool response. Fences and check-definition invalidation are identical to
-// CommitToolResult; this is not an alternative permission/admission path.
-func (s *Store) SettleExecution(ctx context.Context, sessionID string, x ExecutionResult, edges ...DerivedEdge) error {
-	c := ToolCommit{SessionID: sessionID, Message: protocol.Message{Role: "tool"}, Execution: &x, Edges: edges}
+// SettleExecution commits a callback's admitted effect, Task State and provenance
+// without an unmatched transcript row. Fences and check invalidation match
+// CommitToolResult; the returned version is zero when state did not change.
+func (s *Store) SettleExecution(ctx context.Context, sessionID string, x ExecutionResult, state *TaskStateWrite, edges ...DerivedEdge) (int64, error) {
+	c := ToolCommit{SessionID: sessionID, Message: protocol.Message{Role: "tool"}, Execution: &x, TaskState: state, Edges: edges}
 	if err := c.validate(); err != nil {
-		return err
+		return 0, err
 	}
-	return s.writeTx(ctx, func(conn *sql.Conn) error {
+	if state != nil {
+		copy := *state
+		edges = append(append([]DerivedEdge(nil), edges...), copy.Edges...)
+		copy.Edges = nil
+		state = &copy
+	}
+	var version int64
+	err := s.writeTx(ctx, func(conn *sql.Conn) error {
 		if err := sessionExists(ctx, conn, sessionID); err != nil {
 			return err
 		}
@@ -46,9 +52,18 @@ func (s *Store) SettleExecution(ctx context.Context, sessionID string, x Executi
 		if fenced {
 			return commitThen{ErrFenced}
 		}
+		if state != nil {
+			if version, err = putTaskState(ctx, conn, sessionID, *state); err != nil {
+				return err
+			}
+		}
 		if err := insertEdges(ctx, conn, sessionID, runID, x.ExecutionID, edges); err != nil {
 			return err
 		}
 		return s.revokeOnDefinitionWrite(ctx, conn, edges)
 	})
+	if err != nil {
+		return 0, err
+	}
+	return version, nil
 }

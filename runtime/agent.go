@@ -1048,11 +1048,14 @@ func (s agentStore) AdmitExecution(ctx context.Context, a session.ExecutionAdmis
 	return err
 }
 
-// SettleExecution forwards a nested callback's admitted effect to the store: it settles the
-// execution and writes its derived edges without a transcript row, so the transcript keeps exactly
-// the top-level tool pairing.
-func (s agentStore) SettleExecution(ctx context.Context, sessionID string, result session.ExecutionResult, edges ...session.DerivedEdge) error {
-	return s.store.SettleExecution(ctx, sessionID, result, edges...)
+// SettleExecution commits a nested action and its Task State without a second
+// transcript pairing. Source edges and state changes share its transaction.
+func (s agentStore) SettleExecution(ctx context.Context, sessionID string, result session.ExecutionResult, change *agent.TaskStateChange, edges ...session.DerivedEdge) (int64, error) {
+	write, err := agentTaskStateChange(change)
+	if err != nil {
+		return 0, err
+	}
+	return s.store.SettleExecution(ctx, sessionID, result, write, edges...)
 }
 
 func (s agentStore) CommitToolResult(ctx context.Context, c agent.ToolResultCommit) (int64, int64, error) {

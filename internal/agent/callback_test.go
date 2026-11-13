@@ -103,9 +103,9 @@ type settlingStore struct {
 	settled int
 }
 
-func (s *settlingStore) SettleExecution(context.Context, string, session.ExecutionResult, ...session.DerivedEdge) error {
+func (s *settlingStore) SettleExecution(context.Context, string, session.ExecutionResult, *TaskStateChange, ...session.DerivedEdge) (int64, error) {
 	s.settled++
-	return s.err
+	return 0, s.err
 }
 
 // A workspace write runs only when its execution can be settled; a settlement failure is never a

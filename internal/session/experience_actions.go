@@ -3,11 +3,8 @@ package session
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"time"
 
 	"github.com/edynasty/LumenCortex/internal/knowledge"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -89,13 +86,4 @@ func matchExperienceActions(ctx context.Context, q rowQuerier, x *knowledge.Expe
 		}
 	}
 	return nil
-}
-
-func (s *Store) ExperienceActionExecution(ctx context.Context, id, runID, tool, digest string, after time.Time) (string, error) {
-	var execution string
-	err := s.db.QueryRowContext(ctx, `SELECT execution_id FROM derived_origins WHERE session_id=? AND run_id=? AND kind='execution' AND tool_name=? AND args_digest=? AND created_at>=? AND outcome IN ('completed','failed') ORDER BY rowid DESC LIMIT 1`, id, runID, tool, digest, stamp(after)).Scan(&execution)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNotFound
-	}
-	return execution, err
 }

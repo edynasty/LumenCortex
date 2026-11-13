@@ -23,7 +23,7 @@ type AppliedAction struct {
 	Tool        string `json:"tool"`
 	ArgsDigest  string `json:"argsDigest"`
 	ExecutionID string `json:"executionId,omitempty"`
-	Completed   bool   `json:"completed"`
+	Outcome     string `json:"outcome,omitempty"`
 }
 
 // Executed reports whether the complete planned action sequence has settled
@@ -33,9 +33,17 @@ func (a Application) Executed() bool {
 	if (a.State != "completed" && a.State != "failed") || len(a.Actions) == 0 {
 		return false
 	}
-	for _, action := range a.Actions {
-		if action.ExecutionID == "" {
+	for i, action := range a.Actions {
+		if action.ExecutionID == "" || (action.Outcome != "completed" && action.Outcome != "failed") {
 			return false
+		}
+		if a.State == "completed" && action.Outcome != "completed" {
+			return false
+		}
+		for _, prior := range a.Actions[:i] {
+			if prior.ExecutionID == action.ExecutionID {
+				return false
+			}
 		}
 	}
 	return true
