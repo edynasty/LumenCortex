@@ -13,6 +13,10 @@ import (
 
 // RunStart is the durable write set of a Start, applied by BeginRun.
 type RunStart struct {
+	// RunID is the identity of the started run. When non-empty, BeginRun records an agent.start
+	// checkpoint in the same transaction so sourceRunSQL resolves a started run even if it fails
+	// before admitting its first main model request.
+	RunID string
 	// Input is appended as the next user row when non-nil. Without it, a transcript whose newest row
 	// is not a user row gets a runtime resume row instead, so a turn never spans runs (design §3.2, §4.6).
 	Input *protocol.Message
@@ -65,6 +69,9 @@ type RunStart struct {
 // COMMIT runs without the caller's cancellation: once BeginRun returns, the commit
 // is known to have happened, and an error means it did not.
 func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) (Session, []int64, error) {
+	if err := checkOptionalID("run id", start.RunID); err != nil {
+		return Session{}, nil, err
+	}
 	if len(start.NoticeSources) > MaxEdgesPerCommit {
 		return Session{}, nil, invalid("Start notices cite at most %d sources", MaxEdgesPerCommit)
 	}
@@ -162,8 +169,9 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 		}
 		next++
 	}
+	runAt := time.Now().UTC().Format(time.RFC3339Nano)
 	sets := `status = 'running', final = NULL, error_json = NULL, updated_at = ?`
-	args := []any{time.Now().UTC().Format(time.RFC3339Nano)}
+	args := []any{runAt}
 	if start.Provider != nil {
 		sets += `, provider = NULLIF(?, '')`
 		args = append(args, *start.Provider)
@@ -186,6 +194,28 @@ func (s *Store) BeginRun(ctx context.Context, sessionID string, start RunStart) 
 	}
 	if start.TaskState != nil {
 		if _, err := putTaskState(ctx, conn, sessionID, *start.TaskState); err != nil {
+			return Session{}, nil, err
+		}
+	}
+	if start.RunID != "" {
+		var cpSeq int64
+		if err := conn.QueryRowContext(ctx,
+			`SELECT COALESCE(MAX(seq), -1) + 1 FROM session_checkpoints WHERE session_id = ?`,
+			sessionID,
+		).Scan(&cpSeq); err != nil {
+			return Session{}, nil, err
+		}
+		cpRaw, err := json.Marshal(map[string]string{"runId": start.RunID})
+		if err != nil {
+			return Session{}, nil, err
+		}
+		if _, err := conn.ExecContext(ctx,
+			`INSERT INTO session_checkpoints(session_id, seq, at, reason, json) VALUES(?, ?, ?, 'agent.start', ?)`,
+			sessionID, cpSeq, runAt, string(cpRaw),
+		); err != nil {
+			return Session{}, nil, err
+		}
+		if err := pruneCheckpoints(ctx, conn, sessionID); err != nil {
 			return Session{}, nil, err
 		}
 	}

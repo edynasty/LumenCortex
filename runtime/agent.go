@@ -767,9 +767,10 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 			knowledgeSources = sources
 		}
 	}
-	// Start's one durable write: Input, the session model identity, the Start's Task State version and
-	// the running transition commit together or not at all (§3.2). Nothing above it wrote.
-	start := session.RunStart{Provider: &plan.resolved.ProviderID, Model: &plan.resolved.ModelID, TaskState: taskState, Results: results}
+	// Start's one durable write: Input, the session model identity, the Start's Task State version, the
+	// started run's checkpoint and the running transition commit together or not at all (§3.2). Nothing
+	// above it wrote to the session or its transcript.
+	start := session.RunStart{RunID: runID, Provider: &plan.resolved.ProviderID, Model: &plan.resolved.ModelID, TaskState: taskState, Results: results}
 	// The working notebooks of the session (ADR-0020) become one short index row in this Start: their
 	// titles, versions and sections, never a body. A session without notebooks gets no row.
 	if infos, err := e.store.ListNotebooks(ctx, sessionID); err != nil {

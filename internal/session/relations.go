@@ -183,16 +183,7 @@ VALUES(?, ?, ?, ?, ?)
 `, sessionID, seq, now.Format(time.RFC3339Nano), reason, string(raw)); err != nil {
 		return Checkpoint{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `
-DELETE FROM session_checkpoints
-WHERE session_id = ?
-  AND seq NOT IN (
-    SELECT seq FROM session_checkpoints
-    WHERE session_id = ?
-    ORDER BY seq DESC
-    LIMIT 200
-  )
-`, sessionID, sessionID); err != nil {
+	if err := pruneCheckpoints(ctx, tx, sessionID); err != nil {
 		return Checkpoint{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -205,6 +196,24 @@ WHERE session_id = ?
 		Reason:    reason,
 		JSON:      json.RawMessage(raw),
 	}, nil
+}
+
+func pruneCheckpoints(ctx context.Context, q execer, sessionID string) error {
+	_, err := q.ExecContext(ctx, `
+DELETE FROM session_checkpoints
+WHERE session_id = ?
+  AND seq NOT IN (
+    SELECT seq FROM session_checkpoints
+    WHERE session_id = ?
+    ORDER BY seq DESC
+    LIMIT 200
+  )
+  AND seq <> COALESCE((
+    SELECT MAX(seq) FROM session_checkpoints
+    WHERE session_id = ? AND reason = 'agent.start'
+  ), -1)
+`, sessionID, sessionID, sessionID)
+	return err
 }
 
 func (s *Store) Checkpoints(ctx context.Context, sessionID string, limit int) ([]Checkpoint, error) {
