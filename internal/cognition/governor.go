@@ -502,7 +502,7 @@ func governorArchiveCandidate(node GraphNode, value float64, degree int, thresho
 func governorDuplicateTitleGroups(nodes []GraphNode) []CanonicalizeCandidate {
 	groups := map[string][]GraphNode{}
 	for _, node := range nodes {
-		if node.Status == "invalid" {
+		if node.Status == "invalid" || node.Status == "archived" || governorMetadataString(node.Metadata, "canonicalNodeId") != "" {
 			continue
 		}
 		title := governorNormalizeTitle(node.Title)

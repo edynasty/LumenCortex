@@ -31,9 +31,9 @@ func TestGovernorAnalyzerMatchesNodeCandidateSemantics(t *testing.T) {
 	graph := governorFixture()
 	before, _ := json.Marshal(graph)
 	analysis := (GovernorAnalyzer{}).Analyze(graph, GovernorAnalyzeOptions{
-		ArchiveThreshold: 0.5,
+		ArchiveThreshold:  0.5,
 		PromotionMinGroup: 3,
-		Now: time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC),
+		Now:               time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC),
 	})
 	if analysis.Metrics.NodeCount != 5 || analysis.Metrics.EdgeCount != 1 {
 		t.Fatalf("metrics=%#v", analysis.Metrics)
@@ -62,14 +62,14 @@ func TestGovernorAnalyzerMatchesNodeCandidateSemantics(t *testing.T) {
 func TestGovernorAnalyzerUsesAccessTelemetryWithoutChangingEvidence(t *testing.T) {
 	graph := GraphState{Nodes: map[string]GraphNode{
 		"recent": {ID: "recent", Kind: "entity", Title: "Recent", Status: "active", Grade: "static", TrustZone: "repo_trusted"},
-		"quiet": {ID: "quiet", Kind: "entity", Title: "Quiet", Status: "active", Grade: "static", TrustZone: "repo_trusted"},
+		"quiet":  {ID: "quiet", Kind: "entity", Title: "Quiet", Status: "active", Grade: "static", TrustZone: "repo_trusted"},
 	}, Edges: map[string]GraphEdge{}}
 	now := time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC)
 	analysis := (GovernorAnalyzer{}).Analyze(graph, GovernorAnalyzeOptions{
 		Now: now,
 		StorageByNode: map[string]StorageTelemetry{
 			"recent": {Tier: "warm", AccessCount: 64, LastAccessAt: now.Add(-time.Minute)},
-			"quiet": {Tier: "warm"},
+			"quiet":  {Tier: "warm"},
 		},
 	})
 	if analysis.Values["recent"] <= analysis.Values["quiet"] {
@@ -95,21 +95,27 @@ func TestGovernorValidatorProtectsEvidenceAndCanonicalGrade(t *testing.T) {
 	}
 
 	valid := ValidateGovernorPlan(GovernorPlan{
-		Archive: []string{"c"},
-		Tiers: GovernorTiers{Hot: []string{"a"}, Warm: []string{"b", "e"}, Cold: []string{"c", "d"}},
+		Archive:      []string{"c"},
+		Tiers:        GovernorTiers{Hot: []string{"a"}, Warm: []string{"b", "e"}, Cold: []string{"c", "d"}},
 		Canonicalize: []CanonicalizePlan{{Canonical: "a", Aliases: []string{"b"}}},
-		Branch: []BranchPlan{{From: "a", To: "b"}},
-		Promote: []PromotePlan{{Title: "Provider overview", ChildIDs: []string{"a", "b", "e"}}},
-		Summary: strings.Repeat("x", 5000),
+		Branch:       []BranchPlan{{From: "a", To: "b"}},
+		Promote:      []PromotePlan{{Title: "Provider overview", ChildIDs: []string{"a", "b", "e"}}},
+		Summary:      strings.Repeat("x", 5000),
 	}, graph)
-	if !valid.Valid { t.Fatalf("valid plan errors=%#v", valid.Errors) }
-	if len(valid.Normalized.Summary) != 4000 { t.Fatalf("summary length=%d", len(valid.Normalized.Summary)) }
+	if !valid.Valid {
+		t.Fatalf("valid plan errors=%#v", valid.Errors)
+	}
+	if len(valid.Normalized.Summary) != 4000 {
+		t.Fatalf("summary length=%d", len(valid.Normalized.Summary))
+	}
 }
 
 func TestDeterministicGovernorPlanContainsOnlySafeActions(t *testing.T) {
 	analysis := (GovernorAnalyzer{}).Analyze(governorFixture(), GovernorAnalyzeOptions{ArchiveThreshold: 0.5})
 	plan := DeterministicGovernorPlan(analysis)
-	if !hasString(plan.Archive, "c") { t.Fatalf("archive=%#v", plan.Archive) }
+	if !hasString(plan.Archive, "c") {
+		t.Fatalf("archive=%#v", plan.Archive)
+	}
 	if len(plan.Canonicalize) != 0 || len(plan.Branch) != 0 || len(plan.Promote) != 0 {
 		t.Fatalf("deterministic plan leaked semantic actions: %#v", plan)
 	}
@@ -124,7 +130,7 @@ func (p *governorScriptProvider) Model() string { return "governor-test" }
 func (p *governorScriptProvider) Complete(_ context.Context, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
 	p.request = req
 	return protocol.ProviderResponse{
-		Message: protocol.Message{Content: "```json\n{\"archive\":[\"c\"],\"canonicalize\":[{\"canonical\":\"a\",\"aliases\":[\"b\"],\"reason\":\"same concept\"}],\"branch\":[{\"from\":\"a\",\"to\":\"b\",\"reason\":\"preserve competition\"}],\"promote\":[{\"title\":\"Provider overview\",\"childIds\":[\"a\",\"b\",\"e\"]}],\"summary\":\"curate provider cluster\"}\n```"},
+		Message:      protocol.Message{Content: "```json\n{\"archive\":[\"c\"],\"canonicalize\":[{\"canonical\":\"a\",\"aliases\":[\"b\"],\"reason\":\"same concept\"}],\"branch\":[{\"from\":\"a\",\"to\":\"b\",\"reason\":\"preserve competition\"}],\"promote\":[{\"title\":\"Provider overview\",\"childIds\":[\"a\",\"b\",\"e\"]}],\"summary\":\"curate provider cluster\"}\n```"},
 		FinishReason: "stop",
 	}, nil
 }
@@ -136,51 +142,105 @@ func TestGovernorCuratorProducesBoundedPlanWithoutMutatingGraph(t *testing.T) {
 	provider := &governorScriptProvider{}
 	curator := LLMGovernorCurator{Provider: provider, MaxTokens: 4000, ReasoningEffort: "high"}
 	plan, err := curator.Propose(context.Background(), graph, analysis)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	validation := ValidateGovernorPlan(plan, graph)
-	if !validation.Valid { t.Fatalf("validation=%#v", validation) }
+	if !validation.Valid {
+		t.Fatalf("validation=%#v", validation)
+	}
 	if provider.request.ReasoningEffort != "high" || provider.request.MaxTokens != 4000 {
 		t.Fatalf("request=%#v", provider.request)
 	}
-	if len(provider.request.Messages) != 2 { t.Fatalf("messages=%#v", provider.request.Messages) }
+	if len(provider.request.Messages) != 2 {
+		t.Fatalf("messages=%#v", provider.request.Messages)
+	}
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(provider.request.Messages[1].Content), &payload); err != nil { t.Fatal(err) }
+	if err := json.Unmarshal([]byte(provider.request.Messages[1].Content), &payload); err != nil {
+		t.Fatal(err)
+	}
 	if payload["objective"] != "Propose long-horizon graph maintenance. Do not execute changes." {
 		t.Fatalf("objective=%#v", payload["objective"])
 	}
 	nodes, ok := payload["nodes"].(map[string]any)
-	if !ok { t.Fatalf("nodes=%#v", payload["nodes"]) }
-	if _, ok := nodes["a"]; !ok { t.Fatal("candidate node a missing") }
-	if _, ok := nodes["d"]; ok { t.Fatal("unrelated protected node d leaked into Curator candidate context") }
+	if !ok {
+		t.Fatalf("nodes=%#v", payload["nodes"])
+	}
+	if _, ok := nodes["a"]; !ok {
+		t.Fatal("candidate node a missing")
+	}
+	if _, ok := nodes["d"]; ok {
+		t.Fatal("unrelated protected node d leaked into Curator candidate context")
+	}
 	after, _ := json.Marshal(graph)
-	if string(after) != string(before) { t.Fatal("Curator mutated graph") }
+	if string(after) != string(before) {
+		t.Fatal("Curator mutated graph")
+	}
+}
+
+func TestGovernorDuplicateGroupsSkipArchivedAndCanonicalizedAliases(t *testing.T) {
+	graph := GraphState{
+		Version: 1,
+		Nodes: map[string]GraphNode{
+			"can":   {ID: "can", Kind: "belief", Title: "Service Port", Status: "active", Grade: "runtime", TrustZone: "runtime_verified"},
+			"alias": {ID: "alias", Kind: "belief", Title: "service port", Status: "archived", Grade: "runtime", TrustZone: "runtime_verified", Metadata: map[string]any{"canonicalNodeId": "can"}},
+			"arch":  {ID: "arch", Kind: "belief", Title: "Service Port", Status: "archived", Grade: "static", TrustZone: "model_inferred"},
+		},
+		Edges: map[string]GraphEdge{},
+	}
+	analysis := (GovernorAnalyzer{}).Analyze(graph, GovernorAnalyzeOptions{})
+	if analysis.Metrics.DuplicateGroupCount != 0 || len(analysis.Candidates.Canonicalize) != 0 {
+		t.Fatalf("archived/consolidated aliases still proposed for canonicalization: %+v", analysis.Candidates.Canonicalize)
+	}
 }
 
 func hasArchiveNode(values []ArchiveCandidate, id string) bool {
-	for _, item := range values { if item.NodeID == id { return true } }
+	for _, item := range values {
+		if item.NodeID == id {
+			return true
+		}
+	}
 	return false
 }
 
 func hasCanonicalGroup(values []CanonicalizeCandidate, ids ...string) bool {
 	for _, item := range values {
 		ok := true
-		for _, id := range ids { if !hasString(item.NodeIDs, id) { ok = false } }
-		if ok { return true }
+		for _, id := range ids {
+			if !hasString(item.NodeIDs, id) {
+				ok = false
+			}
+		}
+		if ok {
+			return true
+		}
 	}
 	return false
 }
 
 func hasPromotionTag(values []PromotionCandidate, tag string) bool {
-	for _, item := range values { if item.Tag == tag { return true } }
+	for _, item := range values {
+		if item.Tag == tag {
+			return true
+		}
+	}
 	return false
 }
 
 func hasString(values []string, target string) bool {
-	for _, value := range values { if value == target { return true } }
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
 	return false
 }
 
 func containsText(values []string, target string) bool {
-	for _, value := range values { if strings.Contains(value, target) { return true } }
+	for _, value := range values {
+		if strings.Contains(value, target) {
+			return true
+		}
+	}
 	return false
 }

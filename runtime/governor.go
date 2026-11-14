@@ -33,6 +33,7 @@ func (e *Engine) CognitiveGraphSnapshot(ctx context.Context) (cognition.GraphSta
 		return cognition.GraphState{}, nil, err
 	}
 	graph := cognition.GraphState{Version: 1, Nodes: make(map[string]cognition.GraphNode, len(nodes)), Edges: make(map[string]cognition.GraphEdge, len(edges)), Metadata: map[string]any{"authority": "go-native", "readOnly": true}}
+	storage := make(map[string]cognition.StorageTelemetry, len(nodes))
 	for _, n := range nodes {
 		status, grade, trust := n.Status, "hypothesis", "model_inferred"
 		if n.Kind == "entity" || n.Kind == "task" {
@@ -64,13 +65,22 @@ func (e *Engine) CognitiveGraphSnapshot(ctx context.Context) (cognition.GraphSta
 		node.Metadata["protectedMemory"] = n.ProtectedMemory()
 		node.Metadata["memoryClass"] = n.MemoryClass()
 		node.Metadata["memory"] = n.Memory
+		if n.Memory != nil {
+			if n.Memory.Canonical != nil && n.Memory.Canonical.ID != "" {
+				node.Metadata["canonicalNodeId"] = n.Memory.Canonical.ID
+			}
+			if n.Memory.Tier != "" {
+				node.Metadata["storageTier"] = n.Memory.Tier
+				storage[n.ID] = cognition.StorageTelemetry{Tier: n.Memory.Tier}
+			}
+		}
 		node.Metadata["dependencies"] = n.Dependencies
 		graph.Nodes[n.ID] = node
 	}
 	for _, edge := range edges {
 		graph.Edges[edge.ID] = cognition.GraphEdge{ID: edge.ID, From: edge.From, To: edge.To, Type: edge.Type, Weight: edge.Weight}
 	}
-	return graph, map[string]cognition.StorageTelemetry{}, nil
+	return graph, storage, nil
 }
 
 func (e *Engine) GovernorAnalyze(ctx context.Context, options cognition.GovernorAnalyzeOptions) (cognition.GovernorAnalysis, error) {
