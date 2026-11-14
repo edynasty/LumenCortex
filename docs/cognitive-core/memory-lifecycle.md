@@ -63,6 +63,6 @@ If the active/protected set exceeds the requested capacity, `Pressure=true` is r
 
 ## Bounds and limitations
 
-Native nodes remain at most 64 KiB; source refs at most 8, dependencies at most 16, dependency depth at most 32. Assessment returns at most 16 records and marks incomplete coverage; an application has at most 8 actions, an Experience at most 8 Uses. The serialized byte bound may be reached earlier. These are refusal boundaries, not silent eviction or compression of evidence.
+Native nodes remain at most 64 KiB; source refs at most 8, dependencies at most 16, dependency depth at most 32. Assessment returns at most 16 records and marks incomplete coverage; an application has at most 8 actions, an Experience at most 8 Uses. The serialized byte bound may be reached earlier. These are refusal boundaries, not silent eviction or compression of evidence. The eight Uses are a bound on the record for its whole life: once they are spent, recall reports `use_limit_reached` and adoption is refused.
 
 Large Experience sets and whole-graph Governor diagnostics still scan the selected domain; this candidate adds no ANN/embedding database or automatic destructive GC. Source advancement can make old Experiences unavailable; re-extraction from a new genuine episode is required. Privacy protection covers Core-owned live state, not external backups or forensic erasure. No longitudinal learning benefit is measured.

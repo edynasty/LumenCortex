@@ -3,11 +3,17 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 
 	"github.com/edynasty/LumenCortex/internal/knowledge"
 	"github.com/edynasty/LumenCortex/internal/session"
 )
+
+// errExperienceUsesSpent refuses the adoption of a record that already holds MaxExperienceUses uses.
+// The bound is on the record for its whole life, not a condition a consumer can change; recall
+// reports such a record as use_limit_reached.
+var errExperienceUsesSpent = fmt.Errorf("%w: the record already holds its %d uses", ErrExperienceNotApplicable, knowledge.MaxExperienceUses)
 
 // AdoptExperience checks the consumer's conditions before returning strategy text. It records a
 // one-use identity and provenance first; it never executes commands, modifies Workflow or bypasses
@@ -30,8 +36,11 @@ func (e *Engine) adoptExperience(ctx context.Context, consumerID, id string, exp
 		return ExperienceAdoption{}, session.ErrCognitiveRevision
 	}
 	x := n.Experience
-	if x.State != knowledge.ExperienceValidated || consumerID == x.Origin.Source.SessionID || len(x.Uses) >= knowledge.MaxExperienceUses {
+	if x.State != knowledge.ExperienceValidated || consumerID == x.Origin.Source.SessionID {
 		return ExperienceAdoption{}, ErrExperienceNotApplicable
+	}
+	if len(x.Uses) >= knowledge.MaxExperienceUses {
+		return ExperienceAdoption{}, errExperienceUsesSpent
 	}
 	if err := e.experienceCurrent(ctx, n); err != nil {
 		return ExperienceAdoption{}, err

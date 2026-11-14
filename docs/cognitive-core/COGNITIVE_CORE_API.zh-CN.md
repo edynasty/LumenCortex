@@ -30,7 +30,7 @@
 
 | 工具 | 输入 | 行为 |
 |---|---|---|
-| `recall_experiences` | `{query}` | 最多 8 条相关定位、来源与读者访问统计，不计实际复用。 |
+| `recall_experiences` | `{query}` | 最多 8 条相关定位、来源与读者访问统计，不计实际复用。`applicability` 为 `requires_condition_check`；记录的 8 个 Uses 用尽后为 `use_limit_reached`，不再接受采纳。 |
 | `adopt_experience` | `{id,version}` | 当前消费者独立检查条件，先提交单次身份，再返回策略。 |
 | `apply_experience` | `{id,adoptionId,actions:[{tool,arguments}]}` | 匹配原完整操作序列，重查前提，提交 pending 回执，普通工具执行并记录确切 ID；每次采纳只能应用一次，不自动重放。 |
 | `propose_experience` | `{proposal}` | 队列只保存有界结构；任务结束后 Framework 提取实际经历并执行获准检查。 |

@@ -99,7 +99,7 @@ Registered only with cognition enabled, outside maintenance. The Engine binds se
 
 | Tool | Input | Effect |
 |---|---|---|
-| `recall_experiences` | `{query}` | At most 8 relevant locators, source provenance and reader-local access telemetry; no strategy-use credit. |
+| `recall_experiences` | `{query}` | At most 8 relevant locators, source provenance and reader-local access telemetry; no strategy-use credit. `applicability` is `requires_condition_check`, or `use_limit_reached` for a record whose eight Uses are spent: it accepts no further adoption. |
 | `adopt_experience` | `{id, version}` | Independently checks conditions and commits one-use identity for this run before returning strategy. |
 | `apply_experience` | `{id, adoptionId, actions:[{tool,arguments}]}` | Matches the origin's complete canonical action sequence, rechecks conditions, commits pending receipt, dispatches ordinary authorized tools, settles execution IDs. One application per adoption; no replay. |
 | `propose_experience` | `{proposal}` | Queues a bounded structured Experience proposal; terminal finalization supplies actual episode and checks. |

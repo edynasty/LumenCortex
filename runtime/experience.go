@@ -341,7 +341,12 @@ func (e *Engine) RecallExperiences(ctx context.Context, readerID, pattern string
 			return nil, err
 		}
 		x := n.Experience
-		matches = append(matches, ExperienceMatch{ID: n.ID, Version: n.Version, DefinitionVersion: x.DefinitionVersion, ProblemPattern: x.Definition.ProblemPattern, State: x.State, Applicability: "requires_condition_check", Confidence: x.Confidence})
+		// A record whose uses are spent accepts no adoption, whatever its conditions.
+		applicability := "requires_condition_check"
+		if len(x.Uses) >= knowledge.MaxExperienceUses {
+			applicability = "use_limit_reached"
+		}
+		matches = append(matches, ExperienceMatch{ID: n.ID, Version: n.Version, DefinitionVersion: x.DefinitionVersion, ProblemPattern: x.Definition.ProblemPattern, State: x.State, Applicability: applicability, Confidence: x.Confidence})
 		if len(matches) == limit {
 			break
 		}
