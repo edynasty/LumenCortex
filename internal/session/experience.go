@@ -368,6 +368,11 @@ func experienceEvidenceCommit(ctx context.Context, conn *sql.Conn, old, n knowle
 			if err != nil || application.ID != f.ApplicationID || !application.Executed() || application.RunID != f.Source.RunID {
 				return ErrNotQualified
 			}
+			// A success credits the strategy: the receipt must show the origin's procedure, not an
+			// action that failed while the expected outcome happened to hold already.
+			if f.Outcome == "success" && !application.Reproduced(x.Origin.Trace.Steps) {
+				return ErrNotQualified
+			}
 		}
 		if f.Observation != nil {
 			if err := newObservation(*f.Observation); err != nil {

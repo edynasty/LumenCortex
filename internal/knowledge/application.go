@@ -48,3 +48,19 @@ func (a Application) Executed() bool {
 	}
 	return true
 }
+
+// Reproduced reports whether an executed application repeated the procedure its origin observed:
+// every action settled with the outcome of the origin step it replays. An action that failed where
+// the origin's completed (or the reverse) ran something else, so an expected outcome observed after
+// it is not a result of the procedure and cannot be credited to it.
+func (a Application) Reproduced(steps []ExperienceStep) bool {
+	if !a.Executed() || len(steps) != len(a.Actions) {
+		return false
+	}
+	for i, action := range a.Actions {
+		if action.Outcome != steps[i].Outcome {
+			return false
+		}
+	}
+	return true
+}

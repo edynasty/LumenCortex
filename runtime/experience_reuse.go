@@ -120,11 +120,17 @@ func (e *Engine) recordExperienceFeedback(ctx context.Context, consumerID, id, a
 		}
 		if err == nil {
 			feedback.Observation = &knowledge.ExperienceObservation{Assertion: u.ExpectedOutcome, Evidence: ev}
-			if ev.Verification != u.ExpectedResult {
+			switch {
+			case ev.Verification != u.ExpectedResult:
 				feedback.Outcome, feedback.Reason, feedback.RevisionNeeded = "failure", "outcome_counterexample", true
-			} else if origin.Outcome == "completed" {
+			case !application.Reproduced(x.Origin.Trace.Steps):
+				// The expected outcome holds, but an action did not settle as it did in the origin: the
+				// outcome was not produced by the observed procedure (a pre-existing artifact, another
+				// actor). It is neither a success of the strategy nor a counterexample.
+				feedback.Reason = "application_diverged_from_origin"
+			case origin.Outcome == "completed":
 				feedback.Outcome, feedback.Reason = "success", "expected_outcome_verified"
-			} else {
+			default:
 				feedback.Reason = "consumer_run_failed_with_matching_check"
 			}
 		}
