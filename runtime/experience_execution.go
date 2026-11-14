@@ -363,7 +363,9 @@ func (e *Engine) finalizeCognitiveRun(ctx context.Context, id string) CognitionC
 			if u.ConsumerID != id || u.Feedback != nil {
 				continue
 			}
-			if _, err := e.recordExperienceFeedback(ctx, id, n.ID, u.ID); err != nil {
+			if _, err := e.recordExperienceFeedback(ctx, id, n.ID, u.ID); errors.Is(err, errExperienceFeedbackNotDue) {
+				continue // adopted by the host; no run of this consumer has ended since
+			} else if err != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("%s: %v", n.ID, err))
 			} else {
 				report.Feedback++

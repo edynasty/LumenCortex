@@ -67,6 +67,11 @@ func (e *Engine) adoptExperience(ctx context.Context, consumerID, id string, exp
 		Strategy: slices.Clone(x.Definition.Strategy), Conditions: conditions, ExpectedOutcome: x.Definition.ExpectedOutcome, ExpectedResult: x.Definition.ExpectedResult, Uncertainty: x.Uncertainty}, nil
 }
 
+// errExperienceFeedbackNotDue reports an open use whose consumer has not ended a run since the
+// adoption: nothing can have been applied or observed yet. A host that asks for feedback gets this
+// error; the memory settlement of a run or of an Engine open leaves the use open without one.
+var errExperienceFeedbackNotDue = errors.New("feedback requires a later independent consumer run")
+
 // RecordExperienceFeedback requires a distinct terminal consumer run and an
 // explicit application with the complete sequence of settled execution IDs.
 // A tool failure can support a checked counterexample; admission, denial and
@@ -104,7 +109,7 @@ func (e *Engine) recordExperienceFeedback(ctx context.Context, consumerID, id, a
 	// run closes it as unknown instead of leaving it unconfirmed forever.
 	left := u.RunID != "" && origin.Source.RunID != u.RunID
 	if origin.Source.Digest == u.BaselineDigest || (u.RunID == "" && origin.Source.RunID == u.PreviousRunID) || origin.CompletedAt.Before(u.AdoptedAt) {
-		return CognitiveNode{}, errors.New("feedback requires a later independent consumer run")
+		return CognitiveNode{}, errExperienceFeedbackNotDue
 	}
 	application, err := e.store.ExperienceApplication(ctx, consumerID, adoptionID)
 	if err != nil && !errors.Is(err, session.ErrNotFound) {
