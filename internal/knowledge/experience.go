@@ -123,6 +123,16 @@ type ExperienceTrace struct {
 	Truncated  bool              `json:"truncated"`
 	Incomplete bool              `json:"incomplete"`
 }
+
+// Failed reports whether an observed action of the origin failed. Such a procedure cannot carry a
+// positive expected result: the framework's own record says it did not succeed, so an expected
+// outcome that holds after it (an artifact that was already there) is not its result. An application
+// stops at its first failed action, so a consumer could only repeat the failure. The same trace still
+// supports a warning whose expected result is the failing check.
+func (t ExperienceTrace) Failed() bool {
+	return slices.ContainsFunc(t.Steps, func(s ExperienceStep) bool { return s.Outcome == "failed" })
+}
+
 type ExperienceStep struct {
 	ExecutionID     string `json:"executionId"`
 	RequestID       string `json:"requestId"`
@@ -313,7 +323,8 @@ func (x Experience) Validate() error {
 	}
 	if x.State == ExperienceValidated {
 		if x.LastVerifiedAt.IsZero() || x.Validation.Method != ExperienceMethod || len(x.Validation.Conditions) != len(x.Definition.Preconditions) || x.Validation.Outcome == nil ||
-			x.Validation.Outcome.Evidence.Verification != x.Definition.ExpectedResult || (x.Origin.Outcome == "failed" && x.Definition.ExpectedResult == "passed") || x.Origin.Trace.Truncated || x.Origin.Trace.Incomplete {
+			x.Validation.Outcome.Evidence.Verification != x.Definition.ExpectedResult || (x.Definition.ExpectedResult == "passed" && (x.Origin.Outcome == "failed" || x.Origin.Trace.Failed())) ||
+			x.Origin.Trace.Truncated || x.Origin.Trace.Incomplete {
 			return errors.New("experience promotion lacks qualified evidence")
 		}
 		for _, o := range x.Validation.Conditions {

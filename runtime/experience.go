@@ -211,6 +211,8 @@ func (e *Engine) validateExperience(ctx context.Context, originID, id string, ex
 		x.Validation.Reason = "unconfirmed_origin_actions"
 	} else if x.Origin.Outcome == "failed" && x.Definition.ExpectedResult == "passed" {
 		x.State, x.Validation.Reason = knowledge.ExperienceRejected, "failed_origin_is_not_success"
+	} else if x.Origin.Trace.Failed() && x.Definition.ExpectedResult == "passed" {
+		x.State, x.Validation.Reason = knowledge.ExperienceRejected, "failed_origin_action_is_not_success"
 	} else {
 		assertions := append(slices.Clone(x.Definition.Preconditions), x.Definition.ExpectedOutcome)
 		observations, checkErr := e.observeExperienceAssertions(ctx, originID, assertions, n.Scope, x.Origin.Source)
