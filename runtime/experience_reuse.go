@@ -85,7 +85,25 @@ func (e *Engine) RecordExperienceFeedback(ctx context.Context, consumerID, id, a
 	return e.recordExperienceFeedback(ctx, consumerID, id, adoptionID)
 }
 
+// experienceSettlementAttempts bounds how often one settlement is recomputed after another writer
+// revised the record.
+const experienceSettlementAttempts = 4
+
+// recordExperienceFeedback settles one open use. One record holds every consumer's use of an
+// Experience, so another consumer's adoption or settlement, or a host lifecycle change, can commit
+// between this read and this commit. That conflict is benign: the outcome is recomputed against the
+// newer revision. Left open, the use could only be closed as unknown by a later run of the consumer,
+// and the checked result, a counterexample included, would be lost.
 func (e *Engine) recordExperienceFeedback(ctx context.Context, consumerID, id, adoptionID string) (CognitiveNode, error) {
+	for attempt := 1; ; attempt++ {
+		n, err := e.settleExperienceUse(ctx, consumerID, id, adoptionID)
+		if attempt == experienceSettlementAttempts || !errors.Is(err, session.ErrCognitiveRevision) {
+			return n, err
+		}
+	}
+}
+
+func (e *Engine) settleExperienceUse(ctx context.Context, consumerID, id, adoptionID string) (CognitiveNode, error) {
 	n, err := e.readExperience(ctx, consumerID, id, 0)
 	if err != nil {
 		return CognitiveNode{}, err
