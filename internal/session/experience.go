@@ -187,6 +187,21 @@ func (s *Store) CommitExperience(ctx context.Context, n knowledge.Node, expected
 			} else if !errors.Is(err, ErrNotFound) {
 				return err
 			}
+			// An identity names one origin episode and one definition. A withdrawal that erased its
+			// record (the privacy deletion of a consumer removes the whole combined record, with every
+			// invalidation and counterexample it held) leaves the lineage of the identity on a fenced
+			// holder. The same episode does not yield the identity again: a deletion is not weaker than
+			// the revocation it includes, which hides the record and refuses this extraction.
+			var withdrawn int
+			if err := conn.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM derived_origins d
+				JOIN source_fences f ON f.scope_kind='session' AND f.scope_ref=d.session_id
+				WHERE d.source_kind=? AND d.source_ref=? AND d.kind='artifact' AND d.target_ref=?)`,
+				SourceSession, reader.SessionID, "cognition:"+n.ID).Scan(&withdrawn); err != nil {
+				return err
+			}
+			if withdrawn == 1 {
+				return ErrFenced
+			}
 			meta, _ := json.Marshal(map[string]string{MetadataKeyPurpose: PurposeMaintenance})
 			if err := insertSession(ctx, conn, Session{ID: n.SessionID, CreatedAt: n.Times.RecordedAt, UpdatedAt: n.Times.RecordedAt, Status: "completed", Goal: "Experimental experience record", Metadata: meta}); err != nil {
 				return err
