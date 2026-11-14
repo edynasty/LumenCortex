@@ -381,6 +381,13 @@ func (e *Engine) recoverCognitiveRuns(ctx context.Context) error {
 		return err
 	}
 	for _, id := range ids {
+		// A fenced session settles nothing until one of its Starts projects the fence, and the fence
+		// was reported when it was committed. It is not a recovery failure of every Engine open.
+		if fenced, err := e.store.SessionFenced(ctx, id); err != nil {
+			return err
+		} else if fenced {
+			continue
+		}
 		lock, err := e.acquireRun(ctx, id)
 		if errors.Is(err, ErrRunHeld) || errors.Is(err, session.ErrNotFound) {
 			continue
