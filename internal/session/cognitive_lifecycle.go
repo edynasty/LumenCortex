@@ -210,7 +210,9 @@ func (s *Store) CommitCognitiveLifecycle(ctx context.Context, nodes []knowledge.
 			if old.Times.InvalidatedAt.IsZero() && !n.Times.InvalidatedAt.IsZero() && !n.Times.InvalidatedAt.Equal(n.Times.RecordedAt) {
 				return invalid("invalid invalidation time")
 			}
-			if n.Status == "archived" && old.ProtectedMemory() {
+			// Archiving is the transition. A record a host archived before a consumer's counterexample
+			// settled on it is protected and already archived: its tier or reason may still change.
+			if n.Status == "archived" && old.Status != "archived" && old.ProtectedMemory() {
 				return invalid("protected memory cannot be archived")
 			}
 			if n.Status == "active" && old.Status != "active" {

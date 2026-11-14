@@ -75,7 +75,8 @@ func putCognitiveNode(ctx context.Context, conn *sql.Conn, n knowledge.Node, exp
 // putCognitiveRevision commits one revision. settlement marks an Experience revision that only closes
 // a consumer's open use (experienceSettlement). Such a revision says nothing new about the record's
 // sources: the origin thread having moved on does not unsay what the consumer observed, so the source
-// version is not compared. Fences and withdrawal are checked as for every revision.
+// version is not compared; and it keeps the lifecycle status the host chose, even when the outcome it
+// records makes an archived record protected. Fences and withdrawal are checked as for every revision.
 func putCognitiveRevision(ctx context.Context, conn *sql.Conn, n knowledge.Node, expected int64, project string, settlement bool) error {
 	if err := n.Validate(); err != nil {
 		return err
@@ -115,7 +116,7 @@ func putCognitiveRevision(ctx context.Context, conn *sql.Conn, n knowledge.Node,
 		if old.Status == "invalid" && n.Status != "invalid" {
 			return invalid("invalid identity requires a new record")
 		}
-		if n.Status == "archived" && old.ProtectedMemory() {
+		if n.Status == "archived" && old.ProtectedMemory() && !settlement {
 			return invalid("protected memory cannot be archived")
 		}
 		for _, src := range old.Sources {
@@ -126,7 +127,7 @@ func putCognitiveRevision(ctx context.Context, conn *sql.Conn, n knowledge.Node,
 			}
 		}
 	}
-	if n.Status == "archived" && n.ProtectedMemory() {
+	if n.Status == "archived" && n.ProtectedMemory() && !settlement {
 		return invalid("protected memory cannot be archived")
 	}
 	reader := knowledge.Reader{OwnerID: n.Scope.OwnerID, ProjectID: n.Scope.ProjectID, WorkspaceID: n.Scope.WorkspaceID, SessionID: n.SessionID, ID: n.Scope.ReaderID, SourceIDs: []string{n.SessionID}}
