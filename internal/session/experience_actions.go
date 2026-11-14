@@ -74,8 +74,12 @@ func matchExperienceActions(ctx context.Context, q rowQuerier, x *knowledge.Expe
 		return invalid("application must match the origin's complete action sequence")
 	}
 	for i, step := range steps {
-		if step.Tool != actions[i].Tool || (step.Outcome != "completed" && step.Outcome != "failed") {
+		if step.Outcome != "completed" && step.Outcome != "failed" {
 			return ErrNotQualified
+		}
+		// Another tool at this position is the consumer's substitution, not an unqualified origin.
+		if step.Tool != actions[i].Tool {
+			return invalid("application action differs from the observed procedure")
 		}
 		digest, err := canonicalActionDigest(ctx, q, x.Origin.Source, step)
 		if err != nil {
