@@ -50,7 +50,7 @@ func (e *Engine) CognitiveGraphSnapshot(ctx context.Context) (cognition.GraphSta
 		}
 		// Not yet valid is pending, not stale: the stored lifecycle stands and the limitation says
 		// why the record is not usable now, so the analyzer never proposes archiving it.
-		pending := limitation == "not_yet_valid" || limitation == "future_observation"
+		pending := knowledge.TimePending(limitation)
 		if limitation != "" && !pending && status != "invalid" && status != "archived" {
 			status = "stale"
 		}

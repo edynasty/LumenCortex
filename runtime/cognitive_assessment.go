@@ -137,7 +137,7 @@ func (e *Engine) assessCognitiveRecords(ctx context.Context, readerID, runID, qu
 		if n.Status != "active" {
 			item.Applicability = knowledge.Stale
 			item.Reason = "lifecycle_" + n.Status
-		} else if reason := n.Times.TimeState(scope.now); reason != "" {
+		} else if reason := n.Times.TimeState(scope.now); reason != "" && !knowledge.TimePending(reason) {
 			item.Applicability = knowledge.Stale
 			item.Reason = reason
 		} else {
@@ -160,6 +160,9 @@ func (e *Engine) assessCognitiveRecords(ctx context.Context, readerID, runID, qu
 				}
 				item.Applicability = knowledge.Stale
 				item.Reason = "dependency_changed"
+			} else if reason != "" {
+				// Not yet valid: time will lift the limitation. Unknown, not stale; nothing expired.
+				item.Reason = reason
 			} else if n.Assertion != nil {
 				for index, evidence := range n.Evidence {
 					binding, spec, _ := matchBinding(scope.bindings, scope.specList, taskstate.ConstraintUse{Ref: n.Assertion.Ref(), Digest: n.Assertion.ValueDigest(), Scope: session.SourceScopeProject})

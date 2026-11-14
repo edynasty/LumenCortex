@@ -212,6 +212,13 @@ func (t Times) TimeState(at time.Time) string {
 	return ""
 }
 
+// TimePending reports a TimeState limitation that time itself lifts: the record is not usable yet,
+// but nothing about it expired or was withdrawn. Every reader of TimeState treats it as unknown,
+// never as stale.
+func TimePending(state string) bool {
+	return state == "not_yet_valid" || state == "future_observation"
+}
+
 func FreshAt(observed, at time.Time, window time.Duration) bool {
 	return !observed.IsZero() && !at.Before(observed) && window > 0 && at.Sub(observed) < window
 }
@@ -343,7 +350,7 @@ func (e Evidence) Applicability(c EvidenceContext) (Applicability, string) {
 		return Stale, "source_version_changed"
 	}
 	if reason := e.Times.TimeState(c.At); reason != "" {
-		if reason == "not_yet_valid" || reason == "future_observation" {
+		if TimePending(reason) {
 			return Unknown, reason
 		}
 		return Stale, reason
