@@ -2,6 +2,8 @@
 
 Status: IMPLEMENTED / ENGINEERING-VERIFIED / INDEPENDENT-REVIEW PASS / FROZEN LOCAL CANDIDATE; not merged or released. Primary implementer and architecture owner: `local/gpt-6-astra`. All 14 in-scope Findings are fixed; separate reviewer instances verified the corrections. Long-term autonomous-learning benefit remains unmeasured.
 
+> Addendum 2026-11-14, not part of the 2026-11-13 record, which is left as written: an independent full review of this frozen candidate (`c1d3229`) reproduced 17 further defects, four of them P1, and fixed them on `review/cognitive-core-fable-full-review-20261114`. See the [review report](cognitive-core-fable-full-review-2026-11-14.md) · [中文](cognitive-core-fable-full-review-2026-11-14.zh-CN.md).
+
 ## Scope and protected baseline
 
 - Owner authorizes one Go-only completion project: Memory, Attention, Reasoning, Learning, Belief Revision, Governance and Verification, with unified authority/lifecycle semantics.

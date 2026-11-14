@@ -2,6 +2,8 @@
 
 **2026-11-13 未合并候选。**main 为 `00344b5`；本候选整合已提交的 `91af861` 和本轮学习/生命周期修复。实现、自验、独立审查分别记录，详见[交付报告](../reports/cognitive-core-final-completion-2026-11-13.md)。[English](README.md)。
 
+**2026-11-14 独立完整审查。**对该候选（`c1d3229`）的独立完整审查复现了 17 项缺陷（其中 4 项 P1），并在 `review/cognitive-core-fable-full-review-20261114` 上修复。这些修复目前只有修复者自验，尚待未参与修复的审查者复核。见[审查报告](../reports/cognitive-core-fable-full-review-2026-11-14.zh-CN.md)和 [Finding Ledger](finding-ledger.md#fable-full-review-2026-11-14-ffr)。
+
 Cognitive Core 的目标，是让 Agent 不只完成当前任务，还能利用过去积累的知识和经验，判断信息是否可靠，在发现错误时修正，并把有效经验用于后续任务。
 
 **不要把“存下来了”当成“学会了”，也不要把“检索到了”当成“理解了”。**

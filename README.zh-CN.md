@@ -26,6 +26,8 @@ LumenCortex 是拥有自身认知架构的 Coding Agent Harness，不绑定单�
 
 快照：**2026-11-13**。已核实的 GitHub main 为 `00344b5`，Go Harness 代码基线仍为 `208ad6b`。本工作树是**尚未合并的 Cognitive Core 完整实现候选**，不是 main 或 Release。精确提交和验证见[交付报告](docs/reports/cognitive-core-final-completion-2026-11-13.md)。源码、Runtime 标识、Release Tag 和 Desktop 依赖分别记录。
 
+审查补充，**2026-11-14**：本分支（`review/cognitive-core-fable-full-review-20261114`）在该候选之上加入了一次独立完整审查的修复，共 17 项 Finding，目前只有修复者自验，尚未独立复核。见[审查报告](docs/reports/cognitive-core-fable-full-review-2026-11-14.zh-CN.md)。
+
 | 范围 | 当前基线 |
 |---|---|
 | Go Runtime 代码基线 | `208ad6b`，Agent Harness Core 已合入 `main`。 |

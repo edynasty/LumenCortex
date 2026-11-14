@@ -2,6 +2,8 @@
 
 **Status snapshot: 2026-11-13.** Main is `00344b5`; this unmerged completion candidate integrates the committed `91af861` work and the final lifecycle/learning fixes. Availability, self-verification and independent review are separate; see the [completion report](../reports/cognitive-core-final-completion-2026-11-13.md). [中文](README.zh-CN.md).
 
+**Reviewed 2026-11-14.** An independent full review of that candidate (`c1d3229`) reproduced 17 defects, four of them P1, and fixed them on `review/cognitive-core-fable-full-review-20261114`. The fixes are self-verified and await a reviewer who did not write them. See the [review report](../reports/cognitive-core-fable-full-review-2026-11-14.md) and the [finding ledger](finding-ledger.md#fable-full-review-2026-11-14-ffr).
+
 LumenCortex's cognitive objective is to help an Agent understand its current task, use grounded knowledge and experience, reason under uncertainty, act, learn from outcomes, correct outdated beliefs, and improve future behavior. The Core must not equate storage, summarization, retrieval, or reflection text with cognition.
 
 ## Start here

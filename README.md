@@ -24,6 +24,8 @@ LumenCortex is a coding-agent harness with its own cognitive architecture. It is
 
 Snapshot: **2026-11-13**. Verified GitHub main is `00344b5`; the Go Harness code baseline remains `208ad6b`. This checkout is the **unmerged Cognitive Core completion candidate**, not main or a release. See the [completion report](docs/reports/cognitive-core-final-completion-2026-11-13.md) for exact commits and verification. Source, runtime identity, release tags and Desktop dependencies are separate version surfaces.
 
+Review addendum, **2026-11-14**: this branch (`review/cognitive-core-fable-full-review-20261114`) adds the fixes of an independent full review of that candidate, 17 findings, self-verified and not yet independently verified. See the [review report](docs/reports/cognitive-core-fable-full-review-2026-11-14.md).
+
 | Surface | Current baseline |
 |---|---|
 | Go runtime code baseline | `208ad6b` — Agent Harness Core integrated into `main`. |

@@ -2,6 +2,8 @@
 
 Current evidence: workspace `bench/evidence/cognitive-core-final-completion-20261113/`, initially bound to code candidate `2151f17b33a84912892353e69c9b00f6b348a239`. [Completion report](../reports/cognitive-core-final-completion-2026-11-13.md) gives subsequent fixes, exact commands and PASS/FAIL/SKIP. Deterministic in-process providers drive real Engine/Agent Loop/tools/SQLite/check processes; no paid or real-model request. Historical results below remain bound to their own commits. Self-verification is not independent acceptance; cross-compilation is not native execution.
 
+Review regressions, 2026-11-14: the full review added 22 test files with 34 top-level tests (`*_review_test.go` in `runtime` and `internal/knowledge`, plus `internal/knowledge/application_test.go`). They hold the regressions of findings FFR-001..017, every finding red on the unfixed candidate, and one test that pins the host Governor path on the normal SQLite store, which was already green there. Commands, results and receipts: [review report](../reports/cognitive-core-fable-full-review-2026-11-14.md) §8 and workspace `bench/evidence/cognitive-core-fable-full-review-20261114/`.
+
 ## 1. Historical T5a commands
 
 ```sh
