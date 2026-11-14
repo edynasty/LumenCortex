@@ -90,6 +90,12 @@ func purgeWhere(table, in string) string {
 		}
 		return "EXISTS (SELECT 1 FROM sessions victim WHERE victim.id IN (" + in + ") AND (victim.id=" + table + ".session_id OR EXISTS (SELECT 1 FROM cognition_nodes n WHERE n.id=" + table + "." + column + " AND (n.session_id=victim.id OR EXISTS (SELECT 1 FROM json_each(n.json,'$.sources') src WHERE json_extract(src.value,'$.sessionId')=victim.id)))))"
 	}
+	if table == "cognition_decisions" {
+		return "EXISTS (SELECT 1 FROM sessions victim WHERE victim.id IN (" + in + ") AND (victim.id=cognition_decisions.session_id" +
+			" OR EXISTS (SELECT 1 FROM derived_origins d WHERE d.session_id=cognition_decisions.session_id AND d.kind='artifact' AND d.target_ref='cognition:'||cognition_decisions.id AND d.source_kind='session' AND d.source_ref=victim.id)" +
+			" OR (json_valid(cognition_decisions.json) AND EXISTS (SELECT 1 FROM json_each(cognition_decisions.json, '$.sourceSessions') src WHERE src.value=victim.id))" +
+			" OR (json_valid(cognition_decisions.json) AND EXISTS (SELECT 1 FROM json_each(cognition_decisions.json, '$.items') item JOIN cognition_nodes n ON n.id=json_extract(item.value, '$.id') WHERE n.session_id=victim.id OR EXISTS (SELECT 1 FROM json_each(n.json, '$.sources') src WHERE json_extract(src.value, '$.sessionId')=victim.id)))))"
+	}
 	if table == "cognition_nodes" {
 		return "EXISTS (SELECT 1 FROM sessions victim WHERE victim.id IN (" + in + ") AND (victim.id=cognition_nodes.session_id OR EXISTS (SELECT 1 FROM json_each(cognition_nodes.json, '$.sources') src WHERE json_extract(src.value, '$.sessionId')=victim.id)))"
 	}
