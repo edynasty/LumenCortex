@@ -110,13 +110,9 @@ func (e *Engine) extractExperience(ctx context.Context, originID string, request
 	} else if !errors.Is(err, session.ErrNotFound) {
 		return CognitiveNode{}, err
 	}
-	owner, err := newSessionID()
-	if err != nil {
-		return CognitiveNode{}, err
-	}
 	now := e.now()
 	x := &knowledge.Experience{Origin: origin, Definition: request.Proposal, DefinitionVersion: 1, State: knowledge.ExperienceCandidate, Confidence: "unverified", Uncertainty: knowledge.ExperienceUncertainty, CreatedAt: now}
-	n := CognitiveNode{ID: id, Version: 1, SessionID: owner, Kind: "experience", Title: request.Proposal.ProblemPattern, Status: "active", Scope: scope, Times: CognitiveTimes{ObservedAt: origin.CompletedAt, RecordedAt: now, Valid: request.Valid}, Sources: []knowledge.SourceRef{origin.Source}, Experience: x}
+	n := CognitiveNode{ID: id, Version: 1, SessionID: session.ExperienceOwner(id), Kind: "experience", Title: request.Proposal.ProblemPattern, Status: "active", Scope: scope, Times: CognitiveTimes{ObservedAt: origin.CompletedAt, RecordedAt: now, Valid: request.Valid}, Sources: []knowledge.SourceRef{origin.Source}, Experience: x}
 	if err := e.store.CommitExperience(ctx, n, 0, e.projectID(), reader); err != nil {
 		return CognitiveNode{}, err
 	}

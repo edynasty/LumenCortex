@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/edynasty/LumenCortex/internal/knowledge"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
@@ -158,6 +159,14 @@ func experienceSource(ctx context.Context, conn *sql.Conn, id string, terminal b
 	return ref, status, nil
 }
 
+// ExperienceOwner is the session that owns the content of the Experience identity id. The identity
+// names its owner because a fence outlives the session it names: a withdrawal of the owner, the
+// deletion that removes it with the record included, is still found when the identity is committed
+// again (CommitExperience).
+func ExperienceOwner(id string) string {
+	return "session_" + strings.TrimPrefix(knowledge.Digest("experience-owner:v1", id), "sha256:")[:24]
+}
+
 // CommitExperience adds one immutable revision. A first extraction also creates its dedicated
 // maintenance owner in this same transaction. No source content, transcript or other DB is created.
 func (s *Store) CommitExperience(ctx context.Context, n knowledge.Node, expected int64, project string, reader knowledge.Reader) error {
@@ -182,24 +191,23 @@ func (s *Store) CommitExperience(ctx context.Context, n knowledge.Node, expected
 			if reader.SessionID != n.Experience.Origin.Source.SessionID {
 				return ErrFenced
 			}
+			if n.SessionID != ExperienceOwner(n.ID) {
+				return invalid("experience owner does not name its identity")
+			}
 			if _, err := loadCognitiveNode(ctx, conn, n.ID, 0); err == nil {
 				return ErrCognitiveRevision
 			} else if !errors.Is(err, ErrNotFound) {
 				return err
 			}
 			// An identity names one origin episode and one definition. A withdrawal that erased its
-			// record (the privacy deletion of a consumer removes the whole combined record, with every
-			// invalidation and counterexample it held) leaves the lineage of the identity on a fenced
-			// holder. The same episode does not yield the identity again: a deletion is not weaker than
-			// the revocation it includes, which hides the record and refuses this extraction.
-			var withdrawn int
-			if err := conn.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM derived_origins d
-				JOIN source_fences f ON f.scope_kind='session' AND f.scope_ref=d.session_id
-				WHERE d.source_kind=? AND d.source_ref=? AND d.kind='artifact' AND d.target_ref=?)`,
-				SourceSession, reader.SessionID, "cognition:"+n.ID).Scan(&withdrawn); err != nil {
+			// record leaves its fence on the owner the identity names: the privacy deletion of a
+			// consumer removes the whole combined record, with every invalidation and counterexample it
+			// held, and the deletion of the owner removes the owner as well. The same episode does not
+			// yield the identity again: a deletion is not weaker than the revocation it includes, which
+			// hides the record and refuses this extraction.
+			if _, withdrawn, err := sessionFence(ctx, conn, n.SessionID); err != nil {
 				return err
-			}
-			if withdrawn == 1 {
+			} else if withdrawn {
 				return ErrFenced
 			}
 			meta, _ := json.Marshal(map[string]string{MetadataKeyPurpose: PurposeMaintenance})
