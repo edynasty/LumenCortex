@@ -250,6 +250,11 @@ type preparedRun struct {
 	// cognitionSource: the run's terminal status may be a cognition source (a top-level run that is not
 	// maintenance), so its end triggers background maintenance when the Engine enabled it.
 	cognitionSource bool
+	// experienceTools: the run was offered the Experience tools (every run of a project with cognition
+	// but the maintainer's, a child's included), so its end settles the uses, applications and
+	// proposals they recorded. Left to the recovery pass of the next Engine open, a procedure a child
+	// applied would stay unchecked, and a counterexample unrecorded, while the host keeps running.
+	experienceTools bool
 }
 
 // execute runs under the caller's tracked lifetime, including preparation and owned cleanup.
@@ -313,7 +318,7 @@ func (r *preparedRun) execute(ctx context.Context) (AgentResult, error) {
 		observeEnd(LifecycleAfterSubagentEnd)
 	}
 	var cognitionReport *CognitionCompletion
-	if r.cognitionSource {
+	if r.experienceTools {
 		finalCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		report := r.engine.finalizeCognitiveRun(finalCtx, r.sessionID)
 		cancel()
@@ -847,6 +852,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		runID:           runID,
 		parentSessionID: opts.parentSessionID,
 		cognitionSource: cognitionOn && opts.parentSessionID == "" && !maintenance,
+		experienceTools: cognitionOn && !maintenance,
 		evalEnabled:     opts.EvalEnabled,
 		loop: agent.Loop{
 			Models:    plan.models,

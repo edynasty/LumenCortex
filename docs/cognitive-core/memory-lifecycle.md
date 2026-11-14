@@ -16,7 +16,7 @@ Short/long term are roles and retention policies, not separate databases. `Memor
 ## From episode to future application
 
 1. `propose_experience` records one bounded structured candidate for the active run. No source identity, result or verification grade is accepted from the model.
-2. At the existing terminal boundary, `finalizeCognitiveRun` calls extraction and validation against the real source. Origin task/run, tool argument digests, executions, cited blobs and check identities are immutable evidence.
+2. At the existing terminal boundary, `finalizeCognitiveRun` calls extraction and validation against the real source. Origin task/run, tool argument digests, executions, cited blobs and check identities are immutable evidence. Every run that was offered the Experience tools settles its uses, applications and proposals at this boundary, a subagent or task child included; only maintenance source capture and the background trigger stay with top-level runs.
 3. An incomplete/truncated trace, missing approval, failed condition or unsupported expected result cannot validate a positive procedure. Negative expected results retain their negative meaning.
 4. Recall selects relevant scoped locators. Adoption independently checks current conditions, records a one-use identity and only then returns strategy.
 5. `apply_experience` explicitly receives the observed tool/argument sequence. It checks conditions and definition, commits admission, and calls ordinary policy-controlled tools. Each action observes the live Workflow and atomically settles Task State/execution/source edges before continuing; gates and background-shell refusal cannot be bypassed.
