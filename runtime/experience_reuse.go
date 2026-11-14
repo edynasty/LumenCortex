@@ -98,19 +98,23 @@ func (e *Engine) recordExperienceFeedback(ctx context.Context, consumerID, id, a
 	if err != nil {
 		return CognitiveNode{}, err
 	}
-	wrongRun := origin.Source.RunID == u.PreviousRunID
-	if u.RunID != "" {
-		wrongRun = origin.Source.RunID != u.RunID
-	}
-	if origin.Source.Digest == u.BaselineDigest || wrongRun || origin.CompletedAt.Before(u.AdoptedAt) {
+	// A host adoption is settled by a run after its baseline. A tool adoption is settled by the run
+	// that made it; when that run ended without a terminal status (interrupted, waiting at a gate) or
+	// its settlement failed, the adoption can never be applied again and the consumer's next terminal
+	// run closes it as unknown instead of leaving it unconfirmed forever.
+	left := u.RunID != "" && origin.Source.RunID != u.RunID
+	if origin.Source.Digest == u.BaselineDigest || (u.RunID == "" && origin.Source.RunID == u.PreviousRunID) || origin.CompletedAt.Before(u.AdoptedAt) {
 		return CognitiveNode{}, errors.New("feedback requires a later independent consumer run")
 	}
 	application, err := e.store.ExperienceApplication(ctx, consumerID, adoptionID)
 	if err != nil && !errors.Is(err, session.ErrNotFound) {
 		return CognitiveNode{}, err
 	}
-	executed := err == nil && application.Executed() && application.RunID == origin.Source.RunID && application.DefinitionVersion == u.DefinitionVersion
+	executed := err == nil && !left && application.Executed() && application.RunID == origin.Source.RunID && application.DefinitionVersion == u.DefinitionVersion
 	feedback := &knowledge.ExperienceFeedback{Source: origin.Source, Used: executed, ConditionsHeld: executed, Outcome: "unknown", Reason: "experience_application_unconfirmed", At: e.now()}
+	if left {
+		feedback.Reason = "adoption_run_left_unsettled"
+	}
 	if executed {
 		feedback.ApplicationID = application.ID
 		feedback.Reason = "outcome_not_qualified"

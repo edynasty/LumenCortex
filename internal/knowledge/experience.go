@@ -403,7 +403,9 @@ func (u ExperienceUse) Validate(origin string, definitionVersion int64) error {
 		}
 		wrongRun := f.Source.RunID == u.PreviousRunID
 		if u.RunID != "" {
-			wrongRun = f.Source.RunID != u.RunID
+			// A tool adoption belongs to its run: only that run can have applied it. When that run
+			// ended without settling the use, a later run of the consumer closes it as never applied.
+			wrongRun = f.Source.RunID != u.RunID && f.Used
 		}
 		if f.Source.SessionID != u.ConsumerID || f.Source.RunID == "" || wrongRun || f.Source.Digest == u.BaselineDigest ||
 			f.At.Before(u.AdoptedAt) || !slices.Contains([]string{"success", "failure", "unknown"}, f.Outcome) {
