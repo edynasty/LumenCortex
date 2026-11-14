@@ -21,7 +21,7 @@ The record's content owner is a dedicated internal maintenance session created a
 
 ## Boundedness and confidence
 
-At most 3 conditions, 8 strategy steps, 4 cited files, 16 trace executions, 8 trace checks, 8 adoption records per Experience and 64 KiB per stored revision. Exhaustion refuses a write; no hidden retry loop. Historical definitions/revisions remain until explicit privacy erasure. Token-based selected-domain retrieval and finite use history do not establish unlimited scale or general task transfer.
+At most 3 conditions, 8 strategy steps, 4 cited files, 16 trace executions, 8 trace checks, 8 adoption records per Experience and 64 KiB per stored revision. Exhaustion refuses a write; no hidden retry loop. An adoption is admitted only while the record can also hold the feedback of that use and of every use still open, so an applied use is never left without room for its checked outcome. Historical definitions/revisions remain until explicit privacy erasure. Token-based selected-domain retrieval and finite use history do not establish unlimited scale or general task transfer.
 
 `conditional` means current host checks qualified a conditional proposal. `contested` records a consumer counterexample. Usage/success/failure/unconfirmed counts derive from unique adoption records visible to this reader, not project-wide totals. Neither a retrieved strategy nor a matching outcome proves the strategy caused success. Reports separate Mechanism Correctness, Retrieval Quality and Real-world Task Improvement.
 

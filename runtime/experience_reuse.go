@@ -10,10 +10,12 @@ import (
 	"github.com/edynasty/LumenCortex/internal/session"
 )
 
-// errExperienceUsesSpent refuses the adoption of a record that already holds MaxExperienceUses uses.
-// The bound is on the record for its whole life, not a condition a consumer can change; recall
-// reports such a record as use_limit_reached.
-var errExperienceUsesSpent = fmt.Errorf("%w: the record already holds its %d uses", ErrExperienceNotApplicable, knowledge.MaxExperienceUses)
+// errExperienceUsesSpent refuses the adoption of a record that can take no further use
+// (knowledge.Node.AdmitsExperienceUse): it already holds MaxExperienceUses uses, or its bytes cannot
+// hold another use together with the feedback of every use that is still open. Both bounds are on
+// the record, not a condition a consumer can change; recall reports such a record as
+// use_limit_reached.
+var errExperienceUsesSpent = fmt.Errorf("%w: the record can hold no further use (at most %d uses with their feedback in %d bytes)", ErrExperienceNotApplicable, knowledge.MaxExperienceUses, knowledge.MaxGraphRecordBytes)
 
 // AdoptExperience checks the consumer's conditions before returning strategy text. It records a
 // one-use identity and provenance first; it never executes commands, modifies Workflow or bypasses
@@ -39,7 +41,7 @@ func (e *Engine) adoptExperience(ctx context.Context, consumerID, id string, exp
 	if x.State != knowledge.ExperienceValidated || consumerID == x.Origin.Source.SessionID {
 		return ExperienceAdoption{}, ErrExperienceNotApplicable
 	}
-	if len(x.Uses) >= knowledge.MaxExperienceUses {
+	if !n.AdmitsExperienceUse() {
 		return ExperienceAdoption{}, errExperienceUsesSpent
 	}
 	if err := e.experienceCurrent(ctx, n); err != nil {

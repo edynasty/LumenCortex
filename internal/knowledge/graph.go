@@ -8,7 +8,18 @@ import (
 	"slices"
 )
 
+// MaxGraphRecordBytes bounds a stored revision. Two kinds of revision must still fit a record that
+// content has filled: the host's lifecycle decision (archive, restore, revoke, tier, consolidation),
+// which a full record would refuse, and the settlement of an Experience use that was already applied,
+// whose checked outcome would be lost. Every other revision leaves their room (Node.Room); they are
+// measured against the bound alone.
 const MaxGraphRecordBytes = 65536
+
+// lifecycleRoom is what lifecycle revisions can add to a record, however many follow one another.
+// They replace the reason (512 bytes, at most six each in JSON: 3092 with its name), the memory
+// policy (911, the 128 bytes of a canonical identity at six each), the status (3), two times (20)
+// and the version (18): 4044 bytes.
+const lifecycleRoom = 4096
 
 // Node is a native Go cognition revision, not a Node-runtime database row. Status is lifecycle,
 // Evidence is an immutable observation and Applicability is computed for a reader at use time.
@@ -117,6 +128,36 @@ func (n Node) Validate() error {
 		return errors.New("node exceeds storage bound")
 	}
 	return nil
+}
+
+// Room is what a revision of n leaves of MaxGraphRecordBytes besides the room of a lifecycle revision
+// and of the feedback of every open use of an Experience. A content revision with a negative room is
+// refused.
+func (n Node) Room() int {
+	room := MaxGraphRecordBytes - lifecycleRoom - encodedLen(n)
+	if n.Experience != nil {
+		for _, u := range n.Experience.Uses {
+			if u.Feedback == nil {
+				room -= u.feedbackBytes()
+			}
+		}
+	}
+	return room
+}
+
+// AdmitsExperienceUse reports whether an Experience record can take one more use: it holds fewer
+// than MaxExperienceUses and its room covers the use and the feedback that use will record. The
+// origin's validation observed the same conditions and the same outcome for the same scope, so its
+// observations stand in for the consumer's, each with its slack. The answer is read off the record
+// alone: recall and adoption give the same one. A record that is short of bytes, not of uses, turns
+// to yes again when its open uses settle below the room they kept.
+func (n Node) AdmitsExperienceUse() bool {
+	x := n.Experience
+	if x == nil || len(x.Uses) >= MaxExperienceUses {
+		return false
+	}
+	next := ExperienceUse{ExpectedOutcome: x.Definition.ExpectedOutcome, ExpectedResult: x.Definition.ExpectedResult, Conditions: x.Validation.Conditions}
+	return n.Room() >= encodedLen(next)+experienceUseSlack+(len(next.Conditions)+1)*experienceObservationSlack+next.feedbackBytes()
 }
 
 // Edge is an immutable diagnostic relation; it confers no verification or access authority.

@@ -273,6 +273,53 @@ func (x Experience) ConditionalConfidence() string {
 	return "unverified"
 }
 
+// One record holds every use of an Experience and, once a use is settled, its feedback with the
+// observation of the outcome. A use is applied before it is settled: a use whose feedback no longer
+// fits its record has run its procedure and can never record the checked result, a counterexample
+// included. The room of that feedback is therefore kept from the adoption on (Node.Room), and a
+// record takes a further use only while it can keep the room of that one as well
+// (Node.AdmitsExperienceUse).
+//
+// The sizes are read off observations the record already holds. One assertion observed for one
+// scope encodes the same fields every time; two such observations by sessions Core created differ by
+// at most experienceObservationSlack: the run their source names (43 bytes), the two content hashes
+// of the workspace fingerprint (128), the width of three times (30) and of three numbers (54), two
+// longer names (7), and 256 bytes for the path of a worktree where the other was made in the local
+// checkout. A longer path, or a session a host imported under a longer identity, can make the store
+// refuse an adoption that was admitted here; nothing has been applied then.
+const (
+	experienceObservationSlack = 576
+	// experienceFeedbackSlack is what settling a use adds besides the source and the observation it
+	// is measured by: the outcome, three flags, the reason, the application and the time (236 bytes
+	// at their longest), the names around them (38), the run of the source (43) and a longer state of
+	// the record (5); then the slack of the observation, which a consumer makes in a worktree after
+	// a host adopted for it in the local checkout. What a still longer path adds is taken from the
+	// room of a lifecycle revision.
+	experienceFeedbackSlack = 384 + experienceObservationSlack
+	// experienceUseSlack is what a use holds besides its conditions, which the stand-in of
+	// AdmitsExperienceUse leaves empty: two runs, the use, the consumer, two digests, the version and
+	// the width of the adoption time (320 bytes with the identities Core issues).
+	experienceUseSlack = 384
+)
+
+// feedbackBytes bounds what settling u adds to its record. The consumer that observed the conditions
+// of u observes the outcome, for the same scope and through the same kind of check, and is the source
+// of the feedback: the largest condition observation of u stands in for both.
+func (u ExperienceUse) feedbackBytes() int {
+	evidence, source := 0, 0
+	for _, o := range u.Conditions {
+		if n := encodedLen(o.Evidence); n > evidence {
+			evidence, source = n, encodedLen(o.Evidence.Source)
+		}
+	}
+	return evidence + source + encodedLen(u.ExpectedOutcome) + experienceFeedbackSlack
+}
+
+func encodedLen(v any) int {
+	raw, _ := json.Marshal(v)
+	return len(raw)
+}
+
 func (x Experience) Validate() error {
 	if err := x.Definition.Validate(); err != nil {
 		return err

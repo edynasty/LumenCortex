@@ -76,10 +76,16 @@ func putCognitiveNode(ctx context.Context, conn *sql.Conn, n knowledge.Node, exp
 // a consumer's open use (experienceSettlement). Such a revision says nothing new about the record's
 // sources: the origin thread having moved on does not unsay what the consumer observed, so the source
 // version is not compared; and it keeps the lifecycle status the host chose, even when the outcome it
-// records makes an archived record protected. Fences and withdrawal are checked as for every revision.
+// records makes an archived record protected. It also takes the room its use kept in the record:
+// every other revision leaves that room and the room of a lifecycle revision (knowledge.Node.Room),
+// so a use that was applied can record its outcome and the host can still archive or revoke the
+// record. Fences and withdrawal are checked as for every revision.
 func putCognitiveRevision(ctx context.Context, conn *sql.Conn, n knowledge.Node, expected int64, project string, settlement bool) error {
 	if err := n.Validate(); err != nil {
 		return err
+	}
+	if !settlement && n.Room() < 0 {
+		return invalid("node leaves no room for a lifecycle revision and the feedback of its open uses")
 	}
 	if n.Memory != nil && n.Memory.Canonical != nil {
 		return invalid("canonical bindings require the lifecycle commit path")
