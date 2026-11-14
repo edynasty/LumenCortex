@@ -429,7 +429,7 @@ func (u ExperienceUse) Validate(origin string, definitionVersion int64) error {
 			if err := f.Observation.Validate(); err != nil {
 				return err
 			}
-			if f.Observation.Assertion != u.ExpectedOutcome || f.Observation.Evidence.SessionID != u.ConsumerID || f.Observation.Evidence.Source != f.Source ||
+			if f.Observation.Assertion != u.ExpectedOutcome || f.Observation.Evidence.SessionID != u.ConsumerID || !sameRun(f.Observation.Evidence.Source, f.Source) ||
 				(f.Observation.Evidence.RunID != "" && f.Observation.Evidence.RunID != f.Source.RunID) {
 				return errors.New("feedback checks the wrong outcome or source run")
 			}
@@ -445,4 +445,12 @@ func (u ExperienceUse) Validate(origin string, definitionVersion int64) error {
 		}
 	}
 	return nil
+}
+
+// sameRun reports whether an outcome was observed in the run a feedback settles: the same source in
+// the same run. Their versions differ, because the outcome is observed when the application ends and
+// the feedback is recorded when the run does.
+func sameRun(observed, settled SourceRef) bool {
+	observed.Digest = settled.Digest
+	return observed == settled
 }

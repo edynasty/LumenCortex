@@ -11,7 +11,7 @@ import (
 )
 
 func TestExperienceApplicationSettlementRequiresOrderedExactExecutions(t *testing.T) {
-	for _, fault := range []string{"duplicate", "reverse", "other_run", "arguments", "outcome", "unknown", "valid"} {
+	for _, fault := range []string{"duplicate", "reverse", "other_run", "arguments", "outcome", "unknown", "observation", "valid"} {
 		t.Run(fault, func(t *testing.T) {
 			ctx := context.Background()
 			store := provStore(t)
@@ -54,8 +54,11 @@ func TestExperienceApplicationSettlementRequiresOrderedExactExecutions(t *testin
 				a.Actions[0].ExecutionID, a.Actions[1].ExecutionID = "second", "first"
 			case "outcome":
 				a.State, a.Actions[1].Outcome = "failed", "failed"
+			case "observation":
+				// An outcome that is not a qualified result of the running application.
+				a.Outcome = &knowledge.ExperienceObservation{Evidence: knowledge.Evidence{SessionID: "s", ResultSeq: 1, Verification: "passed"}}
 			}
-			err = store.FinishExperienceApplication(ctx, a)
+			err = store.FinishExperienceApplication(ctx, a, "project")
 			if fault == "valid" {
 				if err != nil {
 					t.Fatalf("exact sequence refused: %v", err)
@@ -70,11 +73,21 @@ func TestExperienceApplicationSettlementRequiresOrderedExactExecutions(t *testin
 				}
 				if fault == "unknown" {
 					a.State, a.Actions[1].Outcome = "unknown", string(OutcomeUnknown)
-					if err := store.FinishExperienceApplication(ctx, a); err != nil {
+					if err := store.FinishExperienceApplication(ctx, a, "project"); err != nil {
 						t.Fatalf("unknown observation was not retained: %v", err)
 					}
 					if a.Executed() {
 						t.Fatal("unknown sequence earned execution credit")
+					}
+				}
+				if fault == "observation" {
+					a.Outcome = nil
+					if err := store.FinishExperienceApplication(ctx, a, "project"); err != nil {
+						t.Fatalf("the executions were not settled without the refused observation: %v", err)
+					}
+					settled, err := store.ExperienceApplication(ctx, "s", "adoption")
+					if err != nil || !settled.Executed() || settled.Outcome != nil {
+						t.Fatalf("settled receipt = %+v %v", settled, err)
 					}
 				}
 			}

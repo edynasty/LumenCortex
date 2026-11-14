@@ -271,10 +271,33 @@ func (a cognitiveAccess) apply(ctx context.Context, id, adoptionID string, actio
 			break
 		}
 	}
+	// The expected outcome is observed here, when the last action has settled and before the run
+	// does anything else: what the run, or anyone, changes afterwards is not a result of the
+	// procedure. A check that does not qualify leaves the outcome unobserved; none is made later.
+	outcome := ""
+	if receipt.Executed() {
+		outcome = "not_observed"
+		if source, sourceErr := a.engine.store.ExperienceConsumerForRun(ctx, a.sessionID, a.runID); sourceErr == nil {
+			if ev, checkErr := a.engine.verifyAssertion(ctx, a.sessionID, u.ExpectedOutcome, n.Scope, source); checkErr == nil {
+				receipt.Outcome = &knowledge.ExperienceObservation{Assertion: u.ExpectedOutcome, Evidence: ev}
+				outcome = "not_held"
+				if ev.Verification == u.ExpectedResult {
+					outcome = "held"
+				}
+			}
+		}
+	}
 	receipt.FinishedAt = a.engine.now()
 	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if settleErr := a.engine.store.FinishExperienceApplication(settleCtx, receipt); settleErr != nil {
+	settleErr := a.engine.store.FinishExperienceApplication(settleCtx, receipt, a.engine.projectID())
+	if settleErr != nil && receipt.Outcome != nil {
+		// The observation did not stand (its approval, or the consumer, changed while it was made).
+		// The executions are settled all the same; the outcome stays unobserved.
+		receipt.Outcome, outcome = nil, "not_observed"
+		settleErr = a.engine.store.FinishExperienceApplication(settleCtx, receipt, a.engine.projectID())
+	}
+	if settleErr != nil {
 		return protocol.ToolResult{Interrupted: true, MutatesWorkspace: result.MutatesWorkspace}, settleErr
 	}
 	out := struct {
@@ -282,8 +305,9 @@ func (a cognitiveAccess) apply(ctx context.Context, id, adoptionID string, actio
 		State         string                `json:"state"`
 		Results       []protocol.ToolResult `json:"results"`
 		Sources       []string              `json:"sourceSessions"`
+		OutcomeCheck  string                `json:"outcomeCheck,omitempty"`
 		Error         string                `json:"error,omitempty"`
-	}{receipt.ID, receipt.State, results, sources, ""}
+	}{receipt.ID, receipt.State, results, sources, outcome, ""}
 	if err != nil {
 		out.Error = err.Error()
 	}

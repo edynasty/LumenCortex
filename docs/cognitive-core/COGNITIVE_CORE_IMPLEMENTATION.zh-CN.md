@@ -12,8 +12,8 @@
 | 当前任务召回 | `runtime/knowledge.go`、`experience.go`、`internal/threadctx` | 复用词面/CJK/camel-case Tokens；按目标/输入选择定位，匹配警告优先；排名不改变事实状态。 |
 | 根据证据决定下一步 | `runtime/cognitive_assessment.go`、`internal/session/cognitive_queries.go` | 读取确切节点、前提版本、冲突命题；检验批准/来源/指纹；输出 current/unknown/stale/conflict 和明确建议。 |
 | 普通任务产生经验 | `internal/toolset/cognitive.go`、`runtime/experience_execution.go` | 模型提交有界提案，普通任务结束后 Framework 从真实 Run/Task/工具/检查提取并验证。 |
-| 实际应用而非只读取 | `internal/session/cognitive_completion.go`、`experience_actions.go`、`internal/agent/callback.go` | 对原工具/参数摘要匹配，事务先写 pending，再经普通权限执行；结算记录实际执行 ID。 |
-| 结果反馈与修订 | `runtime/experience_reuse.go`、`internal/knowledge/experience_transition.go` | 完整已结算序列允许独立结果检查；成功/失败/未知追加版本；反例要求新定义再验证。 |
+| 实际应用而非只读取 | `internal/session/cognitive_completion.go`、`experience_actions.go`、`internal/agent/callback.go` | 对原工具/参数摘要匹配，事务先写 pending，再经普通权限执行；结算记录实际执行 ID，并在最后一个动作结算时观察预期结果、写入回执。 |
+| 结果反馈与修订 | `runtime/experience_reuse.go`、`internal/knowledge/experience_transition.go` | 结算只记录回执上的结果观察，不再运行检查；成功/失败/未知追加版本；反例要求新定义再验证。 |
 | 保留与归并 | `runtime/cognitive_lifecycle.go`、`internal/session/cognitive_lifecycle.go` | 宿主 CAS 批次管理 tiers、archive、等价 canonical；前提用 NodeRef 固定，关键反例保护，容量不足报告 pressure。 |
 | 重启与隐私 | `runtime/engine.go`、既有 Fence/Purge，加新记录族 | 原 Run Lock 下补记忆结算，不重复动作；来源和真实消费者依赖加入 `derived_origins`，新表纳入隐私删除。 |
 

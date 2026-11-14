@@ -5,6 +5,10 @@ import "time"
 // Application is a framework receipt for one explicit use through the ordinary
 // tool dispatcher. The action's semantic quality remains a model judgment.
 // Pending/unknown receipts are never replayed as actions or counted as success.
+//
+// Outcome is the expected outcome as observed when the last action had settled,
+// before the run did anything else. It is the only outcome a feedback can cite:
+// what holds when the run ends, or later, is not a result of the procedure.
 type Application struct {
 	ID                string                  `json:"id"`
 	ExperienceID      string                  `json:"experienceId"`
@@ -17,6 +21,7 @@ type Application struct {
 	State             string                  `json:"state"`
 	At                time.Time               `json:"at"`
 	FinishedAt        time.Time               `json:"finishedAt,omitempty"`
+	Outcome           *ExperienceObservation  `json:"outcome,omitempty"`
 }
 
 type AppliedAction struct {

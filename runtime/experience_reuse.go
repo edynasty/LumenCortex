@@ -100,23 +100,17 @@ func (e *Engine) RecordExperienceFeedback(ctx context.Context, consumerID, id, a
 // settlement. The remainder is room for host lifecycle changes.
 const experienceSettlementAttempts = 2*knowledge.MaxExperienceUses + 4
 
-// experienceOutcomeCheck is the one run of a use's bound outcome check in a settlement. The check
-// observes the consumer's workspace after its run, not the Experience record, so a settlement
-// committed again over a newer revision reuses the observation instead of running the check again.
-type experienceOutcomeCheck struct {
-	ran, qualified bool
-	evidence       knowledge.Evidence
-}
-
 // recordExperienceFeedback settles one open use. One record holds every consumer's use of an
 // Experience, so another consumer's adoption or settlement, or a host lifecycle change, can commit
 // between this read and this commit. That conflict is benign: the settlement is recomputed against
 // the newer revision. Left open, the use could only be closed as unknown by a later run of the
 // consumer, and the checked result, a counterexample included, would be lost.
+//
+// No check runs here. The outcome was observed when the application ended (cognitiveAccess.apply)
+// and is read from its receipt, however often and however late the settlement is made.
 func (e *Engine) recordExperienceFeedback(ctx context.Context, consumerID, id, adoptionID string) (CognitiveNode, error) {
-	var check experienceOutcomeCheck
 	for attempt := 1; ; attempt++ {
-		n, err := e.settleExperienceUse(ctx, consumerID, id, adoptionID, &check)
+		n, err := e.settleExperienceUse(ctx, consumerID, id, adoptionID)
 		if attempt == experienceSettlementAttempts || !errors.Is(err, session.ErrCognitiveRevision) {
 			return n, err
 		}
@@ -127,7 +121,7 @@ func (e *Engine) recordExperienceFeedback(ctx context.Context, consumerID, id, a
 // (nil outside tests): the point where another writer's revision makes the commit conflict.
 var testHookBeforeExperienceSettlement func()
 
-func (e *Engine) settleExperienceUse(ctx context.Context, consumerID, id, adoptionID string, check *experienceOutcomeCheck) (CognitiveNode, error) {
+func (e *Engine) settleExperienceUse(ctx context.Context, consumerID, id, adoptionID string) (CognitiveNode, error) {
 	n, err := e.readExperience(ctx, consumerID, id, 0)
 	if err != nil {
 		return CognitiveNode{}, err
@@ -165,17 +159,18 @@ func (e *Engine) settleExperienceUse(ctx context.Context, consumerID, id, adopti
 	if executed {
 		feedback.ApplicationID = application.ID
 		feedback.Reason = "outcome_not_qualified"
-		if !check.ran {
-			ev, err := e.verifyAssertion(ctx, consumerID, u.ExpectedOutcome, n.Scope, origin.Source)
-			if err != nil && !errors.Is(err, session.ErrNotQualified) {
+		// The observation is evidence only while its approval stands. One that lapsed since the
+		// application (a revoked binding, a privacy epoch) is not replaced by a check made now.
+		qualified := false
+		if o := application.Outcome; o != nil && o.Assertion == u.ExpectedOutcome {
+			if qualified, err = e.store.CognitiveEvidenceQualified(ctx, e.projectID(), o.Assertion, o.Evidence); err != nil {
 				return CognitiveNode{}, err
 			}
-			*check = experienceOutcomeCheck{ran: true, qualified: err == nil, evidence: ev}
 		}
-		if ev := check.evidence; check.qualified {
-			feedback.Observation = &knowledge.ExperienceObservation{Assertion: u.ExpectedOutcome, Evidence: ev}
+		if qualified {
+			feedback.Observation = application.Outcome
 			switch {
-			case ev.Verification != u.ExpectedResult:
+			case application.Outcome.Evidence.Verification != u.ExpectedResult:
 				feedback.Outcome, feedback.Reason, feedback.RevisionNeeded = "failure", "outcome_counterexample", true
 			case !application.Reproduced(x.Origin.Trace.Steps):
 				// The expected outcome holds, but an action did not settle as it did in the origin: the

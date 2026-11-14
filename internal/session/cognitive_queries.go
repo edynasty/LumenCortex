@@ -36,6 +36,22 @@ func (s *Store) CognitiveClaimPeers(ctx context.Context, reader knowledge.Reader
 	return out, err
 }
 
+// CognitiveEvidenceQualified reports whether the authority of a recorded check observation still
+// stands: its result is a qualified one, its binding and definition are approved, and no privacy
+// epoch has passed it. Unlike CognitiveEvidenceCurrent it holds for a failed observation as well.
+func (s *Store) CognitiveEvidenceQualified(ctx context.Context, project string, a knowledge.Assertion, e knowledge.Evidence) (bool, error) {
+	qualified := false
+	err := s.readCognition(ctx, func(conn *sql.Conn) error {
+		err := cognitiveEvidence(ctx, conn, project, a, e)
+		if errors.Is(err, ErrNotQualified) || errors.Is(err, ErrFenced) {
+			return nil
+		}
+		qualified = err == nil
+		return err
+	})
+	return qualified, err
+}
+
 // CognitiveEvidenceCurrent checks the original authority and later qualified
 // failures. It is not freshness: the reader still needs its own scope/fingerprint.
 func (s *Store) CognitiveEvidenceCurrent(ctx context.Context, project string, a knowledge.Assertion, e knowledge.Evidence) (bool, error) {

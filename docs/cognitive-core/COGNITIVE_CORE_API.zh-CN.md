@@ -32,7 +32,7 @@
 |---|---|---|
 | `recall_experiences` | `{query}` | 最多 8 条相关定位、来源与读者访问统计，不计实际复用。`applicability` 为 `requires_condition_check`；记录的 8 个 Uses 用尽后为 `use_limit_reached`，不再接受采纳。 |
 | `adopt_experience` | `{id,version}` | 当前消费者独立检查条件，先提交单次身份，再返回策略。 |
-| `apply_experience` | `{id,adoptionId,actions:[{tool,arguments}]}` | 匹配原完整操作序列，重查前提，提交 pending 回执，普通工具执行并记录确切 ID；每次采纳只能应用一次，不自动重放。 |
+| `apply_experience` | `{id,adoptionId,actions:[{tool,arguments}]}` | 匹配原完整操作序列，重查前提，提交 pending 回执，普通工具执行并记录确切 ID；最后一个动作结算后、运行继续之前，用宿主绑定的检查观察预期结果，并在返回中给出 `outcomeCheck`：`held`、`not_held` 或 `not_observed`。每次采纳只能应用一次，不自动重放。 |
 | `propose_experience` | `{proposal}` | 队列只保存有界结构；任务结束后 Framework 提取实际经历并执行获准检查。 |
 | `assess_cognition` | `{query,ids?,action}` | 评估前提与冲突，记录确切版本和来源。action 为 continue/gather_evidence/ask/defer/stop；没有充分证据时 continue 仍返回 gather_evidence。 |
 
@@ -45,6 +45,7 @@
 - `read_knowledge` 及 Start 索引只暴露有限定位，正文按读取时适用性判断。Start 最多 6 条/2048 字节、最多重验 2 个检查/15 秒。
 - 维护输出不能自选 `checkIds` 或 status；Framework 按精确断言选择获准检查。进程检查不能跨 Run 复用，Schema 仅在批准输入/指纹一致时复用。
 - 完整已结算工具失败可成为反例；负向预期可以由独立失败检查确认警告。拒绝、中断、部分、未知应用不计成功，也不补造结果检查。
+- 应用的结果以回执在最后一个动作结算时的观察为准。运行结束时的结算、宿主调用 `RecordExperienceFeedback` 和 `Engine.Open` 的恢复只记录这次观察，不再运行检查：应用之后本次运行或其他人对工作区的改动，既不算该做法成功，也不算反例。观察的批准在结算前失效（绑定撤销、隐私纪元）时不补做检查，该次使用记为 unknown。
 - `Engine.Open` 将遗留 pending 应用设为 unknown，并补全可恢复的记忆结算；不重复动作。
 - 来源和消费者撤销优先于历史可读性；Uses、访问统计和应用回执都加入现有隐私清理。
 

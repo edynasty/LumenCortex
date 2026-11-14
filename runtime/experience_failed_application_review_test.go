@@ -101,15 +101,11 @@ func TestExperienceStoreRefusesSuccessOfADivergedApplication(t *testing.T) {
 		t.Fatal(err)
 	}
 	receipt, err := f.engine.store.ExperienceApplication(ctx, consumer, adoptionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ev, err := f.engine.verifyAssertion(ctx, consumer, u.ExpectedOutcome, node.Scope, source.Source)
-	if err != nil || ev.Verification != "passed" {
-		t.Fatalf("the stale artifact must still pass the outcome check: %+v %v", ev, err)
+	if err != nil || receipt.Outcome == nil || receipt.Outcome.Evidence.Verification != "passed" {
+		t.Fatalf("the stale artifact must pass the outcome check of the application: %+v %v", receipt, err)
 	}
 	u.Feedback = &knowledge.ExperienceFeedback{Source: source.Source, Used: true, ConditionsHeld: true, Outcome: "success", Reason: "expected_outcome_verified", ApplicationID: receipt.ID,
-		Observation: &knowledge.ExperienceObservation{Assertion: u.ExpectedOutcome, Evidence: ev}, At: f.engine.now()}
+		Observation: receipt.Outcome, At: f.engine.now()}
 	if _, err := f.engine.commitExperienceRevision(ctx, consumer, node, node.Version); !errors.Is(err, session.ErrNotQualified) {
 		t.Fatalf("the Store accepted a success for a failed action: %v", err)
 	}

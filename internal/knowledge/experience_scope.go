@@ -27,9 +27,11 @@ func (x Experience) ValidateScope(scope Scope) error {
 				return errors.New("consumer observation scope is narrower than experience")
 			}
 		}
-		if u.Feedback != nil && u.Feedback.Observation != nil {
-			if err := check(*u.Feedback.Observation, u.Feedback.Source); err != nil {
-				return err
+		// The outcome is observed when the application ends, at an earlier version of the run the
+		// feedback settles.
+		if f := u.Feedback; f != nil && f.Observation != nil {
+			if o := f.Observation.Evidence; !sameRun(o.Source, f.Source) || o.SessionID != f.Source.SessionID || !o.Scope.Contains(scope) {
+				return errors.New("experience evidence source or scope does not cover record")
 			}
 		}
 	}

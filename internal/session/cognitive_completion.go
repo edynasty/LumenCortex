@@ -118,7 +118,11 @@ func (s *Store) BeginExperienceApplication(ctx context.Context, a knowledge.Appl
 	})
 }
 
-func (s *Store) FinishExperienceApplication(ctx context.Context, a knowledge.Application) error {
+// FinishExperienceApplication settles the receipt with the exact executions of its actions and, for
+// a complete sequence, the expected outcome observed when the last action had settled: a qualified
+// result of this session at the version its run has now, as the conditions were at the admission.
+// A feedback can cite no other outcome (experienceEvidenceCommit).
+func (s *Store) FinishExperienceApplication(ctx context.Context, a knowledge.Application, project string) error {
 	return s.writeTx(ctx, func(conn *sql.Conn) error {
 		old, err := experienceApplication(ctx, conn, a.SessionID, a.AdoptionID)
 		if err != nil {
@@ -145,6 +149,18 @@ func (s *Store) FinishExperienceApplication(ctx context.Context, a knowledge.App
 				previousRow = row
 			} else if action.Outcome != "" || a.State == "completed" {
 				return ErrNotQualified
+			}
+		}
+		if o := a.Outcome; o != nil {
+			ref, status, err := experienceSource(ctx, conn, a.SessionID, false)
+			if err != nil {
+				return err
+			}
+			if !a.Executed() || status != "running" || ref.RunID != a.RunID || o.Evidence.SessionID != a.SessionID || o.Evidence.Source != ref {
+				return ErrNotQualified
+			}
+			if err := cognitiveEvidence(ctx, conn, project, o.Assertion, o.Evidence); err != nil {
+				return err
 			}
 		}
 		raw, err := json.Marshal(a)

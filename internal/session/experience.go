@@ -403,6 +403,7 @@ func experienceEvidenceCommit(ctx context.Context, conn *sql.Conn, old, n knowle
 		if f.Outcome == "success" && status != "completed" {
 			return ErrNotQualified
 		}
+		var observed *knowledge.ExperienceObservation
 		if f.Used {
 			application, err := experienceApplication(ctx, conn, u.ConsumerID, u.ID)
 			if err != nil || application.ID != f.ApplicationID || !application.Executed() || application.RunID != f.Source.RunID {
@@ -413,9 +414,16 @@ func experienceEvidenceCommit(ctx context.Context, conn *sql.Conn, old, n knowle
 			if f.Outcome == "success" && !application.Reproduced(x.Origin.Trace.Steps) {
 				return ErrNotQualified
 			}
+			observed = application.Outcome
 		}
+		// The outcome of a use is the one its receipt observed when the application ended. A check
+		// made when the run ended, or later, also shows what the rest of the run and anyone else did
+		// to the workspace. Its approval must still stand, as for any evidence that enters a record.
 		if f.Observation != nil {
-			if err := newObservation(*f.Observation); err != nil {
+			if !reflect.DeepEqual(f.Observation, observed) {
+				return ErrNotQualified
+			}
+			if err := cognitiveEvidence(ctx, conn, project, observed.Assertion, observed.Evidence); err != nil {
 				return err
 			}
 		}
