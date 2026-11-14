@@ -577,6 +577,25 @@ func sourcesUnchanged(ctx context.Context, conn *sql.Conn, maintenanceID string,
 	return nil
 }
 
+// sourcesReachable is sourcesUnchanged without the version compare: every source still exists and none
+// is fenced. It serves a revision that says nothing new about its sources (the settlement of a
+// consumer's use of an Experience); withdrawal and deletion of a source still refuse it.
+func sourcesReachable(ctx context.Context, conn *sql.Conn, refs []knowledge.SourceRef) error {
+	for _, r := range refs {
+		if err := sessionExists(ctx, conn, r.SessionID); errors.Is(err, ErrNotFound) {
+			return fmt.Errorf("%w: source %s no longer exists", ErrSourceChanged, r.SessionID)
+		} else if err != nil {
+			return err
+		}
+		if _, fenced, err := sessionFence(ctx, conn, r.SessionID); err != nil {
+			return err
+		} else if fenced {
+			return fmt.Errorf("%w: source %s is fenced", ErrSourceChanged, r.SessionID)
+		}
+	}
+	return nil
+}
+
 // FailMaintenance releases a lease whose batch could not be committed and records why. The cursor and
 // the dirty revision stay: the sources are processed by a later batch. A lease that is no longer
 // current is left to its new holder (ErrStaleLease).

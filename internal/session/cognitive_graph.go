@@ -69,6 +69,14 @@ func (s *Store) PutCognitiveNode(ctx context.Context, n knowledge.Node, expected
 }
 
 func putCognitiveNode(ctx context.Context, conn *sql.Conn, n knowledge.Node, expected int64, project string) error {
+	return putCognitiveRevision(ctx, conn, n, expected, project, false)
+}
+
+// putCognitiveRevision commits one revision. settlement marks an Experience revision that only closes
+// a consumer's open use (experienceSettlement). Such a revision says nothing new about the record's
+// sources: the origin thread having moved on does not unsay what the consumer observed, so the source
+// version is not compared. Fences and withdrawal are checked as for every revision.
+func putCognitiveRevision(ctx context.Context, conn *sql.Conn, n knowledge.Node, expected int64, project string, settlement bool) error {
 	if err := n.Validate(); err != nil {
 		return err
 	}
@@ -137,7 +145,12 @@ func putCognitiveNode(ctx context.Context, conn *sql.Conn, n knowledge.Node, exp
 		}
 		n.Times.InvalidatedAt = old.Times.InvalidatedAt
 	}
-	if err := sourcesUnchanged(ctx, conn, n.SessionID, n.Sources); err != nil {
+	if settlement {
+		err = sourcesReachable(ctx, conn, n.Sources)
+	} else {
+		err = sourcesUnchanged(ctx, conn, n.SessionID, n.Sources)
+	}
+	if err != nil {
 		return err
 	}
 	for _, ev := range n.Evidence {

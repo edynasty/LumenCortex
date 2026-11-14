@@ -214,7 +214,7 @@ func (s *Store) CommitExperience(ctx context.Context, n knowledge.Node, expected
 		if err := experienceEvidenceCommit(ctx, conn, old, n, project, reader); err != nil {
 			return err
 		}
-		if err := putCognitiveNode(ctx, conn, n, expected, project); err != nil {
+		if err := putCognitiveRevision(ctx, conn, n, expected, project, expected > 0 && experienceSettlement(old, n)); err != nil {
 			return err
 		}
 		if expected == 0 {
@@ -237,6 +237,23 @@ func (s *Store) CommitExperience(ctx context.Context, n knowledge.Node, expected
 		}
 		return nil
 	})
+}
+
+// experienceSettlement reports a revision that only closes one consumer's open use: the same
+// lifecycle status, the same sources, the same definition and uses, one new feedback.
+// ExperienceTransition has already refused every other change of the payload such a revision could
+// carry. The sources are the stored ones, so a settlement cannot attach a source it never compared.
+func experienceSettlement(old, next knowledge.Node) bool {
+	a, b := old.Experience, next.Experience
+	if next.Status != old.Status || !reflect.DeepEqual(next.Sources, old.Sources) || a.DefinitionVersion != b.DefinitionVersion || len(a.Uses) != len(b.Uses) {
+		return false
+	}
+	for i := range a.Uses {
+		if a.Uses[i].Feedback == nil && b.Uses[i].Feedback != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func experienceLineage(ctx context.Context, conn *sql.Conn, owner, source, id string) error {
