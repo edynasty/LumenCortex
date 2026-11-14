@@ -63,7 +63,11 @@ func dependencyLineage(ctx context.Context, conn *sql.Conn, n knowledge.Node) er
 		if err != nil {
 			return err
 		}
-		if err := cognitiveOrigins(ctx, conn, n.SessionID, n.ID, append([]knowledge.SourceRef{{SessionID: dep.SessionID}}, dep.Sources...)); err != nil {
+		owner := dep.SessionID
+		if dep.Experience != nil && dep.Experience.State != knowledge.ExperienceNeedsRevision {
+			owner = dep.Experience.Origin.Source.SessionID
+		}
+		if err := cognitiveOrigins(ctx, conn, n.SessionID, n.ID, append([]knowledge.SourceRef{{SessionID: owner}}, dep.Sources...)); err != nil {
 			return err
 		}
 	}

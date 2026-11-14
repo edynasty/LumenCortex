@@ -118,7 +118,11 @@ func (e *Engine) PutCognitiveNode(ctx context.Context, sessionID string, propose
 		if !dep.Scope.Contains(proposed.Scope) {
 			return CognitiveNode{}, session.ErrFenced
 		}
-		source, err := e.store.CognitiveSource(ctx, dep.SessionID)
+		depOwner := dep.SessionID
+		if dep.Experience != nil && dep.Experience.State != knowledge.ExperienceNeedsRevision {
+			depOwner = dep.Experience.Origin.Source.SessionID
+		}
+		source, err := e.store.CognitiveSource(ctx, depOwner)
 		if err != nil {
 			return CognitiveNode{}, err
 		}

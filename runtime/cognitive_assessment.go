@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 
 	"github.com/edynasty/LumenCortex/internal/evaluator"
 	"github.com/edynasty/LumenCortex/internal/knowledge"
@@ -65,7 +66,7 @@ func (e *Engine) assessCognitiveRecords(ctx context.Context, readerID, runID, qu
 		}
 		tokens := threadctx.Tokens(query)
 		for _, n := range nodes {
-			if cognitiveRelevance(tokens, n.Title+" "+n.Body) > 0 {
+			if cognitiveRelevance(tokens, cognitiveNodeSearchText(n)) > 0 {
 				selected = append(selected, n)
 			}
 		}
@@ -85,8 +86,11 @@ func (e *Engine) assessCognitiveRecords(ctx context.Context, readerID, runID, qu
 			selected = append(selected, n)
 		}
 	}
-	// A selected conclusion brings its exact premises and all conflicting current
+	// A selected conclusion brings its visible premises and all conflicting current
 	// propositions into the assessment; the model cannot hide them by choosing IDs.
+	// A premise that was removed, withdrawn or narrowed outside the reader's scope is
+	// not disclosed here and does not abort the assessment: CognitiveDependenciesCurrent
+	// below marks the dependent proposition stale (dependency_changed).
 	for index := 0; index < len(selected); index++ {
 		n := selected[index]
 		for _, ref := range n.Dependencies {
@@ -98,6 +102,9 @@ func (e *Engine) assessCognitiveRecords(ctx context.Context, readerID, runID, qu
 				break
 			}
 			dep, err := e.store.CognitiveNode(ctx, ref.ID, 0, reader)
+			if errors.Is(err, session.ErrFenced) || errors.Is(err, session.ErrNotFound) {
+				continue
+			}
 			if err != nil {
 				return result, nil, err
 			}
@@ -259,6 +266,17 @@ func (e *Engine) assessCognitiveDecision(ctx context.Context, id, runID, query s
 		return result, err
 	}
 	return result, e.store.CommitCognitiveDecision(ctx, receipt, runID, refs, string(raw), reader, e.now())
+}
+
+func cognitiveNodeSearchText(n knowledge.Node) string {
+	text := n.Title + " " + n.Body
+	if len(n.Tags) > 0 {
+		text += " " + strings.Join(n.Tags, " ")
+	}
+	if n.Assertion != nil {
+		text += " " + string(n.Assertion.Kind) + " " + n.Assertion.Target + " " + n.Assertion.Key + " " + n.Assertion.Value
+	}
+	return text
 }
 
 func cognitiveRelevance(query []string, text string) int {
