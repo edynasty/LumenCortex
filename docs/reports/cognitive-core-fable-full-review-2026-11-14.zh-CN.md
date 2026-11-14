@@ -97,10 +97,10 @@ English: [cognitive-core-fable-full-review-2026-11-14.md](cognitive-core-fable-f
 ## 7. 工程审查
 
 - **真实 SQLite 路径。** 每个回归测试都通过 `Engine` 在临时状态目录中的 CGO `mattn/go-sqlite3` Store 上运行；Provider 以下没有任何 Mock。
-- **Migration。** 阅读了 0014–0017 及其 down 脚本；0017 的 down guard 会拒绝会留下孤立数据的降级。本次审查不改 Schema。FFR-016 在应用回执里增加一个可选 JSON 字段；没有该字段的回执结算为 `unknown`。FFR-017 不改变存储格式：它只收紧内容修订可以写满的范围（Node 64 KiB 中的 60 KiB）以及记录何时还能接受 Use。
+- **Migration。** 阅读了 0014–0017 及其 down 脚本；0017 的 down guard 会拒绝会留下孤立数据的降级。本次审查不改 Schema。FFR-016 在应用回执里增加一个可选 JSON 字段；没有该字段的回执结算为 `unknown`。FFR-017 不改变存储格式：它只收紧内容修订可以写满的范围（Node 64 KiB 中的 60 KiB）以及记录何时还能接受 Use。候选自己写入的记录不做转换，有两项修复对这些记录不成立（FFR-D4）。
 - **事务、CAS、Lease、Fence。** 准入、结算、生命周期批次和隐私删除都是单个写事务，提交时重新检查版本和 Fence。共享记录的结算在良性冲突后重新计算，次数上限按“用满的记录的写入者数量”设定（FFR-007、FFR-009）。继承的跨进程 Fence 守卫（F05）与其历史修复逐字节相同，并且仍能检出该缺陷：在临时副本中恢复被 `44bcda9` 移除的 Fence 读取后，确定性守卫测试失败（`probes/f05-mutant-c6bdfaf.*`）。
 - **Consumer 隔离。** 读取和变更的返回值只投影读者自己的 Uses；写入别人的反馈被拒绝。
-- **隐私删除与来源撤销。** 来源内容、复制的工具行、派生记录和回执都被清除；进行中的消费者以 `fenced` 失败；任何删除之后身份都保持撤回状态（FFR-012、FFR-014）。
+- **隐私删除与来源撤销。** 来源内容、复制的工具行、派生记录和回执都被清除；进行中的消费者以 `fenced` 失败；任何删除之后身份都保持撤回状态（FFR-012、FFR-014；候选写入的记录见 FFR-D4）。
 - **重启与恢复。** 恢复过程在 Session 的 Run 锁下结算，把未完成的应用标记为 unknown，从不重放动作；不再为未到期的 Use 或已被 Fence 的 Session 报告失败（FFR-006、FFR-010）；引用的是应用当时观察到的结果，而不是恢复时工作区的样子（FFR-016）。
 - **取消与错误处理。** Run 被取消后的结算使用有界的脱离上下文；记忆侧的错误通过 `AgentResult.Cognition` 报告，从不改变任务结果。
 - **资源限制。** 每条记录 8 次 Use、3 个条件，Trace 16 步，8 个检查，每个节点 64 KiB（其中每次内容修订都要为生命周期修订留出 4 KiB，并为每个未结算 Use 留出其反馈所需的字节，FFR-017），每个回执 32 KiB，每个生命周期批次 512 条记录。
@@ -143,16 +143,17 @@ English: [cognitive-core-fable-full-review-2026-11-14.md](cognitive-core-fable-f
 3. **记忆管理是否统一？** 对原生记录，是：一套生命周期、一条保护规则、一个容量过程，按读者的访问统计与结果分开。维护器候选有自己的适用性生命周期（FFR-D2）。
 4. **Governor 是否正常可用？** 在候选和审查分支头上，可用：通过公开 API 在正常 SQLite Store 上工作，并由测试固定。在 `main` 上不可用（10.7）。
 5. **是否存在架构级问题？** 没有阻断性的。有一个结构性限制（两个记录族，FFR-D2）和一个规模上限（Uses 存在记录内部，FFR-D3），都已记录，等待 Owner 决策。
-6. **是否存在未修复的 P0/P1/P2？** 已知没有。17 项 Finding 已修复并自验证；3 项 P3 观察已连同所需决策一起记录。
+6. **是否存在未修复的 P0/P1/P2？** 已知没有。17 项 Finding 已修复并自验证；4 项 P3 观察已连同所需决策一起记录。
 7. **哪些能力已经在 `main`？** Harness、Task State、Session 与 Notes、Context Graph 与线程召回、检查批准与绑定（ADR-0017）、来源 Fence 与隐私删除（ADR-0018），以及 Governor 的 Analyze/Plan/Validate 入口。这些入口在 `main` 上无法工作：`CognitiveGraphSnapshot` 需要 `graph_nodes` 和 `graph_edges` 两张表，而没有任何 Go Migration 创建它们，Go 代码也不写入它们（Migration 层把它们列为遗留的 Node 运行时表）。在 `00344b5` 的 `git archive` 副本上做了探测（`probes/main-governor-00344b5.stdout`）：在只由 Go 创建的 Store 上，三个入口都返回 `cognitive graph tables are not initialized in shared SQLite store`；`main` 自己的 Governor 测试之所以通过，是因为测试手工创建了这两张表。
 8. **哪些能力仍然只在候选中？** `internal/knowledge`；Migration 0014–0017；维护器与 `read_knowledge`；原生认知图；Experience 的提取、验证、召回、采纳、应用、反馈和修订；`assess_cognition`；Governor Apply 与记忆生命周期；五个认知工具；以及本次审查修复的全部内容。
-9. **是否具备最终整合条件？** 可以进入下一道关口，但不能自我认证。条件：（a）由没有参与这些修复的审查者验证 18 个审查提交：17 个修复提交（合计新增 418 行生产代码，每个都有红、绿回执）和 1 个只含测试的提交；（b）Owner 决定是否合并；（c）如果 Linux 是发布平台，需要在 Linux 上原生运行 `c6bdfaf`。应当整合的基础是审查分支头，而不是 `c1d3229`：冻结时的候选有 4 项 P1 缺陷。
+9. **是否具备最终整合条件？** 可以进入下一道关口，但不能自我认证。条件：（a）由没有参与这些修复的审查者验证 18 个审查提交：17 个修复提交（合计新增 418 行生产代码，每个都有红、绿回执）和 1 个只含测试的提交；（b）Owner 决定是否合并；（c）如果 Linux 是发布平台，需要在 Linux 上原生运行 `c6bdfaf`；（d）由候选写入的开发 Store 在用于审查分支头之前要重建，除非 Owner 要求转换它（FFR-D4）。应当整合的基础是审查分支头，而不是 `c1d3229`：冻结时的候选有 4 项 P1 缺陷。
 
 ## 11. 已记录、未修复
 
 - **FFR-D1**（P3，需要产品决策）。忠实复现的应用之前就已成立的结果，会被记录为成功。如果要求“未成立 → 成立”的转变，就会排除“测试仍然通过”这类守护型结果。统计信息只作参考，并标记为 `causal_benefit_unmeasured`。
 - **FFR-D2**（P3，架构）。两个记录族，见第 6 节。
 - **FFR-D3**（P3，规模）。每条记录一生最多 8 次 Use（记录较大时更少）、每个节点 64 KiB，这是设计上的选择（ADR-0023）。FFR-017 让字节上限变得安全，但没有解除它；要解除就得把 Uses 移到独立的表，属于 Schema 变更。
+- **FFR-D4**（P3，兼容性）。未合并的候选写入的 Store 不做转换。在那里创建的记录被删除清除之后，可以再次被提取。候选在来源动作失败的情况下验证通过的记录，会让所在项目的经验召回、Governor 分析和记忆维护以 corrupt 失败，直到该记录的来源 Session 被删除。两种情况都做了探测（`probes/candidate-store-d5542d4.*`）。这样的 Store 只存在于开发环境；从 `main` 迁移来的 Store 不受影响。
 - `gofmt -l .` 列出 17 个文件（`final/gofmt-whole-tree.txt`）。这 17 个文件与 `main` 逐字节相同：差异是继承来的，不是候选或本次审查引入的，保持原样。
 - 结果延迟出现的检查必须自己等待：结果只在最后一个动作结算时观察一次。
 
