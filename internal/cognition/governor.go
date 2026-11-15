@@ -377,6 +377,18 @@ func ValidateGovernorPlan(plan GovernorPlan, graph GraphState) GovernorValidatio
 		}
 	}
 
+	// targets are the nodes other nodes are, or by this plan become, consolidated into. Such a node
+	// stays canonical: making it an alias would leave its aliases pinned to an alias (a chain), which
+	// the lifecycle store refuses when an alias is bound.
+	targets := map[string]bool{}
+	for _, node := range graph.Nodes {
+		if target := governorMetadataString(node.Metadata, "canonicalNodeId"); target != "" {
+			targets[target] = true
+		}
+	}
+	for _, item := range plan.Canonicalize {
+		targets[item.Canonical] = true
+	}
 	for _, item := range plan.Canonicalize {
 		canonical, ok := graph.Nodes[item.Canonical]
 		if !ok || strings.TrimSpace(item.Canonical) == "" {
@@ -385,6 +397,9 @@ func ValidateGovernorPlan(plan GovernorPlan, graph GraphState) GovernorValidatio
 		}
 		if governorMetadataString(canonical.Metadata, "canonicalNodeId") != "" {
 			errorsOut = append(errorsOut, "canonical node is itself an alias: "+canonical.ID)
+		}
+		if canonical.Status == "archived" || canonical.Status == "invalid" {
+			errorsOut = append(errorsOut, "canonical node is not active: "+canonical.ID)
 		}
 		aliases := uniqueGovernorStrings(item.Aliases)
 		if len(aliases) == 0 {
@@ -405,6 +420,9 @@ func ValidateGovernorPlan(plan GovernorPlan, graph GraphState) GovernorValidatio
 			existing := governorMetadataString(alias.Metadata, "canonicalNodeId")
 			if existing != "" && existing != canonical.ID {
 				errorsOut = append(errorsOut, fmt.Sprintf("alias already canonicalized elsewhere: %s -> %s", aliasID, existing))
+			}
+			if targets[aliasID] {
+				errorsOut = append(errorsOut, "alias is the canonical node of other aliases: "+aliasID)
 			}
 			if governorCanonicalGradeChecked(canonical.Kind) && governorGradeWeights[alias.Grade] > governorGradeWeights[canonical.Grade] {
 				errorsOut = append(errorsOut, fmt.Sprintf("canonical node has lower evidence grade than alias: %s < %s", canonical.ID, aliasID))
