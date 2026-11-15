@@ -14,6 +14,9 @@ import (
 
 // checkCognitiveDependencies checks exact revisions and scopes in the same
 // snapshot/transaction as its consumer. The path bound also refuses cycles.
+// A newer Experience revision that only records consumers' uses and their
+// feedback is the revision the dependent cited: one consumer's adoption or
+// settlement does not change another's premise (experienceUsesOnly).
 func checkCognitiveDependencies(ctx context.Context, conn *sql.Conn, n knowledge.Node, reader knowledge.Reader, at time.Time, path map[string]bool) error {
 	if path[n.ID] || len(path) >= 32 {
 		return invalid("cyclic or excessive cognitive dependencies")
@@ -25,7 +28,19 @@ func checkCognitiveDependencies(ctx context.Context, conn *sql.Conn, n knowledge
 		if err != nil {
 			return err
 		}
-		if dep.Version != ref.Version || dep.Status != "active" || dep.Times.TimeState(at) != "" {
+		if dep.Version != ref.Version {
+			pinned, err := loadCognitiveNode(ctx, conn, ref.ID, ref.Version)
+			if errors.Is(err, ErrNotFound) {
+				return ErrCognitiveRevision
+			}
+			if err != nil {
+				return err
+			}
+			if !experienceUsesOnly(pinned, dep) {
+				return ErrCognitiveRevision
+			}
+		}
+		if dep.Status != "active" || dep.Times.TimeState(at) != "" {
 			return ErrCognitiveRevision
 		}
 		visible, err := cognitiveVisible(ctx, conn, dep, reader)
@@ -43,6 +58,25 @@ func checkCognitiveDependencies(ctx context.Context, conn *sql.Conn, n knowledge
 		}
 	}
 	return nil
+}
+
+// experienceUsesOnly reports whether next is a later revision of the Experience pinned that changes
+// nothing but the record of uses: the consumers' adoptions and their settled feedback, which append
+// to Uses (knowledge.ExperienceTransition). Definition, state, validation, confidence, sources,
+// scope, lifecycle and memory policy must be identical, so a counterexample (needs_revision), a
+// definition revision, a revalidation or a host lifecycle change still makes the pin stale.
+func experienceUsesOnly(pinned, next knowledge.Node) bool {
+	if pinned.Experience == nil || next.Experience == nil || pinned.ID != next.ID || next.Version <= pinned.Version {
+		return false
+	}
+	strip := func(n knowledge.Node) knowledge.Node {
+		x := *n.Experience
+		x.Uses = nil
+		n.Experience = &x
+		n.Version, n.Times.RecordedAt, n.RevisionReason = 0, time.Time{}, ""
+		return n
+	}
+	return reflect.DeepEqual(strip(pinned), strip(next))
 }
 
 func (s *Store) CognitiveDependenciesCurrent(ctx context.Context, n knowledge.Node, reader knowledge.Reader, at time.Time) error {
