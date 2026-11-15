@@ -15,11 +15,15 @@ var ErrCognitiveRevision = errors.New("cognitive revision changed")
 var ErrCognitiveCorrupt = errors.New("cognitive store is incomplete or corrupt")
 
 // sourceRunSQL is the one definition of the run a session source names, for a sessions row aliased s:
-// the newest started run committed by BeginRun (session_checkpoints reason 'agent.start') or main
-// request admission. An auto-effort judge request is admitted before BeginRun under the run id of a
-// Start that may never begin; such a Start writes neither agent.start nor a main envelope, so its id
-// never replaces the run of the content the reference describes.
-const sourceRunSQL = `COALESCE((SELECT CASE WHEN m.run_id IS NOT NULL AND (c.run_id IS NULL OR m.created_at >= c.at) THEN m.run_id ELSE c.run_id END FROM (SELECT 1) LEFT JOIN (SELECT json_extract(json,'$.runId') AS run_id, at FROM session_checkpoints WHERE session_id=s.id AND reason='agent.start' AND json_valid(json) ORDER BY seq DESC LIMIT 1) c ON 1=1 LEFT JOIN (SELECT run_id, created_at FROM request_envelopes WHERE session_id=s.id AND run_id IS NOT NULL AND purpose='` + PurposeMain + `' ORDER BY rowid DESC LIMIT 1) m ON 1=1),'')`
+// the newest started run. BeginRun records every started run (session_checkpoints reason 'agent.start')
+// in the transaction that makes the session running, before the run can admit a main request, so the
+// newest agent.start names the newest run even when it failed before its first main request. Row order
+// decides, never timestamp text: RFC3339Nano drops trailing zeros and the clock can step back. A
+// session whose runs predate agent.start names the run of its newest main request. An auto-effort
+// judge request is admitted before BeginRun under the run id of a Start that may never begin; such a
+// Start writes neither agent.start nor a main envelope, so its id never replaces the run of the
+// content the reference describes.
+const sourceRunSQL = `COALESCE((SELECT json_extract(json,'$.runId') FROM session_checkpoints WHERE session_id=s.id AND reason='agent.start' AND json_valid(json) AND json_type(json,'$.runId')='text' ORDER BY seq DESC LIMIT 1),(SELECT run_id FROM request_envelopes WHERE session_id=s.id AND run_id IS NOT NULL AND purpose='` + PurposeMain + `' ORDER BY rowid DESC LIMIT 1),'')`
 
 // CognitiveSource issues a reference from current runtime records, never from candidate text.
 func (s *Store) CognitiveSource(ctx context.Context, id string) (knowledge.SourceRef, error) {
