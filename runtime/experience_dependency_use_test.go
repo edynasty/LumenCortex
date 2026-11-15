@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/edynasty/LumenCortex/internal/knowledge"
@@ -68,5 +69,36 @@ func TestUnrelatedExperienceUseKeepsDependentCurrent(t *testing.T) {
 	}
 	if item := dependent("after a counterexample"); item.Applicability != knowledge.Stale || item.Reason != "dependency_changed" {
 		t.Errorf("a checked counterexample left the dependent %+v, want stale/dependency_changed", item)
+	}
+}
+
+// ICRA-003 ownership (verification coverage). A belief that cites a validated Experience derives from
+// the origin, not from the shared record's owner, which absorbs every consumer's use. Revoking an
+// unrelated consumer fences the owner; it must not fence the dependent's session.
+func TestUnrelatedConsumerRevocationDoesNotFenceExperienceDependent(t *testing.T) {
+	f := newCognitionFixture(t, true)
+	ctx := context.Background()
+	exp, _ := expValidated(t, f, "shared procedure cited by a belief")
+	reader := expMustRun(t, f, "reader citing the procedure", cogAnswer("ok"))
+	cognitiveMustPut(t, f.engine, reader, CognitiveNode{
+		ID:           "icra003-owner-dependent",
+		Kind:         "belief",
+		Title:        "deployment note citing the shared procedure",
+		Scope:        cognitiveMustScope(t, f.engine, reader, "project"),
+		Dependencies: []knowledge.NodeRef{{ID: exp.ID, Version: exp.Version}},
+	}, 0)
+	unrelated := expNewSession(t, f, "unrelated consumer later withdrawn")
+	if _, err := f.engine.AdoptExperience(ctx, unrelated, exp.ID, exp.Version); err != nil {
+		t.Fatal(err)
+	}
+	rev, err := f.engine.RevokeSource(ctx, SourceSession, unrelated, "withdrawn_consumer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(rev.Sessions, reader) {
+		t.Fatalf("revoking an unrelated consumer fenced the dependent's session: %+v", rev.Sessions)
+	}
+	if _, err := f.engine.ReadCognitiveNode(ctx, reader, "icra003-owner-dependent", 0); err != nil {
+		t.Fatalf("dependent's own belief unreadable after an unrelated revocation: %v", err)
 	}
 }
