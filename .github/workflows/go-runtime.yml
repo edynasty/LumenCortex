@@ -4,16 +4,47 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      LCX_TEST_PYTHON: /usr/bin/python3
+      LC_CI_EVIDENCE: ${{ runner.temp }}/lc-linux-ci
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
         with:
           go-version: '1.27.x'
           cache: true
+      - name: Provision non-root Linux sandbox prerequisites
+        run: |
+          mkdir -p "$LC_CI_EVIDENCE"
+          bash scripts/ci/setup-linux-sandbox.sh 2>&1 | tee "$LC_CI_EVIDENCE/environment.log"
+      - name: Prove namespace and host isolation before Go tests
+        run: bash scripts/ci/linux-sandbox-smoke.sh 2>&1 | tee "$LC_CI_EVIDENCE/sandbox-smoke.log"
       - run: go mod download
-      - run: go test ./...
+      - name: Verify existing fail-closed and security negative controls
+        run: |
+          go test -json -count=1 -timeout=10m ./evalruntime -run '^(TestSandboxFailsClosedWithoutABackend|TestXReviewSandboxUnavailableFailsClosed|TestLinuxWorkersFailClosedWithoutCgroup|TestCallerIsolationGate|TestRequireCallerIsolationFailsClosed|TestPythonNetworkIsDenied|TestPythonEnvAllowlistHidesHostSecrets|TestOpusSandboxDeniesUnrelatedDirectoryListing|TestSandboxSignalsStayInsideTheSandbox|TestCellCannotSignalAnotherKernel|TestLinuxBoundaryRefusesCellBeforeSideEffects|TestLinuxWorkerCgroupBoundsTheWholeTree|TestLinuxMemoryLimitBindsDescendants)$' | tee "$LC_CI_EVIDENCE/security-negative-controls.jsonl"
+      - name: Test evalruntime on the real sandbox
+        run: go test -json -count=1 -timeout=20m ./evalruntime | tee "$LC_CI_EVIDENCE/evalruntime.jsonl"
+      - name: Test runtime integration on the real sandbox
+        run: go test -json -count=1 -timeout=30m ./runtime | tee "$LC_CI_EVIDENCE/runtime.jsonl"
+      - name: Run complete Go test suite
+        run: go test -json -count=1 -timeout=30m ./... | tee "$LC_CI_EVIDENCE/go-test.jsonl"
       - run: go vet ./...
       - run: go build ./cmd/lcx-go
+      - name: Preserve Linux environment and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-sandbox-${{ github.run_id }}
+          path: ${{ env.LC_CI_EVIDENCE }}
+          if-no-files-found: warn
