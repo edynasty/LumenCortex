@@ -1,6 +1,6 @@
 # Cognitive Core — Security and Trust Boundaries
 
-Status: 2026-11-13 unmerged completion candidate; [current implementation and validation](../reports/cognitive-core-final-completion-2026-11-13.md). Historical test names below retain their provenance. Local single-user Core with an untrusted model; no production/network-authentication threat model is claimed.
+Status: isolated Cognitive Core v1.0 integration, input `8c30f75`, 2026-11-16; [integration evidence](../reports/FINAL_COGNITIVE_CORE_V1_REPORT.md). Historical test names retain their provenance. Local single-user Core with an untrusted model; no production/network-authentication claim. V-D1 intentionally fences the shared Experience owner after any recorded consumer withdrawal, trading aggregate availability for privacy. This accepted limit does not permit bypassing a fence, reviving an erased identity or reading another consumer's Uses.
 
 ## 1. Trust boundary
 

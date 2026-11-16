@@ -1,6 +1,6 @@
 # Cognitive Core — Go API
 
-Status: unmerged completion candidate on main `00344b5`, 2026-11-13. No HTTP/Wails exposure or Desktop consumer. Canonical schema sequence is Hub 0013 → cognition 0014/support 0015 → native graph 0016 → completion 0017. [中文](COGNITIVE_CORE_API.zh-CN.md) · [Current report](../reports/cognitive-core-final-completion-2026-11-13.md).
+Status: Cognitive Core v1.0 integration, input `8c30f75`, protected main `00344b5`, 2026-11-16. Unmerged; not a Core SemVer release. No HTTP/Wails exposure or Desktop consumer. Canonical schema sequence is Hub 0013 → cognition 0014/support 0015 → native graph 0016 → completion 0017; no 0018. [中文](COGNITIVE_CORE_API.zh-CN.md) · [Integration report](../reports/FINAL_COGNITIVE_CORE_V1_REPORT.md).
 
 ## 1. Engine (host) API — `runtime`
 
@@ -47,7 +47,7 @@ Only a `fact` may carry an `assertion`. Unknown fields reject the entry — a se
 
 ## 5. Source-neutral contract — `internal/knowledge`
 
-`SourceRef{Kind, ID, Digest, Scope, RunID, SessionID, Sensitivity, Provenance}`; `Ref()` = `kind:id@digest`. For a session source, `Digest` is the session's **version** (`session.sourceVersion`: status, newest message seq, newest Task State version, final answer) and `RunID` is the run of its newest `main` request (`session.sourceRunSQL`, the one definition for the graph reference, the Experience reference and the maintenance dirty row). An auto-effort judge request of a Start that never begins does not change it (FR-001).
+`SourceRef{Kind, ID, Digest, Scope, RunID, SessionID, Sensitivity, Provenance}`; `Ref()` = `kind:id@digest`. For a session source, `Digest` is the session's **version** (`session.sourceVersion`: status, newest message seq, newest Task State version, final answer). `RunID` names the newest started run: `BeginRun` commits `agent.start{runId}` with status/rows; `sourceRunSQL` selects its greatest checkpoint sequence, and only when no such checkpoint exists falls back to the latest `main` request's run. A failed pre-admission run therefore cannot borrow an earlier episode. Timestamp truncation, ties or clock rollback do not affect identity. Auto-effort requests issued before a Start that never begins do not replace it. Checkpoint pruning preserves the newest `agent.start` (ICRA-002 / ICRA-V-001).
 
 - `Kind` must be registered in `kinds`; only `session` has a producer (`enqueueSourceChange`). New kinds require a corresponding runtime producer; unknown kinds are refused by `Validate`/`ParseRef`.
 - `Provenance` must be `runtime` (Core committed the record). `Sensitivity` `private` never enters a batch.
@@ -70,11 +70,13 @@ The cognition packages import no DAP, LSP, MCP or Eval package. DAP/LSP/MCP/Eval
 
 `cognition.maintained`, `cognition.inherited`, `cognition.read`, `cognition.revalidation.failed`, `cognition.inheritance.failed`. Dirty tracking never depends on them.
 
-## 8. Experimental Experience read boundary
+## 8. Experience read and privacy boundary
 
 `ReadExperience(ctx, readerID, id, version)` and `ReadCognitiveNode` return the shared definition and original validation plus only that reader's own `Uses`. Empty, origin-only and unrelated readers receive no consumer uses. Experience mutation and idempotent responses apply the same projection; internal transitions retain the complete immutable history. Consequently `Experience.Statistics()` reports the returned reader's uses, not project-wide totals.
 
 Origin-only Context / `read_thread` locators derive from the origin; a `needs_revision` warning also derives from the aggregate owner because it conveys a consumer counterexample. Existing historical lineage is never narrowed. Adoption still requires current independent checks and a commit before returning strategy. See [the privacy model](EXPERIENCE_LEARNING_DESIGN.md#privacy-and-safety) and [regression evidence](COGNITIVE_CORE_TEST_PLAN.md#3g-owner-authorized-astra-continuation-review-of-546692d).
+
+V-D1 is an accepted v1.0 availability limit: any recorded consumer's revocation/deletion fences the aggregate owner, making the shared Experience unavailable to every reader; privacy deletion purges its derived content. A dependent that only cited the validated origin is not itself fenced, but its missing premise is stale. This is not per-consumer storage separation. Emptying the returned `Uses` never bypasses the underlying fence, and history reads do not restore access.
 
 ## 9. Completion host API
 
@@ -86,12 +88,15 @@ Origin-only Context / `read_thread` locators derive from the origin; a `needs_re
 | `ReadCognitiveNode` / `ReadExperience` | Historical/latest read subject to today's source/scope/fences and private Uses projection. Stored status is not current-use authorization. |
 | `AssessCognition(ctx, reader, query, ids)` | Read-only assertion assessment, at most 16 records including dependencies/conflicting peers. Returns items, recommendation, source sessions and incomplete coverage. No execution permission. |
 | `CognitiveMemory(ctx, reader, id)` | Logical class, host policy/protection, reader-local access count/time and private outcome counts. Utility stays `causal_benefit_unmeasured`. |
+| `GovernorAnalyze(ctx, GovernorAnalyzeOptions)` / `GovernorPlan(ctx, nil, options)` / `GovernorValidate(ctx, GovernorPlan)` | Real normal-SQLite host diagnostics and deterministic planning. `runtime` aliases expose the types to external Go hosts. The model curator returns `ErrGovernorCuratorDisabled` before calling any provider; validation is not an execution authorization. |
 | `GovernorApply(ctx, owner, plan, expected, reason)` | Host-selected owned lifecycle batch: tiers, archive, equivalent canonicalization. CAS and all-or-nothing transaction. Branch/promote/epoch rejected; canonical target cannot change in the batch. |
 | `SetCognitiveLifecycle(ctx, owner, id, expected, action, reason)` | `archive`, `restore`, `revoke`; protects safety/counterexamples and forbids invalid identity revival. Restore checks current sources/dependencies/time; revoking an alias preserves its historical canonical pin even after target advancement/withdrawal. |
 | `MaintainCognitiveMemory(ctx, owner, capacity)` | Archives only stale/dormant unprotected unreferenced owned nodes. Reports active/protected/archived and pressure; no destructive GC. |
 | `AgentResult.Cognition *CognitionCompletion` | Extracted/feedback counts and memory-phase errors, separate from main Agent outcome. |
 
 Host Experience extraction/validation/adoption/revision/feedback APIs remain available. Real application is intentionally through the admitted Agent's tool callback, not a host command-replay API. Host reads are diagnostics, not automatic model exposure.
+
+`AssessCognition` query mode searches native `belief` records only, including title/body/tags and structured assertion fields. Explicit IDs can select other native kinds. Invisible/missing dependencies are not disclosed; their dependents become `stale / dependency_changed`. Uses-only Experience revisions preserve the pinned premise, while definition/state/validation/scope/lifecycle changes still invalidate it. Host tier changes also remain invalidating (accepted V-002 limit). Concurrent adoption can return `ErrCognitiveRevision`; there is no automatic adoption retry. Governor validation rejects alias chains, but some dormant/stale or same-batch target conflicts are refused only by the lifecycle transaction (accepted V-003 limit).
 
 ## 10. Ordinary Agent tools
 
@@ -112,3 +117,16 @@ Each nested action observes the current Workflow and transition hooks, atomicall
 Complete settled failed actions can produce independently checked counterexamples; failed negative procedures can confirm a warning. Denied, interrupted, partial and unknown applications remain unknown without an outcome check. `Engine.Open` settles abandoned pending applications as unknown and finishes recoverable memory work; it never repeats tools.
 
 The outcome of an application is the observation on its receipt, made when its last action had settled. The settlement at the end of the run, a host `RecordExperienceFeedback` and the recovery of `Engine.Open` record that observation and run no check: what the run, or anyone, changes after the application is neither a success nor a counterexample of the procedure. An observation whose approval lapsed before the settlement (a revoked binding, a privacy epoch) is not replaced by a later check; the use is recorded as unknown.
+
+## 11. Frozen activation and compatibility boundary
+
+- Import the public `runtime` package, not `internal/*`. The host owns reader/session identity; these SDK arguments are not an authentication mechanism for an untrusted network client.
+- `EnableCognition` enables tracking and ordinary tools; `CognitionOptions.Auto` separately opts into bounded model maintenance. No automatic model Governor or hidden background learner is enabled.
+- Start advertises maintenance candidates only. Experience needs explicit `recall_experiences` / `read_thread`; applying stored procedures is never automatic. Proposal finalization, application outcome recording, terminal settlement and restart recovery are automatic once their prerequisites exist.
+- Native belief/negative/abstraction creation and verification, Governor Apply, archive/restore/revoke and memory capacity maintenance require explicit host calls. SDK availability is not automatic production use.
+- `cognition_candidates` and `cognition_nodes` share assertion/check/source/privacy contracts, but not a merged lifecycle, automatic bridge or cross-family conflict view.
+- Experience is a **Verified Procedural Macro**: exact observed actions, at most eight lifetime Uses and 64 KiB per node, often less because feedback/lifecycle room is reserved. `success` means reproduced actions plus the receipt's qualified outcome; a pre-existing outcome can satisfy it. `causal_benefit_unmeasured` remains unchanged.
+- The Go signatures and JSON meanings documented here are the v1.0 capability baseline. No runtime version constant, Core release tag, Desktop pin or database schema is bumped by naming it v1.0.
+- Supported migration begins at canonical main Hub 0013 or a fresh Go store. Unreleased early-candidate stores with random Experience owners or previously misvalidated failed actions are not converted; preserve the original database and use a fresh test state directory. Historical branch collisions and legacy Node stores remain refused. See [migration verification](../reports/COGNITIVE_CORE_V1_MIGRATION.md).
+
+[Production entrypoint matrix](capabilities.md) · [Accepted limits and evolution](roadmap.md) · [Finding closure](finding-ledger.md).

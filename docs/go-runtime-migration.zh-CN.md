@@ -25,6 +25,6 @@ Go 是 LumenCortex 唯一正式生产 Runtime。历史 Node.js 代码和测试�
 
 ## Cognitive Core 完整候选
 
-本轮基于 main `00344b5`，整合历史 `91af861` 并补齐认知调用链，尚未合并/发布。Schema 保留 Hub 0013，随后为 cognition 0014、support 0015、原生 Graph 0016、completion 0017。0017 增加应用/提案/决策/私有访问记录；含有新数据或新 Node 语义时拒绝降回旧读取器，空库回滚与故障恢复由现有 Runner 验证。
+Cognitive Core v1.0 在 `integ/cognitive-core-v1-20261116` 独立整合 `8c30f75`，受保护 main 仍为 `00344b5`，未合并、未发布。Schema 保留 Hub 0013，随后为 cognition 0014、support 0015、原生 Graph 0016、completion 0017；不新增 0018。0017 增加应用/提案/决策/私有访问记录。新语义的降级保护在 SQL 事务内拒绝并回滚，此前可能已创建备份；不能与 Schema 家族不符时“修改前拒绝”混为一谈。只验证临时库，不转换未发布早期候选数据。
 
-main 的 Governor 仍是只读基础；候选提供宿主 CAS 生命周期 Apply、普通 Agent 条件经验应用和记忆结算，不启用无准入的模型 Curator 或自主 Epoch。本轮只使用临时 SQLite，未迁移生产数据。详见[Migration 契约](cognitive-core/COGNITIVE_P0_STORAGE_DECISION.md)与[实测报告](reports/cognitive-core-final-completion-2026-11-13.md)。
+main 的 Governor 仍是只读基础；候选提供宿主 CAS 生命周期 Apply、普通 Agent 条件经验应用和记忆结算，不启用无准入的模型 Curator 或自主 Epoch。本轮只使用临时 SQLite，未迁移生产数据。详见[Migration 验证](reports/COGNITIVE_CORE_V1_MIGRATION.md)与[整合报告](reports/FINAL_COGNITIVE_CORE_V1_REPORT.zh-CN.md)。

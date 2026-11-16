@@ -1,6 +1,6 @@
 # Cognitive Core — Data Model (migrations 0014–0017)
 
-Unmerged completion candidate: Hub 0013 (unchanged), `0014_cognition.sql`, `0015_cognition_support.sql`, `0016_cognitive_graph.sql`, `0017_cognitive_completion.sql`. Historical Cognitive 13/14/15 is refused, not relabeled. Tables are STRICT in the same SQLite database; writes use pinned `BEGIN IMMEDIATE`, without model/Git work inside.
+Cognitive Core v1.0 isolated integration, input `8c30f75`; unmerged. Hub 0013 is unchanged, followed by `0014_cognition.sql`, `0015_cognition_support.sql`, `0016_cognitive_graph.sql`, `0017_cognitive_completion.sql`; no 0018. Historical Cognitive 13/14/15 is refused, not relabeled. Tables are STRICT in the same SQLite database; writes use pinned `BEGIN IMMEDIATE`, without model/Git work inside. [中文](COGNITIVE_CORE_DATA_MODEL.zh-CN.md) · [Migration evidence](../reports/COGNITIVE_CORE_V1_MIGRATION.md).
 
 ## 1. Tables
 
@@ -16,6 +16,7 @@ Unmerged completion candidate: Hub 0013 (unchanged), `0014_cognition.sql`, `0015
 | `cognition_proposals` | Bounded per session/run | Model-proposed structure, no authority; 16 KiB JSON | pending → completed/refused; terminal/restart settlement |
 | `cognition_decisions` | Explicit observed model decision | Exact assessed node versions, applicability and source exposure; 16 KiB JSON | immutable receipt; existing source/privacy lifecycle |
 | `cognition_access` | One per reader/node | Access count and last access time, separate from independent use/evidence | updated atomically; private to reader; privacy purge |
+| Existing `session_checkpoints` (`reason=agent.start`) | One content-free started-run identity; latest survives pruning | `BeginRun` writes `{runId}` in its existing transaction; sequence orders starts | No new table/migration; `sourceRunSQL` falls back to main envelopes only for history without a start checkpoint |
 
 Indexes: `cognition_candidates(claim_digest)`, `(subject_key)`, `(support_digest)` (0015); `cognition_observations(candidate_id, check_id, id DESC)` and `(session_id, result_seq)`. Native graph revisions, edges and epoch in 0016 follow [storage decision](COGNITIVE_P0_STORAGE_DECISION.md).
 
@@ -35,6 +36,10 @@ Claim bindings reuse ADR-0017 `check_approvals` (`ActiveConstraintBindings`). Co
 | Applicability | computed per reader | `current`, `unknown`, `stale`, `source_missing`, `withdrawn`, `conflict`, `candidate_only` (`knowledge.Decide`) |
 
 `qualified`/`validated`/epistemic `fact` describe recorded evidence history, not an unconditional verified-truth state. The strongest read-time applicability remains `current` for a particular reader; conflicts, source change and invalidation override it.
+
+Experience is a Verified Procedural Macro. Node revisions, definition versions, adoption identities and application identities are different: a Uses-only node revision does not change a pinned premise, while definition/validation/state/scope/lifecycle changes do. Returned Uses are reader-private; storage still embeds all consumers in the aggregate node. V-D1 therefore withdraws the whole shared Experience when any recorded consumer is withdrawn/deleted. The dependent origin-only session is not fenced, but its premise becomes stale.
+
+`cognition_candidates` and `cognition_nodes` share evidence/source/privacy semantics, not a combined lifecycle or cross-family conflict view. No automatic bridge or new physical store is introduced. Access frequency, model confidence, host importance and checked outcomes remain distinct; causal utility is unmeasured.
 
 ## 3. Invariants and where they are enforced
 
@@ -59,7 +64,7 @@ Upgrade 13→14 creates five cognition tables and four indexes after Hub. `TestC
 
 Upgrade 14→15 adds defaulted assertion/binding/support/purge columns and a support index. An older candidate has no current support until explicitly bound; no automatic trust is granted. `TestCognitionSupportMigrationRoundTrip`, `TestCognitionSupportMigrationRefusesExistingObject`, `TestCognitionSupportMigrationFailureRollsBack` cover rows and failure atomicity. Graph 15→16 and safe downgrade/refusal are covered by `TestCognitiveGraph*` and `TestCanonicalSequence*`. Offline cognition downgrade deliberately removes derived candidate state; graph or privacy epoch loss is refused.
 
-Upgrade 16→17 adds application/proposal/decision/access records and a native kind index without rewriting old rows. Partial schema is refused before mutation. Downgrade 17→16 is allowed only with no completion rows and no native completion metadata/Run-bound uses; otherwise it refuses before backup/mutation. This preserves evidence and dependency semantics rather than dropping them. `TestCognitiveCompletion*` covers round trip, injected failure, hot-WAL missing tables and semantic-loss refusal.
+Upgrade 16→17 adds application/proposal/decision/access records and a native kind index without rewriting old rows. Partial schema is refused before mutation. Downgrade 17→16 is allowed only with no completion rows and no native completion metadata/Run-bound uses. Otherwise the SQL guard fails inside the downgrade transaction and rolls it back, preserving logical data and schema; the runner may already have created its backup/checkpoint marker. This is not the pre-backup byte-identical refusal used for schema-family or version checks. `TestCognitiveCompletion*` covers round trip, injected failure, hot-WAL missing tables and semantic-loss refusal.
 
 Astra R2 preserves the v14 schema and old audit rows. Private rows are blanked only by privacy deletion. Append-only observation ordering is newest-first by ID; revalidation appends rather than overwrites. `qualified` is immutable adoption history, while `current` is computed for a reader and can never be inferred from that stored status alone. The full transition matrix and tested failure/recovery paths are in the R2 evidence directory.
 

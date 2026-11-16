@@ -25,7 +25,7 @@ The Core mainline includes the Go Agent Harness foundations: persistent Sessions
 
 ## Cognitive Core boundary
 
-The expanded Cognitive Core remains an unmerged candidate on main `00344b5`, with committed historical `91af861` work and the completion changes. The schema sequence preserves Hub 0013 and adds cognition 0014, support 0015, native graph 0016 and completion 0017. [Migration/rollback contract](cognitive-core/COGNITIVE_P0_STORAGE_DECISION.md) and [current report](reports/cognitive-core-final-completion-2026-11-13.md) record actual evidence.
+Cognitive Core v1.0 is the isolated integration of `8c30f75` on `integ/cognitive-core-v1-20261116`; protected main remains `00344b5`. Schema preserves Hub 0013, then cognition 0014, support 0015, native graph 0016 and completion 0017. No 0018 or production database migration occurs. [Migration verification](reports/COGNITIVE_CORE_V1_MIGRATION.md) and [integration report](reports/FINAL_COGNITIVE_CORE_V1_REPORT.md) distinguish schema-family refusal, transaction rollback, fresh temporary stores and unconverted early-candidate data.
 
 Main claims read-only Governor foundations. The candidate adds host-only CAS lifecycle Apply, ordinary Agent conditional Experience application and memory settlement; it does not enable the unadmitted model Curator or autonomous Epoch. No production database was migrated. New completion data/metadata prevents destructive downgrade to an older reader.
 

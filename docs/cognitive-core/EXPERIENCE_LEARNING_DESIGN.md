@@ -1,6 +1,6 @@
-# Experimental Experience Learning — P0 design
+# Experience Learning — verified procedural macro design
 
-Status: 2026-11-13 unmerged completion candidate. The typed P0 model and ordinary Agent lifecycle are implemented; actual engineering and independent status are in the [completion report](../reports/cognitive-core-final-completion-2026-11-13.md). No real-model/long-term benefit is claimed. Historical review sections retain their original scope and are superseded by the current application contract below.
+Status: isolated Cognitive Core v1.0 integration, input `8c30f75`, 2026-11-16; not main or a release. Experience is a Verified Procedural Macro, not general semantic learning. [Integration report](../reports/FINAL_COGNITIVE_CORE_V1_REPORT.md) records actual engineering results; [production activation](capabilities.md) and [accepted limits](roadmap.md) separate SDK availability, model-selected actions and automatic settlement. Historical review sections retain their original evidence scope. No real-model or long-term benefit is claimed.
 
 ## Authority and storage
 

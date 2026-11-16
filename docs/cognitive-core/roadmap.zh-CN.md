@@ -1,6 +1,32 @@
-# Cognitive Core 后续工作
+# Cognitive Core v1.0、v1.1 与认知演进路线
 
-这份路线沿用 Astra 原来的 P0～P3 顺序，并结合 Fable 对 Go 实现的审查。它不是要求马上增加新模块。
+v1.0 能力基线是 `integ/cognitive-core-v1-20261116` 对 `8c30f75` 的独立整合，不是 main 或 Core SemVer Release。Owner 本轮要求完成验证与文档收口，不再扩架构，不新增 0018。以下是后续路线，不是执行授权。[English](roadmap.md) · [整合报告](../reports/FINAL_COGNITIVE_CORE_V1_REPORT.zh-CN.md)。
+
+## v1.0：冻结受验程序化边界
+
+保留现有 Scope/Time/Evidence、来源 Fence、CAS、实际应用、合格反馈、正常 Go SQLite Governor 和宿主保留机制。Experience 定位为受验程序化宏：精确动作、终身八次 Uses、64 KiB Node。保留未知、冲突、失败历史，不把工程完成当作自主学习收益。
+
+接受 V-D1（一个消费者撤回使共享经验不可用）、V-002（改 tier 仍使前提 stale，并发采纳可能 CAS 失败）、V-003（部分计划到 Apply 才拒绝）。`cognition_candidates` 与 `cognition_nodes` 共用权威边界，但生命周期不同。不转换未发布旧候选的开发测试库。这些是明确契约，不隐藏为“v1.0 已完成”的遗漏。
+
+## v1.1：单独授权的接入增强
+
+| 后续项目 | 解决什么问题 | 复用实现位置 | 宣称完成前的验收 |
+|---|---|---|---|
+| Experience 开局定位 | 模型可能不知道何时召回已有程序 | `BeginRun.Notices` 和 `NoticeSources`，有界且按来源筛选的定位 | 真实 Start/工具使用、来源撤回与预算验证；不新增 Schema 或 Context Space 依赖。 |
+| 评估覆盖范围 | 词法查询遗漏独立 negative/abstraction | 原生记录选择与评估 | 相关反例/未知可见，不扩大权限，不隐藏覆盖不足。 |
+| 双记录族视图 | 维护候选与原生 Node 读取/生命周期不同 | 共用断言/检查证据，保留存储适配边界 | 明确来源与冲突语义，不把候选静默提升为事实，不建第二个记忆库。 |
+| V-002/V-003 改善 | tier 调整造成误失效，部分坏计划到提交才拒绝 | 现有依赖谓词 / Governor 预校验 | 被选入后续范围后再改；保留 CAS、规范节点与所有拒绝边界。 |
+
+Context Space 在认知整合后另分支开发，是另一职责。两平面留在同一模块，仅由 `runtime` 组装，彼此不直接依赖。本轮 Cognitive Core 不实现 ProjectPrefix、Safepoint Compaction 或 Reference Directory；后续窗口工作必须保留既有准入与来源暴露事务。
+
+## 长期认知演进：先有证据，再扩展
+
+1. 单独批准有界真实任务实验，验证净收益；保留原始失败，区分结果匹配与因果收益。v1.0 仍为 `causal_benefit_unmeasured`。本任务不发起付费模型请求或认知 Benchmark。
+2. 真实反复使用证明有价值后，再设计按消费者独立保存 Uses，解决 V-D1 / FFR-D3 与终身上限。Migration 必须另行批准并验证兼容、隐私和恢复；**0018 未被预先授权**。
+3. 语义/程序迁移扩展必须有可观察验证和反例；模型生成信念或摘要仍是提案，不能绕过宿主授权检查。
+4. 只有实际延迟或内存压力证据才优化大图/清理查询。保留安全知识与反例，不引入破坏性 LRU/TTL、新数据库或推测性 GraphRAG/GNN。
+
+下面原有 P0～P3 是概念依赖顺序，不是马上启动新工作的指令。
 
 ## P0：先保证知识可靠
 

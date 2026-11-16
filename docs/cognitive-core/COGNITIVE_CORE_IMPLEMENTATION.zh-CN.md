@@ -1,6 +1,6 @@
-# Cognitive Core — 实现原理
+# Cognitive Core v1.0 — Go 实现原理
 
-**2026-11-13 未合并候选。**main `00344b5`，历史认知输入 `91af861`。这是生产 Go 实现说明，不把本地候选写成 main 或长期收益。[English](COGNITIVE_CORE_IMPLEMENTATION.md) · [实际验证/提交](../reports/cognitive-core-final-completion-2026-11-13.md)。
+**独立整合分支 `integ/cognitive-core-v1-20261116`，输入 `8c30f75`，受保护 main `00344b5`，未合并、未发布。**这是当前 Go 机制说明，不把候选或工程通过写成 main/长期收益。[English](COGNITIVE_CORE_IMPLEMENTATION.md) · [整合证据](../reports/FINAL_COGNITIVE_CORE_V1_REPORT.zh-CN.md) · [生产入口矩阵](capabilities.zh-CN.md)。
 
 ## 为什么不新增一套“认知平台”
 
@@ -44,6 +44,18 @@ Experience 公开读取、变更和历史响应只包含当前读者自己的 Us
 内嵌检索在 Hook 装饰前按普通工具解析来源，在结果返回前事务提交依赖，并将来源并入外层响应。`read_thread` 的 Attention 保留有限 Experience 定位和真实反例警告，保持 `requires_condition_check`/`contested` 标签，不晋升事实。通用 Node 写入不能创建或改写规范别名；撤销别名不要求历史规范版本仍是最新有效版本。
 
 Workflow 的共享 `EffectiveAllowlist` 保留 nil/空列表区别：nil 表示不增加限制，显式空列表表示禁止全部工具。普通步骤、应用 Callback 和 Prompt 检查使用相同结果，已持久化的转换后也不会重新开放权限。
+
+## v1.0 历次审查修复如何接入
+
+- **ICRA-001，隐私：**`purgeWhere("cognition_decisions")` 同时匹配决策 owner、派生关系、sourceSessions 和引用 Node/来源。Preview 与分批清理共用条件；先清决策再清 Node，避免批次中丢失可达关系。真实 SQLite 测试保留无关所有者记录，并在重建/WAL 截断后检查敏感字节已清除。
+- **ICRA-002 / V-001，Run 归属：**`BeginRun` 同事务写无正文 `agent.start{runId}`。sourceRunSQL 按检查点 seq 取最新，仅旧历史无记录时回退 main 请求；pruneCheckpoints 保留最新 start。请求准入前失败也不能拼接前次动作、提案或结果。
+- **ICRA-003 / V-002 / V-T1，依赖：**评估不披露缺失/不可见前提，依赖结论标 stale；检索包含断言字段和标签。已验证 Experience 前提绑定 origin，而非无关消费者的聚合 owner。experienceUsesOnly 仅忽略 Uses、Version、RecordedAt、RevisionReason；其他定义、验证、范围、生命周期必须一致。真实反例仍使前提失效。
+- **ICRA-004 / V-003，治理：**快照投影 canonicalNodeId/storageTier，重复组排除已归档或规范化别名。预校验拒绝既有/同批别名链及 archived/invalid 规范目标；实际写入仍由 CAS 事务决定，不自动后台执行。
+- **继承的 Fable 修复：**反馈要求原动作的完整重现与应用结束时观察，结算不改用后来的结果；仅 Uses 并发或来源后来推进不会丢失既有结果。子 Run 终态结算；失败动作不能验证为正例。稳定 Experience owner 防止删除后的旧身份重新出现；容量预留保障反馈和生命周期写入。精确 Finding/提交/测试对应见 [Ledger](finding-ledger.md)。
+
+两记录族仍不同：维护候选服务 read_knowledge/Start，原生 Node 服务 assessment/Governor/Experience。它们共用来源/检查/Fence，但不自动桥接生命周期或做跨族冲突检测。belief/negative/abstraction 创建与保留属于显式宿主 SDK；Experience 没有自动开局索引。本轮不实施 Context Space/window、不新增生产包；同一 Go Module 仅由 runtime 组装两正交平面。
+
+接受 V-D1：任一已有 Use 的消费者撤回后共享 owner 被 fence，整条经验不可用；仅依赖 origin 的会话不被连带 fence，但前提 stale。V-002 仍有 tier 改动失效与采纳 CAS 失败；V-003 仍有部分提交时才拒绝。这些限制不允许弱化检查。Experience 是受验程序化宏，结果匹配（含预存结果）不测量因果收益，保持 causal_benefit_unmeasured。
 
 ## 恢复与兼容性
 

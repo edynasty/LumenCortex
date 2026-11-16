@@ -28,6 +28,8 @@ LumenCortex 是 Go 实现的认知型编程 Agent。Go 是唯一正式生产 Run
 ## Cognitive Core（认知核心）
 
 - [Cognitive Core 总览（中文）](cognitive-core/README.zh-CN.md) · [English](cognitive-core/README.md)
+- [Cognitive Core v1.0 整合报告（中文）](reports/FINAL_COGNITIVE_CORE_V1_REPORT.zh-CN.md) · [English](reports/FINAL_COGNITIVE_CORE_V1_REPORT.md)：`8c30f75` 独立整合，未合并、未发布。
+- [认知 Go API（中文）](cognitive-core/COGNITIVE_CORE_API.zh-CN.md) · [English](cognitive-core/COGNITIVE_CORE_API.md)；[认知数据模型（中文）](cognitive-core/COGNITIVE_CORE_DATA_MODEL.zh-CN.md) · [English](cognitive-core/COGNITIVE_CORE_DATA_MODEL.md)。
 - [总体架构（中文）](cognitive-core/architecture.zh-CN.md) · [English](cognitive-core/architecture.md)
 - [能力现状（中文）](cognitive-core/capabilities.zh-CN.md) · [English](cognitive-core/capabilities.md)
 - [记忆管理（中文）](cognitive-core/memory-lifecycle.zh-CN.md) · [English](cognitive-core/memory-lifecycle.md)

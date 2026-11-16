@@ -1,6 +1,6 @@
 # Cognitive Core 能力与证据矩阵
 
-**2026-11-13：**main 为 `00344b5`，`feat/cognitive-core-final-completion-20261113` 尚未合并。[English](capabilities.md)。精确命令、结果、平台限制和提交见[交付报告](../reports/cognitive-core-final-completion-2026-11-13.md)；有源码和自验不等于独立验收。
+**Cognitive Core v1.0：**整合分支 `integ/cognitive-core-v1-20261116`，指定输入 `8c30f75`，main `00344b5`，尚未合并。[English](capabilities.md)。[整合报告](../reports/FINAL_COGNITIVE_CORE_V1_REPORT.zh-CN.md)绑定实际工程与平台结果；[Finding Ledger](finding-ledger.md)区分历史自验与独立关闭。
 
 | 能力 | main | 本候选实现 | 证据与限制 |
 |---|---|---|---|
@@ -19,6 +19,33 @@
 | 消费者隐私 | 已有来源 Fence | 私有 Uses、决策/应用/访问清理 | 公开 API、实际工具、历史和重开；本地可信宿主边界。 |
 | 频率与效用 | 已有时间排名 | 读者访问与独立使用/结果分开 | 召回不计成功复用，因果价值明确未测。 |
 | 任意任务迁移/持续学习收益 | 未建立 | 不宣称 | 确定性场景证明机制，不证明真实任务成功率提升或人类级认知。 |
+
+## SDK 能力与生产自动调用的区别
+
+“自动”仅指显式启用且满足前提后由 Framework 执行，不表示系统会自主选择所有认知动作。
+
+| 能力 | 公开宿主 / SDK 入口 | 正常生产触发方式 | v1.0 限制 |
+|---|---|---|---|
+| 工作 / 情景记忆 | Session、Task State、Notes、执行与检查 | 既有 Agent Loop 和持久终态 | 不保存私有推理。 |
+| 语义候选维护 | `EnableCognition`、`MaintainCognition`、`CognitionOptions.Auto` | 显式批次，或选择 Auto 后顶层运行结束触发有界批次 | `cognition_candidates` 不自动转为原生 Graph。Auto 可调用配置模型，本轮未启用付费测试。 |
+| 候选启动注意力 | `ReadKnowledge` 诊断 | 顶层 `knowledgeIndexRow` 与 `BeginRun(Notices, NoticeSources)` | 最多 6 条 / 2048 字节，不包含 Experience。 |
+| 经验发现 | `RecallExperiences`、`ReadExperience` | 模型选择 `recall_experiences` 或 `read_thread` | 没有自动开局索引，不保证模型一定调用。 |
+| 经验提案 / 提取 | `ExtractExperience`、`ValidateExperience` | 模型调用 `propose_experience`；含子会话在内的合格 Run 结束后自动结算 | 必须有完整真实来源和获准检查，不能只学一段总结。 |
+| 采纳 / 实际复用 | `AdoptExperience` | 模型调用 `adopt_experience`，再经普通 Callback 调用 `apply_experience` | 精确步骤/参数；无宿主重放 API；终身八次 Uses 及字节限制。 |
+| 结果 / 恢复 | `RecordExperienceFeedback`、`AgentResult.Cognition` | 应用结束检查、终态结算、`Engine.Open` 恢复 | 不归因后来的工作区状态，不重复工具；效用保持 `causal_benefit_unmeasured`。 |
+| 原生 belief / negative / abstraction | `PutCognitiveNode`、`VerifyCognitiveNode`、Graph API | 显式宿主调用，没有自动 Agent 写入方 | 模型或宿主提案不等于检查证据。 |
+| 证据评估 | `AssessCognition` | 模型选用 `assess_cognition`，记录不可变决策 | 词法查询仅检索 belief；显式 ID、依赖/冲突扩展合计最多 16 条。 |
+| 经验修订 | `ReviseExperience` | 来源宿主按反馈显式修改定义 | 反例停止复用，不自动改写定义或自行批准。 |
+| Governor 分析 / 计划 / 验证 | `GovernorAnalyze`、`GovernorPlan(ctx, nil, …)`、`GovernorValidate` | 显式宿主请求 | 不启用模型 Curator 或自主 Epoch。 |
+| Governor Apply / 保留 | `GovernorApply`、`SetCognitiveLifecycle`、`MaintainCognitiveMemory` | 显式所有者 CAS 事务 | 不是后台定时优化器；保护反例与安全知识。 |
+| 来源撤回 / 隐私删除 | 既有 `RevokeSource`、`DeleteSession` | 宿主显式操作；Framework 传播 Fence、清理并恢复 | V-D1 使单个消费者删除可能导致整条共享经验撤回。 |
+
+## v1.0 接受的限制
+
+- 两类记录共用范围、检查、来源和隐私权威，但没有统一记录生命周期或跨族冲突视图。这是已记录的架构边界，不能宣称已修复。
+- 保留 V-D1 共享所有者可用性、V-002 tier 失效/并发采纳 CAS、V-003 预校验差异；不因此放宽事务或 Fence 检查。
+- Experience 是 **Verified Procedural Macro（受验程序化宏）**，不是参数迁移、通用语义学习、自主信念生成或因果收益测量。
+- 长期净收益、大规模召回质量和物理存储分层尚未证明或实现。[路线图](roadmap.zh-CN.md)要求后续单独立项和证据。
 
 ## 证据口径
 

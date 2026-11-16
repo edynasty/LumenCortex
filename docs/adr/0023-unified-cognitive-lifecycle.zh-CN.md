@@ -43,6 +43,14 @@
 
 最终候选为每个动作保存 `outcome`，不再用成功布尔值代替结算结果。冻结前旧候选回执缺少确切结果时保持未确认，不回写旧反馈或凭空补计成功。这是候选 JSON 契约修正，不是生产 Schema 迁移。
 
+### v1.0 整合澄清（2026-11-16）
+
+Owner 指定 `8c30f75` 为唯一输入，接受 V-D1 共享经验失败关闭及 V-002/V-003 限制，冻结 0014–0017；不授权 0018 或旧候选数据转换。仅 Uses 改动不改变固定经验前提，定义、验证、状态、范围或宿主记忆策略变化仍失效。Run 身份使用事务性 agent.start 检查点序号，不按壁钟排序。
+
+两记录族共用证据/来源/隐私权威，但生命周期和读取路径不同。Experience 是受验程序化宏，不是通用语义学习。原生 belief/negative/abstraction 创建及 Governor 保留仍是宿主 SDK；模型选择工具不等于自动后台行为。V-D1 可因一个消费者删除而撤回整个聚合，原始定义依赖方不连带 Fence，但其前提变 stale。
+
+Cognitive Core 和 Context Space 是同一 Go Module 中的正交职责，仅由 runtime 组装，彼此无直接依赖，保留 Start/工具内容暴露事务。本澄清不新增 ProjectPrefix、Reference Directory、Safepoint Compaction、第二个 Manager，不改变 Core 版本或 Tag。[v1.0 报告](../reports/FINAL_COGNITIVE_CORE_V1_REPORT.zh-CN.md)。
+
 ## 结果、限制与验证
 
 普通 Agent 可达条件学习、纠错与记忆治理。原操作匹配、每条经验八次 Uses、64 KiB Node 限制泛化与规模；不宣称任意迁移或长期收益。确定性本地 Provider 驱动真实 Engine、工具、检查和 SQLite；红绿、build/vet/全量测试、定向 Race、Migration 和平台结果见[交付报告](../reports/cognitive-core-final-completion-2026-11-13.md)，独立审查单列。

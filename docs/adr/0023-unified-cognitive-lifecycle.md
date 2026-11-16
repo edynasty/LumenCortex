@@ -45,6 +45,14 @@ Migration 0017 adds bounded STRICT application, proposal, decision and reader-ac
 
 The final candidate stores per-action `outcome` instead of a success boolean. Older pre-freeze candidate receipts without that exact outcome remain unconfirmed; no historical feedback or receipt is rewritten to invent credit. This is a candidate JSON contract correction, not a production schema migration.
 
+### v1.0 integration clarification (2026-11-16)
+
+Owner selected `8c30f75` as the sole input, accepted V-D1 fail-closed shared-Experience withdrawal and V-002/V-003 limitations, and froze SQL 0014–0017. No migration 0018 or early-candidate data conversion is authorized. A Uses-only revision preserves a pinned Experience premise; a definition, validation, state, scope or host memory-policy change does not. Started-run identity uses transactional `agent.start` checkpoint sequence, never wall-clock ordering.
+
+The two record families share evidence/source/privacy authority but retain separate lifecycles and read paths. Experience is a Verified Procedural Macro, not general semantic learning. Native belief/negative/abstraction creation and Governor retention remain host SDK operations; model-selected tools are not automatic background behavior. V-D1 may withdraw the whole aggregate after one consumer deletion, without fencing origin-only dependent sessions; their premises become stale.
+
+Cognitive Core and Context Space are orthogonal responsibilities within the same Go module, composed only by `runtime`. Neither directly imports the other; existing Start/tool disclosure transactions remain intact. This clarification adds no ProjectPrefix, Reference Directory, safepoint compaction, second manager or Core version/tag change. [v1.0 report](../reports/FINAL_COGNITIVE_CORE_V1_REPORT.md).
+
 ## Consequences and validation
 
 Conditional learning, correction and governed memory are reachable through normal Agent execution. Exact-action matching, eight Uses per record and 64 KiB node bounds limit generalization and scale; no universal transfer or longitudinal benefit is claimed. Deterministic local providers drive real Engine/tools/checks/SQLite in integration tests and the public offline demo. Red/green findings, full build/vet/tests, affected Race, migration and platform results are recorded in the [completion report](../reports/cognitive-core-final-completion-2026-11-13.md), with independent status separate.

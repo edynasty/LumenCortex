@@ -28,6 +28,8 @@ LumenCortex is a Go-based cognitive coding-agent system. **Go is the sole produc
 ## Cognitive architecture
 
 - [Cognitive Core overview (English)](cognitive-core/README.md) · [中文](cognitive-core/README.zh-CN.md)
+- [Cognitive Core v1.0 integration report (English)](reports/FINAL_COGNITIVE_CORE_V1_REPORT.md) · [中文](reports/FINAL_COGNITIVE_CORE_V1_REPORT.zh-CN.md) — isolated `8c30f75` integration, not merged or released.
+- [Cognitive Go API (English)](cognitive-core/COGNITIVE_CORE_API.md) · [中文](cognitive-core/COGNITIVE_CORE_API.zh-CN.md); [cognitive data model (English)](cognitive-core/COGNITIVE_CORE_DATA_MODEL.md) · [中文](cognitive-core/COGNITIVE_CORE_DATA_MODEL.zh-CN.md).
 - [Unified cognitive architecture (English)](cognitive-core/architecture.md) · [中文](cognitive-core/architecture.zh-CN.md)
 - [Cognitive capability matrix (English)](cognitive-core/capabilities.md) · [中文](cognitive-core/capabilities.zh-CN.md)
 - [Memory lifecycle (English)](cognitive-core/memory-lifecycle.md) · [中文](cognitive-core/memory-lifecycle.zh-CN.md)

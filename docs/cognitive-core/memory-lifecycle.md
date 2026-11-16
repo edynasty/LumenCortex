@@ -1,6 +1,6 @@
 # Cognitive Memory Lifecycle
 
-**Unmerged completion candidate, 2026-11-13.** [中文](memory-lifecycle.zh-CN.md) · [Architecture](architecture.md) · [Evidence](../reports/cognitive-core-final-completion-2026-11-13.md).
+**Cognitive Core v1.0, isolated input `8c30f75`; not merged or released.** [中文](memory-lifecycle.zh-CN.md) · [Architecture](architecture.md) · [Integration evidence](../reports/FINAL_COGNITIVE_CORE_V1_REPORT.md).
 
 ## Four roles, one store
 
@@ -23,6 +23,8 @@ Short/long term are roles and retention policies, not separate databases. `Memor
 6. A complete sequence of distinct, ordered dispatcher-issued execution identities and terminal outcomes, including real failures, is use evidence. The declared outcome is checked once, when the last action has settled and before the run continues; feedback records that observation and never a later state of the workspace. A check for an outcome that appears with a delay has to wait for it itself. Pending, denied, interrupted, partial or unknown execution remains unknown; identical arguments cannot borrow another action's receipt.
 7. A counterexample appends `needs_revision`. The origin may propose a changed definition, but validation resets and historical Uses/feedback remain. The next consumer must establish conditions again.
 8. Restart finishes memory settlement under the existing run lock without replaying actions. Check/storage errors appear separately in `AgentResult.Cognition` and recovery events.
+
+Started-run identity is independent of successful request admission: `agent.start` is written by `BeginRun` and ordered by checkpoint sequence. A later pre-admission failure cannot borrow an earlier run's episode, proposal or application. Uses-only revisions preserve a pinned Experience premise; new validation, definition, counterexample, scope, status or host memory-policy changes do not.
 
 ## Compression and consolidation
 
@@ -58,6 +60,7 @@ Thread recall's existing 30-day recency component remains a ranking weight, not 
 - **Restore** requires current source, dependency and valid-time checks; it does not validate content. Revoked/invalidated identities cannot be revived; a corrected claim requires a new identity.
 - **Revoke** appends an immutable invalidation. Source revocation uses the existing fence graph and prevents dependent reuse.
 - **Privacy delete** uses the existing stop/fence/secure-purge/rebuild/WAL recovery path and removes all relevant revisions, applications and access rows. It is not a capacity shortcut and is not reversed by Restore.
+- **Shared-Experience availability (V-D1):** any recorded consumer's withdrawal fences the shared owner; all readers lose that Experience, and privacy deletion erases its derived content. Origin-only dependent sessions are not themselves fenced, but assessment marks the missing premise stale. Restore cannot bypass the fence. This is an accepted v1.0 limit, not a pending permission to weaken deletion.
 
 If the active/protected set exceeds the requested capacity, `Pressure=true` is returned. The system does not delete a rare safety fact or counterexample merely to hit a number. Hot/warm/cold is logical metadata, not physical storage tiers.
 
@@ -68,3 +71,5 @@ Native nodes remain at most 64 KiB; source refs at most 8, dependencies at most 
 Two revisions must still fit a record that content has filled, so every other revision leaves their room. One is the host's lifecycle decision: 4 KiB are kept in every node, and a full record can still be archived, revoked, tiered or consolidated with any reason the API accepts. The other is the settlement of an Experience use: the room of its feedback is kept from the adoption on, so a use that was applied can record its checked outcome, a counterexample included. A record whose bytes cannot hold another use with that room admits none: recall reports `use_limit_reached` and adoption is refused before anything is applied. The room is measured for sessions Core created and worktree paths up to 256 bytes; beyond that the store may refuse an admitted adoption, and a longer feedback is taken from the lifecycle room.
 
 Large Experience sets and whole-graph Governor diagnostics still scan the selected domain; this candidate adds no ANN/embedding database or automatic destructive GC. Source advancement can make old Experiences unavailable; re-extraction from a new genuine episode is required. Privacy protection covers Core-owned live state, not external backups or forensic erasure. No longitudinal learning benefit is measured.
+
+Maintenance candidates and native graph nodes share evidence and privacy authority, not a single record lifecycle. Automatic Start notices cover the former, while Experience needs explicit recall. Host-created belief/negative/abstraction and host-requested retention are SDK capabilities; no automatic writer or background Governor is added. See [production entrypoints](capabilities.md) and the [v1.1 roadmap](roadmap.md).

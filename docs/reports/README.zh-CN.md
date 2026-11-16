@@ -21,6 +21,8 @@
 
 ## Cognitive、Context 和知识连续性
 
+- [Cognitive Core v1.0 最终整合报告](FINAL_COGNITIVE_CORE_V1_REPORT.zh-CN.md) · [English](FINAL_COGNITIVE_CORE_V1_REPORT.md)：此中英文报告具有相同范围、结论、测试数字与限制，不只是摘要。
+- [Build / Vet / Test / Race 与平台证据](COGNITIVE_CORE_V1_VERIFICATION.md) · [Migration 验证](COGNITIVE_CORE_V1_MIGRATION.md) · [Git 整合与待授权清理](COGNITIVE_CORE_V1_GIT.md)。
 - [Context 连续性](context-continuity-2026-10-21.zh-CN.md) · [原文](context-continuity-2026-10-21.md)
 - [M3/M4 Runtime](M3-M4-runtime-2026-10-15.zh-CN.md) · [原文](M3-M4-runtime-2026-10-15.md)
 - [自动推理强度](auto-effort-2026-10-19.zh-CN.md) · [原文](auto-effort-2026-10-19.md)

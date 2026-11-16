@@ -4,6 +4,10 @@
 
 **Current completion amendment (2026-11-13):** the isolated candidate adds 0017 after this unchanged 0016 design. Current API/data/lifecycle are in ADR-0023. Sections describing no Governor Apply are historical P0 scope, not the current host-only lifecycle API.
 
+**v1.0 integration amendment (2026-11-16):** `8c30f75` is the sole implementation input; SQL 0014–0017 is unchanged and 0018 is not authorized. Existing `session_checkpoints` stores the ICRA started-run identity. [Migration verification](../reports/COGNITIVE_CORE_V1_MIGRATION.md) distinguishes no-write schema-family refusal from SQL down-guard rollback after backup. Preserve early unreleased-candidate databases and use fresh temporary state; no conversion or deletion of historical evidence is part of this integration.
+
+**v1.0 整合补充：**唯一输入 `8c30f75`，0014–0017 不变，不授权 0018。已启动 Run 身份复用既有检查点。Schema 家族不符时修改前拒绝；新语义降级保护在备份后的 SQL 事务中拒绝并回滚，两者不能混写。保留旧未发布候选库，验证使用新临时状态，不转换或删除历史证据。
+
 ## Why existing rows cannot meet P0
 
 `0014_cognition`/`0015_cognition_support` represent maintainer candidates with five equality assertions and immutable source/support identities; `proposed_claim` is capped at 2048 bytes. They do not represent native graph nodes/relations, five distinct time meanings, structured conditional strategies or outcome feedback. Reusing assertion JSON or session metadata for that graph would bypass the type/approval contract and privacy cleanup. Node graph tables are forbidden in the Go database.

@@ -1,7 +1,7 @@
-# Cognitive Core — Implementation (T5a and Go P0)
+# Cognitive Core v1.0 — Go implementation
 
-Current: unmerged completion candidate `feat/cognitive-core-final-completion-20261113`, based on main `00344b5` with committed historical `91af861` imported. [Completion report](../reports/cognitive-core-final-completion-2026-11-13.md) records tested source and review status. [中文实现说明](COGNITIVE_CORE_IMPLEMENTATION.zh-CN.md).
-Historical stages below retain their original evidence scopes; current behavior is defined by the completion section, [ADR-0023](../adr/0023-unified-cognitive-lifecycle.md) and [architecture](architecture.md).
+Current: isolated `integ/cognitive-core-v1-20261116`, input `8c30f75`, protected main `00344b5`; not merged or released. [Integration report](../reports/FINAL_COGNITIVE_CORE_V1_REPORT.md) records the actual gates. [中文](COGNITIVE_CORE_IMPLEMENTATION.zh-CN.md).
+Historical sections retain their original evidence scopes. Current behavior follows the v1.0 sections, [ADR-0023](../adr/0023-unified-cognitive-lifecycle.md), [architecture](architecture.md) and [production-entrypoint matrix](capabilities.md).
 Related: [API](COGNITIVE_CORE_API.md) · [Data model](COGNITIVE_CORE_DATA_MODEL.md) · [Security](COGNITIVE_CORE_SECURITY.md) · [Test evidence](COGNITIVE_CORE_TEST_PLAN.md).
 
 ## Completion implementation (2026-11-13)
@@ -28,6 +28,18 @@ The callback now observes each application action through the Loop's shared `obs
 Nested retrieval uses ordinary result-source parsing before hook decoration. Its sources commit before the result is exposed and are unioned in the outer response; a newly consumed counterexample warning retains its aggregate-owner dependency. `read_thread` now includes bounded Experience locators in Attention, labelled `requires_condition_check`/`contested` rather than facts. Generic node writes cannot introduce or rewrite canonical aliases; withdrawing an alias preserves its historical pin even after its target advances or is withdrawn.
 
 Workflow allowlists preserve their nil/empty distinction at the shared `EffectiveAllowlist`: nil adds no restriction; an explicit empty list denies every tool. The same result feeds ordinary step specs, application callbacks and prompt inspection, including after a persisted transition.
+
+## v1.0 review integration (2026-11-16)
+
+- **ICRA-001, privacy:** `purgeWhere("cognition_decisions")` matches the decision owner, recorded derivation, sourceSessions and referenced native nodes/sources. Preview and bounded purge share the predicate; decisions are purged before their referenced nodes, preserving reachability across batches. Real SQLite tests check unrelated-owner preservation and absence of sensitive decision bytes after rebuild/WAL truncation.
+- **ICRA-002 / V-001, run attribution:** `BeginRun` writes content-free `agent.start{runId}` atomically with the started run. `sourceRunSQL` uses checkpoint seq, falling back to main envelopes only for pre-checkpoint history. `pruneCheckpoints` preserves the newest start. A pre-admission failure cannot attach the previous run's actions, proposals or outcome.
+- **ICRA-003 / V-002 / V-T1, dependency semantics:** assessment skips undisclosable/missing premises and marks dependents stale; search includes structured assertion fields/tags. A validated Experience dependency records origin lineage, not unrelated consumers' aggregate owner. `experienceUsesOnly` ignores only Uses, Version, RecordedAt and RevisionReason; every other definition/validation/scope/lifecycle value must match. A real counterexample still invalidates the premise.
+- **ICRA-004 / V-003, governance:** snapshots project canonicalNodeId and storageTier; duplicate groups omit archived/canonicalized aliases. Validation refuses existing or same-plan alias chains and archived/invalid canonical targets. Apply remains the authoritative CAS transaction, not an automatic background process.
+- **Fable's inherited corrections:** feedback requires reproduced settled actions and the outcome observed at application end; settlement can survive benign uses-only CAS contention and source advancement without rechecking a later result. Child runs finalize; failed positive origins cannot validate. Stable Experience owner identity prevents deleted history from being re-created under the same identity. Node room reserves feedback and a lifecycle revision. Exact finding/commit/test mapping is in [the ledger](finding-ledger.md).
+
+The two cognitive record families remain distinct: maintenance candidates feed read_knowledge/Start, native nodes feed assessment/Governor/Experience. They share source/check/fence authority but do not automatically bridge lifecycles or detect cross-family conflicts. Belief/negative/abstraction creation and retention are explicit host SDK operations. Experience has no automatic Start index. No Context Space/window implementation or new production package is introduced; `runtime` composes the orthogonal planes within one Go module.
+
+Accepted V-D1 fences the aggregate owner after any recorded consumer withdrawal, making the shared Experience unavailable while leaving origin-only dependent sessions unfenced and their premises stale. V-002 retains tier-change invalidation and adoption CAS failure; V-003 retains some late transaction rejections. These are documented limits, not permission to weaken checks. Experience is a Verified Procedural Macro; outcome match, including an already-held outcome, does not measure causal benefit (`causal_benefit_unmeasured`).
 
 ## 1. What the mechanism does
 

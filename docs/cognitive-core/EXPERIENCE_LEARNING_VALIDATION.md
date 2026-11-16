@@ -1,6 +1,6 @@
 # Go Experience validation contract
 
-Unmerged Go completion candidate, 2026-11-13. The ordinary Agent and host paths use the same contract. Current source-bound results are in the [completion report](../reports/cognitive-core-final-completion-2026-11-13.md); historical checkpoints below keep their original scope. No paid model or real-task quality experiment was run.
+Isolated Cognitive Core v1.0 integration, input `8c30f75`, 2026-11-16; not main or a release. Ordinary Agent and host paths use the same evidence contract. [Integration verification](../reports/COGNITIVE_CORE_V1_VERIFICATION.md) records actual PASS/FAIL/SKIP separately from historical checkpoints below. The public offline demo proves exact conditional reuse, not general semantic learning or causal benefit. No paid model or real-task quality experiment is part of this task.
 
 ## Public API
 

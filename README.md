@@ -22,9 +22,9 @@ LumenCortex is a coding-agent harness with its own cognitive architecture. It is
 
 ## Current source and release baseline
 
-Snapshot: **2026-11-13**. Verified GitHub main is `00344b5`; the Go Harness code baseline remains `208ad6b`. This checkout is the **unmerged Cognitive Core completion candidate**, not main or a release. See the [completion report](docs/reports/cognitive-core-final-completion-2026-11-13.md) for exact commits and verification. Source, runtime identity, release tags and Desktop dependencies are separate version surfaces.
+Snapshot: **2026-11-16**. Verified GitHub main is `00344b5`; the Go Harness code baseline remains `208ad6b`. This checkout is the **isolated Cognitive Core v1.0 integration candidate**, based on `8c30f75` on `integ/cognitive-core-v1-20261116`; it is not main or a release. See the [integration report](docs/reports/FINAL_COGNITIVE_CORE_V1_REPORT.md) for exact commits and verification. Cognitive capability version, Go Engine identity, Core release tags and Desktop dependencies are separate surfaces.
 
-Review addendum, **2026-11-14**: this branch (`review/cognitive-core-fable-full-review-20261114`) adds the fixes of an independent full review of that candidate, 17 findings, self-verified and not yet independently verified. See the [review report](docs/reports/cognitive-core-fable-full-review-2026-11-14.md).
+The candidate includes Astra, Fable, Carbon and Opus corrections. The [Finding Ledger](docs/cognitive-core/finding-ledger.md) reconciles their separate implementation, self-verification and independent-review evidence; historical reports remain unchanged. Integration adds no Context Space implementation or migration 0018.
 
 | Surface | Current baseline |
 |---|---|
@@ -75,9 +75,9 @@ Platform limits remain explicit: Linux real-adapter DAP and host/VM cgroup/UID B
 
 - Main `00344b5` has persistent Context Graph, Notes/Recall, Attention Light and read-only Governor foundations.
 - **This candidate** adds unified scope/time/evidence, versioned beliefs and dependencies, task-relevant recall, and explicit evidence-based decisions. Unknown, conflicting and stale claims remain distinct from facts.
-- Ordinary cognition-enabled Agent runs can propose, recall, adopt and explicitly apply conditional Experiences; real tool execution and host-approved checks produce feedback. Restart settles memory without replaying actions.
-- Host-only Governor lifecycle transactions manage logical tiers, equivalent-evidence consolidation, protected retention, archive, restore and revocation. Privacy deletion reuses the shared source-fence/purge mechanism. The unadmitted model Curator and autonomous Epoch execution remain disabled.
-- Cognition is opt-in with `EnableCognition`; no paid request is needed by the offline demo. **Mechanism verification is not evidence of long-term autonomous learning benefit.** See [Cognitive Core](docs/cognitive-core/README.md).
+- Cognition-enabled Agent runs can explicitly propose, recall, adopt and apply **Verified Procedural Macros**. Real tool executions and checks observed at application end support feedback; restart settles memory without replaying tools. Experience has no automatic Start index and is not general semantic learning.
+- Host-only Governor lifecycle transactions manage logical tiers, equivalent-evidence consolidation, protected retention, archive, restore and revocation. Native belief/negative/abstraction creation and capacity maintenance remain host SDK actions, not automatic Agent writers. Model Curator and autonomous Epoch remain disabled.
+- Cognition is opt-in with `EnableCognition`; bounded automatic model maintenance is a separate `CognitionOptions.Auto` choice. V-D1 intentionally makes a shared Experience unavailable after one recorded consumer's withdrawal/deletion; V-002/V-003 fail-closed limitations remain. **Engineering verification does not prove long-term autonomous learning benefit** (`causal_benefit_unmeasured`). See the [capability/entrypoint matrix](docs/cognitive-core/capabilities.md).
 
 ### Extension points
 

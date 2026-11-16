@@ -29,8 +29,10 @@
 
 Harness Evolution 的本地候选、测试通过和 Desktop 联调，都不等于已经合并、打 Tag 或发布。必须核对准确 Commit、合并记录、Core Tag 和 Desktop 的 `go.mod`。
 
-## Cognitive Core 完整候选接口
+## Cognitive Core v1.0 整合接口
 
-2026-11-13 独立候选把提案、召回、采纳、明确应用和评估五种工具绑定到普通已准入 Run。`apply_experience` 复用原有工具集合、Policy、Workflow、预算和 Hook，不向 Eval 授予 Exec，不增加第二个 Agent Loop。主任务结果与 `AgentResult.Cognition` 记忆结算分开；恢复不重放工具，Governor 生命周期、检查批准和隐私权限仍在宿主。详见 [ADR-0023](../adr/0023-unified-cognitive-lifecycle.zh-CN.md)与 [API](../cognitive-core/COGNITIVE_CORE_API.zh-CN.md)。本任务没有实现 Desktop 或无关 Harness 新功能。
+`8c30f75` 独立整合把提案、召回、采纳、明确应用和评估五种工具绑定到普通已准入 Run。`apply_experience` 复用原有工具集合、Policy、Workflow、预算和 Hook，不向 Eval 授予 Exec，不增加第二个 Agent Loop。主任务结果与 `AgentResult.Cognition` 记忆结算分开；恢复不重放工具，Governor 生命周期、检查批准和隐私权限仍在宿主。详见 [ADR-0023](../adr/0023-unified-cognitive-lifecycle.zh-CN.md)与 [API](../cognitive-core/COGNITIVE_CORE_API.zh-CN.md)。本轮不新增 Desktop 或无关 Harness 能力。
 
 每个应用 Callback 复用同一 Workflow 观察与转换 Hook，执行结果和 Task State/来源边原子提交，下一步重算权限；拒绝后台提交，不能跨人工 Gate。执行结果来自调度器的确切身份，不相信模型文字或查询“最近同参数记录”。内嵌检索保留普通来源撤销边界，不改变 Desktop 契约。
+
+`BeginRun` 同事务记录 `agent.start{runId}`，请求准入前失败也保留正确 Run 身份。`Notices + NoticeSources` 与工具结果来源提交仍是跨会话内容暴露边界。认知包和 `internal/window` 在同一 Go Module 中彼此独立，仅由 `runtime` 组装。本轮不实现 ProjectPrefix、Reference Directory 或 Safepoint Compaction。Start 只提示维护候选，不含 Experience。[认知矩阵](../cognitive-core/capabilities.zh-CN.md)区分宿主 SDK、模型选用工具与自动结算。

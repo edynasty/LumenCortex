@@ -24,9 +24,9 @@ LumenCortex 是拥有自身认知架构的 Coding Agent Harness，不绑定单�
 
 ## 当前源码与发布基线
 
-快照：**2026-11-13**。已核实的 GitHub main 为 `00344b5`，Go Harness 代码基线仍为 `208ad6b`。本工作树是**尚未合并的 Cognitive Core 完整实现候选**，不是 main 或 Release。精确提交和验证见[交付报告](docs/reports/cognitive-core-final-completion-2026-11-13.md)。源码、Runtime 标识、Release Tag 和 Desktop 依赖分别记录。
+快照：**2026-11-16**。已核实的 GitHub main 为 `00344b5`，Go Harness 代码基线仍为 `208ad6b`。本工作树是 **Cognitive Core v1.0 独立整合候选**，`integ/cognitive-core-v1-20261116` 基于 `8c30f75`，不是 main 或 Release。精确提交和验证见[整合报告](docs/reports/FINAL_COGNITIVE_CORE_V1_REPORT.zh-CN.md)。认知能力版本、Go Engine 标识、Core Tag 和 Desktop 依赖是不同版本面。
 
-审查补充，**2026-11-14**：本分支（`review/cognitive-core-fable-full-review-20261114`）在该候选之上加入了一次独立完整审查的修复，共 17 项 Finding，目前只有修复者自验，尚未独立复核。见[审查报告](docs/reports/cognitive-core-fable-full-review-2026-11-14.zh-CN.md)。
+候选包含 Astra、Fable、Carbon、Opus 修复。[Finding Ledger](docs/cognitive-core/finding-ledger.md)区分各轮实施、自验和独立复核证据，历史报告保持不变。本轮不实施 Context Space，不新增 Migration 0018。
 
 | 范围 | 当前基线 |
 |---|---|
@@ -77,9 +77,9 @@ Go Engine 是正式生产 Runtime 实现。`cmd/lcx-go` 是当前从源码运行
 
 - main `00344b5` 已有 Context Graph、Notes/Recall、Attention Light 和只读 Governor 基础。
 - **本候选**统一范围、时间、证据、信念版本和依赖，提供任务相关召回与证据判断；未知、冲突、过期信息不会冒充事实。
-- 启用认知的普通 Agent 可以提出、召回、采纳并明确应用有条件的经验；真实工具执行和宿主批准的检查产生反馈。重启只补全记忆结算，不重放操作。
-- 宿主通过 Governor 事务管理逻辑冷热层、等价证据归并、重要记忆保留、归档、恢复和撤销。隐私删除复用来源 Fence 与清理机制；没有获准请求入口的模型 Curator 和自主 Epoch 执行仍禁用。
-- 通过 `EnableCognition` 显式启用；离线示例无需付费请求。**工程闭环通过验证，不等于长期自主学习收益已经得到证明。** 详见 [Cognitive Core 文档](docs/cognitive-core/README.zh-CN.md)。
+- 启用认知的 Agent 可显式提案、召回、采纳和应用 **Verified Procedural Macro（受验程序化宏）**。真实工具执行与应用结束时的检查形成反馈；重启补结算、不重放工具。Experience 没有自动开局索引，不是通用语义学习。
+- 宿主通过 Governor 事务管理逻辑冷热层、等价证据归并、重要记忆保留、归档、恢复和撤销。原生 belief/negative/abstraction 创建及容量维护仍是宿主 SDK 操作，不是自动 Agent 写入。模型 Curator 和自主 Epoch 仍禁用。
+- `EnableCognition` 显式启用认知，有界自动模型维护还需另选 `CognitionOptions.Auto`。V-D1 有意保留“单个已有消费者撤回/删除使共享经验不可用”，V-002/V-003 失败关闭限制也保留。**工程验证不证明长期自主学习收益**，效用仍为 `causal_benefit_unmeasured`。详见[能力/生产入口矩阵](docs/cognitive-core/capabilities.zh-CN.md)。
 
 ### 扩展接口
 

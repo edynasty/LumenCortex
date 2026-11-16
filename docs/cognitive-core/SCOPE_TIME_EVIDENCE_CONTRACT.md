@@ -1,6 +1,6 @@
-# Go Scope, Time and Evidence — P0 contract
+# Go Scope, Time and Evidence — v1.0 contract
 
-Go is the sole production Runtime. This contract now governs the unmerged 2026-11-13 completion candidate on main `00344b5`; inherited fixes are not silently promoted to main or independent PASS. [Current architecture](architecture.md) and [ADR-0023](../adr/0023-unified-cognitive-lifecycle.md) define lifecycle and execution additions. Node remains historical reference.
+Go is the sole production Runtime. This contract governs the isolated Cognitive Core v1.0 integration of `8c30f75`, with protected main `00344b5`; it does not make a main or release claim. [Current architecture](architecture.md), [ADR-0023](../adr/0023-unified-cognitive-lifecycle.md) and [integration evidence](../reports/FINAL_COGNITIVE_CORE_V1_REPORT.md) define current scope. The two record families share evidence/privacy authority but retain separate lifecycles. Node remains historical reference.
 
 ## Scope
 

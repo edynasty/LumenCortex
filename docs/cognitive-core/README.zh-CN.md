@@ -1,8 +1,8 @@
 # Cognitive Core（认知核心）
 
-**2026-11-13 未合并候选。**main 为 `00344b5`；本候选整合已提交的 `91af861` 和本轮学习/生命周期修复。实现、自验、独立审查分别记录，详见[交付报告](../reports/cognitive-core-final-completion-2026-11-13.md)。[English](README.md)。
+**Cognitive Core v1.0 整合，2026-11-16。**受保护 main `00344b5`，指定输入 `8c30f75`，独立分支 `integ/cognitive-core-v1-20261116`。未合并、未发布。[整合报告](../reports/FINAL_COGNITIVE_CORE_V1_REPORT.zh-CN.md)绑定工程结果与精确提交。[English](README.md)。
 
-**2026-11-14 独立完整审查。**对该候选（`c1d3229`）的独立完整审查复现了 17 项缺陷（其中 4 项 P1），并在 `review/cognitive-core-fable-full-review-20261114` 上修复。这些修复目前只有修复者自验，尚待未参与修复的审查者复核。见[审查报告](../reports/cognitive-core-fable-full-review-2026-11-14.zh-CN.md)和 [Finding Ledger](finding-ledger.md#fable-full-review-2026-11-14-ffr)。
+**审查关闭：**已包含 Astra 完成候选、Fable FFR-001–017、Carbon ICRA-001–004、Opus ICRA-V-001–003/V-T1。独立认可来自后续审查者及独立架构审查，不由本轮整合者自签。[Finding Ledger](finding-ledger.md)逐项记录范围和接受限制，不回写历史报告。
 
 Cognitive Core 的目标，是让 Agent 不只完成当前任务，还能利用过去积累的知识和经验，判断信息是否可靠，在发现错误时修正，并把有效经验用于后续任务。
 
@@ -13,15 +13,20 @@ Cognitive Core 的目标，是让 Agent 不只完成当前任务，还能利用�
 - [总体架构](architecture.zh-CN.md)：七个认知领域分别负责什么，如何配合。
 - [能力现状](capabilities.zh-CN.md)：哪些已经进入 Go main，哪些只在候选分支，哪些还没有实现。
 - [记忆管理](memory-lifecycle.zh-CN.md)：短期、长期、压缩、频率、保留和删除。
-- [后续工作](roadmap.zh-CN.md)：按依赖关系整理的改进方向。
-- [实现原理](COGNITIVE_CORE_IMPLEMENTATION.zh-CN.md)、[公开 API](COGNITIVE_CORE_API.zh-CN.md)、[数据模型](COGNITIVE_CORE_DATA_MODEL.md)、[Migration](COGNITIVE_P0_STORAGE_DECISION.md)与 [Finding Ledger](finding-ledger.md)。
+- [v1.1 与认知演进路线](roadmap.zh-CN.md)：后续接入、双记录族、实证和规模工作；不授权 0018 或付费实验。
+- [实现原理](COGNITIVE_CORE_IMPLEMENTATION.zh-CN.md)、[公开 API](COGNITIVE_CORE_API.zh-CN.md)、[数据模型](COGNITIVE_CORE_DATA_MODEL.zh-CN.md)、[Migration](COGNITIVE_P0_STORAGE_DECISION.md)与 [Finding Ledger](finding-ledger.md)。
 - [ADR-0023](../adr/0023-unified-cognitive-lifecycle.zh-CN.md)：当前生命周期、权限和原操作序列学习的统一决策。
+- [v1.0 最终整合](../reports/FINAL_COGNITIVE_CORE_V1_REPORT.zh-CN.md)：工程门禁、平台限制、Migration 与 Git 交付。
 
 ## 当前状态
 
 核实的 GitHub main 为 `00344b5`，已有 `208ad6b` Go Harness、Context、Knowledge、Attention Light 和只读 Governor 基础。
 
 本候选补齐范围/时间/证据、正常 SQLite 原生 Graph 与 Experience、普通 Agent 学习工具、证据评估、依赖修订、保留归并及恢复。**候选代码不能算作 main 或 Release 已有能力。**是否合并以提交记录为准。
+
+Experience 是受验程序化宏；原生 belief/negative/abstraction 写入和 Governor 生命周期仍需宿主 SDK 调用。Start 只提示维护候选，不包含 Experience。保留 V-D1 共享 owner 撤回及 V-002/V-003 失败关闭限制。
+
+两记录族共用证据、来源、隐私权威，但生命周期与读取路径不同。Cognitive Core 和 Context Space 保持正交，位于同一 Go Module，仅由 `runtime` 组装。
 
 ## 设计原则
 
