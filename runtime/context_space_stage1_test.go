@@ -89,7 +89,7 @@ func TestT5_ProjectInstructionsOutlineAndAnchoredRead(t *testing.T) {
 		skills:    f.engine.skillRegistry,
 	})
 	sysLayers := systemLayers(assembled.Layers)
-	var globalLayer, projLayer * struct {
+	var globalLayer, projLayer *struct {
 		text, compact string
 	}
 	for _, l := range sysLayers {

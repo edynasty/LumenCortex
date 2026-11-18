@@ -147,4 +147,3 @@ func TestQGR02_PromptCatalogContiguousOffsetAndMaxBytes(t *testing.T) {
 		t.Fatalf("Text missing contiguous %s footer: %q", wantFooter, res.Text[max(0, len(res.Text)-140):])
 	}
 }
-

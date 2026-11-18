@@ -70,7 +70,7 @@ func TestPresentFeedbackCompactDropsTails(t *testing.T) {
 }
 
 // CommonMark fences open with at least three backticks or tildes. A line starting with "~~"
-// (strikethrough) or "``" is prose: folding it as an example fence drops real description text.
+// (strikethrough) or a two-backtick span is prose: folding it as an example fence drops real text.
 func TestFoldVerifiedExampleFencesNeedsThreeFenceChars(t *testing.T) {
 	for _, c := range []struct{ opener, closer string }{{"~~legacy~~ flag", "~~"}, {"~ home dir", "~"}, {"``x literal", "``"}} {
 		desc := "Look up an item.\n\nExample:\n" + c.opener + "\nkept body line\n" + c.closer + "\ntrailer"

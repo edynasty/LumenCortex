@@ -217,11 +217,11 @@ func TestT9_MCPCodeFencesAndExplicitProfileCompactSafety(t *testing.T) {
 }
 
 // TestT12_EnvelopeModelRefBijectionSlotPriorityAndReplay verifies T12 subsets A, B1/B2/B3, and C:
-// - A: 10-chunk Unicode bijection (64B + 1B + 192B = 257B -> 769B %XX -> model~0~..model~9.~) and
-//   tamper detection including missing terminal ".~" seal -> ErrIncompleteModelRefChunks;
-// - B1 (10 + 7 + 111 = 128 -> lineage_complete=1), B2 (10 + 7 + 112 = 129 -> lineage_complete=0,
-//   P0..P3 100% preserved), B3 (128 * 96B == 12,673B <= 16,384B in real SQLite);
-// - C: VerifyStep replay of RuleWindowPrefix, CompactFixedByModel, and v1 Base, plus RevokeSession.
+//   - A: 10-chunk Unicode bijection (64B + 1B + 192B = 257B -> 769B %XX -> model~0~..model~9.~) and
+//     tamper detection including missing terminal ".~" seal -> ErrIncompleteModelRefChunks;
+//   - B1 (10 + 7 + 111 = 128 -> lineage_complete=1), B2 (10 + 7 + 112 = 129 -> lineage_complete=0,
+//     P0..P3 100% preserved), B3 (128 * 96B == 12,673B <= 16,384B in real SQLite);
+//   - C: VerifyStep replay of RuleWindowPrefix, CompactFixedByModel, and v1 Base, plus RevokeSession.
 func TestT12_EnvelopeModelRefBijectionSlotPriorityAndReplay(t *testing.T) {
 	ctx := context.Background()
 

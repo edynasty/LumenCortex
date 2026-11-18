@@ -849,5 +849,3 @@ func TestQGR03_OriginImportedToolGroupClassifiesAsMutationUnknown(t *testing.T) 
 		t.Fatalf("AggregateGroupMutation(OriginImported) = %q, want %q", got, MutationUnknown)
 	}
 }
-
-
