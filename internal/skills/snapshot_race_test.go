@@ -95,3 +95,56 @@ func TestRegistryConcurrentMutationsAndReadsRaceSafe(t *testing.T) {
 		}
 	}
 }
+
+// TestQGR02_PromptCatalogContiguousOffsetAndMaxBytes verifies Finding QGR-02:
+// when a longer skill description at the inline catalog boundary does not fit while subsequent skills have
+// shorter descriptions, inline inclusion stops at the first omitted skill so offset=len(Included) (and
+// compact offset) never skips an omitted skill, and len(PromptResult.Text) <= MaxCatalogBytes (32 KiB).
+func TestQGR02_PromptCatalogContiguousOffsetAndMaxBytes(t *testing.T) {
+	globalRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	registry, err := NewRegistry(
+		[]Root{{Source: SourceLumenCortex, Path: filepath.Join(globalRoot, "skills"), Writable: true}},
+		[]Root{{Source: SourceLumenCortex, Path: filepath.Join(projectRoot, "skills"), Writable: true}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	longDesc := strings.Repeat("L", MaxDescriptionBytes)
+	for i := range 33 {
+		id := fmt.Sprintf("s-%03d", i)
+		if err := registry.Save(ScopeGlobal, id, "---\ndescription: "+longDesc+"\n---\nbody"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// After ~31-32 ~1KB skills cross the 32 KiB boundary, add tiny skills that WOULD fit if non-contiguous!
+	for i := 33; i < 38; i++ {
+		id := fmt.Sprintf("s-%03d", i)
+		if err := registry.Save(ScopeGlobal, id, "---\ndescription: tiny\n---\nbody"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res, err := registry.Prompt(PromptOptions{IncludeProject: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Text) > MaxCatalogBytes {
+		t.Fatalf("len(Text) = %d > MaxCatalogBytes (%d)", len(res.Text), MaxCatalogBytes)
+	}
+	if len(res.CompactText) > MaxCompactCatalogBytes {
+		t.Fatalf("len(CompactText) = %d > MaxCompactCatalogBytes (%d)", len(res.CompactText), MaxCompactCatalogBytes)
+	}
+	// Included MUST be the exact contiguous prefix Eligible[0 : len(Included)]!
+	for i, inc := range res.Included {
+		if inc.ID != res.Eligible[i].ID {
+			t.Fatalf("non-contiguous Included[%d]=%s != Eligible[%d]=%s (omitted skill was skipped!)", i, inc.ID, i, res.Eligible[i].ID)
+		}
+	}
+	wantFooter := fmt.Sprintf("offset=%d", len(res.Included))
+	if !strings.Contains(res.Text, wantFooter) {
+		t.Fatalf("Text missing contiguous %s footer: %q", wantFooter, res.Text[max(0, len(res.Text)-140):])
+	}
+}
+

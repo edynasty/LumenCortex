@@ -342,8 +342,11 @@ func aggregateGroupMutation(assistantMsg protocol.Message, toolRows []protocol.M
 	if len(toolRows) < len(assistantMsg.ToolCalls) {
 		return MutationUnknown
 	}
+	if assistantMsg.Origin == protocol.OriginImported {
+		return MutationUnknown
+	}
 	for _, tr := range toolRows {
-		if tr.Origin == protocol.OriginToolInterrupted {
+		if tr.Origin == protocol.OriginToolInterrupted || tr.Origin == protocol.OriginImported {
 			return MutationUnknown
 		}
 	}

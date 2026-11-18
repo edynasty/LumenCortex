@@ -306,9 +306,11 @@ func (r *Registry) Prompt(opts PromptOptions) (PromptResult, error) {
 	}
 	var lines strings.Builder
 	var compactLines strings.Builder
-	const compactFooterReserve = 128
-	compactBudget := MaxCompactCatalogBytes - len(compactCatalogPreamble) - compactFooterReserve
-	omitted := 0
+	const footerReserve = 128
+	fullBudget := MaxCatalogBytes - len(catalogPreamble) - footerReserve
+	compactBudget := MaxCompactCatalogBytes - len(compactCatalogPreamble) - footerReserve
+	fullStopped := false
+	compactStopped := false
 	compactListed := 0
 	for _, item := range sortedRaw(items) {
 		if !item.Enabled || item.Error != "" {
@@ -318,24 +320,32 @@ func (r *Registry) Prompt(opts PromptOptions) (PromptResult, error) {
 			Skill:   item.Skill,
 			Content: item.content,
 		})
-		line := catalogLine(item.Skill)
-		if lines.Len()+len(line) <= MaxCatalogBytes {
-			lines.WriteString(line)
-			result.Included = append(result.Included, item.Skill)
-		} else {
-			omitted++
+		if !fullStopped {
+			line := catalogLine(item.Skill)
+			if lines.Len()+len(line) <= fullBudget {
+				lines.WriteString(line)
+				result.Included = append(result.Included, item.Skill)
+			} else {
+				// Stop inline inclusion on the first omitted item so Eligible[0:len(Included)] stays
+				// strictly contiguous and read_skill(offset=len(Included)) never skips an omitted skill.
+				fullStopped = true
+			}
 		}
-		cLine := compactCatalogLine(item.Skill)
-		if compactLines.Len()+len(cLine) <= compactBudget {
-			compactLines.WriteString(cLine)
-			compactListed++
+		if !compactStopped {
+			cLine := compactCatalogLine(item.Skill)
+			if compactLines.Len()+len(cLine) <= compactBudget {
+				compactLines.WriteString(cLine)
+				compactListed++
+			} else {
+				compactStopped = true
+			}
 		}
 	}
 	if len(result.Eligible) == 0 {
 		return result, nil
 	}
 	text := catalogPreamble + lines.String()
-	if omitted > 0 {
+	if omitted := len(result.Eligible) - len(result.Included); omitted > 0 {
 		text += fmt.Sprintf("\n(%d more enabled skills are not listed: call read_skill with offset=%d or query to browse the catalog.)\n", omitted, len(result.Included))
 	}
 	result.Text = text

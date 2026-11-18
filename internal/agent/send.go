@@ -175,9 +175,17 @@ func projectCandidate(
 	baseSlackFull := BaseGateSlack(m, opts.Presentation, ModeFull)
 	baseSlackCompact := BaseGateSlack(m, opts.Presentation, ModeCompact)
 
-	// Step 4: EffectiveGateSlack for both modes.
+	// Step 4: EffectiveGateSlack for both modes. When !repair.Active and ModeCompact can fit the mandatory
+	// compactFixed + requiredTranscript within poolBeforeSlack with less than baseSlackCompact left over
+	// (e.g. an 8K model carrying a full catalog), clamp ModeCompact slack to the remaining room so all
+	// optional history is dropped and 100% of remaining room is reserved without false-overflowing Step 1.
 	effSlackFull := EffectiveGateSlack(poolBeforeSlack, fullFixed, baseSlackFull, requiredRepairTokens, repair)
 	effSlackCompact := EffectiveGateSlack(poolBeforeSlack, compactFixed, baseSlackCompact, requiredRepairTokens, repair)
+	if !repair.Active {
+		if room := poolBeforeSlack - compactFixed - requiredTranscript; room >= 0 && room < effSlackCompact {
+			effSlackCompact = room
+		}
+	}
 
 	// Step 5: Final Margin and UsableInput for both modes (incorporating per-candidate CapacityRetry cap).
 	marginFull := guard + effSlackFull
@@ -398,6 +406,26 @@ func (l *Loop) send(
 		pendingRetry = true
 		return next, nil
 	}
+	handleOverflow := func(idx int, cand Candidate, overErr error) (int, *ExitCause) {
+		l.emit("window.overflow", sessionID, map[string]any{"step": step, "modelRef": cand.Ref, "error": overErr.Error()})
+		exhausted[idx] = true
+		if !recovering {
+			if next, decision := FailoverDecision(cands, idx, protocol.ClassCapacity); next >= 0 {
+				*decisions = append(*decisions, decision)
+				return next, nil
+			}
+		}
+		if len(down.ready) == 0 {
+			kind := KindWindowOverflow
+			if _, capped := r.transcriptCap[cand.Ref]; capped {
+				kind = KindProviderCapacity
+			}
+			return -1, &ExitCause{Status: StatusFailed, Kind: kind, Err: fmt.Errorf("model %s: %w", cand.Ref, overErr)}
+		}
+		// Another candidate failed with availability and may answer once it recovers.
+		recovering = true
+		return recoverFrom(idx, protocol.ClassCapacity, overErr, nil)
+	}
 	for i := 0; ; {
 		cand := cands[i]
 		m := l.Models[cand.Ref]
@@ -416,26 +444,8 @@ func (l *Loop) send(
 		}
 		if err != nil {
 			// ErrOverflow (including minRequiredSeq floor or TurnBoundary dry-run overflow):
-			// move to a larger candidate without writing OriginTurn to SQLite (§4.8).
-			l.emit("window.overflow", sessionID, map[string]any{"step": step, "modelRef": cand.Ref, "error": err.Error()})
-			exhausted[i] = true
-			if !recovering {
-				if next, decision := FailoverDecision(cands, i, protocol.ClassCapacity); next >= 0 {
-					*decisions = append(*decisions, decision)
-					i = next
-					continue
-				}
-			}
-			if len(down.ready) == 0 {
-				kind := KindWindowOverflow
-				if _, capped := r.transcriptCap[cand.Ref]; capped {
-					kind = KindProviderCapacity
-				}
-				return attempt{}, &ExitCause{Status: StatusFailed, Kind: kind, Err: fmt.Errorf("model %s: %w", cand.Ref, err)}
-			}
-			// Another candidate failed with availability and may answer once it recovers.
-			recovering = true
-			next, cause := recoverFrom(i, protocol.ClassCapacity, err, nil)
+			// move to a larger candidate or outage recovery without writing OriginTurn to SQLite (§4.8).
+			next, cause := handleOverflow(i, cand, err)
 			if cause != nil {
 				return attempt{}, cause
 			}
@@ -499,11 +509,33 @@ func (l *Loop) send(
 				groups = len(g)
 			}
 		}
-		// Turn rule (§4.8): re-check TurnBoundary after BeforeModelCall / applyPendingInputs and commit
-		// the durable OriginTurn row only when still required.
+		// Turn rule (§4.7, §4.8): re-check TurnBoundary after BeforeModelCall / applyPendingInputs.
+		// When rebuiltInputs changed State or transcript, dry-run projectCandidate on an in-memory clone BEFORE
+		// writing OriginTurn to SQLite so post-hook overflow neither leaves orphan OriginTurn rows nor wipes r.turn.
 		var turnDec Decision
 		due, turnDec = TurnBoundary(r.turnRows(), cand.Ref)
 		minReqSeq = repair.MinRequiredSeq
+		if rebuiltInputs {
+			postPreview := r.transcript
+			if due {
+				var turnProgressSeq int64
+				postPreview, turnProgressSeq = r.cloneForTurnPreview()
+				minReqSeq = minPositiveSeq(turnProgressSeq, repair.MinRequiredSeq)
+			}
+			var rebuildErr error
+			proj, prefixDec, rebuildErr = projectCandidate(r, cand, m, opts, canonical, postPreview, repair, minReqSeq)
+			if errors.Is(rebuildErr, window.ErrUnpaired) {
+				return attempt{}, &ExitCause{Status: StatusFailed, Kind: KindTranscriptUnpaired, Err: rebuildErr}
+			}
+			if rebuildErr != nil {
+				next, cause := handleOverflow(i, cand, rebuildErr)
+				if cause != nil {
+					return attempt{}, cause
+				}
+				i = next
+				continue
+			}
+		}
 		if due {
 			if g, gerr := window.Groups(r.transcript); gerr == nil && len(g) > 0 {
 				minReqSeq = minPositiveSeq(g[len(g)-1][0].Seq, repair.MinRequiredSeq)
@@ -517,25 +549,18 @@ func (l *Loop) send(
 			groups++
 			*decisions = append(*decisions, turnDec)
 			l.emit("session.message", sessionID, map[string]any{"step": step, "seq": seq, "role": "user", "origin": protocol.OriginTurn})
-		}
-		if due || rebuiltInputs {
-			var rebuildErr error
-			proj, prefixDec, rebuildErr = projectCandidate(r, cand, m, opts, canonical, r.transcript, repair, minReqSeq)
-			if errors.Is(rebuildErr, window.ErrUnpaired) {
-				return attempt{}, &ExitCause{Status: StatusFailed, Kind: KindTranscriptUnpaired, Err: rebuildErr}
+			var commitProjErr error
+			proj, prefixDec, commitProjErr = projectCandidate(r, cand, m, opts, canonical, r.transcript, repair, minReqSeq)
+			if errors.Is(commitProjErr, window.ErrUnpaired) {
+				return attempt{}, &ExitCause{Status: StatusFailed, Kind: KindTranscriptUnpaired, Err: commitProjErr}
 			}
-			if rebuildErr != nil {
-				l.emit("window.overflow", sessionID, map[string]any{"step": step, "modelRef": cand.Ref, "error": rebuildErr.Error()})
-				exhausted[i] = true
-				if !recovering {
-					if next, decision := FailoverDecision(cands, i, protocol.ClassCapacity); next >= 0 {
-						*decisions = append(*decisions, decision)
-						i = next
-						continue
-					}
+			if commitProjErr != nil {
+				next, cause := handleOverflow(i, cand, commitProjErr)
+				if cause != nil {
+					return attempt{}, cause
 				}
-				return attempt{}, &ExitCause{Status: StatusFailed, Kind: KindWindowOverflow,
-					Err: fmt.Errorf("model %s: %w", cand.Ref, rebuildErr)}
+				i = next
+				continue
 			}
 		}
 		built := proj.Window

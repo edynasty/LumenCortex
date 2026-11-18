@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"database/sql"
 	"maps"
 	"os"
 	"path/filepath"
@@ -228,13 +227,6 @@ func TestT4_MultiCallVetoCrashReconcileResumeAndMonotonicChain(t *testing.T) {
 			t.Fatal(err)
 		}
 		h := newTestSession(t, engine1, "t9-cold")
-
-		// Measure SQLite data_version delta across one side-effect write_file call in isolation!
-		roDB, err := sql.Open("sqlite3", "file:"+engine1.store.Path()+"?mode=ro&_busy_timeout=5000")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer roDB.Close()
 
 		var toolCommits int
 		testHookBeforeToolCommit = func() { toolCommits++ }

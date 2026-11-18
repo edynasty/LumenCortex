@@ -13,6 +13,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/session"
+	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/internal/toolset"
 	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -686,3 +687,167 @@ func TestT8_TurnBoundaryDryRunZeroDBWritesAndMinimumProgressGuard(t *testing.T) 
 }
 
 func ptrInt64(v int64) *int64 { return &v }
+
+// TestProjectCandidate8KModelClampsCompactSlackWithoutFalseOverflow is the regression test for Finding C-F01:
+// when !repair.Active and an 8K model passes static prefix screening with 0 <= poolBeforeSlack - compactFixed - requiredTranscript < 1950,
+// ModeCompact clamps EffectiveGateSlack to the remaining room (dropping optional older groups and reserving all remaining room)
+// instead of false-overflowing Step 1; when compactFixed + requiredTranscript > poolBeforeSlack, it still returns window.ErrOverflow.
+func TestProjectCandidate8KModelClampsCompactSlackWithoutFalseOverflow(t *testing.T) {
+	const ref8k = config.ModelRef("test/m-8k")
+	m8 := Model{Ref: ref8k, Context: 8000, Output: 1000, ToolCalling: true}
+	cand8 := Candidate{Ref: ref8k, Context: 8000, Output: 1000, ToolCalling: true}
+
+	// Build a ~4,600-token fixed prefix so poolBeforeSlack (6488) - compactFixed (~4600) - newest (~50) ≈ 1838 < 1950.
+	canonical := canonicalStepInput{
+		SystemPrompt: strings.Repeat("word ", 2700), // ~13.5 KB -> ~4,504 tokens
+		State:        protocol.Message{Role: "user", Content: "Goal: stay read-only"},
+	}
+	r := &run{}
+	r.appendRow(0, protocol.Message{Role: "user", Content: strings.Repeat("older optional row ", 80)})
+	r.appendRow(1, protocol.Message{Role: "user", Content: "newest user prompt"})
+
+	proj, _, err := projectCandidate(r, cand8, m8, Options{}, canonical, r.transcript, deriveRepairContext(r.transcript, nil), -1)
+	if err != nil {
+		t.Fatalf("expected 8K model with positive post-prefix room to succeed in ModeCompact, got err=%v", err)
+	}
+	if proj.Mode != ModeCompact || proj.EffectiveGateSlack <= 0 || proj.EffectiveGateSlack >= proj.BaseGateSlack {
+		t.Fatalf("proj = {Mode:%s EffSlack:%d BaseSlack:%d}, want ModeCompact with 0 < EffSlack < BaseSlack", proj.Mode, proj.EffectiveGateSlack, proj.BaseGateSlack)
+	}
+	if proj.Window.FirstSeq != 1 || proj.Window.Dropped != 1 {
+		t.Fatalf("expected optional older group dropped so 100%% of remaining room stays gate slack, got FirstSeq=%d Dropped=%d", proj.Window.FirstSeq, proj.Window.Dropped)
+	}
+
+	// Now make newest group exceed poolBeforeSlack - compactFixed: MUST still return window.ErrOverflow!
+	rOverflow := &run{}
+	rOverflow.appendRow(0, protocol.Message{Role: "user", Content: strings.Repeat("abcd ", 1500)}) // ~2,504 tokens > 1,888 room
+	if _, _, err := projectCandidate(rOverflow, cand8, m8, Options{}, canonical, rOverflow.transcript, deriveRepairContext(rOverflow.transcript, nil), -1); !errors.Is(err, window.ErrOverflow) {
+		t.Fatalf("expected true overflow when compactFixed + newestGroup > poolBeforeSlack, got err=%v", err)
+	}
+}
+
+// TestQGR01_BeforeModelCallOverflowRecoversAndNeverOrphansOriginTurn verifies Finding QGR-01:
+// when a primary large candidate fails transiently (503) and a smaller fallback pauses at BeforeModelCall
+// where an InboxEdit enlarges TaskState past the fallback's window while TurnBoundary is due, zero orphan
+// OriginTurn rows are written to SQLite, the primary's in-turn Echo is preserved, and outage recovery
+// returns to the primary candidate instead of aborting with KindWindowOverflow.
+func TestQGR01_BeforeModelCallOverflowRecoversAndNeverOrphansOriginTurn(t *testing.T) {
+	const (
+		ref200k = config.ModelRef("test/m-200k")
+		ref16k  = config.ModelRef("test/m-16k")
+	)
+	store := envStore("qgr01")
+
+	// Step 1: m-200k emits a ~10.8K-token tool result + Echo (fits m-16k pre-hook ~11.3K with ~500 tokens spare).
+	// Step 2 first attempt on m-200k: transient 503 -> failover to m-16k (TurnBoundary due == true).
+	// BeforeModelCall on m-16k: host queues a 4KB Brief + Note edit (~2,300 tokens), overflowing m-16k!
+	// Expected: 0 OriginTurn rows written, recovery retries m-200k, which receives its Step 1 Echo intact!
+	var step2Calls200k int
+	var recoveredReq protocol.ProviderRequest
+	p200 := &funcProvider{fn: func(_ context.Context, n int, req protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+		if n == 1 {
+			return protocol.ProviderResponse{
+				Message:      protocol.Message{Role: "assistant", ToolCalls: []protocol.ToolCall{call("c1", "read_file", `{"path":"payload.txt"}`)}},
+				FinishReason: "tool_calls",
+				Echo:         protocol.NewEcho("thinking", []byte(`{"sig":"keep-me"}`), 400),
+			}, nil
+		}
+		step2Calls200k++
+		if step2Calls200k == 1 {
+			return protocol.ProviderResponse{}, &protocol.ProviderError{Class: protocol.ClassAvailability, Err: errors.New("transient 503")}
+		}
+		recoveredReq = req
+		return answerOf("recovered-on-200k"), nil
+	}}
+	p16 := &funcProvider{fn: func(context.Context, int, protocol.ProviderRequest) (protocol.ProviderResponse, error) {
+		t.Fatal("m-16k should have overflowed after BeforeModelCall InboxEdit")
+		return protocol.ProviderResponse{}, nil
+	}}
+
+	m200 := testModel(ref200k, p200)
+	m200.Context, m200.Output = 200000, 4096
+	m16 := testModel(ref16k, p16)
+	m16.Context, m16.Output = 16384, 2048
+
+	tools := &catalogToolsFake{
+		entries: []toolset.CatalogTool{{
+			Spec:   protocol.ToolSpec{Name: "read_file", Description: "Read file.", Permission: "read"},
+			Source: "builtin",
+		}},
+		execFn: func(_ context.Context, _ string, _ map[string]any) (protocol.ToolResult, error) {
+			return protocol.ToolResult{OK: true, Content: strings.Repeat("word ", 6000)}, nil // ~10.0K tokens (comfortably fits m-16k pre-hook, overflows post-hook with 10KB TaskState)
+		},
+	}
+
+	var injected bool
+	loop := Loop{
+		Models: map[config.ModelRef]Model{ref200k: m200, ref16k: m16},
+		Store:  store,
+		Tools:  tools,
+		DebugBoundary: func(_ context.Context, b DebugBoundary) error {
+			if b.Event == "BeforeModelCall" && b.Step == 2 && step2Calls200k == 1 && !injected {
+				injected = true
+				bigBrief := strings.Repeat("constraint ", 360) // ~3,960B
+				note := strings.Repeat("note ", 400)           // ~2,000B each -> fills 10,240B MaxBlockBytes (~3,420 tokens)
+				store.mu.Lock()
+				store.inbox = append(store.inbox,
+					taskstate.QueuedEdit{Seq: 1, Edit: taskstate.Edit{Brief: &bigBrief}},
+					taskstate.QueuedEdit{Seq: 2, Edit: taskstate.Edit{Reference: &taskstate.ReferenceEdit{Kind: "file", Target: "p1.txt", Note: &note, State: taskstate.RefIncluded}}},
+					taskstate.QueuedEdit{Seq: 3, Edit: taskstate.Edit{Reference: &taskstate.ReferenceEdit{Kind: "file", Target: "p2.txt", Note: &note, State: taskstate.RefIncluded}}},
+					taskstate.QueuedEdit{Seq: 4, Edit: taskstate.Edit{Reference: &taskstate.ReferenceEdit{Kind: "file", Target: "p3.txt", Note: &note, State: taskstate.RefIncluded}}},
+				)
+				store.mu.Unlock()
+			}
+			return nil
+		},
+	}
+
+	res, err := loop.Run(context.Background(), "qgr01", Options{
+		Session:  ref200k,
+		Failover: []config.ModelRef{ref16k},
+		MaxSteps: 4,
+		Recovery: Recovery{BaseDelay: time.Millisecond, MaxDelay: 2 * time.Millisecond, MaxRetries: 3, MaxOutage: 5 * time.Second},
+	})
+	if !injected {
+		t.Fatal("m-16k did not reach BeforeModelCall in Step 2")
+	}
+	if err != nil || res.Status != StatusCompleted || res.Final != "recovered-on-200k" {
+		t.Fatalf("QGR-01 run result=%+v err=%v, want completed on recovered m-200k", res, err)
+	}
+	for _, msg := range store.messages {
+		if msg.Origin == protocol.OriginTurn {
+			t.Fatalf("orphan OriginTurn row committed when m-16k overflowed post-BeforeModelCall: %+v", store.messages)
+		}
+	}
+	hasEcho := false
+	for _, e := range recoveredReq.Echo {
+		if !e.IsZero() {
+			hasEcho = true
+		}
+	}
+	if !hasEcho {
+		t.Fatalf("m-200k lost its in-turn reasoning Echo across aborted m-16k TurnBoundary preview: echo=%+v", recoveredReq.Echo)
+	}
+}
+
+// TestQGR03_OriginImportedToolGroupClassifiesAsMutationUnknown verifies Finding QGR-03:
+// imported tool-call groups (OriginImported, which have no tool_executions rows) classify conservatively
+// as MutationUnknown rather than MutationNone so they lock preBlockFloor and never falsely advance MinRequiredSeq.
+func TestQGR03_OriginImportedToolGroupClassifiesAsMutationUnknown(t *testing.T) {
+	importedAssistant := protocol.Message{
+		Role:      "assistant",
+		Origin:    protocol.OriginImported,
+		ToolCalls: []protocol.ToolCall{call("imp1", "bash", `{"command":"make build"}`)},
+	}
+	importedTool := protocol.Message{
+		Role:       "tool",
+		Origin:     protocol.OriginImported,
+		ToolCallID: "imp1",
+		Name:       "bash",
+		Content:    "ok",
+	}
+	if got := AggregateGroupMutation(importedAssistant, []protocol.Message{importedTool}, nil); got != MutationUnknown {
+		t.Fatalf("AggregateGroupMutation(OriginImported) = %q, want %q", got, MutationUnknown)
+	}
+}
+
+
