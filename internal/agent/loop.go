@@ -906,24 +906,6 @@ func (l *Loop) putTaskState(ctx context.Context, sessionID string, r *run, chang
 	return nil
 }
 
-// systemMessages is the request's fixed system prefix: the default prompt, then each labelled layer
-// in order (the global instructions, the project instructions, the skills prompt), then the agent's
-// instructions. Instructions never replace or precede the default prompt, and every layer is a
-// message of its own so the model can attribute it to its source.
-func systemMessages(opts Options) []protocol.Message {
-	system := []protocol.Message{{Role: "system", Content: opts.SystemPrompt}}
-	for _, layer := range opts.SystemLayers {
-		if strings.TrimSpace(layer.Text) == "" {
-			continue
-		}
-		system = append(system, protocol.Message{Role: "system", Content: layer.Text})
-	}
-	if strings.TrimSpace(opts.Instructions) != "" {
-		system = append(system, protocol.Message{Role: "system", Content: opts.Instructions})
-	}
-	return system
-}
-
 // persistToolResult commits a tool row with, when change is non-nil, the Task State version it caused,
 // the execution's post record (post is nil for a call that was not admitted) and its derived edges,
 // in one transaction; the run's state then carries the stored version.

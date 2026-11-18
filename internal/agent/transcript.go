@@ -473,16 +473,6 @@ func deriveRepairContext(transcript []window.Entry, mutations map[int64]Mutation
 	}
 }
 
-// budget is the window budget of one request to c: its context, its output reservation, and its
-// margin, raised to keep the transcript within a capacity retry's limit for c once one was taken.
-func (r *run) budget(c Candidate, maxTokens, fixed int) window.Budget {
-	b := window.Budget{Context: c.Context, Output: OutputBudget(maxTokens, c), Margin: Margin(c.Context)}
-	if limit, ok := r.transcriptCap[c.Ref]; ok {
-		b.Margin = max(b.Margin, b.Context-b.Output-fixed-limit)
-	}
-	return b
-}
-
 // capTranscript keeps the transcript of later requests to c within the budget a capacity retry chose.
 func (r *run) capTranscript(ref config.ModelRef, retry window.Budget, fixed int) {
 	if r.transcriptCap == nil {

@@ -426,8 +426,3 @@ func capGateFeedbackJSONBytes(s string, maxJSON int) string {
 	}
 	return best
 }
-
-// utf8Valid reports whether s is valid UTF-8.
-func utf8Valid(s string) bool {
-	return utf8.ValidString(s)
-}

@@ -102,6 +102,10 @@ func projectLayers(layers []SystemLayer, mode ProjectionMode) []SystemLayer {
 	return out
 }
 
+// buildSystemMessages is the request's fixed system prefix: the default prompt, then each labelled
+// layer in order (the global instructions, the project instructions, the skills prompt), then the
+// agent's instructions. Instructions never replace or precede the default prompt, and every layer is
+// a message of its own so the model can attribute it to its source.
 func buildSystemMessages(systemPrompt string, layers []SystemLayer, instructions string) []protocol.Message {
 	system := []protocol.Message{{Role: "system", Content: systemPrompt}}
 	for _, layer := range layers {
