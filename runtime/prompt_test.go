@@ -525,3 +525,19 @@ func TestEffectivePromptChildBasePrompt(t *testing.T) {
 		t.Fatalf("child base prompt=%q", base.Text)
 	}
 }
+
+// Only a run of at least three backticks or tildes opens a fence (CommonMark). A strikethrough or a
+// "~/path" line at the start of a line is prose and must not hide the headings that follow it from
+// the compact outline.
+func TestFenceAwareHeadingsNeedThreeFenceChars(t *testing.T) {
+	lines := []string{"# Setup", "~~legacy~~ step removed", "## Build", "~/.config holds the cache", "## Test", "``x literal", "## Release",
+		"```go", "# not a heading", "```", "## After fence"}
+	var got []string
+	for _, h := range extractFenceAwareHeadings(lines) {
+		got = append(got, h.title)
+	}
+	want := []string{"# Setup", "## Build", "## Test", "## Release", "## After fence"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("headings=%q, want %q", got, want)
+	}
+}

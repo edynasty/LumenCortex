@@ -302,8 +302,8 @@ func extractFenceAwareHeadings(lines []string) []outlineHeading {
 			for run < len(rest) && rest[run] == ch {
 				run++
 			}
-			// CommonMark: backtick fence info strings cannot contain backticks.
-			if ch == '~' || !strings.ContainsRune(rest[run:], '`') {
+			// CommonMark: a fence is a run of at least three, and a backtick fence's info string has no backtick.
+			if run >= 3 && (ch == '~' || !strings.ContainsRune(rest[run:], '`')) {
 				inFence, fenceChar, fenceLen = true, ch, run
 				continue
 			}

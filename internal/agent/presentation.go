@@ -254,7 +254,8 @@ func parseFenceOpen(line string) (byte, int, bool) {
 	for run < len(rest) && rest[run] == ch {
 		run++
 	}
-	if ch == '`' && strings.ContainsRune(rest[run:], '`') {
+	// CommonMark: a fence is a run of at least three, and a backtick fence's info string has no backtick.
+	if run < 3 || (ch == '`' && strings.ContainsRune(rest[run:], '`')) {
 		return 0, 0, false
 	}
 	return ch, run, true
