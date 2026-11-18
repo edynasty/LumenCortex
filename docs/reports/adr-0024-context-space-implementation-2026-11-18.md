@@ -167,3 +167,44 @@
 | `docs/adr/0024-candidate-context-projection-and-budget-guards.md` | `a36be1c8bac5f4dd208ae2466262739d8cae06e226e430845375fb2e3e8b8cba` |
 | `docs/adr/0024-candidate-context-projection-and-budget-guards.zh-CN.md` | `cc037f3f7a86a352100d9282f4b0b677e0969909bd8c79203e0eba97195d792f` |
 | `docs/lumencortex.schema.json` | `289856b69557229318803c3198b023f777e94e52e2cde7be0fecf84c1b654744` |
+
+---
+
+## 10. 实施后自主审计与修复（Autonomous Audit & Remediation，2026-11-18）
+
+- **审计范围：** `main...feat/adr-0024-context-space-20261118` 全部生产 Diff（32 个非测试 Go 文件，+2 897 / −453 行）及被修改的既有测试；审计起点 `7e4c89d248f2c224eaafc59a04c5eb6177d51218`。
+- **审计方法：** 逐文件阅读 Diff；对 `;cm=*` 封签（`sealFilesMutation`）、执行分级（`executionTierOf`）、变更证据分类与聚合、修复下界（`deriveRepairContext`）、`r.groups` 钳位、7 步候选投影、`read_skill` 分页字节上限、`EstimateBytes` 做源码级反例推演；`staticcheck -checks U1000` 与 `gofmt -l` 机械检查。
+- **本节状态口径：** 以下 Finding 均为 `FIXED_BY_IMPLEMENTER` + `SELF_VERIFIED`，状态 **`PENDING_INDEPENDENT_REVIEW`**；本审计者未对自身修复授予独立 PASS。
+
+### 10.1 Finding Ledger（审计新增）
+
+| ID | 级别 | Owner | 文件 | 触发条件与影响 | 根因与最小修复 | RED → GREEN 证据 | 修复 Commit | 状态 |
+| :--- | :---: | :--- | :--- | :--- | :--- | :--- | :---: | :---: |
+| **AUD-A02** | P2 | 本审计者 | `internal/agent/presentation.go`（`parseFenceOpen`），`runtime/prompt.go`（`extractFenceAwareHeadings`） | 行首 1–2 个 `~`/`` ` ``（删除线 `~~x~~`、`~/path`、双反引号行内代码）被当作代码围栏开启：紧凑工具描述把真实说明文字折叠为 `[example omitted]`；紧凑项目大纲丢弃其后全部标题直至出现匹配闭合行 | CommonMark 围栏至少 3 个同字符；两处解析器均补 `run >= 3` 判定 | RED：`TestFoldVerifiedExampleFencesNeedsThreeFenceChars`（正文被折叠），`TestFenceAwareHeadingsNeedThreeFenceChars`（`headings=["# Setup"]`）；GREEN：两测试及 `TestT9_*`/`TestPresent*`/`TestT5_*`/`TestEffectivePrompt*` `-race` PASS | `dc4c082` | PENDING_INDEPENDENT_REVIEW |
+| **AUD-A01** | P3 | 本审计者 | `internal/agent/{loop,transcript,presentation,send}.go` | Stage 3 以 `buildSystemMessages` / `projectCandidate` 取代旧路径后，`systemMessages`、`(*run).budget`、`utf8Valid` 在生产与测试中均无调用（`staticcheck U1000`）；`(*run).budget` 与新投影的 `transcriptCap` 逻辑并存易被误用 | 删除三者；把系统前缀排序契约注释迁移到 `buildSystemMessages`；`transcriptCap` 仍由 `projectCandidate` 第 5 步执行 | `staticcheck -checks U1000 ./internal/agent/` 不再报告这三项（仅剩 `main` 既有的 `requiredChecks`、`metadataJSON`）；`go test ./internal/agent/` PASS | `cedf9a2` | PENDING_INDEPENDENT_REVIEW |
+| **AUD-A03** | P3 | 本审计者 | `internal/agent/context_space_stage{2,3}_test.go`，`internal/skills/snapshot_race_test.go`，`runtime/context_space_stage1_test.go` | 分支新增测试文件未 `gofmt` | 仅格式化，无行为变化 | `gofmt -l $(git diff --name-only main -- '*.go')` 输出为空 | `bfda8d5` | PENDING_INDEPENDENT_REVIEW |
+
+### 10.2 审计中排除的候选（非缺陷，附依据）
+
+- **`deriveRepairContext` 在 `mutations` 缺项时以空执行集回退为 `MutationNone`：** `load` 经 `populateMutations` 为窗口内全部工具组建项，每步末 `refreshGroupMutation` 为新组建项，`r.groups` 裁剪与 `mutations` 删除同步；`TurnBoundary` 预览与 steer/inbox 只追加 `user` 行。未找到可达触发路径，不构成缺陷；如需纵深防御可改为回退 `MutationUnknown`（P3 建议，未实施）。
+- **`apply_patch` 同一路径多次出现：** `len(receipt.Files) != len(x.targets)` 使封签保守落为 `unknown`，只会多锁修复下界，不会误判 `none`/`proven`。
+- **`apply_experience`（`tierNone`、`MutatesWorkspace: true`）：** 其嵌套写操作经回调各自 `admitCallbackExecution`，同一 `request_id` 下产生执行行，参与组聚合；不会遗漏。
+
+### 10.3 验证记录（本节实测）
+
+| 平台 | 命令 | 结果 |
+| :--- | :--- | :--- |
+| macOS ARM64（Go 1.26.5） | `go build ./...`、`go vet ./...` | PASS |
+| macOS ARM64 | `go test -count=1 ./...` | 除 `runtime` 外全部 PASS；`runtime` 在默认 10 分钟超时处被终止（603.7 s，同时有 Docker 验证并行占用 CPU）；以 `-timeout 25m` 单独重跑 `go test -count=1 ./runtime/` **PASS（829.8 s）** |
+| macOS ARM64 | `go test -race -count=1 -timeout 60m ./...` | **PASS**：43 个含测试的包全部 `ok`，0 FAIL，0 DATA RACE（`runtime` 1 114.7 s，`evalruntime` 132.5 s） |
+| Windows AMD64 | `GOOS=windows GOARCH=amd64 go build ./... && go vet ./...` | PASS（仅交叉编译，无原生执行） |
+| Ubuntu 24.04 ARM64（`lc-ubuntu-go:24.04`，Go 1.27.1，`uid=1000`，只读源码挂载，`GOPROXY=off`） | `go build ./...`、`go vet ./...` | PASS |
+| 同上 | `go test -count=1`（除 `evalruntime` 外全部包） | 除 `runtime` 外全部 PASS；`runtime` 14 项失败均为环境原因：12 项 `no python/javascript runtime discovered`（Eval 宿主隔离需求，与既有 §6 例外一致），2 项 `TestCognitionCloseWaitsForManualVerification`、`TestCognitionWorkUnitFailureEpisodeInterleaving` 因镜像缺少 `curl`（`command -v curl` 为空）；在 `main@c73d173` 上同一容器复跑这 2 项**以相同方式失败**，确认非本分支回归，macOS 上 PASS |
+| 同上 | `go test -race -count=1` `internal/{agent,window,skills,editing,toolset,taskstate}`、`config`；`-run "ContextSpace\|T[0-9]+_\|Prompt\|Skill\|Fence" ./runtime/` | 全部 PASS |
+
+### 10.4 剩余限制
+
+- 三项修复均待**不参与修复的独立审查者**复核（`PENDING_INDEPENDENT_REVIEW`）。
+- `runtime` 包全量单测在 macOS 上耗时超过 `go test` 默认 10 分钟；未与 `main` 同条件计时对比，是否由本分支引起未定（`[INFERENCE]` 并行 Docker 负载放大了耗时）。
+- Windows 仅交叉编译；Ubuntu 容器缺 `curl` 与 Eval 宿主条件，相应测试由 macOS 原生覆盖。
+- `staticcheck U1000` 仍报告 `main` 既有的未用符号（`requiredChecks`、`metadataJSON`、`editingEngine` 等），不在 ADR-0024 范围内，未改动。
