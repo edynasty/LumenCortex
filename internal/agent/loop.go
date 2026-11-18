@@ -15,7 +15,6 @@ import (
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/internal/verify"
-	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/internal/workflow"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -301,7 +300,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		if r.wf != nil {
 			allowlist = r.wf.EffectiveAllowlist(allowlist)
 		}
-		specs := StepSpecs(l.Tools, StepToolsInput{
+		includedTools := IncludedStepTools(l.Tools, StepToolsInput{
 			Allowlist:  allowlist,
 			Denylist:   opts.ToolDenylist,
 			Delegation: opts.Delegation,
@@ -309,37 +308,34 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			TaskAgents: opts.TaskAgents,
 			Claims:     l.verificationOffered(opts),
 		})
-		// The model profile presents the same catalog in its chosen form; authority is unchanged.
-		specs = presentSpecs(specs, opts.Presentation.ToolDescriptions)
+		specs := make([]protocol.ToolSpec, len(includedTools))
+		for i, st := range includedTools {
+			specs[i] = st.Spec
+		}
 		activeWorkUnit, _ := r.units.EnsureActive()
 		r.ts.SetUnits(r.units)
-		// The request window (design §3.3 steps 4-6, §5): System, the Task State block and the newest
-		// whole groups of the transcript that fit the budget of the candidate being asked.
-		groups, err := r.groups(l.maxContext())
+		repair := deriveRepairContext(r.transcript, r.mutations)
+		groups, err := r.groups(l.maxContext(), repair.MinRequiredSeq)
 		if err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindTranscriptUnpaired, Err: err})
 		}
-		in := window.Input{
-			System:     systemMessages(opts),
-			State:      protocol.Message{Role: "user", Content: taskstate.Render(state.Goal, r.ts, r.wf)},
-			Transcript: r.transcript,
-			ToolTokens: window.Estimate(specs),
+		renderedState := taskstate.RenderBlock(state.Goal, r.ts, r.wf)
+		canonical := canonicalStepInput{
+			SystemPrompt:  opts.SystemPrompt,
+			Layers:        opts.SystemLayers,
+			Instructions:  opts.Instructions,
+			State:         protocol.Message{Role: "user", Content: renderedState.Text},
+			StateRefs:     renderedState.ItemRefs,
+			IncludedTools: includedTools,
 		}
-		fixed := window.Fixed(in)
-		base := fixed // §3.3 step 4: the newest group counts without echo
-		if len(groups) > 0 {
-			for _, e := range groups[len(groups)-1] {
-				base += window.Estimate(e.Msg)
-			}
-		}
-		cands, candidatesDecision := l.candidates(opts, base)
+		cands, candidatesDecision := l.candidatesByStaticPrefix(opts, canonical)
 		stepDecisions := append(append([]Decision(nil), opts.Decisions...), candidatesDecision)
 		if len(cands) == 0 {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindWindowOverflow,
-				Err: fmt.Errorf("no model can take this request: it needs about %d tokens before the reply, and no candidate of %s has the context, tool calling and health for it", base, refList(append([]config.ModelRef{opts.Session}, opts.Failover...)))})
+				Err: fmt.Errorf("no model can take this request: static minimal prefix exceeds every candidate of %s", refList(append([]config.ModelRef{opts.Session}, opts.Failover...)))})
 		}
 		sent := time.Now()
-		answered, cause := l.send(ctx, sessionID, state.Goal, step, opts, r.ts.Version, cands, r, in, len(groups), specs, &usage, &stepDecisions)
+		answered, cause := l.send(ctx, sessionID, state.Goal, step, opts, r.ts.Version, cands, r, canonical, len(groups), &usage, &stepDecisions)
 		clock.observeModel(time.Since(sent), answered.Elapsed)
 		if cause != nil {
 			return l.exit(ctx, state, usage, *cause)
@@ -490,8 +486,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 			}
 			if correction != "" {
+				fbVariant := effectiveFeedbackVariant(answered.Model, opts.Presentation, answered.Mode)
 				blocked := protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked,
-					Content: presentFeedback(correction, opts.Presentation.Feedback)}
+					Content: presentFeedback(correction, fbVariant)}
 				seq, _, err := l.Store.AppendMessage(ctx, sessionID, blocked, nil)
 				if err != nil {
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
@@ -664,6 +661,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 								}
 							}
 						}
+						toolCtx = x.bindContext(toolCtx)
 						toolResult, toolErr = l.Tools.Execute(toolCtx, call.Name, args, func(output protocol.ToolOutput) {
 							l.emit("tool.output", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "stream": output.Stream, "chunk": output.Chunk})
 						})
@@ -803,6 +801,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				})
 			}
 			record.ToolCalls = append(record.ToolCalls, toolCallRecord{ID: call.ID, Name: call.Name, Args: args, OK: toolResult.OK, Denied: toolResult.Denied})
+		}
+		if err := r.refreshGroupMutation(ctx, l.Store, sessionID, seq); err != nil {
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		if err := l.flush(ctx, sessionID, r, taskstate.ReasonStep); err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})

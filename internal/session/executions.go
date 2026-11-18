@@ -444,3 +444,77 @@ func (s *Store) Execution(ctx context.Context, executionID string) (ExecutionRec
 	r.CreatedAt, r.UpdatedAt = parseTime(created), parseTime(updated)
 	return r, nil
 }
+
+// AnsweredExecutionSummary is the read-only summary of one admitted execution belonging to an answered
+// main request at or after a transcript floor seq (ADR-0024 §4.6, §5.2).
+type AnsweredExecutionSummary struct {
+	AnsweredSeq    int64
+	RequestID      string
+	ExecutionID    string
+	ToolName       string
+	PreRef         string
+	PostRef        string
+	PreUnavailable bool
+	Coverage       Coverage
+	Outcome        ExecutionOutcome
+	FileEdgeCount  int
+}
+
+// ListAnsweredExecutions returns, in ascending answered_seq and admission order, every execution linked
+// to an answered request of sessionID whose answered_seq >= fromSeq, together with the count of file
+// edges recorded for that execution.
+func (s *Store) ListAnsweredExecutions(ctx context.Context, sessionID string, fromSeq int64) ([]AnsweredExecutionSummary, error) {
+	if fromSeq < 0 {
+		fromSeq = 0
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT
+		re.answered_seq,
+		re.request_id,
+		ex.execution_id,
+		ex.tool_name,
+		COALESCE(ex.pre_ref, ''),
+		COALESCE(ex.post_ref, ''),
+		ex.pre_unavailable,
+		COALESCE(ex.coverage, ''),
+		ex.outcome,
+		(SELECT COUNT(*) FROM derived_origins fe
+		  WHERE fe.execution_id = ex.execution_id AND fe.session_id = ex.session_id AND fe.kind = 'file')
+	FROM request_envelopes re
+	JOIN derived_origins ex
+	  ON ex.session_id = re.session_id
+	 AND ex.kind = 'execution'
+	 AND ex.source_kind = ?
+	 AND ex.source_ref = re.request_id
+	WHERE re.session_id = ?
+	  AND re.state = ?
+	  AND re.answered_seq IS NOT NULL
+	  AND re.answered_seq >= ?
+	ORDER BY re.answered_seq ASC, ex.id ASC`,
+		SourceRequest, sessionID, string(RequestAnswered), fromSeq)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AnsweredExecutionSummary
+	for rows.Next() {
+		var r AnsweredExecutionSummary
+		var pre int
+		if err := rows.Scan(
+			&r.AnsweredSeq,
+			&r.RequestID,
+			&r.ExecutionID,
+			&r.ToolName,
+			&r.PreRef,
+			&r.PostRef,
+			&pre,
+			&r.Coverage,
+			&r.Outcome,
+			&r.FileEdgeCount,
+		); err != nil {
+			return nil, err
+		}
+		r.PreUnavailable = pre == 1
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}

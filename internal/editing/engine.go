@@ -1,7 +1,10 @@
 package editing
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -120,6 +123,53 @@ type Result struct {
 	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
 }
 
+// FileCommitReceipt records the per-file causal write outcome of one Engine.Commit call (ADR-0024 §4.6).
+type FileCommitReceipt struct {
+	Path      string
+	AbsPath   string
+	Wrote     bool
+	Created   bool
+	Deleted   bool
+	OldSHA256 string
+	NewSHA256 string
+}
+
+// CommitReceipt records whether Engine.Commit committed cleanly, whether a failure entered the disk
+// mutation window, and the sorted per-file receipts.
+type CommitReceipt struct {
+	Committed    bool
+	DirtyFailure bool
+	Files        []FileCommitReceipt
+}
+
+type commitRecorderKey struct{}
+
+// WithCommitRecorder binds a host-owned CommitReceipt callback to ctx for one execution.
+func WithCommitRecorder(ctx context.Context, fn func(CommitReceipt)) context.Context {
+	if fn == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, commitRecorderKey{}, fn)
+}
+
+// RecordCommitReceipt delivers r to the CommitReceipt recorder bound on ctx, if any.
+func RecordCommitReceipt(ctx context.Context, r CommitReceipt) {
+	if ctx == nil {
+		return
+	}
+	if fn, ok := ctx.Value(commitRecorderKey{}).(func(CommitReceipt)); ok && fn != nil {
+		fn(r)
+	}
+}
+
+func sha256Ref(b []byte, present bool) string {
+	if !present {
+		return "-"
+	}
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 // stripeCount is the number of per-path lock stripes a commit takes.
 const stripeCount = 256
 
@@ -153,6 +203,16 @@ type Engine struct {
 	beforeWrite func(path string)
 	// afterRead is a test hook that runs after a file's current content was read.
 	afterRead func(path string)
+	// afterTruncate is a test fault hook invoked immediately after f.Truncate(0) inside writeCAS.
+	afterTruncate func(path string) error
+	// onRollback is a test fault hook invoked before restoring each file in rollback.
+	onRollback func(path string) error
+}
+
+// SetTestFaultHooks installs deterministic fault-injection hooks for tests; pass nil, nil to clear.
+func (e *Engine) SetTestFaultHooks(afterTruncate, onRollback func(path string) error) {
+	e.afterTruncate = afterTruncate
+	e.onRollback = onRollback
 }
 
 // New builds an engine.
@@ -219,14 +279,20 @@ type prepared struct {
 // compares each file's revision, validates the result, writes with a compare-and-swap on the open
 // descriptor, rehashes, and publishes edit.committed or edit.conflict.
 func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
-	if err := ctx.Err(); err != nil {
+	failClean := func(err error) (Result, error) {
+		if !plan.Preview {
+			RecordCommitReceipt(ctx, CommitReceipt{Committed: false, DirtyFailure: false})
+		}
 		return Result{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return failClean(err)
+	}
 	if len(plan.Changes) == 0 {
-		return Result{}, &Error{Code: CodeInvalid, Detail: "a plan needs at least one file change"}
+		return failClean(&Error{Code: CodeInvalid, Detail: "a plan needs at least one file change"})
 	}
 	if plan.Actor.Session == "" {
-		return Result{}, &Error{Code: CodeInvalid, Detail: "a commit needs an actor session"}
+		return failClean(&Error{Code: CodeInvalid, Detail: "a commit needs an actor session"})
 	}
 	host := plan.Host
 	if host == nil {
@@ -239,11 +305,11 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 		// not_found rather than a raw lstat error; the guard still checks the deepest existing part.
 		abs, rel, err := host.Resolve(change.Path, true)
 		if err != nil {
-			return Result{}, err
+			return failClean(err)
 		}
 		key := canonicalPath(abs)
 		if seen[key] {
-			return Result{}, &Error{Code: CodeInvalid, Path: rel, Detail: fmt.Sprintf("change %d names a file the plan already changes", i+1)}
+			return failClean(&Error{Code: CodeInvalid, Path: rel, Detail: fmt.Sprintf("change %d names a file the plan already changes", i+1)})
 		}
 		seen[key] = true
 		prep = append(prep, &prepared{change: change, abs: abs, key: key, rel: rel})
@@ -259,20 +325,20 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 				err = &Error{Code: CodeLeaseConflict, Path: p.rel, Holder: conflict.Holder,
 					Detail: fmt.Sprintf("a write lease is held until %s", conflict.Until.UTC().Format(time.RFC3339))}
 			}
-			return Result{}, e.refuse(host, plan, p, err)
+			return failClean(e.refuse(host, plan, p, err))
 		}
 	}
 	for _, p := range prep {
 		if err := e.prepare(host, p, plan); err != nil {
-			return Result{}, e.refuse(host, plan, p, err)
+			return failClean(e.refuse(host, plan, p, err))
 		}
 	}
 	diagnostics, err := e.validate(ctx, plan, prep)
 	if err != nil {
-		return Result{}, e.refuse(host, plan, nil, err)
+		return failClean(e.refuse(host, plan, nil, err))
 	}
 	if err := ctx.Err(); err != nil {
-		return Result{}, e.refuse(host, plan, nil, err)
+		return failClean(e.refuse(host, plan, nil, err))
 	}
 	if plan.Preview {
 		result := Result{Diagnostics: diagnostics}
@@ -293,23 +359,34 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 			err = &Error{Code: CodeLeaseConflict, Path: conflict.Path, Holder: conflict.Holder,
 				Detail: fmt.Sprintf("a write lease is held until %s", conflict.Until.UTC().Format(time.RFC3339))}
 		}
-		return Result{}, e.refuse(host, plan, nil, err)
+		return failClean(e.refuse(host, plan, nil, err))
 	}
 	if err := ctx.Err(); err != nil {
 		release()
-		return Result{}, err
+		return failClean(err)
 	}
-	if _, err := e.write(host, plan, prep); err != nil {
+	if _, dirty, err := e.write(host, plan, prep); err != nil {
 		release()
+		RecordCommitReceipt(ctx, CommitReceipt{Committed: false, DirtyFailure: dirty})
 		return Result{}, e.refuse(host, plan, nil, err)
 	}
 	release()
 	result := Result{Diagnostics: diagnostics}
+	receiptFiles := make([]FileCommitReceipt, 0, len(prep))
 	for _, p := range prep {
 		// Every file of the plan is reported, changed or not, so a caller can read the current revision
 		// even when the edit was a no-op; only a file that was really written is registered and emits an
 		// event.
 		result.Files = append(result.Files, fileResult(p))
+		receiptFiles = append(receiptFiles, FileCommitReceipt{
+			Path:      p.rel,
+			AbsPath:   p.abs,
+			Wrote:     p.wrote,
+			Created:   p.created,
+			Deleted:   p.deleted,
+			OldSHA256: sha256Ref(p.original, p.existed),
+			NewSHA256: sha256Ref(p.next, !p.deleted),
+		})
 		if !p.wrote {
 			continue
 		}
@@ -325,6 +402,8 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 			e.snaps.ForgetPath(plan.Actor.Session, p.key)
 		}
 	}
+	sort.Slice(receiptFiles, func(i, j int) bool { return receiptFiles[i].Path < receiptFiles[j].Path })
+	RecordCommitReceipt(ctx, CommitReceipt{Committed: true, DirtyFailure: false, Files: receiptFiles})
 	return result, nil
 }
 
@@ -607,8 +686,9 @@ func (e *Engine) validate(ctx context.Context, plan Plan, prep []*prepared) ([]D
 	return all, nil
 }
 
-// write applies the prepared content, all or none: a failure restores every file already written.
-func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, error) {
+// write applies the prepared content, all or none: a failure restores every file already written and
+// reports whether the commit had already entered the disk-mutation window.
+func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, bool, error) {
 	written := make([]*prepared, 0, len(prep))
 	for _, p := range prep {
 		if e.beforeWrite != nil {
@@ -616,8 +696,11 @@ func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, err
 		}
 		if p.deleted {
 			if err := e.deleteCAS(host, p); err != nil {
-				e.rollback(host, written)
-				return nil, err
+				dirty := len(written) > 0
+				if dirty {
+					e.rollback(host, written)
+				}
+				return nil, dirty, err
 			}
 			p.wrote = true
 			written = append(written, p)
@@ -626,20 +709,30 @@ func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, err
 		if p.existed && !p.created && string(p.next) == string(p.original) {
 			continue
 		}
+		createdParent := false
 		if !p.change.Binary {
+			if _, statErr := os.Stat(filepath.Dir(p.abs)); os.IsNotExist(statErr) {
+				createdParent = true
+			}
 			if err := os.MkdirAll(filepath.Dir(p.abs), 0o755); err != nil {
-				e.rollback(host, written)
-				return nil, err
+				dirty := len(written) > 0 || createdParent
+				if len(written) > 0 {
+					e.rollback(host, written)
+				}
+				return nil, dirty, err
 			}
 		}
-		if err := e.writeCAS(host, p); err != nil {
-			e.rollback(host, written)
-			return nil, err
+		if dirtyCAS, err := e.writeCAS(host, p); err != nil {
+			dirty := dirtyCAS || len(written) > 0 || createdParent
+			if len(written) > 0 {
+				e.rollback(host, written)
+			}
+			return nil, dirty, err
 		}
 		p.wrote = true
 		written = append(written, p)
 	}
-	return written, nil
+	return written, false, nil
 }
 
 // deleteCAS rechecks both bytes and descriptor identity before unlinking. In-process
@@ -678,59 +771,88 @@ func (e *Engine) deleteCAS(host Host, p *prepared) error {
 // writeCAS writes the prepared bytes only if the file still has the revision that was validated. The
 // check and the write happen on the same descriptor, which is opened without truncating and refused
 // when it is protected state, so a refused write leaves the file as it was.
-func (e *Engine) writeCAS(host Host, p *prepared) error {
+func (e *Engine) writeCAS(host Host, p *prepared) (bool, error) {
 	if p.change.Binary {
 		if replacer, ok := host.(interface {
 			ReplaceFile(path string, before, after []byte, existed bool) error
 		}); ok {
-			return replacer.ReplaceFile(p.abs, p.original, p.next, p.existed)
+			if err := replacer.ReplaceFile(p.abs, p.original, p.next, p.existed); err != nil {
+				return true, err
+			}
+			return false, nil
 		}
 	}
 	f, err := host.Open(p.abs, true)
 	if err != nil {
-		return err
+		return false, err
 	}
-	fail := func(err error) error {
-		return errors.Join(err, f.Close())
+	createdOnOpen := !p.existed
+	failClean := func(err error) (bool, error) {
+		joined := errors.Join(err, f.Close())
+		if createdOnOpen {
+			_ = os.Remove(p.abs)
+			return true, joined
+		}
+		return false, joined
+	}
+	failDirty := func(err error) (bool, error) {
+		joined := errors.Join(err, f.Close())
+		if createdOnOpen {
+			_ = os.Remove(p.abs)
+		}
+		return true, joined
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return fail(err)
+		return failClean(err)
 	}
 	current, err := readLimited(f, MaxFileBytes)
 	if err != nil {
-		return fail(err)
+		return failClean(err)
 	}
 	if rev := RevOf(current); rev != p.rev {
-		return fail(&Error{Code: CodeConflict, Path: p.rel, Rev: p.rev, CurrentRev: rev,
+		return failClean(&Error{Code: CodeConflict, Path: p.rel, Rev: p.rev, CurrentRev: rev,
 			Detail: "the file changed after the change was computed; nothing was written"})
 	}
 	if err := f.Truncate(0); err != nil {
-		return fail(err)
+		return failDirty(err)
+	}
+	if e.afterTruncate != nil {
+		if err := e.afterTruncate(p.abs); err != nil {
+			return failDirty(err)
+		}
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return fail(err)
+		return failDirty(err)
 	}
 	if _, err := f.Write(p.next); err != nil {
-		return fail(err)
+		return failDirty(err)
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return fail(err)
+		return failDirty(err)
 	}
 	after, err := readLimited(f, MaxFileBytes)
 	if err != nil {
-		return fail(err)
+		return failDirty(err)
 	}
-	if rev := RevOf(after); rev != RevOf(p.next) {
-		return fail(&Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: rev,
+	if !bytes.Equal(after, p.next) {
+		return failDirty(&Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: RevOf(after),
 			Detail: "another writer changed the file during the write"})
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return true, err
+	}
+	return false, nil
 }
 
 // rollback restores the files already written, newest first.
 func (e *Engine) rollback(host Host, written []*prepared) {
 	for i := len(written) - 1; i >= 0; i-- {
 		p := written[i]
+		if e.onRollback != nil {
+			if err := e.onRollback(p.abs); err != nil {
+				continue
+			}
+		}
 		if p.deleted {
 			if err := e.writeRestore(host, p.abs, p.original); err != nil {
 				continue

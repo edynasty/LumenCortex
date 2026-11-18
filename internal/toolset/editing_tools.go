@@ -104,7 +104,7 @@ func (s *Set) editLines(ctx context.Context, args map[string]any, _ func(protoco
 	if err != nil {
 		return editOutcome(err)
 	}
-	result, err := s.edit.Commit(ctx, editing.Plan{
+	result, receipt, err := s.commitPlan(ctx, editing.Plan{
 		Host:     s,
 		Actor:    s.actor(),
 		Tool:     "edit_lines",
@@ -112,7 +112,7 @@ func (s *Set) editLines(ctx context.Context, args map[string]any, _ func(protoco
 		Validate: validatorsFor(rel),
 	})
 	if err != nil {
-		return editOutcome(err)
+		return commitOutcome(receipt, err)
 	}
 	file1 := result.Files[0]
 	extra := map[string]any{"path": rel, "rev": file1.NewRev, "applied": len(lineOps)}
@@ -125,7 +125,7 @@ func (s *Set) editLines(ctx context.Context, args map[string]any, _ func(protoco
 	if note := typeCheckNote(result.Diagnostics); note != "" {
 		extra["typeCheck"] = note
 	}
-	return editResult(result, extra), nil
+	return editResult(result, receipt, extra), nil
 }
 
 // anchorWindows turns the landed line ranges into the windows a caller shows: each edit plus two lines
@@ -200,7 +200,7 @@ func (s *Set) editGo(ctx context.Context, args map[string]any, _ func(protocol.T
 		return editOutcome(err)
 	}
 	preview := boolArg(args, "preview")
-	result, err := s.edit.Commit(ctx, editing.Plan{
+	result, receipt, err := s.commitPlan(ctx, editing.Plan{
 		Host:     s,
 		Actor:    s.actor(),
 		Tool:     "edit_go",
@@ -209,7 +209,7 @@ func (s *Set) editGo(ctx context.Context, args map[string]any, _ func(protocol.T
 		Preview:  preview,
 	})
 	if err != nil {
-		return editOutcome(err)
+		return commitOutcome(receipt, err)
 	}
 	extra := map[string]any{"path": rel, "symbols": plan.Symbols, "notes": plan.Notes, "preview": preview}
 	if note := typeCheckNote(result.Diagnostics); note != "" {
@@ -226,7 +226,7 @@ func (s *Set) editGo(ctx context.Context, args map[string]any, _ func(protocol.T
 		}
 		return protocol.ToolResult{OK: true, Content: string(content)}, nil
 	}
-	return editResult(result, extra), nil
+	return editResult(result, receipt, extra), nil
 }
 
 // decodeGoOps reads the ops argument, accepting a decoded slice as well as JSON.

@@ -157,15 +157,17 @@ func BaseGateSlack(m Model, fallback PresentationOptions, mode ProjectionMode) i
 	return window.ReserveTokensForBytes(MaxDetailedGateJSONBytes) + ProposalReserveTokens
 }
 
-// repairContext describes the active completion-gate repair floor derived from persisted rows and
-// causal MutationEvidence (ADR-0024 §7).
-type repairContext struct {
+// RepairContext describes the active completion-gate repair floor derived from persisted rows and
+// causal MutationEvidence (ADR-0024 §4.2, §4.6.6).
+type RepairContext struct {
 	Active         bool
 	NewestIsBlock  bool
 	BlockSeq       int64
 	FloorIdx       int
 	MinRequiredSeq int64
 }
+
+type repairContext = RepairContext
 
 // EffectiveGateSlack computes the gate reservation for the current step: full baseSlack outside active
 // repair, 0 immediately after a gate block, and reloaded up to baseSlack on subsequent repair steps

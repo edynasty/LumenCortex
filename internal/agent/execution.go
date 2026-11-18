@@ -3,13 +3,19 @@ package agent
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/edynasty/LumenCortex/internal/editing"
 	"github.com/edynasty/LumenCortex/internal/repository"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -114,17 +120,85 @@ func fileTargets(name string, args map[string]any) []string {
 	return nil
 }
 
+// commitRecorder holds the private CommitReceipt captured for one ExecutionID (ADR-0024 §4.6).
+type commitRecorder struct {
+	mu      sync.Mutex
+	has     bool
+	receipt editing.CommitReceipt
+}
+
+func (c *commitRecorder) record(r editing.CommitReceipt) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.has = true
+	c.receipt = r
+}
+
+func (c *commitRecorder) Receipt() (editing.CommitReceipt, bool) {
+	if c == nil {
+		return editing.CommitReceipt{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.receipt, c.has
+}
+
 // execution is an admitted call between AdmitExecution and CommitToolResult.
 type execution struct {
-	id      string
-	tier    executionTier
-	targets []string
-	files   repository.FilesSnapshot
-	ws      repository.WorkspaceSnapshot
+	id             string
+	toolName       string
+	tier           executionTier
+	targets        []string
+	files          repository.FilesSnapshot
+	ws             repository.WorkspaceSnapshot
+	preRef         string
+	preUnavailable bool
 	// preOK: the pre-state was read whole and its ref was recorded.
-	preOK bool
+	preOK    bool
+	recorder *commitRecorder
 	// snapshot is the time spent taking the pre- and post-state.
 	snapshot time.Duration
+}
+
+func (x *execution) bindContext(ctx context.Context) context.Context {
+	if x == nil || x.recorder == nil {
+		// Isolate non-admitted nested calls from any outer recorder on ctx.
+		return editing.WithCommitRecorder(ctx, func(editing.CommitReceipt) {})
+	}
+	return editing.WithCommitRecorder(ctx, x.recorder.record)
+}
+
+var (
+	testExecutionHooksMu    sync.RWMutex
+	testHookAfterToolAdmit  func(toolName string, targets []string)
+	testHookBeforePostFiles func(toolName string, targets []string)
+)
+
+// SetTestExecutionHooks installs deterministic timing hooks around execution admission and postFiles
+// verification for causal concurrency tests; pass nil, nil to clear.
+func SetTestExecutionHooks(afterAdmit, beforePostFiles func(toolName string, targets []string)) {
+	testExecutionHooksMu.Lock()
+	defer testExecutionHooksMu.Unlock()
+	testHookAfterToolAdmit = afterAdmit
+	testHookBeforePostFiles = beforePostFiles
+}
+
+func runAfterToolAdmitHook(toolName string, targets []string) {
+	testExecutionHooksMu.RLock()
+	fn := testHookAfterToolAdmit
+	testExecutionHooksMu.RUnlock()
+	if fn != nil {
+		fn(toolName, targets)
+	}
+}
+
+func runBeforePostFilesHook(toolName string, targets []string) {
+	testExecutionHooksMu.RLock()
+	fn := testHookBeforePostFiles
+	testExecutionHooksMu.RUnlock()
+	if fn != nil {
+		fn(toolName, targets)
+	}
 }
 
 // snapshotTimeout bounds each snapshot phase (the pre-state, and the post-state with its hashing). A
@@ -148,7 +222,7 @@ func (l *Loop) admitExecution(ctx context.Context, sessionID string, opts Option
 	if err != nil {
 		return nil, &ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err}
 	}
-	x := &execution{id: id, tier: tier}
+	x := &execution{id: id, toolName: call.Name, tier: tier, recorder: &commitRecorder{}}
 	started := time.Now()
 	sctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
 	var preRef string
@@ -178,13 +252,16 @@ func (l *Loop) admitExecution(ctx context.Context, sessionID string, opts Option
 	if tier != tierAdmit {
 		if x.preOK {
 			a.PreRef = preRef
+			x.preRef = preRef
 		} else {
 			a.PreUnavailable = true
+			x.preUnavailable = true
 		}
 	}
 	if err := l.Store.AdmitExecution(ctx, a); err != nil {
 		return nil, storeExit(err)
 	}
+	runAfterToolAdmitHook(call.Name, x.targets)
 	return x, nil
 }
 
@@ -204,7 +281,8 @@ func storeExit(err error) *ExitCause {
 // Outcome: a result the tool returned is completed when OK and failed otherwise. A tool that returned
 // an error may still have acted (an MCP server got the arguments, a command started), so the outcome
 // is unknown, except for a file tool whose targets the post-state shows unchanged and whole: the file
-// tools validate before they write, so that call did nothing.
+// tools validate before they write, so that call did nothing. A CommitReceipt reporting DirtyFailure
+// upgrades the outcome to OutcomeUnknown and seals ";cm=unknown".
 func (l *Loop) postExecution(ctx context.Context, x *execution, result protocol.ToolResult, toolErr error, requestID string, lineage bool) (*session.ExecutionResult, []session.DerivedEdge) {
 	started := time.Now()
 	defer func() { x.snapshot += time.Since(started) }()
@@ -212,13 +290,19 @@ func (l *Loop) postExecution(ctx context.Context, x *execution, result protocol.
 	defer cancel()
 	post := &session.ExecutionResult{ExecutionID: x.id, Coverage: session.CoverageComplete}
 	var changed []repository.FileState
+	var postSnap repository.FilesSnapshot
+	var postSnapOK bool
+	receipt, hasReceipt := x.recorder.Receipt()
+	var sandwichOK bool
 	switch x.tier {
 	case tierFiles:
-		changed, post.PostRef, post.Coverage = l.postFiles(sctx, x)
+		changed, postSnap, postSnapOK, post.Coverage, sandwichOK = l.postFiles(sctx, x, receipt, hasReceipt)
 	case tierWorkspace:
 		changed, post.PostRef, post.Coverage = l.postWorkspace(sctx, x)
 	}
 	switch {
+	case receipt.DirtyFailure:
+		post.Outcome = session.OutcomeUnknown
 	case toolErr == nil && result.OK:
 		post.Outcome = session.OutcomeComplete
 	case toolErr == nil && result.Interrupted:
@@ -248,20 +332,34 @@ func (l *Loop) postExecution(ctx context.Context, x *execution, result protocol.
 			OriginClass: session.OriginAgentGen,
 		})
 	}
+	if x.tier == tierFiles && postSnapOK {
+		seal := sealFilesMutation(x, post.Outcome, post.Coverage, postSnap, changed, receipt, hasReceipt, sandwichOK)
+		post.PostRef = postSnap.Ref() + ";cm=" + seal
+	}
 	for i := range edges {
 		edges[i].LineageComplete = complete
 	}
 	return post, edges
 }
 
-// postFiles hashes the target paths again and returns those whose blob changed.
-func (l *Loop) postFiles(ctx context.Context, x *execution) ([]repository.FileState, string, session.Coverage) {
+// postFiles hashes the target paths again, verifies raw disk SHA-256 before and after SnapshotFiles
+// against CommitReceipt.NewSHA256, and returns changed files plus causal sandwich verification status.
+func (l *Loop) postFiles(ctx context.Context, x *execution, receipt editing.CommitReceipt, hasReceipt bool) ([]repository.FileState, repository.FilesSnapshot, bool, session.Coverage, bool) {
+	runBeforePostFilesHook(x.toolName, x.targets)
 	if l.Snapshots == nil {
-		return nil, "", session.CoverageUnavailable
+		return nil, repository.FilesSnapshot{}, false, session.CoverageUnavailable, false
+	}
+	var preInfos []os.FileInfo
+	sandwichOK := false
+	if hasReceipt && receipt.Committed && !receipt.DirtyFailure {
+		preInfos, sandwichOK = verifyReceiptDiskBefore(receipt.Files)
 	}
 	after, err := l.Snapshots.SnapshotFiles(ctx, x.targets)
 	if err != nil {
-		return nil, "", session.CoverageUnavailable
+		return nil, repository.FilesSnapshot{}, false, session.CoverageUnavailable, false
+	}
+	if sandwichOK {
+		sandwichOK = verifyReceiptDiskAfter(receipt.Files, preInfos)
 	}
 	var changed []repository.FileState
 	for _, f := range after.Files {
@@ -279,7 +377,179 @@ func (l *Loop) postFiles(ctx context.Context, x *execution) ([]repository.FileSt
 	case !after.Complete:
 		coverage = session.CoveragePartial
 	}
-	return changed, after.Ref(), coverage
+	return changed, after, true, coverage, sandwichOK
+}
+
+func verifyReceiptDiskBefore(files []editing.FileCommitReceipt) ([]os.FileInfo, bool) {
+	infos := make([]os.FileInfo, len(files))
+	for i, rf := range files {
+		if !rf.Wrote {
+			continue
+		}
+		if rf.AbsPath == "" {
+			return nil, false
+		}
+		info, err := os.Lstat(rf.AbsPath)
+		if rf.Deleted {
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, false
+			}
+			continue
+		}
+		if err != nil || !info.Mode().IsRegular() || info.Size() > editing.MaxFileBytes {
+			return nil, false
+		}
+		if digest, ok := rawFileSHA256(rf.AbsPath); !ok || digest != rf.NewSHA256 {
+			return nil, false
+		}
+		infos[i] = info
+	}
+	return infos, true
+}
+
+func verifyReceiptDiskAfter(files []editing.FileCommitReceipt, preInfos []os.FileInfo) bool {
+	if len(preInfos) != len(files) {
+		return false
+	}
+	for i, rf := range files {
+		if !rf.Wrote {
+			continue
+		}
+		info, err := os.Lstat(rf.AbsPath)
+		if rf.Deleted {
+			if !errors.Is(err, os.ErrNotExist) {
+				return false
+			}
+			continue
+		}
+		pre := preInfos[i]
+		if err != nil || pre == nil || !info.Mode().IsRegular() ||
+			!os.SameFile(pre, info) || info.Size() != pre.Size() ||
+			info.ModTime().UnixNano() != pre.ModTime().UnixNano() {
+			return false
+		}
+		if digest, ok := rawFileSHA256(rf.AbsPath); !ok || digest != rf.NewSHA256 {
+			return false
+		}
+	}
+	return true
+}
+
+func rawFileSHA256(absPath string) (string, bool) {
+	f, err := os.Open(absPath)
+	if err != nil {
+		return "", false
+	}
+	defer f.Close()
+	buf, err := io.ReadAll(io.LimitReader(f, int64(editing.MaxFileBytes)+1))
+	if err != nil || len(buf) > editing.MaxFileBytes {
+		return "", false
+	}
+	sum := sha256.Sum256(buf)
+	return "sha256:" + hex.EncodeToString(sum[:]), true
+}
+
+func sealFilesMutation(
+	x *execution,
+	outcome session.ExecutionOutcome,
+	coverage session.Coverage,
+	after repository.FilesSnapshot,
+	changed []repository.FileState,
+	receipt editing.CommitReceipt,
+	hasReceipt bool,
+	sandwichOK bool,
+) string {
+	if receipt.DirtyFailure ||
+		outcome != session.OutcomeComplete ||
+		x.preUnavailable ||
+		!hasPositiveFilesSnapshotRef(x.preRef) ||
+		coverage != session.CoverageComplete ||
+		!hasReceipt ||
+		!receipt.Committed ||
+		len(receipt.Files) == 0 ||
+		len(receipt.Files) != len(x.targets) ||
+		len(receipt.Files) != len(x.files.Files) ||
+		len(receipt.Files) != len(after.Files) {
+		return string(MutationUnknown)
+	}
+	wroteCount := 0
+	for i, rf := range receipt.Files {
+		preF := x.files.Files[i]
+		postF := after.Files[i]
+		if rf.Path != preF.Path || rf.Path != postF.Path || preF.Blob == "" || postF.Blob == "" {
+			return string(MutationUnknown)
+		}
+		if !rf.Wrote {
+			if preF.Blob != postF.Blob {
+				return string(MutationUnknown)
+			}
+			continue
+		}
+		wroteCount++
+		if preF.Blob == postF.Blob {
+			return string(MutationUnknown)
+		}
+		if rf.Deleted && postF.Blob != repository.BlobAbsent {
+			return string(MutationUnknown)
+		}
+	}
+	afterRef := after.Ref()
+	if wroteCount == 0 {
+		if len(changed) == 0 && x.preRef == afterRef {
+			return string(MutationNone)
+		}
+		return string(MutationUnknown)
+	}
+	if sandwichOK && x.preRef != afterRef {
+		return string(MutationProven)
+	}
+	return string(MutationUnknown)
+}
+
+// hasPositiveFilesSnapshotRef reports whether ref is a valid FilesSnapshot ref ("files:<N>:sha256:<64hex>")
+// naming at least one target path (N >= 1).
+func hasPositiveFilesSnapshotRef(ref string) bool {
+	if !strings.HasPrefix(ref, "files:") {
+		return false
+	}
+	rest := strings.TrimPrefix(ref, "files:")
+	idx := strings.Index(rest, ":sha256:")
+	if idx <= 0 {
+		return false
+	}
+	count, err := strconv.Atoi(rest[:idx])
+	if err != nil || count < 1 {
+		return false
+	}
+	hexPart := rest[idx+len(":sha256:"):]
+	if len(hexPart) != 64 {
+		return false
+	}
+	for i := 0; i < len(hexPart); i++ {
+		ch := hexPart[i]
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+// splitFilesSnapshotPostRef splits a tierFiles post_ref into its base FilesSnapshot ref and its causal
+// seal ("proven", "none", or "unknown"). Legacy rows without a valid ";cm=" seal return seal == "".
+func splitFilesSnapshotPostRef(postRef string) (snapRef string, seal string) {
+	idx := strings.LastIndex(postRef, ";cm=")
+	if idx <= 0 {
+		return postRef, ""
+	}
+	base := postRef[:idx]
+	candidate := postRef[idx+len(";cm="):]
+	switch candidate {
+	case string(MutationProven), string(MutationNone), string(MutationUnknown):
+		if hasPositiveFilesSnapshotRef(base) {
+			return base, candidate
+		}
+	}
+	return postRef, ""
 }
 
 // postWorkspace reads the work tree again, lists the paths whose status entry changed and hashes at most

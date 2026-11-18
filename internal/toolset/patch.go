@@ -103,11 +103,12 @@ func (s *Set) applyPatch(ctx context.Context, args map[string]any, _ func(protoc
 		}
 	}
 
-	if _, err := s.edit.Commit(ctx, editing.Plan{Host: s, Actor: s.actor(), Tool: "apply_patch", Changes: changes}); err != nil {
-		return editOutcome(err)
+	_, receipt, err := s.commitPlan(ctx, editing.Plan{Host: s, Actor: s.actor(), Tool: "apply_patch", Changes: changes})
+	if err != nil {
+		return commitOutcome(receipt, err)
 	}
 	content, _ := json.Marshal(reported)
-	return protocol.ToolResult{OK: true, Content: string(content), MutatesWorkspace: true}, nil
+	return protocol.ToolResult{OK: true, Content: string(content), MutatesWorkspace: receiptWrote(receipt)}, nil
 }
 
 // applyExactEdits validates a patch's edits against the current content, applying them in order the way

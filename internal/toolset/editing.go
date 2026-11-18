@@ -1,6 +1,7 @@
 package toolset
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -94,13 +95,34 @@ func (s *Set) goValidators() []editing.Validator {
 	return []editing.Validator{editing.GoSyntax(), editing.GoTypes()}
 }
 
+// commitPlan runs Engine.Commit while capturing its CommitReceipt and forwarding it to any host-bound
+// execution recorder on ctx.
+func (s *Set) commitPlan(ctx context.Context, plan editing.Plan) (editing.Result, editing.CommitReceipt, error) {
+	var got editing.CommitReceipt
+	wrapped := editing.WithCommitRecorder(ctx, func(r editing.CommitReceipt) {
+		got = r
+		editing.RecordCommitReceipt(ctx, r)
+	})
+	res, err := s.edit.Commit(wrapped, plan)
+	return res, got, err
+}
+
+func receiptWrote(r editing.CommitReceipt) bool {
+	for _, f := range r.Files {
+		if f.Wrote {
+			return true
+		}
+	}
+	return false
+}
+
 // editFailure renders a refusal as a tool result the model can act on: the error, its stable code, and
 // the remediation. MutatesWorkspace stays false except where the engine cannot rule out a write.
-func editFailure(err error) protocol.ToolResult {
+func editFailure(err error, dirty bool) protocol.ToolResult {
 	editErr, ok := editing.AsError(err)
 	if !ok {
 		content, _ := json.Marshal(map[string]any{"error": err.Error()})
-		return protocol.ToolResult{OK: false, Content: string(content)}
+		return protocol.ToolResult{OK: false, Content: string(content), MutatesWorkspace: dirty}
 	}
 	content, _ := json.Marshal(map[string]any{
 		"error": editErr.Error(), "code": editErr.Code, "hint": editErr.Hint(),
@@ -108,30 +130,34 @@ func editFailure(err error) protocol.ToolResult {
 		"diagnostics": editErr.Diagnostics,
 	})
 	return protocol.ToolResult{OK: false, Content: string(content),
-		MutatesWorkspace: editErr.Code == editing.CodeConcurrentWrite}
+		MutatesWorkspace: dirty || editErr.Code == editing.CodeConcurrentWrite}
 }
 
-// editOutcome is how a tool returns a commit failure: a refusal the model can act on (an editing.Error)
+// editOutcome is how a tool returns a pre-commit failure: a refusal the model can act on (an editing.Error)
 // becomes an OK:false result carrying its code and hint; anything else — a path guard refusal, an I/O
 // error — stays an error, so the caller's contract is unchanged.
 func editOutcome(err error) (protocol.ToolResult, error) {
+	return commitOutcome(editing.CommitReceipt{}, err)
+}
+
+func commitOutcome(receipt editing.CommitReceipt, err error) (protocol.ToolResult, error) {
 	if _, ok := editing.AsError(err); ok {
-		return editFailure(err), nil
+		return editFailure(err, receipt.DirtyFailure), nil
 	}
-	return protocol.ToolResult{}, err
+	return protocol.ToolResult{MutatesWorkspace: receipt.DirtyFailure}, err
 }
 
 // editResult renders a committed plan.
-func editResult(result editing.Result, extra map[string]any) protocol.ToolResult {
+func editResult(result editing.Result, receipt editing.CommitReceipt, extra map[string]any) protocol.ToolResult {
 	payload := map[string]any{"files": result.Files, "diagnostics": result.Diagnostics}
 	for key, value := range extra {
 		payload[key] = value
 	}
 	content, err := json.Marshal(payload)
 	if err != nil {
-		return protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, err.Error())}
+		return protocol.ToolResult{OK: false, Content: fmt.Sprintf(`{"error":%q}`, err.Error()), MutatesWorkspace: receiptWrote(receipt)}
 	}
-	return protocol.ToolResult{OK: true, Content: string(content), MutatesWorkspace: true}
+	return protocol.ToolResult{OK: true, Content: string(content), MutatesWorkspace: receiptWrote(receipt)}
 }
 
 // typeCheckNote summarizes whether the Go type checker really ran, for a tool result the model reads.

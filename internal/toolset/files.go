@@ -135,7 +135,7 @@ func (s *Set) writeFile(ctx context.Context, args map[string]any, _ func(protoco
 		return protocol.ToolResult{}, err
 	}
 	body := []byte(content)
-	result, err := s.edit.Commit(ctx, editing.Plan{
+	result, receipt, err := s.commitPlan(ctx, editing.Plan{
 		Actor: s.actor(),
 		Host:  s,
 		Tool:  "write_file",
@@ -145,10 +145,10 @@ func (s *Set) writeFile(ctx context.Context, args map[string]any, _ func(protoco
 		}},
 	})
 	if err != nil {
-		return editOutcome(err)
+		return commitOutcome(receipt, err)
 	}
 	out, _ := json.Marshal(map[string]any{"path": rel, "bytes": len(content), "rev": result.Files[0].NewRev})
-	return protocol.ToolResult{OK: true, Content: string(out), MutatesWorkspace: true}, nil
+	return protocol.ToolResult{OK: true, Content: string(out), MutatesWorkspace: receiptWrote(receipt)}, nil
 }
 
 // replaceFile replaces one exact text occurrence. The replacement is computed against the bytes read
@@ -179,7 +179,7 @@ func (s *Set) replaceFile(ctx context.Context, args map[string]any, _ func(proto
 		return protocol.ToolResult{}, errors.New("old_text is ambiguous")
 	}
 	splices := []editing.Splice{{Start: first, End: first + len(old), Text: next}}
-	result, err := s.edit.Commit(ctx, editing.Plan{
+	result, receipt, err := s.commitPlan(ctx, editing.Plan{
 		Actor: s.actor(),
 		Host:  s,
 		Tool:  "replace_in_file",
@@ -188,8 +188,8 @@ func (s *Set) replaceFile(ctx context.Context, args map[string]any, _ func(proto
 		}},
 	})
 	if err != nil {
-		return editOutcome(err)
+		return commitOutcome(receipt, err)
 	}
 	out, _ := json.Marshal(map[string]any{"path": rel, "replaced": true, "rev": result.Files[0].NewRev})
-	return protocol.ToolResult{OK: true, Content: string(out), MutatesWorkspace: true}, nil
+	return protocol.ToolResult{OK: true, Content: string(out), MutatesWorkspace: receiptWrote(receipt)}, nil
 }

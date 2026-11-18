@@ -305,6 +305,7 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 	if until, ok := protocol.ToolDeadline(ctx); ok {
 		toolCtx = protocol.WithToolDeadline(toolCtx, until)
 	}
+	toolCtx = x.bindContext(toolCtx)
 	result, toolErr := d.loop.Tools.Execute(toolCtx, name, args, nil)
 	// A tool cannot manufacture dispatcher-owned execution or provenance metadata.
 	result.ExecutionID, result.ExecutionOutcome, result.SourceSessions = "", "", nil
@@ -403,7 +404,7 @@ func (l *Loop) admitCallbackExecution(ctx context.Context, sessionID, runID, req
 	if err != nil {
 		return nil, &ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err}
 	}
-	x := &execution{id: id, tier: tier}
+	x := &execution{id: id, toolName: name, tier: tier, recorder: &commitRecorder{}}
 	sctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
 	var preRef string
 	switch tier {
@@ -429,13 +430,16 @@ func (l *Loop) admitCallbackExecution(ctx context.Context, sessionID, runID, req
 	if tier != tierAdmit {
 		if x.preOK {
 			a.PreRef = preRef
+			x.preRef = preRef
 		} else {
 			a.PreUnavailable = true
+			x.preUnavailable = true
 		}
 	}
 	if err := l.Store.AdmitExecution(ctx, a); err != nil {
 		return nil, storeExit(err)
 	}
+	runAfterToolAdmitHook(name, x.targets)
 	return x, nil
 }
 

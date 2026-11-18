@@ -215,7 +215,7 @@ func TestAvailabilityFailoverKeepsPinAndChildInheritsIt(t *testing.T) {
 	if len(entries) != 1 || entries[0].ModelRef != "test/b" {
 		t.Fatalf("steps=%+v, want one step answered by test/b", entries)
 	}
-	want := []string{agent.RuleAgentDefault, agent.RuleModelDefault, agent.RuleModelCandidates, agent.RuleEffortDefault, agent.RuleFailoverPrefix + "availability", agent.RuleEffortDefault}
+	want := []string{agent.RuleAgentDefault, agent.RuleModelDefault, agent.RuleModelCandidates, agent.RuleWindowPrefix, agent.RuleEffortDefault, agent.RuleFailoverPrefix + "availability", agent.RuleWindowPrefix, agent.RuleEffortDefault}
 	if got := rules(entries[0]); !reflect.DeepEqual(got, want) {
 		t.Fatalf("decision trace %v, want %v", got, want)
 	}

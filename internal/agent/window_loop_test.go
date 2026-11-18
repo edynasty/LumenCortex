@@ -107,7 +107,9 @@ func TestLoopWindowPerCandidate(t *testing.T) {
 	ps := &rejectingProvider{class: protocol.ClassAvailability}
 	pl := &scriptedProvider{responses: []protocol.ProviderResponse{{Message: protocol.Message{Content: "done"}, FinishReason: "stop"}}}
 	ms, ml := testModel(small, ps), testModel(large, pl)
-	ms.Context, ms.Output = 4000, 500
+	// ADR-0024 reserves GuardTokens(512) + BaseGateSlack_compact(1950) = 2462 tokens plus Output(500)
+	// and ~1050 fixed prefix tokens (~4012 minimum), so 6000 leaves ~2000 tokens (< 100 rows).
+	ms.Context, ms.Output = 6000, 500
 	ml.Context, ml.Output = 64000, 4096
 	store := &memoryStore{state: SessionState{ID: "cand", Goal: "cand", Status: "running"}, steps: map[int64]any{}, messages: oldRows(100)}
 	store.seed(t, nil, nil)
@@ -171,7 +173,7 @@ func TestRunGroupsTrimKeepsEveryWindow(t *testing.T) {
 		maxContext := 200 + rng.IntN(3000)
 		r := &run{}
 		r.transcript = slices.Clone(full)
-		groups, err := r.groups(maxContext)
+		groups, err := r.groups(maxContext, -1)
 		if err != nil {
 			t.Fatal(err)
 		}

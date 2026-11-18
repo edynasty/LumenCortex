@@ -1078,6 +1078,10 @@ func (s agentStore) CommitToolResult(ctx context.Context, c agent.ToolResultComm
 	return seq, version, err
 }
 
+func (s agentStore) ListAnsweredExecutions(ctx context.Context, sessionID string, fromSeq int64) ([]session.AnsweredExecutionSummary, error) {
+	return s.store.ListAnsweredExecutions(ctx, sessionID, fromSeq)
+}
+
 func (s agentStore) AdmitRequest(ctx context.Context, a session.RequestAdmission) (session.RequestEnvelope, error) {
 	env, err := s.store.AdmitRequest(ctx, a)
 	if err == nil && testHookAfterAdmit != nil {

@@ -103,9 +103,32 @@ type settlingStore struct {
 	settled int
 }
 
-func (s *settlingStore) SettleExecution(context.Context, string, session.ExecutionResult, *TaskStateChange, ...session.DerivedEdge) (int64, error) {
+func (s *settlingStore) SettleExecution(_ context.Context, _ string, res session.ExecutionResult, change *TaskStateChange, edges ...session.DerivedEdge) (int64, error) {
 	s.settled++
-	return 0, s.err
+	if s.err != nil {
+		return 0, s.err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if x := s.execution(res.ExecutionID); x != nil {
+		post := res
+		x.post = &post
+		for _, e := range edges {
+			if e.Kind == "file" {
+				x.fileEdges++
+			}
+		}
+	}
+	var version int64
+	if change != nil {
+		v, err := s.putLocked(*change)
+		if err != nil {
+			return 0, err
+		}
+		version = v
+	}
+	s.edges = append(s.edges, edges...)
+	return version, nil
 }
 
 // A workspace write runs only when its execution can be settled; a settlement failure is never a
