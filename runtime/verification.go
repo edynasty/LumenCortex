@@ -517,9 +517,14 @@ func (r providerReviewer) admit(ctx context.Context, resolved config.ResolvedMod
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
+	modelRefs, err := agent.EncodeEnvelopeModelRef(resolved.Ref)
+	if err != nil {
+		return "", err
+	}
 	id := "rq-" + hex.EncodeToString(buf)
 	adm := session.RequestAdmission{
 		RequestID: id, SessionID: r.sessionID, RunID: r.runID, Purpose: session.PurposeReview,
+		Refs:            modelRefs,
 		LineageComplete: true,
 	}
 	if _, err := r.engine.store.AdmitRequest(ctx, adm); err != nil {

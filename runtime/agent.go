@@ -682,9 +682,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if opts.Deadline != nil {
 		loopOpts.Deadline = *opts.Deadline
 	}
-	// The session model's execution profile supplies the defaults its runs start with: a step or
-	// per-step cap when the host set none, its own budget, and the presentation variant. None of it
-	// changes policy, permissions or checks.
+	// The session model's execution profile supplies the run-level defaults its runs start with: a step or
+	// per-step cap when the host set none, and its default run budget. Candidate presentation lives on each
+	// agent.Model independently so failover never pollutes another candidate's presentation (ADR-0024 §5).
 	if profile := plan.resolved.Profile; profile != nil {
 		if loopOpts.MaxSteps == 0 && profile.MaxSteps > 0 {
 			loopOpts.MaxSteps = profile.MaxSteps
@@ -694,10 +694,6 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		}
 		if profile.Budget != nil {
 			loopOpts.Budget = *profile.Budget
-		}
-		loopOpts.Presentation = agent.PresentationOptions{
-			ToolDescriptions: profile.ToolDescriptions,
-			Feedback:         profile.Feedback,
 		}
 	}
 	if global := execution.Budget; global != nil {

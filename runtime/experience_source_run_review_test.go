@@ -18,7 +18,7 @@ func abortAutoStart(t *testing.T, e *Engine, sessionID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requestID, err := e.admitAutoJudge(context.Background(), sessionID, runID, autoTurn{})
+	requestID, err := e.admitAutoJudge(context.Background(), sessionID, runID, "test/b0", autoTurn{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/internal/verify"
 	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -32,6 +33,10 @@ type Model struct {
 	Client         protocol.Provider
 	// Price is the model's configured cost, nil when it has none: its spend is unknown (ADR-0019 §6).
 	Price *config.Cost
+	// ProviderPkg is the normalized wire protocol ("openai-compatible" or "anthropic-messages").
+	ProviderPkg string
+	// Presentation holds this candidate model's explicit ToolDescriptions and Feedback preferences.
+	Presentation PresentationOptions
 }
 
 // attempt is the request that answered a step and the window it was built from.
@@ -329,7 +334,8 @@ func (l *Loop) send(
 		if cause := r.spend.admitRequest(opts.Budget, m, built.Tokens); cause != nil {
 			return attempt{}, cause
 		}
-		requestID, lineage, cause := l.admit(ctx, sessionID, step, attempts, opts, r, built, specs)
+		stateRefs := taskstate.RenderBlock(goal, r.ts, r.wf).ItemRefs
+		requestID, lineage, cause := l.admit(ctx, sessionID, step, attempts, opts, cand.Ref, opts.SystemLayers, ModeFull, taskStateVersion, stateRefs, built, specs)
 		if cause != nil {
 			return attempt{}, cause
 		}

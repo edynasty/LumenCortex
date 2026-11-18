@@ -152,7 +152,7 @@ func TestAutoJudgeEnvelopeOfAContinuationNamesNoInput(t *testing.T) {
 func TestAutoTurnWithAnUnnamedInputIsIncomplete(t *testing.T) {
 	engine := openTestEngine(t)
 	handle := newTestSession(t, engine, "goal")
-	id, err := engine.admitAutoJudge(context.Background(), handle.ID, "", autoTurn{newInput: "orphan"})
+	id, err := engine.admitAutoJudge(context.Background(), handle.ID, "", "test/b0", autoTurn{newInput: "orphan"})
 	if err != nil {
 		t.Fatal(err)
 	}

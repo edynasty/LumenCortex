@@ -20,6 +20,13 @@ import (
 // ModelRef names a catalog model as "provider/model": exactly one '/'.
 type ModelRef string
 
+// UTF-8 byte upper bounds on provider IDs and model keys so percent-escaped ModelRef chunks in
+// RequestEnvelope.Refs never exceed 769 ASCII bytes / 10 chunks (ADR-0024, REV-F07).
+const (
+	MaxProviderIDBytes = 64
+	MaxModelKeyBytes   = 192
+)
+
 // Split returns the provider id and the model key.
 func (r ModelRef) Split() (provider, model string, ok bool) {
 	provider, model, ok = strings.Cut(string(r), "/")
