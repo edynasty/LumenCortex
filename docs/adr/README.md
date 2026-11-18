@@ -54,6 +54,7 @@ Use [0000-template.md](0000-template.md) as the starting point.
 - [0012 — Core plugin platform and session import sources](0012-core-plugin-platform.md)
 - [0013 — Project inputs and workspace trust](0013-project-inputs-and-workspace-trust.md)
 - [0023 — Unified cognitive lifecycle and observed application](0023-unified-cognitive-lifecycle.md) (accepted in the isolated candidate; not merge/release approval)
+- [0024 — Candidate-specific context projection, causal repair floors, and deterministic budget guards](0024-candidate-context-projection-and-budget-guards.md) (accepted for implementation in isolated candidate; merge/release approval remains with Owner)
 
 ## Proposed decisions
 
