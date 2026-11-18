@@ -545,7 +545,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Threads:         threadReader{engine: e, sessionID: sessionID, workspace: agentWorkspace},
 		Knowledge:       knowledgeAccess,
 		Cognitive:       cognitiveTools,
-		Skills:          newSkillReader(prompt.Skills.Included),
+		Skills:          newSkillReader(prompt.Skills.Eligible),
 		Notebook:        newNotebookAccess(e, sessionID, runID),
 		Protected:       e.protected,
 		ShellTimeout:    time.Duration(execution.ShellTimeoutSeconds) * time.Second,
@@ -731,8 +731,8 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	loopOpts.SystemLayers = systemLayers(prompt.Layers)
 	if prompt.SkillsErr != nil {
 		e.events.publish("skills.error", sessionID, map[string]any{"error": prompt.SkillsErr.Error()})
-	} else if len(prompt.Skills.Included) > 0 || len(prompt.Skills.Withheld) > 0 {
-		data := map[string]any{"skills": skillIDs(prompt.Skills.Included)}
+	} else if len(prompt.Skills.Eligible) > 0 || len(prompt.Skills.Withheld) > 0 {
+		data := map[string]any{"skills": snapshottedSkillIDs(prompt.Skills.Eligible)}
 		if len(prompt.Skills.Withheld) > 0 {
 			// A project skill is repository content: it is read only in a trusted workspace (ADR-0013).
 			data["excluded"] = skillIDs(prompt.Skills.Withheld)

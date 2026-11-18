@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
@@ -22,6 +23,7 @@ var skillIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 // is written; the enablement of every skill of a scope, wherever it lives, is kept in that scope's
 // state file beside its LumenCortex root, so another tool's files are never changed.
 type Registry struct {
+	mu      sync.RWMutex
 	global  []Root
 	project []Root
 }
@@ -109,9 +111,11 @@ func (r *Registry) Roots(scope string) []Root {
 // the same scope shadows (ShadowedBy set), so a conflict is visible; the effective list holds the
 // winners only, which is what a run may use.
 func (r *Registry) List(scope string) ([]Skill, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	switch scope {
 	case ScopeGlobal, ScopeProject:
-		all, err := r.scanScope(scope)
+		all, _, err := r.scanScope(scope)
 		if err != nil {
 			return nil, err
 		}
@@ -126,7 +130,7 @@ func (r *Registry) List(scope string) ([]Skill, error) {
 		}
 		return out, nil
 	case ScopeEffective, "":
-		items, err := r.rawEffective(true)
+		items, _, err := r.rawEffective(true)
 		if err != nil {
 			return nil, err
 		}
@@ -137,6 +141,8 @@ func (r *Registry) List(scope string) ([]Skill, error) {
 }
 
 func (r *Registry) Content(scope, id string) (string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	id = strings.TrimSpace(id)
 	if !skillIDPattern.MatchString(id) {
 		return "", errors.New("invalid skill id")
@@ -158,6 +164,8 @@ func (r *Registry) Content(scope, id string) (string, error) {
 // Save writes a skill into the scope's LumenCortex root. A skill of the same id in another tool's
 // root stays where it is; the saved copy shadows it.
 func (r *Registry) Save(scope, id, content string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	id = strings.TrimSpace(id)
 	if !skillIDPattern.MatchString(id) {
 		return errors.New("skill id must match [A-Za-z0-9._-] and be at most 64 characters")
@@ -182,16 +190,14 @@ func (r *Registry) Save(scope, id, content string) error {
 		return err
 	}
 	path := filepath.Join(dir, "SKILL.md")
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeFileAtomic(path, []byte(content), 0o644)
 }
 
 // Delete removes a skill from the scope's LumenCortex root and forgets its enablement. A skill that
 // lives only in another tool's root is refused: LumenCortex does not delete files it did not write.
 func (r *Registry) Delete(scope, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	id = strings.TrimSpace(id)
 	if !skillIDPattern.MatchString(id) {
 		return errors.New("invalid skill id")
@@ -204,7 +210,7 @@ func (r *Registry) Delete(scope, id string) error {
 	info, err := os.Lstat(dir)
 	switch {
 	case os.IsNotExist(err):
-		all, scanErr := r.scanScope(scope)
+		all, _, scanErr := r.scanScope(scope)
 		if scanErr != nil {
 			return scanErr
 		}
@@ -235,6 +241,8 @@ func (r *Registry) Delete(scope, id string) error {
 // including one in another tool's root, because it never touches the skill's files. A project
 // setting overrides the global one for that workspace.
 func (r *Registry) SetEnabled(scope, id string, enabled bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	id = strings.TrimSpace(id)
 	if !skillIDPattern.MatchString(id) {
 		return errors.New("invalid skill id")
@@ -245,7 +253,7 @@ func (r *Registry) SetEnabled(scope, id string, enabled bool) error {
 	if _, err := r.writableRoot(scope); err != nil {
 		return err
 	}
-	effective, err := r.rawEffective(true)
+	effective, _, err := r.rawEffective(true)
 	if err != nil {
 		return err
 	}
@@ -253,7 +261,7 @@ func (r *Registry) SetEnabled(scope, id string, enabled bool) error {
 		return fmt.Errorf("unknown skill: %s", id)
 	}
 	if scope == ScopeGlobal {
-		global, err := r.winners(ScopeGlobal)
+		global, _, err := r.winners(ScopeGlobal)
 		if err != nil {
 			return err
 		}
@@ -269,20 +277,21 @@ func (r *Registry) SetEnabled(scope, id string, enabled bool) error {
 	return saveState(r.statePath(scope), state)
 }
 
-// Prompt returns the skills catalog of a run and the skills it offers. The catalog names each
-// enabled skill and its description, nothing more: a skill's instructions reach the model only when
-// it loads them with read_skill (progressive disclosure, as the Agent Skills format intends), so
-// installing many skills costs a line each, not their whole text. A project-scope skill is offered
-// only when opts.IncludeProject says the workspace is trusted; the project skills withheld for that
-// reason are returned so the caller can report them.
+// Prompt returns the skills catalog of a run and the immutable snapshot of eligible skills it offers.
+// The catalog names each enabled skill and its description, nothing more: a skill's instructions
+// reach the model only when it loads them with read_skill (progressive disclosure), while Eligible
+// retains every enabled, error-free skill (with its SKILL.md body) so read_skill(query/offset) and
+// read_skill(id) share the exact same run snapshot.
 func (r *Registry) Prompt(opts PromptOptions) (PromptResult, error) {
-	items, err := r.rawEffective(opts.IncludeProject)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	items, warnings, err := r.rawEffective(opts.IncludeProject)
 	if err != nil {
 		return PromptResult{}, err
 	}
-	result := PromptResult{}
+	result := PromptResult{Warnings: warnings}
 	if !opts.IncludeProject {
-		project, err := r.winners(ScopeProject)
+		project, _, err := r.winners(ScopeProject)
 		if err != nil {
 			return PromptResult{}, err
 		}
@@ -296,27 +305,46 @@ func (r *Registry) Prompt(opts PromptOptions) (PromptResult, error) {
 		}
 	}
 	var lines strings.Builder
+	var compactLines strings.Builder
+	const compactFooterReserve = 128
+	compactBudget := MaxCompactCatalogBytes - len(compactCatalogPreamble) - compactFooterReserve
 	omitted := 0
+	compactListed := 0
 	for _, item := range sortedRaw(items) {
 		if !item.Enabled || item.Error != "" {
 			continue
 		}
+		result.Eligible = append(result.Eligible, SnapshottedSkill{
+			Skill:   item.Skill,
+			Content: item.content,
+		})
 		line := catalogLine(item.Skill)
-		if lines.Len()+len(line) > MaxCatalogBytes {
+		if lines.Len()+len(line) <= MaxCatalogBytes {
+			lines.WriteString(line)
+			result.Included = append(result.Included, item.Skill)
+		} else {
 			omitted++
-			continue
 		}
-		lines.WriteString(line)
-		result.Included = append(result.Included, item.Skill)
+		cLine := compactCatalogLine(item.Skill)
+		if compactLines.Len()+len(cLine) <= compactBudget {
+			compactLines.WriteString(cLine)
+			compactListed++
+		}
 	}
-	if len(result.Included) == 0 {
+	if len(result.Eligible) == 0 {
 		return result, nil
 	}
 	text := catalogPreamble + lines.String()
 	if omitted > 0 {
-		text += fmt.Sprintf("\n(%d more enabled skills are not listed: the catalog is full.)\n", omitted)
+		text += fmt.Sprintf("\n(%d more enabled skills are not listed: call read_skill with offset=%d or query to browse the catalog.)\n", omitted, len(result.Included))
 	}
 	result.Text = text
+
+	compactText := compactCatalogPreamble + compactLines.String()
+	if compactOmitted := len(result.Eligible) - compactListed; compactOmitted > 0 {
+		compactText += fmt.Sprintf("\n(%d more enabled skills are not listed: call read_skill with offset=%d or query to browse.)\n", compactOmitted, compactListed)
+	}
+	result.CompactText = compactText
 	return result, nil
 }
 
@@ -328,6 +356,8 @@ const catalogPreamble = "Skills are instructions the user installed for particul
 	"A skill may name other files by a path relative to its directory (references, scripts, templates): read them with read_skill(id, path) when you need them. " +
 	"Do not load a skill that does not apply.\n\n"
 
+const compactCatalogPreamble = "Skills (compact trigger list; call read_skill(id) for instructions, read_skill(id, path) for files, or read_skill(query/offset) to search all eligible skills):\n\n"
+
 func catalogLine(s Skill) string {
 	label := "`" + s.ID + "`"
 	if s.Name != "" && s.Name != s.ID {
@@ -338,6 +368,17 @@ func catalogLine(s Skill) string {
 		description = "no description"
 	}
 	return "- " + label + ": " + description + "\n"
+}
+
+func compactCatalogLine(s Skill) string {
+	description := strings.Join(strings.Fields(s.Description), " ")
+	if description == "" {
+		description = "no description"
+	}
+	if len(description) > CompactTriggerBytes {
+		description = truncateRunes(description, CompactTriggerBytes-len("…")) + "…"
+	}
+	return "- `" + s.ID + "`: " + description + "\n"
 }
 
 // ReadResource reads one file or directory of a skill: "" (or "SKILL.md") is its instructions,
@@ -417,7 +458,7 @@ func ReadResource(s Skill, rel string) (Resource, error) {
 func (r *Registry) rawScope(scope string) (map[string]rawSkill, error) {
 	switch scope {
 	case ScopeGlobal, ScopeProject:
-		items, err := r.winners(scope)
+		items, _, err := r.winners(scope)
 		if err != nil {
 			return nil, err
 		}
@@ -431,7 +472,8 @@ func (r *Registry) rawScope(scope string) (map[string]rawSkill, error) {
 		}
 		return items, nil
 	case ScopeEffective, "":
-		return r.rawEffective(true)
+		items, _, err := r.rawEffective(true)
+		return items, err
 	default:
 		return nil, errors.New("unknown skill scope")
 	}
@@ -439,24 +481,27 @@ func (r *Registry) rawScope(scope string) (map[string]rawSkill, error) {
 
 // rawEffective merges the scopes by id, project overriding global. includeProject false merges the
 // global scope only: it is the prompt of a run in an untrusted workspace (ADR-0013).
-func (r *Registry) rawEffective(includeProject bool) (map[string]rawSkill, error) {
-	global, err := r.winners(ScopeGlobal)
+func (r *Registry) rawEffective(includeProject bool) (map[string]rawSkill, []string, error) {
+	global, globalWarns, err := r.winners(ScopeGlobal)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	warnings := append([]string(nil), globalWarns...)
 	project := map[string]rawSkill{}
 	if includeProject {
-		if project, err = r.winners(ScopeProject); err != nil {
-			return nil, err
+		var projectWarns []string
+		if project, projectWarns, err = r.winners(ScopeProject); err != nil {
+			return nil, nil, err
 		}
+		warnings = append(warnings, projectWarns...)
 	}
 	globalState, err := loadState(r.statePath(ScopeGlobal))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	projectState, err := loadState(r.statePath(ScopeProject))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := make(map[string]rawSkill, len(global)+len(project))
 	for id, item := range global {
@@ -470,14 +515,14 @@ func (r *Registry) rawEffective(includeProject bool) (map[string]rawSkill, error
 		}
 		out[id] = item
 	}
-	return out, nil
+	return out, warnings, nil
 }
 
 // winners is a scope's skills by id, the first root that has an id providing it.
-func (r *Registry) winners(scope string) (map[string]rawSkill, error) {
-	all, err := r.scanScope(scope)
+func (r *Registry) winners(scope string) (map[string]rawSkill, []string, error) {
+	all, warnings, err := r.scanScope(scope)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := make(map[string]rawSkill, len(all))
 	for _, item := range all {
@@ -485,22 +530,26 @@ func (r *Registry) winners(scope string) (map[string]rawSkill, error) {
 			out[item.ID] = item
 		}
 	}
-	return out, nil
+	return out, warnings, nil
 }
 
 // scanScope lists every skill of a scope's roots, sorted by id then precedence, marking the ones a
 // higher root shadows.
-func (r *Registry) scanScope(scope string) ([]rawSkill, error) {
+func (r *Registry) scanScope(scope string) ([]rawSkill, []string, error) {
 	roots := r.global
 	if scope == ScopeProject {
 		roots = r.project
 	}
 	winner := map[string]string{}
 	var out []rawSkill
+	var warnings []string
 	for _, root := range roots {
-		items, err := scanRoot(root, scope)
+		items, truncated, err := scanRoot(root, scope)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		if truncated {
+			warnings = append(warnings, fmt.Sprintf("skill root %s exceeds the %d-skill per-root limit; remaining skills were truncated", root.Path, MaxSkills))
 		}
 		for _, item := range items {
 			if owner, ok := winner[item.ID]; ok {
@@ -512,30 +561,28 @@ func (r *Registry) scanScope(scope string) ([]rawSkill, error) {
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out, nil
+	return out, warnings, nil
 }
 
 // scanRoot reads <root>/<id>/SKILL.md. A skill directory may be a symbolic link (how skill
 // installers share one copy between tools); it is followed one level and reported as linked. A
 // root that does not exist has no skills.
-func scanRoot(root Root, scope string) ([]rawSkill, error) {
+func scanRoot(root Root, scope string) ([]rawSkill, bool, error) {
 	entries, err := os.ReadDir(root.Path)
 	if os.IsNotExist(err) {
-		return nil, nil
+		return nil, false, nil
 	}
 	if err != nil {
 		if root.Writable {
-			return nil, err
+			return nil, false, err
 		}
 		// Another tool's directory that cannot be read hides its skills; it does not stop runs.
-		return nil, nil
+		return nil, false, nil
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	var out []rawSkill
+	truncated := false
 	for _, entry := range entries {
-		if len(out) >= MaxSkills {
-			break
-		}
 		name := entry.Name()
 		if strings.HasPrefix(name, ".") || !skillIDPattern.MatchString(name) {
 			continue
@@ -544,6 +591,10 @@ func scanRoot(root Root, scope string) ([]rawSkill, error) {
 		linked := entry.Type()&os.ModeSymlink != 0
 		if !entry.IsDir() && !linked {
 			continue
+		}
+		if len(out) >= MaxSkills {
+			truncated = true
+			break
 		}
 		item := rawSkill{dir: dir, Skill: Skill{
 			ID: name, Name: name, Scope: scope, Source: root.Source, Root: root.Path,
@@ -586,7 +637,7 @@ func scanRoot(root Root, scope string) ([]rawSkill, error) {
 		item.Name, item.Description = parseMetadata(item.ID, item.content)
 		out = append(out, item)
 	}
-	return out, nil
+	return out, truncated, nil
 }
 
 func (r *Registry) writableRoot(scope string) (Root, error) {
@@ -659,11 +710,37 @@ func saveState(path string, state stateFile) error {
 	if len(raw) > MaxStateBytes {
 		return errors.New("skill state exceeds runtime limit")
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(raw, '\n'), 0o600); err != nil {
+	return writeFileAtomic(path, append(raw, '\n'), 0o600)
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	tmp := f.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Chmod(perm); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 func sortedRaw(items map[string]rawSkill) []rawSkill {

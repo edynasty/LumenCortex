@@ -1,6 +1,4 @@
-// Package window holds the token estimate the model-selection policy uses to decide whether a
-// request fits a candidate's context. The full window builder (grouping, budgets, dropping) arrives
-// with M3.2; until then this is the only thing the package offers (design D6).
+// Package window holds the deterministic token estimator and contiguous suffix request-window builder.
 package window
 
 import (
@@ -9,8 +7,38 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
-// Estimate is a deterministic token estimate of v's JSON encoding: (len(json)+2)/3 + 4. It
-// undercounts for some tokenizers and content; the policy keeps a 5% margin for that.
+// EstimateBytes returns a deterministic conservative token estimate for raw UTF-8/JSON bytes.
+// Empty input estimates as 0; non-empty input classifies bytes in a single pass into ASCII letters
+// and space (weight 4/12), other single-byte ASCII < 0x80 (weight 7/12), and multi-byte UTF-8 >= 0x80
+// (weight 6/12): floor((4*A + 7*S + 6*U + 11)/12) + 4.
+func EstimateBytes(b []byte) int {
+	if len(b) == 0 {
+		return 0
+	}
+	var a, s, u int
+	for _, c := range b {
+		switch {
+		case (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == ' ':
+			a++
+		case c < 0x80:
+			s++
+		default:
+			u++
+		}
+	}
+	return (4*a+7*s+6*u+11)/12 + 4
+}
+
+// ReserveTokensForBytes returns the worst-case EstimateBytes upper bound for any byte slice of
+// length in (0, n]: floor((7*n + 11)/12) + 4, or 0 when n <= 0.
+func ReserveTokensForBytes(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	return (7*n+11)/12 + 4
+}
+
+// Estimate is a deterministic token estimate of v's JSON encoding via EstimateBytes.
 //
 // json.Marshal of a protocol.Message only fails when a ToolCall.Arguments value is not valid JSON.
 // Messages and message slices are then estimated with each invalid Arguments replaced by its
@@ -33,7 +61,7 @@ func Estimate(v any) int {
 			return 0
 		}
 	}
-	return (len(b)+2)/3 + 4
+	return EstimateBytes(b)
 }
 
 func sanitize(m protocol.Message) protocol.Message {

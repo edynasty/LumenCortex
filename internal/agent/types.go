@@ -134,6 +134,9 @@ type SystemLayer struct {
 	// Source names where the text came from: a file path, or the skill roots.
 	Source string
 	Text   string
+	// CompactText is the bounded ModeCompact form of the layer when available; "" for layers that must
+	// never be compacted (such as global-instructions).
+	CompactText string
 }
 
 // Options is a run's fixed inputs.

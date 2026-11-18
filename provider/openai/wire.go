@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -223,7 +224,8 @@ func responseEcho(echo, reasoning string) protocol.Echo {
 	if echo != echoReasoningContent || reasoning == "" {
 		return protocol.Echo{}
 	}
-	return protocol.NewEcho(echoReasoningContent, []byte(reasoning), (len(reasoning)+2)/3+4)
+	raw := []byte(reasoning)
+	return protocol.NewEcho(echoReasoningContent, raw, window.EstimateBytes(raw))
 }
 
 func (r chatResponse) toProtocol(echo string) (protocol.ProviderResponse, error) {
