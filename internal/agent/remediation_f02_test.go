@@ -465,9 +465,12 @@ func TestF02MultiToolCallAttributionAndUserResetOnRealSQLite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify HistoryGroupMeta fields: HasToolCalls, AnsweredSeq, ToolCallID, ExecutionID, ToolCalls, MutationUnknown.
+	// Verify HistoryGroupMeta fields: HasToolCalls, AnsweredSeq, ToolCalls, MutationUnknown, and a causal
+	// attribution bound to the one call that carries the group's Unknown evidence (bash): its tool call
+	// id, name, execution and post ref, never fields mixed from different calls (R3-03).
 	meta1 := r.historyGroups[len(r.historyGroups)-1]
-	if !meta1.HasToolCalls || meta1.AnsweredSeq != seqA1 || meta1.ToolCallID != "m1-read" || meta1.ExecutionID != "ex-m1-write" {
+	if !meta1.HasToolCalls || meta1.AnsweredSeq != seqA1 || meta1.ToolCallID != "m1-bash" || meta1.PrimaryToolName != "bash" ||
+		meta1.ExecutionID != "ex-m1-bash" || meta1.PrimaryPostRef != "ws:sha256:"+shaA {
 		t.Fatalf("unexpected multi-call HistoryGroupMeta: %+v", meta1)
 	}
 	if len(meta1.ToolCalls) != 3 || meta1.ToolCalls[1].ExecutionID != "ex-m1-write" || meta1.ToolCalls[2].ExecutionID != "ex-m1-bash" {

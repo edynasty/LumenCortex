@@ -22,11 +22,17 @@ const (
 )
 
 // HistoryToolCallRef records body-free attribution for one tool call within an answered_seq group.
+// ExecutionID, PostRef and ExecEvidence come from the persisted execution mapped to this call (empty
+// when none was admitted); ResultSeen and ResultUnknown record the tool row answering it.
 type HistoryToolCallRef struct {
-	ToolCallID  string
-	Name        string
-	AnsweredSeq int64
-	ExecutionID string
+	ToolCallID    string
+	Name          string
+	AnsweredSeq   int64
+	ExecutionID   string
+	PostRef       string
+	ExecEvidence  MutationEvidence
+	ResultSeen    bool
+	ResultUnknown bool
 }
 
 // HistoryGroupMeta holds lightweight body-free metadata for one atomic transcript group in the active
@@ -254,38 +260,76 @@ func buildAssistantHistoryMeta(seq int64, m protocol.Message) HistoryGroupMeta {
 	meta.ExpectedCalls = len(m.ToolCalls)
 	meta.HasDebugToolCall = hasDebug
 	meta.AnsweredSeq = seq
-	meta.ToolCallID = m.ToolCalls[0].ID
-	meta.PrimaryToolName = m.ToolCalls[0].Name
 	meta.ToolCalls = calls
 	meta.MutationEvidence = MutationUnknown
+	bindPrimaryToolCall(&meta)
 	return meta
+}
+
+// toolCallEvidence is the three-valued evidence of tool call i on its own, under the same rules
+// aggregateHistoryGroupMutation applies to the whole group.
+func (meta *HistoryGroupMeta) toolCallEvidence(i int) MutationEvidence {
+	c := meta.ToolCalls[i]
+	if meta.Origin == protocol.OriginImported || strings.HasPrefix(c.Name, "debug_") || !c.ResultSeen || c.ResultUnknown {
+		return MutationUnknown
+	}
+	if c.ExecEvidence != "" {
+		return c.ExecEvidence
+	}
+	return MutationNone
+}
+
+// bindPrimaryToolCall points the group's causal attribution (ToolCallID, PrimaryToolName, ExecutionID,
+// PrimaryPostRef) at exactly one tool call: the first whose own evidence equals the group's
+// MutationEvidence, else the first call. Every field comes from that call and the execution mapped
+// to it, never from another call of the group (ADR-0024 R3-03).
+func bindPrimaryToolCall(meta *HistoryGroupMeta) {
+	if len(meta.ToolCalls) == 0 {
+		return
+	}
+	primary := 0
+	for i := range meta.ToolCalls {
+		if meta.toolCallEvidence(i) == meta.MutationEvidence {
+			primary = i
+			break
+		}
+	}
+	c := meta.ToolCalls[primary]
+	meta.ToolCallID = c.ToolCallID
+	meta.PrimaryToolName = c.Name
+	meta.ExecutionID = c.ExecutionID
+	meta.PrimaryPostRef = c.PostRef
 }
 
 func applyToolRowToHistoryMeta(meta *HistoryGroupMeta, seq int64, m protocol.Message) bool {
 	if meta == nil || meta.Role != "assistant" || !meta.HasToolCalls {
 		return false
 	}
-	matched := false
+	matched := -1
 	for i := range meta.ToolCalls {
 		if meta.ToolCalls[i].ToolCallID == m.ToolCallID {
-			matched = true
+			matched = i
 			break
 		}
 	}
-	if !matched {
+	if matched < 0 {
 		return false
 	}
 	if seq > meta.LastSeq {
 		meta.LastSeq = seq
 	}
 	meta.PairedResults++
+	meta.ToolCalls[matched].ResultSeen = true
 	if m.Origin == protocol.OriginToolInterrupted {
 		meta.HasInterrupted = true
+		meta.ToolCalls[matched].ResultUnknown = true
 	}
 	if m.Origin == protocol.OriginImported {
 		meta.HasImportedTool = true
+		meta.ToolCalls[matched].ResultUnknown = true
 	}
 	meta.MutationEvidence = aggregateHistoryGroupMutation(*meta, nil)
+	bindPrimaryToolCall(meta)
 	return true
 }
 
@@ -293,29 +337,25 @@ func applyExecutionSummariesToMeta(meta *HistoryGroupMeta, execs []session.Answe
 	if meta == nil || !meta.HasToolCalls {
 		return
 	}
-	meta.ExecutionID = ""
-	meta.PrimaryPostRef = ""
+	// Each execution maps, in admission order, to the first not yet mapped call of the same tool name
+	// (tool calls of one reply run sequentially in call order).
 	for i := range meta.ToolCalls {
 		meta.ToolCalls[i].ExecutionID = ""
+		meta.ToolCalls[i].PostRef = ""
+		meta.ToolCalls[i].ExecEvidence = ""
 	}
-	if len(execs) > 0 {
-		meta.ExecutionID = execs[0].ExecutionID
-		meta.PrimaryPostRef = execs[0].PostRef
-		if meta.PrimaryToolName == "" {
-			meta.PrimaryToolName = execs[0].ToolName
-		}
-		used := make([]bool, len(meta.ToolCalls))
-		for _, ex := range execs {
-			for i := range meta.ToolCalls {
-				if !used[i] && meta.ToolCalls[i].Name == ex.ToolName {
-					meta.ToolCalls[i].ExecutionID = ex.ExecutionID
-					used[i] = true
-					break
-				}
+	for _, ex := range execs {
+		for i := range meta.ToolCalls {
+			if meta.ToolCalls[i].ExecutionID == "" && meta.ToolCalls[i].Name == ex.ToolName {
+				meta.ToolCalls[i].ExecutionID = ex.ExecutionID
+				meta.ToolCalls[i].PostRef = ex.PostRef
+				meta.ToolCalls[i].ExecEvidence = classifyExecutionSummary(ex)
+				break
 			}
 		}
 	}
 	meta.MutationEvidence = aggregateHistoryGroupMutation(*meta, execs)
+	bindPrimaryToolCall(meta)
 }
 
 func (r *run) foldSettledHistoryPrefix() {
@@ -968,6 +1008,7 @@ func HistoryGroupsFromEntries(transcript []window.Entry, mutations map[int64]Mut
 			if mutations != nil {
 				if ev, ok := mutations[g[0].Seq]; ok {
 					meta.MutationEvidence = ev
+					bindPrimaryToolCall(&meta)
 				}
 			}
 			out = append(out, meta)
