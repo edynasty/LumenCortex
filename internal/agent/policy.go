@@ -59,6 +59,9 @@ const (
 	// RuleFailoverRecovery: the failover chain ended in an outage; the step waits and sends the request
 	// again to a candidate that failed with availability (Recovery).
 	RuleFailoverRecovery = "failover.recovery"
+	// RuleFailoverFloorFallback: after all larger candidates failed or exhausted recovery during active
+	// gate repair, selects the largest available candidate for controlled Floor Relaxation (ADR-0024 §7, F-03).
+	RuleFailoverFloorFallback = "failover.floor_fallback"
 	// RuleWindowDropped: older transcript groups were left out to fit the candidate's budget (§5).
 	RuleWindowDropped = "window.dropped"
 	// RuleWindowDefaultContext: the model configures no limit.context, so the request is budgeted on
@@ -69,6 +72,11 @@ const (
 	RuleWindowCapacityRetry = "window.capacity_retry"
 	// RuleWindowPrefix: stateless binary ModeFull / ModeCompact selection for a candidate (ADR-0024 §4).
 	RuleWindowPrefix = "window.prefix"
+	// RuleWindowFloorRelaxed: controlled Floor Relaxation on the largest available candidate after all
+	// larger candidates were exhausted during active gate repair (ADR-0024 §7, F-03).
+	RuleWindowFloorRelaxed = "window.floor_relaxed"
+	// FloorRelaxReasonMaxCandidateOverflow is the canonical machine reason recorded by RuleWindowFloorRelaxed.
+	FloorRelaxReasonMaxCandidateOverflow = "max_candidate_repair_floor_overflow"
 	// RuleTurnBoundary: NeedsTurnBoundary held before a request, so a runtime row opened a new turn (§4.6).
 	RuleTurnBoundary = "turn.boundary"
 	// RuleInstructionsAppended: the agent's instructions were appended as the last system message of
@@ -169,12 +177,18 @@ type RepairContext struct {
 
 type repairContext = RepairContext
 
-// EffectiveGateSlack computes the gate reservation for the current step: full baseSlack outside active
-// repair, 0 immediately after a gate block, and reloaded up to baseSlack on subsequent repair steps
-// without evicting requiredRepairTokens.
+// EffectiveGateSlack computes the gate reservation for the current step: outside active repair,
+// min(baseSlack, max(0, (poolBeforeSlack - candFixed) / 4)) (preserving full baseSlack on >=32K
+// windows while retaining 75% post-prefix conversation capacity on 8K small windows, F-06); 0
+// immediately after a gate block; and reloaded up to baseSlack on subsequent repair steps without
+// evicting requiredRepairTokens.
 func EffectiveGateSlack(poolBeforeSlack, candFixed, baseSlack, requiredRepairTokens int, repair repairContext) int {
 	if !repair.Active {
-		return baseSlack
+		free := poolBeforeSlack - candFixed
+		if free <= 0 {
+			return 0
+		}
+		return min(baseSlack, free/4)
 	}
 	if repair.NewestIsBlock {
 		return 0
@@ -763,6 +777,90 @@ func FailoverDecision(cands []Candidate, failed int, class protocol.ErrorClass) 
 		failoverOutput{Next: next})
 }
 
+type floorFallbackInputs struct {
+	Candidates  []candidateRef `json:"candidates"`
+	Failed      int            `json:"failed"`
+	Unavailable []bool         `json:"unavailable"`
+}
+
+// SelectMaxAvailableCandidate returns the index of the non-unavailable candidate with the largest
+// Context window (ties broken by lowest candidate index), or -1 when all candidates are unavailable.
+func SelectMaxAvailableCandidate(cands []Candidate, unavailable []bool) int {
+	best := -1
+	for i, c := range cands {
+		if i < len(unavailable) && unavailable[i] {
+			continue
+		}
+		if best < 0 || c.Context > cands[best].Context {
+			best = i
+		}
+	}
+	return best
+}
+
+// FloorFallbackDecision records switching from a failed larger candidate to the largest remaining
+// available candidate once all larger candidates are exhausted during gate repair (F-03).
+func FloorFallbackDecision(cands []Candidate, failed int, unavailable []bool) (int, Decision) {
+	unavailCopy := make([]bool, len(cands))
+	copy(unavailCopy, unavailable)
+	next := SelectMaxAvailableCandidate(cands, unavailCopy)
+	return next, newDecision(DecisionFailover, RuleFailoverFloorFallback,
+		floorFallbackInputs{Candidates: candidateRefs(cands), Failed: failed, Unavailable: unavailCopy},
+		failoverOutput{Next: next})
+}
+
+type windowFloorRelaxedInputs struct {
+	Ref                       config.ModelRef `json:"ref"`
+	Context                   int             `json:"context"`
+	UsableInput               int             `json:"usableInput"`
+	Fixed                     int             `json:"fixed"`
+	OriginalMinRequiredSeq    int64           `json:"originalMinRequiredSeq"`
+	RelaxedFloorSeq           int64           `json:"relaxedFloorSeq"`
+	BlockSeq                  int64           `json:"blockSeq"`
+	NewestGroupFirstSeq       int64           `json:"newestGroupFirstSeq"`
+	WindowFirstSeq            int64           `json:"windowFirstSeq"`
+	WindowTokens              int             `json:"windowTokens"`
+	LargerCandidatesExhausted bool            `json:"largerCandidatesExhausted"`
+}
+
+type windowFloorRelaxedOutput struct {
+	Relaxed                bool   `json:"relaxed"`
+	Reason                 string `json:"reason"`
+	OriginalMinRequiredSeq int64  `json:"originalMinRequiredSeq"`
+	SentFirstSeq           int64  `json:"sentFirstSeq"`
+}
+
+// WindowFloorRelaxedDecision records a controlled Floor Relaxation on the largest available candidate
+// when strict MinRequiredSeq exceeded every available model window (ADR-0024 §7, F-03).
+func WindowFloorRelaxedDecision(
+	ref config.ModelRef,
+	contextTokens, usableInput, fixed int,
+	originalMinReqSeq, relaxedFloorSeq, blockSeq, newestGroupFirstSeq, sentFirstSeq int64,
+	windowTokens int,
+) Decision {
+	return newDecision(DecisionWindow, RuleWindowFloorRelaxed,
+		windowFloorRelaxedInputs{
+			Ref:                       ref,
+			Context:                   contextTokens,
+			UsableInput:               usableInput,
+			Fixed:                     fixed,
+			OriginalMinRequiredSeq:    originalMinReqSeq,
+			RelaxedFloorSeq:           relaxedFloorSeq,
+			BlockSeq:                  blockSeq,
+			NewestGroupFirstSeq:       newestGroupFirstSeq,
+			WindowFirstSeq:            sentFirstSeq,
+			WindowTokens:              windowTokens,
+			LargerCandidatesExhausted: true,
+		},
+		windowFloorRelaxedOutput{
+			Relaxed:                true,
+			Reason:                 FloorRelaxReasonMaxCandidateOverflow,
+			OriginalMinRequiredSeq: originalMinReqSeq,
+			SentFirstSeq:           sentFirstSeq,
+		},
+	)
+}
+
 // EffectiveContext is the context a request is budgeted on: the configured limit.context, else
 // config.DefaultContext with rule window.default_context (design §5). configured is 0 when absent.
 func EffectiveContext(configured int) (int, string) {
@@ -1037,6 +1135,23 @@ func ReplayDecision(d Decision) error {
 		if next, wait := replayRecoveryPick(in.ReadyInMs, in.Failed, in.BackoffMs); next != out.Next || wait != out.WaitMs {
 			return fmt.Errorf("%s: recomputed next=%d wait=%dms, logged next=%d wait=%dms", d.Rule, next, wait, out.Next, out.WaitMs)
 		}
+	case d.Kind == DecisionFailover && d.Rule == RuleFailoverFloorFallback:
+		var in floorFallbackInputs
+		var out failoverOutput
+		if err := decodeDecision(d, &in, &out); err != nil {
+			return err
+		}
+		if len(in.Unavailable) != len(in.Candidates) {
+			return fmt.Errorf("%s: %d availability entries for %d candidates", d.Rule, len(in.Unavailable), len(in.Candidates))
+		}
+		cands := make([]Candidate, len(in.Candidates))
+		for i, c := range in.Candidates {
+			cands[i] = Candidate{Ref: c.Ref, Context: c.Context}
+		}
+		next := SelectMaxAvailableCandidate(cands, in.Unavailable)
+		if next < 0 || next != out.Next {
+			return fmt.Errorf("%s: recomputed next=%d, logged next=%d", d.Rule, next, out.Next)
+		}
 	case d.Kind == DecisionFailover:
 		var in failoverInputs
 		var out failoverOutput
@@ -1074,6 +1189,33 @@ func ReplayDecision(d Decision) error {
 		mode, reason := SelectWindowPrefix(in.ToolPref, in.UsableFull, in.UsableCompact, in.FullFixed, in.CompactFixed, in.RequiredTranscript)
 		if mode != out.Mode || reason != out.Reason {
 			return fmt.Errorf("%s: recomputed %s/%s, logged %s/%s", d.Rule, mode, reason, out.Mode, out.Reason)
+		}
+	case d.Kind == DecisionWindow && d.Rule == RuleWindowFloorRelaxed:
+		var in windowFloorRelaxedInputs
+		var out windowFloorRelaxedOutput
+		if err := decodeDecision(d, &in, &out); err != nil {
+			return err
+		}
+		if !in.LargerCandidatesExhausted {
+			return fmt.Errorf("%s: larger candidates were not exhausted", d.Rule)
+		}
+		if in.OriginalMinRequiredSeq < 0 || in.RelaxedFloorSeq < 0 || in.BlockSeq < 0 || in.NewestGroupFirstSeq < 0 {
+			return fmt.Errorf("%s: invalid floor seqs orig=%d relaxed=%d block=%d newest=%d",
+				d.Rule, in.OriginalMinRequiredSeq, in.RelaxedFloorSeq, in.BlockSeq, in.NewestGroupFirstSeq)
+		}
+		if in.WindowFirstSeq <= in.OriginalMinRequiredSeq {
+			return fmt.Errorf("%s: windowFirstSeq %d did not relax originalMinRequiredSeq %d",
+				d.Rule, in.WindowFirstSeq, in.OriginalMinRequiredSeq)
+		}
+		if in.WindowFirstSeq > in.RelaxedFloorSeq || in.WindowFirstSeq > in.BlockSeq || in.WindowFirstSeq > in.NewestGroupFirstSeq {
+			return fmt.Errorf("%s: windowFirstSeq %d evicted relaxed floor (relaxed=%d block=%d newest=%d)",
+				d.Rule, in.WindowFirstSeq, in.RelaxedFloorSeq, in.BlockSeq, in.NewestGroupFirstSeq)
+		}
+		if !out.Relaxed ||
+			out.Reason != FloorRelaxReasonMaxCandidateOverflow ||
+			out.OriginalMinRequiredSeq != in.OriginalMinRequiredSeq ||
+			out.SentFirstSeq != in.WindowFirstSeq {
+			return fmt.Errorf("%s: inconsistent output %+v for inputs %+v", d.Rule, out, in)
 		}
 	case d.Kind == DecisionWindow && d.Rule == RuleWindowCapacityRetry:
 		var in capacityRetryInputs
@@ -1197,6 +1339,16 @@ func VerifyStep(raw json.RawMessage) error {
 				return fmt.Errorf("step %d: failover left %d, but the run was on %s", step.Step, in.Failed, current)
 			}
 			current = in.Candidates[out.Next].Ref
+		case d.Kind == DecisionWindow && d.Rule == RuleWindowFloorRelaxed:
+			var in windowFloorRelaxedInputs
+			var out windowFloorRelaxedOutput
+			if err := decodeDecision(d, &in, &out); err != nil {
+				return err
+			}
+			if current != "" && in.Ref != current {
+				return fmt.Errorf("step %d: %s logged for %s while active candidate was %s",
+					step.Step, d.Rule, in.Ref, current)
+			}
 		}
 	}
 	if current == "" {

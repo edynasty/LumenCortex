@@ -16,7 +16,8 @@ import (
 
 // realSQLiteAgentStore adapts a real *session.Store (SQLite on disk) to agent.Store for F-02/F-03 tests.
 type realSQLiteAgentStore struct {
-	s *session.Store
+	s     *session.Store
+	steps *[]json.RawMessage
 }
 
 func (a realSQLiteAgentStore) NewestMessageSeq(ctx context.Context, sessionID string) (int64, error) {
@@ -112,7 +113,17 @@ func (a realSQLiteAgentStore) NextStep(ctx context.Context, sessionID string) (i
 }
 
 func (a realSQLiteAgentStore) AppendStep(ctx context.Context, sessionID string, step int64, v any) error {
-	return a.s.AppendStep(ctx, sessionID, step, v)
+	if err := a.s.AppendStep(ctx, sessionID, step, v); err != nil {
+		return err
+	}
+	if a.steps != nil {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		*a.steps = append(*a.steps, raw)
+	}
+	return nil
 }
 
 func (a realSQLiteAgentStore) AppendCheckpoint(ctx context.Context, sessionID, reason string, v any) error {

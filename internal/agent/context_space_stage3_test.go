@@ -375,27 +375,30 @@ func TestT3A_RepairFloorFailoverAndControlledWindowOverflow(t *testing.T) {
 		}
 	})
 
-	t.Run("A2_largest_candidate_cannot_fit_80K_repair_zone_exits_KindWindowOverflow", func(t *testing.T) {
+	t.Run("A2_pre_block_80K_fails_over_then_relaxes_while_post_block_80K_exits_KindWindowOverflow", func(t *testing.T) {
 		const (
 			ref32k = config.ModelRef("test/m-32k")
 			ref64k = config.ModelRef("test/m-64k")
 		)
-		store := envStore("t3a2")
-		// Prefix with old user rows before a fresh external user turn so r.groups WOULD trim if not clamped,
-		// then external user u (seq 5) -> 80K-token Unknown bash group (seq 6, 7) -> proposal (seq 8) ->
-		// OriginCompletionBlocked (seq 9) -> tiny read group (seq 10, 11).
+
+		// A2a (v0.4-rc3.6): pre-block 80K-token Unknown bash group -> proposal -> OriginCompletionBlocked ->
+		// tiny read group on [m-32k, m-64k]. m-32k MUST fail over to m-64k (no relaxation on m-32k), and
+		// m-64k (largest available candidate, no larger candidate left) enters controlled Floor Relaxation
+		// retaining BlockSeq + newest group, injecting the workspace re-inspection notice, and recording
+		// RuleWindowFloorRelaxed.
+		store := envStore("t3a2a")
 		for i := 0; i < 4; i++ {
-			_, _, _ = store.AppendMessage(context.Background(), "t3a2", protocol.Message{Role: "user", Content: strings.Repeat("old ", 800)}, nil)
+			_, _, _ = store.AppendMessage(context.Background(), "t3a2a", protocol.Message{Role: "user", Content: strings.Repeat("old ", 800)}, nil)
 		}
-		uSeq, _, _ := store.AppendMessage(context.Background(), "t3a2", protocol.Message{Role: "user", Content: "new task"}, nil)
+		uSeq, _, _ := store.AppendMessage(context.Background(), "t3a2a", protocol.Message{Role: "user", Content: "new task"}, nil)
 		reqU, err := store.AdmitRequest(context.Background(), session.RequestAdmission{
-			RequestID: "req-a2", SessionID: "t3a2", Purpose: session.PurposeMain,
+			RequestID: "req-a2a", SessionID: "t3a2a", Purpose: session.PurposeMain,
 			FirstSeq: &uSeq, LastSeq: &uSeq, ProjectionVersion: 2, LineageComplete: true,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		seqBash, err := store.AppendAnswered(context.Background(), "t3a2", reqU.RequestID, protocol.Message{
+		seqBash, err := store.AppendAnswered(context.Background(), "t3a2a", reqU.RequestID, protocol.Message{
 			Role:      "assistant",
 			ToolCalls: []protocol.ToolCall{call("b1", "bash", `{"command":"./gen.sh"}`)},
 		})
@@ -403,23 +406,22 @@ func TestT3A_RepairFloorFailoverAndControlledWindowOverflow(t *testing.T) {
 			t.Fatal(err)
 		}
 		_ = store.AdmitExecution(context.Background(), session.ExecutionAdmission{
-			SessionID: "t3a2", ExecutionID: "ex-a2", RequestID: reqU.RequestID,
+			SessionID: "t3a2a", ExecutionID: "ex-a2a", RequestID: reqU.RequestID,
 			ToolName: "bash", ArgsDigest: "sha256:" + strings.Repeat("b", 64), PreUnavailable: true,
 		})
 		huge80k := strings.Repeat("abcd ", 48000) // 240 KB -> ~80,004 tokens (> m-64k Context 64000!)
 		_, _, _ = store.CommitToolResult(context.Background(), ToolResultCommit{
-			SessionID: "t3a2",
+			SessionID: "t3a2a",
 			Message:   protocol.Message{Role: "tool", ToolCallID: "b1", Name: "bash", Content: huge80k},
-			Execution: &session.ExecutionResult{ExecutionID: "ex-a2", Outcome: session.OutcomeComplete, Coverage: session.CoverageUnavailable},
+			Execution: &session.ExecutionResult{ExecutionID: "ex-a2a", Outcome: session.OutcomeComplete, Coverage: session.CoverageUnavailable},
 		})
-		_, _, _ = store.AppendMessage(context.Background(), "t3a2", protocol.Message{Role: "assistant", Content: "claiming done"}, nil)
-		_, _, _ = store.AppendMessage(context.Background(), "t3a2", protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked, Content: "gate rejected"}, nil)
-		_, _, _ = store.AppendMessage(context.Background(), "t3a2", protocol.Message{Role: "assistant", ToolCalls: []protocol.ToolCall{call("r2", "read_file", `{"path":"x"}`)}}, nil)
-		_, _, _ = store.AppendMessage(context.Background(), "t3a2", protocol.Message{Role: "tool", ToolCallID: "r2", Name: "read_file", Content: "tiny"}, nil)
-		_ = seqBash
+		_, _, _ = store.AppendMessage(context.Background(), "t3a2a", protocol.Message{Role: "assistant", Content: "claiming done"}, nil)
+		blockSeq, _, _ := store.AppendMessage(context.Background(), "t3a2a", protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked, Content: "gate rejected"}, nil)
+		_, _, _ = store.AppendMessage(context.Background(), "t3a2a", protocol.Message{Role: "assistant", ToolCalls: []protocol.ToolCall{call("r2", "read_file", `{"path":"x"}`)}}, nil)
+		_, _, _ = store.AppendMessage(context.Background(), "t3a2a", protocol.Message{Role: "tool", ToolCallID: "r2", Name: "read_file", Content: "tiny"}, nil)
 
-		p32 := &scriptedProvider{responses: []protocol.ProviderResponse{answerOf("never")}}
-		p64 := &scriptedProvider{responses: []protocol.ProviderResponse{answerOf("never")}}
+		p32 := &scriptedProvider{responses: []protocol.ProviderResponse{answerOf("never-32k")}}
+		p64 := &scriptedProvider{responses: []protocol.ProviderResponse{answerOf("repaired-on-64k")}}
 		m32 := testModel(ref32k, p32)
 		m32.Context, m32.Output = 32768, 4096
 		m64 := testModel(ref64k, p64)
@@ -430,17 +432,55 @@ func TestT3A_RepairFloorFailoverAndControlledWindowOverflow(t *testing.T) {
 			Store:  store,
 			Tools:  fakeTools{},
 		}
-		res, err := loop.Run(context.Background(), "t3a2", Options{
+		res, err := loop.Run(context.Background(), "t3a2a", Options{
 			Session:  ref32k,
 			Failover: []config.ModelRef{ref64k},
 			MaxSteps: 2,
 		})
-		if err == nil || res.Status != StatusFailed || !errors.Is(err, window.ErrOverflow) {
-			t.Fatalf("A2 result=%+v err=%v, want StatusFailed wrapping ErrOverflow", res, err)
+		if err != nil || res.Status != StatusCompleted || res.Final != "repaired-on-64k" {
+			t.Fatalf("A2a result=%+v err=%v, want StatusCompleted on 64k via guarded Floor Relaxation", res, err)
 		}
-		assertExit(t, store, res, StatusFailed, KindWindowOverflow)
-		if len(p32.seen) != 0 || len(p64.seen) != 0 {
-			t.Fatalf("requests sent 32k=%d 64k=%d, want 0 (never drop protected repair evidence)", len(p32.seen), len(p64.seen))
+		if len(p32.seen) != 0 || len(p64.seen) != 1 {
+			t.Fatalf("A2a requests sent 32k=%d 64k=%d, want 0 and 1", len(p32.seen), len(p64.seen))
+		}
+		steps := replayAll(t, store)
+		if !hasRule(steps[0].Decisions, RuleFailoverPrefix+"capacity") || !hasRule(steps[0].Decisions, RuleWindowFloorRelaxed) {
+			t.Fatalf("A2a decisions %+v want capacity failover + %s", steps[0].Decisions, RuleWindowFloorRelaxed)
+		}
+		if steps[0].Window.FirstSeq <= seqBash || steps[0].Window.FirstSeq > blockSeq {
+			t.Fatalf("A2a FirstSeq=%d, want (%d < FirstSeq <= %d)", steps[0].Window.FirstSeq, seqBash, blockSeq)
+		}
+
+		// A2b (v0.4-rc3.6): post-block 80K-token newest atomic group exceeds even m-64k -> neither strict nor
+		// Floor Relaxation can fit BlockSeq + newest group, so the run exits deterministically with KindWindowOverflow.
+		storeB := envStore("t3a2b")
+		_, _, _ = storeB.AppendMessage(context.Background(), "t3a2b", protocol.Message{Role: "assistant", Content: "claiming done"}, nil)
+		_, _, _ = storeB.AppendMessage(context.Background(), "t3a2b", protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked, Content: "gate rejected"}, nil)
+		_, _, _ = storeB.AppendMessage(context.Background(), "t3a2b", protocol.Message{Role: "assistant", ToolCalls: []protocol.ToolCall{call("r-huge", "read_file", `{"path":"x"}`)}}, nil)
+		_, _, _ = storeB.AppendMessage(context.Background(), "t3a2b", protocol.Message{Role: "tool", ToolCallID: "r-huge", Name: "read_file", Content: huge80k}, nil)
+
+		p32b := &scriptedProvider{responses: []protocol.ProviderResponse{answerOf("never")}}
+		p64b := &scriptedProvider{responses: []protocol.ProviderResponse{answerOf("never")}}
+		m32b := testModel(ref32k, p32b)
+		m32b.Context, m32b.Output = 32768, 4096
+		m64b := testModel(ref64k, p64b)
+		m64b.Context, m64b.Output = 64000, 4096
+		loopB := Loop{
+			Models: map[config.ModelRef]Model{ref32k: m32b, ref64k: m64b},
+			Store:  storeB,
+			Tools:  fakeTools{},
+		}
+		resB, errB := loopB.Run(context.Background(), "t3a2b", Options{
+			Session:  ref32k,
+			Failover: []config.ModelRef{ref64k},
+			MaxSteps: 2,
+		})
+		if errB == nil || resB.Status != StatusFailed || !errors.Is(errB, window.ErrOverflow) {
+			t.Fatalf("A2b result=%+v err=%v, want StatusFailed wrapping ErrOverflow", resB, errB)
+		}
+		assertExit(t, storeB, resB, StatusFailed, KindWindowOverflow)
+		if len(p32b.seen) != 0 || len(p64b.seen) != 0 {
+			t.Fatalf("A2b requests sent 32k=%d 64k=%d, want 0", len(p32b.seen), len(p64b.seen))
 		}
 	})
 }
@@ -688,22 +728,24 @@ func TestT8_TurnBoundaryDryRunZeroDBWritesAndMinimumProgressGuard(t *testing.T) 
 
 func ptrInt64(v int64) *int64 { return &v }
 
-// TestProjectCandidate8KModelClampsCompactSlackWithoutFalseOverflow is the regression test for Finding C-F01:
-// when !repair.Active and an 8K model passes static prefix screening with 0 <= poolBeforeSlack - compactFixed - requiredTranscript < 1950,
-// ModeCompact clamps EffectiveGateSlack to the remaining room (dropping optional older groups and reserving all remaining room)
-// instead of false-overflowing Step 1; when compactFixed + requiredTranscript > poolBeforeSlack, it still returns window.ErrOverflow.
+// TestProjectCandidate8KModelClampsCompactSlackWithoutFalseOverflow is the regression test for C-F01 + F-06:
+// when !repair.Active and an 8K model passes static prefix screening with free = poolBeforeSlack - compactFixed < 4*1950,
+// EffectiveGateSlack reserves min(baseSlack, free/4) (25% proportional slack), retaining multi-row recent history
+// on small 8K windows without false-overflowing Step 1 while dropping oversized older optional rows cleanly;
+// when compactFixed + requiredTranscript > poolBeforeSlack, it still returns window.ErrOverflow.
 func TestProjectCandidate8KModelClampsCompactSlackWithoutFalseOverflow(t *testing.T) {
 	const ref8k = config.ModelRef("test/m-8k")
 	m8 := Model{Ref: ref8k, Context: 8000, Output: 1000, ToolCalling: true}
 	cand8 := Candidate{Ref: ref8k, Context: 8000, Output: 1000, ToolCalling: true}
 
-	// Build a ~4,600-token fixed prefix so poolBeforeSlack (6488) - compactFixed (~4600) - newest (~50) ≈ 1838 < 1950.
+	// Build a ~4,600-token fixed prefix so free = poolBeforeSlack (6488) - compactFixed (~4600) ≈ 1888 < 7800.
+	// Proportional slack = 1888 / 4 = 472 (0 < EffSlack < BaseSlack), leaving ~1,416 tokens for transcript!
 	canonical := canonicalStepInput{
 		SystemPrompt: strings.Repeat("word ", 2700), // ~13.5 KB -> ~4,504 tokens
 		State:        protocol.Message{Role: "user", Content: "Goal: stay read-only"},
 	}
 	r := &run{}
-	r.appendRow(0, protocol.Message{Role: "user", Content: strings.Repeat("older optional row ", 80)})
+	r.appendRow(0, protocol.Message{Role: "user", Content: strings.Repeat("older optional row ", 80)}) // ~511 tokens -> fits in 75% conversation share!
 	r.appendRow(1, protocol.Message{Role: "user", Content: "newest user prompt"})
 
 	proj, _, err := projectCandidate(r, cand8, m8, Options{}, canonical, r.transcript, deriveRepairContext(r.transcript, nil), -1)
@@ -713,8 +755,17 @@ func TestProjectCandidate8KModelClampsCompactSlackWithoutFalseOverflow(t *testin
 	if proj.Mode != ModeCompact || proj.EffectiveGateSlack <= 0 || proj.EffectiveGateSlack >= proj.BaseGateSlack {
 		t.Fatalf("proj = {Mode:%s EffSlack:%d BaseSlack:%d}, want ModeCompact with 0 < EffSlack < BaseSlack", proj.Mode, proj.EffectiveGateSlack, proj.BaseGateSlack)
 	}
-	if proj.Window.FirstSeq != 1 || proj.Window.Dropped != 1 {
-		t.Fatalf("expected optional older group dropped so 100%% of remaining room stays gate slack, got FirstSeq=%d Dropped=%d", proj.Window.FirstSeq, proj.Window.Dropped)
+	if proj.Window.FirstSeq != 0 || proj.Window.Dropped != 0 {
+		t.Fatalf("expected 8K 25%% proportional slack (F-06) to retain 511-token recent history row, got FirstSeq=%d Dropped=%d", proj.Window.FirstSeq, proj.Window.Dropped)
+	}
+
+	// Larger optional older row (~1,600 tokens) exceeds 75% conversation share and drops cleanly while newest prompt fits.
+	rDrop := &run{}
+	rDrop.appendRow(0, protocol.Message{Role: "user", Content: strings.Repeat("older optional row ", 260)})
+	rDrop.appendRow(1, protocol.Message{Role: "user", Content: "newest user prompt"})
+	projDrop, _, err := projectCandidate(rDrop, cand8, m8, Options{}, canonical, rDrop.transcript, deriveRepairContext(rDrop.transcript, nil), -1)
+	if err != nil || projDrop.Window.FirstSeq != 1 || projDrop.Window.Dropped != 1 {
+		t.Fatalf("expected oversized optional row to drop cleanly on 8K model, got proj=%+v err=%v", projDrop.Window, err)
 	}
 
 	// Now make newest group exceed poolBeforeSlack - compactFixed: MUST still return window.ErrOverflow!

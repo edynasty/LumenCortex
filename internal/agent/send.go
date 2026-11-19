@@ -67,25 +67,29 @@ type canonicalStepInput struct {
 // candidateProjection is the deterministic output of the 7-step acyclic projectCandidate pipeline
 // for one candidate attempt (ADR-0024 §4.2, §4.3).
 type candidateProjection struct {
-	Mode               ProjectionMode
-	Reason             string
-	SentLayers         []SystemLayer
-	System             []protocol.Message
-	Tools              []protocol.ToolSpec
-	ToolTokens         int
-	FullFixed          int
-	CompactFixed       int
-	Fixed              int
-	GuardTokens        int
-	BaseGateSlack      int
-	EffectiveGateSlack int
-	UsableFull         int
-	UsableCompact      int
-	UsableInput        int
-	MinRequiredSeq     int64
-	Budget             window.Budget
-	Window             window.Result
-	Echo               []protocol.Echo
+	Mode                   ProjectionMode
+	Reason                 string
+	SentLayers             []SystemLayer
+	System                 []protocol.Message
+	Tools                  []protocol.ToolSpec
+	ToolTokens             int
+	FullFixed              int
+	CompactFixed           int
+	Fixed                  int
+	GuardTokens            int
+	BaseGateSlack          int
+	EffectiveGateSlack     int
+	UsableFull             int
+	UsableCompact          int
+	UsableInput            int
+	MinRequiredSeq         int64
+	OriginalMinRequiredSeq int64
+	FloorRelaxed           bool
+	FloorRelaxedReason     string
+	FloorRelaxedDecision   *Decision
+	Budget                 window.Budget
+	Window                 window.Result
+	Echo                   []protocol.Echo
 }
 
 func projectLayers(layers []SystemLayer, mode ProjectionMode) []SystemLayer {
@@ -120,6 +124,117 @@ func buildSystemMessages(systemPrompt string, layers []SystemLayer, instructions
 	return system
 }
 
+// compactToolPrefForCandidate returns the tool description variant used for ModeCompact on cand.
+// Models >=16K keep built-in tool descriptions verbatim unless ProfileCompact was configured; small
+// windows (e.g. 8K under Policy "full") whose verbatim built-in schemas would fail static admission
+// automatically fall back to the REV-F06 safety-preserving built-in compact descriptions (F-06).
+func compactToolPrefForCandidate(
+	cand Candidate,
+	guard, outBudget int,
+	compactSystem []protocol.Message,
+	state protocol.Message,
+	included []StepTool,
+	toolPref string,
+) string {
+	if toolPref == config.ProfileCompact {
+		return config.ProfileCompact
+	}
+	verbatimTools := presentStepTools(included, toolPref, ModeCompact)
+	verbatimFixed := window.Fixed(window.Input{
+		System:     compactSystem,
+		State:      state,
+		ToolTokens: window.Estimate(verbatimTools),
+	})
+	if cand.Context < verbatimFixed+guard+outBudget {
+		return config.ProfileCompact
+	}
+	return toolPref
+}
+
+func appendFloorRelaxationNotice(stateText string, originalMinReqSeq, blockSeq int64) string {
+	notice := fmt.Sprintf(
+		"[Context Window Notice — Floor Relaxation]\n"+
+			"Required repair history starting at seq %d exceeds the largest available model window, so earlier messages before the transmitted window have been omitted. "+
+			"Active completion-gate feedback (seq %d) and the latest atomic step are preserved. "+
+			"Before modifying any code or proposing completion, you MUST re-inspect the current workspace state (for example via read_file, search_text, or git status/git diff) rather than relying on omitted earlier steps.",
+		originalMinReqSeq, blockSeq,
+	)
+	if strings.TrimSpace(stateText) == "" {
+		return notice
+	}
+	return stateText + "\n\n" + notice
+}
+
+// projectCandidateForSend runs strict projectCandidate first; only when allowFloorRelaxation is true
+// (after all larger candidates were exhausted) and strict MinRequiredSeq overflowed does it enter
+// controlled Floor Relaxation on the largest available candidate (ADR-0024 §7, F-03).
+func projectCandidateForSend(
+	r *run,
+	cand Candidate,
+	m Model,
+	opts Options,
+	canonical canonicalStepInput,
+	transcript []window.Entry,
+	repair repairContext,
+	minRequiredSeq int64,
+	turnProgressSeq int64,
+	allowFloorRelaxation bool,
+) (candidateProjection, Decision, error) {
+	proj, prefixDec, err := projectCandidate(r, cand, m, opts, canonical, transcript, repair, minRequiredSeq)
+	if err == nil || !allowFloorRelaxation || !repair.Active || minRequiredSeq < 0 || !errors.Is(err, window.ErrOverflow) {
+		return proj, prefixDec, err
+	}
+	txGroups, gerr := window.Groups(transcript)
+	if gerr != nil {
+		return candidateProjection{}, Decision{}, gerr
+	}
+	if len(txGroups) == 0 {
+		return candidateProjection{}, Decision{}, err
+	}
+	newestGroupFirstSeq := txGroups[len(txGroups)-1][0].Seq
+	relaxedFloorSeq := minPositiveSeq(repair.BlockSeq, newestGroupFirstSeq)
+	if turnProgressSeq >= 0 {
+		relaxedFloorSeq = minPositiveSeq(turnProgressSeq, relaxedFloorSeq)
+	}
+	if relaxedFloorSeq < 0 {
+		return candidateProjection{}, Decision{}, err
+	}
+
+	relaxedCanonical := canonical
+	relaxedCanonical.State = protocol.Message{
+		Role:    canonical.State.Role,
+		Origin:  canonical.State.Origin,
+		Content: appendFloorRelaxationNotice(canonical.State.Content, minRequiredSeq, repair.BlockSeq),
+	}
+	relaxedRepair := repair
+	relaxedRepair.MinRequiredSeq = relaxedFloorSeq
+
+	relProj, relPrefixDec, relErr := projectCandidate(r, cand, m, opts, relaxedCanonical, transcript, relaxedRepair, relaxedFloorSeq)
+	if relErr != nil {
+		return candidateProjection{}, Decision{}, relErr
+	}
+	if relProj.Window.FirstSeq <= minRequiredSeq {
+		return relProj, relPrefixDec, nil
+	}
+	floorDec := WindowFloorRelaxedDecision(
+		cand.Ref,
+		cand.Context,
+		relProj.UsableInput,
+		relProj.Fixed,
+		minRequiredSeq,
+		relaxedFloorSeq,
+		repair.BlockSeq,
+		newestGroupFirstSeq,
+		relProj.Window.FirstSeq,
+		relProj.Window.Tokens,
+	)
+	relProj.OriginalMinRequiredSeq = minRequiredSeq
+	relProj.FloorRelaxed = true
+	relProj.FloorRelaxedReason = FloorRelaxReasonMaxCandidateOverflow
+	relProj.FloorRelaxedDecision = &floorDec
+	return relProj, relPrefixDec, nil
+}
+
 // projectCandidate executes the 7-step stateless acyclic projection for one candidate model without
 // mutating canonical inputs (ADR-0024 §4.3).
 func projectCandidate(
@@ -134,13 +249,17 @@ func projectCandidate(
 ) (candidateProjection, Decision, error) {
 	// Step 1: Full and Compact static prefixes (fresh allocations, zero mutation of canonical).
 	toolPref := effectiveVariant(m.Presentation.ToolDescriptions, opts.Presentation.ToolDescriptions)
+	outBudget := OutputBudget(opts.MaxTokens, cand)
+	guard := GuardTokens(cand.Context, m.ProviderPkg, len(canonical.IncludedTools))
+
 	fullLayers := projectLayers(canonical.Layers, ModeFull)
 	fullSystem := buildSystemMessages(canonical.SystemPrompt, fullLayers, canonical.Instructions)
 	fullTools := presentStepTools(canonical.IncludedTools, toolPref, ModeFull)
 
 	compactLayers := projectLayers(canonical.Layers, ModeCompact)
 	compactSystem := buildSystemMessages(canonical.SystemPrompt, compactLayers, canonical.Instructions)
-	compactTools := presentStepTools(canonical.IncludedTools, toolPref, ModeCompact)
+	compactToolPref := compactToolPrefForCandidate(cand, guard, outBudget, compactSystem, canonical.State, canonical.IncludedTools, toolPref)
+	compactTools := presentStepTools(canonical.IncludedTools, compactToolPref, ModeCompact)
 
 	// Step 2: Fixed prefixes, candidate base pool, and required transcript suffix tokens.
 	fullToolTokens := window.Estimate(fullTools)
@@ -148,8 +267,6 @@ func projectCandidate(
 	fullFixed := window.Fixed(window.Input{System: fullSystem, State: canonical.State, ToolTokens: fullToolTokens})
 	compactFixed := window.Fixed(window.Input{System: compactSystem, State: canonical.State, ToolTokens: compactToolTokens})
 
-	outBudget := OutputBudget(opts.MaxTokens, cand)
-	guard := GuardTokens(cand.Context, m.ProviderPkg, len(canonical.IncludedTools))
 	poolBeforeSlack := cand.Context - outBudget - guard
 
 	txGroups, err := window.Groups(transcript)
@@ -185,17 +302,9 @@ func projectCandidate(
 	baseSlackFull := BaseGateSlack(m, opts.Presentation, ModeFull)
 	baseSlackCompact := BaseGateSlack(m, opts.Presentation, ModeCompact)
 
-	// Step 4: EffectiveGateSlack for both modes. When !repair.Active and ModeCompact can fit the mandatory
-	// compactFixed + requiredTranscript within poolBeforeSlack with less than baseSlackCompact left over
-	// (e.g. an 8K model carrying a full catalog), clamp ModeCompact slack to the remaining room so all
-	// optional history is dropped and 100% of remaining room is reserved without false-overflowing Step 1.
+	// Step 4: EffectiveGateSlack for both modes.
 	effSlackFull := EffectiveGateSlack(poolBeforeSlack, fullFixed, baseSlackFull, requiredRepairTokens, repair)
 	effSlackCompact := EffectiveGateSlack(poolBeforeSlack, compactFixed, baseSlackCompact, requiredRepairTokens, repair)
-	if !repair.Active {
-		if room := poolBeforeSlack - compactFixed - requiredTranscript; room >= 0 && room < effSlackCompact {
-			effSlackCompact = room
-		}
-	}
 
 	// Step 5: Final Margin and UsableInput for both modes (incorporating per-candidate CapacityRetry cap).
 	marginFull := guard + effSlackFull
@@ -292,15 +401,19 @@ func (l *Loop) candidatesByStaticPrefix(opts Options, canonical canonicalStepInp
 		if !ok {
 			continue
 		}
-		models[ref] = Candidate{Ref: ref, Context: m.Context, Output: m.Output, ToolCalling: m.ToolCalling}
+		cand := Candidate{Ref: ref, Context: m.Context, Output: m.Output, ToolCalling: m.ToolCalling}
+		models[ref] = cand
+		guard := GuardTokens(m.Context, m.ProviderPkg, len(canonical.IncludedTools))
+		outBudget := OutputBudget(opts.MaxTokens, cand)
 		toolPref := effectiveVariant(m.Presentation.ToolDescriptions, opts.Presentation.ToolDescriptions)
-		compactTools := presentStepTools(canonical.IncludedTools, toolPref, ModeCompact)
+		compactPref := compactToolPrefForCandidate(cand, guard, outBudget, compactSystem, canonical.State, canonical.IncludedTools, toolPref)
+		compactTools := presentStepTools(canonical.IncludedTools, compactPref, ModeCompact)
 		compactFixed[ref] = window.Fixed(window.Input{
 			System:     compactSystem,
 			State:      canonical.State,
 			ToolTokens: window.Estimate(compactTools),
 		})
-		guards[ref] = GuardTokens(m.Context, m.ProviderPkg, len(canonical.IncludedTools))
+		guards[ref] = guard
 	}
 	var cooldownMs map[config.ModelRef]int64
 	for _, ref := range refs {
@@ -358,6 +471,45 @@ func (l *Loop) send(
 	recovering := false
 	exhausted := map[int]bool{}
 	pendingRetry := false
+	strictFloorOverflowed := map[int]bool{}
+	unavailableForRelax := make([]bool, len(cands))
+	floorRelaxedMode := false
+	floorRelaxationAttempted := false
+
+	tryEnterFloorRelaxation := func(failedIdx int) (int, bool) {
+		if floorRelaxationAttempted {
+			return -1, false
+		}
+		rep, repErr := r.deriveRepairContext(ctx, l.Store, sessionID)
+		if repErr != nil || !rep.Active || rep.MinRequiredSeq < 0 {
+			return -1, false
+		}
+		hasCandidateForRelax := false
+		for k := range cands {
+			if !unavailableForRelax[k] && strictFloorOverflowed[k] {
+				hasCandidateForRelax = true
+				break
+			}
+		}
+		if !hasCandidateForRelax {
+			return -1, false
+		}
+		floorRelaxationAttempted = true
+		bestIdx := SelectMaxAvailableCandidate(cands, unavailableForRelax)
+		if bestIdx < 0 {
+			return -1, false
+		}
+		exhausted[bestIdx] = false
+		if bestIdx != failedIdx {
+			_, fbDec := FloorFallbackDecision(cands, failedIdx, unavailableForRelax)
+			*decisions = append(*decisions, fbDec)
+		}
+		floorRelaxedMode = true
+		recovering = false
+		pendingRetry = false
+		return bestIdx, true
+	}
+
 	// recoverFrom logs the failure of cands[failed] (failure is the provider.failover event of a sent
 	// request, nil when nothing was sent), then waits and returns the candidate to send to next, or the
 	// exit when the step stops recovering.
@@ -373,6 +525,16 @@ func (l *Loop) send(
 		backoff := opts.Recovery.backoff(down.retries+1, rand.Float64())
 		next, wait, decision := RecoveryDecision(cands, failed, class, readyIn, backoff)
 		if next < 0 && class == protocol.ClassCapacity {
+			for k := range down.ready {
+				unavailableForRelax[k] = true
+			}
+			if nextIdx, ok := tryEnterFloorRelaxation(failed); ok {
+				if failure != nil {
+					failure["nextModelRef"] = cands[nextIdx].Ref
+					l.emit("provider.failover", sessionID, failure)
+				}
+				return nextIdx, nil
+			}
 			if failure != nil {
 				l.emit("provider.failover", sessionID, failure)
 			}
@@ -394,6 +556,16 @@ func (l *Loop) send(
 			"outageMs": now.Sub(down.start).Milliseconds(),
 		}
 		if stop != "" {
+			unavailableForRelax[failed] = true
+			for k := range down.ready {
+				unavailableForRelax[k] = true
+			}
+			if nextIdx, ok := tryEnterFloorRelaxation(failed); ok {
+				retry["stop"] = stop
+				retry["floorFallbackModelRef"] = cands[nextIdx].Ref
+				l.emit("provider.retry_stopped", sessionID, retry)
+				return nextIdx, nil
+			}
 			retry["stop"] = stop
 			l.emit("provider.retry_stopped", sessionID, retry)
 			cause := exitFor(protocol.ClassAvailability, &RecoveryError{
@@ -419,6 +591,11 @@ func (l *Loop) send(
 	handleOverflow := func(idx int, cand Candidate, overErr error) (int, *ExitCause) {
 		l.emit("window.overflow", sessionID, map[string]any{"step": step, "modelRef": cand.Ref, "error": overErr.Error()})
 		exhausted[idx] = true
+		if !floorRelaxedMode {
+			if rep, repErr := r.deriveRepairContext(ctx, l.Store, sessionID); repErr == nil && rep.Active && rep.MinRequiredSeq >= 0 {
+				strictFloorOverflowed[idx] = true
+			}
+		}
 		if !recovering {
 			if next, decision := FailoverDecision(cands, idx, protocol.ClassCapacity); next >= 0 {
 				*decisions = append(*decisions, decision)
@@ -426,6 +603,9 @@ func (l *Loop) send(
 			}
 		}
 		if len(down.ready) == 0 {
+			if nextIdx, ok := tryEnterFloorRelaxation(idx); ok {
+				return nextIdx, nil
+			}
 			kind := KindWindowOverflow
 			if _, capped := r.transcriptCap[cand.Ref]; capped {
 				kind = KindProviderCapacity
@@ -446,12 +626,12 @@ func (l *Loop) send(
 		due, _ := TurnBoundary(r.turnRows(), cand.Ref)
 		previewTranscript := r.transcript
 		minReqSeq := repair.MinRequiredSeq
+		turnProgressSeq := int64(-1)
 		if due {
-			var turnProgressSeq int64
 			previewTranscript, turnProgressSeq = r.cloneForTurnPreview()
 			minReqSeq = minPositiveSeq(turnProgressSeq, repair.MinRequiredSeq)
 		}
-		proj, prefixDec, err := projectCandidate(r, cand, m, opts, canonical, previewTranscript, repair, minReqSeq)
+		proj, prefixDec, err := projectCandidateForSend(r, cand, m, opts, canonical, previewTranscript, repair, minReqSeq, turnProgressSeq, floorRelaxedMode)
 		if errors.Is(err, window.ErrUnpaired) {
 			return attempt{}, &ExitCause{Status: StatusFailed, Kind: KindTranscriptUnpaired, Err: err}
 		}
@@ -531,15 +711,15 @@ func (l *Loop) send(
 		var turnDec Decision
 		due, turnDec = TurnBoundary(r.turnRows(), cand.Ref)
 		minReqSeq = repair.MinRequiredSeq
+		turnProgressSeq = -1
 		if rebuiltInputs {
 			postPreview := r.transcript
 			if due {
-				var turnProgressSeq int64
 				postPreview, turnProgressSeq = r.cloneForTurnPreview()
 				minReqSeq = minPositiveSeq(turnProgressSeq, repair.MinRequiredSeq)
 			}
 			var rebuildErr error
-			proj, prefixDec, rebuildErr = projectCandidate(r, cand, m, opts, canonical, postPreview, repair, minReqSeq)
+			proj, prefixDec, rebuildErr = projectCandidateForSend(r, cand, m, opts, canonical, postPreview, repair, minReqSeq, turnProgressSeq, floorRelaxedMode)
 			if errors.Is(rebuildErr, window.ErrUnpaired) {
 				return attempt{}, &ExitCause{Status: StatusFailed, Kind: KindTranscriptUnpaired, Err: rebuildErr}
 			}
@@ -554,7 +734,8 @@ func (l *Loop) send(
 		}
 		if due {
 			if g, gerr := window.Groups(r.transcript); gerr == nil && len(g) > 0 {
-				minReqSeq = minPositiveSeq(g[len(g)-1][0].Seq, repair.MinRequiredSeq)
+				turnProgressSeq = g[len(g)-1][0].Seq
+				minReqSeq = minPositiveSeq(turnProgressSeq, repair.MinRequiredSeq)
 			}
 			row := protocol.Message{Role: "user", Origin: protocol.OriginTurn, Content: protocol.TurnContent}
 			seq, _, err := l.Store.AppendMessage(ctx, sessionID, row, nil)
@@ -566,7 +747,7 @@ func (l *Loop) send(
 			*decisions = append(*decisions, turnDec)
 			l.emit("session.message", sessionID, map[string]any{"step": step, "seq": seq, "role": "user", "origin": protocol.OriginTurn})
 			var commitProjErr error
-			proj, prefixDec, commitProjErr = projectCandidate(r, cand, m, opts, canonical, r.transcript, repair, minReqSeq)
+			proj, prefixDec, commitProjErr = projectCandidateForSend(r, cand, m, opts, canonical, r.transcript, repair, minReqSeq, turnProgressSeq, floorRelaxedMode)
 			if errors.Is(commitProjErr, window.ErrUnpaired) {
 				return attempt{}, &ExitCause{Status: StatusFailed, Kind: KindTranscriptUnpaired, Err: commitProjErr}
 			}
@@ -593,6 +774,9 @@ func (l *Loop) send(
 		*decisions = append(*decisions, prefixDec)
 		if built.Dropped+r.trimmed > 0 {
 			*decisions = append(*decisions, WindowDroppedDecision(cand.Ref, proj.Budget, proj.Fixed, groups+r.trimmed, built.Costs))
+		}
+		if proj.FloorRelaxed && proj.FloorRelaxedDecision != nil {
+			*decisions = append(*decisions, *proj.FloorRelaxedDecision)
 		}
 		def, ceiling := opts.EffortDefault, opts.EffortAutoCeiling
 		if ce, ok := opts.CandidateEfforts[cand.Ref]; ok {
@@ -688,6 +872,10 @@ func (l *Loop) send(
 		}
 		if class == protocol.ClassCapacity {
 			exhausted[i] = true
+			unavailableForRelax[i] = true
+		}
+		if class == protocol.ClassAuth || class == protocol.ClassBadRequest {
+			unavailableForRelax[i] = true
 		}
 		reason, status := failureDetail(err)
 		failure := map[string]any{
@@ -706,6 +894,13 @@ func (l *Loop) send(
 		// The failover chain has ended. Only an outage is waited out: auth and bad requests stop the
 		// run, and so does capacity when no candidate failed with availability.
 		if (class != protocol.ClassAvailability && class != protocol.ClassCapacity) || len(down.ready) == 0 {
+			unavailableForRelax[i] = true
+			if nextIdx, ok := tryEnterFloorRelaxation(i); ok {
+				failure["nextModelRef"] = cands[nextIdx].Ref
+				l.emit("provider.failover", sessionID, failure)
+				i = nextIdx
+				continue
+			}
 			l.emit("provider.failover", sessionID, failure)
 			cause := exitFor(class, fmt.Errorf("model %s: %w", cand.Ref, err))
 			return attempt{}, &cause

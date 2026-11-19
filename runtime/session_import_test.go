@@ -109,9 +109,7 @@ func openImportEngine(t *testing.T) *Engine { return openImportEngineWithPlugins
 
 func openImportEngineWithPlugins(t *testing.T, plugins ...pluginapi.Plugin) *Engine {
 	t.Helper()
-	// 32 768 tokens (config.DefaultContext): TestImportedOMPSessionContinues asserts that all 11 imported
-	// history rows replay un-dropped alongside ADR-0024's GuardTokens + BaseGateSlack reservation.
-	useGlobalConfig(t, strings.ReplaceAll(modelConfig(""), `"context": 8000`, `"context": 32768`))
+	useGlobalConfig(t, modelConfig(""))
 	engine, err := Open(Options{Workspace: t.TempDir(), Plugins: plugins})
 	if err != nil {
 		t.Fatal(err)

@@ -28,10 +28,7 @@ func resultOf(req protocol.ProviderRequest, id string) string {
 // The Agent loop drives Hashline editing end to end: read with anchors, edit a line, then a second edit
 // computed from the stale revision is rejected with the code and hint the model needs.
 func TestAgentLoopEditsLinesAndRejectsAStaleEdit(t *testing.T) {
-	// 32 768 tokens (config.DefaultContext): Policy "full" sends the complete editing + job + notebook
-	// tool schemas, whose conservative JSON punctuation token estimate (ADR-0024 §4.5) plus GuardTokens
-	// and 1 000-token output budget exceeds modelConfig's 8 000-token window.
-	useGlobalConfig(t, strings.ReplaceAll(modelConfig(""), `"context": 8000`, `"context": 32768`))
+	useGlobalConfig(t, modelConfig(""))
 	engine, root := gitEngine(t)
 	target := filepath.Join(root, "demo.go")
 	if err := os.WriteFile(target, []byte(hashlineFixture), 0o644); err != nil {
