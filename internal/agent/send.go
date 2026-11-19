@@ -163,6 +163,9 @@ func projectCandidate(
 				requiredRepairTokens += window.GroupTokens(g)
 			}
 		}
+		if len(txGroups) > 0 && txGroups[0][0].Seq > repair.MinRequiredSeq {
+			requiredRepairTokens = max(requiredRepairTokens, cand.Context+1)
+		}
 	}
 	requiredTranscript := 0
 	if minRequiredSeq >= 0 {
@@ -170,6 +173,9 @@ func projectCandidate(
 			if g[len(g)-1].Seq >= minRequiredSeq {
 				requiredTranscript += window.GroupTokens(g)
 			}
+		}
+		if len(txGroups) > 0 && txGroups[0][0].Seq > minRequiredSeq {
+			requiredTranscript = max(requiredTranscript, cand.Context+1)
 		}
 	} else if len(txGroups) > 0 {
 		requiredTranscript = window.GroupTokens(txGroups[len(txGroups)-1])
@@ -433,7 +439,10 @@ func (l *Loop) send(
 	for i := 0; ; {
 		cand := cands[i]
 		m := l.Models[cand.Ref]
-		repair := deriveRepairContext(r.transcript, r.mutations)
+		repair, repairErr := r.deriveRepairContext(ctx, l.Store, sessionID)
+		if repairErr != nil {
+			return attempt{}, &ExitCause{Status: StatusFailed, Kind: KindStorage, Err: repairErr}
+		}
 		due, _ := TurnBoundary(r.turnRows(), cand.Ref)
 		previewTranscript := r.transcript
 		minReqSeq := repair.MinRequiredSeq
@@ -508,8 +517,11 @@ func (l *Loop) send(
 			renderedState := taskstate.RenderBlock(goal, r.ts, r.wf)
 			canonical.State = protocol.Message{Role: "user", Content: renderedState.Text}
 			canonical.StateRefs = renderedState.ItemRefs
-			repair = deriveRepairContext(r.transcript, r.mutations)
-			if g, gerr := r.groups(l.maxContext(), repair.MinRequiredSeq); gerr == nil {
+			repair, err = r.deriveRepairContext(ctx, l.Store, sessionID)
+			if err != nil {
+				return attempt{}, &ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err}
+			}
+			if g, gerr := r.groups(l.maxContext()); gerr == nil {
 				groups = len(g)
 			}
 		}

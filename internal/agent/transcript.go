@@ -11,13 +11,49 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
+// MaxInMemoryHistoryGroups bounds the body-free HistoryGroupMeta slice kept in memory per active
+// external user turn (ADR-0024 §4.6.6, F-02). When exceeded, historyOverflowed triggers streaming
+// reconstruction directly from SQLite via Store.Transcript (EachMessageFrom) + ListAnsweredExecutions.
+const MaxInMemoryHistoryGroups = 2048
+
+// HistoryToolCallRef records body-free attribution for one tool call within an answered_seq group.
+type HistoryToolCallRef struct {
+	ToolCallID  string
+	Name        string
+	AnsweredSeq int64
+	ExecutionID string
+}
+
+// HistoryGroupMeta holds lightweight body-free metadata for one atomic transcript group in the active
+// external user turn (ADR-0024 §4.2, §4.6.6, F-02). No message Content is retained here.
+type HistoryGroupMeta struct {
+	Seq              int64
+	LastSeq          int64
+	Role             string
+	Origin           string
+	HasToolCalls     bool
+	ExpectedCalls    int
+	PairedResults    int
+	HasInterrupted   bool
+	HasImportedTool  bool
+	HasDebugToolCall bool
+	AnsweredSeq      int64
+	ToolCallID       string
+	ExecutionID      string
+	ToolCalls        []HistoryToolCallRef
+	MutationEvidence MutationEvidence
+}
+
 // runTranscript is the source of a run's request windows (design §5) and its run memory (§4.6).
 //
-// transcript holds the rows from the Task State's windowStartSeq on, oldest first, with their seqs. It
-// is read once when the run starts and extended with every row the run appends. While a run holds the
-// session's run lock nothing else appends rows or moves windowStartSeq (design §4.2, §4.4), so it
-// stays equal to the stored transcript. Leading groups that no window can include are dropped from
-// memory; trimmed counts them, so dropped-group counts still cover everything from windowStartSeq.
+// transcript holds only the bounded tail of rows (within maxContext permanent message tokens) from
+// TaskState.windowStartSeq on, oldest first, with their seqs. Leading groups that no window can
+// include are dropped from memory; trimmed counts them, so dropped-group counts still cover everything
+// from windowStartSeq.
+//
+// historyGroups retains body-free HistoryGroupMeta for the active external user turn (bounded by
+// MaxInMemoryHistoryGroups, falling back to SQLite streaming when historyOverflowed is true) so live
+// runs and cold Resumes compute bit-identical repair floors without retaining unbounded message bodies.
 //
 // transcriptCap is the transcript budget a capacity retry left for a model; it holds until the run
 // ends (design §5).
@@ -27,16 +63,16 @@ import (
 // written anywhere and goes when the run returns. A user row ends the turn and empties it, so it holds
 // at most one turn of the transcript in memory; the window counts an entry's echo toward its row
 // (Entry.EchoTokens) only while the entry is in it.
-//
-// mutations maps each tool-calling assistant row's answered_seq to its deterministic three-valued
-// causal MutationEvidence, reconstructed from persisted execution records and transcript rows on load
-// and refreshed at the end of each tool step (ADR-0024 §4.6).
 type runTranscript struct {
-	transcript    []window.Entry
-	trimmed       int
-	transcriptCap map[config.ModelRef]int
-	turn          map[int64]turnEntry
-	mutations     map[int64]MutationEvidence
+	transcript        []window.Entry
+	trimmed           int
+	transcriptCap     map[config.ModelRef]int
+	turn              map[int64]turnEntry
+	mutations         map[int64]MutationEvidence
+	historyGroups     []HistoryGroupMeta
+	historyOverflowed bool
+	latestUserSeq     int64
+	latestUserSet     bool
 }
 
 type turnEntry struct {
@@ -44,29 +80,63 @@ type turnEntry struct {
 	echo  protocol.Echo
 }
 
-// load reads the transcript from the run's windowStartSeq and reconstructs causal MutationEvidence for
-// all answered tool-call groups in range. The rows at withheld seqs (sorted) are read with their content
+// load streams the transcript from the run's windowStartSeq, trims full-body entries to maxContext on
+// the fly so message bodies never grow unboundedly in RAM, and populates causal MutationEvidence on
+// the active turn's HistoryGroupMeta. The rows at withheld seqs (sorted) are read with their content
 // withheld: they carry content of a revoked source (window.Withhold).
-func (r *run) load(ctx context.Context, store Store, sessionID string, withheld []int64) error {
+func (r *run) load(ctx context.Context, store Store, sessionID string, withheld []int64, maxContext int) error {
+	rowsSinceTrim := 0
 	if err := store.Transcript(ctx, sessionID, r.ts.WindowStartSeq, func(seq int64, m protocol.Message) error {
 		if _, found := slices.BinarySearch(withheld, seq); found {
 			m = window.Withhold(m)
 		}
 		r.appendRow(seq, m)
+		rowsSinceTrim++
+		if maxContext > 0 && rowsSinceTrim >= 128 && !r.hasOpenTranscriptToolGroup() {
+			rowsSinceTrim = 0
+			if _, err := r.groups(maxContext); err != nil {
+				return err
+			}
+		}
 		return nil
 	}); err != nil {
 		return err
 	}
-	summaries, err := store.ListAnsweredExecutions(ctx, sessionID, r.ts.WindowStartSeq)
+	if maxContext > 0 && !r.hasOpenTranscriptToolGroup() {
+		if _, err := r.groups(maxContext); err != nil {
+			return err
+		}
+	}
+	fromSeq := r.ts.WindowStartSeq
+	if r.latestUserSet && r.latestUserSeq > fromSeq {
+		fromSeq = r.latestUserSeq
+	}
+	summaries, err := store.ListAnsweredExecutions(ctx, sessionID, fromSeq)
 	if err != nil {
 		return err
 	}
 	r.populateMutations(r.transcript, summaries)
+	r.populateHistoryMutations(summaries)
 	return nil
 }
 
-// refreshGroupMutation recomputes r.mutations[answeredSeq] from the persisted execution summaries and
-// transcript rows of that answered group.
+func (r *run) hasOpenTranscriptToolGroup() bool {
+	for i := len(r.transcript) - 1; i >= 0; i-- {
+		m := r.transcript[i].Msg
+		if m.Role == "tool" {
+			continue
+		}
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			answered := len(r.transcript) - 1 - i
+			return answered < len(m.ToolCalls)
+		}
+		return false
+	}
+	return false
+}
+
+// refreshGroupMutation recomputes causal MutationEvidence for answeredSeq from persisted execution
+// summaries across both HistoryGroupMeta and any retained full-body transcript entry.
 func (r *run) refreshGroupMutation(ctx context.Context, store Store, sessionID string, answeredSeq int64) error {
 	summaries, err := store.ListAnsweredExecutions(ctx, sessionID, answeredSeq)
 	if err != nil {
@@ -76,6 +146,14 @@ func (r *run) refreshGroupMutation(ctx context.Context, store Store, sessionID s
 	for _, s := range summaries {
 		if s.AnsweredSeq == answeredSeq {
 			matching = append(matching, s)
+		}
+	}
+	if !r.historyOverflowed {
+		for i := len(r.historyGroups) - 1; i >= 0; i-- {
+			if r.historyGroups[i].HasToolCalls && r.historyGroups[i].AnsweredSeq == answeredSeq {
+				applyExecutionSummariesToMeta(&r.historyGroups[i], matching)
+				break
+			}
 		}
 	}
 	for i := len(r.transcript) - 1; i >= 0; i-- {
@@ -120,6 +198,146 @@ func (r *run) populateMutations(entries []window.Entry, summaries []session.Answ
 	}
 }
 
+func (r *run) populateHistoryMutations(summaries []session.AnsweredExecutionSummary) {
+	if r.historyOverflowed || len(r.historyGroups) == 0 {
+		return
+	}
+	bySeq := make(map[int64][]session.AnsweredExecutionSummary)
+	for _, s := range summaries {
+		bySeq[s.AnsweredSeq] = append(bySeq[s.AnsweredSeq], s)
+	}
+	for i := range r.historyGroups {
+		if r.historyGroups[i].HasToolCalls {
+			applyExecutionSummariesToMeta(&r.historyGroups[i], bySeq[r.historyGroups[i].AnsweredSeq])
+		}
+	}
+}
+
+func buildAssistantHistoryMeta(seq int64, m protocol.Message) HistoryGroupMeta {
+	meta := HistoryGroupMeta{
+		Seq:              seq,
+		LastSeq:          seq,
+		Role:             "assistant",
+		Origin:           m.Origin,
+		AnsweredSeq:      -1,
+		MutationEvidence: MutationNone,
+	}
+	if len(m.ToolCalls) == 0 {
+		return meta
+	}
+	calls := make([]HistoryToolCallRef, len(m.ToolCalls))
+	hasDebug := false
+	for i, tc := range m.ToolCalls {
+		calls[i] = HistoryToolCallRef{
+			ToolCallID:  tc.ID,
+			Name:        tc.Name,
+			AnsweredSeq: seq,
+		}
+		if strings.HasPrefix(tc.Name, "debug_") {
+			hasDebug = true
+		}
+	}
+	meta.HasToolCalls = true
+	meta.ExpectedCalls = len(m.ToolCalls)
+	meta.HasDebugToolCall = hasDebug
+	meta.AnsweredSeq = seq
+	meta.ToolCallID = m.ToolCalls[0].ID
+	meta.ToolCalls = calls
+	meta.MutationEvidence = MutationUnknown
+	return meta
+}
+
+func applyToolRowToHistoryMeta(meta *HistoryGroupMeta, seq int64, m protocol.Message) bool {
+	if meta == nil || meta.Role != "assistant" || !meta.HasToolCalls {
+		return false
+	}
+	matched := false
+	for i := range meta.ToolCalls {
+		if meta.ToolCalls[i].ToolCallID == m.ToolCallID {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return false
+	}
+	if seq > meta.LastSeq {
+		meta.LastSeq = seq
+	}
+	meta.PairedResults++
+	if m.Origin == protocol.OriginToolInterrupted {
+		meta.HasInterrupted = true
+	}
+	if m.Origin == protocol.OriginImported {
+		meta.HasImportedTool = true
+	}
+	meta.MutationEvidence = aggregateHistoryGroupMutation(*meta, nil)
+	return true
+}
+
+func applyExecutionSummariesToMeta(meta *HistoryGroupMeta, execs []session.AnsweredExecutionSummary) {
+	if meta == nil || !meta.HasToolCalls {
+		return
+	}
+	meta.ExecutionID = ""
+	for i := range meta.ToolCalls {
+		meta.ToolCalls[i].ExecutionID = ""
+	}
+	if len(execs) > 0 {
+		meta.ExecutionID = execs[0].ExecutionID
+		used := make([]bool, len(meta.ToolCalls))
+		for _, ex := range execs {
+			for i := range meta.ToolCalls {
+				if !used[i] && meta.ToolCalls[i].Name == ex.ToolName {
+					meta.ToolCalls[i].ExecutionID = ex.ExecutionID
+					used[i] = true
+					break
+				}
+			}
+		}
+	}
+	meta.MutationEvidence = aggregateHistoryGroupMutation(*meta, execs)
+}
+
+func (r *run) pushHistoryGroup(meta HistoryGroupMeta) {
+	if r.historyOverflowed {
+		return
+	}
+	if len(r.historyGroups) >= MaxInMemoryHistoryGroups {
+		r.historyGroups = nil
+		r.historyOverflowed = true
+		return
+	}
+	r.historyGroups = append(r.historyGroups, meta)
+}
+
+func (r *run) recordHistoryRow(seq int64, m protocol.Message) {
+	switch m.Role {
+	case "user":
+		if m.Origin == "" || m.Origin == protocol.OriginImported {
+			r.latestUserSeq = seq
+			r.latestUserSet = true
+			r.historyGroups = r.historyGroups[:0]
+			r.historyOverflowed = false
+		}
+		r.pushHistoryGroup(HistoryGroupMeta{
+			Seq:              seq,
+			LastSeq:          seq,
+			Role:             "user",
+			Origin:           m.Origin,
+			AnsweredSeq:      -1,
+			MutationEvidence: MutationNone,
+		})
+	case "assistant":
+		r.pushHistoryGroup(buildAssistantHistoryMeta(seq, m))
+	case "tool":
+		if r.historyOverflowed || len(r.historyGroups) == 0 {
+			return
+		}
+		applyToolRowToHistoryMeta(&r.historyGroups[len(r.historyGroups)-1], seq, m)
+	}
+}
+
 // appendRow records a row, read at load or written by the run, so the next window sees it. A user row
 // opens a new turn: the previous turn's echo is dropped and no longer counts toward its rows.
 func (r *run) appendRow(seq int64, m protocol.Message) {
@@ -130,6 +348,7 @@ func (r *run) appendRow(seq int64, m protocol.Message) {
 		clear(r.turn)
 	}
 	r.transcript = append(r.transcript, window.Entry{Seq: seq, Msg: m})
+	r.recordHistoryRow(seq, m)
 }
 
 // appendAssistant records an assistant row this run received from model, with its echo.
@@ -139,6 +358,7 @@ func (r *run) appendAssistant(seq int64, m protocol.Message, model config.ModelR
 		r.turn = map[int64]turnEntry{}
 	}
 	r.turn[seq] = turnEntry{model: model, echo: echo}
+	r.recordHistoryRow(seq, m)
 }
 
 // turnRows is what the turn rule reads: the rows after the last user row, each assistant row with
@@ -206,25 +426,31 @@ func (r *run) requestEchoFrom(transcript []window.Entry, built window.Result, ta
 	return out
 }
 
-// groups splits the transcript into window groups after dropping the leading ones no window can
-// include, while clamping keep so no group with Seq >= minKeepSeq (when minKeepSeq >= 0) is ever
-// evicted from memory (ADR-0024 §4.6.6).
-func (r *run) groups(maxContext int, minKeepSeq int64) ([][]window.Entry, error) {
+func groupPermanentTokens(g []window.Entry) int {
+	cost := 0
+	for _, e := range g {
+		cost += window.Estimate(e.Msg)
+	}
+	return cost
+}
+
+// groups splits the transcript into window groups after dropping leading full-body groups whose
+// permanent message token suffix exceeds maxContext. Repair floor tracking lives in body-free
+// HistoryGroupMeta (F-02), so message bodies are never retained past maxContext.
+func (r *run) groups(maxContext int) ([][]window.Entry, error) {
 	groups, err := window.Groups(r.transcript)
 	if err != nil {
 		return nil, err
 	}
+	if maxContext <= 0 {
+		return groups, nil
+	}
 	keep, used := 0, 0
 	for k := len(groups) - 1; k >= 0; k-- {
-		used += window.GroupTokens(groups[k])
+		used += groupPermanentTokens(groups[k])
 		if used > maxContext {
 			keep = k
 			break
-		}
-	}
-	if minKeepSeq >= 0 {
-		for keep > 0 && groups[keep-1][len(groups[keep-1])-1].Seq >= minKeepSeq {
-			keep--
 		}
 	}
 	if keep == 0 {
@@ -333,6 +559,37 @@ func classifyExecutionSummary(rec session.AnsweredExecutionSummary) MutationEvid
 	return MutationUnknown
 }
 
+// AggregateHistoryGroupMutation computes the three-valued causal MutationEvidence of one body-free
+// HistoryGroupMeta and its persisted execution summaries under Unknown > Proven > None.
+func AggregateHistoryGroupMutation(meta HistoryGroupMeta, execs []session.AnsweredExecutionSummary) MutationEvidence {
+	return aggregateHistoryGroupMutation(meta, execs)
+}
+
+func aggregateHistoryGroupMutation(meta HistoryGroupMeta, execs []session.AnsweredExecutionSummary) MutationEvidence {
+	if !meta.HasToolCalls {
+		return MutationNone
+	}
+	if meta.PairedResults < meta.ExpectedCalls {
+		return MutationUnknown
+	}
+	if meta.Origin == protocol.OriginImported || meta.HasInterrupted || meta.HasImportedTool || meta.HasDebugToolCall {
+		return MutationUnknown
+	}
+	hasProven := false
+	for _, rec := range execs {
+		switch classifyExecutionSummary(rec) {
+		case MutationUnknown:
+			return MutationUnknown
+		case MutationProven:
+			hasProven = true
+		}
+	}
+	if hasProven {
+		return MutationProven
+	}
+	return MutationNone
+}
+
 // AggregateGroupMutation combines the tool rows and execution summaries of one answered_seq group
 // under the strict lattice Unknown > Proven > None (ADR-0024 §4.6.5).
 func AggregateGroupMutation(assistantMsg protocol.Message, toolRows []protocol.Message, execs []session.AnsweredExecutionSummary) MutationEvidence {
@@ -371,112 +628,280 @@ func aggregateGroupMutation(assistantMsg protocol.Message, toolRows []protocol.M
 	return MutationNone
 }
 
+// repairStateMachine executes the forward-monotonic completion-gate repair automaton over a stream
+// or slice of body-free HistoryGroupMeta entries (ADR-0024 §4.6.6, F-02).
+type repairStateMachine struct {
+	idx                      int
+	userIdx                  int
+	userSeq                  int64
+	activeBlockIdx           int
+	activeBlockSeq           int64
+	activeProposalIdx        int
+	activeProposalSeq        int64
+	preBlockFloorIdx         int
+	preBlockFloorSeq         int64
+	postBlockProven          bool
+	firstMutSincePrevIdx     int
+	firstMutSincePrevSeq     int64
+	lastToolBeforeFirstIdx   int
+	lastToolBeforeFirstSeq   int64
+	lastAssistantIdx         int
+	lastAssistantSeq         int64
+	hasAssistantAfterBlocked bool
+}
+
+func newRepairStateMachine() repairStateMachine {
+	return repairStateMachine{
+		userIdx:                -1,
+		userSeq:                -1,
+		activeBlockIdx:         -1,
+		activeBlockSeq:         -1,
+		activeProposalIdx:      -1,
+		activeProposalSeq:      -1,
+		preBlockFloorIdx:       -1,
+		preBlockFloorSeq:       -1,
+		firstMutSincePrevIdx:   -1,
+		firstMutSincePrevSeq:   -1,
+		lastToolBeforeFirstIdx: -1,
+		lastToolBeforeFirstSeq: -1,
+		lastAssistantIdx:       -1,
+		lastAssistantSeq:       -1,
+	}
+}
+
+func (sm *repairStateMachine) resetForExternalUser(idx int, seq int64) {
+	*sm = newRepairStateMachine()
+	sm.idx = idx + 1
+	sm.userIdx = idx
+	sm.userSeq = seq
+}
+
+func (sm *repairStateMachine) step(g HistoryGroupMeta) {
+	i := sm.idx
+	if g.Role == "user" && (g.Origin == "" || g.Origin == protocol.OriginImported) {
+		sm.resetForExternalUser(i, g.Seq)
+		return
+	}
+	sm.idx++
+
+	if g.Role == "assistant" {
+		if sm.activeBlockIdx >= 0 {
+			sm.hasAssistantAfterBlocked = true
+		}
+		if g.HasToolCalls {
+			ev := g.MutationEvidence
+			if sm.activeBlockIdx == -1 {
+				sm.lastToolBeforeFirstIdx = i
+				sm.lastToolBeforeFirstSeq = g.Seq
+				if (ev == MutationProven || ev == MutationUnknown) && sm.preBlockFloorIdx == -1 {
+					sm.preBlockFloorIdx = i
+					sm.preBlockFloorSeq = g.Seq
+				}
+			} else {
+				if (ev == MutationProven || ev == MutationUnknown) && sm.firstMutSincePrevIdx == -1 {
+					sm.firstMutSincePrevIdx = i
+					sm.firstMutSincePrevSeq = g.Seq
+				}
+				if ev == MutationProven {
+					sm.postBlockProven = true
+				}
+			}
+			sm.lastAssistantIdx = i
+			sm.lastAssistantSeq = g.Seq
+			return
+		}
+		sm.lastAssistantIdx = i
+		sm.lastAssistantSeq = g.Seq
+		return
+	}
+
+	if g.Role == "user" && g.Origin == protocol.OriginCompletionBlocked {
+		pIdx := i
+		pSeq := g.Seq
+		if sm.lastAssistantIdx > sm.userIdx {
+			pIdx = sm.lastAssistantIdx
+			pSeq = sm.lastAssistantSeq
+		}
+		if sm.activeBlockIdx == -1 {
+			if sm.preBlockFloorIdx == -1 {
+				switch {
+				case sm.lastToolBeforeFirstIdx >= 0:
+					sm.preBlockFloorIdx = sm.lastToolBeforeFirstIdx
+					sm.preBlockFloorSeq = sm.lastToolBeforeFirstSeq
+				case sm.userIdx >= 0:
+					sm.preBlockFloorIdx = sm.userIdx
+					sm.preBlockFloorSeq = sm.userSeq
+				default:
+					sm.preBlockFloorIdx = pIdx
+					sm.preBlockFloorSeq = pSeq
+				}
+			}
+		} else if sm.postBlockProven && sm.firstMutSincePrevIdx >= 0 {
+			sm.preBlockFloorIdx = sm.firstMutSincePrevIdx
+			sm.preBlockFloorSeq = sm.firstMutSincePrevSeq
+		}
+		sm.activeBlockIdx = i
+		sm.activeBlockSeq = g.Seq
+		sm.activeProposalIdx = pIdx
+		sm.activeProposalSeq = pSeq
+		sm.postBlockProven = false
+		sm.firstMutSincePrevIdx = -1
+		sm.firstMutSincePrevSeq = -1
+		sm.hasAssistantAfterBlocked = false
+	}
+}
+
+func (sm *repairStateMachine) finish() repairContext {
+	if sm.activeBlockIdx == -1 {
+		return repairContext{BlockSeq: -1, FloorIdx: -1, MinRequiredSeq: -1}
+	}
+	floorIdx := sm.activeBlockIdx
+	floorSeq := sm.activeBlockSeq
+	if !sm.postBlockProven {
+		if sm.preBlockFloorIdx >= 0 && sm.preBlockFloorIdx < floorIdx {
+			floorIdx = sm.preBlockFloorIdx
+			floorSeq = sm.preBlockFloorSeq
+		}
+		if sm.activeProposalIdx >= 0 && sm.activeProposalIdx < floorIdx {
+			floorIdx = sm.activeProposalIdx
+			floorSeq = sm.activeProposalSeq
+		}
+	}
+	return repairContext{
+		Active:         true,
+		NewestIsBlock:  !sm.hasAssistantAfterBlocked,
+		BlockSeq:       sm.activeBlockSeq,
+		FloorIdx:       floorIdx,
+		MinRequiredSeq: floorSeq,
+	}
+}
+
+// DeriveRepairContextFromHistory computes the deterministic completion-gate repair floor from a slice
+// of body-free HistoryGroupMeta entries (ADR-0024 §4.6.6, F-02).
+func DeriveRepairContextFromHistory(groups []HistoryGroupMeta) RepairContext {
+	sm := newRepairStateMachine()
+	for _, g := range groups {
+		sm.step(g)
+	}
+	return sm.finish()
+}
+
+// HistoryGroupsFromEntries converts window entries and an optional mutations map into body-free
+// HistoryGroupMeta records for pure unit tests and static callers.
+func HistoryGroupsFromEntries(transcript []window.Entry, mutations map[int64]MutationEvidence) ([]HistoryGroupMeta, bool) {
+	groups, err := window.Groups(transcript)
+	if err != nil {
+		return nil, false
+	}
+	out := make([]HistoryGroupMeta, 0, len(groups))
+	for _, g := range groups {
+		head := g[0].Msg
+		switch head.Role {
+		case "user":
+			out = append(out, HistoryGroupMeta{
+				Seq:              g[0].Seq,
+				LastSeq:          g[len(g)-1].Seq,
+				Role:             "user",
+				Origin:           head.Origin,
+				AnsweredSeq:      -1,
+				MutationEvidence: MutationNone,
+			})
+		case "assistant":
+			meta := buildAssistantHistoryMeta(g[0].Seq, head)
+			for _, te := range g[1:] {
+				applyToolRowToHistoryMeta(&meta, te.Seq, te.Msg)
+			}
+			if mutations != nil {
+				if ev, ok := mutations[g[0].Seq]; ok {
+					meta.MutationEvidence = ev
+				}
+			}
+			out = append(out, meta)
+		}
+	}
+	return out, true
+}
+
 // DeriveRepairContext computes the forward-monotonic completion-gate repair floor from transcript and
-// mutations (ADR-0024 §4.6.6).
+// mutations using the shared HistoryGroupMeta state machine (ADR-0024 §4.6.6).
 func DeriveRepairContext(transcript []window.Entry, mutations map[int64]MutationEvidence) RepairContext {
 	return deriveRepairContext(transcript, mutations)
 }
 
 func deriveRepairContext(transcript []window.Entry, mutations map[int64]MutationEvidence) repairContext {
-	inactive := repairContext{BlockSeq: -1, FloorIdx: -1, MinRequiredSeq: -1}
-	groups, err := window.Groups(transcript)
-	if err != nil || len(groups) == 0 {
-		return inactive
+	meta, ok := HistoryGroupsFromEntries(transcript, mutations)
+	if !ok || len(meta) == 0 {
+		return repairContext{BlockSeq: -1, FloorIdx: -1, MinRequiredSeq: -1}
 	}
-	u := -1
-	for k := len(groups) - 1; k >= 0; k-- {
-		m := groups[k][0].Msg
-		if m.Role == "user" && (m.Origin == "" || m.Origin == protocol.OriginImported) {
-			u = k
-			break
-		}
-	}
-	activeBlock := -1
-	activeProposal := -1
-	preBlockFloor := -1
-	postBlockProven := false
-	firstMutSincePrevBlock := -1
-	lastToolBeforeFirstBlock := -1
+	return DeriveRepairContextFromHistory(meta)
+}
 
-	for i := u + 1; i < len(groups); i++ {
-		g := groups[i]
-		head := g[0].Msg
-		if head.Role == "assistant" && len(head.ToolCalls) > 0 {
-			ev, ok := mutations[g[0].Seq]
-			if !ok {
-				var toolRows []protocol.Message
-				for _, te := range g[1:] {
-					toolRows = append(toolRows, te.Msg)
-				}
-				ev = aggregateGroupMutation(head, toolRows, nil)
-			}
-			if activeBlock == -1 {
-				lastToolBeforeFirstBlock = i
-				if (ev == MutationProven || ev == MutationUnknown) && preBlockFloor == -1 {
-					preBlockFloor = i
-				}
-			} else {
-				if (ev == MutationProven || ev == MutationUnknown) && firstMutSincePrevBlock == -1 {
-					firstMutSincePrevBlock = i
-				}
-				if ev == MutationProven {
-					postBlockProven = true
-				}
-			}
-			continue
+// deriveRepairContext resolves the run's current repairContext from body-free HistoryGroupMeta,
+// streaming directly from SQLite via store.Transcript (EachMessageFrom) when historyOverflowed is set.
+func (r *run) deriveRepairContext(ctx context.Context, store Store, sessionID string) (repairContext, error) {
+	if !r.historyOverflowed {
+		if len(r.historyGroups) == 0 && len(r.transcript) > 0 {
+			return deriveRepairContext(r.transcript, r.mutations), nil
 		}
-		if head.Role == "user" && head.Origin == protocol.OriginCompletionBlocked {
-			pIdx := i
-			for p := i - 1; p > u; p-- {
-				if groups[p][0].Msg.Role == "assistant" {
-					pIdx = p
-					break
-				}
+		return DeriveRepairContextFromHistory(r.historyGroups), nil
+	}
+	if store == nil {
+		return deriveRepairContext(r.transcript, r.mutations), nil
+	}
+	fromSeq := r.ts.WindowStartSeq
+	if r.latestUserSet && r.latestUserSeq > fromSeq {
+		fromSeq = r.latestUserSeq
+	}
+	summaries, err := store.ListAnsweredExecutions(ctx, sessionID, fromSeq)
+	if err != nil {
+		return repairContext{BlockSeq: -1, FloorIdx: -1, MinRequiredSeq: -1}, err
+	}
+	bySeq := make(map[int64][]session.AnsweredExecutionSummary)
+	for _, s := range summaries {
+		bySeq[s.AnsweredSeq] = append(bySeq[s.AnsweredSeq], s)
+	}
+
+	sm := newRepairStateMachine()
+	var cur *HistoryGroupMeta
+	flushCur := func() {
+		if cur == nil {
+			return
+		}
+		if cur.HasToolCalls {
+			applyExecutionSummariesToMeta(cur, bySeq[cur.AnsweredSeq])
+		}
+		sm.step(*cur)
+		cur = nil
+	}
+
+	if err := store.Transcript(ctx, sessionID, fromSeq, func(seq int64, m protocol.Message) error {
+		switch m.Role {
+		case "user":
+			flushCur()
+			meta := HistoryGroupMeta{
+				Seq:              seq,
+				LastSeq:          seq,
+				Role:             "user",
+				Origin:           m.Origin,
+				AnsweredSeq:      -1,
+				MutationEvidence: MutationNone,
 			}
-			if activeBlock == -1 {
-				if preBlockFloor == -1 {
-					switch {
-					case lastToolBeforeFirstBlock >= 0:
-						preBlockFloor = lastToolBeforeFirstBlock
-					case u >= 0:
-						preBlockFloor = u
-					default:
-						preBlockFloor = pIdx
-					}
-				}
-			} else if postBlockProven && firstMutSincePrevBlock >= 0 {
-				preBlockFloor = firstMutSincePrevBlock
+			sm.step(meta)
+		case "assistant":
+			flushCur()
+			meta := buildAssistantHistoryMeta(seq, m)
+			cur = &meta
+		case "tool":
+			if cur != nil {
+				applyToolRowToHistoryMeta(cur, seq, m)
 			}
-			activeBlock = i
-			activeProposal = pIdx
-			postBlockProven = false
-			firstMutSincePrevBlock = -1
 		}
+		return nil
+	}); err != nil {
+		return repairContext{BlockSeq: -1, FloorIdx: -1, MinRequiredSeq: -1}, err
 	}
-	if activeBlock == -1 {
-		return inactive
-	}
-	hasAssistantAfterBlock := false
-	for k := activeBlock + 1; k < len(groups); k++ {
-		if groups[k][0].Msg.Role == "assistant" {
-			hasAssistantAfterBlock = true
-			break
-		}
-	}
-	floorIdx := activeBlock
-	if !postBlockProven {
-		floorIdx = min(min(preBlockFloor, activeProposal), activeBlock)
-		if floorIdx < 0 {
-			floorIdx = activeBlock
-		}
-	}
-	return repairContext{
-		Active:         true,
-		NewestIsBlock:  !hasAssistantAfterBlock,
-		BlockSeq:       groups[activeBlock][0].Seq,
-		FloorIdx:       floorIdx,
-		MinRequiredSeq: groups[floorIdx][0].Seq,
-	}
+	flushCur()
+	return sm.finish(), nil
 }
 
 // capTranscript keeps the transcript of later requests to c within the budget a capacity retry chose.

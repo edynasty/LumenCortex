@@ -171,7 +171,7 @@ func TestRunGroupsTrimKeepsEveryWindow(t *testing.T) {
 		maxContext := 200 + rng.IntN(3000)
 		r := &run{}
 		r.transcript = slices.Clone(full)
-		groups, err := r.groups(maxContext, -1)
+		groups, err := r.groups(maxContext)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -498,7 +498,7 @@ func TestRunMemoryBoundedByWindow(t *testing.T) {
 			"p/a", protocol.NewEcho("k", []byte(big), 1000))
 		r.appendRow(i+1, protocol.Message{Role: "tool", ToolCallID: id, Content: big})
 	}
-	if _, err := r.groups(8000, -1); err != nil {
+	if _, err := r.groups(8000); err != nil {
 		t.Fatal(err)
 	}
 	if r.trimmed == 0 {

@@ -15,6 +15,7 @@ import (
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/taskstate"
 	"github.com/edynasty/LumenCortex/internal/verify"
+	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/internal/workflow"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -240,8 +241,12 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 	}
 	r := &run{ts: ts, wf: wf, units: ts.Units(), saved: saved, spend: spend}
-	if err := r.load(ctx, l.Store, sessionID, opts.Withheld); err != nil {
-		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+	if err := r.load(ctx, l.Store, sessionID, opts.Withheld, l.maxContext()); err != nil {
+		kind := KindStorage
+		if errors.Is(err, window.ErrUnpaired) {
+			kind = KindTranscriptUnpaired
+		}
+		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: kind, Err: err})
 	}
 	startStep, err := l.Store.NextStep(ctx, sessionID)
 	if err != nil {
@@ -314,8 +319,10 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		}
 		activeWorkUnit, _ := r.units.EnsureActive()
 		r.ts.SetUnits(r.units)
-		repair := deriveRepairContext(r.transcript, r.mutations)
-		groups, err := r.groups(l.maxContext(), repair.MinRequiredSeq)
+		if _, err := r.deriveRepairContext(ctx, l.Store, sessionID); err != nil {
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+		}
+		groups, err := r.groups(l.maxContext())
 		if err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindTranscriptUnpaired, Err: err})
 		}
