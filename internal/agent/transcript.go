@@ -12,9 +12,14 @@ import (
 )
 
 // MaxInMemoryHistoryGroups bounds the body-free HistoryGroupMeta slice kept in memory per active
-// external user turn (ADR-0024 §4.6.6, F-02). When exceeded, historyOverflowed triggers streaming
-// reconstruction directly from SQLite via Store.Transcript (EachMessageFrom) + ListAnsweredExecutions.
-const MaxInMemoryHistoryGroups = 2048
+// external user turn (ADR-0024 §4.6.6, F-02, R2-04). When exceeded, settled oldest groups are folded
+// incrementally into baseSM in batches of historyFoldBatchGroups so deriveRepairContext runs in O(1)
+// amortized memory and zero per-step SQLite scans (with StreamRepairContextFromStore retained as a
+// stateless SQLite streaming fallback/verifier).
+const (
+	MaxInMemoryHistoryGroups = 2048
+	historyFoldBatchGroups   = MaxInMemoryHistoryGroups / 2
+)
 
 // HistoryToolCallRef records body-free attribution for one tool call within an answered_seq group.
 type HistoryToolCallRef struct {
@@ -74,6 +79,9 @@ type runTranscript struct {
 	mutations         map[int64]MutationEvidence
 	historyGroups     []HistoryGroupMeta
 	historyOverflowed bool
+	baseSM            repairStateMachine
+	hasBaseSM         bool
+	loadExecsBySeq    map[int64][]session.AnsweredExecutionSummary
 	latestUserSeq     int64
 	latestUserSet     bool
 }
@@ -85,9 +93,21 @@ type turnEntry struct {
 
 // load streams the transcript from the run's windowStartSeq, trims full-body entries to maxContext on
 // the fly so message bodies never grow unboundedly in RAM, and populates causal MutationEvidence on
-// the active turn's HistoryGroupMeta. The rows at withheld seqs (sorted) are read with their content
-// withheld: they carry content of a revoked source (window.Withhold).
+// the active turn's HistoryGroupMeta (including settled prefixes folded into baseSM during load).
+// The rows at withheld seqs (sorted) are read with their content withheld: they carry content of a
+// revoked source (window.Withhold).
 func (r *run) load(ctx context.Context, store Store, sessionID string, withheld []int64, maxContext int) error {
+	summaries, err := store.ListAnsweredExecutions(ctx, sessionID, r.ts.WindowStartSeq)
+	if err != nil {
+		return err
+	}
+	bySeq := make(map[int64][]session.AnsweredExecutionSummary, len(summaries))
+	for _, s := range summaries {
+		bySeq[s.AnsweredSeq] = append(bySeq[s.AnsweredSeq], s)
+	}
+	r.loadExecsBySeq = bySeq
+	defer func() { r.loadExecsBySeq = nil }()
+
 	rowsSinceTrim := 0
 	if err := store.Transcript(ctx, sessionID, r.ts.WindowStartSeq, func(seq int64, m protocol.Message) error {
 		if _, found := slices.BinarySearch(withheld, seq); found {
@@ -109,14 +129,6 @@ func (r *run) load(ctx context.Context, store Store, sessionID string, withheld 
 		if _, err := r.groups(maxContext); err != nil {
 			return err
 		}
-	}
-	fromSeq := r.ts.WindowStartSeq
-	if r.latestUserSet && r.latestUserSeq > fromSeq {
-		fromSeq = r.latestUserSeq
-	}
-	summaries, err := store.ListAnsweredExecutions(ctx, sessionID, fromSeq)
-	if err != nil {
-		return err
 	}
 	r.populateMutations(r.transcript, summaries)
 	r.populateHistoryMutations(summaries)
@@ -151,12 +163,10 @@ func (r *run) refreshGroupMutation(ctx context.Context, store Store, sessionID s
 			matching = append(matching, s)
 		}
 	}
-	if !r.historyOverflowed {
-		for i := len(r.historyGroups) - 1; i >= 0; i-- {
-			if r.historyGroups[i].HasToolCalls && r.historyGroups[i].AnsweredSeq == answeredSeq {
-				applyExecutionSummariesToMeta(&r.historyGroups[i], matching)
-				break
-			}
+	for i := len(r.historyGroups) - 1; i >= 0; i-- {
+		if r.historyGroups[i].HasToolCalls && r.historyGroups[i].AnsweredSeq == answeredSeq {
+			applyExecutionSummariesToMeta(&r.historyGroups[i], matching)
+			break
 		}
 	}
 	for i := len(r.transcript) - 1; i >= 0; i-- {
@@ -202,10 +212,10 @@ func (r *run) populateMutations(entries []window.Entry, summaries []session.Answ
 }
 
 func (r *run) populateHistoryMutations(summaries []session.AnsweredExecutionSummary) {
-	if r.historyOverflowed || len(r.historyGroups) == 0 {
+	if len(r.historyGroups) == 0 {
 		return
 	}
-	bySeq := make(map[int64][]session.AnsweredExecutionSummary)
+	bySeq := make(map[int64][]session.AnsweredExecutionSummary, len(summaries))
 	for _, s := range summaries {
 		bySeq[s.AnsweredSeq] = append(bySeq[s.AnsweredSeq], s)
 	}
@@ -308,14 +318,30 @@ func applyExecutionSummariesToMeta(meta *HistoryGroupMeta, execs []session.Answe
 	meta.MutationEvidence = aggregateHistoryGroupMutation(*meta, execs)
 }
 
-func (r *run) pushHistoryGroup(meta HistoryGroupMeta) {
-	if r.historyOverflowed {
+func (r *run) foldSettledHistoryPrefix() {
+	foldN := min(historyFoldBatchGroups, len(r.historyGroups))
+	if foldN <= 0 {
 		return
 	}
+	if !r.hasBaseSM {
+		r.baseSM = newRepairStateMachine()
+		r.hasBaseSM = true
+	}
+	for i := 0; i < foldN; i++ {
+		if r.loadExecsBySeq != nil && r.historyGroups[i].HasToolCalls {
+			applyExecutionSummariesToMeta(&r.historyGroups[i], r.loadExecsBySeq[r.historyGroups[i].AnsweredSeq])
+		}
+		r.baseSM.step(r.historyGroups[i])
+	}
+	n := copy(r.historyGroups, r.historyGroups[foldN:])
+	clear(r.historyGroups[n:])
+	r.historyGroups = r.historyGroups[:n]
+	r.historyOverflowed = true
+}
+
+func (r *run) pushHistoryGroup(meta HistoryGroupMeta) {
 	if len(r.historyGroups) >= MaxInMemoryHistoryGroups {
-		r.historyGroups = nil
-		r.historyOverflowed = true
-		return
+		r.foldSettledHistoryPrefix()
 	}
 	r.historyGroups = append(r.historyGroups, meta)
 }
@@ -326,8 +352,11 @@ func (r *run) recordHistoryRow(seq int64, m protocol.Message) {
 		if m.Origin == "" || m.Origin == protocol.OriginImported {
 			r.latestUserSeq = seq
 			r.latestUserSet = true
+			clear(r.historyGroups)
 			r.historyGroups = r.historyGroups[:0]
 			r.historyOverflowed = false
+			r.baseSM = newRepairStateMachine()
+			r.hasBaseSM = false
 		}
 		gateFeedback := ""
 		if m.Origin == protocol.OriginCompletionBlocked {
@@ -345,7 +374,7 @@ func (r *run) recordHistoryRow(seq int64, m protocol.Message) {
 	case "assistant":
 		r.pushHistoryGroup(buildAssistantHistoryMeta(seq, m))
 	case "tool":
-		if r.historyOverflowed || len(r.historyGroups) == 0 {
+		if len(r.historyGroups) == 0 {
 			return
 		}
 		applyToolRowToHistoryMeta(&r.historyGroups[len(r.historyGroups)-1], seq, m)
@@ -968,9 +997,19 @@ func deriveRepairContext(transcript []window.Entry, mutations map[int64]Mutation
 	return DeriveRepairContextFromHistory(meta)
 }
 
-// deriveRepairContext resolves the run's current repairContext from body-free HistoryGroupMeta,
-// streaming directly from SQLite via store.Transcript (EachMessageFrom) when historyOverflowed is set.
+// deriveRepairContext resolves the run's current repairContext in O(1) bounded memory and zero
+// per-step SQLite scans by continuing from baseSM (when older prefixes were folded) across the
+// bounded in-memory HistoryGroupMeta tail (ADR-0024 §4.6.6, F-02, R2-04). If historyOverflowed was
+// set externally without baseSM or in-memory groups, StreamRepairContextFromStore reconstructs
+// deterministically from SQLite.
 func (r *run) deriveRepairContext(ctx context.Context, store Store, sessionID string) (repairContext, error) {
+	if r.hasBaseSM {
+		sm := r.baseSM
+		for _, g := range r.historyGroups {
+			sm.step(g)
+		}
+		return sm.finish(), nil
+	}
 	if !r.historyOverflowed {
 		if len(r.historyGroups) == 0 && len(r.transcript) > 0 {
 			return deriveRepairContext(r.transcript, r.mutations), nil
@@ -984,11 +1023,17 @@ func (r *run) deriveRepairContext(ctx context.Context, store Store, sessionID st
 	if r.latestUserSet && r.latestUserSeq > fromSeq {
 		fromSeq = r.latestUserSeq
 	}
+	return StreamRepairContextFromStore(ctx, store, sessionID, fromSeq)
+}
+
+// StreamRepairContextFromStore reconstructs RepairContext directly from SQLite via Store.Transcript
+// (EachMessageFrom) + ListAnsweredExecutions without retaining message bodies in memory.
+func StreamRepairContextFromStore(ctx context.Context, store Store, sessionID string, fromSeq int64) (RepairContext, error) {
 	summaries, err := store.ListAnsweredExecutions(ctx, sessionID, fromSeq)
 	if err != nil {
 		return repairContext{BlockSeq: -1, FloorIdx: -1, MinRequiredSeq: -1}, err
 	}
-	bySeq := make(map[int64][]session.AnsweredExecutionSummary)
+	bySeq := make(map[int64][]session.AnsweredExecutionSummary, len(summaries))
 	for _, s := range summaries {
 		bySeq[s.AnsweredSeq] = append(bySeq[s.AnsweredSeq], s)
 	}
