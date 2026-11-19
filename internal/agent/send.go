@@ -151,13 +151,29 @@ func compactToolPrefForCandidate(
 	return toolPref
 }
 
-func appendFloorRelaxationNotice(stateText string, originalMinReqSeq, blockSeq int64) string {
+func formatCausalEvidenceSummary(ref CausalEvidenceRef) string {
+	parts := []string{fmt.Sprintf("seq=%d", ref.AnsweredSeq)}
+	if ref.ToolName != "" {
+		parts = append(parts, "tool="+ref.ToolName)
+	}
+	if ref.ExecutionID != "" {
+		parts = append(parts, "exec="+ref.ExecutionID)
+	}
+	parts = append(parts, "evidence="+string(ref.MutationEvidence))
+	return strings.Join(parts, " ")
+}
+
+func appendFloorRelaxationNotice(stateText string, repair repairContext, strictMinReqSeq int64) string {
+	origAnchor := repair.OriginalMinRequiredSeq
+	if origAnchor < 0 {
+		origAnchor = strictMinReqSeq
+	}
 	notice := fmt.Sprintf(
 		"[Context Window Notice — Floor Relaxation]\n"+
-			"Required repair history starting at seq %d exceeds the largest available model window, so earlier messages before the transmitted window have been omitted. "+
-			"Active completion-gate feedback (seq %d) and the latest atomic step are preserved. "+
-			"Before modifying any code or proposing completion, you MUST re-inspect the current workspace state (for example via read_file, search_text, or git status/git diff) rather than relying on omitted earlier steps.",
-		originalMinReqSeq, blockSeq,
+			"Required repair history starting at seq %d (original anchor seq %d) exceeds the largest available model window, so earlier messages prior to the transmitted window have been omitted. "+
+			"Active completion-gate feedback (seq %d) and the latest atomic step are preserved in the message window. "+
+			"Before modifying code or proposing completion, re-inspect current workspace state (for example via read_file, search_text, or git status/git diff) rather than relying on omitted earlier steps.",
+		strictMinReqSeq, origAnchor, repair.BlockSeq,
 	)
 	if strings.TrimSpace(stateText) == "" {
 		return notice
@@ -165,9 +181,72 @@ func appendFloorRelaxationNotice(stateText string, originalMinReqSeq, blockSeq i
 	return stateText + "\n\n" + notice
 }
 
+func appendPinnedGateAndRelaxationNotice(stateText string, repair repairContext, strictMinReqSeq int64, formattedGateFeedback string) string {
+	origAnchor := repair.OriginalMinRequiredSeq
+	if origAnchor < 0 {
+		origAnchor = strictMinReqSeq
+	}
+	var b strings.Builder
+	if strings.TrimSpace(stateText) != "" {
+		b.WriteString(stateText)
+		b.WriteString("\n\n")
+	}
+	fmt.Fprintf(&b, "[Pinned Completion-Gate State — seq %d (refusal #%d, stage: %s)]\n",
+		repair.BlockSeq, max(1, repair.BlockCount), repair.Stage)
+	if strings.TrimSpace(formattedGateFeedback) != "" {
+		b.WriteString(formattedGateFeedback)
+		b.WriteByte('\n')
+	}
+	fmt.Fprintf(&b, "Causal repair ledger: originalAnchorSeq=%d, strictFloorSeq=%d, postGateProven=%d, postGateUnknown=%d",
+		origAnchor, strictMinReqSeq, repair.PostBlockProvenCount, repair.PostBlockUnknownCount)
+	if repair.HasOriginalEvidence {
+		fmt.Fprintf(&b, "; originalEvidence=[%s]", formatCausalEvidenceSummary(repair.OriginalEvidence))
+	}
+	if repair.CausalProgressLen > 0 {
+		b.WriteString("; recentPostGateMutations=[")
+		for i := 0; i < repair.CausalProgressLen; i++ {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(formatCausalEvidenceSummary(repair.CausalProgress[i]))
+		}
+		b.WriteByte(']')
+	}
+	b.WriteString("\n\n")
+	fmt.Fprintf(&b,
+		"[Context Window Notice — Floor Relaxation]\n"+
+			"Transcript messages from seq %d through gate refusal seq %d and older post-gate steps prior to the transmitted rolling suffix have been omitted to fit the largest available model window; "+
+			"active gate feedback (seq %d) and causal repair progress are pinned above, and the latest atomic step is preserved. "+
+			"Before modifying code or proposing completion, re-inspect current workspace state (for example via read_file, search_text, or git status/git diff) rather than assuming omitted steps.",
+		origAnchor, repair.BlockSeq, repair.BlockSeq,
+	)
+	return b.String()
+}
+
+func sliceTranscriptAfterSeq(transcript []window.Entry, afterSeq int64) ([]window.Entry, int, error) {
+	groups, err := window.Groups(transcript)
+	if err != nil {
+		return nil, 0, err
+	}
+	cutGroups := 0
+	cutEntries := 0
+	for _, g := range groups {
+		if g[len(g)-1].Seq <= afterSeq {
+			cutGroups++
+			cutEntries += len(g)
+			continue
+		}
+		break
+	}
+	return transcript[cutEntries:], cutGroups, nil
+}
+
 // projectCandidateForSend runs strict projectCandidate first; only when allowFloorRelaxation is true
-// (after all larger candidates were exhausted) and strict MinRequiredSeq overflowed does it enter
-// controlled Floor Relaxation on the largest available candidate (ADR-0024 §7, F-03).
+// (after all larger candidates were exhausted) and strict MinRequiredSeq overflowed does it evaluate
+// monotonic 3-stage controlled Floor Relaxation on the largest available candidate (ADR-0024 §7, F-03, R2-02):
+//   - Stage R1: retain [BlockSeq .. LastSeq] verbatim in Messages (no GateFeedback duplication in State);
+//   - Stage R2: pin Gate State + Causal Ledger in State and project Seq > BlockSeq from PostBlockCausalFloorSeq;
+//   - Stage R3: pin Gate State + Causal Ledger in State and roll Seq > BlockSeq to fit the newest atomic group.
 func projectCandidateForSend(
 	r *run,
 	cand Candidate,
@@ -192,47 +271,94 @@ func projectCandidateForSend(
 		return candidateProjection{}, Decision{}, err
 	}
 	newestGroupFirstSeq := txGroups[len(txGroups)-1][0].Seq
-	relaxedFloorSeq := minPositiveSeq(repair.BlockSeq, newestGroupFirstSeq)
+	newestRequiredSeq := newestGroupFirstSeq
 	if turnProgressSeq >= 0 {
-		relaxedFloorSeq = minPositiveSeq(turnProgressSeq, relaxedFloorSeq)
+		newestRequiredSeq = minPositiveSeq(turnProgressSeq, newestRequiredSeq)
 	}
-	if relaxedFloorSeq < 0 {
+	if newestRequiredSeq < 0 {
 		return candidateProjection{}, Decision{}, err
 	}
 
-	relaxedCanonical := canonical
-	relaxedCanonical.State = protocol.Message{
-		Role:    canonical.State.Role,
-		Origin:  canonical.State.Origin,
-		Content: appendFloorRelaxationNotice(canonical.State.Content, minRequiredSeq, repair.BlockSeq),
-	}
-	relaxedRepair := repair
-	relaxedRepair.MinRequiredSeq = relaxedFloorSeq
-
-	relProj, relPrefixDec, relErr := projectCandidate(r, cand, m, opts, relaxedCanonical, transcript, relaxedRepair, relaxedFloorSeq)
-	if relErr != nil {
-		return candidateProjection{}, Decision{}, relErr
-	}
-	if relProj.Window.FirstSeq <= minRequiredSeq {
+	finalizeRelaxed := func(relProj candidateProjection, relPrefixDec Decision, relaxedFloorSeq int64, gatePinned bool) (candidateProjection, Decision, error) {
+		if relProj.Window.FirstSeq <= minRequiredSeq {
+			return relProj, relPrefixDec, nil
+		}
+		floorDec := WindowFloorRelaxedDecision(
+			cand.Ref,
+			cand.Context,
+			relProj.UsableInput,
+			relProj.Fixed,
+			minRequiredSeq,
+			repair.OriginalMinRequiredSeq,
+			repair.PostBlockCausalFloorSeq,
+			relaxedFloorSeq,
+			repair.BlockSeq,
+			newestGroupFirstSeq,
+			relProj.Window.FirstSeq,
+			relProj.Window.Tokens,
+			gatePinned,
+		)
+		relProj.OriginalMinRequiredSeq = minRequiredSeq
+		relProj.FloorRelaxed = true
+		relProj.FloorRelaxedReason = FloorRelaxReasonMaxCandidateOverflow
+		relProj.FloorRelaxedDecision = &floorDec
 		return relProj, relPrefixDec, nil
 	}
-	floorDec := WindowFloorRelaxedDecision(
-		cand.Ref,
-		cand.Context,
-		relProj.UsableInput,
-		relProj.Fixed,
-		minRequiredSeq,
-		relaxedFloorSeq,
-		repair.BlockSeq,
-		newestGroupFirstSeq,
-		relProj.Window.FirstSeq,
-		relProj.Window.Tokens,
-	)
-	relProj.OriginalMinRequiredSeq = minRequiredSeq
-	relProj.FloorRelaxed = true
-	relProj.FloorRelaxedReason = FloorRelaxReasonMaxCandidateOverflow
-	relProj.FloorRelaxedDecision = &floorDec
-	return relProj, relPrefixDec, nil
+
+	// Stage R1: keep [BlockSeq .. LastSeq] intact in Messages when BlockSeq is still present in transcript.
+	if len(transcript) > 0 && transcript[0].Seq <= repair.BlockSeq {
+		floorR1 := minPositiveSeq(repair.BlockSeq, newestRequiredSeq)
+		r1Canonical := canonical
+		r1Canonical.State = protocol.Message{
+			Role:    canonical.State.Role,
+			Origin:  canonical.State.Origin,
+			Content: appendFloorRelaxationNotice(canonical.State.Content, repair, minRequiredSeq),
+		}
+		r1Repair := repair
+		r1Repair.MinRequiredSeq = floorR1
+		r1Repair.PinGateInState = false
+		if r1Proj, r1PrefixDec, r1Err := projectCandidate(r, cand, m, opts, r1Canonical, transcript, r1Repair, floorR1); r1Err == nil {
+			return finalizeRelaxed(r1Proj, r1PrefixDec, floorR1, false)
+		}
+	}
+
+	// Stages R2 & R3: [BlockSeq .. LastSeq] overflowed (or BlockSeq was trimmed past maxContext).
+	// Pin Gate State + Causal Repair Ledger in State and project strictly over Seq > BlockSeq so
+	// OriginCompletionBlocked never appears in both State and Messages.
+	afterBlock, preSlicedGroups, sliceErr := sliceTranscriptAfterSeq(transcript, repair.BlockSeq)
+	if sliceErr != nil {
+		return candidateProjection{}, Decision{}, sliceErr
+	}
+	if len(afterBlock) == 0 {
+		return candidateProjection{}, Decision{}, err
+	}
+
+	// Stage R2: drop older post-block MutationNone read/chat bodies while keeping all post-block
+	// Proven/Unknown causal groups [PostBlockCausalFloorSeq .. LastSeq] when they fit.
+	if repair.PostBlockCausalFloorSeq > repair.BlockSeq && afterBlock[0].Seq <= repair.PostBlockCausalFloorSeq {
+		floorR2 := minPositiveSeq(repair.PostBlockCausalFloorSeq, newestRequiredSeq)
+		r2Repair := repair
+		r2Repair.MinRequiredSeq = floorR2
+		r2Repair.PinGateInState = true
+		if r2Proj, r2PrefixDec, r2Err := projectCandidate(r, cand, m, opts, canonical, afterBlock, r2Repair, floorR2); r2Err == nil {
+			r2Proj.Window.Dropped += preSlicedGroups
+			return finalizeRelaxed(r2Proj, r2PrefixDec, floorR2, true)
+		}
+	}
+
+	// Stage R3: post-block causal groups themselves exceed the largest available window; greedily
+	// roll Seq > BlockSeq to retain the maximum suffix containing newestRequiredSeq while keeping
+	// Gate State + Causal Progress Ledger pinned in State.
+	floorR3 := newestRequiredSeq
+	r3Repair := repair
+	r3Repair.MinRequiredSeq = floorR3
+	r3Repair.PinGateInState = true
+	r3Proj, r3PrefixDec, r3Err := projectCandidate(r, cand, m, opts, canonical, afterBlock, r3Repair, floorR3)
+	if r3Err != nil {
+		return candidateProjection{}, Decision{}, r3Err
+	}
+	r3Proj.Window.Dropped += preSlicedGroups
+	return finalizeRelaxed(r3Proj, r3PrefixDec, floorR3, true)
 }
 
 // projectCandidate executes the 7-step stateless acyclic projection for one candidate model without
@@ -252,20 +378,41 @@ func projectCandidate(
 	outBudget := OutputBudget(opts.MaxTokens, cand)
 	guard := GuardTokens(cand.Context, m.ProviderPkg, len(canonical.IncludedTools))
 
+	fullState := canonical.State
+	compactState := canonical.State
+	if repair.PinGateInState {
+		fullGate := presentFeedback(repair.GateFeedback, effectiveFeedbackVariant(m, opts.Presentation, ModeFull))
+		compactGate := presentFeedback(repair.GateFeedback, effectiveFeedbackVariant(m, opts.Presentation, ModeCompact))
+		strictMin := repair.OriginalMinRequiredSeq
+		if strictMin < 0 {
+			strictMin = minRequiredSeq
+		}
+		fullState = protocol.Message{
+			Role:    canonical.State.Role,
+			Origin:  canonical.State.Origin,
+			Content: appendPinnedGateAndRelaxationNotice(canonical.State.Content, repair, strictMin, fullGate),
+		}
+		compactState = protocol.Message{
+			Role:    canonical.State.Role,
+			Origin:  canonical.State.Origin,
+			Content: appendPinnedGateAndRelaxationNotice(canonical.State.Content, repair, strictMin, compactGate),
+		}
+	}
+
 	fullLayers := projectLayers(canonical.Layers, ModeFull)
 	fullSystem := buildSystemMessages(canonical.SystemPrompt, fullLayers, canonical.Instructions)
 	fullTools := presentStepTools(canonical.IncludedTools, toolPref, ModeFull)
 
 	compactLayers := projectLayers(canonical.Layers, ModeCompact)
 	compactSystem := buildSystemMessages(canonical.SystemPrompt, compactLayers, canonical.Instructions)
-	compactToolPref := compactToolPrefForCandidate(cand, guard, outBudget, compactSystem, canonical.State, canonical.IncludedTools, toolPref)
+	compactToolPref := compactToolPrefForCandidate(cand, guard, outBudget, compactSystem, compactState, canonical.IncludedTools, toolPref)
 	compactTools := presentStepTools(canonical.IncludedTools, compactToolPref, ModeCompact)
 
 	// Step 2: Fixed prefixes, candidate base pool, and required transcript suffix tokens.
 	fullToolTokens := window.Estimate(fullTools)
 	compactToolTokens := window.Estimate(compactTools)
-	fullFixed := window.Fixed(window.Input{System: fullSystem, State: canonical.State, ToolTokens: fullToolTokens})
-	compactFixed := window.Fixed(window.Input{System: compactSystem, State: canonical.State, ToolTokens: compactToolTokens})
+	fullFixed := window.Fixed(window.Input{System: fullSystem, State: fullState, ToolTokens: fullToolTokens})
+	compactFixed := window.Fixed(window.Input{System: compactSystem, State: compactState, ToolTokens: compactToolTokens})
 
 	poolBeforeSlack := cand.Context - outBudget - guard
 
@@ -324,6 +471,7 @@ func projectCandidate(
 	// Step 7: Build window and echo strictly from the selected mode's projection, enforcing minRequiredSeq.
 	sentLayers := fullLayers
 	sentSystem := fullSystem
+	sentState := fullState
 	sentTools := fullTools
 	sentToolTokens := fullToolTokens
 	candFixed := fullFixed
@@ -334,6 +482,7 @@ func projectCandidate(
 	if mode == ModeCompact {
 		sentLayers = compactLayers
 		sentSystem = compactSystem
+		sentState = compactState
 		sentTools = compactTools
 		sentToolTokens = compactToolTokens
 		candFixed = compactFixed
@@ -346,7 +495,7 @@ func projectCandidate(
 	candBudget := window.Budget{Context: cand.Context, Output: outBudget, Margin: selectedMargin}
 	candIn := window.Input{
 		System:     sentSystem,
-		State:      canonical.State,
+		State:      sentState,
 		Transcript: transcript,
 		ToolTokens: sentToolTokens,
 	}

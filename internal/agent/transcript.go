@@ -39,7 +39,10 @@ type HistoryGroupMeta struct {
 	HasDebugToolCall bool
 	AnsweredSeq      int64
 	ToolCallID       string
+	PrimaryToolName  string
 	ExecutionID      string
+	PrimaryPostRef   string
+	GateFeedback     string
 	ToolCalls        []HistoryToolCallRef
 	MutationEvidence MutationEvidence
 }
@@ -242,6 +245,7 @@ func buildAssistantHistoryMeta(seq int64, m protocol.Message) HistoryGroupMeta {
 	meta.HasDebugToolCall = hasDebug
 	meta.AnsweredSeq = seq
 	meta.ToolCallID = m.ToolCalls[0].ID
+	meta.PrimaryToolName = m.ToolCalls[0].Name
 	meta.ToolCalls = calls
 	meta.MutationEvidence = MutationUnknown
 	return meta
@@ -280,11 +284,16 @@ func applyExecutionSummariesToMeta(meta *HistoryGroupMeta, execs []session.Answe
 		return
 	}
 	meta.ExecutionID = ""
+	meta.PrimaryPostRef = ""
 	for i := range meta.ToolCalls {
 		meta.ToolCalls[i].ExecutionID = ""
 	}
 	if len(execs) > 0 {
 		meta.ExecutionID = execs[0].ExecutionID
+		meta.PrimaryPostRef = execs[0].PostRef
+		if meta.PrimaryToolName == "" {
+			meta.PrimaryToolName = execs[0].ToolName
+		}
 		used := make([]bool, len(meta.ToolCalls))
 		for _, ex := range execs {
 			for i := range meta.ToolCalls {
@@ -320,12 +329,17 @@ func (r *run) recordHistoryRow(seq int64, m protocol.Message) {
 			r.historyGroups = r.historyGroups[:0]
 			r.historyOverflowed = false
 		}
+		gateFeedback := ""
+		if m.Origin == protocol.OriginCompletionBlocked {
+			gateFeedback = m.Content
+		}
 		r.pushHistoryGroup(HistoryGroupMeta{
 			Seq:              seq,
 			LastSeq:          seq,
 			Role:             "user",
 			Origin:           m.Origin,
 			AnsweredSeq:      -1,
+			GateFeedback:     gateFeedback,
 			MutationEvidence: MutationNone,
 		})
 	case "assistant":
@@ -628,26 +642,55 @@ func aggregateGroupMutation(assistantMsg protocol.Message, toolRows []protocol.M
 	return MutationNone
 }
 
+func causalRefFromMeta(g HistoryGroupMeta) CausalEvidenceRef {
+	seq := g.AnsweredSeq
+	if seq < 0 {
+		seq = g.Seq
+	}
+	return CausalEvidenceRef{
+		AnsweredSeq:      seq,
+		ToolCallID:       g.ToolCallID,
+		ToolName:         g.PrimaryToolName,
+		ExecutionID:      g.ExecutionID,
+		PostRef:          g.PrimaryPostRef,
+		MutationEvidence: g.MutationEvidence,
+	}
+}
+
 // repairStateMachine executes the forward-monotonic completion-gate repair automaton over a stream
-// or slice of body-free HistoryGroupMeta entries (ADR-0024 §4.6.6, F-02).
+// or slice of body-free HistoryGroupMeta entries (ADR-0024 §4.6.6, §7, F-02, R2-02).
+// Value-only fields make copying repairStateMachine O(1) and completely free of slice/pointer aliasing.
 type repairStateMachine struct {
 	idx                      int
 	userIdx                  int
 	userSeq                  int64
+	blockCount               int
 	activeBlockIdx           int
 	activeBlockSeq           int64
+	activeGateFeedback       string
 	activeProposalIdx        int
 	activeProposalSeq        int64
 	preBlockFloorIdx         int
 	preBlockFloorSeq         int64
+	hasPreBlockFloorRef      bool
+	preBlockFloorRef         CausalEvidenceRef
 	postBlockProven          bool
+	postBlockProvenCount     int
+	postBlockUnknownCount    int
+	lastMutationWasUnknown   bool
 	firstMutSincePrevIdx     int
 	firstMutSincePrevSeq     int64
+	hasFirstMutSincePrevRef  bool
+	firstMutSincePrevRef     CausalEvidenceRef
 	lastToolBeforeFirstIdx   int
 	lastToolBeforeFirstSeq   int64
+	hasLastToolBeforeFirst   bool
+	lastToolBeforeFirstRef   CausalEvidenceRef
 	lastAssistantIdx         int
 	lastAssistantSeq         int64
 	hasAssistantAfterBlocked bool
+	causalProgressLen        int
+	causalProgress           [MaxCausalProgressRefs]CausalEvidenceRef
 }
 
 func newRepairStateMachine() repairStateMachine {
@@ -676,6 +719,16 @@ func (sm *repairStateMachine) resetForExternalUser(idx int, seq int64) {
 	sm.userSeq = seq
 }
 
+func (sm *repairStateMachine) appendCausalProgress(ref CausalEvidenceRef) {
+	if sm.causalProgressLen < MaxCausalProgressRefs {
+		sm.causalProgress[sm.causalProgressLen] = ref
+		sm.causalProgressLen++
+		return
+	}
+	copy(sm.causalProgress[:], sm.causalProgress[1:])
+	sm.causalProgress[MaxCausalProgressRefs-1] = ref
+}
+
 func (sm *repairStateMachine) step(g HistoryGroupMeta) {
 	i := sm.idx
 	if g.Role == "user" && (g.Origin == "" || g.Origin == protocol.OriginImported) {
@@ -690,21 +743,34 @@ func (sm *repairStateMachine) step(g HistoryGroupMeta) {
 		}
 		if g.HasToolCalls {
 			ev := g.MutationEvidence
+			ref := causalRefFromMeta(g)
 			if sm.activeBlockIdx == -1 {
 				sm.lastToolBeforeFirstIdx = i
 				sm.lastToolBeforeFirstSeq = g.Seq
+				sm.hasLastToolBeforeFirst = true
+				sm.lastToolBeforeFirstRef = ref
 				if (ev == MutationProven || ev == MutationUnknown) && sm.preBlockFloorIdx == -1 {
 					sm.preBlockFloorIdx = i
 					sm.preBlockFloorSeq = g.Seq
+					sm.hasPreBlockFloorRef = true
+					sm.preBlockFloorRef = ref
 				}
-			} else {
-				if (ev == MutationProven || ev == MutationUnknown) && sm.firstMutSincePrevIdx == -1 {
+			} else if ev == MutationProven || ev == MutationUnknown {
+				if sm.firstMutSincePrevIdx == -1 {
 					sm.firstMutSincePrevIdx = i
 					sm.firstMutSincePrevSeq = g.Seq
+					sm.hasFirstMutSincePrevRef = true
+					sm.firstMutSincePrevRef = ref
 				}
 				if ev == MutationProven {
 					sm.postBlockProven = true
+					sm.postBlockProvenCount++
+					sm.lastMutationWasUnknown = false
+				} else {
+					sm.postBlockUnknownCount++
+					sm.lastMutationWasUnknown = true
 				}
+				sm.appendCausalProgress(ref)
 			}
 			sm.lastAssistantIdx = i
 			sm.lastAssistantSeq = g.Seq
@@ -728,33 +794,65 @@ func (sm *repairStateMachine) step(g HistoryGroupMeta) {
 				case sm.lastToolBeforeFirstIdx >= 0:
 					sm.preBlockFloorIdx = sm.lastToolBeforeFirstIdx
 					sm.preBlockFloorSeq = sm.lastToolBeforeFirstSeq
+					sm.hasPreBlockFloorRef = sm.hasLastToolBeforeFirst
+					sm.preBlockFloorRef = sm.lastToolBeforeFirstRef
 				case sm.userIdx >= 0:
 					sm.preBlockFloorIdx = sm.userIdx
 					sm.preBlockFloorSeq = sm.userSeq
+					sm.hasPreBlockFloorRef = false
+					sm.preBlockFloorRef = CausalEvidenceRef{}
 				default:
 					sm.preBlockFloorIdx = pIdx
 					sm.preBlockFloorSeq = pSeq
+					sm.hasPreBlockFloorRef = false
+					sm.preBlockFloorRef = CausalEvidenceRef{}
 				}
 			}
 		} else if sm.postBlockProven && sm.firstMutSincePrevIdx >= 0 {
 			sm.preBlockFloorIdx = sm.firstMutSincePrevIdx
 			sm.preBlockFloorSeq = sm.firstMutSincePrevSeq
+			sm.hasPreBlockFloorRef = sm.hasFirstMutSincePrevRef
+			sm.preBlockFloorRef = sm.firstMutSincePrevRef
 		}
+		sm.blockCount++
 		sm.activeBlockIdx = i
 		sm.activeBlockSeq = g.Seq
+		sm.activeGateFeedback = g.GateFeedback
 		sm.activeProposalIdx = pIdx
 		sm.activeProposalSeq = pSeq
 		sm.postBlockProven = false
+		sm.postBlockProvenCount = 0
+		sm.postBlockUnknownCount = 0
+		sm.lastMutationWasUnknown = false
 		sm.firstMutSincePrevIdx = -1
 		sm.firstMutSincePrevSeq = -1
+		sm.hasFirstMutSincePrevRef = false
+		sm.firstMutSincePrevRef = CausalEvidenceRef{}
+		sm.causalProgressLen = 0
+		sm.causalProgress = [MaxCausalProgressRefs]CausalEvidenceRef{}
 		sm.hasAssistantAfterBlocked = false
 	}
 }
 
 func (sm *repairStateMachine) finish() repairContext {
 	if sm.activeBlockIdx == -1 {
-		return repairContext{BlockSeq: -1, FloorIdx: -1, MinRequiredSeq: -1}
+		return repairContext{
+			BlockSeq:                -1,
+			ProposalSeq:             -1,
+			FloorIdx:                -1,
+			MinRequiredSeq:          -1,
+			OriginalMinRequiredSeq:  -1,
+			PostBlockCausalFloorSeq: -1,
+		}
 	}
+	origFloorSeq := sm.activeBlockSeq
+	if sm.preBlockFloorSeq >= 0 && sm.preBlockFloorSeq < origFloorSeq {
+		origFloorSeq = sm.preBlockFloorSeq
+	}
+	if sm.activeProposalSeq >= 0 && sm.activeProposalSeq < origFloorSeq {
+		origFloorSeq = sm.activeProposalSeq
+	}
+
 	floorIdx := sm.activeBlockIdx
 	floorSeq := sm.activeBlockSeq
 	if !sm.postBlockProven {
@@ -767,12 +865,34 @@ func (sm *repairStateMachine) finish() repairContext {
 			floorSeq = sm.activeProposalSeq
 		}
 	}
+
+	stage := RepairStageInspecting
+	if !sm.hasAssistantAfterBlocked {
+		stage = RepairStageBlocked
+	} else if sm.postBlockUnknownCount > 0 && (sm.postBlockProvenCount == 0 || sm.lastMutationWasUnknown) {
+		stage = RepairStageUnknownMutated
+	} else if sm.postBlockProvenCount > 0 {
+		stage = RepairStageProvenProgress
+	}
+
 	return repairContext{
-		Active:         true,
-		NewestIsBlock:  !sm.hasAssistantAfterBlocked,
-		BlockSeq:       sm.activeBlockSeq,
-		FloorIdx:       floorIdx,
-		MinRequiredSeq: floorSeq,
+		Active:                  true,
+		NewestIsBlock:           !sm.hasAssistantAfterBlocked,
+		BlockSeq:                sm.activeBlockSeq,
+		ProposalSeq:             sm.activeProposalSeq,
+		BlockCount:              sm.blockCount,
+		GateFeedback:            sm.activeGateFeedback,
+		FloorIdx:                floorIdx,
+		MinRequiredSeq:          floorSeq,
+		OriginalMinRequiredSeq:  origFloorSeq,
+		PostBlockCausalFloorSeq: sm.firstMutSincePrevSeq,
+		Stage:                   stage,
+		HasOriginalEvidence:     sm.hasPreBlockFloorRef,
+		OriginalEvidence:        sm.preBlockFloorRef,
+		PostBlockProvenCount:    sm.postBlockProvenCount,
+		PostBlockUnknownCount:   sm.postBlockUnknownCount,
+		CausalProgressLen:       sm.causalProgressLen,
+		CausalProgress:          sm.causalProgress,
 	}
 }
 
@@ -798,12 +918,17 @@ func HistoryGroupsFromEntries(transcript []window.Entry, mutations map[int64]Mut
 		head := g[0].Msg
 		switch head.Role {
 		case "user":
+			gateFeedback := ""
+			if head.Origin == protocol.OriginCompletionBlocked {
+				gateFeedback = head.Content
+			}
 			out = append(out, HistoryGroupMeta{
 				Seq:              g[0].Seq,
 				LastSeq:          g[len(g)-1].Seq,
 				Role:             "user",
 				Origin:           head.Origin,
 				AnsweredSeq:      -1,
+				GateFeedback:     gateFeedback,
 				MutationEvidence: MutationNone,
 			})
 		case "assistant":
@@ -831,7 +956,14 @@ func DeriveRepairContext(transcript []window.Entry, mutations map[int64]Mutation
 func deriveRepairContext(transcript []window.Entry, mutations map[int64]MutationEvidence) repairContext {
 	meta, ok := HistoryGroupsFromEntries(transcript, mutations)
 	if !ok || len(meta) == 0 {
-		return repairContext{BlockSeq: -1, FloorIdx: -1, MinRequiredSeq: -1}
+		return repairContext{
+			BlockSeq:                -1,
+			ProposalSeq:             -1,
+			FloorIdx:                -1,
+			MinRequiredSeq:          -1,
+			OriginalMinRequiredSeq:  -1,
+			PostBlockCausalFloorSeq: -1,
+		}
 	}
 	return DeriveRepairContextFromHistory(meta)
 }
@@ -878,12 +1010,17 @@ func (r *run) deriveRepairContext(ctx context.Context, store Store, sessionID st
 		switch m.Role {
 		case "user":
 			flushCur()
+			gateFeedback := ""
+			if m.Origin == protocol.OriginCompletionBlocked {
+				gateFeedback = m.Content
+			}
 			meta := HistoryGroupMeta{
 				Seq:              seq,
 				LastSeq:          seq,
 				Role:             "user",
 				Origin:           m.Origin,
 				AnsweredSeq:      -1,
+				GateFeedback:     gateFeedback,
 				MutationEvidence: MutationNone,
 			}
 			sm.step(meta)

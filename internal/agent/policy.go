@@ -165,14 +165,55 @@ func BaseGateSlack(m Model, fallback PresentationOptions, mode ProjectionMode) i
 	return window.ReserveTokensForBytes(MaxDetailedGateJSONBytes) + ProposalReserveTokens
 }
 
-// RepairContext describes the active completion-gate repair floor derived from persisted rows and
-// causal MutationEvidence (ADR-0024 §4.2, §4.6.6).
+// RepairStage classifies the active completion-gate repair progression reconstructed from persisted
+// messages and tool executions (ADR-0024 §7, R2-02).
+type RepairStage string
+
+const (
+	RepairStageNone           RepairStage = ""
+	RepairStageBlocked        RepairStage = "blocked"
+	RepairStageInspecting     RepairStage = "inspecting"
+	RepairStageProvenProgress RepairStage = "proven_progress"
+	RepairStageUnknownMutated RepairStage = "unknown_mutated"
+)
+
+// MaxCausalProgressRefs bounds the post-gate causal execution refs retained in RepairContext.
+const MaxCausalProgressRefs = 8
+
+// CausalEvidenceRef records body-free persisted attribution for one causal tool group in a repair cycle.
+type CausalEvidenceRef struct {
+	AnsweredSeq      int64            `json:"answeredSeq"`
+	ToolCallID       string           `json:"toolCallId,omitempty"`
+	ToolName         string           `json:"toolName,omitempty"`
+	ExecutionID      string           `json:"executionId,omitempty"`
+	PostRef          string           `json:"postRef,omitempty"`
+	MutationEvidence MutationEvidence `json:"mutationEvidence"`
+}
+
+// RepairContext describes the active completion-gate repair state, pinned gate feedback, and causal
+// repair progress derived deterministically from persisted rows (ADR-0024 §4.2, §4.6.6, §7, R2-02).
+// All fields are value types so RepairContext is directly comparable via == and allocation-free.
 type RepairContext struct {
-	Active         bool
-	NewestIsBlock  bool
-	BlockSeq       int64
-	FloorIdx       int
-	MinRequiredSeq int64
+	Active                  bool
+	NewestIsBlock           bool
+	BlockSeq                int64
+	ProposalSeq             int64
+	BlockCount              int
+	GateFeedback            string
+	FloorIdx                int
+	MinRequiredSeq          int64
+	OriginalMinRequiredSeq  int64
+	PostBlockCausalFloorSeq int64
+	Stage                   RepairStage
+	HasOriginalEvidence     bool
+	OriginalEvidence        CausalEvidenceRef
+	PostBlockProvenCount    int
+	PostBlockUnknownCount   int
+	CausalProgressLen       int
+	CausalProgress          [MaxCausalProgressRefs]CausalEvidenceRef
+	// PinGateInState is set transiently on a candidate projection attempt when Stage R2/R3 pins
+	// GateFeedback + CausalProgress into State and projects Messages strictly over Seq > BlockSeq.
+	PinGateInState bool
 }
 
 type repairContext = RepairContext
@@ -815,11 +856,14 @@ type windowFloorRelaxedInputs struct {
 	UsableInput               int             `json:"usableInput"`
 	Fixed                     int             `json:"fixed"`
 	OriginalMinRequiredSeq    int64           `json:"originalMinRequiredSeq"`
+	PreBlockAnchorSeq         int64           `json:"preBlockAnchorSeq,omitempty"`
+	PostBlockCausalFloorSeq   int64           `json:"postBlockCausalFloorSeq,omitempty"`
 	RelaxedFloorSeq           int64           `json:"relaxedFloorSeq"`
 	BlockSeq                  int64           `json:"blockSeq"`
 	NewestGroupFirstSeq       int64           `json:"newestGroupFirstSeq"`
 	WindowFirstSeq            int64           `json:"windowFirstSeq"`
 	WindowTokens              int             `json:"windowTokens"`
+	GatePinnedInState         bool            `json:"gatePinnedInState,omitempty"`
 	LargerCandidatesExhausted bool            `json:"largerCandidatesExhausted"`
 }
 
@@ -828,15 +872,17 @@ type windowFloorRelaxedOutput struct {
 	Reason                 string `json:"reason"`
 	OriginalMinRequiredSeq int64  `json:"originalMinRequiredSeq"`
 	SentFirstSeq           int64  `json:"sentFirstSeq"`
+	GatePinnedInState      bool   `json:"gatePinnedInState,omitempty"`
 }
 
 // WindowFloorRelaxedDecision records a controlled Floor Relaxation on the largest available candidate
-// when strict MinRequiredSeq exceeded every available model window (ADR-0024 §7, F-03).
+// when strict MinRequiredSeq exceeded every available model window (ADR-0024 §7, F-03, R2-02).
 func WindowFloorRelaxedDecision(
 	ref config.ModelRef,
 	contextTokens, usableInput, fixed int,
-	originalMinReqSeq, relaxedFloorSeq, blockSeq, newestGroupFirstSeq, sentFirstSeq int64,
+	originalMinReqSeq, preBlockAnchorSeq, postBlockCausalFloorSeq, relaxedFloorSeq, blockSeq, newestGroupFirstSeq, sentFirstSeq int64,
 	windowTokens int,
+	gatePinnedInState bool,
 ) Decision {
 	return newDecision(DecisionWindow, RuleWindowFloorRelaxed,
 		windowFloorRelaxedInputs{
@@ -845,11 +891,14 @@ func WindowFloorRelaxedDecision(
 			UsableInput:               usableInput,
 			Fixed:                     fixed,
 			OriginalMinRequiredSeq:    originalMinReqSeq,
+			PreBlockAnchorSeq:         preBlockAnchorSeq,
+			PostBlockCausalFloorSeq:   postBlockCausalFloorSeq,
 			RelaxedFloorSeq:           relaxedFloorSeq,
 			BlockSeq:                  blockSeq,
 			NewestGroupFirstSeq:       newestGroupFirstSeq,
 			WindowFirstSeq:            sentFirstSeq,
 			WindowTokens:              windowTokens,
+			GatePinnedInState:         gatePinnedInState,
 			LargerCandidatesExhausted: true,
 		},
 		windowFloorRelaxedOutput{
@@ -857,6 +906,7 @@ func WindowFloorRelaxedDecision(
 			Reason:                 FloorRelaxReasonMaxCandidateOverflow,
 			OriginalMinRequiredSeq: originalMinReqSeq,
 			SentFirstSeq:           sentFirstSeq,
+			GatePinnedInState:      gatePinnedInState,
 		},
 	)
 }
@@ -1207,14 +1257,23 @@ func ReplayDecision(d Decision) error {
 			return fmt.Errorf("%s: windowFirstSeq %d did not relax originalMinRequiredSeq %d",
 				d.Rule, in.WindowFirstSeq, in.OriginalMinRequiredSeq)
 		}
-		if in.WindowFirstSeq > in.RelaxedFloorSeq || in.WindowFirstSeq > in.BlockSeq || in.WindowFirstSeq > in.NewestGroupFirstSeq {
-			return fmt.Errorf("%s: windowFirstSeq %d evicted relaxed floor (relaxed=%d block=%d newest=%d)",
-				d.Rule, in.WindowFirstSeq, in.RelaxedFloorSeq, in.BlockSeq, in.NewestGroupFirstSeq)
+		if in.WindowFirstSeq > in.RelaxedFloorSeq || in.WindowFirstSeq > in.NewestGroupFirstSeq {
+			return fmt.Errorf("%s: windowFirstSeq %d evicted relaxed floor (relaxed=%d newest=%d)",
+				d.Rule, in.WindowFirstSeq, in.RelaxedFloorSeq, in.NewestGroupFirstSeq)
+		}
+		if !in.GatePinnedInState && in.WindowFirstSeq > in.BlockSeq {
+			return fmt.Errorf("%s: windowFirstSeq %d evicted blockSeq %d without gatePinnedInState",
+				d.Rule, in.WindowFirstSeq, in.BlockSeq)
+		}
+		if in.GatePinnedInState && in.WindowFirstSeq <= in.BlockSeq {
+			return fmt.Errorf("%s: windowFirstSeq %d retained blockSeq %d while gatePinnedInState=true",
+				d.Rule, in.WindowFirstSeq, in.BlockSeq)
 		}
 		if !out.Relaxed ||
 			out.Reason != FloorRelaxReasonMaxCandidateOverflow ||
 			out.OriginalMinRequiredSeq != in.OriginalMinRequiredSeq ||
-			out.SentFirstSeq != in.WindowFirstSeq {
+			out.SentFirstSeq != in.WindowFirstSeq ||
+			out.GatePinnedInState != in.GatePinnedInState {
 			return fmt.Errorf("%s: inconsistent output %+v for inputs %+v", d.Rule, out, in)
 		}
 	case d.Kind == DecisionWindow && d.Rule == RuleWindowCapacityRetry:
