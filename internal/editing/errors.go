@@ -25,6 +25,10 @@ const (
 	CodeTooLarge = "too_large"
 	// CodeConcurrentWrite: a write landed while the engine was writing; the file is not what it wrote.
 	CodeConcurrentWrite = "concurrent_write_detected"
+	// CodeUnsupportedFilesystem: a new file cannot be created atomically on the workspace filesystem
+	// (it supports neither hard links nor no-replace rename, for example exFAT on macOS); nothing was
+	// written. Edits to existing files are not affected.
+	CodeUnsupportedFilesystem = "unsupported_filesystem"
 	// CodeSyntax and CodeType: validation refused the result.
 	CodeSyntax = "syntax"
 	CodeType   = "type"
@@ -120,6 +124,8 @@ func (e *Error) Hint() string {
 		return "the file is not UTF-8; edit it with another tool"
 	case CodeTooLarge:
 		return "the file is over the 4 MiB edit limit"
+	case CodeUnsupportedFilesystem:
+		return "this filesystem cannot create new files safely; existing files can still be edited, and new files need a workspace on a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS)"
 	case CodeSyntax, CodeType:
 		return "fix the edit; nothing was written"
 	case CodeUnknownSymbol, CodeAmbiguous:

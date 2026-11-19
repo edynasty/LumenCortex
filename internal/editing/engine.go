@@ -62,6 +62,12 @@ func NewCreateTempFile(dir string) (*os.File, string, error) {
 	return nil, "", errors.New("failed to allocate unique create temp file")
 }
 
+// errNoReplacePublishUnsupported marks a create whose filesystem supports neither a hard link nor a
+// no-replace rename of the staged temp file (for example exFAT on macOS). Publishing anyway would
+// need a direct create that can lose a concurrently created file, so the create is refused instead
+// (ADR-0024 R3-01).
+var errNoReplacePublishUnsupported = errors.New("filesystem supports neither hard links nor no-replace rename")
+
 // Actor is the identity a read or a commit belongs to. A tool write uses the run's session.
 type Actor struct {
 	// Session is the session whose snapshots are read and written, and whose id is the lease holder.
@@ -850,6 +856,10 @@ func (e *Engine) createAtomicNoReplace(stager AtomicFileStager, p *prepared) (bo
 		if errors.Is(pubErr, os.ErrExist) {
 			return false, &Error{Code: CodeConflict, Path: p.rel,
 				Detail: "the file was created by another writer before commit; nothing was written"}
+		}
+		if errors.Is(pubErr, errNoReplacePublishUnsupported) {
+			return false, &Error{Code: CodeUnsupportedFilesystem, Path: p.rel,
+				Detail: pubErr.Error() + ", so a new file cannot be published atomically; nothing was written"}
 		}
 		return false, pubErr
 	}

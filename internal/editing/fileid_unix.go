@@ -76,15 +76,37 @@ func isLinkFallbackErr(err error) bool {
 		errors.Is(err, syscall.ENOSYS)
 }
 
+// isNoReplaceRenameUnsupportedErr reports a no-replace rename the filesystem or kernel does not
+// implement: ENOTSUP/EOPNOTSUPP (macOS renameatx_np RENAME_EXCL on exFAT), EINVAL (Linux renameat2
+// RENAME_NOREPLACE on a filesystem without it) and ENOSYS (no such call).
+func isNoReplaceRenameUnsupportedErr(err error) bool {
+	return errors.Is(err, syscall.EOPNOTSUPP) ||
+		errors.Is(err, syscall.ENOTSUP) ||
+		errors.Is(err, syscall.EINVAL) ||
+		errors.Is(err, syscall.ENOSYS)
+}
+
+// linkForPublish and renameNoReplaceForPublish are the kernel primitives publishTempNoReplace uses;
+// tests replace them to simulate a filesystem that supports neither.
+var (
+	linkForPublish            = os.Link
+	renameNoReplaceForPublish = renameNoReplacePlatform
+)
+
 // publishTempNoReplace atomically publishes tmpPath (held open by tmpFile) to dstPath without
 // replacing any existing entry at dstPath, always removing the private tmpPath entry and never
-// unlinking dstPath on error (ADR-0024 §8, R2-01).
+// unlinking dstPath on error (ADR-0024 §8, R2-01). When the filesystem supports neither primitive the
+// error wraps errNoReplacePublishUnsupported and nothing is published (R3-01).
 func publishTempNoReplace(tmpPath string, tmpFile *os.File, dstPath string) (fileIdentity, error) {
 	defer func() { _ = os.Remove(tmpPath) }()
 
-	err := os.Link(tmpPath, dstPath)
+	err := linkForPublish(tmpPath, dstPath)
 	if err != nil && isLinkFallbackErr(err) {
-		err = renameNoReplacePlatform(tmpPath, dstPath)
+		linkErr := err
+		err = renameNoReplaceForPublish(tmpPath, dstPath)
+		if err != nil && isNoReplaceRenameUnsupportedErr(err) {
+			err = fmt.Errorf("%w (link: %v; no-replace rename: %v)", errNoReplacePublishUnsupported, linkErr, err)
+		}
 	}
 	if err != nil {
 		_ = tmpFile.Close()
