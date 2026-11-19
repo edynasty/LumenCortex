@@ -1,14 +1,14 @@
 # ADR-0024：候选级上下文确定性投影、因果修复下界与精确预算守卫
 
-- **状态：** 基于已批准规格 `v0.4-rc3.5` 正式进入实施（Accepted for implementation）；合并与发布仍由 Owner 审批。
-- **日期：** 2026-11-18
+- **状态：** 基于规格 `v0.4-rc3.6` 正式进入实施与审查闭环（覆盖 Opus 5.5 审查项 `F-01..F-04, F-06, F-09`）；合并与发布仍由 Owner 审批。
+- **日期：** 2026-11-19
 - **责任人：** Astra，Context Space 实施负责人
-- **权威规格文档：** `LumenCortex-architecture-audit/design/handoffs/context-space-architecture-master.zh-CN.md`（`v0.4-rc3.5`，SHA256 `bd8dfb00c9781d4d375ce4779789a71f0cbef9f547918ea1f4aa1a0c7481abd9`）
-- **源码基线：** Core `c73d17359f5d9dd16ef88b0de4525862593fddaa`
+- **权威规格文档：** `LumenCortex-architecture-audit/design/handoffs/context-space-architecture-master.zh-CN.md`（`v0.4-rc3.6`，SHA256 `3da2b65adda4b43fddf929dfa0d6b345e9181a75bf43c43f1c79ed5abe0ab09a`；`v0.4-rc3.5` 原件备份 `bd8dfb00c9781d4d375ce4779789a71f0cbef9f547918ea1f4aa1a0c7481abd9`）
+- **源码基线：** Core `c73d17359f5d9dd16ef88b0de4525862593fddaa`（本轮修复基线 `b57655cbb517bf7344f7670e13f9d2db82a2ba47`）
 - **取代：** `internal/agent` 中原地修改 `presentSpecs` 与单一 `base` 静态预筛假设，以及 `internal/skills` 超 `32 KiB` 丢弃启用技能的旧行为；不回写任何历史数据库行或证据记录。
 - **被取代：** 无
 
-> **实施治理边界声明：** 本 ADR 记录已批准的 Context Space Architecture（`v0.4-rc3.5`）实施契约，将冻结架构不变量直接映射为 Go 运行时代码接线与确定性测试，**本次是架构规格批准后的正式实施，不是重新进行架构设计。**
+> **实施治理边界声明：** 本 ADR 记录 Context Space Architecture（`v0.4-rc3.6`，在 `v0.4-rc3.5` 基础上完成长程可靠性与独立审查闭环升级）的实施契约，将冻结架构不变量直接映射为 Go 运行时代码接线与确定性测试，不推翻双平面核心架构。
 
 ## 1. 背景与问题
 
@@ -53,20 +53,20 @@ LumenCortex 采纳 **方案 F2**——基于当步标量预算的无状态二元
 - **`EstimateBytes(b []byte) int`：** 空切片为 `0`；非空单遍统计 `A`（ASCII 字母与空格，权重 `4`）、`S`（其余 ASCII `<0x80`，权重 `7`）、`U`（多字节 UTF-8 `>=0x80`，权重 `6`），返回 `floor((4*A + 7*S + 6*U + 11)/12) + 4`；`window.Estimate` 与 `provider/{anthropic,openai}` `Echo` 统一调用。`EchoTokens` 仅在 `GroupTokens` 计入一次，遇 `user` 行即清零，绝不重复计费。
 - **`ReserveTokensForBytes(n int) int`：** `n <= 0` 返回 `0`，否则 `floor((7*n + 11)/12) + 4`（`1456 -> 854`、`2458 -> 1438`、`12346 -> 7206`），对任意 `<= n` 字节切片恒为 `EstimateBytes` 上界。
 - **`presentFeedback` 双重字节守卫：** 净化非法 UTF-8 与控制字节，施加原始 UTF-8 上限 `1200B`（紧凑）/ `6144B`（详细）与实测 `OriginCompletionBlocked` JSON 序列化上限 `MaxCompactGateJSONBytes = 2458` / `MaxDetailedGateJSONBytes = 12346`（外壳 `58B`）。
-- **闭式预算余量：** `GuardTokens = max(ctx/16, 512) + 512*[pkg=="anthropic-messages" && nTools>0]`；`BaseGateSlack = 1950`（紧凑）/ `7718`（详细，含 `ProposalReserveTokens = 512`）；`EffectiveGateSlack` 在常态取 `baseSlack`（小窗口候选在 `ModeCompact` 下满足 `0 <= poolBeforeSlack - compactFixed - requiredTranscript < baseSlackCompact` 时钳位至剩余空间，保留全部可用缓冲且不产生假性首步溢出），阻断首步（`repair.Active && repair.NewestIsBlock`）释放为 `0`，多步修复期取 `min(baseSlack, max(0, poolBeforeSlack - candFixed - requiredRepairTokens))`。`CapacityRetry` 通过 `r.transcriptCap[cand.Ref]` 提高对应候选 `Margin`，不覆盖原始预算且不跨候选污染。
+- **闭式预算余量与 `8K` 模型兼容性（`F-06`）：** `GuardTokens = max(ctx/16, 512) + 512*[pkg=="anthropic-messages" && nTools>0]`；`BaseGateSlack = 1950`（紧凑）/ `7718`（详细，含 `ProposalReserveTokens = 512`）。LumenCortex 明确继续支持 `8K`（`Context >= 8000`）窗口模型：当候选 `cand.Context < verbatimCompactFixed + guard + outBudget`（如 `8K` 模型挂载 `Policy: "full"` 全量内置工具）时，`ModeCompact` 自动启用经 `REV-F06` 验证的安全内置紧凑工具描述以通过静态准入；常态非修复期（`!repair.Active`）`EffectiveGateSlack` 取 `min(baseSlack, max(0, (poolBeforeSlack - candFixed) / 4))`（`>=32K` 模型保持完整 `1950/7718`，`8K` 模型保留 `75%` 前缀后对话容量），阻断首步（`repair.Active && repair.NewestIsBlock`）释放为 `0`，多步修复期取 `min(baseSlack, max(0, poolBeforeSlack - candFixed - requiredRepairTokens))`。`CapacityRetry` 通过 `r.transcriptCap[cand.Ref]` 提高对应候选 `Margin`，不覆盖原始预算且不跨候选污染。
 
-## 7. 滑窗选择与 Repair Context 保护
+## 7. 滑窗选择、零正文历史组元数据与带守卫的受控 Floor Relaxation
 
-- **前向单调 `deriveRepairContext`：** 从最近外部用户输入（`Origin == ""` 或 `OriginImported`）向后扫描原子组；首次 `OriginCompletionBlocked` 前锁定首个 `MutationProven` 或 `MutationUnknown` 工具组为 `preBlockFloor`；跨多次连续阻断时，**唯独**两次阻断间出现 `postBlockProven == true` 才前移 `preBlockFloor`（`None` 与 `Unknown` 绝不推进 `MinRequiredSeq`）；最新阻断后若已 `postBlockProven == true` 则 `FloorIdx = activeBlock`。
-- **`r.groups(maxContext, minKeepSeq)` 内存防裁剪守卫：** 钳位 `keep` 确保任何 `Seq >= minKeepSeq` 的受保护组绝不从 `r.transcript` 静默裁除。
-- **`TurnBoundary` 试算与 `BeforeModelCall` 闭环：** 预检克隆 `r.transcript`、清零尾段 `EchoTokens`、追加合成 `OriginTurn`，并要求 `minRequiredSeq = minPositiveSeq(prevGroupFirstSeq, repair.MinRequiredSeq)`（最小进展守卫，溢出零写库）。仅在通过 `Cooldown`、`BeforeModelCall` 与 `applyPendingInputs` 后才正式落盘 `OriginTurn`、重跑 7 步 `projectCandidate` 并唯一构造 `ProviderRequest`。最大候选仍装不下时受控返回 `StatusFailed / KindWindowOverflow`。
+- **零正文 `HistoryGroupMeta` 与运行期/`Resume` 恒等（`F-02`）：** 消息正文缓冲 `r.transcript` 严格有界于 `l.maxContext()`（绝不在内存中无限保留历史正文）。修复下界从零正文轻量元数据 `HistoryGroupMeta`（含 `Seq, Role, Origin, HasToolCalls, AnsweredSeq, ToolCallID, ExecutionID, MutationEvidence` 及同组多工具调用归属）确定性派生：自 `max(WindowStartSeq, latestExternalUserSeq)` 维护，内存封顶 `MaxInMemoryHistoryGroups = 2048` 并在超限时经 `MessageStreamer.EachMessageFrom` + `Store.ListAnsweredExecutions` 从 SQLite 流式重算；新外部用户输入（`Origin == ""` 或 `OriginImported`）自动重置旧修复周期；运行期与冷启动 `Resume` 共享完全相同的 `DeriveRepairContextFromHistory` 状态机。
+- **带 Failover 优先守卫的受控 Floor Relaxation — 方案 B（`F-03`）：**（1）Pass 1 先在当前候选校验严格 `built.FirstSeq <= minRequiredSeq`；（2）不满足时必须优先尝试更大窗口候选（含处于瞬态 `down.ready` 恢复中的更大候选），严禁小模型越级触发 Floor Relaxation；（3）仅当全部更大候选均耗尽或不可用时，Pass 2 选定最大可用候选（切换回退时记录 `RuleFailoverFloorFallback`），且唯独该候选能同时容纳活跃门禁反馈（`BlockSeq`）、最新原子消息组与注入 `State` 块的显式告警 `[Context Window Notice — Floor Relaxation]`（告知必需历史已被省略并要求继续改码前先用 `read_file` / `git status` / `git diff` 重新检查工作区状态）时，允许进入受控 Floor Relaxation；（4）Floor Relaxation 完整保留 `OriginalMinRequiredSeq`，在可重放决策 `RuleWindowFloorRelaxed` 中记录 `SentFirstSeq`、候选模型与原因 `"max_candidate_repair_floor_overflow"` 并接入 `ReplayDecision` 与 `VerifyStep`，严禁静默滑窗；（5）若连活跃门禁反馈或最新原子组也无法容纳，则受控终止为 `StatusFailed / KindWindowOverflow`（`T3-A2`）。
+- **`TurnBoundary` 试算与 `BeforeModelCall` 闭环：** 预检克隆 `r.transcript`、清零尾段 `EchoTokens`、追加合成 `OriginTurn` 并校验下界（溢出零写库）。仅在通过 `Cooldown`、`BeforeModelCall` 与 `applyPendingInputs` 后才正式落盘 `OriginTurn`、重跑 `projectCandidate` 并唯一构造 `ProviderRequest`。
 
-## 8. `MutationEvidence` 与 `CommitReceipt` 因果封签
+## 8. `MutationEvidence`、`O_CREATE|O_EXCL` 创建身份安全与 `CommitReceipt` 因果封签
 
-1. **`editing.CommitReceipt`（`internal/editing/engine.go`）：** 导出 `Committed`、`DirtyFailure`（`f.Truncate(0)` 后写/重读失败、`CodeConcurrentWrite` 或进入 `rollback` 时为 `true`）及按规范路径排序的 `[]FileCommitReceipt{Path, Wrote, Created, Deleted, OldSHA256, NewSHA256}`，采用全字节 `Wrote` 判定与 `writeCAS` 全字节 SHA-256 重读校验。
+1. **`editing.Engine` 创建独占守卫与 `CommitReceipt`（`internal/editing/engine.go`，`F-01`，`F-09`）：** 创建型打开 `Open(path, true)` 强制使用 `os.O_RDWR | os.O_CREATE | os.O_EXCL`（`os.ErrExist` 立即无脏返回 `CodeConflict`，绝不删除既有或外部新建文件）；既有文件修改使用 `create = false`。唯有本次 `O_EXCL` 真正创建成功的文件记录平台 `fileIdentity`（Unix `Dev/Ino` + `os.SameFile`；Windows `GetFileInformationByHandle` `VolumeSerialNumber + FileIndex + CreationTime`），并在清理或 `rollback` 删除前重新验证路径仍指向同一常规文件（`rollback` 同步验证字节等于 `p.next`）。`CommitReceipt` 导出 `Committed`、`DirtyFailure` 及 `filepath.ToSlash` 规范化的 `[]FileCommitReceipt{Path, Wrote, Created, Deleted, OldSHA256, NewSHA256}`。
 2. **逐 `ExecutionID` 私有 `commitRecorder`：** 在 `loop.go` 与 `callback.go` 每次准入分配 `x.id` 后通过 `WithCommitRecorder` 注入 `toolCtx`（嵌套回调覆盖隔离，模型参数与工具输出无法伪造），由 `toolset.commitPlan` 回填回执并按 `anyWrote || receipt.DirtyFailure` 设置 `MutatesWorkspace`。
-3. **`postFiles` 三重联合核验与 `;cm=*` 原子封签：** 随既有 `CommitToolResult / SettleExecution` 单事务写入 `derived_origins.post_ref`（`DirtyFailure` 升格 `OutcomeUnknown` 并封签 `;cm=unknown`）。唯独 `OutcomeComplete && CoverageComplete && hasPositiveFilesSnapshotRef(PreRef) && receipt.Committed`、至少一个目标 `Wrote == true`、全部 `!Wrote` 目标 `preBlob == postBlob`、全部 `Wrote` 目标 `preBlob != postBlob`、`Wrote && !Deleted` 目标在 `SnapshotFiles` 前后 `os.Lstat` 元数据恒定且原始磁盘 `SHA256 == NewSHA256`（兼容 `.gitattributes` clean filter，`Deleted` 目标满足不存在且 `postBlob == "-"`）且 `PreRef != PostSnapRef` 时签发 `;cm=proven`；唯独全部目标 `!Wrote && preBlob == postBlob` 且零文件边时签发 `;cm=none`；其余一切场景（含宿主改 `B` 后 Agent No-op 写 `B`、改回原值 `A`、写后被宿主覆写 `D`、CAS 冲突、部分写失败、空目标、超限文件与历史无 `;cm=` 旧行）一律签发/归类为 `;cm=unknown`（`MutationUnknown`）。
-4. **纯函数分类与同组 `Unknown` 一票否决：** 全部内置 `tierWorkspace`（`bash`、`edit_go`、`lsp_rename`、`eval_artifact`）、全部已准入外部 `mcp__*` 与外部导入工具调用组（`OriginImported`）恒为 `MutationUnknown`；编译期固定内置只读/委派 `tierAdmit` 工具在零文件边且非 `OutcomeUnknown` 时为 `MutationNone`；`aggregateGroupMutation` 按 `Unknown > Proven > None` 聚合同一 `answered_seq`（含未配对或 `OriginToolInterrupted` 立即否决为 `MutationUnknown`）。
+3. **`postFiles` 斜杠规范键匹配与 `;cm=*` 原子封签（`F-09`）：** 统一以区分大小写的 `filepath.ToSlash(path)` 规范路径键（绝不依赖切片下标位置，重复规范键保守判 `;cm=unknown`）配对 `preByPath`、`postByPath` 与 `receipt.Files`，随 `CommitToolResult / SettleExecution` 单事务写入 `derived_origins.post_ref`（`DirtyFailure` 升格 `OutcomeUnknown` 并封签 `;cm=unknown`）。
+4. **纯函数分类与同组 `Unknown` 一票否决（`F-04`）：** 全部内置 `tierWorkspace`（`bash`、`edit_go`、`lsp_rename`、`eval_artifact` 及全部 `debug_*` 调试器工具）、全部已准入外部 `mcp__*`、外部导入工具调用组（`OriginImported`）及历史无 `;cm=` 旧行统一归为 `MutationUnknown`；编译期固定内置只读/委派 `tierAdmit` 工具在零文件边且非 `OutcomeUnknown` 时为 `MutationNone`；按 `Unknown > Proven > None` 聚合同一 `answered_seq`。
 
 ## 9. Skills Run 快照与渐进发现
 
@@ -83,7 +83,7 @@ LumenCortex 采纳 **方案 F2**——基于当步标量预算的无状态二元
 ## 11. 确定性 `Resume` 与五级重放边界
 
 - `CommitToolResult` 前崩溃由 `Store.Reconcile` 补写 `OriginToolInterrupted` 与 `outcome_unknown`（恢复为 `MutationUnknown`）；提交后崩溃通过 `Store.ListAnsweredExecutions` 逐位恢复 `;cm=*`、`MutationEvidence` 与 `MinRequiredSeq`；新 `Resume` Run 在 `prepareRun` 重建最新合法 `SkillSnapshot`。
-- 五级验证边界：100% 支持（1）**Decision Replay**（`VerifyStep` / `ReplayDecision` 含 `RuleWindowPrefix` 与 `CompactFixedByModel`）与（2）**Request Envelope Verification**（离线 SQLite），同内存快照支持（3）**Static Projection Verification**；明确不支持离线持久化私有 `Echo` 的（4）**Full Projection Replay** 与跨非确定性采样的（5）**Full Run Replay**。
+- 五级验证边界：100% 支持（1）**Decision Replay**（`VerifyStep` / `ReplayDecision` 含 `RuleWindowPrefix`、`CompactFixedByModel`、`RuleWindowFloorRelaxed` 与 `RuleFailoverFloorFallback`）与（2）**Request Envelope Verification**（离线 SQLite），同内存快照支持（3）**Static Projection Verification**；明确不支持离线持久化私有 `Echo` 的（4）**Full Projection Replay** 与跨非确定性采样的（5）**Full Run Replay**。
 
 ## 12. 安全边界与数据库兼容性
 
