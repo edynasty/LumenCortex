@@ -272,7 +272,8 @@ type prepared struct {
 	moved    map[int]int
 	ops      []LineOp
 	// wrote records that the commit really wrote this file, so a no-op change emits no event.
-	wrote bool
+	wrote     bool
+	createdID fileIdentity
 }
 
 // Commit applies the plan: every file or none. It resolves and locks the paths, checks write leases,
@@ -782,25 +783,41 @@ func (e *Engine) writeCAS(host Host, p *prepared) (bool, error) {
 			return false, nil
 		}
 	}
-	f, err := host.Open(p.abs, true)
+	create := !p.existed
+	f, err := host.Open(p.abs, create)
 	if err != nil {
+		if create && errors.Is(err, os.ErrExist) {
+			return false, &Error{Code: CodeConflict, Path: p.rel,
+				Detail: "the file was created by another writer before commit; nothing was written"}
+		}
+		if !create && errors.Is(err, os.ErrNotExist) {
+			return false, &Error{Code: CodeConflict, Path: p.rel, Rev: p.rev,
+				Detail: "the file was removed after the change was computed; nothing was written"}
+		}
 		return false, err
 	}
-	createdOnOpen := !p.existed
-	failClean := func(err error) (bool, error) {
-		joined := errors.Join(err, f.Close())
-		if createdOnOpen {
-			_ = os.Remove(p.abs)
-			return true, joined
+	var createdID fileIdentity
+	if create {
+		var idErr error
+		createdID, idErr = captureFileIdentity(f)
+		if idErr != nil {
+			return true, errors.Join(idErr, f.Close())
 		}
-		return false, joined
+		p.createdID = createdID
+	}
+	failClean := func(err error) (bool, error) {
+		if create {
+			_, closeErr := removeCreatedWhileOpen(p.abs, f, createdID)
+			return true, errors.Join(err, closeErr)
+		}
+		return false, errors.Join(err, f.Close())
 	}
 	failDirty := func(err error) (bool, error) {
-		joined := errors.Join(err, f.Close())
-		if createdOnOpen {
-			_ = os.Remove(p.abs)
+		if create {
+			_, closeErr := removeCreatedWhileOpen(p.abs, f, createdID)
+			return true, errors.Join(err, closeErr)
 		}
-		return true, joined
+		return true, errors.Join(err, f.Close())
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return failClean(err)
@@ -854,13 +871,13 @@ func (e *Engine) rollback(host Host, written []*prepared) {
 			}
 		}
 		if p.deleted {
-			if err := e.writeRestore(host, p.abs, p.original); err != nil {
+			if err := e.writeRestore(host, p.abs, p.original, true); err != nil {
 				continue
 			}
 			continue
 		}
 		if p.created {
-			_ = os.Remove(p.abs)
+			_ = removeCreatedAtRollback(p.abs, p.createdID, p.next)
 			continue
 		}
 		if p.change.Binary {
@@ -871,15 +888,15 @@ func (e *Engine) rollback(host Host, written []*prepared) {
 				continue
 			}
 		}
-		_ = e.writeRestore(host, p.abs, p.original)
+		_ = e.writeRestore(host, p.abs, p.original, false)
 	}
 }
 
-func (e *Engine) writeRestore(host Host, path string, data []byte) error {
+func (e *Engine) writeRestore(host Host, path string, data []byte, create bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	f, err := host.Open(path, true)
+	f, err := host.Open(path, create)
 	if err != nil {
 		return err
 	}
@@ -1060,11 +1077,11 @@ func (h LocalHost) Resolve(input string, allowMissing bool) (string, string, err
 	return candidate, filepath.ToSlash(rel), nil
 }
 
-// Open opens a file for reading and writing, creating it when asked.
+// Open opens a file for reading and writing, creating it exclusively when asked.
 func (h LocalHost) Open(path string, create bool) (*os.File, error) {
 	flags := os.O_RDWR
 	if create {
-		flags |= os.O_CREATE
+		flags |= os.O_CREATE | os.O_EXCL
 	}
 	return os.OpenFile(path, flags, 0o644)
 }

@@ -31,7 +31,7 @@ func (s *Set) Open(path string, create bool) (*os.File, error) {
 	}
 	flags := os.O_RDWR
 	if create {
-		flags |= os.O_CREATE
+		flags |= os.O_CREATE | os.O_EXCL
 	}
 	f, err := os.OpenFile(path, flags, 0o644)
 	if err != nil {
@@ -45,7 +45,11 @@ func (s *Set) Open(path string, create bool) (*os.File, error) {
 		err = s.verifyOpenedDescriptor(path, info)
 	}
 	if err != nil {
-		f.Close()
+		if create {
+			_ = editing.CleanupExclusivelyCreatedFile(path, f)
+		} else {
+			f.Close()
+		}
 		return nil, err
 	}
 	return f, nil
