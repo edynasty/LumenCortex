@@ -380,7 +380,7 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 		// event.
 		result.Files = append(result.Files, fileResult(p))
 		receiptFiles = append(receiptFiles, FileCommitReceipt{
-			Path:      p.rel,
+			Path:      filepath.ToSlash(p.rel),
 			AbsPath:   p.abs,
 			Wrote:     p.wrote,
 			Created:   p.created,

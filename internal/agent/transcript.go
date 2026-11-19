@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/session"
@@ -344,6 +345,11 @@ func aggregateGroupMutation(assistantMsg protocol.Message, toolRows []protocol.M
 	}
 	if assistantMsg.Origin == protocol.OriginImported {
 		return MutationUnknown
+	}
+	for _, tc := range assistantMsg.ToolCalls {
+		if strings.HasPrefix(tc.Name, "debug_") {
+			return MutationUnknown
+		}
 	}
 	for _, tr := range toolRows {
 		if tr.Origin == protocol.OriginToolInterrupted || tr.Origin == protocol.OriginImported {

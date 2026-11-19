@@ -52,7 +52,7 @@ var callbackAllowedBuiltins = map[string]bool{
 }
 
 // callbackDeniedPrefixes are tool families a callback never reaches.
-var callbackDeniedPrefixes = []string{"eval", "job_", "wakeup_"}
+var callbackDeniedPrefixes = []string{"eval", "job_", "wakeup_", "debug_"}
 
 const (
 	// MaxCallbackJournal bounds the nested calls one eval tool call records.

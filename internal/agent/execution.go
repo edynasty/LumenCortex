@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -82,6 +83,11 @@ func executionTierOf(name string, specs []protocol.ToolSpec) executionTier {
 		return tierNone
 	case toolStartTask, toolSpawnSubagent:
 		return tierAdmit
+	}
+	if strings.HasPrefix(name, "debug_") {
+		// Debugger tools launch, step, or evaluate inside a live debuggee process that can mutate
+		// arbitrary workspace files (including Git-ignored outputs) without an editing.CommitReceipt.
+		return tierWorkspace
 	}
 	if !strings.HasPrefix(name, "mcp__") {
 		return tierNone
@@ -472,11 +478,40 @@ func sealFilesMutation(
 		len(receipt.Files) != len(after.Files) {
 		return string(MutationUnknown)
 	}
+	preByPath := make(map[string]repository.FileState, len(x.files.Files))
+	for _, preF := range x.files.Files {
+		key := filepath.ToSlash(preF.Path)
+		if key == "" || preF.Blob == "" {
+			return string(MutationUnknown)
+		}
+		if _, dup := preByPath[key]; dup {
+			return string(MutationUnknown)
+		}
+		preByPath[key] = preF
+	}
+	postByPath := make(map[string]repository.FileState, len(after.Files))
+	for _, postF := range after.Files {
+		key := filepath.ToSlash(postF.Path)
+		if key == "" || postF.Blob == "" {
+			return string(MutationUnknown)
+		}
+		if _, dup := postByPath[key]; dup {
+			return string(MutationUnknown)
+		}
+		postByPath[key] = postF
+	}
+
+	seenReceipt := make(map[string]bool, len(receipt.Files))
 	wroteCount := 0
-	for i, rf := range receipt.Files {
-		preF := x.files.Files[i]
-		postF := after.Files[i]
-		if rf.Path != preF.Path || rf.Path != postF.Path || preF.Blob == "" || postF.Blob == "" {
+	for _, rf := range receipt.Files {
+		key := filepath.ToSlash(rf.Path)
+		if key == "" || seenReceipt[key] {
+			return string(MutationUnknown)
+		}
+		seenReceipt[key] = true
+		preF, okPre := preByPath[key]
+		postF, okPost := postByPath[key]
+		if !okPre || !okPost {
 			return string(MutationUnknown)
 		}
 		if !rf.Wrote {
