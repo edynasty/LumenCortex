@@ -163,17 +163,43 @@ func formatCausalEvidenceSummary(ref CausalEvidenceRef) string {
 	return strings.Join(parts, " ")
 }
 
-func appendFloorRelaxationNotice(stateText string, repair repairContext, strictMinReqSeq int64) string {
+// latestAtomicStepSeq returns the first seq of the newest group in transcript that records a model
+// step (an assistant group) or a completion-gate refusal, skipping rows the runtime appends without a
+// model action (Resume, turn-progress, job and similar notices); -1 when there is none.
+func latestAtomicStepSeq(transcript []window.Entry) int64 {
+	for i := len(transcript) - 1; i >= 0; i-- {
+		m := transcript[i].Msg
+		if m.Role == "assistant" || (m.Role == "user" && m.Origin == protocol.OriginCompletionBlocked) {
+			return transcript[i].Seq
+		}
+	}
+	return -1
+}
+
+// latestStepGuaranteed reports whether a relaxed window that keeps every message from floorSeq on
+// necessarily contains the latest atomic step. When it does not (for example a single oversized tool
+// result followed by a Resume row), the notices must not claim that step is preserved (ADR-0024 R3-04).
+func latestStepGuaranteed(floorSeq, latestStepSeq int64) bool {
+	return latestStepSeq < 0 || latestStepSeq >= floorSeq
+}
+
+func appendFloorRelaxationNotice(stateText string, repair repairContext, strictMinReqSeq, floorSeq, latestStepSeq int64) string {
 	origAnchor := repair.OriginalMinRequiredSeq
 	if origAnchor < 0 {
 		origAnchor = strictMinReqSeq
 	}
+	preserved := fmt.Sprintf("Active completion-gate feedback (seq %d) and the latest atomic step are preserved in the message window. ", repair.BlockSeq)
+	if !latestStepGuaranteed(floorSeq, latestStepSeq) {
+		preserved = fmt.Sprintf(
+			"Active completion-gate feedback (seq %d) is preserved in the message window; only messages from seq %d onward are guaranteed, so the latest atomic step (seq %d) may have been omitted. ",
+			repair.BlockSeq, floorSeq, latestStepSeq)
+	}
 	notice := fmt.Sprintf(
 		"[Context Window Notice — Floor Relaxation]\n"+
 			"Required repair history starting at seq %d (original anchor seq %d) exceeds the largest available model window, so earlier messages prior to the transmitted window have been omitted. "+
-			"Active completion-gate feedback (seq %d) and the latest atomic step are preserved in the message window. "+
+			"%s"+
 			"Before modifying code or proposing completion, re-inspect current workspace state (for example via read_file, search_text, or git status/git diff) rather than relying on omitted earlier steps.",
-		strictMinReqSeq, origAnchor, repair.BlockSeq,
+		strictMinReqSeq, origAnchor, preserved,
 	)
 	if strings.TrimSpace(stateText) == "" {
 		return notice
@@ -181,7 +207,7 @@ func appendFloorRelaxationNotice(stateText string, repair repairContext, strictM
 	return stateText + "\n\n" + notice
 }
 
-func appendPinnedGateAndRelaxationNotice(stateText string, repair repairContext, strictMinReqSeq int64, formattedGateFeedback string) string {
+func appendPinnedGateAndRelaxationNotice(stateText string, repair repairContext, strictMinReqSeq int64, formattedGateFeedback string, floorSeq, latestStepSeq int64) string {
 	origAnchor := repair.OriginalMinRequiredSeq
 	if origAnchor < 0 {
 		origAnchor = strictMinReqSeq
@@ -213,12 +239,18 @@ func appendPinnedGateAndRelaxationNotice(stateText string, repair repairContext,
 		b.WriteByte(']')
 	}
 	b.WriteString("\n\n")
+	preserved := fmt.Sprintf("active gate feedback (seq %d) and causal repair progress are pinned above, and the latest atomic step is preserved. ", repair.BlockSeq)
+	if !latestStepGuaranteed(floorSeq, latestStepSeq) {
+		preserved = fmt.Sprintf(
+			"active gate feedback (seq %d) and causal repair progress are pinned above. Only messages from seq %d onward are guaranteed to be in the window, so the latest atomic step (seq %d) may have been omitted; if it changed or may have changed the workspace, its recorded evidence is in the causal repair ledger above. ",
+			repair.BlockSeq, floorSeq, latestStepSeq)
+	}
 	fmt.Fprintf(&b,
 		"[Context Window Notice — Floor Relaxation]\n"+
 			"Transcript messages from seq %d through gate refusal seq %d and older post-gate steps prior to the transmitted rolling suffix have been omitted to fit the largest available model window; "+
-			"active gate feedback (seq %d) and causal repair progress are pinned above, and the latest atomic step is preserved. "+
+			"%s"+
 			"Before modifying code or proposing completion, re-inspect current workspace state (for example via read_file, search_text, or git status/git diff) rather than assuming omitted steps.",
-		origAnchor, repair.BlockSeq, repair.BlockSeq,
+		origAnchor, repair.BlockSeq, preserved,
 	)
 	return b.String()
 }
@@ -312,7 +344,7 @@ func projectCandidateForSend(
 		r1Canonical.State = protocol.Message{
 			Role:    canonical.State.Role,
 			Origin:  canonical.State.Origin,
-			Content: appendFloorRelaxationNotice(canonical.State.Content, repair, minRequiredSeq),
+			Content: appendFloorRelaxationNotice(canonical.State.Content, repair, minRequiredSeq, floorR1, latestAtomicStepSeq(transcript)),
 		}
 		r1Repair := repair
 		r1Repair.MinRequiredSeq = floorR1
@@ -387,15 +419,16 @@ func projectCandidate(
 		if strictMin < 0 {
 			strictMin = minRequiredSeq
 		}
+		latestStep := latestAtomicStepSeq(transcript)
 		fullState = protocol.Message{
 			Role:    canonical.State.Role,
 			Origin:  canonical.State.Origin,
-			Content: appendPinnedGateAndRelaxationNotice(canonical.State.Content, repair, strictMin, fullGate),
+			Content: appendPinnedGateAndRelaxationNotice(canonical.State.Content, repair, strictMin, fullGate, minRequiredSeq, latestStep),
 		}
 		compactState = protocol.Message{
 			Role:    canonical.State.Role,
 			Origin:  canonical.State.Origin,
-			Content: appendPinnedGateAndRelaxationNotice(canonical.State.Content, repair, strictMin, compactGate),
+			Content: appendPinnedGateAndRelaxationNotice(canonical.State.Content, repair, strictMin, compactGate, minRequiredSeq, latestStep),
 		}
 	}
 
