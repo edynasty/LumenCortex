@@ -6,21 +6,33 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"syscall"
+	"unsafe"
 )
 
-const windowsAttrReparsePoint = 0x0400
+const (
+	windowsAttrReparsePoint = 0x0400
+	winErrFileExists        = syscall.Errno(80)
+	winErrAlreadyExists     = syscall.Errno(183)
+)
+
+var (
+	modkernel32     = syscall.NewLazyDLL("kernel32.dll")
+	procMoveFileExW = modkernel32.NewProc("MoveFileExW")
+)
 
 // fileIdentity captures the Windows handle identity (VolumeSerialNumber + 64-bit FileIndex +
-// CreationTime) of a file exclusively created by the current Commit call (O_CREATE | O_EXCL).
+// CreationTime + LastWriteTime) of a file created by the current Commit call.
 type fileIdentity struct {
-	valid        bool
-	info         os.FileInfo
-	volSerial    uint32
-	idxHigh      uint32
-	idxLow       uint32
-	creationTime syscall.Filetime
+	valid         bool
+	info          os.FileInfo
+	volSerial     uint32
+	idxHigh       uint32
+	idxLow        uint32
+	creationTime  syscall.Filetime
+	lastWriteTime syscall.Filetime
 }
 
 func captureFileIdentity(f *os.File) (fileIdentity, error) {
@@ -42,16 +54,17 @@ func captureFileIdentity(f *os.File) (fileIdentity, error) {
 		return fileIdentity{}, fmt.Errorf("exclusively created target has directory or reparse attributes (0x%x)", d.FileAttributes)
 	}
 	return fileIdentity{
-		valid:        true,
-		info:         info,
-		volSerial:    d.VolumeSerialNumber,
-		idxHigh:      d.FileIndexHigh,
-		idxLow:       d.FileIndexLow,
-		creationTime: d.CreationTime,
+		valid:         true,
+		info:          info,
+		volSerial:     d.VolumeSerialNumber,
+		idxHigh:       d.FileIndexHigh,
+		idxLow:        d.FileIndexLow,
+		creationTime:  d.CreationTime,
+		lastWriteTime: d.LastWriteTime,
 	}, nil
 }
 
-func (id fileIdentity) matchesHandleInfo(other os.FileInfo, d syscall.ByHandleFileInformation) bool {
+func (id fileIdentity) matchesHandleInfo(other os.FileInfo, d syscall.ByHandleFileInformation, checkMtime bool) bool {
 	if !id.valid || id.info == nil || other == nil || !other.Mode().IsRegular() {
 		return false
 	}
@@ -64,6 +77,9 @@ func (id fileIdentity) matchesHandleInfo(other os.FileInfo, d syscall.ByHandleFi
 		d.CreationTime != id.creationTime {
 		return false
 	}
+	if checkMtime && d.LastWriteTime != id.lastWriteTime {
+		return false
+	}
 	return os.SameFile(id.info, other)
 }
 
@@ -74,7 +90,7 @@ func (id fileIdentity) matchesInfo(other os.FileInfo) bool {
 	return os.SameFile(id.info, other)
 }
 
-func pathMatchesIdentity(path string, id fileIdentity) bool {
+func pathMatchesIdentity(path string, id fileIdentity, checkMtime bool) bool {
 	if !id.valid {
 		return false
 	}
@@ -86,7 +102,6 @@ func pathMatchesIdentity(path string, id fileIdentity) bool {
 	if err != nil {
 		return false
 	}
-	// Open without following reparse points and with full sharing so we inspect the exact path entry.
 	h, err := syscall.CreateFile(
 		p16,
 		syscall.GENERIC_READ,
@@ -105,16 +120,79 @@ func pathMatchesIdentity(path string, id fileIdentity) bool {
 	if err := syscall.GetFileInformationByHandle(h, &d); err != nil {
 		return false
 	}
-	return id.matchesHandleInfo(named, d)
+	return id.matchesHandleInfo(named, d, checkMtime)
 }
 
-func removeCreatedWhileOpen(path string, f *os.File, id fileIdentity) (bool, error) {
-	if !id.valid {
-		return false, f.Close()
+func moveFileNoReplaceWindows(tmpPath, dstPath string) error {
+	from16, err := syscall.UTF16PtrFromString(tmpPath)
+	if err != nil {
+		return err
 	}
-	stillOurs := pathMatchesIdentity(path, id)
+	to16, err := syscall.UTF16PtrFromString(dstPath)
+	if err != nil {
+		return err
+	}
+	// dwFlags == 0 (no MOVEFILE_REPLACE_EXISTING): atomic no-replace within the same directory.
+	r1, _, e1 := procMoveFileExW.Call(
+		uintptr(unsafe.Pointer(from16)),
+		uintptr(unsafe.Pointer(to16)),
+		0,
+	)
+	if r1 == 0 {
+		if errors.Is(e1, winErrFileExists) || errors.Is(e1, winErrAlreadyExists) || errors.Is(e1, os.ErrExist) {
+			return &os.LinkError{Op: "MoveFileExW", Old: tmpPath, New: dstPath, Err: os.ErrExist}
+		}
+		var errno syscall.Errno
+		if errors.As(e1, &errno) && errno != 0 {
+			return &os.LinkError{Op: "MoveFileExW", Old: tmpPath, New: dstPath, Err: errno}
+		}
+		return &os.LinkError{Op: "MoveFileExW", Old: tmpPath, New: dstPath, Err: syscall.EINVAL}
+	}
+	return nil
+}
+
+// publishTempNoReplace closes tmpFile and publishes tmpPath to dstPath via Win32 MoveFileExW with
+// dwFlags=0 (no-replace), removing only tmpPath if publication fails and never touching dstPath.
+func publishTempNoReplace(tmpPath string, tmpFile *os.File, dstPath string) (fileIdentity, error) {
+	if closeErr := tmpFile.Close(); closeErr != nil {
+		_ = os.Remove(tmpPath)
+		return fileIdentity{}, closeErr
+	}
+	if err := moveFileNoReplaceWindows(tmpPath, dstPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return fileIdentity{}, err
+	}
+	rf, err := os.Open(dstPath)
+	if err != nil {
+		return fileIdentity{}, nil
+	}
+	id, _ := captureFileIdentity(rf)
+	_ = rf.Close()
+	return id, nil
+}
+
+func removeCreatedWhileOpen(path string, f *os.File, id fileIdentity, expectedContent []byte) (bool, error) {
+	if !id.valid || f == nil {
+		var closeErr error
+		if f != nil {
+			closeErr = f.Close()
+		}
+		return false, closeErr
+	}
+	canRemove := false
+	if curInfo, statErr := f.Stat(); statErr == nil && curInfo.Size() == int64(len(expectedContent)) {
+		if _, seekErr := f.Seek(0, io.SeekStart); seekErr == nil {
+			cur, readErr := io.ReadAll(io.LimitReader(f, int64(len(expectedContent))+1))
+			if readErr == nil && bytes.Equal(cur, expectedContent) && pathMatchesIdentity(path, id, true) {
+				canRemove = true
+			}
+		}
+	}
 	closeErr := f.Close()
-	if !stillOurs || !pathMatchesIdentity(path, id) {
+	if !canRemove || !pathMatchesIdentity(path, id, true) {
+		return false, closeErr
+	}
+	if named, err := os.Lstat(path); err != nil || named.Size() != int64(len(expectedContent)) {
 		return false, closeErr
 	}
 	if err := os.Remove(path); err != nil {
@@ -124,7 +202,7 @@ func removeCreatedWhileOpen(path string, f *os.File, id fileIdentity) (bool, err
 }
 
 func removeCreatedAtRollback(path string, id fileIdentity, expectedContent []byte) bool {
-	if !id.valid || !pathMatchesIdentity(path, id) {
+	if !id.valid || !pathMatchesIdentity(path, id, true) {
 		return false
 	}
 	rf, err := os.Open(path)
@@ -136,7 +214,9 @@ func removeCreatedAtRollback(path string, id fileIdentity, expectedContent []byt
 		openedID.volSerial != id.volSerial ||
 		openedID.idxHigh != id.idxHigh ||
 		openedID.idxLow != id.idxLow ||
-		openedID.creationTime != id.creationTime {
+		openedID.creationTime != id.creationTime ||
+		openedID.lastWriteTime != id.lastWriteTime ||
+		openedID.info.Size() != int64(len(expectedContent)) {
 		_ = rf.Close()
 		return false
 	}
@@ -145,14 +225,17 @@ func removeCreatedAtRollback(path string, id fileIdentity, expectedContent []byt
 	if readErr != nil || !bytes.Equal(cur, expectedContent) {
 		return false
 	}
-	if !pathMatchesIdentity(path, id) {
+	if !pathMatchesIdentity(path, id, true) {
+		return false
+	}
+	if named, err := os.Lstat(path); err != nil || named.Size() != int64(len(expectedContent)) {
 		return false
 	}
 	return os.Remove(path) == nil
 }
 
 // CleanupExclusivelyCreatedFile closes f after unlinking path only if path still points to the exact
-// regular file handle f that the caller just created with O_CREATE|O_EXCL.
+// empty regular file handle f that the caller just created with O_CREATE|O_EXCL.
 func CleanupExclusivelyCreatedFile(path string, f *os.File) error {
 	if f == nil {
 		return nil
@@ -161,6 +244,6 @@ func CleanupExclusivelyCreatedFile(path string, f *os.File) error {
 	if err != nil {
 		return errors.Join(err, f.Close())
 	}
-	_, closeErr := removeCreatedWhileOpen(path, f, id)
+	_, closeErr := removeCreatedWhileOpen(path, f, id, nil)
 	return closeErr
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/edynasty/LumenCortex/internal/editing"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -53,6 +54,59 @@ func (s *Set) Open(path string, create bool) (*os.File, error) {
 		return nil, err
 	}
 	return f, nil
+}
+
+// OpenCreateTemp stages a newly created file in a private sibling temp file inside the target's
+// directory under the exact same workspace and protected-state descriptor checks as Open, without
+// touching targetPath (ADR-0024 §8, R2-01).
+func (s *Set) OpenCreateTemp(targetPath string) (*os.File, string, error) {
+	f, tmpPath, err := editing.NewCreateTempFile(filepath.Dir(targetPath))
+	if err != nil {
+		return nil, "", err
+	}
+	info, err := f.Stat()
+	if err == nil {
+		err = s.denyIfProtected(info)
+	}
+	if err == nil {
+		err = s.verifyOpenedDescriptor(tmpPath, info)
+	}
+	if err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		return nil, "", err
+	}
+	return f, tmpPath, nil
+}
+
+// BeforeAtomicPublish invokes testHookBeforeOpen on targetPath and re-verifies that targetPath
+// still resolves within the workspace and does not name a protected file or escaped symlink.
+func (s *Set) BeforeAtomicPublish(targetPath string) error {
+	if testHookBeforeOpen != nil {
+		testHookBeforeOpen(targetPath)
+	}
+	canonical, _, err := s.resolve(targetPath, true)
+	if err != nil {
+		return err
+	}
+	if linfo, lerr := os.Lstat(targetPath); lerr == nil {
+		if err := s.denyIfProtected(linfo); err != nil {
+			return err
+		}
+		if linfo.Mode()&os.ModeSymlink != 0 {
+			if _, _, err := s.resolve(targetPath, false); err != nil {
+				return err
+			}
+		}
+	}
+	if canonical != targetPath {
+		if sinfo, serr := os.Stat(canonical); serr == nil {
+			if err := s.denyIfProtected(sinfo); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // verifyOpenedDescriptor re-runs the workspace guard on an opened descriptor. The path is resolved

@@ -3,6 +3,7 @@ package editing
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -31,6 +32,34 @@ type Host interface {
 	Open(path string, create bool) (*os.File, error)
 	// Event publishes one runtime event. It may be a no-op.
 	Event(kind, sessionID string, payload map[string]any)
+}
+
+// AtomicFileStager is an optional Host extension for staging newly created files in a private
+// sibling temp file and validating workspace/protected-state guards before atomic no-replace
+// publication (ADR-0024 §8, R2-01).
+type AtomicFileStager interface {
+	OpenCreateTemp(targetPath string) (tmpFile *os.File, tmpPath string, err error)
+	BeforeAtomicPublish(targetPath string) error
+}
+
+// NewCreateTempFile opens a private sibling temporary file in dir with O_RDWR|O_CREATE|O_EXCL.
+func NewCreateTempFile(dir string) (*os.File, string, error) {
+	for attempt := 0; attempt < 8; attempt++ {
+		var nonce [16]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			return nil, "", err
+		}
+		tmpPath := filepath.Join(dir, ".lcx-create-"+hex.EncodeToString(nonce[:]))
+		f, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return nil, "", err
+		}
+		return f, tmpPath, nil
+	}
+	return nil, "", errors.New("failed to allocate unique create temp file")
 }
 
 // Actor is the identity a read or a commit belongs to. A tool write uses the run's session.
@@ -772,6 +801,62 @@ func (e *Engine) deleteCAS(host Host, p *prepared) error {
 // writeCAS writes the prepared bytes only if the file still has the revision that was validated. The
 // check and the write happen on the same descriptor, which is opened without truncating and refused
 // when it is protected state, so a refused write leaves the file as it was.
+func (e *Engine) createAtomicNoReplace(stager AtomicFileStager, p *prepared) (bool, error) {
+	var (
+		tmpFile *os.File
+		tmpPath string
+		err     error
+	)
+	if stager != nil {
+		tmpFile, tmpPath, err = stager.OpenCreateTemp(p.abs)
+	} else {
+		tmpFile, tmpPath, err = NewCreateTempFile(filepath.Dir(p.abs))
+	}
+	if err != nil {
+		return false, err
+	}
+	abortTmp := func(cause error) (bool, error) {
+		closeErr := tmpFile.Close()
+		rmErr := os.Remove(tmpPath)
+		return rmErr != nil && !errors.Is(rmErr, os.ErrNotExist), errors.Join(cause, closeErr)
+	}
+
+	if e.afterTruncate != nil {
+		if err := e.afterTruncate(p.abs); err != nil {
+			return abortTmp(err)
+		}
+	}
+	if _, err := tmpFile.Write(p.next); err != nil {
+		return abortTmp(err)
+	}
+	if _, err := tmpFile.Seek(0, io.SeekStart); err != nil {
+		return abortTmp(err)
+	}
+	after, err := readLimited(tmpFile, MaxFileBytes)
+	if err != nil {
+		return abortTmp(err)
+	}
+	if !bytes.Equal(after, p.next) {
+		return abortTmp(&Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: RevOf(after),
+			Detail: "staged temp file content changed before publication"})
+	}
+	if stager != nil {
+		if err := stager.BeforeAtomicPublish(p.abs); err != nil {
+			return abortTmp(err)
+		}
+	}
+	createdID, pubErr := publishTempNoReplace(tmpPath, tmpFile, p.abs)
+	if pubErr != nil {
+		if errors.Is(pubErr, os.ErrExist) {
+			return false, &Error{Code: CodeConflict, Path: p.rel,
+				Detail: "the file was created by another writer before commit; nothing was written"}
+		}
+		return false, pubErr
+	}
+	p.createdID = createdID
+	return false, nil
+}
+
 func (e *Engine) writeCAS(host Host, p *prepared) (bool, error) {
 	if p.change.Binary {
 		if replacer, ok := host.(interface {
@@ -784,6 +869,14 @@ func (e *Engine) writeCAS(host Host, p *prepared) (bool, error) {
 		}
 	}
 	create := !p.existed
+	if create && e.afterTruncate == nil {
+		if stager, ok := host.(AtomicFileStager); ok {
+			return e.createAtomicNoReplace(stager, p)
+		}
+		if _, isPlainLocalHost := host.(LocalHost); isPlainLocalHost {
+			return e.createAtomicNoReplace(nil, p)
+		}
+	}
 	f, err := host.Open(p.abs, create)
 	if err != nil {
 		if create && errors.Is(err, os.ErrExist) {
@@ -801,59 +894,72 @@ func (e *Engine) writeCAS(host Host, p *prepared) (bool, error) {
 		var idErr error
 		createdID, idErr = captureFileIdentity(f)
 		if idErr != nil {
-			return true, errors.Join(idErr, f.Close())
+			return false, errors.Join(idErr, f.Close())
 		}
 		p.createdID = createdID
 	}
-	failClean := func(err error) (bool, error) {
+	// Pre-write CAS verification: on create, any non-empty read or readLimited error means an
+	// external writer wrote into this inode before we wrote anything — preserve their data untouched!
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		if create {
-			_, closeErr := removeCreatedWhileOpen(p.abs, f, createdID)
+			_, closeErr := removeCreatedWhileOpen(p.abs, f, createdID, nil)
 			return true, errors.Join(err, closeErr)
 		}
 		return false, errors.Join(err, f.Close())
 	}
-	failDirty := func(err error) (bool, error) {
+	current, err := readLimited(f, MaxFileBytes)
+	if err != nil {
+		return false, errors.Join(err, f.Close())
+	}
+	if rev := RevOf(current); rev != p.rev {
+		conflict := &Error{Code: CodeConflict, Path: p.rel, Rev: p.rev, CurrentRev: rev,
+			Detail: "the file changed after the change was computed; nothing was written"}
+		return false, errors.Join(conflict, f.Close())
+	}
+	// Only clean pre-write failures where the inode is still provably 0-byte and unmodified by
+	// any external writer may unlink; post-Write / concurrent-write failures NEVER unlink!
+	failPreWrite := func(err error) (bool, error) {
 		if create {
-			_, closeErr := removeCreatedWhileOpen(p.abs, f, createdID)
+			_, closeErr := removeCreatedWhileOpen(p.abs, f, createdID, nil)
 			return true, errors.Join(err, closeErr)
 		}
 		return true, errors.Join(err, f.Close())
 	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return failClean(err)
-	}
-	current, err := readLimited(f, MaxFileBytes)
-	if err != nil {
-		return failClean(err)
-	}
-	if rev := RevOf(current); rev != p.rev {
-		return failClean(&Error{Code: CodeConflict, Path: p.rel, Rev: p.rev, CurrentRev: rev,
-			Detail: "the file changed after the change was computed; nothing was written"})
-	}
 	if err := f.Truncate(0); err != nil {
-		return failDirty(err)
+		return failPreWrite(err)
+	}
+	if create {
+		if postTruncID, idErr := captureFileIdentity(f); idErr == nil {
+			createdID = postTruncID
+			p.createdID = postTruncID
+		}
 	}
 	if e.afterTruncate != nil {
 		if err := e.afterTruncate(p.abs); err != nil {
-			return failDirty(err)
+			return failPreWrite(err)
 		}
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return failDirty(err)
+		return failPreWrite(err)
 	}
 	if _, err := f.Write(p.next); err != nil {
-		return failDirty(err)
+		return true, errors.Join(err, f.Close())
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return failDirty(err)
+		return true, errors.Join(err, f.Close())
 	}
 	after, err := readLimited(f, MaxFileBytes)
 	if err != nil {
-		return failDirty(err)
+		return true, errors.Join(err, f.Close())
 	}
 	if !bytes.Equal(after, p.next) {
-		return failDirty(&Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: RevOf(after),
-			Detail: "another writer changed the file during the write"})
+		return true, errors.Join(&Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: RevOf(after),
+			Detail: "another writer changed the file during the write"}, f.Close())
+	}
+	if create {
+		if postID, idErr := captureFileIdentity(f); idErr == nil {
+			p.createdID = postID
+		}
 	}
 	if err := f.Close(); err != nil {
 		return true, err
