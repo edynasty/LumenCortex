@@ -138,7 +138,7 @@ func (s *SnapshotStore) Lookup(session, path, rev string) (*Snapshot, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ss := s.sessions[session]
-	if ss == nil {
+	if ss == nil || rev == "" {
 		return nil, false
 	}
 	snap := s.find(ss, path, rev)
@@ -151,6 +151,13 @@ func (s *SnapshotStore) Lookup(session, path, rev string) (*Snapshot, bool) {
 // Latest returns the most recently registered snapshot of path, whatever its revision: a session's
 // last view of the file. It is how a whole-file write learns the version it would overwrite.
 func (s *SnapshotStore) Latest(session, path string) (*Snapshot, bool) {
+	view, _ := s.writeView(session, path)
+	return view, view != nil
+}
+
+// writeView returns the latest trusted read or a reread requirement. Empty-revision entries
+// are bounded, path-local invalidations, never snapshots handed to callers.
+func (s *SnapshotStore) writeView(session, path string) (*Snapshot, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ss := s.sessions[session]
@@ -167,9 +174,12 @@ func (s *SnapshotStore) Latest(session, path string) (*Snapshot, bool) {
 		}
 	}
 	if best == nil {
-		return nil, false
+		return nil, ss.evicted
 	}
-	return best, true
+	if best.Rev == "" {
+		return nil, true
+	}
+	return best, false
 }
 
 // Forget drops every snapshot of a session. The runtime calls it when a session ends, so a later
@@ -188,6 +198,24 @@ func (s *SnapshotStore) ForgetPath(session, path string) {
 	if ss == nil {
 		return
 	}
+	dropSnapshots(ss, path)
+}
+
+func (s *SnapshotStore) InvalidatePath(session, path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ss := s.sessions[session]
+	if ss == nil {
+		ss = &sessionSnapshots{}
+		s.sessions[session] = ss
+	}
+	dropSnapshots(ss, path)
+	s.seq++
+	ss.entries = append(ss.entries, &Snapshot{Path: path, at: s.seq})
+	s.prune(ss, path)
+}
+
+func dropSnapshots(ss *sessionSnapshots, path string) {
 	kept := ss.entries[:0]
 	for _, entry := range ss.entries {
 		if entry.Path == path {
@@ -239,13 +267,6 @@ func (s *SnapshotStore) prune(ss *sessionSnapshots, keepPath string) {
 	}
 	clear(ss.entries[len(kept):])
 	ss.entries, ss.bytes = kept, bytes
-}
-
-func (s *SnapshotStore) incomplete(session string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	ss := s.sessions[session]
-	return ss != nil && ss.evicted
 }
 
 // Lease is a write lease: a path or directory prefix one holder may write for a bounded time. It is

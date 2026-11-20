@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-func TestR6WindowsExternalAppendHelper(t *testing.T) {
-	target := os.Getenv("LC_R6_WIN_APPEND_TARGET")
+func TestR7WindowsExternalAppendHelper(t *testing.T) {
+	target := os.Getenv("LC_R7_WIN_APPEND_TARGET")
 	if target == "" {
 		return
 	}
@@ -30,21 +30,17 @@ func TestR6WindowsExternalAppendHelper(t *testing.T) {
 	}
 }
 
-// TestR6WindowsRollbackTimestampAndIdentity exercises pre-Close vs post-Close Windows file
-// identity/timestamp semantics (R5-06) and verifies R5-01 external-append preservation on native
-// Windows hosts (NTFS/ReFS/exFAT).
-func TestR6WindowsRollbackTimestampAndIdentity(t *testing.T) {
-	t.Run("capture_identity_before_and_after_close_and_clean_rollback", func(t *testing.T) {
+// TestR7WindowsNativeTimestampAndNoCompensation is native-ready for a Windows host (NTFS/ReFS/
+// exFAT). It observes post-close identity/timestamps and asserts a published prefix is never
+// compensated after a later refusal. It has not been executed in the R7 macOS evidence run and
+// must be run natively before any Windows PASS is claimed.
+func TestR7WindowsNativeTimestampAndNoCompensation(t *testing.T) {
+	t.Run("timestamp_observation_on_committed_update", func(t *testing.T) {
 		root := t.TempDir()
 		target := filepath.Join(root, "a.txt")
 		if err := os.WriteFile(target, []byte("old-a\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(root, "b.txt"), []byte("old-b\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-
-		// Observe raw handle LastWriteTime before and after Close across a tick boundary.
 		f, err := os.OpenFile(target, os.O_RDWR, 0)
 		if err != nil {
 			t.Fatal(err)
@@ -53,7 +49,7 @@ func TestR6WindowsRollbackTimestampAndIdentity(t *testing.T) {
 			_ = f.Close()
 			t.Fatal(err)
 		}
-		preCloseID, err := captureFileIdentity(f)
+		preClose, err := captureFileIdentity(f)
 		if err != nil {
 			_ = f.Close()
 			t.Fatal(err)
@@ -66,97 +62,74 @@ func TestR6WindowsRollbackTimestampAndIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		postCloseID, err := captureFileIdentity(rf)
+		postClose, err := captureFileIdentity(rf)
 		_ = rf.Close()
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Logf("R5-06 Windows timestamp observation: preClose=%+v postClose=%+v equal=%v",
-			preCloseID.lastWriteTime, postCloseID.lastWriteTime, preCloseID.lastWriteTime == postCloseID.lastWriteTime)
+		t.Logf("Windows timestamp observation: preClose=%+v postClose=%+v equal=%v",
+			preClose.lastWriteTime, postClose.lastWriteTime, preClose.lastWriteTime == postClose.lastWriteTime)
 
-		// Reset a.txt and run multi-file rollback across tick boundary.
 		if err := os.WriteFile(target, []byte("old-a\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		e := newTestEngine(t, root)
-		e.beforeWrite = func(path string) {
-			if filepath.Base(path) == "b.txt" {
-				time.Sleep(20 * time.Millisecond)
-				_ = os.WriteFile(path, []byte("conflict-b\n"), 0o644)
-			}
-		}
-		na := []byte("longer-new-a\n")
-		nb := []byte("new-b\n")
+		next := []byte("new-a\n")
 		var rec CommitReceipt
 		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
-		res, err := e.Commit(ctx, Plan{
-			Actor: testActor(),
-			Tool:  "apply_patch",
-			Changes: []FileChange{
-				{Path: "a.txt", Content: &na},
-				{Path: "b.txt", Content: &nb},
-			},
-		})
-		if err == nil || CodeOf(err) != CodeConflict {
-			t.Fatalf("expected CodeConflict, got %v", err)
-		}
-		disk, err := os.ReadFile(target)
+		res, err := e.Commit(ctx, Plan{Actor: testActor(), Tool: "write_file", Changes: []FileChange{
+			{Path: "a.txt", Content: &next},
+		}})
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("committed update: %v", err)
 		}
-		t.Logf("R5-06 rollback result: state=%s receipt=%+v disk=%q", res.CommitState, rec, string(disk))
-		if rec.State != CommitStateRolledBack || string(disk) != "old-a\n" {
-			t.Fatalf("Windows rollback did not cleanly restore unmodified file (R5-06 triggered?): state=%s disk=%q receipt=%+v",
-				rec.State, string(disk), rec)
+		fa, ra := r7Files(t, res, rec, "a.txt")
+		if fa.PublishState != PublishSucceededAndVerified || !fa.Verified || fa.RolledBack || ra.RolledBack {
+			t.Fatalf("committed update on Windows: %+v %+v", fa, ra)
 		}
 	})
 
-	t.Run("external_append_after_restore_write_preserved_on_windows", func(t *testing.T) {
+	t.Run("published_prefix_not_compensated_after_later_refusal", func(t *testing.T) {
 		root := t.TempDir()
 		writeFile(t, root, "a.txt", "old-a\n")
 		writeFile(t, root, "b.txt", "old-b\n")
+		writeFile(t, root, "c.txt", "old-c\n")
 		e := newTestEngine(t, root)
 		e.beforeWrite = func(path string) {
 			if filepath.Base(path) == "b.txt" {
-				_ = os.WriteFile(path, []byte("conflict-b\n"), 0o644)
+				cmd := exec.Command(os.Args[0], "-test.run=^TestR7WindowsExternalAppendHelper$")
+				cmd.Env = append(os.Environ(), "LC_R7_WIN_APPEND_TARGET="+filepath.Join(root, "a.txt"))
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("append helper: %v\n%s", err, out)
+				}
+				if err := os.WriteFile(path, []byte("child-b\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
 			}
 		}
-		e.SetPublishFaultHooks(PublishFaultHooks{
-			AfterRestorePayloadWrite: func(path string) error {
-				if filepath.Base(path) != "a.txt" {
-					return nil
-				}
-				cmd := exec.Command(os.Args[0], "-test.run=^TestR6WindowsExternalAppendHelper$")
-				cmd.Env = append(os.Environ(), "LC_R6_WIN_APPEND_TARGET="+path)
-				out, cmdErr := cmd.CombinedOutput()
-				if cmdErr != nil {
-					t.Logf("helper output: %s", out)
-				}
-				return cmdErr
-			},
-		})
-		na := []byte("new-a\n")
-		nb := []byte("new-b\n")
+		na, nb, nc := []byte("new-a\n"), []byte("new-b\n"), []byte("new-c\n")
 		var rec CommitReceipt
 		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
-		_, err := e.Commit(ctx, Plan{
-			Actor: testActor(),
-			Tool:  "apply_patch",
-			Changes: []FileChange{
-				{Path: "a.txt", Content: &na},
-				{Path: "b.txt", Content: &nb},
-			},
-		})
-		if err == nil {
-			t.Fatal("expected conflict")
+		res, err := e.Commit(ctx, Plan{Actor: testActor(), Tool: "apply_patch", Changes: []FileChange{
+			{Path: "a.txt", Content: &na},
+			{Path: "b.txt", Content: &nb},
+			{Path: "c.txt", Content: &nc},
+		}})
+		if err == nil || CodeOf(err) != CodeConflict {
+			t.Fatalf("want B conflict, got %v", err)
 		}
 		got := readFileContent(t, root, "a.txt")
 		if !strings.Contains(got, "WIN-FOREIGN\n") {
 			t.Fatalf("external append lost on Windows: %q", got)
 		}
-		ra, ok := findReceiptFile(rec.Files, "a.txt")
-		if !ok || ra.PublishState != PublishExternalModification || ra.RolledBack || ra.Verified {
-			t.Fatalf("unexpected receipt on Windows: %+v", ra)
+		fa, ra := r7Files(t, res, rec, "a.txt")
+		if fa.PublishState != PublishExternalModification || fa.Verified || fa.RolledBack || ra.RolledBack || ra.NewSHA256 != "" {
+			t.Fatalf("Windows prefix after external append: %+v %+v", fa, ra)
+		}
+		fc, rc := r7Files(t, res, rec, "c.txt")
+		r7AssertNotAttempted(t, fc, rc)
+		if got := readFileContent(t, root, "c.txt"); got != "old-c\n" {
+			t.Fatalf("C attempted: %q", got)
 		}
 	})
 }

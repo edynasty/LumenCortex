@@ -1,5 +1,3 @@
-//go:build !windows
-
 package editing
 
 import (
@@ -12,197 +10,23 @@ import (
 	"testing"
 )
 
-type r402ClosingStager struct {
-	LocalHost
-	files map[string]*os.File
-}
-
-func (h *r402ClosingStager) OpenCreateTemp(target string) (*os.File, string, error) {
-	f, p, err := NewCreateTempFile(filepath.Dir(target))
-	if err == nil {
-		if h.files == nil {
-			h.files = make(map[string]*os.File)
-		}
-		h.files[target] = f
-	}
-	return f, p, err
-}
-
-func (h *r402ClosingStager) BeforeAtomicPublish(string) error { return nil }
-
 func assertNoCreateTempLeftovers(t *testing.T, root string) {
 	t.Helper()
-	err := filepath.Walk(root, func(p string, _ os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if strings.HasPrefix(filepath.Base(p), ".lcx-create-") {
-			t.Errorf("unexpected temp file leftover: %s", p)
-		}
-		return nil
-	})
+	entries, err := os.ReadDir(root)
 	if err != nil {
-		t.Fatalf("walk workspace %s: %v", root, err)
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".lcx-create-") {
+			t.Fatalf("leftover private staging file: %s", entry.Name())
+		}
 	}
 }
 
-// TestR402PostPublishDefectsReproducer pins the three un-hooked R4-02 reproducers that failed on
-// unmodified aeb2e50 / 4ac97248 internal/editing code (logs/r4-02-red.log).
-func TestR402PostPublishDefectsReproducer(t *testing.T) {
-	t.Run("single_file_link_succeeds_then_post_publish_error", func(t *testing.T) {
-		root := t.TempDir()
-		lh, err := NewLocalHost(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		h := &r402ClosingStager{LocalHost: lh}
-		linkForPublish = func(oldname, newname string) error {
-			err := os.Link(oldname, newname)
-			if f := h.files[newname]; f != nil {
-				_ = f.Close()
-			}
-			return err
-		}
-		t.Cleanup(func() { linkForPublish = os.Link })
-
-		e := newTestEngine(t, root)
-		var receipt CommitReceipt
-		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { receipt = r })
-		body := []byte("published\n")
-		res, cerr := e.Commit(ctx, Plan{
-			Actor:   testActor(),
-			Tool:    "write_file",
-			Host:    h,
-			Changes: []FileChange{{Path: "new.txt", Content: &body, AllowCreate: true}},
-		})
-		if cerr == nil {
-			t.Fatalf("expected post-publish error")
-		}
-		got, rerr := os.ReadFile(filepath.Join(root, "new.txt"))
-		if rerr != nil || string(got) != "published\n" {
-			t.Fatalf("expected new.txt published on disk, got %q err=%v", got, rerr)
-		}
-		if receipt.Committed || !receipt.DirtyFailure || receipt.State != CommitStatePublishedWithPostError {
-			t.Errorf("R4-02 DEFECT: new.txt=%q published on disk, yet CommitReceipt=%+v", got, receipt)
-		}
-		if len(res.Files) != 1 || res.Files[0].Path != "new.txt" || !res.Files[0].Published || res.Files[0].PublishState != PublishSucceededWithPostError {
-			t.Errorf("R4-02 DEFECT: published file new.txt omitted/misclassified in Result.Files: %+v", res.Files)
-		}
-		if len(receipt.Files) != 1 || !receipt.Files[0].Wrote || !receipt.Files[0].Published || receipt.Files[0].Verified || receipt.Files[0].PublishState != PublishSucceededWithPostError {
-			t.Errorf("R4-02 DEFECT: published file new.txt omitted/misclassified in CommitReceipt.Files: %+v", receipt.Files)
-		}
-		assertNoCreateTempLeftovers(t, root)
-	})
-
-	t.Run("single_file_rename_fallback_succeeds_then_post_publish_error", func(t *testing.T) {
-		root := t.TempDir()
-		lh, err := NewLocalHost(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		h := &r402ClosingStager{LocalHost: lh}
-		linkForPublish = func(oldname, newname string) error {
-			return &os.LinkError{Op: "link", Old: oldname, New: newname, Err: syscall.EPERM}
-		}
-		renameNoReplaceForPublish = func(oldname, newname string) error {
-			err := renameNoReplacePlatform(oldname, newname)
-			if f := h.files[newname]; f != nil {
-				_ = f.Close()
-			}
-			return err
-		}
-		t.Cleanup(func() {
-			linkForPublish = os.Link
-			renameNoReplaceForPublish = renameNoReplacePlatform
-		})
-
-		e := newTestEngine(t, root)
-		var receipt CommitReceipt
-		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { receipt = r })
-		body := []byte("published-via-rename\n")
-		res, cerr := e.Commit(ctx, Plan{
-			Actor:   testActor(),
-			Tool:    "write_file",
-			Host:    h,
-			Changes: []FileChange{{Path: "new.txt", Content: &body, AllowCreate: true}},
-		})
-		if cerr == nil {
-			t.Fatalf("expected post-publish error")
-		}
-		got, rerr := os.ReadFile(filepath.Join(root, "new.txt"))
-		if rerr != nil || string(got) != "published-via-rename\n" {
-			t.Fatalf("expected new.txt published on disk via rename, got %q err=%v", got, rerr)
-		}
-		if receipt.Committed || !receipt.DirtyFailure || receipt.State != CommitStatePublishedWithPostError {
-			t.Errorf("R4-02 DEFECT: new.txt=%q published via rename, yet CommitReceipt=%+v", got, receipt)
-		}
-		if len(res.Files) != 1 || res.Files[0].Path != "new.txt" || !res.Files[0].Published {
-			t.Errorf("R4-02 DEFECT: published file new.txt omitted from Result.Files: %+v", res.Files)
-		}
-		assertNoCreateTempLeftovers(t, root)
-	})
-
-	t.Run("multi_file_second_file_post_publish_error_must_not_skip_rollback", func(t *testing.T) {
-		root := t.TempDir()
-		lh, err := NewLocalHost(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		h := &r402ClosingStager{LocalHost: lh}
-		linkForPublish = func(oldname, newname string) error {
-			err := os.Link(oldname, newname)
-			if filepath.Base(newname) == "b.txt" {
-				if f := h.files[newname]; f != nil {
-					_ = f.Close()
-				}
-			}
-			return err
-		}
-		t.Cleanup(func() { linkForPublish = os.Link })
-
-		e := newTestEngine(t, root)
-		var receipt CommitReceipt
-		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { receipt = r })
-		aBody := []byte("published-a\n")
-		bBody := []byte("published-b\n")
-		res, cerr := e.Commit(ctx, Plan{
-			Actor: testActor(),
-			Tool:  "apply_patch",
-			Host:  h,
-			Changes: []FileChange{
-				{Path: "a.txt", Content: &aBody, Create: true},
-				{Path: "b.txt", Content: &bBody, Create: true},
-			},
-		})
-		if cerr == nil {
-			t.Fatalf("expected post-publish error on b.txt")
-		}
-		if !receipt.DirtyFailure || receipt.State != CommitStateRolledBack {
-			t.Errorf("expected DirtyFailure=true State=rolled_back, got %+v", receipt)
-		}
-		if len(res.Files) != 0 {
-			t.Errorf("expected 0 remaining files in Result.Files after clean rollback, got %+v", res.Files)
-		}
-		if len(receipt.Files) != 2 ||
-			!receipt.Files[0].Published || !receipt.Files[0].RolledBack || receipt.Files[0].Wrote || receipt.Files[0].PublishState != PublishRolledBack ||
-			!receipt.Files[1].Published || !receipt.Files[1].RolledBack || receipt.Files[1].Wrote || receipt.Files[1].PublishState != PublishRolledBack {
-			t.Errorf("unexpected multi-file receipt files: %+v", receipt.Files)
-		}
-		if _, err := os.Stat(filepath.Join(root, "a.txt")); !os.IsNotExist(err) {
-			t.Errorf("expected a.txt rolled back, stat err=%v", err)
-		}
-		if bData, err := os.ReadFile(filepath.Join(root, "b.txt")); !os.IsNotExist(err) {
-			t.Errorf("R4-02 DEFECT: multi-file rollback skipped published b.txt (%q still on disk, err=%v)", bData, err)
-		}
-		assertNoCreateTempLeftovers(t, root)
-	})
-}
-
-// TestR402PublicationStateModelAndFaultMatrix exercises deterministic fault injection across all
-// R4-02 publication states and multi-file rollback paths on real filesystem directories.
-func TestR402PublicationStateModelAndFaultMatrix(t *testing.T) {
-	// 1. Failure before publication keeps DirtyFailure=false and leaves destination absent.
-	t.Run("1_failure_before_publication_is_clean", func(t *testing.T) {
+// TestR7ForwardPublicationFaultMatrix pins the forward publication states R7 retains. Rollback
+// outcomes are no longer produced; a published or partially written destination is preserved.
+func TestR7ForwardPublicationFaultMatrix(t *testing.T) {
+	t.Run("01_failure_before_publication_is_clean", func(t *testing.T) {
 		root := t.TempDir()
 		e := newTestEngine(t, root)
 		e.SetPublishFaultHooks(PublishFaultHooks{
@@ -219,11 +43,13 @@ func TestR402PublicationStateModelAndFaultMatrix(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected pre-publish error")
 		}
+		r7AssertSettledCount(t, res, receipt, 1)
 		if receipt.Committed || receipt.DirtyFailure || receipt.State != CommitStatePrePublishFailure {
 			t.Fatalf("expected clean pre-publish receipt, got %+v", receipt)
 		}
-		if len(res.Files) != 0 {
-			t.Fatalf("expected empty Result.Files, got %+v", res.Files)
+		f, r := r7Files(t, res, receipt, "clean.txt")
+		if f.PublishState != PublishFailedBeforeWrite || f.Published || r.Wrote || f.Verified || r.NewSHA256 != "" || !r.Staged {
+			t.Fatalf("pre-publish file: %+v %+v", f, r)
 		}
 		if _, serr := os.Stat(filepath.Join(root, "clean.txt")); !os.IsNotExist(serr) {
 			t.Fatalf("clean.txt should not exist on disk: %v", serr)
@@ -231,156 +57,97 @@ func TestR402PublicationStateModelAndFaultMatrix(t *testing.T) {
 		assertNoCreateTempLeftovers(t, root)
 	})
 
-	// 2. Atomic link succeeds, followed by post-link fault.
-	t.Run("2_atomic_link_succeeds_then_error", func(t *testing.T) {
+	t.Run("05b_inplace_close_failure_is_uncertain", func(t *testing.T) {
 		root := t.TempDir()
+		writeFile(t, root, "a.txt", "old-a\n")
 		e := newTestEngine(t, root)
+		actor := testActor()
+		e.RegisterRead(actor, filepath.Join(root, "a.txt"), RevOf([]byte("old-a\n")))
 		e.SetPublishFaultHooks(PublishFaultHooks{
-			AfterLinkSuccess: func(string) error { return errors.New("injected post-link failure") },
+			AfterInPlaceWriteClose: func(string) error { return syscall.EIO },
 		})
-		var receipt CommitReceipt
-		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { receipt = r })
-		body := []byte("linked-ok\n")
-		res, err := e.Commit(ctx, Plan{
-			Actor:   testActor(),
-			Tool:    "write_file",
-			Changes: []FileChange{{Path: "linked.txt", Content: &body, AllowCreate: true}},
-		})
-		if err == nil {
-			t.Fatal("expected post-link error")
+		var rec CommitReceipt
+		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
+		next := []byte("new-a\n")
+		res, err := e.Commit(ctx, Plan{Actor: actor, Tool: "write_file", Changes: []FileChange{
+			{Path: "a.txt", Content: &next},
+		}})
+		if !errors.Is(err, syscall.EIO) {
+			t.Fatalf("err = %v, want EIO", err)
 		}
-		if got := readFileContent(t, root, "linked.txt"); got != "linked-ok\n" {
-			t.Fatalf("linked.txt = %q, want linked-ok\\n", got)
+		if got := readFileContent(t, root, "a.txt"); got != "new-a\n" {
+			t.Fatalf("visible bytes changed: %q", got)
 		}
-		if !receipt.DirtyFailure || receipt.Committed || receipt.State != CommitStatePublishedWithPostError {
-			t.Fatalf("receipt = %+v, want DirtyFailure=true PublishedWithPostError", receipt)
+		if !rec.DirtyFailure || rec.Committed {
+			t.Fatalf("receipt = %+v", rec)
 		}
-		if len(res.Files) != 1 || res.Files[0].Path != "linked.txt" || !res.Files[0].Published || res.Files[0].PublishState != PublishSucceededWithPostError {
-			t.Fatalf("res.Files = %+v", res.Files)
+		f, r := r7Files(t, res, rec, "a.txt")
+		if f.PublishState != PublishUncertain || !f.Published || f.Verified || !r.Wrote || f.NewRev != "" || r.NewSHA256 != "" || f.RolledBack || r.RolledBack {
+			t.Fatalf("in-place close uncertainty: %+v %+v", f, r)
 		}
-		if len(receipt.Files) != 1 || !receipt.Files[0].Staged || !receipt.Files[0].Published || receipt.Files[0].Verified || !receipt.Files[0].Wrote {
-			t.Fatalf("receipt.Files = %+v", receipt.Files)
+		if got := e.LatestRev(actor, filepath.Join(root, "a.txt")); got != "" {
+			t.Fatalf("uncertain close kept snapshot %q", got)
 		}
-		assertNoCreateTempLeftovers(t, root)
 	})
 
-	// 3. Atomic no-replace rename fallback succeeds, followed by post-rename fault.
-	t.Run("3_atomic_rename_succeeds_then_error", func(t *testing.T) {
-		root := t.TempDir()
-		e := newTestEngine(t, root)
-		e.SetPublishFaultHooks(PublishFaultHooks{
+	for _, tc := range []struct {
+		name  string
+		hooks PublishFaultHooks
+	}{
+		{name: "02_link_succeeds_then_error", hooks: PublishFaultHooks{
+			AfterLinkSuccess: func(string) error { return errors.New("injected post-link failure") },
+		}},
+		{name: "03_rename_succeeds_then_error", hooks: PublishFaultHooks{
 			ForceLinkFallback: func(dst string) error {
 				return &os.LinkError{Op: "link", Old: dst + ".tmp", New: dst, Err: syscall.EPERM}
 			},
 			AfterRenameSuccess: func(string) error { return errors.New("injected post-rename failure") },
-		})
-		var receipt CommitReceipt
-		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { receipt = r })
-		body := []byte("renamed-ok\n")
-		res, err := e.Commit(ctx, Plan{
-			Actor:   testActor(),
-			Tool:    "write_file",
-			Changes: []FileChange{{Path: "renamed.txt", Content: &body, AllowCreate: true}},
-		})
-		if err == nil {
-			t.Fatal("expected post-rename error")
-		}
-		if got := readFileContent(t, root, "renamed.txt"); got != "renamed-ok\n" {
-			t.Fatalf("renamed.txt = %q, want renamed-ok\\n", got)
-		}
-		if !receipt.DirtyFailure || receipt.State != CommitStatePublishedWithPostError {
-			t.Fatalf("receipt = %+v", receipt)
-		}
-		if len(res.Files) != 1 || res.Files[0].Path != "renamed.txt" || !res.Files[0].Published {
-			t.Fatalf("res.Files = %+v", res.Files)
-		}
-		assertNoCreateTempLeftovers(t, root)
-	})
-
-	// 4. Stat fails after publication (single-file preserves published file; multi-file rolls back via pre-publish identity).
-	t.Run("4_stat_fails_after_publication", func(t *testing.T) {
-		root := t.TempDir()
-		e := newTestEngine(t, root)
-		e.SetPublishFaultHooks(PublishFaultHooks{
-			StatAfterPublish: func(string, *os.File) (os.FileInfo, error) {
-				return nil, syscall.EIO
-			},
-		})
-		var receipt CommitReceipt
-		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { receipt = r })
-		body := []byte("stat-failed-after-pub\n")
-		res, err := e.Commit(ctx, Plan{
-			Actor:   testActor(),
-			Tool:    "write_file",
-			Changes: []FileChange{{Path: "stat_err.txt", Content: &body, AllowCreate: true}},
-		})
-		if !errors.Is(err, syscall.EIO) {
-			t.Fatalf("err = %v, want EIO", err)
-		}
-		if got := readFileContent(t, root, "stat_err.txt"); got != "stat-failed-after-pub\n" {
-			t.Fatalf("stat_err.txt = %q", got)
-		}
-		if !receipt.DirtyFailure || receipt.State != CommitStatePublishedWithPostError || len(res.Files) != 1 {
-			t.Fatalf("receipt=%+v res=%+v", receipt, res)
-		}
-		assertNoCreateTempLeftovers(t, root)
-	})
-
-	// 5. Close fails after publication.
-	t.Run("5_close_fails_after_publication", func(t *testing.T) {
-		root := t.TempDir()
-		e := newTestEngine(t, root)
-		e.SetPublishFaultHooks(PublishFaultHooks{
+		}},
+		{name: "04_stat_fails_after_publication", hooks: PublishFaultHooks{
+			StatAfterPublish: func(string, *os.File) (os.FileInfo, error) { return nil, syscall.EIO },
+		}},
+		{name: "05_close_fails_after_publication", hooks: PublishFaultHooks{
 			CloseAfterPublish: func(string) error { return syscall.EIO },
-		})
-		var receipt CommitReceipt
-		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { receipt = r })
-		body := []byte("close-failed-after-pub\n")
-		res, err := e.Commit(ctx, Plan{
-			Actor:   testActor(),
-			Tool:    "write_file",
-			Changes: []FileChange{{Path: "close_err.txt", Content: &body, AllowCreate: true}},
-		})
-		if !errors.Is(err, syscall.EIO) {
-			t.Fatalf("err = %v, want EIO", err)
-		}
-		if got := readFileContent(t, root, "close_err.txt"); got != "close-failed-after-pub\n" {
-			t.Fatalf("close_err.txt = %q", got)
-		}
-		if !receipt.DirtyFailure || receipt.State != CommitStatePublishedWithPostError || len(res.Files) != 1 || !receipt.Files[0].Wrote {
-			t.Fatalf("receipt=%+v res=%+v", receipt, res)
-		}
-		assertNoCreateTempLeftovers(t, root)
-	})
-
-	// 6. File identity capture fails (single-file AND multi-file rollback refusing blind unlink without verified identity).
-	t.Run("6_identity_capture_fails_single_and_multifile", func(t *testing.T) {
-		// 6a: Single-file
-		root1 := t.TempDir()
-		e1 := newTestEngine(t, root1)
-		e1.SetPublishFaultHooks(PublishFaultHooks{
+		}},
+		{name: "06_identity_capture_fails", hooks: PublishFaultHooks{
 			CaptureIdentity: func(string, *os.File) error { return errors.New("cannot read inode identity") },
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			e := newTestEngine(t, root)
+			e.SetPublishFaultHooks(tc.hooks)
+			var receipt CommitReceipt
+			ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { receipt = r })
+			body := []byte("published-before-error\n")
+			res, err := e.Commit(ctx, Plan{
+				Actor:   testActor(),
+				Tool:    "write_file",
+				Changes: []FileChange{{Path: "out.txt", Content: &body, AllowCreate: true}},
+			})
+			if err == nil {
+				t.Fatal("expected post-publication error")
+			}
+			if got := readFileContent(t, root, "out.txt"); got != "published-before-error\n" {
+				t.Fatalf("published destination changed: %q", got)
+			}
+			r7AssertSettledCount(t, res, receipt, 1)
+			if !receipt.DirtyFailure || receipt.Committed || receipt.State != CommitStatePublishedWithPostError {
+				t.Fatalf("receipt = %+v", receipt)
+			}
+			f, r := r7Files(t, res, receipt, "out.txt")
+			if f.PublishState != PublishSucceededWithPostError || !f.Published || !r.Wrote || f.Verified ||
+				f.NewRev != "" || r.NewSHA256 != "" || f.RolledBack || r.RolledBack {
+				t.Fatalf("post-publication failure: %+v %+v", f, r)
+			}
+			assertNoCreateTempLeftovers(t, root)
 		})
-		var r1 CommitReceipt
-		ctx1 := WithCommitRecorder(context.Background(), func(r CommitReceipt) { r1 = r })
-		b1 := []byte("no-id-single\n")
-		res1, err1 := e1.Commit(ctx1, Plan{
-			Actor:   testActor(),
-			Tool:    "write_file",
-			Changes: []FileChange{{Path: "noid.txt", Content: &b1, AllowCreate: true}},
-		})
-		if err1 == nil || !r1.DirtyFailure || r1.State != CommitStatePublishedWithPostError || len(res1.Files) != 1 {
-			t.Fatalf("6a err=%v r1=%+v res1=%+v", err1, r1, res1)
-		}
-		if got := readFileContent(t, root1, "noid.txt"); got != "no-id-single\n" {
-			t.Fatalf("6a noid.txt = %q", got)
-		}
+	}
 
-		// 6b: Multi-file where a.txt fails identity capture after publishing: rollback must NOT unlink
-		// an unverified file and must report it as remaining published in Result.Files & CommitReceipt!
-		root2 := t.TempDir()
-		e2 := newTestEngine(t, root2)
-		e2.SetPublishFaultHooks(PublishFaultHooks{
+	t.Run("07_identity_failure_keeps_published_prefix_and_skips_suffix", func(t *testing.T) {
+		root := t.TempDir()
+		e := newTestEngine(t, root)
+		e.SetPublishFaultHooks(PublishFaultHooks{
 			CaptureIdentity: func(dst string, _ *os.File) error {
 				if filepath.Base(dst) == "a.txt" {
 					return errors.New("identity unavailable on a.txt")
@@ -388,40 +155,43 @@ func TestR402PublicationStateModelAndFaultMatrix(t *testing.T) {
 				return nil
 			},
 		})
-		var r2 CommitReceipt
-		ctx2 := WithCommitRecorder(context.Background(), func(r CommitReceipt) { r2 = r })
-		aBytes, bBytes := []byte("a-noid\n"), []byte("b-unreached\n")
-		res2, err2 := e2.Commit(ctx2, Plan{
+		var rec CommitReceipt
+		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
+		aBytes, bBytes, cBytes := []byte("a-published\n"), []byte("b-unreached\n"), []byte("c-unreached\n")
+		res, err := e.Commit(ctx, Plan{
 			Actor: testActor(),
 			Tool:  "apply_patch",
 			Changes: []FileChange{
 				{Path: "a.txt", Content: &aBytes, Create: true},
 				{Path: "b.txt", Content: &bBytes, Create: true},
+				{Path: "c.txt", Content: &cBytes, Create: true},
 			},
 		})
-		if err2 == nil {
-			t.Fatal("6b expected error")
+		if err == nil {
+			t.Fatal("expected error")
 		}
-		if !r2.DirtyFailure || r2.State != CommitStatePartiallyPublished {
-			t.Fatalf("6b receipt = %+v", r2)
+		r7AssertSettledCount(t, res, rec, 3)
+		if !rec.DirtyFailure || rec.State != CommitStatePartiallyPublished {
+			t.Fatalf("receipt = %+v", rec)
 		}
-		if got := readFileContent(t, root2, "a.txt"); got != "a-noid\n" {
-			t.Fatalf("6b expected unverified published a.txt preserved on disk, got %q", got)
+		if got := readFileContent(t, root, "a.txt"); got != "a-published\n" {
+			t.Fatalf("published prefix changed: %q", got)
 		}
-		if _, serr := os.Stat(filepath.Join(root2, "b.txt")); !os.IsNotExist(serr) {
-			t.Fatalf("6b expected b.txt never created, stat=%v", serr)
+		fa, ra := r7Files(t, res, rec, "a.txt")
+		if fa.PublishState != PublishSucceededWithPostError || !fa.Published || !ra.Wrote || fa.Verified || fa.NewRev != "" || ra.NewSHA256 != "" {
+			t.Fatalf("prefix: %+v %+v", fa, ra)
 		}
-		if len(res2.Files) != 1 || res2.Files[0].Path != "a.txt" || !res2.Files[0].Published || res2.Files[0].RolledBack {
-			t.Fatalf("6b res2.Files = %+v", res2.Files)
+		for _, name := range []string{"b.txt", "c.txt"} {
+			f, r := r7Files(t, res, rec, name)
+			r7AssertNotAttempted(t, f, r)
+			if _, serr := os.Stat(filepath.Join(root, name)); !os.IsNotExist(serr) {
+				t.Fatalf("%s exists: %v", name, serr)
+			}
 		}
-		if len(r2.Files) != 2 || !r2.Files[0].Published || r2.Files[0].RolledBack || !r2.Files[0].Wrote || r2.Files[1].Published {
-			t.Fatalf("6b r2.Files = %+v", r2.Files)
-		}
-		assertNoCreateTempLeftovers(t, root2)
+		assertNoCreateTempLeftovers(t, root)
 	})
 
-	// 7. Multi-file first publication succeeds, second fails before publication.
-	t.Run("7_multifile_first_publishes_second_fails_rolls_back_cleanly", func(t *testing.T) {
+	t.Run("08_second_path_refusal_keeps_verified_first", func(t *testing.T) {
 		root := t.TempDir()
 		e := newTestEngine(t, root)
 		e.SetPublishFaultHooks(PublishFaultHooks{
@@ -434,40 +204,43 @@ func TestR402PublicationStateModelAndFaultMatrix(t *testing.T) {
 		})
 		var receipt CommitReceipt
 		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { receipt = r })
-		aBytes, bBytes := []byte("first\n"), []byte("second\n")
+		aBytes, bBytes, cBytes := []byte("first\n"), []byte("second\n"), []byte("third\n")
 		res, err := e.Commit(ctx, Plan{
 			Actor: testActor(),
 			Tool:  "apply_patch",
 			Changes: []FileChange{
 				{Path: "a.txt", Content: &aBytes, Create: true},
 				{Path: "b.txt", Content: &bBytes, Create: true},
+				{Path: "c.txt", Content: &cBytes, Create: true},
 			},
 		})
 		if err == nil {
 			t.Fatal("expected failure on b.txt")
 		}
-		if !receipt.DirtyFailure || receipt.State != CommitStateRolledBack {
-			t.Fatalf("receipt = %+v, want DirtyFailure=true State=rolled_back", receipt)
+		r7AssertSettledCount(t, res, receipt, 3)
+		if !receipt.DirtyFailure || receipt.State != CommitStatePartiallyPublished {
+			t.Fatalf("receipt = %+v", receipt)
 		}
-		if len(res.Files) != 0 {
-			t.Fatalf("res.Files = %+v, want empty after rollback", res.Files)
+		fa, ra := r7Files(t, res, receipt, "a.txt")
+		r7AssertVerified(t, fa, ra)
+		if got := readFileContent(t, root, "a.txt"); got != "first\n" {
+			t.Fatalf("a.txt = %q, want first", got)
 		}
-		if len(receipt.Files) != 2 ||
-			receipt.Files[0].PublishState != PublishRolledBack || !receipt.Files[0].Published || !receipt.Files[0].RolledBack || receipt.Files[0].Wrote ||
-			receipt.Files[1].PublishState != PublishNone || receipt.Files[1].Published {
-			t.Fatalf("receipt.Files = %+v", receipt.Files)
+		fb, rb := r7Files(t, res, receipt, "b.txt")
+		if fb.PublishState != PublishFailedBeforeWrite || fb.Published || rb.Wrote || fb.Verified || rb.NewSHA256 != "" {
+			t.Fatalf("b.txt: %+v %+v", fb, rb)
 		}
-		if _, serr := os.Stat(filepath.Join(root, "a.txt")); !os.IsNotExist(serr) {
-			t.Fatalf("a.txt not rolled back: %v", serr)
-		}
-		if _, serr := os.Stat(filepath.Join(root, "b.txt")); !os.IsNotExist(serr) {
-			t.Fatalf("b.txt should not exist: %v", serr)
+		fc, rc := r7Files(t, res, receipt, "c.txt")
+		r7AssertNotAttempted(t, fc, rc)
+		for _, name := range []string{"b.txt", "c.txt"} {
+			if _, serr := os.Stat(filepath.Join(root, name)); !os.IsNotExist(serr) {
+				t.Fatalf("%s should not exist: %v", name, serr)
+			}
 		}
 		assertNoCreateTempLeftovers(t, root)
 	})
 
-	// 8. Multi-file rollback encounters external append on published first file -> preserves external append!
-	t.Run("8_rollback_preserves_external_append_and_reports_published_file", func(t *testing.T) {
+	t.Run("09_external_append_on_prefix_is_external", func(t *testing.T) {
 		root := t.TempDir()
 		e := newTestEngine(t, root)
 		aPath := filepath.Join(root, "a.txt")
@@ -505,21 +278,22 @@ func TestR402PublicationStateModelAndFaultMatrix(t *testing.T) {
 		if !receipt.DirtyFailure || receipt.State != CommitStatePartiallyPublished {
 			t.Fatalf("receipt = %+v", receipt)
 		}
-		if len(res.Files) != 1 || res.Files[0].Path != "a.txt" || !res.Files[0].Published || res.Files[0].RolledBack || res.Files[0].PublishState != PublishExternalModification || res.Files[0].NewRev != "" {
-			t.Fatalf("expected published externally-modified a.txt in Result.Files, got %+v", res.Files)
+		fa, ra := r7Files(t, res, receipt, "a.txt")
+		if fa.PublishState != PublishExternalModification || !fa.Published || !ra.Wrote || fa.Verified || fa.NewRev != "" || ra.NewSHA256 != "" {
+			t.Fatalf("prefix external: %+v %+v", fa, ra)
 		}
-		if len(receipt.Files) != 2 || !receipt.Files[0].Published || receipt.Files[0].RolledBack || !receipt.Files[0].Wrote || receipt.Files[0].Verified || receipt.Files[0].PublishState != PublishExternalModification || receipt.Files[0].NewSHA256 != "" {
-			t.Fatalf("receipt.Files = %+v", receipt.Files)
+		fb, rb := r7Files(t, res, receipt, "b.txt")
+		if fb.PublishState != PublishFailedBeforeWrite || fb.Published {
+			t.Fatalf("b.txt: %+v %+v", fb, rb)
 		}
 		assertNoCreateTempLeftovers(t, root)
 	})
 
-	// 9. Multi-file rollback encounters external atomic replacement (even exact same byte length!).
-	t.Run("9_rollback_preserves_external_replacement_same_length", func(t *testing.T) {
+	t.Run("10_external_same_length_replacement_is_external", func(t *testing.T) {
 		root := t.TempDir()
 		e := newTestEngine(t, root)
 		aPath := filepath.Join(root, "a.txt")
-		foreignSameLen := []byte("FOREIGN!\n") // exact same 9-byte length as "AGENT-A!\n"
+		foreignSameLen := []byte("FOREIGN!\n")
 		e.SetPublishFaultHooks(PublishFaultHooks{
 			BeforePublish: func(dst string) error {
 				if filepath.Base(dst) == "b.txt" {
@@ -550,19 +324,19 @@ func TestR402PublicationStateModelAndFaultMatrix(t *testing.T) {
 			t.Fatal("expected failure on b.txt")
 		}
 		if got := readFileContent(t, root, "a.txt"); got != string(foreignSameLen) {
-			t.Fatalf("external replacement lost/corrupted: got %q, want %q", got, foreignSameLen)
+			t.Fatalf("external replacement lost: got %q", got)
 		}
 		if !receipt.DirtyFailure || receipt.State != CommitStatePartiallyPublished {
 			t.Fatalf("receipt = %+v", receipt)
 		}
-		if len(res.Files) != 1 || res.Files[0].Path != "a.txt" || !res.Files[0].Published || res.Files[0].RolledBack || res.Files[0].PublishState != PublishExternalModification || res.Files[0].NewRev != "" {
-			t.Fatalf("res.Files = %+v", res.Files)
+		fa, ra := r7Files(t, res, receipt, "a.txt")
+		if fa.PublishState != PublishExternalModification || fa.NewRev != "" || ra.NewSHA256 != "" {
+			t.Fatalf("replacement prefix: %+v %+v", fa, ra)
 		}
 		assertNoCreateTempLeftovers(t, root)
 	})
 
-	// 10. Uncertain publication (ambiguous EIO during link/rename) reports PublishUncertain + DirtyFailure=true.
-	t.Run("10_uncertain_publication_reports_dirty_failure", func(t *testing.T) {
+	t.Run("11_uncertain_publication_reports_dirty_failure", func(t *testing.T) {
 		root := t.TempDir()
 		e := newTestEngine(t, root)
 		e.SetPublishFaultHooks(PublishFaultHooks{
@@ -579,14 +353,13 @@ func TestR402PublicationStateModelAndFaultMatrix(t *testing.T) {
 		if !errors.Is(err, syscall.EIO) {
 			t.Fatalf("err = %v, want EIO", err)
 		}
+		r7AssertSettledCount(t, res, receipt, 1)
 		if !receipt.DirtyFailure || receipt.Committed || receipt.State != CommitStatePublicationUncertain {
-			t.Fatalf("receipt = %+v, want DirtyFailure=true PublicationUncertain", receipt)
+			t.Fatalf("receipt = %+v", receipt)
 		}
-		if len(receipt.Files) != 1 || receipt.Files[0].PublishState != PublishUncertain || receipt.Files[0].Published {
-			t.Fatalf("receipt.Files = %+v", receipt.Files)
-		}
-		if len(res.Files) != 0 {
-			t.Fatalf("res.Files = %+v, want empty when destination not confirmed published", res.Files)
+		f, r := r7Files(t, res, receipt, "uncertain.txt")
+		if f.PublishState != PublishUncertain || f.Published || f.Verified || r.NewSHA256 != "" {
+			t.Fatalf("uncertain destination: %+v %+v", f, r)
 		}
 		assertNoCreateTempLeftovers(t, root)
 	})

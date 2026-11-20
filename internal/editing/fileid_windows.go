@@ -229,12 +229,22 @@ func capturePostPublishIdentityWindows(dstPath string, f *os.File, hooks Publish
 // dwFlags=0 (no-replace), removing only tmpPath if publication fails and never unlinking dstPath on
 // single-file post-publication error (ADR-0024 R4-02).
 func publishTempNoReplace(tmpPath string, tmpFile *os.File, dstPath string, hooks PublishFaultHooks) (publishOutcome, error) {
+	preID, idErr := captureFileIdentity(tmpFile)
+	if idErr != nil {
+		return publishOutcome{state: PublishUncertain, tempLeftover: true}, errors.Join(idErr, tmpFile.Close())
+	}
 	removeTmp := func() bool {
+		info, err := os.Lstat(tmpPath)
+		if errors.Is(err, os.ErrNotExist) {
+			return false
+		}
+		if err != nil || info.Size() != preID.info.Size() || !pathMatchesIdentity(tmpPath, preID, true) {
+			return true
+		}
 		rmErr := os.Remove(tmpPath)
 		return rmErr != nil && !errors.Is(rmErr, os.ErrNotExist)
 	}
 
-	preID, _ := captureFileIdentity(tmpFile)
 	if closeErr := tmpFile.Close(); closeErr != nil {
 		leftover := removeTmp()
 		if leftover {
@@ -276,34 +286,37 @@ func publishTempNoReplace(tmpPath string, tmpFile *os.File, dstPath string, hook
 	rf, openErr := os.Open(dstPath)
 	var (
 		postID          fileIdentity
-		idErr           error
+		postIDErr       error
 		idFaultInjected bool
 		closeErr        error
 	)
 	if openErr != nil {
-		idErr = openErr
+		postIDErr = openErr
 		if hooks.CaptureIdentity != nil {
 			if cerr := hooks.CaptureIdentity(dstPath, nil); cerr != nil {
-				idErr = errors.Join(idErr, cerr)
+				postIDErr = errors.Join(postIDErr, cerr)
 				idFaultInjected = true
 			}
 		}
 	} else {
-		postID, idErr, idFaultInjected = capturePostPublishIdentityWindows(dstPath, rf, hooks)
+		postID, postIDErr, idFaultInjected = capturePostPublishIdentityWindows(dstPath, rf, hooks)
 		closeErr = rf.Close()
 	}
 	if hooks.CloseAfterPublish != nil {
 		closeErr = errors.Join(closeErr, hooks.CloseAfterPublish(dstPath))
 	}
 	finalID := postID
-	if idErr != nil {
+	if postIDErr != nil {
 		if idFaultInjected {
 			finalID = fileIdentity{}
 		} else if preID.valid {
 			finalID = preID
 		}
 	}
-	postErr := errors.Join(hookErr, idErr, closeErr)
+	postErr := errors.Join(hookErr, postIDErr, closeErr)
+	if postErr == nil && !preID.matchesInfo(postID.info) {
+		postErr = errors.New("published file identity changed")
+	}
 	if postErr != nil {
 		return publishOutcome{
 			state:     PublishSucceededWithPostError,
@@ -348,272 +361,6 @@ func removeCreatedWhileOpen(path string, f *os.File, id fileIdentity, expectedCo
 		return false, closeErr
 	}
 	return true, closeErr
-}
-
-func removeCreatedAtRollback(path string, id fileIdentity, expectedContent []byte) (PublishState, error) {
-	if !id.valid {
-		return PublishRollbackFailed, errors.New("created file identity unavailable; refused blind unlink")
-	}
-	named, err := os.Lstat(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return PublishExternalModification, errors.New("created file removed externally before rollback")
-		}
-		return PublishRollbackFailed, err
-	}
-	if !pathMatchesIdentity(path, id, true) || named.Size() != int64(len(expectedContent)) {
-		return PublishExternalModification, errors.New("external modification detected on created file; preserved disk contents")
-	}
-	rf, err := os.Open(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return PublishExternalModification, errors.New("created file removed externally before rollback")
-		}
-		return PublishRollbackFailed, err
-	}
-	openedID, idErr := captureFileIdentity(rf)
-	if idErr != nil {
-		_ = rf.Close()
-		return PublishRollbackFailed, idErr
-	}
-	if openedID.volSerial != id.volSerial ||
-		openedID.idxHigh != id.idxHigh ||
-		openedID.idxLow != id.idxLow ||
-		openedID.creationTime != id.creationTime ||
-		openedID.lastWriteTime != id.lastWriteTime ||
-		!os.SameFile(named, openedID.info) ||
-		openedID.info.Size() != int64(len(expectedContent)) {
-		_ = rf.Close()
-		return PublishExternalModification, errors.New("external modification detected on created file; preserved disk contents")
-	}
-	cur, readErr := readLimited(rf, MaxFileBytes)
-	_ = rf.Close()
-	if readErr != nil {
-		if CodeOf(readErr) == CodeTooLarge {
-			return PublishExternalModification, errors.New("external modification detected on created file; preserved disk contents")
-		}
-		return PublishRollbackFailed, readErr
-	}
-	if !bytes.Equal(cur, expectedContent) {
-		return PublishExternalModification, errors.New("external modification detected on created file; preserved disk contents")
-	}
-	namedAfter, err := os.Lstat(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return PublishExternalModification, errors.New("created file removed externally before rollback")
-		}
-		return PublishRollbackFailed, err
-	}
-	if !pathMatchesIdentity(path, id, true) || namedAfter.Size() != int64(len(expectedContent)) {
-		return PublishExternalModification, errors.New("external modification detected on created file; preserved disk contents")
-	}
-	if err := os.Remove(path); err != nil {
-		return PublishRollbackFailed, err
-	}
-	return PublishRolledBack, nil
-}
-
-func verifyUnmodifiedForRollback(path string, f *os.File, id fileIdentity, expectedContent []byte) (PublishState, error) {
-	if !id.valid || f == nil {
-		return PublishRollbackFailed, errors.New("written file identity unavailable; refused blind overwrite during rollback")
-	}
-	named, err := os.Lstat(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return PublishExternalModification, errors.New("target removed externally before rollback")
-		}
-		return PublishRollbackFailed, err
-	}
-	if !pathMatchesIdentity(path, id, true) || named.Size() != int64(len(expectedContent)) {
-		return PublishExternalModification, errors.New("external modification detected before rollback; preserved disk contents")
-	}
-	openedID, idErr := captureFileIdentity(f)
-	if idErr != nil {
-		return PublishRollbackFailed, idErr
-	}
-	if openedID.volSerial != id.volSerial ||
-		openedID.idxHigh != id.idxHigh ||
-		openedID.idxLow != id.idxLow ||
-		openedID.creationTime != id.creationTime ||
-		openedID.lastWriteTime != id.lastWriteTime ||
-		!os.SameFile(named, openedID.info) ||
-		openedID.info.Size() != int64(len(expectedContent)) {
-		return PublishExternalModification, errors.New("external modification detected before rollback; preserved disk contents")
-	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return PublishRollbackFailed, err
-	}
-	cur, readErr := readLimited(f, MaxFileBytes)
-	if readErr != nil {
-		if CodeOf(readErr) == CodeTooLarge {
-			return PublishExternalModification, errors.New("external modification detected before rollback; preserved disk contents")
-		}
-		return PublishRollbackFailed, readErr
-	}
-	if !bytes.Equal(cur, expectedContent) {
-		return PublishExternalModification, errors.New("external modification detected before rollback; preserved disk contents")
-	}
-	namedAfter, err := os.Lstat(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return PublishExternalModification, errors.New("target removed externally before rollback")
-		}
-		return PublishRollbackFailed, err
-	}
-	if !pathMatchesIdentity(path, id, true) || namedAfter.Size() != int64(len(expectedContent)) {
-		return PublishExternalModification, errors.New("external modification detected before rollback; preserved disk contents")
-	}
-	return "", nil
-}
-
-func verifyPreShrinkForRollback(path string, f *os.File, id fileIdentity, original, next []byte) (PublishState, error) {
-	openedID, err := captureFileIdentity(f)
-	if err != nil {
-		return PublishRollbackFailed, err
-	}
-	named, err := os.Lstat(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return PublishExternalModification, errors.New("target removed externally before rollback truncate")
-		}
-		return PublishRollbackFailed, err
-	}
-	checkMtime := len(original) == 0
-	if !named.Mode().IsRegular() || !os.SameFile(openedID.info, named) ||
-		openedID.volSerial != id.volSerial ||
-		openedID.idxHigh != id.idxHigh ||
-		openedID.idxLow != id.idxLow ||
-		openedID.creationTime != id.creationTime ||
-		(checkMtime && openedID.lastWriteTime != id.lastWriteTime) ||
-		!pathMatchesIdentity(path, id, checkMtime) ||
-		openedID.info.Size() != int64(len(next)) || named.Size() != int64(len(next)) {
-		return PublishExternalModification, errors.New("external modification detected before rollback truncate; preserved disk contents")
-	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return PublishRollbackFailed, err
-	}
-	cur, readErr := readLimited(f, MaxFileBytes)
-	if readErr != nil {
-		if CodeOf(readErr) == CodeTooLarge {
-			return PublishExternalModification, errors.New("external modification detected before rollback truncate; preserved disk contents")
-		}
-		return PublishRollbackFailed, readErr
-	}
-	if len(cur) != len(next) ||
-		!bytes.Equal(cur[:len(original)], original) ||
-		!bytes.Equal(cur[len(original):], next[len(original):]) {
-		return PublishExternalModification, errors.New("external modification detected before rollback truncate; preserved disk contents")
-	}
-	return "", nil
-}
-
-func verifyDescriptorAfterRestore(path string, f *os.File, id fileIdentity, expectedContent []byte) (PublishState, error) {
-	openedID, err := captureFileIdentity(f)
-	if err != nil {
-		return PublishRollbackFailed, err
-	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return PublishRollbackFailed, err
-	}
-	after, readErr := readLimited(f, MaxFileBytes)
-	if readErr != nil {
-		if CodeOf(readErr) == CodeTooLarge {
-			return PublishExternalModification, errors.New("external writer modified file during rollback restore")
-		}
-		return PublishRollbackFailed, readErr
-	}
-	named, err := os.Lstat(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return PublishExternalModification, errors.New("target removed externally during rollback restore")
-		}
-		return PublishRollbackFailed, err
-	}
-	if !named.Mode().IsRegular() || !os.SameFile(openedID.info, named) ||
-		openedID.volSerial != id.volSerial ||
-		openedID.idxHigh != id.idxHigh ||
-		openedID.idxLow != id.idxLow ||
-		openedID.creationTime != id.creationTime ||
-		!pathMatchesIdentity(path, id, false) ||
-		openedID.info.Size() != int64(len(expectedContent)) || named.Size() != int64(len(expectedContent)) ||
-		!bytes.Equal(after, expectedContent) {
-		return PublishExternalModification, errors.New("external writer modified file during rollback restore")
-	}
-	return "", nil
-}
-
-func verifyPostRestoreDisk(path string, id fileIdentity, expectedContent []byte) (PublishState, error) {
-	named, err := os.Lstat(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return PublishExternalModification, errors.New("target removed externally after rollback restore")
-		}
-		return PublishRollbackFailed, err
-	}
-	if !named.Mode().IsRegular() || !pathMatchesIdentity(path, id, false) || named.Size() != int64(len(expectedContent)) {
-		return PublishExternalModification, errors.New("external modification detected after rollback restore; preserved disk contents")
-	}
-	rf, err := os.Open(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return PublishExternalModification, errors.New("target removed externally after rollback restore")
-		}
-		return PublishRollbackFailed, err
-	}
-	defer rf.Close()
-	openedID, err := captureFileIdentity(rf)
-	if err != nil {
-		return PublishRollbackFailed, err
-	}
-	if !os.SameFile(named, openedID.info) ||
-		openedID.volSerial != id.volSerial ||
-		openedID.idxHigh != id.idxHigh ||
-		openedID.idxLow != id.idxLow ||
-		openedID.creationTime != id.creationTime ||
-		openedID.info.Size() != int64(len(expectedContent)) {
-		return PublishExternalModification, errors.New("external modification detected after rollback restore; preserved disk contents")
-	}
-	cur, err := readLimited(rf, MaxFileBytes)
-	if err != nil {
-		if CodeOf(err) == CodeTooLarge {
-			return PublishExternalModification, errors.New("external modification detected after rollback restore; preserved disk contents")
-		}
-		return PublishRollbackFailed, err
-	}
-	if !bytes.Equal(cur, expectedContent) {
-		return PublishExternalModification, errors.New("external modification detected after rollback restore; preserved disk contents")
-	}
-	return "", nil
-}
-
-func inspectExternalModificationReadOnly(path string, id fileIdentity, expectedContent []byte) bool {
-	named, err := os.Lstat(path)
-	if err != nil {
-		return errors.Is(err, os.ErrNotExist)
-	}
-	if !named.Mode().IsRegular() {
-		return true
-	}
-	if id.valid && !pathMatchesIdentity(path, id, false) {
-		return true
-	}
-	rf, err := os.Open(path)
-	if err != nil {
-		return errors.Is(err, os.ErrNotExist)
-	}
-	defer rf.Close()
-	opened, err := rf.Stat()
-	if err != nil {
-		return false
-	}
-	if !os.SameFile(named, opened) || opened.Size() != int64(len(expectedContent)) {
-		return true
-	}
-	cur, err := readLimited(rf, MaxFileBytes)
-	if err != nil {
-		return CodeOf(err) == CodeTooLarge
-	}
-	return !bytes.Equal(cur, expectedContent)
 }
 
 // CleanupExclusivelyCreatedFile closes f after unlinking path only if path still points to the exact

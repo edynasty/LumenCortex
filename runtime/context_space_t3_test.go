@@ -13,6 +13,7 @@ import (
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
+	"github.com/edynasty/LumenCortex/internal/editing"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -265,7 +266,7 @@ func TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		agent.SetTestExecutionHooks(nil, nil)
-		engine.editing.SetTestFaultHooks(nil, nil)
+		engine.editing.SetPublishFaultHooks(editing.PublishFaultHooks{})
 	})
 
 	// Helper that sets up an active completion-gate repair session (u -> G0(Unknown) -> Proposal -> Block1)
@@ -274,7 +275,7 @@ func TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix(t *testing.T) {
 	runPostBlockScenario := func(t *testing.T, name string, setup func(), actCalls []protocol.ToolCall) (agent.MutationEvidence, int64, int64, []session.AnsweredExecutionSummary) {
 		t.Helper()
 		agent.SetTestExecutionHooks(nil, nil)
-		engine.editing.SetTestFaultHooks(nil, nil)
+		engine.editing.SetPublishFaultHooks(editing.PublishFaultHooks{})
 		if setup != nil {
 			setup()
 		}
@@ -294,7 +295,7 @@ func TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix(t *testing.T) {
 		}}
 		_, _ = runWithB0(context.Background(), engine, h.ID, prov, AgentOptions{Policy: "full", MaxSteps: 3})
 		agent.SetTestExecutionHooks(nil, nil)
-		engine.editing.SetTestFaultHooks(nil, nil)
+		engine.editing.SetPublishFaultHooks(editing.PublishFaultHooks{})
 
 		muts, rep, sums := inspectPersistedRepairState(t, engine, h.ID)
 		// Find G0 seq (step 1 assistant) and actCalls seq (step 3 assistant):
@@ -459,47 +460,53 @@ func TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix(t *testing.T) {
 		}
 	})
 
-	// RC34-F02-T6: DirtyFailure (① multi-file rollback ok, ② rollback failure, ③ post-Truncate I/O error) & ④ pre-write failure
+	// RC34-F02-T6: dirty partial commits and clean pre-write refusals keep the repair floor.
 	t.Run("RC34_F02_T6_dirty_and_clean_write_failures", func(t *testing.T) {
-		// ① Multi-file apply_patch where file #2 fails after Truncate and rollback restores file #1
+		// A verified prefix remains on disk when file #2 fails after truncation.
 		ev1, g01, min1, sums1 := runPostBlockScenario(t, "t6-1", func() {
 			_ = os.WriteFile(filepath.Join(workspace, "p1.txt"), []byte("old1\n"), 0o644)
 			_ = os.WriteFile(filepath.Join(workspace, "p2.txt"), []byte("old2\n"), 0o644)
-			engine.editing.SetTestFaultHooks(func(path string) error {
+			engine.editing.SetPublishFaultHooks(editing.PublishFaultHooks{AfterTruncate: func(path string) error {
 				if strings.HasSuffix(path, "p2.txt") {
 					return errors.New("injected disk write error after truncate")
 				}
 				return nil
-			}, nil)
+			}})
 		}, []protocol.ToolCall{tc("ap1", "apply_patch", `{"patches":[{"path":"p1.txt","operation":"update","edits":[{"old_text":"old1","new_text":"new1"}]},{"path":"p2.txt","operation":"update","edits":[{"old_text":"old2","new_text":"new2"}]}]}`)})
 		if ev1 != agent.MutationUnknown || sums1[0].Outcome != session.OutcomeUnknown || !strings.HasSuffix(sums1[0].PostRef, ";cm=unknown") || min1 != g01 {
 			t.Fatalf("T6-1: ev=%s sum=%+v min=%d (want %d)", ev1, sums1[0], min1, g01)
 		}
+		if got, err := os.ReadFile(filepath.Join(workspace, "p1.txt")); err != nil || string(got) != "new1\n" {
+			t.Fatalf("verified prefix = %q, error = %v", got, err)
+		}
 
-		// ② Multi-file apply_patch where rollback ALSO fails, leaving partial write on p1.txt
+		// An external writer replaces the prefix while #2 fails. Settlement preserves its bytes.
 		ev2, g02, min2, sums2 := runPostBlockScenario(t, "t6-2", func() {
 			_ = os.WriteFile(filepath.Join(workspace, "p1.txt"), []byte("old1\n"), 0o644)
 			_ = os.WriteFile(filepath.Join(workspace, "p2.txt"), []byte("old2\n"), 0o644)
-			engine.editing.SetTestFaultHooks(
-				func(path string) error {
-					if strings.HasSuffix(path, "p2.txt") {
-						return errors.New("injected p2 error")
+			engine.editing.SetPublishFaultHooks(editing.PublishFaultHooks{AfterTruncate: func(path string) error {
+				if strings.HasSuffix(path, "p2.txt") {
+					if err := os.WriteFile(filepath.Join(workspace, "p1.txt"), []byte("foreign\n"), 0o644); err != nil {
+						t.Fatal(err)
 					}
-					return nil
-				},
-				func(_ string) error { return errors.New("injected rollback failure") },
-			)
+					return errors.New("injected p2 error")
+				}
+				return nil
+			}})
 		}, []protocol.ToolCall{tc("ap2", "apply_patch", `{"patches":[{"path":"p1.txt","operation":"update","edits":[{"old_text":"old1","new_text":"new1"}]},{"path":"p2.txt","operation":"update","edits":[{"old_text":"old2","new_text":"new2"}]}]}`)})
 		if ev2 != agent.MutationUnknown || sums2[0].Outcome != session.OutcomeUnknown || !strings.HasSuffix(sums2[0].PostRef, ";cm=unknown") || min2 != g02 {
 			t.Fatalf("T6-2: ev=%s sum=%+v min=%d (want %d)", ev2, sums2[0], min2, g02)
+		}
+		if got, err := os.ReadFile(filepath.Join(workspace, "p1.txt")); err != nil || string(got) != "foreign\n" {
+			t.Fatalf("external content = %q, error = %v", got, err)
 		}
 
 		// ③ Single-file write_file failing after f.Truncate(0)
 		ev3, g03, min3, sums3 := runPostBlockScenario(t, "t6-3", func() {
 			_ = os.WriteFile(filepath.Join(workspace, "single.txt"), []byte("orig\n"), 0o644)
-			engine.editing.SetTestFaultHooks(func(_ string) error {
+			engine.editing.SetPublishFaultHooks(editing.PublishFaultHooks{AfterTruncate: func(_ string) error {
 				return errors.New("short write after truncate")
-			}, nil)
+			}})
 		}, []protocol.ToolCall{tc("wf3", "write_file", `{"path":"single.txt","content":"next\n"}`)})
 		if ev3 != agent.MutationUnknown || sums3[0].Outcome != session.OutcomeUnknown || !strings.HasSuffix(sums3[0].PostRef, ";cm=unknown") || min3 != g03 {
 			t.Fatalf("T6-3: ev=%s sum=%+v min=%d (want %d)", ev3, sums3[0], min3, g03)

@@ -32,7 +32,7 @@ func TestR301CreateWithoutNoReplacePublishIsRefusedClearly(t *testing.T) {
 			ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { receipts = append(receipts, r) })
 
 			fresh := []byte("hello\n")
-			_, err := engine.Commit(ctx, Plan{Actor: testActor(), Tool: "write_file", Changes: []FileChange{
+			res, err := engine.Commit(ctx, Plan{Actor: testActor(), Tool: "write_file", Changes: []FileChange{
 				{Path: "new.txt", Content: &fresh, AllowCreate: true},
 			}})
 			editErr, ok := AsError(err)
@@ -44,6 +44,11 @@ func TestR301CreateWithoutNoReplacePublishIsRefusedClearly(t *testing.T) {
 			}
 			if len(receipts) == 0 || receipts[len(receipts)-1].Committed || receipts[len(receipts)-1].DirtyFailure {
 				t.Fatalf("receipts = %+v, want a clean non-committed receipt", receipts)
+			}
+			f, r := r7Files(t, res, receipts[len(receipts)-1], "new.txt")
+			if f.PublishState != PublishUnsupported || r.PublishState != PublishUnsupported ||
+				f.Published || r.Wrote || r.NewSHA256 != "" || !r.Staged {
+				t.Fatalf("unsupported create receipt: %+v %+v", f, r)
 			}
 			entries, err := os.ReadDir(root)
 			if err != nil {
