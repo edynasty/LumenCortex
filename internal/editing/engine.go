@@ -132,27 +132,30 @@ type Plan struct {
 }
 
 // PublishState distinguishes file staging, destination publication, post-publication handle/identity
-// verification, uncertain mutation, and multi-file rollback without claiming file or directory fsync
-// crash durability (ADR-0024 R4-02).
+// verification, rollback outcomes, external modification detection, and uncertain mutation without
+// claiming file or directory fsync crash durability (ADR-0024 R4-02, R5).
 type PublishState string
 
 const (
 	PublishNone                   PublishState = "not_published"
 	PublishSucceededAndVerified   PublishState = "published_verified"
 	PublishSucceededWithPostError PublishState = "published_post_error"
-	PublishUncertain              PublishState = "publication_uncertain"
 	PublishRolledBack             PublishState = "published_rolled_back"
+	PublishRollbackFailed         PublishState = "rollback_failed"
+	PublishExternalModification   PublishState = "external_modification_detected"
+	PublishUncertain              PublishState = "publication_uncertain"
 )
 
-// CommitState distinguishes pre-publication failure, full commit, post-publication failure after
-// destination visibility, uncertain publication, and partial multi-file publication (ADR-0024 R4-02).
-// Committed means all planned mutations succeeded and passed in-process verification; it does not
-// claim file or directory fsync crash durability.
+// CommitState distinguishes pre-publication failure, full commit, full rollback, post-publication
+// failure after destination visibility, uncertain publication, and partial multi-file publication
+// (ADR-0024 R4-02, R5). Committed means all planned mutations succeeded and passed in-process
+// verification; it does not claim file or directory fsync crash durability.
 type CommitState string
 
 const (
 	CommitStatePrePublishFailure      CommitState = "failed_before_publication"
 	CommitStateCommitted              CommitState = "committed"
+	CommitStateRolledBack             CommitState = "rolled_back"
 	CommitStatePublishedWithPostError CommitState = "published_with_post_error"
 	CommitStatePublicationUncertain   CommitState = "publication_uncertain"
 	CommitStatePartiallyPublished     CommitState = "partially_published"
@@ -177,6 +180,7 @@ type FileResult struct {
 	Published    bool         `json:"published,omitempty"`
 	RolledBack   bool         `json:"rolledBack,omitempty"`
 	PublishState PublishState `json:"publishState,omitempty"`
+	Error        string       `json:"error,omitempty"`
 	// Landed is where each line operation ended up in the new file, 1-based and inclusive, so a caller
 	// can render fresh anchors around the edit without re-reading the whole file.
 	Landed []LandedOp `json:"landed,omitempty"`
@@ -198,7 +202,7 @@ type Result struct {
 }
 
 // FileCommitReceipt records the per-file causal write and publication outcome of one Engine.Commit
-// call (ADR-0024 §4.6, R4-02). Staged records private temp staging; Published records destination
+// call (ADR-0024 §4.6, R4-02, R5). Staged records private temp staging; Published records destination
 // visibility; Verified records post-publication handle/identity/close verification (not fsync).
 type FileCommitReceipt struct {
 	Path         string
@@ -213,6 +217,7 @@ type FileCommitReceipt struct {
 	Deleted      bool
 	OldSHA256    string
 	NewSHA256    string
+	Error        string
 }
 
 // CommitReceipt records whether Engine.Commit committed cleanly, whether a failure entered the disk
@@ -294,16 +299,20 @@ type Engine struct {
 }
 
 // PublishFaultHooks provides deterministic fault injection around atomic file staging, publication,
-// post-publication Stat/Close/identity checks, and uncertain-publication paths (ADR-0024 R4-02).
+// post-publication Stat/Close/identity checks, in-place write close, and conditional rollback paths
+// (ADR-0024 R4-02, R5).
 type PublishFaultHooks struct {
-	BeforePublish       func(dstPath string) error
-	ForceLinkFallback   func(dstPath string) error
-	PublishUncertainErr func(dstPath string) error
-	AfterLinkSuccess    func(dstPath string) error
-	AfterRenameSuccess  func(dstPath string) error
-	StatAfterPublish    func(dstPath string, f *os.File) (os.FileInfo, error)
-	CaptureIdentity     func(dstPath string, f *os.File) error
-	CloseAfterPublish   func(dstPath string) error
+	BeforePublish          func(dstPath string) error
+	ForceLinkFallback      func(dstPath string) error
+	PublishUncertainErr    func(dstPath string) error
+	AfterLinkSuccess       func(dstPath string) error
+	AfterRenameSuccess     func(dstPath string) error
+	StatAfterPublish       func(dstPath string, f *os.File) (os.FileInfo, error)
+	CaptureIdentity        func(dstPath string, f *os.File) error
+	CloseAfterPublish      func(dstPath string) error
+	AfterInPlaceWriteClose func(dstPath string) error
+	BeforeRestoreWrite     func(dstPath string) error
+	AfterRestoreWrite      func(dstPath string, f *os.File) error
 }
 
 // SetTestFaultHooks installs deterministic fault-injection hooks for tests; pass nil, nil to clear.
@@ -392,12 +401,55 @@ type prepared struct {
 	wrote        bool
 	publishState PublishState
 	createdID    fileIdentity
+	writtenID    fileIdentity
+	postErr      error
+	rollbackErr  error
+}
+
+func sanitizeRelativeError(p *prepared, err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	if p != nil {
+		rel := filepath.ToSlash(p.rel)
+		for _, full := range []string{p.abs, p.key} {
+			if full == "" {
+				continue
+			}
+			msg = strings.ReplaceAll(msg, full, rel)
+			if dir := filepath.Dir(full); dir != "" && dir != "." && dir != string(filepath.Separator) {
+				msg = strings.ReplaceAll(msg, dir+string(filepath.Separator), "")
+			}
+		}
+	}
+	return msg
+}
+
+func fileErrorSummary(p *prepared) string {
+	joined := errors.Join(p.postErr, p.rollbackErr)
+	return sanitizeRelativeError(p, joined)
 }
 
 func buildFileCommitReceipt(p *prepared) FileCommitReceipt {
 	state := p.publishState
 	if state == "" {
 		state = PublishNone
+	}
+	newSHA := sha256Ref(p.next, !p.deleted)
+	switch state {
+	case PublishNone:
+		newSHA = sha256Ref(p.original, p.existed)
+	case PublishRolledBack:
+		if p.created {
+			newSHA = "-"
+		} else {
+			newSHA = sha256Ref(p.original, p.existed)
+		}
+	case PublishSucceededWithPostError, PublishRollbackFailed, PublishExternalModification, PublishUncertain:
+		// Do not claim intended p.next SHA-256 when actual disk contents are unverified,
+		// externally modified, or corrupted by a failed rollback (ADR-0024 R4-02-A, R4-02-B).
+		newSHA = ""
 	}
 	return FileCommitReceipt{
 		Path:         filepath.ToSlash(p.rel),
@@ -411,32 +463,46 @@ func buildFileCommitReceipt(p *prepared) FileCommitReceipt {
 		Created:      p.created,
 		Deleted:      p.deleted,
 		OldSHA256:    sha256Ref(p.original, p.existed),
-		NewSHA256:    sha256Ref(p.next, !p.deleted),
+		NewSHA256:    newSHA,
+		Error:        fileErrorSummary(p),
 	}
 }
 
-func classifyFailedCommitState(prep []*prepared, dirty bool) CommitState {
+func classifyFailedCommitState(prep []*prepared, dirty bool, createdParent bool) CommitState {
 	if !dirty {
 		return CommitStatePrePublishFailure
 	}
 	publishedCount := 0
-	uncertainCount := 0
+	rolledBackCount := 0
 	postErrCount := 0
+	rollbackFailedCount := 0
+	extModCount := 0
+	uncertainCount := 0
 	for _, p := range prep {
 		if p.published {
 			publishedCount++
 		}
 		switch p.publishState {
-		case PublishUncertain:
-			uncertainCount++
+		case PublishRolledBack:
+			rolledBackCount++
 		case PublishSucceededWithPostError:
 			postErrCount++
+		case PublishRollbackFailed:
+			rollbackFailedCount++
+		case PublishExternalModification:
+			extModCount++
+		case PublishUncertain:
+			uncertainCount++
 		}
 	}
-	if len(prep) > 1 && publishedCount > 0 {
-		return CommitStatePartiallyPublished
+	// A fully successful multi-file rollback restores every published file without errors,
+	// external modifications, uncertain files, or leftover parent directories; DirtyFailure stays
+	// true because published files were briefly visible before rollback (ADR-0024 R4-02-B).
+	if publishedCount > 0 && rolledBackCount == publishedCount &&
+		postErrCount == 0 && rollbackFailedCount == 0 && extModCount == 0 && uncertainCount == 0 && !createdParent {
+		return CommitStateRolledBack
 	}
-	if publishedCount > 0 && postErrCount > 0 && uncertainCount == 0 {
+	if len(prep) == 1 && publishedCount == 1 && (postErrCount == 1 || extModCount == 1) && rollbackFailedCount == 0 && uncertainCount == 0 {
 		return CommitStatePublishedWithPostError
 	}
 	if publishedCount > 0 {
@@ -539,22 +605,39 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 		release()
 		return failClean(err)
 	}
-	if _, dirty, err := e.write(host, plan, prep); err != nil {
+	if _, dirty, createdParent, err := e.write(host, plan, prep); err != nil {
 		release()
 		for _, p := range prep {
-			if p.published || p.publishState == PublishUncertain || p.publishState == PublishRolledBack || p.wrote {
+			if p.published || (p.publishState != "" && p.publishState != PublishNone) || p.wrote {
 				dirty = true
 			}
 		}
-		state := classifyFailedCommitState(prep, dirty)
+		state := classifyFailedCommitState(prep, dirty, createdParent)
 		receiptFiles := make([]FileCommitReceipt, 0, len(prep))
 		partial := Result{CommitState: state}
 		for _, p := range prep {
 			receiptFiles = append(receiptFiles, buildFileCommitReceipt(p))
-			if p.published && !p.rolledBack {
+			switch p.publishState {
+			case PublishSucceededWithPostError, PublishRollbackFailed, PublishExternalModification:
+				// Never register intended p.next into SnapshotStore when actual disk contents are
+				// unverified, externally modified, or affected by a failed rollback (R4-02-A/B).
+				e.snaps.ForgetPath(plan.Actor.Session, p.key)
 				partial.Files = append(partial.Files, fileResult(p))
-				e.register(p, plan)
-				e.history.record(p)
+			case PublishUncertain:
+				e.snaps.ForgetPath(plan.Actor.Session, p.key)
+				if p.published {
+					partial.Files = append(partial.Files, fileResult(p))
+				}
+			case PublishRolledBack:
+				if p.created {
+					e.snaps.ForgetPath(plan.Actor.Session, p.key)
+				}
+			case PublishSucceededAndVerified:
+				if !p.rolledBack {
+					partial.Files = append(partial.Files, fileResult(p))
+					e.register(p, plan)
+					e.history.record(p)
+				}
 			}
 		}
 		sort.Slice(receiptFiles, func(i, j int) bool { return receiptFiles[i].Path < receiptFiles[j].Path })
@@ -604,13 +687,29 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 }
 
 func fileResult(p *prepared) FileResult {
+	newRev := RevOf(p.next)
+	changed := (p.created || p.deleted || RevOf(p.next) != p.rev) && !p.rolledBack
+	switch p.publishState {
+	case PublishRolledBack:
+		if p.created {
+			newRev = ""
+		} else {
+			newRev = p.rev
+		}
+		changed = false
+	case PublishSucceededWithPostError, PublishRollbackFailed, PublishExternalModification, PublishUncertain:
+		// Actual disk bytes are unverified or externally modified: never report intended RevOf(p.next).
+		newRev = ""
+		changed = p.published
+	}
 	return FileResult{
-		Path: p.rel, OldRev: p.rev, NewRev: RevOf(p.next),
+		Path: p.rel, OldRev: p.rev, NewRev: newRev,
 		Created: p.created, Deleted: p.deleted,
-		Changed:      (p.created || p.deleted || RevOf(p.next) != p.rev) && !p.rolledBack,
+		Changed:      changed,
 		Published:    p.published,
 		RolledBack:   p.rolledBack,
 		PublishState: p.publishState,
+		Error:        fileErrorSummary(p),
 		Landed:       landedOps(p.ops),
 	}
 }
@@ -885,10 +984,12 @@ func (e *Engine) validate(ctx context.Context, plan Plan, prep []*prepared) ([]D
 	return all, nil
 }
 
-// write applies the prepared content, all or none: a failure restores every file already written in
-// a multi-file plan and reports whether the commit entered the disk-mutation or publication window.
-func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, bool, error) {
+// write applies the prepared content, all or none: a failure attempts conditional rollback of
+// previously published files in a multi-file plan, preserves both the primary error and any rollback
+// errors, and reports whether the commit entered the disk-mutation or publication window.
+func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, bool, bool, error) {
 	written := make([]*prepared, 0, len(prep))
+	anyCreatedParent := false
 	for _, p := range prep {
 		p.publishState = PublishNone
 		if e.beforeWrite != nil {
@@ -896,11 +997,16 @@ func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, boo
 		}
 		if p.deleted {
 			if dirtyDel, err := e.deleteCAS(host, p); err != nil {
-				dirty := dirtyDel || len(written) > 0
-				if len(written) > 0 {
-					e.rollback(host, written)
+				if p.postErr == nil {
+					p.postErr = err
 				}
-				return written, dirty, err
+				dirty := dirtyDel || len(written) > 0 || anyCreatedParent
+				if len(written) > 0 {
+					if rbErrs := e.rollback(host, written); len(rbErrs) > 0 {
+						err = errors.Join(append([]error{err}, rbErrs...)...)
+					}
+				}
+				return written, dirty, anyCreatedParent, err
 			}
 			p.published = true
 			p.verified = true
@@ -919,30 +1025,46 @@ func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, boo
 				createdParent = true
 			}
 			if err := os.MkdirAll(filepath.Dir(p.abs), 0o755); err != nil {
-				dirty := len(written) > 0 || createdParent
-				if len(written) > 0 {
-					e.rollback(host, written)
+				if p.postErr == nil {
+					p.postErr = err
 				}
-				return written, dirty, err
+				dirty := len(written) > 0 || createdParent || anyCreatedParent
+				if len(written) > 0 {
+					if rbErrs := e.rollback(host, written); len(rbErrs) > 0 {
+						err = errors.Join(append([]error{err}, rbErrs...)...)
+					}
+				}
+				return written, dirty, createdParent || anyCreatedParent, err
+			}
+			if createdParent {
+				anyCreatedParent = true
 			}
 		}
 		if dirtyCAS, err := e.writeCAS(host, p); err != nil {
-			dirty := dirtyCAS || p.published || len(written) > 0 || createdParent
-			if p.published {
+			if p.postErr == nil {
+				p.postErr = err
+			}
+			dirty := dirtyCAS || p.published || len(written) > 0 || anyCreatedParent
+			// In a multi-file plan, include p in rollback ONLY when p is a newly CREATED file whose
+			// atomic no-replace publication succeeded (removeCreatedAtRollback verifies 4-factor
+			// identity+mtime+length+bytes and never deletes foreign edits). NEVER automatically
+			// overwrite an EXISTING file whose Close/post-write step failed: its state is already
+			// uncertain and destructive restore could overwrite concurrent external modifications
+			// (ADR-0024 R4-02-C).
+			if p.published && p.created {
 				written = append(written, p)
 			}
-			// In a multi-file plan, roll back all published files (including p if p published and then
-			// failed a post-publication step). In a single-file plan where p was already atomically
-			// published with validated bytes, never unlink the published destination (ADR-0024 R4-02).
 			if len(prep) > 1 && len(written) > 0 {
-				e.rollback(host, written)
+				if rbErrs := e.rollback(host, written); len(rbErrs) > 0 {
+					err = errors.Join(append([]error{err}, rbErrs...)...)
+				}
 			}
-			return written, dirty, err
+			return written, dirty, anyCreatedParent, err
 		}
 		p.wrote = true
 		written = append(written, p)
 	}
-	return written, false, nil
+	return written, false, anyCreatedParent, nil
 }
 
 // deleteCAS rechecks both bytes and descriptor identity before unlinking. In-process
@@ -1055,6 +1177,9 @@ func (e *Engine) createAtomicNoReplace(stager AtomicFileStager, p *prepared) (bo
 		p.createdID = outcome.id
 	}
 	if pubErr != nil {
+		if outcome.published {
+			p.postErr = pubErr
+		}
 		if !outcome.published {
 			if errors.Is(pubErr, os.ErrExist) {
 				return outcome.tempLeftover, &Error{Code: CodeConflict, Path: p.rel,
@@ -1186,83 +1311,195 @@ func (e *Engine) writeCAS(host Host, p *prepared) (bool, error) {
 	}
 	p.published = true
 	p.wrote = true
-	if create {
-		if postID, idErr := captureFileIdentity(f); idErr == nil {
+	if postID, idErr := captureFileIdentity(f); idErr == nil {
+		if create {
 			p.createdID = postID
+		} else {
+			p.writtenID = postID
 		}
 	}
-	if err := f.Close(); err != nil {
+	closeErr := f.Close()
+	hooks := e.getPublishFaultHooks()
+	if !create && hooks.AfterInPlaceWriteClose != nil {
+		closeErr = errors.Join(closeErr, hooks.AfterInPlaceWriteClose(p.abs))
+	}
+	if closeErr != nil {
+		p.verified = false
+		p.postErr = closeErr
 		p.publishState = PublishSucceededWithPostError
-		return true, err
+		if !create && inspectExternalModificationReadOnly(p.abs, p.writtenID, p.next) {
+			p.publishState = PublishExternalModification
+		}
+		return true, closeErr
 	}
 	p.verified = true
 	p.publishState = PublishSucceededAndVerified
 	return false, nil
 }
 
-// rollback restores the files already written, newest first, without unlinking created files that
-// have been modified or replaced externally.
-func (e *Engine) rollback(host Host, written []*prepared) {
+// rollback conditionally restores previously published files, newest first, preserving external
+// modifications and returning every rollback failure or external-modification refusal error so
+// callers never lose rollback failure context (ADR-0024 R4-02-A, R4-02-B, R4-02-C).
+func (e *Engine) rollback(host Host, written []*prepared) []error {
+	var errs []error
+	recordFailure := func(p *prepared, state PublishState, err error) {
+		p.verified = false
+		p.rolledBack = false
+		p.publishState = state
+		p.rollbackErr = err
+		if err != nil {
+			errs = append(errs, fmt.Errorf("rollback %s (%s): %w", p.rel, state, err))
+		}
+	}
+
 	for i := len(written) - 1; i >= 0; i-- {
 		p := written[i]
 		if e.onRollback != nil {
 			if err := e.onRollback(p.abs); err != nil {
+				recordFailure(p, PublishRollbackFailed, err)
 				continue
 			}
 		}
 		if p.deleted {
-			if err := e.writeRestore(host, p.abs, p.original, true); err != nil {
+			if state, err := e.restoreDeletedAtRollback(host, p); err != nil {
+				recordFailure(p, state, err)
 				continue
 			}
 			p.rolledBack = true
 			p.wrote = false
+			p.verified = true
 			p.publishState = PublishRolledBack
 			continue
 		}
 		if p.created {
-			if removeCreatedAtRollback(p.abs, p.createdID, p.next) {
+			state, err := removeCreatedAtRollback(p.abs, p.createdID, p.next)
+			if state == PublishRolledBack && err == nil {
 				p.rolledBack = true
 				p.wrote = false
+				p.verified = true
 				p.publishState = PublishRolledBack
+				continue
 			}
+			recordFailure(p, state, err)
 			continue
 		}
 		if p.change.Binary {
 			if replacer, ok := host.(interface {
 				ReplaceFile(path string, before, after []byte, existed bool) error
 			}); ok {
-				if err := replacer.ReplaceFile(p.abs, p.next, p.original, true); err == nil {
-					p.rolledBack = true
-					p.wrote = false
-					p.publishState = PublishRolledBack
+				if err := replacer.ReplaceFile(p.abs, p.next, p.original, true); err != nil {
+					recordFailure(p, PublishRollbackFailed, err)
+					continue
 				}
+				p.rolledBack = true
+				p.wrote = false
+				p.verified = true
+				p.publishState = PublishRolledBack
 				continue
 			}
 		}
-		if err := e.writeRestore(host, p.abs, p.original, false); err == nil {
-			p.rolledBack = true
-			p.wrote = false
-			p.publishState = PublishRolledBack
+		if state, err := e.writeRestoreConditional(host, p); err != nil {
+			recordFailure(p, state, err)
+			continue
 		}
+		p.rolledBack = true
+		p.wrote = false
+		p.verified = true
+		p.publishState = PublishRolledBack
 	}
+	return errs
 }
 
-func (e *Engine) writeRestore(host Host, path string, data []byte, create bool) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+func (e *Engine) restoreDeletedAtRollback(host Host, p *prepared) (PublishState, error) {
+	if err := os.MkdirAll(filepath.Dir(p.abs), 0o755); err != nil {
+		return PublishRollbackFailed, err
 	}
-	f, err := host.Open(path, create)
+	f, err := host.Open(p.abs, true)
 	if err != nil {
-		return err
+		if errors.Is(err, os.ErrExist) {
+			return PublishExternalModification, errors.New("deleted target was recreated externally before rollback; preserved external file")
+		}
+		return PublishRollbackFailed, err
 	}
-	if err := f.Truncate(0); err != nil {
-		return errors.Join(err, f.Close())
+	if _, err := f.Write(p.original); err != nil {
+		return PublishRollbackFailed, errors.Join(err, f.Close())
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return errors.Join(err, f.Close())
+		return PublishRollbackFailed, errors.Join(err, f.Close())
 	}
-	_, err = f.Write(data)
-	return errors.Join(err, f.Close())
+	after, err := readLimited(f, MaxFileBytes)
+	if err != nil {
+		return PublishRollbackFailed, errors.Join(err, f.Close())
+	}
+	if !bytes.Equal(after, p.original) {
+		return PublishUncertain, errors.Join(errors.New("external writer modified restored file during rollback"), f.Close())
+	}
+	if err := f.Close(); err != nil {
+		return PublishRollbackFailed, err
+	}
+	return PublishRolledBack, nil
+}
+
+// writeRestoreConditional restores an existing file only when pre-restore verification on the open
+// descriptor proves the file still matches the identity, modification timestamp, and exact bytes
+// written by this commit. If external changes are detected, the file is left untouched. Note: POSIX
+// and Windows filesystems provide no atomic compare-and-swap overwrite against an uncooperative
+// external writer racing between validation and Write; post-write readback detects races that land
+// before Close, while the residual narrow window remains documented under PRE-02.
+func (e *Engine) writeRestoreConditional(host Host, p *prepared) (PublishState, error) {
+	if !p.writtenID.valid {
+		return PublishRollbackFailed, errors.New("written file identity unavailable; refused blind overwrite during rollback")
+	}
+	f, err := host.Open(p.abs, false)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return PublishExternalModification, errors.New("target removed externally before rollback")
+		}
+		return PublishRollbackFailed, err
+	}
+	if state, verr := verifyUnmodifiedForRollback(p.abs, f, p.writtenID, p.next); verr != nil {
+		_ = f.Close()
+		return state, verr
+	}
+	hooks := e.getPublishFaultHooks()
+	if hooks.BeforeRestoreWrite != nil {
+		if err := hooks.BeforeRestoreWrite(p.abs); err != nil {
+			_ = f.Close()
+			return PublishRollbackFailed, err
+		}
+	}
+	// Write restored bytes from offset 0 BEFORE truncating down to len(p.original) so a write
+	// refusal at byte 0 (such as RLIMIT_FSIZE=0) fails without first zero-truncating the file.
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return PublishRollbackFailed, errors.Join(err, f.Close())
+	}
+	if len(p.original) > 0 {
+		if _, err := f.Write(p.original); err != nil {
+			return PublishRollbackFailed, errors.Join(err, f.Close())
+		}
+	}
+	if err := f.Truncate(int64(len(p.original))); err != nil {
+		return PublishRollbackFailed, errors.Join(err, f.Close())
+	}
+	if hooks.AfterRestoreWrite != nil {
+		if err := hooks.AfterRestoreWrite(p.abs, f); err != nil {
+			return PublishRollbackFailed, errors.Join(err, f.Close())
+		}
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return PublishRollbackFailed, errors.Join(err, f.Close())
+	}
+	after, err := readLimited(f, MaxFileBytes)
+	if err != nil {
+		return PublishRollbackFailed, errors.Join(err, f.Close())
+	}
+	if !bytes.Equal(after, p.original) {
+		return PublishExternalModification, errors.Join(errors.New("external writer modified file during rollback restore"), f.Close())
+	}
+	if err := f.Close(); err != nil {
+		return PublishRollbackFailed, err
+	}
+	return PublishRolledBack, nil
 }
 
 // register records the new revision in the session's snapshots, so a later edit can be based on it and

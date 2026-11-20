@@ -177,8 +177,8 @@ func TestR402PostPublishDefectsReproducer(t *testing.T) {
 		if cerr == nil {
 			t.Fatalf("expected post-publish error on b.txt")
 		}
-		if !receipt.DirtyFailure || receipt.State != CommitStatePartiallyPublished {
-			t.Errorf("expected DirtyFailure=true State=partially_published, got %+v", receipt)
+		if !receipt.DirtyFailure || receipt.State != CommitStateRolledBack {
+			t.Errorf("expected DirtyFailure=true State=rolled_back, got %+v", receipt)
 		}
 		if len(res.Files) != 0 {
 			t.Errorf("expected 0 remaining files in Result.Files after clean rollback, got %+v", res.Files)
@@ -446,8 +446,8 @@ func TestR402PublicationStateModelAndFaultMatrix(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected failure on b.txt")
 		}
-		if !receipt.DirtyFailure || receipt.State != CommitStatePartiallyPublished {
-			t.Fatalf("receipt = %+v", receipt)
+		if !receipt.DirtyFailure || receipt.State != CommitStateRolledBack {
+			t.Fatalf("receipt = %+v, want DirtyFailure=true State=rolled_back", receipt)
 		}
 		if len(res.Files) != 0 {
 			t.Fatalf("res.Files = %+v, want empty after rollback", res.Files)
@@ -505,10 +505,10 @@ func TestR402PublicationStateModelAndFaultMatrix(t *testing.T) {
 		if !receipt.DirtyFailure || receipt.State != CommitStatePartiallyPublished {
 			t.Fatalf("receipt = %+v", receipt)
 		}
-		if len(res.Files) != 1 || res.Files[0].Path != "a.txt" || !res.Files[0].Published || res.Files[0].RolledBack {
-			t.Fatalf("expected published un-rolled-back a.txt in Result.Files, got %+v", res.Files)
+		if len(res.Files) != 1 || res.Files[0].Path != "a.txt" || !res.Files[0].Published || res.Files[0].RolledBack || res.Files[0].PublishState != PublishExternalModification || res.Files[0].NewRev != "" {
+			t.Fatalf("expected published externally-modified a.txt in Result.Files, got %+v", res.Files)
 		}
-		if len(receipt.Files) != 2 || !receipt.Files[0].Published || receipt.Files[0].RolledBack || !receipt.Files[0].Wrote {
+		if len(receipt.Files) != 2 || !receipt.Files[0].Published || receipt.Files[0].RolledBack || !receipt.Files[0].Wrote || receipt.Files[0].Verified || receipt.Files[0].PublishState != PublishExternalModification || receipt.Files[0].NewSHA256 != "" {
 			t.Fatalf("receipt.Files = %+v", receipt.Files)
 		}
 		assertNoCreateTempLeftovers(t, root)
@@ -555,7 +555,7 @@ func TestR402PublicationStateModelAndFaultMatrix(t *testing.T) {
 		if !receipt.DirtyFailure || receipt.State != CommitStatePartiallyPublished {
 			t.Fatalf("receipt = %+v", receipt)
 		}
-		if len(res.Files) != 1 || res.Files[0].Path != "a.txt" || !res.Files[0].Published || res.Files[0].RolledBack {
+		if len(res.Files) != 1 || res.Files[0].Path != "a.txt" || !res.Files[0].Published || res.Files[0].RolledBack || res.Files[0].PublishState != PublishExternalModification || res.Files[0].NewRev != "" {
 			t.Fatalf("res.Files = %+v", res.Files)
 		}
 		assertNoCreateTempLeftovers(t, root)
