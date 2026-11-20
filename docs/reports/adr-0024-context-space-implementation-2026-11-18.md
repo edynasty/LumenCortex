@@ -1,5 +1,7 @@
 # ADR-0024 Context Space Architecture — 完整实施、六轮独立审查修复与最终交付报告
 
+> R7 阅读入口见 [逐文件提交设计、Claude Code 能力矩阵与实施记录](adr-0024-r7-partial-commit.md)。Sol 的 R6 独立审查结论为 `BLOCK_MERGE`。下列 R6 实施方对 R5-01、8192 字节上限及错误路径覆盖的结论仅作历史记录。
+
 - **初次实施日期：** 2026-11-18 · **R1 修复完成日期：** 2026-11-19 · **R2 增量修复完成日期：** 2026-11-19 · **R3 修复完成日期：** 2026-11-19 · **R4 修复完成日期：** 2026-11-20 · **R5 修复完成日期：** 2026-11-20 · **R6 最终修复完成日期：** 2026-11-20
 - **权威架构规格：** `LumenCortex-architecture-audit/design/handoffs/context-space-architecture-master.zh-CN.md`
   - 当前版本：**`v0.4-rc3.7`**（SHA256 `5c9edaeb6b917d7cf508677036f17ab1911dd6b5f1a78ee25d8e0082f6cbb89f`）

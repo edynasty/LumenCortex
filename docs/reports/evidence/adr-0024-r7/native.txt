@@ -1,0 +1,23 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+f60738ad4bc5ca5304910617b3889ec0b55a89e2
+gofmt clean: 38 Go files
+cmd= go build ./...
+exit=0
+cmd= go vet ./...
+exit=0
+cmd= go test -count=1 ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+ok  	github.com/edynasty/LumenCortex/internal/editing	2.357s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	28.037s
+ok  	github.com/edynasty/LumenCortex/internal/agent	20.277s
+ok  	github.com/edynasty/LumenCortex/internal/session	39.275s
+exit=0
+cmd= go test -race -count=1 ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+ok  	github.com/edynasty/LumenCortex/internal/editing	11.507s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	43.246s
+ok  	github.com/edynasty/LumenCortex/internal/agent	65.859s
+ok  	github.com/edynasty/LumenCortex/internal/session	46.757s
+exit=0
+cmd= go test -race -count=1 -run TestT3\|TestT4 ./runtime
+ok  	github.com/edynasty/LumenCortex/runtime	13.106s
+exit=0

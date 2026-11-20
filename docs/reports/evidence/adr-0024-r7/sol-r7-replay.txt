@@ -1,0 +1,31 @@
+mode r7 head f60738ad4bc5ca5304910617b3889ec0b55a89e2
+go test -count=1 -race -v -overlay=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/lc-r7-review-wskzqhqx/gap.json -run ^TestAuditFinalGapCommit$ ./internal/editing
+=== RUN   TestAuditFinalGapCommit
+    zz_final_gap_test.go:7: child==== RUN   TestAuditFinalGapChild
+            zz_final_gap_test.go:6: writer_pid=60834 parent=60687
+        --- PASS: TestAuditFinalGapChild (0.00s)
+        PASS
+    zz_final_gap_test.go:7: hit=true disk="longer-new\nFOREIGN-GAP\n" result={Files:[{Path:a.txt OldRev:ahij4gqc NewRev: Created:false Deleted:false Changed:true Published:true Verified:false RolledBack:false PublishState:external_modification_detected Error:concurrent_write_detected a.txt: the published target bytes changed after verification (current rev ka749xap); another writer changed the file during the write; re-read it before editing again Landed:[]} {Path:z.txt OldRev:dm5vzy6r NewRev: Created:false Deleted:false Changed:false Published:false Verified:false RolledBack:false PublishState:external_modification_detected Error:conflict z.txt: the file changed after the change was computed; nothing was written (current rev 3d43fjsp); something else wrote the file; re-read it and redo the edit Landed:[]}] Diffs:[] Diagnostics:[] CommitState:partially_published} err=conflict z.txt: the file changed after the change was computed; nothing was written (current rev 3d43fjsp); something else wrote the file; re-read it and redo the edit
+        concurrent_write_detected a.txt: the published target bytes changed after verification (current rev ka749xap); another writer changed the file during the write; re-read it before editing again
+--- PASS: TestAuditFinalGapCommit (1.02s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	2.749s
+gap exit 0
+go test -count=1 -race -v -overlay=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/lc-r7-review-wskzqhqx/jsonpath.json -run ^TestAuditFinal ./internal/agent ./internal/toolset
+=== RUN   TestAuditFinalProtectedOverflow
+    zz_final_json_probe_test.go:3: append input=8446 output=377 valid=true sources=0 complete=false
+    zz_final_json_probe_test.go:3: preserve output=377 valid=true sources=0 complete=false
+--- PASS: TestAuditFinalProtectedOverflow (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	1.611s
+=== RUN   TestAuditFinalErrorPaths
+=== RUN   TestAuditFinalErrorPaths/quoted_outside_space
+    zz_final_path_probe_test.go:3: sanitized="open \"<outside-workspace>/key.txt\": denied"
+=== RUN   TestAuditFinalErrorPaths/lsp_error
+    zz_final_path_probe_test.go:3: lsp={"code":"failed","error":"lstat missing.go: file does not exist","hint":"the language server failed; use search_text or find_files instead"}
+--- PASS: TestAuditFinalErrorPaths (0.01s)
+    --- PASS: TestAuditFinalErrorPaths/quoted_outside_space (0.00s)
+    --- PASS: TestAuditFinalErrorPaths/lsp_error (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	1.933s
+jsonpath exit 0

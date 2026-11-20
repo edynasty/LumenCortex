@@ -1,0 +1,183 @@
+f60738ad4bc5ca5304910617b3889ec0b55a89e2
+go version go1.26.5 darwin/arm64
++ go test -race -count=1 -v -run '^TestR7|^TestR5ResultPropagationAndResumeIntegrity$|^TestR6NestedJSONPreservationAndProvenance$|^TestR6StructuredPathsAndSanitizeErrorText$' ./internal/editing ./internal/toolset ./internal/agent
+=== RUN   TestR7CrashBeforePublicationHelper
+--- PASS: TestR7CrashBeforePublicationHelper (0.00s)
+=== RUN   TestR7CreateRecreationFaultMatrix
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_zero_write
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_partial_write
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_generic_write_error
+=== RUN   TestR7CreateRecreationFaultMatrix/path_created_concurrently_at_publication
+=== RUN   TestR7CreateRecreationFaultMatrix/child_exits_before_publication
+--- PASS: TestR7CreateRecreationFaultMatrix (1.03s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_zero_write (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_partial_write (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_generic_write_error (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/path_created_concurrently_at_publication (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/child_exits_before_publication (1.02s)
+=== RUN   TestR7ExplicitRecreateSuccessBaseline
+--- PASS: TestR7ExplicitRecreateSuccessBaseline (0.00s)
+=== RUN   TestR7DisplayPathsStructuredAndFreeText
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/structured_path_error_with_spaces
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/sibling_path_error_spaces_keeps_basename_only
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/link_error_old_and_new_are_separate
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/joined_errors_keep_every_cause
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/free_text_quoted_and_windows_unc
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/file_url_path_is_scrubbed
+--- PASS: TestR7DisplayPathsStructuredAndFreeText (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/structured_path_error_with_spaces (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/sibling_path_error_spaces_keeps_basename_only (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/link_error_old_and_new_are_separate (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/joined_errors_keep_every_cause (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/free_text_quoted_and_windows_unc (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/file_url_path_is_scrubbed (0.00s)
+=== RUN   TestR7DiagnosticPathFailsClosed
+--- PASS: TestR7DiagnosticPathFailsClosed (0.00s)
+=== RUN   TestR7RlimitChildHelper
+--- PASS: TestR7RlimitChildHelper (0.00s)
+=== RUN   TestR7InPlaceRLimitFaults
+=== RUN   TestR7InPlaceRLimitFaults/zero_byte_write_efbig
+=== RUN   TestR7InPlaceRLimitFaults/short_write_crossing_limit
+--- PASS: TestR7InPlaceRLimitFaults (2.05s)
+    --- PASS: TestR7InPlaceRLimitFaults/zero_byte_write_efbig (1.02s)
+    --- PASS: TestR7InPlaceRLimitFaults/short_write_crossing_limit (1.02s)
+=== RUN   TestR7CreateEFBIGIsolated
+--- PASS: TestR7CreateEFBIGIsolated (1.02s)
+=== RUN   TestR7CreateRecreationUnixFaultMatrix
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/enospc_injection
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/permission_refuses_staging
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/unsupported_filesystem_refuses_create
+--- PASS: TestR7CreateRecreationUnixFaultMatrix (0.01s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/enospc_injection (0.00s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/permission_refuses_staging (0.00s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/unsupported_filesystem_refuses_create (0.00s)
+=== RUN   TestR7ConsumedStageIsNotUnlinked
+--- PASS: TestR7ConsumedStageIsNotUnlinked (0.00s)
+=== RUN   TestR7DeletePermissionRefusalLeavesFileIntact
+--- PASS: TestR7DeletePermissionRefusalLeavesFileIntact (0.00s)
+=== RUN   TestR7PrefixExternalAppendBeforeLaterConflict
+--- PASS: TestR7PrefixExternalAppendBeforeLaterConflict (1.04s)
+=== RUN   TestR7PrefixExternalSameByteReplacement
+--- PASS: TestR7PrefixExternalSameByteReplacement (1.03s)
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/update
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/create
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/delete
+--- PASS: TestR7VerifiedPrefixUpdateCreateDelete (0.01s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/update (0.00s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/create (0.00s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/delete (0.00s)
+=== RUN   TestR7CleanFailureSettlesEveryPathAndKeepsSnapshots
+--- PASS: TestR7CleanFailureSettlesEveryPathAndKeepsSnapshots (0.00s)
+=== RUN   TestR7NoOpVerification
+=== RUN   TestR7NoOpVerification/committed_noop
+=== RUN   TestR7NoOpVerification/noop_prefix_in_failed_plan
+--- PASS: TestR7NoOpVerification (0.00s)
+    --- PASS: TestR7NoOpVerification/committed_noop (0.00s)
+    --- PASS: TestR7NoOpVerification/noop_prefix_in_failed_plan (0.00s)
+=== RUN   TestR7DeleteVerification
+=== RUN   TestR7DeleteVerification/committed_delete_observes_absence
+=== RUN   TestR7DeleteVerification/external_change_refuses_delete_and_preserves_foreign_bytes
+--- PASS: TestR7DeleteVerification (0.01s)
+    --- PASS: TestR7DeleteVerification/committed_delete_observes_absence (0.00s)
+    --- PASS: TestR7DeleteVerification/external_change_refuses_delete_and_preserves_foreign_bytes (0.01s)
+=== RUN   TestR7CreateContention
+=== RUN   TestR7CreateContention/before_staging
+=== RUN   TestR7CreateContention/at_publication
+--- PASS: TestR7CreateContention (0.00s)
+    --- PASS: TestR7CreateContention/before_staging (0.00s)
+    --- PASS: TestR7CreateContention/at_publication (0.00s)
+=== RUN   TestR7CustomHostWithoutStagerIsUnsupported
+--- PASS: TestR7CustomHostWithoutStagerIsUnsupported (0.00s)
+=== RUN   TestR7ExplicitRecreateAfterDeleteUsesFreshCreate
+--- PASS: TestR7ExplicitRecreateAfterDeleteUsesFreshCreate (0.01s)
+=== RUN   TestR7TimeBoundaryNoOpIdentifiesSameBytes
+--- PASS: TestR7TimeBoundaryNoOpIdentifiesSameBytes (0.00s)
+=== RUN   TestR7ForwardPublicationFaultMatrix
+=== RUN   TestR7ForwardPublicationFaultMatrix/01_failure_before_publication_is_clean
+=== RUN   TestR7ForwardPublicationFaultMatrix/05b_inplace_close_failure_is_uncertain
+=== RUN   TestR7ForwardPublicationFaultMatrix/02_link_succeeds_then_error
+=== RUN   TestR7ForwardPublicationFaultMatrix/03_rename_succeeds_then_error
+=== RUN   TestR7ForwardPublicationFaultMatrix/04_stat_fails_after_publication
+=== RUN   TestR7ForwardPublicationFaultMatrix/05_close_fails_after_publication
+=== RUN   TestR7ForwardPublicationFaultMatrix/06_identity_capture_fails
+=== RUN   TestR7ForwardPublicationFaultMatrix/07_identity_failure_keeps_published_prefix_and_skips_suffix
+=== RUN   TestR7ForwardPublicationFaultMatrix/08_second_path_refusal_keeps_verified_first
+=== RUN   TestR7ForwardPublicationFaultMatrix/09_external_append_on_prefix_is_external
+=== RUN   TestR7ForwardPublicationFaultMatrix/10_external_same_length_replacement_is_external
+=== RUN   TestR7ForwardPublicationFaultMatrix/11_uncertain_publication_reports_dirty_failure
+--- PASS: TestR7ForwardPublicationFaultMatrix (0.03s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/01_failure_before_publication_is_clean (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/05b_inplace_close_failure_is_uncertain (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/02_link_succeeds_then_error (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/03_rename_succeeds_then_error (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/04_stat_fails_after_publication (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/05_close_fails_after_publication (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/06_identity_capture_fails (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/07_identity_failure_keeps_published_prefix_and_skips_suffix (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/08_second_path_refusal_keeps_verified_first (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/09_external_append_on_prefix_is_external (0.01s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/10_external_same_length_replacement_is_external (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/11_uncertain_publication_reports_dirty_failure (0.01s)
+=== RUN   TestR7SameInodeExternalOverwriteIsExternal
+--- PASS: TestR7SameInodeExternalOverwriteIsExternal (1.03s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	8.750s
+=== RUN   TestR7FailurePayloadEveryReceiptState
+=== RUN   TestR7FailurePayloadEveryReceiptState/partial_failed_path_first_verified_effect_and_recovery
+=== RUN   TestR7FailurePayloadEveryReceiptState/clean_external_conflict_is_not_dirty_without_an_effect
+=== RUN   TestR7FailurePayloadEveryReceiptState/truncation_keeps_the_failed_path
+--- PASS: TestR7FailurePayloadEveryReceiptState (0.01s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/partial_failed_path_first_verified_effect_and_recovery (0.00s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/clean_external_conflict_is_not_dirty_without_an_effect (0.00s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/truncation_keeps_the_failed_path (0.00s)
+=== RUN   TestR7GenericLSPErrorScrubsHostPaths
+--- PASS: TestR7GenericLSPErrorScrubsHostPaths (0.00s)
+=== RUN   TestR7StructuredPathSpacesAndPlatformMatrix
+--- PASS: TestR7StructuredPathSpacesAndPlatformMatrix (0.00s)
+=== RUN   TestR7EditSpecsDoNotClaimAllOrNone
+--- PASS: TestR7EditSpecsDoNotClaimAllOrNone (0.00s)
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/structured_path_classification_matrix
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/unstructured_error_text_boundary_sanitization_r5_05
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/windows_drive_and_unc_workspace_boundaries
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/unknown_rev_and_sibling_gotype_diagnostics_do_not_leak_host_paths
+--- PASS: TestR6StructuredPathsAndSanitizeErrorText (0.01s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/structured_path_classification_matrix (0.00s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/unstructured_error_text_boundary_sanitization_r5_05 (0.00s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/windows_drive_and_unc_workspace_boundaries (0.00s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/unknown_rev_and_sibling_gotype_diagnostics_do_not_leak_host_paths (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	1.699s
+=== RUN   TestR5ResultPropagationAndResumeIntegrity
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/top_level_multifile_partial_publication_persists_and_resumes_identically
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/cancelled_multi_file_receipt_is_paired_without_replay
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/nested_eval_callback_partial_publication_preserved_in_callback_and_parent_row
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/preserve_error_tool_content_bounds_oversized_and_plain_details
+--- PASS: TestR5ResultPropagationAndResumeIntegrity (0.55s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/top_level_multifile_partial_publication_persists_and_resumes_identically (0.21s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/cancelled_multi_file_receipt_is_paired_without_replay (0.17s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/nested_eval_callback_partial_publication_preserved_in_callback_and_parent_row (0.17s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/preserve_error_tool_content_bounds_oversized_and_plain_details (0.00s)
+=== RUN   TestR6NestedJSONPreservationAndProvenance
+=== RUN   TestR6NestedJSONPreservationAndProvenance/unit_under_exact_and_over_8192_limit_plus_int64_and_provenance
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_under_limit
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_seeded_origin
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_unseeded_origin
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/adopt_then_apply_8500pad
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/protected_source_overflow
+=== RUN   TestR6NestedJSONPreservationAndProvenance/nested_eval_oversized_json_and_clean_proven_semantics
+--- PASS: TestR6NestedJSONPreservationAndProvenance (1.06s)
+    --- PASS: TestR6NestedJSONPreservationAndProvenance/unit_under_exact_and_over_8192_limit_plus_int64_and_provenance (0.01s)
+    --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges (0.86s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_under_limit (0.16s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_seeded_origin (0.17s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_unseeded_origin (0.16s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/adopt_then_apply_8500pad (0.18s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/protected_source_overflow (0.18s)
+    --- PASS: TestR6NestedJSONPreservationAndProvenance/nested_eval_oversized_json_and_clean_proven_semantics (0.19s)
+=== RUN   TestR7PartialCommitAndDiagnosticsColdResume
+--- PASS: TestR7PartialCommitAndDiagnosticsColdResume (1.27s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	4.304s

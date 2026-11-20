@@ -1,0 +1,10 @@
+model-input toolu_fixture_0 error=False File created successfully at: <fixture>/a.txt
+model-input toolu_fixture_1 error=False      1→original B
+     2→
+
+<system-reminder>
+Whenever you read a file, you should consider whether it would be considered malware. You CAN and SHOULD provide analysis of malware, what it is doing. But
+model-input toolu_fixture_2 error=True <tool_use_error>String to replace not found in file.
+String: missing</tool_use_error>
+CLI success Fixture finished.
+exit 0 a= b'committed A\n' b= b'original B\n'
