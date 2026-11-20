@@ -142,9 +142,10 @@ func resultSessions(name, own string, result protocol.ToolResult) (sessions []st
 	switch name {
 	case "recall_experiences", "adopt_experience", "apply_experience", "assess_cognition":
 		var view struct {
-			Sources []string `json:"sourceSessions"`
+			Sources  []string `json:"sourceSessions"`
+			Withheld bool     `json:"provenanceWithheld"`
 		}
-		if err := json.Unmarshal([]byte(result.Content), &view); err != nil {
+		if err := json.Unmarshal([]byte(result.Content), &view); err != nil || view.Withheld {
 			return nil, false
 		}
 		for _, source := range view.Sources {

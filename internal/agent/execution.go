@@ -151,6 +151,23 @@ func (c *commitRecorder) Receipt() (editing.CommitReceipt, bool) {
 	return c.receipt, c.has
 }
 
+// fileHasKnownEffects reports whether LC has actual evidence that this path may hold LC bytes: a
+// destination or handle write, a known in-place partial, an uncertain publication, or a historical
+// rollback state. An external modification is only an LC effect when LC also wrote or published the
+// path; a clean compare-and-swap conflict has no effect and must not be counted as dirty (ADR-0024 R7).
+func fileHasKnownEffects(f editing.FileCommitReceipt) bool {
+	if f.Wrote || f.Published {
+		return true
+	}
+	switch f.PublishState {
+	case editing.PublishPartial, editing.PublishUncertain,
+		editing.PublishRolledBack, editing.PublishRollbackFailed,
+		editing.PublishSucceededWithPostError:
+		return true
+	}
+	return false
+}
+
 func receiptHasDirtyOrUncommittedPublish(r editing.CommitReceipt) bool {
 	if r.DirtyFailure {
 		return true
@@ -159,12 +176,7 @@ func receiptHasDirtyOrUncommittedPublish(r editing.CommitReceipt) bool {
 		return false
 	}
 	for _, f := range r.Files {
-		if f.Published || f.Wrote ||
-			f.PublishState == editing.PublishUncertain ||
-			f.PublishState == editing.PublishRolledBack ||
-			f.PublishState == editing.PublishRollbackFailed ||
-			f.PublishState == editing.PublishExternalModification ||
-			f.PublishState == editing.PublishSucceededWithPostError {
+		if fileHasKnownEffects(f) {
 			return true
 		}
 	}
@@ -207,9 +219,8 @@ func truncateAgentUTF8(s string, maxBytes int) string {
 	return s[:cut] + ellipsis
 }
 
-// protectedToolResultKeys lists all provenance, session-lineage, identifier, and commit-state
-// fields consumed by resultSessions / sessionResultEdges / cognitive runtime and repair gates.
-// Structured truncation NEVER drops these fields (ADR-0024 R5-02).
+// Bulk compaction must not discard provenance or commit state. If these fields
+// alone exceed the display budget, report overflow explicitly.
 var protectedToolResultKeys = map[string]bool{
 	"sourceSessions":       true,
 	"applicationId":        true,
@@ -255,7 +266,7 @@ func marshalJSONValue(v any) json.RawMessage {
 // compactJSONObjectToBudget removes only non-protected bulk fields (largest first) and bounds any
 // oversized "error" string so the serialized JSON object stays valid and <= maxBytes whenever
 // protected provenance/identifier fields themselves fit within maxBytes (ADR-0024 R5-02).
-func compactJSONObjectToBudget(base map[string]json.RawMessage, maxBytes int) (map[string]json.RawMessage, bool) {
+func compactJSONObjectToBudget(base map[string]json.RawMessage, maxBytes int) (map[string]json.RawMessage, bool, bool) {
 	working := cloneRawJSONMap(base)
 	type candidateKey struct {
 		key  string
@@ -312,7 +323,59 @@ func compactJSONObjectToBudget(base map[string]json.RawMessage, maxBytes int) (m
 			}
 		}
 	}
-	return working, changed
+	raw, mErr := json.Marshal(working)
+	return working, changed, mErr == nil && len(raw) <= maxBytes
+}
+
+// jsonObjectReportsPartial detects an original payload that itself reports partial publication or a
+// dirty failure, so a controlled overflow can carry that honest marker forward.
+func isCommitDisplay(obj map[string]json.RawMessage) bool {
+	return obj["commitState"] != nil || obj["partialPublication"] != nil || obj["nestedPartialPublications"] != nil || obj["provenanceWithheld"] != nil
+}
+
+func jsonObjectReportsPartial(base map[string]json.RawMessage) bool {
+	var b bool
+	if raw, ok := base["partialPublication"]; ok && json.Unmarshal(raw, &b) == nil && b {
+		return true
+	}
+	if raw, ok := base["dirtyFailure"]; ok && json.Unmarshal(raw, &b) == nil && b {
+		return true
+	}
+	var state string
+	if raw, ok := base["commitState"]; ok && json.Unmarshal(raw, &state) == nil &&
+		(state == string(editing.CommitStatePartiallyPublished) || state == string(editing.CommitStatePublishedWithPostError)) {
+		return true
+	}
+	return false
+}
+
+// controlledOverflowToolContent has a fixed-size envelope: only known key names
+// and at most 2048 encoded bytes of nested notes enter it. The dispatcher extracts
+// source edges from the original payload, never from this display.
+func controlledOverflowToolContent(base map[string]json.RawMessage) string {
+	var keys []string
+	for k := range base {
+		if protectedToolResultKeys[k] {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	payload := map[string]any{
+		"ok": false, "error": "tool result exceeds the 8192-byte display limit",
+		"truncated": true, "provenanceWithheld": len(keys) > 0,
+		"recovery": "reread affected paths and reconcile before retrying",
+	}
+	if len(keys) > 0 {
+		payload["omittedFields"] = keys
+	}
+	if jsonObjectReportsPartial(base) {
+		payload["partialPublication"] = true
+	}
+	if note := base["nestedPartialPublications"]; len(note) > 0 && len(note) <= 2048 {
+		payload["nestedPartialPublications"] = note
+	}
+	raw, _ := json.Marshal(payload)
+	return string(raw)
 }
 
 // preserveErrorToolContent preserves structured, bounded partial-publication or rollback failure
@@ -324,7 +387,7 @@ func preserveErrorToolContent(existing string, err error) string {
 	}
 	trimmed := strings.TrimSpace(existing)
 	if trimmed == "" {
-		return toolErrorContent(msg)
+		return boundedErrorWrapper(msg, "", maxPreservedToolErrorBytes)
 	}
 	if strings.HasPrefix(trimmed, "{") && json.Valid([]byte(trimmed)) {
 		var rawObj map[string]json.RawMessage
@@ -346,18 +409,47 @@ func preserveErrorToolContent(existing string, err error) string {
 					return string(raw)
 				}
 			}
-			compacted, _ := compactJSONObjectToBudget(rawObj, maxPreservedToolErrorBytes)
-			compacted["truncated"] = json.RawMessage("true")
-			if raw, mErr := json.Marshal(compacted); mErr == nil {
-				return string(raw)
+			compacted, _, fits := compactJSONObjectToBudget(rawObj, maxPreservedToolErrorBytes)
+			if fits {
+				compacted["truncated"] = json.RawMessage("true")
+				if raw, mErr := json.Marshal(compacted); mErr == nil && len(raw) <= maxPreservedToolErrorBytes {
+					return string(raw)
+				}
 			}
+			// Protected provenance alone exceeds the budget: withhold the visible payload explicitly
+			// rather than returning an oversized or silently stripped object.
+			return controlledOverflowToolContent(rawObj)
 		}
 	}
-	raw, _ := json.Marshal(map[string]any{
-		"error":   truncateAgentUTF8(msg, 1024),
-		"details": truncateAgentUTF8(trimmed, 2048),
-	})
-	return string(raw)
+	if json.Valid([]byte(trimmed)) {
+		// Valid non-object JSON: wrap it rather than appending plain text, then bound the wrapper.
+		wrapped, _ := json.Marshal(map[string]any{
+			"error":     truncateAgentUTF8(msg, 1024),
+			"result":    json.RawMessage(trimmed),
+			"truncated": true,
+		})
+		if len(wrapped) <= maxPreservedToolErrorBytes {
+			return string(wrapped)
+		}
+	}
+	return boundedErrorWrapper(msg, trimmed, maxPreservedToolErrorBytes)
+}
+
+// boundedErrorWrapper renders a plain-text or unparseable result as a JSON error object of at most
+// maxBytes, shrinking only the non-protected details string.
+func boundedErrorWrapper(msg, details string, maxBytes int) string {
+	payload := map[string]string{"error": truncateAgentUTF8(msg, 1024)}
+	if details != "" {
+		payload["details"] = truncateAgentUTF8(details, 2048)
+	}
+	for {
+		raw, _ := json.Marshal(payload)
+		if len(raw) <= maxBytes {
+			return string(raw)
+		}
+		// JSON escaping can expand text sixfold. The bounded error fits on its own.
+		payload["details"] = truncateAgentUTF8(payload["details"], len(payload["details"])/2)
+	}
 }
 
 func formatDirtyReceiptSummary(toolName string, r editing.CommitReceipt) string {
@@ -441,6 +533,7 @@ func appendNestedPartialPublication(content string, notes []string) string {
 	if trimmed != "" && json.Valid([]byte(trimmed)) {
 		var rawObj map[string]json.RawMessage
 		if strings.HasPrefix(trimmed, "{") && json.Unmarshal([]byte(trimmed), &rawObj) == nil && rawObj != nil {
+			rawObj["partialPublication"] = json.RawMessage("true")
 			tryEncodeWithNotes := func(base map[string]json.RawMessage, noteCount, noteBytes int, markTruncated bool) ([]byte, bool) {
 				cand := cloneRawJSONMap(base)
 				sub := buildBoundedNotes(noteCount, noteBytes)
@@ -490,30 +583,32 @@ func appendNestedPartialPublication(content string, notes []string) string {
 
 			// 3. Parent JSON itself exceeds (or nearly exceeds) 8192 bytes: drop only non-protected
 			// bulk fields (such as "results"/"pad") while preserving all provenance/identifier keys.
-			compacted, _ := compactJSONObjectToBudget(rawObj, maxPreservedToolErrorBytes-256)
-			for _, nc := range []int{maxNestedPartialNotes, 4, 2, 1, 0} {
-				for _, nb := range []int{maxNestedPartialNoteBytes, 256, 128} {
-					if nc == 0 && nb != maxNestedPartialNoteBytes {
-						continue
-					}
-					if raw, ok := tryEncodeWithNotes(compacted, nc, nb, true); ok {
-						return string(raw)
+			compacted, _, compactFits := compactJSONObjectToBudget(rawObj, maxPreservedToolErrorBytes-256)
+			if compactFits {
+				for _, nc := range []int{maxNestedPartialNotes, 4, 2, 1, 0} {
+					for _, nb := range []int{maxNestedPartialNoteBytes, 256, 128} {
+						if nc == 0 && nb != maxNestedPartialNoteBytes {
+							continue
+						}
+						if raw, ok := tryEncodeWithNotes(compacted, nc, nb, true); ok {
+							return string(raw)
+						}
 					}
 				}
 			}
 
-			// 4. Protected provenance fields alone exceed 8192 bytes: return valid JSON preserving
-			// every protected provenance field plus an explicit truncation indicator (never plain text).
-			minimal, _ := compactJSONObjectToBudget(rawObj, 0)
-			raw, _ := tryEncodeWithNotes(minimal, 1, 128, true)
-			if len(raw) > 0 {
-				return string(raw)
-			}
+			// 4. Protected provenance fields alone exceed 8192 bytes. Never return an oversized object
+			// and never silently drop the provenance: withhold the visible payload explicitly, mark
+			// the partial state, list the withheld protected fields and instruct reread/reconcile. The
+			// actual lineage was extracted from the original result before this compaction.
+			rawObj["nestedPartialPublications"] = marshalJSONValue(buildBoundedNotes(2, 192))
+			return controlledOverflowToolContent(rawObj)
 		}
 
 		// Valid non-object JSON (array or scalar): keep valid JSON rather than appending plain text.
 		wrapped := map[string]any{
 			"result":                    json.RawMessage(trimmed),
+			"partialPublication":        true,
 			"nestedPartialPublications": bounded,
 		}
 		if omitted := totalNotes - len(bounded); omitted > 0 {
@@ -524,20 +619,39 @@ func appendNestedPartialPublication(content string, notes []string) string {
 		}
 		fallback := map[string]any{
 			"truncated":                 true,
+			"partialPublication":        true,
+			"payloadWithheld":           true,
+			"recovery":                  "reread the reported output and reconcile before retrying",
 			"nestedPartialPublications": buildBoundedNotes(2, 192),
 		}
 		if totalNotes > 2 {
 			fallback["nestedPartialPublicationsOmitted"] = totalNotes - 2
 		}
+		fallback["nestedPartialPublicationsTruncated"] = true
 		raw, _ := json.Marshal(fallback)
-		return string(raw)
+		if len(raw) <= maxPreservedToolErrorBytes {
+			return string(raw)
+		}
+		// Defensive: the fixed fallback is far below the limit.
+		return controlledOverflowToolContent(map[string]json.RawMessage{"partialPublication": json.RawMessage("true")})
 	}
 
-	block := "[nested_partial_publication] " + strings.Join(bounded, "; ")
-	if trimmed == "" {
-		return truncateAgentUTF8(block, maxPreservedToolErrorBytes)
+	obj := map[string]any{"result": truncateAgentUTF8(content, 512), "partialPublication": true, "nestedPartialPublications": bounded}
+	if totalNotes > len(bounded) {
+		obj["nestedPartialPublicationsOmitted"] = totalNotes - len(bounded)
 	}
-	return truncateAgentUTF8(content+"\n\n"+block, maxPreservedToolErrorBytes)
+	if len(content) > 512 {
+		obj["truncated"] = true
+	}
+	raw, _ := json.Marshal(obj)
+	if len(raw) > maxPreservedToolErrorBytes {
+		obj["result"] = ""
+		obj["truncated"] = true
+		obj["nestedPartialPublications"] = buildBoundedNotes(2, 192)
+		obj["nestedPartialPublicationsOmitted"] = max(0, totalNotes-2)
+		raw, _ = json.Marshal(obj)
+	}
+	return string(raw)
 }
 
 // execution is an admitted call between AdmitExecution and CommitToolResult.
@@ -682,6 +796,13 @@ func storeExit(err error) *ExitCause {
 // tools validate before they write, so that call did nothing. A CommitReceipt reporting DirtyFailure
 // upgrades the outcome to OutcomeUnknown and seals ";cm=unknown".
 func (l *Loop) postExecution(ctx context.Context, x *execution, result protocol.ToolResult, toolErr error, requestID string, lineage bool) (*session.ExecutionResult, []session.DerivedEdge) {
+	return l.postExecutionWithResultLineage(ctx, x, result, toolErr, requestID, lineage, true)
+}
+
+// postExecutionWithResultLineage is postExecution with the completeness of the lineage extracted
+// from the original tool result. An incomplete extraction (unreadable result, or more sources than
+// one commit stores) fails closed to OutcomeUnknown rather than claiming a complete observation.
+func (l *Loop) postExecutionWithResultLineage(ctx context.Context, x *execution, result protocol.ToolResult, toolErr error, requestID string, lineage, resultLineageComplete bool) (*session.ExecutionResult, []session.DerivedEdge) {
 	started := time.Now()
 	defer func() { x.snapshot += time.Since(started) }()
 	sctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
@@ -702,33 +823,40 @@ func (l *Loop) postExecution(ctx context.Context, x *execution, result protocol.
 	switch {
 	case dirtyReceipt:
 		post.Outcome = session.OutcomeUnknown
-	case toolErr == nil && result.OK:
+	case toolErr == nil && result.OK && resultLineageComplete:
 		post.Outcome = session.OutcomeComplete
 	case toolErr == nil && result.Interrupted:
 		// The tool stopped the operation partway (a command past its timeout): its effects are unknown.
 		post.Outcome = session.OutcomeUnknown
 	case toolErr == nil:
 		post.Outcome = session.OutcomeFailed
-	case x.tier == tierFiles && post.Coverage == session.CoverageComplete && len(changed) == 0:
-		post.Outcome = session.OutcomeFailed
+	case x.tier == tierFiles && post.Coverage == session.CoverageComplete:
+		// A file plan that refused before any destination write is a clean failure. A compare-and-swap
+		// conflict caused by an external writer is clean: it must not be inferred as a dirty LC write.
+		if (hasReceipt && !receipt.Committed && !dirtyReceipt) || len(changed) == 0 {
+			post.Outcome = session.OutcomeFailed
+		} else {
+			post.Outcome = session.OutcomeUnknown
+		}
 	default:
 		post.Outcome = session.OutcomeUnknown
 	}
-	complete := lineage && post.Coverage == session.CoverageComplete && post.Outcome != session.OutcomeUnknown
+	if !resultLineageComplete {
+		post.Outcome = session.OutcomeUnknown
+	}
+	complete := lineage && resultLineageComplete && post.Coverage == session.CoverageComplete && post.Outcome != session.OutcomeUnknown
 	edges := make([]session.DerivedEdge, 0, len(changed))
 	for _, f := range changed {
 		ref, ok := fileEdgeRef(f)
 		if !ok {
-			// A path the edge column cannot hold is not recorded, so what is stored is incomplete.
 			complete = false
 			if post.Coverage == session.CoverageComplete {
 				post.Coverage = session.CoveragePartial
 			}
 			continue
 		}
-		edges = append(edges, session.DerivedEdge{
-			Kind: "file", TargetRef: ref, SourceKind: session.SourceRequest, SourceRef: requestID,
-			OriginClass: session.OriginAgentGen,
+		edges = append(edges, session.DerivedEdge{Kind: "file", TargetRef: ref,
+			SourceKind: session.SourceRequest, SourceRef: requestID, OriginClass: session.OriginAgentGen,
 		})
 	}
 	if x.tier == tierFiles && postSnapOK {
@@ -736,7 +864,9 @@ func (l *Loop) postExecution(ctx context.Context, x *execution, result protocol.
 		post.PostRef = postSnap.Ref() + ";cm=" + seal
 	}
 	for i := range edges {
-		edges[i].LineageComplete = complete
+		// Legacy tools have observation edges but no editing receipt; their mutation
+		// seal remains unknown. A receipt with an unverified effect cannot attest lineage.
+		edges[i].LineageComplete = complete && (x.tier != tierFiles || !hasReceipt || (receipt.Committed && sandwichOK && result.OK))
 	}
 	return post, edges
 }
@@ -918,6 +1048,12 @@ func sealFilesMutation(
 			return string(MutationUnknown)
 		}
 		if rf.Deleted && postF.Blob != repository.BlobAbsent {
+			return string(MutationUnknown)
+		}
+		// A write can be published yet fail verification (post-publication handle/identity/close
+		// error, external modification, unknown partial). Without a verified post SHA the seal cannot
+		// claim the intended bytes reached the destination (ADR-0024 R7).
+		if rf.NewSHA256 == "" {
 			return string(MutationUnknown)
 		}
 	}

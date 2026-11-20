@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -44,6 +45,7 @@ func TestR6AgentExternalAppendHelper(t *testing.T) {
 type r6ApplyExperienceTools struct {
 	inner   *toolset.Set
 	origin  string
+	sources []string
 	padding int
 	okFlag  bool
 }
@@ -89,6 +91,9 @@ func (t *r6ApplyExperienceTools) Execute(ctx context.Context, name string, args 
 			"state":          "unknown",
 			"results":        results,
 			"sourceSessions": []string{t.origin},
+		}
+		if len(t.sources) != 0 {
+			payload["sourceSessions"] = t.sources
 		}
 		if !t.okFlag {
 			payload["error"] = "nested action failed"
@@ -206,12 +211,20 @@ func TestR6NestedJSONPreservationAndProvenance(t *testing.T) {
 			{"apply_only_8500pad_over_limit_seeded_origin", false, true, 8500},
 			{"apply_only_8500pad_over_limit_unseeded_origin", false, false, 8500},
 			{"adopt_then_apply_8500pad", true, true, 8500},
+			{"protected_source_overflow", false, true, 0},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
 				const ref = config.ModelRef("test/m")
 				ctx := context.Background()
 				sid, origin := "s-r6-consumer", "s-r6-origin"
+				var sources []string
+				if tc.name == "protected_source_overflow" {
+					for i := range session.MaxEdgesPerCommit {
+						sources = append(sources, fmt.Sprintf("s-%03d-%s", i, strings.Repeat("x", 122)))
+					}
+					origin = sources[len(sources)-1] // Revoke the last edge; no prefix is sufficient.
+				}
 				ws := filepath.Join(t.TempDir(), "ws")
 				if err := os.MkdirAll(ws, 0o755); err != nil {
 					t.Fatal(err)
@@ -291,7 +304,7 @@ func TestR6NestedJSONPreservationAndProvenance(t *testing.T) {
 
 				res, err := (&Loop{
 					Models:    map[config.ModelRef]Model{ref: testModel(ref, prov)},
-					Tools:     &r6ApplyExperienceTools{inner: ts, origin: origin, padding: tc.padding, okFlag: false},
+					Tools:     &r6ApplyExperienceTools{inner: ts, origin: origin, sources: sources, padding: tc.padding, okFlag: false},
 					Store:     st,
 					Snapshots: repo,
 				}).Run(ctx, sid, Options{Session: ref, RunID: "run-live", Resumed: true, MaxSteps: 6})
@@ -315,6 +328,24 @@ func TestR6NestedJSONPreservationAndProvenance(t *testing.T) {
 				if err := db.QueryRow(`SELECT COUNT(*) FROM derived_origins WHERE session_id=? AND kind='message' AND source_kind='session' AND source_ref=?`, sid, origin).Scan(&msgEdgeCount); err != nil {
 					_ = db.Close()
 					t.Fatal(err)
+				}
+				if len(sources) > 0 {
+					var n int
+					err := db.QueryRow(`SELECT COUNT(DISTINCT source_ref) FROM derived_origins WHERE session_id=? AND kind='message' AND source_kind='session'`, sid).Scan(&n)
+					if err != nil || n != len(sources) {
+						t.Fatalf("durable sources=%d want %d: %v", n, len(sources), err)
+					}
+					var envelope struct {
+						Partial  bool     `json:"partialPublication"`
+						Withheld bool     `json:"provenanceWithheld"`
+						Omitted  []string `json:"omittedFields"`
+					}
+					if err := json.Unmarshal([]byte(applyContent), &envelope); err != nil || !envelope.Partial || !envelope.Withheld || !slices.Contains(envelope.Omitted, "sourceSessions") {
+						t.Fatalf("invalid controlled overflow: %s (%v)", applyContent, err)
+					}
+					if _, complete := resultSessions("apply_experience", sid, protocol.ToolResult{Content: applyContent}); complete {
+						t.Fatal("overflow display claimed complete source lineage")
+					}
 				}
 				_ = db.Close()
 
@@ -487,7 +518,7 @@ func TestR6NestedJSONPreservationAndProvenance(t *testing.T) {
 // TestR6PartialRollbackAndDiagnosticsColdResume covers §5.5 #12 (SQLite cold Resume after R5-01
 // partial rollback with real child-process O_APPEND) and verifies R5-03/R5-04 bounded sanitized
 // diagnostics persisted in SQLite across cold Resume.
-func TestR6PartialRollbackAndDiagnosticsColdResume(t *testing.T) {
+func TestR7PartialCommitAndDiagnosticsColdResume(t *testing.T) {
 	const ref = config.ModelRef("test/m")
 	ctx := context.Background()
 	sid := "s-r6-cold-resume"
@@ -562,24 +593,17 @@ func TestR6PartialRollbackAndDiagnosticsColdResume(t *testing.T) {
 		"ops":  []map[string]any{{"op": "replace", "start": anchor, "text": badGo.String()}},
 	})
 
-	// Inject R5-01 race during apply_patch: conflict on b.txt (via AfterInPlaceWriteClose on a.txt? No:
-	// mutate b.txt inside AfterInPlaceWriteClose of a.txt returning nil so b.txt hits CodeConflict, then
-	// spawn a separate OS process appending FOREIGN\n in AfterRestorePayloadWrite of a.txt!).
+	// A is verified first. While B fails after truncate a separate process appends to A.
 	eng.SetPublishFaultHooks(editing.PublishFaultHooks{
-		AfterInPlaceWriteClose: func(dst string) error {
-			if filepath.Base(dst) == "a.txt" {
-				_ = os.WriteFile(filepath.Join(ws, "b.txt"), []byte("conflict-b\n"), 0o644)
-			}
-			return nil
-		},
-		AfterRestorePayloadWrite: func(dst string) error {
-			if filepath.Base(dst) == "a.txt" {
+		AfterTruncate: func(dst string) error {
+			if filepath.Base(dst) == "b.txt" {
 				cmd := exec.Command(os.Args[0], "-test.run=^TestR6AgentExternalAppendHelper$")
-				cmd.Env = append(os.Environ(), "LC_R6_AGENT_APPEND_TARGET="+dst)
+				cmd.Env = append(os.Environ(), "LC_R6_AGENT_APPEND_TARGET="+filepath.Join(ws, "a.txt"))
 				out, cmdErr := cmd.CombinedOutput()
 				if cmdErr != nil {
 					return fmt.Errorf("%w: %s", cmdErr, out)
 				}
+				return errors.New("B failed after truncate")
 			}
 			return nil
 		},
@@ -602,13 +626,16 @@ func TestR6PartialRollbackAndDiagnosticsColdResume(t *testing.T) {
 	}
 	_ = raw.Close()
 
-	// 1. Disk preserved external append on shrinking restore ("old-a\n" <- "longer-new-a\n" + "FOREIGN\n").
+	// A retained both LC's write and the child's append. B was truncated, not restored.
 	gotA, err := os.ReadFile(filepath.Join(ws, "a.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(gotA), "FOREIGN\n") || string(gotA) != "old-a\n-new-a\nFOREIGN\n" {
-		t.Fatalf("R5-01 external append lost or unexpected disk state: %q", gotA)
+	if string(gotA) != "longer-new-a\nFOREIGN\n" {
+		t.Fatalf("published/external bytes lost: %q", gotA)
+	}
+	if b, err := os.ReadFile(filepath.Join(ws, "b.txt")); err != nil || len(b) != 0 {
+		t.Fatalf("B = %q, err = %v", b, err)
 	}
 
 	// 2. Inspect raw SQLite rows across cold reopen.

@@ -86,7 +86,7 @@ func (s *Set) registerEditingTools() {
 func (s *Set) editLines(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	file, rel, err := s.resolve(stringArg(args, "path"), false)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	rev := strings.TrimSpace(stringArg(args, "rev"))
 	if rev == "" {
@@ -94,7 +94,7 @@ func (s *Set) editLines(ctx context.Context, args map[string]any, _ func(protoco
 	}
 	ops, err := decodeAnchorOps(args["ops"])
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	snap, err := s.edit.SnapshotFor(s.actor(), file, rev)
 	if err != nil {
@@ -186,14 +186,14 @@ func validatorsFor(relative string) []editing.Validator {
 func (s *Set) editGo(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	file, rel, err := s.resolve(stringArg(args, "path"), false)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	if !strings.HasSuffix(rel, ".go") {
 		return protocol.ToolResult{}, errors.New("edit_go edits Go files; use lsp_rename or edit_lines for other languages")
 	}
 	ops, err := decodeGoOps(args["ops"])
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	plan, err := goedit.Plan(s, file, ops)
 	if err != nil {
@@ -228,7 +228,7 @@ func (s *Set) editGo(ctx context.Context, args map[string]any, _ func(protocol.T
 		}
 		content, err := json.Marshal(payload)
 		if err != nil {
-			return protocol.ToolResult{}, err
+			return protocol.ToolResult{}, s.sanitizeToolError(err)
 		}
 		return protocol.ToolResult{OK: true, Content: string(content)}, nil
 	}

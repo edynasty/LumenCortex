@@ -565,6 +565,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				post       *session.ExecutionResult
 				edges      []session.DerivedEdge
 				cb         *callbackDispatcher
+				// Lineage is extracted from the ORIGINAL result before any display compaction, hook
+				// feedback, clock annotation or error preservation. It is persisted through the
+				// existing session edges; incomplete extraction fails closed (ADR-0024 R6-F03).
+				resultSourceSessions []string
+				resultSourceComplete = true
 			)
 			if denied {
 				content := "tool is not allowed in the current working set"
@@ -676,19 +681,21 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 						if cb != nil {
 							cb.close()
 						}
+						resultSourceSessions, resultSourceComplete = resultSessions(call.Name, sessionID, toolResult)
 						if cb != nil && cb.stop != nil && (cb.stop.Kind == KindStorage || cb.stop.Kind == KindFenced) {
 							// Its state/lineage transaction did not commit; never publish the
 							// in-memory transition in the outer tool response.
 							return l.exit(ctx, state, usage, *cb.stop)
 						}
 						if ctx.Err() != nil {
-							// The command tool reports a killed command as a result, not an error, and its
-							// call is answered before the run ends: one terminal row with the partial
-							// output and its execution settled, so the transcript and the execution are
-							// terminal rather than waiting for the next Start. Every other tool keeps the
-							// older contract: its stopped call stays unanswered and Reconcile closes it.
-							if call.Name == protocol.ToolBash {
-								if closeErr := l.closeStoppedCall(ctx, sessionID, opts.RunID, call, x, toolResult, toolErr, r); closeErr != nil {
+							// A returned editing receipt can be settled without replay. An admission
+							// without one stays unanswered for Reconcile; bash keeps its stopped output.
+							hasEditReceipt := false
+							if x != nil && x.tier == tierFiles {
+								_, hasEditReceipt = x.recorder.Receipt()
+							}
+							if call.Name == protocol.ToolBash || hasEditReceipt {
+								if closeErr := l.closeStoppedCall(ctx, sessionID, opts.RunID, call, x, toolResult, toolErr, answered.RequestID, r); closeErr != nil {
 									// The run was cancelled; its closing write failed. The cause stays the
 									// cancellation the run really had (a cancelled run's storage error is the
 									// cancellation, loop exit rule), and the failure is joined so it is reported
@@ -722,7 +729,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					}
 					clock.observeTool(call.Name, time.Since(toolStarted))
 					if x != nil {
-						post, edges = l.postExecution(ctx, x, toolResult, toolErr, answered.RequestID, answered.Lineage)
+						post, edges = l.postExecutionWithResultLineage(ctx, x, toolResult, toolErr, answered.RequestID, answered.Lineage, resultSourceComplete)
 					}
 					if l.Checks != nil && ((x != nil && (x.tier != tierAdmit || !opts.RecordExperienceActions || !callbackAllowedBuiltins[call.Name])) || toolResult.MutatesWorkspace) {
 						// Recorded local reads do not invalidate a closed check episode.
@@ -772,7 +779,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				}
 				edges = append(edges, modelStateEdges(before, change.Next, answered.RequestID, answered.Lineage)...)
 			}
-			edges = append(edges, l.sessionResultEdges(ctx, sessionID, call, toolResult, answered.RequestID, answered.Lineage)...)
+			edges = append(edges, l.sessionSourceEdges(ctx, call, answered.RequestID, answered.Lineage, resultSourceSessions, resultSourceComplete)...)
 			toolResult.Content = clock.annotate(toolResult.Content, time.Now())
 			messageSeq, err := l.persistToolResult(ctx, sessionID, opts.RunID, call, toolResult, change, post, edges, r)
 			if err != nil {
@@ -946,20 +953,24 @@ func (l *Loop) persistToolResult(ctx context.Context, sessionID, runID string, c
 //
 // A failed write is returned, never swallowed: the caller reports it with the run's exit, and the
 // transcript keeps the gap Reconcile closes at the next Start.
-func (l *Loop) closeStoppedCall(ctx context.Context, sessionID, runID string, call protocol.ToolCall, x *execution, result protocol.ToolResult, toolErr error, r *run) error {
+func (l *Loop) closeStoppedCall(ctx context.Context, sessionID, runID string, call protocol.ToolCall, x *execution, result protocol.ToolResult, toolErr error, requestID string, r *run) error {
 	content := session.InterruptedToolResult
-	if toolErr == nil && strings.TrimSpace(result.Content) != "" {
-		// The partial output the tool had read, with the reason it stopped.
+	if x != nil && x.tier == tierFiles && toolErr != nil {
+		content = preserveErrorToolContent(result.Content, toolErr)
+	} else if toolErr == nil && strings.TrimSpace(result.Content) != "" {
 		content = result.Content
 	}
 	row := protocol.Message{Role: "tool", ToolCallID: call.ID, Name: call.Name, Content: content, Origin: protocol.OriginToolInterrupted}
 	var post *session.ExecutionResult
-	if x != nil {
-		post = &session.ExecutionResult{ExecutionID: x.id, Outcome: session.OutcomeUnknown, Coverage: session.CoverageUnavailable}
-	}
+	var edges []session.DerivedEdge
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishTimeout)
 	defer cancel()
-	seq, _, err := l.Store.CommitToolResult(writeCtx, ToolResultCommit{SessionID: sessionID, RunID: runID, Message: row, Execution: post})
+	if x != nil && x.tier == tierFiles {
+		post, edges = l.postExecutionWithResultLineage(writeCtx, x, result, toolErr, requestID, false, false)
+	} else if x != nil {
+		post = &session.ExecutionResult{ExecutionID: x.id, Outcome: session.OutcomeUnknown, Coverage: session.CoverageUnavailable}
+	}
+	seq, _, err := l.Store.CommitToolResult(writeCtx, ToolResultCommit{SessionID: sessionID, RunID: runID, Message: row, Execution: post, Edges: edges})
 	if err != nil {
 		l.emit("tool.end", sessionID, map[string]any{"toolCallId": call.ID, "name": call.Name, "ok": false, "stopped": true, "error": err.Error()})
 		return fmt.Errorf("persist the interrupted result of call %s: %w", call.ID, err)

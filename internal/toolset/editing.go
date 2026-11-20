@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
-	"strings"
+	"sort"
 	"unicode/utf8"
 
 	"github.com/edynasty/LumenCortex/internal/editing"
@@ -185,18 +184,25 @@ const (
 	maxDiagTextBytesInResult    = 256
 	maxPathBytesInToolResult    = 256
 	maxPartialPayloadBytes      = 4096
-	outsideWorkspacePlaceholder = "<outside-workspace>"
 )
 
 type toolFileState struct {
 	Path         string               `json:"path"`
 	PublishState editing.PublishState `json:"publishState"`
 	Published    bool                 `json:"published"`
-	RolledBack   bool                 `json:"rolledBack"`
+	Verified     bool                 `json:"verified"`
 	Wrote        bool                 `json:"wrote"`
+	RolledBack   bool                 `json:"rolledBack,omitempty"`
+	Created      bool                 `json:"created,omitempty"`
+	Deleted      bool                 `json:"deleted,omitempty"`
+	NewRev       string               `json:"newRev,omitempty"`
+	SHA256       string               `json:"sha256,omitempty"`
 	Error        string               `json:"error,omitempty"`
 }
 
+// receiptDirtyOrPublished reports whether the commit really entered a destination mutation or
+// staging window. A clean external conflict that LC never wrote is not dirty; a historical
+// rolled-back or uncertain state, staging debris and a published/post-error effect are.
 func receiptDirtyOrPublished(r editing.CommitReceipt) bool {
 	if r.DirtyFailure {
 		return true
@@ -206,12 +212,67 @@ func receiptDirtyOrPublished(r editing.CommitReceipt) bool {
 			f.PublishState == editing.PublishUncertain ||
 			f.PublishState == editing.PublishRolledBack ||
 			f.PublishState == editing.PublishRollbackFailed ||
-			f.PublishState == editing.PublishExternalModification ||
-			f.PublishState == editing.PublishSucceededWithPostError {
+			f.PublishState == editing.PublishPartial {
 			return true
 		}
 	}
 	return false
+}
+
+// receiptFileRank orders the bounded display: the failed path first, then the verified published
+// prefix, then every untouched or cleanly refused path. Truncation keeps the rows that tell the
+// agent what actually happened.
+func receiptFileRank(f editing.FileCommitReceipt) int {
+	switch {
+	case f.Error != "", f.PublishState == editing.PublishPartial,
+		f.PublishState == editing.PublishSucceededWithPostError,
+		f.PublishState == editing.PublishExternalModification,
+		f.PublishState == editing.PublishUncertain,
+		f.PublishState == editing.PublishRollbackFailed:
+		return 0
+	case f.Verified && f.Published && f.PublishState == editing.PublishSucceededAndVerified:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func prioritizedReceiptFiles(files []editing.FileCommitReceipt) []editing.FileCommitReceipt {
+	if len(files) < 2 {
+		return files
+	}
+	ordered := make([]editing.FileCommitReceipt, len(files))
+	copy(ordered, files)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return receiptFileRank(ordered[i]) < receiptFileRank(ordered[j])
+	})
+	return ordered
+}
+
+func (s *Set) receiptFileState(f editing.FileCommitReceipt, byPath map[string]editing.FileResult, pBytes, fErrBytes int) (toolFileState, bool) {
+	cleanP := s.sanitizeStructuredPath(f.Path)
+	truncP := truncateUTF8Bytes(cleanP, pBytes)
+	cleanE := s.sanitizeErrorText(f.Error)
+	truncE := truncateUTF8Bytes(cleanE, fErrBytes)
+	truncated := truncP != cleanP || truncE != cleanE
+	state := toolFileState{
+		Path:         truncP,
+		PublishState: f.PublishState,
+		Published:    f.Published,
+		Verified:     f.Verified,
+		Wrote:        f.Wrote,
+		RolledBack:   f.RolledBack,
+		Created:      f.Created,
+		Deleted:      f.Deleted,
+		Error:        truncE,
+	}
+	if f.Verified && f.NewSHA256 != "" {
+		state.SHA256 = f.NewSHA256
+	}
+	if fr, ok := byPath[f.Path]; ok && f.Verified {
+		state.NewRev = fr.NewRev
+	}
+	return state, truncated
 }
 
 func partialPublicationFlag(r editing.CommitReceipt, dirty bool) bool {
@@ -258,295 +319,28 @@ func truncateUTF8Bytes(s string, maxBytes int) string {
 	return s[:cut] + ellipsis
 }
 
-func isASCIIAlpha(b byte) bool {
-	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
-}
-
-func isWindowsDrivePath(p string) bool {
-	return len(p) >= 2 && isASCIIAlpha(p[0]) && p[1] == ':' && (len(p) == 2 || p[2] == '\\' || p[2] == '/')
-}
-
-func isUNCPath(p string) bool {
-	return (strings.HasPrefix(p, `\\`) && len(p) > 2 && p[2] != '\\') ||
-		(strings.HasPrefix(p, "//") && len(p) > 2 && p[2] != '/')
-}
-
-// parseWinOrUNCRoot splits a Windows drive path ("C:\a\b") or UNC path ("\\srv\share\a\b") into a
-// case-folded volume key ("C:" or "//srv/share") and a clean slash-prefixed sub-path ("/a/b" or "/").
-func parseWinOrUNCRoot(raw string) (volKey string, cleanSub string, rawSub string, ok bool) {
-	if isWindowsDrivePath(raw) {
-		volKey = strings.ToUpper(raw[:2])
-		rest := strings.ReplaceAll(raw[2:], `\`, "/")
-		cleanSub = path.Clean("/" + rest)
-		rawSub = cleanSub
-		return volKey, cleanSub, rawSub, true
+// displayPaths is the shared host-path scrubber. The workspace root and its real (symlink-resolved)
+// root are both recognized, so diagnostics and error text never reveal where the workspace lives,
+// whether it was reached by a Windows drive/UNC spelling or through a symlink.
+func (s *Set) displayPaths() *editing.DisplayPaths {
+	if s == nil {
+		return editing.NewDisplayPaths("", "")
 	}
-	if isUNCPath(raw) {
-		slashed := strings.ReplaceAll(raw[2:], `\`, "/")
-		parts := strings.SplitN(slashed, "/", 3)
-		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-			return "", "", "", false
-		}
-		volKey = "//" + strings.ToLower(parts[0]) + "/" + strings.ToLower(parts[1])
-		rest := ""
-		if len(parts) == 3 {
-			rest = parts[2]
-		}
-		cleanSub = path.Clean("/" + rest)
-		rawSub = cleanSub
-		return volKey, cleanSub, rawSub, true
-	}
-	return "", "", "", false
-}
-
-func outsidePlaceholderForSlashPath(cleanSlash string) string {
-	base := path.Base(strings.TrimRight(cleanSlash, "/"))
-	if base == "" || base == "." || base == "/" || base == ".." {
-		return outsideWorkspacePlaceholder
-	}
-	return outsideWorkspacePlaceholder + "/" + base
+	return editing.NewDisplayPaths(s.workspace, s.realWorkspace)
 }
 
 // sanitizeStructuredPath converts any path entering Agent-visible structured results or diagnostics
 // into a verified workspace-relative slash path, "." for the workspace root, or
-// "<outside-workspace>/<basename>" when the path lies outside or escapes the workspace (ADR-0024 R5-04, R5-05).
+// "<outside-workspace>/<basename>" when the path lies outside or escapes the workspace (ADR-0024 R5-04, R5-05, R7).
 func (s *Set) sanitizeStructuredPath(rawPath string) string {
-	if rawPath == "" {
-		return ""
-	}
-	if rawPath == "." {
-		return "."
-	}
-
-	// Handle Windows drive and UNC paths portably across all host OSes.
-	if targetVol, targetSub, _, ok := parseWinOrUNCRoot(rawPath); ok {
-		if s != nil {
-			for _, wsRoot := range []string{s.realWorkspace, s.workspace} {
-				wsVol, wsSub, _, wsOK := parseWinOrUNCRoot(wsRoot)
-				if !wsOK || wsVol != targetVol {
-					continue
-				}
-				wsFold := strings.ToLower(wsSub)
-				targetFold := strings.ToLower(targetSub)
-				if targetFold == wsFold {
-					return "."
-				}
-				prefix := wsFold
-				if prefix != "/" {
-					prefix += "/"
-				}
-				if strings.HasPrefix(targetFold, prefix) {
-					rel := strings.TrimPrefix(targetSub[len(wsSub):], "/")
-					if rel == "" {
-						return "."
-					}
-					return rel
-				}
-			}
-		}
-		return outsidePlaceholderForSlashPath(targetSub)
-	}
-
-	if s == nil || (s.workspace == "" && s.realWorkspace == "") {
-		if filepath.IsAbs(rawPath) {
-			return outsidePlaceholderForSlashPath(filepath.ToSlash(filepath.Clean(rawPath)))
-		}
-		cleanRel := path.Clean(filepath.ToSlash(rawPath))
-		if cleanRel == ".." || strings.HasPrefix(cleanRel, "../") {
-			return outsidePlaceholderForSlashPath(cleanRel)
-		}
-		return cleanRel
-	}
-
-	wsClean := filepath.Clean(s.workspace)
-	realWS := filepath.Clean(s.realWorkspace)
-	if realWS == "" || realWS == "." {
-		realWS = realOf(wsClean)
-	}
-	sep := string(filepath.Separator)
-
-	// If workspace itself uses Windows/UNC notation (e.g. cross-OS unit test) and rawPath is relative:
-	if wsVol, wsSub, _, wsOK := parseWinOrUNCRoot(wsClean); wsOK && !filepath.IsAbs(rawPath) {
-		joined := wsVol + wsSub + "/" + strings.ReplaceAll(rawPath, `\`, "/")
-		return s.sanitizeStructuredPath(joined)
-	}
-
-	candidate := rawPath
-	wasAbs := filepath.IsAbs(rawPath)
-	if !wasAbs {
-		candidate = filepath.Join(wsClean, rawPath)
-	}
-	candidate = filepath.Clean(candidate)
-
-	// Lexical relative check against s.workspace (preferred display path when real target also stays inside realWS).
-	lexRel, lexErr := filepath.Rel(wsClean, candidate)
-	lexInside := lexErr == nil && lexRel != ".." && !strings.HasPrefix(lexRel, ".."+sep) && !filepath.IsAbs(lexRel)
-
-	// Real (symlink-resolved on deepest existing prefix) containment check against s.realWorkspace.
-	realCandidate := realOf(candidate)
-	realRel, realErr := filepath.Rel(realWS, realCandidate)
-	realInside := realErr == nil && realRel != ".." && !strings.HasPrefix(realRel, ".."+sep) && !filepath.IsAbs(realRel)
-
-	if realInside {
-		if lexInside {
-			return filepath.ToSlash(lexRel)
-		}
-		return filepath.ToSlash(realRel)
-	}
-
-	return outsidePlaceholderForSlashPath(filepath.ToSlash(candidate))
-}
-
-func isErrTextLeftBoundary(msg string, idx int) bool {
-	if idx <= 0 {
-		return true
-	}
-	switch msg[idx-1] {
-	case ' ', '\t', '\n', '\r', '"', '\'', '(', '[', '{', '=', ':':
-		return true
-	}
-	return false
-}
-
-func isErrTextRightBoundary(msg string, pos int) bool {
-	if pos >= len(msg) {
-		return true
-	}
-	switch msg[pos] {
-	case ' ', '\t', '\n', '\r', '"', '\'', ')', ']', '}', ',', ';', ':':
-		return true
-	}
-	return false
-}
-
-func isURLSchemeBefore(msg string, idx int) bool {
-	for _, scheme := range []string{"http:", "https:"} {
-		if idx >= len(scheme) && strings.EqualFold(msg[idx-len(scheme):idx], scheme) {
-			return true
-		}
-	}
-	return false
-}
-
-func looksLikeHostAbsToken(tok string) bool {
-	if strings.Count(tok, "/") >= 2 {
-		return true
-	}
-	for _, root := range []string{"/etc", "/var", "/tmp", "/usr", "/opt", "/dev", "/System", "/Library", "/Users", "/home", "/root", "/private", "/proc", "/sys"} {
-		if tok == root || strings.HasPrefix(tok, root+"/") {
-			return true
-		}
-	}
-	return false
+	return s.displayPaths().Path(rawPath)
 }
 
 // sanitizeErrorText sanitizes host filesystem paths embedded inside unstructured error messages using
 // strict token and path-component boundaries so sibling paths such as "<workspace>-sibling/secret"
-// are never corrupted into ".-sibling/secret" and never leak host directories (ADR-0024 R5-04, R5-05).
+// are never corrupted into ".-sibling/secret" and never leak host directories (ADR-0024 R5-04, R5-05, R7).
 func (s *Set) sanitizeErrorText(msg string) string {
-	if msg == "" {
-		return msg
-	}
-	var roots []string
-	if s != nil {
-		for _, r := range []string{s.realWorkspace, s.workspace} {
-			if r == "" {
-				continue
-			}
-			clean := filepath.Clean(r)
-			if isWindowsDrivePath(r) || isUNCPath(r) {
-				clean = strings.TrimRight(r, `\/`)
-			}
-			if clean != "" && clean != "." && clean != "/" && clean != `\` {
-				roots = append(roots, clean)
-				if slashed := strings.ReplaceAll(clean, `\`, "/"); slashed != clean {
-					roots = append(roots, slashed)
-				}
-			}
-		}
-	}
-
-	var out strings.Builder
-	i := 0
-	for i < len(msg) {
-		if isErrTextLeftBoundary(msg, i) && !isURLSchemeBefore(msg, i) {
-			// 1. Check explicit workspace roots first (supports workspace paths containing spaces),
-			// requiring an exact right token boundary OR a '/' / '\' path-component separator!
-			matchedRoot := false
-			for _, root := range roots {
-				if len(msg)-i < len(root) {
-					continue
-				}
-				winRoot := isWindowsDrivePath(root) || isUNCPath(root)
-				eq := msg[i:i+len(root)] == root
-				if !eq && winRoot {
-					eq = strings.EqualFold(msg[i:i+len(root)], root)
-				}
-				if !eq {
-					continue
-				}
-				after := i + len(root)
-				if isErrTextRightBoundary(msg, after) {
-					out.WriteString(".")
-					i = after
-					matchedRoot = true
-					break
-				}
-				end := after
-				for end < len(msg) && !isErrTextRightBoundary(msg, end) {
-					end++
-				}
-				out.WriteString(s.sanitizeStructuredPath(msg[i:end]))
-				i = end
-				matchedRoot = true
-				break
-			}
-			if matchedRoot {
-				continue
-			}
-
-			// 2. Windows drive path token (e.g. C:\foo\bar or C:/foo/bar).
-			if isWindowsDrivePath(msg[i:]) && len(msg)-i >= 3 && (msg[i+2] == '\\' || msg[i+2] == '/') {
-				end := i + 2
-				for end < len(msg) && !isErrTextRightBoundary(msg, end) {
-					end++
-				}
-				out.WriteString(s.sanitizeStructuredPath(msg[i:end]))
-				i = end
-				continue
-			}
-
-			// 3. UNC path token (e.g. \\server\share\foo or //server/share/foo).
-			if isUNCPath(msg[i:]) {
-				end := i + 2
-				for end < len(msg) && !isErrTextRightBoundary(msg, end) {
-					end++
-				}
-				if _, _, _, ok := parseWinOrUNCRoot(msg[i:end]); ok {
-					out.WriteString(s.sanitizeStructuredPath(msg[i:end]))
-					i = end
-					continue
-				}
-			}
-
-			// 4. POSIX absolute host path token (e.g. /Users/... or /var/folders/...-sibling/secret).
-			if msg[i] == '/' {
-				end := i
-				for end < len(msg) && !isErrTextRightBoundary(msg, end) {
-					end++
-				}
-				tok := msg[i:end]
-				if looksLikeHostAbsToken(tok) {
-					out.WriteString(s.sanitizeStructuredPath(tok))
-					i = end
-					continue
-				}
-			}
-		}
-		out.WriteByte(msg[i])
-		i++
-	}
-	return out.String()
+	return s.displayPaths().Text(msg)
 }
 
 func (s *Set) sanitizeDiagnostics(in []editing.Diagnostic, limit, pathBytes, textBytes int) ([]editing.Diagnostic, bool) {
@@ -574,6 +368,7 @@ func (s *Set) sanitizeDiagnostics(in []editing.Diagnostic, limit, pathBytes, tex
 
 func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.CommitReceipt, err error, editErr *editing.Error) string {
 	dirty := receiptDirtyOrPublished(receipt)
+	partial := partialPublicationFlag(receipt, dirty)
 	errLimit := maxErrorBytesInToolResult
 	pathLimit := maxPathBytesInToolResult
 	fileErrLimit := maxFileErrorBytesInResult
@@ -587,18 +382,43 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 	if diagLimit > maxDiagnosticsInToolResult {
 		diagLimit = maxDiagnosticsInToolResult
 	}
-	fileLimit := len(receipt.Files)
+	// Every receipt state, including a clean refusal and the untouched suffix, gets a files row.
+	// At least the failed path must survive truncation.
+	orderedFiles := prioritizedReceiptFiles(receipt.Files)
+	fileLimit := len(orderedFiles)
 	if fileLimit > maxPartialFilesInToolResult {
 		fileLimit = maxPartialFilesInToolResult
 	}
-	pubLimit := len(result.Files)
+	if len(orderedFiles) > 0 && fileLimit == 0 {
+		fileLimit = 1
+	}
+
+	// publishedFiles lists only paths LC really published. Result.Files now also contains untouched
+	// and refused paths for every receipt state, so filtering is mandatory.
+	published := make([]editing.FileResult, 0, len(result.Files))
+	for _, fr := range result.Files {
+		if fr.Published {
+			published = append(published, fr)
+		}
+	}
+	pubLimit := len(published)
 	if pubLimit > maxPartialFilesInToolResult {
 		pubLimit = maxPartialFilesInToolResult
+	}
+
+	byPath := make(map[string]editing.FileResult, len(result.Files))
+	for _, fr := range result.Files {
+		byPath[fr.Path] = fr
 	}
 
 	sanitizedErr := ""
 	if err != nil {
 		sanitizedErr = s.sanitizeErrorText(err.Error())
+	}
+
+	recovery := ""
+	if dirty || partial {
+		recovery = "LC does not roll back published paths. Re-read every path listed in files, including the failed path, from disk and reconcile manually. Do not replay a path whose verified state is true."
 	}
 
 	resolveCommitState := func() editing.CommitState {
@@ -658,39 +478,39 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 		if dirty || receipt.State != "" {
 			payload["commitState"] = resolveCommitState()
 			payload["dirtyFailure"] = dirty
-			payload["partialPublication"] = partialPublicationFlag(receipt, dirty)
+			payload["partialPublication"] = partial
 		}
-		if len(receipt.Files) > 0 && fLimit > 0 {
+		if recovery != "" {
+			payload["recovery"] = recovery
+		}
+		if len(orderedFiles) > 0 {
+			// Keep the key present in every state; truncation shrinks rows but never removes it.
+			if fLimit < 1 {
+				fLimit = 1
+			}
+			if fLimit > len(orderedFiles) {
+				fLimit = len(orderedFiles)
+			}
 			files := make([]toolFileState, 0, fLimit)
-			for _, rf := range receipt.Files[:fLimit] {
-				cleanP := s.sanitizeStructuredPath(rf.Path)
-				truncP := truncateUTF8Bytes(cleanP, pBytes)
-				cleanE := s.sanitizeErrorText(rf.Error)
-				truncE := truncateUTF8Bytes(cleanE, fErrBytes)
-				if truncP != cleanP || truncE != cleanE {
+			for _, rf := range orderedFiles[:fLimit] {
+				state, rowTrunc := s.receiptFileState(rf, byPath, pBytes, fErrBytes)
+				if rowTrunc {
 					wasTruncated = true
 				}
-				files = append(files, toolFileState{
-					Path:         truncP,
-					PublishState: rf.PublishState,
-					Published:    rf.Published,
-					RolledBack:   rf.RolledBack,
-					Wrote:        rf.Wrote,
-					Error:        truncE,
-				})
+				files = append(files, state)
 			}
 			payload["files"] = files
-			if omitted := len(receipt.Files) - fLimit; omitted > 0 {
+			if omitted := len(orderedFiles) - fLimit; omitted > 0 {
 				payload["filesOmitted"] = omitted
 				wasTruncated = true
 			}
-		} else if len(receipt.Files) > 0 {
-			payload["filesOmitted"] = len(receipt.Files)
-			wasTruncated = true
 		}
-		if len(result.Files) > 0 && pLimit > 0 {
+		if len(published) > 0 && pLimit > 0 {
+			if pLimit > len(published) {
+				pLimit = len(published)
+			}
 			pub := make([]editing.FileResult, 0, pLimit)
-			for _, pf := range result.Files[:pLimit] {
+			for _, pf := range published[:pLimit] {
 				cleanP := s.sanitizeStructuredPath(pf.Path)
 				pf.Path = truncateUTF8Bytes(cleanP, pBytes)
 				cleanE := s.sanitizeErrorText(pf.Error)
@@ -701,12 +521,12 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 				pub = append(pub, pf)
 			}
 			payload["publishedFiles"] = pub
-			if omitted := len(result.Files) - pLimit; omitted > 0 {
+			if omitted := len(published) - pLimit; omitted > 0 {
 				payload["publishedFilesOmitted"] = omitted
 				wasTruncated = true
 			}
-		} else if len(result.Files) > 0 {
-			payload["publishedFilesOmitted"] = len(result.Files)
+		} else if len(published) > 0 {
+			payload["publishedFilesOmitted"] = len(published)
 			wasTruncated = true
 		}
 		if wasTruncated {
@@ -725,7 +545,7 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 			diagTextLimit /= 2
 		case diagLimit > 0:
 			diagLimit--
-		case pubLimit > 0:
+		case pubLimit > 1:
 			pubLimit /= 2
 		case fileErrLimit > 0:
 			fileErrLimit /= 2
@@ -733,13 +553,14 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 			errLimit /= 2
 		case pathLimit > 64:
 			pathLimit /= 2
-		case fileLimit > 0:
+		case fileLimit > 1:
 			fileLimit /= 2
 		case errLimit > 64:
 			errLimit = 64
 		default:
 			// Safe explicit overflow envelope when extreme JSON/Unicode escaping prevents optional
-			// fields from fitting within maxPartialPayloadBytes (ADR-0024 R5-03).
+			// fields from fitting within maxPartialPayloadBytes (ADR-0024 R5-03). It still carries
+			// one files row for the failed path and explicit omission totals.
 			overflow := map[string]any{
 				"error":     truncateUTF8Bytes(sanitizedErr, 96),
 				"truncated": true,
@@ -754,13 +575,20 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 			if dirty || receipt.State != "" {
 				overflow["commitState"] = resolveCommitState()
 				overflow["dirtyFailure"] = dirty
-				overflow["partialPublication"] = partialPublicationFlag(receipt, dirty)
+				overflow["partialPublication"] = partial
 			}
-			if len(receipt.Files) > 0 {
-				overflow["filesOmitted"] = len(receipt.Files)
+			if recovery != "" {
+				overflow["recovery"] = recovery
 			}
-			if len(result.Files) > 0 {
-				overflow["publishedFilesOmitted"] = len(result.Files)
+			if len(orderedFiles) > 0 {
+				state, _ := s.receiptFileState(orderedFiles[0], byPath, 48, 32)
+				overflow["files"] = []toolFileState{state}
+				if omitted := len(orderedFiles) - 1; omitted > 0 {
+					overflow["filesOmitted"] = omitted
+				}
+			}
+			if len(published) > 0 {
+				overflow["publishedFilesOmitted"] = len(published)
 			}
 			fallbackRaw, _ := json.Marshal(overflow)
 			return string(fallbackRaw)
@@ -770,10 +598,34 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 	return string(raw)
 }
 
+// displayError carries a host-path-scrubbed message while preserving the original error chain, so
+// errors.Is/errors.As still classify a preflight or I/O failure that leaves a tool handler.
+type displayError struct {
+	msg string
+	err error
+}
+
+func (e *displayError) Error() string { return e.msg }
+func (e *displayError) Unwrap() error { return e.err }
+
+// sanitizeToolError scrubs host paths from a generic error before it leaves a tool handler through
+// the ordinary error return. Editing refusals render their own structured payload and are not
+// wrapped here; an unchanged message keeps the original error value.
+func (s *Set) sanitizeToolError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := s.sanitizeErrorText(err.Error())
+	if msg == err.Error() {
+		return err
+	}
+	return &displayError{msg: msg, err: err}
+}
+
 // editFailure renders a refusal as a tool result the model can act on: the full sanitized error
-// (preserving any joined rollback errors), its stable code, remediation, and bounded per-file
-// publication state. MutatesWorkspace stays false except where the engine entered publication or
-// cannot rule out a write.
+// (preserving any joined publication errors), its stable code, remediation, and bounded per-file
+// publication state for every receipt state. MutatesWorkspace stays false except where the engine
+// entered publication or cannot rule out a write.
 func (s *Set) editFailure(result editing.Result, receipt editing.CommitReceipt, err error) protocol.ToolResult {
 	dirty := receiptDirtyOrPublished(receipt)
 	editErr, ok := editing.AsError(err)
@@ -807,7 +659,7 @@ func (s *Set) commitOutcome(result editing.Result, receipt editing.CommitReceipt
 	if dirty || len(result.Files) > 0 || len(receipt.Files) > 0 {
 		content = s.formatCommitFailurePayload(result, receipt, err, nil)
 	}
-	return protocol.ToolResult{OK: false, Content: content, MutatesWorkspace: dirty}, err
+	return protocol.ToolResult{OK: false, Content: content, MutatesWorkspace: dirty}, s.sanitizeToolError(err)
 }
 
 // editResult renders a committed plan with sanitized paths and diagnostics.

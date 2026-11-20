@@ -42,7 +42,8 @@ func TestR5PartialPublicationPayloadAndBounds(t *testing.T) {
 			t.Fatalf("expected clean pre-publish error without mutation, got res=%+v err=%v", cleanRes, cleanErr)
 		}
 
-		// 1b: Clean multi-file rollback (a.txt creates, b.txt fails before publish -> a.txt rolled back).
+		// 1b: Published prefix stays (a.txt create lands, b.txt fails before publish): R7 does not
+		// roll a.txt back.
 		eng.SetPublishFaultHooks(editing.PublishFaultHooks{
 			BeforePublish: func(dst string) error {
 				if filepath.Base(dst) == "new_b.txt" {
@@ -59,19 +60,32 @@ func TestR5PartialPublicationPayloadAndBounds(t *testing.T) {
 		}, nil)
 		eng.SetPublishFaultHooks(editing.PublishFaultHooks{})
 		if rbErr == nil || !rbRes.MutatesWorkspace {
-			t.Fatalf("expected rollback failure with MutatesWorkspace=true, got res=%+v err=%v", rbRes, rbErr)
+			t.Fatalf("expected partial-prefix failure with MutatesWorkspace=true, got res=%+v err=%v", rbRes, rbErr)
 		}
 		var rbPayload map[string]any
 		if err := json.Unmarshal([]byte(rbRes.Content), &rbPayload); err != nil {
-			t.Fatalf("unmarshal rolled_back payload: %v (%s)", err, rbRes.Content)
+			t.Fatalf("unmarshal partial payload: %v (%s)", err, rbRes.Content)
 		}
-		if rbPayload["commitState"] != string(editing.CommitStateRolledBack) ||
+		if rbPayload["commitState"] != string(editing.CommitStatePartiallyPublished) ||
 			rbPayload["dirtyFailure"] != true ||
-			rbPayload["partialPublication"] != false {
-			t.Fatalf("unexpected rolled_back classification: %+v", rbPayload)
+			rbPayload["partialPublication"] != true {
+			t.Fatalf("unexpected partial-prefix classification: %+v", rbPayload)
+		}
+		if !strings.Contains(rbRes.Content, string(editing.PublishSucceededAndVerified)) ||
+			!strings.Contains(rbRes.Content, string(editing.PublishFailedBeforeWrite)) {
+			t.Fatalf("partial payload missing per-file states: %s", rbRes.Content)
+		}
+		if files, ok := rbPayload["publishedFiles"].([]any); !ok || len(files) != 1 {
+			t.Fatalf("publishedFiles must list only new_a.txt, got %+v", rbPayload["publishedFiles"])
 		}
 		if strings.Contains(rbRes.Content, root) || strings.Contains(rbRes.Content, "secret-a-body") {
 			t.Fatalf("payload leaked absolute path or file contents: %s", rbRes.Content)
+		}
+		if got, rerr := os.ReadFile(filepath.Join(root, "new_a.txt")); rerr != nil || string(got) != "secret-a-body\n" {
+			t.Fatalf("the published prefix was lost: %q err=%v", got, rerr)
+		}
+		if _, serr := os.Stat(filepath.Join(root, "new_b.txt")); !os.IsNotExist(serr) {
+			t.Fatalf("the failed create must not exist: %v", serr)
 		}
 
 		// 1c: Partial publication with external append before Close EIO on b.txt.
@@ -110,13 +124,15 @@ func TestR5PartialPublicationPayloadAndBounds(t *testing.T) {
 		if strings.Contains(partRes.Content, root) || strings.Contains(partRes.Content, "FOREIGN") {
 			t.Fatalf("partial payload leaked absolute path or disk contents: %s", partRes.Content)
 		}
-		if !strings.Contains(partRes.Content, "published_rolled_back") || !strings.Contains(partRes.Content, "external_modification_detected") {
+		if !strings.Contains(partRes.Content, string(editing.PublishSucceededAndVerified)) ||
+			!strings.Contains(partRes.Content, string(editing.PublishUncertain)) {
 			t.Fatalf("partial payload missing per-file states: %s", partRes.Content)
 		}
-		// Verify disk preserved foreign write on b.txt and rolled back a.txt.
+		// R7 preserves every published name: a.txt keeps its verified bytes and b.txt keeps the
+		// foreign append after the uncertain close.
 		gotA, _ := os.ReadFile(filepath.Join(root, "a.txt"))
 		gotB, _ := os.ReadFile(filepath.Join(root, "b.txt"))
-		if string(gotA) != "old-a\n" || string(gotB) != "new-b\nFOREIGN\n" {
+		if string(gotA) != "new-a\n" || string(gotB) != "new-b\nFOREIGN\n" {
 			t.Fatalf("disk mismatch: a=%q b=%q", gotA, gotB)
 		}
 	})

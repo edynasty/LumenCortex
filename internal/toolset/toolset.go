@@ -305,7 +305,7 @@ func builtinSpecs(interp shell.Interpreter, background bool) []protocol.ToolSpec
 		{Name: "list_dir", Description: "List a bounded number of entries in a workspace directory.", Permission: "read", Parameters: obj(map[string]any{"path": str()}, "path")},
 		{Name: "write_file", Description: "Create or replace a UTF-8 file. Refused when the file changed since this session read it; pass base_rev to name the revision.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "content": str(), "base_rev": str()}, "path", "content")},
 		{Name: "replace_in_file", Description: "Replace one exact text occurrence in a UTF-8 workspace file. Refused when the file changed since it was read.", Permission: "write", MutatesWorkspace: true, Parameters: obj(map[string]any{"path": str(), "old_text": str(), "new_text": str(), "base_rev": str()}, "path", "old_text", "new_text")},
-		{Name: "apply_patch", Description: "Apply a validated atomic batch of exact text edits, creates or deletes inside the workspace.", Permission: "write", MutatesWorkspace: true, Parameters: map[string]any{
+		{Name: "apply_patch", Description: "Apply a validated batch of exact text edits, creates or deletes inside the workspace. All paths are checked before writing; a later failure keeps the already published prefix and reports every path's state.", Permission: "write", MutatesWorkspace: true, Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{"patches": map[string]any{
 				"type": "array", "minItems": 1,

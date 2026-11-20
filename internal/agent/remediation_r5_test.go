@@ -146,10 +146,10 @@ func TestR5ResultPropagationAndResumeIntegrity(t *testing.T) {
 			t.Fatalf("loop.Run: res=%+v err=%v", res, err)
 		}
 
-		// 1. Disk integrity: a.txt rolled back, b.txt preserved foreign append.
+		// Settlement keeps the verified prefix and any foreign append on the failed path.
 		gotA, _ := os.ReadFile(filepath.Join(ws, "a.txt"))
 		gotB, _ := os.ReadFile(filepath.Join(ws, "b.txt"))
-		if string(gotA) != "old-a\n" || string(gotB) != "new-b\nFOREIGN\n" {
+		if string(gotA) != "new-a\n" || string(gotB) != "new-b\nFOREIGN\n" {
 			t.Fatalf("disk mismatch: a=%q b=%q", gotA, gotB)
 		}
 
@@ -177,7 +177,7 @@ func TestR5ResultPropagationAndResumeIntegrity(t *testing.T) {
 			payload["partialPublication"] != true {
 			t.Fatalf("persisted tool row missing partial publication classification: %+v", payload)
 		}
-		if !strings.Contains(toolMsg.Content, "published_rolled_back") || !strings.Contains(toolMsg.Content, "external_modification_detected") {
+		if !strings.Contains(toolMsg.Content, string(editing.PublishSucceededAndVerified)) || !strings.Contains(toolMsg.Content, string(editing.PublishUncertain)) {
 			t.Fatalf("persisted tool row missing per-file states: %s", toolMsg.Content)
 		}
 		if strings.Contains(toolMsg.Content, ws) || strings.Contains(toolMsg.Content, "FOREIGN") {
@@ -233,6 +233,50 @@ func TestR5ResultPropagationAndResumeIntegrity(t *testing.T) {
 		}
 		if !coldMatched {
 			t.Fatalf("cold SQLite Resume did not preserve identical partial publication tool message content")
+		}
+	})
+
+	t.Run("cancelled_multi_file_receipt_is_paired_without_replay", func(t *testing.T) {
+		const sid = "s-r7-cancel"
+		ctx, ws, dbPath, raw, st, eng, ts, repo := setupSession(t, sid)
+		stopped, cancel := context.WithCancel(ctx)
+		defer cancel()
+		eng.SetPublishFaultHooks(editing.PublishFaultHooks{AfterInPlaceWriteClose: func(dst string) error {
+			if filepath.Base(dst) == "a.txt" {
+				cancel()
+			}
+			return nil
+		}})
+		args := `{"patches":[{"path":"a.txt","operation":"update","edits":[{"old_text":"old-a","new_text":"new-a"}]},{"path":"b.txt","operation":"update","edits":[{"old_text":"old-b","new_text":"new-b"}]}]}`
+		prov := &scriptedProvider{responses: []protocol.ProviderResponse{toolStep(call("tc-cancel", "apply_patch", args))}}
+		res, runErr := (&Loop{Models: map[config.ModelRef]Model{ref: testModel(ref, prov)}, Tools: ts, Store: st, Snapshots: repo}).Run(stopped, sid, Options{Session: ref, RunID: "run-live", Resumed: true, MaxSteps: 2})
+		if res.Status != StatusInterrupted {
+			t.Fatalf("status=%v err=%v", res.Status, runErr)
+		}
+		for path, want := range map[string]string{"a.txt": "new-a\n", "b.txt": "old-b\n"} {
+			got, err := os.ReadFile(filepath.Join(ws, path))
+			if err != nil || string(got) != want {
+				t.Fatalf("%s=%q err=%v", path, got, err)
+			}
+		}
+		var rows int
+		if err := st.Transcript(ctx, sid, 0, func(_ int64, m protocol.Message) error {
+			if m.Role == "tool" && m.ToolCallID == "tc-cancel" {
+				rows++
+				if m.Origin != protocol.OriginToolInterrupted || !json.Valid([]byte(m.Content)) || !strings.Contains(m.Content, "partially_published") || !strings.Contains(m.Content, "not_attempted") {
+					t.Fatalf("interrupted receipt: %+v", m)
+				}
+			}
+			return nil
+		}); err != nil || rows != 1 {
+			t.Fatalf("paired rows=%d err=%v", rows, err)
+		}
+		if err := raw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		_, cold := assertLiveColdStreamParity(t, ctx, dbPath, sid)
+		if cold.PostBlockUnknownCount != 1 || cold.PostBlockProvenCount != 0 {
+			t.Fatalf("cold result: %+v", cold)
 		}
 	})
 

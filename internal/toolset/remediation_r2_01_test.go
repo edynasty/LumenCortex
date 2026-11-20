@@ -67,8 +67,11 @@ func TestR201WriteFileInPlaceForeignWriterRealRace(t *testing.T) {
 			stop.Store(true)
 			wg.Wait()
 			testHookBeforeOpen = nil
-			if execErr != nil {
-				t.Fatal(execErr)
+			// R7 may report a post-publication cleanup uncertainty (a private temp that cannot be
+			// proven ours is left as debris) as a non-OK result with an ordinary error. That is a
+			// reported failure, not data loss: the invariant checked below is the destination bytes.
+			if execErr != nil && result.OK {
+				t.Fatalf("inconsistent outcome: OK result with error: %v", execErr)
 			}
 			if result.OK {
 				okRuns++

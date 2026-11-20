@@ -26,11 +26,11 @@ const maxAnchorRows = 4000
 func (s *Set) readFile(_ context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	file, rel, err := s.resolve(fmt.Sprint(args["path"]), false)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	f, info, err := s.openRead(file)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	defer f.Close()
 	if !info.Mode().IsRegular() {
@@ -38,7 +38,7 @@ func (s *Set) readFile(_ context.Context, args map[string]any, _ func(protocol.T
 	}
 	raw, err := io.ReadAll(io.LimitReader(f, editing.MaxFileBytes+1))
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	complete := len(raw) <= editing.MaxFileBytes
 	if !complete {
@@ -101,11 +101,11 @@ func (s *Set) readFile(_ context.Context, args map[string]any, _ func(protocol.T
 func (s *Set) listDir(_ context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	dir, rel, err := s.resolve(fmt.Sprint(args["path"]), false)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	truncated := len(entries) > maxListEntries
 	if truncated {
@@ -129,10 +129,10 @@ func (s *Set) writeFile(ctx context.Context, args map[string]any, _ func(protoco
 	}
 	file, rel, err := s.resolve(fmt.Sprint(args["path"]), true)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	body := []byte(content)
 	result, receipt, err := s.commitPlan(ctx, editing.Plan{
@@ -156,11 +156,11 @@ func (s *Set) writeFile(ctx context.Context, args map[string]any, _ func(protoco
 func (s *Set) replaceFile(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	file, rel, err := s.resolve(fmt.Sprint(args["path"]), false)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	raw, err := s.readChecked(file)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	if len(raw) > maxEditBytes {
 		return protocol.ToolResult{}, errors.New("replace target exceeds 4 MiB limit")

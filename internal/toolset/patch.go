@@ -12,13 +12,14 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
-// applyPatch applies a validated atomic batch of exact text edits, creates and deletes. Every patch is
-// resolved and validated before anything is written, and the batch is committed through the editing
-// engine: one file's failure rolls back the files already written.
+// applyPatch applies a validated batch of exact text edits, creates and deletes. Every patch is
+// resolved and validated before anything is written, then the batch is committed through the editing
+// engine in canonical path order. A later failure keeps the already published prefix: R7 does not
+// roll it back, so the result reports every path's publication and verification state.
 func (s *Set) applyPatch(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	raw, err := json.Marshal(args["patches"])
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	var patches []patch
 	if err := json.Unmarshal(raw, &patches); err != nil {
@@ -34,7 +35,7 @@ func (s *Set) applyPatch(ctx context.Context, args map[string]any, _ func(protoc
 	for index, item := range patches {
 		file, relative, err := s.resolve(item.Path, item.Operation == "create")
 		if err != nil {
-			return protocol.ToolResult{}, err
+			return protocol.ToolResult{}, s.sanitizeToolError(err)
 		}
 		if seen[file] {
 			return protocol.ToolResult{}, fmt.Errorf("duplicate patch path: %s", relative)
@@ -55,11 +56,11 @@ func (s *Set) applyPatch(ctx context.Context, args map[string]any, _ func(protoc
 			}
 			original, err := s.readChecked(file)
 			if err != nil {
-				return protocol.ToolResult{}, err
+				return protocol.ToolResult{}, s.sanitizeToolError(err)
 			}
 			next, err := applyExactEdits(string(original), item.Edits, relative)
 			if err != nil {
-				return protocol.ToolResult{}, err
+				return protocol.ToolResult{}, s.sanitizeToolError(err)
 			}
 			if len(next) > maxEditBytes {
 				return protocol.ToolResult{}, fmt.Errorf("updated file exceeds 4 MiB limit: %s", relative)
@@ -74,7 +75,7 @@ func (s *Set) applyPatch(ctx context.Context, args map[string]any, _ func(protoc
 			if _, err := os.Lstat(file); err == nil {
 				return protocol.ToolResult{}, fmt.Errorf("create target already exists: %s", relative)
 			} else if !os.IsNotExist(err) {
-				return protocol.ToolResult{}, err
+				return protocol.ToolResult{}, s.sanitizeToolError(err)
 			}
 			if len(item.Content) > maxEditBytes {
 				return protocol.ToolResult{}, fmt.Errorf("create content exceeds 4 MiB limit: %s", relative)
@@ -88,13 +89,13 @@ func (s *Set) applyPatch(ctx context.Context, args map[string]any, _ func(protoc
 				return protocol.ToolResult{}, fmt.Errorf("delete target not found: %s", relative)
 			}
 			if info.Size() > maxEditBytes {
-				return protocol.ToolResult{}, fmt.Errorf("delete target exceeds 4 MiB rollback limit: %s", relative)
+				return protocol.ToolResult{}, fmt.Errorf("delete target exceeds 4 MiB edit limit: %s", relative)
 			}
 			// Capture the revision the patch was resolved against, so a concurrent write that lands
 			// between this check and the commit is refused as stale instead of being deleted.
 			original, err := s.readChecked(file)
 			if err != nil {
-				return protocol.ToolResult{}, err
+				return protocol.ToolResult{}, s.sanitizeToolError(err)
 			}
 			changes = append(changes, editing.FileChange{Path: file, BaseRev: editing.RevOf(original), Delete: true})
 			reported = append(reported, map[string]any{"path": relative, "operation": item.Operation, "bytes": 0})

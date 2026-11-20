@@ -324,18 +324,18 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 	result, toolErr := d.loop.Tools.Execute(toolCtx, name, args, nil)
 	// A tool cannot manufacture dispatcher-owned execution or provenance metadata.
 	result.ExecutionID, result.ExecutionOutcome, result.SourceSessions = "", "", nil
-	if toolErr != nil {
-		result.OK = false
-		result.Content = preserveErrorToolContent(result.Content, toolErr)
-	}
 	var sources []string
 	sourceComplete := true
 	if d.application {
 		sources, sourceComplete = resultSessions(name, d.sessionID, result)
-		if !sourceComplete {
-			result.OK, result.Interrupted = false, true
-			result.Content = toolErrorContent("nested result provenance is incomplete; content withheld")
-		}
+	}
+	if toolErr != nil {
+		result.OK = false
+		result.Content = preserveErrorToolContent(result.Content, toolErr)
+	}
+	if !sourceComplete {
+		result.OK, result.Interrupted = false, true
+		result.Content = toolErrorContent("nested result provenance is incomplete; content withheld")
 	}
 	postHook := d.loop.runHook(ctx, d.sessionID, d.runID, verifyEventAfterToolCall, HookRequest{
 		Step: d.step, ToolCallID: callID, ToolName: name, ToolArgs: args, ToolResult: &result,
@@ -363,7 +363,7 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 	if x != nil {
 		settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishTimeout)
 		defer cancel()
-		post, edges := d.loop.postExecution(settleCtx, x, result, toolErr, d.requestID, d.lineage)
+		post, edges := d.loop.postExecutionWithResultLineage(settleCtx, x, result, toolErr, d.requestID, d.lineage, sourceComplete)
 		if rec, ok := x.recorder.Receipt(); ok && receiptHasDirtyOrUncommittedPublish(rec) {
 			d.hadDirtyPublish = true
 			note := formatDirtyReceiptSummary(name, rec)
@@ -489,8 +489,14 @@ func appendHookFeedback(content, feedback string) string {
 	if feedback == "" {
 		return content
 	}
-	if len(feedback) > 1024 {
-		feedback = feedback[:1024] + "…"
+	feedback = truncateAgentUTF8(feedback, 1024)
+	var obj map[string]json.RawMessage
+	if json.Unmarshal([]byte(content), &obj) == nil && obj != nil && isCommitDisplay(obj) {
+		obj["hookFeedback"] = marshalJSONValue(feedback)
+		if raw, err := json.Marshal(obj); err == nil && len(raw) <= maxPreservedToolErrorBytes {
+			return string(raw)
+		}
+		return content // Optional feedback cannot displace the tool receipt or sources.
 	}
 	if strings.TrimSpace(content) == "" {
 		return "[hook] " + feedback
