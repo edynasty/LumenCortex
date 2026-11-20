@@ -140,16 +140,18 @@ func (s *memoryStore) ListAnsweredExecutions(_ context.Context, sessionID string
 			coverage = x.post.Coverage
 		}
 		out = append(out, session.AnsweredExecutionSummary{
-			AnsweredSeq:    seq,
-			RequestID:      x.admission.RequestID,
-			ExecutionID:    x.admission.ExecutionID,
-			ToolName:       x.admission.ToolName,
-			PreRef:         x.admission.PreRef,
-			PostRef:        postRef,
-			PreUnavailable: x.admission.PreUnavailable,
-			Coverage:       coverage,
-			Outcome:        outcome,
-			FileEdgeCount:  x.fileEdges,
+			AnsweredSeq:      seq,
+			RequestID:        x.admission.RequestID,
+			ExecutionID:      x.admission.ExecutionID,
+			ToolCallID:       x.admission.ToolCallID,
+			ParentToolCallID: x.admission.ParentToolCallID,
+			ToolName:         x.admission.ToolName,
+			PreRef:           x.admission.PreRef,
+			PostRef:          postRef,
+			PreUnavailable:   x.admission.PreUnavailable,
+			Coverage:         coverage,
+			Outcome:          outcome,
+			FileEdgeCount:    x.fileEdges,
 		})
 	}
 	slices.SortStableFunc(out, func(a, b session.AnsweredExecutionSummary) int {

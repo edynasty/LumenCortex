@@ -296,7 +296,7 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 			return deny("tool has side effects and cannot be admitted inside a cell; call it from the run")
 		}
 		var cause *ExitCause
-		if x, cause = d.loop.admitCallbackExecution(ctx, d.sessionID, d.runID, d.requestID, name, args, tier); cause != nil {
+		if x, cause = d.loop.admitCallbackExecution(ctx, d.sessionID, d.runID, d.requestID, callID, d.parentCall, name, args, tier); cause != nil {
 			return deny("admission failed: " + cause.Err.Error())
 		}
 		entry.ExecutionID = x.id
@@ -398,8 +398,9 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 }
 
 // admitCallbackExecution is admitExecution for a nested call: it takes the pre-state and records the
-// admission under a unique execution id, with the top-level request as the exposure it inherits.
-func (l *Loop) admitCallbackExecution(ctx context.Context, sessionID, runID, requestID, name string, args map[string]any, tier executionTier) (*execution, *ExitCause) {
+// admission under a unique execution id, preserving both the nested callID and originating top-level
+// parentCallID alongside the top-level request exposure it inherits (ADR-0024 R4-01).
+func (l *Loop) admitCallbackExecution(ctx context.Context, sessionID, runID, requestID, callID, parentCallID, name string, args map[string]any, tier executionTier) (*execution, *ExitCause) {
 	id, err := newExecutionID()
 	if err != nil {
 		return nil, &ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err}
@@ -425,6 +426,7 @@ func (l *Loop) admitCallbackExecution(ctx context.Context, sessionID, runID, req
 	raw, _ := json.Marshal(args)
 	a := session.ExecutionAdmission{
 		SessionID: sessionID, RunID: runID, ExecutionID: id, RequestID: requestID,
+		ToolCallID: callID, ParentToolCallID: parentCallID,
 		ToolName: name, ArgsDigest: digestOf(raw),
 	}
 	if tier != tierAdmit {

@@ -180,10 +180,13 @@ const (
 // MaxCausalProgressRefs bounds the post-gate causal execution refs retained in RepairContext.
 const MaxCausalProgressRefs = 8
 
-// CausalEvidenceRef records body-free persisted attribution for one causal tool group in a repair cycle.
+// CausalEvidenceRef records body-free persisted attribution for one causal tool execution in a repair cycle.
+// ParentToolCallID is non-empty when the execution ran as a nested callback inside a top-level eval /
+// apply_experience call (ADR-0024 R4-01).
 type CausalEvidenceRef struct {
 	AnsweredSeq      int64            `json:"answeredSeq"`
 	ToolCallID       string           `json:"toolCallId,omitempty"`
+	ParentToolCallID string           `json:"parentToolCallId,omitempty"`
 	ToolName         string           `json:"toolName,omitempty"`
 	ExecutionID      string           `json:"executionId,omitempty"`
 	PostRef          string           `json:"postRef,omitempty"`

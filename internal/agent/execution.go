@@ -253,7 +253,8 @@ func (l *Loop) admitExecution(ctx context.Context, sessionID string, opts Option
 	}
 	a := session.ExecutionAdmission{
 		SessionID: sessionID, RunID: opts.RunID, ExecutionID: id, RequestID: requestID,
-		ToolName: call.Name, ArgsDigest: digestOf(call.Arguments),
+		ToolCallID: call.ID,
+		ToolName:   call.Name, ArgsDigest: digestOf(call.Arguments),
 	}
 	if tier != tierAdmit {
 		if x.preOK {

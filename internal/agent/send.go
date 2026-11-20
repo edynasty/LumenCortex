@@ -160,6 +160,12 @@ func formatCausalEvidenceSummary(ref CausalEvidenceRef) string {
 		parts = append(parts, "exec="+ref.ExecutionID)
 	}
 	parts = append(parts, "evidence="+string(ref.MutationEvidence))
+	if ref.ToolCallID != "" {
+		parts = append(parts, "call="+ref.ToolCallID)
+	}
+	if ref.ParentToolCallID != "" {
+		parts = append(parts, "parent="+ref.ParentToolCallID)
+	}
 	return strings.Join(parts, " ")
 }
 

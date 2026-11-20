@@ -426,7 +426,8 @@ func TestF02MultiToolCallAttributionAndUserResetOnRealSQLite(t *testing.T) {
 	const shaB = "2222222222222222222222222222222222222222222222222222222222222222"
 	if err := store.AdmitExecution(ctx, session.ExecutionAdmission{
 		ExecutionID: "ex-m1-write", SessionID: sid, RunID: "run-m1", RequestID: "req-m1",
-		ToolName: "write_file", ArgsDigest: "sha256:" + shaA, PreRef: "files:1:sha256:" + shaA,
+		ToolCallID: "m1-write",
+		ToolName:   "write_file", ArgsDigest: "sha256:" + shaA, PreRef: "files:1:sha256:" + shaA,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -445,7 +446,8 @@ func TestF02MultiToolCallAttributionAndUserResetOnRealSQLite(t *testing.T) {
 
 	if err := store.AdmitExecution(ctx, session.ExecutionAdmission{
 		ExecutionID: "ex-m1-bash", SessionID: sid, RunID: "run-m1", RequestID: "req-m1",
-		ToolName: "bash", ArgsDigest: "sha256:" + shaA, PreRef: "ws:sha256:" + shaA,
+		ToolCallID: "m1-bash",
+		ToolName:   "bash", ArgsDigest: "sha256:" + shaA, PreRef: "ws:sha256:" + shaA,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +563,8 @@ func TestF02HistoryOverflowStreamsFromRealSQLite(t *testing.T) {
 	const sha = "3333333333333333333333333333333333333333333333333333333333333333"
 	if err := store.AdmitExecution(ctx, session.ExecutionAdmission{
 		ExecutionID: "ex-s0", SessionID: sid, RunID: "run-s1", RequestID: "req-s0",
-		ToolName: "bash", ArgsDigest: "sha256:" + sha, PreRef: "ws:sha256:" + sha,
+		ToolCallID: "s-tc-0",
+		ToolName:   "bash", ArgsDigest: "sha256:" + sha, PreRef: "ws:sha256:" + sha,
 	}); err != nil {
 		t.Fatal(err)
 	}

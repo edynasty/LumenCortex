@@ -97,7 +97,8 @@ func seedR204RangeOnRealSQLite(
 			exID := fmt.Sprintf("r204-ex-%d", g)
 			if err := st.AdmitExecution(ctx, session.ExecutionAdmission{
 				ExecutionID: exID, SessionID: sid, RunID: "run-r204", RequestID: reqID,
-				ToolName: toolName, ArgsDigest: "sha256:" + shaA, PreRef: preRef,
+				ToolCallID: tcID,
+				ToolName:   toolName, ArgsDigest: "sha256:" + shaA, PreRef: preRef,
 			}); err != nil {
 				t.Fatal(err)
 			}

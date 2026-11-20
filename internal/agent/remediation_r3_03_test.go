@@ -16,12 +16,13 @@ const (
 	r303ShaB = "2222222222222222222222222222222222222222222222222222222222222222"
 )
 
-// r303Exec builds a persisted execution summary whose deterministic classification is ev.
-func r303Exec(answeredSeq int64, id, tool string, ev MutationEvidence) session.AnsweredExecutionSummary {
+// r303Exec builds a persisted execution summary bound to callID whose deterministic classification is ev.
+func r303Exec(answeredSeq int64, callID, id, tool string, ev MutationEvidence) session.AnsweredExecutionSummary {
 	s := session.AnsweredExecutionSummary{
 		AnsweredSeq: answeredSeq,
 		RequestID:   "r303-req",
 		ExecutionID: id,
+		ToolCallID:  callID,
 		ToolName:    tool,
 		Outcome:     session.OutcomeComplete,
 		Coverage:    session.CoverageComplete,
@@ -64,12 +65,12 @@ func TestR303CausalRefBindsAllFieldsToOneToolCall(t *testing.T) {
 	call := func(id, name string) protocol.ToolCall {
 		return protocol.ToolCall{ID: id, Name: name, Arguments: json.RawMessage(`{}`)}
 	}
-	wProven := r303Exec(aSeq, "ex-w", "write_file", MutationProven)
-	wUnknown := r303Exec(aSeq, "ex-w", "write_file", MutationUnknown)
-	wNoop := r303Exec(aSeq, "ex-w1", "write_file", MutationNone)
-	w2Proven := r303Exec(aSeq, "ex-w2", "write_file", MutationProven)
-	rNone := r303Exec(aSeq, "ex-r", "read_file", MutationNone)
-	lNone := r303Exec(aSeq, "ex-l", "list_dir", MutationNone)
+	wProven := r303Exec(aSeq, "c-w", "ex-w", "write_file", MutationProven)
+	wUnknown := r303Exec(aSeq, "c-w", "ex-w", "write_file", MutationUnknown)
+	wNoop := r303Exec(aSeq, "c-w1", "ex-w1", "write_file", MutationNone)
+	w2Proven := r303Exec(aSeq, "c-w2", "ex-w2", "write_file", MutationProven)
+	rNone := r303Exec(aSeq, "c-r", "ex-r", "read_file", MutationNone)
+	lNone := r303Exec(aSeq, "c-l", "ex-l", "list_dir", MutationNone)
 
 	cases := []struct {
 		name  string
@@ -235,7 +236,8 @@ func TestR303GatedLedgerNamesTheExecutingCallLiveAndCold(t *testing.T) {
 	rLive.appendRow(rSeq, readRow)
 	if err := st.AdmitExecution(ctx, session.ExecutionAdmission{
 		ExecutionID: "ex-write", SessionID: sid, RunID: runID, RequestID: reqID,
-		ToolName: "write_file", ArgsDigest: "sha256:" + r303ShaA, PreRef: "files:1:sha256:" + r303ShaA,
+		ToolCallID: "c-write",
+		ToolName:   "write_file", ArgsDigest: "sha256:" + r303ShaA, PreRef: "files:1:sha256:" + r303ShaA,
 	}); err != nil {
 		t.Fatal(err)
 	}

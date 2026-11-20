@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -61,11 +62,66 @@ type ExecutionAdmission struct {
 	ExecutionID string
 	// RequestID is the envelope whose answer issued the tool call: the exposure the execution
 	// inherits.
-	RequestID      string
-	ToolName       string
-	ArgsDigest     string
-	PreRef         string
-	PreUnavailable bool
+	RequestID string
+	// ToolCallID is the originating tool call ID (assistant ToolCall.ID for top-level calls, or
+	// "<parentToolCallID>:cb<seq>" for nested callback calls). Empty only on legacy records.
+	ToolCallID string
+	// ParentToolCallID is the originating top-level assistant ToolCall.ID when this execution was
+	// admitted by a nested callback; empty for top-level tool calls.
+	ParentToolCallID string
+	ToolName         string
+	ArgsDigest       string
+	PreRef           string
+	PreUnavailable   bool
+}
+
+const (
+	execCallRefPrefix       = "call:"
+	execNestedCallRefPrefix = "nested:"
+	execOverflowCallRef     = "call~overflow"
+)
+
+func encodeExecutionCallRef(toolCallID, parentToolCallID string) string {
+	if toolCallID == "" && parentToolCallID == "" {
+		return ""
+	}
+	var encoded string
+	if parentToolCallID == "" {
+		encoded = execCallRefPrefix + url.PathEscape(toolCallID)
+	} else {
+		encoded = execNestedCallRefPrefix + url.PathEscape(parentToolCallID) + "/" + url.PathEscape(toolCallID)
+	}
+	if len(encoded) > MaxEdgeRefBytes {
+		return execOverflowCallRef
+	}
+	return encoded
+}
+
+func decodeExecutionCallRef(raw string) (toolCallID, parentToolCallID string) {
+	switch {
+	case raw == "" || raw == execOverflowCallRef:
+		return "", ""
+	case strings.HasPrefix(raw, execCallRefPrefix):
+		id, err := url.PathUnescape(strings.TrimPrefix(raw, execCallRefPrefix))
+		if err != nil {
+			return "", ""
+		}
+		return id, ""
+	case strings.HasPrefix(raw, execNestedCallRefPrefix):
+		rest := strings.TrimPrefix(raw, execNestedCallRefPrefix)
+		parentEsc, callEsc, ok := strings.Cut(rest, "/")
+		if !ok || parentEsc == "" || callEsc == "" {
+			return "", ""
+		}
+		parentID, err1 := url.PathUnescape(parentEsc)
+		callID, err2 := url.PathUnescape(callEsc)
+		if err1 != nil || err2 != nil {
+			return "", ""
+		}
+		return callID, parentID
+	default:
+		return "", ""
+	}
 }
 
 func (a ExecutionAdmission) validate() error {
@@ -76,6 +132,9 @@ func (a ExecutionAdmission) validate() error {
 	}
 	if err := checkOptionalID("run id", a.RunID); err != nil {
 		return err
+	}
+	if a.ParentToolCallID != "" && a.ToolCallID == "" {
+		return invalid("parent tool call id requires tool call id")
 	}
 	if a.ArgsDigest == "" {
 		return invalid("args digest is required")
@@ -98,6 +157,7 @@ func (s *Store) AdmitExecution(ctx context.Context, a ExecutionAdmission) error 
 	if err := a.validate(); err != nil {
 		return err
 	}
+	callRef := encodeExecutionCallRef(a.ToolCallID, a.ParentToolCallID)
 	return s.writeTx(ctx, func(conn *sql.Conn) error {
 		if err := sessionExists(ctx, conn, a.SessionID); err != nil {
 			return err
@@ -116,10 +176,10 @@ func (s *Store) AdmitExecution(ctx context.Context, a ExecutionAdmission) error 
 		}
 		at := now()
 		_, err := conn.ExecContext(ctx, `INSERT INTO derived_origins(
-			session_id, run_id, kind, target_ref, source_kind, source_ref, origin_class, lineage_complete,
+			session_id, run_id, kind, target_ref, source_kind, source_ref, origin_class, derived_from, lineage_complete,
 			execution_id, tool_name, args_digest, pre_ref, pre_unavailable, outcome, created_at, updated_at)
-			VALUES(?, ?, 'execution', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'admitted', ?, ?)`,
-			a.SessionID, nullString(a.RunID), a.ExecutionID, SourceRequest, a.RequestID, OriginToolExecution, boolInt(!a.PreUnavailable),
+			VALUES(?, ?, 'execution', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'admitted', ?, ?)`,
+			a.SessionID, nullString(a.RunID), a.ExecutionID, SourceRequest, a.RequestID, OriginToolExecution, nullString(callRef), boolInt(!a.PreUnavailable),
 			a.ExecutionID, a.ToolName, a.ArgsDigest, nullString(a.PreRef), boolInt(a.PreUnavailable), at, at)
 		return err
 	})
@@ -416,6 +476,7 @@ func settleExecution(ctx context.Context, q querier, sessionID string, x Executi
 // ExecutionRecord is the stored execution row.
 type ExecutionRecord struct {
 	ExecutionID, SessionID, RunID, RequestID, ToolName, ArgsDigest string
+	ToolCallID, ParentToolCallID                                   string
 	PreRef, PostRef                                                string
 	PreUnavailable                                                 bool
 	Coverage                                                       Coverage
@@ -427,12 +488,12 @@ type ExecutionRecord struct {
 // Execution returns one execution record, or ErrExecutionNotFound.
 func (s *Store) Execution(ctx context.Context, executionID string) (ExecutionRecord, error) {
 	var r ExecutionRecord
-	var created, updated string
+	var callRef, created, updated string
 	var pre, complete int
-	err := s.db.QueryRowContext(ctx, `SELECT execution_id, session_id, COALESCE(run_id,''), source_ref, tool_name, args_digest,
+	err := s.db.QueryRowContext(ctx, `SELECT execution_id, session_id, COALESCE(run_id,''), source_ref, COALESCE(derived_from,''), tool_name, args_digest,
 		COALESCE(pre_ref,''), COALESCE(post_ref,''), pre_unavailable, COALESCE(coverage,''), outcome, lineage_complete, created_at, updated_at
 		FROM derived_origins WHERE kind = 'execution' AND execution_id = ?`, executionID).Scan(
-		&r.ExecutionID, &r.SessionID, &r.RunID, &r.RequestID, &r.ToolName, &r.ArgsDigest,
+		&r.ExecutionID, &r.SessionID, &r.RunID, &r.RequestID, &callRef, &r.ToolName, &r.ArgsDigest,
 		&r.PreRef, &r.PostRef, &pre, &r.Coverage, &r.Outcome, &complete, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ExecutionRecord{}, ErrExecutionNotFound
@@ -440,29 +501,32 @@ func (s *Store) Execution(ctx context.Context, executionID string) (ExecutionRec
 	if err != nil {
 		return ExecutionRecord{}, err
 	}
+	r.ToolCallID, r.ParentToolCallID = decodeExecutionCallRef(callRef)
 	r.PreUnavailable, r.LineageComplete = pre == 1, complete == 1
 	r.CreatedAt, r.UpdatedAt = parseTime(created), parseTime(updated)
 	return r, nil
 }
 
 // AnsweredExecutionSummary is the read-only summary of one admitted execution belonging to an answered
-// main request at or after a transcript floor seq (ADR-0024 §4.6, §5.2).
+// main request at or after a transcript floor seq (ADR-0024 §4.6, §5.2, R4-01).
 type AnsweredExecutionSummary struct {
-	AnsweredSeq    int64
-	RequestID      string
-	ExecutionID    string
-	ToolName       string
-	PreRef         string
-	PostRef        string
-	PreUnavailable bool
-	Coverage       Coverage
-	Outcome        ExecutionOutcome
-	FileEdgeCount  int
+	AnsweredSeq      int64
+	RequestID        string
+	ExecutionID      string
+	ToolCallID       string
+	ParentToolCallID string
+	ToolName         string
+	PreRef           string
+	PostRef          string
+	PreUnavailable   bool
+	Coverage         Coverage
+	Outcome          ExecutionOutcome
+	FileEdgeCount    int
 }
 
 // ListAnsweredExecutions returns, in ascending answered_seq and admission order, every execution linked
-// to an answered request of sessionID whose answered_seq >= fromSeq, together with the count of file
-// edges recorded for that execution.
+// to an answered request of sessionID whose answered_seq >= fromSeq, together with its persisted tool-call
+// association and the count of file edges recorded for that execution.
 func (s *Store) ListAnsweredExecutions(ctx context.Context, sessionID string, fromSeq int64) ([]AnsweredExecutionSummary, error) {
 	if fromSeq < 0 {
 		fromSeq = 0
@@ -471,6 +535,7 @@ func (s *Store) ListAnsweredExecutions(ctx context.Context, sessionID string, fr
 		re.answered_seq,
 		re.request_id,
 		ex.execution_id,
+		COALESCE(ex.derived_from, ''),
 		ex.tool_name,
 		COALESCE(ex.pre_ref, ''),
 		COALESCE(ex.post_ref, ''),
@@ -498,11 +563,13 @@ func (s *Store) ListAnsweredExecutions(ctx context.Context, sessionID string, fr
 	var out []AnsweredExecutionSummary
 	for rows.Next() {
 		var r AnsweredExecutionSummary
+		var callRef string
 		var pre int
 		if err := rows.Scan(
 			&r.AnsweredSeq,
 			&r.RequestID,
 			&r.ExecutionID,
+			&callRef,
 			&r.ToolName,
 			&r.PreRef,
 			&r.PostRef,
@@ -513,6 +580,7 @@ func (s *Store) ListAnsweredExecutions(ctx context.Context, sessionID string, fr
 		); err != nil {
 			return nil, err
 		}
+		r.ToolCallID, r.ParentToolCallID = decodeExecutionCallRef(callRef)
 		r.PreUnavailable = pre == 1
 		out = append(out, r)
 	}
