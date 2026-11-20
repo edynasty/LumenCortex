@@ -98,11 +98,11 @@ func (s *Set) editLines(ctx context.Context, args map[string]any, _ func(protoco
 	}
 	snap, err := s.edit.SnapshotFor(s.actor(), file, rev)
 	if err != nil {
-		return editOutcome(err)
+		return s.editOutcome(err)
 	}
 	lineOps, err := editing.ParseOps(snap, ops)
 	if err != nil {
-		return editOutcome(err)
+		return s.editOutcome(err)
 	}
 	result, receipt, err := s.commitPlan(ctx, editing.Plan{
 		Host:     s,
@@ -112,7 +112,7 @@ func (s *Set) editLines(ctx context.Context, args map[string]any, _ func(protoco
 		Validate: validatorsFor(rel),
 	})
 	if err != nil {
-		return commitOutcome(result, receipt, err)
+		return s.commitOutcome(result, receipt, err)
 	}
 	file1 := result.Files[0]
 	extra := map[string]any{"path": rel, "rev": file1.NewRev, "applied": len(lineOps)}
@@ -197,7 +197,7 @@ func (s *Set) editGo(ctx context.Context, args map[string]any, _ func(protocol.T
 	}
 	plan, err := goedit.Plan(s, file, ops)
 	if err != nil {
-		return editOutcome(err)
+		return s.editOutcome(err)
 	}
 	preview := boolArg(args, "preview")
 	result, receipt, err := s.commitPlan(ctx, editing.Plan{
@@ -209,7 +209,7 @@ func (s *Set) editGo(ctx context.Context, args map[string]any, _ func(protocol.T
 		Preview:  preview,
 	})
 	if err != nil {
-		return commitOutcome(result, receipt, err)
+		return s.commitOutcome(result, receipt, err)
 	}
 	extra := map[string]any{"path": rel, "symbols": plan.Symbols, "notes": plan.Notes, "preview": preview}
 	if note := typeCheckNote(result.Diagnostics); note != "" {

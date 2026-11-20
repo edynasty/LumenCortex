@@ -106,9 +106,24 @@ type callbackDispatcher struct {
 	stop        *ExitCause
 	// mu serializes Call: an active call in a JavaScript kernel can dispatch several callbacks at
 	// once, and the dispatcher mutates the run's Spend and its own journal.
-	mu     sync.Mutex
-	seq    int
-	closed bool
+	mu              sync.Mutex
+	seq             int
+	closed          bool
+	partialNotes    []string
+	hadDirtyPublish bool
+}
+
+func (d *callbackDispatcher) dirtyPartialSummary() ([]string, bool) {
+	if d == nil {
+		return nil, false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.partialNotes) == 0 {
+		return nil, d.hadDirtyPublish
+	}
+	out := append([]string(nil), d.partialNotes...)
+	return out, d.hadDirtyPublish
 }
 
 // toolCallback binds the existing dispatcher for an eval or explicit Experience
@@ -311,7 +326,7 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 	result.ExecutionID, result.ExecutionOutcome, result.SourceSessions = "", "", nil
 	if toolErr != nil {
 		result.OK = false
-		result.Content = toolErrorContent(toolErr.Error())
+		result.Content = preserveErrorToolContent(result.Content, toolErr)
 	}
 	var sources []string
 	sourceComplete := true
@@ -349,6 +364,16 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 		settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishTimeout)
 		defer cancel()
 		post, edges := d.loop.postExecution(settleCtx, x, result, toolErr, d.requestID, d.lineage)
+		if rec, ok := x.recorder.Receipt(); ok && receiptHasDirtyOrUncommittedPublish(rec) {
+			d.hadDirtyPublish = true
+			note := formatDirtyReceiptSummary(name, rec)
+			if len(d.partialNotes) < maxNestedPartialNotes {
+				d.partialNotes = append(d.partialNotes, note)
+			}
+			if entry.Reason == "" {
+				entry.Reason = note
+			}
+		}
 		// Sources bind to the actual parent tool row, not an unmatched nested row.
 		edges = append(edges, d.loop.sessionSourceEdges(settleCtx, protocol.ToolCall{ID: d.parentCall, Name: name}, d.requestID, d.lineage, sources, sourceComplete)...)
 		var change *TaskStateChange

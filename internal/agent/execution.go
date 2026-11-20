@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -157,11 +158,161 @@ func receiptHasDirtyOrUncommittedPublish(r editing.CommitReceipt) bool {
 		return false
 	}
 	for _, f := range r.Files {
-		if f.Published || f.Wrote || f.PublishState == editing.PublishUncertain || f.PublishState == editing.PublishRolledBack {
+		if f.Published || f.Wrote ||
+			f.PublishState == editing.PublishUncertain ||
+			f.PublishState == editing.PublishRolledBack ||
+			f.PublishState == editing.PublishRollbackFailed ||
+			f.PublishState == editing.PublishExternalModification ||
+			f.PublishState == editing.PublishSucceededWithPostError {
 			return true
 		}
 	}
 	return false
+}
+
+const (
+	maxPreservedToolErrorBytes = 8192
+	maxNestedPartialNotes      = 8
+	maxNestedPartialNoteBytes  = 512
+	maxNestedPartialFiles      = 8
+)
+
+func truncateAgentUTF8(s string, maxBytes int) string {
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s
+	}
+	const ellipsis = "…"
+	if maxBytes <= len(ellipsis) {
+		return s[:maxBytes]
+	}
+	limit := maxBytes - len(ellipsis)
+	cut := 0
+	for i := range s {
+		if i > limit {
+			break
+		}
+		cut = i
+	}
+	for cut > 0 && !utf8.ValidString(s[:cut]) {
+		cut--
+	}
+	return s[:cut] + ellipsis
+}
+
+// preserveErrorToolContent preserves structured, bounded partial-publication or rollback failure
+// details already built by a tool when the tool also returned a non-nil error (ADR-0024 R4-02-D).
+func preserveErrorToolContent(existing string, err error) string {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	trimmed := strings.TrimSpace(existing)
+	if trimmed == "" {
+		return toolErrorContent(msg)
+	}
+	var obj map[string]any
+	if json.Unmarshal([]byte(trimmed), &obj) == nil && obj != nil {
+		if errText, ok := obj["error"].(string); ok && strings.TrimSpace(errText) != "" {
+			if len(trimmed) <= maxPreservedToolErrorBytes {
+				return trimmed
+			}
+			compact := map[string]any{
+				"error":     truncateAgentUTF8(errText, 1024),
+				"truncated": true,
+			}
+			for _, key := range []string{"commitState", "dirtyFailure", "partialPublication", "code", "path"} {
+				if v, exists := obj[key]; exists {
+					compact[key] = v
+				}
+			}
+			raw, _ := json.Marshal(compact)
+			return string(raw)
+		}
+		obj["error"] = truncateAgentUTF8(msg, 1024)
+		if raw, mErr := json.Marshal(obj); mErr == nil && len(raw) <= maxPreservedToolErrorBytes {
+			return string(raw)
+		}
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"error":   truncateAgentUTF8(msg, 1024),
+		"details": truncateAgentUTF8(trimmed, 2048),
+	})
+	return string(raw)
+}
+
+func formatDirtyReceiptSummary(toolName string, r editing.CommitReceipt) string {
+	partialPub := r.State == editing.CommitStatePartiallyPublished ||
+		r.State == editing.CommitStatePublishedWithPostError ||
+		r.State == editing.CommitStatePublicationUncertain ||
+		(r.State == "" && receiptHasDirtyOrUncommittedPublish(r))
+	state := r.State
+	if state == "" {
+		state = editing.CommitStatePublicationUncertain
+	}
+	var b strings.Builder
+	b.WriteString(toolName)
+	b.WriteString(" commitState=")
+	b.WriteString(string(state))
+	b.WriteString(" dirtyFailure=")
+	b.WriteString(strconv.FormatBool(r.DirtyFailure || receiptHasDirtyOrUncommittedPublish(r)))
+	b.WriteString(" partialPublication=")
+	b.WriteString(strconv.FormatBool(partialPub))
+	if len(r.Files) > 0 {
+		b.WriteString(" files=[")
+		limit := len(r.Files)
+		if limit > maxNestedPartialFiles {
+			limit = maxNestedPartialFiles
+		}
+		for i := 0; i < limit; i++ {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			rf := r.Files[i]
+			b.WriteString(filepath.ToSlash(rf.Path))
+			b.WriteString(":")
+			b.WriteString(string(rf.PublishState))
+		}
+		if len(r.Files) > limit {
+			b.WriteString(",...(+")
+			b.WriteString(strconv.Itoa(len(r.Files) - limit))
+			b.WriteString(")")
+		}
+		b.WriteString("]")
+	}
+	return truncateAgentUTF8(b.String(), maxNestedPartialNoteBytes)
+}
+
+func appendNestedPartialPublication(content string, notes []string) string {
+	if len(notes) == 0 {
+		return content
+	}
+	bounded := make([]string, 0, len(notes))
+	for i, n := range notes {
+		if i >= maxNestedPartialNotes {
+			break
+		}
+		if s := strings.TrimSpace(n); s != "" {
+			bounded = append(bounded, truncateAgentUTF8(s, maxNestedPartialNoteBytes))
+		}
+	}
+	if len(bounded) == 0 {
+		return content
+	}
+	trimmed := strings.TrimSpace(content)
+	if trimmed != "" {
+		var obj map[string]any
+		if json.Unmarshal([]byte(trimmed), &obj) == nil && obj != nil {
+			obj["nestedPartialPublications"] = bounded
+			if raw, err := json.Marshal(obj); err == nil && len(raw) <= maxPreservedToolErrorBytes {
+				return string(raw)
+			}
+		}
+	}
+	block := "[nested_partial_publication] " + strings.Join(bounded, "; ")
+	if trimmed == "" {
+		return block
+	}
+	return content + "\n\n" + block
 }
 
 // execution is an admitted call between AdmitExecution and CommitToolResult.

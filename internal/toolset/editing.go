@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/edynasty/LumenCortex/internal/editing"
 	"github.com/edynasty/LumenCortex/protocol"
@@ -174,74 +176,221 @@ func receiptWrote(r editing.CommitReceipt) bool {
 	return false
 }
 
+const (
+	maxPartialFilesInToolResult = 32
+	maxErrorBytesInToolResult   = 1024
+	maxFileErrorBytesInResult   = 256
+	maxPartialPayloadBytes      = 4096
+)
+
+type toolFileState struct {
+	Path         string               `json:"path"`
+	PublishState editing.PublishState `json:"publishState"`
+	Published    bool                 `json:"published"`
+	RolledBack   bool                 `json:"rolledBack"`
+	Wrote        bool                 `json:"wrote"`
+	Error        string               `json:"error,omitempty"`
+}
+
 func receiptDirtyOrPublished(r editing.CommitReceipt) bool {
 	if r.DirtyFailure {
 		return true
 	}
 	for _, f := range r.Files {
-		if f.Published || f.Wrote || f.PublishState == editing.PublishUncertain || f.PublishState == editing.PublishRolledBack {
+		if f.Published || f.Wrote ||
+			f.PublishState == editing.PublishUncertain ||
+			f.PublishState == editing.PublishRolledBack ||
+			f.PublishState == editing.PublishRollbackFailed ||
+			f.PublishState == editing.PublishExternalModification ||
+			f.PublishState == editing.PublishSucceededWithPostError {
 			return true
 		}
 	}
 	return false
 }
 
-// editFailure renders a refusal as a tool result the model can act on: the error, its stable code, and
-// the remediation. MutatesWorkspace stays false except where the engine entered publication or cannot
-// rule out a write.
-func editFailure(result editing.Result, receipt editing.CommitReceipt, err error) protocol.ToolResult {
+func partialPublicationFlag(r editing.CommitReceipt, dirty bool) bool {
+	switch r.State {
+	case editing.CommitStatePartiallyPublished,
+		editing.CommitStatePublishedWithPostError,
+		editing.CommitStatePublicationUncertain:
+		return true
+	case editing.CommitStatePrePublishFailure,
+		editing.CommitStateRolledBack,
+		editing.CommitStateCommitted:
+		return false
+	default:
+		return dirty
+	}
+}
+
+func truncateUTF8Bytes(s string, maxBytes int) string {
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s
+	}
+	const ellipsis = "…"
+	if maxBytes <= len(ellipsis) {
+		return s[:maxBytes]
+	}
+	limit := maxBytes - len(ellipsis)
+	cut := 0
+	for i := range s {
+		if i > limit {
+			break
+		}
+		cut = i
+	}
+	for cut > 0 && !utf8.ValidString(s[:cut]) {
+		cut--
+	}
+	return s[:cut] + ellipsis
+}
+
+func (s *Set) sanitizeErrorText(msg string) string {
+	if s == nil || msg == "" {
+		return msg
+	}
+	sep := string(filepath.Separator)
+	roots := []string{s.realWorkspace, s.workspace}
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		clean := filepath.Clean(root)
+		msg = strings.ReplaceAll(msg, clean+sep, "")
+		msg = strings.ReplaceAll(msg, filepath.ToSlash(clean)+"/", "")
+		msg = strings.ReplaceAll(msg, clean, ".")
+	}
+	return msg
+}
+
+func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.CommitReceipt, err error, editErr *editing.Error) string {
+	dirty := receiptDirtyOrPublished(receipt)
+	errLimit := maxErrorBytesInToolResult
+	fileLimit := len(receipt.Files)
+	if fileLimit > maxPartialFilesInToolResult {
+		fileLimit = maxPartialFilesInToolResult
+	}
+	pubLimit := len(result.Files)
+	if pubLimit > maxPartialFilesInToolResult {
+		pubLimit = maxPartialFilesInToolResult
+	}
+
+	build := func(errBytes, fLimit, pLimit int) []byte {
+		payload := map[string]any{
+			"error": truncateUTF8Bytes(s.sanitizeErrorText(err.Error()), errBytes),
+		}
+		if editErr != nil {
+			payload["code"] = editErr.Code
+			payload["hint"] = editErr.Hint()
+			payload["path"] = editErr.Path
+			payload["currentRev"] = editErr.CurrentRev
+			payload["holder"] = editErr.Holder
+			payload["diagnostics"] = editErr.Diagnostics
+		}
+		if dirty || receipt.State != "" {
+			state := receipt.State
+			if state == "" {
+				if dirty {
+					state = editing.CommitStatePublicationUncertain
+				} else {
+					state = editing.CommitStatePrePublishFailure
+				}
+			}
+			payload["commitState"] = state
+			payload["dirtyFailure"] = dirty
+			payload["partialPublication"] = partialPublicationFlag(receipt, dirty)
+		}
+		if len(receipt.Files) > 0 && fLimit > 0 {
+			files := make([]toolFileState, 0, fLimit)
+			for _, rf := range receipt.Files[:fLimit] {
+				files = append(files, toolFileState{
+					Path:         filepath.ToSlash(rf.Path),
+					PublishState: rf.PublishState,
+					Published:    rf.Published,
+					RolledBack:   rf.RolledBack,
+					Wrote:        rf.Wrote,
+					Error:        truncateUTF8Bytes(s.sanitizeErrorText(rf.Error), maxFileErrorBytesInResult),
+				})
+			}
+			payload["files"] = files
+			if omitted := len(receipt.Files) - fLimit; omitted > 0 {
+				payload["filesOmitted"] = omitted
+			}
+		} else if len(receipt.Files) > 0 {
+			payload["filesOmitted"] = len(receipt.Files)
+		}
+		if len(result.Files) > 0 && pLimit > 0 {
+			pub := make([]editing.FileResult, 0, pLimit)
+			for _, pf := range result.Files[:pLimit] {
+				pf.Path = filepath.ToSlash(pf.Path)
+				pf.Error = truncateUTF8Bytes(s.sanitizeErrorText(pf.Error), maxFileErrorBytesInResult)
+				pub = append(pub, pf)
+			}
+			payload["publishedFiles"] = pub
+			if omitted := len(result.Files) - pLimit; omitted > 0 {
+				payload["publishedFilesOmitted"] = omitted
+			}
+		} else if len(result.Files) > 0 {
+			payload["publishedFilesOmitted"] = len(result.Files)
+		}
+		raw, _ := json.Marshal(payload)
+		return raw
+	}
+
+	raw := build(errLimit, fileLimit, pubLimit)
+	for len(raw) > maxPartialPayloadBytes && (fileLimit > 0 || pubLimit > 0 || errLimit > 256) {
+		switch {
+		case pubLimit > 0:
+			pubLimit /= 2
+		case fileLimit > 0:
+			fileLimit /= 2
+		default:
+			errLimit /= 2
+		}
+		raw = build(errLimit, fileLimit, pubLimit)
+	}
+	return string(raw)
+}
+
+// editFailure renders a refusal as a tool result the model can act on: the full sanitized error
+// (preserving any joined rollback errors), its stable code, remediation, and bounded per-file
+// publication state. MutatesWorkspace stays false except where the engine entered publication or
+// cannot rule out a write.
+func (s *Set) editFailure(result editing.Result, receipt editing.CommitReceipt, err error) protocol.ToolResult {
 	dirty := receiptDirtyOrPublished(receipt)
 	editErr, ok := editing.AsError(err)
 	if !ok {
-		payload := map[string]any{"error": err.Error()}
-		if len(result.Files) > 0 {
-			payload["publishedFiles"] = result.Files
+		return protocol.ToolResult{
+			OK:               false,
+			Content:          s.formatCommitFailurePayload(result, receipt, err, nil),
+			MutatesWorkspace: dirty,
 		}
-		if receipt.State != "" {
-			payload["commitState"] = receipt.State
-		}
-		content, _ := json.Marshal(payload)
-		return protocol.ToolResult{OK: false, Content: string(content), MutatesWorkspace: dirty}
 	}
-	payload := map[string]any{
-		"error": editErr.Error(), "code": editErr.Code, "hint": editErr.Hint(),
-		"path": editErr.Path, "currentRev": editErr.CurrentRev, "holder": editErr.Holder,
-		"diagnostics": editErr.Diagnostics,
+	return protocol.ToolResult{
+		OK:               false,
+		Content:          s.formatCommitFailurePayload(result, receipt, err, editErr),
+		MutatesWorkspace: dirty || editErr.Code == editing.CodeConcurrentWrite,
 	}
-	if len(result.Files) > 0 {
-		payload["publishedFiles"] = result.Files
-	}
-	if receipt.State != "" && dirty {
-		payload["commitState"] = receipt.State
-	}
-	content, _ := json.Marshal(payload)
-	return protocol.ToolResult{OK: false, Content: string(content),
-		MutatesWorkspace: dirty || editErr.Code == editing.CodeConcurrentWrite}
 }
 
 // editOutcome is how a tool returns a pre-commit failure: a refusal the model can act on (an editing.Error)
 // becomes an OK:false result carrying its code and hint; anything else — a path guard refusal, an I/O
 // error — stays an error, so the caller's contract is unchanged.
-func editOutcome(err error) (protocol.ToolResult, error) {
-	return commitOutcome(editing.Result{}, editing.CommitReceipt{}, err)
+func (s *Set) editOutcome(err error) (protocol.ToolResult, error) {
+	return s.commitOutcome(editing.Result{}, editing.CommitReceipt{}, err)
 }
 
-func commitOutcome(result editing.Result, receipt editing.CommitReceipt, err error) (protocol.ToolResult, error) {
+func (s *Set) commitOutcome(result editing.Result, receipt editing.CommitReceipt, err error) (protocol.ToolResult, error) {
 	dirty := receiptDirtyOrPublished(receipt)
 	if _, ok := editing.AsError(err); ok {
-		return editFailure(result, receipt, err), nil
+		return s.editFailure(result, receipt, err), nil
 	}
 	var content string
-	if len(result.Files) > 0 {
-		if raw, mErr := json.Marshal(map[string]any{
-			"error":          err.Error(),
-			"commitState":    receipt.State,
-			"publishedFiles": result.Files,
-		}); mErr == nil {
-			content = string(raw)
-		}
+	if dirty || len(result.Files) > 0 || len(receipt.Files) > 0 {
+		content = s.formatCommitFailurePayload(result, receipt, err, nil)
 	}
-	return protocol.ToolResult{Content: content, MutatesWorkspace: dirty}, err
+	return protocol.ToolResult{OK: false, Content: content, MutatesWorkspace: dirty}, err
 }
 
 // editResult renders a committed plan.

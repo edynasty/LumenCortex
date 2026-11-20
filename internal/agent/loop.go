@@ -704,7 +704,15 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 						}
 						if toolErr != nil {
 							toolResult.OK = false
-							toolResult.Content = fmt.Sprintf(`{"error":%q}`, toolErr.Error())
+							toolResult.Content = preserveErrorToolContent(toolResult.Content, toolErr)
+						}
+						if cb != nil {
+							if notes, hadDirty := cb.dirtyPartialSummary(); len(notes) > 0 {
+								toolResult.Content = appendNestedPartialPublication(toolResult.Content, notes)
+								if hadDirty {
+									toolResult.MutatesWorkspace = true
+								}
+							}
 						}
 						if toolResult.MutatesWorkspace {
 							// A change to the workspace is a new obligation, whether or not the call succeeded.
