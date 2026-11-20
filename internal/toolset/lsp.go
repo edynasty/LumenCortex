@@ -190,7 +190,7 @@ func (s *Set) lspRename(ctx context.Context, args map[string]any, _ func(protoco
 			code, hint = editErr.Code, editErr.Hint()
 		}
 		content, _ := json.Marshal(map[string]any{
-			"error": err.Error(),
+			"error": s.sanitizeErrorText(err.Error()),
 			"code":  code,
 			"hint":  hint,
 		})

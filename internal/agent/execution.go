@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -178,12 +179,19 @@ const (
 )
 
 func truncateAgentUTF8(s string, maxBytes int) string {
-	if maxBytes <= 0 || len(s) <= maxBytes {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(s) <= maxBytes {
 		return s
 	}
 	const ellipsis = "…"
 	if maxBytes <= len(ellipsis) {
-		return s[:maxBytes]
+		cut := maxBytes
+		for cut > 0 && !utf8.ValidString(s[:cut]) {
+			cut--
+		}
+		return s[:cut]
 	}
 	limit := maxBytes - len(ellipsis)
 	cut := 0
@@ -199,8 +207,116 @@ func truncateAgentUTF8(s string, maxBytes int) string {
 	return s[:cut] + ellipsis
 }
 
+// protectedToolResultKeys lists all provenance, session-lineage, identifier, and commit-state
+// fields consumed by resultSessions / sessionResultEdges / cognitive runtime and repair gates.
+// Structured truncation NEVER drops these fields (ADR-0024 R5-02).
+var protectedToolResultKeys = map[string]bool{
+	"sourceSessions":       true,
+	"applicationId":        true,
+	"adoptionId":           true,
+	"nodeId":               true,
+	"experienceId":         true,
+	"sessionId":            true,
+	"id":                   true,
+	"withdrawn":            true,
+	"session":              true,
+	"node":                 true,
+	"messages":             true,
+	"children":             true,
+	"evidence":             true,
+	"hits":                 true,
+	"sources":              true,
+	"maintenanceSessionId": true,
+	"candidates":           true,
+	"state":                true,
+	"ok":                   true,
+	"error":                true,
+	"code":                 true,
+	"commitState":          true,
+	"dirtyFailure":         true,
+	"partialPublication":   true,
+	"path":                 true,
+	"hint":                 true,
+}
+
+func cloneRawJSONMap(src map[string]json.RawMessage) map[string]json.RawMessage {
+	dst := make(map[string]json.RawMessage, len(src)+4)
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func marshalJSONValue(v any) json.RawMessage {
+	raw, _ := json.Marshal(v)
+	return raw
+}
+
+// compactJSONObjectToBudget removes only non-protected bulk fields (largest first) and bounds any
+// oversized "error" string so the serialized JSON object stays valid and <= maxBytes whenever
+// protected provenance/identifier fields themselves fit within maxBytes (ADR-0024 R5-02).
+func compactJSONObjectToBudget(base map[string]json.RawMessage, maxBytes int) (map[string]json.RawMessage, bool) {
+	working := cloneRawJSONMap(base)
+	type candidateKey struct {
+		key  string
+		size int
+	}
+	var dropOrder []candidateKey
+	for k, v := range working {
+		if protectedToolResultKeys[k] ||
+			k == "nestedPartialPublications" ||
+			k == "nestedPartialPublicationsOmitted" ||
+			k == "nestedPartialPublicationsTruncated" ||
+			k == "truncated" ||
+			k == "omittedFields" {
+			continue
+		}
+		dropOrder = append(dropOrder, candidateKey{key: k, size: len(v)})
+	}
+	sort.Slice(dropOrder, func(i, j int) bool {
+		if dropOrder[i].size != dropOrder[j].size {
+			return dropOrder[i].size > dropOrder[j].size
+		}
+		return dropOrder[i].key < dropOrder[j].key
+	})
+
+	changed := false
+	var omitted []string
+	for _, cand := range dropOrder {
+		raw, err := json.Marshal(working)
+		if err == nil && len(raw) <= maxBytes {
+			break
+		}
+		delete(working, cand.key)
+		omitted = append(omitted, cand.key)
+		changed = true
+		working["truncated"] = json.RawMessage("true")
+	}
+	if len(omitted) > 0 {
+		sort.Strings(omitted)
+		withOmitted := cloneRawJSONMap(working)
+		withOmitted["omittedFields"] = marshalJSONValue(omitted)
+		if raw, err := json.Marshal(withOmitted); err == nil && len(raw) <= maxBytes {
+			working = withOmitted
+		}
+	}
+
+	// If still over budget and "error" is a long string, bound "error" without dropping provenance.
+	if raw, err := json.Marshal(working); err == nil && len(raw) > maxBytes {
+		if rawErr, ok := working["error"]; ok {
+			var errStr string
+			if json.Unmarshal(rawErr, &errStr) == nil && len(errStr) > 256 {
+				working["error"] = marshalJSONValue(truncateAgentUTF8(errStr, 256))
+				working["truncated"] = json.RawMessage("true")
+				changed = true
+			}
+		}
+	}
+	return working, changed
+}
+
 // preserveErrorToolContent preserves structured, bounded partial-publication or rollback failure
-// details already built by a tool when the tool also returned a non-nil error (ADR-0024 R4-02-D).
+// details already built by a tool when the tool also returned a non-nil error (ADR-0024 R4-02-D, R5-02).
 func preserveErrorToolContent(existing string, err error) string {
 	msg := ""
 	if err != nil {
@@ -210,27 +326,31 @@ func preserveErrorToolContent(existing string, err error) string {
 	if trimmed == "" {
 		return toolErrorContent(msg)
 	}
-	var obj map[string]any
-	if json.Unmarshal([]byte(trimmed), &obj) == nil && obj != nil {
-		if errText, ok := obj["error"].(string); ok && strings.TrimSpace(errText) != "" {
-			if len(trimmed) <= maxPreservedToolErrorBytes {
-				return trimmed
-			}
-			compact := map[string]any{
-				"error":     truncateAgentUTF8(errText, 1024),
-				"truncated": true,
-			}
-			for _, key := range []string{"commitState", "dirtyFailure", "partialPublication", "code", "path"} {
-				if v, exists := obj[key]; exists {
-					compact[key] = v
+	if strings.HasPrefix(trimmed, "{") && json.Valid([]byte(trimmed)) {
+		var rawObj map[string]json.RawMessage
+		if json.Unmarshal([]byte(trimmed), &rawObj) == nil && rawObj != nil {
+			hasNonEmptyErr := false
+			if rawErr, exists := rawObj["error"]; exists {
+				var errText string
+				if json.Unmarshal(rawErr, &errText) == nil && strings.TrimSpace(errText) != "" {
+					hasNonEmptyErr = true
 				}
 			}
-			raw, _ := json.Marshal(compact)
-			return string(raw)
-		}
-		obj["error"] = truncateAgentUTF8(msg, 1024)
-		if raw, mErr := json.Marshal(obj); mErr == nil && len(raw) <= maxPreservedToolErrorBytes {
-			return string(raw)
+			if hasNonEmptyErr && len(trimmed) <= maxPreservedToolErrorBytes {
+				return trimmed
+			}
+			if !hasNonEmptyErr {
+				rawObj = cloneRawJSONMap(rawObj)
+				rawObj["error"] = marshalJSONValue(truncateAgentUTF8(msg, 1024))
+				if raw, mErr := json.Marshal(rawObj); mErr == nil && len(raw) <= maxPreservedToolErrorBytes {
+					return string(raw)
+				}
+			}
+			compacted, _ := compactJSONObjectToBudget(rawObj, maxPreservedToolErrorBytes)
+			compacted["truncated"] = json.RawMessage("true")
+			if raw, mErr := json.Marshal(compacted); mErr == nil {
+				return string(raw)
+			}
 		}
 	}
 	raw, _ := json.Marshal(map[string]any{
@@ -282,37 +402,142 @@ func formatDirtyReceiptSummary(toolName string, r editing.CommitReceipt) string 
 	return truncateAgentUTF8(b.String(), maxNestedPartialNoteBytes)
 }
 
+// appendNestedPartialPublication attaches bounded nested partial-publication notes to a parent tool
+// result while strictly preserving JSON validity and all required provenance/identifier fields when
+// the parent result is JSON (ADR-0024 R5-02). Non-JSON text is used ONLY when the parent content is
+// not valid JSON.
 func appendNestedPartialPublication(content string, notes []string) string {
 	if len(notes) == 0 {
 		return content
 	}
-	bounded := make([]string, 0, len(notes))
-	for i, n := range notes {
-		if i >= maxNestedPartialNotes {
-			break
-		}
+	var cleaned []string
+	for _, n := range notes {
 		if s := strings.TrimSpace(n); s != "" {
-			bounded = append(bounded, truncateAgentUTF8(s, maxNestedPartialNoteBytes))
+			cleaned = append(cleaned, s)
 		}
 	}
-	if len(bounded) == 0 {
+	totalNotes := len(cleaned)
+	if totalNotes == 0 {
 		return content
 	}
+
+	buildBoundedNotes := func(countLimit, byteLimit int) []string {
+		if countLimit <= 0 || byteLimit <= 0 {
+			return nil
+		}
+		if countLimit > len(cleaned) {
+			countLimit = len(cleaned)
+		}
+		out := make([]string, 0, countLimit)
+		for _, s := range cleaned[:countLimit] {
+			out = append(out, truncateAgentUTF8(s, byteLimit))
+		}
+		return out
+	}
+
+	bounded := buildBoundedNotes(maxNestedPartialNotes, maxNestedPartialNoteBytes)
 	trimmed := strings.TrimSpace(content)
-	if trimmed != "" {
-		var obj map[string]any
-		if json.Unmarshal([]byte(trimmed), &obj) == nil && obj != nil {
-			obj["nestedPartialPublications"] = bounded
-			if raw, err := json.Marshal(obj); err == nil && len(raw) <= maxPreservedToolErrorBytes {
+
+	if trimmed != "" && json.Valid([]byte(trimmed)) {
+		var rawObj map[string]json.RawMessage
+		if strings.HasPrefix(trimmed, "{") && json.Unmarshal([]byte(trimmed), &rawObj) == nil && rawObj != nil {
+			tryEncodeWithNotes := func(base map[string]json.RawMessage, noteCount, noteBytes int, markTruncated bool) ([]byte, bool) {
+				cand := cloneRawJSONMap(base)
+				sub := buildBoundedNotes(noteCount, noteBytes)
+				if len(sub) > 0 {
+					cand["nestedPartialPublications"] = marshalJSONValue(sub)
+				} else {
+					delete(cand, "nestedPartialPublications")
+					cand["nestedPartialPublicationsTruncated"] = json.RawMessage("true")
+				}
+				if omitted := totalNotes - len(sub); omitted > 0 {
+					cand["nestedPartialPublicationsOmitted"] = marshalJSONValue(omitted)
+					cand["nestedPartialPublicationsTruncated"] = json.RawMessage("true")
+				} else if noteBytes < maxNestedPartialNoteBytes {
+					for _, orig := range cleaned[:len(sub)] {
+						if len(orig) > noteBytes {
+							cand["nestedPartialPublicationsTruncated"] = json.RawMessage("true")
+							break
+						}
+					}
+				}
+				if markTruncated {
+					cand["truncated"] = json.RawMessage("true")
+				}
+				raw, err := json.Marshal(cand)
+				if err != nil {
+					return nil, false
+				}
+				return raw, len(raw) <= maxPreservedToolErrorBytes
+			}
+
+			// 1. Fast path: full original JSON object + bounded notes fits <= 8192 bytes.
+			if raw, ok := tryEncodeWithNotes(rawObj, maxNestedPartialNotes, maxNestedPartialNoteBytes, false); ok {
+				return string(raw)
+			}
+
+			// 2. Shrink only the nested notes first so a near-limit parent JSON keeps all fields untouched.
+			for _, nc := range []int{4, 2, 1, 0} {
+				for _, nb := range []int{256, 128, 64} {
+					if nc == 0 && nb != 256 {
+						continue
+					}
+					if raw, ok := tryEncodeWithNotes(rawObj, nc, nb, false); ok {
+						return string(raw)
+					}
+				}
+			}
+
+			// 3. Parent JSON itself exceeds (or nearly exceeds) 8192 bytes: drop only non-protected
+			// bulk fields (such as "results"/"pad") while preserving all provenance/identifier keys.
+			compacted, _ := compactJSONObjectToBudget(rawObj, maxPreservedToolErrorBytes-256)
+			for _, nc := range []int{maxNestedPartialNotes, 4, 2, 1, 0} {
+				for _, nb := range []int{maxNestedPartialNoteBytes, 256, 128} {
+					if nc == 0 && nb != maxNestedPartialNoteBytes {
+						continue
+					}
+					if raw, ok := tryEncodeWithNotes(compacted, nc, nb, true); ok {
+						return string(raw)
+					}
+				}
+			}
+
+			// 4. Protected provenance fields alone exceed 8192 bytes: return valid JSON preserving
+			// every protected provenance field plus an explicit truncation indicator (never plain text).
+			minimal, _ := compactJSONObjectToBudget(rawObj, 0)
+			raw, _ := tryEncodeWithNotes(minimal, 1, 128, true)
+			if len(raw) > 0 {
 				return string(raw)
 			}
 		}
+
+		// Valid non-object JSON (array or scalar): keep valid JSON rather than appending plain text.
+		wrapped := map[string]any{
+			"result":                    json.RawMessage(trimmed),
+			"nestedPartialPublications": bounded,
+		}
+		if omitted := totalNotes - len(bounded); omitted > 0 {
+			wrapped["nestedPartialPublicationsOmitted"] = omitted
+		}
+		if raw, err := json.Marshal(wrapped); err == nil && len(raw) <= maxPreservedToolErrorBytes {
+			return string(raw)
+		}
+		fallback := map[string]any{
+			"truncated":                 true,
+			"nestedPartialPublications": buildBoundedNotes(2, 192),
+		}
+		if totalNotes > 2 {
+			fallback["nestedPartialPublicationsOmitted"] = totalNotes - 2
+		}
+		raw, _ := json.Marshal(fallback)
+		return string(raw)
 	}
+
 	block := "[nested_partial_publication] " + strings.Join(bounded, "; ")
 	if trimmed == "" {
-		return block
+		return truncateAgentUTF8(block, maxPreservedToolErrorBytes)
 	}
-	return content + "\n\n" + block
+	return truncateAgentUTF8(content+"\n\n"+block, maxPreservedToolErrorBytes)
 }
 
 // execution is an admitted call between AdmitExecution and CommitToolResult.
