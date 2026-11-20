@@ -131,14 +131,52 @@ type Plan struct {
 	Preview bool
 }
 
+// PublishState distinguishes file staging, destination publication, post-publication handle/identity
+// verification, uncertain mutation, and multi-file rollback without claiming file or directory fsync
+// crash durability (ADR-0024 R4-02).
+type PublishState string
+
+const (
+	PublishNone                   PublishState = "not_published"
+	PublishSucceededAndVerified   PublishState = "published_verified"
+	PublishSucceededWithPostError PublishState = "published_post_error"
+	PublishUncertain              PublishState = "publication_uncertain"
+	PublishRolledBack             PublishState = "published_rolled_back"
+)
+
+// CommitState distinguishes pre-publication failure, full commit, post-publication failure after
+// destination visibility, uncertain publication, and partial multi-file publication (ADR-0024 R4-02).
+// Committed means all planned mutations succeeded and passed in-process verification; it does not
+// claim file or directory fsync crash durability.
+type CommitState string
+
+const (
+	CommitStatePrePublishFailure      CommitState = "failed_before_publication"
+	CommitStateCommitted              CommitState = "committed"
+	CommitStatePublishedWithPostError CommitState = "published_with_post_error"
+	CommitStatePublicationUncertain   CommitState = "publication_uncertain"
+	CommitStatePartiallyPublished     CommitState = "partially_published"
+)
+
+type publishOutcome struct {
+	state        PublishState
+	published    bool
+	verified     bool
+	tempLeftover bool
+	id           fileIdentity
+}
+
 // FileResult is one file's outcome.
 type FileResult struct {
-	Path    string `json:"path"`
-	OldRev  string `json:"oldRev"`
-	NewRev  string `json:"newRev"`
-	Created bool   `json:"created,omitempty"`
-	Deleted bool   `json:"deleted,omitempty"`
-	Changed bool   `json:"changed"`
+	Path         string       `json:"path"`
+	OldRev       string       `json:"oldRev"`
+	NewRev       string       `json:"newRev"`
+	Created      bool         `json:"created,omitempty"`
+	Deleted      bool         `json:"deleted,omitempty"`
+	Changed      bool         `json:"changed"`
+	Published    bool         `json:"published,omitempty"`
+	RolledBack   bool         `json:"rolledBack,omitempty"`
+	PublishState PublishState `json:"publishState,omitempty"`
 	// Landed is where each line operation ended up in the new file, 1-based and inclusive, so a caller
 	// can render fresh anchors around the edit without re-reading the whole file.
 	Landed []LandedOp `json:"landed,omitempty"`
@@ -156,24 +194,33 @@ type Result struct {
 	Files       []FileResult `json:"files"`
 	Diffs       []string     `json:"diffs,omitempty"`
 	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
+	CommitState CommitState  `json:"commitState,omitempty"`
 }
 
-// FileCommitReceipt records the per-file causal write outcome of one Engine.Commit call (ADR-0024 §4.6).
+// FileCommitReceipt records the per-file causal write and publication outcome of one Engine.Commit
+// call (ADR-0024 §4.6, R4-02). Staged records private temp staging; Published records destination
+// visibility; Verified records post-publication handle/identity/close verification (not fsync).
 type FileCommitReceipt struct {
-	Path      string
-	AbsPath   string
-	Wrote     bool
-	Created   bool
-	Deleted   bool
-	OldSHA256 string
-	NewSHA256 string
+	Path         string
+	AbsPath      string
+	Staged       bool
+	Published    bool
+	Verified     bool
+	RolledBack   bool
+	Wrote        bool
+	PublishState PublishState
+	Created      bool
+	Deleted      bool
+	OldSHA256    string
+	NewSHA256    string
 }
 
 // CommitReceipt records whether Engine.Commit committed cleanly, whether a failure entered the disk
-// mutation window, and the sorted per-file receipts.
+// mutation or destination publication window, the explicit CommitState, and sorted per-file receipts.
 type CommitReceipt struct {
 	Committed    bool
 	DirtyFailure bool
+	State        CommitState
 	Files        []FileCommitReceipt
 }
 
@@ -241,13 +288,43 @@ type Engine struct {
 	// afterTruncate is a test fault hook invoked immediately after f.Truncate(0) inside writeCAS.
 	afterTruncate func(path string) error
 	// onRollback is a test fault hook invoked before restoring each file in rollback.
-	onRollback func(path string) error
+	onRollback     func(path string) error
+	publishHooksMu sync.RWMutex
+	publishHooks   PublishFaultHooks
+}
+
+// PublishFaultHooks provides deterministic fault injection around atomic file staging, publication,
+// post-publication Stat/Close/identity checks, and uncertain-publication paths (ADR-0024 R4-02).
+type PublishFaultHooks struct {
+	BeforePublish       func(dstPath string) error
+	ForceLinkFallback   func(dstPath string) error
+	PublishUncertainErr func(dstPath string) error
+	AfterLinkSuccess    func(dstPath string) error
+	AfterRenameSuccess  func(dstPath string) error
+	StatAfterPublish    func(dstPath string, f *os.File) (os.FileInfo, error)
+	CaptureIdentity     func(dstPath string, f *os.File) error
+	CloseAfterPublish   func(dstPath string) error
 }
 
 // SetTestFaultHooks installs deterministic fault-injection hooks for tests; pass nil, nil to clear.
 func (e *Engine) SetTestFaultHooks(afterTruncate, onRollback func(path string) error) {
 	e.afterTruncate = afterTruncate
 	e.onRollback = onRollback
+}
+
+// SetPublishFaultHooks installs deterministic atomic-publication fault hooks for tests; pass zero
+// PublishFaultHooks{} to clear.
+func (e *Engine) SetPublishFaultHooks(hooks PublishFaultHooks) {
+	e.publishHooksMu.Lock()
+	e.publishHooks = hooks
+	e.publishHooksMu.Unlock()
+}
+
+func (e *Engine) getPublishFaultHooks() PublishFaultHooks {
+	e.publishHooksMu.RLock()
+	hooks := e.publishHooks
+	e.publishHooksMu.RUnlock()
+	return hooks
 }
 
 // New builds an engine.
@@ -306,9 +383,66 @@ type prepared struct {
 	rebased  bool
 	moved    map[int]int
 	ops      []LineOp
-	// wrote records that the commit really wrote this file, so a no-op change emits no event.
-	wrote     bool
-	createdID fileIdentity
+	// wrote records that the commit really wrote this file (and did not roll it back), so a no-op
+	// change or rolled-back create emits no committed snapshot registration.
+	staged       bool
+	published    bool
+	verified     bool
+	rolledBack   bool
+	wrote        bool
+	publishState PublishState
+	createdID    fileIdentity
+}
+
+func buildFileCommitReceipt(p *prepared) FileCommitReceipt {
+	state := p.publishState
+	if state == "" {
+		state = PublishNone
+	}
+	return FileCommitReceipt{
+		Path:         filepath.ToSlash(p.rel),
+		AbsPath:      p.abs,
+		Staged:       p.staged,
+		Published:    p.published,
+		Verified:     p.verified,
+		RolledBack:   p.rolledBack,
+		Wrote:        p.wrote,
+		PublishState: state,
+		Created:      p.created,
+		Deleted:      p.deleted,
+		OldSHA256:    sha256Ref(p.original, p.existed),
+		NewSHA256:    sha256Ref(p.next, !p.deleted),
+	}
+}
+
+func classifyFailedCommitState(prep []*prepared, dirty bool) CommitState {
+	if !dirty {
+		return CommitStatePrePublishFailure
+	}
+	publishedCount := 0
+	uncertainCount := 0
+	postErrCount := 0
+	for _, p := range prep {
+		if p.published {
+			publishedCount++
+		}
+		switch p.publishState {
+		case PublishUncertain:
+			uncertainCount++
+		case PublishSucceededWithPostError:
+			postErrCount++
+		}
+	}
+	if len(prep) > 1 && publishedCount > 0 {
+		return CommitStatePartiallyPublished
+	}
+	if publishedCount > 0 && postErrCount > 0 && uncertainCount == 0 {
+		return CommitStatePublishedWithPostError
+	}
+	if publishedCount > 0 {
+		return CommitStatePartiallyPublished
+	}
+	return CommitStatePublicationUncertain
 }
 
 // Commit applies the plan: every file or none. It resolves and locks the paths, checks write leases,
@@ -317,9 +451,13 @@ type prepared struct {
 func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 	failClean := func(err error) (Result, error) {
 		if !plan.Preview {
-			RecordCommitReceipt(ctx, CommitReceipt{Committed: false, DirtyFailure: false})
+			RecordCommitReceipt(ctx, CommitReceipt{
+				Committed:    false,
+				DirtyFailure: false,
+				State:        CommitStatePrePublishFailure,
+			})
 		}
-		return Result{}, err
+		return Result{CommitState: CommitStatePrePublishFailure}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return failClean(err)
@@ -403,26 +541,43 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 	}
 	if _, dirty, err := e.write(host, plan, prep); err != nil {
 		release()
-		RecordCommitReceipt(ctx, CommitReceipt{Committed: false, DirtyFailure: dirty})
-		return Result{}, e.refuse(host, plan, nil, err)
+		for _, p := range prep {
+			if p.published || p.publishState == PublishUncertain || p.publishState == PublishRolledBack || p.wrote {
+				dirty = true
+			}
+		}
+		state := classifyFailedCommitState(prep, dirty)
+		receiptFiles := make([]FileCommitReceipt, 0, len(prep))
+		partial := Result{CommitState: state}
+		for _, p := range prep {
+			receiptFiles = append(receiptFiles, buildFileCommitReceipt(p))
+			if p.published && !p.rolledBack {
+				partial.Files = append(partial.Files, fileResult(p))
+				e.register(p, plan)
+				e.history.record(p)
+			}
+		}
+		sort.Slice(receiptFiles, func(i, j int) bool { return receiptFiles[i].Path < receiptFiles[j].Path })
+		if !dirty {
+			receiptFiles = nil
+		}
+		RecordCommitReceipt(ctx, CommitReceipt{
+			Committed:    false,
+			DirtyFailure: dirty,
+			State:        state,
+			Files:        receiptFiles,
+		})
+		return partial, e.refuse(host, plan, nil, err)
 	}
 	release()
-	result := Result{Diagnostics: diagnostics}
+	result := Result{Diagnostics: diagnostics, CommitState: CommitStateCommitted}
 	receiptFiles := make([]FileCommitReceipt, 0, len(prep))
 	for _, p := range prep {
 		// Every file of the plan is reported, changed or not, so a caller can read the current revision
 		// even when the edit was a no-op; only a file that was really written is registered and emits an
 		// event.
 		result.Files = append(result.Files, fileResult(p))
-		receiptFiles = append(receiptFiles, FileCommitReceipt{
-			Path:      filepath.ToSlash(p.rel),
-			AbsPath:   p.abs,
-			Wrote:     p.wrote,
-			Created:   p.created,
-			Deleted:   p.deleted,
-			OldSHA256: sha256Ref(p.original, p.existed),
-			NewSHA256: sha256Ref(p.next, !p.deleted),
-		})
+		receiptFiles = append(receiptFiles, buildFileCommitReceipt(p))
 		if !p.wrote {
 			continue
 		}
@@ -439,7 +594,12 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 		}
 	}
 	sort.Slice(receiptFiles, func(i, j int) bool { return receiptFiles[i].Path < receiptFiles[j].Path })
-	RecordCommitReceipt(ctx, CommitReceipt{Committed: true, DirtyFailure: false, Files: receiptFiles})
+	RecordCommitReceipt(ctx, CommitReceipt{
+		Committed:    true,
+		DirtyFailure: false,
+		State:        CommitStateCommitted,
+		Files:        receiptFiles,
+	})
 	return result, nil
 }
 
@@ -447,8 +607,11 @@ func fileResult(p *prepared) FileResult {
 	return FileResult{
 		Path: p.rel, OldRev: p.rev, NewRev: RevOf(p.next),
 		Created: p.created, Deleted: p.deleted,
-		Changed: p.created || p.deleted || RevOf(p.next) != p.rev,
-		Landed:  landedOps(p.ops),
+		Changed:      (p.created || p.deleted || RevOf(p.next) != p.rev) && !p.rolledBack,
+		Published:    p.published,
+		RolledBack:   p.rolledBack,
+		PublishState: p.publishState,
+		Landed:       landedOps(p.ops),
 	}
 }
 
@@ -722,27 +885,32 @@ func (e *Engine) validate(ctx context.Context, plan Plan, prep []*prepared) ([]D
 	return all, nil
 }
 
-// write applies the prepared content, all or none: a failure restores every file already written and
-// reports whether the commit had already entered the disk-mutation window.
+// write applies the prepared content, all or none: a failure restores every file already written in
+// a multi-file plan and reports whether the commit entered the disk-mutation or publication window.
 func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, bool, error) {
 	written := make([]*prepared, 0, len(prep))
 	for _, p := range prep {
+		p.publishState = PublishNone
 		if e.beforeWrite != nil {
 			e.beforeWrite(p.abs)
 		}
 		if p.deleted {
-			if err := e.deleteCAS(host, p); err != nil {
-				dirty := len(written) > 0
-				if dirty {
+			if dirtyDel, err := e.deleteCAS(host, p); err != nil {
+				dirty := dirtyDel || len(written) > 0
+				if len(written) > 0 {
 					e.rollback(host, written)
 				}
-				return nil, dirty, err
+				return written, dirty, err
 			}
+			p.published = true
+			p.verified = true
 			p.wrote = true
+			p.publishState = PublishSucceededAndVerified
 			written = append(written, p)
 			continue
 		}
 		if p.existed && !p.created && string(p.next) == string(p.original) {
+			p.verified = true
 			continue
 		}
 		createdParent := false
@@ -755,15 +923,21 @@ func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, boo
 				if len(written) > 0 {
 					e.rollback(host, written)
 				}
-				return nil, dirty, err
+				return written, dirty, err
 			}
 		}
 		if dirtyCAS, err := e.writeCAS(host, p); err != nil {
-			dirty := dirtyCAS || len(written) > 0 || createdParent
-			if len(written) > 0 {
+			dirty := dirtyCAS || p.published || len(written) > 0 || createdParent
+			if p.published {
+				written = append(written, p)
+			}
+			// In a multi-file plan, roll back all published files (including p if p published and then
+			// failed a post-publication step). In a single-file plan where p was already atomically
+			// published with validated bytes, never unlink the published destination (ADR-0024 R4-02).
+			if len(prep) > 1 && len(written) > 0 {
 				e.rollback(host, written)
 			}
-			return nil, dirty, err
+			return written, dirty, err
 		}
 		p.wrote = true
 		written = append(written, p)
@@ -773,35 +947,42 @@ func (e *Engine) write(host Host, plan Plan, prep []*prepared) ([]*prepared, boo
 
 // deleteCAS rechecks both bytes and descriptor identity before unlinking. In-process
 // writers are serialized; an uncooperative external writer can still race unlink.
-func (e *Engine) deleteCAS(host Host, p *prepared) error {
+func (e *Engine) deleteCAS(host Host, p *prepared) (bool, error) {
 	if _, _, err := host.Resolve(p.rel, false); err != nil {
-		return err
+		return false, err
 	}
 	f, err := host.Open(p.abs, false)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer f.Close()
 	current, err := readLimited(f, MaxFileBytes)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if rev := RevOf(current); rev != p.rev {
-		return &Error{Code: CodeConflict, Path: p.rel, Rev: p.rev, CurrentRev: rev,
+		return false, &Error{Code: CodeConflict, Path: p.rel, Rev: p.rev, CurrentRev: rev,
 			Detail: "delete target changed after validation; nothing was removed"}
 	}
 	opened, err := f.Stat()
 	if err != nil {
-		return err
+		return false, err
 	}
 	named, err := os.Lstat(p.abs)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !os.SameFile(opened, named) {
-		return &Error{Code: CodeConflict, Path: p.rel, Detail: "delete target identity changed"}
+		return false, &Error{Code: CodeConflict, Path: p.rel, Detail: "delete target identity changed"}
 	}
-	return os.Remove(p.abs)
+	if err := os.Remove(p.abs); err != nil {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
+			return false, err
+		}
+		p.publishState = PublishUncertain
+		return true, err
+	}
+	return false, nil
 }
 
 // writeCAS writes the prepared bytes only if the file still has the revision that was validated. The
@@ -819,12 +1000,20 @@ func (e *Engine) createAtomicNoReplace(stager AtomicFileStager, p *prepared) (bo
 		tmpFile, tmpPath, err = NewCreateTempFile(filepath.Dir(p.abs))
 	}
 	if err != nil {
+		p.publishState = PublishNone
 		return false, err
 	}
+	p.staged = true
 	abortTmp := func(cause error) (bool, error) {
 		closeErr := tmpFile.Close()
 		rmErr := os.Remove(tmpPath)
-		return rmErr != nil && !errors.Is(rmErr, os.ErrNotExist), errors.Join(cause, closeErr)
+		leftover := rmErr != nil && !errors.Is(rmErr, os.ErrNotExist)
+		if leftover {
+			p.publishState = PublishUncertain
+		} else {
+			p.publishState = PublishNone
+		}
+		return leftover, errors.Join(cause, closeErr)
 	}
 
 	if e.afterTruncate != nil {
@@ -851,19 +1040,34 @@ func (e *Engine) createAtomicNoReplace(stager AtomicFileStager, p *prepared) (bo
 			return abortTmp(err)
 		}
 	}
-	createdID, pubErr := publishTempNoReplace(tmpPath, tmpFile, p.abs)
-	if pubErr != nil {
-		if errors.Is(pubErr, os.ErrExist) {
-			return false, &Error{Code: CodeConflict, Path: p.rel,
-				Detail: "the file was created by another writer before commit; nothing was written"}
+	hooks := e.getPublishFaultHooks()
+	if hooks.BeforePublish != nil {
+		if err := hooks.BeforePublish(p.abs); err != nil {
+			return abortTmp(err)
 		}
-		if errors.Is(pubErr, errNoReplacePublishUnsupported) {
-			return false, &Error{Code: CodeUnsupportedFilesystem, Path: p.rel,
-				Detail: pubErr.Error() + ", so a new file cannot be published atomically; nothing was written"}
-		}
-		return false, pubErr
 	}
-	p.createdID = createdID
+	outcome, pubErr := publishTempNoReplace(tmpPath, tmpFile, p.abs, hooks)
+	p.publishState = outcome.state
+	p.published = outcome.published
+	p.verified = outcome.verified
+	if outcome.published {
+		p.wrote = true
+		p.createdID = outcome.id
+	}
+	if pubErr != nil {
+		if !outcome.published {
+			if errors.Is(pubErr, os.ErrExist) {
+				return outcome.tempLeftover, &Error{Code: CodeConflict, Path: p.rel,
+					Detail: "the file was created by another writer before commit; nothing was written"}
+			}
+			if errors.Is(pubErr, errNoReplacePublishUnsupported) {
+				return outcome.tempLeftover, &Error{Code: CodeUnsupportedFilesystem, Path: p.rel,
+					Detail: pubErr.Error() + ", so a new file cannot be published atomically; nothing was written"}
+			}
+		}
+		dirty := outcome.published || outcome.state == PublishUncertain || outcome.tempLeftover
+		return dirty, pubErr
+	}
 	return false, nil
 }
 
@@ -873,8 +1077,12 @@ func (e *Engine) writeCAS(host Host, p *prepared) (bool, error) {
 			ReplaceFile(path string, before, after []byte, existed bool) error
 		}); ok {
 			if err := replacer.ReplaceFile(p.abs, p.original, p.next, p.existed); err != nil {
+				p.publishState = PublishUncertain
 				return true, err
 			}
+			p.published = true
+			p.verified = true
+			p.publishState = PublishSucceededAndVerified
 			return false, nil
 		}
 	}
@@ -912,6 +1120,7 @@ func (e *Engine) writeCAS(host Host, p *prepared) (bool, error) {
 	// external writer wrote into this inode before we wrote anything — preserve their data untouched!
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		if create {
+			p.publishState = PublishUncertain
 			_, closeErr := removeCreatedWhileOpen(p.abs, f, createdID, nil)
 			return true, errors.Join(err, closeErr)
 		}
@@ -919,6 +1128,10 @@ func (e *Engine) writeCAS(host Host, p *prepared) (bool, error) {
 	}
 	current, err := readLimited(f, MaxFileBytes)
 	if err != nil {
+		if create {
+			p.publishState = PublishUncertain
+			return true, errors.Join(err, f.Close())
+		}
 		return false, errors.Join(err, f.Close())
 	}
 	if rev := RevOf(current); rev != p.rev {
@@ -929,6 +1142,7 @@ func (e *Engine) writeCAS(host Host, p *prepared) (bool, error) {
 	// Only clean pre-write failures where the inode is still provably 0-byte and unmodified by
 	// any external writer may unlink; post-Write / concurrent-write failures NEVER unlink!
 	failPreWrite := func(err error) (bool, error) {
+		p.publishState = PublishUncertain
 		if create {
 			_, closeErr := removeCreatedWhileOpen(p.abs, f, createdID, nil)
 			return true, errors.Join(err, closeErr)
@@ -953,31 +1167,41 @@ func (e *Engine) writeCAS(host Host, p *prepared) (bool, error) {
 		return failPreWrite(err)
 	}
 	if _, err := f.Write(p.next); err != nil {
+		p.publishState = PublishUncertain
 		return true, errors.Join(err, f.Close())
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		p.publishState = PublishUncertain
 		return true, errors.Join(err, f.Close())
 	}
 	after, err := readLimited(f, MaxFileBytes)
 	if err != nil {
+		p.publishState = PublishUncertain
 		return true, errors.Join(err, f.Close())
 	}
 	if !bytes.Equal(after, p.next) {
+		p.publishState = PublishUncertain
 		return true, errors.Join(&Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: RevOf(after),
 			Detail: "another writer changed the file during the write"}, f.Close())
 	}
+	p.published = true
+	p.wrote = true
 	if create {
 		if postID, idErr := captureFileIdentity(f); idErr == nil {
 			p.createdID = postID
 		}
 	}
 	if err := f.Close(); err != nil {
+		p.publishState = PublishSucceededWithPostError
 		return true, err
 	}
+	p.verified = true
+	p.publishState = PublishSucceededAndVerified
 	return false, nil
 }
 
-// rollback restores the files already written, newest first.
+// rollback restores the files already written, newest first, without unlinking created files that
+// have been modified or replaced externally.
 func (e *Engine) rollback(host Host, written []*prepared) {
 	for i := len(written) - 1; i >= 0; i-- {
 		p := written[i]
@@ -990,21 +1214,36 @@ func (e *Engine) rollback(host Host, written []*prepared) {
 			if err := e.writeRestore(host, p.abs, p.original, true); err != nil {
 				continue
 			}
+			p.rolledBack = true
+			p.wrote = false
+			p.publishState = PublishRolledBack
 			continue
 		}
 		if p.created {
-			_ = removeCreatedAtRollback(p.abs, p.createdID, p.next)
+			if removeCreatedAtRollback(p.abs, p.createdID, p.next) {
+				p.rolledBack = true
+				p.wrote = false
+				p.publishState = PublishRolledBack
+			}
 			continue
 		}
 		if p.change.Binary {
 			if replacer, ok := host.(interface {
 				ReplaceFile(path string, before, after []byte, existed bool) error
 			}); ok {
-				_ = replacer.ReplaceFile(p.abs, p.next, p.original, true)
+				if err := replacer.ReplaceFile(p.abs, p.next, p.original, true); err == nil {
+					p.rolledBack = true
+					p.wrote = false
+					p.publishState = PublishRolledBack
+				}
 				continue
 			}
 		}
-		_ = e.writeRestore(host, p.abs, p.original, false)
+		if err := e.writeRestore(host, p.abs, p.original, false); err == nil {
+			p.rolledBack = true
+			p.wrote = false
+			p.publishState = PublishRolledBack
+		}
 	}
 }
 

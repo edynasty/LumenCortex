@@ -149,6 +149,21 @@ func (c *commitRecorder) Receipt() (editing.CommitReceipt, bool) {
 	return c.receipt, c.has
 }
 
+func receiptHasDirtyOrUncommittedPublish(r editing.CommitReceipt) bool {
+	if r.DirtyFailure {
+		return true
+	}
+	if r.Committed {
+		return false
+	}
+	for _, f := range r.Files {
+		if f.Published || f.Wrote || f.PublishState == editing.PublishUncertain || f.PublishState == editing.PublishRolledBack {
+			return true
+		}
+	}
+	return false
+}
+
 // execution is an admitted call between AdmitExecution and CommitToolResult.
 type execution struct {
 	id             string
@@ -307,8 +322,9 @@ func (l *Loop) postExecution(ctx context.Context, x *execution, result protocol.
 	case tierWorkspace:
 		changed, post.PostRef, post.Coverage = l.postWorkspace(sctx, x)
 	}
+	dirtyReceipt := receiptHasDirtyOrUncommittedPublish(receipt)
 	switch {
-	case receipt.DirtyFailure:
+	case dirtyReceipt:
 		post.Outcome = session.OutcomeUnknown
 	case toolErr == nil && result.OK:
 		post.Outcome = session.OutcomeComplete
@@ -466,7 +482,7 @@ func sealFilesMutation(
 	hasReceipt bool,
 	sandwichOK bool,
 ) string {
-	if receipt.DirtyFailure ||
+	if receiptHasDirtyOrUncommittedPublish(receipt) ||
 		outcome != session.OutcomeComplete ||
 		x.preUnavailable ||
 		!hasPositiveFilesSnapshotRef(x.preRef) ||

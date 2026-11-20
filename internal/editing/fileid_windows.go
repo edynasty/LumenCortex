@@ -151,24 +151,173 @@ func moveFileNoReplaceWindows(tmpPath, dstPath string) error {
 	return nil
 }
 
-// publishTempNoReplace closes tmpFile and publishes tmpPath to dstPath via Win32 MoveFileExW with
-// dwFlags=0 (no-replace), removing only tmpPath if publication fails and never touching dstPath.
-func publishTempNoReplace(tmpPath string, tmpFile *os.File, dstPath string) (fileIdentity, error) {
-	if closeErr := tmpFile.Close(); closeErr != nil {
-		_ = os.Remove(tmpPath)
-		return fileIdentity{}, closeErr
+const (
+	winErrFileNotFound  = syscall.Errno(2)
+	winErrPathNotFound  = syscall.Errno(3)
+	winErrAccessDenied  = syscall.Errno(5)
+	winErrNotSameDevice = syscall.Errno(17)
+	winErrWriteProtect  = syscall.Errno(19)
+	winErrDiskFull      = syscall.Errno(112)
+	winErrInvalidName   = syscall.Errno(123)
+	winErrFilenameExced = syscall.Errno(206)
+)
+
+func isCleanPrePublishErrWindows(err error) bool {
+	return errors.Is(err, os.ErrExist) ||
+		errors.Is(err, errNoReplacePublishUnsupported) ||
+		errors.Is(err, os.ErrPermission) ||
+		errors.Is(err, winErrFileExists) ||
+		errors.Is(err, winErrAlreadyExists) ||
+		errors.Is(err, winErrFileNotFound) ||
+		errors.Is(err, winErrPathNotFound) ||
+		errors.Is(err, winErrAccessDenied) ||
+		errors.Is(err, winErrNotSameDevice) ||
+		errors.Is(err, winErrWriteProtect) ||
+		errors.Is(err, winErrDiskFull) ||
+		errors.Is(err, winErrInvalidName) ||
+		errors.Is(err, winErrFilenameExced)
+}
+
+func capturePostPublishIdentityWindows(dstPath string, f *os.File, hooks PublishFaultHooks) (fileIdentity, error, bool) {
+	if f == nil {
+		return fileIdentity{}, errors.New("nil file descriptor"), false
 	}
-	if err := moveFileNoReplaceWindows(tmpPath, dstPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fileIdentity{}, err
+	var (
+		info os.FileInfo
+		err  error
+	)
+	if hooks.StatAfterPublish != nil {
+		info, err = hooks.StatAfterPublish(dstPath, f)
+	} else {
+		info, err = f.Stat()
 	}
-	rf, err := os.Open(dstPath)
 	if err != nil {
-		return fileIdentity{}, nil
+		if hooks.CaptureIdentity != nil {
+			if cerr := hooks.CaptureIdentity(dstPath, f); cerr != nil {
+				return fileIdentity{}, errors.Join(err, cerr), true
+			}
+		}
+		return fileIdentity{}, err, false
 	}
-	id, _ := captureFileIdentity(rf)
-	_ = rf.Close()
-	return id, nil
+	if !info.Mode().IsRegular() {
+		return fileIdentity{}, fmt.Errorf("exclusively created target is not a regular file (mode=%v)", info.Mode()), false
+	}
+	if hooks.CaptureIdentity != nil {
+		if cerr := hooks.CaptureIdentity(dstPath, f); cerr != nil {
+			return fileIdentity{}, cerr, true
+		}
+	}
+	var d syscall.ByHandleFileInformation
+	if err := syscall.GetFileInformationByHandle(syscall.Handle(f.Fd()), &d); err != nil {
+		return fileIdentity{}, err, false
+	}
+	if d.FileAttributes&(syscall.FILE_ATTRIBUTE_DIRECTORY|windowsAttrReparsePoint) != 0 {
+		return fileIdentity{}, fmt.Errorf("exclusively created target has directory or reparse attributes (0x%x)", d.FileAttributes), false
+	}
+	return fileIdentity{
+		valid:         true,
+		info:          info,
+		volSerial:     d.VolumeSerialNumber,
+		idxHigh:       d.FileIndexHigh,
+		idxLow:        d.FileIndexLow,
+		creationTime:  d.CreationTime,
+		lastWriteTime: d.LastWriteTime,
+	}, nil, false
+}
+
+// publishTempNoReplace closes tmpFile and publishes tmpPath to dstPath via Win32 MoveFileExW with
+// dwFlags=0 (no-replace), removing only tmpPath if publication fails and never unlinking dstPath on
+// single-file post-publication error (ADR-0024 R4-02).
+func publishTempNoReplace(tmpPath string, tmpFile *os.File, dstPath string, hooks PublishFaultHooks) (publishOutcome, error) {
+	removeTmp := func() bool {
+		rmErr := os.Remove(tmpPath)
+		return rmErr != nil && !errors.Is(rmErr, os.ErrNotExist)
+	}
+
+	preID, _ := captureFileIdentity(tmpFile)
+	if closeErr := tmpFile.Close(); closeErr != nil {
+		leftover := removeTmp()
+		if leftover {
+			return publishOutcome{state: PublishUncertain, tempLeftover: true}, closeErr
+		}
+		return publishOutcome{state: PublishNone}, closeErr
+	}
+	var moveErr error
+	if hooks.PublishUncertainErr != nil {
+		moveErr = hooks.PublishUncertainErr(dstPath)
+	} else {
+		moveErr = moveFileNoReplaceWindows(tmpPath, dstPath)
+	}
+	if moveErr != nil {
+		leftover := removeTmp()
+		if preID.valid && pathMatchesIdentity(dstPath, preID, false) {
+			return publishOutcome{
+				state:        PublishSucceededWithPostError,
+				published:    true,
+				verified:     false,
+				tempLeftover: leftover,
+				id:           preID,
+			}, moveErr
+		}
+		if isCleanPrePublishErrWindows(moveErr) && !leftover {
+			return publishOutcome{state: PublishNone}, moveErr
+		}
+		return publishOutcome{state: PublishUncertain, tempLeftover: leftover}, moveErr
+	}
+
+	// Destination publication via MoveFileExW has irrevocably succeeded.
+	var hookErr error
+	if hooks.AfterRenameSuccess != nil {
+		hookErr = hooks.AfterRenameSuccess(dstPath)
+	} else if hooks.AfterLinkSuccess != nil {
+		hookErr = hooks.AfterLinkSuccess(dstPath)
+	}
+
+	rf, openErr := os.Open(dstPath)
+	var (
+		postID          fileIdentity
+		idErr           error
+		idFaultInjected bool
+		closeErr        error
+	)
+	if openErr != nil {
+		idErr = openErr
+		if hooks.CaptureIdentity != nil {
+			if cerr := hooks.CaptureIdentity(dstPath, nil); cerr != nil {
+				idErr = errors.Join(idErr, cerr)
+				idFaultInjected = true
+			}
+		}
+	} else {
+		postID, idErr, idFaultInjected = capturePostPublishIdentityWindows(dstPath, rf, hooks)
+		closeErr = rf.Close()
+	}
+	if hooks.CloseAfterPublish != nil {
+		closeErr = errors.Join(closeErr, hooks.CloseAfterPublish(dstPath))
+	}
+	finalID := postID
+	if idErr != nil {
+		if idFaultInjected {
+			finalID = fileIdentity{}
+		} else if preID.valid {
+			finalID = preID
+		}
+	}
+	postErr := errors.Join(hookErr, idErr, closeErr)
+	if postErr != nil {
+		return publishOutcome{
+			state:     PublishSucceededWithPostError,
+			published: true,
+			verified:  false,
+			id:        finalID,
+		}, postErr
+	}
+	return publishOutcome{
+		state:     PublishSucceededAndVerified,
+		published: true,
+		verified:  true,
+		id:        finalID,
+	}, nil
 }
 
 func removeCreatedWhileOpen(path string, f *os.File, id fileIdentity, expectedContent []byte) (bool, error) {

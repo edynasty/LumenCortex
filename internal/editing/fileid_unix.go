@@ -93,33 +93,163 @@ var (
 	renameNoReplaceForPublish = renameNoReplacePlatform
 )
 
+func isCleanPrePublishErr(err error) bool {
+	return errors.Is(err, os.ErrExist) ||
+		errors.Is(err, errNoReplacePublishUnsupported) ||
+		errors.Is(err, syscall.EACCES) ||
+		errors.Is(err, syscall.EPERM) ||
+		errors.Is(err, syscall.EROFS) ||
+		errors.Is(err, syscall.ENOENT) ||
+		errors.Is(err, syscall.ENOTDIR) ||
+		errors.Is(err, syscall.EXDEV) ||
+		errors.Is(err, syscall.ENAMETOOLONG) ||
+		errors.Is(err, syscall.EMLINK) ||
+		errors.Is(err, syscall.ELOOP) ||
+		errors.Is(err, syscall.EISDIR) ||
+		errors.Is(err, syscall.ENOSPC) ||
+		errors.Is(err, syscall.EDQUOT) ||
+		errors.Is(err, syscall.EINVAL) ||
+		errors.Is(err, syscall.ENOSYS) ||
+		errors.Is(err, syscall.EOPNOTSUPP) ||
+		errors.Is(err, syscall.ENOTSUP)
+}
+
+func capturePostPublishIdentity(dstPath string, f *os.File, hooks PublishFaultHooks) (fileIdentity, error, bool) {
+	if f == nil {
+		return fileIdentity{}, errors.New("nil file descriptor"), false
+	}
+	var (
+		info os.FileInfo
+		err  error
+	)
+	if hooks.StatAfterPublish != nil {
+		info, err = hooks.StatAfterPublish(dstPath, f)
+	} else {
+		info, err = f.Stat()
+	}
+	if err != nil {
+		if hooks.CaptureIdentity != nil {
+			if cerr := hooks.CaptureIdentity(dstPath, f); cerr != nil {
+				return fileIdentity{}, errors.Join(err, cerr), true
+			}
+		}
+		return fileIdentity{}, err, false
+	}
+	if !info.Mode().IsRegular() {
+		return fileIdentity{}, fmt.Errorf("exclusively created target is not a regular file (mode=%v)", info.Mode()), false
+	}
+	if hooks.CaptureIdentity != nil {
+		if cerr := hooks.CaptureIdentity(dstPath, f); cerr != nil {
+			return fileIdentity{}, cerr, true
+		}
+	}
+	id := fileIdentity{valid: true, info: info, modTime: info.ModTime()}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && st != nil {
+		id.hasDevIno = true
+		id.dev = uint64(st.Dev)
+		id.ino = uint64(st.Ino)
+	}
+	return id, nil, false
+}
+
 // publishTempNoReplace atomically publishes tmpPath (held open by tmpFile) to dstPath without
 // replacing any existing entry at dstPath, always removing the private tmpPath entry and never
-// unlinking dstPath on error (ADR-0024 §8, R2-01). When the filesystem supports neither primitive the
-// error wraps errNoReplacePublishUnsupported and nothing is published (R3-01).
-func publishTempNoReplace(tmpPath string, tmpFile *os.File, dstPath string) (fileIdentity, error) {
-	defer func() { _ = os.Remove(tmpPath) }()
+// unlinking dstPath on single-file post-publication error (ADR-0024 §8, R2-01, R4-02). Once link or
+// no-replace rename succeeds, publication is irrevocably recorded even if a later Stat, Close, or
+// identity capture fails.
+func publishTempNoReplace(tmpPath string, tmpFile *os.File, dstPath string, hooks PublishFaultHooks) (publishOutcome, error) {
+	removeTmp := func() bool {
+		rmErr := os.Remove(tmpPath)
+		return rmErr != nil && !errors.Is(rmErr, os.ErrNotExist)
+	}
 
-	err := linkForPublish(tmpPath, dstPath)
-	if err != nil && isLinkFallbackErr(err) {
-		linkErr := err
-		err = renameNoReplaceForPublish(tmpPath, dstPath)
-		if err != nil && isNoReplaceRenameUnsupportedErr(err) {
-			err = fmt.Errorf("%w (link: %v; no-replace rename: %v)", errNoReplacePublishUnsupported, linkErr, err)
+	preID, _ := captureFileIdentity(tmpFile)
+
+	usedRename := false
+	var err error
+	if hooks.PublishUncertainErr != nil {
+		err = hooks.PublishUncertainErr(dstPath)
+	} else {
+		if hooks.ForceLinkFallback != nil {
+			err = hooks.ForceLinkFallback(dstPath)
+		} else {
+			err = linkForPublish(tmpPath, dstPath)
+		}
+		if err != nil && isLinkFallbackErr(err) {
+			linkErr := err
+			usedRename = true
+			err = renameNoReplaceForPublish(tmpPath, dstPath)
+			if err != nil && isNoReplaceRenameUnsupportedErr(err) {
+				err = fmt.Errorf("%w (link: %v; no-replace rename: %v)", errNoReplacePublishUnsupported, linkErr, err)
+			}
 		}
 	}
 	if err != nil {
 		_ = tmpFile.Close()
-		return fileIdentity{}, err
+		leftover := removeTmp()
+		if preID.valid {
+			if named, lerr := os.Lstat(dstPath); lerr == nil && preID.matchesInfo(named) {
+				return publishOutcome{
+					state:        PublishSucceededWithPostError,
+					published:    true,
+					verified:     false,
+					tempLeftover: leftover,
+					id:           preID,
+				}, err
+			}
+		}
+		if isCleanPrePublishErr(err) && !leftover {
+			return publishOutcome{state: PublishNone}, err
+		}
+		return publishOutcome{state: PublishUncertain, tempLeftover: leftover}, err
 	}
-	// Remove tmpPath before capturing identity on tmpFile so st_nlink is settled at 1.
-	_ = os.Remove(tmpPath)
-	id, idErr := captureFileIdentity(tmpFile)
-	closeErr := tmpFile.Close()
+
+	// Destination publication has irrevocably succeeded: remove tmpPath before capturing identity on
+	// tmpFile so st_nlink is settled at 1.
+	leftover := removeTmp()
+	var hookErr error
+	if usedRename {
+		if hooks.AfterRenameSuccess != nil {
+			hookErr = hooks.AfterRenameSuccess(dstPath)
+		}
+	} else {
+		if hooks.AfterLinkSuccess != nil {
+			hookErr = hooks.AfterLinkSuccess(dstPath)
+		}
+	}
+	postID, idErr, idFaultInjected := capturePostPublishIdentity(dstPath, tmpFile, hooks)
+	var closeErr error
+	if tmpFile != nil {
+		closeErr = tmpFile.Close()
+	}
+	if hooks.CloseAfterPublish != nil {
+		closeErr = errors.Join(closeErr, hooks.CloseAfterPublish(dstPath))
+	}
+	finalID := postID
 	if idErr != nil {
-		return fileIdentity{}, errors.Join(idErr, closeErr)
+		if idFaultInjected {
+			finalID = fileIdentity{}
+		} else if preID.valid {
+			finalID = preID
+		}
 	}
-	return id, closeErr
+	postErr := errors.Join(hookErr, idErr, closeErr)
+	if postErr != nil {
+		return publishOutcome{
+			state:        PublishSucceededWithPostError,
+			published:    true,
+			verified:     false,
+			tempLeftover: leftover,
+			id:           finalID,
+		}, postErr
+	}
+	return publishOutcome{
+		state:        PublishSucceededAndVerified,
+		published:    true,
+		verified:     true,
+		tempLeftover: leftover,
+		id:           finalID,
+	}, nil
 }
 
 // removeCreatedWhileOpen unlinks path ONLY when f still matches id, f's current byte content and

@@ -145,7 +145,7 @@ func (s *Set) writeFile(ctx context.Context, args map[string]any, _ func(protoco
 		}},
 	})
 	if err != nil {
-		return commitOutcome(receipt, err)
+		return commitOutcome(result, receipt, err)
 	}
 	out, _ := json.Marshal(map[string]any{"path": rel, "bytes": len(content), "rev": result.Files[0].NewRev})
 	return protocol.ToolResult{OK: true, Content: string(out), MutatesWorkspace: receiptWrote(receipt)}, nil
@@ -188,7 +188,7 @@ func (s *Set) replaceFile(ctx context.Context, args map[string]any, _ func(proto
 		}},
 	})
 	if err != nil {
-		return commitOutcome(receipt, err)
+		return commitOutcome(result, receipt, err)
 	}
 	out, _ := json.Marshal(map[string]any{"path": rel, "replaced": true, "rev": result.Files[0].NewRev})
 	return protocol.ToolResult{OK: true, Content: string(out), MutatesWorkspace: receiptWrote(receipt)}, nil

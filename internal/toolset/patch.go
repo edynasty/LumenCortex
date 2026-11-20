@@ -103,9 +103,9 @@ func (s *Set) applyPatch(ctx context.Context, args map[string]any, _ func(protoc
 		}
 	}
 
-	_, receipt, err := s.commitPlan(ctx, editing.Plan{Host: s, Actor: s.actor(), Tool: "apply_patch", Changes: changes})
+	result, receipt, err := s.commitPlan(ctx, editing.Plan{Host: s, Actor: s.actor(), Tool: "apply_patch", Changes: changes})
 	if err != nil {
-		return commitOutcome(receipt, err)
+		return commitOutcome(result, receipt, err)
 	}
 	content, _ := json.Marshal(reported)
 	return protocol.ToolResult{OK: true, Content: string(content), MutatesWorkspace: receiptWrote(receipt)}, nil

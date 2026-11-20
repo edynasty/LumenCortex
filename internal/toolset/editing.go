@@ -174,19 +174,47 @@ func receiptWrote(r editing.CommitReceipt) bool {
 	return false
 }
 
+func receiptDirtyOrPublished(r editing.CommitReceipt) bool {
+	if r.DirtyFailure {
+		return true
+	}
+	for _, f := range r.Files {
+		if f.Published || f.Wrote || f.PublishState == editing.PublishUncertain || f.PublishState == editing.PublishRolledBack {
+			return true
+		}
+	}
+	return false
+}
+
 // editFailure renders a refusal as a tool result the model can act on: the error, its stable code, and
-// the remediation. MutatesWorkspace stays false except where the engine cannot rule out a write.
-func editFailure(err error, dirty bool) protocol.ToolResult {
+// the remediation. MutatesWorkspace stays false except where the engine entered publication or cannot
+// rule out a write.
+func editFailure(result editing.Result, receipt editing.CommitReceipt, err error) protocol.ToolResult {
+	dirty := receiptDirtyOrPublished(receipt)
 	editErr, ok := editing.AsError(err)
 	if !ok {
-		content, _ := json.Marshal(map[string]any{"error": err.Error()})
+		payload := map[string]any{"error": err.Error()}
+		if len(result.Files) > 0 {
+			payload["publishedFiles"] = result.Files
+		}
+		if receipt.State != "" {
+			payload["commitState"] = receipt.State
+		}
+		content, _ := json.Marshal(payload)
 		return protocol.ToolResult{OK: false, Content: string(content), MutatesWorkspace: dirty}
 	}
-	content, _ := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"error": editErr.Error(), "code": editErr.Code, "hint": editErr.Hint(),
 		"path": editErr.Path, "currentRev": editErr.CurrentRev, "holder": editErr.Holder,
 		"diagnostics": editErr.Diagnostics,
-	})
+	}
+	if len(result.Files) > 0 {
+		payload["publishedFiles"] = result.Files
+	}
+	if receipt.State != "" && dirty {
+		payload["commitState"] = receipt.State
+	}
+	content, _ := json.Marshal(payload)
 	return protocol.ToolResult{OK: false, Content: string(content),
 		MutatesWorkspace: dirty || editErr.Code == editing.CodeConcurrentWrite}
 }
@@ -195,14 +223,25 @@ func editFailure(err error, dirty bool) protocol.ToolResult {
 // becomes an OK:false result carrying its code and hint; anything else — a path guard refusal, an I/O
 // error — stays an error, so the caller's contract is unchanged.
 func editOutcome(err error) (protocol.ToolResult, error) {
-	return commitOutcome(editing.CommitReceipt{}, err)
+	return commitOutcome(editing.Result{}, editing.CommitReceipt{}, err)
 }
 
-func commitOutcome(receipt editing.CommitReceipt, err error) (protocol.ToolResult, error) {
+func commitOutcome(result editing.Result, receipt editing.CommitReceipt, err error) (protocol.ToolResult, error) {
+	dirty := receiptDirtyOrPublished(receipt)
 	if _, ok := editing.AsError(err); ok {
-		return editFailure(err, receipt.DirtyFailure), nil
+		return editFailure(result, receipt, err), nil
 	}
-	return protocol.ToolResult{MutatesWorkspace: receipt.DirtyFailure}, err
+	var content string
+	if len(result.Files) > 0 {
+		if raw, mErr := json.Marshal(map[string]any{
+			"error":          err.Error(),
+			"commitState":    receipt.State,
+			"publishedFiles": result.Files,
+		}); mErr == nil {
+			content = string(raw)
+		}
+	}
+	return protocol.ToolResult{Content: content, MutatesWorkspace: dirty}, err
 }
 
 // editResult renders a committed plan.

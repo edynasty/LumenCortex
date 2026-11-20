@@ -112,7 +112,7 @@ func (s *Set) editLines(ctx context.Context, args map[string]any, _ func(protoco
 		Validate: validatorsFor(rel),
 	})
 	if err != nil {
-		return commitOutcome(receipt, err)
+		return commitOutcome(result, receipt, err)
 	}
 	file1 := result.Files[0]
 	extra := map[string]any{"path": rel, "rev": file1.NewRev, "applied": len(lineOps)}
@@ -209,7 +209,7 @@ func (s *Set) editGo(ctx context.Context, args map[string]any, _ func(protocol.T
 		Preview:  preview,
 	})
 	if err != nil {
-		return commitOutcome(receipt, err)
+		return commitOutcome(result, receipt, err)
 	}
 	extra := map[string]any{"path": rel, "symbols": plan.Symbols, "notes": plan.Notes, "preview": preview}
 	if note := typeCheckNote(result.Diagnostics); note != "" {
