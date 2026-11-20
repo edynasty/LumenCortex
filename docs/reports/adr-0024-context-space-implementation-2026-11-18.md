@@ -1,6 +1,6 @@
-# ADR-0024 Context Space Architecture — 完整实施、三轮独立审查修复与最终交付报告
+# ADR-0024 Context Space Architecture — 完整实施、四轮独立审查修复与最终交付报告
 
-- **初次实施日期：** 2026-11-18 · **R1 修复完成日期：** 2026-11-19 · **R2 增量修复完成日期：** 2026-11-19 · **R3 修复完成日期：** 2026-11-19
+- **初次实施日期：** 2026-11-18 · **R1 修复完成日期：** 2026-11-19 · **R2 增量修复完成日期：** 2026-11-19 · **R3 修复完成日期：** 2026-11-19 · **R4 最终修复完成日期：** 2026-11-20
 - **权威架构规格：** `LumenCortex-architecture-audit/design/handoffs/context-space-architecture-master.zh-CN.md`
   - 当前版本：**`v0.4-rc3.7`**（SHA256 `5c9edaeb6b917d7cf508677036f17ab1911dd6b5f1a78ee25d8e0082f6cbb89f`）
   - 升级前 `v0.4-rc3.6` 原文只读备份：`context-space-architecture-master.v0.4-rc3.6.zh-CN.md`（SHA256 `3da2b65adda4b43fddf929dfa0d6b345e9181a75bf43c43f1c79ed5abe0ab09a`）
@@ -10,10 +10,12 @@
   - Opus 5.5 第一轮审查输入基线：`b57655cbb517bf7344f7670e13f9d2db82a2ba47`
   - Opus 5.5 第二轮增量审查输入基线：`feat/adr-0024-context-space-20261118@a8b478617fe15e8726d4009f94454b027b1a9ef9`（R1 工作树 `wt/core-adr-0024-context-space-20261118` 保持冻结未动）
   - 第三轮（R3）独立增量审查输入基线：`fix/adr-0024-r2-remediation-20261119@2ba79ae4aedd35d597604168894c3d65167e9cde`（R2 代码候选 `7d064d0796844d2925e5257d7bd733b9695e6f76`；R3 结论 `REVISE`，审查原文、探针与日志归档于 `bench/evidence/adr-0024-r3-review-20261119/`）
+  - 第四轮（R4）GPT-6.1 Sol 独立审查输入基线：`fix/adr-0024-r3-remediation-20261119@aeb2e5014697fa544ee855c4d6277be4c074fc16`（R3 代码候选 `0155df659341dfa5e92904d461da669f69b3f305`；R3 工作树 `wt/core-adr-0024-r3-20261119` 与 `/private/tmp` 审查探针目录保持只读未动）
 - **R2 工作树与分支（冻结）：** `/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r2-20261119`（分支 `fix/adr-0024-r2-remediation-20261119`，已推送 `origin`，未合并 `main`；R2 原子提交链：`a8b4786` → `c386fee` → `a9ff37a` → `1a68226` → `7d064d0` → `2ba79ae`）
-- **本轮 R3 修复工作树与分支：** `/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r3-20261119`（分支 `fix/adr-0024-r3-remediation-20261119`，自 `2ba79ae` 建立，推送 `origin/fix/adr-0024-r3-remediation-20261119`，未合并 `main`）
-- **本轮代码候选提交：** `0155df659341dfa5e92904d461da669f69b3f305`（R3 原子提交链：`2ba79ae` → `87a3166`（`R3-01`）→ `b7830e4`（`R3-04`）→ `0155df65`（`R3-03`）→ 本报告与 ADR 文档提交）
-- **最终交付状态：** `R3_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`
+- **R3 工作树与分支（冻结）：** `/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r3-20261119`（分支 `fix/adr-0024-r3-remediation-20261119`，自 `2ba79ae` 建立，HEAD `aeb2e5014697fa544ee855c4d6277be4c074fc16`；R3 原子提交链：`2ba79ae` → `87a3166`（`R3-01`）→ `b7830e4`（`R3-04`）→ `0155df65`（`R3-03`）→ `aeb2e50`（`R3-05..R3-07`））
+- **本轮 R4 修复工作树与分支：** `/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r4-20261120`（分支 `fix/adr-0024-r4-remediation-20261120`，自 `aeb2e5014697fa544ee855c4d6277be4c074fc16` 建立，推送 `origin/fix/adr-0024-r4-remediation-20261120`，未合并 `main`）
+- **本轮 R4 代码候选提交：** `a58aef27759612c99c441062f8b8049d0c8cb1f4`（R4 原子提交链：`aeb2e5014697fa544ee855c4d6277be4c074fc16` → `4ac972483cb0197179c4a1938a07c2a045cfd886`（`R4-01`）→ `a58aef27759612c99c441062f8b8049d0c8cb1f4`（`R4-02`）→ 本报告与 ADR 修订提交（`R4-03`））
+- **最终交付状态：** `R4_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`
 
 > **诚实证据分层声明（严格区分实现状态、自我验证状态、独立审查状态与未验证平台，绝不自授独立 PASS）：**
 > - **`IMPLEMENTED` / `FIXED_BY_IMPLEMENTER`：** 权威规格 `v0.4-rc3.7` 全部 11 项核心能力、双语 `ADR-0024`（105 行 1:1 同步）、Opus 5.5 第一轮指派项（`F-01 / F-02 / F-03 / F-04 / F-06(8K 准入) / F-09`）及第二轮增量指派项（`R2-01` 同目录私有临时文件原子不覆盖发布与原地并发写防误删、`R2-02` 三阶段受控门禁状态锚定与门禁后长程修复安全滚动、`R2-04` `baseSM` 增量折叠消除 `O(n^2)` SQLite 扫描、`R2-05` 报告符号与原始日志对齐）已在纯 Go 源码与文档中完整落地；零新增包、零 SQLite Schema Migration（冻结于 `0001`–`0017`）、零修改 `evalruntime/` 与 `internal/{cognition,knowledge,verify,migrate}`。
@@ -25,11 +27,12 @@
 >   - **Linux 日志来源（`R3-07(c)`）：** `linux-arm64-docker.log` 首部仅记录 `=== HEAD: ro-worktree ===`，未记录提交 SHA；其对应 `7d064d0` 为报告陈述，不能由日志自身证明。日志段标题写“47 个包 / 41 个含测包”，实际输出为 48 行（42 个 `ok` + 6 个 `[no test files]`），本报告计数以实际输出为准。
 >   - **macOS exFAT（`R3-01`，已记录限制）：** 自 `a9ff37a` 起，macOS exFAT 卷上的新建文件无法以原子不覆盖方式发布（`link(2)` 与 `renameatx_np(RENAME_EXCL)` 均返回 `ENOTSUP`）；本轮修复后返回明确的 `unsupported_filesystem` 错误、不写入任何内容，既有文件编辑不受影响（真实 exFAT 镜像实测，§8.1）。macOS SMB 与 Windows exFAT 行为为 `UNVERIFIED`。
 >   - **Windows AMD64（`windows/amd64`）：** R2 候选 `7d064d0` 上 `GOOS=windows GOARCH=amd64 go build ./...`、`go vet ./...` 均 `EXIT=0`，`./internal/editing`、`./internal/toolset`、`./internal/agent` 测试二进制交叉链接（`go test -c`）生成成功（未记录退出码）；R3 候选 `0155df65` 上同样完成（§8.1）。**因当前环境无原生 Windows 主机，Windows 原生进程运行、`MoveFileExW` 与 `ByHandleFileInformation` 实机行为、FAT/exFAT/ReFS 文件系统文件 ID 差异、SQLite 文件锁与 `-race` 明确标记为 `UNVERIFIED`**。
-> - **独立审查状态（R2 → R3）：**
+> - **独立审查状态（R2 → R3 → R4）：**
 >   - 经 Opus 5.5 第二轮只读审查确认 `CONFIRMED` 的第一轮修复：`F-02`（P2）、`F-04`（P3）、`F-06`（P3，8K 兼容恢复部分）、`F-09`（P3 源码与跨平台构建层面；Windows 原生运行仍为 `UNVERIFIED`）。
 >   - 经 R3 独立审查：`R2-04` `CONFIRMED`；`R2-03` 文档澄清 `CONFIRMED`（运行时硬拦截仍为 `OPEN (P3)`）；`R2-01`、`R2-02`、`R2-05` `PARTIALLY_CONFIRMED`，残余项即 `R3-01..R3-07`。
->   - 本轮 `R3-01`、`R3-03`、`R3-04` 代码修复及 `R3-05/06/07` 报告更正：**`FIXED_BY_IMPLEMENTER | SELF_VERIFIED | PENDING_INDEPENDENT_REVIEW`**。
->   - **`OPEN (P3)`：** `F-05`、`F-06`（32K–600K 窗口容量权衡）、`F-07`、`F-08`、`R2-03`、`R3-02`、`R3-04`（Live/Resume 分歧）。**已记录限制：** `R3-01`（macOS exFAT 新建文件）。**既有缺陷（`main` 相同，非本分支引入）：** `PRE-01`、`PRE-02`（P2，登记于工作区 `TODO.md`；是否计入本分支合并门禁待 Owner 确认）。
+>   - 经 GPT-6.1 Sol R4 独立审查（2026-11-20，输入 `aeb2e5014697fa544ee855c4d6277be4c074fc16`）：识别出 `R4-01`（P3，`R3-03` 工具名+顺序推断导致无效参数调用、同名调用与嵌套 `eval` 回调错配）、`R4-02`（P2，文件原子发布成功后若 `Stat`/`Close`/身份采集出错被误报为 `DirtyFailure=false` 的干净失败、遗漏已发布文件且多文件回滚可能跳过已发布文件）及 `R4-03`（§11.2 第 272 行仍将 `r2-01-green.log` 描述为含 Linux/Windows 交叉验证等证据出处不精确问题）。
+>   - **本轮 R4 修复（`R4-01` `4ac972483cb0197179c4a1938a07c2a045cfd886`、`R4-02` `a58aef27759612c99c441062f8b8049d0c8cb1f4`、`R4-03` 本报告带日期修订）：** **`FIXED_BY_IMPLEMENTER | SELF_VERIFIED | PENDING_INDEPENDENT_REVIEW`**（绝不声称独立 `PASS`）。
+>   - **`OPEN (P3)`：** `F-05`、`F-06`（32K–600K 窗口容量权衡）、`F-07`、`F-08`、`R2-03`、`R3-02`、`R3-04`（Live/Resume 分歧）。**已记录限制：** `R3-01`（macOS exFAT 新建文件）。**既有缺陷（`main` 相同，非本分支引入，未在 R4 静默吸收或声称已修复）：** `PRE-01`、`PRE-02`（`OPEN (P2，既有)`）。
 
 ---
 
@@ -56,8 +59,8 @@
 | 保守字节 Token 估算与上界预留 | `internal/window/estimate.go` (`EstimateBytes`, `ReserveTokensForBytes`, `Estimate`) + `provider/{anthropic,openai}/wire.go` | 全系统唯一估算原语；`EchoTokens` 仅在 `GroupTokens` 计费一次，遇 `user` 行即清零 |
 | 候选静态预筛、闭式预算、门禁锚定与审计重放 | `internal/agent/policy.go` (`CandidatesByStaticPrefix`, `GuardTokens`, `BaseGateSlack`, `EffectiveGateSlack`, `RepairContext`, `CausalEvidenceRef`, `WindowPrefixDecision`, `SelectMaxAvailableCandidate`, `FloorFallbackDecision`, `WindowFloorRelaxedDecision`, `ReplayDecision`, `VerifyStep`) | 全系统唯一候选预筛、比例余量（`min(baseSlack, free/4)`）、二元前缀选择、三阶段受控松弛决策（含 `gatePinnedInState` 与 `postBlockCausalFloorSeq`）及离线 `ReplayDecision` / `VerifyStep` |
 | 工具与门禁反馈受约束呈现 | `internal/agent/stepspecs.go` (`IncludedStepTools`), `internal/agent/presentation.go` (`presentStepTools`, `presentFeedback`) | 每次投影分配新切片；`presentFeedback` 强制 `1200B/6144B` UTF-8 与 `2458B/12346B` JSON 双重封顶（Stage R2/R3 锚定至 `State` 的门禁状态复用同一 `presentFeedback`） |
-| 私有临时文件原子不覆盖发布与路径规范化封签 | `internal/editing/engine.go` (`AtomicFileStager`, `NewCreateTempFile`, `createAtomicNoReplace`, `writeCAS`, `CommitReceipt`), `internal/editing/{fileid_unix,fileid_windows,publish_darwin,publish_linux,publish_other_unix}.go` (`fileIdentity`, `captureFileIdentity`, `publishTempNoReplace`, `removeCreatedWhileOpen`, `removeCreatedAtRollback`, `CleanupExclusivelyCreatedFile`), `internal/toolset/editing.go` (`OpenCreateTemp`), `internal/agent/{execution,callback}.go` (`executionTierOf`, `postFiles`, `sealFilesMutation`) | 创建型写操作先写入同目录私有临时文件 `.lcx-create-<nonce>` 再执行内核级原子不覆盖发布（Unix `os.Link` + `RenameatxNp(RENAME_EXCL)` / `Renameat2(RENAME_NOREPLACE)`；Windows `MoveFileExW(..., 0)`），彻底消除 0 字节目标窗口；自定义 `Host.Open` 兜底路径遇 CAS/超限/并发写绝不删目标路径，仅在设备/卷+inode+mtime+字节内容全匹配时才允许清理（`R2-01`）；`sealFilesMutation` 直接使用 `filepath.ToSlash(p)` 构建 map 键且不折大小写（`F-09`）；`debug_*` 归 `tierWorkspace -> MutationUnknown`（`F-04`） |
-| 无正文历史元数据、`baseSM` 增量折叠与统一修复状态机 | `internal/session/executions.go` (`ListAnsweredExecutions`), `internal/agent/transcript.go` (`HistoryGroupMeta`, `runTranscript` 含 `historyGroups / historyOverflowed / baseSM / hasBaseSM`, `foldSettledHistoryPrefix`, `repairStateMachine`, `DeriveRepairContextFromHistory`, `StreamRepairContextFromStore`, `(*run).deriveRepairContext`, `(*run).groups`) | `historyGroups` 严格不含消息正文且内存上限 `MaxInMemoryHistoryGroups = 2048`；达到上限时将最老 `1024` 个已定型组增量折叠进值语义 `baseSM`（`O(1)` 摊还时间、`0` 次每步 SQLite 扫描），保留 `StreamRepairContextFromStore` 作无状态流式校验/兜底（`F-02`, `R2-04`） |
+| 私有临时文件原子不覆盖发布、显式发布状态模型与路径规范化封签 | `internal/editing/engine.go` (`AtomicFileStager`, `NewCreateTempFile`, `PublishState`, `CommitState`, `PublishFaultHooks`, `createAtomicNoReplace`, `writeCAS`, `CommitReceipt`), `internal/editing/{fileid_unix,fileid_windows,publish_darwin,publish_linux,publish_other_unix}.go` (`fileIdentity`, `captureFileIdentity`, `publishTempNoReplace`, `removeCreatedWhileOpen`, `removeCreatedAtRollback`, `CleanupExclusivelyCreatedFile`), `internal/toolset/editing.go` (`OpenCreateTemp`, `commitOutcome`), `internal/agent/{execution,callback}.go` (`executionTierOf`, `postFiles`, `sealFilesMutation`, `receiptHasDirtyOrUncommittedPublish`) | 创建型写操作先写入同目录私有临时文件 `.lcx-create-<nonce>` 再执行内核级原子不覆盖发布（Unix `os.Link` + `RenameatxNp(RENAME_EXCL)` / `Renameat2(RENAME_NOREPLACE)`；Windows `MoveFileExW(..., 0)`）；一旦发布成功即永久记录 `Published=true`，后续 `Stat`/`Close`/身份采集错误强制 `DirtyFailure=true` 与 `CommitStatePublishedWithPostError` / `CommitStatePartiallyPublished` 并在 `Result.Files` 与 `CommitReceipt.Files` 表征未回滚已发布文件（`R4-02`，不声称 `fsync` 持久性）；`sealFilesMutation` 使用 `filepath.ToSlash(p)` 构建区分大小写的 map 键（`F-09`）；`debug_*` 归 `tierWorkspace -> MutationUnknown`（`F-04`） |
+| 无正文历史元数据、精确 `ToolCallID` 身份绑定、`baseSM` 增量折叠与统一修复状态机 | `internal/session/executions.go` (`ExecutionAdmission`, `AnsweredExecutionSummary`, `encodeExecutionCallProvenance`, `decodeExecutionCallProvenance`, `ListAnsweredExecutions`), `internal/agent/transcript.go` (`HistoryExecutionRef`, `HistoryToolCallRef`, `HistoryGroupMeta`, `runTranscript` 含 `historyGroups / historyOverflowed / baseSM / hasBaseSM`, `foldSettledHistoryPrefix`, `repairStateMachine`, `DeriveRepairContextFromHistory`, `StreamRepairContextFromStore`, `(*run).deriveRepairContext`, `(*run).groups`) | `derived_origins.derived_from` 无迁移持久化 `call:<id>` 与 `nested:<parent>/<id>`，`HistoryGroupMeta` 严格按 `ToolCallID` / `ParentToolCallID` 精确绑定执行记录且缺失身份保持未绑定 `MutationUnknown`（`R4-01`）；`historyGroups` 严格不含消息正文且内存上限 `MaxInMemoryHistoryGroups = 2048`，超限时增量折叠进 `baseSM`（`O(1)` 摊还时间、`0` 次每步 SQLite 扫描，`F-02`, `R2-04`） |
 | 7 步无环候选投影、三阶段门禁锚定滚动与重检提示分层 | `internal/agent/send.go` (`compactToolPrefForCandidate`, `projectCandidate`, `projectCandidateForSend`, `sliceTranscriptAfterSeq`, `appendFloorRelaxationNotice`, `appendPinnedGateAndRelaxationNotice`, `Loop.send`) | Failover 优先守卫后在最大可用候选上按 `Stage R1 -> Stage R2 -> Stage R3` 单调松弛：当 `[BlockSeq..LastSeq]` 超窗时将门禁反馈 + 因果修复进度账本锚定入 `State` 并在 `Seq > BlockSeq` 上滚动历史，保证 `State` 与 `Messages` 零重复（`R2-02`）；工作区重检通知为提示词级告知，编辑工具由 `editing.Engine` CAS 保护，最终完成由 Completion Gate 重验（`R2-03`） |
 | 带 `.~` 终结符无损模型分片信封 `v2` | `config/schema.go` (`64B/192B`), `internal/agent/envelope.go` (`EncodeEnvelopeModelRef`, `DecodeEnvelopeModelRef`, `requestRefs`), `runtime/{auto,verification}.go` | `projectionVersion = 2`；`model~0~..model~9.~` 最多 10 片（`P0` 最高优），缺 `.~` 终结符立即报 `ErrIncompleteModelRefChunks` |
 
@@ -129,18 +132,22 @@
 | **R3 修复 · Commit 1** | `87a3166711277c0ea311374f0eecaeb03d0d4b7d` | `fix(editing): refuse creates with unsupported_filesystem when no no-replace publish exists (ADR-0024 R3-01)` | 文件系统既不支持 `link(2)` 也不支持不覆盖重命名时，新建文件返回 `CodeUnsupportedFilesystem`，不发布任何内容 |
 | **R3 修复 · Commit 2** | `b7830e4c4737bab130cc0bc3638c771c54c97639` | `fix(agent): claim the latest atomic step is preserved only when the relaxed window guarantees it (ADR-0024 R3-04)` | `latestAtomicStepSeq`；两条 Floor Relaxation 通知只在保证下界覆盖最新原子步时声称“已保留” |
 | **R3 修复 · Commit 3** | `0155df659341dfa5e92904d461da669f69b3f305` | `fix(agent): bind causal attribution of a multi-call group to one tool call (ADR-0024 R3-03)` | `bindPrimaryToolCall` 与逐调用执行映射；因果账本条目的工具名、`ToolCallID`、`ExecutionID`、`PostRef` 与证据来自同一调用 |
-| **R3 报告与 ADR** | 本文档所在提交（见 `git log`） | `docs(adr,reports): R3 remediation ledger, evidence corrections and exFAT limitation` | 本报告 §7.3/§8.1 与双语 `ADR-0024` 状态行、§7、§8 第 1 项更新 |
+| **R3 报告与 ADR** | `aeb2e5014697fa544ee855c4d6277be4c074fc16` | `docs(adr,reports): R3 remediation ledger, evidence corrections and exFAT limitation` | 本报告 §7.3/§8.1 与双语 `ADR-0024` 状态行、§7、§8 第 1 项更新（GPT-6.1 Sol R4 审查输入基线） |
+| **R4 修复 · Commit 1** | `4ac972483cb0197179c4a1938a07c2a045cfd886` | `fix(agent,session): bind tool executions by exact ToolCallID and parent call identity (ADR-0024 R4-01)` | 零迁移利用 `derived_origins.derived_from` 无损编码 `ToolCallID` 与 `ParentToolCallID`；彻底废除工具名+准入顺序匹配，实现顶层调用、嵌套 `eval` 回调与历史缺失身份记录的确定性精确归因 |
+| **R4 修复 · Commit 2** | `a58aef27759612c99c441062f8b8049d0c8cb1f4` | `fix(editing,toolset,agent): track explicit publication state and dirty post-publish failures (ADR-0024 R4-02)` | 显式 `PublishState` / `CommitState` 状态模型；文件发布后 `Stat`/`Close`/身份采集错误永不报干净失败，完整表征已发布文件并纳入多文件非覆盖回滚，确保 `OutcomeUnknown` 与 `MutationUnknown` 跨冷启动 `Resume` 一致 |
+| **R4 报告与 ADR** | R4 文档修订提交（基于 `a58aef27759612c99c441062f8b8049d0c8cb1f4`） | `docs(adr,reports): record ADR-0024 R4 remediation, prior art assessment, and evidence provenance (R4-03)` | 本报告带日期 R4 修订（§7.4、§7.5 先行技术与复用评估、§8.2、§9.1、§11.2 更正、§11.4）与双语 `ADR-0024` 105 行同步更新 |
 
 > **SHA 更正（`R3-05`）：** 前版本表三个完整 SHA（`c386fee`、`a9ff37a`、`1a68226` 行）在仓库中不存在，只有 7 位前缀正确；现已替换为 `git rev-parse` 结果，并对本报告引用的全部提交执行 `git cat-file -e <sha>^{commit}` 核验（§8.1）。`0155df6` 这一 7 位前缀在本仓库中有歧义（与一个 tree 对象相同前缀），本报告一律写作完整 SHA 或 `0155df65`。
 
 ---
 
-## 7. 三轮全量 Finding Ledger（`F-01`–`F-09`、`R2-01`–`R2-05`、`R3-01`–`R3-07`、`PRE-01`–`PRE-02`）
+## 7. 四轮全量 Finding Ledger（`F-01`–`F-09`、`R2-01`–`R2-05`、`R3-01`–`R3-07`、`R4-01`–`R4-03`、`PRE-01`–`PRE-02`）
 
 - **增量生产代码规模：**
   - R2 增量 `a8b4786..7d064d0`：10 个生产 Go 文件（`+878 / -167` 行），含测试与双语 ADR 共 17 个文件（`+2,542 / -191` 行）。
   - R3 增量 `2ba79ae..0155df65`：5 个生产 Go 文件（`+150 / -38` 行），含测试共 9 个文件（`+769 / -40` 行）。
-  - 相对 `main`（`c73d173..0155df65`）累计：38 个非测试 Go 文件（`+5,046 / -482` 行），0 个 SQLite Migration，0 个 Cognitive Core（`internal/{cognition,knowledge,verify,migrate}`）/ `evalruntime` 文件改动。
+  - R4 增量 `aeb2e50..a58aef27`：13 个生产 Go 文件（`+1,072 / -194` 行），含测试共 22 个文件（`+2,918 / -217` 行）。
+  - 相对 `main`（`c73d173..a58aef27`）累计：38 个非测试 Go 文件（`+5,966 / -524` 行），0 个 SQLite Migration，0 个 Cognitive Core（`internal/{cognition,knowledge,verify,migrate}`）/ `evalruntime` 文件改动。
 
 ### 7.1 第一轮 Finding 复核与当前状态（`F-01`–`F-09`）
 
@@ -183,6 +190,43 @@
 | **PRE-01** | **P2** | 既有缺陷：`main`、`a8b4786`、`2ba79ae` 行为相同 | `internal/editing`（原地覆盖已有文件的写入路径） | 原地覆盖已有文件时磁盘写满，原文件被毁：14,000 字节文件变为 0 字节（8 MiB 镜像） | 非本分支引入或加重；登记于工作区 `TODO.md`。是否计入本分支合并门禁由 Owner 确认（R3 建议单独跟踪） | R3 审查 `logs/r201-macos.log:164-173` | — | **`OPEN (P2，既有)`** |
 | **PRE-02** | **P2** | 既有缺陷：`main`、`a8b4786`、`2ba79ae` 行为相同 | `internal/editing/engine.go`（多文件 `rollback` 恢复被覆盖文件；`2ba79ae` 的 `engine.go:997`） | 多文件回滚恢复被覆盖的文件时不检查外部写入，外部追加的内容丢失；`R2-01` 只为新建文件加了这项保护 | 同上 | R3 审查 `logs/r201-macos.log:63-70` | — | **`OPEN (P2，既有)`** |
 
+> **[2026-11-20 R4 补充注记]：** 上表 `R3-05`、`R3-06`、`R3-07` 行的“本报告提交”在 R3 分支上对应的精确提交为 `aeb2e5014697fa544ee855c4d6277be4c074fc16`；`R3-03` 在 GPT-6.1 Sol R4 审查中复核为残余 `R4-01` 并已于 `4ac972483cb0197179c4a1938a07c2a045cfd886` 根治（见 §7.4）。`PRE-01` 与 `PRE-02` 保持为 `main` 既有 `OPEN (P2)`，R4 未静默吸收亦不声称其已解决。
+
+### 7.4 第四轮（GPT-6.1 Sol）独立审查 Finding 闭环台账（`R4-01`–`R4-03`）
+
+- **审查基线：** `fix/adr-0024-r3-remediation-20261119@aeb2e5014697fa544ee855c4d6277be4c074fc16`（2026-11-20）。
+- **本轮证据目录：** `bench/evidence/adr-0024-r4-remediation-20261120/`（`SHA256SUMS` 9 项，`shasum -a 256 -c SHA256SUMS` 全部 `OK`；每份日志首部均记录完整 40 位提交 SHA 并对每条命令显式输出 `exit=<rc>`）。
+
+| ID | 级别 | GPT-6.1 Sol 审查结论 | 涉及文件与真实符号 | 根因分析（Root Cause） | 最小可靠修复方案 | RED → GREEN 可复现证据（`bench/evidence/adr-0024-r4-remediation-20261120/`） | Commit | 当前状态 |
+| :--- | :---: | :--- | :--- | :--- | :--- | :--- | :---: | :--- |
+| **R4-01** | **P3** | `CONFIRMED`（`0155df65` `R3-03` 残余错配） | `internal/session/{executions,executions_callid_test}.go` (`ExecutionAdmission`, `ExecutionRecord`, `AnsweredExecutionSummary`, `encodeExecutionCallProvenance`, `decodeExecutionCallProvenance`), `internal/agent/{execution,callback,policy,send,transcript,remediation_r4_01_test}.go` (`HistoryExecutionRef`, `HistoryToolCallRef`, `HistoryGroupMeta`, `applyExecutionSummariesToMeta`, `aggregateHistoryGroupMutation`, `aggregateGroupMutation`, `bindPrimaryToolCall`) | `AdmitExecution` 未持久化发起执行的 `ToolCallID`（及 `eval`/`apply_experience` 嵌套回调的 `ParentToolCallID`），`applyExecutionSummariesToMeta` 只能按 `ToolName` + 准入顺序绑定首个未占用同名调用：1) **Case A** `c1: write_file(非法 JSON)` + `c2: write_file(合法)` 中 `c1` 未准入而抢走 `c2` 的 `ExecutionID`；2) **Case B** `c1: eval(嵌套 write_file)` + `c2: write_file` 中 `c2` 抢走嵌套执行；3) **Case C** `c0: read_file` + `c1: eval(嵌套 write_file)` 中组证据为 `MutationProven`，但 `c0`/`c1` 自身证据皆空，`bindPrimaryToolCall` 回退 `c0` 产生 `{ToolCallID: "c0-read", ToolName: "read_file", ExecutionID: "", MutationEvidence: "proven"}` | 1) **零迁移无损持久化：** 复用 `0006_provenance_and_approvals.sql` 中在 `kind = 'execution'` 行上始终为 `NULL` 的 `derived_origins.derived_from`（`CHECK <= 512B`），顶层调用存 `"call:<url.PathEscape(id)>"`，嵌套回调存 `"nested:<escapedParent>/<escapedCall>"`，超 `512B` 写 `"call~overflow"` 保守降级，旧历史行保持 `NULL`（严守单次副作用工具精确 `2` 次 SQLite 写事务）；2) **显式身份传播：** `Loop.admitExecution` 传入 `ToolCallID: call.ID`，`Loop.admitCallbackExecution` 传入 `ToolCallID: callID, ParentToolCallID: parentCallID`；3) **严格身份匹配：** `applyExecutionSummariesToMeta` 与 `aggregate*GroupMutation` 彻底删除工具名+顺序推断，仅当持久化 `ToolCallID` 精确匹配顶层调用（或 `ParentToolCallID` 匹配父调用）时才绑定；缺失、不匹配或重复的记录进入 `UnboundExecutions`，强制组级 `MutationUnknown` 且绝不回退嫁接到其他调用 | **RED：** `logs/r4-01-red.log`（在未改动的 `aeb2e5014697fa544ee855c4d6277be4c074fc16` 上 `exit=1`：Case A、Case B、Case C 与无 `ToolCallID` 历史行推断共 4 个子项全部复现失败）。<br>**GREEN：** `logs/r4-01-green.log`（`4ac972483cb0197179c4a1938a07c2a045cfd886`，干净工作树 `-race` `exit=0`）：`TestExecutionAdmissionCallIDRoundTripAndConstraints` 与 `TestR401LiveLoopAndColdResumeExactIdentityCases` 全部子项（含真实 `Loop.Run`、真实 Git 快照、真实 SQLite 冷启动 `Resume` 及在线/冷恢复/流式三方 `DeepEqual`）100% 通过 | `4ac972483cb0197179c4a1938a07c2a045cfd886` | `FIXED_BY_IMPLEMENTER` \| `SELF_VERIFIED` \| `PENDING_INDEPENDENT_REVIEW` |
+| **R4-02** | **P2** | `CONFIRMED` | `internal/editing/{engine,fileid_unix,fileid_windows,remediation_r4_02_test}.go` (`PublishState`, `CommitState`, `PublishFaultHooks`, `publishTempNoReplace`, `createAtomicNoReplace`, `write`, `rollback`, `Commit`, `CommitReceipt`, `FileCommitReceipt`), `internal/toolset/{editing,editing_tools,files,patch,remediation_r4_02_test}.go` (`commitOutcome`, `editFailure`, `receiptDirtyOrPublished`), `internal/agent/{execution,remediation_r4_02_test}.go` (`receiptHasDirtyOrUncommittedPublish`) | 1) `publishTempNoReplace` 在 `os.Link` 或不覆盖 `rename` 已成功将目标文件发布到命名空间后，若后续 `f.Stat()`（身份采集）或 `tmpFile.Close()` 返回错误，会直接返回 `(fileIdentity{}, err)`；2) `createAtomicNoReplace` 将任何 `publishTempNoReplace` 错误一律视为 `(dirty=false, err)`，导致 `Commit` 记录 `CommitReceipt{Committed: false, DirtyFailure: false, Files: nil}` 并返回空 `Result{}`，使磁盘已存在 `new.txt = "published\n"` 时却上报错配的“干净失败”，`toolset` 返回 `MutatesWorkspace=false`（未重开检查义务），且多文件计划 `written` 遗漏该已发布文件导致 `rollback` 跳过回滚 | 1) **显式五态发布与五态提交模型（不声称 `fsync` 持久性）：** 定义文件级 `PublishState`（`PublishNone`、`PublishSucceededAndVerified`、`PublishSucceededWithPostError`、`PublishUncertain`、`PublishRolledBack`）与事务级 `CommitState`（`CommitStatePrePublishFailure`、`CommitStateCommitted`、`CommitStatePublishedWithPostError`、`CommitStatePublicationUncertain`、`CommitStatePartiallyPublished`）；2) **不可逆发布边界：** 发布前预采 `preID`；一旦 `os.Link` / 不覆盖 `rename` / `MoveFileExW` 成功即不可逆置 `published = true`，后续 `Stat`/`Close`/身份采集失败返回 `PublishSucceededWithPostError` + `DirtyFailure = true`（仅确定性前置拒绝如 `EEXIST`/`ENOTSUP`/`EACCES` 且目标未出现时才返回 `PublishNone` + `DirtyFailure = false`，模糊 I/O 错误如 `EIO` 返回 `PublishUncertain` + `DirtyFailure = true`）；3) **提交结果与多文件安全回滚：** 单文件发布后出错保留目标文件并在 `Result.Files` 与 `CommitReceipt.Files` 完整表征；多文件事务中止时将全部已发布文件纳入 `rollback`，仅在 `fileIdentity`、长度、`ModTime` 与字节内容全匹配时安全删除（置 `PublishRolledBack`），遇外部追加、外部原子替换或身份缺失时绝不覆盖外部修改并如实保留在 `Result.Files`；4) **因果证据闭环：** `DirtyFailure` 强制 `MutatesWorkspace = true`、`OutcomeUnknown` 与 `;cm=unknown`（`MutationUnknown`，绝不退化为 `MutationNone`），并持久化未闭合 `DerivedEdge` | **RED：** `logs/r4-02-red.log`（在 `4ac972483cb0197179c4a1938a07c2a045cfd886` 未改动 `editing`/`toolset` 上运行 `probes/r4_02_red_repro_test.go`，`exit=1`：单文件 `link` 与 `rename` 发布后出错均在磁盘留下已发布文件却报 `DirtyFailure=false, Files=[]`，多文件第 2 文件发布后出错被 `rollback` 跳过）。<br>**GREEN：** `logs/r4-02-green.log`（`a58aef27759612c99c441062f8b8049d0c8cb1f4`，干净工作树 `-race` `exit=0`）：覆盖 §5.5 全部 10 类故障注入点及真实 `Loop` + Git + SQLite 冷启动 `Resume` | `a58aef27759612c99c441062f8b8049d0c8cb1f4` | `FIXED_BY_IMPLEMENTER` \| `SELF_VERIFIED` \| `PENDING_INDEPENDENT_REVIEW` |
+| **R4-03** | **P3** | `CONFIRMED` | `docs/reports/adr-0024-context-space-implementation-2026-11-18.md`（§6、§7.3、§11.2 第 272 行、§11.4）, `bench/evidence/adr-0024-r4-remediation-20261120/{README.md,SHA256SUMS,scripts/verify_r4_evidence.py}` | 1) R3 虽在 §7.2 第 163 行注明 `r2-01-green.log` 的交叉编译段无输出，但 §11.2 第 272 行仍保留了“+ Linux/Windows 交叉验证”的不实摘要（实际 `r2-01-green.log` 第 40–41 行仅有段标题与无条件结束标记，`0` 行命令输出、`0` 行退出码，且仅含 5 个 macOS `ok` 包、无提交 SHA）；2) §11.2 其余 R2 日志行的退出码/提交 SHA 记录情况未逐行写清；3) §6 / §7.3 的 R3 文档提交引用在 R3 编写时为自指占位描述 | 保留全部历史日志原件不作篡改，采用带日期（`2026-11-20 R4-03`）修订：1) 更正 §11.2 `r2-01-green.log` 及全部 12 份 R2 历史日志的真实输出、退出码与提交 SHA 记录边界；2) 将 R3 文档提交补全为经校验的 `aeb2e5014697fa544ee855c4d6277be4c074fc16`；3) 新增 `scripts/verify_r4_evidence.py` 自动核验三份文档中全部反引号提交引用、`§11` 全部 SHA256 行以及 R3/R4 三个 `SHA256SUMS` 清单（`invalid == []`, `bad == []`） | `scripts/verify_r4_evidence.py` 输出 `invalid: []`、`bad: []`；`shasum -a 256 -c SHA256SUMS` 9/9 `OK` | R4 文档修订提交 | `FIXED_BY_IMPLEMENTER` \| `SELF_VERIFIED` \| `PENDING_INDEPENDENT_REVIEW` |
+
+### 7.5 先行技术调研与复用评估（Prior Art and Reuse Assessment）
+
+遵循 LumenCortex “先调研成熟 Agent Harness 与底层事务库，再决定复用/适配/自研”的永久工程准则，在实施 `R4-01` 与 `R4-02` 前已完成对主流开源项目的源码级核查：
+
+#### 1. `R4-01`（`ToolCallID → ExecutionID` 精确因果身份传播与嵌套调用归属）
+
+- **已核查项目与上游源码位置：**
+  1. **Pi（`badlogic/pi-mono`，MIT，上游参考提交 https://github.com/badlogic/pi-mono/commit/edfe6b2ef32283d31efc9e26db86fe48be19d3b2 ）：** `packages/agent/src/agent-loop.ts:493-529` 在单步循环中直接将模型生成的 `toolCall.id` 作为唯一身份键传入 `tool_execution_start`、`tool.execute(toolCall.id, ...)` 与 `ToolResultMessage.toolCallId`，从不按工具名或顺序反推调用身份。
+  2. **OMP / OpenCode（`can1357/oh-my-pi` 上游参考提交 https://github.com/can1357/oh-my-pi/commit/63bfb67d164ecc3abfc34c0541ce370cfb59adbc ；`anomalyco/opencode` MIT 上游参考提交 https://github.com/anomalyco/opencode/commit/5d429b952d2eda062e3b393a2b8e4f379a2b8e4f0ace -> `packages/opencode/src/session/prompt.ts`）：** 将 `callID` 封装进工具执行 `Context` 并直接更新对应 `ToolPart` 状态；子代理通过父 `Part` ID 关联。
+  3. **OpenHands（`All-Hands-AI/OpenHands`，MIT，上游参考提交 https://github.com/All-Hands-AI/OpenHands/commit/428b3dc2a0e8d3d0f689a909e2607e33d973da76 ）：** `openhands/events/event.py` 与 `openhands/controller/agent_controller.py` 在 `EventStream` 中同时维护显式 `tool_call_metadata.tool_call_id` 与父事件因果指针 `cause: int`。
+- **可复用模式：** Pi / OpenCode 的“在准入入口直接携带 `ToolCallID`，并在嵌套上下文携带显式父调用指针（类似 OpenHands `cause`）”的显式身份传播模式完全适用。
+- **不可直接照搬的部分及原因：** 上述项目要么仅在内存/JSONL 事件流中保存 `toolCallId`，要么缺少 LumenCortex 的双平面 SQLite `derived_origins` 血缘表、冻结 Schema（`0001`–`0017` 零迁移约束）、三值 `MutationEvidence` 以及无 `ToolCallID` 历史导入行的保守 `MutationUnknown` 降级要求。
+- **最终 LC 实施决策：** **适配成熟显式身份传播模式 + 复用既有 `derived_origins.derived_from` 列**（编码 `call:<escaped>` 与 `nested:<escapedParent>/<escapedCall>`），零新增表、零 SQLite Migration、零新增写事务，同时保持 LC 的三值因果证据与双平面治理边界。
+
+#### 2. `R4-02`（原子不覆盖文件发布、发布后错误状态区分与多文件非覆盖回滚）
+
+- **已核查项目与上游源码位置：**
+  1. **Pi（`badlogic/pi-mono` `packages/coding-agent/src/core/tools/write.ts:33-36`）与 Aider（`Aider-AI/aider`，Apache-2.0，上游参考提交 https://github.com/Aider-AI/aider/commit/5dc9490bb35f9729ef2c95d00a19ccd30c26339c ，`aider/io.py:478-508`）：** 均直接对目标路径执行非事务性覆盖写（`fs.writeFile` / `open(filename, "w")`），无同目录私有临时文件、无 no-replace 原子发布、无 `CommitReceipt`、无多文件回滚。
+  2. **`google/renameio`（Apache-2.0，上游参考提交 https://github.com/google/renameio/commit/2cc5e3041a104ebcd289803dcb055d8a8c70dce2 ，`tempfile.go:139-212`）：** `PendingFile` 显式维护 `closed` 与 `done` 两个布尔状态位，在执行最终重命名前先 `Close()` 临时句柄并在发布成功后置 `done = true` 使 `Cleanup()` 幂等空操作；但 `renameio` 使用覆盖式 `os.Rename`（不满足 LC 新建文件防并发覆盖误删的 `no-replace` 要求），且不支持多文件事务或因果回执。
+  3. **Rust `Stebalien/tempfile`（MIT/Apache-2.0，上游参考提交 https://github.com/Stebalien/tempfile/commit/5fe9b1280fba8421203ab49b421dae009dd0b7b7 ，`src/file/imp/unix.rs:94-129`）：** `persist(..., overwrite=false)` 采用 Linux `renameat_with(..., RENAME_NOREPLACE)`、macOS `renamex_np(..., RENAME_EXCL)` 与 POSIX `hard_link` + 忽略发布后 `unlink(old_path)` 错误的精确模式——一旦目标硬链接/重命名成功，绝不因临时路径清理失败而谎称未持久化；发布前失败则返回携带未消费句柄的 `PersistError`。
+- **可复用模式：** 适配 `Stebalien/tempfile` 的“内核级 no-replace 原语成功后即视为目标已不可逆持久化”边界划分，以及 `google/renameio` 的显式生命周期状态机思想（Windows 端同样在 `MoveFileExW` 前完成 `Close()`，使发布前 `Close` 失败归属 `PublishNone`）。
+- **不可直接引入第三方依赖的原因：** Go 生态无现成库同时满足（a）跨平台 `link` / `RENAME_EXCL` / `RENAME_NOREPLACE` / `MoveFileExW(0)` 严格不覆盖创建、（b）发布后 `Stat`/`Close`/身份采集错误的显式脏回执（`PublishSucceededWithPostError` vs `PublishUncertain` vs `PublishNone`）、（c）基于 `(dev, ino, mtime, bytes)` 四重校验防覆盖外部并发改动的多文件回滚，以及（d）与 LC `CommitReceipt` → `OutcomeUnknown` → `MutationUnknown` 的因果封签对接。
+- **最终 LC 实施决策：** 在 `internal/editing` 内部适配 `tempfile` + `renameio` 的不可逆发布分界与显式状态机，构建零外部依赖的 `PublishState` / `CommitState` 模型。
+
 ---
 
 ## 8. R2 代码候选（`7d064d0`）跨平台验证与原始日志索引（含 `R3-07` 更正）
@@ -218,6 +262,22 @@
 - **仍未验证：** Windows 原生运行；macOS SMB 与 Windows exFAT；Linux 块设备文件系统（ext4、xfs、btrfs）；本轮未改动的 `./runtime` 与 `./evalruntime` 全包套件。
 - **提交前日志：** 修复过程中在未提交工作树上产生的日志归档在 `logs/pre-commit/`，只作历史保留；其中 `build-vet-cross-linux.log` 的容器 `toolset.test` 实际未运行任何测试（见 `R3-07`）。
 
+### 8.2 R4 修复代码候选（`a58aef27759612c99c441062f8b8049d0c8cb1f4`）定向与跨平台验证
+
+所有原始日志归档于 `bench/evidence/adr-0024-r4-remediation-20261120/`（`SHA256SUMS` 9 项，`shasum -a 256 -c` 全部 `OK`）。每份日志首部记录精确 40 位提交 SHA 与工作树干净状态（`dirty_files=0`），且每一步命令后均紧跟真实 `exit=<rc>`（零无条件 `_OK` 横幅）。
+
+| 检查项 | 实际执行命令 | 实测结果（含显式退出码） | 原始日志文件 |
+| :--- | :--- | :--- | :--- |
+| **`R4-01` 行为级 RED → GREEN** | RED（`aeb2e5014697fa544ee855c4d6277be4c074fc16`）：`go test -v -count=1 -run '^TestR401LiveLoopAndColdResumeExactIdentityCases$' ./internal/agent`<br>GREEN（`4ac972483cb0197179c4a1938a07c2a045cfd886`）：`go test -race -count=1 -v`（`./internal/session` + `./internal/agent`） | RED：Case A/B/C 及无 `ToolCallID` 历史行共 4 子项失败，`exit=1`<br>GREEN：全部子项及 `TestR303`/`TestR304`/`TestF02` `-race` 通过，两条命令均 `exit=0` | `logs/r4-01-red.log`<br>`logs/r4-01-green.log` |
+| **`R4-02` 行为级 RED → GREEN** | RED（`4ac972483cb0197179c4a1938a07c2a045cfd886`）：`go test -count=1 -v -run 'TestR402PostPublishDefectsReproducer' ./internal/editing`<br>GREEN（`a58aef27759612c99c441062f8b8049d0c8cb1f4`）：`go test -race -count=1 -v`（`./internal/editing` + `./internal/toolset` + `./internal/agent`） | RED：3 个子项全部复现（发布后报错误给 `DirtyFailure=false, Files=[]` 及多文件跳过回滚），`exit=1`<br>GREEN：`editing` 16 个子项、`toolset` 3 个子项、`agent` 3 个端到端 SQLite 冷恢复子项全部 `-race` 通过，三条命令均 `exit=0` | `logs/r4-02-red.log`<br>`logs/r4-02-green.log` |
+| **全仓编译与静态检查（`darwin/arm64`）** | `go build ./...`；`go vet ./...` | 均无任何告警或错误，两条命令均 `exit=0` | `logs/verify-r4-final.log` |
+| **受影响四包非 `-race` 与 `-race` 全量测试** | `go test -count=1 ./internal/agent ./internal/editing ./internal/toolset ./internal/session`<br>`go test -race -count=1 ./internal/agent ./internal/editing ./internal/toolset ./internal/session` | 非 `-race` 4 包 `ok`（`21.053s` / `5.004s` / `29.032s` / `41.017s`），`exit=0`；<br>`-race` 4 包 `ok`（`61.379s` / `7.652s` / `32.805s` / `46.517s`），0 数据竞争，`exit=0` | 同上 |
+| **`./runtime` 因果与恢复集成回归** | `go test -race -count=1 -run 'TestT3\|TestT4' ./runtime` | `ok`（`17.289s`），`exit=0` | 同上 |
+| **四目标平台交叉编译、`go vet` 与 Windows 测试二进制链接** | `linux/arm64`、`linux/amd64`、`windows/amd64`、`freebsd/amd64` 上 `go build ./...` + `go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session`；`windows/amd64` 上对上述 4 包逐一执行 `go test -c` | 8 条交叉 build/vet 命令与 4 条 `windows/amd64 go test -c` 命令逐条均记录 `exit=0`；脚本汇总 `overall_exit=0` | 同上 |
+| **提交 SHA 与证据清单自动核验** | `python3 scripts/verify_r4_evidence.py`；`shasum -a 256 -c SHA256SUMS` | 文档中全部反引号提交引用 `invalid: []`；`§11` 全部哈希表行 `bad: []`；R3 审查（44 项）、R3 修复（20 项）、R4 修复（9 项）三个 `SHA256SUMS` 均 `bad: [], unlisted: [], missing: []` | §11.4 |
+
+- **本轮仍保持 `UNVERIFIED` 的边界（不夸大覆盖）：** Windows 原生进程执行（`MoveFileExW`、`ByHandleFileInformation`、NTFS/FAT/exFAT/ReFS、SQLite 锁与 `-race`）；macOS SMB 与 Windows exFAT；Linux 块设备文件系统（`ext4`、`xfs`、`btrfs`）；本轮未改动的 `./runtime` 全包长时套件与 `./evalruntime` 全包套件。
+
 ---
 
 ## 9. Strong Self-Criticism 反向自检与强制十四问回答
@@ -235,12 +295,24 @@
 11. **`R2-01` 创建型写操作是否仍会误删外部原地写入的数据？** 不会。默认本地主机与 `toolset.Set` 先写入同目录私有临时文件 `.lcx-create-<nonce>` 再执行内核级原子不覆盖发布（`publishTempNoReplace`），目标路径上不存在 0 字节窗口，也不会对目标路径执行 `unlink`；自定义 `Host.Open` 兜底路径在 CAS/超限/并发写时绝不执行删除，其余回滚仅在文件身份、`ModTime`、长度与逐字节内容四重核验一致时才允许清理（Windows 关闭句柄至 `os.Remove` 之间的极窄自定义 Host 兜底窗口与非 NTFS 卷文件 ID 限制已如实披露）。相关限制：私有临时文件的删除是尽力而为，进程被杀或目录权限变化时会残留（`R3-02`，`OPEN (P3)`）；暂存文件发布前不调用 `fsync`（`R3-06`）；不支持 `link(2)` 与不覆盖重命名的文件系统（如 macOS exFAT）上新建文件返回 `unsupported_filesystem`（`R3-01`，已记录限制）。
 12. **所有平台验证覆盖到哪里？** R2 候选 `7d064d0`：macOS ARM64 全仓 49 个包的编译、`go vet` 与非 `-race` 单测日志无错误（43 个含测包 `ok`，日志未记录退出码）；全仓 `-race` 首轮 `runtime` 包 `TestHubPauseSurvivesRestart` **失败**，之后只有一行无来源的 `runtime` 复测 `ok`，所称 `-count=5` 5/5 通过为 `UNVERIFIED`；Ubuntu Linux ARM64 容器日志显示编译/`vet` 无错误、48 个非 `runtime`/`evalruntime` 包与 16 个核心包 `-race` 无失败，但只记录 `HEAD: ro-worktree`；Windows AMD64 交叉编译/`vet` `EXIT=0`、`go test -c` 生成三个测试二进制。R3 候选 `0155df65`：只做定向验证（§8.1），每份日志记录完整提交 SHA。始终 `UNVERIFIED`：Windows 原生运行、macOS SMB 与 Windows exFAT、Linux 块设备文件系统、容器内全量 `runtime`/`evalruntime`。
 13. **是否存在未解决 P0/P1/P2？是否存在未解决 P3？**
-    - **本分支引入的未解决 P0 / P1：`0` 个。** `F-01/R2-01`（P1）、`F-02`（P2）、`F-03/R2-02`（P2）已修复；R3 对 `R2-01`、`R2-02` 的复核为 `PARTIALLY_CONFIRMED`，其残余项见 §7.3。
-    - **P2：** `R3-01`（本分支引入）按 Owner 决策作为**已记录的临时限制**接受，安全失败并返回明确错误；`PRE-01`、`PRE-02` 为 `main` 上既有的 P2 缺陷，非本分支引入，登记于工作区 `TODO.md`，是否计入本分支合并门禁待 Owner 确认。
-    - **未解决 P3：`7` 个显式保留在 Finding Ledger（`OPEN (P3)`）**：`F-05`、`F-06`（`32K–600K` 窗口容量收窄权衡）、`F-07`、`F-08`、`R2-03`（工作区重检为提示词级告知而非 `bash`/`mcp` 运行时硬拦截）、`R3-02`（遗留私有临时文件，清理要求已记录）、`R3-04`（单个超窗工具结果的 Live/Resume 分歧）。
-    - **本轮修复（`R3-01` 错误码、`R3-03`、`R3-04` 通知措辞、`R3-05/06/07` 报告更正）：** `FIXED_BY_IMPLEMENTER | SELF_VERIFIED | PENDING_INDEPENDENT_REVIEW`，修复者即 R3 审查者，未经独立复核。
+    - **本分支引入的未解决 P0 / P1 / 功能性 P2：`0` 个。** `F-01/R2-01`（P1）、`F-02`（P2）、`F-03/R2-02`（P2）及 `R4-02`（P2）均已修复并经 `-race` 回归验证；`R3-01`（P2）按 Owner 决策作为**已记录的临时限制**接受（安全拒绝并返回 `unsupported_filesystem`）；`PRE-01`、`PRE-02` 为 `main` 既有的 `OPEN (P2)` 缺陷，非本分支引入，未在 R4 静默吸收亦不声称已解决。
+    - **未解决 P3：`7` 个显式保留在 Finding Ledger（`OPEN (P3)`）**：`F-05`、`F-06`（`32K–600K` 窗口容量收窄权衡）、`F-07`、`F-08`、`R2-03`（工作区重检为提示词级告知而非 `bash`/`mcp` 运行时硬拦截）、`R3-02`（遗留私有临时文件，安全清理要求已记录）、`R3-04`（单个超窗工具结果的 Live/Resume 分歧）。
+    - **本轮 R4 修复（`R4-01`、`R4-02`、`R4-03`）：** `FIXED_BY_IMPLEMENTER | SELF_VERIFIED | PENDING_INDEPENDENT_REVIEW`，未经独立复核。
 14. **是否可以 Merge `main`？**
-    - **当前不合并 `main`。** 本轮修改位于独立分支 `fix/adr-0024-r3-remediation-20261119`（自 `2ba79ae` 建立），状态为 `R3_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`，等待对 `2ba79ae..` 本轮差异的独立复核与 Owner 最终合并决定。
+    - **当前不合并 `main`。** 本轮修改位于独立分支 `fix/adr-0024-r4-remediation-20261120`（自 `aeb2e5014697fa544ee855c4d6277be4c074fc16` 建立），状态为 `R4_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`，等待 GPT-6.1 Sol 独立增量审查与 Owner 最终合并决定。
+
+### 9.1 `R4-04` 强制反向自检十问（Self-Criticism）
+
+1. **非法参数调用是否仍可能窃取另一个调用的 `ExecutionID`？** 不会。参数 JSON 解析失败的调用不会调用 `AdmitExecution`，而合法调用准入时写入精确 `call:<escapedID>`；`applyExecutionSummariesToMeta` 仅按 `rec.ToolCallID == c.ToolCallID` 精确配对（`TestR401.../case_A_invalid_first_call_then_valid_same_name_call` 实证）。
+2. **嵌套执行是否仍可能与顶层调用混淆？** 不会。`admitCallbackExecution` 强制同时记录回调自身 `ToolCallID`（`<parentCallID>:cb<N>`）与 `ParentToolCallID`（编码为 `nested:<parent>/<call>`），挂载到父调用的 `Nested []HistoryExecutionRef`，绝不占用任何顶层同名 `write_file` 的 `ExecutionID`（Case B / Case C 实证）。
+3. **冷启动 `Resume` 能否重建完全一致的 `ToolCallID` 关联？** 能。`ListAnsweredExecutions` 从 SQLite `derived_origins.derived_from` 无损解码 `ToolCallID` 与 `ParentToolCallID`；`assertLiveColdStreamParity` 在全部 R4 测试用例上校验了在线 `run`、冷启动 `r.load` 与无状态 `StreamRepairContextFromStore` 的 `RepairContext` 及 `HistoryGroupMeta` `DeepEqual` 恒等。
+4. **文件发布成功后，回执是否仍可能报告干净失败（`DirtyFailure=false`）？** 不会。`publishTempNoReplace` 一旦 `os.Link`、不覆盖 `rename` 或 `MoveFileExW` 返回 `nil`（或错误后 `Lstat` 确认目标已绑定 `preID`），即不可逆返回 `published: true` 与 `PublishSucceededWithPostError`；`Commit` 强制置 `DirtyFailure = true` 并记录 `CommitStatePublishedWithPostError` / `CommitStatePartiallyPublished`。
+5. **多文件回滚是否可能覆盖或误删外部并发修改？** 对新建文件绝不会：`removeCreatedAtRollback` 必须同时验证 `fileIdentity`（设备/卷 + inode/FileIndex + `ModTime`）、精确字节长度与逐字节内容一致才执行 `os.Remove`，外部追加（场景 8）、外部等长原子替换（场景 9）与身份缺失（场景 6b）均原样保留外部文件（注：既有文件覆盖回滚的 `PRE-02` 按任务边界保持为独立登记的 `main` 既有 `OPEN P2`）。
+6. **部分发布的多文件事务是否可能被误报为原子完成或干净未写？** 不会。`Committed` 必为 `false`、`DirtyFailure` 必为 `true`、`State` 必为 `CommitStatePartiallyPublished`；已成功回滚的文件标记 `PublishRolledBack`（`Wrote=false`），因外部并发修改或身份缺失未回滚而留在磁盘上的已发布文件同时出现在 `Result.Files` 与 `CommitReceipt.Files`（`Published=true, RolledBack=false, Wrote=true`）。
+7. **发布状态不确定时，`MutationEvidence` 是否可能变成 `MutationNone`？** 不会。模糊 I/O 错误（如 `syscall.EIO`）归为 `PublishUncertain` 并置 `DirtyFailure = true`；即使磁盘目标未出现（`PreRef == PostRef` 且 `FileEdgeCount == 0`），`postExecution` 与 `sealFilesMutation` 仍强制产出 `OutcomeUnknown` 与 `;cm=unknown`，在线与冷 `Resume` 均为 `MutationUnknown`（`TestR402EndToEndPostPublicationAndUncertainResume/uncertain_publication_eio_never_becomes_mutation_none_across_resume` 实证）。
+8. **不含 `ToolCallID` 的旧历史执行记录是否得到保守处理？** 是。`derived_from IS NULL`（或超长降级标记 `call~overflow`）解码为空 `ToolCallID`，归入 `UnboundExecutions`，强制组级 `MutationEvidence = MutationUnknown` 且 `ToolCallID` 置空，绝不按工具名或顺序猜配到任何调用（`legacy_and_unmatched_records_on_real_sqlite_stay_unbound_unknown` 实证）。
+9. **本轮改动是否引入了额外的数据库写事务或无界内存分配？** 没有。`derived_from` 随既有 `AdmitExecution` 同一条 `INSERT INTO derived_origins` 写入，保持每次副作用工具调用严格 `2` 次 SQLite 写事务（`TestT4` `-race` 通过），且 `HistoryGroupMeta` 继续受 `MaxInMemoryHistoryGroups = 2048` 增量折叠封顶。
+10. **既有 CAS、Fence 或 Provenance 保证是否有任何削弱？** 没有。`./internal/session`、`./internal/editing`、`./internal/toolset`、`./internal/agent` 全包 `-race` 及 `./runtime` `TestT3|TestT4` 全部通过，`source_fences` 撤回围栏、路径沙箱、描述符级受保护文件拒绝与原子不覆盖创建保证 100% 保持。
 
 ---
 
@@ -260,26 +332,28 @@
 | `LumenCortex-architecture-audit/design/handoffs/context-space-architecture-master.zh-CN.md` | **`v0.4-rc3.7`（当前权威规格）** | `5c9edaeb6b917d7cf508677036f17ab1911dd6b5f1a78ee25d8e0082f6cbb89f` |
 | `LumenCortex-architecture-audit/design/handoffs/context-space-architecture-master.v0.4-rc3.6.zh-CN.md` | `v0.4-rc3.6`（R2 升级前只读备份） | `3da2b65adda4b43fddf929dfa0d6b345e9181a75bf43c43f1c79ed5abe0ab09a` |
 | `LumenCortex-architecture-audit/design/handoffs/context-space-architecture-master.v0.4-rc3.5.zh-CN.md` | `v0.4-rc3.5`（R1 升级前只读备份） | `bd8dfb00c9781d4d375ce4779789a71f0cbef9f547918ea1f4aa1a0c7481abd9` |
-| `docs/adr/0024-candidate-context-projection-and-budget-guards.md` | 英文 ADR-0024（105 行，同步 `v0.4-rc3.7` 与 R3 修复） | `abff66f108cc462c7b450e68e4e31e6a9d2da9703f6825eb9e4286752965bb42` |
-| `docs/adr/0024-candidate-context-projection-and-budget-guards.zh-CN.md` | 中文 ADR-0024（105 行，同步 `v0.4-rc3.7` 与 R3 修复） | `a06a1ed7b27391acef0ca9a98565850b3a78c0df35077df2760333b6fa6c9f87` |
+| `docs/adr/0024-candidate-context-projection-and-budget-guards.md` | 英文 ADR-0024（105 行，同步 `v0.4-rc3.7` 与 R1–R4 修复） | `30fc15c3a1e595cef124f139430179ef0353e096931c8c2772599647438a4b53` |
+| `docs/adr/0024-candidate-context-projection-and-budget-guards.zh-CN.md` | 中文 ADR-0024（105 行，同步 `v0.4-rc3.7` 与 R1–R4 修复） | `7c23676582c72f596ad5031756ff96444498989c940ee35415dde5b141fcb44a` |
 | `docs/lumencortex.schema.json` | 配置 JSON Schema（`64B/192B` 模型键边界） | `289856b69557229318803c3198b023f777e94e52e2cde7be0fecf84c1b654744` |
 
-### 11.2 持久化原始测试与平台验证日志 SHA256（位于 `bench/evidence/adr-0024-r2-remediation-20261119/`）
+### 11.2 持久化 R2 历史原始日志 SHA256（位于 `bench/evidence/adr-0024-r2-remediation-20261119/`，含 `2026-11-20 R4-03` 精确出处修订）
 
-| 原始日志文件名 | 用途与对应证据 | SHA256 |
+> **[2026-11-20 R4-03 修订说明]：** 历史日志文件本身保持只读未改，下表修正前版摘要中的不精确描述（特别是前版第 272 行误称 `r2-01-green.log` 含 Linux/Windows 交叉验证），逐行如实写明每份历史日志实际包含的 `ok`/`FAIL` 包数、提交 SHA 记录情况与退出码记录情况。
+
+| 原始日志文件名 | 日志真实记录内容与边界（`2026-11-20 R4-03` 核实） | SHA256 |
 | :--- | :--- | :--- |
-| `r2-01-red.log` | `R2-01` 修复前 RED 复现（引擎原地写 `lost=325/400`、`write_file` `lost=291/300`、双 OS 进程 `lost=25/40`） | `6cf4cae22b663fc57fbdd261291b634b38c7f83fccc18d75d933bb24ded248b0` |
-| `r2-01-green.log` | `R2-01` 修复后 GREEN 验证（全并发与双进程竞争 `lost=0, mixed=0` + `-race` + Linux/Windows 交叉验证） | `693e2f53660fe1b736d8fee17c8571654c3a5eaf8051a203ebf50a4649668b24` |
-| `r2-02-red.log` | `R2-02` 修复前 RED 复现（40 步门禁后修复在第 17 步死亡 + `32K–600K` 五档窗口全败） | `6d85eff33a4698248ea8e0e149e061cf2206c09522cfe8eb84e0d8a8fe178f4e` |
-| `r2-02-green.log` | `R2-02` 修复后 GREEN 验证（40 步门禁后修复 + 五档窗口冷/热等价 + `./internal/agent` & `./runtime` `-race`） | `eeaee6585eb9ebdef0c094c9ea68a6f35f2899971be528061a03029ff40718f2` |
-| `r2-04-before.log` | `R2-04` 优化前性能基线与 RED 断言（`12,000` 组 40 次调用 `10,356.324 ms`、`5.27 GB`、`40` 次全表扫描） | `af60f94e0f86dd88d16affa2d2d80f0c26ba0982a91d16779f7b928e774a1b5d` |
-| `r2-04-after.log` | `R2-04` 优化后性能实测与 `-race` 等价验证（`12,000` 组 40 次调用 `1.785 ms`、`0 B`、`0` 次每步扫描） | `6fb3a946580420595664977d1accce7673fd3b278fa3744b4334d4185b11a15e` |
-| `macos-arm64-build-vet.log` | macOS ARM64 全仓 `go build ./...` + `go vet ./...`（Commit `7d064d0`） | `d18e2876debff176a359a86ab96d141f519339d71517649f091d41575265816b` |
-| `macos-arm64-test-full.log` | macOS ARM64 全仓 49 包 `go test -timeout 35m -count=1 ./...`：43 个含测包 `ok`、无 `FAIL`，未记录退出码 | `c7abc762eba8ef922e3050c7faa267f3989cb75726d883f928b3ce639f7b9282` |
-| `macos-arm64-race-full.log` | macOS ARM64 全仓 `-race` 首轮：42 个含测包 `ok`，`runtime` 包 `FAIL`（`TestHubPauseSurvivesRestart`）；末尾 `_OK` 标记为无条件打印（`R3-07`） | `f39370d81e55ec3f3960dc9589b2e425e29b13eb7e41cfcc976823063e422f77` |
-| `macos-arm64-runtime-race-rerun.log` | 仅一行 `./runtime` 复测 `ok`（`1641.535s`），无 HEAD、命令与参数；不含 `-count=5` 记录（`R3-07`） | `8c425f75e1242321f985c46103f6945cef0b116c653779b8c01386a4e485f3b8` |
-| `linux-arm64-docker.log` | Ubuntu Linux ARM64 容器 `build/vet`、48 个非 `runtime`/`evalruntime` 包单测、16 核心包 + 定向 `runtime` `-race`；HEAD 只记为 `ro-worktree`，未记录退出码 | `68f6ada95db1eeea81d5358ea4bee3dbf18aa2de01c0017b823a81041cb95679` |
-| `windows-amd64-cross.log` | Windows AMD64 全仓 `build/vet` + `editing/toolset/agent` `.test.exe` 交叉链接 | `1d9bbb1d3a9c837b2adffee23709d0d357ac0c6554bb03e76fb77d1c7a205853` |
+| `r2-01-red.log` | `R2-01` 修复前 macOS RED 复现（`editing` 与 `toolset` `FAIL`：引擎原地写 `lost=325/400`、`write_file` `lost=291/300`、双 OS 进程 `lost=25/40`）；**未记录提交 SHA，未记录 `exit=` 退出码** | `6cf4cae22b663fc57fbdd261291b634b38c7f83fccc18d75d933bb24ded248b0` |
+| `r2-01-green.log` | **[2026-11-20 R4-03 更正]** 仅含 macOS 本机 `-race` 测试输出（共 `5` 行 `ok`：400/400 引擎并发原地写、300/300 `write_file` 原地写、100/100 双进程竞争 `lost=0, mixed=0`）；**未记录提交 SHA，未记录 `exit=` 退出码；其第 40–41 行 `"Windows & Linux cross-build + vet + test binary compile"` 段仅有标题与无条件 `"R2-01 ALL CHECKS PASSED"` 标记，不含任何交叉编译命令输出或退出码**（交叉编译与容器实测见 `windows-amd64-cross.log`、`linux-arm64-docker.log` 及 §8.1/§8.2） | `693e2f53660fe1b736d8fee17c8571654c3a5eaf8051a203ebf50a4649668b24` |
+| `r2-02-red.log` | `R2-02` 修复前 macOS RED 复现（`internal/agent` `FAIL`：40 步门禁后修复在第 17 步死亡 + `32K–600K` 五档窗口全败）；**未记录提交 SHA，未记录 `exit=` 退出码** | `6d85eff33a4698248ea8e0e149e061cf2206c09522cfe8eb84e0d8a8fe178f4e` |
+| `r2-02-green.log` | `R2-02` 修复后 macOS GREEN 验证（共 `3` 行 `ok`：40 步门禁后修复 + 五档窗口冷/热等价 + `./internal/agent` & `./runtime` 定向 `-race`）；**未记录提交 SHA，未记录 `exit=` 退出码** | `eeaee6585eb9ebdef0c094c9ea68a6f35f2899971be528061a03029ff40718f2` |
+| `r2-04-before.log` | `R2-04` 优化前性能基线与 RED 断言（`internal/agent` `FAIL`：`12,000` 组 40 次调用 `10,356.324 ms`、`5.27 GB`、`40` 次全表扫描）；**未记录提交 SHA，未记录 `exit=` 退出码** | `af60f94e0f86dd88d16affa2d2d80f0c26ba0982a91d16779f7b928e774a1b5d` |
+| `r2-04-after.log` | `R2-04` 优化后性能实测与 `-race` 等价验证（共 `3` 行 `ok`：`12,000` 组 40 次调用 `1.785 ms`、`0 B`、`0` 次每步扫描）；**未记录提交 SHA，未记录 `exit=` 退出码** | `6fb3a946580420595664977d1accce7673fd3b278fa3744b4334d4185b11a15e` |
+| `macos-arm64-build-vet.log` | macOS ARM64 全仓 `go build ./...` + `go vet ./...`（首行记录 HEAD `7d064d0`，无错误输出，**未记录 `exit=` 退出码**） | `d18e2876debff176a359a86ab96d141f519339d71517649f091d41575265816b` |
+| `macos-arm64-test-full.log` | macOS ARM64 全仓 49 包 `go test -timeout 35m -count=1 ./...`：43 个含测包 `ok` + 6 个 `[no test files]`、无 `FAIL`（首行记录 HEAD `7d064d0`，**未记录 `exit=` 退出码**） | `c7abc762eba8ef922e3050c7faa267f3989cb75726d883f928b3ce639f7b9282` |
+| `macos-arm64-race-full.log` | macOS ARM64 全仓 `-race` 首轮：42 个含测包 `ok`，`runtime` 包 `FAIL`（`TestHubPauseSurvivesRestart`）；末尾 `_OK` 标记为无条件打印，**未记录 `exit=` 退出码**（`R3-07`） | `f39370d81e55ec3f3960dc9589b2e425e29b13eb7e41cfcc976823063e422f77` |
+| `macos-arm64-runtime-race-rerun.log` | 仅一行 `./runtime` 复测 `ok`（`1641.535s`），无 HEAD、命令、退出码与参数；不含 `-count=5` 记录（`R3-07`） | `8c425f75e1242321f985c46103f6945cef0b116c653779b8c01386a4e485f3b8` |
+| `linux-arm64-docker.log` | Ubuntu Linux ARM64 容器 `build/vet`、48 个非 `runtime`/`evalruntime` 包单测、16 核心包 + 定向 `runtime` `-race`（共 58 行 `ok`、7 行 `[no test files]`、无 `FAIL`）；HEAD 只记为 `ro-worktree`，**未记录 `exit=` 退出码** | `68f6ada95db1eeea81d5358ea4bee3dbf18aa2de01c0017b823a81041cb95679` |
+| `windows-amd64-cross.log` | Windows AMD64 全仓 `build/vet`（首行记录 HEAD `7d064d0`，两条命令记录 `EXIT=0`）+ `editing/toolset/agent` `.test.exe` 交叉链接（列出生成文件，未记录 `go test -c` 退出码） | `1d9bbb1d3a9c837b2adffee23709d0d357ac0c6554bb03e76fb77d1c7a205853` |
 
 ### 11.3 R3 审查与修复证据清单 SHA256
 
@@ -288,4 +362,19 @@
 | 清单文件 | 内容 | SHA256 |
 | :--- | :--- | :--- |
 | `bench/evidence/adr-0024-r3-review-20261119/SHA256SUMS` | R3 独立审查原文、探针、脚本与日志（44 项） | `122f887274547d2b64a401855816c48b2f7a4077927ecf6dcb1567ca5d011225` |
-| `bench/evidence/adr-0024-r3-remediation-20261119/SHA256SUMS` | 本轮修复日志、探针、脚本与 `README.md`（20 项；§8.1） | `51920df5eae6a1db06d9218ca29c90fcb586b3eea31e66569ecadf86e165ab7e` |
+| `bench/evidence/adr-0024-r3-remediation-20261119/SHA256SUMS` | R3 修复日志、探针、脚本与 `README.md`（20 项；§8.1） | `51920df5eae6a1db06d9218ca29c90fcb586b3eea31e66569ecadf86e165ab7e` |
+
+### 11.4 R4 最终修复原始证据与 `SHA256SUMS` 清单（位于 `bench/evidence/adr-0024-r4-remediation-20261120/`）
+
+| 证据文件路径 | 对应提交与记录内容（均含完整 40 位 SHA 与显式 `exit=`） | SHA256 |
+| :--- | :--- | :--- |
+| `bench/evidence/adr-0024-r4-remediation-20261120/logs/r4-01-red.log` | `aeb2e5014697fa544ee855c4d6277be4c074fc16` 上 `R4-01` 行为级 RED（Case A/B/C + 旧记录共 4 子项失败，`exit=1`） | `03a1425f561f88e8a854e9bcca5534171f61556ae46968027bdc8826e4358db3` |
+| `bench/evidence/adr-0024-r4-remediation-20261120/logs/r4-01-green.log` | `4ac972483cb0197179c4a1938a07c2a045cfd886` 上 `R4-01` `-race` GREEN（`session` + `agent` 全子项通过，两条均 `exit=0`） | `5c4d4faefd1b9d17d20610a302b19157beab047a263bb959da01d761daa3ad37` |
+| `bench/evidence/adr-0024-r4-remediation-20261120/logs/r4-02-red.log` | `4ac972483cb0197179c4a1938a07c2a045cfd886` 上 `R4-02` 行为级 RED（单文件发布后报错误给干净回执 + 多文件跳过回滚，`exit=1`） | `5e06f1f687fff10305d3e877d09885eebbff4167d24406d0edcb8c8b2eba3670` |
+| `bench/evidence/adr-0024-r4-remediation-20261120/logs/r4-02-green.log` | `a58aef27759612c99c441062f8b8049d0c8cb1f4` 上 `R4-02` `-race` GREEN（`editing` + `toolset` + `agent` 全部通过，三条均 `exit=0`） | `67b4af32ee542004ab226d4ddf4ce20f370dfa252b138541baead012c59f44b2` |
+| `bench/evidence/adr-0024-r4-remediation-20261120/logs/verify-r4-final.log` | `a58aef27759612c99c441062f8b8049d0c8cb1f4` 最终综合验证（`build`/`vet`、4 包非 `-race` 与 `-race`、`runtime` `TestT3\|TestT4`、4 平台交叉编译/`vet` 与 `windows/amd64` `go test -c`，17 步全部 `exit=0`，`overall_exit=0`） | `0d19a5e4d9a91137976134752c0caf5cdb669c58c2d237e143fd98bb95cbc848` |
+| `bench/evidence/adr-0024-r4-remediation-20261120/probes/r4_02_red_repro_test.go` | `R4-02` 未改动引擎行为级 RED 复现测试探针源码 | `2997618bd470f9903a5efbc6e24ff666809f8c088ef2a7d97e138fd24d63ebcf` |
+| `bench/evidence/adr-0024-r4-remediation-20261120/scripts/run_final_verify.sh` | R4 最终验证与跨平台构建脚本（逐条输出 `exit=`） | `5733cc10d6b982f8d11ce9d3e33b7b0c9d70442ea3031ea42306d6d6409a0c16` |
+| `bench/evidence/adr-0024-r4-remediation-20261120/scripts/verify_r4_evidence.py` | 提交引用、报告哈希表与三份 `SHA256SUMS` 清单自动核验脚本 | `96398f6162748d350e341329bde90af7424dea7ba09ef2441e829bcc7b95833f` |
+| `bench/evidence/adr-0024-r4-remediation-20261120/README.md` | R4 证据目录说明与未验证平台边界清单 | `fe0b2cca8fb71bdfbd0c9cf3ff3aa36a1a48ffcb14beda76973a81337628b81a` |
+| `bench/evidence/adr-0024-r4-remediation-20261120/SHA256SUMS` | R4 证据清单（9 项，`shasum -a 256 -c` 全部 `OK`） | `02f63da7d1b8be68552edc86eb3553f6aa1ffb27a5d2c073705ad7a0cbd0c042` |
