@@ -2,7 +2,7 @@
 
 ## Decision record and implementation report
 
-**`R7_IMPLEMENTATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`**. Carbon's review target is the production candidate `f60738ad4bc5ca5304910617b3889ec0b55a89e2`. Start with the [four-finding ledger](#implementation-and-evidence-ledger) and [replay instructions](#carbon-handoff). The second independent review (Report A, 2026-11-21) is remediated on branch `fix/adr-0024-r7r2-remediation-20261121`; see [R7R2 remediation](#r7r2-remediation). That remediation is also pending independent review.
+**`R7R2_P3_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`** (follow-up branch `fix/adr-0024-r7r2-carbon-p3-20261121` based on `fc1c4368507bea3f4e13099c62ca35936a6fba48`; see [R7R2 Carbon P3 remediation](#r7r2-carbon-p3-remediation) for independent review by Claude Opus 5.5). Historical R7 handoff status: **`R7_IMPLEMENTATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`**. Carbon's review target is the production candidate `f60738ad4bc5ca5304910617b3889ec0b55a89e2`. Start with the [four-finding ledger](#implementation-and-evidence-ledger) and [replay instructions](#carbon-handoff). The second independent review (Report A, 2026-11-21) is remediated on branch `fix/adr-0024-r7r2-remediation-20261121`; see [R7R2 remediation](#r7r2-remediation). That remediation received `PASS_WITH_LIMITATIONS` from Gemini 4 Carbon, which raised `R7R2-NEW-01` and `R7R2-NEW-02`.
 
 Input is R6 `4aaf8e7168743d6c8ae8fa6fe87a350ca69f9af2`, production `aa7b77a63c86d1951d36bfc12234cb17495cd871`, on the verified R5 → R6 chain. The input spec is `v0.4-rc3.7`, SHA256 `5c9edaeb6b917d7cf508677036f17ab1911dd6b5f1a78ee25d8e0082f6cbb89f`. Sol's R6 review blocked merge. Section 8 of ADR-0024 governs the R7 editing contract. Existing execution admission, causal seals, fences and cold Resume govern the evidence contract.
 
@@ -168,3 +168,42 @@ All runs on Darwin ARM64, Go 1.26.5, from `e37976d` plus the uncommitted R7R2 te
 | `go vet` of the four packages for linux/arm64, linux/amd64, windows/amd64, windows/arm64, freebsd/amd64 (CGO disabled) | exit 0 each (`logs/28-cross-*.txt`). Windows test binaries compiled ([log](evidence/adr-0024-r7r2/logs/10-windows-cross.txt)); none was run. |
 
 Not run for R7R2: the repository-wide `go test ./...` and the full 45-minute `./runtime` package. Packages that import `editing` or `toolset`, such as `runtime`, are covered only by the T3/T4 subset above. No native Windows, Linux or FreeBSD execution.
+
+## R7R2 Carbon P3 remediation
+
+**Status:** **`R7R2_P3_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`** (assigned for independent review by Claude Opus 5.5).
+
+- **Verified baseline:** R7R2 branch `fix/adr-0024-r7r2-remediation-20261121` @ `fc1c4368507bea3f4e13099c62ca35936a6fba48` (clean, synced to origin). R7 (`31172bc274c3a4c54243a72e554862d539d7759d`), R6 (`4aaf8e7168743d6c8ae8fa6fe87a350ca69f9af2`), original `main` (`c73d17359f5d9dd16ef88b0de4525862593fddaa` keeping `M AGENTS.md`), `docs/reports/evidence/adr-0024-r7/`, and `docs/reports/evidence/adr-0024-r7r2/` remain untouched.
+- **Specification governance:** `v0.4-rc3.8 draft 2` (`4a56762c9b74b5ad2065082f8dc12ad9fd12ca93ab70b56ee510461b0971da9b`) was NOT modified and remains **`PENDING_OWNER_APPROVAL`**.
+- **Branch & commits:** `fix/adr-0024-r7r2-carbon-p3-20261121` in `wt/core-adr-0024-r7r2-carbon-p3-20261121`:
+  1. `8d8420684e75ec175dce19db0848a4f08a74449e` — `fix(toolset): preserve failed rows in overflow fallback` (`R7R2-NEW-01`)
+  2. `d8e2d719ea4e03e8ceb1258593b16ecee86dd8da` — `test(editing): make cross-process create race deterministic` (`R7R2-NEW-02`; frozen code/test candidate)
+  3. Final commit on this branch adds only documentation and [`evidence/adr-0024-r7r2-carbon-p3/`](evidence/adr-0024-r7r2-carbon-p3/).
+- **Confirmation of production boundary:** [production.diff](evidence/adr-0024-r7r2-carbon-p3/production.diff) modifies **only** `internal/toolset/editing.go` (`+55/-22`). **Zero** production code was modified for `R7R2-NEW-02` (no SQLite schema, Cognitive Core, `MutationEvidence`, or `PRE-01`/`PRE-02` behavioral changes).
+- **Evidence manifests:** `docs/reports/evidence/adr-0024-r7r2/SHA256SUMS` remains untouched and corresponds to `fc1c4368507bea3f4e13099c62ca35936a6fba48` (`git show fc1c4368:<path> | shasum -a 256` for the three amended doc files). Check all R7R2 Carbon P3 artifacts from the Core root with `shasum -a 256 -c docs/reports/evidence/adr-0024-r7r2-carbon-p3/SHA256SUMS`.
+
+### Remediated findings (both `FIXED_BY_IMPLEMENTER / SELF_VERIFIED / PENDING_INDEPENDENT_REVIEW`)
+
+| Finding | Root cause and fix | RED → GREEN verification |
+|---|---|---|
+| `R7R2-NEW-01` (P3) | In `internal/toolset/editing.go` (`formatBoundedEditError`), the extreme `overflow` fallback (`len > 4096`) nested `count` (`[fileFloor, 1]`) inside `limit` (`[1024, 256]`), so 5 failed rows with `~780B` dirs and bare `syscall.EIO` returned `(1024, 1)` instead of shortening failed-row paths first. Fixed with `renderOverflow`: preserves all `fileFloor` rows while front-truncating paths (`1024 → 512 → 256 → 128 → 96`, retaining filenames/tail directories), and only if `fileFloor` rows physically cannot fit in `4096B` binary-searches the maximum fitting failed-row prefix across `{128, 96, 64}` while preserving `filesOmitted` and `filesOmittedByState`. | `TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities` and `TestR7R2New01OverflowBoundaryMatrix` ([RED](evidence/adr-0024-r7r2-carbon-p3/logs/01-red-new01-toolset.txt) `exit=1`, `len=1`; [GREEN](evidence/adr-0024-r7r2-carbon-p3/logs/02-green-new01-toolset.txt) `exit=0`, all 5/5 failed rows visible, 8/8 visible, 50-row impossible-to-fit retains max prefix + omission breakdown). [Original Carbon probe GREEN](evidence/adr-0024-r7r2-carbon-p3/logs/03-carbon-original-probe-green.txt): `multi_5_longdir` now `rows=5`, `len=3268 <= 4096`. |
+| `R7R2-NEW-02` (P3, test-only) | `TestR201TwoOSProcessesCreateRace` (`internal/editing/remediation_r2_01_test.go`) raced a two-syscall child (`OpenFile(O_CREAT\|O_EXCL)` + `Write(foreign)`) against `AllowCreate: true` and asserted `DirtyFailure == false` on all failures. When the child creates a 0-byte inode before `Engine.prepare`, `Engine` enters `writeInPlace` (`Created=false, Staged=false, OldSHA256=sha256("")`) and accurately sets `DirtyFailure=true` (`CodeConcurrentWrite`, `external_modification_detected`) if `Write(foreign)` overlaps before `verifyActual`. Replaced guesswork `DirtyFailure == false` with four deterministic IPC-barrier subtests (`outcome_a`, `outcome_b1`, `outcome_b2`, `outcome_b3`) asserting all 11 invariants, plus 30-round `concurrent_exclusive_create_stress` (`Create: true` vs `race_once`) and 30-round `concurrent_atomic_allow_create_stress` (`AllowCreate: true` vs `atomic_race_once`). **Zero production changes.** Note: an intermediate `-count=35` run with uncoordinated two-syscall `race_once` under `AllowCreate: true` observed `2 / 1,050` rounds hit the pre-existing `OPEN P2 PRE-02` `Truncate(0) → child.Write(44B) → LC.Write(25B)` descriptor window (`"agent os process content\nD 0123456789ABCDEF\n"`, caught as `CodeConcurrentWrite` + `DirtyFailure=true`), motivating separation of `atomic_race_once` vs deterministic `O_EXCL + Write` barriers rather than weakening the mixed-bytes assertion or changing `PRE-02`. | [Deterministic Round-8 RED](evidence/adr-0024-r7r2-carbon-p3/logs/04-red-new02-editing.txt) (`exit=1`); [`go test -count=35 -run ^TestR201TwoOSProcessesCreateRace$ ./internal/editing`](evidence/adr-0024-r7r2-carbon-p3/logs/05-green-new02-count35.txt) (`exit=0`, 35/35 runs PASS). |
+
+### Verification summary at `d8e2d719ea4e03e8ceb1258593b16ecee86dd8da` (Darwin ARM64, Go 1.26.5)
+
+- [`06-gofmt-build-vet.txt`](evidence/adr-0024-r7r2-carbon-p3/logs/06-gofmt-build-vet.txt): `gofmt -l`, `go build ./...`, `go vet ./...` (`exit=0`).
+- [`07-test-toolset-editing.txt`](evidence/adr-0024-r7r2-carbon-p3/logs/07-test-toolset-editing.txt): `go test -count=1 ./internal/toolset ./internal/editing` (`exit=0`).
+- [`08-race-toolset-editing.txt`](evidence/adr-0024-r7r2-carbon-p3/logs/08-race-toolset-editing.txt): `go test -race -count=1 ./internal/toolset ./internal/editing` (`exit=0`).
+- [`09-race-agent-session.txt`](evidence/adr-0024-r7r2-carbon-p3/logs/09-race-agent-session.txt): `go test -race -count=1 ./internal/agent ./internal/session` (`exit=0`).
+- [`10-windows-cross.txt`](evidence/adr-0024-r7r2-carbon-p3/logs/10-windows-cross.txt): `GOOS=windows GOARCH={amd64,arm64} CGO_ENABLED=0` `go vet` and `go test -c` (`exit=0`; cross-compilation only, NOT native execution).
+- Not run on this branch: full-repo `go test ./...`, extended `./runtime`, or native Windows/Linux/FreeBSD execution.
+
+### Windows native handoff & preserved P2/P3 ledger
+
+- **`BASE-01 / R6-07` stays `OPEN / UNVERIFIED` on native Windows.** Run on Windows Server 2019 or Windows 11 NTFS (`go1.26.5 windows/amd64`):
+  ```powershell
+  go test -v -count=1 -run "^(TestR7R2|TestR7)" ./internal/editing
+  go test -v -count=1 -run "^TestR7R2" ./internal/toolset
+  go test -race -count=1 ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+  ```
+- **Preserved ledger:** `PRE-01` (OPEN P2), `PRE-02` (OPEN P2, silent race disclosed), `BASE-01`/`R6-07` (OPEN/UNVERIFIED), `R3-01` (Owner-accepted exFAT limit), `CT-02` (OPEN P3 documented blind-replay limit), `R7-F01` (OPEN P3 `>=3`-space display path tail), `R3-02`, `R3-04`, `R2-03`, `F-05`..`F-08` (OPEN P3).

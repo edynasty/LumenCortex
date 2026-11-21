@@ -1,0 +1,17 @@
+a33f2abfb37de9c1fe484765e64031a785670c403e31abdb37039f6618633e98  internal/toolset/editing.go
+5b59b2653cd03e9496e78893ba5e7ef07c56083e6f2e871170e1f69e4fdfb73a  internal/toolset/r7r2_results_test.go
+b8a0b000c5e17b650788274c8b60657348bd36c0ee18a53ab3027e8877006fbc  internal/editing/remediation_r2_01_test.go
+df2feb34c43de90e8ce097e95917f342f2ecd3c90fc8dea1fca17f2cd5a60aff  docs/adr/0024-candidate-context-projection-and-budget-guards.md
+48f0efc4dc2e3d374e3eb0d3a636a8e09239a56c2c97762c156ed66fe87449b5  docs/adr/0024-candidate-context-projection-and-budget-guards.zh-CN.md
+d7d0f1b2bd95a376626aedae89d2cccff7d127dc6bee3fedb235885ff205e94a  docs/reports/adr-0024-r7-partial-commit.md
+21d073d47017df7cf4021ad54f043b9a672fb9df6dfc0715ac6c668c09b3a937  docs/reports/evidence/adr-0024-r7r2-carbon-p3/production.diff
+c81366484ee91ee0b39dd57dfe579d29c45e6905b9befcdc98b89e690027f1a9  docs/reports/evidence/adr-0024-r7r2-carbon-p3/logs/01-red-new01-toolset.txt
+ab5c7fa7ff9cda8a3a9e293a35a587cc976f35d782f7ad2ca35e1ef4b5f5f366  docs/reports/evidence/adr-0024-r7r2-carbon-p3/logs/02-green-new01-toolset.txt
+3a1e1bac9a6b0f95dc7840729f9c654ffcbe4a01918c4624f081f9ccb681ceda  docs/reports/evidence/adr-0024-r7r2-carbon-p3/logs/03-carbon-original-probe-green.txt
+6c1f47fe2a5d3532ff6eefd7da75a090bd71b8aae2eead37f7678c9c3cf4cc9a  docs/reports/evidence/adr-0024-r7r2-carbon-p3/logs/04-red-new02-editing.txt
+7450767b81e3268b1db1961237446883b48989937f9c7570603b0e3769e487b2  docs/reports/evidence/adr-0024-r7r2-carbon-p3/logs/05-green-new02-count35.txt
+1245370a49e2e60f916b0c7b706dc8219b893e81ac6c065d148b9df30472f365  docs/reports/evidence/adr-0024-r7r2-carbon-p3/logs/06-gofmt-build-vet.txt
+189e01fcddf3b30a1639620a7d0732f14f0ed5b2156a314a5ce00c735bb40d59  docs/reports/evidence/adr-0024-r7r2-carbon-p3/logs/07-test-toolset-editing.txt
+3a3fb090dfcf51acdf5647aa91412e513176c7b33513bce8f26321bbd635940c  docs/reports/evidence/adr-0024-r7r2-carbon-p3/logs/08-race-toolset-editing.txt
+222d747c9ecb5cce25029c5eb0ca9016f1902480b793b52c4e4023eec09f1b5d  docs/reports/evidence/adr-0024-r7r2-carbon-p3/logs/09-race-agent-session.txt
+af5c74b2f5f0cb56af0bfbb923c37edd573b2a83c8103b3a7de4edd32d7cca8e  docs/reports/evidence/adr-0024-r7r2-carbon-p3/logs/10-windows-cross.txt

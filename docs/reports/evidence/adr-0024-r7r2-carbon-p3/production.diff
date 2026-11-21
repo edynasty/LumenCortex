@@ -1,0 +1,93 @@
+diff --git a/internal/toolset/editing.go b/internal/toolset/editing.go
+index d00a60143284385ccb78aaf4cba95356206ca1d7..75a5832f94008bc8d82d1f72b950b5c7d42622d2 100644
+--- a/internal/toolset/editing.go
++++ b/internal/toolset/editing.go
+@@ -641,33 +641,66 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
+ 			if recovery != "" {
+ 				overflow["recovery"] = recovery
+ 			}
+-			// The failed rows keep their filename: the envelope shortens a path from the front and,
+-			// if it must, keeps only the first failed row.
+-			for _, limit := range []int{maxFailedPathBytesInResult, 256} {
+-				for _, count := range []int{fileFloor, 1} {
+-					if len(orderedFiles) > 0 {
+-						rows := make([]toolFileState, 0, count)
+-						for _, rf := range orderedFiles[:count] {
+-							state, _ := s.receiptFileState(rf, byPath, limit, 32, false)
+-							rows = append(rows, state)
+-						}
+-						overflow["files"] = rows
+-						delete(overflow, "filesOmitted")
+-						delete(overflow, "filesOmittedByState")
+-						if omitted := len(orderedFiles) - count; omitted > 0 {
+-							overflow["filesOmitted"] = omitted
+-							overflow["filesOmittedByState"] = omittedByState(count)
+-						}
++			// Preserve as many failed/unresolved file identities as possible before reducing failed
++			// row count (R7R2-NEW-01): shorten paths from the front (retaining filenames and nearby
++			// directory segments) across all fileFloor rows first; only when all failed rows cannot
++			// physically fit within 4096 bytes, keep the largest fitting failed-row prefix and report
++			// exact omission totals in filesOmitted and filesOmittedByState.
++			renderOverflow := func(count, limit, fErr int) []byte {
++				if len(orderedFiles) > 0 {
++					if count > len(orderedFiles) {
++						count = len(orderedFiles)
++					}
++					rows := make([]toolFileState, 0, count)
++					for _, rf := range orderedFiles[:count] {
++						state, _ := s.receiptFileState(rf, byPath, limit, fErr, false)
++						rows = append(rows, state)
+ 					}
+-					if len(published) > 0 {
+-						overflow["publishedFilesOmitted"] = len(published)
++					overflow["files"] = rows
++					delete(overflow, "filesOmitted")
++					delete(overflow, "filesOmittedByState")
++					if omitted := len(orderedFiles) - count; omitted > 0 {
++						overflow["filesOmitted"] = omitted
++						overflow["filesOmittedByState"] = omittedByState(count)
++					}
++				}
++				if len(published) > 0 {
++					overflow["publishedFilesOmitted"] = len(published)
++				}
++				fallbackRaw, _ := json.Marshal(overflow)
++				return fallbackRaw
++			}
++			for _, spec := range []struct{ limit, fErr int }{
++				{maxFailedPathBytesInResult, 32},
++				{512, 32},
++				{256, 32},
++				{256, 0},
++				{128, 0},
++				{96, 0},
++			} {
++				if fallbackRaw := renderOverflow(fileFloor, spec.limit, spec.fErr); len(fallbackRaw) <= maxPartialPayloadBytes {
++					return string(fallbackRaw)
++				}
++			}
++			if fileFloor > 1 {
++				for _, limit := range []int{128, 96, 64} {
++					var best []byte
++					for lo, hi := 1, fileFloor-1; lo <= hi; {
++						mid := (lo + hi) / 2
++						cand := renderOverflow(mid, limit, 0)
++						if len(cand) <= maxPartialPayloadBytes {
++							best = cand
++							lo = mid + 1
++						} else {
++							hi = mid - 1
++						}
+ 					}
+-					fallbackRaw, _ := json.Marshal(overflow)
+-					if len(fallbackRaw) <= maxPartialPayloadBytes || (limit == 256 && count == 1) {
+-						return string(fallbackRaw)
++					if best != nil {
++						return string(best)
+ 					}
+ 				}
+ 			}
++			return string(renderOverflow(1, 64, 0))
+ 		}
+ 		raw = build(errLimit, pathLimit, fileErrLimit, diagLimit, diagTextLimit, fileLimit, pubLimit, hashes)
+ 	}

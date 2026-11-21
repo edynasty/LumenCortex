@@ -1,7 +1,7 @@
 # ADR-0024：候选级上下文确定性投影、因果修复下界与精确预算守卫
 
-- **状态：** Owner 已授权 R7 改为逐文件提交。R7R2 整改待独立审查。规格修订 `v0.4-rc3.8` 状态为 `PENDING_OWNER_APPROVAL`。见[设计决策、Prior Art、平台边界与 Finding Ledger](../reports/adr-0024-r7-partial-commit.md)。
-- **日期：** 2026-11-20（R7）；2026-11-21（R7R2 整改）
+- **状态：** Owner 已授权 R7 改为逐文件提交。R7R2 整改（`fc1c4368`）及后续 Carbon P3 收尾（`fix/adr-0024-r7r2-carbon-p3-20261121`）待独立审查。规格修订 `v0.4-rc3.8` 状态为 `PENDING_OWNER_APPROVAL`。见[设计决策、Prior Art、平台边界与 Finding Ledger](../reports/adr-0024-r7-partial-commit.md)。
+- **日期：** 2026-11-20（R7）；2026-11-21（R7R2 整改及 Carbon P3 收尾）
 - **责任人：** Astra，Context Space 实施负责人
 - **规格文档：** `LumenCortex-architecture-audit/design/handoffs/context-space-architecture-master.zh-CN.md`，草案 `v0.4-rc3.8` §4.6 场景 F，待 Owner 批准。已批准的输入规格 `v0.4-rc3.7` 已归档，SHA256 为 `5c9edaeb6b917d7cf508677036f17ab1911dd6b5f1a78ee25d8e0082f6cbb89f`。
 - **源码基线：** Core `c73d17359f5d9dd16ef88b0de4525862593fddaa`（R1 基线 `b57655c`；R2 审查基线 `a8b478617fe15e8726d4009f94454b027b1a9ef9`；R3 审查基线 `2ba79ae4aedd35d597604168894c3d65167e9cde`；R4 审查基线 `aeb2e5014697fa544ee855c4d6277be4c074fc16`；R5 审查基线 `0b3b8e721163890ebb664abb4b5c9fc3ef39f4f1`；R6 审查基线 `bfc493634d819bc3be7d30d669bbb2fbef30212e`）
@@ -63,7 +63,7 @@ LumenCortex 采纳 **方案 F2**——基于当步标量预算的无状态二元
 
 ## 8. `MutationEvidence`、原子 No-Replace 创建零误删安全与 `CommitReceipt` 因果封签
 
-1. **逐文件发布与失败结果。** 整批预检后按规范路径逐个处理，遇首错停止，已发布的创建、更新、删除均保留。显式重建文件须发起新的创建操作，通过私有暂存和单路径 no-replace 发布。每项收据说明是否执行、写入、核验，及外部改动、不支持和不确定状态。仅核实的现存内容可获 `NewRev`，仅核实的字节或不存在状态可获 `NewSHA256`。受影响的过时快照失效。有已知或可能副作用的失败设置 `DirtyFailure`。Agent 错误包含实际逐文件状态、出错原因、省略数量和重读指引。工具提交错误按序列化后 4096 字节封顶；保留的工具错误和嵌套部分结果展示上限为 8192 字节，受保护来源字段超预算时显式处理溢出。对新产生的路径、诊断和 LSP 错误做净化。历史行保留原义。普通既有文件描述符写入仍有 `PRE-01/02` 边界。只有单个新路径具有原子发布语义。进程中断或掉电可遗留暂存文件或尚未记录的已发布前缀，按既有执行准入记录恢复。
+1. **逐文件发布与失败结果。** 整批预检后按规范路径逐个处理，遇首错停止，已发布的创建、更新、删除均保留。显式重建文件须发起新的创建操作，通过私有暂存和单路径 no-replace 发布。每项收据说明是否执行、写入、核验，及外部改动、不支持和不确定状态。仅核实的现存内容可获 `NewRev`，仅核实的字节或不存在状态可获 `NewSHA256`。受影响的过时快照失效。有已知或可能副作用的失败设置 `DirtyFailure`。Agent 错误包含实际逐文件状态、出错原因、省略数量和重读指引。工具提交错误按序列化后 4096 字节封顶；极限溢出回退优先从路径前缀缩短以保留全部失败/未决文件行及文件名身份，仅在物理不可容纳时保留最大可容纳失败前缀并通过 `filesOmitted` 与 `filesOmittedByState` 显式披露省略项；保留的工具错误和嵌套部分结果展示上限为 8192 字节，受保护来源字段超预算时显式处理溢出。对新产生的路径、诊断和 LSP 错误做净化。历史行保留原义。普通既有文件描述符写入仍有 `PRE-01/02` 边界。只有单个新路径具有原子发布语义。进程中断或掉电可遗留暂存文件或尚未记录的已发布前缀，按既有执行准入记录恢复。
    - *R7R2 补充。* 同一计划内经硬链接或大小写变体（仅在目录实际折叠大小写时比较）指向同一物理文件的两个目标，在加锁、租约和写入前整体拒绝。准备阶段发现的陈旧修订或过期会话读取记为 `failed_before_write` 并保留原错误码；`external_modification_detected` 只用于 LC 进入发布后观测到的外部改动。`PRE-02` 的截断—写入竞争可能是静默的：外部进程在 `Truncate(0)` 与 `Write` 之间追加的字节可被覆盖，而文件仍报告 `published_verified`。部分提交后整批盲目重放非幂等编辑（如锚点插入）会重复已提交的修改；"只重做未完成部分"是给 Agent 的指引，不是机制保证。
 2. **逐 `ExecutionID` 私有 `commitRecorder`：** 在 `loop.go` 与 `callback.go` 每次准入分配 `x.id` 后通过 `WithCommitRecorder` 注入 `toolCtx`（嵌套回调覆盖隔离，模型参数与工具输出无法伪造），由 `toolset.commitPlan` 回填回执并按 `anyWrote || receipt.DirtyFailure` 设置 `MutatesWorkspace`。
 3. **`postFiles` 斜杠规范键匹配与 `;cm=*` 原子封签（`F-09`）：** 统一以区分大小写的 `filepath.ToSlash(path)` 规范路径键（绝不依赖切片下标位置，重复规范键保守判 `;cm=unknown`）配对 `preByPath`、`postByPath` 与 `receipt.Files`，随 `CommitToolResult / SettleExecution` 单事务写入 `derived_origins.post_ref`（`DirtyFailure` 升格 `OutcomeUnknown` 并封签 `;cm=unknown`）。

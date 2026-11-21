@@ -1,0 +1,9 @@
+$ gofmt -l internal/toolset/editing.go internal/toolset/r7r2_results_test.go internal/editing/remediation_r2_01_test.go
+# HEAD d8e2d719ea4e03e8ceb1258593b16ecee86dd8da
+# go version go1.26.5 darwin/arm64
+
+gofmt_exit=0
+$ go build ./...
+build_exit=0
+$ go vet ./...
+vet_exit=0

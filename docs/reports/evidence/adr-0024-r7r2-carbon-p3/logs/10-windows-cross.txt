@@ -1,0 +1,10 @@
+# Cross-compilation only on go version go1.26.5 darwin/arm64; NOT native Windows execution.
+# HEAD d8e2d719ea4e03e8ceb1258593b16ecee86dd8da
+$ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+win_amd64_vet_exit=0
+$ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go test -c -o /tmp/lc-r7r2-carbon-p3/editing_amd64.test.exe ./internal/editing
+win_amd64_testc_exit=0
+$ GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+win_arm64_vet_exit=0
+$ GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go test -c -o /tmp/lc-r7r2-carbon-p3/editing_arm64.test.exe ./internal/editing
+win_arm64_testc_exit=0

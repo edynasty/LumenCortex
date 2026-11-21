@@ -1,0 +1,6 @@
+$ go test -race -count=1 ./internal/agent ./internal/session
+# HEAD d8e2d719ea4e03e8ceb1258593b16ecee86dd8da
+# go version go1.26.5 darwin/arm64
+ok  	github.com/edynasty/LumenCortex/internal/agent	62.525s
+ok  	github.com/edynasty/LumenCortex/internal/session	44.404s
+exit=0
