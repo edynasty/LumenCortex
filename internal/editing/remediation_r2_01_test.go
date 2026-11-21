@@ -4,24 +4,31 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 // TestR201TwoOSProcessesCreateRace keeps the R2-01 exclusive-create safety case under R7 private
-// staging across deterministic IPC barriers and real two-process stress loops. An independent OS
-// process performs OpenFile(O_WRONLY|O_CREATE|O_EXCL) followed by Write(foreign), while Engine.Commit
-// runs write_file (AllowCreate or Create). Every legitimate interleaving must preserve complete
-// unmixed bytes on disk and produce an accurate CommitReceipt, Result, SnapshotStore, and
-// conservative MutationEvidence classification (R7R2-NEW-02).
+// staging. An independent OS process creates the target, by OpenFile(O_WRONLY|O_CREATE|O_EXCL)
+// followed by Write(foreign) or by linking a complete file into place, while Engine.Commit runs
+// write_file (AllowCreate or Create) on the same path. The external process reports on a pipe that
+// it reached its starting point and is let go, on another pipe, at a named point of the commit. The
+// deterministic subtests then wait for it to exit, which fixes the interleaving; the stress subtests
+// do not, so the two processes really race from that point on. Nothing waits on a clock.
+// Every round is checked against the complete set of interleavings the two processes can produce:
+// the bytes on disk, the CommitReceipt, the Result and the SnapshotStore (R7R2-NEW-02).
 func TestR201TwoOSProcessesCreateRace(t *testing.T) {
 	foreign := []byte("FOREIGN OS PROCESS PAYLOAD 0123456789ABCDEF\n")
 	agentBytes := []byte("agent os process content\n")
+	// What an external write of foreign into the truncated file leaves once LC writes agentBytes
+	// over its start.
+	mixedBytes := append(append([]byte(nil), agentBytes...), foreign[len(agentBytes):]...)
 
 	helperDir := t.TempDir()
 	helperSrc := filepath.Join(helperDir, "main.go")
@@ -30,31 +37,30 @@ func TestR201TwoOSProcessesCreateRace(t *testing.T) {
 import (
 	"errors"
 	"os"
-	"time"
 )
 var payload = []byte("FOREIGN OS PROCESS PAYLOAD 0123456789ABCDEF\n")
 
-func waitFile(path string) bool {
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return true
-		}
-		time.Sleep(100 * time.Microsecond)
-	}
-	return false
+// ready tells the test this process reached its starting point: one byte on stdout.
+func ready() bool {
+	_, err := os.Stdout.Write([]byte{1})
+	return err == nil
+}
+
+// released blocks until the test lets this process go: one byte on stdin.
+func released() bool {
+	var b [1]byte
+	n, err := os.Stdin.Read(b[:])
+	return n == 1 && err == nil
 }
 
 func main() {
-	mode := os.Args[1]
-	target := os.Args[2]
+	mode, target := os.Args[1], os.Args[2]
 	switch mode {
 	case "excl_after_signal":
-		ready, goSig := os.Args[3], os.Args[4]
-		if err := os.WriteFile(ready, []byte("1"), 0o644); err != nil {
+		if !ready() {
 			os.Exit(2)
 		}
-		if !waitFile(goSig) {
+		if !released() {
 			os.Exit(3)
 		}
 		f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
@@ -72,7 +78,6 @@ func main() {
 		os.Exit(0)
 
 	case "create_empty_wait_then_write":
-		opened, writeGo := os.Args[3], os.Args[4]
 		f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err != nil {
 			if errors.Is(err, os.ErrExist) {
@@ -80,11 +85,11 @@ func main() {
 			}
 			os.Exit(2)
 		}
-		if err := os.WriteFile(opened, []byte("1"), 0o644); err != nil {
+		if !ready() {
 			_ = f.Close()
 			os.Exit(2)
 		}
-		if !waitFile(writeGo) {
+		if !released() {
 			_ = f.Close()
 			os.Exit(3)
 		}
@@ -95,35 +100,19 @@ func main() {
 		_ = f.Close()
 		os.Exit(0)
 
-	case "race_once":
-		if _, err := os.Stdout.Write([]byte("R")); err != nil {
-			os.Exit(2)
-		}
-		_ = os.Stdout.Close()
-		f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-		if err != nil {
-			if errors.Is(err, os.ErrExist) {
-				os.Exit(10)
-			}
-			os.Exit(2)
-		}
-		if _, err := f.Write(payload); err != nil {
-			_ = f.Close()
-			os.Exit(4)
-		}
-		_ = f.Close()
-		os.Exit(0)
-
-	case "atomic_race_once":
+	case "atomic_after_signal":
 		extTmp := target + ".foreign-tmp"
 		if err := os.WriteFile(extTmp, payload, 0o644); err != nil {
 			os.Exit(2)
 		}
-		if _, err := os.Stdout.Write([]byte("R")); err != nil {
+		if !ready() {
 			_ = os.Remove(extTmp)
 			os.Exit(2)
 		}
-		_ = os.Stdout.Close()
+		if !released() {
+			_ = os.Remove(extTmp)
+			os.Exit(3)
+		}
 		err := os.Link(extTmp, target)
 		_ = os.Remove(extTmp)
 		if err != nil {
@@ -145,18 +134,6 @@ func main() {
 	buildCmd := exec.Command("go", "build", "-o", helperBin, helperSrc)
 	if out, err := buildCmd.CombinedOutput(); err != nil {
 		t.Fatalf("build helper binary failed: %v\n%s", err, out)
-	}
-
-	waitForSignal := func(t *testing.T, path string) {
-		t.Helper()
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			if _, err := os.Stat(path); err == nil {
-				return
-			}
-			time.Sleep(100 * time.Microsecond)
-		}
-		t.Fatalf("timed out waiting for barrier file %s", path)
 	}
 
 	childExitCode := func(t *testing.T, err error) int {
@@ -184,13 +161,35 @@ func main() {
 		}
 	}
 
-	// assertRaceOutcome verifies all 11 invariants across every legitimate interleaving.
-	// Note on Created vs Staged:
-	// - rf.Staged == true means Engine.prepare saw p.existed == false and routed to createAtomicNoReplace.
-	// - rf.Created == (p.published && p.created), so rf.Created is true ONLY when LC actually won
-	//   no-replace publication; an in-place race after the child's O_EXCL create sets
-	//   rf.Staged == false, rf.Created == false, and rf.OldSHA256 != "-" (e.g. sha256("") when 0B).
-	assertRaceOutcome := func(t *testing.T, root, target string, e *Engine, actor Actor, res Result, rec CommitReceipt, commitErr error, childExit int, exclusiveCreate bool) {
+	// The outcomes a round can end in. Staged means prepare saw no file and LC staged a private
+	// temp for no-replace publication; otherwise the external inode existed and LC wrote in place.
+	const (
+		// LC published its staged file; the external create lost with EEXIST.
+		lcCreated = "lc_created"
+		// Plan{Create:true} found the external file while preparing.
+		existsBeforePrepare = "exists_before_prepare"
+		// The external file appeared while LC staged; no-replace publication was refused.
+		stagedPublishRefused = "staged_publish_refused"
+		// The external file was complete when LC read it; LC replaced the bytes it had read.
+		lcReplacedReadForeign = "lc_replaced_read_foreign"
+		// The external write landed before LC's in-place compare; LC wrote nothing.
+		inplaceRefusedBeforeTruncate = "inplace_refused_before_truncate"
+		// The external write landed after LC's in-place write; the foreign bytes are whole.
+		inplaceOverlapForeignWhole = "inplace_overlap_foreign_whole"
+		// The external write landed after LC verified its own bytes: a later external change.
+		externalWriteAfterVerified = "external_write_after_verified"
+		// PRE-02 (open): the external write landed between LC's truncate and write, so the file
+		// holds mixed bytes. LC must report it as an unverified, dirty failure.
+		pre02MixedReportedDirty = "pre02_mixed_bytes_reported_dirty"
+		// PRE-02 (open): the external write landed between LC's compare and truncate and was
+		// overwritten. LC cannot observe it. The round is named and counted, not held to be right.
+		pre02ExternalWriteOverwritten = "pre02_external_write_overwritten"
+	)
+
+	// raceOutcome checks one finished round against every interleaving the two processes can produce
+	// and returns its name; a round that fits none fails. exclusive is Plan{Create:true}. atomic is an
+	// external process that links a complete file and never writes to the published inode.
+	raceOutcome := func(t *testing.T, root, target string, e *Engine, actor Actor, res Result, rec CommitReceipt, commitErr error, childExit int, exclusive, atomic bool) string {
 		t.Helper()
 		if childExit != 0 && childExit != 10 {
 			t.Fatalf("child exited with unexpected code %d", childExit)
@@ -202,16 +201,15 @@ func main() {
 		if readErr != nil {
 			t.Fatalf("destination missing (lost content): err=%v commitErr=%v childExit=%d", readErr, commitErr, childExit)
 		}
-		if !bytes.Equal(got, foreign) && !bytes.Equal(got, agentBytes) {
-			t.Fatalf("mixed or corrupted destination bytes (len=%d): %q", len(got), got)
-		}
-
 		f, rf := r7Files(t, res, rec, "shared.txt")
 		latest := e.LatestRev(actor, target)
+		emptySHA, foreignSHA := sha256Ref(nil, true), sha256Ref(foreign, true)
+		if res.CommitState != rec.State || rec.Committed != (commitErr == nil) {
+			t.Fatalf("result, receipt and error disagree: err=%v res=%+v rec=%+v", commitErr, res, rec)
+		}
 
-		switch {
-		case commitErr == nil:
-			if !rec.Committed || rec.DirtyFailure || rec.State != CommitStateCommitted || res.CommitState != CommitStateCommitted {
+		if commitErr == nil {
+			if rec.DirtyFailure || rec.State != CommitStateCommitted {
 				t.Fatalf("commitErr==nil with non-committed state: res=%+v rec=%+v", res, rec)
 			}
 			if !rf.Published || !rf.Wrote || !rf.Verified || rf.PublishState != PublishSucceededAndVerified {
@@ -221,279 +219,259 @@ func main() {
 				t.Fatalf("verified commit has wrong revision/hash/snapshot: f=%+v rf=%+v latest=%q", f, rf, latest)
 			}
 			if rf.Staged {
-				// Outcome A: LC won exclusive creation; external O_EXCL MUST have failed with EEXIST (exit 10).
-				if childWrote || !rf.Created || !f.Created || rf.OldSHA256 != "-" {
-					t.Fatalf("staged create win invariant violated: childWrote=%v f=%+v rf=%+v", childWrote, f, rf)
+				// Exactly one creator: LC. The external create must have failed with EEXIST.
+				if childWrote || !rf.Created || !f.Created || rf.OldSHA256 != "-" || !bytes.Equal(got, agentBytes) {
+					t.Fatalf("staged create win invariant violated: childWrote=%v f=%+v rf=%+v disk=%q", childWrote, f, rf, got)
 				}
-				if !bytes.Equal(got, agentBytes) {
-					t.Fatalf("LC won exclusive create but disk=%q", got)
-				}
-			} else {
-				// External created the inode before prepare, so LC entered writeInPlace (Created=false).
-				if exclusiveCreate {
-					t.Fatalf("Plan{Create:true} must never succeed via writeInPlace: %+v", rf)
-				}
-				if !childWrote || rf.Created || f.Created || rf.OldSHA256 == "-" {
-					t.Fatalf("in-place success invariant violated: childWrote=%v rf=%+v", childWrote, rf)
-				}
+				return lcCreated
 			}
-
-		case CodeOf(commitErr) == CodeExists:
-			// Child won O_EXCL before prepare ran under Plan{Create:true}.
-			if !childWrote || rf.Created || rf.Staged || rf.Published || rf.Wrote || rf.Verified || rec.DirtyFailure {
-				t.Fatalf("CodeExists invariant violated: childWrote=%v rec=%+v", childWrote, rec)
+			// Exactly one creator: the external process. LC wrote the existing inode in place.
+			if exclusive {
+				t.Fatalf("Plan{Create:true} must never succeed via writeInPlace: %+v", rf)
 			}
-			if rf.PublishState != PublishFailedBeforeWrite || rec.State != CommitStatePrePublishFailure {
-				t.Fatalf("CodeExists state mismatch: rec=%+v", rec)
+			if !childWrote || rf.Created || f.Created {
+				t.Fatalf("in-place success invariant violated: childWrote=%v f=%+v rf=%+v", childWrote, f, rf)
 			}
-			if f.NewRev != "" || rf.NewSHA256 != "" || latest != "" || !bytes.Equal(got, foreign) {
-				t.Fatalf("CodeExists fabricated post-rev or lost foreign bytes: f=%+v rf=%+v latest=%q got=%q", f, rf, latest, got)
+			switch {
+			case rf.OldSHA256 == foreignSHA && f.OldRev == RevOf(foreign) && bytes.Equal(got, agentBytes):
+				return lcReplacedReadForeign
+			case atomic:
+				t.Fatalf("an atomically published external file was replaced without being read whole: rf=%+v disk=%q", rf, got)
+			case rf.OldSHA256 == emptySHA && bytes.Equal(got, foreign):
+				return externalWriteAfterVerified
+			case rf.OldSHA256 == emptySHA && bytes.Equal(got, agentBytes):
+				return pre02ExternalWriteOverwritten
 			}
-
-		case rf.Staged:
-			// Outcome B1: External O_EXCL won while LC was staging private temp before no-replace publish.
-			if !childWrote || CodeOf(commitErr) != CodeConflict || rec.DirtyFailure || rec.Committed || rec.State != CommitStatePrePublishFailure {
-				t.Fatalf("staged no-replace loser invariant violated: err=%v childWrote=%v rec=%+v", commitErr, childWrote, rec)
-			}
-			if rf.Created || rf.Published || rf.Wrote || rf.Verified || rf.OldSHA256 != "-" || rf.PublishState != PublishExternalModification {
-				t.Fatalf("staged no-replace loser row invariant violated: %+v", rf)
-			}
-			if f.NewRev != "" || rf.NewSHA256 != "" || latest != "" || !bytes.Equal(got, foreign) {
-				t.Fatalf("staged no-replace loser fabricated post-rev or lost foreign bytes: f=%+v rf=%+v latest=%q got=%q", f, rf, latest, got)
-			}
-
-		default:
-			// Outcome B2: External O_EXCL created the inode before Engine.prepare (so Created=false, Staged=false).
-			// MutationEvidence remains MutationUnknown because rec.Committed is false (and DirtyFailure when true forces OutcomeUnknown).
-			if !childWrote || rf.Created || f.Created || rf.OldSHA256 == "-" || rf.Verified || f.Verified {
-				t.Fatalf("in-place conflict invariant violated: childWrote=%v f=%+v rf=%+v", childWrote, f, rf)
-			}
-			if f.NewRev != "" || rf.NewSHA256 != "" || latest != "" || !bytes.Equal(got, foreign) {
-				t.Fatalf("in-place conflict fabricated post-rev or lost foreign bytes: f=%+v rf=%+v latest=%q got=%q", f, rf, latest, got)
-			}
-			if rf.PublishState != PublishExternalModification {
-				t.Fatalf("expected PublishExternalModification, got %+v", rf)
-			}
-			if rec.DirtyFailure {
-				// Outcome B2c (round-8 interleaving): write overlapped after Truncate(0) -> CodeConcurrentWrite.
-				if CodeOf(commitErr) != CodeConcurrentWrite || rec.State != CommitStatePublishedWithPostError || !rf.Published || !rf.Wrote {
-					t.Fatalf("dirty concurrent write conflict mismatch: err=%v rec=%+v", commitErr, rec)
-				}
-			} else {
-				// Outcome B2b: detected in writeInPlace pre-Truncate CAS read -> CodeConflict, Wrote=false.
-				if CodeOf(commitErr) != CodeConflict || rec.State != CommitStatePrePublishFailure || rf.Published || rf.Wrote {
-					t.Fatalf("pre-truncate external conflict mismatch: err=%v rec=%+v", commitErr, rec)
-				}
-			}
+			t.Fatalf("in-place success left unexplained bytes: rf=%+v disk=%q", rf, got)
 		}
+
+		// A failed commit. The external process created the file, LC claims no creation, and nothing
+		// LC reports can be mistaken for a verified write: no revision, no hash, no snapshot, and a
+		// receipt that is not Committed, which the agent seals as MutationUnknown.
+		if !childWrote || rf.Created || f.Created || rf.Verified || f.Verified {
+			t.Fatalf("failed commit ownership invariant violated: childWrote=%v f=%+v rf=%+v", childWrote, f, rf)
+		}
+		if f.NewRev != "" || rf.NewSHA256 != "" || latest != "" {
+			t.Fatalf("failed commit fabricated a post-revision: f=%+v rf=%+v latest=%q", f, rf, latest)
+		}
+		clean := !rec.DirtyFailure && rec.State == CommitStatePrePublishFailure && !rf.Published && !rf.Wrote
+		switch {
+		case CodeOf(commitErr) == CodeExists:
+			if !exclusive || !clean || rf.Staged || rf.PublishState != PublishFailedBeforeWrite || !bytes.Equal(got, foreign) {
+				t.Fatalf("CodeExists invariant violated: rec=%+v disk=%q", rec, got)
+			}
+			return existsBeforePrepare
+		case rf.Staged:
+			if CodeOf(commitErr) != CodeConflict || !clean || rf.OldSHA256 != "-" || rf.PublishState != PublishExternalModification || !bytes.Equal(got, foreign) {
+				t.Fatalf("staged no-replace loser invariant violated: err=%v rec=%+v disk=%q", commitErr, rec, got)
+			}
+			return stagedPublishRefused
+		case exclusive || atomic:
+			// Create:true never writes in place, and an atomically published file never changes
+			// under LC's in-place write.
+			t.Fatalf("unexpected in-place failure: exclusive=%v atomic=%v err=%v rec=%+v", exclusive, atomic, commitErr, rec)
+		case rf.OldSHA256 != emptySHA || rf.PublishState != PublishExternalModification:
+			t.Fatalf("in-place conflict invariant violated: err=%v rec=%+v", commitErr, rec)
+		case !rec.DirtyFailure:
+			if CodeOf(commitErr) != CodeConflict || !clean || !bytes.Equal(got, foreign) {
+				t.Fatalf("pre-truncate external conflict mismatch: err=%v rec=%+v disk=%q", commitErr, rec, got)
+			}
+			return inplaceRefusedBeforeTruncate
+		}
+		// LC truncated and wrote, then observed other bytes: the failure is dirty and unverified.
+		if CodeOf(commitErr) != CodeConcurrentWrite || rec.State != CommitStatePublishedWithPostError || !rf.Published || !rf.Wrote {
+			t.Fatalf("dirty concurrent write conflict mismatch: err=%v rec=%+v", commitErr, rec)
+		}
+		switch {
+		case bytes.Equal(got, foreign):
+			return inplaceOverlapForeignWhole
+		case bytes.Equal(got, mixedBytes):
+			return pre02MixedReportedDirty
+		}
+		t.Fatalf("dirty failure left unexplained bytes (len=%d): %q", len(got), got)
+		return ""
 	}
 
-	t.Run("outcome_a_lc_wins_exclusive_creation", func(t *testing.T) {
-		root, ctrl := t.TempDir(), t.TempDir()
+	// Where in LC's commit the external process is let go.
+	const (
+		beforeCommit    = "before_commit"     // the commit has not started
+		afterPrepare    = "after_prepare"     // LC has read the target's state
+		beforePublish   = "before_publish"    // LC is about to publish its staged file
+		afterPublish    = "after_publish"     // LC published its staged file
+		afterTruncate   = "after_truncate"    // LC truncated the existing file in place
+		afterWriteClose = "after_write_close" // LC wrote the existing file and closed it
+	)
+
+	// runRound starts the external process in mode, lets it go at the release point and returns the
+	// round's outcome. With wait the release also waits for the external process to exit before the
+	// commit continues.
+	runRound := func(t *testing.T, exclusive bool, mode, release string, wait bool) string {
+		t.Helper()
+		root := t.TempDir()
 		target := filepath.Join(root, "shared.txt")
-		ready, goSig := filepath.Join(ctrl, "ready"), filepath.Join(ctrl, "go")
-		cmd := exec.Command(helperBin, "excl_after_signal", target, ready, goSig)
+		cmd := exec.Command(helperBin, mode, target)
+		goSig, err := cmd.StdinPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		readySig, err := cmd.StdoutPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
-		waitForSignal(t, ready)
+		defer goSig.Close()
+		var ready [1]byte
+		if _, err := io.ReadFull(readySig, ready[:]); err != nil {
+			_ = goSig.Close()
+			t.Fatalf("external process did not reach its starting point: %v (wait: %v)", err, cmd.Wait())
+		}
 
 		e := newTestEngine(t, root)
-		actor := Actor{Session: "s-a1"}
-		var childExit int
-		waitChildAfterPublish := func(dst string) error {
-			if dst == target {
-				if err := os.WriteFile(goSig, []byte("1"), 0o644); err != nil {
-					return err
-				}
+		actor := Actor{Session: "s-race"}
+		released, childExit := false, -1
+		letGo := func(dst string) error {
+			if dst != target || released {
+				return nil
+			}
+			released = true
+			if _, err := goSig.Write([]byte{1}); err != nil {
+				return err
+			}
+			if wait {
 				childExit = childExitCode(t, cmd.Wait())
 			}
 			return nil
 		}
-		e.SetPublishFaultHooks(PublishFaultHooks{
-			AfterLinkSuccess:   waitChildAfterPublish,
-			AfterRenameSuccess: waitChildAfterPublish,
-		})
-		var rec CommitReceipt
-		res, commitErr := e.Commit(WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r }), Plan{
-			Actor:   actor,
-			Tool:    "write_file",
-			Changes: []FileChange{{Path: "shared.txt", Content: &agentBytes, AllowCreate: true}},
-		})
-		assertRaceOutcome(t, root, target, e, actor, res, rec, commitErr, childExit, false)
-		if commitErr != nil || !rec.Files[0].Created || childExit != 10 {
-			t.Fatalf("expected LC to win exclusive creation and child exit 10: err=%v childExit=%d rec=%+v", commitErr, childExit, rec)
-		}
-	})
-
-	t.Run("outcome_b1_external_wins_before_no_replace_publish", func(t *testing.T) {
-		root, ctrl := t.TempDir(), t.TempDir()
-		target := filepath.Join(root, "shared.txt")
-		ready, goSig := filepath.Join(ctrl, "ready"), filepath.Join(ctrl, "go")
-		cmd := exec.Command(helperBin, "excl_after_signal", target, ready, goSig)
-		if err := cmd.Start(); err != nil {
-			t.Fatal(err)
-		}
-		waitForSignal(t, ready)
-
-		e := newTestEngine(t, root)
-		actor := Actor{Session: "s-b1"}
-		var childExit int
-		e.SetPublishFaultHooks(PublishFaultHooks{
-			BeforePublish: func(dst string) error {
-				if dst == target {
-					if err := os.WriteFile(goSig, []byte("1"), 0o644); err != nil {
-						return err
-					}
-					childExit = childExitCode(t, cmd.Wait())
-				}
-				return nil
-			},
-		})
-		var rec CommitReceipt
-		res, commitErr := e.Commit(WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r }), Plan{
-			Actor:   actor,
-			Tool:    "write_file",
-			Changes: []FileChange{{Path: "shared.txt", Content: &agentBytes, AllowCreate: true}},
-		})
-		assertRaceOutcome(t, root, target, e, actor, res, rec, commitErr, childExit, false)
-		if CodeOf(commitErr) != CodeConflict || rec.DirtyFailure || !rec.Files[0].Staged || childExit != 0 {
-			t.Fatalf("expected clean staged no-replace refusal: err=%v childExit=%d rec=%+v", commitErr, childExit, rec)
-		}
-	})
-
-	t.Run("outcome_b2_external_creates_empty_writes_before_inplace_truncate", func(t *testing.T) {
-		root, ctrl := t.TempDir(), t.TempDir()
-		target := filepath.Join(root, "shared.txt")
-		opened, writeGo := filepath.Join(ctrl, "opened"), filepath.Join(ctrl, "write_go")
-		cmd := exec.Command(helperBin, "create_empty_wait_then_write", target, opened, writeGo)
-		if err := cmd.Start(); err != nil {
-			t.Fatal(err)
-		}
-		waitForSignal(t, opened)
-
-		e := newTestEngine(t, root)
-		actor := Actor{Session: "s-b2"}
-		var childExit int
-		e.beforeWrite = func(dst string) {
-			if dst == target {
-				_ = os.WriteFile(writeGo, []byte("1"), 0o644)
-				childExit = childExitCode(t, cmd.Wait())
-			}
-		}
-		var rec CommitReceipt
-		res, commitErr := e.Commit(WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r }), Plan{
-			Actor:   actor,
-			Tool:    "write_file",
-			Changes: []FileChange{{Path: "shared.txt", Content: &agentBytes, AllowCreate: true}},
-		})
-		assertRaceOutcome(t, root, target, e, actor, res, rec, commitErr, childExit, false)
-		if CodeOf(commitErr) != CodeConflict || rec.DirtyFailure || rec.Files[0].Wrote {
-			t.Fatalf("expected clean pre-truncate in-place refusal: err=%v rec=%+v", commitErr, rec)
-		}
-	})
-
-	t.Run("outcome_b3_external_creates_empty_overlaps_inplace_write", func(t *testing.T) {
-		// Exact deterministic reproduction of the round-8 interleaving (R7R2-NEW-02):
-		// child O_EXCL-created the 0-byte inode before prepare, so LC entered writeInPlace
-		// (Staged=false, Created=false, OldSHA256=sha256("")), wrote agentBytes, and then child
-		// wrote foreign (44B > 25B) before verifyActual. LC accurately sets DirtyFailure=true.
-		root, ctrl := t.TempDir(), t.TempDir()
-		target := filepath.Join(root, "shared.txt")
-		opened, writeGo := filepath.Join(ctrl, "opened"), filepath.Join(ctrl, "write_go")
-		cmd := exec.Command(helperBin, "create_empty_wait_then_write", target, opened, writeGo)
-		if err := cmd.Start(); err != nil {
-			t.Fatal(err)
-		}
-		waitForSignal(t, opened)
-
-		e := newTestEngine(t, root)
-		actor := Actor{Session: "s-b3"}
-		var childExit int
-		e.SetPublishFaultHooks(PublishFaultHooks{
-			AfterInPlaceWriteClose: func(dst string) error {
-				if dst == target {
-					if err := os.WriteFile(writeGo, []byte("1"), 0o644); err != nil {
-						return err
-					}
-					childExit = childExitCode(t, cmd.Wait())
-				}
-				return nil
-			},
-		})
-		var rec CommitReceipt
-		res, commitErr := e.Commit(WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r }), Plan{
-			Actor:   actor,
-			Tool:    "write_file",
-			Changes: []FileChange{{Path: "shared.txt", Content: &agentBytes, AllowCreate: true}},
-		})
-		assertRaceOutcome(t, root, target, e, actor, res, rec, commitErr, childExit, false)
-		if CodeOf(commitErr) != CodeConcurrentWrite || !rec.DirtyFailure || rec.Files[0].Created || rec.Files[0].Staged || !rec.Files[0].Wrote {
-			t.Fatalf("expected DirtyFailure=true external_modification_detected on B3 overlap: err=%v rec=%+v", commitErr, rec)
-		}
-	})
-
-	runStress := func(t *testing.T, exclusiveCreate bool, childMode string) {
-		t.Helper()
-		const rounds = 30
-		var childWins, agentWins, preflightExists, stagedConflicts, inplaceConflicts, dirtyOverlaps int
-		for i := range rounds {
-			root := t.TempDir()
-			target := filepath.Join(root, "shared.txt")
-			e := newTestEngine(t, root)
-			actor := Actor{Session: "s-stress"}
-			cmd := exec.Command(helperBin, childMode, target)
-			stdout, err := cmd.StdoutPipe()
-			if err != nil {
+		switch release {
+		case beforeCommit:
+			if err := letGo(target); err != nil {
 				t.Fatal(err)
 			}
-			if err := cmd.Start(); err != nil {
-				t.Fatal(err)
+		case afterPrepare:
+			e.beforeWrite = func(dst string) {
+				if err := letGo(dst); err != nil {
+					t.Error(err)
+				}
 			}
-			var ready [1]byte
-			if _, err := io.ReadFull(stdout, ready[:]); err != nil {
-				_ = cmd.Wait()
-				t.Fatalf("round %d pipe readiness: %v", i, err)
-			}
-			_ = stdout.Close()
-
-			var rec CommitReceipt
-			res, commitErr := e.Commit(WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r }), Plan{
-				Actor:   actor,
-				Tool:    "write_file",
-				Changes: []FileChange{{Path: "shared.txt", Content: &agentBytes, Create: exclusiveCreate, AllowCreate: !exclusiveCreate}},
-			})
-			childExit := childExitCode(t, cmd.Wait())
-			assertRaceOutcome(t, root, target, e, actor, res, rec, commitErr, childExit, exclusiveCreate)
-
-			got, _ := os.ReadFile(target)
-			if bytes.Equal(got, foreign) {
-				childWins++
-			} else {
-				agentWins++
-			}
-			switch {
-			case commitErr == nil:
-			case CodeOf(commitErr) == CodeExists:
-				preflightExists++
-			case rec.Files[0].Staged:
-				stagedConflicts++
-			case !rec.DirtyFailure:
-				inplaceConflicts++
-			default:
-				dirtyOverlaps++
-			}
+		case beforePublish:
+			e.SetPublishFaultHooks(PublishFaultHooks{BeforePublish: letGo})
+		case afterPublish:
+			e.SetPublishFaultHooks(PublishFaultHooks{AfterLinkSuccess: letGo, AfterRenameSuccess: letGo})
+		case afterTruncate:
+			e.SetPublishFaultHooks(PublishFaultHooks{AfterTruncate: letGo})
+		case afterWriteClose:
+			e.SetPublishFaultHooks(PublishFaultHooks{AfterInPlaceWriteClose: letGo})
+		default:
+			t.Fatalf("unknown release point %q", release)
 		}
-		t.Logf("stress (Create=%v, mode=%s): rounds=%d childWins=%d agentWins=%d preflightExists=%d stagedConflicts=%d inplaceConflicts=%d dirtyOverlaps=%d",
-			exclusiveCreate, childMode, rounds, childWins, agentWins, preflightExists, stagedConflicts, inplaceConflicts, dirtyOverlaps)
+		var rec CommitReceipt
+		res, commitErr := e.Commit(WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r }), Plan{
+			Actor:   actor,
+			Tool:    "write_file",
+			Changes: []FileChange{{Path: "shared.txt", Content: &agentBytes, Create: exclusive, AllowCreate: !exclusive}},
+		})
+		if !released {
+			_ = goSig.Close()
+			_ = cmd.Wait()
+			t.Fatalf("the commit never reached release point %q: err=%v rec=%+v", release, commitErr, rec)
+		}
+		if !wait {
+			childExit = childExitCode(t, cmd.Wait())
+		}
+		return raceOutcome(t, root, target, e, actor, res, rec, commitErr, childExit, exclusive, mode == "atomic_after_signal")
 	}
 
+	// One interleaving each: the external process runs to its end at the release point.
+	for _, tc := range []struct {
+		name          string
+		exclusive     bool
+		mode, release string
+		want          string
+	}{
+		{"outcome_a_lc_wins_exclusive_creation", false, "excl_after_signal", afterPublish, lcCreated},
+		{"outcome_b0_external_wins_before_exclusive_create_prepare", true, "excl_after_signal", beforeCommit, existsBeforePrepare},
+		{"outcome_b1_external_wins_before_no_replace_publish", false, "excl_after_signal", beforePublish, stagedPublishRefused},
+		{"outcome_b2_external_creates_empty_writes_before_inplace_truncate", false, "create_empty_wait_then_write", afterPrepare, inplaceRefusedBeforeTruncate},
+		// The round-8 interleaving of R7R2-NEW-02: LC wrote the external inode in place and the
+		// external write (44B over 25B) landed before LC's verification. DirtyFailure=true is right.
+		{"outcome_b3_external_creates_empty_overlaps_inplace_write", false, "create_empty_wait_then_write", afterWriteClose, inplaceOverlapForeignWhole},
+		// The PRE-02 window: the bytes on disk are mixed, and LC reports them as a dirty,
+		// unverified failure, never as a write.
+		{"outcome_b4_external_creates_empty_writes_inside_truncate_window", false, "create_empty_wait_then_write", afterTruncate, pre02MixedReportedDirty},
+		// The external file was whole before LC looked: LC replaces it and records what it read.
+		{"outcome_b5_external_complete_before_prepare_replaced_as_read", false, "excl_after_signal", beforeCommit, lcReplacedReadForeign},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := runRound(t, tc.exclusive, tc.mode, tc.release, true); got != tc.want {
+				t.Fatalf("outcome %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	// The two processes race from the release point on. Each step names the outcomes its release
+	// point leaves possible: what LC had already observed or done when the external process was let
+	// go rules the others out.
+	type raceStep struct {
+		mode, release string
+		possible      []string
+	}
+	runStress := func(t *testing.T, exclusive bool, steps []raceStep) {
+		t.Helper()
+		const roundsPerStep = 10
+		for _, step := range steps {
+			counts := map[string]int{}
+			for range roundsPerStep {
+				got := runRound(t, exclusive, step.mode, step.release, false)
+				if !slices.Contains(step.possible, got) {
+					t.Fatalf("%s released %s ended in %q, possible: %v", step.mode, step.release, got, step.possible)
+				}
+				counts[got]++
+			}
+			names := make([]string, 0, len(counts))
+			for name := range counts {
+				names = append(names, name)
+			}
+			slices.Sort(names)
+			var tally strings.Builder
+			for _, name := range names {
+				fmt.Fprintf(&tally, " %s=%d", name, counts[name])
+			}
+			t.Logf("stress (Create=%v) %s released %s: rounds=%d%s", exclusive, step.mode, step.release, roundsPerStep, tally.String())
+		}
+	}
+	staged := []string{lcCreated, stagedPublishRefused}
+	inPlace := []string{inplaceRefusedBeforeTruncate, pre02ExternalWriteOverwritten, pre02MixedReportedDirty, inplaceOverlapForeignWhole, externalWriteAfterVerified}
+
 	t.Run("concurrent_exclusive_create_stress", func(t *testing.T) {
-		runStress(t, true, "race_once")
+		runStress(t, true, []raceStep{
+			{"excl_after_signal", beforeCommit, append([]string{existsBeforePrepare}, staged...)},
+			{"excl_after_signal", afterPrepare, staged},
+			{"excl_after_signal", beforePublish, staged},
+		})
 	})
 
 	t.Run("concurrent_atomic_allow_create_stress", func(t *testing.T) {
-		runStress(t, false, "atomic_race_once")
+		runStress(t, false, []raceStep{
+			{"atomic_after_signal", beforeCommit, append([]string{lcReplacedReadForeign}, staged...)},
+			{"atomic_after_signal", afterPrepare, staged},
+			{"atomic_after_signal", beforePublish, staged},
+		})
+	})
+
+	// The original R2-01 scenario: AllowCreate against an external create followed by a write. The
+	// in-place steps release the external write only, on an inode that already exists.
+	t.Run("concurrent_two_syscall_allow_create_stress", func(t *testing.T) {
+		runStress(t, false, []raceStep{
+			{"excl_after_signal", beforeCommit, append(append([]string{lcReplacedReadForeign}, staged...), inPlace...)},
+			{"excl_after_signal", afterPrepare, staged},
+			{"excl_after_signal", beforePublish, staged},
+			{"create_empty_wait_then_write", beforeCommit, append([]string{lcReplacedReadForeign}, inPlace...)},
+			{"create_empty_wait_then_write", afterPrepare, inPlace},
+			{"create_empty_wait_then_write", afterTruncate, []string{pre02MixedReportedDirty, inplaceOverlapForeignWhole, externalWriteAfterVerified}},
+			{"create_empty_wait_then_write", afterWriteClose, []string{inplaceOverlapForeignWhole, externalWriteAfterVerified}},
+		})
 	})
 }
 
