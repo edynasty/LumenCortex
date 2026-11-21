@@ -1,0 +1,43 @@
+package toolset
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"unicode/utf8"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+func TestOpusProbeEditErrNoRowsAllEscape(t *testing.T) {
+	set, err := New(Options{Workspace: t.TempDir(), Policy: PolicyWorkspace, SessionID: "s-opus-probe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, path := range map[string]string{
+		"amp_all_1600B":     strings.Repeat("&&&&&&&/", 200) + "Target.kt",
+		"control_all_1600B": strings.Repeat("\x01\x02\x03\x04\x05\x06\x07/", 200) + "Target.kt",
+		"amp_all_700B":      strings.Repeat("&&&&&&&/", 86) + "Target.kt",
+		"amp_all_600B":      strings.Repeat("&&&&&&&/", 74) + "Target.kt",
+	} {
+		for _, code := range []string{editing.CodeStale, editing.CodeConflict, editing.CodeNotFound} {
+			ee := &editing.Error{Code: code, Path: path, Detail: "refused", CurrentRev: "r1"}
+			out, _ := set.editOutcome(ee)
+			var p opusPayload
+			if err := json.Unmarshal([]byte(out.Content), &p); err != nil {
+				t.Fatalf("%s: invalid JSON: %v", name, err)
+			}
+			got := "<ABSENT>"
+			if p.Path != nil {
+				got = *p.Path
+				if len(got) > 40 {
+					got = got[:8] + " ... " + got[len(got)-24:]
+				}
+			}
+			t.Logf("%-18s code=%-28s len=%4d overflow=%-5v path=%q err=%q", name, code, len(out.Content), p.Overflow, got, p.Error[:min(len(p.Error), 40)])
+			if len(out.Content) > maxPartialPayloadBytes || !utf8.ValidString(out.Content) {
+				t.Errorf("%s: bound or UTF-8 violated (len=%d)", name, len(out.Content))
+			}
+		}
+	}
+}

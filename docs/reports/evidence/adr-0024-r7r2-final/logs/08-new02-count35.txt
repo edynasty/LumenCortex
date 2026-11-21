@@ -1,0 +1,7 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+working tree: modified
+cmd= go test -count=35 -run \^TestR201TwoOSProcessesCreateRace\$ ./internal/editing
+ok  	github.com/edynasty/LumenCortex/internal/editing	44.674s
+exit=0

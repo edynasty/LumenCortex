@@ -1,0 +1,90 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+working tree: modified
+cmd= go test -count=1 -v -run \^TestR7R2 ./internal/toolset
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_17
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_20
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_22
+--- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits (0.25s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_17 (0.08s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_20 (0.08s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_22 (0.09s)
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_23
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_50
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_200
+--- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix (0.55s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_23 (0.10s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_50 (0.15s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_200 (0.30s)
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/five_modules_long_shared_tail
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/eight_modules_between_long_shared_ends
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/sixteen_long_names_differing_at_the_end
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/twenty_four_services_one_package
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/twelve_unicode_names_with_spaces
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/two_paths_over_the_failed_row_bound
+--- PASS: TestR7R2FinalSameNameRowsStayDistinct (0.04s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/five_modules_long_shared_tail (0.00s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/eight_modules_between_long_shared_ends (0.00s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/sixteen_long_names_differing_at_the_end (0.00s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/twenty_four_services_one_package (0.01s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/twelve_unicode_names_with_spaces (0.01s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/two_paths_over_the_failed_row_bound (0.01s)
+=== RUN   TestR7R2FinalFiveFailedSameNameFilesStayDistinct
+--- PASS: TestR7R2FinalFiveFailedSameNameFilesStayDistinct (0.02s)
+=== RUN   TestR7R2FinalDistinguishShortenedPaths
+=== RUN   TestR7R2FinalDistinguishShortenedPaths/unique_tails_are_left_alone
+=== RUN   TestR7R2FinalDistinguishShortenedPaths/names_in_front_of_the_shared_tail
+=== RUN   TestR7R2FinalDistinguishShortenedPaths/first_name_differs
+=== RUN   TestR7R2FinalDistinguishShortenedPaths/segment_reaches_the_tail
+=== RUN   TestR7R2FinalDistinguishShortenedPaths/long_name_differs_at_its_end
+=== RUN   TestR7R2FinalDistinguishShortenedPaths/multibyte_names_sharing_leading_bytes
+=== RUN   TestR7R2FinalDistinguishShortenedPaths/a_shown_row_differs_from_one_that_is_not_shown
+=== RUN   TestR7R2FinalDistinguishShortenedPaths/equal_display_paths_stay
+=== RUN   TestR7R2FinalDistinguishShortenedPaths/difference_wider_than_the_bound_stays
+--- PASS: TestR7R2FinalDistinguishShortenedPaths (0.00s)
+    --- PASS: TestR7R2FinalDistinguishShortenedPaths/unique_tails_are_left_alone (0.00s)
+    --- PASS: TestR7R2FinalDistinguishShortenedPaths/names_in_front_of_the_shared_tail (0.00s)
+    --- PASS: TestR7R2FinalDistinguishShortenedPaths/first_name_differs (0.00s)
+    --- PASS: TestR7R2FinalDistinguishShortenedPaths/segment_reaches_the_tail (0.00s)
+    --- PASS: TestR7R2FinalDistinguishShortenedPaths/long_name_differs_at_its_end (0.00s)
+    --- PASS: TestR7R2FinalDistinguishShortenedPaths/multibyte_names_sharing_leading_bytes (0.00s)
+    --- PASS: TestR7R2FinalDistinguishShortenedPaths/a_shown_row_differs_from_one_that_is_not_shown (0.00s)
+    --- PASS: TestR7R2FinalDistinguishShortenedPaths/equal_display_paths_stay (0.00s)
+    --- PASS: TestR7R2FinalDistinguishShortenedPaths/difference_wider_than_the_bound_stays (0.00s)
+=== RUN   TestR7R2FinalRefusedPathSurvivesOverflow
+--- PASS: TestR7R2FinalRefusedPathSurvivesOverflow (0.02s)
+=== RUN   TestR7R2FinalOverflowBoundWorstCase
+--- PASS: TestR7R2FinalOverflowBoundWorstCase (0.13s)
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n16
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n20
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n32_last
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/cancelled_n20
+--- PASS: TestR7R2DeepPathRowsStayIdentifiable (0.17s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n16 (0.01s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n20 (0.03s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n32_last (0.09s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/cancelled_n20 (0.03s)
+=== RUN   TestR7R2OversizedFailedPathKeepsFilename
+--- PASS: TestR7R2OversizedFailedPathKeepsFilename (0.04s)
+=== RUN   TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities
+--- PASS: TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities (0.01s)
+=== RUN   TestR7R2New01OverflowBoundaryMatrix
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/single_failed_long_path_bare_eio
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/mixed_failed_unicode_longname_and_identical_basenames
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/eight_failed_rows_long_paths
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/cancellation_without_path_long_dirs
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/impossible_to_fit_50_failed_rows_discloses_omissions
+--- PASS: TestR7R2New01OverflowBoundaryMatrix (0.10s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/single_failed_long_path_bare_eio (0.01s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/mixed_failed_unicode_longname_and_identical_basenames (0.01s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/eight_failed_rows_long_paths (0.02s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/cancellation_without_path_long_dirs (0.01s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/impossible_to_fit_50_failed_rows_discloses_omissions (0.04s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	1.957s
+exit=0

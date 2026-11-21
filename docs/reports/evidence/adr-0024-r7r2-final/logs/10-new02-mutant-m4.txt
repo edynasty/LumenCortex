@@ -1,0 +1,25 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+working tree: modified
+cmd= go test -count=1 -overlay /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.4VHmZwnY69/m4-carbon.json ./internal/editing ./internal/toolset ./internal/agent
+ok  	github.com/edynasty/LumenCortex/internal/editing	1.864s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	23.756s
+ok  	github.com/edynasty/LumenCortex/internal/agent	18.462s
+exit=0
+cmd(expected to fail)= go test -count=1 -overlay /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.4VHmZwnY69/m4-head.json -run \^TestR201TwoOSProcessesCreateRace\$ ./internal/editing
+--- FAIL: TestR201TwoOSProcessesCreateRace (1.12s)
+    --- FAIL: TestR201TwoOSProcessesCreateRace/outcome_b4_external_creates_empty_writes_inside_truncate_window (0.01s)
+        remediation_r2_01_test.go:407: pre-truncate external conflict mismatch: err=conflict shared.txt: the file changed after the change was computed; nothing was written (current rev p6ipn7dm); something else wrote the file; re-read it and redo the edit rec={Committed:false DirtyFailure:false State:failed_before_publication Files:[{Path:shared.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR201TwoOSProcessesCreateRaceoutcome_b4_external_creates_emp3543611501/001/shared.txt Staged:false Published:false Verified:false RolledBack:false Wrote:false PublishState:external_modification_detected Created:false Deleted:false OldSHA256:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 NewSHA256: Error:conflict shared.txt: the file changed after the change was computed; nothing was written (current rev p6ipn7dm); something else wrote the file; re-read it and redo the edit}]} disk="agent os process content\nD 0123456789ABCDEF\n"
+    --- FAIL: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress (0.26s)
+        remediation_r2_01_test.go:466: stress (Create=false) excl_after_signal released before_commit: rounds=10 lc_replaced_read_foreign=10
+        remediation_r2_01_test.go:466: stress (Create=false) excl_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+        remediation_r2_01_test.go:466: stress (Create=false) excl_after_signal released before_publish: rounds=10 staged_publish_refused=10
+        remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released before_commit: rounds=10 lc_replaced_read_foreign=10
+        remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released after_prepare: rounds=10 inplace_refused_before_truncate=10
+        remediation_r2_01_test.go:466: create_empty_wait_then_write released after_truncate ended in "inplace_refused_before_truncate", possible: [pre02_mixed_bytes_reported_dirty inplace_overlap_foreign_whole external_write_after_verified]
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	1.513s
+FAIL
+exit=1
+RED as expected

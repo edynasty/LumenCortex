@@ -2,7 +2,7 @@
 
 ## Decision record and implementation report
 
-**`R7R2_P3_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`** (follow-up branch `fix/adr-0024-r7r2-carbon-p3-20261121` based on `fc1c4368507bea3f4e13099c62ca35936a6fba48`; see [R7R2 Carbon P3 remediation](#r7r2-carbon-p3-remediation) for independent review by Claude Opus 5.5). Historical R7 handoff status: **`R7_IMPLEMENTATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`**. Carbon's review target is the production candidate `f60738ad4bc5ca5304910617b3889ec0b55a89e2`. Start with the [four-finding ledger](#implementation-and-evidence-ledger) and [replay instructions](#carbon-handoff). The second independent review (Report A, 2026-11-21) is remediated on branch `fix/adr-0024-r7r2-remediation-20261121`; see [R7R2 remediation](#r7r2-remediation). That remediation received `PASS_WITH_LIMITATIONS` from Gemini 4 Carbon, which raised `R7R2-NEW-01` and `R7R2-NEW-02`.
+**`R7R2_OPUS_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`** (branch `fix/adr-0024-r7r2-opus-final-20261121` based on `f3f77e35c98de4647243019568ed5ec3093cf072`; see [R7R2 final audit and remediation](#r7r2-final-audit-and-remediation), for independent review by GPT-6.1 Sol). It audits **`R7R2_P3_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`** (follow-up branch `fix/adr-0024-r7r2-carbon-p3-20261121` based on `fc1c4368507bea3f4e13099c62ca35936a6fba48`; see [R7R2 Carbon P3 remediation](#r7r2-carbon-p3-remediation)). Historical R7 handoff status: **`R7_IMPLEMENTATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`**. Carbon's review target is the production candidate `f60738ad4bc5ca5304910617b3889ec0b55a89e2`. Start with the [four-finding ledger](#implementation-and-evidence-ledger) and [replay instructions](#carbon-handoff). The second independent review (Report A, 2026-11-21) is remediated on branch `fix/adr-0024-r7r2-remediation-20261121`; see [R7R2 remediation](#r7r2-remediation). That remediation received `PASS_WITH_LIMITATIONS` from Gemini 4 Carbon, which raised `R7R2-NEW-01` and `R7R2-NEW-02`.
 
 Input is R6 `4aaf8e7168743d6c8ae8fa6fe87a350ca69f9af2`, production `aa7b77a63c86d1951d36bfc12234cb17495cd871`, on the verified R5 → R6 chain. The input spec is `v0.4-rc3.7`, SHA256 `5c9edaeb6b917d7cf508677036f17ab1911dd6b5f1a78ee25d8e0082f6cbb89f`. Sol's R6 review blocked merge. Section 8 of ADR-0024 governs the R7 editing contract. Existing execution admission, causal seals, fences and cold Resume govern the evidence contract.
 
@@ -207,3 +207,133 @@ Not run for R7R2: the repository-wide `go test ./...` and the full 45-minute `./
   go test -race -count=1 ./internal/editing ./internal/toolset ./internal/agent ./internal/session
   ```
 - **Preserved ledger:** `PRE-01` (OPEN P2), `PRE-02` (OPEN P2, silent race disclosed), `BASE-01`/`R6-07` (OPEN/UNVERIFIED), `R3-01` (Owner-accepted exFAT limit), `CT-02` (OPEN P3 documented blind-replay limit), `R7-F01` (OPEN P3 `>=3`-space display path tail), `R3-02`, `R3-04`, `R2-03`, `F-05`..`F-08` (OPEN P3).
+
+## R7R2 final audit and remediation
+
+**Status:** **`R7R2_OPUS_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`**. Claude Opus 5.5 audited Carbon's two fixes, found four further defects and fixed them. Every change below is **`FIXED_BY_IMPLEMENTER` / `SELF_VERIFIED` / `PENDING_INDEPENDENT_REVIEW`**; none is independently closed. GPT-6.1 Sol performs the independent review.
+
+- **Baseline, verified before any change:** `fix/adr-0024-r7r2-carbon-p3-20261121` at `f3f77e35c98de4647243019568ed5ec3093cf072`, clean and equal to its remote. `fc1c436`, `31172bc`, `c73d173`, `8d84206` and `d8e2d71` are its ancestors. Carbon's manifest verified 17/17. Its production diff is `internal/toolset/editing.go` only; `internal/editing` production code is identical at `fc1c436` and `f3f77e3`. The main worktree still holds only `M AGENTS.md`.
+- **Branch and commits:** `fix/adr-0024-r7r2-opus-final-20261121`, worktree `wt/core-adr-0024-r7r2-opus-final-20261121`.
+  1. `1679fc1634b71744b899661358ec8d38a487a09d` — `fix(toolset): keep failed rows that fit and tell same-named rows apart` (R7R2-FINAL-01, -02, -03).
+  2. `fa909ad555f8ba42a7a910cd12f6bf153ea645ae` — `test(editing): race the two-process create for real and name every outcome` (R7R2-FINAL-04; frozen code and test candidate).
+  3. The last commit on the branch adds this section, one sentence in each ADR and [`evidence/adr-0024-r7r2-final/`](evidence/adr-0024-r7r2-final/).
+- **Production boundary:** [production.diff](evidence/adr-0024-r7r2-final/production.diff) changes `internal/toolset/editing.go` only (`+157/-53`). No file under `internal/editing` other than a test changed, so NEW-02 and PRE-02 behavior are untouched. No SQLite migration, schema change, second ledger or public API change.
+- **Specification:** `v0.4-rc3.8` draft 2, SHA256 `4a56762c9b74b5ad2065082f8dc12ad9fd12ca93ab70b56ee510461b0971da9b`, was read and not modified. It remains `PENDING_OWNER_APPROVAL`.
+- **Replay:** `bash docs/reports/evidence/adr-0024-r7r2-final/verify.sh <mode>` from the Core root. Each log below names its mode. The script writes only to a temporary directory.
+
+### Verdict on Carbon's remediation
+
+| Finding | Verdict | Basis |
+|---|---|---|
+| `R7R2-NEW-01`, the finding | **CONFIRMED** | Carbon's regression tests against the `fc1c436` file: five failed rows come back as one ([log 01](evidence/adr-0024-r7r2-final/logs/01-new01-original-red.txt), exit 1). |
+| `R7R2-NEW-01`, Carbon's fix | **PARTIALLY_CONFIRMED** | The reported case is fixed at `f3f77e3`: Carbon's original probe, archived here because its source was not committed, shows `multi_5_longdir rows=5` against that commit's file ([log 04a](evidence/adr-0024-r7r2-final/logs/04a-carbon-original-probe-at-carbon.txt)), and all 17 of its subtests pass on this branch ([log 04](evidence/adr-0024-r7r2-final/logs/04-carbon-original-probe.txt)). Three defects remained in the same fallback: R7R2-FINAL-01, -02 and -03. |
+| `R7R2-NEW-02`, the finding | **CONFIRMED** | The old assertion rejects a correct `DirtyFailure=true`: Carbon's reproducer, also archived here, fails as it should ([log 07](evidence/adr-0024-r7r2-final/logs/07-new02-original.txt)). The flake is rare: the old test passed 35 of 35 runs, 1050 rounds, on this host. |
+| `R7R2-NEW-02`, Carbon's fix | **PARTIALLY_CONFIRMED** | The four barrier subtests are correct, the test passes 35/35, and no production code changed. The two stress subtests did not race: R7R2-FINAL-04. |
+
+The function Carbon's row calls `formatBoundedEditError` is `formatCommitFailurePayload`; no Go file in this branch's history holds the other name.
+
+The ten points the audit had to check for NEW-01:
+
+| # | Point | At `f3f77e3` | At `fa909ad` |
+|---|---|---|---|
+| 1 | Every failed row is kept when it fits | No: 20 failed rows that fit at a 64-byte path came back as 15 | Yes (FINAL-01) |
+| 2 | Verified and untouched rows go before failed rows | Yes | Yes, unchanged |
+| 3 | A shortened path keeps its filename | Yes | Yes, unchanged; the tail a row keeps is the same |
+| 4 | One filename in several directories stays distinguishable | Only when the directory that differs sits inside the kept tail; otherwise five failed rows read as one text | Yes when the segment that tells the paths apart is at most 48 bytes (FINAL-02) |
+| 5 | Unicode paths stay valid | Yes | Yes; new cases cover multi-byte names that share leading bytes |
+| 6 | Error classification is kept | Yes: `code`, `commitState`, per-row `publishState` | Yes, unchanged |
+| 7 | Omission counts are exact | Yes | Yes; checked per state against the omitted rows |
+| 8 | The fallback keeps the longest failed-row prefix | No: it returned the prefix that fits at 128 bytes, 15 rows where 22 fit | Yes (FINAL-01) |
+| 9 | No failed row is lost because a longer path was tried first | No: same cause as point 8 | Yes (FINAL-01) |
+| 10 | Valid JSON within 4096 bytes | Yes | Yes; 684 payloads and a worst-case test, none over 4096 |
+
+### Findings raised and fixed in this audit
+
+| Finding | Trigger and impact at `f3f77e3` | Root cause | Change | RED → GREEN |
+|---|---|---|---|---|
+| `R7R2-FINAL-01`, P3 | 20 to 22 failed files under a deep directory with a path-less error. All of them fit at a 64-byte path, 15 were shown. With 23 or more, 15 were shown where 22 fit. The agent loses failed files that had room. | Carbon's first loop tried every failed row down to 96 bytes. The second searched at 128 bytes first and returned as soon as one row fit, so its 96 and 64 byte budgets could not be reached. This is the inversion of NEW-01 again, one level down. | `1679fc1`: both loops share one list of budgets that ends at 64 bytes. When the rows cannot all fit, the envelope keeps the longest prefix any budget holds; a shorter budget replaces a longer one only by keeping more rows. | [RED](evidence/adr-0024-r7r2-final/logs/02-new01-final-red.txt): `15 failed rows shown, want all 20`, `15 failed rows shown but 16 fit`. [GREEN](evidence/adr-0024-r7r2-final/logs/03-new01-green.txt). The prefix test checks its result against an independent re-encoding of the returned envelope: one more row must not fit. |
+| `R7R2-FINAL-02`, P3 | The NEW-01 shape with one filename: five failed `config.yaml` files in five module directories that share a long path behind the module name. All five rows read the same text, the shared tail ending in `/config.yaml`. The same happens to two failed paths over 1024 bytes outside the overflow envelope. The agent sees five states and cannot tell which file has which. | A shortened path keeps only its tail (`truncatePathTail`, R7R2-Results-01). Paths that differ in front of the tail shorten to one text. Carbon's probe logged this as an observation. | `1679fc1`, `distinguishShortenedPaths`: a row whose kept tail also fits another path of the commit gains the segment where its path leaves those paths, and keeps its tail: `module00/…/config.yaml`, `…/svc00/…/gateway/config/AppConfig.kt`. The comparison covers every path of the commit, shown or not. Rows whose tail is unique are untouched. | Same RED log: `TestR7R2FinalSameNameRowsStayDistinct` (five of its six shapes fail; the sixth, 24 services, guards FINAL-01 against collapsing paths that were shown whole), `TestR7R2FinalFiveFailedSameNameFilesStayDistinct` (real files through `apply_patch`), `TestR7R2FinalDistinguishShortenedPaths` (exact forms). GREEN in the same GREEN log. |
+| `R7R2-FINAL-03`, P3 | A single-file refusal has no receipt row. When JSON escaping pushes its path past the budget, the overflow envelope held `error`, `code` and no path: nothing named the file, and about 3500 bytes stayed unused. It needs roughly 700 bytes of characters that JSON escapes (`&`, `<`, `>`, control characters), so it is very unlikely in practice. | The envelope carried identity only through rows. | `1679fc1`: a refusal without rows keeps its path, shortened from the front with the same budgets. | Same logs: `overflow envelope does not name the refused file: path=""`, then GREEN. |
+| `R7R2-FINAL-04`, P3 (test) | The two stress subtests of `TestR201TwoOSProcessesCreateRace` always ended the same way. In 35 runs, 1050 of 1050 exclusive-create rounds were the pre-flight `CodeExists`, and the atomic rounds were a staged refusal in all but 8. The `AllowCreate` race against a create followed by a write, the scenario the test is named for and the one that produced NEW-02, was no longer run. No test in the four packages reached the branch that reports bytes another writer mixed into LC's write. A mutant that reports those bytes as a clean refusal passed the `editing`, `toolset` and `agent` suites with Carbon's version of the test. | The external process signalled and went on while the test was still waking from a pipe read, so it finished before `Commit` started. Carbon removed the in-place race because the test treated mixed bytes as a failure whatever the receipt said. | `fa909ad`, test only. The external process is let go over a pipe at a named point of the commit, so both sides race from there. Each round is checked against the outcomes that point leaves possible. The in-place race is back. A new deterministic subtest drives the truncate window: the disk holds mixed bytes and LC must report a dirty, unverified failure. Two more cover the exclusive-create refusal and a file LC read whole and replaced. Pipes replace the 100 µs polling loops; nothing waits on a clock. | [Carbon's test, 35 runs with tallies](evidence/adr-0024-r7r2-final/logs/06-new02-carbon-stress.txt). [Coverage](evidence/adr-0024-r7r2-final/logs/12-inplace-mismatch-coverage.txt): no package reached that branch before; the `editing` tests reach it now. [Mutant M4](evidence/adr-0024-r7r2-final/logs/10-new02-mutant-m4.txt): the `editing` suite with Carbon's version of the test passes on it, as do the `toolset` and `agent` suites; the new test fails. [35/35](evidence/adr-0024-r7r2-final/logs/08-new02-count35.txt). |
+
+What FINAL-01 and FINAL-02 change for the agent, measured on 684 rendered payloads ([log 05](evidence/adr-0024-r7r2-final/logs/05-differential.txt)): 482 are byte-identical to `f3f77e3`. 134 show more rows. 56 show the same number of rows, which used to repeat one text. 12 show fewer rows than before: a distinguishing segment costs up to 56 bytes, so a set of same-named files can show, for example, 29 rows that each name their file where 32 rows used to read `…/config.yaml`. The omitted rows are counted by state. No field other than the rows and their omission counts changed in any payload.
+
+A path is now sanitized once per call instead of once per rendering. The same corpus takes 20 s instead of 125 s, and 200 failed rows take 0.3 s instead of 5.7 s.
+
+**Limits of FINAL-02.** A row keeps its plain tail when the bytes that tell it apart span more than 48 bytes, for example two directories that differ at both ends of a long shared middle. `difference_wider_than_the_bound_stays` pins this. The `publishedFiles` list still shortens tail-only; it repeats the rows and is the first field dropped. Scored low and not changed.
+
+### NEW-02 test reliability
+
+`go test -count=35 -run '^TestR201TwoOSProcessesCreateRace$' ./internal/editing`: `ok`, exit 0 ([log 08](evidence/adr-0024-r7r2-final/logs/08-new02-count35.txt)). A longer run: 100 of 100 passes, 20 of 20 under `-race`, 20 of 20 with `GOMAXPROCS=1` ([log 09](evidence/adr-0024-r7r2-final/logs/09-new02-soak.txt)).
+
+The 100 runs hold 13,000 stress rounds, and all nine outcomes occurred ([tally](evidence/adr-0024-r7r2-final/logs/09a-new02-soak-tally.txt)):
+
+| Outcome | Rounds | Meaning |
+|---|---|---|
+| `staged_publish_refused` | 6290 | External file appeared while LC staged; no-replace publication refused; foreign bytes whole |
+| `inplace_overlap_foreign_whole` | 1972 | External write landed after LC's in-place write; dirty failure |
+| `lc_replaced_read_foreign` | 1928 | External file was whole when LC read it; LC replaced it and recorded what it read |
+| `inplace_refused_before_truncate` | 1002 | External write landed before LC's compare; nothing written |
+| `exists_before_prepare` | 942 | `Create:true` found the external file |
+| `lc_created` | 817 | LC published; the external create lost with `EEXIST` |
+| `pre02_mixed_bytes_reported_dirty` | 21 | PRE-02 window: mixed bytes on disk, reported as a dirty, unverified failure |
+| `external_write_after_verified` | 19 | External write landed after LC verified its bytes |
+| `pre02_external_write_overwritten` | 9 | PRE-02, silent: see below |
+
+The ten assertions the audit required are made in every round, with the one exception stated below. One creator is identified: LC with `Staged`, `Created` and an external `EEXIST`, or the external process with LC claiming no creation. The bytes on disk are whole, or mixed only together with `DirtyFailure=true`, `external_modification_detected`, no `NewRev` and no `NewSHA256`. A failed commit never registers a snapshot and is never `Committed`. The seal for those receipts is in `internal/agent`: `TestR7R2FinalCreateRaceReceiptsSealUnknown` shows each one seals `MutationUnknown` even with a complete outcome and a clean sandwich. `TestR7PartialCommitAndDiagnosticsColdResume` covers the same rule through SQLite and a cold Resume.
+
+One assertion cannot be made for the last row. "No external content is silently discarded" holds wherever LC can know: staged publication never replaces an existing file, a refused in-place write changes nothing, and an atomically published file is replaced only after LC read it whole. In the nine `pre02_external_write_overwritten` rounds the external write landed between LC's compare and its truncate, and LC reported a verified write. That is PRE-02. The test names and counts these rounds; it does not accept them as correct, and it cannot fail on them without failing on an open finding.
+
+### PRE-02 boundary
+
+PRE-02 stays **OPEN P2**. Nothing here fixes it. The two interleavings inside the truncate window were driven deterministically on R6, R7, R7R2, Carbon's commit and this branch ([log 11](evidence/adr-0024-r7r2-final/logs/11-pre02-baselines.txt)).
+
+| Question | Answer |
+|---|---|
+| Does the same behavior exist on the previous R7R2 baseline? | Yes. `fc1c436`, `f3f77e3` and `fa909ad` print the same lines. A 44-byte foreign write inside the window leaves `agent os process content\nD 0123456789ABCDEF\n` on disk. An 8-byte one is overwritten. |
+| Did Carbon's remediation change production behavior? | No. `git diff fc1c436 f3f77e3 -- internal/editing` shows test files only. Nor did this branch. |
+| Does the test keep detecting the risk? | Not at `f3f77e3`: the in-place race was gone and the reporting branch had no coverage. It does now, deterministically (`outcome_b4`) and under the real race (21 rounds above). |
+| Are `DirtyFailure` and `MutationUnknown` right for the mixed bytes? | Yes: `committed=false`, `dirtyFailure=true`, `published_with_post_error`, `external_modification_detected`, `verified=false`, no revision, no hash, no snapshot. The receipt seals `MutationUnknown`. |
+| Are the mixed bytes reported as uncertain? | Yes, on R7, R7R2, Carbon's commit and this branch. R6 also failed dirty, as `publication_uncertain`. |
+| Did R7R2 introduce or worsen it? | No. R7 and R7R2 behave the same, and the window is older than both: R6 shows it. The silent case, a foreign write no longer than LC's, reports `published_verified` on all five commits. |
+
+No new production defect was found in `internal/editing`.
+
+### Verification at `fa909ad555f8ba42a7a910cd12f6bf153ea645ae` (Darwin ARM64, Go 1.26.5, APFS)
+
+Every log was produced with Go sources equal to that commit ([state](evidence/adr-0024-r7r2-final/logs/00-state.txt)). The line `working tree: modified` in the logs is the evidence directory itself, not yet committed while they ran.
+
+| Surface | Result |
+|---|---|
+| `gofmt -l` on the 4 changed Go files, `go build ./...`, `go vet ./...` | Clean, exit 0 ([log 20](evidence/adr-0024-r7r2-final/logs/20-native.txt)) |
+| `go test -count=1 ./internal/toolset ./internal/editing` | `ok`, exit 0 (same log) |
+| `go test -race -count=1 ./internal/toolset ./internal/editing` | `ok`, exit 0 (same log) |
+| `go test -race -count=1 ./internal/agent ./internal/session` | `ok`, exit 0 (same log) |
+| `go test -race -count=1 -run 'TestT3\|TestT4' ./runtime` | `ok`, exit 0 (same log) |
+| `go test -count=35 -run '^TestR201TwoOSProcessesCreateRace$' ./internal/editing` | `ok`, exit 0 ([log 08](evidence/adr-0024-r7r2-final/logs/08-new02-count35.txt)) |
+| R7 partial-commit, result-propagation and Resume regressions, every `TestR7*` and `TestR201*`, under `-race` | 158 PASS lines, 0 FAIL, exit 0 ([log 21](evidence/adr-0024-r7r2-final/logs/21-focused-race.txt)) |
+| `go test -timeout=45m -count=1 ./...` | 43 packages `ok`, 6 without tests, exit 0; `runtime` took 689.5 s ([log 23](evidence/adr-0024-r7r2-final/logs/23-repo.txt)) |
+| `go vet` of the four packages for linux/arm64, linux/amd64, windows/amd64, windows/arm64, freebsd/amd64, and the four Windows test binaries | exit 0 each ([log 22](evidence/adr-0024-r7r2-final/logs/22-cross.txt)). Compiled only; none was run. |
+
+Not run: native Windows, Linux or FreeBSD. The `./runtime` coverage measurement was taken at this commit only ([log 12a](evidence/adr-0024-r7r2-final/logs/12a-inplace-mismatch-coverage-runtime.txt)); its tests and the code they reach in `internal/editing` are the same at `f3f77e3`.
+
+### Evidence
+
+Verify from the Core root with `shasum -a 256 -c docs/reports/evidence/adr-0024-r7r2-final/SHA256SUMS`. The manifest covers the changed sources, both ADRs, this report, the production diff, the replay script, the inputs and every log; it excludes itself.
+
+- `inputs/carbon-original-probe-r7r2_results_test.go.txt` and `inputs/carbon-red-new02-remediation_r2_01_test.go.txt` are the two overlay sources behind Carbon's logs 03 and 04. They were not in Carbon's commit. They were copied unchanged from Carbon's review workspace on this host, and their digests are in the manifest.
+- `inputs/probes/` holds the audit's own probes, `inputs/mutant-m4.diff.txt` the mutant.
+- Earlier manifests describe earlier commits and were not edited. `adr-0024-r7r2-carbon-p3/SHA256SUMS` lists `internal/toolset/editing.go` and `internal/editing/remediation_r2_01_test.go`, which this branch changes: check those two entries, the two ADRs and this report against `f3f77e3` with `git show f3f77e3:<path> | shasum -a 256`. The R7 and R7R2 manifests verify the same way against `31172bc` and `fc1c436`; all three were checked.
+
+### Remaining ledger
+
+| Item | Status |
+|---|---|
+| `R7R2-FINAL-01`, `-02`, `-03`, `-04` (P3) | Fixed here, self-verified, pending independent review |
+| `R7R2-NEW-01`, `R7R2-NEW-02` (P3) | Carbon's fixes kept and completed by the four items above; pending independent review |
+| `PRE-01` (P2) | OPEN, unchanged |
+| `PRE-02` (P2) | OPEN, unchanged. Now measured: 30 of 13,000 real-race rounds fell in the window, 9 of them silent |
+| `R7R2-BASE-01`, `R6-07` / `R5-06` | OPEN / UNVERIFIED on native Windows |
+| `R3-01` | Owner-accepted exFAT limit |
+| `R7R2-CT-02`, `R7-F01`, `R3-02`, `R3-04`, `R2-03`, `F-05`..`F-08` (P3) | OPEN, unchanged |
+| `v0.4-rc3.8` draft 2 | `PENDING_OWNER_APPROVAL`; Owner decision still required |

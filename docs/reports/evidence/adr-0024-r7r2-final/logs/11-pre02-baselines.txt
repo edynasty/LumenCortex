@@ -1,0 +1,112 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+working tree: modified
+cmd= git diff --stat fc1c4368507bea3f4e13099c62ca35936a6fba48 HEAD -- internal/editing :\!internal/editing/\*_test.go
+exit=0
+(no lines above: internal/editing production code is unchanged since fc1c4368507bea3f4e13099c62ca35936a6fba48)
+== r6 4aaf8e7168743d6c8ae8fa6fe87a350ca69f9af2
+cmd= go test -count=1 -v -run \^TestOpusPRE02Baseline\$ ./internal/editing
+=== RUN   TestOpusPRE02Baseline
+=== RUN   TestOpusPRE02Baseline/long_foreign_write_inside_truncate_window
+    zz_opus_pre02_baseline_test.go:117: PRE02 long_foreign_write_inside_truncate_window | external_exit=0 external_bytes=44 agent_bytes=25
+    zz_opus_pre02_baseline_test.go:118: PRE02 long_foreign_write_inside_truncate_window | disk="agent os process content\nD 0123456789ABCDEF\n"
+    zz_opus_pre02_baseline_test.go:119: PRE02 long_foreign_write_inside_truncate_window | commit_error_code="concurrent_write_detected" committed=false dirtyFailure=true commitState=publication_uncertain
+    zz_opus_pre02_baseline_test.go:120: PRE02 long_foreign_write_inside_truncate_window | row: staged=false created=false published=false wrote=false verified=false rolledBack=false publishState=publication_uncertain newSHA256_set=false
+    zz_opus_pre02_baseline_test.go:124: PRE02 long_foreign_write_inside_truncate_window | result: commitState=publication_uncertain result_files=0 newRev_set=false | snapshot_latestRev_set=false snapshot_is_agent_rev=false
+=== RUN   TestOpusPRE02Baseline/short_foreign_write_inside_truncate_window
+    zz_opus_pre02_baseline_test.go:117: PRE02 short_foreign_write_inside_truncate_window | external_exit=0 external_bytes=8 agent_bytes=25
+    zz_opus_pre02_baseline_test.go:118: PRE02 short_foreign_write_inside_truncate_window | disk="agent os process content\n"
+    zz_opus_pre02_baseline_test.go:119: PRE02 short_foreign_write_inside_truncate_window | commit_error_code="" committed=true dirtyFailure=false commitState=committed
+    zz_opus_pre02_baseline_test.go:120: PRE02 short_foreign_write_inside_truncate_window | row: staged=false created=false published=true wrote=true verified=true rolledBack=false publishState=published_verified newSHA256_set=true
+    zz_opus_pre02_baseline_test.go:124: PRE02 short_foreign_write_inside_truncate_window | result: commitState=committed result_files=1 newRev_set=true | snapshot_latestRev_set=true snapshot_is_agent_rev=true
+--- PASS: TestOpusPRE02Baseline (0.48s)
+    --- PASS: TestOpusPRE02Baseline/long_foreign_write_inside_truncate_window (0.34s)
+    --- PASS: TestOpusPRE02Baseline/short_foreign_write_inside_truncate_window (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.915s
+exit=0
+== r7 31172bc274c3a4c54243a72e554862d539d7759d
+cmd= go test -count=1 -v -run \^TestOpusPRE02Baseline\$ ./internal/editing
+=== RUN   TestOpusPRE02Baseline
+=== RUN   TestOpusPRE02Baseline/long_foreign_write_inside_truncate_window
+    zz_opus_pre02_baseline_test.go:117: PRE02 long_foreign_write_inside_truncate_window | external_exit=0 external_bytes=44 agent_bytes=25
+    zz_opus_pre02_baseline_test.go:118: PRE02 long_foreign_write_inside_truncate_window | disk="agent os process content\nD 0123456789ABCDEF\n"
+    zz_opus_pre02_baseline_test.go:119: PRE02 long_foreign_write_inside_truncate_window | commit_error_code="concurrent_write_detected" committed=false dirtyFailure=true commitState=published_with_post_error
+    zz_opus_pre02_baseline_test.go:120: PRE02 long_foreign_write_inside_truncate_window | row: staged=false created=false published=true wrote=true verified=false rolledBack=false publishState=external_modification_detected newSHA256_set=false
+    zz_opus_pre02_baseline_test.go:122: PRE02 long_foreign_write_inside_truncate_window | result: commitState=published_with_post_error newRev_set=false verified=false | snapshot_latestRev_set=false snapshot_is_agent_rev=false
+=== RUN   TestOpusPRE02Baseline/short_foreign_write_inside_truncate_window
+    zz_opus_pre02_baseline_test.go:117: PRE02 short_foreign_write_inside_truncate_window | external_exit=0 external_bytes=8 agent_bytes=25
+    zz_opus_pre02_baseline_test.go:118: PRE02 short_foreign_write_inside_truncate_window | disk="agent os process content\n"
+    zz_opus_pre02_baseline_test.go:119: PRE02 short_foreign_write_inside_truncate_window | commit_error_code="" committed=true dirtyFailure=false commitState=committed
+    zz_opus_pre02_baseline_test.go:120: PRE02 short_foreign_write_inside_truncate_window | row: staged=false created=false published=true wrote=true verified=true rolledBack=false publishState=published_verified newSHA256_set=true
+    zz_opus_pre02_baseline_test.go:122: PRE02 short_foreign_write_inside_truncate_window | result: commitState=committed newRev_set=true verified=true | snapshot_latestRev_set=true snapshot_is_agent_rev=true
+--- PASS: TestOpusPRE02Baseline (0.49s)
+    --- PASS: TestOpusPRE02Baseline/long_foreign_write_inside_truncate_window (0.35s)
+    --- PASS: TestOpusPRE02Baseline/short_foreign_write_inside_truncate_window (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.887s
+exit=0
+== r7r2 fc1c4368507bea3f4e13099c62ca35936a6fba48
+cmd= go test -count=1 -v -run \^TestOpusPRE02Baseline\$ ./internal/editing
+=== RUN   TestOpusPRE02Baseline
+=== RUN   TestOpusPRE02Baseline/long_foreign_write_inside_truncate_window
+    zz_opus_pre02_baseline_test.go:117: PRE02 long_foreign_write_inside_truncate_window | external_exit=0 external_bytes=44 agent_bytes=25
+    zz_opus_pre02_baseline_test.go:118: PRE02 long_foreign_write_inside_truncate_window | disk="agent os process content\nD 0123456789ABCDEF\n"
+    zz_opus_pre02_baseline_test.go:119: PRE02 long_foreign_write_inside_truncate_window | commit_error_code="concurrent_write_detected" committed=false dirtyFailure=true commitState=published_with_post_error
+    zz_opus_pre02_baseline_test.go:120: PRE02 long_foreign_write_inside_truncate_window | row: staged=false created=false published=true wrote=true verified=false rolledBack=false publishState=external_modification_detected newSHA256_set=false
+    zz_opus_pre02_baseline_test.go:122: PRE02 long_foreign_write_inside_truncate_window | result: commitState=published_with_post_error newRev_set=false verified=false | snapshot_latestRev_set=false snapshot_is_agent_rev=false
+=== RUN   TestOpusPRE02Baseline/short_foreign_write_inside_truncate_window
+    zz_opus_pre02_baseline_test.go:117: PRE02 short_foreign_write_inside_truncate_window | external_exit=0 external_bytes=8 agent_bytes=25
+    zz_opus_pre02_baseline_test.go:118: PRE02 short_foreign_write_inside_truncate_window | disk="agent os process content\n"
+    zz_opus_pre02_baseline_test.go:119: PRE02 short_foreign_write_inside_truncate_window | commit_error_code="" committed=true dirtyFailure=false commitState=committed
+    zz_opus_pre02_baseline_test.go:120: PRE02 short_foreign_write_inside_truncate_window | row: staged=false created=false published=true wrote=true verified=true rolledBack=false publishState=published_verified newSHA256_set=true
+    zz_opus_pre02_baseline_test.go:122: PRE02 short_foreign_write_inside_truncate_window | result: commitState=committed newRev_set=true verified=true | snapshot_latestRev_set=true snapshot_is_agent_rev=true
+--- PASS: TestOpusPRE02Baseline (0.50s)
+    --- PASS: TestOpusPRE02Baseline/long_foreign_write_inside_truncate_window (0.35s)
+    --- PASS: TestOpusPRE02Baseline/short_foreign_write_inside_truncate_window (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.889s
+exit=0
+== carbon f3f77e35c98de4647243019568ed5ec3093cf072
+cmd= go test -count=1 -v -run \^TestOpusPRE02Baseline\$ ./internal/editing
+=== RUN   TestOpusPRE02Baseline
+=== RUN   TestOpusPRE02Baseline/long_foreign_write_inside_truncate_window
+    zz_opus_pre02_baseline_test.go:117: PRE02 long_foreign_write_inside_truncate_window | external_exit=0 external_bytes=44 agent_bytes=25
+    zz_opus_pre02_baseline_test.go:118: PRE02 long_foreign_write_inside_truncate_window | disk="agent os process content\nD 0123456789ABCDEF\n"
+    zz_opus_pre02_baseline_test.go:119: PRE02 long_foreign_write_inside_truncate_window | commit_error_code="concurrent_write_detected" committed=false dirtyFailure=true commitState=published_with_post_error
+    zz_opus_pre02_baseline_test.go:120: PRE02 long_foreign_write_inside_truncate_window | row: staged=false created=false published=true wrote=true verified=false rolledBack=false publishState=external_modification_detected newSHA256_set=false
+    zz_opus_pre02_baseline_test.go:122: PRE02 long_foreign_write_inside_truncate_window | result: commitState=published_with_post_error newRev_set=false verified=false | snapshot_latestRev_set=false snapshot_is_agent_rev=false
+=== RUN   TestOpusPRE02Baseline/short_foreign_write_inside_truncate_window
+    zz_opus_pre02_baseline_test.go:117: PRE02 short_foreign_write_inside_truncate_window | external_exit=0 external_bytes=8 agent_bytes=25
+    zz_opus_pre02_baseline_test.go:118: PRE02 short_foreign_write_inside_truncate_window | disk="agent os process content\n"
+    zz_opus_pre02_baseline_test.go:119: PRE02 short_foreign_write_inside_truncate_window | commit_error_code="" committed=true dirtyFailure=false commitState=committed
+    zz_opus_pre02_baseline_test.go:120: PRE02 short_foreign_write_inside_truncate_window | row: staged=false created=false published=true wrote=true verified=true rolledBack=false publishState=published_verified newSHA256_set=true
+    zz_opus_pre02_baseline_test.go:122: PRE02 short_foreign_write_inside_truncate_window | result: commitState=committed newRev_set=true verified=true | snapshot_latestRev_set=true snapshot_is_agent_rev=true
+--- PASS: TestOpusPRE02Baseline (0.50s)
+    --- PASS: TestOpusPRE02Baseline/long_foreign_write_inside_truncate_window (0.35s)
+    --- PASS: TestOpusPRE02Baseline/short_foreign_write_inside_truncate_window (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.893s
+exit=0
+== head fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+cmd= go test -count=1 -v -run \^TestOpusPRE02Baseline\$ ./internal/editing
+=== RUN   TestOpusPRE02Baseline
+=== RUN   TestOpusPRE02Baseline/long_foreign_write_inside_truncate_window
+    zz_opus_pre02_baseline_test.go:117: PRE02 long_foreign_write_inside_truncate_window | external_exit=0 external_bytes=44 agent_bytes=25
+    zz_opus_pre02_baseline_test.go:118: PRE02 long_foreign_write_inside_truncate_window | disk="agent os process content\nD 0123456789ABCDEF\n"
+    zz_opus_pre02_baseline_test.go:119: PRE02 long_foreign_write_inside_truncate_window | commit_error_code="concurrent_write_detected" committed=false dirtyFailure=true commitState=published_with_post_error
+    zz_opus_pre02_baseline_test.go:120: PRE02 long_foreign_write_inside_truncate_window | row: staged=false created=false published=true wrote=true verified=false rolledBack=false publishState=external_modification_detected newSHA256_set=false
+    zz_opus_pre02_baseline_test.go:122: PRE02 long_foreign_write_inside_truncate_window | result: commitState=published_with_post_error newRev_set=false verified=false | snapshot_latestRev_set=false snapshot_is_agent_rev=false
+=== RUN   TestOpusPRE02Baseline/short_foreign_write_inside_truncate_window
+    zz_opus_pre02_baseline_test.go:117: PRE02 short_foreign_write_inside_truncate_window | external_exit=0 external_bytes=8 agent_bytes=25
+    zz_opus_pre02_baseline_test.go:118: PRE02 short_foreign_write_inside_truncate_window | disk="agent os process content\n"
+    zz_opus_pre02_baseline_test.go:119: PRE02 short_foreign_write_inside_truncate_window | commit_error_code="" committed=true dirtyFailure=false commitState=committed
+    zz_opus_pre02_baseline_test.go:120: PRE02 short_foreign_write_inside_truncate_window | row: staged=false created=false published=true wrote=true verified=true rolledBack=false publishState=published_verified newSHA256_set=true
+    zz_opus_pre02_baseline_test.go:122: PRE02 short_foreign_write_inside_truncate_window | result: commitState=committed newRev_set=true verified=true | snapshot_latestRev_set=true snapshot_is_agent_rev=true
+--- PASS: TestOpusPRE02Baseline (0.49s)
+    --- PASS: TestOpusPRE02Baseline/long_foreign_write_inside_truncate_window (0.35s)
+    --- PASS: TestOpusPRE02Baseline/short_foreign_write_inside_truncate_window (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.857s
+exit=0

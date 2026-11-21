@@ -1,0 +1,55 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+working tree: modified
+cmd= go test -timeout=45m -count=1 ./...
+?   	github.com/edynasty/LumenCortex/cmd/lcx-experience-demo	[no test files]
+ok  	github.com/edynasty/LumenCortex/cmd/lcx-go	8.750s
+ok  	github.com/edynasty/LumenCortex/config	3.029s
+?   	github.com/edynasty/LumenCortex/docs	[no test files]
+ok  	github.com/edynasty/LumenCortex/evalapi	1.013s
+ok  	github.com/edynasty/LumenCortex/evalruntime	108.998s
+ok  	github.com/edynasty/LumenCortex/internal/agent	28.062s
+?   	github.com/edynasty/LumenCortex/internal/cgroupv2	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/cognition	0.978s
+ok  	github.com/edynasty/LumenCortex/internal/debugger	9.288s
+ok  	github.com/edynasty/LumenCortex/internal/debugger/dap	0.863s
+?   	github.com/edynasty/LumenCortex/internal/debugger/dapfake	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/diag	2.440s
+ok  	github.com/edynasty/LumenCortex/internal/editing	4.135s
+ok  	github.com/edynasty/LumenCortex/internal/editing/goedit	3.911s
+ok  	github.com/edynasty/LumenCortex/internal/evaluator	19.226s
+ok  	github.com/edynasty/LumenCortex/internal/instructions	0.390s
+ok  	github.com/edynasty/LumenCortex/internal/ipynb	0.386s
+ok  	github.com/edynasty/LumenCortex/internal/jobs	21.167s
+ok  	github.com/edynasty/LumenCortex/internal/knowledge	0.396s
+ok  	github.com/edynasty/LumenCortex/internal/lsp	10.671s
+ok  	github.com/edynasty/LumenCortex/internal/mcp	7.134s
+ok  	github.com/edynasty/LumenCortex/internal/mcptemplates	0.446s
+ok  	github.com/edynasty/LumenCortex/internal/migrate	19.796s
+ok  	github.com/edynasty/LumenCortex/internal/notebook	0.389s
+ok  	github.com/edynasty/LumenCortex/internal/ompsession	0.450s
+ok  	github.com/edynasty/LumenCortex/internal/procrt	0.670s
+ok  	github.com/edynasty/LumenCortex/internal/repository	10.042s
+ok  	github.com/edynasty/LumenCortex/internal/resource	0.356s
+ok  	github.com/edynasty/LumenCortex/internal/runlock	0.430s
+ok  	github.com/edynasty/LumenCortex/internal/safefs	0.839s
+ok  	github.com/edynasty/LumenCortex/internal/schedule	6.968s
+ok  	github.com/edynasty/LumenCortex/internal/session	42.258s
+ok  	github.com/edynasty/LumenCortex/internal/shell	4.684s
+ok  	github.com/edynasty/LumenCortex/internal/skills	3.160s
+ok  	github.com/edynasty/LumenCortex/internal/streambuf	0.375s
+ok  	github.com/edynasty/LumenCortex/internal/taskstate	0.362s
+ok  	github.com/edynasty/LumenCortex/internal/threadctx	0.372s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	28.177s
+ok  	github.com/edynasty/LumenCortex/internal/verify	0.460s
+ok  	github.com/edynasty/LumenCortex/internal/window	2.467s
+ok  	github.com/edynasty/LumenCortex/internal/workflow	0.371s
+?   	github.com/edynasty/LumenCortex/pluginapi	[no test files]
+ok  	github.com/edynasty/LumenCortex/protocol	0.462s
+ok  	github.com/edynasty/LumenCortex/provider	0.468s
+ok  	github.com/edynasty/LumenCortex/provider/anthropic	1.800s
+?   	github.com/edynasty/LumenCortex/provider/internal/retryafter	[no test files]
+ok  	github.com/edynasty/LumenCortex/provider/openai	1.311s
+ok  	github.com/edynasty/LumenCortex/runtime	689.508s
+exit=0

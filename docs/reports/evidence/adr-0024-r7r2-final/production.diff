@@ -1,0 +1,293 @@
+diff --git a/internal/toolset/editing.go b/internal/toolset/editing.go
+index 75a5832..8992bc7 100644
+--- a/internal/toolset/editing.go
++++ b/internal/toolset/editing.go
+@@ -254,13 +254,11 @@ func prioritizedReceiptFiles(files []editing.FileCommitReceipt) []editing.FileCo
+ 	return ordered
+ }
+ 
+-// receiptFileState renders one receipt row. Paths are shortened from the front so the filename
+-// survives; hashes is false once the payload must drop optional per-row evidence, which the
+-// persisted receipt still holds.
+-func (s *Set) receiptFileState(f editing.FileCommitReceipt, byPath map[string]editing.FileResult, pBytes, fErrBytes int, hashes bool) (toolFileState, bool) {
+-	cleanP := s.sanitizeStructuredPath(f.Path)
++// receiptFileState renders one receipt row from its sanitized path and error text. Paths are
++// shortened from the front so the filename survives; hashes is false once the payload must drop
++// optional per-row evidence, which the persisted receipt still holds.
++func receiptFileState(f editing.FileCommitReceipt, cleanP, cleanE string, byPath map[string]editing.FileResult, pBytes, fErrBytes int, hashes bool) (toolFileState, bool) {
+ 	truncP := truncatePathTail(cleanP, pBytes)
+-	cleanE := s.sanitizeErrorText(f.Error)
+ 	truncE := truncateUTF8Bytes(cleanE, fErrBytes)
+ 	truncated := truncP != cleanP || truncE != cleanE
+ 	state := toolFileState{
+@@ -286,21 +284,120 @@ func (s *Set) receiptFileState(f editing.FileCommitReceipt, byPath map[string]ed
+ // truncatePathTail shortens a slash path to maxBytes by keeping its tail, from a component boundary
+ // where one fits, so rows that share a deep prefix stay distinct by filename (R7R2-Results-01).
+ func truncatePathTail(p string, maxBytes int) string {
+-	const ellipsis = "…"
+ 	if len(p) <= maxBytes {
+ 		return p
+ 	}
+-	if maxBytes <= len(ellipsis) {
++	if maxBytes <= len(pathEllipsis) {
+ 		return ""
+ 	}
+-	tail := p[len(p)-(maxBytes-len(ellipsis)):]
++	tail := p[len(p)-(maxBytes-len(pathEllipsis)):]
+ 	if i := strings.IndexByte(tail, '/'); i >= 0 {
+-		return ellipsis + tail[i:]
++		return pathEllipsis + tail[i:]
+ 	}
+ 	for len(tail) > 0 && !utf8.RuneStart(tail[0]) {
+ 		tail = tail[1:]
+ 	}
+-	return ellipsis + tail
++	return pathEllipsis + tail
++}
++
++const (
++	pathEllipsis = "…"
++	// maxDistinctSegmentBytes bounds the segment distinguishShortenedPaths adds to a row, and
++	// distinctSegmentLeadBytes the bytes it keeps in front of the first difference when that
++	// difference lies deep inside a long name.
++	maxDistinctSegmentBytes  = 48
++	distinctSegmentLeadBytes = 16
++)
++
++// distinguishShortenedPaths makes each shortened row path name one file of the commit.
++// truncatePathTail keeps a path's tail, so paths that differ only in front of it, such as one file
++// name in several modules, shorten to the same text and a row no longer says which of them it
++// reports. A row whose tail also fits another path of the commit gains the segment where its own
++// path leaves those paths, and keeps its tail: "…/billing/…/config/App.kt" (R7R2-NEW-01).
++// rows[i] renders pathAt(i), and pathAt covers all n paths of the commit. A row stays as it is
++// when its tail is unique or no segment within the bound tells it apart.
++func distinguishShortenedPaths(rows []toolFileState, n int, pathAt func(int) string) {
++	for i := range rows {
++		full := pathAt(i)
++		tail, shortened := strings.CutPrefix(rows[i].Path, pathEllipsis)
++		if !shortened || len(tail) >= len(full) || !strings.HasSuffix(full, tail) {
++			continue
++		}
++		keep := len(full) - len(tail) // the kept tail starts here
++		// first is where the paths that share this tail begin to differ, last where this path
++		// leaves the closest of them. Every path of that group computes the same first.
++		first, last, shared := keep, 0, false
++		for j := 0; j < n; j++ {
++			if j == i {
++				continue
++			}
++			if other := pathAt(j); strings.HasSuffix(other, tail) {
++				common := commonPrefixLen(full, other)
++				first, last, shared = min(first, common), max(last, common), true
++			}
++		}
++		if !shared || last >= keep {
++			continue
++		}
++		// The segment starts at the name the paths differ in, or a few bytes before the difference
++		// when that name is long, and covers the first byte no other path of the group has. The
++		// start depends only on what the group shares, so two rows of one group always differ
++		// inside their segments.
++		start := strings.LastIndexByte(full[:first], '/') + 1
++		if first-start > distinctSegmentLeadBytes {
++			start = first - distinctSegmentLeadBytes
++			for start > 0 && !utf8.RuneStart(full[start]) {
++				start--
++			}
++		} else if start > 0 {
++			start-- // the separator in front of the name
++		}
++		end := last + 1
++		for end < keep && !utf8.RuneStart(full[end]) {
++			end++
++		}
++		if end-start > maxDistinctSegmentBytes {
++			continue
++		}
++		// Run on to the end of that name while the segment stays within its bound.
++		if next := strings.IndexByte(full[end:keep], '/'); next < 0 {
++			if keep-start <= maxDistinctSegmentBytes {
++				end = keep
++			}
++		} else if end+next+1-start <= maxDistinctSegmentBytes {
++			end += next + 1
++		}
++		lead := ""
++		if start > 0 {
++			lead = pathEllipsis
++		}
++		if end >= keep {
++			rows[i].Path = lead + full[start:]
++		} else {
++			rows[i].Path = lead + full[start:end] + rows[i].Path
++		}
++	}
++}
++
++func commonPrefixLen(a, b string) int {
++	n := min(len(a), len(b))
++	for i := 0; i < n; i++ {
++		if a[i] != b[i] {
++			return i
++		}
++	}
++	return n
++}
++
++// memoStrings returns f memoized over [0, n).
++func memoStrings(n int, f func(int) string) func(int) string {
++	values, known := make([]string, n), make([]bool, n)
++	return func(i int) string {
++		if !known[i] {
++			values[i], known[i] = f(i), true
++		}
++		return values[i]
++	}
+ }
+ 
+ func partialPublicationFlag(r editing.CommitReceipt, dirty bool) bool {
+@@ -420,6 +517,10 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
+ 	if len(orderedFiles) > 0 && fileLimit == 0 {
+ 		fileLimit = 1
+ 	}
++	// Sanitizing a path resolves it on disk, so a row's display path and error text are computed
++	// once, on first use; every reduction below only cuts them.
++	rowPath := memoStrings(len(orderedFiles), func(i int) string { return s.sanitizeStructuredPath(orderedFiles[i].Path) })
++	rowErr := memoStrings(len(orderedFiles), func(i int) string { return s.sanitizeErrorText(orderedFiles[i].Error) })
+ 
+ 	// publishedFiles lists only paths LC really published. Result.Files now also contains untouched
+ 	// and refused paths for every receipt state, so filtering is mandatory.
+@@ -546,13 +647,14 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
+ 				fLimit = len(orderedFiles)
+ 			}
+ 			files := make([]toolFileState, 0, fLimit)
+-			for _, rf := range orderedFiles[:fLimit] {
+-				state, rowTrunc := s.receiptFileState(rf, byPath, rowPathLimit(rf, pBytes), fErrBytes, hashes)
++			for i, rf := range orderedFiles[:fLimit] {
++				state, rowTrunc := receiptFileState(rf, rowPath(i), rowErr(i), byPath, rowPathLimit(rf, pBytes), fErrBytes, hashes)
+ 				if rowTrunc {
+ 					wasTruncated = true
+ 				}
+ 				files = append(files, state)
+ 			}
++			distinguishShortenedPaths(files, len(orderedFiles), rowPath)
+ 			payload["files"] = files
+ 			if omitted := len(orderedFiles) - fLimit; omitted > 0 {
+ 				payload["filesOmitted"] = omitted
+@@ -621,7 +723,7 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
+ 		default:
+ 			// Safe explicit overflow envelope when extreme JSON/Unicode escaping prevents optional
+ 			// fields from fitting within maxPartialPayloadBytes (ADR-0024 R5-03). It still carries
+-			// one files row for the failed path and explicit omission totals.
++			// the failed rows that fit and explicit omission totals.
+ 			overflow := map[string]any{
+ 				"error":     truncateUTF8Bytes(sanitizedErr, 96),
+ 				"truncated": true,
+@@ -641,21 +743,22 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
+ 			if recovery != "" {
+ 				overflow["recovery"] = recovery
+ 			}
+-			// Preserve as many failed/unresolved file identities as possible before reducing failed
+-			// row count (R7R2-NEW-01): shorten paths from the front (retaining filenames and nearby
+-			// directory segments) across all fileFloor rows first; only when all failed rows cannot
+-			// physically fit within 4096 bytes, keep the largest fitting failed-row prefix and report
+-			// exact omission totals in filesOmitted and filesOmittedByState.
+-			renderOverflow := func(count, limit, fErr int) []byte {
++			if len(published) > 0 {
++				overflow["publishedFilesOmitted"] = len(published)
++			}
++			// A refusal with no receipt row is named by its path alone, so the envelope keeps it.
++			errPath := ""
++			if editErr != nil && len(orderedFiles) == 0 {
++				errPath = s.sanitizeStructuredPath(editErr.Path)
++			}
++			render := func(count, pBytes, fErrBytes int) []byte {
+ 				if len(orderedFiles) > 0 {
+-					if count > len(orderedFiles) {
+-						count = len(orderedFiles)
+-					}
+ 					rows := make([]toolFileState, 0, count)
+-					for _, rf := range orderedFiles[:count] {
+-						state, _ := s.receiptFileState(rf, byPath, limit, fErr, false)
++					for i, rf := range orderedFiles[:count] {
++						state, _ := receiptFileState(rf, rowPath(i), rowErr(i), byPath, pBytes, fErrBytes, false)
+ 						rows = append(rows, state)
+ 					}
++					distinguishShortenedPaths(rows, len(orderedFiles), rowPath)
+ 					overflow["files"] = rows
+ 					delete(overflow, "filesOmitted")
+ 					delete(overflow, "filesOmittedByState")
+@@ -663,44 +766,45 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
+ 						overflow["filesOmitted"] = omitted
+ 						overflow["filesOmittedByState"] = omittedByState(count)
+ 					}
+-				}
+-				if len(published) > 0 {
+-					overflow["publishedFilesOmitted"] = len(published)
++				} else if errPath != "" {
++					overflow["path"] = truncatePathTail(errPath, pBytes)
+ 				}
+ 				fallbackRaw, _ := json.Marshal(overflow)
+ 				return fallbackRaw
+ 			}
+-			for _, spec := range []struct{ limit, fErr int }{
+-				{maxFailedPathBytesInResult, 32},
+-				{512, 32},
+-				{256, 32},
+-				{256, 0},
+-				{128, 0},
+-				{96, 0},
+-			} {
+-				if fallbackRaw := renderOverflow(fileFloor, spec.limit, spec.fErr); len(fallbackRaw) <= maxPartialPayloadBytes {
++			// The failed rows outrank the length of their paths (R7R2-NEW-01). Budgets run from the
++			// longest path to the shortest; a path is cut from the front and keeps its filename.
++			budgets := []struct{ pBytes, fErrBytes int }{
++				{maxFailedPathBytesInResult, 32}, {512, 32}, {256, 32}, {256, 0}, {128, 0}, {96, 0}, {64, 0},
++			}
++			// Every failed row, at the longest paths that fit.
++			for _, b := range budgets {
++				if fallbackRaw := render(fileFloor, b.pBytes, b.fErrBytes); len(fallbackRaw) <= maxPartialPayloadBytes {
+ 					return string(fallbackRaw)
+ 				}
+ 			}
+-			if fileFloor > 1 {
+-				for _, limit := range []int{128, 96, 64} {
+-					var best []byte
+-					for lo, hi := 1, fileFloor-1; lo <= hi; {
+-						mid := (lo + hi) / 2
+-						cand := renderOverflow(mid, limit, 0)
+-						if len(cand) <= maxPartialPayloadBytes {
+-							best = cand
+-							lo = mid + 1
+-						} else {
+-							hi = mid - 1
+-						}
+-					}
+-					if best != nil {
+-						return string(best)
++			// They cannot all fit: keep the longest prefix of failed rows that any budget holds and
++			// report the rest in filesOmitted and filesOmittedByState. A shorter budget replaces a
++			// longer one only by keeping more failed rows; the size grows with the row count, so each
++			// budget's longest fitting prefix is found by bisection.
++			var best []byte
++			kept := 0
++			for _, b := range budgets {
++				for lo, hi := kept+1, fileFloor-1; lo <= hi; {
++					mid := (lo + hi) / 2
++					if fallbackRaw := render(mid, b.pBytes, b.fErrBytes); len(fallbackRaw) <= maxPartialPayloadBytes {
++						best, kept, lo = fallbackRaw, mid, mid+1
++					} else {
++						hi = mid - 1
+ 					}
+ 				}
+ 			}
+-			return string(renderOverflow(1, 64, 0))
++			if best == nil {
++				// Not reachable with the engine's states and codes: one row at the shortest budget fits.
++				last := budgets[len(budgets)-1]
++				best = render(min(fileFloor, 1), last.pBytes, last.fErrBytes)
++			}
++			return string(best)
+ 		}
+ 		raw = build(errLimit, pathLimit, fileErrLimit, diagLimit, diagTextLimit, fileLimit, pubLimit, hashes)
+ 	}

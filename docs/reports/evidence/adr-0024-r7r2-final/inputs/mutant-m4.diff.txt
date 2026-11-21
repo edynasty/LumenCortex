@@ -1,0 +1,18 @@
+--- a/internal/editing/publish_file.go
++++ b/internal/editing/publish_file.go
+@@ -197,9 +197,12 @@
+ 		return uncertainFail(err)
+ 	}
+ 	if !bytes.Equal(after, p.next) {
+-		p.publishState = PublishExternalModification
+-		return true, errors.Join(&Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: RevOf(after),
+-			Detail: "another writer changed the file during the write"}, f.Close())
++		// MUTANT M4 (R7R2-FINAL-04 evidence): bytes another writer mixed into LC's in-place write are
++		// reported as a clean refusal before any write.
++		p.published, p.wrote = false, false
++		p.publishState = PublishFailedBeforeWrite
++		return false, errors.Join(&Error{Code: CodeConflict, Path: p.rel, CurrentRev: RevOf(after),
++			Detail: "the file changed after the change was computed; nothing was written"}, f.Close())
+ 	}
+ 	if postID, idErr := captureFileIdentity(f); idErr == nil {
+ 		if p.created {
