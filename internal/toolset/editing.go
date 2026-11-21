@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/edynasty/LumenCortex/internal/editing"
@@ -183,7 +184,11 @@ const (
 	maxFileErrorBytesInResult   = 256
 	maxDiagTextBytesInResult    = 256
 	maxPathBytesInToolResult    = 256
-	maxPartialPayloadBytes      = 4096
+	// maxFailedPathBytesInResult bounds a failed row's path. The shrink loop never lowers it, so the
+	// path that tells the agent which file failed is cut only by the overflow envelope, and then
+	// from the front (ADR-0024 R7R2-Results-01).
+	maxFailedPathBytesInResult = 1024
+	maxPartialPayloadBytes     = 4096
 )
 
 type toolFileState struct {
@@ -249,9 +254,12 @@ func prioritizedReceiptFiles(files []editing.FileCommitReceipt) []editing.FileCo
 	return ordered
 }
 
-func (s *Set) receiptFileState(f editing.FileCommitReceipt, byPath map[string]editing.FileResult, pBytes, fErrBytes int) (toolFileState, bool) {
+// receiptFileState renders one receipt row. Paths are shortened from the front so the filename
+// survives; hashes is false once the payload must drop optional per-row evidence, which the
+// persisted receipt still holds.
+func (s *Set) receiptFileState(f editing.FileCommitReceipt, byPath map[string]editing.FileResult, pBytes, fErrBytes int, hashes bool) (toolFileState, bool) {
 	cleanP := s.sanitizeStructuredPath(f.Path)
-	truncP := truncateUTF8Bytes(cleanP, pBytes)
+	truncP := truncatePathTail(cleanP, pBytes)
 	cleanE := s.sanitizeErrorText(f.Error)
 	truncE := truncateUTF8Bytes(cleanE, fErrBytes)
 	truncated := truncP != cleanP || truncE != cleanE
@@ -266,13 +274,33 @@ func (s *Set) receiptFileState(f editing.FileCommitReceipt, byPath map[string]ed
 		Deleted:      f.Deleted,
 		Error:        truncE,
 	}
-	if f.Verified && f.NewSHA256 != "" {
+	if hashes && f.Verified && f.NewSHA256 != "" {
 		state.SHA256 = f.NewSHA256
 	}
-	if fr, ok := byPath[f.Path]; ok && f.Verified {
+	if fr, ok := byPath[f.Path]; ok && hashes && f.Verified {
 		state.NewRev = fr.NewRev
 	}
-	return state, truncated
+	return state, truncated || (!hashes && f.Verified)
+}
+
+// truncatePathTail shortens a slash path to maxBytes by keeping its tail, from a component boundary
+// where one fits, so rows that share a deep prefix stay distinct by filename (R7R2-Results-01).
+func truncatePathTail(p string, maxBytes int) string {
+	const ellipsis = "…"
+	if len(p) <= maxBytes {
+		return p
+	}
+	if maxBytes <= len(ellipsis) {
+		return ""
+	}
+	tail := p[len(p)-(maxBytes-len(ellipsis)):]
+	if i := strings.IndexByte(tail, '/'); i >= 0 {
+		return ellipsis + tail[i:]
+	}
+	for len(tail) > 0 && !utf8.RuneStart(tail[0]) {
+		tail = tail[1:]
+	}
+	return ellipsis + tail
 }
 
 func partialPublicationFlag(r editing.CommitReceipt, dirty bool) bool {
@@ -433,7 +461,33 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 		return state
 	}
 
-	build := func(errBytes, pBytes, fErrBytes, dLimit, dTextBytes, fLimit, pLimit int) []byte {
+	// The failed path and any other unresolved row lead orderedFiles; the shrink loop never drops
+	// them or shortens their paths. Rows that state a verified or untouched path go first.
+	fileFloor := 0
+	for fileFloor < len(orderedFiles) && receiptFileRank(orderedFiles[fileFloor]) == 0 {
+		fileFloor++
+	}
+	if fileFloor == 0 && len(orderedFiles) > 0 {
+		fileFloor = 1
+	}
+	if fileFloor > fileLimit {
+		fileLimit = fileFloor
+	}
+	rowPathLimit := func(f editing.FileCommitReceipt, pBytes int) int {
+		if receiptFileRank(f) == 0 {
+			return maxFailedPathBytesInResult
+		}
+		return pBytes
+	}
+	omittedByState := func(from int) map[editing.PublishState]int {
+		counts := map[editing.PublishState]int{}
+		for _, f := range orderedFiles[from:] {
+			counts[f.PublishState]++
+		}
+		return counts
+	}
+
+	build := func(errBytes, pBytes, fErrBytes, dLimit, dTextBytes, fLimit, pLimit int, hashes bool) []byte {
 		wasTruncated := false
 		errStr := truncateUTF8Bytes(sanitizedErr, errBytes)
 		if errStr != sanitizedErr {
@@ -452,7 +506,7 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 				payload["hint"] = h
 			}
 			cleanPath := s.sanitizeStructuredPath(editErr.Path)
-			truncPath := truncateUTF8Bytes(cleanPath, pBytes)
+			truncPath := truncatePathTail(cleanPath, maxFailedPathBytesInResult)
 			if truncPath != cleanPath {
 				wasTruncated = true
 			}
@@ -485,15 +539,15 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 		}
 		if len(orderedFiles) > 0 {
 			// Keep the key present in every state; truncation shrinks rows but never removes it.
-			if fLimit < 1 {
-				fLimit = 1
+			if fLimit < fileFloor {
+				fLimit = fileFloor
 			}
 			if fLimit > len(orderedFiles) {
 				fLimit = len(orderedFiles)
 			}
 			files := make([]toolFileState, 0, fLimit)
 			for _, rf := range orderedFiles[:fLimit] {
-				state, rowTrunc := s.receiptFileState(rf, byPath, pBytes, fErrBytes)
+				state, rowTrunc := s.receiptFileState(rf, byPath, rowPathLimit(rf, pBytes), fErrBytes, hashes)
 				if rowTrunc {
 					wasTruncated = true
 				}
@@ -502,6 +556,7 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 			payload["files"] = files
 			if omitted := len(orderedFiles) - fLimit; omitted > 0 {
 				payload["filesOmitted"] = omitted
+				payload["filesOmittedByState"] = omittedByState(fLimit)
 				wasTruncated = true
 			}
 		}
@@ -512,7 +567,7 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 			pub := make([]editing.FileResult, 0, pLimit)
 			for _, pf := range published[:pLimit] {
 				cleanP := s.sanitizeStructuredPath(pf.Path)
-				pf.Path = truncateUTF8Bytes(cleanP, pBytes)
+				pf.Path = truncatePathTail(cleanP, pBytes)
 				cleanE := s.sanitizeErrorText(pf.Error)
 				pf.Error = truncateUTF8Bytes(cleanE, fErrBytes)
 				if pf.Path != cleanP || pf.Error != cleanE {
@@ -536,8 +591,12 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 		return raw
 	}
 
-	raw := build(errLimit, pathLimit, fileErrLimit, diagLimit, diagTextLimit, fileLimit, pubLimit)
+	hashes := true
+	raw := build(errLimit, pathLimit, fileErrLimit, diagLimit, diagTextLimit, fileLimit, pubLimit, hashes)
 	for len(raw) > maxPartialPayloadBytes {
+		// Order (R7R2-Results-01): diagnostics, the publishedFiles duplicate of the files rows, per-row
+		// error text, the top-level error, per-row hashes, then whole rows from the untouched and
+		// verified end, and only then the paths of the rows that remain. A path is cut from the front.
 		switch {
 		case diagLimit > 4:
 			diagLimit /= 2
@@ -545,16 +604,18 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 			diagTextLimit /= 2
 		case diagLimit > 0:
 			diagLimit--
-		case pubLimit > 1:
+		case pubLimit > 0:
 			pubLimit /= 2
 		case fileErrLimit > 0:
 			fileErrLimit /= 2
 		case errLimit > 192:
 			errLimit /= 2
+		case hashes:
+			hashes = false
+		case fileLimit > fileFloor:
+			fileLimit--
 		case pathLimit > 64:
 			pathLimit /= 2
-		case fileLimit > 1:
-			fileLimit /= 2
 		case errLimit > 64:
 			errLimit = 64
 		default:
@@ -580,20 +641,35 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 			if recovery != "" {
 				overflow["recovery"] = recovery
 			}
-			if len(orderedFiles) > 0 {
-				state, _ := s.receiptFileState(orderedFiles[0], byPath, 48, 32)
-				overflow["files"] = []toolFileState{state}
-				if omitted := len(orderedFiles) - 1; omitted > 0 {
-					overflow["filesOmitted"] = omitted
+			// The failed rows keep their filename: the envelope shortens a path from the front and,
+			// if it must, keeps only the first failed row.
+			for _, limit := range []int{maxFailedPathBytesInResult, 256} {
+				for _, count := range []int{fileFloor, 1} {
+					if len(orderedFiles) > 0 {
+						rows := make([]toolFileState, 0, count)
+						for _, rf := range orderedFiles[:count] {
+							state, _ := s.receiptFileState(rf, byPath, limit, 32, false)
+							rows = append(rows, state)
+						}
+						overflow["files"] = rows
+						delete(overflow, "filesOmitted")
+						delete(overflow, "filesOmittedByState")
+						if omitted := len(orderedFiles) - count; omitted > 0 {
+							overflow["filesOmitted"] = omitted
+							overflow["filesOmittedByState"] = omittedByState(count)
+						}
+					}
+					if len(published) > 0 {
+						overflow["publishedFilesOmitted"] = len(published)
+					}
+					fallbackRaw, _ := json.Marshal(overflow)
+					if len(fallbackRaw) <= maxPartialPayloadBytes || (limit == 256 && count == 1) {
+						return string(fallbackRaw)
+					}
 				}
 			}
-			if len(published) > 0 {
-				overflow["publishedFilesOmitted"] = len(published)
-			}
-			fallbackRaw, _ := json.Marshal(overflow)
-			return string(fallbackRaw)
 		}
-		raw = build(errLimit, pathLimit, fileErrLimit, diagLimit, diagTextLimit, fileLimit, pubLimit)
+		raw = build(errLimit, pathLimit, fileErrLimit, diagLimit, diagTextLimit, fileLimit, pubLimit, hashes)
 	}
 	return string(raw)
 }
