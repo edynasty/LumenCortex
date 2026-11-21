@@ -294,6 +294,8 @@ type Engine struct {
 	beforeWrite func(path string)
 	// afterRead is a test hook that runs after a file's current content was read.
 	afterRead func(path string)
+	// foldsCase is a test hook that replaces the read-only case-folding probe of a directory.
+	foldsCase func(dir string) bool
 	// afterTruncate is a test fault hook invoked immediately after f.Truncate(0) inside writeCAS.
 	afterTruncate  func(path string) error
 	publishHooksMu sync.RWMutex
@@ -480,6 +482,11 @@ func (e *Engine) Commit(ctx context.Context, plan Plan) (Result, error) {
 		}
 		seen[p.key] = true
 	}
+	if later, earlier := e.duplicateTarget(prep); later >= 0 {
+		return refuse(prep[later], &Error{Code: CodeInvalid, Path: prep[later].rel, Detail: fmt.Sprintf(
+			"change %d names the same file as change %d (%s) through another spelling: a hard link or a letter-case variant",
+			later+1, earlier+1, filepath.ToSlash(prep[earlier].rel))})
+	}
 	sort.Slice(prep, func(i, j int) bool { return prep[i].key < prep[j].key })
 	unlock := e.lockKeys(prep)
 	defer unlock()
@@ -563,6 +570,7 @@ func (e *Engine) settle(ctx context.Context, plan Plan, host Host, prep []*prepa
 		}
 		if !p.verified {
 			if p.published || p.wrote || p.publishState == PublishUncertain || p.publishState == PublishExternalModification ||
+				changeConflict(CodeOf(p.postErr)) ||
 				(p.postErr != nil && p.rev == "" && CodeOf(p.postErr) != CodeLeaseConflict && CodeOf(p.postErr) != CodeInvalid) {
 				e.snaps.InvalidatePath(plan.Actor.Session, p.key)
 			}
@@ -916,11 +924,23 @@ func (e *Engine) write(ctx context.Context, host Host, prep []*prepared) (bool, 
 	return dirty, firstErr
 }
 
+// changeConflict reports a code that says this session's view of the file is not the file on disk.
+func changeConflict(code string) bool {
+	return code == CodeConflict || code == CodeConcurrentWrite || code == CodeStale
+}
+
 func (p *prepared) fail(err error) {
 	p.postErr = err
 	p.verified = false
 	switch CodeOf(err) {
 	case CodeConflict, CodeConcurrentWrite, CodeStale:
+		if p.publishState == PublishNotAttempted && !p.wrote && !p.published {
+			// Refused while preparing, before LC opened the path for writing: a stale base revision or
+			// an out-of-date session read is the caller's view, possibly of LC's own earlier write. It
+			// is not a change observed racing this commit (R7R2-PartialCommit-02); the code says why.
+			p.publishState = PublishFailedBeforeWrite
+			return
+		}
 		p.publishState = PublishExternalModification
 	case CodeUnsupportedFilesystem:
 		if !p.published && p.publishState != PublishUncertain {
