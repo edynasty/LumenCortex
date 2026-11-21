@@ -533,6 +533,9 @@ func TestR7PartialCommitAndDiagnosticsColdResume(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "b.txt"), []byte("old-b\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(ws, "c.txt"), []byte("old-c\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(ws, "subpkg"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -609,7 +612,7 @@ func TestR7PartialCommitAndDiagnosticsColdResume(t *testing.T) {
 		},
 	})
 
-	patchArgs := `{"patches":[{"path":"a.txt","operation":"update","edits":[{"old_text":"old-a","new_text":"longer-new-a"}]},{"path":"b.txt","operation":"update","edits":[{"old_text":"old-b","new_text":"new-b"}]}]}`
+	patchArgs := `{"patches":[{"path":"a.txt","operation":"update","edits":[{"old_text":"old-a","new_text":"longer-new-a"}]},{"path":"b.txt","operation":"update","edits":[{"old_text":"old-b","new_text":"new-b"}]},{"path":"c.txt","operation":"update","edits":[{"old_text":"old-c","new_text":"new-c"}]}]}`
 	prov := &scriptedProvider{responses: []protocol.ProviderResponse{
 		toolStep(call("tc-patch-r501", "apply_patch", patchArgs)),
 		toolStep(call("tc-editlines-r503", "edit_lines", string(editLinesArgs))),
@@ -667,6 +670,63 @@ func TestR7PartialCommitAndDiagnosticsColdResume(t *testing.T) {
 	}
 	if !strings.Contains(patchContent, `"commitState":"partially_published"`) || !strings.Contains(patchContent, `"external_modification_detected"`) {
 		t.Fatalf("patch SQLite content missing partial-publication reconciliation details: %s", patchContent)
+	}
+	// R7R2-CT-01: the per-file rows the agent and a cold Resume see, and the persisted seal. A keeps
+	// LC's write plus the foreign append; B was truncated and failed; C was never attempted. None of
+	// them may carry a trusted revision or hash.
+	var patchPayload struct {
+		Files []struct {
+			Path         string `json:"path"`
+			PublishState string `json:"publishState"`
+			Published    bool   `json:"published"`
+			Verified     bool   `json:"verified"`
+			NewRev       string `json:"newRev"`
+			SHA256       string `json:"sha256"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal([]byte(patchContent), &patchPayload); err != nil {
+		t.Fatal(err)
+	}
+	wantStates := map[string]editing.PublishState{
+		"a.txt": editing.PublishExternalModification,
+		"b.txt": editing.PublishPartial,
+		"c.txt": editing.PublishNotAttempted,
+	}
+	for _, f := range patchPayload.Files {
+		want, ok := wantStates[f.Path]
+		if !ok || f.PublishState != string(want) || f.Verified || f.NewRev != "" || f.SHA256 != "" {
+			t.Fatalf("patch row %+v, want state %q without a trusted revision", f, want)
+		}
+		// An in-place write exposes its bytes at the destination, so B's truncation is published too.
+		if f.Published != (f.Path != "c.txt") {
+			t.Fatalf("patch row %+v reports published=%v", f, f.Published)
+		}
+		delete(wantStates, f.Path)
+	}
+	if len(wantStates) != 0 {
+		t.Fatalf("patch rows missing %v: %s", wantStates, patchContent)
+	}
+	sealStore, err := session.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answered, err := sealStore.ListAnsweredExecutions(ctx, sid, 0)
+	_ = sealStore.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sealed bool
+	for _, x := range answered {
+		if x.ToolName != "apply_patch" {
+			continue
+		}
+		sealed = true
+		if x.Outcome != session.OutcomeUnknown || !strings.HasSuffix(x.PostRef, ";cm=unknown") {
+			t.Fatalf("partial apply_patch sealed as outcome=%s postRef=%s, want outcome_unknown and ;cm=unknown", x.Outcome, x.PostRef)
+		}
+	}
+	if !sealed {
+		t.Fatalf("no persisted apply_patch execution among %+v", answered)
 	}
 
 	// 3. Cold SQLite Resume parity: tc-patch-r501 MUST be MutationUnknown (never MutationNone),

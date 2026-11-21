@@ -1,0 +1,100 @@
+package editing
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// TestPCRetry: what does a replay after a partial commit do?
+func TestPCRetry(t *testing.T) {
+	failB := func(c *pcCase) {
+		c.onBefore("b.txt", func() { pcExt(t, "append", c.path("b.txt"), "EXT-B\n") })
+	}
+	t.Run("RT1_identical_plan_object_replay", func(t *testing.T) {
+		c := pcNew(t, "RT1_first")
+		failB(c)
+		plan := c.planEdits()
+		c.commit(plan)
+		c.e.beforeWrite = nil
+		c.name = "RT1_replay_identical_plan(stale BaseRev)"
+		c.commit(plan)
+	})
+	t.Run("RT2_tool_style_recompute_replay", func(t *testing.T) {
+		c := pcNew(t, "RT2_first")
+		failB(c)
+		c.commit(c.planEdits())
+		c.e.beforeWrite = nil
+		c.name = "RT2_replay_recomputed_full_batch"
+		c.commit(c.planEdits())
+		c.name = "RT2_replay_outstanding_only_[b,c]"
+		c.commit(c.planEdits("b.txt", "c.txt"))
+	})
+	t.Run("RT3_non_idempotent_edit_recompute_replay", func(t *testing.T) {
+		c := pcNew(t, "RT3_first")
+		failB(c)
+		mk := func() Plan {
+			p := c.planEdits()
+			for i := range p.Changes {
+				up := strings.ToUpper(p.Changes[i].Path[:1])
+				p.Changes[i].Edits = []TextEdit{{Old: up + "0\n", New: up + "0\n" + up + "-added-line\n"}}
+			}
+			return p
+		}
+		c.commit(mk())
+		c.e.beforeWrite = nil
+		c.name = "RT3_replay_recomputed_full_batch"
+		c.commit(mk())
+		a, _ := os.ReadFile(c.path("a.txt"))
+		t.Logf("PCROW|%s|RT3_result|a.txt added-line count=%d", pcRev, strings.Count(string(a), "A-added-line"))
+	})
+	t.Run("RT4_write_file_style_replay", func(t *testing.T) {
+		c := pcNew(t, "RT4_first")
+		failB(c)
+		mk := func() Plan {
+			var ch []FileChange
+			for _, f := range pcFiles {
+				body := []byte(strings.ToUpper(f[:1]) + "1-whole\n")
+				ch = append(ch, FileChange{Path: f, Content: &body, AllowCreate: true, RejectStaleRead: true})
+			}
+			return Plan{Actor: testActor(), Tool: "write_file", Changes: ch}
+		}
+		c.commit(mk())
+		c.e.beforeWrite = nil
+		c.name = "RT4_replay_full_batch"
+		c.commit(mk())
+	})
+	t.Run("RT5_cancel_then_recompute_replay_non_idempotent", func(t *testing.T) {
+		c := pcNew(t, "RT5_first_cancel")
+		c.onBefore("b.txt", func() { c.cancel() })
+		mk := func() Plan {
+			p := c.planEdits()
+			for i := range p.Changes {
+				up := strings.ToUpper(p.Changes[i].Path[:1])
+				p.Changes[i].Edits = []TextEdit{{Old: up + "0\n", New: up + "0\n" + up + "-added-line\n"}}
+			}
+			return p
+		}
+		c.commit(mk())
+		c.e.beforeWrite = nil
+		c.ctx, c.rec = pcRecorder(t.Context())
+		c.name = "RT5_replay_recomputed_full_batch"
+		c.commit(mk())
+	})
+	t.Run("RT6_lineops_replay_stale_base", func(t *testing.T) {
+		c := pcNew(t, "RT6_lineops")
+		body := "l1\nl2\nl3\n"
+		writeFile(t, c.root, "a.txt", body)
+		c.orig["a.txt"] = body
+		snap := c.e.RegisterAnchoredRead(testActor(), c.path("a.txt"), DecodeDoc([]byte(body)), 1, 3)
+		ops := []LineOp{{Kind: OpInsertAfter, Start: 2, End: 2, Text: []string{"X"}}}
+		plan := Plan{Actor: testActor(), Tool: "edit_lines", Changes: []FileChange{{Path: "a.txt", BaseRev: snap.Rev, LineOps: ops}}}
+		c.commit(plan)
+		c.name = "RT6_replay_same_lineops_same_base"
+		c.commit(plan)
+		a, _ := os.ReadFile(c.path("a.txt"))
+		t.Logf("PCROW|%s|RT6_result|a.txt=%q", pcRev, a)
+		_ = filepath.Join
+	})
+}

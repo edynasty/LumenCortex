@@ -1,0 +1,8 @@
+cmd= go test -count=1 ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+# HEAD e37976dafca4dc2882d44df9859b96b2661e81ce (+ uncommitted R7R2 tests/docs)
+# go version go1.26.5 darwin/arm64; Darwin arm64
+ok  	github.com/edynasty/LumenCortex/internal/editing	2.773s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	43.860s
+ok  	github.com/edynasty/LumenCortex/internal/agent	32.467s
+ok  	github.com/edynasty/LumenCortex/internal/session	39.981s
+exit=0

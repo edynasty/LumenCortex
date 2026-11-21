@@ -1,0 +1,5 @@
+cmd= go test -race -count=1 -run TestT3\|TestT4 ./runtime
+# HEAD e37976dafca4dc2882d44df9859b96b2661e81ce (+ uncommitted R7R2 tests/docs)
+# go version go1.26.5 darwin/arm64; Darwin arm64
+ok  	github.com/edynasty/LumenCortex/runtime	15.944s
+exit=0

@@ -1,0 +1,16 @@
+diff -r /tmp/lc-r7-opus-second-review/R7CarbonTestsPriorArt/snap/r7/internal/agent/execution.go /tmp/lc-r7-opus-second-review/R7CarbonTestsPriorArt/mut/m2/internal/agent/execution.go
+--- /tmp/lc-r7-opus-second-review/R7CarbonTestsPriorArt/snap/r7/internal/agent/execution.go	2026-11-21 01:21:56.000000000 +0800
++++ /tmp/lc-r7-opus-second-review/R7CarbonTestsPriorArt/mut/m2/internal/agent/execution.go	2026-11-21 08:52:17.052764216 +0800
+@@ -988,8 +988,10 @@
+ 	hasReceipt bool,
+ 	sandwichOK bool,
+ ) string {
+-	if receiptHasDirtyOrUncommittedPublish(receipt) ||
+-		outcome != session.OutcomeComplete ||
++	if receiptHasDirtyOrUncommittedPublish(receipt) {
++		return string(MutationNone) // MUTANT M2
++	}
++	if outcome != session.OutcomeComplete ||
+ 		x.preUnavailable ||
+ 		!hasPositiveFilesSnapshotRef(x.preRef) ||
+ 		coverage != session.CoverageComplete ||

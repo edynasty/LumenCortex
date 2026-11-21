@@ -1,0 +1,7 @@
+$ go test -count=1 -v -run ^TestR7PartialCommitAndDiagnosticsColdResume$ ./internal/agent
+# HEAD e37976dafca4dc2882d44df9859b96b2661e81ce + uncommitted CT-01 assertions
+=== RUN   TestR7PartialCommitAndDiagnosticsColdResume
+--- PASS: TestR7PartialCommitAndDiagnosticsColdResume (0.29s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	0.759s
+exit=0

@@ -1,0 +1,9 @@
+$ go test -count=1 -v -overlay /tmp/lc-r7r2-m2.json -run ^TestR7PartialCommitAndDiagnosticsColdResume$ ./internal/agent
+# HEAD e37976dafca4dc2882d44df9859b96b2661e81ce + uncommitted CT-01 assertions
+=== RUN   TestR7PartialCommitAndDiagnosticsColdResume
+    remediation_r6_test.go:725: partial apply_patch sealed as outcome=outcome_unknown postRef=files:3:sha256:73278b294af412b05b1c68bb11ff7cae576b00b41ae8abd55e236624f31545ae;cm=none, want outcome_unknown and ;cm=unknown
+--- FAIL: TestR7PartialCommitAndDiagnosticsColdResume (0.26s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/agent	0.783s
+FAIL
+exit=1

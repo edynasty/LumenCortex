@@ -1,0 +1,19 @@
+$ go test -count=1 -v -overlay /tmp/lc-r7r2-results-overlay.json -run ^TestR7RRealisticDeepPathsClose$ ./internal/toolset
+# HEAD 31172bc274c3a4c54243a72e554862d539d7759d + uncommitted fix; probes from the R7R2 second review (read-only, overlay)
+=== RUN   TestR7RRealisticDeepPathsClose
+=== RUN   TestR7RRealisticDeepPathsClose/n8
+    zz_r7results_toolset_realpath_close_test.go:69: SUMMARY n=8 bytes=3421 rows=8 omitted=0 distinctRowPaths=8 exactPaths=8 failedRow="src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/StripeRefundMapper.kt publication_uncertain" error="input/output error" toolErr=input/output error failedNameInContent=true
+=== RUN   TestR7RRealisticDeepPathsClose/n12
+    zz_r7results_toolset_realpath_close_test.go:69: SUMMARY n=12 bytes=3490 rows=12 omitted=0 distinctRowPaths=12 exactPaths=12 failedRow="src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/StripeCustomerMapper.kt publication_uncertain" error="input/output error" toolErr=input/output error failedNameInContent=true
+=== RUN   TestR7RRealisticDeepPathsClose/n16
+    zz_r7results_toolset_realpath_close_test.go:69: SUMMARY n=16 bytes=3329 rows=16 omitted=0 distinctRowPaths=16 exactPaths=16 failedRow="src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/StripeInvoiceMapper.kt publication_uncertain" error="input/output error" toolErr=input/output error failedNameInContent=true
+=== RUN   TestR7RRealisticDeepPathsClose/n20
+    zz_r7results_toolset_realpath_close_test.go:69: SUMMARY n=20 bytes=4068 rows=20 omitted=0 distinctRowPaths=20 exactPaths=20 failedRow="src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/StripePayoutMapper.kt publication_uncertain" error="input/output error" toolErr=input/output error failedNameInContent=true
+--- PASS: TestR7RRealisticDeepPathsClose (0.22s)
+    --- PASS: TestR7RRealisticDeepPathsClose/n8 (0.08s)
+    --- PASS: TestR7RRealisticDeepPathsClose/n12 (0.07s)
+    --- PASS: TestR7RRealisticDeepPathsClose/n16 (0.04s)
+    --- PASS: TestR7RRealisticDeepPathsClose/n20 (0.03s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	0.901s
+exit=0

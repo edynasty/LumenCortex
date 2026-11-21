@@ -1,0 +1,104 @@
+//go:build windows
+
+package editing
+
+// R7R2 baseline-slice probe (read-only review; injected with go test -overlay, never written to a worktree).
+// Run natively on the filesystem under test, e.g.
+//   set LC_R7R2_DIR=E:\probe   (NTFS / ReFS / exFAT / FAT32 volume)
+//   editing.r7r2probe.test.exe -test.v -test.count=1 -test.run "^TestR7R2Windows"
+// It settles whether R7's pre-close vs post-close LastWriteTime gate in fileid_windows.go
+// (publishTempNoReplace.removeTmp, removeCreatedWhileOpen) produces false uncertainty or private
+// staging debris, and whether FAT file-ID changes on rename break create verification.
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func r7r2Dir(t *testing.T) string {
+	if d := os.Getenv("LC_R7R2_DIR"); d != "" {
+		sub, err := os.MkdirTemp(d, "r7r2-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(sub) })
+		return sub
+	}
+	return t.TempDir()
+}
+
+// 1. Raw observation: does LastWriteTime captured on the open, written handle differ after CloseHandle?
+func TestR7R2WindowsLastWriteTimeAcrossClose(t *testing.T) {
+	dir := r7r2Dir(t)
+	f, tmp, err := NewCreateTempFile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("agent content\n")); err != nil {
+		t.Fatal(err)
+	}
+	pre, err := captureFileIdentity(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("preClose=%+v postCloseMatchesWithMtime=%v postCloseMatchesIdentityOnly=%v",
+		pre.lastWriteTime, pathMatchesIdentity(tmp, pre, true), pathMatchesIdentity(tmp, pre, false))
+	_ = os.Remove(tmp)
+}
+
+// 2. Create contention at MoveFileExW: the destination already holds foreign bytes. Expected safe
+// result: foreign bytes intact, clean refusal (not_published), no private .lcx-create-* left behind.
+func TestR7R2WindowsPublishContentionCleansPrivateTemp(t *testing.T) {
+	dir := r7r2Dir(t)
+	dst := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(dst, []byte("FOREIGN\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, tmp, err := NewCreateTempFile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("agent content\n")); err != nil {
+		t.Fatal(err)
+	}
+	out, perr := publishTempNoReplace(tmp, f, dst, PublishFaultHooks{})
+	t.Logf("state=%s published=%v leftover=%v err=%v", out.state, out.published, out.tempLeftover, perr)
+	if got, _ := os.ReadFile(dst); string(got) != "FOREIGN\n" {
+		t.Fatalf("DATA LOSS: destination changed to %q", got)
+	}
+	if !errors.Is(perr, os.ErrExist) {
+		t.Fatalf("want ErrExist, got %v", perr)
+	}
+	if out.state != PublishNone || out.tempLeftover {
+		t.Errorf("false uncertainty: state=%s leftover=%v (expected not_published, false)", out.state, out.tempLeftover)
+	}
+	if _, err := os.Lstat(tmp); err == nil {
+		t.Errorf("private staging file left behind: %s", tmp)
+		_ = os.Remove(tmp)
+	}
+}
+
+// 3. Engine create with a destination name longer than the staging name (FAT file ID may change on
+// such a rename per BY_HANDLE_FILE_INFORMATION remarks). Expected: published_verified.
+func TestR7R2WindowsLongNameCreateVerifies(t *testing.T) {
+	root := r7r2Dir(t)
+	e := newTestEngine(t, root)
+	name := strings.Repeat("n", 80) + ".txt"
+	var rec CommitReceipt
+	ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
+	res, err := e.Commit(ctx, Plan{Actor: testActor(), Tool: "write_file", Changes: []FileChange{
+		{Path: name, Content: bytesPtr("agent\n"), Create: true},
+	}})
+	fr, rr := r7Files(t, res, rec, name)
+	t.Logf("err=%v state=%s verified=%v sha=%q", err, fr.PublishState, fr.Verified, rr.NewSHA256)
+	if err != nil || fr.PublishState != PublishSucceededAndVerified || !fr.Verified {
+		t.Errorf("long-name create not verified: err=%v state=%s", err, fr.PublishState)
+	}
+}

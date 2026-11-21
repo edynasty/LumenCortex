@@ -1,0 +1,24 @@
+package editing
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestPCCaseVariantCreate(t *testing.T) {
+	root := t.TempDir()
+	e := newTestEngine(t, root)
+	up, low := []byte("UPPER\n"), []byte("lower\n")
+	res, err := e.Commit(context.Background(), Plan{Actor: testActor(), Tool: "apply_patch", Changes: []FileChange{
+		{Path: "N.txt", Content: &up, Create: true}, {Path: "n.txt", Content: &low, Create: true}}})
+	ents, _ := os.ReadDir(root)
+	var names []string
+	for _, en := range ents {
+		b, _ := os.ReadFile(filepath.Join(root, en.Name()))
+		names = append(names, fmt.Sprintf("%s=%q", en.Name(), b))
+	}
+	t.Logf("PCCASECREATE|%s|err=%s:%s|dir=%v|result=%s", pcRev, CodeOf(err), errShort(err), names, pcResultStates(res))
+}
