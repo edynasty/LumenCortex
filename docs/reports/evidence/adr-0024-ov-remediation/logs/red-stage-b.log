@@ -1,0 +1,80 @@
+=== RUN   TestOVCountedGapNeverReadsAsBraceLiteral
+    r7r2_ov_remediation_test.go:336: pathNotation = "", want the legend of the emitted labels "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent. …{N}/ is exactly N directories."
+--- FAIL: TestOVCountedGapNeverReadsAsBraceLiteral (0.02s)
+=== RUN   TestOVPathNotation
+=== RUN   TestOVPathNotation/exact_literal_on_disk
+    r7r2_ov_remediation_test.go:434: pathNotation = "", want the legend of the emitted labels "./x is exactly workspace path x; any … in it is literal."
+=== RUN   TestOVPathNotation/abbreviated_directory
+    r7r2_ov_remediation_test.go:444: pathNotation = "", want the legend of the emitted labels "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent."
+=== RUN   TestOVPathNotation/abbreviated_filename
+    r7r2_ov_remediation_test.go:454: pathNotation = "", want the legend of the emitted labels "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent."
+=== RUN   TestOVPathNotation/counted
+    r7r2_ov_remediation_test.go:460: pathNotation = "", want the legend of the emitted labels "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent. …{N}/ is exactly N directories."
+=== RUN   TestOVPathNotation/literal_tail
+    r7r2_ov_remediation_test.go:471: pathNotation = "", want the legend of the emitted labels "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent. …/./x is omitted directories, then exactly x. ./x is exactly workspace path x; any … in it is literal."
+=== RUN   TestOVPathNotation/redacted_literal
+    r7r2_ov_remediation_test.go:481: pathNotation = "", want the legend of the emitted labels "<outside-workspace>/x is a file outside the workspace named exactly x."
+=== RUN   TestOVPathNotation/no_notation
+=== RUN   TestOVPathNotation/near_4096
+    r7r2_ov_remediation_test.go:497: pathNotation = "", want the legend of the emitted labels "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent. …{N}/ is exactly N directories."
+--- FAIL: TestOVPathNotation (0.08s)
+    --- FAIL: TestOVPathNotation/exact_literal_on_disk (0.00s)
+    --- FAIL: TestOVPathNotation/abbreviated_directory (0.01s)
+    --- FAIL: TestOVPathNotation/abbreviated_filename (0.04s)
+    --- FAIL: TestOVPathNotation/counted (0.01s)
+    --- FAIL: TestOVPathNotation/literal_tail (0.00s)
+    --- FAIL: TestOVPathNotation/redacted_literal (0.00s)
+    --- PASS: TestOVPathNotation/no_notation (0.00s)
+    --- FAIL: TestOVPathNotation/near_4096 (0.01s)
+=== RUN   TestOVTruncatedOnlyForRemovedContent
+=== RUN   TestOVTruncatedOnlyForRemovedContent/exact_literal_rich
+    r7r2_ov_remediation_test.go:519: pathNotation = "", want the legend of the emitted labels "./x is exactly workspace path x; any … in it is literal."
+=== RUN   TestOVTruncatedOnlyForRemovedContent/standalone_literal_refusal
+    r7r2_ov_remediation_test.go:529: a standalone literal refusal marked truncated: {"code":"stale","currentRev":"r1","error":"stale a/…/f.kt: base revision is not current (current rev r1); re-read the file with read_file anchors=true and redo the edit against the new revision","hint":"re-read the file with read_file anchors=true and redo the edit against the new revision","path":"./a/…/f.kt","truncated":true}
+=== RUN   TestOVTruncatedOnlyForRemovedContent/directory_shortened
+=== RUN   TestOVTruncatedOnlyForRemovedContent/filename_shortened
+=== RUN   TestOVTruncatedOnlyForRemovedContent/rows_omitted
+=== RUN   TestOVTruncatedOnlyForRemovedContent/error_text_truncated
+--- FAIL: TestOVTruncatedOnlyForRemovedContent (0.01s)
+    --- FAIL: TestOVTruncatedOnlyForRemovedContent/exact_literal_rich (0.00s)
+    --- FAIL: TestOVTruncatedOnlyForRemovedContent/standalone_literal_refusal (0.00s)
+    --- PASS: TestOVTruncatedOnlyForRemovedContent/directory_shortened (0.00s)
+    --- PASS: TestOVTruncatedOnlyForRemovedContent/filename_shortened (0.00s)
+    --- PASS: TestOVTruncatedOnlyForRemovedContent/rows_omitted (0.01s)
+    --- PASS: TestOVTruncatedOnlyForRemovedContent/error_text_truncated (0.00s)
+=== RUN   TestOVSelection40Permutations
+    r7r2_ov_remediation_test.go:603: pathNotation = "", want the legend of the emitted labels "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent. …{N}/ is exactly N directories."
+--- FAIL: TestOVSelection40Permutations (0.02s)
+=== RUN   TestOVLargeRowBetweenSmallRows
+    r7r2_ov_remediation_test.go:641: unshown failed row "s/b00.kt" fits: adding it gives 3382 bytes, within 4096
+--- FAIL: TestOVLargeRowBetweenSmallRows (0.01s)
+=== RUN   TestOVLowerClassesUseOnlyLeftoverBudget
+=== RUN   TestOVLowerClassesUseOnlyLeftoverBudget/impossible_failed_first
+    r7r2_ov_remediation_test.go:663: pathNotation = "", want the legend of the emitted labels "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent."
+=== RUN   TestOVLowerClassesUseOnlyLeftoverBudget/impossible_verified_first
+    r7r2_ov_remediation_test.go:676: pathNotation = "", want the legend of the emitted labels "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent."
+=== RUN   TestOVLowerClassesUseOnlyLeftoverBudget/cheap_failed_keep_all
+--- FAIL: TestOVLowerClassesUseOnlyLeftoverBudget (0.01s)
+    --- FAIL: TestOVLowerClassesUseOnlyLeftoverBudget/impossible_failed_first (0.00s)
+    --- FAIL: TestOVLowerClassesUseOnlyLeftoverBudget/impossible_verified_first (0.00s)
+    --- PASS: TestOVLowerClassesUseOnlyLeftoverBudget/cheap_failed_keep_all (0.00s)
+=== RUN   TestOVEqualCostTiesByPath
+    r7r2_ov_remediation_test.go:725: equal-cost rows select different sets: map[e00.kt:true e01.kt:true e02.kt:true e03.kt:true e04.kt:true e05.kt:true e06.kt:true e07.kt:true e08.kt:true e09.kt:true e10.kt:true e11.kt:true e12.kt:true e13.kt:true e14.kt:true e15.kt:true e16.kt:true e17.kt:true e18.kt:true e19.kt:true e20.kt:true e21.kt:true e22.kt:true e23.kt:true e24.kt:true e25.kt:true e26.kt:true e27.kt:true e28.kt:true e29.kt:true e30.kt:true e31.kt:true e32.kt:true e33.kt:true e34.kt:true e35.kt:true] and map[e04.kt:true e05.kt:true e06.kt:true e07.kt:true e08.kt:true e09.kt:true e10.kt:true e11.kt:true e12.kt:true e13.kt:true e14.kt:true e15.kt:true e16.kt:true e17.kt:true e18.kt:true e19.kt:true e20.kt:true e21.kt:true e22.kt:true e23.kt:true e24.kt:true e25.kt:true e26.kt:true e27.kt:true e28.kt:true e29.kt:true e30.kt:true e31.kt:true e32.kt:true e33.kt:true e34.kt:true e35.kt:true e36.kt:true e37.kt:true e38.kt:true e39.kt:true]
+--- FAIL: TestOVEqualCostTiesByPath (0.02s)
+=== RUN   TestOVExactByteLimitPayload
+    r7r2_ov_remediation_test.go:747: pathNotation = "", want the legend of the emitted labels "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent. …{N}/ is exactly N directories."
+--- FAIL: TestOVExactByteLimitPayload (0.13s)
+=== RUN   TestOVMetadataBandNeverHidesFittingRow
+    r7r2_ov_remediation_test.go:817: pathNotation = "", want the legend of the emitted labels "./x is exactly workspace path x; any … in it is literal."
+--- FAIL: TestOVMetadataBandNeverHidesFittingRow (0.00s)
+=== RUN   TestOVMetadataBand31Rows
+    r7r2_ov_remediation_test.go:835: unshown failed row "g/m00.kt" fits: adding it gives 686 bytes, within 4096
+--- FAIL: TestOVMetadataBand31Rows (0.00s)
+=== RUN   TestOVMetadataBandOneRow
+--- PASS: TestOVMetadataBandOneRow (0.00s)
+=== RUN   TestOVMetadataBandZeroRows
+--- PASS: TestOVMetadataBandZeroRows (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/toolset	1.060s
+FAIL
+exit=1

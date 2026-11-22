@@ -584,3 +584,37 @@ The independent byte checker enumerated feasible prefixes using the actual compa
 **Unchanged gates.** No transaction, `CommitReceipt`, `MutationEvidence`, resume, public API, database, architecture or Desktop changes. `PRE-01` and `PRE-02` remain **OPEN P2**, not accepted by this audit; `BASE-01 / R6-07` remains OPEN / UNVERIFIED; `CT-02`, `R7-F01`, `R3-02`, `R3-04`, `R2-03` and `F-05` through `F-08` remain open P3; `R3-01` remains Owner-accepted. Native Windows, Linux and FreeBSD remain unverified. `v0.4-rc3.8` draft 2 remains `PENDING_OWNER_APPROVAL`. **Do not merge:** Claude Opus 5.5 must independently verify the Astra changes, then the Owner decides.
 
 Evidence: [SHA256SUMS](evidence/adr-0024-astra-final/SHA256SUMS), 50 entries; manifest SHA256 `75f435e6f22f918ce18ebeb26dd14207d0f3e96af4d77d5998281457c0289d38`. The delivery commit following `52dfd64f56d9b46dfbe7293c787b0f883a501717` changes only this report and audit evidence.
+
+## OV-01..OV-06 remediation (Claude Opus 5.5 as finding owner)
+
+Branch `fix/adr-0024-opus-ov-remediation-20261122` from Astra `a5a1ec6be1081bad4e706944d655a9a9d97f4f70`.
+
+- `11d3222e2a134e705ae9a173e156553ec15be11e` is the label layer (OV-02, OV-03).
+- `7e0610fa86bdf0c8001187b4d4985b601603d104` is the payload layer (OV-01, OV-04, OV-05, OV-06) and the tested code.
+
+The production diff is confined to `internal/toolset/editing.go`. There are no transaction, receipt, SQLite, public API, tool-description or Desktop changes. All six findings are **`FIXED_BY_IMPLEMENTER / SELF_VERIFIED / PENDING_INDEPENDENT_REVIEW`**. [Evidence and replay](evidence/adr-0024-ov-remediation/README.md).
+
+**Design.** The overflow fallback is now one pipeline:
+
+1. Classify rows by priority.
+2. Index the whole batch.
+3. Generate identity-safe compact labels.
+4. Price each row by its exact JSON bytes.
+5. Per class, choose the largest feasible count with an exact DP over publish states. Ties go to the smallest set by sanitized path. Lower classes use only leftover budget.
+6. Size with mandatory omission metadata and the `pathNotation` legend included.
+7. Render in priority/original order.
+
+`truncated` now means removed content only. The legend lists exactly the notation forms present: `…/` for one or more directories, `…` inside a name for characters, `…{N}/` for exactly N directories, `…/./x` for omitted directories followed by an exact tail, and `./x` for an exact path. It also says shortened labels are IDs, to be matched against the paths the agent sent.
+
+**Verification.** All gates pass, including a single `go test -timeout=45m -count=1 ./...` (exit 0, 773 s). The new behavioural tests fail on the base renderer. An independent oracle found 0 problems across 2,229 renders and 52,891 labels.
+
+**Visible trade-offs.**
+- The legend costs about 164–200 bytes. 38 of the 684 corpus payloads, the five long-filename cases (29 → 28) and the 40-file batch (31 → 30) therefore show one or two fewer failed rows.
+- In exchange, the 40-file selection is identical in all 60 orders. The metadata band never hides a fitting row. The large-row witness shows 34 rows instead of 20. Impossible first rows no longer hide later rows of any class.
+- Realistic render cost stays linear. Up to 256 candidates per class are labelled, so mid-size long-name batches cost up to 2.8× more (103 ms at 1,024 rows). The adversarial 1,024-row case drops from 7.8 s to 0.27 s.
+
+**Owner decision.** The legend could instead live in tool descriptions, which costs no payload bytes but is outside this scope. The legend stays in the payload until the Owner decides.
+
+**Unchanged.** PRE-01 and PRE-02 remain OPEN P2. BASE-01/R6-07 remains OPEN/UNVERIFIED. The historical P3 ledger is unchanged. Native Windows, Linux and FreeBSD remain unverified, and rc3.8 draft 2 remains `PENDING_OWNER_APPROVAL`.
+
+**Status:** `OV_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`. Gemini 4 Carbon must verify independently. Do not merge.

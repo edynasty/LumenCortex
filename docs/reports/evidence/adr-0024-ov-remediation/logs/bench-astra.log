@@ -1,0 +1,88 @@
+variant=astra HEAD=a5a1ec6be1081bad4e706944d655a9a9d97f4f70 editing.go=8cce4e4d8f1d12eef3b203cda8d1524ee8de4c7b GOMAXPROCS=2 go version go1.26.5 darwin/arm64 Apple M1 Pro
+cmd: GOMAXPROCS=2 go test -overlay /private/tmp/lc-ov-remediation/oracle/overlay-bench-astra.json -run '^$' -bench '^BenchmarkOVScale$' -benchmem -count=3 -timeout=60m ./internal/toolset
+goos: darwin
+goarch: arm64
+pkg: github.com/edynasty/LumenCortex/internal/toolset
+cpu: Apple M1 Pro
+BenchmarkOVScale/unique_deep/32-2         	     600	   2006263 ns/op	  799521 B/op	    4344 allocs/op
+BenchmarkOVScale/unique_deep/32-2         	     600	   2015311 ns/op	  799145 B/op	    4344 allocs/op
+BenchmarkOVScale/unique_deep/32-2         	     595	   2153629 ns/op	  799470 B/op	    4344 allocs/op
+BenchmarkOVScale/unique_deep/100-2        	     267	   4263681 ns/op	 1127216 B/op	    9430 allocs/op
+BenchmarkOVScale/unique_deep/100-2        	     286	   4255451 ns/op	 1126244 B/op	    9431 allocs/op
+BenchmarkOVScale/unique_deep/100-2        	     282	   4706871 ns/op	 1127557 B/op	    9430 allocs/op
+BenchmarkOVScale/unique_deep/1024-2       	      28	  42572475 ns/op	10910101 B/op	   89885 allocs/op
+BenchmarkOVScale/unique_deep/1024-2       	      26	  42378279 ns/op	10910196 B/op	   89884 allocs/op
+BenchmarkOVScale/unique_deep/1024-2       	      27	  41756429 ns/op	10909546 B/op	   89884 allocs/op
+BenchmarkOVScale/unique_deep/4096-2       	       7	 165656446 ns/op	43563666 B/op	  357267 allocs/op
+BenchmarkOVScale/unique_deep/4096-2       	       7	 169252500 ns/op	43498128 B/op	  357267 allocs/op
+BenchmarkOVScale/unique_deep/4096-2       	       7	 165158869 ns/op	43563661 B/op	  357267 allocs/op
+BenchmarkOVScale/unique_deep/16384-2      	       2	 655959271 ns/op	176593968 B/op	 1426769 allocs/op
+BenchmarkOVScale/unique_deep/16384-2      	       2	 772018458 ns/op	176593984 B/op	 1426769 allocs/op
+BenchmarkOVScale/unique_deep/16384-2      	       2	 666491979 ns/op	176593976 B/op	 1426769 allocs/op
+BenchmarkOVScale/samebase_modules/32-2    	     692	   1730180 ns/op	  711295 B/op	    4037 allocs/op
+BenchmarkOVScale/samebase_modules/32-2    	     664	   1764351 ns/op	  711574 B/op	    4038 allocs/op
+BenchmarkOVScale/samebase_modules/32-2    	     699	   1722999 ns/op	  711371 B/op	    4037 allocs/op
+BenchmarkOVScale/samebase_modules/100-2   	     355	   3455063 ns/op	  938587 B/op	    7886 allocs/op
+BenchmarkOVScale/samebase_modules/100-2   	     350	   3489021 ns/op	  939191 B/op	    7887 allocs/op
+BenchmarkOVScale/samebase_modules/100-2   	     350	   3480209 ns/op	  938956 B/op	    7887 allocs/op
+BenchmarkOVScale/samebase_modules/1024-2  	      34	  34490004 ns/op	 9131840 B/op	   72663 allocs/op
+BenchmarkOVScale/samebase_modules/1024-2  	      34	  33903792 ns/op	 9131364 B/op	   72663 allocs/op
+BenchmarkOVScale/samebase_modules/1024-2  	      34	  35478544 ns/op	 9131596 B/op	   72664 allocs/op
+BenchmarkOVScale/samebase_modules/4096-2  	       8	 139724479 ns/op	36468426 B/op	  287876 allocs/op
+BenchmarkOVScale/samebase_modules/4096-2  	       8	 184104448 ns/op	36468547 B/op	  287877 allocs/op
+BenchmarkOVScale/samebase_modules/4096-2  	       7	 221393649 ns/op	36468614 B/op	  287878 allocs/op
+BenchmarkOVScale/samebase_modules/16384-2 	       2	 639544854 ns/op	148464172 B/op	 1148689 allocs/op
+BenchmarkOVScale/samebase_modules/16384-2 	       2	 552047792 ns/op	148463392 B/op	 1148683 allocs/op
+BenchmarkOVScale/samebase_modules/16384-2 	       2	 559790500 ns/op	148464308 B/op	 1148691 allocs/op
+BenchmarkOVScale/samebase_longsuffix/32-2 	     294	   4124929 ns/op	 1648589 B/op	    4452 allocs/op
+BenchmarkOVScale/samebase_longsuffix/32-2 	     294	   4083994 ns/op	 1648185 B/op	    4451 allocs/op
+BenchmarkOVScale/samebase_longsuffix/32-2 	     291	   4670190 ns/op	 1648998 B/op	    4452 allocs/op
+BenchmarkOVScale/samebase_longsuffix/100-2         	     141	   8512981 ns/op	 2572105 B/op	    9196 allocs/op
+BenchmarkOVScale/samebase_longsuffix/100-2         	     140	   8534260 ns/op	 2572783 B/op	    9197 allocs/op
+BenchmarkOVScale/samebase_longsuffix/100-2         	     136	   8553789 ns/op	 2572454 B/op	    9196 allocs/op
+BenchmarkOVScale/samebase_longsuffix/1024-2        	      13	  87768763 ns/op	24466969 B/op	   85053 allocs/op
+BenchmarkOVScale/samebase_longsuffix/1024-2        	      13	  91157131 ns/op	24466225 B/op	   85052 allocs/op
+BenchmarkOVScale/samebase_longsuffix/1024-2        	      13	  87325413 ns/op	24465364 B/op	   85052 allocs/op
+BenchmarkOVScale/samebase_longsuffix/4096-2        	       3	 349549861 ns/op	97366080 B/op	  337130 allocs/op
+BenchmarkOVScale/samebase_longsuffix/4096-2        	       3	 349222625 ns/op	97366069 B/op	  337130 allocs/op
+BenchmarkOVScale/samebase_longsuffix/4096-2        	       3	 362240278 ns/op	97366128 B/op	  337130 allocs/op
+BenchmarkOVScale/longname_middle/32-2              	     579	   2051559 ns/op	  928542 B/op	    4170 allocs/op
+BenchmarkOVScale/longname_middle/32-2              	     562	   2058775 ns/op	  927130 B/op	    4170 allocs/op
+BenchmarkOVScale/longname_middle/32-2              	     591	   2288994 ns/op	  927543 B/op	    4170 allocs/op
+BenchmarkOVScale/longname_middle/100-2             	     326	   3738151 ns/op	  977447 B/op	    6819 allocs/op
+BenchmarkOVScale/longname_middle/100-2             	     312	   4030363 ns/op	  975112 B/op	    6818 allocs/op
+BenchmarkOVScale/longname_middle/100-2             	     319	   3748793 ns/op	  975130 B/op	    6817 allocs/op
+BenchmarkOVScale/longname_middle/1024-2            	      33	  35922768 ns/op	 8900935 B/op	   54141 allocs/op
+BenchmarkOVScale/longname_middle/1024-2            	      32	  37811026 ns/op	 8900982 B/op	   54141 allocs/op
+BenchmarkOVScale/longname_middle/1024-2            	      31	  37084184 ns/op	 8900852 B/op	   54141 allocs/op
+BenchmarkOVScale/longname_middle/4096-2            	      10	 110451508 ns/op	30240214 B/op	  209907 allocs/op
+BenchmarkOVScale/longname_middle/4096-2            	       9	 112404801 ns/op	30240251 B/op	  209907 allocs/op
+BenchmarkOVScale/longname_middle/4096-2            	      10	 116712121 ns/op	30240272 B/op	  209907 allocs/op
+BenchmarkOVScale/blocked_literal/32-2              	     194	   6387251 ns/op	 5502862 B/op	    4269 allocs/op
+BenchmarkOVScale/blocked_literal/32-2              	     189	   6310128 ns/op	 5525681 B/op	    4271 allocs/op
+BenchmarkOVScale/blocked_literal/32-2              	     188	   7618196 ns/op	 5561221 B/op	    4274 allocs/op
+BenchmarkOVScale/blocked_literal/100-2             	     193	   6294225 ns/op	 1871689 B/op	    7163 allocs/op
+BenchmarkOVScale/blocked_literal/100-2             	     177	   6014942 ns/op	 1872323 B/op	    7163 allocs/op
+BenchmarkOVScale/blocked_literal/100-2             	     194	   6097620 ns/op	 1871574 B/op	    7163 allocs/op
+BenchmarkOVScale/blocked_literal/1024-2            	      18	  62756732 ns/op	19365810 B/op	   71004 allocs/op
+BenchmarkOVScale/blocked_literal/1024-2            	      18	  62862292 ns/op	19364207 B/op	   71003 allocs/op
+BenchmarkOVScale/blocked_literal/1024-2            	      16	  63795122 ns/op	19366807 B/op	   71004 allocs/op
+BenchmarkOVScale/blocked_literal/4096-2            	       4	 255032865 ns/op	77586794 B/op	  283127 allocs/op
+BenchmarkOVScale/blocked_literal/4096-2            	       4	 276208875 ns/op	77575090 B/op	  283119 allocs/op
+BenchmarkOVScale/blocked_literal/4096-2            	       4	 251348979 ns/op	77578904 B/op	  283123 allocs/op
+BenchmarkOVScale/blocked_ordinary_oversize/32-2    	      60	  20082540 ns/op	 7029215 B/op	    4343 allocs/op
+BenchmarkOVScale/blocked_ordinary_oversize/32-2    	      62	  20007651 ns/op	 6965337 B/op	    4341 allocs/op
+BenchmarkOVScale/blocked_ordinary_oversize/32-2    	      61	  20309722 ns/op	 6943229 B/op	    4341 allocs/op
+BenchmarkOVScale/blocked_ordinary_oversize/128-2   	       8	 129032250 ns/op	10048463 B/op	    9472 allocs/op
+BenchmarkOVScale/blocked_ordinary_oversize/128-2   	       8	 129458922 ns/op	10046496 B/op	    9471 allocs/op
+BenchmarkOVScale/blocked_ordinary_oversize/128-2   	       8	 136999130 ns/op	10047320 B/op	    9470 allocs/op
+BenchmarkOVScale/blocked_ordinary_oversize/512-2   	       1	1940281917 ns/op	41269192 B/op	   37237 allocs/op
+BenchmarkOVScale/blocked_ordinary_oversize/512-2   	       1	1823417500 ns/op	41261328 B/op	   37237 allocs/op
+BenchmarkOVScale/blocked_ordinary_oversize/512-2   	       1	1843401833 ns/op	41269208 B/op	   37237 allocs/op
+BenchmarkOVScale/blocked_ordinary_oversize/1024-2  	       1	7917072833 ns/op	82649880 B/op	   74149 allocs/op
+BenchmarkOVScale/blocked_ordinary_oversize/1024-2  	       1	7845839542 ns/op	82674360 B/op	   74145 allocs/op
+BenchmarkOVScale/blocked_ordinary_oversize/1024-2  	       1	7709097833 ns/op	82650024 B/op	   74151 allocs/op
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	147.043s
+exit 0
+status-after=[]

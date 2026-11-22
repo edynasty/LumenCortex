@@ -1,0 +1,1380 @@
+package toolset
+
+// Independent verification probe for the final Astra renderer review (Claude Opus 5.5).
+// Not part of the repository: overlaid with `go test -overlay`, it writes only below $OV_OUT.
+//
+// The resolver here is written against the label grammar documented at exactFailureLabel, not
+// against the production index. Production code is used only to render payloads, to map raw paths
+// to display paths (the established sanitizer), and to obtain the compact label the renderer would
+// give an unshown row, so maximality can be checked with an independently built JSON payload.
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"reflect"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+	"unicode/utf8"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+const ovEll = "\u2026"
+
+// An ovReading is one way to read a label. typed follows the documented grammar: "./x" is exactly x,
+// "…/./t" is one or more directories then literal t, "root/…{n}/…" is exactly n directories, a
+// redacted "<outside-workspace>/" label is literal. naive is an agent that only knows "… elides text":
+// "./" and "/./" are path noise, "{n}" is literal, redaction is not special.
+type ovReading struct {
+	name  string
+	typed bool
+	gap   string // a whole "…" component that is not last, including its trailing slash
+	in    string // a "…" inside a component
+}
+
+var ovReadings = []ovReading{
+	{"typed-strict", true, `(?:[^/]+/)+`, `[^/]+`},
+	{"typed-zero", true, `(?:[^/]+/)*`, `[^/]*`},
+	{"typed-loose", true, `.+/`, `.+`},
+	{"typed-loosezero", true, `(?:.*/)?`, `.*`},
+	{"naive-strict", false, `(?:[^/]+/)+`, `[^/]+`},
+	{"naive-zero", false, `(?:[^/]+/)*`, `[^/]*`},
+	{"naive-loose", false, `.+/`, `.+`},
+	{"naive-loosezero", false, `(?:.*/)?`, `.*`},
+}
+
+var ovCountRe = regexp.MustCompile(`^…\{([1-9][0-9]{0,3})\}$`)
+
+func ovPattern(label string, rd ovReading) (*regexp.Regexp, error) {
+	l := label
+	if rd.typed {
+		switch {
+		case strings.HasPrefix(l, "<outside-workspace>/"):
+			return regexp.Compile(`(?s)^` + regexp.QuoteMeta(l) + `$`)
+		case strings.HasPrefix(l, "./"):
+			return regexp.Compile(`(?s)^` + regexp.QuoteMeta(l[2:]) + `$`)
+		case strings.HasPrefix(l, ovEll+"/./"):
+			return regexp.Compile(`(?s)^` + rd.gap + regexp.QuoteMeta(l[len(ovEll)+3:]) + `$`)
+		}
+	} else {
+		l = strings.TrimPrefix(l, "./")
+		for strings.Contains(l, "/./") {
+			l = strings.ReplaceAll(l, "/./", "/")
+		}
+	}
+	comps := strings.Split(l, "/")
+	var b strings.Builder
+	b.WriteString(`(?s)^`)
+	for i, c := range comps {
+		last := i == len(comps)-1
+		if rd.typed && i > 0 && !last {
+			if m := ovCountRe.FindStringSubmatch(c); m != nil {
+				n, _ := strconv.Atoi(m[1])
+				if n > 1000 {
+					return nil, fmt.Errorf("count %d beyond the probe's regexp limit", n)
+				}
+				fmt.Fprintf(&b, `(?:[^/]+/){%d}`, n)
+				continue
+			}
+		}
+		if c == ovEll && !last {
+			b.WriteString(rd.gap)
+			continue
+		}
+		for j, part := range strings.Split(c, ovEll) {
+			if j > 0 {
+				b.WriteString(rd.in)
+			}
+			b.WriteString(regexp.QuoteMeta(part))
+		}
+		if !last {
+			b.WriteString("/")
+		}
+	}
+	b.WriteString(`$`)
+	return regexp.Compile(b.String())
+}
+
+func ovRank(f editing.FileCommitReceipt) int {
+	switch {
+	case f.Error != "", f.PublishState == editing.PublishPartial, f.PublishState == editing.PublishSucceededWithPostError,
+		f.PublishState == editing.PublishExternalModification, f.PublishState == editing.PublishUncertain,
+		f.PublishState == editing.PublishRollbackFailed, f.PublishState == editing.PublishFailedBeforeWrite,
+		f.PublishState == editing.PublishUnsupported:
+		return 0
+	case f.Verified && f.Published && f.PublishState == editing.PublishSucceededAndVerified:
+		return 1
+	}
+	return 2
+}
+
+type ovCase struct {
+	suite, name string
+	set         *Set
+	rec         editing.CommitReceipt
+	res         editing.Result
+	top         error
+	editErr     *editing.Error
+}
+
+func (c ovCase) render() string {
+	if c.editErr != nil {
+		e := *c.editErr
+		return c.set.editFailure(c.res, c.rec, &e).Content
+	}
+	tr, _ := c.set.commitOutcome(c.res, c.rec, c.top)
+	return tr.Content
+}
+
+func ovFromRV(suite string, set *Set, c rvCase) ovCase {
+	return ovCase{suite: suite, name: c.Name, set: set,
+		rec: editing.CommitReceipt{DirtyFailure: c.Dirty, State: c.State, Files: c.Receipts},
+		res: editing.Result{CommitState: c.State, Files: c.Results}, top: rvTopError(c.Top), editErr: c.EditErr}
+}
+
+type ovRow struct {
+	Path         string `json:"path"`
+	PublishState string `json:"publishState"`
+	Published    bool   `json:"published"`
+	Verified     bool   `json:"verified"`
+	Wrote        bool   `json:"wrote"`
+	RolledBack   bool   `json:"rolledBack"`
+	Created      bool   `json:"created"`
+	Deleted      bool   `json:"deleted"`
+	NewRev       string `json:"newRev"`
+	SHA256       string `json:"sha256"`
+	Error        string `json:"error"`
+}
+
+type ovRep struct {
+	Suite       string            `json:"suite"`
+	Name        string            `json:"name"`
+	Bytes       int               `json:"bytes"`
+	Rows        int               `json:"rows"`
+	Failed      int               `json:"failed"`
+	Omitted     int               `json:"omitted"`
+	ByState     map[string]int    `json:"byState,omitempty"`
+	Overflow    bool              `json:"overflow"`
+	Labels      int               `json:"labels"`
+	Compact     int               `json:"compactLabels"`
+	NotOne      map[string]int    `json:"notOne"`
+	Examples    map[string]string `json:"examples,omitempty"`
+	Expected    int               `json:"expected"`
+	FirstFit    int               `json:"firstFit"`
+	Problems    []string          `json:"problems,omitempty"`
+	SHA         string            `json:"sha"`
+	FirstLabels []string          `json:"firstLabels,omitempty"`
+	Note        string            `json:"note,omitempty"`
+	NaiveWrong  map[string]int    `json:"naiveWrong,omitempty"`
+	JointRows   int               `json:"jointRows"`
+	JointCheap  int               `json:"jointCheaper"`
+	JointCheapD int               `json:"jointCheaperDirSafe"`
+	JointNote   string            `json:"jointNote,omitempty"`
+}
+
+const ovBudget = 4096
+
+// ovMaxRows is the same arithmetic bound the renderer documents for compact candidates.
+var ovMaxRows = ovBudget / len(`{"path":"","publishState":"","published":true,"verified":true,"wrote":true}`)
+
+func ovCheck(c ovCase, content string) ovRep {
+	r := ovRep{Suite: c.suite, Name: c.name, Bytes: len(content), NotOne: map[string]int{}, Examples: map[string]string{}, Expected: -1, FirstFit: -1, NaiveWrong: map[string]int{}}
+	sum := sha256.Sum256([]byte(content))
+	r.SHA = hex.EncodeToString(sum[:])
+	bad := func(format string, args ...any) { r.Problems = append(r.Problems, fmt.Sprintf(format, args...)) }
+	if len(content) > ovBudget {
+		bad("payload is %d bytes", len(content))
+	}
+	if !utf8.ValidString(content) {
+		bad("payload is not valid UTF-8")
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(content), &body); err != nil {
+		bad("invalid JSON: %v", err)
+		return r
+	}
+	var rows []ovRow
+	if raw, ok := body["files"]; ok {
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			bad("files: %v", err)
+		}
+	}
+	var pubs []map[string]any
+	if raw, ok := body["publishedFiles"]; ok {
+		_ = json.Unmarshal(raw, &pubs)
+	}
+	num := func(k string) int {
+		var n int
+		if raw, ok := body[k]; ok {
+			_ = json.Unmarshal(raw, &n)
+		}
+		return n
+	}
+	var byState map[string]int
+	if raw, ok := body["filesOmittedByState"]; ok {
+		_ = json.Unmarshal(raw, &byState)
+	}
+	if raw, ok := body["overflow"]; ok {
+		_ = json.Unmarshal(raw, &r.Overflow)
+	}
+	r.Rows, r.Omitted, r.ByState = len(rows), num("filesOmitted"), byState
+
+	disp := c.set.displayPaths()
+	type attempt struct{ raw, disp string }
+	var all []attempt
+	seen := map[string]bool{}
+	add := func(raw string) {
+		if raw == "" || seen[raw] {
+			return
+		}
+		seen[raw] = true
+		all = append(all, attempt{raw, disp.Path(raw)})
+	}
+	for _, f := range c.rec.Files {
+		add(f.Path)
+	}
+	for _, f := range c.res.Files {
+		add(f.Path)
+	}
+	if c.editErr != nil {
+		add(c.editErr.Path)
+	}
+	resolve := func(label string, rd ovReading) ([]int, error) {
+		re, err := ovPattern(label, rd)
+		if err != nil {
+			return nil, err
+		}
+		var out []int
+		for i, a := range all {
+			if re.MatchString(a.disp) {
+				out = append(out, i)
+			}
+		}
+		return out, nil
+	}
+	// check resolves a label under every reading; typed readings must agree on exactly one attempt.
+	check := func(where, label string, counter *int) int {
+		*counter++
+		target := -1
+		naiveSingle := map[string]int{}
+		defer func() {
+			if target < 0 {
+				return
+			}
+			for name, m := range naiveSingle {
+				if m != target {
+					r.NaiveWrong[name]++
+					if _, ok := r.Examples["wrong-"+name]; !ok {
+						r.Examples["wrong-"+name] = fmt.Sprintf("%s %q -> %q, typed target %q", where, label, all[m].disp, all[target].disp)
+					}
+				}
+			}
+		}()
+		for _, rd := range ovReadings {
+			m, err := resolve(label, rd)
+			if err != nil {
+				bad("%s %q: %v", where, label, err)
+				return -1
+			}
+			if len(m) == 1 && !rd.typed {
+				naiveSingle[rd.name] = m[0]
+			}
+			if len(m) != 1 {
+				r.NotOne[rd.name]++
+				if _, ok := r.Examples[rd.name]; !ok {
+					var names []string
+					for _, i := range m {
+						if len(names) < 3 {
+							names = append(names, all[i].disp)
+						}
+					}
+					r.Examples[rd.name] = fmt.Sprintf("%s %q -> %d %q", where, label, len(m), names)
+				}
+				if rd.typed {
+					bad("%s %q resolves to %d attempted paths under %s", where, label, len(m), rd.name)
+					target = -2
+				}
+				continue
+			}
+			if rd.typed && target != -2 {
+				if target == -1 {
+					target = m[0]
+				} else if target != m[0] {
+					bad("%s %q: typed readings disagree", where, label)
+					target = -2
+				}
+			}
+		}
+		if target < 0 {
+			target = -1
+			return -1
+		}
+		return target
+	}
+
+	order := make([]int, len(c.rec.Files))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool { return ovRank(c.rec.Files[order[a]]) < ovRank(c.rec.Files[order[b]]) })
+	posOf := map[string]int{}
+	recOf := map[string]editing.FileCommitReceipt{}
+	for p, i := range order {
+		f := c.rec.Files[i]
+		if _, ok := posOf[f.Path]; !ok {
+			posOf[f.Path], recOf[f.Path] = p, f
+		}
+	}
+	resOf := map[string]editing.FileResult{}
+	for _, f := range c.res.Files {
+		if _, ok := resOf[f.Path]; !ok {
+			resOf[f.Path] = f
+		}
+	}
+	last := -1
+	shown := map[string]bool{}
+	shownStates := map[string]int{}
+	for i, row := range rows {
+		if i < 4 {
+			r.FirstLabels = append(r.FirstLabels, row.Path)
+		}
+		shownStates[row.PublishState]++
+		t := check(fmt.Sprintf("files[%d]", i), row.Path, &r.Labels)
+		if t < 0 {
+			continue
+		}
+		raw := all[t].raw
+		f, ok := recOf[raw]
+		if !ok {
+			bad("files[%d] %q resolves to %q, which has no receipt row", i, row.Path, raw)
+			continue
+		}
+		if ovRank(f) == 0 {
+			r.Failed++
+		}
+		if shown[raw] {
+			bad("files[%d] %q repeats %q", i, row.Path, raw)
+		}
+		shown[raw] = true
+		if string(f.PublishState) != row.PublishState || f.Published != row.Published || f.Verified != row.Verified ||
+			f.Wrote != row.Wrote || f.RolledBack != row.RolledBack || f.Created != row.Created || f.Deleted != row.Deleted {
+			bad("files[%d] %q state differs from the receipt of %q", i, row.Path, raw)
+		}
+		if row.SHA256 != "" && (!f.Verified || row.SHA256 != f.NewSHA256) {
+			bad("files[%d] %q has an unverified or wrong sha256", i, row.Path)
+		}
+		if row.NewRev != "" && (!f.Verified || row.NewRev != resOf[raw].NewRev) {
+			bad("files[%d] %q has an unverified or wrong newRev", i, row.Path)
+		}
+		if p := posOf[raw]; p <= last {
+			bad("files[%d] %q is out of priority order", i, row.Path)
+		} else {
+			last = p
+		}
+	}
+	if ovJointSuites[c.suite] && (r.Overflow || c.suite != "matrix") {
+		jidx := newFailurePathIndex()
+		for _, f := range c.rec.Files {
+			jidx.add(f.Path, disp)
+		}
+		for _, f := range c.res.Files {
+			jidx.add(f.Path, disp)
+		}
+		if c.editErr != nil {
+			jidx.add(c.editErr.Path, disp)
+		}
+		var disps []string
+		dirs := map[string]bool{}
+		bases := map[string]int{}
+		for _, a := range all {
+			disps = append(disps, a.disp)
+			bases[a.disp[strings.LastIndexByte(a.disp, '/')+1:]]++
+			parts := strings.Split(a.disp, "/")
+			for _, d := range parts[:len(parts)-1] {
+				dirs[d] = true
+			}
+		}
+		for _, row := range rows {
+			t := -1
+			for i, a := range all {
+				if re, err := ovPattern(row.Path, ovReadings[0]); err == nil && re.MatchString(a.disp) {
+					if t != -1 {
+						t = -2
+						break
+					}
+					t = i
+				}
+			}
+			if t < 0 {
+				continue
+			}
+			full := all[t].disp
+			base := full[strings.LastIndexByte(full, '/')+1:]
+			if strings.Contains(full, ovEll) || strings.HasPrefix(full, "<outside-workspace>/") || bases[base] != 1 {
+				continue
+			}
+			r.JointRows++
+			prod := jidx.label(all[t].raw, 0)
+			cheap, cheapD := ovJointCheaper(full, t, prod, disps, dirs)
+			if cheap != "" {
+				r.JointCheap++
+				if r.JointNote == "" {
+					r.JointNote = fmt.Sprintf("%q (%d B) vs production %q (%d B)", cheap, ovJSONLen(cheap), prod, ovJSONLen(prod))
+				}
+			}
+			if cheapD != "" {
+				r.JointCheapD++
+				r.JointNote += fmt.Sprintf(" | dir-safe %q (%d B)", cheapD, ovJSONLen(cheapD))
+			}
+		}
+	}
+	if len(c.rec.Files) > 0 {
+		if len(rows)+r.Omitted != len(c.rec.Files) {
+			bad("rows %d + filesOmitted %d != %d receipt rows", len(rows), r.Omitted, len(c.rec.Files))
+		}
+		total := 0
+		for k, v := range byState {
+			total += v
+			if v <= 0 {
+				bad("non-positive omitted count %s=%d", k, v)
+			}
+		}
+		if total != r.Omitted {
+			bad("filesOmittedByState sums to %d, filesOmitted is %d", total, r.Omitted)
+		}
+		want, got := map[string]int{}, map[string]int{}
+		for _, f := range c.rec.Files {
+			want[string(f.PublishState)]++
+		}
+		for k, v := range shownStates {
+			got[k] += v
+		}
+		for k, v := range byState {
+			got[k] += v
+		}
+		if !reflect.DeepEqual(want, got) {
+			bad("state accounting: receipt %v, shown+omitted %v", want, got)
+		}
+	} else if len(rows) > 0 {
+		bad("files rows without a receipt")
+	}
+	publishedTotal := 0
+	for _, f := range c.res.Files {
+		if f.Published {
+			publishedTotal++
+		}
+	}
+	if len(pubs)+num("publishedFilesOmitted") != publishedTotal {
+		bad("publishedFiles %d + omitted %d != %d published results", len(pubs), num("publishedFilesOmitted"), publishedTotal)
+	}
+	for i, p := range pubs {
+		label, _ := p["path"].(string)
+		if t := check(fmt.Sprintf("publishedFiles[%d]", i), label, &r.Labels); t >= 0 {
+			if rf, ok := resOf[all[t].raw]; !ok || !rf.Published {
+				bad("publishedFiles[%d] %q resolves to unpublished %q", i, label, all[t].raw)
+			}
+		}
+	}
+	if raw, ok := body["path"]; ok && c.editErr != nil {
+		var label string
+		_ = json.Unmarshal(raw, &label)
+		if t := check("path", label, &r.Labels); t >= 0 && all[t].raw != c.editErr.Path {
+			bad("path %q resolves to %q, not the refused %q", label, all[t].raw, c.editErr.Path)
+		}
+	}
+	dispCount := map[string]int{}
+	for _, a := range all {
+		dispCount[a.disp]++
+	}
+	identifiable := func(raw string) bool {
+		d := disp.Path(raw)
+		return d != "" && utf8.ValidString(d) && dispCount[d] == 1
+	}
+	if !r.Overflow && len(c.rec.Files) > 0 {
+		for _, f := range c.rec.Files {
+			if ovRank(f) == 0 && identifiable(f.Path) && !shown[f.Path] {
+				bad("rich payload hides identifiable failed row %q", f.Path)
+			}
+		}
+	}
+	// OV-04/OV-05 checks: the notation legend must match the forms of the emitted labels exactly, and
+	// truncated must be set iff content was removed.
+	var labelsShown []string
+	for _, row := range rows {
+		labelsShown = append(labelsShown, row.Path)
+	}
+	for _, pf := range pubs {
+		if l, ok := pf["path"].(string); ok {
+			labelsShown = append(labelsShown, l)
+		}
+	}
+	if raw, ok := body["path"]; ok {
+		var l string
+		_ = json.Unmarshal(raw, &l)
+		labelsShown = append(labelsShown, l)
+	}
+	forms := 0
+	for _, l := range labelsShown {
+		forms |= ovForms(l)
+	}
+	var notation string
+	if raw, ok := body["pathNotation"]; ok {
+		_ = json.Unmarshal(raw, &notation)
+	}
+	if want := ovNotation(forms); notation != want {
+		bad("pathNotation %q, want %q", notation, want)
+	}
+	var truncated bool
+	if raw, ok := body["truncated"]; ok {
+		_ = json.Unmarshal(raw, &truncated)
+	}
+	shortened := false
+	for _, l := range labelsShown {
+		hit := -1
+		if re, err := ovPattern(l, ovReadings[0]); err == nil {
+			for i, a := range all {
+				if re.MatchString(a.disp) {
+					hit = i
+				}
+			}
+		}
+		if hit >= 0 && l != ovExact(all[hit].disp) {
+			shortened = true
+		}
+	}
+	removed := shortened || r.Omitted > 0 || num("publishedFilesOmitted") > 0 || num("diagnosticsOmitted") > 0 || r.Overflow
+	if removed && !truncated {
+		bad("content removed (shortened=%v omitted=%d overflow=%v) but truncated is not set", shortened, r.Omitted, r.Overflow)
+	}
+	if truncated && !removed {
+		textCut := false
+		for _, row := range rows {
+			if strings.HasSuffix(row.Error, "…") || (row.Verified && row.SHA256 == "") {
+				textCut = true
+			}
+		}
+		var e string
+		if raw, ok := body["error"]; ok {
+			_ = json.Unmarshal(raw, &e)
+		}
+		if strings.HasSuffix(e, "…") {
+			textCut = true
+		}
+		if !textCut {
+			bad("truncated is set but no content was removed")
+		}
+	}
+	if r.Overflow && len(c.rec.Files) > 0 {
+		idx := newFailurePathIndex()
+		for _, f := range c.rec.Files {
+			idx.add(f.Path, disp)
+		}
+		for _, f := range c.res.Files {
+			idx.add(f.Path, disp)
+		}
+		if c.editErr != nil {
+			idx.add(c.editErr.Path, disp)
+		}
+		env := map[string]json.RawMessage{}
+		for k, v := range body {
+			if k != "files" && k != "filesOmitted" && k != "filesOmittedByState" && k != "pathNotation" {
+				env[k] = v
+			}
+		}
+		stateTotal := map[string]int{}
+		for _, f := range c.rec.Files {
+			stateTotal[string(f.PublishState)]++
+		}
+		type cand struct {
+			f     editing.FileCommitReceipt
+			label string
+			cost  int
+		}
+		mk := func(f editing.FileCommitReceipt, label string) map[string]any {
+			m := map[string]any{"path": label, "publishState": string(f.PublishState), "published": f.Published, "verified": f.Verified, "wrote": f.Wrote}
+			if f.RolledBack {
+				m["rolledBack"] = true
+			}
+			if f.Created {
+				m["created"] = true
+			}
+			if f.Deleted {
+				m["deleted"] = true
+			}
+			return m
+		}
+		size := func(sel []cand, legend bool) int {
+			p := map[string]any{}
+			for k, v := range env {
+				p[k] = v
+			}
+			left := map[string]int{}
+			for k, v := range stateTotal {
+				left[k] = v
+			}
+			list := make([]map[string]any, len(sel))
+			fm := 0
+			for i, cd := range sel {
+				list[i] = mk(cd.f, cd.label)
+				left[string(cd.f.PublishState)]--
+				fm |= ovForms(cd.label)
+			}
+			p["files"] = list
+			if om := len(c.rec.Files) - len(sel); om > 0 {
+				for k, v := range left {
+					if v == 0 {
+						delete(left, k)
+					}
+				}
+				p["filesOmitted"], p["filesOmittedByState"] = om, left
+			}
+			if legend && ovNotation(fm) != "" {
+				p["pathNotation"] = ovNotation(fm)
+			}
+			b, _ := json.Marshal(p)
+			return len(b)
+		}
+		seenK := map[string]bool{}
+		var rank0 []editing.FileCommitReceipt
+		for _, f := range c.rec.Files {
+			if ovRank(f) == 0 && !seenK[f.Path] {
+				seenK[f.Path] = true
+				if idx.label(f.Path, 0) != "" {
+					rank0 = append(rank0, f)
+				}
+			}
+		}
+		sort.SliceStable(rank0, func(i, j int) bool { return disp.Path(rank0[i].Path) < disp.Path(rank0[j].Path) })
+		var cands []cand
+		for _, f := range rank0 {
+			if len(cands) == 256 {
+				break
+			}
+			label := idx.label(f.Path, 0)
+			b, _ := json.Marshal(mk(f, label))
+			cd := cand{f, label, len(b)}
+			if size([]cand{cd}, false) > ovBudget {
+				continue
+			}
+			cands = append(cands, cd)
+			check("compact "+f.Path, label, &r.Compact)
+		}
+		cheap := append([]cand(nil), cands...)
+		sort.SliceStable(cheap, func(i, j int) bool { return cheap[i].cost < cheap[j].cost })
+		pb := map[string]any{}
+		for k, v := range env {
+			pb[k] = v
+		}
+		pb["files"] = []any{}
+		bb, _ := json.Marshal(pb)
+		base0 := len(bb)
+		lb, ub, sum := 0, 0, 0
+		for k := 1; k <= len(cheap) && k <= ovMaxRows; k++ {
+			if size(cheap[:k], true) <= ovBudget {
+				lb = k
+			}
+			sum += cheap[k-1].cost
+			head := 0
+			if n := len(c.rec.Files) - k; n > 0 {
+				head = 40 + len(strconv.Itoa(n))
+			}
+			if base0+sum+(k-1)+head <= ovBudget {
+				ub = k
+			}
+		}
+		r.Expected, r.FirstFit = lb, ub
+		if r.Failed < lb || r.Failed > ub {
+			bad("overflow shows %d failed rows; class-0 bounds are [%d, %d]", r.Failed, lb, ub)
+		}
+	}
+	return r
+}
+
+var ovJointSuites = map[string]bool{"five": true, "sweep": true, "escape": true, "literal": true, "zero": true, "matrix": true, "windows": true}
+
+func ovJSONLen(s string) int {
+	b, _ := json.Marshal(s)
+	return len(b)
+}
+
+// ovJointCheaper looks for a two-part label "D+P…S" or "…/P…S" of the basename of full that keeps at
+// least 16 visible bytes, elides at least one byte, splits at rune starts, costs fewer JSON bytes than
+// prod, and resolves to exactly full under every typed reading. The second result additionally keeps
+// P from starting any directory component of the batch, the renderer's documented restriction.
+func ovJointCheaper(full string, target int, prod string, disps []string, dirs map[string]bool) (string, string) {
+	base := full[strings.LastIndexByte(full, '/')+1:]
+	dir := full[:len(full)-len(base)]
+	n := len(base)
+	pre := make([]int, n+1)
+	for i := range pre {
+		pre[i] = -1
+	}
+	pre[0] = 0
+	acc := 0
+	for i := 0; i < n; {
+		_, w := utf8.DecodeRuneInString(base[i:])
+		acc += ovJSONLen(base[i:i+w]) - 2
+		i += w
+		pre[i] = acc
+	}
+	prodCost := ovJSONLen(prod)
+	dCost := ovJSONLen(dir) - 2
+	type cand struct {
+		label string
+		cost  int
+		p     string
+	}
+	var cands []cand
+	for q := 0; q <= n; q++ {
+		if pre[q] < 0 {
+			continue
+		}
+		for s := 0; q+s <= n-1; s++ {
+			if pre[n-s] < 0 || q+s < 16 {
+				continue
+			}
+			mid := 3 + pre[q] + (pre[n] - pre[n-s])
+			p, sfx := base[:q], base[n-s:]
+			if c := 2 + dCost + mid; c < prodCost {
+				cands = append(cands, cand{dir + p + ovEll + sfx, c, p})
+			}
+			if dir != "" {
+				if c := 2 + 4 + mid; c < prodCost {
+					cands = append(cands, cand{ovEll + "/" + p + ovEll + sfx, c, p})
+				}
+			}
+		}
+	}
+	sort.SliceStable(cands, func(i, j int) bool { return cands[i].cost < cands[j].cost })
+	valid := func(label string) bool {
+		for _, rd := range ovReadings[:4] {
+			re, err := ovPattern(label, rd)
+			if err != nil {
+				return false
+			}
+			hits := 0
+			for i, d := range disps {
+				if re.MatchString(d) {
+					if i != target {
+						return false
+					}
+					hits++
+				}
+			}
+			if hits != 1 {
+				return false
+			}
+		}
+		return true
+	}
+	cheap, cheapD := "", ""
+	for _, c := range cands {
+		if cheap != "" && cheapD != "" {
+			break
+		}
+		dirSafe := c.p == ""
+		if !dirSafe {
+			dirSafe = true
+			for d := range dirs {
+				if strings.HasPrefix(d, c.p) {
+					dirSafe = false
+					break
+				}
+			}
+		}
+		if cheap == "" && valid(c.label) {
+			cheap = c.label
+		}
+		if cheapD == "" && dirSafe && valid(c.label) {
+			cheapD = c.label
+		}
+	}
+	return cheap, cheapD
+}
+
+const (
+	ovNoteShort    = "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent."
+	ovNoteCount    = "…{N}/ is exactly N directories."
+	ovNoteTail     = "…/./x is omitted directories, then exactly x."
+	ovNoteExact    = "./x is exactly workspace path x; any … in it is literal."
+	ovNoteRedacted = "<outside-workspace>/x is a file outside the workspace named exactly x."
+)
+
+// ovForms classifies a label: 1 short, 2 counted, 4 literal tail, 8 exact literal, 16 redacted literal.
+func ovForms(l string) int {
+	switch {
+	case l == "":
+		return 0
+	case strings.HasPrefix(l, "./"):
+		return 8
+	case strings.HasPrefix(l, "<outside-workspace>/"):
+		if strings.Contains(l, ovEll) {
+			return 16
+		}
+		return 0
+	case strings.HasPrefix(l, ovEll+"/./"):
+		return 1 | 4
+	case !strings.Contains(l, ovEll):
+		return 0
+	}
+	f := 1
+	for _, c := range strings.Split(l, "/") {
+		if ovCountRe.MatchString(c) {
+			f |= 2
+		}
+	}
+	return f
+}
+
+func ovNotation(f int) string {
+	var parts []string
+	if f&7 != 0 {
+		parts = append(parts, ovNoteShort)
+	}
+	if f&2 != 0 {
+		parts = append(parts, ovNoteCount)
+	}
+	if f&4 != 0 {
+		parts = append(parts, ovNoteTail)
+	}
+	if f&8 != 0 {
+		parts = append(parts, ovNoteExact)
+	}
+	if f&16 != 0 {
+		parts = append(parts, ovNoteRedacted)
+	}
+	return strings.Join(parts, " ")
+}
+
+func ovExact(disp string) string {
+	if strings.Contains(disp, ovEll) && !strings.HasPrefix(disp, "<outside-workspace>/") {
+		return "./" + disp
+	}
+	return disp
+}
+
+func ovWrite(t *testing.T, dir, name string, data []byte) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type ovSink struct {
+	t    *testing.T
+	out  string
+	reps map[string][]ovRep
+}
+
+func (s *ovSink) run(c ovCase) (string, ovRep) {
+	content := c.render()
+	rep := ovCheck(c, content)
+	ovWrite(s.t, filepath.Join(s.out, c.suite), ovSafe(c.name)+".json", []byte(content))
+	s.reps[c.suite] = append(s.reps[c.suite], rep)
+	return content, rep
+}
+
+func ovSafe(name string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r < 0x20 {
+			return '_'
+		}
+		return r
+	}, name)
+}
+
+func (s *ovSink) flush() {
+	for suite, reps := range s.reps {
+		var b strings.Builder
+		for _, r := range reps {
+			line, _ := json.Marshal(r)
+			b.Write(line)
+			b.WriteByte('\n')
+		}
+		ovWrite(s.t, s.out, suite+".jsonl", []byte(b.String()))
+	}
+}
+
+func ovWorkspace(t *testing.T, files []string) *Set {
+	t.Helper()
+	ws := filepath.Join(t.TempDir(), "ws")
+	if err := os.MkdirAll(ws, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range files {
+		full := filepath.Join(ws, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("fixture"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set, err := New(Options{Workspace: ws, Policy: PolicyWorkspace, SessionID: "s-ov"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return set
+}
+
+// ovMix builds a commit from explicit rows: state "" means not attempted, "v" means verified.
+type ovItem struct {
+	path  string
+	state editing.PublishState
+	ver   bool
+	only  bool // result-only attempted path
+}
+
+func ovCommit(suite, name string, set *Set, items []ovItem) ovCase {
+	rec := editing.CommitReceipt{DirtyFailure: true, State: editing.CommitStatePartiallyPublished}
+	res := editing.Result{CommitState: editing.CommitStatePartiallyPublished}
+	for i, it := range items {
+		switch {
+		case it.only:
+			res.Files = append(res.Files, editing.FileResult{Path: it.path, PublishState: editing.PublishNotAttempted})
+		case it.ver:
+			rec.Files = append(rec.Files, editing.FileCommitReceipt{Path: it.path, PublishState: editing.PublishSucceededAndVerified, Published: true, Verified: true, Wrote: true, NewSHA256: "sha256:" + strings.Repeat("cd", 32)})
+			res.Files = append(res.Files, editing.FileResult{Path: it.path, PublishState: editing.PublishSucceededAndVerified, Published: true, Verified: true, NewRev: fmt.Sprintf("rev%05d", i)})
+		case it.state == "" || it.state == editing.PublishNotAttempted:
+			rec.Files = append(rec.Files, editing.FileCommitReceipt{Path: it.path, PublishState: editing.PublishNotAttempted})
+			res.Files = append(res.Files, editing.FileResult{Path: it.path, PublishState: editing.PublishNotAttempted})
+		default:
+			rec.Files = append(rec.Files, editing.FileCommitReceipt{Path: it.path, PublishState: it.state, Published: true, Wrote: true, Error: "input/output error"})
+			res.Files = append(res.Files, editing.FileResult{Path: it.path, PublishState: it.state, Published: true, Error: "input/output error"})
+		}
+	}
+	return ovCase{suite: suite, name: name, set: set, rec: rec, res: res, top: syscall.EIO}
+}
+
+func ovFailed(paths []string) []ovItem {
+	items := make([]ovItem, len(paths))
+	for i, p := range paths {
+		items[i] = ovItem{path: p, state: rvStates[i%len(rvStates)]}
+	}
+	return items
+}
+
+func ovStep(pad int) int {
+	if pad >= 585 && pad < 690 {
+		return 1
+	}
+	return 5
+}
+
+func ovArchived40() []string {
+	fill := strings.Repeat(strings.Repeat("m", 170)+"/", 6)
+	var out []string
+	for i := 0; i < 10; i++ {
+		r := fmt.Sprintf("r%02d", i)
+		out = append(out, r+"/"+fill+"common/f.kt", r+"/"+fill+"common/deep/"+fill+"common/f.kt", r+"/x/"+fill+"common/f.kt", r+"/common/"+fill+"deep/f.kt")
+	}
+	return out
+}
+
+func TestOVSuites(t *testing.T) {
+	out := os.Getenv("OV_OUT")
+	if out == "" {
+		t.Skip("OV_OUT not set")
+	}
+	s := &ovSink{t: t, out: out, reps: map[string][]ovRep{}}
+	defer s.flush()
+	plain := ovWorkspace(t, nil)
+
+	// Archived adversarial matrix, built with the frozen review constructor.
+	for _, c := range rvCases() {
+		s.run(ovFromRV("matrix", plain, c))
+	}
+	// The 33-case filename sweep, same construction as the frozen sweep probe.
+	for _, k := range []int{20, 40, 50, 60, 70, 80, 100, 120, 160, 200, 240} {
+		for _, where := range []string{"start", "middle", "end"} {
+			paths := make([]string, 32)
+			for i := range paths {
+				id := fmt.Sprintf("%03d", i)
+				var base string
+				switch where {
+				case "start":
+					base = id + strings.Repeat("L", k) + ".kt"
+				case "middle":
+					base = strings.Repeat("L", k/2) + id + strings.Repeat("L", k-k/2) + ".kt"
+				default:
+					base = strings.Repeat("L", k) + id + ".kt"
+				}
+				paths[i] = "src/main/kotlin/pkg/" + base
+			}
+			s.run(ovFromRV("sweep", plain, rvMake(fmt.Sprintf("sweep_%s_k%03d", where, k), paths, nil, nil, "eio")))
+		}
+	}
+
+	// Five original long-filename cases with the official fixture states.
+	dir := "src/main/kotlin/pkg/"
+	five := map[string][]string{
+		"end_k70":    solRevPathsPrefix(dir, 32, func(i int) string { return strings.Repeat("L", 70) + fmt.Sprintf("%03d", i) + ".kt" }),
+		"end_k100":   solRevPathsPrefix(dir, 32, func(i int) string { return strings.Repeat("L", 100) + fmt.Sprintf("%03d", i) + ".kt" }),
+		"end_k240":   solRevPathsPrefix(dir, 32, func(i int) string { return strings.Repeat("L", 240) + fmt.Sprintf("%03d", i) + ".kt" }),
+		"start_k240": solRevPathsPrefix(dir, 32, func(i int) string { return fmt.Sprintf("%03d", i) + strings.Repeat("L", 240) + ".kt" }),
+		"three_1404": {"a/" + strings.Repeat("n", 1400) + "1.kt", "b/" + strings.Repeat("n", 1400) + "2.kt", "c/" + strings.Repeat("n", 1400) + "3.kt"},
+	}
+	for _, name := range []string{"end_k70", "end_k100", "end_k240", "start_k240", "three_1404"} {
+		rec, res := solRevInputs(five[name], nil)
+		s.run(ovCase{suite: "five", name: name, set: plain, rec: rec, res: res, top: syscall.EIO})
+	}
+
+	// The archived 40-file batch in the six reviewed orders plus 24 further seeded shuffles.
+	base := ovArchived40()
+	orders := map[string][]int{}
+	id := make([]int, len(base))
+	for i := range id {
+		id[i] = i
+	}
+	orders["original"] = id
+	rev := make([]int, len(base))
+	rot := make([]int, len(base))
+	for i := range base {
+		rev[i], rot[i] = len(base)-1-i, (i+1)%len(base)
+	}
+	orders["reverse"], orders["rotate1"] = rev, rot
+	byShape := append([]int(nil), id...)
+	sort.SliceStable(byShape, func(i, j int) bool { return byShape[i]%4 < byShape[j]%4 })
+	orders["by_shape"] = byShape
+	for _, seed := range []int64{7, 31, 101, 202, 303, 404, 505, 606, 707, 808, 909, 1001, 1102, 1203, 1304, 1405, 1506, 1607, 1708, 1809, 1910, 2011, 2112, 2213, 2314, 2415} {
+		sh := append([]int(nil), id...)
+		rand.New(rand.NewSource(seed)).Shuffle(len(sh), func(i, j int) { sh[i], sh[j] = sh[j], sh[i] })
+		orders[fmt.Sprintf("seed%d", seed)] = sh
+	}
+	var names []string
+	for n := range orders {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		var items []ovItem
+		for k, src := range orders[n] {
+			items = append(items, ovItem{path: base[src], state: rvStates[k%len(rvStates)]})
+		}
+		c := ovCommit("perm40", n, plain, items)
+		content, _ := s.run(c)
+		if again := c.render(); again != content {
+			t.Errorf("perm40 %s: rendering is not deterministic", n)
+		}
+	}
+	// The same batch with states tied to files rather than to positions.
+	for _, n := range names {
+		var items []ovItem
+		for _, src := range orders[n] {
+			items = append(items, ovItem{path: base[src], state: rvStates[src%len(rvStates)]})
+		}
+		s.run(ovCommit("perm40fixed", n, plain, items))
+	}
+
+	// Literal ellipsis on disk.
+	lit := func(name string, files []string, items []ovItem) {
+		set := ovWorkspace(t, files)
+		s.run(ovCommit("literal", name, set, items))
+	}
+	l1 := []string{"a/…/f.kt", "a/b/c/f.kt", "a/x/f.kt", "a/…{2}/f.kt", "a/%E2%80%A6/f.kt"}
+	lit("L1_literal_dir", l1, ovFailed(l1))
+	l2 := []string{"pkg/real…tail.kt", "pkg/realXYZtail.kt", "pkg/realtail.kt", "pkg/real…/tail.kt", "pkg/re…/al/tail.kt"}
+	lit("L2_literal_filename", l2, ovFailed(l2))
+	l3 := []string{"t/…/…/…", "t/…/…/x.kt", "t/a/b/x.kt", "t/a/b/c/…", "t/…/x.kt"}
+	lit("L3_multiple_literal", l3, ovFailed(l3))
+	fill := strings.Repeat(strings.Repeat("m", 170)+"/", 6)
+	var l4 []string
+	l4 = append(l4, "deep/…/"+fill+"common/f.kt", "deep/q/"+fill+"common/f.kt")
+	for i := 0; i < 40; i++ {
+		l4 = append(l4, fmt.Sprintf("deep/p%02d/%scommon/f.kt", i, fill))
+	}
+	lit("L4_literal_and_synthetic_overflow", nil, ovFailed(l4))
+	l5 := []string{"n/…/…/…/deep/f.kt", "n/a/b/c/deep/f.kt", "n/a/deep/f.kt", "n/…/deep/f.kt", "n/…/…/deep/f.kt"}
+	lit("L5_nested_literal_dirs", l5, ovFailed(l5))
+	l8 := []string{"u/ü…/q\"&<>.kt", "u/üX/q\"&<>.kt", "u/e\u0301…/x.kt", "u/e\u0301Y/x.kt", "u/sep\u2028…/z.kt", "u/sep\u2028Q/z.kt"}
+	lit("L8_unicode_escaping_literal", l8, ovFailed(l8))
+	var l10 []string
+	for i := 0; i < 31; i++ {
+		l10 = append(l10, "src/main/kotlin/pkg/"+strings.Repeat("L", 240)+fmt.Sprintf("%03d", i)+".kt")
+	}
+	l10 = append(l10, "src/…/kotlin/pkg/"+strings.Repeat("L", 240)+"031.kt")
+	lit("L10_long_basename_with_literal_dir", nil, ovFailed(l10))
+	// A literal "…" path that is omitted, with a shown row whose shorthand could reach it.
+	var l11 []string
+	l11 = append(l11, "a/b/"+strings.Repeat("w", 60)+"/f.kt")
+	for i := 0; i < 60; i++ {
+		l11 = append(l11, fmt.Sprintf("filler/%s%02d.kt", strings.Repeat("q", 40), i))
+	}
+	l11 = append(l11, "a/…/f.kt")
+	lit("L11_literal_omitted_target_of_shorthand", nil, ovFailed(l11))
+
+	// Zero-gap shorthand: root, interior and counted variants.
+	var z []string
+	z = append(z, strings.Repeat("z", 60)+"/common/f.kt")
+	for i := 0; i < 60; i++ {
+		z = append(z, fmt.Sprintf("filler/%s%02d.kt", strings.Repeat("q", 30), i))
+	}
+	z = append(z, "common/f.kt")
+	s.run(ovCommit("zero", "Z1_root_suffix", plain, ovFailed(z)))
+	z2 := []string{"r/" + strings.Repeat("y", 300) + "/common/f.kt", "r/common/f.kt", "r/q/common/f.kt", "r/q/w/common/f.kt", "s/" + strings.Repeat("y", 300) + "/common/f.kt"}
+	for i := 0; i < 50; i++ {
+		z2 = append(z2, fmt.Sprintf("filler/%s%02d.kt", strings.Repeat("q", 40), i))
+	}
+	s.run(ovCommit("zero", "Z2_interior", plain, ovFailed(z2)))
+	z3 := append(ovArchived40(), "r00/common/f.kt", "r01/f.kt", "r02/x/f.kt")
+	s.run(ovCommit("zero", "Z3_counted_with_short_twins", plain, ovFailed(z3)))
+	// A literal brace directory that a reader of "…" as in-component text would take for the counted gap.
+	z4 := append(ovArchived40(), "r00/q{7}/f.kt", "r01/{15}/f.kt", "r02/mm{7}/f.kt")
+	s.run(ovCommit("zero", "Z4_counted_vs_brace_literal", plain, ovFailed(z4)))
+
+	// Redacted paths that carry a literal ellipsis.
+	red := []string{"../outside/a…b.kt", "../other/aZZb.kt", "ws/a…b.kt", "../third/key.txt"}
+	s.run(ovCommit("redacted", "R1_redacted_literal_ellipsis", plain, ovFailed(red)))
+	red2 := []string{"../o1/x" + ovEll + "y.kt", "../o2/xQy.kt"}
+	for i := 0; i < 60; i++ {
+		red2 = append(red2, fmt.Sprintf("filler/%s%02d.kt", strings.Repeat("q", 40), i))
+	}
+	s.run(ovCommit("redacted", "R2_redacted_overflow", plain, ovFailed(red2)))
+	tr, _ := plain.editOutcome(&editing.Error{Code: editing.CodeStale, Path: "../o/k…y.txt", Detail: "refused"})
+	s.reps["redacted"] = append(s.reps["redacted"], ovCheck(ovCase{suite: "redacted", name: "R3_standalone_refusal", set: plain, editErr: &editing.Error{Code: editing.CodeStale, Path: "../o/k…y.txt"}}, tr.Content))
+	trl, _ := ovWorkspace(t, []string{"a/…/f.kt"}).editOutcome(&editing.Error{Code: editing.CodeStale, Path: "a/…/f.kt", Detail: "refused"})
+	s.reps["redacted"] = append(s.reps["redacted"], ovCheck(ovCase{suite: "redacted", name: "R4_standalone_literal_refusal", set: ovWorkspace(t, []string{"a/…/f.kt"}), editErr: &editing.Error{Code: editing.CodeStale, Path: "a/…/f.kt"}}, trl.Content))
+	ovWrite(t, filepath.Join(out, "redacted"), "R3_standalone_refusal.json", []byte(tr.Content))
+	ovWrite(t, filepath.Join(out, "redacted"), "R4_standalone_literal_refusal.json", []byte(trl.Content))
+
+	// Windows and UNC workspace spellings, parsed portably on this host.
+	win := &Set{workspace: `C:\ws`, realWorkspace: `C:\ws`}
+	w1 := []ovItem{
+		{path: `C:\ws\a\…\f.kt`, state: editing.PublishExternalModification},
+		{path: `C:\ws\a\b\c\f.kt`, state: editing.PublishPartial},
+		{path: `a\x\f.kt`, state: editing.PublishSucceededWithPostError},
+		{path: `C:\ws\a\b\c\g.kt`, state: editing.PublishUncertain},
+		{path: `a/b/c/g.kt`, state: editing.PublishRollbackFailed},
+		{path: `D:\other\f.kt`, state: editing.PublishPartial},
+		{path: `C:\WS\A\B\C\F.kt`, state: editing.PublishPartial},
+	}
+	s.run(ovCommit("windows", "W1_drive", win, w1))
+	var w2 []ovItem
+	for i := 0; i < 50; i++ {
+		w2 = append(w2, ovItem{path: fmt.Sprintf(`C:\ws\%s\mod%02d\%s\config.yaml`, strings.Repeat("d", 120), i, strings.Repeat("e", 120)), state: rvStates[i%len(rvStates)]})
+	}
+	w2 = append(w2, ovItem{path: `C:\ws\…\x\config.yaml`, state: editing.PublishPartial})
+	s.run(ovCommit("windows", "W2_drive_overflow", win, w2))
+	unc := &Set{workspace: `\\srv\share\ws`, realWorkspace: `\\srv\share\ws`}
+	s.run(ovCommit("windows", "W3_unc", unc, []ovItem{
+		{path: `\\srv\share\ws\a\…\f.kt`, state: editing.PublishPartial},
+		{path: `\\SRV\SHARE\ws\a\b\f.kt`, state: editing.PublishPartial},
+		{path: `\\srv\other\f.kt`, state: editing.PublishPartial},
+	}))
+
+	// JSON escaping: the archived ampersand batch and variants with other escaped bytes.
+	escape := func(name, mark string) {
+		var targets, comps []string
+		for i := 0; i < 32; i++ {
+			pre := fmt.Sprintf("%02dA", i) + strings.Repeat("a", 70)
+			target := pre + strings.Repeat(mark, 16) + "0.kt"
+			targets = append(targets, "pkg/"+target)
+			comps = append(comps, "pkg/"+pre+strings.Repeat(mark, 16)+"1.kt", "pkg/B"+target, "pkg/"+target[:12]+"zOTHER.kt")
+		}
+		items := ovFailed(targets)
+		for _, c := range comps {
+			items = append(items, ovItem{path: c})
+		}
+		s.run(ovCommit("escape", name, plain, items))
+	}
+	for name, mark := range map[string]string{"E_amp": "&", "E_lt": "<", "E_gt": ">", "E_quote": "\"", "E_backslash": `\`, "E_tab": "\t", "E_u2028": "\u2028", "E_u2029": "\u2029", "E_ctrl01": "\x01", "E_bs08": "\b", "E_ff0c": "\f", "E_cjk": "支", "E_emoji": "🔥", "E_combining": "e\u0301", "E_plain": "b"} {
+		escape(name, mark)
+	}
+	// Escaped bytes at the distinguishing end, and at the start.
+	for name, mark := range map[string]string{"E_end_amp": "&", "E_end_quote": "\""} {
+		var paths []string
+		for i := 0; i < 32; i++ {
+			paths = append(paths, "pkg/"+strings.Repeat(mark, 80)+fmt.Sprintf("%03d", i)+".kt")
+		}
+		s.run(ovCommit("escape", name, plain, ovFailed(paths)))
+	}
+
+	// Impossible rows (the compact row cannot fit even alone) ahead of renderable ones.
+	tail := "/" + strings.Repeat(strings.Repeat("&", 162)+"/", 4) + "f.kt"
+	imp := func(i int) string { return fmt.Sprintf("i%02d…i", i) + tail }
+	s.run(ovCommit("impossible", "I1_first_failed_impossible_later_failed_fits", plain, []ovItem{
+		{path: imp(0), state: editing.PublishExternalModification}, {path: "good.kt", state: editing.PublishPartial}, {path: imp(99)},
+	}))
+	s.run(ovCommit("impossible", "I3_first_failed_impossible_later_verified_fits", plain, []ovItem{
+		{path: imp(0), state: editing.PublishExternalModification}, {path: "ok.kt", ver: true}, {path: imp(99)},
+	}))
+	s.run(ovCommit("impossible", "I3b_no_failed_first_verified_impossible", plain, []ovItem{
+		{path: imp(0), ver: true}, {path: "ok.kt", ver: true}, {path: imp(99)},
+	}))
+	var i4 []ovItem
+	for i := 0; i < 5; i++ {
+		i4 = append(i4, ovItem{path: imp(i), state: rvStates[i%len(rvStates)]})
+	}
+	i4 = append(i4, ovItem{path: "g/one.kt", state: editing.PublishPartial}, ovItem{path: "g/two.kt", state: editing.PublishUncertain}, ovItem{path: "g/three.kt", state: editing.PublishRollbackFailed})
+	s.run(ovCommit("impossible", "I4_five_impossible_then_three", plain, i4))
+	var i5 []ovItem
+	for i := 0; i < 7; i++ {
+		i5 = append(i5, ovItem{path: imp(i), state: rvStates[(i+2)%len(rvStates)]})
+		i5 = append(i5, ovItem{path: fmt.Sprintf("g/m%02d.kt", i), state: rvStates[i%len(rvStates)]})
+	}
+	i5 = append(i5, ovItem{path: "v/a.kt", ver: true}, ovItem{path: "v/b.kt", ver: true}, ovItem{path: "u/a.kt"}, ovItem{path: "u/b.kt"}, ovItem{path: "r/only.kt", only: true})
+	s.run(ovCommit("impossible", "I5_interleaved_mixed_states", plain, i5))
+	// Prefix policy: a large but individually renderable row between small rows.
+	var i8 []ovItem
+	for i := 0; i < 20; i++ {
+		i8 = append(i8, ovItem{path: fmt.Sprintf("s/a%02d.kt", i), state: rvStates[i%len(rvStates)]})
+	}
+	i8 = append(i8, ovItem{path: "big…" + "/" + strings.Repeat(strings.Repeat("&", 162)+"/", 2) + "f.kt", state: editing.PublishPartial}, ovItem{path: "twin…/" + strings.Repeat(strings.Repeat("&", 162)+"/", 2) + "f.kt"})
+	for i := 0; i < 20; i++ {
+		i8 = append(i8, ovItem{path: fmt.Sprintf("s/b%02d.kt", i), state: rvStates[i%len(rvStates)]})
+	}
+	s.run(ovCommit("impossible", "I8_large_renderable_row_between_small_rows", plain, i8))
+	// The omission metadata window: a first row that fits alone without filesOmitted/filesOmittedByState
+	// but not with them, followed by a cheap failed row.
+	for pad := 0; pad <= 700; pad += ovStep(pad) {
+		tl := "/" + strings.Repeat(strings.Repeat("&", 162)+"/", 3) + strings.Repeat("z", pad) + "/f.kt"
+		s.run(ovCommit("window", fmt.Sprintf("W_pad%03d", pad), plain, []ovItem{
+			{path: "a…a" + tl, state: editing.PublishExternalModification}, {path: "good.kt", state: editing.PublishPartial}, {path: "b…b" + tl},
+		}))
+	}
+}
+
+// TestOV40Costs prices the archived 40-file batch with the renderer's compact labels: the 31- and
+// 32-row prefixes, and the 32 cheapest rows in any order, each with exact omission metadata.
+func TestOV40Costs(t *testing.T) {
+	out := os.Getenv("OV_OUT")
+	if out == "" {
+		t.Skip("OV_OUT not set")
+	}
+	set := ovWorkspace(t, nil)
+	base := ovArchived40()
+	var items []ovItem
+	for i, p := range base {
+		items = append(items, ovItem{path: p, state: rvStates[i%len(rvStates)]})
+	}
+	c := ovCommit("perm40costs", "original", set, items)
+	content := c.render()
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(content), &body); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]json.RawMessage{}
+	for k, v := range body {
+		if k != "files" && k != "filesOmitted" && k != "filesOmittedByState" {
+			env[k] = v
+		}
+	}
+	disp := set.displayPaths()
+	idx := newFailurePathIndex()
+	for _, f := range c.rec.Files {
+		idx.add(f.Path, disp)
+	}
+	for _, f := range c.res.Files {
+		idx.add(f.Path, disp)
+	}
+	type rowT struct {
+		f     editing.FileCommitReceipt
+		label string
+		bytes int
+	}
+	var rows []rowT
+	for _, f := range c.rec.Files {
+		label := idx.label(f.Path, 0)
+		b, _ := json.Marshal(map[string]any{"path": label, "publishState": string(f.PublishState), "published": f.Published, "verified": f.Verified, "wrote": f.Wrote})
+		rows = append(rows, rowT{f, label, len(b)})
+	}
+	size := func(sel []rowT) int {
+		p := map[string]any{}
+		for k, v := range env {
+			p[k] = v
+		}
+		left := map[string]int{}
+		for _, f := range c.rec.Files {
+			left[string(f.PublishState)]++
+		}
+		list := make([]map[string]any, len(sel))
+		for i, r := range sel {
+			list[i] = map[string]any{"path": r.label, "publishState": string(r.f.PublishState), "published": r.f.Published, "verified": r.f.Verified, "wrote": r.f.Wrote}
+			left[string(r.f.PublishState)]--
+		}
+		p["files"] = list
+		if om := len(c.rec.Files) - len(sel); om > 0 {
+			for k, v := range left {
+				if v == 0 {
+					delete(left, k)
+				}
+			}
+			p["filesOmitted"], p["filesOmittedByState"] = om, left
+		}
+		b, _ := json.Marshal(p)
+		return len(b)
+	}
+	cheap := append([]rowT(nil), rows...)
+	sort.SliceStable(cheap, func(i, j int) bool { return cheap[i].bytes < cheap[j].bytes })
+	var labels []string
+	var lens []int
+	for _, r := range rows {
+		labels = append(labels, r.label)
+		lens = append(lens, ovJSONLen(r.label))
+	}
+	res := map[string]any{
+		"renderedBytes": len(content), "prefix31": size(rows[:31]), "prefix32": size(rows[:32]),
+		"cheapest32": size(cheap[:32]), "cheapest33": size(cheap[:33]), "labels": labels, "labelJSONBytes": lens,
+	}
+	b, _ := json.MarshalIndent(res, "", " ")
+	ovWrite(t, out, "perm40-costs.json", b)
+}
+
+// TestOVCorpus checks payloads written by the frozen corpus dump against the inputs it recorded.
+func TestOVCorpus(t *testing.T) {
+	in, outDir, rep := os.Getenv("OV_CORPUS_IN"), os.Getenv("OV_CORPUS_OUT"), os.Getenv("OV_CORPUS_REPORT")
+	if in == "" || outDir == "" || rep == "" {
+		t.Skip("OV_CORPUS_* not set")
+	}
+	set := ovWorkspace(t, nil)
+	metas, err := filepath.Glob(filepath.Join(in, "*.meta"))
+	if err != nil || len(metas) == 0 {
+		t.Fatalf("no corpus metadata in %s: %v", in, err)
+	}
+	var b strings.Builder
+	for _, m := range metas {
+		name := strings.TrimSuffix(filepath.Base(m), ".meta")
+		var meta struct{ Top, Code, Path string }
+		raw, err := os.ReadFile(m)
+		if err != nil || json.Unmarshal(raw, &meta) != nil {
+			t.Fatalf("%s: unreadable metadata", name)
+		}
+		c := ovCase{suite: "corpus", name: name, set: set}
+		if data, err := os.ReadFile(filepath.Join(in, name+".json")); err == nil {
+			var inp struct {
+				Result  editing.Result        `json:"result"`
+				Receipt editing.CommitReceipt `json:"receipt"`
+			}
+			if err := json.Unmarshal(data, &inp); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			c.rec, c.res = inp.Receipt, inp.Result
+		}
+		if meta.Code != "" {
+			c.editErr = &editing.Error{Code: meta.Code, Path: meta.Path}
+		}
+		content, err := os.ReadFile(filepath.Join(outDir, name+".json"))
+		if err != nil {
+			t.Fatalf("%s: missing output", name)
+		}
+		r := ovCheck(c, strings.TrimSuffix(string(content), "\n"))
+		line, _ := json.Marshal(r)
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	if err := os.WriteFile(rep, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

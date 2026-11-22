@@ -1,0 +1,916 @@
+===== HEADER =====
+HEAD: 7e0610fa86bdf0c8001187b4d4985b601603d104
+branch: fix/adr-0024-opus-ov-remediation-20261122
+editing.go blob at HEAD: d470f49bef3fcafbd070a006b5902e4c5dc40fb7
+status before: []
+go version go1.26.5 darwin/arm64
+Darwin arm64
+Apple M1 Pro
+===== END HEADER =====
+
+===== COMMAND: gofmt -l internal/toolset/editing.go internal/toolset/r7r2_astra_final_test.go internal/toolset/r7r2_final_test.go internal/toolset/r7r2_ov_remediation_test.go internal/toolset/r7r2_ov_remediation_units_test.go internal/toolset/r7r2_results_test.go internal/toolset/r7r2_sol_rev01_test.go internal/toolset/r7r2_sol_test.go  =====
+===== START: 2026-11-22T10:21:06Z =====
+===== ELAPSED_SECONDS: 0 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go build ./... =====
+===== START: 2026-11-22T10:21:06Z =====
+===== ELAPSED_SECONDS: 3 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go vet ./... =====
+===== START: 2026-11-22T10:21:09Z =====
+===== ELAPSED_SECONDS: 1 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -count=1 ./internal/toolset =====
+===== START: 2026-11-22T10:21:10Z =====
+ok  	github.com/edynasty/LumenCortex/internal/toolset	31.360s
+===== ELAPSED_SECONDS: 32 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -race -count=1 ./internal/toolset =====
+===== START: 2026-11-22T10:21:42Z =====
+ok  	github.com/edynasty/LumenCortex/internal/toolset	96.944s
+===== ELAPSED_SECONDS: 98 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -count=1 -v -run '^TestOV' ./internal/toolset =====
+===== START: 2026-11-22T10:23:20Z =====
+=== RUN   TestOVCountedGapNeverReadsAsBraceLiteral
+--- PASS: TestOVCountedGapNeverReadsAsBraceLiteral (0.05s)
+=== RUN   TestOVPathNotation
+=== RUN   TestOVPathNotation/exact_literal_on_disk
+=== RUN   TestOVPathNotation/abbreviated_directory
+=== RUN   TestOVPathNotation/abbreviated_filename
+=== RUN   TestOVPathNotation/counted
+=== RUN   TestOVPathNotation/literal_tail
+=== RUN   TestOVPathNotation/redacted_literal
+=== RUN   TestOVPathNotation/no_notation
+=== RUN   TestOVPathNotation/near_4096
+--- PASS: TestOVPathNotation (0.09s)
+    --- PASS: TestOVPathNotation/exact_literal_on_disk (0.00s)
+    --- PASS: TestOVPathNotation/abbreviated_directory (0.01s)
+    --- PASS: TestOVPathNotation/abbreviated_filename (0.04s)
+    --- PASS: TestOVPathNotation/counted (0.02s)
+    --- PASS: TestOVPathNotation/literal_tail (0.00s)
+    --- PASS: TestOVPathNotation/redacted_literal (0.00s)
+    --- PASS: TestOVPathNotation/no_notation (0.00s)
+    --- PASS: TestOVPathNotation/near_4096 (0.02s)
+=== RUN   TestOVTruncatedOnlyForRemovedContent
+=== RUN   TestOVTruncatedOnlyForRemovedContent/exact_literal_rich
+=== RUN   TestOVTruncatedOnlyForRemovedContent/standalone_literal_refusal
+=== RUN   TestOVTruncatedOnlyForRemovedContent/directory_shortened
+=== RUN   TestOVTruncatedOnlyForRemovedContent/filename_shortened
+=== RUN   TestOVTruncatedOnlyForRemovedContent/rows_omitted
+=== RUN   TestOVTruncatedOnlyForRemovedContent/error_text_truncated
+--- PASS: TestOVTruncatedOnlyForRemovedContent (0.02s)
+    --- PASS: TestOVTruncatedOnlyForRemovedContent/exact_literal_rich (0.00s)
+    --- PASS: TestOVTruncatedOnlyForRemovedContent/standalone_literal_refusal (0.00s)
+    --- PASS: TestOVTruncatedOnlyForRemovedContent/directory_shortened (0.00s)
+    --- PASS: TestOVTruncatedOnlyForRemovedContent/filename_shortened (0.00s)
+    --- PASS: TestOVTruncatedOnlyForRemovedContent/rows_omitted (0.01s)
+    --- PASS: TestOVTruncatedOnlyForRemovedContent/error_text_truncated (0.00s)
+=== RUN   TestOVSelection40Permutations
+--- PASS: TestOVSelection40Permutations (0.58s)
+=== RUN   TestOVLargeRowBetweenSmallRows
+--- PASS: TestOVLargeRowBetweenSmallRows (0.01s)
+=== RUN   TestOVLowerClassesUseOnlyLeftoverBudget
+=== RUN   TestOVLowerClassesUseOnlyLeftoverBudget/impossible_failed_first
+=== RUN   TestOVLowerClassesUseOnlyLeftoverBudget/impossible_verified_first
+=== RUN   TestOVLowerClassesUseOnlyLeftoverBudget/cheap_failed_keep_all
+--- PASS: TestOVLowerClassesUseOnlyLeftoverBudget (0.01s)
+    --- PASS: TestOVLowerClassesUseOnlyLeftoverBudget/impossible_failed_first (0.00s)
+    --- PASS: TestOVLowerClassesUseOnlyLeftoverBudget/impossible_verified_first (0.00s)
+    --- PASS: TestOVLowerClassesUseOnlyLeftoverBudget/cheap_failed_keep_all (0.00s)
+=== RUN   TestOVEqualCostTiesByPath
+--- PASS: TestOVEqualCostTiesByPath (0.02s)
+=== RUN   TestOVExactByteLimitPayload
+--- PASS: TestOVExactByteLimitPayload (0.05s)
+=== RUN   TestOVMetadataBandNeverHidesFittingRow
+--- PASS: TestOVMetadataBandNeverHidesFittingRow (0.14s)
+=== RUN   TestOVMetadataBand31Rows
+--- PASS: TestOVMetadataBand31Rows (0.01s)
+=== RUN   TestOVMetadataBandOneRow
+--- PASS: TestOVMetadataBandOneRow (0.00s)
+=== RUN   TestOVMetadataBandZeroRows
+--- PASS: TestOVMetadataBandZeroRows (0.00s)
+=== RUN   TestOVOmissionBytesMatchesJSON
+--- PASS: TestOVOmissionBytesMatchesJSON (0.00s)
+=== RUN   TestOVSelectRowsMatchesExhaustive
+--- PASS: TestOVSelectRowsMatchesExhaustive (0.52s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	3.083s
+===== ELAPSED_SECONDS: 5 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -count=1 -v -run '^TestSOLREV01|^TestSOL0|^TestR7R2Final|^TestR7R2New01|^TestR7FailurePayload|^TestAstra' ./internal/toolset =====
+===== START: 2026-11-22T10:23:25Z =====
+=== RUN   TestR7FailurePayloadEveryReceiptState
+=== RUN   TestR7FailurePayloadEveryReceiptState/partial_failed_path_first_verified_effect_and_recovery
+=== RUN   TestR7FailurePayloadEveryReceiptState/clean_external_conflict_is_not_dirty_without_an_effect
+=== RUN   TestR7FailurePayloadEveryReceiptState/truncation_keeps_the_failed_path
+--- PASS: TestR7FailurePayloadEveryReceiptState (0.00s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/partial_failed_path_first_verified_effect_and_recovery (0.00s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/clean_external_conflict_is_not_dirty_without_an_effect (0.00s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/truncation_keeps_the_failed_path (0.00s)
+=== RUN   TestAstraDepthTailArchived40
+=== RUN   TestAstraDepthTailArchived40/seed31
+    r7r2_astra_final_test.go:375: shown=30 omitted=10 byState=map[external_modification_detected:4 partially_modified:2 publication_uncertain:4] published=0 publishedOmitted=40 bytes=4095
+=== RUN   TestAstraDepthTailArchived40/original
+    r7r2_astra_final_test.go:375: shown=30 omitted=10 byState=map[external_modification_detected:4 partially_modified:2 publication_uncertain:4] published=0 publishedOmitted=40 bytes=4095
+=== RUN   TestAstraDepthTailArchived40/reverse
+    r7r2_astra_final_test.go:375: shown=30 omitted=10 byState=map[external_modification_detected:4 partially_modified:2 publication_uncertain:4] published=0 publishedOmitted=40 bytes=4095
+=== RUN   TestAstraDepthTailArchived40/rotate1
+    r7r2_astra_final_test.go:375: shown=30 omitted=10 byState=map[external_modification_detected:4 partially_modified:2 publication_uncertain:4] published=0 publishedOmitted=40 bytes=4095
+=== RUN   TestAstraDepthTailArchived40/by_shape
+    r7r2_astra_final_test.go:375: shown=30 omitted=10 byState=map[external_modification_detected:4 partially_modified:2 publication_uncertain:4] published=0 publishedOmitted=40 bytes=4095
+=== RUN   TestAstraDepthTailArchived40/seed7
+    r7r2_astra_final_test.go:375: shown=30 omitted=10 byState=map[external_modification_detected:4 partially_modified:2 publication_uncertain:4] published=0 publishedOmitted=40 bytes=4095
+--- PASS: TestAstraDepthTailArchived40 (0.11s)
+    --- PASS: TestAstraDepthTailArchived40/seed31 (0.02s)
+    --- PASS: TestAstraDepthTailArchived40/original (0.02s)
+    --- PASS: TestAstraDepthTailArchived40/reverse (0.02s)
+    --- PASS: TestAstraDepthTailArchived40/rotate1 (0.02s)
+    --- PASS: TestAstraDepthTailArchived40/by_shape (0.02s)
+    --- PASS: TestAstraDepthTailArchived40/seed7 (0.02s)
+=== RUN   TestAstraDepthTailNeverMasquerades
+    r7r2_astra_final_test.go:391: shown=30 omitted=10 byState=map[external_modification_detected:4 published_post_error:6] published=0 publishedOmitted=40 bytes=4082
+--- PASS: TestAstraDepthTailNeverMasquerades (0.02s)
+=== RUN   TestAstraLiteralEllipsisOnDisk
+    r7r2_astra_final_test.go:407: shown=15 omitted=0 byState=map[] published=7 publishedOmitted=8 bytes=3740
+--- PASS: TestAstraLiteralEllipsisOnDisk (0.01s)
+=== RUN   TestAstraSyntheticQuoteNames
+    r7r2_astra_final_test.go:422: shown=2 omitted=0 byState=map[] published=2 publishedOmitted=0 bytes=1063
+--- PASS: TestAstraSyntheticQuoteNames (0.00s)
+=== RUN   TestAstraLiteralOmittedComparisons
+    r7r2_astra_final_test.go:439: shown=28 omitted=25 byState=map[external_modification_detected:6 not_attempted:1 partially_modified:5 publication_uncertain:6 published_post_error:6 published_verified:1] published=0 publishedOmitted=52 bytes=4088
+--- PASS: TestAstraLiteralOmittedComparisons (0.04s)
+=== RUN   TestAstraStandaloneRefusalNames
+--- PASS: TestAstraStandaloneRefusalNames (0.00s)
+=== RUN   TestAstraSharedDirectoryNeverHidesSuccessors
+    r7r2_astra_final_test.go:493: shown=1 omitted=2 byState=map[external_modification_detected:1 not_attempted:1] published=0 publishedOmitted=2 bytes=606
+--- PASS: TestAstraSharedDirectoryNeverHidesSuccessors (0.00s)
+=== RUN   TestAstraExpensiveLiteralDirectoryKeepsNormalBasename
+    r7r2_astra_final_test.go:506: shown=2 omitted=0 byState=map[] published=0 publishedOmitted=2 bytes=825
+--- PASS: TestAstraExpensiveLiteralDirectoryKeepsNormalBasename (0.00s)
+=== RUN   TestAstraLiteralTailExemptionRedactedSegment
+    r7r2_astra_final_test.go:525: shown=2 omitted=0 byState=map[] published=2 publishedOmitted=0 bytes=1283
+--- PASS: TestAstraLiteralTailExemptionRedactedSegment (0.00s)
+=== RUN   TestAstraEscapedJointBatch
+    r7r2_astra_final_test.go:552: shown=28 omitted=100 byState=map[external_modification_detected:1 not_attempted:96 partially_modified:2 rollback_failed:1] published=0 publishedOmitted=32 bytes=4079
+--- PASS: TestAstraEscapedJointBatch (0.06s)
+=== RUN   TestAstraOmittedRootSuffix
+=== RUN   TestAstraOmittedRootSuffix/exact_j3
+    r7r2_astra_final_test.go:587: shown=29 omitted=33 byState=map[external_modification_detected:12 publication_uncertain:11 published_post_error:9 rollback_failed:1] published=0 publishedOmitted=62 bytes=4096
+=== RUN   TestAstraOmittedRootSuffix/long_root
+    r7r2_astra_final_test.go:587: shown=29 omitted=33 byState=map[external_modification_detected:12 publication_uncertain:11 published_post_error:9 rollback_failed:1] published=0 publishedOmitted=62 bytes=4096
+--- PASS: TestAstraOmittedRootSuffix (0.08s)
+    --- PASS: TestAstraOmittedRootSuffix/exact_j3 (0.04s)
+    --- PASS: TestAstraOmittedRootSuffix/long_root (0.04s)
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_17
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_20
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_22
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_23
+--- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits (0.38s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_17 (0.11s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_20 (0.11s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_22 (0.08s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_23 (0.08s)
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_50
+    r7r2_final_test.go:130: bytes=4087 shown=30 omitted=21 byState=map[external_modification_detected:6 not_attempted:1 publication_uncertain:7 published_post_error:7]
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_100
+    r7r2_final_test.go:130: bytes=4096 shown=30 omitted=71 byState=map[external_modification_detected:17 not_attempted:1 partially_modified:16 publication_uncertain:18 published_post_error:17 rollback_failed:2]
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_200
+    r7r2_final_test.go:130: bytes=4095 shown=30 omitted=171 byState=map[external_modification_detected:37 not_attempted:1 partially_modified:37 publication_uncertain:38 published_post_error:37 rollback_failed:21]
+--- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix (1.26s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_50 (0.18s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_100 (0.36s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_200 (0.72s)
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/five_modules_long_shared_tail
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/eight_modules_between_long_shared_ends
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/sixteen_long_names_differing_at_the_end
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/twenty_four_services_one_package
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/twelve_unicode_names_with_spaces
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/two_paths_over_the_failed_row_bound
+--- PASS: TestR7R2FinalSameNameRowsStayDistinct (0.02s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/five_modules_long_shared_tail (0.00s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/eight_modules_between_long_shared_ends (0.00s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/sixteen_long_names_differing_at_the_end (0.00s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/twenty_four_services_one_package (0.00s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/twelve_unicode_names_with_spaces (0.00s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/two_paths_over_the_failed_row_bound (0.01s)
+=== RUN   TestR7R2FinalFiveFailedSameNameFilesStayDistinct
+--- PASS: TestR7R2FinalFiveFailedSameNameFilesStayDistinct (0.01s)
+=== RUN   TestR7R2FinalRefusedPathSurvivesOverflow
+--- PASS: TestR7R2FinalRefusedPathSurvivesOverflow (0.00s)
+=== RUN   TestR7R2FinalOverflowBoundWorstCase
+--- PASS: TestR7R2FinalOverflowBoundWorstCase (0.20s)
+=== RUN   TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities
+--- PASS: TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities (0.01s)
+=== RUN   TestR7R2New01OverflowBoundaryMatrix
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/single_failed_long_path_bare_eio
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/mixed_failed_unicode_longname_and_identical_basenames
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/eight_failed_rows_long_paths
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/cancellation_without_path_long_dirs
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/impossible_to_fit_50_failed_rows_discloses_omissions
+--- PASS: TestR7R2New01OverflowBoundaryMatrix (0.06s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/single_failed_long_path_bare_eio (0.01s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/mixed_failed_unicode_longname_and_identical_basenames (0.01s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/eight_failed_rows_long_paths (0.01s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/cancellation_without_path_long_dirs (0.01s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/impossible_to_fit_50_failed_rows_discloses_omissions (0.01s)
+=== RUN   TestSOLREV01SolFloorCases
+=== RUN   TestSOLREV01SolFloorCases/end_k70
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01SolFloorCases/end_k100
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01SolFloorCases/end_k240
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01SolFloorCases/start_k240
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01SolFloorCases/three_1404
+    r7r2_sol_rev01_test.go:341: bytes=1452 shown=3 omitted=0 byState=map[]
+--- PASS: TestSOLREV01SolFloorCases (0.13s)
+    --- PASS: TestSOLREV01SolFloorCases/end_k70 (0.02s)
+    --- PASS: TestSOLREV01SolFloorCases/end_k100 (0.03s)
+    --- PASS: TestSOLREV01SolFloorCases/end_k240 (0.06s)
+    --- PASS: TestSOLREV01SolFloorCases/start_k240 (0.02s)
+    --- PASS: TestSOLREV01SolFloorCases/three_1404 (0.00s)
+=== RUN   TestSOLREV01PositionSweep
+=== RUN   TestSOLREV01PositionSweep/end_20
+    r7r2_sol_rev01_test.go:341: bytes=4094 shown=27 omitted=5 byState=map[external_modification_detected:2 partially_modified:3]
+=== RUN   TestSOLREV01PositionSweep/end_40
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/end_50
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/end_60
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/end_70
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/end_80
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/end_100
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/end_120
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/end_160
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/end_200
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/end_240
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/middle_20
+    r7r2_sol_rev01_test.go:341: bytes=4094 shown=27 omitted=5 byState=map[external_modification_detected:2 partially_modified:3]
+=== RUN   TestSOLREV01PositionSweep/middle_40
+    r7r2_sol_rev01_test.go:341: bytes=4090 shown=27 omitted=5 byState=map[external_modification_detected:2 partially_modified:2 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/middle_50
+    r7r2_sol_rev01_test.go:341: bytes=4090 shown=27 omitted=5 byState=map[external_modification_detected:2 partially_modified:2 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/middle_60
+    r7r2_sol_rev01_test.go:341: bytes=4090 shown=27 omitted=5 byState=map[external_modification_detected:2 partially_modified:2 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/middle_70
+    r7r2_sol_rev01_test.go:341: bytes=4090 shown=27 omitted=5 byState=map[external_modification_detected:2 partially_modified:2 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/middle_80
+    r7r2_sol_rev01_test.go:341: bytes=4090 shown=27 omitted=5 byState=map[external_modification_detected:2 partially_modified:2 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/middle_100
+    r7r2_sol_rev01_test.go:341: bytes=4090 shown=27 omitted=5 byState=map[external_modification_detected:2 partially_modified:2 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/middle_120
+    r7r2_sol_rev01_test.go:341: bytes=4090 shown=27 omitted=5 byState=map[external_modification_detected:2 partially_modified:2 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/middle_160
+    r7r2_sol_rev01_test.go:341: bytes=4090 shown=27 omitted=5 byState=map[external_modification_detected:2 partially_modified:2 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/middle_200
+    r7r2_sol_rev01_test.go:341: bytes=4090 shown=27 omitted=5 byState=map[external_modification_detected:2 partially_modified:2 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/middle_240
+    r7r2_sol_rev01_test.go:341: bytes=4090 shown=27 omitted=5 byState=map[external_modification_detected:2 partially_modified:2 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/start_20
+    r7r2_sol_rev01_test.go:341: bytes=4094 shown=27 omitted=5 byState=map[external_modification_detected:2 partially_modified:3]
+=== RUN   TestSOLREV01PositionSweep/start_40
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/start_50
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/start_60
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/start_70
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/start_80
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/start_100
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/start_120
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/start_160
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/start_200
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01PositionSweep/start_240
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+--- PASS: TestSOLREV01PositionSweep (0.73s)
+    --- PASS: TestSOLREV01PositionSweep/end_20 (0.01s)
+    --- PASS: TestSOLREV01PositionSweep/end_40 (0.02s)
+    --- PASS: TestSOLREV01PositionSweep/end_50 (0.02s)
+    --- PASS: TestSOLREV01PositionSweep/end_60 (0.02s)
+    --- PASS: TestSOLREV01PositionSweep/end_70 (0.02s)
+    --- PASS: TestSOLREV01PositionSweep/end_80 (0.03s)
+    --- PASS: TestSOLREV01PositionSweep/end_100 (0.03s)
+    --- PASS: TestSOLREV01PositionSweep/end_120 (0.03s)
+    --- PASS: TestSOLREV01PositionSweep/end_160 (0.04s)
+    --- PASS: TestSOLREV01PositionSweep/end_200 (0.05s)
+    --- PASS: TestSOLREV01PositionSweep/end_240 (0.06s)
+    --- PASS: TestSOLREV01PositionSweep/middle_20 (0.01s)
+    --- PASS: TestSOLREV01PositionSweep/middle_40 (0.01s)
+    --- PASS: TestSOLREV01PositionSweep/middle_50 (0.02s)
+    --- PASS: TestSOLREV01PositionSweep/middle_60 (0.02s)
+    --- PASS: TestSOLREV01PositionSweep/middle_70 (0.02s)
+    --- PASS: TestSOLREV01PositionSweep/middle_80 (0.02s)
+    --- PASS: TestSOLREV01PositionSweep/middle_100 (0.02s)
+    --- PASS: TestSOLREV01PositionSweep/middle_120 (0.03s)
+    --- PASS: TestSOLREV01PositionSweep/middle_160 (0.03s)
+    --- PASS: TestSOLREV01PositionSweep/middle_200 (0.04s)
+    --- PASS: TestSOLREV01PositionSweep/middle_240 (0.04s)
+    --- PASS: TestSOLREV01PositionSweep/start_20 (0.01s)
+    --- PASS: TestSOLREV01PositionSweep/start_40 (0.01s)
+    --- PASS: TestSOLREV01PositionSweep/start_50 (0.01s)
+    --- PASS: TestSOLREV01PositionSweep/start_60 (0.01s)
+    --- PASS: TestSOLREV01PositionSweep/start_70 (0.01s)
+    --- PASS: TestSOLREV01PositionSweep/start_80 (0.01s)
+    --- PASS: TestSOLREV01PositionSweep/start_100 (0.01s)
+    --- PASS: TestSOLREV01PositionSweep/start_120 (0.01s)
+    --- PASS: TestSOLREV01PositionSweep/start_160 (0.02s)
+    --- PASS: TestSOLREV01PositionSweep/start_200 (0.02s)
+    --- PASS: TestSOLREV01PositionSweep/start_240 (0.02s)
+=== RUN   TestSOLREV01LongNameShapes
+=== RUN   TestSOLREV01LongNameShapes/identical_long_prefixes
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01LongNameShapes/identical_long_suffixes
+    r7r2_sol_rev01_test.go:341: bytes=4060 shown=29 omitted=3 byState=map[external_modification_detected:1 partially_modified:1 rollback_failed:1]
+=== RUN   TestSOLREV01LongNameShapes/same_name_32_modules
+    r7r2_sol_rev01_test.go:341: bytes=4089 shown=26 omitted=6 byState=map[external_modification_detected:5 partially_modified:1]
+=== RUN   TestSOLREV01LongNameShapes/unicode_end_and_middle
+    r7r2_sol_rev01_test.go:341: bytes=4094 shown=28 omitted=4 byState=map[external_modification_detected:4]
+=== RUN   TestSOLREV01LongNameShapes/filenames_with_spaces
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01LongNameShapes/same_long_name_two_siblings
+    r7r2_sol_rev01_test.go:341: bytes=1715 shown=2 omitted=0 byState=map[]
+=== RUN   TestSOLREV01LongNameShapes/long_names_under_190_byte_dirs
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+=== RUN   TestSOLREV01LongNameShapes/repeated_dirs_at_different_depths
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[partially_modified:1 publication_uncertain:1 published_post_error:1 rollback_failed:1]
+=== RUN   TestSOLREV01LongNameShapes/directory_shares_unique_prefix
+    r7r2_sol_rev01_test.go:341: bytes=4076 shown=28 omitted=5 byState=map[external_modification_detected:1 not_attempted:1 partially_modified:2 rollback_failed:1]
+=== RUN   TestSOLREV01LongNameShapes/case_variants_stay_distinct
+    r7r2_sol_rev01_test.go:341: bytes=4081 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+--- PASS: TestSOLREV01LongNameShapes (0.22s)
+    --- PASS: TestSOLREV01LongNameShapes/identical_long_prefixes (0.03s)
+    --- PASS: TestSOLREV01LongNameShapes/identical_long_suffixes (0.01s)
+    --- PASS: TestSOLREV01LongNameShapes/same_name_32_modules (0.02s)
+    --- PASS: TestSOLREV01LongNameShapes/unicode_end_and_middle (0.01s)
+    --- PASS: TestSOLREV01LongNameShapes/filenames_with_spaces (0.04s)
+    --- PASS: TestSOLREV01LongNameShapes/same_long_name_two_siblings (0.00s)
+    --- PASS: TestSOLREV01LongNameShapes/long_names_under_190_byte_dirs (0.03s)
+    --- PASS: TestSOLREV01LongNameShapes/repeated_dirs_at_different_depths (0.01s)
+    --- PASS: TestSOLREV01LongNameShapes/directory_shares_unique_prefix (0.05s)
+    --- PASS: TestSOLREV01LongNameShapes/case_variants_stay_distinct (0.02s)
+=== RUN   TestSOLREV01PathlessCancellation
+    r7r2_sol_rev01_test.go:341: bytes=4079 shown=28 omitted=4 byState=map[external_modification_detected:1 partially_modified:1 publication_uncertain:1 rollback_failed:1]
+--- PASS: TestSOLREV01PathlessCancellation (0.03s)
+=== RUN   TestSOLREV01MixedStatesWithoutErrorText
+    r7r2_sol_rev01_test.go:530: bytes=4073 shown=16 omitted=0 byState=map[]
+--- PASS: TestSOLREV01MixedStatesWithoutErrorText (0.00s)
+=== RUN   TestSOLREV01BoundaryExactly4096
+    r7r2_sol_rev01_test.go:562: bytes=3115 shown=5 omitted=0 byState=map[]
+--- PASS: TestSOLREV01BoundaryExactly4096 (0.49s)
+=== RUN   TestSOLREV01ImpossibleToFit
+    r7r2_sol_rev01_test.go:341: bytes=4096 shown=29 omitted=171 byState=map[external_modification_detected:39 partially_modified:37 publication_uncertain:39 published_post_error:39 rollback_failed:17]
+--- PASS: TestSOLREV01ImpossibleToFit (0.36s)
+=== RUN   TestSOLREV01SharedSuffixNeverResolvesToOmittedFile
+=== RUN   TestSOLREV01SharedSuffixNeverResolvesToOmittedFile/shown_vs_omitted_shared_suffix
+    r7r2_sol_rev01_test.go:341: bytes=4094 shown=30 omitted=31 byState=map[external_modification_detected:12 not_attempted:1 publication_uncertain:9 published_post_error:9]
+=== RUN   TestSOLREV01SharedSuffixNeverResolvesToOmittedFile/json_over_budget_filename_is_abbreviated
+    r7r2_sol_rev01_test.go:341: bytes=1368 shown=2 omitted=0 byState=map[]
+--- PASS: TestSOLREV01SharedSuffixNeverResolvesToOmittedFile (0.09s)
+    --- PASS: TestSOLREV01SharedSuffixNeverResolvesToOmittedFile/shown_vs_omitted_shared_suffix (0.09s)
+    --- PASS: TestSOLREV01SharedSuffixNeverResolvesToOmittedFile/json_over_budget_filename_is_abbreviated (0.00s)
+=== RUN   TestSOLREV01ShortBaseForms
+=== RUN   TestSOLREV01ShortBaseForms/i_whole_name_kept_when_nothing_cheaper_is_unique
+=== RUN   TestSOLREV01ShortBaseForms/h_prime_directory_named_like_the_window_target
+=== RUN   TestSOLREV01ShortBaseForms/a_short_name_unchanged
+=== RUN   TestSOLREV01ShortBaseForms/b_end_distinguished_suffix
+=== RUN   TestSOLREV01ShortBaseForms/c_start_distinguished_prefix
+=== RUN   TestSOLREV01ShortBaseForms/d_both_ends_joint
+=== RUN   TestSOLREV01ShortBaseForms/e_middle_window
+=== RUN   TestSOLREV01ShortBaseForms/f_multibyte_cut_points
+=== RUN   TestSOLREV01ShortBaseForms/g_directory_shares_long_prefix
+=== RUN   TestSOLREV01ShortBaseForms/h_directory_named_like_the_file
+--- PASS: TestSOLREV01ShortBaseForms (0.01s)
+    --- PASS: TestSOLREV01ShortBaseForms/i_whole_name_kept_when_nothing_cheaper_is_unique (0.00s)
+    --- PASS: TestSOLREV01ShortBaseForms/h_prime_directory_named_like_the_window_target (0.00s)
+    --- PASS: TestSOLREV01ShortBaseForms/a_short_name_unchanged (0.00s)
+    --- PASS: TestSOLREV01ShortBaseForms/b_end_distinguished_suffix (0.00s)
+    --- PASS: TestSOLREV01ShortBaseForms/c_start_distinguished_prefix (0.00s)
+    --- PASS: TestSOLREV01ShortBaseForms/d_both_ends_joint (0.00s)
+    --- PASS: TestSOLREV01ShortBaseForms/e_middle_window (0.00s)
+    --- PASS: TestSOLREV01ShortBaseForms/f_multibyte_cut_points (0.00s)
+    --- PASS: TestSOLREV01ShortBaseForms/g_directory_shares_long_prefix (0.00s)
+    --- PASS: TestSOLREV01ShortBaseForms/h_directory_named_like_the_file (0.00s)
+=== RUN   TestSOL01ArchivedDeep32
+    r7r2_sol_test.go:35: bytes=4061 rows=30 omitted=2 byState=map[external_modification_detected:1 partially_modified:1]
+--- PASS: TestSOL01ArchivedDeep32 (0.02s)
+=== RUN   TestSOL02PathIdentity
+=== RUN   TestSOL02PathIdentity/wide_distinction
+    r7r2_sol_test.go:104: bytes=1406 rows=3 unique=3 omitted=0 byState=map[]
+=== RUN   TestSOL02PathIdentity/repeated_directories_at_different_depths
+    r7r2_sol_test.go:104: bytes=1780 rows=4 unique=4 omitted=0 byState=map[]
+=== RUN   TestSOL02PathIdentity/same_basename
+    r7r2_sol_test.go:104: bytes=1859 rows=5 unique=5 omitted=0 byState=map[]
+=== RUN   TestSOL02PathIdentity/similar_basenames
+    r7r2_sol_test.go:104: bytes=1567 rows=4 unique=4 omitted=0 byState=map[]
+=== RUN   TestSOL02PathIdentity/long_parent_components
+    r7r2_sol_test.go:104: bytes=1232 rows=2 unique=2 omitted=0 byState=map[]
+=== RUN   TestSOL02PathIdentity/reserved_literal_label
+    r7r2_sol_test.go:104: bytes=3744 rows=3 unique=3 omitted=0 byState=map[]
+--- PASS: TestSOL02PathIdentity (0.00s)
+    --- PASS: TestSOL02PathIdentity/wide_distinction (0.00s)
+    --- PASS: TestSOL02PathIdentity/repeated_directories_at_different_depths (0.00s)
+    --- PASS: TestSOL02PathIdentity/same_basename (0.00s)
+    --- PASS: TestSOL02PathIdentity/similar_basenames (0.00s)
+    --- PASS: TestSOL02PathIdentity/long_parent_components (0.00s)
+    --- PASS: TestSOL02PathIdentity/reserved_literal_label (0.00s)
+=== RUN   TestSOL02UnidentifiableRedactionsAreOmitted
+    r7r2_sol_test.go:163: bytes=977 rows=2 unique=2 omitted=2 byState=map[external_modification_detected:1 partially_modified:1]
+--- PASS: TestSOL02UnidentifiableRedactionsAreOmitted (0.00s)
+=== RUN   TestSOL02PressureLeavesUniqueLabels
+    r7r2_sol_test.go:181: bytes=4094 rows=26 omitted=74 byState=map[external_modification_detected:16 partially_modified:15 publication_uncertain:16 published_post_error:16 rollback_failed:11]
+--- PASS: TestSOL02PressureLeavesUniqueLabels (0.05s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	5.149s
+===== ELAPSED_SECONDS: 6 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: bash docs/reports/evidence/adr-0024-r7r2-final/verify.sh carbon-probe =====
+===== START: 2026-11-22T10:23:31Z =====
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD 7e0610fa86bdf0c8001187b4d4985b601603d104
+working tree: clean
+cmd= go test -count=1 -v -overlay /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.ZUYU8k77eo/probe.json -run \^TestCarbonR7R2 ./internal/toolset
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_12_fail_0_bare_EIO: len=2684 rows=12 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_6_bare_EIO
+    r7r2_results_test.go:619: deep_12_fail_6_bare_EIO: len=3788 rows=12 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter06.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_11_bare_EIO
+    r7r2_results_test.go:619: deep_12_fail_11_bare_EIO: len=3878 rows=12 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter11.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_16_fail_0_bare_EIO: len=3380 rows=16 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_8_bare_EIO
+    r7r2_results_test.go:619: deep_16_fail_8_bare_EIO: len=4021 rows=16 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter08.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_15_bare_EIO
+    r7r2_results_test.go:619: deep_16_fail_15_bare_EIO: len=3183 rows=16 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter15.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_20_fail_0_bare_EIO: len=4076 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_10_bare_EIO
+    r7r2_results_test.go:619: deep_20_fail_10_bare_EIO: len=3869 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter10.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_19_bare_EIO
+    r7r2_results_test.go:619: deep_20_fail_19_bare_EIO: len=3887 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter19.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_32_fail_0_bare_EIO: len=4083 rows=21 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_16_bare_EIO
+    r7r2_results_test.go:619: deep_32_fail_16_bare_EIO: len=3942 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter16.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_31_bare_EIO
+    r7r2_results_test.go:619: deep_32_fail_31_bare_EIO: len=3953 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter31.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_2_normal_deep
+    r7r2_results_test.go:669: multi_2: len=3946 rows=18 both failed rows preserved
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_5_very_long_dirs_overflow_order
+    r7r2_results_test.go:705: OBSERVED multi_5_longdir: len=3865 overflow=true rows=6 omitted=<nil> omittedByState=<nil> firstPath=…/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg/Adapter00.kt
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/long_unicode_spaces_and_identical_basenames
+    r7r2_results_test.go:755: unicode_spaces_basenames: len=3973 rows=15 first4=[src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_支付_🔥_01.kt src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/OneDrive - Acme Corp/Stripe Adapter With Spaces.kt src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/auth/config.yaml src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/billing/config.yaml]
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/cancellation_without_path_and_near_4096
+    r7r2_results_test.go:806: cancel_mid_batch: len=3929/4096 err="context canceled" state=partially_published rows=20 omitted=2 omittedByState=map[not_attempted:2]
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/truncatePathTail_boundary_unit
+    r7r2_results_test.go:820: OBSERVED >1024B common-tail identical basename: t1==t2 is true (len=15)
+--- PASS: TestCarbonR7R2Results01AdversarialMatrix (0.23s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_0_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_6_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_11_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_0_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_8_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_15_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_0_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_10_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_19_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_0_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_16_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_31_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_2_normal_deep (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_5_very_long_dirs_overflow_order (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/long_unicode_spaces_and_identical_basenames (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/cancellation_without_path_and_near_4096 (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/truncatePathTail_boundary_unit (0.00s)
+=== RUN   TestCarbonR7R2CT02ReplaySemantics
+    r7r2_results_test.go:870: CT-02 blind replay OK=true, a.txt="anchor\nadded\nadded\n"
+--- PASS: TestCarbonR7R2CT02ReplaySemantics (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	1.002s
+exit=0
+===== ELAPSED_SECONDS: 2 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -race -count=1 -v -run '^TestR7|^TestR201|^TestR5ResultPropagationAndResumeIntegrity$|^TestR6NestedJSONPreservationAndProvenance$|^TestR6StructuredPathsAndSanitizeErrorText$' ./internal/editing ./internal/toolset ./internal/agent ./internal/session =====
+===== START: 2026-11-22T10:23:33Z =====
+=== RUN   TestR7CrashBeforePublicationHelper
+--- PASS: TestR7CrashBeforePublicationHelper (0.00s)
+=== RUN   TestR7CreateRecreationFaultMatrix
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_zero_write
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_partial_write
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_generic_write_error
+=== RUN   TestR7CreateRecreationFaultMatrix/path_created_concurrently_at_publication
+=== RUN   TestR7CreateRecreationFaultMatrix/child_exits_before_publication
+--- PASS: TestR7CreateRecreationFaultMatrix (1.03s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_zero_write (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_partial_write (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_generic_write_error (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/path_created_concurrently_at_publication (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/child_exits_before_publication (1.02s)
+=== RUN   TestR7ExplicitRecreateSuccessBaseline
+--- PASS: TestR7ExplicitRecreateSuccessBaseline (0.00s)
+=== RUN   TestR7DisplayPathsStructuredAndFreeText
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/structured_path_error_with_spaces
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/sibling_path_error_spaces_keeps_basename_only
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/link_error_old_and_new_are_separate
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/joined_errors_keep_every_cause
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/free_text_quoted_and_windows_unc
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/file_url_path_is_scrubbed
+--- PASS: TestR7DisplayPathsStructuredAndFreeText (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/structured_path_error_with_spaces (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/sibling_path_error_spaces_keeps_basename_only (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/link_error_old_and_new_are_separate (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/joined_errors_keep_every_cause (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/free_text_quoted_and_windows_unc (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/file_url_path_is_scrubbed (0.00s)
+=== RUN   TestR7DiagnosticPathFailsClosed
+--- PASS: TestR7DiagnosticPathFailsClosed (0.00s)
+=== RUN   TestR7RlimitChildHelper
+--- PASS: TestR7RlimitChildHelper (0.00s)
+=== RUN   TestR7InPlaceRLimitFaults
+=== RUN   TestR7InPlaceRLimitFaults/zero_byte_write_efbig
+=== RUN   TestR7InPlaceRLimitFaults/short_write_crossing_limit
+--- PASS: TestR7InPlaceRLimitFaults (2.04s)
+    --- PASS: TestR7InPlaceRLimitFaults/zero_byte_write_efbig (1.03s)
+    --- PASS: TestR7InPlaceRLimitFaults/short_write_crossing_limit (1.02s)
+=== RUN   TestR7CreateEFBIGIsolated
+--- PASS: TestR7CreateEFBIGIsolated (1.02s)
+=== RUN   TestR7CreateRecreationUnixFaultMatrix
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/enospc_injection
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/permission_refuses_staging
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/unsupported_filesystem_refuses_create
+--- PASS: TestR7CreateRecreationUnixFaultMatrix (0.01s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/enospc_injection (0.00s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/permission_refuses_staging (0.00s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/unsupported_filesystem_refuses_create (0.00s)
+=== RUN   TestR7ConsumedStageIsNotUnlinked
+--- PASS: TestR7ConsumedStageIsNotUnlinked (0.00s)
+=== RUN   TestR7DeletePermissionRefusalLeavesFileIntact
+--- PASS: TestR7DeletePermissionRefusalLeavesFileIntact (0.00s)
+=== RUN   TestR7PrefixExternalAppendBeforeLaterConflict
+--- PASS: TestR7PrefixExternalAppendBeforeLaterConflict (1.01s)
+=== RUN   TestR7PrefixExternalSameByteReplacement
+--- PASS: TestR7PrefixExternalSameByteReplacement (1.02s)
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/update
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/create
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/delete
+--- PASS: TestR7VerifiedPrefixUpdateCreateDelete (0.01s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/update (0.00s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/create (0.00s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/delete (0.00s)
+=== RUN   TestR7CleanFailureSettlesEveryPathAndKeepsSnapshots
+--- PASS: TestR7CleanFailureSettlesEveryPathAndKeepsSnapshots (0.00s)
+=== RUN   TestR7NoOpVerification
+=== RUN   TestR7NoOpVerification/committed_noop
+=== RUN   TestR7NoOpVerification/noop_prefix_in_failed_plan
+--- PASS: TestR7NoOpVerification (0.00s)
+    --- PASS: TestR7NoOpVerification/committed_noop (0.00s)
+    --- PASS: TestR7NoOpVerification/noop_prefix_in_failed_plan (0.00s)
+=== RUN   TestR7DeleteVerification
+=== RUN   TestR7DeleteVerification/committed_delete_observes_absence
+=== RUN   TestR7DeleteVerification/external_change_refuses_delete_and_preserves_foreign_bytes
+--- PASS: TestR7DeleteVerification (0.00s)
+    --- PASS: TestR7DeleteVerification/committed_delete_observes_absence (0.00s)
+    --- PASS: TestR7DeleteVerification/external_change_refuses_delete_and_preserves_foreign_bytes (0.00s)
+=== RUN   TestR7CreateContention
+=== RUN   TestR7CreateContention/before_staging
+=== RUN   TestR7CreateContention/at_publication
+--- PASS: TestR7CreateContention (0.00s)
+    --- PASS: TestR7CreateContention/before_staging (0.00s)
+    --- PASS: TestR7CreateContention/at_publication (0.00s)
+=== RUN   TestR7CustomHostWithoutStagerIsUnsupported
+--- PASS: TestR7CustomHostWithoutStagerIsUnsupported (0.00s)
+=== RUN   TestR7ExplicitRecreateAfterDeleteUsesFreshCreate
+--- PASS: TestR7ExplicitRecreateAfterDeleteUsesFreshCreate (0.00s)
+=== RUN   TestR7TimeBoundaryNoOpIdentifiesSameBytes
+--- PASS: TestR7TimeBoundaryNoOpIdentifiesSameBytes (0.00s)
+=== RUN   TestR7R2CaseCollisionFollowsFilesystemSemantics
+--- PASS: TestR7R2CaseCollisionFollowsFilesystemSemantics (0.00s)
+=== RUN   TestR7R2CaseProbeReadsTheVolume
+--- PASS: TestR7R2CaseProbeReadsTheVolume (0.00s)
+=== RUN   TestR7R2HardLinkAliasRefusedBeforeWrite
+--- PASS: TestR7R2HardLinkAliasRefusedBeforeWrite (0.00s)
+=== RUN   TestR7R2CaseVariantOfExistingFileRefused
+--- PASS: TestR7R2CaseVariantOfExistingFileRefused (0.00s)
+=== RUN   TestR7R2CaseVariantCreatesRefused
+=== RUN   TestR7R2CaseVariantCreatesRefused/leaf
+=== RUN   TestR7R2CaseVariantCreatesRefused/existing_dir_spelling
+=== RUN   TestR7R2CaseVariantCreatesRefused/new_dir
+--- PASS: TestR7R2CaseVariantCreatesRefused (0.00s)
+    --- PASS: TestR7R2CaseVariantCreatesRefused/leaf (0.00s)
+    --- PASS: TestR7R2CaseVariantCreatesRefused/existing_dir_spelling (0.00s)
+    --- PASS: TestR7R2CaseVariantCreatesRefused/new_dir (0.00s)
+=== RUN   TestR7R2StaleBaseIsFailedBeforeWrite
+--- PASS: TestR7R2StaleBaseIsFailedBeforeWrite (0.00s)
+=== RUN   TestR7R2SelfReplayIsFailedBeforeWrite
+--- PASS: TestR7R2SelfReplayIsFailedBeforeWrite (0.00s)
+=== RUN   TestR7R2SessionViewConflictIsFailedBeforeWrite
+--- PASS: TestR7R2SessionViewConflictIsFailedBeforeWrite (0.00s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_a_lc_wins_exclusive_creation
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b0_external_wins_before_exclusive_create_prepare
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b1_external_wins_before_no_replace_publish
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b2_external_creates_empty_writes_before_inplace_truncate
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b3_external_creates_empty_overlaps_inplace_write
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b4_external_creates_empty_writes_inside_truncate_window
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b5_external_complete_before_prepare_replaced_as_read
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_exclusive_create_stress
+    remediation_r2_01_test.go:448: stress (Create=true) excl_after_signal released before_commit: rounds=10 exists_before_prepare=10
+    remediation_r2_01_test.go:448: stress (Create=true) excl_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:448: stress (Create=true) excl_after_signal released before_publish: rounds=10 staged_publish_refused=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress
+    remediation_r2_01_test.go:456: stress (Create=false) atomic_after_signal released before_commit: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:456: stress (Create=false) atomic_after_signal released after_prepare: rounds=10 lc_created=1 staged_publish_refused=9
+    remediation_r2_01_test.go:456: stress (Create=false) atomic_after_signal released before_publish: rounds=10 lc_created=7 staged_publish_refused=3
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress
+    remediation_r2_01_test.go:466: stress (Create=false) excl_after_signal released before_commit: rounds=10 lc_replaced_read_foreign=10
+    remediation_r2_01_test.go:466: stress (Create=false) excl_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:466: stress (Create=false) excl_after_signal released before_publish: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released before_commit: rounds=10 lc_replaced_read_foreign=10
+    remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released after_prepare: rounds=10 inplace_refused_before_truncate=10
+    remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released after_truncate: rounds=10 inplace_overlap_foreign_whole=8 pre02_mixed_bytes_reported_dirty=2
+    remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released after_write_close: rounds=10 inplace_overlap_foreign_whole=10
+--- PASS: TestR201TwoOSProcessesCreateRace (1.67s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_a_lc_wins_exclusive_creation (0.52s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b0_external_wins_before_exclusive_create_prepare (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b1_external_wins_before_no_replace_publish (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b2_external_creates_empty_writes_before_inplace_truncate (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b3_external_creates_empty_overlaps_inplace_write (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b4_external_creates_empty_writes_inside_truncate_window (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b5_external_complete_before_prepare_replaced_as_read (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_exclusive_create_stress (0.21s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress (0.22s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress (0.48s)
+=== RUN   TestR201ExistingCASConflictPreservesForeignBytes
+--- PASS: TestR201ExistingCASConflictPreservesForeignBytes (0.00s)
+=== RUN   TestR7ForwardPublicationFaultMatrix
+=== RUN   TestR7ForwardPublicationFaultMatrix/01_failure_before_publication_is_clean
+=== RUN   TestR7ForwardPublicationFaultMatrix/05b_inplace_close_failure_is_uncertain
+=== RUN   TestR7ForwardPublicationFaultMatrix/02_link_succeeds_then_error
+=== RUN   TestR7ForwardPublicationFaultMatrix/03_rename_succeeds_then_error
+=== RUN   TestR7ForwardPublicationFaultMatrix/04_stat_fails_after_publication
+=== RUN   TestR7ForwardPublicationFaultMatrix/05_close_fails_after_publication
+=== RUN   TestR7ForwardPublicationFaultMatrix/06_identity_capture_fails
+=== RUN   TestR7ForwardPublicationFaultMatrix/07_identity_failure_keeps_published_prefix_and_skips_suffix
+=== RUN   TestR7ForwardPublicationFaultMatrix/08_second_path_refusal_keeps_verified_first
+=== RUN   TestR7ForwardPublicationFaultMatrix/09_external_append_on_prefix_is_external
+=== RUN   TestR7ForwardPublicationFaultMatrix/10_external_same_length_replacement_is_external
+=== RUN   TestR7ForwardPublicationFaultMatrix/11_uncertain_publication_reports_dirty_failure
+--- PASS: TestR7ForwardPublicationFaultMatrix (0.02s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/01_failure_before_publication_is_clean (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/05b_inplace_close_failure_is_uncertain (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/02_link_succeeds_then_error (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/03_rename_succeeds_then_error (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/04_stat_fails_after_publication (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/05_close_fails_after_publication (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/06_identity_capture_fails (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/07_identity_failure_keeps_published_prefix_and_skips_suffix (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/08_second_path_refusal_keeps_verified_first (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/09_external_append_on_prefix_is_external (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/10_external_same_length_replacement_is_external (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/11_uncertain_publication_reports_dirty_failure (0.00s)
+=== RUN   TestR7SameInodeExternalOverwriteIsExternal
+--- PASS: TestR7SameInodeExternalOverwriteIsExternal (1.02s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	10.494s
+=== RUN   TestR7FailurePayloadEveryReceiptState
+=== RUN   TestR7FailurePayloadEveryReceiptState/partial_failed_path_first_verified_effect_and_recovery
+=== RUN   TestR7FailurePayloadEveryReceiptState/clean_external_conflict_is_not_dirty_without_an_effect
+=== RUN   TestR7FailurePayloadEveryReceiptState/truncation_keeps_the_failed_path
+--- PASS: TestR7FailurePayloadEveryReceiptState (0.01s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/partial_failed_path_first_verified_effect_and_recovery (0.00s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/clean_external_conflict_is_not_dirty_without_an_effect (0.00s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/truncation_keeps_the_failed_path (0.01s)
+=== RUN   TestR7GenericLSPErrorScrubsHostPaths
+--- PASS: TestR7GenericLSPErrorScrubsHostPaths (0.00s)
+=== RUN   TestR7StructuredPathSpacesAndPlatformMatrix
+--- PASS: TestR7StructuredPathSpacesAndPlatformMatrix (0.00s)
+=== RUN   TestR7EditSpecsDoNotClaimAllOrNone
+--- PASS: TestR7EditSpecsDoNotClaimAllOrNone (0.00s)
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_17
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_20
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_22
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_23
+--- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits (4.66s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_17 (1.45s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_20 (1.46s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_22 (0.92s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_23 (0.83s)
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_50
+    r7r2_final_test.go:130: bytes=4087 shown=30 omitted=21 byState=map[external_modification_detected:6 not_attempted:1 publication_uncertain:7 published_post_error:7]
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_100
+    r7r2_final_test.go:130: bytes=4096 shown=30 omitted=71 byState=map[external_modification_detected:17 not_attempted:1 partially_modified:16 publication_uncertain:18 published_post_error:17 rollback_failed:2]
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_200
+    r7r2_final_test.go:130: bytes=4095 shown=30 omitted=171 byState=map[external_modification_detected:37 not_attempted:1 partially_modified:37 publication_uncertain:38 published_post_error:37 rollback_failed:21]
+--- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix (13.96s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_50 (2.00s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_100 (4.04s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_200 (7.92s)
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/five_modules_long_shared_tail
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/eight_modules_between_long_shared_ends
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/sixteen_long_names_differing_at_the_end
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/twenty_four_services_one_package
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/twelve_unicode_names_with_spaces
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/two_paths_over_the_failed_row_bound
+--- PASS: TestR7R2FinalSameNameRowsStayDistinct (0.10s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/five_modules_long_shared_tail (0.01s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/eight_modules_between_long_shared_ends (0.01s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/sixteen_long_names_differing_at_the_end (0.01s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/twenty_four_services_one_package (0.01s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/twelve_unicode_names_with_spaces (0.02s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/two_paths_over_the_failed_row_bound (0.04s)
+=== RUN   TestR7R2FinalFiveFailedSameNameFilesStayDistinct
+--- PASS: TestR7R2FinalFiveFailedSameNameFilesStayDistinct (0.03s)
+=== RUN   TestR7R2FinalRefusedPathSurvivesOverflow
+--- PASS: TestR7R2FinalRefusedPathSurvivesOverflow (0.02s)
+=== RUN   TestR7R2FinalOverflowBoundWorstCase
+--- PASS: TestR7R2FinalOverflowBoundWorstCase (3.43s)
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n16
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n20
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n32_last
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/cancelled_n20
+--- PASS: TestR7R2DeepPathRowsStayIdentifiable (0.14s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n16 (0.02s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n20 (0.03s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n32_last (0.06s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/cancelled_n20 (0.03s)
+=== RUN   TestR7R2OversizedFailedPathKeepsFilename
+--- PASS: TestR7R2OversizedFailedPathKeepsFilename (0.38s)
+=== RUN   TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities
+--- PASS: TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities (0.02s)
+=== RUN   TestR7R2New01OverflowBoundaryMatrix
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/single_failed_long_path_bare_eio
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/mixed_failed_unicode_longname_and_identical_basenames
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/eight_failed_rows_long_paths
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/cancellation_without_path_long_dirs
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/impossible_to_fit_50_failed_rows_discloses_omissions
+--- PASS: TestR7R2New01OverflowBoundaryMatrix (0.22s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/single_failed_long_path_bare_eio (0.03s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/mixed_failed_unicode_longname_and_identical_basenames (0.03s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/eight_failed_rows_long_paths (0.04s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/cancellation_without_path_long_dirs (0.03s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/impossible_to_fit_50_failed_rows_discloses_omissions (0.08s)
+=== RUN   TestR201WriteFileInPlaceForeignWriterRealRace
+=== RUN   TestR201WriteFileInPlaceForeignWriterRealRace/write_file_300_iterations
+    remediation_r2_01_test.go:93: R2-01 toolset write_file: iterations=300 okRuns=0 lost=0 (refusedLost=0) mixed=0 kept=300
+--- PASS: TestR201WriteFileInPlaceForeignWriterRealRace (0.75s)
+    --- PASS: TestR201WriteFileInPlaceForeignWriterRealRace/write_file_300_iterations (0.75s)
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/structured_path_classification_matrix
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/unstructured_error_text_boundary_sanitization_r5_05
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/windows_drive_and_unc_workspace_boundaries
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/unknown_rev_and_sibling_gotype_diagnostics_do_not_leak_host_paths
+--- PASS: TestR6StructuredPathsAndSanitizeErrorText (0.01s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/structured_path_classification_matrix (0.00s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/unstructured_error_text_boundary_sanitization_r5_05 (0.00s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/windows_drive_and_unc_workspace_boundaries (0.00s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/unknown_rev_and_sibling_gotype_diagnostics_do_not_leak_host_paths (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	25.475s
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown/exists_before_prepare
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown/staged_publish_refused
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown/inplace_refused_before_truncate
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown/inplace_overlap_reported_dirty
+--- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown (0.00s)
+    --- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown/exists_before_prepare (0.00s)
+    --- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown/staged_publish_refused (0.00s)
+    --- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown/inplace_refused_before_truncate (0.00s)
+    --- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown/inplace_overlap_reported_dirty (0.00s)
+=== RUN   TestR5ResultPropagationAndResumeIntegrity
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/top_level_multifile_partial_publication_persists_and_resumes_identically
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/cancelled_multi_file_receipt_is_paired_without_replay
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/nested_eval_callback_partial_publication_preserved_in_callback_and_parent_row
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/preserve_error_tool_content_bounds_oversized_and_plain_details
+--- PASS: TestR5ResultPropagationAndResumeIntegrity (0.52s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/top_level_multifile_partial_publication_persists_and_resumes_identically (0.20s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/cancelled_multi_file_receipt_is_paired_without_replay (0.16s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/nested_eval_callback_partial_publication_preserved_in_callback_and_parent_row (0.16s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/preserve_error_tool_content_bounds_oversized_and_plain_details (0.00s)
+=== RUN   TestR6NestedJSONPreservationAndProvenance
+=== RUN   TestR6NestedJSONPreservationAndProvenance/unit_under_exact_and_over_8192_limit_plus_int64_and_provenance
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_under_limit
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_seeded_origin
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_unseeded_origin
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/adopt_then_apply_8500pad
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/protected_source_overflow
+=== RUN   TestR6NestedJSONPreservationAndProvenance/nested_eval_oversized_json_and_clean_proven_semantics
+--- PASS: TestR6NestedJSONPreservationAndProvenance (1.09s)
+    --- PASS: TestR6NestedJSONPreservationAndProvenance/unit_under_exact_and_over_8192_limit_plus_int64_and_provenance (0.02s)
+    --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges (0.85s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_under_limit (0.16s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_seeded_origin (0.17s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_unseeded_origin (0.17s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/adopt_then_apply_8500pad (0.18s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/protected_source_overflow (0.17s)
+    --- PASS: TestR6NestedJSONPreservationAndProvenance/nested_eval_oversized_json_and_clean_proven_semantics (0.22s)
+=== RUN   TestR7PartialCommitAndDiagnosticsColdResume
+--- PASS: TestR7PartialCommitAndDiagnosticsColdResume (1.38s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	4.708s
+testing: warning: no tests to run
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/session	1.598s [no tests to run]
+===== ELAPSED_SECONDS: 26 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: GOOS=windows GOARCH=amd64 go vet ./internal/toolset ./internal/editing (compile/vet only) =====
+===== START: 2026-11-22T10:23:59Z =====
+===== ELAPSED_SECONDS: 2 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: GOOS=linux GOARCH=amd64 go vet ./internal/toolset ./internal/editing (compile/vet only) =====
+===== START: 2026-11-22T10:24:01Z =====
+===== ELAPSED_SECONDS: 1 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -timeout=45m -count=1 ./... (single repository-wide command) =====
+===== START: 2026-11-22T10:24:02Z =====
+?   	github.com/edynasty/LumenCortex/cmd/lcx-experience-demo	[no test files]
+ok  	github.com/edynasty/LumenCortex/cmd/lcx-go	12.341s
+ok  	github.com/edynasty/LumenCortex/config	2.744s
+?   	github.com/edynasty/LumenCortex/docs	[no test files]
+ok  	github.com/edynasty/LumenCortex/evalapi	0.570s
+ok  	github.com/edynasty/LumenCortex/evalruntime	111.793s
+ok  	github.com/edynasty/LumenCortex/internal/agent	27.570s
+?   	github.com/edynasty/LumenCortex/internal/cgroupv2	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/cognition	0.569s
+ok  	github.com/edynasty/LumenCortex/internal/debugger	9.133s
+ok  	github.com/edynasty/LumenCortex/internal/debugger/dap	0.616s
+?   	github.com/edynasty/LumenCortex/internal/debugger/dapfake	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/diag	1.572s
+ok  	github.com/edynasty/LumenCortex/internal/editing	4.340s
+ok  	github.com/edynasty/LumenCortex/internal/editing/goedit	5.163s
+ok  	github.com/edynasty/LumenCortex/internal/evaluator	19.229s
+ok  	github.com/edynasty/LumenCortex/internal/instructions	0.548s
+ok  	github.com/edynasty/LumenCortex/internal/ipynb	0.568s
+ok  	github.com/edynasty/LumenCortex/internal/jobs	21.768s
+ok  	github.com/edynasty/LumenCortex/internal/knowledge	0.566s
+ok  	github.com/edynasty/LumenCortex/internal/lsp	11.067s
+ok  	github.com/edynasty/LumenCortex/internal/mcp	7.300s
+ok  	github.com/edynasty/LumenCortex/internal/mcptemplates	0.568s
+ok  	github.com/edynasty/LumenCortex/internal/migrate	19.505s
+ok  	github.com/edynasty/LumenCortex/internal/notebook	0.524s
+ok  	github.com/edynasty/LumenCortex/internal/ompsession	0.563s
+ok  	github.com/edynasty/LumenCortex/internal/procrt	0.820s
+ok  	github.com/edynasty/LumenCortex/internal/repository	10.274s
+ok  	github.com/edynasty/LumenCortex/internal/resource	0.529s
+ok  	github.com/edynasty/LumenCortex/internal/runlock	0.618s
+ok  	github.com/edynasty/LumenCortex/internal/safefs	0.922s
+ok  	github.com/edynasty/LumenCortex/internal/schedule	6.937s
+ok  	github.com/edynasty/LumenCortex/internal/session	42.095s
+ok  	github.com/edynasty/LumenCortex/internal/shell	4.897s
+ok  	github.com/edynasty/LumenCortex/internal/skills	2.696s
+ok  	github.com/edynasty/LumenCortex/internal/streambuf	0.522s
+ok  	github.com/edynasty/LumenCortex/internal/taskstate	0.534s
+ok  	github.com/edynasty/LumenCortex/internal/threadctx	0.510s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	33.718s
+ok  	github.com/edynasty/LumenCortex/internal/verify	0.620s
+ok  	github.com/edynasty/LumenCortex/internal/window	2.392s
+ok  	github.com/edynasty/LumenCortex/internal/workflow	0.812s
+?   	github.com/edynasty/LumenCortex/pluginapi	[no test files]
+ok  	github.com/edynasty/LumenCortex/protocol	0.673s
+ok  	github.com/edynasty/LumenCortex/provider	0.574s
+ok  	github.com/edynasty/LumenCortex/provider/anthropic	2.086s
+?   	github.com/edynasty/LumenCortex/provider/internal/retryafter	[no test files]
+ok  	github.com/edynasty/LumenCortex/provider/openai	1.485s
+ok  	github.com/edynasty/LumenCortex/runtime	743.952s
+===== ELAPSED_SECONDS: 773 =====
+===== EXIT CODE: 0 =====
+
+===== STATUS AFTER: [] =====
+===== HEAD AFTER: 7e0610fa86bdf0c8001187b4d4985b601603d104 =====
+GATES_DONE

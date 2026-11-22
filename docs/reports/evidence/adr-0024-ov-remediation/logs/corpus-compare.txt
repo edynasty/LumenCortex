@@ -1,0 +1,5 @@
+corpus {'identical': 229, 'legend-only': 104, 'more-lower-class-rows': 207, 'fewer-failed-rows': 38, 'same-counts-other-change': 55, 'fewer-lower-class-rows': 51}
+   corpus fewer-failed-rows [('deep_f32_v00_u00_eio', 4030, 4061, 32, 30, 32, 30, True, True), ('deep_f32_v03_u02_eio', 4024, 4079, 31, 30, 31, 30, True, True), ('deep_f32_v12_u12_eio', 4027, 4082, 31, 30, 31, 30, True, True)]
+   corpus fewer-lower-class-rows [('escape_f00_v30_u30_err', 3937, 3259, 0, 0, 4, 3, True, True), ('longdir190_f00_v06_u06_cancel', 3993, 3916, 0, 0, 12, 11, True, True), ('longdir190_f01_v12_u12_cancel', 4058, 3921, 1, 1, 10, 9, True, True)]
+   corpus more-lower-class-rows [('deep_f22_v03_u02_eio', 3898, 3616, 22, 22, 22, 27, True, True), ('deep_f22_v12_u12_eio', 3901, 4038, 22, 22, 22, 30, True, True), ('deep_f22_v40_u00_eio', 3882, 4020, 22, 22, 22, 30, True, True)]
+   corpus same-counts-other-change [('deep_f50_v00_u00_eio', 4090, 4095, 31, 31, 31, 31, True, True), ('deep_f50_v03_u02_eio', 4008, 4080, 30, 30, 30, 30, True, True), ('deep_f50_v12_u12_eio', 4010, 4082, 30, 30, 30, 30, True, True)]

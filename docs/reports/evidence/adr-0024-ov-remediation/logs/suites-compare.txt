@@ -1,0 +1,40 @@
+. {'same-counts-other-change': 1}
+escape {'fewer-failed-rows': 16, 'same-counts-other-change': 1}
+five {'fewer-failed-rows': 4, 'legend-only': 1}
+impossible {'identical': 2, 'more-lower-class-rows': 3, 'more-failed-rows': 1}
+literal {'fewer-failed-rows': 2, 'legend+truncated-flag': 5, 'more-failed-rows': 1}
+matrix {'identical': 1130, 'fewer-failed-rows': 8, 'legend-only': 15, 'same-counts-other-change': 23, 'more-lower-class-rows': 4}
+perm40 {'fewer-failed-rows': 21, 'same-counts-other-change': 9}
+perm40fixed {'fewer-failed-rows': 28, 'same-counts-other-change': 2}
+redacted {'legend+truncated-flag': 2, 'fewer-failed-rows': 1, 'legend-only': 1}
+sweep {'same-counts-other-change': 3, 'fewer-failed-rows': 30}
+window {'legend-only': 92, 'fewer-failed-rows': 15, 'same-counts-other-change': 20, 'more-failed-rows': 82, 'identical': 16}
+windows {'legend-only': 1, 'same-counts-other-change': 1, 'legend+truncated-flag': 1}
+zero {'same-counts-other-change': 3, 'fewer-failed-rows': 1}
+   . same-counts-other-change [('perm40-costs', 1276, 1276, 0, 0, 0, 0, False, False)]
+   escape fewer-failed-rows [('E_amp', 4030, 4079, 29, 28, 29, 28, True, True), ('E_backslash', 4030, 4079, 29, 28, 29, 28, True, True), ('E_bs08', 4030, 4079, 29, 28, 29, 28, True, True)]
+   escape same-counts-other-change [('E_end_amp', 3969, 4094, 20, 20, 20, 20, True, True)]
+   five fewer-failed-rows [('end_k100', 4010, 4081, 29, 28, 29, 28, True, True), ('end_k240', 4010, 4081, 29, 28, 29, 28, True, True), ('end_k70', 4010, 4081, 29, 28, 29, 28, True, True)]
+   impossible more-failed-rows [('I8_large_renderable_row_between_small_rows', 3267, 4095, 20, 34, 20, 34, True, True)]
+   impossible more-lower-class-rows [('I3_first_failed_impossible_later_verified_fits', 499, 574, 0, 0, 0, 1, True, True), ('I3b_no_failed_first_verified_impossible', 464, 562, 0, 0, 0, 1, True, True), ('I5_interleaved_mixed_states', 1544, 1898, 7, 7, 7, 11, True, True)]
+   literal fewer-failed-rows [('L10_long_basename_with_literal_dir', 4010, 4081, 29, 28, 29, 28, True, True), ('L11_literal_omitted_target_of_shorthand', 4051, 4095, 29, 28, 29, 28, True, True)]
+   literal legend+truncated-flag [('L1_literal_dir', 1798, 1857, 5, 5, 5, 5, True, False), ('L2_literal_filename', 1868, 1927, 5, 5, 5, 5, True, False), ('L3_multiple_literal', 1808, 1867, 5, 5, 5, 5, True, False)]
+   literal more-failed-rows [('L4_literal_and_synthetic_overflow', 4092, 4095, 22, 30, 22, 30, True, True)]
+   matrix fewer-failed-rows [('B_repeated_dirs_40_pressure', 4093, 4095, 31, 30, 31, 30, True, True), ('J4_literal_ellipsis_omitted', 4051, 4095, 29, 28, 29, 28, True, True), ('J5_literal_ellipsis_shown', 4051, 4095, 29, 28, 29, 28, True, True)]
+   matrix more-lower-class-rows [('M_pathless_cancel_rows', 3673, 4043, 30, 30, 30, 32, True, True), ('N_editerr_diagnostics', 1490, 2420, 6, 6, 6, 11, True, True), ('size_deep_unique_f023', 4053, 3302, 23, 23, 23, 24, True, True)]
+   matrix same-counts-other-change [('E_long_prefix_suffix_40', 4004, 4096, 29, 29, 29, 29, True, True), ('F_unicode_60_pressure', 4064, 4089, 27, 27, 27, 27, True, True), ('H_combined_100', 4016, 4048, 28, 28, 28, 28, True, True)]
+   perm40 fewer-failed-rows [('by_shape', 4063, 4094, 31, 30, 31, 30, True, True), ('original', 4093, 4095, 31, 30, 31, 30, True, True), ('seed1001', 4090, 4096, 31, 30, 31, 30, True, True)]
+   perm40 same-counts-other-change [('reverse', 3976, 4094, 30, 30, 30, 30, True, True), ('rotate1', 3972, 4094, 30, 30, 30, 30, True, True), ('seed1203', 3977, 4094, 30, 30, 30, 30, True, True)]
+   perm40fixed fewer-failed-rows [('by_shape', 4054, 4095, 31, 30, 31, 30, True, True), ('original', 4093, 4095, 31, 30, 31, 30, True, True), ('reverse', 4083, 4095, 31, 30, 31, 30, True, True)]
+   perm40fixed same-counts-other-change [('seed505', 3986, 4095, 30, 30, 30, 30, True, True), ('seed606', 3997, 4095, 30, 30, 30, 30, True, True)]
+   redacted fewer-failed-rows [('R2_redacted_overflow', 4090, 4093, 29, 28, 29, 28, True, True)]
+   redacted legend+truncated-flag [('R1_redacted_literal_ellipsis', 1674, 1814, 4, 4, 4, 4, True, False), ('R4_standalone_literal_refusal', 277, 336, 0, 0, 0, 0, True, False)]
+   sweep fewer-failed-rows [('sweep_end_k040', 4010, 4081, 29, 28, 29, 28, True, True), ('sweep_end_k050', 4010, 4081, 29, 28, 29, 28, True, True), ('sweep_end_k060', 4010, 4081, 29, 28, 29, 28, True, True)]
+   sweep same-counts-other-change [('sweep_end_k020', 4009, 4094, 27, 27, 27, 27, True, True), ('sweep_middle_k020', 4009, 4094, 27, 27, 27, 27, True, True), ('sweep_start_k020', 4009, 4094, 27, 27, 27, 27, True, True)]
+   window fewer-failed-rows [('W_pad460', 4025, 4067, 2, 1, 2, 1, True, True), ('W_pad465', 4030, 4072, 2, 1, 2, 1, True, True), ('W_pad470', 4035, 4077, 2, 1, 2, 1, True, True)]
+   window more-failed-rows [('W_pad595', 499, 606, 0, 1, 0, 1, True, True), ('W_pad596', 499, 606, 0, 1, 0, 1, True, True), ('W_pad597', 499, 606, 0, 1, 0, 1, True, True)]
+   window same-counts-other-change [('W_pad535', 4066, 606, 1, 1, 1, 1, True, True), ('W_pad540', 4071, 606, 1, 1, 1, 1, True, True), ('W_pad545', 4076, 606, 1, 1, 1, 1, True, True)]
+   windows legend+truncated-flag [('W3_unc', 1240, 1299, 3, 3, 3, 3, True, False)]
+   windows same-counts-other-change [('W2_drive_overflow', 3997, 4095, 28, 28, 28, 28, True, True)]
+   zero fewer-failed-rows [('Z4_counted_vs_brace_literal', 4094, 4092, 31, 30, 31, 30, True, True)]
+   zero same-counts-other-change [('Z1_root_suffix', 4067, 4096, 29, 29, 29, 29, True, True), ('Z2_interior', 4029, 4088, 29, 29, 29, 29, True, True), ('Z3_counted_with_short_twins', 3981, 4096, 30, 30, 30, 30, True, True)]
