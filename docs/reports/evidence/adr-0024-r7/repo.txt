@@ -1,0 +1,418 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+f60738ad4bc5ca5304910617b3889ec0b55a89e2
+cmd= go test -count=1 ./...
+?   	github.com/edynasty/LumenCortex/cmd/lcx-experience-demo	[no test files]
+ok  	github.com/edynasty/LumenCortex/cmd/lcx-go	10.105s
+ok  	github.com/edynasty/LumenCortex/config	2.416s
+?   	github.com/edynasty/LumenCortex/docs	[no test files]
+ok  	github.com/edynasty/LumenCortex/evalapi	0.347s
+ok  	github.com/edynasty/LumenCortex/evalruntime	122.556s
+ok  	github.com/edynasty/LumenCortex/internal/agent	31.985s
+?   	github.com/edynasty/LumenCortex/internal/cgroupv2	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/cognition	0.362s
+ok  	github.com/edynasty/LumenCortex/internal/debugger	9.477s
+ok  	github.com/edynasty/LumenCortex/internal/debugger/dap	0.503s
+?   	github.com/edynasty/LumenCortex/internal/debugger/dapfake	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/diag	2.210s
+ok  	github.com/edynasty/LumenCortex/internal/editing	2.896s
+ok  	github.com/edynasty/LumenCortex/internal/editing/goedit	4.241s
+ok  	github.com/edynasty/LumenCortex/internal/evaluator	24.500s
+ok  	github.com/edynasty/LumenCortex/internal/instructions	0.494s
+ok  	github.com/edynasty/LumenCortex/internal/ipynb	0.390s
+ok  	github.com/edynasty/LumenCortex/internal/jobs	27.411s
+ok  	github.com/edynasty/LumenCortex/internal/knowledge	0.410s
+ok  	github.com/edynasty/LumenCortex/internal/lsp	10.774s
+ok  	github.com/edynasty/LumenCortex/internal/mcp	7.138s
+ok  	github.com/edynasty/LumenCortex/internal/mcptemplates	0.388s
+ok  	github.com/edynasty/LumenCortex/internal/migrate	19.956s
+ok  	github.com/edynasty/LumenCortex/internal/notebook	0.377s
+ok  	github.com/edynasty/LumenCortex/internal/ompsession	0.385s
+ok  	github.com/edynasty/LumenCortex/internal/procrt	0.705s
+ok  	github.com/edynasty/LumenCortex/internal/repository	11.050s
+ok  	github.com/edynasty/LumenCortex/internal/resource	0.398s
+ok  	github.com/edynasty/LumenCortex/internal/runlock	0.406s
+ok  	github.com/edynasty/LumenCortex/internal/safefs	0.674s
+ok  	github.com/edynasty/LumenCortex/internal/schedule	6.592s
+ok  	github.com/edynasty/LumenCortex/internal/session	41.045s
+ok  	github.com/edynasty/LumenCortex/internal/shell	4.823s
+ok  	github.com/edynasty/LumenCortex/internal/skills	2.656s
+ok  	github.com/edynasty/LumenCortex/internal/streambuf	0.372s
+ok  	github.com/edynasty/LumenCortex/internal/taskstate	0.553s
+ok  	github.com/edynasty/LumenCortex/internal/threadctx	0.530s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	34.228s
+ok  	github.com/edynasty/LumenCortex/internal/verify	0.443s
+ok  	github.com/edynasty/LumenCortex/internal/window	2.516s
+ok  	github.com/edynasty/LumenCortex/internal/workflow	0.364s
+?   	github.com/edynasty/LumenCortex/pluginapi	[no test files]
+ok  	github.com/edynasty/LumenCortex/protocol	0.493s
+ok  	github.com/edynasty/LumenCortex/provider	0.455s
+ok  	github.com/edynasty/LumenCortex/provider/anthropic	2.095s
+?   	github.com/edynasty/LumenCortex/provider/internal/retryafter	[no test files]
+ok  	github.com/edynasty/LumenCortex/provider/openai	1.546s
+panic: test timed out after 10m0s
+	running tests:
+		TestExperienceStoreRefusesSuccessOfADivergedApplication (1s)
+
+goroutine 481000 [running]:
+testing.(*M).startAlarm.func1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2802 +0x2cc
+created by time.goFunc
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/time/sleep.go:215 +0x38
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0x65279d730908, {0x1033e035b?, 0x2b31c8f80298c5d0?}, 0x103dbd138)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2109 +0x3bc
+testing.runTests.func1(0x65279d730908)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2585 +0x40
+testing.tRunner(0x65279d730908, 0x65279d63f9e8)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2036 +0xc4
+testing.runTests({0x1033aa992, 0x1f}, {0x1033be8d6, 0x27}, 0x65279d3b6888, {0x103e7e580, 0x29b, 0x29b}, {0x103eb2660?, 0x105f14138?, ...})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2583 +0x3f0
+testing.(*M).Run(0x65279d7b8d20)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2443 +0x578
+github.com/edynasty/LumenCortex/runtime.TestMain(0x65279d7b8d20)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/testutil_test.go:76 +0x4e4
+main.main()
+	_testmain.go:1380 +0x88
+
+goroutine 370987 [select]:
+github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge.func1()
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/diagnostics.go:194 +0x108
+created by github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge in goroutine 370758
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/diagnostics.go:188 +0xe8
+
+goroutine 371036 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x6527a4b654a0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371030
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:235 +0x300
+
+goroutine 371399 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).retentionLoop(0x65279d4a4bb0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:686 +0xc0
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370977
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:239 +0x3bc
+
+goroutine 481010 [select]:
+github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).loop(0x6527a13ec700, {0x103dd07e0, 0x6527a221c230})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/schedule/scheduler.go:224 +0xf0
+created by github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).Start in goroutine 480970
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/schedule/scheduler.go:128 +0x3b0
+
+goroutine 370993 [select]:
+github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).loop(0x6527a2b57280, {0x103dd07e0, 0x6527a18bdcc0})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/schedule/scheduler.go:224 +0xf0
+created by github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).Start in goroutine 370758
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/schedule/scheduler.go:128 +0x3b0
+
+goroutine 480321 [select]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x65279e30ad10)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 480970
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:235 +0x300
+
+goroutine 371398 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x65279d4a4bb0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370977
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:235 +0x300
+
+goroutine 370989 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x6527a4b64fd0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370758
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:235 +0x300
+
+goroutine 371388 [select]:
+github.com/edynasty/LumenCortex/internal/diag.(*Log).run(0x6527a49f3c70)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/diag/diag.go:234 +0x11c
+created by github.com/edynasty/LumenCortex/internal/diag.Open in goroutine 370977
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/diag/diag.go:167 +0x418
+
+goroutine 371387 [select, 1 minutes]:
+database/sql.(*DB).connectionOpener(0x6527a42c5ad0, {0x103dd07e0, 0x6527a125b130})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1261 +0x84
+created by database/sql.OpenDB in goroutine 370977
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:841 +0x114
+
+goroutine 370766 [select, 1 minutes]:
+database/sql.(*DB).connectionOpener(0x6527a1864dd0, {0x103dd07e0, 0x65279dac5400})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1261 +0x84
+created by database/sql.OpenDB in goroutine 370758
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:841 +0x114
+
+goroutine 480975 [select]:
+database/sql.(*DB).connectionOpener(0x65279d8ad790, {0x103dd07e0, 0x65279e499720})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1261 +0x84
+created by database/sql.OpenDB in goroutine 480970
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:841 +0x114
+
+goroutine 370784 [select]:
+github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge.func1()
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/diagnostics.go:194 +0x108
+created by github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge in goroutine 370935
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/diagnostics.go:188 +0xe8
+
+goroutine 370990 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).retentionLoop(0x6527a4b64fd0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:686 +0xc0
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370758
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:239 +0x3bc
+
+goroutine 371286 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).retentionLoop(0x6527a0b0a8f0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:686 +0xc0
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371182
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:239 +0x3bc
+
+goroutine 480320 [select]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x65279e30ad10)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 480970
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:235 +0x300
+
+goroutine 371410 [select]:
+github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).loop(0x65279e637b80, {0x103dd07e0, 0x6527a125b4f0})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/schedule/scheduler.go:224 +0xf0
+created by github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).Start in goroutine 370977
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/schedule/scheduler.go:128 +0x3b0
+
+goroutine 370974 [select]:
+github.com/edynasty/LumenCortex/internal/diag.(*Log).run(0x6527a4587ba0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/diag/diag.go:234 +0x11c
+created by github.com/edynasty/LumenCortex/internal/diag.Open in goroutine 370935
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/diag/diag.go:167 +0x418
+
+goroutine 371281 [select]:
+github.com/edynasty/LumenCortex/internal/diag.(*Log).run(0x6527a24672b0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/diag/diag.go:234 +0x11c
+created by github.com/edynasty/LumenCortex/internal/diag.Open in goroutine 371182
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/diag/diag.go:167 +0x418
+
+goroutine 371284 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x6527a0b0a8f0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371182
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:235 +0x300
+
+goroutine 371280 [select, 1 minutes]:
+database/sql.(*DB).connectionOpener(0x6527a4fbca90, {0x103dd07e0, 0x65279fc29d60})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1261 +0x84
+created by database/sql.OpenDB in goroutine 371182
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:841 +0x114
+
+goroutine 371283 [select]:
+github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge.func1()
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/diagnostics.go:194 +0x108
+created by github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge in goroutine 371182
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/diagnostics.go:188 +0xe8
+
+goroutine 371396 [select]:
+github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge.func1()
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/diagnostics.go:194 +0x108
+created by github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge in goroutine 370977
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/diagnostics.go:188 +0xe8
+
+goroutine 480976 [select]:
+github.com/edynasty/LumenCortex/internal/diag.(*Log).run(0x65279fd7c750)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/diag/diag.go:234 +0x11c
+created by github.com/edynasty/LumenCortex/internal/diag.Open in goroutine 480970
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/diag/diag.go:167 +0x418
+
+goroutine 370979 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).retentionLoop(0x6527a4b64dc0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:686 +0xc0
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370935
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:239 +0x3bc
+
+goroutine 370978 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x6527a4b64dc0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370935
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:235 +0x300
+
+goroutine 481030 [IO wait]:
+internal/poll.runtime_pollWait(0x111502400, 0x72)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0x6527a5fe3da0?, 0x65279e9a3800?, 0x1)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x28
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x6527a5fe3da0, {0x65279e9a3800, 0x200, 0x200})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_unix.go:165 +0x234
+os.(*File).read(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_posix.go:30
+os.(*File).Read(0x65279e7feac0, {0x65279e9a3800?, 0x6527a77bcb00?, 0x0?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:144 +0x68
+bytes.(*Buffer).ReadFrom(0x6527a0d72570, {0x103dc7ea8, 0x65279e7feac0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/bytes/buffer.go:229 +0x90
+io.copyBuffer({0x103dc8800, 0x6527a0d72570}, {0x103dc7ea8, 0x65279e7feac0}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:415 +0x14c
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:388
+os.genericWriteTo(0x65279f729898?, {0x103dc8800?, 0x6527a0d72570?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:295 +0x44
+os.(*File).WriteTo(0x65279d81af00?, {0x103dc8800?, 0x6527a0d72570?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:273 +0x5c
+io.copyBuffer({0x103dc8800, 0x6527a0d72570}, {0x103dc7fa0, 0x65279e7feac0}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:411 +0x98
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:388
+os/exec.(*Cmd).writerDescriptor.func1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:602 +0x40
+os/exec.(*Cmd).Start.func2(0x6527a1891680?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:757 +0x30
+created by os/exec.(*Cmd).Start in goroutine 480970
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756 +0x6c8
+
+goroutine 371034 [select]:
+github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge.func1()
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/diagnostics.go:194 +0x108
+created by github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge in goroutine 371030
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/diagnostics.go:188 +0xe8
+
+goroutine 480319 [select]:
+github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge.func1()
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/diagnostics.go:194 +0x108
+created by github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge in goroutine 480970
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/diagnostics.go:188 +0xe8
+
+goroutine 371022 [select]:
+github.com/edynasty/LumenCortex/internal/diag.(*Log).run(0x6527a4566f70)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/diag/diag.go:234 +0x11c
+created by github.com/edynasty/LumenCortex/internal/diag.Open in goroutine 371030
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/diag/diag.go:167 +0x418
+
+goroutine 371021 [select, 1 minutes]:
+database/sql.(*DB).connectionOpener(0x6527a1cba4e0, {0x103dd07e0, 0x6527a268f4a0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1261 +0x84
+created by database/sql.OpenDB in goroutine 371030
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:841 +0x114
+
+goroutine 370767 [select]:
+github.com/edynasty/LumenCortex/internal/diag.(*Log).run(0x65279edafc70)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/diag/diag.go:234 +0x11c
+created by github.com/edynasty/LumenCortex/internal/diag.Open in goroutine 370758
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/diag/diag.go:167 +0x418
+
+goroutine 370988 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x6527a4b64fd0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370758
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:235 +0x300
+
+goroutine 371285 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x6527a0b0a8f0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371182
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:235 +0x300
+
+goroutine 481031 [select]:
+os/exec.(*Cmd).watchCtx(0x65279e626d00, 0x6527a2f267e0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:797 +0x74
+created by os/exec.(*Cmd).Start in goroutine 480970
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:783 +0x69c
+
+goroutine 371397 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x65279d4a4bb0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370977
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:235 +0x300
+
+goroutine 371040 [select]:
+github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).loop(0x65279e03a900, {0x103dd07e0, 0x6527a4458870})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/schedule/scheduler.go:224 +0xf0
+created by github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).Start in goroutine 371030
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/schedule/scheduler.go:128 +0x3b0
+
+goroutine 370976 [select]:
+github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).loop(0x6527a57b9200, {0x103dd07e0, 0x6527a18bcfa0})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/schedule/scheduler.go:224 +0xf0
+created by github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).Start in goroutine 370935
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/schedule/scheduler.go:128 +0x3b0
+
+goroutine 371289 [select]:
+github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).loop(0x65279e810100, {0x103dd07e0, 0x65279ea226e0})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/schedule/scheduler.go:224 +0xf0
+created by github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).Start in goroutine 371182
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/schedule/scheduler.go:128 +0x3b0
+
+goroutine 371037 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).retentionLoop(0x6527a4b654a0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:686 +0xc0
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371030
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:239 +0x3bc
+
+goroutine 480994 [select]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).retentionLoop(0x65279e30ad10)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:686 +0xc0
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 480970
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:239 +0x3bc
+
+goroutine 370785 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x6527a4b64dc0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370935
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:235 +0x300
+
+goroutine 370973 [select, 1 minutes]:
+database/sql.(*DB).connectionOpener(0x6527a38d2820, {0x103dd07e0, 0x6527a2fc42d0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1261 +0x84
+created by database/sql.OpenDB in goroutine 370935
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:841 +0x114
+
+goroutine 371035 [select, 1 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x6527a4b654a0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371030
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/jobs/jobs.go:235 +0x300
+
+goroutine 480970 [syscall]:
+syscall.syscalln(0x10290dd20, {0x6527a0247a08, 0x6, 0x6})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/sys_darwin.go:38 +0x20
+syscall.syscall6(0x1a5676080?, 0x111516420?, 0x105f2b6f8?, 0x90?, 0x65279d481808?, 0x65279de19710?, 0x6527a0247aa8?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/syscall/syscall_darwin.go:407 +0x28
+syscall.wait4(0x6527a0247ad8?, 0x10292e71c?, 0x90?, 0x103d97700?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/syscall/zsyscall_darwin_arm64.go:44 +0x4c
+syscall.Wait4(0x65279d66c2a0?, 0x6527a0247b14, 0x6527a5676080?, 0x65279d66c1c0?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/syscall/syscall_bsd.go:144 +0x28
+os.(*Process).pidWait.func1(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec_unix.go:64
+os.ignoringEINTR2[...](...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_posix.go:273
+os.(*Process).pidWait(0x65279dc26300)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec_unix.go:63 +0x9c
+os.(*Process).wait(0x105f2b6f8?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec_unix.go:28 +0x24
+os.(*Process).Wait(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec.go:346
+os/exec.(*Cmd).Wait(0x65279e626d00)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:930 +0x38
+os/exec.(*Cmd).Run(0x65279e626d00)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:632 +0x38
+github.com/edynasty/LumenCortex/internal/evaluator.ignoredPaths({0x6527a305f2c0, 0x9e}, {0x6527a0247e98, 0x2, 0x2})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/evaluator/inputs.go:578 +0x1d0
+github.com/edynasty/LumenCortex/internal/evaluator.ResolveInputs({0x6527a61f3180, 0x9e}, {0x6527a30683c0, 0x2, 0x2})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/internal/evaluator/inputs.go:461 +0x678
+github.com/edynasty/LumenCortex/runtime.(*Engine).effectiveChecks(0x6527a5130788)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/checks.go:63 +0x21c
+github.com/edynasty/LumenCortex/runtime.(*Engine).ApproveConstraintBinding(_, {_, _}, {{0x6527a55e42d0, 0x27}, {0x6527a77a1770, 0x47}, {0x10337fe34, 0x8}, {0x6527a77a17c0, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/approvals.go:261 +0x128
+github.com/edynasty/LumenCortex/runtime.(*cognitionFixture).bindAt(_, _, {{_, _}, {_, _}, {_, _}, {_, _}}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/cognition_test.go:138 +0x56c
+github.com/edynasty/LumenCortex/runtime.(*cognitionFixture).bind(_, _, {{_, _}, {_, _}, {_, _}, {_, _}}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/cognition_test.go:148 +0xc8
+github.com/edynasty/LumenCortex/runtime.(*cognitionFixture).bindPorts(0x6527a7ea82d0, 0x65279d6c4488)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/cognition_test.go:154 +0xfc
+github.com/edynasty/LumenCortex/runtime.newCognitionFixture(0x65279d6c4488, 0x1)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/cognition_test.go:117 +0x314
+github.com/edynasty/LumenCortex/runtime.TestExperienceStoreRefusesSuccessOfADivergedApplication(0x65279d6c4488)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7-20261120/runtime/experience_failed_application_review_test.go:88 +0x2c
+testing.tRunner(0x65279d6c4488, 0x103dbd138)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2036 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2101 +0x3a8
+FAIL	github.com/edynasty/LumenCortex/runtime	600.577s
+FAIL
+exit=1

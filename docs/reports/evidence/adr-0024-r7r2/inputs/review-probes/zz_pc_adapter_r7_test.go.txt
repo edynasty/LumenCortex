@@ -1,0 +1,152 @@
+package editing
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+const pcRev = "r7"
+
+var pcHookOnReceipt func()
+
+func pcRecorder(ctx context.Context) (context.Context, func() string) {
+	var got *CommitReceipt
+	ctx = WithCommitRecorder(ctx, func(r CommitReceipt) {
+		cp := r
+		got = &cp
+		pcLastReceipt = &cp
+		if pcHookOnReceipt != nil {
+			h := pcHookOnReceipt
+			pcHookOnReceipt = nil
+			h()
+		}
+	})
+	return ctx, func() string {
+		if got == nil {
+			return "none"
+		}
+		var parts []string
+		for _, f := range got.Files {
+			sha := f.NewSHA256
+			if len(sha) > 15 {
+				sha = sha[:15]
+			}
+			parts = append(parts, fmt.Sprintf("%s{%s pub=%v ver=%v wrote=%v rb=%v newSHA=%s}", f.Path, f.PublishState, f.Published, f.Verified, f.Wrote, f.RolledBack, sha))
+		}
+		return fmt.Sprintf("state=%s committed=%v dirty=%v [%s]", got.State, got.Committed, got.DirtyFailure, strings.Join(parts, " "))
+	}
+}
+
+func pcSetAfterTruncate(e *Engine, fn func(string) error) bool { e.afterTruncate = fn; return true }
+
+func pcOnReceipt(c *pcCase, fn func()) bool { pcHookOnReceipt = fn; return true }
+
+func pcResult(res Result) string {
+	var parts []string
+	for _, f := range res.Files {
+		parts = append(parts, fmt.Sprintf("%s{%s pub=%v ver=%v rb=%v changed=%v newRev=%s}", f.Path, f.PublishState, f.Published, f.Verified, f.RolledBack, f.Changed, f.NewRev))
+	}
+	return "commitState=" + string(res.CommitState) + " result=[" + strings.Join(parts, " ") + "]"
+}
+
+func pcResultStates(res Result) string {
+	var parts []string
+	for _, f := range res.Files {
+		parts = append(parts, f.Path+":"+string(f.PublishState))
+	}
+	return string(res.CommitState) + "/" + strings.Join(parts, ",")
+}
+
+var pcLastReceipt *CommitReceipt
+
+// pcInvariants checks the §3.4 invariants against the receipt, result, disk and snapshot store.
+func pcInvariants(c *pcCase, res Result, err error) []string {
+	r := pcLastReceipt
+	pcLastReceipt = nil
+	out := []string{}
+	if r == nil {
+		return append(out, "no receipt delivered")
+	}
+	byPath := map[string]FileResult{}
+	for _, f := range res.Files {
+		byPath[f.Path] = f
+	}
+	anyWrote, allVerified := false, len(r.Files) > 0
+	for _, rf := range r.Files {
+		disk, rerr := os.ReadFile(rf.AbsPath)
+		present := rerr == nil
+		if rf.Wrote || rf.Published {
+			anyWrote = true
+		}
+		if !rf.Verified {
+			allVerified = false
+		}
+		if rf.NewSHA256 != "" {
+			if !rf.Verified {
+				out = append(out, rf.Path+": NewSHA256 without Verified")
+			}
+			if sha256Ref(disk, present) != rf.NewSHA256 {
+				out = append(out, rf.Path+": NewSHA256 != disk ("+string(rf.PublishState)+")")
+			}
+		}
+		if fr, ok := byPath[rf.Path]; ok && fr.NewRev != "" {
+			if !rf.Verified {
+				out = append(out, rf.Path+": NewRev without Verified")
+			}
+			if !present || RevOf(disk) != fr.NewRev {
+				out = append(out, rf.Path+": NewRev != disk")
+			}
+		}
+		if latest := c.e.LatestRev(testActor(), rf.AbsPath); latest != "" {
+			if !present || latest != RevOf(disk) {
+				out = append(out, rf.Path+": snapshot STALE latest="+latest)
+			}
+		}
+		orig, known := c.orig[filepath.Base(rf.AbsPath)]
+		if known && present && string(disk) != orig && !pcForeign(disk) {
+			switch {
+			case !rf.Wrote:
+				out = append(out, rf.Path+": disk changed by LC but Wrote=false ("+string(rf.PublishState)+")")
+			case rf.PublishState == PublishNotAttempted || rf.PublishState == PublishFailedBeforeWrite || rf.PublishState == PublishNone:
+				out = append(out, rf.Path+": disk changed but state "+string(rf.PublishState))
+			}
+		}
+		if rf.PublishState == PublishNotAttempted {
+			if rf.Published || rf.Wrote || rf.Verified {
+				out = append(out, rf.Path+": not_attempted with effect flags")
+			}
+			if known && (!present || string(disk) != orig) {
+				out = append(out, rf.Path+": not_attempted but disk differs")
+			}
+		}
+		if rf.RolledBack || rf.PublishState == PublishRolledBack || rf.PublishState == PublishRollbackFailed {
+			out = append(out, rf.Path+": rollback state "+string(rf.PublishState))
+		}
+	}
+	if r.Committed != (r.State == CommitStateCommitted) {
+		out = append(out, "Committed flag != State")
+	}
+	if r.Committed && !allVerified {
+		out = append(out, "committed but a file unverified")
+	}
+	if err == nil && r.State != CommitStateCommitted {
+		out = append(out, "nil error but state "+string(r.State))
+	}
+	if err != nil && r.State == CommitStateCommitted {
+		out = append(out, "error but committed")
+	}
+	if r.State == CommitStatePrePublishFailure && anyWrote {
+		out = append(out, "failed_before_publication but a file wrote/published")
+	}
+	if (r.State == CommitStatePartiallyPublished || r.State == CommitStatePublishedWithPostError) && !anyWrote {
+		out = append(out, string(r.State)+" but no file wrote/published")
+	}
+	if string(res.CommitState) != string(r.State) {
+		out = append(out, "Result.CommitState != receipt.State")
+	}
+	return out
+}
+func pcLastReceiptReset() { pcLastReceipt = nil }

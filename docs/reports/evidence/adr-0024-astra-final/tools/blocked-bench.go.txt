@@ -1,0 +1,20 @@
+package toolset
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
+
+// A run of individually unrenderable files must not conceal the final, cheap failed file.
+func BenchmarkAstraBlockedPrefix(b *testing.B) {
+	for _,n:=range []int{64,256,1024} {
+		b.Run(fmt.Sprint(n),func(b *testing.B) {
+			set,err:=New(Options{Workspace:b.TempDir(),Policy:PolicyWorkspace,SessionID:"b-prefix"});if err!=nil{b.Fatal(err)}
+			tail:="/"+strings.Repeat(strings.Repeat("&",162)+"/",4)+"f.kt"
+			paths:=make([]string,0,n+1);for i:=0;i<n;i++{paths=append(paths,fmt.Sprintf("r%04d…r",i)+tail)}
+			paths=append(paths,"good.kt"); c:=rvMake("blocked",paths,nil,nil,"eio");b.ReportAllocs();b.ResetTimer()
+			for i:=0;i<b.N;i++{rvSink=rvRender(set,c)}
+		})
+	}
+}

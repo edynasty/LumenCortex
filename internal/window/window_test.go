@@ -429,7 +429,7 @@ func TestCapacityRetryHalvesTranscript(t *testing.T) {
 func TestEstimateDeterministic(t *testing.T) {
 	m := asst("hello", "a")
 	b, _ := json.Marshal(m)
-	if got, want := Estimate(m), (len(b)+2)/3+4; got != want {
+	if got, want := Estimate(m), EstimateBytes(b); got != want {
 		t.Fatalf("Estimate=%d want %d", got, want)
 	}
 	bad := protocol.Message{Role: "assistant", ToolCalls: []protocol.ToolCall{{ID: "a", Name: "read", Arguments: json.RawMessage(`{"path":`)}}}

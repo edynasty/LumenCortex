@@ -1,0 +1,11 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/edynasty/LumenCortex/internal/toolset
+cpu: Apple M1 Pro
+BenchmarkReviewCorpus-2   	       3	19283106569 ns/op	  28348769 cpu-ns/payload	  28191676 wall-ns/payload	5842672829 B/op	22022065 allocs/op
+BenchmarkReviewCorpus-2   	       3	18936215292 ns/op	  28193442 cpu-ns/payload	  27684525 wall-ns/payload	5843182437 B/op	22022117 allocs/op
+BenchmarkReviewCorpus-2   	       3	18955703333 ns/op	  28279992 cpu-ns/payload	  27713017 wall-ns/payload	5844875002 B/op	22022273 allocs/op
+BenchmarkReviewCorpus-2   	       3	18903120445 ns/op	  28174172 cpu-ns/payload	  27636141 wall-ns/payload	5844197088 B/op	22022232 allocs/op
+BenchmarkReviewCorpus-2   	       3	18951177903 ns/op	  28197152 cpu-ns/payload	  27706400 wall-ns/payload	5833522842 B/op	22022146 allocs/op
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	386.818s

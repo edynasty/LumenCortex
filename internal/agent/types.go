@@ -11,6 +11,16 @@ import (
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
+// MutationEvidence is the three-valued causal mutation classification of an answered tool-call group
+// (ADR-0024 §4.2, §4.6).
+type MutationEvidence string
+
+const (
+	MutationNone    MutationEvidence = "none"
+	MutationUnknown MutationEvidence = "unknown"
+	MutationProven  MutationEvidence = "proven"
+)
+
 type SessionState struct {
 	ID     string
 	Goal   string
@@ -68,6 +78,8 @@ type Store interface {
 	// row's seq and the new version. session.ErrFenced means the row was not stored and the execution,
 	// if any, is settled.
 	CommitToolResult(ctx context.Context, c ToolResultCommit) (int64, int64, error)
+	// ListAnsweredExecutions returns the answered-request execution summaries at or after fromSeq.
+	ListAnsweredExecutions(ctx context.Context, sessionID string, fromSeq int64) ([]session.AnsweredExecutionSummary, error)
 	AppendStep(context.Context, string, int64, any) error
 	NextStep(context.Context, string) (int64, error)
 	Update(context.Context, string, SessionPatch) error
@@ -134,6 +146,9 @@ type SystemLayer struct {
 	// Source names where the text came from: a file path, or the skill roots.
 	Source string
 	Text   string
+	// CompactText is the bounded ModeCompact form of the layer when available; "" for layers that must
+	// never be compacted (such as global-instructions).
+	CompactText string
 }
 
 // Options is a run's fixed inputs.

@@ -1,0 +1,26 @@
+$ python3 docs/reports/evidence/adr-0024-r7r2-final/tally_outcomes.py docs/reports/evidence/adr-0024-r7r2-final/logs/09-new02-soak.txt
+passing runs of the whole test: 100
+Create=true  excl_after_signal            released before_commit     rounds= 1000: exists_before_prepare=942 staged_publish_refused=54 lc_created=4
+Create=true  excl_after_signal            released after_prepare     rounds= 1000: staged_publish_refused=999 lc_created=1
+Create=true  excl_after_signal            released before_publish    rounds= 1000: staged_publish_refused=996 lc_created=4
+Create=false atomic_after_signal          released before_commit     rounds= 1000: staged_publish_refused=994 lc_created=5 lc_replaced_read_foreign=1
+Create=false atomic_after_signal          released after_prepare     rounds= 1000: staged_publish_refused=992 lc_created=8
+Create=false atomic_after_signal          released before_publish    rounds= 1000: lc_created=790 staged_publish_refused=210
+Create=false excl_after_signal            released before_commit     rounds= 1000: lc_replaced_read_foreign=927 staged_publish_refused=50 inplace_refused_before_truncate=22 inplace_overlap_foreign_whole=1
+Create=false excl_after_signal            released after_prepare     rounds= 1000: staged_publish_refused=1000
+Create=false excl_after_signal            released before_publish    rounds= 1000: staged_publish_refused=995 lc_created=5
+Create=false create_empty_wait_then_write released before_commit     rounds= 1000: lc_replaced_read_foreign=1000
+Create=false create_empty_wait_then_write released after_prepare     rounds= 1000: inplace_refused_before_truncate=980 pre02_external_write_overwritten=9 pre02_mixed_bytes_reported_dirty=5 external_write_after_verified=4 inplace_overlap_foreign_whole=2
+Create=false create_empty_wait_then_write released after_truncate    rounds= 1000: inplace_overlap_foreign_whole=983 pre02_mixed_bytes_reported_dirty=16 external_write_after_verified=1
+Create=false create_empty_wait_then_write released after_write_close rounds= 1000: inplace_overlap_foreign_whole=986 external_write_after_verified=14
+all stress rounds: 13000
+  staged_publish_refused                 6290
+  inplace_overlap_foreign_whole          1972
+  lc_replaced_read_foreign               1928
+  inplace_refused_before_truncate        1002
+  exists_before_prepare                   942
+  lc_created                              817
+  pre02_mixed_bytes_reported_dirty         21
+  external_write_after_verified            19
+  pre02_external_write_overwritten          9
+exit=0

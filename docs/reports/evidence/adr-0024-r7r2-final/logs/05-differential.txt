@@ -1,0 +1,16 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+working tree: modified
+cmd= env OPUS_DUMP_DIR=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.VcNbXHBL0M/dump-carbon go test -count=1 -overlay /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.VcNbXHBL0M/dump-carbon.json -run \^TestOpusProbeDump\$ ./internal/toolset
+ok  	github.com/edynasty/LumenCortex/internal/toolset	124.957s
+exit=0
+cmd= env OPUS_DUMP_DIR=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.VcNbXHBL0M/dump-head go test -count=1 -overlay /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.VcNbXHBL0M/dump-head.json -run \^TestOpusProbeDump\$ ./internal/toolset
+ok  	github.com/edynasty/LumenCortex/internal/toolset	20.215s
+exit=0
+cmd= python3 docs/reports/evidence/adr-0024-r7r2-final/compare_payloads.py /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.VcNbXHBL0M/dump-carbon /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.VcNbXHBL0M/dump-head
+cases=684 identical=482 different=202 over_4096_bytes=0
+ 134  more rows shown   e.g. deep_f22_v00_u00_eio.json: rows 20 -> 22
+  56  rows repeated one text before   e.g. samename_head_f00_v06_u06_cancel.json: rows 12 -> 12
+  12  FEWER ROWS SHOWN + rows repeated one text before   e.g. samename_head_f01_v12_u12_cancel.json: rows 10 -> 9
+exit=0

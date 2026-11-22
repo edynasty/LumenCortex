@@ -1,0 +1,128 @@
+package editing
+
+// PRE-02 baseline-comparison probe (not committed). It drives the two truncate-window interleavings
+// of an in-place write deterministically and prints what the disk, the CommitReceipt, the Result and
+// the SnapshotStore say, in a form that can be compared across commits. It uses only what R6, R7,
+// R7R2 and later share: the engine's unexported afterTruncate test hook and the receipt fields.
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+const opusPre02HelperSrc = `package main
+import (
+	"errors"
+	"os"
+	"time"
+)
+
+func waitFile(path string) bool {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+		time.Sleep(100 * time.Microsecond)
+	}
+	return false
+}
+
+// create the target empty, wait for the go file, write os.Args[4] into it at offset 0.
+func main() {
+	target, opened, writeGo, data := os.Args[1], os.Args[2], os.Args[3], os.Args[4]
+	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			os.Exit(10)
+		}
+		os.Exit(2)
+	}
+	if err := os.WriteFile(opened, []byte("1"), 0o644); err != nil {
+		os.Exit(2)
+	}
+	if !waitFile(writeGo) {
+		os.Exit(3)
+	}
+	if _, err := f.Write([]byte(data)); err != nil {
+		os.Exit(4)
+	}
+	_ = f.Close()
+}
+`
+
+func TestOpusPRE02Baseline(t *testing.T) {
+	dir := t.TempDir()
+	src, bin := filepath.Join(dir, "main.go"), filepath.Join(dir, "foreign_writer")
+	if err := os.WriteFile(src, []byte(opusPre02HelperSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("go", "build", "-o", bin, src).CombinedOutput(); err != nil {
+		t.Fatalf("build helper: %v\n%s", err, out)
+	}
+	agent := []byte("agent os process content\n")
+	for _, tc := range []struct{ name, foreign string }{
+		{"long_foreign_write_inside_truncate_window", "FOREIGN OS PROCESS PAYLOAD 0123456789ABCDEF\n"},
+		{"short_foreign_write_inside_truncate_window", "FOREIGN\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, ctrl := t.TempDir(), t.TempDir()
+			target := filepath.Join(root, "shared.txt")
+			opened, writeGo := filepath.Join(ctrl, "opened"), filepath.Join(ctrl, "write_go")
+			cmd := exec.Command(bin, target, opened, writeGo, tc.foreign)
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				if _, err := os.Stat(opened); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("external process did not create the target")
+				}
+				time.Sleep(100 * time.Microsecond)
+			}
+			e := newTestEngine(t, root)
+			actor := Actor{Session: "s-pre02"}
+			childExit := -1
+			e.afterTruncate = func(dst string) error {
+				if dst == target {
+					if err := os.WriteFile(writeGo, []byte("1"), 0o644); err != nil {
+						return err
+					}
+					err := cmd.Wait()
+					childExit = 0
+					var ee *exec.ExitError
+					if errors.As(err, &ee) {
+						childExit = ee.ExitCode()
+					} else if err != nil {
+						childExit = -2
+					}
+				}
+				return nil
+			}
+			var rec CommitReceipt
+			res, commitErr := e.Commit(WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r }), Plan{
+				Actor: actor, Tool: "write_file",
+				Changes: []FileChange{{Path: "shared.txt", Content: &agent, AllowCreate: true}},
+			})
+			got, _ := os.ReadFile(target)
+			rf := rec.Files[0]
+			t.Logf("PRE02 %s | external_exit=%d external_bytes=%d agent_bytes=%d", tc.name, childExit, len(tc.foreign), len(agent))
+			t.Logf("PRE02 %s | disk=%q", tc.name, got)
+			t.Logf("PRE02 %s | commit_error_code=%q committed=%v dirtyFailure=%v commitState=%s", tc.name, CodeOf(commitErr), rec.Committed, rec.DirtyFailure, rec.State)
+			t.Logf("PRE02 %s | row: staged=%v created=%v published=%v wrote=%v verified=%v rolledBack=%v publishState=%s newSHA256_set=%v",
+				tc.name, rf.Staged, rf.Created, rf.Published, rf.Wrote, rf.Verified, rf.RolledBack, rf.PublishState, rf.NewSHA256 != "")
+			// R6: FileResult has no Verified field, and a failed commit returns no Result.Files.
+			newRevSet := len(res.Files) > 0 && res.Files[0].NewRev != ""
+			t.Logf("PRE02 %s | result: commitState=%s result_files=%d newRev_set=%v | snapshot_latestRev_set=%v snapshot_is_agent_rev=%v",
+				tc.name, res.CommitState, len(res.Files), newRevSet, e.LatestRev(actor, target) != "", e.LatestRev(actor, target) == RevOf(agent))
+		})
+	}
+}

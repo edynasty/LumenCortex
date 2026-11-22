@@ -1,0 +1,18 @@
+$ git rev-parse HEAD
+fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+$ git status --porcelain -- "*.go" go.mod go.sum   # no output: Go sources equal HEAD
+exit=0
+$ git status --porcelain   # what "working tree: modified" in the logs refers to: documents and this directory
+ M docs/adr/0024-candidate-context-projection-and-budget-guards.md
+ M docs/adr/0024-candidate-context-projection-and-budget-guards.zh-CN.md
+ M docs/reports/adr-0024-r7-partial-commit.md
+?? docs/reports/evidence/adr-0024-r7r2-final/
+$ go version; uname -sm; sw_vers
+go version go1.26.5 darwin/arm64
+Darwin arm64
+ProductName:		macOS
+ProductVersion:		27.0.1
+BuildVersion:		26A434
+$ mount   # filesystem holding the test temp directories
+/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)
+/dev/disk3s5 on /System/Volumes/Data (apfs, local, journaled, nobrowse, protect, root data)

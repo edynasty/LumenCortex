@@ -1,0 +1,12 @@
+variant=carbon source=f3f77e35c98de4647243019568ed5ec3093cf072
+cmd=env GOMAXPROCS=2 go test -overlay /private/tmp/lc-adr0024-sol-0102-20261122/replay-carbon-bench/overlay.json -run '^$' -bench '^BenchmarkSOLArchivedCorpus$' -benchmem -benchtime=1x -count=3 ./internal/toolset
+goos: darwin
+goarch: arm64
+pkg: github.com/edynasty/LumenCortex/internal/toolset
+cpu: Apple M1 Pro
+BenchmarkSOLArchivedCorpus-2   	       1	127476240750 ns/op	 185323115 cpu-ns/payload	 186368773 wall-ns/payload	36188166880 B/op	140330409 allocs/op
+BenchmarkSOLArchivedCorpus-2   	       1	187047678292 ns/op	 236956949 cpu-ns/payload	 273461518 wall-ns/payload	36143000656 B/op	140327768 allocs/op
+BenchmarkSOLArchivedCorpus-2   	       1	137521203208 ns/op	 195998115 cpu-ns/payload	 201054391 wall-ns/payload	36056878096 B/op	140329092 allocs/op
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	452.824s
+exit=0

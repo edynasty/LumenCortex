@@ -1,0 +1,4 @@
+cmd= gofmt -l internal/agent/remediation_r6_test.go internal/editing/aliases.go internal/editing/engine.go internal/editing/r7r2_casefold_test.go internal/editing/r7r2_remediation_test.go internal/toolset/editing.go internal/toolset/r7r2_results_test.go internal/editing/r7r2_windows_test.go
+# HEAD e37976dafca4dc2882d44df9859b96b2661e81ce (+ uncommitted R7R2 tests/docs)
+# go version go1.26.5 darwin/arm64; Darwin arm64
+exit=0

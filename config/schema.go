@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/edynasty/LumenCortex/docs"
 	"github.com/santhosh-tekuri/jsonschema/v5"
@@ -96,6 +97,9 @@ func Parse(raw []byte) (File, error) {
 	if err := dec.Decode(&f); err != nil {
 		return File{}, decodeError(err)
 	}
+	if err := validateModelRefBounds(f); err != nil {
+		return File{}, err
+	}
 	if err := validateAgents(f.Agents); err != nil {
 		return File{}, err
 	}
@@ -115,7 +119,63 @@ func Validate(f File) error {
 	if err := validateGeneric(generic); err != nil {
 		return err
 	}
+	if err := validateModelRefBounds(f); err != nil {
+		return err
+	}
 	return validateAgents(f.Agents)
+}
+
+func validateModelRefBounds(f File) error {
+	checkRef := func(where string, ref ModelRef) error {
+		if ref == "" {
+			return nil
+		}
+		if !utf8.ValidString(string(ref)) {
+			return invalid("%s is not valid UTF-8", where)
+		}
+		p, m, ok := ref.Split()
+		if !ok {
+			return invalid("%s must be provider/model", where)
+		}
+		if len(p) > MaxProviderIDBytes {
+			return invalid("%s provider id exceeds %d UTF-8 bytes", where, MaxProviderIDBytes)
+		}
+		if len(m) > MaxModelKeyBytes {
+			return invalid("%s model key exceeds %d UTF-8 bytes", where, MaxModelKeyBytes)
+		}
+		return nil
+	}
+	if err := checkRef("model", f.Model); err != nil {
+		return err
+	}
+	for i, ref := range f.Failover {
+		if err := checkRef(fmt.Sprintf("failover[%d]", i), ref); err != nil {
+			return err
+		}
+	}
+	if f.Effort != nil && f.Effort.Auto != nil {
+		if err := checkRef("effort.auto.model", f.Effort.Auto.Model); err != nil {
+			return err
+		}
+	}
+	for id, prov := range f.Providers {
+		if !utf8.ValidString(id) || len(id) > MaxProviderIDBytes {
+			return invalid("providers key exceeds %d UTF-8 bytes", MaxProviderIDBytes)
+		}
+		for mkey := range prov.Models {
+			if !utf8.ValidString(mkey) || len(mkey) > MaxModelKeyBytes {
+				return invalid("providers.%s.models key exceeds %d UTF-8 bytes", id, MaxModelKeyBytes)
+			}
+		}
+	}
+	for id, ag := range f.Agents {
+		for i, entry := range ag.Models {
+			if err := checkRef(fmt.Sprintf("agents.%s.models[%d].model", id, i), entry.Model); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func decodeGeneric(raw []byte) (any, error) {

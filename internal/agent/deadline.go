@@ -141,6 +141,12 @@ func (c *runClock) annotate(content string, now time.Time) string {
 	raw, _ := json.Marshal(report)
 	trimmed := bytes.TrimSpace([]byte(content))
 	if len(trimmed) >= 2 && trimmed[0] == '{' && trimmed[len(trimmed)-1] == '}' && json.Valid(trimmed) {
+		if len(trimmed)+len(raw)+12 > maxPreservedToolErrorBytes {
+			var obj map[string]json.RawMessage
+			if json.Unmarshal(trimmed, &obj) == nil && isCommitDisplay(obj) {
+				return content // The receipt takes precedence over optional timing metadata.
+			}
+		}
 		body := bytes.TrimSpace(trimmed[:len(trimmed)-1])
 		var b strings.Builder
 		b.Grow(len(body) + len(raw) + 16)

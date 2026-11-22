@@ -1,0 +1,25 @@
+cases=33 problems=0
+opus sizes {'min': 3929, 'p50': 3960, 'p95': 4086, 'max': 4092, 'mean': 3986.42} {'dup_rows': 0, 'dup_cases': 0, 'strict_rows': 327, 'strict_cases': 16, 'lenient_rows': 327, 'lenient_cases': 16, 'loose_rows': 0, 'loose_cases': 0, 'pub_ambiguous_rows': 0, 'pub_ambiguous_cases': 0}
+sol sizes {'min': 3937, 'p50': 4011, 'p95': 4092, 'max': 4092, 'mean': 4013.82} {'dup_rows': 0, 'dup_cases': 0, 'strict_rows': 0, 'strict_cases': 0, 'lenient_rows': 0, 'lenient_cases': 0, 'loose_rows': 0, 'loose_cases': 0, 'pub_ambiguous_rows': 0, 'pub_ambiguous_cases': 0}
+new sizes {'min': 4009, 'p50': 4010, 'p95': 4083, 'max': 4083, 'mean': 4032.03} {'dup_rows': 0, 'dup_cases': 0, 'strict_rows': 0, 'strict_cases': 0, 'lenient_rows': 0, 'lenient_cases': 0, 'loose_rows': 0, 'loose_cases': 0, 'pub_ambiguous_rows': 0, 'pub_ambiguous_cases': 0}
+opus -> sol {'identical': 4, 'more_rows': 9, 'fewer_rows': 18, 'more_failed': 9, 'fewer_failed': 18, 'new_ambiguity_loose': 0, 'new_ambiguity_lenient': 0, 'less_ambiguity_loose': 0}
+   fewer failed rows: sweep_end_k070 opus=21 (ambiguous 0) sol=19 (ambiguous 0)
+   fewer failed rows: sweep_end_k080 opus=21 (ambiguous 0) sol=18 (ambiguous 0)
+   fewer failed rows: sweep_end_k100 opus=21 (ambiguous 0) sol=17 (ambiguous 0)
+   fewer failed rows: sweep_end_k120 opus=21 (ambiguous 0) sol=15 (ambiguous 0)
+   fewer failed rows: sweep_end_k160 opus=21 (ambiguous 0) sol=13 (ambiguous 0)
+   fewer failed rows: sweep_end_k200 opus=21 (ambiguous 0) sol=11 (ambiguous 0)
+   fewer failed rows: sweep_end_k240 opus=21 (ambiguous 0) sol=10 (ambiguous 0)
+   fewer failed rows: sweep_middle_k070 opus=21 (ambiguous 0) sol=19 (ambiguous 0)
+   fewer failed rows: sweep_middle_k080 opus=21 (ambiguous 0) sol=18 (ambiguous 0)
+   fewer failed rows: sweep_middle_k100 opus=21 (ambiguous 0) sol=17 (ambiguous 0)
+   fewer failed rows: sweep_middle_k120 opus=19 (ambiguous 0) sol=15 (ambiguous 0)
+   fewer failed rows: sweep_middle_k160 opus=18 (ambiguous 0) sol=13 (ambiguous 0)
+   fewer failed rows: sweep_middle_k200 opus=19 (ambiguous 0) sol=11 (ambiguous 0)
+   fewer failed rows: sweep_middle_k240 opus=19 (ambiguous 0) sol=10 (ambiguous 0)
+   fewer failed rows: sweep_start_k120 opus=20 (ambiguous 0) sol=15 (ambiguous 0)
+   fewer failed rows: sweep_start_k160 opus=20 (ambiguous 0) sol=13 (ambiguous 0)
+   fewer failed rows: sweep_start_k200 opus=20 (ambiguous 0) sol=11 (ambiguous 0)
+   fewer failed rows: sweep_start_k240 opus=20 (ambiguous 0) sol=10 (ambiguous 0)
+opus -> new {'identical': 0, 'more_rows': 33, 'fewer_rows': 0, 'more_failed': 33, 'fewer_failed': 0, 'new_ambiguity_loose': 0, 'new_ambiguity_lenient': 0, 'less_ambiguity_loose': 0}
+sol -> new {'identical': 3, 'more_rows': 30, 'fewer_rows': 0, 'more_failed': 30, 'fewer_failed': 0, 'new_ambiguity_loose': 0, 'new_ambiguity_lenient': 0, 'less_ambiguity_loose': 0}

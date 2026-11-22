@@ -1,0 +1,523 @@
+package toolset
+
+// Independent review probe for SOL-01/SOL-02 (Sol tree only; uses Sol internals for the oracle).
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"testing"
+	"unicode/utf8"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+type rvOut struct {
+	Files                 []toolFileState      `json:"files"`
+	FilesOmitted          int                  `json:"filesOmitted"`
+	FilesOmittedByState   map[string]int       `json:"filesOmittedByState"`
+	PublishedFiles        []editing.FileResult `json:"publishedFiles"`
+	PublishedFilesOmitted int                  `json:"publishedFilesOmitted"`
+	Overflow              bool                 `json:"overflow"`
+	Truncated             bool                 `json:"truncated"`
+	Path                  *string              `json:"path"`
+	Code                  string               `json:"code"`
+	Error                 string               `json:"error"`
+}
+
+// rvMatch implements the label grammar: a component that is exactly "…" stands for removed
+// components; "…" inside a component stands for removed bytes of that component. strict lets each
+// mark stand for nothing; lenient requires at least one removed component or byte.
+func rvMatch(label, full string, strict bool) bool {
+	w, a := strings.Split(label, "/"), strings.Split(full, "/")
+	memo := map[[2]int]int8{}
+	var walk func(i, j int) bool
+	walk = func(i, j int) bool {
+		k := [2]int{i, j}
+		if v, ok := memo[k]; ok {
+			return v == 1
+		}
+		res := false
+		switch {
+		case i == len(w):
+			res = j == len(a)
+		case w[i] == pathEllipsis:
+			lo := j + 1
+			if strict {
+				lo = j
+			}
+			for e := lo; e <= len(a) && !res; e++ {
+				res = walk(i+1, e)
+			}
+		case j == len(a):
+		default:
+			res = rvComponent(w[i], a[j], strict) && walk(i+1, j+1)
+		}
+		if res {
+			memo[k] = 1
+		} else {
+			memo[k] = 2
+		}
+		return res
+	}
+	return walk(0, 0)
+}
+
+var rvComponentRE = map[[2]string]*regexp.Regexp{}
+
+func rvComponent(pattern, comp string, strict bool) bool {
+	if !strings.Contains(pattern, pathEllipsis) {
+		return pattern == comp
+	}
+	gap := "[^/]+"
+	if strict {
+		gap = "[^/]*"
+	}
+	key := [2]string{pattern, gap}
+	re, ok := rvComponentRE[key]
+	if !ok {
+		parts := strings.Split(pattern, pathEllipsis)
+		for i := range parts {
+			parts[i] = regexp.QuoteMeta(parts[i])
+		}
+		re = regexp.MustCompile("(?s)^" + strings.Join(parts, gap) + "$")
+		rvComponentRE[key] = re
+	}
+	return re.MatchString(comp)
+}
+
+var rvLooseRE = map[string]*regexp.Regexp{}
+
+// rvLoose lets every ellipsis stand for at least one character, slashes included.
+func rvLoose(label, full string) bool {
+	if label == full {
+		return true
+	}
+	if !strings.Contains(label, pathEllipsis) {
+		return false
+	}
+	re, ok := rvLooseRE[label]
+	if !ok {
+		parts := strings.Split(label, pathEllipsis)
+		for i := range parts {
+			parts[i] = regexp.QuoteMeta(parts[i])
+		}
+		re = regexp.MustCompile("(?s)^" + strings.Join(parts, ".+") + "$")
+		rvLooseRE[label] = re
+	}
+	return re.MatchString(full)
+}
+
+func rvRank(f editing.FileCommitReceipt) int {
+	switch f.PublishState {
+	case editing.PublishPartial, editing.PublishSucceededWithPostError, editing.PublishExternalModification,
+		editing.PublishUncertain, editing.PublishRollbackFailed, editing.PublishFailedBeforeWrite, editing.PublishUnsupported:
+		return 0
+	}
+	if f.Error != "" {
+		return 0
+	}
+	if f.Verified && f.Published && f.PublishState == editing.PublishSucceededAndVerified {
+		return 1
+	}
+	return 2
+}
+
+type rvAttempt struct{ raw, disp string }
+
+type rvResult struct {
+	Name                                   string
+	Bytes, Rows, FailedShown, Omitted      int
+	Overflow                               bool
+	Dup, AmbStrict, AmbLenient, AmbLoose, Unresolved int
+	LiteralEllipsisAmbiguity               int
+	Maximal                                string
+	LabelExtraMax                          int
+	LabelExtraNote                         string
+	Problems                               []string
+}
+
+func rvIdentifiable(idx *failurePathIndex, raw string) bool {
+	if !idx.hasIdentity(raw) {
+		return false
+	}
+	full := idx.full[raw]
+	required := slashBase(full)
+	if strings.HasPrefix(full, "<outside-workspace>/") || strings.Contains(full, pathEllipsis) {
+		required = full
+	}
+	if len(required) < maxPartialPayloadBytes/6 {
+		return true
+	}
+	b, _ := json.Marshal(required)
+	return len(b) < maxPartialPayloadBytes
+}
+
+func rvCost(s string) int { b, _ := json.Marshal(s); return len(b) }
+
+// rvBruteLabel enumerates the documented label forms independently and returns the cheapest one
+// that names exactly one attempted file (lenient reading) and is not itself a literal attempted path.
+func rvBruteLabel(full string, aps []rvAttempt, floor bool) (string, int) { return rvBruteLabelMode(full, aps, floor, false) }
+
+func rvBruteLabelMode(full string, aps []rvAttempt, floor, strict bool) (string, int) {
+	unique := func(c string) bool {
+		if c == full {
+			return true
+		}
+		n := 0
+		for _, a := range aps {
+			if a.disp == c {
+				return false
+			}
+			if a.disp != "" && rvMatch(c, a.disp, strict) {
+				n++
+			}
+		}
+		return n == 1
+	}
+	comps := strings.Split(full, "/")
+	n := len(comps)
+	base := comps[n-1]
+	cands := []string{full}
+	if !strings.HasPrefix(full, "<outside-workspace>/") && !strings.Contains(full, pathEllipsis) && n > 1 {
+		for k := 1; k < n; k++ {
+			cands = append(cands, pathEllipsis+"/"+strings.Join(comps[n-k:], "/"))
+		}
+		for i := 0; i < n-1; i++ {
+			variants := []string{comps[i]}
+			c := comps[i]
+			if !floor || len(c) > 32 {
+				for j := 1; j < len(c); j++ {
+					if utf8.RuneStart(c[j]) && (!floor || len(c)-j >= 16) {
+						variants = append(variants, pathEllipsis+c[j:])
+					}
+				}
+			}
+			rest := "/" + base
+			if i < n-2 {
+				rest = "/" + pathEllipsis + "/" + base
+			}
+			for _, v := range variants {
+				lead := ""
+				if i > 0 {
+					lead = pathEllipsis + "/"
+				}
+				cands = append(cands, lead+v+rest)
+				if i >= 1 {
+					l2 := comps[0] + "/"
+					if i > 1 {
+						l2 += pathEllipsis + "/"
+					}
+					cands = append(cands, l2+v+rest)
+				}
+			}
+		}
+	}
+	best, bestCost := "", -1
+	for _, c := range cands {
+		if (bestCost < 0 || rvCost(c) < bestCost) && unique(c) {
+			best, bestCost = c, rvCost(c)
+		}
+	}
+	return best, bestCost
+}
+
+func rvCheck(set *Set, c rvCase) (rvResult, string) {
+	before, _ := json.Marshal(c)
+	content := rvRender(set, c)
+	again := rvRender(set, c)
+	after, _ := json.Marshal(c)
+	r := rvResult{Name: c.Name, Bytes: len(content), Maximal: "n/a"}
+	prob := func(f string, a ...any) { r.Problems = append(r.Problems, fmt.Sprintf(f, a...)) }
+	if content != again {
+		prob("nondeterministic output")
+	}
+	if string(before) != string(after) {
+		prob("renderer mutated its inputs")
+	}
+	if len(content) > maxPartialPayloadBytes {
+		prob("over budget: %d bytes", len(content))
+	}
+	if !utf8.ValidString(content) {
+		prob("invalid UTF-8")
+	}
+	if content == "" {
+		prob("empty content")
+		return r, content
+	}
+	if !json.Valid([]byte(content)) {
+		prob("invalid JSON")
+		return r, content
+	}
+	var p rvOut
+	if err := json.Unmarshal([]byte(content), &p); err != nil {
+		prob("decode: %v", err)
+		return r, content
+	}
+	r.Rows, r.Omitted, r.Overflow = len(p.Files), p.FilesOmitted, p.Overflow
+
+	display := set.displayPaths()
+	var aps []rvAttempt
+	seen := map[string]bool{}
+	add := func(s string) {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			aps = append(aps, rvAttempt{s, display.Path(s)})
+		}
+	}
+	for _, f := range c.Receipts {
+		add(f.Path)
+	}
+	for _, f := range c.Results {
+		add(f.Path)
+	}
+	if c.EditErr != nil && (len(c.Receipts) > 0 || len(c.Results) > 0) {
+		add(c.EditErr.Path)
+	}
+	resolve := func(label string, strict bool) []string {
+		var out []string
+		for _, a := range aps {
+			if a.disp == label || (strings.Contains(label, pathEllipsis) && a.disp != "" && rvMatch(label, a.disp, strict)) {
+				out = append(out, a.raw)
+			}
+		}
+		return out
+	}
+	byRaw := map[string]editing.FileCommitReceipt{}
+	for _, f := range c.Receipts {
+		if _, ok := byRaw[f.Path]; !ok {
+			byRaw[f.Path] = f
+		}
+	}
+	resByRaw := map[string]editing.FileResult{}
+	for _, f := range c.Results {
+		resByRaw[f.Path] = f
+	}
+	counts := map[string]int{}
+	var resolved []string
+	for _, f := range p.Files {
+		counts[f.Path]++
+		rs, rl := resolve(f.Path, true), resolve(f.Path, false)
+		if len(rs) > 1 {
+			r.AmbStrict++
+		}
+		if len(rl) > 1 {
+			r.AmbLenient++
+		}
+		if len(rl) == 0 {
+			r.Unresolved++
+		}
+		loose := 0
+		for _, a := range aps {
+			if a.disp != "" && rvLoose(f.Path, a.disp) {
+				loose++
+			}
+		}
+		if loose != 1 {
+			r.AmbLoose++
+		}
+		literal := 0
+		for _, a := range aps {
+			if a.disp == f.Path {
+				literal++
+			}
+		}
+		if literal == 1 && strings.Contains(f.Path, pathEllipsis) && len(rl) > 1 {
+			r.LiteralEllipsisAmbiguity++
+		}
+		if len(rl) == 1 {
+			resolved = append(resolved, rl[0])
+			rec := byRaw[rl[0]]
+			if string(rec.PublishState) != string(f.PublishState) || rec.Published != f.Published || rec.Verified != f.Verified ||
+				rec.Wrote != f.Wrote || rec.Created != f.Created || rec.Deleted != f.Deleted || rec.RolledBack != f.RolledBack {
+				prob("row %q fields differ from receipt", f.Path)
+			}
+			if f.NewRev != "" && (!rec.Verified || f.NewRev != resByRaw[rl[0]].NewRev) {
+				prob("fabricated newRev on %q", f.Path)
+			}
+			if f.SHA256 != "" && (!rec.Verified || f.SHA256 != rec.NewSHA256) {
+				prob("fabricated sha256 on %q", f.Path)
+			}
+			if rvRank(rec) == 0 {
+				r.FailedShown++
+			}
+		} else {
+			resolved = append(resolved, "")
+		}
+	}
+	for _, n := range counts {
+		if n > 1 {
+			r.Dup += n - 1
+		}
+	}
+	sum := 0
+	for _, n := range p.FilesOmittedByState {
+		sum += n
+	}
+	if sum != p.FilesOmitted {
+		prob("filesOmittedByState sums to %d, filesOmitted=%d", sum, p.FilesOmitted)
+	}
+	if len(c.Receipts) > 0 && len(p.Files)+p.FilesOmitted != len(c.Receipts) {
+		prob("rows %d + omitted %d != receipts %d", len(p.Files), p.FilesOmitted, len(c.Receipts))
+	}
+	stateIn, stateOut := map[string]int{}, map[string]int{}
+	for _, f := range c.Receipts {
+		stateIn[string(f.PublishState)]++
+	}
+	for _, f := range p.Files {
+		stateOut[string(f.PublishState)]++
+	}
+	for s, n := range p.FilesOmittedByState {
+		stateOut[s] += n
+	}
+	if len(c.Receipts) > 0 && fmt.Sprint(stateIn) != fmt.Sprint(stateOut) {
+		prob("state multiset not conserved: in=%v out=%v", stateIn, stateOut)
+	}
+	// Production-equivalent identity index, used only to decide identifiability and for the prefix oracle.
+	idx := newFailurePathIndex()
+	for _, f := range c.Receipts {
+		idx.add(f.Path, display)
+	}
+	for _, f := range c.Results {
+		idx.add(f.Path, display)
+	}
+	if c.EditErr != nil && (len(c.Receipts) > 0 || len(c.Results) > 0) {
+		idx.add(c.EditErr.Path, display)
+	}
+	ordered := append([]editing.FileCommitReceipt(nil), c.Receipts...)
+	sort.SliceStable(ordered, func(i, j int) bool { return rvRank(ordered[i]) < rvRank(ordered[j]) })
+	var ident []editing.FileCommitReceipt
+	unident := map[editing.PublishState]int{}
+	dedup := map[string]bool{}
+	for _, f := range ordered {
+		if !rvIdentifiable(idx, f.Path) || dedup[f.Path] {
+			unident[f.PublishState]++
+			continue
+		}
+		dedup[f.Path] = true
+		ident = append(ident, f)
+	}
+	for i, raw := range resolved {
+		if i >= len(ident) || raw != ident[i].Path {
+			prob("row %d is not the %d-th identifiable row in priority order (%q)", i, i, p.Files[i].Path)
+			break
+		}
+	}
+	floor := 0
+	for floor < len(ident) && rvRank(ident[floor]) == 0 {
+		floor++
+	}
+	if floor == 0 && len(ident) > 0 {
+		floor = 1
+	}
+	if !p.Overflow && len(p.Files) < floor {
+		prob("rich payload dropped identifiable failed rows: shown %d of %d", len(p.Files), floor)
+	}
+	if p.Overflow && len(c.Receipts) > 0 {
+		var env map[string]json.RawMessage
+		_ = json.Unmarshal([]byte(content), &env)
+		oracle := newFailurePathIndex()
+		for _, a := range aps {
+			oracle.add(a.raw, display)
+		}
+		fits := func(k int) (int, bool) {
+			rows := make([]toolFileState, 0, k)
+			for _, f := range ident[:k] {
+				row, _ := receiptFileState(f, oracle.label(f.Path, 0), "", resByRaw, 0, false)
+				rows = append(rows, row)
+			}
+			e := map[string]json.RawMessage{}
+			for k2, v := range env {
+				e[k2] = v
+			}
+			e["files"], _ = json.Marshal(rows)
+			delete(e, "filesOmitted")
+			delete(e, "filesOmittedByState")
+			if om := len(c.Receipts) - k; om > 0 {
+				cnt := map[editing.PublishState]int{}
+				for s, n := range unident {
+					cnt[s] += n
+				}
+				for _, f := range ident[k:] {
+					cnt[f.PublishState]++
+				}
+				e["filesOmitted"], _ = json.Marshal(om)
+				e["filesOmittedByState"], _ = json.Marshal(cnt)
+			}
+			raw, _ := json.Marshal(e)
+			return len(raw), len(raw) <= maxPartialPayloadBytes
+		}
+		limit := min(floor, maxCandidateFileRows)
+		r.Maximal = "yes"
+		if _, ok := fits(len(p.Files)); !ok && len(p.Files) > 0 {
+			r.Maximal = "oracle-mismatch"
+		}
+		for k := len(p.Files) + 1; k <= limit; k++ {
+			if size, ok := fits(k); ok {
+				r.Maximal = fmt.Sprintf("NO(%d rows fit at %d bytes)", k, size)
+				break
+			}
+		}
+		if floor > maxCandidateFileRows && len(p.Files) >= maxCandidateFileRows {
+			prob("candidate cap reached")
+		}
+		for _, f := range ident[:len(p.Files)] {
+			sol := oracle.label(f.Path, 0)
+			if len(resolve(sol, false)) != 1 {
+				prob("compact label %q is not unique", sol)
+			}
+			_, bruteFloor := rvBruteLabel(idx.full[f.Path], aps, true)
+			bl, bruteAny := rvBruteLabel(idx.full[f.Path], aps, false)
+			sl, bruteStrict := rvBruteLabelMode(idx.full[f.Path], aps, true, true)
+			if d := rvCost(sol) - bruteStrict; d > 0 {
+				prob("strict brute force found a cheaper label (%d < %d): %.80q", bruteStrict, rvCost(sol), sl)
+			}
+			if d := rvCost(sol) - bruteFloor; d > r.LabelExtraMax {
+				r.LabelExtraMax = d
+				r.LabelExtraNote = fmt.Sprintf("sol=%q brute(floor)=%d brute(any)=%d %q", sol, bruteFloor, bruteAny, bl)
+			}
+		}
+	}
+	if p.Path != nil && *p.Path != "" && c.EditErr != nil {
+		if len(c.Receipts) > 0 || len(c.Results) > 0 {
+			if got := resolve(*p.Path, false); len(got) != 1 || got[0] != c.EditErr.Path {
+				prob("top-level path %q does not name the failed path", *p.Path)
+			}
+		}
+	}
+	return r, content
+}
+
+func TestReviewAdversarialMatrix(t *testing.T) {
+	dir := os.Getenv("REVIEW_ADV_DIR")
+	if dir == "" {
+		t.Skip("REVIEW_ADV_DIR not set")
+	}
+	set, err := New(Options{Workspace: os.Getenv("REVIEW_ADV_WS"), Policy: PolicyWorkspace, SessionID: "s-review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := rvCases()
+	failures := 0
+	for _, c := range cases {
+		res, content := rvCheck(set, c)
+		if err := rvWriteCase(filepath.Join(dir, "in"), c); err != nil {
+			t.Fatal(err)
+		}
+		if err := rvWrite(filepath.Join(dir, "sol"), c.Name, content); err != nil {
+			t.Fatal(err)
+		}
+		status := "ok"
+		if len(res.Problems) > 0 || res.Dup > 0 || res.AmbLenient > 0 || res.AmbLoose > 0 || res.Unresolved > 0 || strings.HasPrefix(res.Maximal, "NO") || res.Maximal == "oracle-mismatch" {
+			status = "CHECK"
+			failures++
+		}
+		t.Logf("%-5s %-44s bytes=%4d rows=%3d failedShown=%3d omitted=%3d overflow=%-5v dup=%d ambStrict=%d ambLenient=%d ambLoose=%d unresolved=%d literalEllipsis=%d maximal=%s labelExtra=%d %s problems=%v",
+			status, res.Name, res.Bytes, res.Rows, res.FailedShown, res.Omitted, res.Overflow, res.Dup, res.AmbStrict, res.AmbLenient, res.AmbLoose, res.Unresolved, res.LiteralEllipsisAmbiguity, res.Maximal, res.LabelExtraMax, res.LabelExtraNote, res.Problems)
+	}
+	t.Logf("cases=%d needing attention=%d", len(cases), failures)
+}

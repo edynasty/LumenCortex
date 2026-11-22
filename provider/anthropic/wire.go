@@ -42,6 +42,7 @@ import (
 	"strings"
 
 	"github.com/edynasty/LumenCortex/config"
+	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/protocol"
 )
 
@@ -481,7 +482,7 @@ func thinkingEcho(blocks []json.RawMessage) protocol.Echo {
 		return protocol.Echo{}
 	}
 	raw := mustJSON(blocks)
-	return protocol.NewEcho(echoThinking, raw, (len(raw)+2)/3+4)
+	return protocol.NewEcho(echoThinking, raw, window.EstimateBytes(raw))
 }
 
 // streamEvent is one decoded SSE event. Delta stays raw: it is a content delta for

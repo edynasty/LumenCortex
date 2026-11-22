@@ -1,0 +1,533 @@
+package editing
+
+// PartialCommit slice probe (R7R2 second review). Revision-neutral scenarios; the per-revision
+// adapter (zz_pc_adapter_test.go) supplies receipt rendering and the after-truncate seam.
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"testing"
+	"time"
+)
+
+// TestPCChild is the separate-OS-process external writer.
+func TestPCChild(t *testing.T) {
+	op := os.Getenv("PC_OP")
+	if op == "" {
+		return
+	}
+	path := os.Getenv("PC_PATH")
+	data := os.Getenv("PC_DATA")
+	var err error
+	switch op {
+	case "append":
+		var f *os.File
+		f, err = os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+		if err == nil {
+			_, err = f.WriteString(data)
+			err = errors.Join(err, f.Close())
+		}
+	case "overwrite": // same inode, offset 0, no truncate, no append
+		var f *os.File
+		f, err = os.OpenFile(path, os.O_WRONLY, 0)
+		if err == nil {
+			_, err = f.WriteAt([]byte(data), 0)
+			err = errors.Join(err, f.Close())
+		}
+	case "rename": // atomic rename replacement of the name by the external writer
+		tmp := path + ".ext-tmp"
+		err = os.WriteFile(tmp, []byte(data), 0o644)
+		if err == nil {
+			err = os.Rename(tmp, path)
+		}
+	case "create":
+		var f *os.File
+		f, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
+			_, err = f.WriteString(data)
+			err = errors.Join(err, f.Close())
+		}
+	case "chmod-ro":
+		err = os.Chmod(path, 0o444)
+	case "appendloop":
+		n, _ := strconv.Atoi(os.Getenv("PC_N"))
+		for i := 0; i < n && err == nil; i++ {
+			var f *os.File
+			f, err = os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+			if err == nil {
+				_, err = f.WriteString(fmt.Sprintf("%s-%03d\n", data, i))
+				err = errors.Join(err, f.Close())
+			}
+			time.Sleep(150 * time.Microsecond)
+		}
+	default:
+		err = fmt.Errorf("unknown op %q", op)
+	}
+	if err != nil {
+		t.Fatalf("child op %s on %s: %v", op, path, err)
+	}
+	fmt.Printf("PCCHILD op=%s pid=%d ppid=%d path=%s\n", op, os.Getpid(), os.Getppid(), filepath.Base(path))
+}
+
+func pcChildCmd(op, path, data string, extra ...string) *exec.Cmd {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestPCChild$", "-test.count=1")
+	env := []string{}
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "PC_") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env, "PC_OP="+op, "PC_PATH="+path, "PC_DATA="+data)
+	env = append(env, extra...)
+	cmd.Env = env
+	return cmd
+}
+
+// pcExt runs one external writer process to completion.
+func pcExt(t *testing.T, op, path, data string) {
+	t.Helper()
+	out, err := pcChildCmd(op, path, data).CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "PCCHILD op="+op) {
+		t.Fatalf("external writer %s failed: %v\n%s", op, err, out)
+	}
+	t.Logf("child: %s", strings.TrimSpace(lastLine(string(out), "PCCHILD")))
+}
+
+func lastLine(s, prefix string) string {
+	for _, l := range strings.Split(s, "\n") {
+		if strings.HasPrefix(l, prefix) {
+			return l
+		}
+	}
+	return s
+}
+
+type pcCase struct {
+	t      *testing.T
+	name   string
+	root   string
+	e      *Engine
+	ctx    context.Context
+	cancel context.CancelFunc
+	rec    func() string
+	orig   map[string]string
+}
+
+var pcFiles = []string{"a.txt", "b.txt", "c.txt"}
+
+func pcNew(t *testing.T, name string) *pcCase {
+	root := t.TempDir()
+	c := &pcCase{t: t, name: name, root: root, orig: map[string]string{}}
+	for _, f := range pcFiles {
+		body := strings.ToUpper(f[:1]) + "0\n"
+		writeFile(t, root, f, body)
+		c.orig[f] = body
+	}
+	c.e = newTestEngine(t, root)
+	ctx, cancel := context.WithCancel(context.Background())
+	c.cancel = cancel
+	c.ctx, c.rec = pcRecorder(ctx)
+	// The session read every file first, so snapshot staleness is observable.
+	for _, f := range pcFiles {
+		c.e.RegisterRead(testActor(), filepath.Join(root, f), RevOf([]byte(c.orig[f])))
+	}
+	return c
+}
+
+func (c *pcCase) path(f string) string { return filepath.Join(c.root, f) }
+
+// pcPlanEdits is an apply_patch-shaped plan: exact edits with the BaseRev read now.
+func (c *pcCase) planEdits(order ...string) Plan {
+	if len(order) == 0 {
+		order = pcFiles
+	}
+	var changes []FileChange
+	for _, f := range order {
+		cur, err := os.ReadFile(c.path(f))
+		if err != nil {
+			c.t.Fatal(err)
+		}
+		up := strings.ToUpper(f[:1])
+		changes = append(changes, FileChange{Path: f, BaseRev: RevOf(cur),
+			Edits: []TextEdit{{Old: up + "0\n", New: up + "1-agent-new\n"}}})
+	}
+	return Plan{Actor: testActor(), Tool: "apply_patch", Changes: changes}
+}
+
+func (c *pcCase) disk() string {
+	var parts []string
+	for _, f := range pcFiles {
+		b, err := os.ReadFile(c.path(f))
+		if err != nil {
+			parts = append(parts, f+"=<"+errShort(err)+">")
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%q", f, b))
+	}
+	return strings.Join(parts, " ")
+}
+
+func (c *pcCase) snapCheck() string {
+	var parts []string
+	for _, f := range pcFiles {
+		latest := c.e.LatestRev(testActor(), c.path(f))
+		b, err := os.ReadFile(c.path(f))
+		cur := "-"
+		if err == nil {
+			cur = RevOf(b)
+		}
+		switch {
+		case latest == "":
+			parts = append(parts, f+":reread")
+		case latest == cur:
+			parts = append(parts, f+":fresh")
+		default:
+			parts = append(parts, f+":STALE("+latest+"!="+cur+")")
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+func errShort(err error) string {
+	if err == nil {
+		return "nil"
+	}
+	s := err.Error()
+	s = strings.ReplaceAll(s, "\n", " | ")
+	if len(s) > 160 {
+		s = s[:160] + "…"
+	}
+	return s
+}
+
+func (c *pcCase) report(res Result, err error) {
+	code := CodeOf(err)
+	if err != nil && code == "" {
+		code = "non-edit-error"
+	}
+	c.t.Logf("PCROW|%s|%s|err=%s:%s|%s|disk: %s|snap: %s|receipt: %s",
+		pcRev, c.name, code, errShort(err), pcResult(res), c.disk(), c.snapCheck(), c.rec())
+	if v := pcInvariants(c, res, err); v != nil {
+		if len(v) == 0 {
+			c.t.Logf("PCINV|%s|%s|ok", pcRev, c.name)
+		} else {
+			c.t.Logf("PCINV|%s|%s|VIOLATIONS: %s", pcRev, c.name, strings.Join(v, "; "))
+		}
+	}
+}
+
+// pcForeign reports bytes that contain an external writer's marker.
+func pcForeign(b []byte) bool {
+	s := string(b)
+	return strings.Contains(s, "EXT") || strings.Contains(s, "RENAMED") || strings.Contains(s, "QQ") || strings.Contains(s, "Q9") || strings.Contains(s, "REIGN")
+}
+
+func (c *pcCase) commit(p Plan) (Result, error) {
+	res, err := c.e.Commit(c.ctx, p)
+	c.report(res, err)
+	return res, err
+}
+
+// onBefore installs a beforeWrite action for one base name (first hit only).
+func (c *pcCase) onBefore(base string, fn func()) {
+	var once sync.Once
+	c.e.beforeWrite = func(p string) {
+		if filepath.Base(p) == base {
+			once.Do(fn)
+		}
+	}
+}
+
+func TestPCScenarios(t *testing.T) {
+	t.Run("S01_success", func(t *testing.T) {
+		c := pcNew(t, "S01_success")
+		c.commit(c.planEdits())
+	})
+	t.Run("S02_B_external_append_before_B_write", func(t *testing.T) {
+		c := pcNew(t, "S02_B_extappend_beforeB")
+		c.onBefore("b.txt", func() { pcExt(t, "append", c.path("b.txt"), "EXT-B\n") })
+		c.commit(c.planEdits())
+	})
+	t.Run("S03_B_partial_after_truncate_injected", func(t *testing.T) {
+		c := pcNew(t, "S03_B_partial_injected")
+		if !pcSetAfterTruncate(c.e, func(p string) error {
+			if filepath.Base(p) == "b.txt" {
+				return syscall.EIO
+			}
+			return nil
+		}) {
+			t.Logf("PCROW|%s|%s|N/A: no after-truncate seam on this revision", pcRev, c.name)
+			return
+		}
+		c.commit(c.planEdits())
+	})
+	t.Run("S04_cancel_between_A_and_B", func(t *testing.T) {
+		c := pcNew(t, "S04_cancel_between")
+		c.onBefore("b.txt", func() { c.cancel() })
+		c.commit(c.planEdits())
+	})
+	t.Run("S05_cancel_mid_file_A", func(t *testing.T) {
+		c := pcNew(t, "S05_cancel_midfile_A")
+		if !pcSetAfterTruncate(c.e, func(p string) error {
+			if filepath.Base(p) == "a.txt" {
+				c.cancel()
+			}
+			return nil
+		}) {
+			t.Logf("PCROW|%s|%s|N/A: no after-truncate seam on this revision", pcRev, c.name)
+			return
+		}
+		c.commit(c.planEdits())
+	})
+	t.Run("S06_A_external_append_before_A_write", func(t *testing.T) {
+		c := pcNew(t, "S06_A_extappend_beforeA")
+		c.onBefore("a.txt", func() { pcExt(t, "append", c.path("a.txt"), "EXT-A\n") })
+		c.commit(c.planEdits())
+	})
+	t.Run("S07_A_external_append_during_A_write_short", func(t *testing.T) {
+		c := pcNew(t, "S07_A_extappend_duringA_short")
+		if !pcSetAfterTruncate(c.e, func(p string) error {
+			if filepath.Base(p) == "a.txt" {
+				pcExt(t, "append", p, "EXT-A\n")
+			}
+			return nil
+		}) {
+			t.Logf("PCROW|%s|%s|N/A: no after-truncate seam on this revision", pcRev, c.name)
+			return
+		}
+		c.commit(c.planEdits())
+	})
+	t.Run("S07b_A_external_append_during_A_write_long", func(t *testing.T) {
+		c := pcNew(t, "S07b_A_extappend_duringA_long")
+		if !pcSetAfterTruncate(c.e, func(p string) error {
+			if filepath.Base(p) == "a.txt" {
+				pcExt(t, "append", p, "EXT-A-THIS-FOREIGN-LINE-IS-LONGER\n")
+			}
+			return nil
+		}) {
+			t.Logf("PCROW|%s|%s|N/A: no after-truncate seam on this revision", pcRev, c.name)
+			return
+		}
+		c.commit(c.planEdits())
+	})
+	t.Run("S08_A_external_append_after_A_publication", func(t *testing.T) {
+		c := pcNew(t, "S08_A_extappend_afterA_pub")
+		c.onBefore("b.txt", func() { pcExt(t, "append", c.path("a.txt"), "EXT-A\n") })
+		c.commit(c.planEdits())
+	})
+	t.Run("S09_A_external_append_during_later_failure", func(t *testing.T) {
+		c := pcNew(t, "S09_A_extappend_during_B_failure")
+		c.onBefore("b.txt", func() {
+			pcExt(t, "append", c.path("a.txt"), "EXT-A\n")
+			pcExt(t, "append", c.path("b.txt"), "EXT-B\n")
+		})
+		c.commit(c.planEdits())
+	})
+	t.Run("S10_A_external_append_during_cancellation", func(t *testing.T) {
+		c := pcNew(t, "S10_A_extappend_during_cancel")
+		c.onBefore("b.txt", func() {
+			pcExt(t, "append", c.path("a.txt"), "EXT-A\n")
+			c.cancel()
+		})
+		c.commit(c.planEdits())
+	})
+	t.Run("S11_A_external_append_before_settlement", func(t *testing.T) {
+		c := pcNew(t, "S11_A_extappend_before_settlement")
+		if !pcOnReceipt(c, func() { pcExt(t, "append", c.path("a.txt"), "EXT-A\n") }) {
+			t.Logf("PCROW|%s|%s|N/A: no receipt recorder on this revision", pcRev, c.name)
+			return
+		}
+		c.commit(c.planEdits())
+	})
+	t.Run("S12_A_external_append_after_settlement_then_followup", func(t *testing.T) {
+		c := pcNew(t, "S12_A_extappend_after_settlement")
+		c.commit(c.planEdits())
+		pcExt(t, "append", c.path("a.txt"), "EXT-A\n")
+		// Follow-up 1: write_file-shaped whole replacement computed from the agent's last view.
+		content := []byte("A2-whole-file\n")
+		c.name = "S12_followup_write_file_RejectStaleRead"
+		c.commit(Plan{Actor: testActor(), Tool: "write_file", Changes: []FileChange{{Path: "a.txt", Content: &content, AllowCreate: true, RejectStaleRead: true}}})
+		// Follow-up 2: edit with the BaseRev the agent was given (NewRev of A).
+		c.name = "S12_followup_edit_stale_base"
+		c.commit(Plan{Actor: testActor(), Tool: "replace_in_file", Changes: []FileChange{{Path: "a.txt", BaseRev: RevOf([]byte("A1-agent-new\n")),
+			Edits: []TextEdit{{Old: "A1-agent-new\n", New: "A2\n"}}}}})
+	})
+	t.Run("S13_A_same_inode_overwrite_before_A", func(t *testing.T) {
+		c := pcNew(t, "S13_A_sameinode_overwrite_beforeA")
+		c.onBefore("a.txt", func() { pcExt(t, "overwrite", c.path("a.txt"), "Q9\n") })
+		c.commit(c.planEdits())
+	})
+	t.Run("S13b_A_same_inode_overwrite_after_A_pub", func(t *testing.T) {
+		c := pcNew(t, "S13b_A_sameinode_overwrite_afterA_pub")
+		c.onBefore("b.txt", func() { pcExt(t, "overwrite", c.path("a.txt"), "QQ-EXTERNAL\n") })
+		c.commit(c.planEdits())
+	})
+	t.Run("S14_A_rename_replace_same_bytes_before_A", func(t *testing.T) {
+		c := pcNew(t, "S14_A_rename_samebytes_beforeA")
+		c.onBefore("a.txt", func() { pcExt(t, "rename", c.path("a.txt"), "A0\n") })
+		c.commit(c.planEdits())
+	})
+	t.Run("S14b_A_rename_replace_foreign_after_A_pub", func(t *testing.T) {
+		c := pcNew(t, "S14b_A_rename_foreign_afterA_pub")
+		c.onBefore("b.txt", func() { pcExt(t, "rename", c.path("a.txt"), "RENAMED-EXT-A\n") })
+		c.commit(c.planEdits())
+	})
+	t.Run("S14c_A_rename_replace_during_A_write", func(t *testing.T) {
+		c := pcNew(t, "S14c_A_rename_foreign_duringA")
+		if !pcSetAfterTruncate(c.e, func(p string) error {
+			if filepath.Base(p) == "a.txt" {
+				pcExt(t, "rename", p, "RENAMED-EXT-A\n")
+			}
+			return nil
+		}) {
+			t.Logf("PCROW|%s|%s|N/A: no after-truncate seam on this revision", pcRev, c.name)
+			return
+		}
+		c.commit(c.planEdits())
+	})
+	t.Run("S15_delete_A_then_B_fails", func(t *testing.T) {
+		c := pcNew(t, "S15_delete_A_B_fails")
+		c.onBefore("b.txt", func() { pcExt(t, "append", c.path("b.txt"), "EXT-B\n") })
+		p := c.planEdits("b.txt", "c.txt")
+		cur, _ := os.ReadFile(c.path("a.txt"))
+		p.Changes = append(p.Changes, FileChange{Path: "a.txt", BaseRev: RevOf(cur), Delete: true})
+		c.commit(p)
+	})
+	t.Run("S16_create_N_then_B_fails", func(t *testing.T) {
+		c := pcNew(t, "S16_create_0new_B_fails")
+		c.onBefore("b.txt", func() { pcExt(t, "append", c.path("b.txt"), "EXT-B\n") })
+		p := c.planEdits("b.txt", "c.txt")
+		body := []byte("NEW\n")
+		p.Changes = append(p.Changes, FileChange{Path: "a-new.txt", Content: &body, Create: true})
+		_, err := c.commit(p)
+		b, rerr := os.ReadFile(c.path("a-new.txt"))
+		c.t.Logf("PCROW|%s|S16_create_0new_B_fails.new|a-new.txt=%q readErr=%v commitErr=%s", pcRev, b, rerr, CodeOf(err))
+	})
+	t.Run("S17_create_destination_created_concurrently", func(t *testing.T) {
+		c := pcNew(t, "S17_create_concurrent_external_create")
+		c.onBefore("n.txt", func() { pcExt(t, "create", c.path("n.txt"), "EXTERNAL-CREATE\n") })
+		body := []byte("AGENT-CREATE\n")
+		_, err := c.commit(Plan{Actor: testActor(), Tool: "apply_patch", Changes: []FileChange{{Path: "n.txt", Content: &body, Create: true}}})
+		b, rerr := os.ReadFile(c.path("n.txt"))
+		c.t.Logf("PCROW|%s|S17.n|n.txt=%q readErr=%v commitErr=%s", pcRev, b, rerr, CodeOf(err))
+	})
+}
+
+// TestPCRlimitParent runs the EFBIG (RLIMIT_FSIZE) scenario inside a child test process.
+func TestPCRlimitParent(t *testing.T) {
+	if os.Getenv("PC_RLIMIT_CHILD") != "" {
+		return
+	}
+	for _, scen := range []string{"B_existing_EFBIG", "A_single_existing_EFBIG"} {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestPCRlimitChild$", "-test.v", "-test.count=1")
+		cmd.Env = append(os.Environ(), "PC_RLIMIT_CHILD="+scen)
+		out, err := cmd.CombinedOutput()
+		for _, l := range strings.Split(string(out), "\n") {
+			if strings.Contains(l, "PCROW") || strings.Contains(l, "PCINV") || strings.Contains(l, "rlimit") {
+				t.Logf("child[%s]: %s", scen, strings.TrimSpace(l))
+			}
+		}
+		t.Logf("child[%s] exit err=%v pid-env=%d", scen, err, os.Getpid())
+	}
+}
+
+func TestPCRlimitChild(t *testing.T) {
+	scen := os.Getenv("PC_RLIMIT_CHILD")
+	if scen == "" {
+		return
+	}
+	signal.Ignore(syscall.SIGXFSZ)
+	c := pcNew(t, "S03b_"+scen)
+	big := strings.Repeat("B", 40) + "\n"
+	var plan Plan
+	switch scen {
+	case "B_existing_EFBIG":
+		plan = c.planEdits()
+		for i := range plan.Changes {
+			if plan.Changes[i].Path == "b.txt" {
+				plan.Changes[i].Edits = []TextEdit{{Old: "B0\n", New: big}}
+			}
+		}
+	case "A_single_existing_EFBIG":
+		plan = Plan{Actor: testActor(), Tool: "replace_in_file", Changes: []FileChange{{Path: "a.txt", BaseRev: RevOf([]byte("A0\n")),
+			Edits: []TextEdit{{Old: "A0\n", New: strings.Repeat("A", 40) + "\n"}}}}}
+	}
+	var old syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_FSIZE, &old); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &syscall.Rlimit{Cur: 16, Max: old.Max}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := c.e.Commit(c.ctx, plan)
+	_ = syscall.Setrlimit(syscall.RLIMIT_FSIZE, &old)
+	t.Logf("rlimit: pid=%d limit=16 efbig=%v", os.Getpid(), errors.Is(err, syscall.EFBIG))
+	c.report(res, err)
+}
+
+// TestPCMultiWriters starts three independent appenders (one per file) concurrently with a commit.
+func TestPCMultiWriters(t *testing.T) {
+	const runs = 15
+	const n = 40
+	tally := map[string]int{}
+	for v := range 6 {
+	startAt := []string{"a.txt", "a.txt", "a.txt", "b.txt", "b.txt", "c.txt"}[v]
+	delay := []time.Duration{0, 500 * time.Microsecond, 2 * time.Millisecond, 0, 1 * time.Millisecond, 0}[v]
+	for r := range runs {
+		c := pcNew(t, fmt.Sprintf("S18_multi_writers_v%d_run%02d", v, r))
+		var cmds []*exec.Cmd
+		c.onBefore(startAt, func() {
+			for _, f := range pcFiles {
+				cmd := pcChildCmd("appendloop", c.path(f), "W"+strings.ToUpper(f[:1]), "PC_N="+strconv.Itoa(n))
+				if err := cmd.Start(); err != nil {
+					t.Fatal(err)
+				}
+				cmds = append(cmds, cmd)
+			}
+			time.Sleep(delay)
+		})
+		res, err := c.e.Commit(c.ctx, c.planEdits())
+		for _, cmd := range cmds {
+			if werr := cmd.Wait(); werr != nil {
+				t.Logf("writer exit: %v", werr)
+			}
+		}
+		lost := []string{}
+		for _, f := range pcFiles {
+			b, _ := os.ReadFile(c.path(f))
+			missing := 0
+			for i := range n {
+				if !strings.Contains(string(b), fmt.Sprintf("W%s-%03d\n", strings.ToUpper(f[:1]), i)) {
+					missing++
+				}
+			}
+			if missing > 0 {
+				lost = append(lost, fmt.Sprintf("%s:-%d", f, missing))
+			}
+		}
+		key := fmt.Sprintf("start@%s+%v err=%s state=%s lost=%v", startAt, delay, CodeOf(err), pcResultStates(res), lost)
+		tally[key]++
+		c.report(res, err)
+		t.Logf("PCMULTI|%s|run%02d|%s", pcRev, r, key)
+	}
+	}
+	keys := make([]string, 0, len(tally))
+	for k := range tally {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		t.Logf("PCMULTI-TALLY|%s|%dx %s", pcRev, tally[k], k)
+	}
+}

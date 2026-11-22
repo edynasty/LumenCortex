@@ -1,0 +1,40 @@
+package toolset
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// TestReviewVerifiedLongBasenames: one failed row plus 30 verified rows with long basenames (rich mode).
+func TestReviewVerifiedLongBasenames(t *testing.T) {
+	out := os.Getenv("REVIEW_SWEEP_OUT")
+	if out == "" {
+		t.Skip("REVIEW_SWEEP_OUT not set")
+	}
+	set, err := New(Options{Workspace: os.Getenv("REVIEW_ADV_WS"), Policy: PolicyWorkspace, SessionID: "s-review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []int{40, 80, 120, 200} {
+		ver := make([]string, 30)
+		for i := range ver {
+			ver[i] = fmt.Sprintf("src/test/kotlin/%s%03d.kt", strings.Repeat("V", k), i)
+		}
+		for _, nf := range []int{1, 12} {
+			failed := make([]string, nf)
+			for i := range failed {
+				failed[i] = fmt.Sprintf("src/main/kotlin/%s%03d.kt", strings.Repeat("F", k), i)
+			}
+			c := rvMake(fmt.Sprintf("verified_k%03d_f%02d", k, nf), failed, ver, nil, "eio")
+			if err := rvWriteCase(filepath.Join(out, "in"), c); err != nil {
+				t.Fatal(err)
+			}
+			if err := rvWrite(filepath.Join(out, os.Getenv("REVIEW_VARIANT")), c.Name, rvRender(set, c)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}

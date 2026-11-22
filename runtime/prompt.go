@@ -5,11 +5,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/edynasty/LumenCortex/config"
 	"github.com/edynasty/LumenCortex/internal/agent"
+	"github.com/edynasty/LumenCortex/internal/editing"
 	"github.com/edynasty/LumenCortex/internal/instructions"
 	"github.com/edynasty/LumenCortex/internal/session"
 	"github.com/edynasty/LumenCortex/internal/shell"
@@ -70,7 +74,8 @@ type PromptLayer struct {
 	// included.
 	Truncated bool `json:"truncated,omitempty"`
 	// Warning is a visible consequence of Truncated or of a refused source.
-	Warning string `json:"warning,omitempty"`
+	Warning     string `json:"warning,omitempty"`
+	compactText string
 }
 
 // PromptTool is one tool a run's step could offer.
@@ -166,7 +171,7 @@ func assemblePrompt(in promptInput) assembledPrompt {
 		Included: strings.TrimSpace(in.base) != "", Bytes: len(in.base), Text: in.base,
 	})
 	for _, file := range instructions.Load(in.globalDir, in.workspace, in.trusted) {
-		out.Layers = append(out.Layers, instructionLayer(file))
+		out.Layers = append(out.Layers, instructionLayer(file, in.workspace))
 	}
 	layer, result, err := skillsLayer(in.skills, in.trusted)
 	out.Skills, out.SkillsErr = result, err
@@ -175,9 +180,17 @@ func assemblePrompt(in promptInput) assembledPrompt {
 	return out
 }
 
+const (
+	projectCompactThresholdBytes = 12 << 10
+	projectCompactHeadBytes      = 6 << 10
+	projectCompactTailBytes      = 2 << 10
+	projectCompactChunkLines     = 200
+)
+
 // instructionLayer is one instruction file as a prompt layer, labelled with its source so the model
-// can attribute what it reads to the file it came from.
-func instructionLayer(file instructions.File) PromptLayer {
+// can attribute what it reads to the file it came from. Global instructions are never secondarily
+// compacted; trusted project instructions exceeding 12 KiB also carry a fence-aware ModeCompact outline.
+func instructionLayer(file instructions.File, workspace string) PromptLayer {
 	layer := PromptLayer{
 		Kind: file.Kind, Source: file.Source, Scope: file.Scope,
 		Included: file.Included, Reason: file.Reason,
@@ -195,7 +208,139 @@ func instructionLayer(file instructions.File) PromptLayer {
 		text += "\n\n[truncated at 64 KiB: the rest of this file is not included]"
 	}
 	layer.Text, layer.Bytes = text, len(text)
+	if file.Kind == instructions.KindProject && len(file.Text) > projectCompactThresholdBytes {
+		relPath := filepath.Base(file.Source)
+		if workspace != "" {
+			if rel, err := filepath.Rel(workspace, file.Source); err == nil && rel != "" && !strings.HasPrefix(rel, "..") {
+				relPath = filepath.ToSlash(rel)
+			}
+		}
+		layer.compactText = compactProjectInstructions(file.Source, relPath, file.Text, file.Truncated)
+	}
 	return layer
+}
+
+type outlineHeading struct {
+	line  int
+	title string
+}
+
+func compactProjectInstructions(source, relPath, content string, truncated64K bool) string {
+	doc := editing.DecodeDoc([]byte(content))
+	totalLines := len(doc.Lines)
+	headings := extractFenceAwareHeadings(doc.Lines)
+
+	var outline strings.Builder
+	outline.WriteString("\n\n[Project instructions compact outline — lines match read_file(..., anchors=true) 1-based numbering]\n")
+	if len(headings) > 0 {
+		if headings[0].line > 1 {
+			fmt.Fprintf(&outline, "- L1-L%d: Preamble\n", headings[0].line-1)
+		}
+		for i, h := range headings {
+			end := totalLines
+			if i+1 < len(headings) {
+				end = headings[i+1].line - 1
+			}
+			title := h.title
+			if len(title) > 160 {
+				title = trimUTF8Prefix(title, 160) + "…"
+			}
+			fmt.Fprintf(&outline, "- L%d-L%d: %s\n", h.line, end, title)
+		}
+	} else if totalLines > 0 {
+		for start := 1; start <= totalLines; start += projectCompactChunkLines {
+			end := min(totalLines, start+projectCompactChunkLines-1)
+			fmt.Fprintf(&outline, "- L%d-L%d: Lines %d-%d\n", start, end, start, end)
+		}
+	}
+	fmt.Fprintf(&outline, "Read any omitted section with read_file(path=%q, start_line=1, end_line=200, anchors=true) using the exact 1-based line range above.\n\n", relPath)
+
+	head := trimUTF8Prefix(content, projectCompactHeadBytes)
+	tail := trimUTF8Suffix(content, projectCompactTailBytes)
+	var b strings.Builder
+	b.WriteString("## Project instructions (from ")
+	b.WriteString(source)
+	b.WriteString(" — compact outline)\n\n")
+	b.WriteString(head)
+	b.WriteString(outline.String())
+	b.WriteString(tail)
+	if truncated64K {
+		b.WriteString("\n\n[truncated at 64 KiB: the rest of this file is not included]")
+	}
+	return b.String()
+}
+
+func extractFenceAwareHeadings(lines []string) []outlineHeading {
+	var out []outlineHeading
+	inFence := false
+	var fenceChar byte
+	fenceLen := 0
+	for idx, line := range lines {
+		indent := 0
+		for indent < len(line) && indent < 4 && line[indent] == ' ' {
+			indent++
+		}
+		if indent == 4 {
+			continue
+		}
+		rest := line[indent:]
+		if inFence {
+			if len(rest) >= fenceLen && (rest[0] == fenceChar) {
+				run := 0
+				for run < len(rest) && rest[run] == fenceChar {
+					run++
+				}
+				if run >= fenceLen && strings.Trim(rest[run:], " \t") == "" {
+					inFence = false
+				}
+			}
+			continue
+		}
+		if len(rest) >= 3 && (rest[0] == '`' || rest[0] == '~') {
+			ch := rest[0]
+			run := 0
+			for run < len(rest) && rest[run] == ch {
+				run++
+			}
+			// CommonMark: a fence is a run of at least three, and a backtick fence's info string has no backtick.
+			if run >= 3 && (ch == '~' || !strings.ContainsRune(rest[run:], '`')) {
+				inFence, fenceChar, fenceLen = true, ch, run
+				continue
+			}
+		}
+		if len(rest) > 0 && rest[0] == '#' {
+			hashes := 0
+			for hashes < len(rest) && hashes <= 6 && rest[hashes] == '#' {
+				hashes++
+			}
+			if hashes >= 1 && hashes <= 6 && (hashes == len(rest) || rest[hashes] == ' ' || rest[hashes] == '\t') {
+				out = append(out, outlineHeading{line: idx + 1, title: strings.TrimSpace(rest)})
+			}
+		}
+	}
+	return out
+}
+
+func trimUTF8Prefix(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
+func trimUTF8Suffix(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	start := len(s) - maxBytes
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return s[start:]
 }
 
 // skillsLayer is the skills prompt as a layer. The project scope is read only in a trusted
@@ -223,14 +368,22 @@ func skillsLayer(registry *skills.Registry, trusted bool) (PromptLayer, skills.P
 		layer.Scope = scopeProject
 	}
 	layer.Source = strings.Join(sources, ", ")
+	var warnings []string
+	warnings = append(warnings, result.Warnings...)
 	if len(result.Withheld) > 0 {
-		layer.Warning = "project skills are not loaded because the workspace is not trusted: " + strings.Join(skillIDs(result.Withheld), ", ")
+		warnings = append(warnings, "project skills are not loaded because the workspace is not trusted: "+strings.Join(skillIDs(result.Withheld), ", "))
+	}
+	if len(warnings) > 0 {
+		layer.Warning = strings.Join(warnings, "; ")
 	}
 	if result.Text == "" {
 		layer.Reason = "no enabled skills"
 		return layer, result, nil
 	}
 	layer.Text = "## Skills (from " + layer.Source + ")\n\n" + result.Text
+	if result.CompactText != "" {
+		layer.compactText = "## Skills (from " + layer.Source + ")\n\n" + result.CompactText
+	}
 	layer.Bytes, layer.Included = len(layer.Text), true
 	return layer, result, nil
 }
@@ -264,7 +417,7 @@ func systemLayers(layers []PromptLayer) []agent.SystemLayer {
 		if !layer.Included {
 			continue
 		}
-		out = append(out, agent.SystemLayer{Kind: layer.Kind, Source: layer.Source, Text: layer.Text})
+		out = append(out, agent.SystemLayer{Kind: layer.Kind, Source: layer.Source, Text: layer.Text, CompactText: layer.compactText})
 	}
 	return out
 }
@@ -284,6 +437,14 @@ func skillIDs(items []skills.Skill) []string {
 	ids := make([]string, 0, len(items))
 	for _, skill := range items {
 		ids = append(ids, skill.ID)
+	}
+	return ids
+}
+
+func snapshottedSkillIDs(items []skills.SnapshottedSkill) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ID)
 	}
 	return ids
 }
@@ -398,7 +559,7 @@ func (e *Engine) EffectivePrompt(ctx context.Context, req EffectivePromptRequest
 	if wf != nil {
 		allowlist = wf.EffectiveAllowlist(allowlist)
 	}
-	tools, err := e.promptTools(ctx, workspace, policy, child, eff.Trusted, sessionID, req.Subagents, eff.DelegationAgents(config.AgentInfo.SpawnEligible), newSkillReader(prompt.Skills.Included))
+	tools, err := e.promptTools(ctx, workspace, policy, child, eff.Trusted, sessionID, req.Subagents, eff.DelegationAgents(config.AgentInfo.SpawnEligible), newSkillReader(prompt.Skills.Eligible))
 	if err != nil {
 		return EffectivePromptResult{}, err
 	}

@@ -1,0 +1,15 @@
+HEAD 52dfd64f56d9b46dfbe7293c787b0f883a501717 editing.go 8cce4e4d8f1d12eef3b203cda8d1524ee8de4c7b GOMAXPROCS=2
+go test -overlay /private/tmp/lc-carbon-final.jQjddm/final-pass/astra/overlay-blocked.json -timeout=30m -count=2 -run ^$ -bench ^BenchmarkAstraBlockedPrefix$ -benchtime=1x -benchmem ./internal/toolset
+goos: darwin
+goarch: arm64
+pkg: github.com/edynasty/LumenCortex/internal/toolset
+cpu: Apple M1 Pro
+BenchmarkAstraBlockedPrefix/64-2         	       1	   4479084 ns/op	 1233912 B/op	    4845 allocs/op
+BenchmarkAstraBlockedPrefix/64-2         	       1	   3952708 ns/op	 1222824 B/op	    4685 allocs/op
+BenchmarkAstraBlockedPrefix/256-2        	       1	  16477084 ns/op	 4787416 B/op	   17961 allocs/op
+BenchmarkAstraBlockedPrefix/256-2        	       1	  16200542 ns/op	 4797120 B/op	   17968 allocs/op
+BenchmarkAstraBlockedPrefix/1024-2       	       1	  66887167 ns/op	19341912 B/op	   70999 allocs/op
+BenchmarkAstraBlockedPrefix/1024-2       	       1	  65889709 ns/op	19357432 B/op	   71012 allocs/op
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	0.940s
+exit 0

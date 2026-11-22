@@ -1,0 +1,386 @@
+package editing
+
+// Exploration and baseline-comparison probe for R7R2-NEW-02 and PRE-02 (not committed). It runs real
+// two-process create races under several start barriers and classifies every round, and it drives
+// the two truncate-window interleavings of PRE-02 deterministically.
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+)
+
+const opusProbeHelperSrc = `package main
+import (
+	"errors"
+	"os"
+	"time"
+)
+var payload = []byte("FOREIGN OS PROCESS PAYLOAD 0123456789ABCDEF\n")
+
+func waitFile(path string) bool {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+		time.Sleep(100 * time.Microsecond)
+	}
+	return false
+}
+
+func main() {
+	mode := os.Args[1]
+	target := os.Args[2]
+	switch mode {
+	case "excl_after_signal":
+		ready, goSig := os.Args[3], os.Args[4]
+		if err := os.WriteFile(ready, []byte("1"), 0o644); err != nil {
+			os.Exit(2)
+		}
+		if !waitFile(goSig) {
+			os.Exit(3)
+		}
+		f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			if errors.Is(err, os.ErrExist) {
+				os.Exit(10)
+			}
+			os.Exit(2)
+		}
+		if _, err := f.Write(payload); err != nil {
+			_ = f.Close()
+			os.Exit(4)
+		}
+		_ = f.Close()
+		os.Exit(0)
+	case "atomic_after_signal":
+		ready, goSig := os.Args[3], os.Args[4]
+		extTmp := target + ".foreign-tmp"
+		if err := os.WriteFile(extTmp, payload, 0o644); err != nil {
+			os.Exit(2)
+		}
+		if err := os.WriteFile(ready, []byte("1"), 0o644); err != nil {
+			os.Exit(2)
+		}
+		if !waitFile(goSig) {
+			_ = os.Remove(extTmp)
+			os.Exit(3)
+		}
+		err := os.Link(extTmp, target)
+		_ = os.Remove(extTmp)
+		if err != nil {
+			if errors.Is(err, os.ErrExist) {
+				os.Exit(10)
+			}
+			os.Exit(2)
+		}
+		os.Exit(0)
+	case "create_empty_wait_then_write", "create_empty_wait_then_write_short":
+		opened, writeGo := os.Args[3], os.Args[4]
+		f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			if errors.Is(err, os.ErrExist) {
+				os.Exit(10)
+			}
+			os.Exit(2)
+		}
+		if err := os.WriteFile(opened, []byte("1"), 0o644); err != nil {
+			_ = f.Close()
+			os.Exit(2)
+		}
+		if !waitFile(writeGo) {
+			_ = f.Close()
+			os.Exit(3)
+		}
+		data := payload
+		if mode == "create_empty_wait_then_write_short" {
+			data = []byte("FOREIGN\n")
+		}
+		if _, err := f.Write(data); err != nil {
+			_ = f.Close()
+			os.Exit(4)
+		}
+		_ = f.Close()
+		os.Exit(0)
+	case "race_once":
+		if _, err := os.Stdout.Write([]byte("R")); err != nil {
+			os.Exit(2)
+		}
+		_ = os.Stdout.Close()
+		f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			if errors.Is(err, os.ErrExist) {
+				os.Exit(10)
+			}
+			os.Exit(2)
+		}
+		if _, err := f.Write(payload); err != nil {
+			_ = f.Close()
+			os.Exit(4)
+		}
+		_ = f.Close()
+		os.Exit(0)
+	default:
+		os.Exit(5)
+	}
+}
+`
+
+func opusProbeHelper(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	src, bin := filepath.Join(dir, "main.go"), filepath.Join(dir, "foreign_writer")
+	if err := os.WriteFile(src, []byte(opusProbeHelperSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("go", "build", "-o", bin, src).CombinedOutput(); err != nil {
+		t.Fatalf("build helper: %v\n%s", err, out)
+	}
+	return bin
+}
+
+func opusProbeWait(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(100 * time.Microsecond)
+	}
+	t.Fatalf("timed out waiting for %s", path)
+}
+
+func opusProbeExit(err error) int {
+	if err == nil {
+		return 0
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	return -1
+}
+
+var (
+	opusForeign = []byte("FOREIGN OS PROCESS PAYLOAD 0123456789ABCDEF\n")
+	opusAgent   = []byte("agent os process content\n")
+)
+
+// opusClassify names the interleaving a finished round shows. Anything it cannot explain is UNEXPECTED.
+func opusClassify(got []byte, readErr error, commitErr error, rec CommitReceipt, childExit int) string {
+	if len(rec.Files) != 1 {
+		return fmt.Sprintf("UNEXPECTED(receipt files=%d)", len(rec.Files))
+	}
+	rf := rec.Files[0]
+	emptySHA, foreignSHA := sha256Ref(nil, true), sha256Ref(opusForeign, true)
+	mixed := append(append([]byte(nil), opusAgent...), opusForeign[len(opusAgent):]...)
+	disk := "other"
+	switch {
+	case readErr != nil:
+		disk = "missing"
+	case bytes.Equal(got, opusAgent):
+		disk = "agent"
+	case bytes.Equal(got, opusForeign):
+		disk = "foreign"
+	case bytes.Equal(got, mixed):
+		disk = "mixed"
+	}
+	clean := !rec.DirtyFailure && !rf.Wrote && !rf.Published && !rf.Verified && rf.NewSHA256 == ""
+	dirty := rec.DirtyFailure && rf.Wrote && rf.Published && !rf.Verified && rf.NewSHA256 == "" &&
+		rf.PublishState == PublishExternalModification && CodeOf(commitErr) == CodeConcurrentWrite
+	ok := commitErr == nil && rec.Committed && rf.Verified && rf.PublishState == PublishSucceededAndVerified && rf.NewSHA256 == sha256Ref(opusAgent, true)
+	switch {
+	case ok && rf.Staged && rf.Created && childExit == 10 && disk == "agent":
+		return "S1_lc_created"
+	case CodeOf(commitErr) == CodeExists && clean && childExit == 0 && disk == "foreign":
+		return "E_exists_preflight"
+	case CodeOf(commitErr) == CodeConflict && clean && rf.Staged && childExit == 0 && disk == "foreign":
+		return "S2_staged_conflict"
+	case ok && !rf.Staged && !rf.Created && childExit == 0 && disk == "agent" && rf.OldSHA256 == foreignSHA:
+		return "P0_overwrite_of_read_foreign"
+	case ok && !rf.Staged && !rf.Created && childExit == 0 && disk == "agent" && rf.OldSHA256 == emptySHA:
+		return "P2_PRE02_silent_discard"
+	case ok && !rf.Staged && !rf.Created && childExit == 0 && disk == "foreign" && rf.OldSHA256 == emptySHA:
+		return "P5_foreign_after_verified"
+	case CodeOf(commitErr) == CodeConflict && clean && !rf.Staged && childExit == 0 && disk == "foreign":
+		return "P1_clean_conflict"
+	case dirty && !rf.Staged && childExit == 0 && disk == "foreign":
+		return "P4_dirty_foreign"
+	case dirty && !rf.Staged && childExit == 0 && disk == "mixed":
+		return "P3_PRE02_mixed_dirty"
+	}
+	return fmt.Sprintf("UNEXPECTED(disk=%s err=%v childExit=%d rec=%+v)", disk, commitErr, childExit, rec)
+}
+
+func opusProbeRounds() int {
+	if v, err := strconv.Atoi(os.Getenv("OPUS_PROBE_ROUNDS")); err == nil && v > 0 {
+		return v
+	}
+	return 300
+}
+
+func opusTally(t *testing.T, name string, counts map[string]int, rounds int) {
+	t.Helper()
+	keys := make([]string, 0, len(counts))
+	for k := range counts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		fmt.Fprintf(&b, " %s=%d", k, counts[k])
+		if strings.HasPrefix(k, "UNEXPECTED") {
+			t.Errorf("%s: %s x%d", name, k, counts[k])
+		}
+	}
+	t.Logf("%-46s rounds=%d:%s", name, rounds, b.String())
+}
+
+// TestOpusProbeStimuli measures which interleavings each start barrier actually produces.
+func TestOpusProbeStimuli(t *testing.T) {
+	bin := opusProbeHelper(t)
+	rounds := opusProbeRounds()
+	commit := func(e *Engine, exclusive bool) (CommitReceipt, error) {
+		var rec CommitReceipt
+		_, err := e.Commit(WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r }), Plan{
+			Actor: Actor{Session: "s-probe"}, Tool: "write_file",
+			Changes: []FileChange{{Path: "shared.txt", Content: &opusAgent, Create: exclusive, AllowCreate: !exclusive}},
+		})
+		return rec, err
+	}
+	finish := func(target string, cmd *exec.Cmd, rec CommitReceipt, commitErr error) string {
+		childExit := opusProbeExit(cmd.Wait())
+		got, readErr := os.ReadFile(target)
+		return opusClassify(got, readErr, commitErr, rec, childExit)
+	}
+
+	// Carbon's stress barrier: the child signals on stdout and goes; the parent then starts Commit.
+	for _, exclusive := range []bool{true, false} {
+		counts := map[string]int{}
+		for i := 0; i < rounds; i++ {
+			root := t.TempDir()
+			target := filepath.Join(root, "shared.txt")
+			e := newTestEngine(t, root)
+			cmd := exec.Command(bin, "race_once", target)
+			stdout, _ := cmd.StdoutPipe()
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			var ready [1]byte
+			if _, err := io.ReadFull(stdout, ready[:]); err != nil {
+				t.Fatal(err)
+			}
+			_ = stdout.Close()
+			rec, commitErr := commit(e, exclusive)
+			counts[finish(target, cmd, rec, commitErr)]++
+		}
+		opusTally(t, fmt.Sprintf("carbon_pipe race_once Create=%v", exclusive), counts, rounds)
+	}
+
+	// A go file both sides leave from: the parent writes it and starts Commit; the child polls for it.
+	for _, tc := range []struct {
+		mode      string
+		exclusive bool
+	}{
+		{"excl_after_signal", true},
+		{"excl_after_signal", false},
+		{"atomic_after_signal", false},
+	} {
+		counts := map[string]int{}
+		for i := 0; i < rounds; i++ {
+			root, ctrl := t.TempDir(), t.TempDir()
+			target := filepath.Join(root, "shared.txt")
+			ready, goSig := filepath.Join(ctrl, "ready"), filepath.Join(ctrl, "go")
+			e := newTestEngine(t, root)
+			cmd := exec.Command(bin, tc.mode, target, ready, goSig)
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			opusProbeWait(t, ready)
+			if err := os.WriteFile(goSig, []byte("1"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			rec, commitErr := commit(e, tc.exclusive)
+			counts[finish(target, cmd, rec, commitErr)]++
+		}
+		opusTally(t, fmt.Sprintf("go_file %s Create=%v", tc.mode, tc.exclusive), counts, rounds)
+	}
+
+	// The external inode exists and is empty; its write is released as Commit starts.
+	counts := map[string]int{}
+	for i := 0; i < rounds; i++ {
+		root, ctrl := t.TempDir(), t.TempDir()
+		target := filepath.Join(root, "shared.txt")
+		opened, writeGo := filepath.Join(ctrl, "opened"), filepath.Join(ctrl, "write_go")
+		e := newTestEngine(t, root)
+		cmd := exec.Command(bin, "create_empty_wait_then_write", target, opened, writeGo)
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		opusProbeWait(t, opened)
+		if err := os.WriteFile(writeGo, []byte("1"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rec, commitErr := commit(e, false)
+		counts[finish(target, cmd, rec, commitErr)]++
+	}
+	opusTally(t, "go_file create_empty_wait_then_write AllowCreate", counts, rounds)
+}
+
+// TestOpusProbePRE02Windows drives the two truncate-window interleavings deterministically: a foreign
+// write longer than the agent's bytes (mixed bytes on disk) and a shorter one (overwritten, silent).
+func TestOpusProbePRE02Windows(t *testing.T) {
+	bin := opusProbeHelper(t)
+	for _, tc := range []struct{ name, mode string }{
+		{"long_foreign_write_inside_truncate_window", "create_empty_wait_then_write"},
+		{"short_foreign_write_inside_truncate_window", "create_empty_wait_then_write_short"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, ctrl := t.TempDir(), t.TempDir()
+			target := filepath.Join(root, "shared.txt")
+			opened, writeGo := filepath.Join(ctrl, "opened"), filepath.Join(ctrl, "write_go")
+			cmd := exec.Command(bin, tc.mode, target, opened, writeGo)
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			opusProbeWait(t, opened)
+			e := newTestEngine(t, root)
+			actor := Actor{Session: "s-pre02"}
+			childExit := -1
+			e.SetPublishFaultHooks(PublishFaultHooks{AfterTruncate: func(dst string) error {
+				if dst == target {
+					if err := os.WriteFile(writeGo, []byte("1"), 0o644); err != nil {
+						return err
+					}
+					childExit = opusProbeExit(cmd.Wait())
+				}
+				return nil
+			}})
+			var rec CommitReceipt
+			res, commitErr := e.Commit(WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r }), Plan{
+				Actor: actor, Tool: "write_file",
+				Changes: []FileChange{{Path: "shared.txt", Content: &opusAgent, AllowCreate: true}},
+			})
+			got, _ := os.ReadFile(target)
+			rf := rec.Files[0]
+			t.Logf("disk=%q", got)
+			t.Logf("commitErr code=%q childExit=%d", CodeOf(commitErr), childExit)
+			t.Logf("receipt: committed=%v dirtyFailure=%v state=%s | staged=%v created=%v published=%v wrote=%v verified=%v publishState=%s newSHA256=%q",
+				rec.Committed, rec.DirtyFailure, rec.State, rf.Staged, rf.Created, rf.Published, rf.Wrote, rf.Verified, rf.PublishState, rf.NewSHA256)
+			t.Logf("result: commitState=%s newRev=%q verified=%v | snapshot latestRev=%q (agent rev %q)",
+				res.CommitState, res.Files[0].NewRev, res.Files[0].Verified, e.LatestRev(actor, target), RevOf(opusAgent))
+		})
+	}
+}

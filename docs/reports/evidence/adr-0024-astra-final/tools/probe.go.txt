@@ -1,0 +1,47 @@
+package toolset
+
+import (
+	"fmt"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+)
+
+// Use the frozen matrix constructor, not examples transcribed from the report.
+func TestCarbonAuditCapture(t *testing.T) {
+	dir, ws := os.Getenv("CARBON_CAPTURE"), os.Getenv("REVIEW_ADV_WS")
+	set, err := New(Options{Workspace:ws, Policy:PolicyWorkspace, SessionID:"s-carbon-audit"})
+	if err != nil { t.Fatal(err) }
+	emit := func(kind string, c rvCase) {
+		if err := rvWriteCase(filepath.Join(dir,kind+"-in"), c); err != nil { t.Fatal(err) }
+		if err := rvWrite(filepath.Join(dir,kind),c.Name,rvRender(set,c)); err != nil { t.Fatal(err) }
+	}
+	for _, c := range rvCases() {
+		emit("matrix", c)
+		if c.Name != "B_repeated_dirs_40_pressure" { continue }
+		for _, mode := range []string{"original","reverse","rotate1","by_shape","seed7","seed31"} {
+			order := make([]int,len(c.Receipts)); for i := range order { order[i]=i }
+			switch mode {
+			case "reverse": for i:=range order {order[i]=len(order)-1-i}
+			case "rotate1": for i:=range order {order[i]=(i+1)%len(order)}
+			case "by_shape": sort.SliceStable(order,func(i,j int)bool{return order[i]%4<order[j]%4})
+			case "seed7","seed31": seed:=int64(7); if mode=="seed31"{seed=31}; rand.New(rand.NewSource(seed)).Shuffle(len(order),func(i,j int){order[i],order[j]=order[j],order[i]})
+			}
+			p:=c; p.Name=mode; p.Receipts=nil; p.Results=nil
+			for _, i:=range order {p.Receipts=append(p.Receipts,c.Receipts[i]);p.Results=append(p.Results,c.Results[i])}
+			emit("extra",p)
+		}
+	}
+	literals:=[]string{"a/…/f.kt","a/b/c/f.kt","a/real…tail.kt","a/realXYZtail.kt","a/…/nest…ed/t…t","a/dir/nestQRed/tZt","a/%E2%80%A6/f.kt","a/…{2}/f.kt","a/…{2}/real…tail.kt"}
+	for _,p:=range literals {
+		name:=filepath.Join(ws,filepath.FromSlash(p))
+		if err:=os.MkdirAll(filepath.Dir(name),0700);err!=nil{t.Fatal(err)}
+		if err:=os.WriteFile(name,[]byte("fixture"),0600);err!=nil{t.Fatal(err)}
+	}
+	emit("extra",rvMake("real-literals",literals,nil,nil,"eio"))
+	padding := make([]string,50);for i:=range padding{padding[i]=fmt.Sprintf("x/%s%03d.kt",strings.Repeat("s",40),i)}
+	emit("extra",rvMake("omitted-literal",append([]string{literals[0]},padding...),[]string{literals[1]},[]string{literals[6]},"eio"))
+}

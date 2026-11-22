@@ -1,0 +1,6 @@
+$ go test -race -count=1 ./internal/toolset ./internal/editing
+# HEAD d8e2d719ea4e03e8ceb1258593b16ecee86dd8da
+# go version go1.26.5 darwin/arm64
+ok  	github.com/edynasty/LumenCortex/internal/toolset	53.638s
+ok  	github.com/edynasty/LumenCortex/internal/editing	13.658s
+exit=0

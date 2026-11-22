@@ -215,9 +215,8 @@ type expectedFile struct {
 	exists bool
 }
 
-// CompareAndSwap replaces only the expected regular file (or expected absence).
-// The parent is pinned; links are never followed. External writers can still
-// race the final check and rename; callers serialize cooperating writers.
+// CompareAndSwap publishes a new name without replacement. For an existing file, a
+// non-cooperating writer can still race the last content check and the rename.
 func (r *Root) CompareAndSwap(path string, before, after []byte, existed bool) error {
 	return r.writeFile(path, after, 0644, &expectedFile{data: before, exists: existed})
 }
@@ -267,16 +266,16 @@ func (r *Root) writeFile(path string, data []byte, mode os.FileMode, expected *e
 		return closeErr
 	}
 	if expected != nil {
-		n, err := unix.Openat(fd, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
-		if errors.Is(err, unix.ENOENT) && !expected.exists {
-			return unix.Renameat(fd, tmp, fd, name)
+		if !expected.exists {
+			return unix.Linkat(fd, tmp, fd, name, 0)
 		}
+		n, err := unix.Openat(fd, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 		if err != nil {
 			return err
 		}
 		f := os.NewFile(uintptr(n), path)
 		info, statErr := f.Stat()
-		if statErr != nil || !info.Mode().IsRegular() || !expected.exists {
+		if statErr != nil || !info.Mode().IsRegular() {
 			f.Close()
 			return fmt.Errorf("destination identity changed: %q", path)
 		}

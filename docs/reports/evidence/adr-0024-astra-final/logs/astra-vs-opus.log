@@ -1,0 +1,5 @@
+corpus 684 Counter({'identical': 684, 'moreRows': 0, 'fewerRows': 0, 'moreFailed': 0, 'fewerFailed': 0})
+matrix 1180 Counter({'identical': 1174, 'moreRows': 2, 'moreFailed': 2, 'fewerRows': 0, 'fewerFailed': 0})
+sweep/out 33 Counter({'identical': 33, 'moreRows': 0, 'fewerRows': 0, 'moreFailed': 0, 'fewerFailed': 0})
+extra 8 Counter({'moreRows': 6, 'moreFailed': 6, 'identical': 0, 'fewerRows': 0, 'fewerFailed': 0})
+witness 5 Counter({'moreRows': 4, 'moreFailed': 4, 'identical': 0, 'fewerRows': 0, 'fewerFailed': 0})

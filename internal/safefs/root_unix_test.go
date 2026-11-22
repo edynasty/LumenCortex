@@ -193,3 +193,30 @@ func TestRemovalDoesNotFollowDirectorySymlink(t *testing.T) {
 		t.Fatalf("outside removal %q %v", data, err)
 	}
 }
+
+func TestConcurrentArtifactCreationPreservesWinner(t *testing.T) {
+	r, _, _ := rootFixture(t)
+	type result struct {
+		data string
+		err  error
+	}
+	results := make(chan result, 2)
+	start := make(chan struct{})
+	for _, data := range []string{"first artifact", "second artifact"} {
+		go func() {
+			<-start
+			results <- result{data, r.CompareAndSwap("artifact", nil, []byte(data), false)}
+		}()
+	}
+	close(start)
+	a, b := <-results, <-results
+	if a.err != nil {
+		a, b = b, a
+	}
+	if a.err != nil || !errors.Is(b.err, os.ErrExist) {
+		t.Fatalf("results: %+v, %+v", a, b)
+	}
+	if got, err := r.ReadFile("artifact", 256); err != nil || string(got) != a.data {
+		t.Fatalf("winner = %q, %v; expected %q", got, err, a.data)
+	}
+}

@@ -1,0 +1,16 @@
+diff -r /tmp/lc-r7-opus-second-review/R7CarbonTestsPriorArt/snap/r7/internal/editing/engine.go /tmp/lc-r7-opus-second-review/R7CarbonTestsPriorArt/mut/m3/internal/editing/engine.go
+--- /tmp/lc-r7-opus-second-review/R7CarbonTestsPriorArt/snap/r7/internal/editing/engine.go	2026-11-21 01:21:56.000000000 +0800
++++ /tmp/lc-r7-opus-second-review/R7CarbonTestsPriorArt/mut/m3/internal/editing/engine.go	2026-11-21 08:52:17.053529636 +0800
+@@ -412,6 +412,12 @@
+ 	if p.rev != "" {
+ 		receipt.OldSHA256 = sha256Ref(p.original, p.existed)
+ 	}
++	if p.publishState == PublishPartial { // MUTANT M3
++		file.PublishState, receipt.PublishState = PublishSucceededAndVerified, PublishSucceededAndVerified
++		file.Verified, receipt.Verified = true, true
++		receipt.NewSHA256 = sha256Ref(p.next, true)
++		file.NewRev = RevOf(p.next)
++	}
+ 	if p.verified {
+ 		receipt.NewSHA256 = sha256Ref(p.next, !p.deleted)
+ 		if !p.deleted {

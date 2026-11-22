@@ -76,6 +76,19 @@ type ToolCatalog interface {
 	Catalog() []toolset.CatalogTool
 }
 
+// IncludedStepTools returns only the included tools for the step, preserving each tool's Source,
+// Permission, and MutatesWorkspace metadata in deterministic sorted order.
+func IncludedStepTools(tools Tools, in StepToolsInput) []StepTool {
+	all := StepTools(tools, in)
+	out := make([]StepTool, 0, len(all))
+	for _, entry := range all {
+		if entry.Included {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
 // StepTools is StepSpecs plus every other tool a step could offer, each marked with whether the step
 // offers it and which filter withheld it. The included entries are exactly StepSpecs' list.
 func StepTools(tools Tools, in StepToolsInput) []StepTool {

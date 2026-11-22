@@ -1,0 +1,27 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+working tree: modified
+cmd= go test -count=1 -v -overlay /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.8jGYvt6E2u/probe-carbon.json -run \^TestCarbonR7R2Results01AdversarialMatrix\$/\^multiple_failed_files_5_very_long_dirs_overflow_order\$\|\^TestR7R2New01 ./internal/toolset
+=== RUN   TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities
+--- PASS: TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities (0.02s)
+=== RUN   TestR7R2New01OverflowBoundaryMatrix
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/single_failed_long_path_bare_eio
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/mixed_failed_unicode_longname_and_identical_basenames
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/eight_failed_rows_long_paths
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/cancellation_without_path_long_dirs
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/impossible_to_fit_50_failed_rows_discloses_omissions
+--- PASS: TestR7R2New01OverflowBoundaryMatrix (0.49s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/single_failed_long_path_bare_eio (0.02s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/mixed_failed_unicode_longname_and_identical_basenames (0.03s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/eight_failed_rows_long_paths (0.03s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/cancellation_without_path_long_dirs (0.02s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/impossible_to_fit_50_failed_rows_discloses_omissions (0.38s)
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_5_very_long_dirs_overflow_order
+    r7r2_results_test.go:705: OBSERVED multi_5_longdir: len=3268 overflow=true rows=5 omitted=1 omittedByState=map[not_attempted:1] firstPath=…/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg/Adapter00.kt
+--- PASS: TestCarbonR7R2Results01AdversarialMatrix (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_5_very_long_dirs_overflow_order (0.02s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	1.455s
+exit=0

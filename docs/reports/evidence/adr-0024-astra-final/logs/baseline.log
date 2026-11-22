@@ -1,0 +1,36 @@
+Sun Nov 22 06:48:31 UTC 2026
+go version go1.26.5 darwin/arm64
+Darwin arm64
+Apple M1 Pro
+/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-opus-20261122
+fix/adr-0024-sol-rev-01-opus-20261122
+52ac7d7df7d582bc2cb95e36618381cf30f7ab80
+/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-01-02-remediation-20261122
+fix/adr-0024-sol-01-02-remediation-20261122
+3d85d06e31ae8b424b2ed3d0b9b94be70627e5ac
+/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7r2-opus-final-20261121
+fix/adr-0024-r7r2-opus-final-20261121
+10f135d1f904ab88c6a086319ca5820ea6b9e09c
+/Users/tangxingpeng/IdeaProjects/me/LumenCortex/LumenCortex-Core
+main
+c73d17359f5d9dd16ef88b0de4525862593fddaa
+ M AGENTS.md
+10f135d1f904ab88c6a086319ca5820ea6b9e09c	refs/heads/fix/adr-0024-r7r2-opus-final-20261121
+3d85d06e31ae8b424b2ed3d0b9b94be70627e5ac	refs/heads/fix/adr-0024-sol-01-02-remediation-20261122
+52ac7d7df7d582bc2cb95e36618381cf30f7ab80	refs/heads/fix/adr-0024-sol-rev-01-opus-20261122
+c73d17359f5d9dd16ef88b0de4525862593fddaa	refs/heads/main
+52ac7d7df7d582bc2cb95e36618381cf30f7ab80 4eb9b082fa6a5c7d708e2428003ba75efb71d1be docs(adr-0024): record SOL-REV-01 review, remediation and evidence
+4eb9b082fa6a5c7d708e2428003ba75efb71d1be 6588f37a92c43fbc4ce908e07dcaffd747e7ba48 test(toolset): cover long filename payload retention
+6588f37a92c43fbc4ce908e07dcaffd747e7ba48 3d85d06e31ae8b424b2ed3d0b9b94be70627e5ac fix(toolset): shorten long filenames without identity collisions
+3d85d06e31ae8b424b2ed3d0b9b94be70627e5ac fc107ba867e8d4e6ef3c7db975a67c1c210069ac docs(adr-0024): record SOL-01 and SOL-02 verification
+fc107ba867e8d4e6ef3c7db975a67c1c210069ac 10f135d1f904ab88c6a086319ca5820ea6b9e09c fix(toolset): maximize identifiable failed rows in bounded edit results
+10f135d1f904ab88c6a086319ca5820ea6b9e09c fa909ad555f8ba42a7a910cd12f6bf153ea645ae docs(adr-0024): record R7R2 final audit, remediation and evidence
+M	internal/toolset/editing.go
+A	internal/toolset/r7r2_sol_rev01_test.go
+912be74fe824c6b95c685c39e4c9ecb1bdef4a1ff21f5e310157590b2b8fee09  docs/reports/evidence/adr-0024-sol-rev-01/SHA256SUMS
+      54 /private/tmp/lc-carbon-final.jQjddm/adr-0024-sol-rev-01.verify
+56c8a0d178c13e7e96bdc102f6c0962fec2946a25d4e1d26c20ef8e871687cf1  docs/reports/evidence/adr-0024-sol-01-02/SHA256SUMS
+      21 /private/tmp/lc-carbon-final.jQjddm/adr-0024-sol-01-02.verify
+df1900aaed623692c7069473ac13f93a1c2ef8bcf906d5ce30c6dac239fa5c34  docs/reports/evidence/adr-0024-r7r2-final/SHA256SUMS
+      40 /private/tmp/lc-carbon-final.jQjddm/adr-0024-r7r2-final.verify
+4a56762c9b74b5ad2065082f8dc12ad9fd12ca93ab70b56ee510461b0971da9b  /Users/tangxingpeng/IdeaProjects/me/LumenCortex/LumenCortex-architecture-audit/design/handoffs/context-space-architecture-master.zh-CN.md

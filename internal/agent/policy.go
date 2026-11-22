@@ -59,6 +59,9 @@ const (
 	// RuleFailoverRecovery: the failover chain ended in an outage; the step waits and sends the request
 	// again to a candidate that failed with availability (Recovery).
 	RuleFailoverRecovery = "failover.recovery"
+	// RuleFailoverFloorFallback: after all larger candidates failed or exhausted recovery during active
+	// gate repair, selects the largest available candidate for controlled Floor Relaxation (ADR-0024 §7, F-03).
+	RuleFailoverFloorFallback = "failover.floor_fallback"
 	// RuleWindowDropped: older transcript groups were left out to fit the candidate's budget (§5).
 	RuleWindowDropped = "window.dropped"
 	// RuleWindowDefaultContext: the model configures no limit.context, so the request is budgeted on
@@ -67,6 +70,13 @@ const (
 	// RuleWindowCapacityRetry: after a capacity rejection the transcript budget is halved for the
 	// one retry on the same model, and stays so for that model until the run ends (§5).
 	RuleWindowCapacityRetry = "window.capacity_retry"
+	// RuleWindowPrefix: stateless binary ModeFull / ModeCompact selection for a candidate (ADR-0024 §4).
+	RuleWindowPrefix = "window.prefix"
+	// RuleWindowFloorRelaxed: controlled Floor Relaxation on the largest available candidate after all
+	// larger candidates were exhausted during active gate repair (ADR-0024 §7, F-03).
+	RuleWindowFloorRelaxed = "window.floor_relaxed"
+	// FloorRelaxReasonMaxCandidateOverflow is the canonical machine reason recorded by RuleWindowFloorRelaxed.
+	FloorRelaxReasonMaxCandidateOverflow = "max_candidate_repair_floor_overflow"
 	// RuleTurnBoundary: NeedsTurnBoundary held before a request, so a runtime row opened a new turn (§4.6).
 	RuleTurnBoundary = "turn.boundary"
 	// RuleInstructionsAppended: the agent's instructions were appended as the last system message of
@@ -133,8 +143,147 @@ func OutputBudget(maxTokens int, c Candidate) int {
 	return c.Output
 }
 
-// Margin is the share of a model's context left free for estimate error: 5%.
+// Margin is the legacy 5% share kept for v1 Candidates replay compatibility.
 func Margin(contextTokens int) int { return contextTokens / 20 }
+
+// GuardTokens returns the closed-form tokenizer and protocol guard reservation for a candidate:
+// max(context/16, 512) plus 512 when anthropic-messages sends non-empty tools (ADR-0024 §6).
+func GuardTokens(contextTokens int, providerPkg string, toolCount int) int {
+	guard := max(contextTokens/16, 512)
+	if providerPkg == config.PackageAnthropicMessages && toolCount > 0 {
+		guard += 512
+	}
+	return guard
+}
+
+// BaseGateSlack returns the worst-case token reservation for a completion-gate rejection message plus
+// ProposalReserveTokens (512): 1950 tokens under compact feedback, 7718 under detailed feedback.
+func BaseGateSlack(m Model, fallback PresentationOptions, mode ProjectionMode) int {
+	if effectiveFeedbackVariant(m, fallback, mode) == config.ProfileCompact {
+		return window.ReserveTokensForBytes(MaxCompactGateJSONBytes) + ProposalReserveTokens
+	}
+	return window.ReserveTokensForBytes(MaxDetailedGateJSONBytes) + ProposalReserveTokens
+}
+
+// RepairStage classifies the active completion-gate repair progression reconstructed from persisted
+// messages and tool executions (ADR-0024 §7, R2-02).
+type RepairStage string
+
+const (
+	RepairStageNone           RepairStage = ""
+	RepairStageBlocked        RepairStage = "blocked"
+	RepairStageInspecting     RepairStage = "inspecting"
+	RepairStageProvenProgress RepairStage = "proven_progress"
+	RepairStageUnknownMutated RepairStage = "unknown_mutated"
+)
+
+// MaxCausalProgressRefs bounds the post-gate causal execution refs retained in RepairContext.
+const MaxCausalProgressRefs = 8
+
+// CausalEvidenceRef records body-free persisted attribution for one causal tool execution in a repair cycle.
+// ParentToolCallID is non-empty when the execution ran as a nested callback inside a top-level eval /
+// apply_experience call (ADR-0024 R4-01).
+type CausalEvidenceRef struct {
+	AnsweredSeq      int64            `json:"answeredSeq"`
+	ToolCallID       string           `json:"toolCallId,omitempty"`
+	ParentToolCallID string           `json:"parentToolCallId,omitempty"`
+	ToolName         string           `json:"toolName,omitempty"`
+	ExecutionID      string           `json:"executionId,omitempty"`
+	PostRef          string           `json:"postRef,omitempty"`
+	MutationEvidence MutationEvidence `json:"mutationEvidence"`
+}
+
+// RepairContext describes the active completion-gate repair state, pinned gate feedback, and causal
+// repair progress derived deterministically from persisted rows (ADR-0024 §4.2, §4.6.6, §7, R2-02).
+// All fields are value types so RepairContext is directly comparable via == and allocation-free.
+type RepairContext struct {
+	Active                  bool
+	NewestIsBlock           bool
+	BlockSeq                int64
+	ProposalSeq             int64
+	BlockCount              int
+	GateFeedback            string
+	FloorIdx                int
+	MinRequiredSeq          int64
+	OriginalMinRequiredSeq  int64
+	PostBlockCausalFloorSeq int64
+	Stage                   RepairStage
+	HasOriginalEvidence     bool
+	OriginalEvidence        CausalEvidenceRef
+	PostBlockProvenCount    int
+	PostBlockUnknownCount   int
+	CausalProgressLen       int
+	CausalProgress          [MaxCausalProgressRefs]CausalEvidenceRef
+	// PinGateInState is set transiently on a candidate projection attempt when Stage R2/R3 pins
+	// GateFeedback + CausalProgress into State and projects Messages strictly over Seq > BlockSeq.
+	PinGateInState bool
+}
+
+type repairContext = RepairContext
+
+// EffectiveGateSlack computes the gate reservation for the current step: outside active repair,
+// min(baseSlack, max(0, (poolBeforeSlack - candFixed) / 4)) (preserving full baseSlack on >=32K
+// windows while retaining 75% post-prefix conversation capacity on 8K small windows, F-06); 0
+// immediately after a gate block; and reloaded up to baseSlack on subsequent repair steps without
+// evicting requiredRepairTokens.
+func EffectiveGateSlack(poolBeforeSlack, candFixed, baseSlack, requiredRepairTokens int, repair repairContext) int {
+	if !repair.Active {
+		free := poolBeforeSlack - candFixed
+		if free <= 0 {
+			return 0
+		}
+		return min(baseSlack, free/4)
+	}
+	if repair.NewestIsBlock {
+		return 0
+	}
+	room := poolBeforeSlack - candFixed - requiredRepairTokens
+	if room <= 0 {
+		return 0
+	}
+	return min(baseSlack, room)
+}
+
+// CandidatesByStaticPrefix filters the run's configured candidate chain purely by tool-calling support,
+// static minimal prefix viability (compactFixed + GuardTokens + OutputBudget <= Context), and advisory
+// health availability (ADR-0024 §5). Dynamic window capacity is decided solely by projectCandidate.
+func CandidatesByStaticPrefix(
+	session config.ModelRef,
+	failover []config.ModelRef,
+	models map[config.ModelRef]Candidate,
+	compactFixed map[config.ModelRef]int,
+	guards map[config.ModelRef]int,
+	maxTokens int,
+	available func(config.ModelRef) bool,
+) []Candidate {
+	eligible := make([]Candidate, 0, 1+len(failover))
+	seen := map[config.ModelRef]bool{}
+	for _, ref := range append([]config.ModelRef{session}, failover...) {
+		c, ok := models[ref]
+		if !ok || seen[ref] || !c.ToolCalling {
+			continue
+		}
+		minNeed := compactFixed[ref] + guards[ref] + OutputBudget(maxTokens, c)
+		if c.Context < minNeed {
+			continue
+		}
+		seen[ref] = true
+		eligible = append(eligible, c)
+	}
+	if available == nil {
+		return eligible
+	}
+	healthy := make([]Candidate, 0, len(eligible))
+	for _, c := range eligible {
+		if available(c.Ref) {
+			healthy = append(healthy, c)
+		}
+	}
+	if len(healthy) == 0 {
+		return eligible
+	}
+	return healthy
+}
 
 // Candidates is the ordered list one request may use: the session model first, then the config
 // failover list, without duplicates. A model is dropped when it is not in models, when it has no tool
@@ -451,13 +600,15 @@ type candidateLimits struct {
 }
 
 type candidatesInputs struct {
-	Session     config.ModelRef                     `json:"session"`
-	Failover    []config.ModelRef                   `json:"failover"`
-	Models      map[config.ModelRef]candidateLimits `json:"models"`
-	Base        int                                 `json:"base"`
-	MaxTokens   int                                 `json:"maxTokens"`
-	Unavailable []config.ModelRef                   `json:"unavailable"`
-	CooldownMs  map[config.ModelRef]int64           `json:"cooldownMs,omitempty"`
+	Session             config.ModelRef                     `json:"session"`
+	Failover            []config.ModelRef                   `json:"failover"`
+	Models              map[config.ModelRef]candidateLimits `json:"models"`
+	Base                int                                 `json:"base"`
+	CompactFixedByModel map[config.ModelRef]int             `json:"compactFixedByModel,omitempty"`
+	GuardByModel        map[config.ModelRef]int             `json:"guardByModel,omitempty"`
+	MaxTokens           int                                 `json:"maxTokens"`
+	Unavailable         []config.ModelRef                   `json:"unavailable"`
+	CooldownMs          map[config.ModelRef]int64           `json:"cooldownMs,omitempty"`
 }
 
 type candidatesOutput struct {
@@ -559,6 +710,53 @@ func CandidatesDecision(session config.ModelRef, failover []config.ModelRef, mod
 		candidatesOutput{Candidates: refs})
 }
 
+// CandidatesByStaticPrefixDecision computes and logs static candidate eligibility under ADR-0024.
+func CandidatesByStaticPrefixDecision(
+	session config.ModelRef,
+	failover []config.ModelRef,
+	models map[config.ModelRef]Candidate,
+	compactFixed map[config.ModelRef]int,
+	guards map[config.ModelRef]int,
+	maxTokens int,
+	unavailable []config.ModelRef,
+	cooldownMs map[config.ModelRef]int64,
+) ([]Candidate, Decision) {
+	failover = sliceOrEmpty(failover)
+	unavailable = sliceOrEmpty(unavailable)
+	cands := CandidatesByStaticPrefix(session, failover, models, compactFixed, guards, maxTokens, nil)
+	rule := RuleModelCandidates
+	if len(unavailable) > 0 || len(cooldownMs) > 0 {
+		rule = RuleModelCandidatesRetained
+		orderRetainedCandidates(cands, unavailable, cooldownMs)
+	}
+	limits := map[config.ModelRef]candidateLimits{}
+	cf := map[config.ModelRef]int{}
+	gd := map[config.ModelRef]int{}
+	for _, ref := range append([]config.ModelRef{session}, failover...) {
+		if c, ok := models[ref]; ok {
+			limits[ref] = candidateLimits{Context: c.Context, Output: c.Output, ToolCalling: c.ToolCalling}
+			cf[ref] = compactFixed[ref]
+			gd[ref] = guards[ref]
+		}
+	}
+	refs := make([]config.ModelRef, len(cands))
+	for i, c := range cands {
+		refs[i] = c.Ref
+	}
+	return cands, newDecision(DecisionModel, rule,
+		candidatesInputs{
+			Session:             session,
+			Failover:            failover,
+			Models:              limits,
+			CompactFixedByModel: cf,
+			GuardByModel:        gd,
+			MaxTokens:           maxTokens,
+			Unavailable:         unavailable,
+			CooldownMs:          cooldownMs,
+		},
+		candidatesOutput{Candidates: refs})
+}
+
 // Health changes priority, never membership. Keep each deferred model available to the initial
 // sweep once its explicit hint expires; advisory-unhealthy models follow healthy ones.
 func orderRetainedCandidates(cands []Candidate, unavailable []config.ModelRef, cooldownMs map[config.ModelRef]int64) {
@@ -621,6 +819,99 @@ func FailoverDecision(cands []Candidate, failed int, class protocol.ErrorClass) 
 	return next, newDecision(DecisionFailover, RuleFailoverPrefix+string(class),
 		failoverInputs{Candidates: candidateRefs(cands), Failed: failed, Class: class},
 		failoverOutput{Next: next})
+}
+
+type floorFallbackInputs struct {
+	Candidates  []candidateRef `json:"candidates"`
+	Failed      int            `json:"failed"`
+	Unavailable []bool         `json:"unavailable"`
+}
+
+// SelectMaxAvailableCandidate returns the index of the non-unavailable candidate with the largest
+// Context window (ties broken by lowest candidate index), or -1 when all candidates are unavailable.
+func SelectMaxAvailableCandidate(cands []Candidate, unavailable []bool) int {
+	best := -1
+	for i, c := range cands {
+		if i < len(unavailable) && unavailable[i] {
+			continue
+		}
+		if best < 0 || c.Context > cands[best].Context {
+			best = i
+		}
+	}
+	return best
+}
+
+// FloorFallbackDecision records switching from a failed larger candidate to the largest remaining
+// available candidate once all larger candidates are exhausted during gate repair (F-03).
+func FloorFallbackDecision(cands []Candidate, failed int, unavailable []bool) (int, Decision) {
+	unavailCopy := make([]bool, len(cands))
+	copy(unavailCopy, unavailable)
+	next := SelectMaxAvailableCandidate(cands, unavailCopy)
+	return next, newDecision(DecisionFailover, RuleFailoverFloorFallback,
+		floorFallbackInputs{Candidates: candidateRefs(cands), Failed: failed, Unavailable: unavailCopy},
+		failoverOutput{Next: next})
+}
+
+type windowFloorRelaxedInputs struct {
+	Ref                       config.ModelRef `json:"ref"`
+	Context                   int             `json:"context"`
+	UsableInput               int             `json:"usableInput"`
+	Fixed                     int             `json:"fixed"`
+	OriginalMinRequiredSeq    int64           `json:"originalMinRequiredSeq"`
+	PreBlockAnchorSeq         int64           `json:"preBlockAnchorSeq,omitempty"`
+	PostBlockCausalFloorSeq   int64           `json:"postBlockCausalFloorSeq,omitempty"`
+	RelaxedFloorSeq           int64           `json:"relaxedFloorSeq"`
+	BlockSeq                  int64           `json:"blockSeq"`
+	NewestGroupFirstSeq       int64           `json:"newestGroupFirstSeq"`
+	WindowFirstSeq            int64           `json:"windowFirstSeq"`
+	WindowTokens              int             `json:"windowTokens"`
+	GatePinnedInState         bool            `json:"gatePinnedInState,omitempty"`
+	LargerCandidatesExhausted bool            `json:"largerCandidatesExhausted"`
+}
+
+type windowFloorRelaxedOutput struct {
+	Relaxed                bool   `json:"relaxed"`
+	Reason                 string `json:"reason"`
+	OriginalMinRequiredSeq int64  `json:"originalMinRequiredSeq"`
+	SentFirstSeq           int64  `json:"sentFirstSeq"`
+	GatePinnedInState      bool   `json:"gatePinnedInState,omitempty"`
+}
+
+// WindowFloorRelaxedDecision records a controlled Floor Relaxation on the largest available candidate
+// when strict MinRequiredSeq exceeded every available model window (ADR-0024 §7, F-03, R2-02).
+func WindowFloorRelaxedDecision(
+	ref config.ModelRef,
+	contextTokens, usableInput, fixed int,
+	originalMinReqSeq, preBlockAnchorSeq, postBlockCausalFloorSeq, relaxedFloorSeq, blockSeq, newestGroupFirstSeq, sentFirstSeq int64,
+	windowTokens int,
+	gatePinnedInState bool,
+) Decision {
+	return newDecision(DecisionWindow, RuleWindowFloorRelaxed,
+		windowFloorRelaxedInputs{
+			Ref:                       ref,
+			Context:                   contextTokens,
+			UsableInput:               usableInput,
+			Fixed:                     fixed,
+			OriginalMinRequiredSeq:    originalMinReqSeq,
+			PreBlockAnchorSeq:         preBlockAnchorSeq,
+			PostBlockCausalFloorSeq:   postBlockCausalFloorSeq,
+			RelaxedFloorSeq:           relaxedFloorSeq,
+			BlockSeq:                  blockSeq,
+			NewestGroupFirstSeq:       newestGroupFirstSeq,
+			WindowFirstSeq:            sentFirstSeq,
+			WindowTokens:              windowTokens,
+			GatePinnedInState:         gatePinnedInState,
+			LargerCandidatesExhausted: true,
+		},
+		windowFloorRelaxedOutput{
+			Relaxed:                true,
+			Reason:                 FloorRelaxReasonMaxCandidateOverflow,
+			OriginalMinRequiredSeq: originalMinReqSeq,
+			SentFirstSeq:           sentFirstSeq,
+			GatePinnedInState:      gatePinnedInState,
+		},
+	)
 }
 
 // EffectiveContext is the context a request is budgeted on: the configured limit.context, else
@@ -690,6 +981,51 @@ type capacityRetryOutput struct {
 	Margin int `json:"margin"`
 }
 
+type windowPrefixInputs struct {
+	Ref                config.ModelRef `json:"ref"`
+	ToolPref           string          `json:"toolPref,omitempty"`
+	UsableFull         int             `json:"usableFull"`
+	UsableCompact      int             `json:"usableCompact"`
+	FullFixed          int             `json:"fullFixed"`
+	CompactFixed       int             `json:"compactFixed"`
+	RequiredTranscript int             `json:"requiredTranscript"`
+}
+
+type windowPrefixOutput struct {
+	Mode   ProjectionMode `json:"mode"`
+	Reason string         `json:"reason"`
+}
+
+// SelectWindowPrefix evaluates the 4 stateless priority branches for ModeFull vs ModeCompact (ADR-0024 §4).
+func SelectWindowPrefix(toolPref string, usableFull, usableCompact, fullFixed, compactFixed, requiredTranscript int) (ProjectionMode, string) {
+	if toolPref == config.ProfileCompact {
+		return ModeCompact, PrefixReasonCandidateProfile
+	}
+	if toolPref == "" && fullFixed > usableFull/2 {
+		return ModeCompact, PrefixReasonFixedPrefixBudget
+	}
+	if fullFixed+requiredTranscript > usableFull && compactFixed+requiredTranscript <= usableCompact {
+		return ModeCompact, PrefixReasonNewestGroupFit
+	}
+	return ModeFull, PrefixReasonFitsFull
+}
+
+// WindowPrefixDecision selects ModeFull or ModeCompact for ref and records RuleWindowPrefix.
+func WindowPrefixDecision(ref config.ModelRef, toolPref string, usableFull, usableCompact, fullFixed, compactFixed, requiredTranscript int) (ProjectionMode, string, Decision) {
+	mode, reason := SelectWindowPrefix(toolPref, usableFull, usableCompact, fullFixed, compactFixed, requiredTranscript)
+	return mode, reason, newDecision(DecisionWindow, RuleWindowPrefix,
+		windowPrefixInputs{
+			Ref:                ref,
+			ToolPref:           toolPref,
+			UsableFull:         usableFull,
+			UsableCompact:      usableCompact,
+			FullFixed:          fullFixed,
+			CompactFixed:       compactFixed,
+			RequiredTranscript: requiredTranscript,
+		},
+		windowPrefixOutput{Mode: mode, Reason: reason})
+}
+
 // CapacityRetryDecision computes the budget of the retry after the provider rejected, as too long, a
 // request of rejected estimated tokens built under b, and records it.
 func CapacityRetryDecision(ref config.ModelRef, b window.Budget, fixed, rejected int) (window.Budget, Decision) {
@@ -757,12 +1093,24 @@ func ReplayDecision(d Decision) error {
 		for ref, l := range in.Models {
 			models[ref] = Candidate{Ref: ref, Context: l.Context, Output: l.Output, ToolCalling: l.ToolCalling}
 		}
-		got := Candidates(in.Session, in.Failover, models, in.Base, in.MaxTokens, availableExcept(in.Unavailable))
+		var got []Candidate
+		if in.CompactFixedByModel != nil {
+			avail := availableExcept(in.Unavailable)
+			if d.Rule == RuleModelCandidatesRetained {
+				avail = nil
+			}
+			got = CandidatesByStaticPrefix(in.Session, in.Failover, models, in.CompactFixedByModel, in.GuardByModel, in.MaxTokens, avail)
+		} else {
+			avail := availableExcept(in.Unavailable)
+			if d.Rule == RuleModelCandidatesRetained {
+				avail = nil
+			}
+			got = Candidates(in.Session, in.Failover, models, in.Base, in.MaxTokens, avail)
+		}
 		if d.Rule == RuleModelCandidatesCooldown {
 			orderByCooldown(got, in.CooldownMs)
 		}
 		if d.Rule == RuleModelCandidatesRetained {
-			got = Candidates(in.Session, in.Failover, models, in.Base, in.MaxTokens, nil)
 			orderRetainedCandidates(got, in.Unavailable, in.CooldownMs)
 		}
 		refs := make([]config.ModelRef, len(got))
@@ -840,6 +1188,23 @@ func ReplayDecision(d Decision) error {
 		if next, wait := replayRecoveryPick(in.ReadyInMs, in.Failed, in.BackoffMs); next != out.Next || wait != out.WaitMs {
 			return fmt.Errorf("%s: recomputed next=%d wait=%dms, logged next=%d wait=%dms", d.Rule, next, wait, out.Next, out.WaitMs)
 		}
+	case d.Kind == DecisionFailover && d.Rule == RuleFailoverFloorFallback:
+		var in floorFallbackInputs
+		var out failoverOutput
+		if err := decodeDecision(d, &in, &out); err != nil {
+			return err
+		}
+		if len(in.Unavailable) != len(in.Candidates) {
+			return fmt.Errorf("%s: %d availability entries for %d candidates", d.Rule, len(in.Unavailable), len(in.Candidates))
+		}
+		cands := make([]Candidate, len(in.Candidates))
+		for i, c := range in.Candidates {
+			cands[i] = Candidate{Ref: c.Ref, Context: c.Context}
+		}
+		next := SelectMaxAvailableCandidate(cands, in.Unavailable)
+		if next < 0 || next != out.Next {
+			return fmt.Errorf("%s: recomputed next=%d, logged next=%d", d.Rule, next, out.Next)
+		}
 	case d.Kind == DecisionFailover:
 		var in failoverInputs
 		var out failoverOutput
@@ -867,6 +1232,52 @@ func ReplayDecision(d Decision) error {
 		}
 		if want != out {
 			return fmt.Errorf("%s: recomputed %+v, logged %+v", d.Rule, want, out)
+		}
+	case d.Kind == DecisionWindow && d.Rule == RuleWindowPrefix:
+		var in windowPrefixInputs
+		var out windowPrefixOutput
+		if err := decodeDecision(d, &in, &out); err != nil {
+			return err
+		}
+		mode, reason := SelectWindowPrefix(in.ToolPref, in.UsableFull, in.UsableCompact, in.FullFixed, in.CompactFixed, in.RequiredTranscript)
+		if mode != out.Mode || reason != out.Reason {
+			return fmt.Errorf("%s: recomputed %s/%s, logged %s/%s", d.Rule, mode, reason, out.Mode, out.Reason)
+		}
+	case d.Kind == DecisionWindow && d.Rule == RuleWindowFloorRelaxed:
+		var in windowFloorRelaxedInputs
+		var out windowFloorRelaxedOutput
+		if err := decodeDecision(d, &in, &out); err != nil {
+			return err
+		}
+		if !in.LargerCandidatesExhausted {
+			return fmt.Errorf("%s: larger candidates were not exhausted", d.Rule)
+		}
+		if in.OriginalMinRequiredSeq < 0 || in.RelaxedFloorSeq < 0 || in.BlockSeq < 0 || in.NewestGroupFirstSeq < 0 {
+			return fmt.Errorf("%s: invalid floor seqs orig=%d relaxed=%d block=%d newest=%d",
+				d.Rule, in.OriginalMinRequiredSeq, in.RelaxedFloorSeq, in.BlockSeq, in.NewestGroupFirstSeq)
+		}
+		if in.WindowFirstSeq <= in.OriginalMinRequiredSeq {
+			return fmt.Errorf("%s: windowFirstSeq %d did not relax originalMinRequiredSeq %d",
+				d.Rule, in.WindowFirstSeq, in.OriginalMinRequiredSeq)
+		}
+		if in.WindowFirstSeq > in.RelaxedFloorSeq || in.WindowFirstSeq > in.NewestGroupFirstSeq {
+			return fmt.Errorf("%s: windowFirstSeq %d evicted relaxed floor (relaxed=%d newest=%d)",
+				d.Rule, in.WindowFirstSeq, in.RelaxedFloorSeq, in.NewestGroupFirstSeq)
+		}
+		if !in.GatePinnedInState && in.WindowFirstSeq > in.BlockSeq {
+			return fmt.Errorf("%s: windowFirstSeq %d evicted blockSeq %d without gatePinnedInState",
+				d.Rule, in.WindowFirstSeq, in.BlockSeq)
+		}
+		if in.GatePinnedInState && in.WindowFirstSeq <= in.BlockSeq {
+			return fmt.Errorf("%s: windowFirstSeq %d retained blockSeq %d while gatePinnedInState=true",
+				d.Rule, in.WindowFirstSeq, in.BlockSeq)
+		}
+		if !out.Relaxed ||
+			out.Reason != FloorRelaxReasonMaxCandidateOverflow ||
+			out.OriginalMinRequiredSeq != in.OriginalMinRequiredSeq ||
+			out.SentFirstSeq != in.WindowFirstSeq ||
+			out.GatePinnedInState != in.GatePinnedInState {
+			return fmt.Errorf("%s: inconsistent output %+v for inputs %+v", d.Rule, out, in)
 		}
 	case d.Kind == DecisionWindow && d.Rule == RuleWindowCapacityRetry:
 		var in capacityRetryInputs
@@ -990,6 +1401,16 @@ func VerifyStep(raw json.RawMessage) error {
 				return fmt.Errorf("step %d: failover left %d, but the run was on %s", step.Step, in.Failed, current)
 			}
 			current = in.Candidates[out.Next].Ref
+		case d.Kind == DecisionWindow && d.Rule == RuleWindowFloorRelaxed:
+			var in windowFloorRelaxedInputs
+			var out windowFloorRelaxedOutput
+			if err := decodeDecision(d, &in, &out); err != nil {
+				return err
+			}
+			if current != "" && in.Ref != current {
+				return fmt.Errorf("step %d: %s logged for %s while active candidate was %s",
+					step.Step, d.Rule, in.Ref, current)
+			}
 		}
 	}
 	if current == "" {

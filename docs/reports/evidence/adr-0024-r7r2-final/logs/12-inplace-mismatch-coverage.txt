@@ -1,0 +1,26 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+working tree: modified
+== carbon f3f77e35c98de4647243019568ed5ec3093cf072
+cmd= go test -count=1 -coverpkg=./internal/editing -coverprofile=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.lXShHNXunw/carbon.out ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+ok  	github.com/edynasty/LumenCortex/internal/editing	2.846s	coverage: 70.6% of statements in ./internal/editing
+ok  	github.com/edynasty/LumenCortex/internal/toolset	26.509s	coverage: 66.1% of statements in ./internal/editing
+ok  	github.com/edynasty/LumenCortex/internal/agent	19.072s	coverage: 44.8% of statements in ./internal/editing
+ok  	github.com/edynasty/LumenCortex/internal/session	38.732s	coverage: 0.0% of statements in ./internal/editing
+exit=0
+github.com/edynasty/LumenCortex/internal/editing/publish_file.go:199.33,203.3 2 0
+github.com/edynasty/LumenCortex/internal/editing/publish_file.go:199.33,203.3 2 0
+github.com/edynasty/LumenCortex/internal/editing/publish_file.go:199.33,203.3 2 0
+github.com/edynasty/LumenCortex/internal/editing/publish_file.go:199.33,203.3 2 0
+== head fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+cmd= go test -count=1 -coverpkg=./internal/editing -coverprofile=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.lXShHNXunw/head.out ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+ok  	github.com/edynasty/LumenCortex/internal/editing	2.807s	coverage: 70.8% of statements in ./internal/editing
+ok  	github.com/edynasty/LumenCortex/internal/toolset	25.655s	coverage: 66.2% of statements in ./internal/editing
+ok  	github.com/edynasty/LumenCortex/internal/agent	18.976s	coverage: 44.8% of statements in ./internal/editing
+ok  	github.com/edynasty/LumenCortex/internal/session	38.952s	coverage: 0.0% of statements in ./internal/editing
+exit=0
+github.com/edynasty/LumenCortex/internal/editing/publish_file.go:199.33,203.3 2 1
+github.com/edynasty/LumenCortex/internal/editing/publish_file.go:199.33,203.3 2 0
+github.com/edynasty/LumenCortex/internal/editing/publish_file.go:199.33,203.3 2 0
+github.com/edynasty/LumenCortex/internal/editing/publish_file.go:199.33,203.3 2 0

@@ -263,7 +263,7 @@
     "providers": {
       "description": "Provider catalog keyed by provider id (the part before '/' in a model ref). In a workspace file this key is honoured only when the workspace is listed in the global trustedWorkspaces; entries then merge field by field over the global entry with the same id, and an entry that changes a global provider's baseURL or endpoint must set its own apiKey. Untrusted workspace entries are ignored with a warning.",
       "type": "object",
-      "propertyNames": { "pattern": "^[^/\\s]+$" },
+      "propertyNames": { "pattern": "^[^/\\s]+$", "maxLength": 64 },
       "additionalProperties": { "$ref": "#/$defs/provider" }
     },
     "checks": {
@@ -284,9 +284,10 @@
   },
   "$defs": {
     "modelRef": {
-      "description": "provider/model: provider id and model key, exactly one '/'.",
+      "description": "provider/model: provider id (at most 64 UTF-8 bytes) and model key (at most 192 UTF-8 bytes), exactly one '/'.",
       "type": "string",
-      "pattern": "^[^/]+/[^/]+$"
+      "pattern": "^[^/]{1,64}/[^/]{1,192}$",
+      "maxLength": 257
     },
     "effort": {
       "description": "Provider-neutral reasoning effort level.",
@@ -409,7 +410,7 @@
         "models": {
           "description": "Models keyed by model key (the part after '/' in a model ref).",
           "type": "object",
-          "propertyNames": { "pattern": "^[^/]+$" },
+          "propertyNames": { "pattern": "^[^/]+$", "maxLength": 192 },
           "additionalProperties": { "$ref": "#/$defs/model" }
         }
       }

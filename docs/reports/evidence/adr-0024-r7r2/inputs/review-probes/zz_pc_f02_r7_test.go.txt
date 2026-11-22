@@ -1,0 +1,207 @@
+package editing
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+)
+
+func pcDirListing(dir string) string {
+	ents, _ := os.ReadDir(dir)
+	var names []string
+	for _, e := range ents {
+		info, _ := e.Info()
+		names = append(names, fmt.Sprintf("%s(%d)", e.Name(), info.Size()))
+	}
+	return strings.Join(names, ",")
+}
+
+func pcF02Report(t *testing.T, name, root string, err error, r *CommitReceipt) {
+	b, rerr := os.ReadFile(filepath.Join(root, "d.txt"))
+	dstate := "absent"
+	if rerr == nil {
+		dstate = fmt.Sprintf("present len=%d allD=%v prefix=%q", len(b), bytes.Count(b, []byte("D")) == len(b), b[:min(len(b), 24)])
+	}
+	rs := "none"
+	if r != nil {
+		var parts []string
+		for _, f := range r.Files {
+			parts = append(parts, fmt.Sprintf("%s{%s pub=%v ver=%v wrote=%v staged=%v newSHA=%v}", f.Path, f.PublishState, f.Published, f.Verified, f.Wrote, f.Staged, f.NewSHA256 != ""))
+		}
+		rs = fmt.Sprintf("state=%s dirty=%v [%s]", r.State, r.DirtyFailure, strings.Join(parts, " "))
+	}
+	t.Logf("PCF02|%s|%s|err=%s:%s|d.txt=%s|dir=[%s]|receipt: %s", pcRev, name, CodeOf(err), errShort(err), dstate, pcDirListing(root), rs)
+}
+
+var pcF02Body = bytes.Repeat([]byte("D"), 20000)
+
+func pcF02Create(t *testing.T, root string, e *Engine) (error, *CommitReceipt) {
+	var got *CommitReceipt
+	ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { cp := r; got = &cp })
+	body := append([]byte(nil), pcF02Body...)
+	_, err := e.Commit(ctx, Plan{Actor: testActor(), Tool: "apply_patch", Changes: []FileChange{{Path: "d.txt", Content: &body, Create: true}}})
+	return err, got
+}
+
+func TestPCF02DeleteStaysDeleted(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "d.txt", string(pcF02Body))
+	writeFile(t, root, "z.txt", "old-z\n")
+	e := newTestEngine(t, root)
+	e.beforeWrite = func(p string) {
+		if filepath.Base(p) == "z.txt" {
+			pcExt(t, "append", p, "EXT-Z\n")
+		}
+	}
+	var got *CommitReceipt
+	ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { cp := r; got = &cp })
+	next := []byte("new-z\n")
+	_, err := e.Commit(ctx, Plan{Actor: testActor(), Tool: "apply_patch", Changes: []FileChange{
+		{Path: "d.txt", BaseRev: RevOf(pcF02Body), Delete: true}, {Path: "z.txt", Content: &next}}})
+	pcF02Report(t, "F0_delete_then_later_failure", root, err, got)
+}
+
+func TestPCF02CreateFaults(t *testing.T) {
+	type fc struct {
+		name  string
+		setup func(t *testing.T, root string, e *Engine) func()
+	}
+	cases := []fc{
+		{"F1_zero_byte_staging_write_failure", func(t *testing.T, root string, e *Engine) func() {
+			e.SetPublishFaultHooks(PublishFaultHooks{WriteStaged: func(string, *os.File, []byte) (int, error) { return 0, syscall.EIO }})
+			return nil
+		}},
+		{"F2_partial_staging_write_EIO", func(t *testing.T, root string, e *Engine) func() {
+			e.SetPublishFaultHooks(PublishFaultHooks{WriteStaged: func(_ string, f *os.File, d []byte) (int, error) {
+				n, _ := f.Write(d[:8192])
+				return n, syscall.EIO
+			}})
+			return nil
+		}},
+		{"F4_ENOSPC_injected_after_partial", func(t *testing.T, root string, e *Engine) func() {
+			e.SetPublishFaultHooks(PublishFaultHooks{WriteStaged: func(_ string, f *os.File, d []byte) (int, error) {
+				n, _ := f.Write(d[:4096])
+				return n, syscall.ENOSPC
+			}})
+			return nil
+		}},
+		{"F5_permission_parent_readonly", func(t *testing.T, root string, e *Engine) func() {
+			if err := os.Chmod(root, 0o555); err != nil {
+				t.Fatal(err)
+			}
+			return func() { _ = os.Chmod(root, 0o755) }
+		}},
+		{"F6_destination_created_concurrently_by_other_process", func(t *testing.T, root string, e *Engine) func() {
+			e.SetPublishFaultHooks(PublishFaultHooks{BeforePublish: func(dst string) error {
+				pcExt(t, "create", dst, "EXTERNAL-CREATED\n")
+				return nil
+			}})
+			return nil
+		}},
+		{"F7_unsupported_no_replace_fs", func(t *testing.T, root string, e *Engine) func() {
+			oldLink, oldRename := linkForPublish, renameNoReplaceForPublish
+			linkForPublish = func(o, n string) error { return &os.LinkError{Op: "link", Old: o, New: n, Err: syscall.ENOTSUP} }
+			renameNoReplaceForPublish = func(string, string) error { return syscall.EINVAL }
+			return func() { linkForPublish, renameNoReplaceForPublish = oldLink, oldRename }
+		}},
+		{"F7b_link_unsupported_rename_noreplace_ok", func(t *testing.T, root string, e *Engine) func() {
+			oldLink := linkForPublish
+			linkForPublish = func(o, n string) error { return &os.LinkError{Op: "link", Old: o, New: n, Err: syscall.ENOTSUP} }
+			return func() { linkForPublish = oldLink }
+		}},
+		{"F9_post_publication_hook_error_after_link", func(t *testing.T, root string, e *Engine) func() {
+			e.SetPublishFaultHooks(PublishFaultHooks{AfterLinkSuccess: func(string) error { return syscall.EIO }})
+			return nil
+		}},
+		{"F10_external_append_after_publication_then_post_error", func(t *testing.T, root string, e *Engine) func() {
+			e.SetPublishFaultHooks(PublishFaultHooks{AfterLinkSuccess: func(dst string) error {
+				pcExt(t, "append", dst, "EXT-AFTER-PUB\n")
+				return syscall.EIO
+			}})
+			return nil
+		}},
+		{"F11_close_after_publish_error", func(t *testing.T, root string, e *Engine) func() {
+			e.SetPublishFaultHooks(PublishFaultHooks{CloseAfterPublish: func(string) error { return syscall.EIO }})
+			return nil
+		}},
+		{"F12_publish_uncertain_err", func(t *testing.T, root string, e *Engine) func() {
+			e.SetPublishFaultHooks(PublishFaultHooks{PublishUncertainErr: func(string) error { return syscall.EIO }})
+			return nil
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			e := newTestEngine(t, root)
+			undo := tc.setup(t, root, e)
+			err, r := pcF02Create(t, root, e)
+			if undo != nil {
+				undo()
+			}
+			pcF02Report(t, tc.name, root, err, r)
+		})
+	}
+}
+
+// F3 (EFBIG via RLIMIT_FSIZE) and F8 (process exit before publication) run in a child process.
+func TestPCF02ChildParent(t *testing.T) {
+	if os.Getenv("PC_F02_CHILD") != "" {
+		return
+	}
+	for _, scen := range []string{"F3_EFBIG_rlimit_8192", "F8_process_exit_before_publication"} {
+		root := t.TempDir()
+		cmd := exec.Command(os.Args[0], "-test.run=^TestPCF02Child$", "-test.v", "-test.count=1")
+		cmd.Env = append(os.Environ(), "PC_F02_CHILD="+scen, "PC_F02_ROOT="+root)
+		out, err := cmd.CombinedOutput()
+		for _, l := range strings.Split(string(out), "\n") {
+			if strings.Contains(l, "PCF02") {
+				t.Logf("child[%s]: %s", scen, strings.TrimSpace(l))
+			}
+		}
+		code := 0
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			code = ee.ExitCode()
+		}
+		pcF02Report(t, scen+"_parent_observation(child_exit="+fmt.Sprint(code)+")", root, nil, nil)
+	}
+}
+
+func TestPCF02Child(t *testing.T) {
+	scen := os.Getenv("PC_F02_CHILD")
+	if scen == "" {
+		return
+	}
+	root := os.Getenv("PC_F02_ROOT")
+	e := newTestEngine(t, root)
+	switch scen {
+	case "F3_EFBIG_rlimit_8192":
+		signal.Ignore(syscall.SIGXFSZ)
+		var old syscall.Rlimit
+		_ = syscall.Getrlimit(syscall.RLIMIT_FSIZE, &old)
+		if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &syscall.Rlimit{Cur: 8192, Max: old.Max}); err != nil {
+			t.Fatal(err)
+		}
+		err, r := pcF02Create(t, root, e)
+		_ = syscall.Setrlimit(syscall.RLIMIT_FSIZE, &old)
+		t.Logf("PCF02|child pid=%d efbig=%v", os.Getpid(), errors.Is(err, syscall.EFBIG))
+		pcF02Report(t, scen, root, err, r)
+	case "F8_process_exit_before_publication":
+		e.SetPublishFaultHooks(PublishFaultHooks{BeforePublish: func(string) error {
+			fmt.Printf("PCF02|child pid=%d exiting inside BeforePublish; dir=[%s]\n", os.Getpid(), pcDirListing(root))
+			os.Exit(7)
+			return nil
+		}})
+		_, _ = pcF02Create(t, root, e)
+	}
+	_ = io.EOF
+}

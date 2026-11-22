@@ -1,8 +1,11 @@
 package taskstate
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -19,15 +22,53 @@ const maxFactsBytes = 1024
 // BlockHeader starts every Task State block, so a reader of a request can tell it from a user row.
 const BlockHeader = "[Task State — maintained by the LumenCortex runtime from durable session state; it is not a new user message.]"
 
+// RenderedBlock pairs the bounded Task State prompt text with the exact logical item references whose
+// rendered bytes began strictly before the MaxBlockBytes truncation cutoff (REV-F05).
+type RenderedBlock struct {
+	Text     string
+	ItemRefs []string
+}
+
+type offsetItemRef struct {
+	offset int
+	ref    string
+}
+
+var itemRefSafeRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,48}$`)
+
+func itemRefID(id string) string {
+	if itemRefSafeRE.MatchString(id) {
+		return id
+	}
+	sum := sha256.Sum256([]byte(id))
+	return "h" + hex.EncodeToString(sum[:8])
+}
+
 // Render builds the Task State block: one user message placed after the system prompt in every
 // request. It is deterministic and at most MaxBlockBytes. It shows the objective (the brief, else the
 // goal), the references the user included, the workflow, the open work units, the notes, the execution
 // tasks. Completed units are counted, not listed. Historical failure counters do not enter the
 // prompt. wf is the state's workflow runtime, nil when there is none.
 func Render(goal string, s State, wf *workflow.Runtime) string {
+	return RenderBlock(goal, s, wf).Text
+}
+
+// RenderBlock renders the bounded Task State block and returns the logical item refs actually exposed
+// within the truncated output (startByteOffset < cutoff). Completed/cancelled work units, notes hidden
+// past notesRenderBytes, tasks older than the newest maxRenderedTasks, and items starting at or after
+// MaxBlockBytes truncation are excluded.
+func RenderBlock(goal string, s State, wf *workflow.Runtime) RenderedBlock {
 	var b strings.Builder
+	var candidates []offsetItemRef
+	record := func(offset int, ref string) {
+		candidates = append(candidates, offsetItemRef{offset: offset, ref: ref})
+	}
+
 	b.WriteString(BlockHeader)
 	b.WriteString("\n\nObjective:\n")
+	if s.Brief != "" {
+		record(b.Len(), "ts:brief")
+	}
 	b.WriteString(truncate(strings.TrimSpace(s.Objective(goal)), MaxBriefBytes))
 	b.WriteString("\n")
 	if d := s.Delivery; d != nil {
@@ -50,6 +91,7 @@ func Render(goal string, s State, wf *workflow.Runtime) string {
 	if len(included) > 0 {
 		b.WriteString("\nReferences the user included (read them with tools when relevant):\n")
 		for _, r := range included {
+			record(b.Len(), "ts:ref:"+itemRefID(r.ID))
 			fmt.Fprintf(&b, "- %s %s", r.Kind, r.Target)
 			if r.Kind == RefThread {
 				b.WriteString(" (open it with read_thread)")
@@ -65,27 +107,36 @@ func Render(goal string, s State, wf *workflow.Runtime) string {
 	}
 
 	if wf != nil {
-		renderWorkflow(&b, wf)
+		renderWorkflow(&b, wf, record)
 	}
 
 	if s.WorkUnits != nil {
-		renderUnits(&b, s.Units())
+		renderUnits(&b, s.Units(), record)
 	}
 
 	if len(s.Notes) > 0 {
-		renderNotes(&b, s.Notes)
+		renderNotes(&b, s.Notes, record)
 	}
 
 	if len(s.Tasks) > 0 {
-		renderTasks(&b, s.Tasks)
+		renderTasks(&b, s.Tasks, record)
 	}
 
-	return truncate(b.String(), MaxBlockBytes)
+	text, cutoff := truncateWithCutoff(b.String(), MaxBlockBytes)
+	refs := make([]string, 0, len(candidates))
+	for _, item := range candidates {
+		if item.offset < cutoff {
+			refs = append(refs, item.ref)
+		}
+	}
+	return RenderedBlock{Text: text, ItemRefs: refs}
 }
 
-func renderWorkflow(b *strings.Builder, wf *workflow.Runtime) {
+func renderWorkflow(b *strings.Builder, wf *workflow.Runtime, record func(int, string)) {
 	action := wf.Action()
-	fmt.Fprintf(b, "\nWorkflow contract %q is active and binding.\n", wf.Definition.Title)
+	b.WriteString("\n")
+	record(b.Len(), "ts:workflow")
+	fmt.Fprintf(b, "Workflow contract %q is active and binding.\n", wf.Definition.Title)
 	fmt.Fprintf(b, "Current action: %s", wf.CurrentAction)
 	if action.Title != "" {
 		fmt.Fprintf(b, " — %s", action.Title)
@@ -116,7 +167,7 @@ func renderWorkflow(b *strings.Builder, wf *workflow.Runtime) {
 	}
 }
 
-func renderUnits(b *strings.Builder, m *WorkUnitManager) {
+func renderUnits(b *strings.Builder, m *WorkUnitManager, record func(int, string)) {
 	counts := map[WorkUnitStatus]int{}
 	var open []WorkUnit
 	for _, u := range m.List() {
@@ -128,6 +179,7 @@ func renderUnits(b *strings.Builder, m *WorkUnitManager) {
 	fmt.Fprintf(b, "\nWork units: %d open, %d completed, %d cancelled.\n", len(open), counts[WorkCompleted], counts[WorkCancelled])
 	active := m.Current()
 	for _, u := range open {
+		record(b.Len(), "ts:unit:"+itemRefID(u.ID))
 		marker := "-"
 		if active != nil && active.ID == u.ID {
 			marker = "*"
@@ -157,7 +209,7 @@ func renderUnits(b *strings.Builder, m *WorkUnitManager) {
 
 // renderNotes lists the notes newest first within notesRenderBytes; the ones that do not fit are
 // counted. Each line names the author, so the model can tell its own notes from the user's.
-func renderNotes(b *strings.Builder, notes []Note) {
+func renderNotes(b *strings.Builder, notes []Note, record func(int, string)) {
 	b.WriteString("\nNotes (kept while older messages leave the window; [user] notes are the user's, [agent] notes were written with note_write")
 	for _, n := range notes {
 		if n.NeedsReview() {
@@ -191,6 +243,7 @@ func renderNotes(b *strings.Builder, notes []Note) {
 		if used+len(line) > notesRenderBytes {
 			break
 		}
+		record(b.Len(), "ts:note:"+itemRefID(n.ID))
 		b.WriteString(line)
 		used += len(line)
 		shown++
@@ -206,10 +259,11 @@ const maxRenderedCitesBytes = 256
 // maxRenderedTasks bounds the execution tasks the block lists: the newest ones, in order.
 const maxRenderedTasks = 10
 
-func renderTasks(b *strings.Builder, tasks []Task) {
+func renderTasks(b *strings.Builder, tasks []Task, record func(int, string)) {
 	fmt.Fprintf(b, "\nExecution tasks: %d.\n", len(tasks))
 	start := max(0, len(tasks)-maxRenderedTasks)
 	for _, t := range tasks[start:] {
+		record(b.Len(), "ts:task:"+itemRefID(t.ID))
 		state := "proposed, waiting for the user to start it"
 		if t.State == TaskStarted {
 			state = "started as " + t.SessionID + "; its result arrives as a task_result row"
@@ -220,13 +274,18 @@ func renderTasks(b *strings.Builder, tasks []Task) {
 
 // truncate cuts s to at most max bytes at a rune boundary, marking the cut.
 func truncate(s string, max int) string {
+	out, _ := truncateWithCutoff(s, max)
+	return out
+}
+
+func truncateWithCutoff(s string, max int) (string, int) {
 	if len(s) <= max {
-		return s
+		return s, len(s)
 	}
 	const mark = "…[truncated]"
 	cut := max - len(mark)
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
-	return s[:cut] + mark
+	return s[:cut] + mark, cut
 }

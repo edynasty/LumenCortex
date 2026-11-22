@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/edynasty/LumenCortex/internal/editing"
-
 	"github.com/edynasty/LumenCortex/internal/lsp"
 	"github.com/edynasty/LumenCortex/protocol"
 )
@@ -153,14 +152,15 @@ func (s *Set) lspDiagnostics(ctx context.Context, args map[string]any, _ func(pr
 	}
 	raw, err := json.Marshal(items)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	return protocol.ToolResult{OK: true, Content: string(raw)}, nil
 }
 
 // lspRename asks the server for the workspace edit and applies it through the file tools' guard and
-// atomic write path: a rename is a file modification like any other, and it is refused as a whole
-// when one of its paths is.
+// atomic write path: a rename is a file modification like any other. Every path is resolved and
+// validated before any write; a failure after publication keeps the published prefix and reports it
+// per path (R7 does not roll it back).
 func (s *Set) lspRename(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	started := time.Now()
 	newName := strings.TrimSpace(stringArg(args, "new_name"))
@@ -183,28 +183,43 @@ func (s *Set) lspRename(ctx context.Context, args map[string]any, _ func(protoco
 			return protocol.ToolResult{OK: false, Content: `{"error":"the language server returned an edit that is not a workspace edit","hint":"nothing was written; use search_text and replace_in_file instead"}`}, nil
 		}
 	}
-	applied, err := s.applyWorkspaceEdit(ctx, edit)
+	applied, result, receipt, err := s.applyWorkspaceEdit(ctx, edit)
 	if err != nil {
-		code, hint := "refused", "the rename was refused as a whole; use search_text and replace_in_file instead"
-		if editErr, ok := editing.AsError(err); ok {
-			code, hint = editErr.Code, editErr.Hint()
-		}
-		content, _ := json.Marshal(map[string]any{
-			"error": err.Error(),
-			"code":  code,
-			"hint":  hint,
-		})
-		s.log.Warn("lsp rename refused", "tool", "lsp_rename", "error_code", code,
-			"duration_ms", time.Since(started).Milliseconds(), "tool_call_id", protocol.ToolCallID(ctx))
-		return protocol.ToolResult{OK: false, Content: string(content)}, nil
+		return s.lspRenameFailure(result, receipt, err), nil
 	}
 	content, err := json.Marshal(map[string]any{"applied": applied, "filesChanged": len(applied)})
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	s.log.Info("lsp rename applied", "tool", "lsp_rename", "files", len(applied),
 		"duration_ms", time.Since(started).Milliseconds(), "tool_call_id", protocol.ToolCallID(ctx))
 	return protocol.ToolResult{OK: true, Content: string(content), MutatesWorkspace: len(applied) > 0}, nil
+}
+
+// lspRenameFailure renders a rename refusal as an agent-readable result rather than a bare error,
+// matching the other file tools. A preflight refusal names the fallback; a failure after
+// publication carries the same per-path receipt and recovery guidance as apply_patch.
+func (s *Set) lspRenameFailure(result editing.Result, receipt editing.CommitReceipt, err error) protocol.ToolResult {
+	if _, ok := editing.AsError(err); ok {
+		return s.editFailure(result, receipt, err)
+	}
+	dirty := receiptDirtyOrPublished(receipt)
+	if dirty || len(result.Files) > 0 || len(receipt.Files) > 0 {
+		return protocol.ToolResult{
+			OK:               false,
+			Content:          s.formatCommitFailurePayload(result, receipt, err, nil),
+			MutatesWorkspace: dirty,
+		}
+	}
+	content, marshalErr := json.Marshal(map[string]any{
+		"error": s.sanitizeErrorText(err.Error()),
+		"code":  "refused",
+		"hint":  "the rename was refused before writing; use search_text and replace_in_file instead",
+	})
+	if marshalErr != nil {
+		content = []byte(`{"error":"rename refused"}`)
+	}
+	return protocol.ToolResult{OK: false, Content: string(content)}
 }
 
 // lspResult turns a server answer into a tool result, and a server failure into a result the model
@@ -221,7 +236,7 @@ func (s *Set) lspResult(ctx context.Context, tool string, raw json.RawMessage, e
 
 func (s *Set) lspFailure(ctx context.Context, tool string, err error, started time.Time) protocol.ToolResult {
 	code, hint := lspFailureReason(err)
-	content, marshalErr := json.Marshal(map[string]any{"error": err.Error(), "code": code, "hint": hint})
+	content, marshalErr := json.Marshal(map[string]any{"error": s.sanitizeErrorText(err.Error()), "code": code, "hint": hint})
 	if marshalErr != nil {
 		content = []byte(`{"error":"language server request failed"}`)
 	}

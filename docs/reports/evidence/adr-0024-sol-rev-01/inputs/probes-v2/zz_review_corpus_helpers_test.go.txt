@@ -1,0 +1,305 @@
+package toolset
+
+// Exploration probe for the R7R2-NEW-01 audit (not committed): renders synthetic receipts through
+// commitOutcome and reports what the bounded failure payload keeps.
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+	"unicode/utf8"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+type opusRow struct {
+	Path         string `json:"path"`
+	PublishState string `json:"publishState"`
+	Published    bool   `json:"published"`
+	Verified     bool   `json:"verified"`
+	Wrote        bool   `json:"wrote"`
+	Error        string `json:"error"`
+}
+
+type opusPayload struct {
+	Error               string         `json:"error"`
+	Code                string         `json:"code"`
+	Path                *string        `json:"path"`
+	Files               []opusRow      `json:"files"`
+	FilesOmitted        int            `json:"filesOmitted"`
+	FilesOmittedByState map[string]int `json:"filesOmittedByState"`
+	CommitState         string         `json:"commitState"`
+	Truncated           bool           `json:"truncated"`
+	Overflow            bool           `json:"overflow"`
+}
+
+func opusFailedStates() []editing.PublishState {
+	return []editing.PublishState{editing.PublishExternalModification, editing.PublishPartial,
+		editing.PublishSucceededWithPostError, editing.PublishUncertain, editing.PublishRollbackFailed}
+}
+
+// opusRender renders failed rows for paths (rank 0) followed by extra untouched rows.
+func opusRender(t *testing.T, paths []string, extra []string, rowErr string, top error) (string, opusPayload, time.Duration) {
+	t.Helper()
+	set, err := New(Options{Workspace: t.TempDir(), Policy: PolicyWorkspace, SessionID: "s-opus-probe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := opusFailedStates()
+	var files []editing.FileCommitReceipt
+	var results []editing.FileResult
+	for i, p := range paths {
+		st := states[i%len(states)]
+		files = append(files, editing.FileCommitReceipt{Path: p, PublishState: st, Published: true, Wrote: true, Error: rowErr})
+		results = append(results, editing.FileResult{Path: p, PublishState: st, Published: true, Error: rowErr})
+	}
+	for _, p := range extra {
+		files = append(files, editing.FileCommitReceipt{Path: p, PublishState: editing.PublishNotAttempted})
+		results = append(results, editing.FileResult{Path: p, PublishState: editing.PublishNotAttempted})
+	}
+	rec := editing.CommitReceipt{DirtyFailure: true, State: editing.CommitStatePartiallyPublished, Files: files}
+	res := editing.Result{CommitState: editing.CommitStatePartiallyPublished, Files: results}
+	start := time.Now()
+	out, _ := set.commitOutcome(res, rec, top)
+	el := time.Since(start)
+	var p opusPayload
+	if !json.Valid([]byte(out.Content)) {
+		t.Fatalf("invalid JSON: %s", out.Content)
+	}
+	if err := json.Unmarshal([]byte(out.Content), &p); err != nil {
+		t.Fatal(err)
+	}
+	return out.Content, p, el
+}
+
+// opusMaxRowsAtBudget re-renders the returned envelope with k failed rows cut to budget bytes and
+// returns the largest k that still fits: an oracle independent of the production ladder.
+func opusMaxRowsAtBudget(t *testing.T, content string, paths []string, extra int, budget int) int {
+	t.Helper()
+	var env map[string]any
+	if err := json.Unmarshal([]byte(content), &env); err != nil {
+		t.Fatal(err)
+	}
+	states := opusFailedStates()
+	best := 0
+	for k := 1; k <= len(paths); k++ {
+		rows := make([]toolFileState, 0, k)
+		for i := 0; i < k; i++ {
+			rows = append(rows, toolFileState{Path: truncatePathTail(paths[i], budget), PublishState: states[i%len(states)], Published: true, Wrote: true})
+		}
+		env["files"] = rows
+		delete(env, "filesOmitted")
+		delete(env, "filesOmittedByState")
+		if om := len(paths) - k + extra; om > 0 {
+			by := map[string]int{}
+			for i := k; i < len(paths); i++ {
+				by[string(states[i%len(states)])]++
+			}
+			if extra > 0 {
+				by[string(editing.PublishNotAttempted)] += extra
+			}
+			env["filesOmitted"] = om
+			env["filesOmittedByState"] = by
+		}
+		raw, _ := json.Marshal(env)
+		if len(raw) <= maxPartialPayloadBytes {
+			best = k
+		}
+	}
+	return best
+}
+
+func opusDistinct(rows []opusRow) int {
+	seen := map[string]bool{}
+	for _, r := range rows {
+		seen[r.Path] = true
+	}
+	return len(seen)
+}
+
+func opusMaxPathLen(rows []opusRow) int {
+	m := 0
+	for _, r := range rows {
+		if len(r.Path) > m {
+			m = len(r.Path)
+		}
+	}
+	return m
+}
+
+func TestOpusProbeRowCountLadder(t *testing.T) {
+	longDir := strings.TrimSuffix(strings.Repeat("pkg/", 195), "/")
+	for _, n := range []int{1, 2, 5, 8, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 30, 50, 100, 200} {
+		paths := make([]string, n)
+		for i := range paths {
+			paths[i] = fmt.Sprintf("%s/Adapter%03d.kt", longDir, i)
+		}
+		content, p, el := opusRender(t, paths, []string{longDir + "/Tail.kt"}, "input/output error", syscall.EIO)
+		k64 := opusMaxRowsAtBudget(t, content, paths, 1, 64)
+		k96 := opusMaxRowsAtBudget(t, content, paths, 1, 96)
+		k128 := opusMaxRowsAtBudget(t, content, paths, 1, 128)
+		t.Logf("n=%3d len=%4d overflow=%-5v rows=%3d omitted=%3d distinct=%3d maxPath=%4d | oracle k128=%d k96=%d k64=%d | %v byState=%v",
+			n, len(content), p.Overflow, len(p.Files), p.FilesOmitted, opusDistinct(p.Files), opusMaxPathLen(p.Files), k128, k96, k64, el.Round(time.Millisecond), p.FilesOmittedByState)
+		if len(content) > maxPartialPayloadBytes || !utf8.ValidString(content) {
+			t.Errorf("n=%d: bound or UTF-8 violated (len=%d)", n, len(content))
+		}
+	}
+}
+
+func TestOpusProbeIdenticalBasenames(t *testing.T) {
+	common := strings.Repeat("d", 190) + "/" + strings.Repeat("e", 190) + "/" + strings.Repeat("f", 190) + "/" + strings.Repeat("g", 190)
+	shapes := map[string]func(i int) string{
+		"head_differs_780B_common_tail":     func(i int) string { return fmt.Sprintf("module%02d/%s/config.yaml", i, common) },
+		"middle_differs_400B_each_side":     func(i int) string { return fmt.Sprintf("%s/module%02d/%s/config.yaml", common[:400], i, common[400:]) },
+		"parent_differs_780B_common_prefix": func(i int) string { return fmt.Sprintf("%s/module%02d/config.yaml", common, i) },
+		"long_parent_component_suffix_diff": func(i int) string { return fmt.Sprintf("%s-module%02d/config.yaml", strings.Repeat("p", 240), i) },
+		"monorepo_kotlin_realistic":         func(i int) string { return fmt.Sprintf("services/svc%02d/src/main/kotlin/com/example/platform/payments/gateway/config/AppConfig.kt", i) },
+	}
+	names := make([]string, 0, len(shapes))
+	for name := range shapes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		for _, n := range []int{2, 5, 8, 16, 20, 24, 30} {
+			paths := make([]string, n)
+			for i := range paths {
+				paths[i] = shapes[name](i)
+			}
+			content, p, _ := opusRender(t, paths, nil, "input/output error", syscall.EIO)
+			first := ""
+			if len(p.Files) > 0 {
+				first = p.Files[0].Path
+				if len(first) > 70 {
+					first = first[:30] + " ... " + first[len(first)-35:]
+				}
+			}
+			t.Logf("%-34s n=%2d len=%4d overflow=%-5v rows=%2d omitted=%2d DISTINCT=%2d maxPath=%4d first=%q",
+				name, n, len(content), p.Overflow, len(p.Files), p.FilesOmitted, opusDistinct(p.Files), opusMaxPathLen(p.Files), first)
+			if len(content) > maxPartialPayloadBytes || !utf8.ValidString(content) {
+				t.Errorf("%s n=%d: bound or UTF-8 violated (len=%d)", name, n, len(content))
+			}
+		}
+	}
+}
+
+func TestOpusProbeEscapingAndUnicode(t *testing.T) {
+	cases := map[string]func(i int) string{
+		"html_escape_amp":      func(i int) string { return strings.Repeat("a&b<c>/", 150) + fmt.Sprintf("F&%02d.kt", i) },
+		"control_chars":        func(i int) string { return strings.Repeat("x\x01y\x02/", 200) + fmt.Sprintf("F%02d.kt", i) },
+		"quotes_backslashes":   func(i int) string { return strings.Repeat(`q"q\q/`, 180) + fmt.Sprintf("F%02d.kt", i) },
+		"cjk_dirs":             func(i int) string { return strings.Repeat("支付网关适配器/", 60) + fmt.Sprintf("文件%02d.kt", i) },
+		"emoji_long_filename":  func(i int) string { return "dir/" + strings.Repeat("🔥", 300) + fmt.Sprintf("_%02d.kt", i) },
+		"invalid_utf8":         func(i int) string { return strings.Repeat("bad\xff\xfe/", 200) + fmt.Sprintf("F%02d.kt", i) },
+		"line_separators":      func(i int) string { return strings.Repeat("u\u2028v\u2029/", 150) + fmt.Sprintf("F%02d.kt", i) },
+		"spaces":               func(i int) string { return strings.Repeat("One Drive - Acme Corp/", 45) + fmt.Sprintf("Stripe Adapter %02d.kt", i) },
+		"single_huge_filename": func(i int) string { return fmt.Sprintf("%s_%02d.kt", strings.Repeat("N", 3000), i) },
+	}
+	names := make([]string, 0, len(cases))
+	for name := range cases {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		for _, n := range []int{1, 5, 8, 20, 50} {
+			paths := make([]string, n)
+			for i := range paths {
+				paths[i] = cases[name](i)
+			}
+			content, p, _ := opusRender(t, paths, nil, "input/output error", syscall.EIO)
+			keep := 0
+			for i, r := range p.Files {
+				want := paths[i][strings.LastIndexByte(paths[i], '_')+1:]
+				if strings.Contains(name, "amp") || strings.Contains(name, "control") || strings.Contains(name, "quotes") || strings.Contains(name, "cjk") || strings.Contains(name, "invalid") || strings.Contains(name, "line_sep") {
+					want = paths[i][strings.LastIndexByte(paths[i], '/')+1:]
+				}
+				if name == "spaces" {
+					want = paths[i][strings.LastIndexByte(paths[i], '/')+1:]
+				}
+				if strings.HasSuffix(r.Path, want) {
+					keep++
+				}
+			}
+			t.Logf("%-22s n=%2d len=%4d overflow=%-5v rows=%2d omitted=%2d distinct=%2d keepName=%2d maxPath=%4d validUTF8=%v",
+				name, n, len(content), p.Overflow, len(p.Files), p.FilesOmitted, opusDistinct(p.Files), keep, opusMaxPathLen(p.Files), utf8.ValidString(content))
+			if len(content) > maxPartialPayloadBytes || !utf8.ValidString(content) {
+				t.Errorf("%s n=%d: bound or UTF-8 violated (len=%d)", name, n, len(content))
+			}
+		}
+	}
+}
+
+func TestOpusProbeEditErrNoRows(t *testing.T) {
+	set, err := New(Options{Workspace: t.TempDir(), Policy: PolicyWorkspace, SessionID: "s-opus-probe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, path := range map[string]string{
+		"plain_3000B":       strings.Repeat("seg/", 750) + "Target.kt",
+		"amp_escape_1200B":  strings.Repeat("a&b<c>/", 170) + "Target&.kt",
+		"control_1200B":     strings.Repeat("x\x01y\x02/", 240) + "Target.kt",
+		"line_sep_1200B":    strings.Repeat("u\u2028v\u2029/", 150) + "Target.kt",
+		"invalid_utf8_1200": strings.Repeat("bad\xff\xfe/", 200) + "Target.kt",
+	} {
+		ee := &editing.Error{Code: editing.CodeStale, Path: path, Detail: "base revision is stale", CurrentRev: "r1"}
+		out, _ := set.editOutcome(ee)
+		var p opusPayload
+		if err := json.Unmarshal([]byte(out.Content), &p); err != nil {
+			t.Fatalf("%s: invalid JSON: %v", name, err)
+		}
+		got := "<absent>"
+		if p.Path != nil {
+			got = *p.Path
+			if len(got) > 60 {
+				got = got[:20] + " ... " + got[len(got)-30:]
+			}
+		}
+		t.Logf("%-18s len=%4d overflow=%-5v path=%q error=%q", name, len(out.Content), p.Overflow, got, p.Error[:min(len(p.Error), 60)])
+		if len(out.Content) > maxPartialPayloadBytes || !utf8.ValidString(out.Content) {
+			t.Errorf("%s: bound or UTF-8 violated (len=%d)", name, len(out.Content))
+		}
+	}
+}
+
+func TestOpusProbePathlessCancellation(t *testing.T) {
+	longDir := strings.Repeat("d", 190) + "/" + strings.Repeat("e", 190) + "/" + strings.Repeat("f", 190) + "/" + strings.Repeat("g", 190)
+	set, err := New(Options{Workspace: t.TempDir(), Policy: PolicyWorkspace, SessionID: "s-opus-probe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A cancellation between files: a verified prefix and an untouched suffix, no row carries an error.
+	var files []editing.FileCommitReceipt
+	var results []editing.FileResult
+	for i := 0; i < 12; i++ {
+		p := fmt.Sprintf("%s/Cancel%02d.kt", longDir, i)
+		st, pub := editing.PublishNotAttempted, false
+		if i < 6 {
+			st, pub = editing.PublishSucceededAndVerified, true
+		}
+		files = append(files, editing.FileCommitReceipt{Path: p, PublishState: st, Published: pub, Verified: pub, Wrote: pub, NewSHA256: strings.Repeat("a", 64)})
+		results = append(results, editing.FileResult{Path: p, PublishState: st, Published: pub, Verified: pub, NewRev: "rev"})
+	}
+	rec := editing.CommitReceipt{DirtyFailure: true, State: editing.CommitStatePartiallyPublished, Files: files}
+	res := editing.Result{CommitState: editing.CommitStatePartiallyPublished, Files: results}
+	for _, top := range []error{context.Canceled, context.DeadlineExceeded, errors.New("")} {
+		out, _ := set.commitOutcome(res, rec, top)
+		var p opusPayload
+		if err := json.Unmarshal([]byte(out.Content), &p); err != nil {
+			t.Fatalf("invalid JSON: %v", err)
+		}
+		states := map[string]int{}
+		for _, r := range p.Files {
+			states[r.PublishState]++
+		}
+		t.Logf("err=%-28q len=%4d overflow=%-5v rows=%2d omitted=%2d shown=%v omittedByState=%v maxPath=%d", top.Error(), len(out.Content), p.Overflow, len(p.Files), p.FilesOmitted, states, p.FilesOmittedByState, opusMaxPathLen(p.Files))
+		if len(out.Content) > maxPartialPayloadBytes {
+			t.Errorf("bound violated: %d", len(out.Content))
+		}
+	}
+}

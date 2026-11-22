@@ -1,0 +1,71 @@
+suite payloads identical failedOld->failedNew (delta) rowsOld->rowsNew moreFailed fewerFailed fewerRows overflow notationPayloads(old/new) notationBytesSaved maxBytesNew truncatedFlip
+corpus 684 229 7291->7351 (+60) 11964->12162 60 0 0 348 452/455 41817 4096 0
+escape 17 0 466->483 (+17) 466->483 17 0 0 17 17/17 1581 4095 0
+five 5 0 115->119 (+4) 115->119 4 0 0 4 5/5 465 4083 0
+impossible 6 6 45->45 (+0) 51->51 0 0 0 6 0/0 0 4095 0
+literal 8 0 112->116 (+4) 112->116 3 0 0 3 8/3 718 4090 0
+matrix 1180 1130 14515->14541 (+26) 16780->16807 23 0 0 43 50/50 4904 4096 0
+perm40 30 0 900->930 (+30) 900->930 30 0 0 30 30/30 3810 4096 0
+perm40fixed 30 0 900->930 (+30) 900->930 30 0 0 30 30/30 3810 4092 0
+redacted 4 0 32->33 (+1) 32->33 1 0 0 1 4/1 505 4088 0
+sweep 33 0 911->944 (+33) 911->944 33 0 0 33 33/33 3069 4095 0
+window 225 98 317->332 (+15) 317->332 15 0 0 133 104/0 7904 4096 0
+windows 3 0 36->37 (+1) 36->37 1 0 0 1 3/1 304 4096 0
+zero 4 0 118->122 (+4) 118->122 4 0 0 4 4/4 440 4093 0
+TOTAL {'payloads': 2229, 'identical': 1463, 'failedOld': 25758, 'failedNew': 25983, 'rowsOld': 32702, 'rowsNew': 33066, 'overflow': 653, 'moreRows': 359, 'moreFailed': 221}
+failed-row delta histogram per suite:
+  corpus {0: 624, 1: 60}
+  escape {1: 17}
+  five {0: 1, 1: 4}
+  impossible {0: 6}
+  literal {0: 5, 1: 2, 2: 1}
+  matrix {0: 1157, 1: 20, 2: 3}
+  perm40 {1: 30}
+  perm40fixed {1: 30}
+  redacted {0: 3, 1: 1}
+  sweep {1: 33}
+  window {0: 210, 1: 15}
+  windows {0: 2, 1: 1}
+  zero {1: 4}
+byte savings where shown rows are unchanged (old-new bytes): suite count min median max sum
+  corpus 460 -309 0 93 20679
+  five 1 93 93 93 93
+  impossible 6 0 0 0 0
+  literal 5 76 76 76 380
+  matrix 1148 0 0 127 1742
+  redacted 3 76 98 157 331
+  window 190 0 0 76 6992
+  windows 2 76 76 76 152
+examples (name, failedOld, failedNew, bytesOld, bytesNew, notationOld, notationNew):
+  corpus ('deep_f32_v00_u00_eio', 30, 31, 4061, 4056, 166, 73)
+  corpus ('deep_f32_v40_u00_eio', 30, 31, 4086, 4081, 166, 73)
+  corpus ('deep_f50_v03_u02_eio', 30, 31, 4080, 4091, 166, 73)
+  escape ('E_amp', 28, 29, 4079, 4080, 166, 73)
+  escape ('E_backslash', 28, 29, 4079, 4080, 166, 73)
+  escape ('E_bs08', 28, 29, 4079, 4080, 166, 73)
+  five ('end_k100', 28, 29, 4081, 4083, 166, 73)
+  five ('end_k240', 28, 29, 4081, 4083, 166, 73)
+  five ('end_k70', 28, 29, 4081, 4083, 166, 73)
+  literal ('L10_long_basename_with_literal_dir', 28, 29, 4081, 4083, 166, 73)
+  literal ('L11_literal_omitted_target_of_shorthand', 28, 30, 4095, 4090, 225, 73)
+  literal ('L4_literal_and_synthetic_overflow', 30, 31, 4095, 4089, 166, 73)
+  matrix ('B_repeated_dirs_40_pressure', 30, 31, 4095, 4092, 200, 73)
+  matrix ('E_long_prefix_suffix_40', 29, 30, 4096, 4075, 166, 73)
+  matrix ('H_combined_100', 28, 30, 4048, 4096, 200, 73)
+  perm40 ('by_shape', 30, 31, 4094, 4096, 200, 73)
+  perm40 ('original', 30, 31, 4095, 4092, 200, 73)
+  perm40 ('reverse', 30, 31, 4094, 4093, 200, 73)
+  perm40fixed ('by_shape', 30, 31, 4095, 4092, 200, 73)
+  perm40fixed ('original', 30, 31, 4095, 4092, 200, 73)
+  perm40fixed ('reverse', 30, 31, 4095, 4092, 200, 73)
+  redacted ('R2_redacted_overflow', 28, 29, 4093, 4088, 247, 73)
+  sweep ('sweep_end_k020', 27, 28, 4094, 4079, 166, 73)
+  sweep ('sweep_end_k040', 28, 29, 4081, 4083, 166, 73)
+  sweep ('sweep_end_k050', 28, 29, 4081, 4083, 166, 73)
+  window ('W_pad460', 1, 2, 4067, 4025, 76, 0)
+  window ('W_pad465', 1, 2, 4072, 4030, 76, 0)
+  window ('W_pad470', 1, 2, 4077, 4035, 76, 0)
+  windows ('W2_drive_overflow', 28, 29, 4095, 4096, 225, 73)
+  zero ('Z1_root_suffix', 29, 30, 4096, 4089, 166, 73)
+  zero ('Z2_interior', 29, 30, 4088, 4089, 166, 73)
+  zero ('Z3_counted_with_short_twins', 30, 31, 4096, 4091, 200, 73)

@@ -1,0 +1,197 @@
+package editing
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+// TestR201TwoOSProcessesCreateRace keeps the R2-01 exclusive-create safety case under R7 private
+// staging: an independent OS process and Engine.Commit race for one absent path. The loser refuses
+// cleanly and the winner's exact bytes survive; no mixed or partial destination is accepted.
+func TestR201TwoOSProcessesCreateRace(t *testing.T) {
+	foreign := []byte("FOREIGN OS PROCESS PAYLOAD 0123456789ABCDEF\n")
+	agentBytes := []byte("agent os process content\n")
+
+	helperDir := t.TempDir()
+	helperSrc := filepath.Join(helperDir, "main.go")
+	helperBin := filepath.Join(helperDir, "foreign_writer")
+	src := `package main
+import (
+	"errors"
+	"os"
+	"time"
+)
+func main() {
+	target := os.Args[1]
+	ready := os.Args[2]
+	payload := []byte("FOREIGN OS PROCESS PAYLOAD 0123456789ABCDEF\n")
+	_ = os.WriteFile(ready, []byte("1"), 0o644)
+	deadline := time.Now().Add(150 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			if errors.Is(err, os.ErrExist) {
+				os.Exit(1)
+			}
+			continue
+		}
+		_, _ = f.Write(payload)
+		_ = f.Close()
+		os.Exit(0)
+	}
+	os.Exit(2)
+}
+`
+	if err := os.WriteFile(helperSrc, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buildCmd := exec.Command("go", "build", "-o", helperBin, helperSrc)
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build helper binary failed: %v\n%s", err, out)
+	}
+
+	const rounds = 30
+	var lost, mixed, childWins, agentWins int
+	for i := range rounds {
+		root := t.TempDir()
+		target := filepath.Join(root, "shared.txt")
+		ready := filepath.Join(root, ".ready")
+		e, err := New(Options{Root: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(helperBin, target, ready)
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		waitDeadline := time.Now().Add(time.Second)
+		for time.Now().Before(waitDeadline) {
+			if _, err := os.Stat(ready); err == nil {
+				break
+			}
+			time.Sleep(100 * time.Microsecond)
+		}
+		var rec CommitReceipt
+		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
+		_, commitErr := e.Commit(ctx, Plan{
+			Actor:   Actor{Session: "s-proc"},
+			Tool:    "write_file",
+			Changes: []FileChange{{Path: "shared.txt", Content: &agentBytes, AllowCreate: true}},
+		})
+		childErr := cmd.Wait()
+		childWrote := childErr == nil
+
+		got, readErr := os.ReadFile(target)
+		if readErr != nil {
+			if childWrote || commitErr == nil {
+				lost++
+			}
+			continue
+		}
+		switch {
+		case bytes.Equal(got, foreign):
+			childWins++
+		case bytes.Equal(got, agentBytes):
+			agentWins++
+		default:
+			mixed++
+		}
+		if commitErr != nil && rec.DirtyFailure {
+			t.Fatalf("round %d: clean create loser reported a dirty failure: %+v", i, rec)
+		}
+		if commitErr == nil && rec.State != CommitStateCommitted {
+			t.Fatalf("round %d: successful create state %+v", i, rec)
+		}
+	}
+	t.Logf("two-OS-process create race: rounds=%d childWins=%d agentWins=%d lost=%d mixed=%d",
+		rounds, childWins, agentWins, lost, mixed)
+	if lost > 0 || mixed > 0 {
+		t.Fatalf("two-OS-process create race: lost=%d mixed=%d in %d rounds", lost, mixed, rounds)
+	}
+}
+
+// TestR201ExistingCASConflictPreservesForeignBytes pins the guarded in-place path without rollback:
+// the foreign bytes stay and the receipt reports an external change, not a write.
+func TestR201ExistingCASConflictPreservesForeignBytes(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "existing.txt")
+	if err := os.WriteFile(target, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e, err := New(Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := []byte("FOREIGN WRITE WINS\n")
+	e.beforeWrite = func(string) {
+		if err := os.WriteFile(target, foreign, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	next := []byte("agent write\n")
+	var rec CommitReceipt
+	ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
+	res, commitErr := e.Commit(ctx, Plan{
+		Actor:   Actor{Session: "s1"},
+		Tool:    "write_file",
+		Changes: []FileChange{{Path: "existing.txt", Content: &next}},
+	})
+	if CodeOf(commitErr) != CodeConflict {
+		t.Fatalf("expected CodeConflict, got %v", commitErr)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil || !bytes.Equal(got, foreign) {
+		t.Fatalf("foreign bytes lost: err=%v got=%q", err, got)
+	}
+	f, r := r7Files(t, res, rec, "existing.txt")
+	if f.PublishState != PublishExternalModification || f.Published || r.Wrote || f.Verified || r.NewSHA256 != "" {
+		t.Fatalf("CAS refusal: %+v %+v", f, r)
+	}
+}
+
+
+func TestR201DeterministicRound8RedReproducer(t *testing.T) {
+	foreign := []byte("FOREIGN OS PROCESS PAYLOAD 0123456789ABCDEF\n")
+	agentBytes := []byte("agent os process content\n")
+	root := t.TempDir()
+	target := filepath.Join(root, "shared.txt")
+
+	// Deterministically reproduce round-8 interleaving:
+	// 1. Child OS process creates 0-byte shared.txt via O_CREATE|O_EXCL before Engine.prepare.
+	// 2. Engine.prepare sees 0-byte existing file and enters writeInPlace (Created=false, Staged=false).
+	// 3. Before verifyActual completes, external writer writes full foreign payload (44B > 25B).
+	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := New(Options{Root: root})
+	if err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	e.SetPublishFaultHooks(PublishFaultHooks{
+		AfterInPlaceWriteClose: func(dst string) error {
+			if dst == target {
+				_, _ = f.Write(foreign)
+				_ = f.Close()
+			}
+			return nil
+		},
+	})
+	var rec CommitReceipt
+	ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
+	_, commitErr := e.Commit(ctx, Plan{
+		Actor:   Actor{Session: "s-proc"},
+		Tool:    "write_file",
+		Changes: []FileChange{{Path: "shared.txt", Content: &agentBytes, AllowCreate: true}},
+	})
+	// This replicates the buggy assertion from remediation_r2_01_test.go:104:
+	if commitErr != nil && rec.DirtyFailure {
+		t.Fatalf("clean create loser reported a dirty failure: %+v", rec)
+	}
+}

@@ -1,0 +1,70 @@
+package toolset
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+// TestReviewCorpusOracle replays the regenerated corpus inputs through the review checker
+// (maximal prefix oracle, identity resolution, brute-force label cost) and confirms the
+// reconstruction renders byte-identically to the corpus output.
+func TestReviewCorpusOracle(t *testing.T) {
+	in, outDir := os.Getenv("REVIEW_CORPUS_IN"), os.Getenv("REVIEW_CORPUS_OUT")
+	if in == "" {
+		t.Skip("REVIEW_CORPUS_IN not set")
+	}
+	set, err := New(Options{Workspace: t.TempDir(), Policy: PolicyWorkspace, SessionID: "s-review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metas, _ := filepath.Glob(filepath.Join(in, "*.meta"))
+	checked, attention, mismatched := 0, 0, 0
+	for _, m := range metas {
+		name := strings.TrimSuffix(filepath.Base(m), ".meta")
+		raw, err := os.ReadFile(filepath.Join(in, name+".json"))
+		if err != nil {
+			continue // refusal without receipt rows
+		}
+		var fx struct {
+			Result  editing.Result        `json:"result"`
+			Receipt editing.CommitReceipt `json:"receipt"`
+		}
+		var meta map[string]string
+		mraw, _ := os.ReadFile(m)
+		if json.Unmarshal(raw, &fx) != nil || json.Unmarshal(mraw, &meta) != nil {
+			t.Fatalf("decode %s", name)
+		}
+		c := rvCase{Name: name, Receipts: fx.Receipt.Files, Results: fx.Result.Files, State: fx.Receipt.State, Dirty: fx.Receipt.DirtyFailure}
+		switch {
+		case meta["code"] != "":
+			diags := make([]editing.Diagnostic, 30)
+			for d := range diags {
+				diags[d] = editing.Diagnostic{Severity: editing.SeverityError, Code: editing.CodeType, Path: meta["path"], Line: d + 1, Text: strings.Repeat("cannot use x as y; ", 20)}
+			}
+			c.EditErr = &editing.Error{Code: meta["code"], Path: meta["path"], Detail: "another writer changed the file during the write", CurrentRev: "r123", Diagnostics: diags}
+		case meta["top"] == "input/output error":
+			c.Top = "eio"
+		case meta["top"] == "context canceled":
+			c.Top = "canceled"
+		default:
+			c.Top = "text:" + meta["top"]
+		}
+		res, content := rvCheck(set, c)
+		want, _ := os.ReadFile(filepath.Join(outDir, name+".json"))
+		if string(want) != content+"\n" {
+			mismatched++
+			t.Logf("reconstruction differs for %s", name)
+		}
+		checked++
+		if len(res.Problems) > 0 || res.Dup > 0 || res.AmbLenient > 0 || res.AmbLoose > 0 || res.AmbStrict > 0 || res.Unresolved > 0 || strings.HasPrefix(res.Maximal, "NO") || res.Maximal == "oracle-mismatch" {
+			attention++
+			t.Logf("CHECK %s maximal=%s ambS=%d ambL=%d ambLoose=%d problems=%v", name, res.Maximal, res.AmbStrict, res.AmbLenient, res.AmbLoose, res.Problems)
+		}
+	}
+	t.Logf("corpus receipt cases checked=%d reconstruction_mismatches=%d needing_attention=%d", checked, mismatched, attention)
+}

@@ -1,0 +1,35 @@
+cmd= python3 docs/reports/evidence/adr-0024-r7/review_probes.py r7 docs/reports/evidence/adr-0024-r7/inputs
+# HEAD e37976dafca4dc2882d44df9859b96b2661e81ce (+ uncommitted R7R2 tests/docs)
+# go version go1.26.5 darwin/arm64; Darwin arm64
+mode r7 head e37976dafca4dc2882d44df9859b96b2661e81ce
+go test -count=1 -race -v -overlay=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/lc-r7-review-2uhgtsbh/gap.json -run ^TestAuditFinalGapCommit$ ./internal/editing
+=== RUN   TestAuditFinalGapCommit
+    zz_final_gap_test.go:7: child==== RUN   TestAuditFinalGapChild
+            zz_final_gap_test.go:6: writer_pid=6161 parent=6152
+        --- PASS: TestAuditFinalGapChild (0.00s)
+        PASS
+    zz_final_gap_test.go:7: hit=true disk="longer-new\nFOREIGN-GAP\n" result={Files:[{Path:a.txt OldRev:ahij4gqc NewRev: Created:false Deleted:false Changed:true Published:true Verified:false RolledBack:false PublishState:external_modification_detected Error:concurrent_write_detected a.txt: the published target bytes changed after verification (current rev ka749xap); another writer changed the file during the write; re-read it before editing again Landed:[]} {Path:z.txt OldRev:dm5vzy6r NewRev: Created:false Deleted:false Changed:false Published:false Verified:false RolledBack:false PublishState:external_modification_detected Error:conflict z.txt: the file changed after the change was computed; nothing was written (current rev 3d43fjsp); something else wrote the file; re-read it and redo the edit Landed:[]}] Diffs:[] Diagnostics:[] CommitState:partially_published} err=conflict z.txt: the file changed after the change was computed; nothing was written (current rev 3d43fjsp); something else wrote the file; re-read it and redo the edit
+        concurrent_write_detected a.txt: the published target bytes changed after verification (current rev ka749xap); another writer changed the file during the write; re-read it before editing again
+--- PASS: TestAuditFinalGapCommit (1.03s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	2.430s
+gap exit 0
+go test -count=1 -race -v -overlay=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/lc-r7-review-2uhgtsbh/jsonpath.json -run ^TestAuditFinal ./internal/agent ./internal/toolset
+=== RUN   TestAuditFinalProtectedOverflow
+    zz_final_json_probe_test.go:3: append input=8446 output=377 valid=true sources=0 complete=false
+    zz_final_json_probe_test.go:3: preserve output=377 valid=true sources=0 complete=false
+--- PASS: TestAuditFinalProtectedOverflow (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	1.532s
+=== RUN   TestAuditFinalErrorPaths
+=== RUN   TestAuditFinalErrorPaths/quoted_outside_space
+    zz_final_path_probe_test.go:3: sanitized="open \"<outside-workspace>/key.txt\": denied"
+=== RUN   TestAuditFinalErrorPaths/lsp_error
+    zz_final_path_probe_test.go:3: lsp={"code":"failed","error":"lstat missing.go: file does not exist","hint":"the language server failed; use search_text or find_files instead"}
+--- PASS: TestAuditFinalErrorPaths (0.00s)
+    --- PASS: TestAuditFinalErrorPaths/quoted_outside_space (0.00s)
+    --- PASS: TestAuditFinalErrorPaths/lsp_error (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	1.701s
+jsonpath exit 0
+exit=0

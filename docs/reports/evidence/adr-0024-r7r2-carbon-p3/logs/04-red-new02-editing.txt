@@ -1,0 +1,10 @@
+$ go test -count=1 -v -overlay <red-new02-probe> -run ^TestR201DeterministicRound8RedReproducer$ ./internal/editing
+# HEAD 8d8420684e75ec175dce19db0848a4f08a74449e
+=== RUN   TestR201DeterministicRound8RedReproducer
+    remediation_r2_01_test.go:195: clean create loser reported a dirty failure: {Committed:false DirtyFailure:true State:published_with_post_error Files:[{Path:shared.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR201DeterministicRound8RedReproducer1647466346/001/shared.txt Staged:false Published:true Verified:false RolledBack:false Wrote:true PublishState:external_modification_detected Created:false Deleted:false OldSHA256:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 NewSHA256: Error:concurrent_write_detected shared.txt: the published target bytes changed after verification (current rev wccqirux); another writer changed the file during the write; re-read it before editing again}]}
+--- FAIL: TestR201DeterministicRound8RedReproducer (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	0.714s
+FAIL
+
+exit=1

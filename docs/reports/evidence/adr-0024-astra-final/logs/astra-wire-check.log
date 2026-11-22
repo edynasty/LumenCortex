@@ -1,0 +1,25 @@
+corpus astra N 684 input-set 599d1d87074bf79b00df3976efa3b12addc75609b1acb832e404cd74c2399897 output-set 54cf5a071b902e33eb61cc19fd61fad0fa5e601b3faa94496193ec447c254098 maxB 4096 omitted 10350 {'fileZeroGapNotOne': 0, 'fileComponentNotOne': 0, 'fileLooseNotOne': 0, 'fileLabels': 9648, 'fileDuplicates': 0, 'pubZeroGapNotOne': 0, 'pubComponentNotOne': 0, 'pubLooseNotOne': 0, 'pubLabels': 283, 'pubDuplicates': 0, 'maximalPrefix': 348}
+SAMPLE corpus deep_f32_v00_u00_eio [('astra', (4030, 32, 32, 0), 0)]
+matrix astra N 1180 input-set 66ce79fdd089943a124998088db4e3bc57308552fda65105a59715d489fcaee2 output-set 90fca1c1c33a2fd354f69f778686f8d381a28da93d62ffd5fc4a8e1e86014af8 maxB 4096 omitted 1971 {'fileZeroGapNotOne': 0, 'fileComponentNotOne': 0, 'fileLooseNotOne': 0, 'fileLabels': 16774, 'fileDuplicates': 0, 'pubZeroGapNotOne': 0, 'pubComponentNotOne': 0, 'pubLooseNotOne': 0, 'pubLabels': 5331, 'pubDuplicates': 0, 'maximalPrefix': 43}
+SAMPLE matrix K_three_1400B_basenames [('astra', (1286, 3, 3, 0), 0)]
+SAMPLE matrix B_repeated_dirs_40_pressure [('astra', (4093, 31, 31, 9), 0)]
+SAMPLE matrix J5_literal_ellipsis_shown [('astra', (4051, 29, 29, 33), 0)]
+sweep astra N 33 input-set 0b151c6acb1533371e68c0e4a4c0c82d9d3da712e556022ac319ec3f1c273c4c output-set efafa962efec45a55c37bd761ff86c7bf64bf61c2b5f128ce07c17c1ade7c420 maxB 4083 omitted 115 {'maximalPrefix': 33, 'fileZeroGapNotOne': 0, 'fileComponentNotOne': 0, 'fileLooseNotOne': 0, 'fileLabels': 941, 'fileDuplicates': 0}
+SAMPLE sweep sweep_end_k070 [('astra', (4010, 29, 29, 3), 0)]
+SAMPLE sweep sweep_end_k100 [('astra', (4010, 29, 29, 3), 0)]
+SAMPLE sweep sweep_end_k240 [('astra', (4010, 29, 29, 3), 0)]
+SAMPLE sweep sweep_start_k240 [('astra', (4010, 29, 29, 3), 0)]
+extra astra N 8 input-set 26fb43f80f05ca0891136a12a48027d5e74a1e0c50639612a98dc748bf14f7e5 output-set 2d70dcb09c93434f9e0a3a12eb1790329f74f9391903cecaac3d6827ae173255 maxB 4093 omitted 78 {'maximalPrefix': 7, 'fileZeroGapNotOne': 0, 'fileComponentNotOne': 0, 'fileLooseNotOne': 0, 'fileLabels': 224, 'fileDuplicates': 0, 'pubZeroGapNotOne': 0, 'pubComponentNotOne': 0, 'pubLooseNotOne': 0, 'pubLabels': 9, 'pubDuplicates': 0}
+SAMPLE extra by_shape [('astra', (4054, 31, 31, 9), 0)]
+SAMPLE extra omitted-literal [('astra', (4036, 29, 29, 24), 0)]
+SAMPLE extra original [('astra', (4093, 31, 31, 9), 0)]
+SAMPLE extra real-literals [('astra', (3048, 9, 9, 0), 0)]
+SAMPLE extra reverse [('astra', (4083, 31, 31, 9), 0)]
+SAMPLE extra rotate1 [('astra', (4086, 31, 31, 9), 0)]
+SAMPLE extra seed31 [('astra', (4076, 31, 31, 9), 0)]
+SAMPLE extra seed7 [('astra', (4075, 31, 31, 9), 0)]
+WITNESS astra B_repeated_dirs_40_pressure actual (4093, 31, 31, 9) compact (31, 4093, [4208]) alternative (31, 4093, [4208]) compact path costs [17, 18, 16, 22] alternative labels ['r00/…{7}/f.kt', 'r00/…{15}/f.kt', 'r00/x/…/f.kt', 'r00/…{7}/deep/f.kt']
+WITNESS astra escaped-joint actual (4030, 29, 29, 99) compact (29, 4030, [4125]) alternative (29, 4030, [4125]) compact path costs [25, 25, 25, 25] alternative labels ['pkg/00Aaaaaaaaaa…0.kt', 'pkg/01Aaaaaaaaaa…0.kt', 'pkg/02Aaaaaaaaaa…0.kt', 'pkg/03Aaaaaaaaaa…0.kt']
+LITERAL astra multiple-literal ['./tree/…/…/…', 'tree/alpha/beta/filename', './tree/lit…eral/na…me.kt', 'tree/litXeral/naYme.kt', './tree/…{6}/quote"&.kt', 'tree/ümlaut /quote"&.kt'] (2262, 6, 6, 0, {'fileZeroGapNotOne': 0, 'fileComponentNotOne': 0, 'fileLooseNotOne': 0, 'fileLabels': 6, 'fileDuplicates': 0, 'pubZeroGapNotOne': 0, 'pubComponentNotOne': 0, 'pubLooseNotOne': 0, 'pubLabels': 6, 'pubDuplicates': 0})
+LITERAL astra expensive-literal ['…/item.kt', 'good.kt'] (659, 2, 2, 0, {'maximalPrefix': 1, 'fileZeroGapNotOne': 0, 'fileComponentNotOne': 0, 'fileLooseNotOne': 0, 'fileLabels': 2, 'fileDuplicates': 0})
+LITERAL astra blocked-row ['good.kt'] (606, 1, 1, 2, {'maximalPrefix': 1, 'fileZeroGapNotOne': 0, 'fileComponentNotOne': 0, 'fileLooseNotOne': 0, 'fileLabels': 1, 'fileDuplicates': 0})

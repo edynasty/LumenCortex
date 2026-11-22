@@ -1,0 +1,47 @@
+$ cd /Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r6-20261120 && python3 /Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7r2-20261121/docs/reports/evidence/adr-0024-r7/review_probes.py r6 /Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r7r2-20261121/docs/reports/evidence/adr-0024-r7/inputs
+# script sha256 e7b8bc7c18dbe864ef17121ab79e306829fa9c090c96e601826a99b9c59a7748
+# go version go1.26.5 darwin/arm64; Darwin arm64
+mode r6 head 4aaf8e7168743d6c8ae8fa6fe87a350ca69f9af2
+go test -count=1 -race -v -overlay=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/lc-r7-review-8khwp41f/gap.json -run ^TestAuditFinalGapCommit$ ./internal/editing
+=== RUN   TestAuditFinalGapCommit
+    zz_final_gap_test.go:7: child==== RUN   TestAuditFinalGapChild
+            zz_final_gap_test.go:6: writer_pid=93274 parent=93265
+        --- PASS: TestAuditFinalGapChild (0.00s)
+        PASS
+    zz_final_gap_test.go:7: hit=true disk="old\n" result={Files:[] Diffs:[] Diagnostics:[] CommitState:rolled_back} err=conflict z.txt: the file changed after the change was computed; nothing was written (current rev 3d43fjsp); something else wrote the file; re-read it and redo the edit
+    zz_final_gap_test.go:7: external append lost
+--- FAIL: TestAuditFinalGapCommit (1.03s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	1.668s
+FAIL
+gap exit 1
+go test -count=1 -race -v -overlay=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/lc-r7-review-8khwp41f/jsonpath.json -run ^TestAuditFinal ./internal/agent ./internal/toolset
+=== RUN   TestAuditFinalProtectedOverflow
+    zz_final_json_probe_test.go:3: append input=8446 output=8556 valid=true sources=64 complete=true
+    zz_final_json_probe_test.go:3: 8192-byte limit exceeded: 8556
+    zz_final_json_probe_test.go:3: preserve output=8580 valid=true sources=64 complete=true
+    zz_final_json_probe_test.go:3: preserve limit exceeded: 8580
+--- FAIL: TestAuditFinalProtectedOverflow (0.02s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/agent	0.618s
+=== RUN   TestAuditFinalErrorPaths
+=== RUN   TestAuditFinalErrorPaths/quoted_outside_space
+    zz_final_path_probe_test.go:3: sanitized="open \"<outside-workspace>/outside private/secret-dir/key.txt\": denied"
+    zz_final_path_probe_test.go:3: outside directory tail leaked
+=== RUN   TestAuditFinalErrorPaths/lsp_error
+    zz_final_path_probe_test.go:3: lsp={"code":"failed","error":"lstat /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestAuditFinalErrorPaths2166149639/001/workspace/missing.go: file does not exist","hint":"the language server failed; use search_text or find_files instead"}
+    zz_final_path_probe_test.go:3: new LSP error leaks absolute host path
+--- FAIL: TestAuditFinalErrorPaths (0.00s)
+    --- FAIL: TestAuditFinalErrorPaths/quoted_outside_space (0.00s)
+    --- FAIL: TestAuditFinalErrorPaths/lsp_error (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/toolset	0.888s
+FAIL
+jsonpath exit 1
+go test -count=1 -race -v -overlay=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/lc-r7-review-8khwp41f/fallback.json -run ^TestR6FallbackDeletedRestorePartialWriteProbe$ ./internal/editing
+=== RUN   TestR6FallbackDeletedRestorePartialWriteProbe
+--- PASS: TestR6FallbackDeletedRestorePartialWriteProbe (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	1.491s
+fallback exit 0
+script exit=0

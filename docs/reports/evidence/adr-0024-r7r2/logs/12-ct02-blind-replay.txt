@@ -1,0 +1,14 @@
+$ go test -count=1 -v -overlay <inputs/review-probes/opus_r7_blind_replay_toolset_test.go.txt as internal/toolset/zz_blind_replay_test.go> -run ^TestOpus ./internal/toolset
+# HEAD e37976dafca4dc2882d44df9859b96b2661e81ce
+=== RUN   TestOpusToolsetChildAppend
+--- PASS: TestOpusToolsetChildAppend (0.00s)
+=== RUN   TestOpusP3BlindReplayAfterPartialCommit
+    zz_blind_replay_test.go:56: attempt1 ok=false err=<nil> content={"code":"conflict","commitState":"partially_published","currentRev":"j9p6isrk","dirtyFailure":true,"error":"conflict b.txt: the file changed after the change was computed; nothing was written (current rev j9p6isrk); something else wrote the file; re-read it and redo the edit","files":[{"path":"b.txt","publishState":"external_modification_detected","published":false,"verified":false,"wrote":false,"error":"conflict b.txt: the file changed after the change was computed; nothing was written (current rev j9p6isrk); something else wrote the file; re-read it and redo the edit"},{"path":"a.txt","publishState":"published_verified","published":true,"verified":true,"wrote":true,"newRev":"qkqej2am","sha256":"sha256:729c44e00b7d92c7a2ceb9ddf00e197b871afdc3d34fa899892a1f1736dabed1"},{"path":"c.txt","publishState":"not_attempted","published":false,"verified":false,"wrote":false}],"hint":"something else wrote the file; re-read it and redo the edit","partialPublication":true,"path":"b.txt","publishedFiles":[{"path":"a.txt","oldRev":"tq58kvx5","newRev":"qkqej2am","changed":true,"published":true,"verified":true,"publishState":"published_verified"}],"recovery":"LC does not roll back published paths. Re-read every path listed in files, including the failed path, from disk and reconcile manually. Do not replay a path whose verified state is true."}
+    zz_blind_replay_test.go:58: blind replay ok=true err=<nil> content=[{"bytes":34,"operation":"update","path":"a.txt"},{"bytes":25,"operation":"update","path":"b.txt"},{"bytes":16,"operation":"update","path":"c.txt"}]
+    zz_blind_replay_test.go:61: disk a.txt = "header\nbody\nadded-once\nadded-once\n"
+    zz_blind_replay_test.go:61: disk b.txt = "alpha\nbeta-updated\ngamma\n"
+    zz_blind_replay_test.go:61: disk c.txt = "one\ntwo-updated\n"
+--- PASS: TestOpusP3BlindReplayAfterPartialCommit (0.25s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	0.926s
+exit=0

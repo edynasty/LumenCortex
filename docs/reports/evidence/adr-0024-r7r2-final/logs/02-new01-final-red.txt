@@ -1,0 +1,54 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+working tree: modified
+cmd(expected to fail)= go test -count=1 -overlay /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.GVbhrXSJUY/carbon.json -run \^TestR7R2Final ./internal/toolset
+--- FAIL: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits (2.00s)
+    --- FAIL: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_20 (0.66s)
+        r7r2_final_test.go:104: 15 failed rows shown, want all 20 (omitted=6 byState=map[external_modification_detected:1 not_attempted:1 partially_modified:1 publication_uncertain:1 published_post_error:1 rollback_failed:1])
+    --- FAIL: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_22 (0.73s)
+        r7r2_final_test.go:104: 15 failed rows shown, want all 22 (omitted=8 byState=map[external_modification_detected:2 not_attempted:1 partially_modified:2 publication_uncertain:1 published_post_error:1 rollback_failed:1])
+--- FAIL: TestR7R2FinalOverflowKeepsLongestFailedPrefix (7.92s)
+    --- FAIL: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_23 (0.76s)
+        r7r2_final_test.go:142: 15 failed rows shown but 16 fit at the shortest path budget
+    --- FAIL: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_50 (1.50s)
+        r7r2_final_test.go:142: 15 failed rows shown but 16 fit at the shortest path budget
+    --- FAIL: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_200 (5.66s)
+        r7r2_final_test.go:142: 15 failed rows shown but 16 fit at the shortest path budget
+--- FAIL: TestR7R2FinalSameNameRowsStayDistinct (0.16s)
+    --- FAIL: TestR7R2FinalSameNameRowsStayDistinct/five_modules_long_shared_tail (0.01s)
+        r7r2_final_test.go:211: row 0 = "…/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg/config.yaml" does not carry "module00/", the part only "module00/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg/config.yaml" has
+    --- FAIL: TestR7R2FinalSameNameRowsStayDistinct/eight_modules_between_long_shared_ends (0.02s)
+        r7r2_final_test.go:211: row 0 = "…/gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg/config.yaml" does not carry "/module00/", the part only "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/module00/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg/config.yaml" has
+    --- FAIL: TestR7R2FinalSameNameRowsStayDistinct/sixteen_long_names_differing_at_the_end (0.02s)
+        r7r2_final_test.go:211: row 0 = "…/config.yaml" does not carry "-module00/", the part only "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp-module00/config.yaml" has
+    --- FAIL: TestR7R2FinalSameNameRowsStayDistinct/twelve_unicode_names_with_spaces (0.07s)
+        r7r2_final_test.go:211: row 0 = "…/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/设计 文档 🔥.md" does not carry "/项目 00/", the part only "OneDrive - Acme Corp/项目 00/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录/共享 目录//设计 文档 🔥.md" has
+    --- FAIL: TestR7R2FinalSameNameRowsStayDistinct/two_paths_over_the_failed_row_bound (0.01s)
+        r7r2_final_test.go:211: row 0 = "…/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/config.yaml" does not carry "tenant00/", the part only "tenant00/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x//config.yaml" has
+--- FAIL: TestR7R2FinalFiveFailedSameNameFilesStayDistinct (0.02s)
+    r7r2_final_test.go:263: row 0 = {Path:…/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg/config.yaml PublishState:external_modification_detected Published:true Verified:false Wrote:true}, want module00's config.yaml in state external_modification_detected
+--- FAIL: TestR7R2FinalDistinguishShortenedPaths (0.00s)
+    --- FAIL: TestR7R2FinalDistinguishShortenedPaths/names_in_front_of_the_shared_tail (0.00s)
+        r7r2_final_test.go:315: row 0 = "…/config/app.yaml", want "…/auth/…/config/app.yaml"
+    --- FAIL: TestR7R2FinalDistinguishShortenedPaths/first_name_differs (0.00s)
+        r7r2_final_test.go:315: row 0 = "…/config/app.yaml", want "auth/…/config/app.yaml"
+    --- FAIL: TestR7R2FinalDistinguishShortenedPaths/segment_reaches_the_tail (0.00s)
+        r7r2_final_test.go:315: row 0 = "…/app.yaml", want "…/auth/app.yaml"
+    --- FAIL: TestR7R2FinalDistinguishShortenedPaths/long_name_differs_at_its_end (0.00s)
+        r7r2_final_test.go:315: row 0 = "…/app.yaml", want "…ppppppppppppppp-a/app.yaml"
+    --- FAIL: TestR7R2FinalDistinguishShortenedPaths/multibyte_names_sharing_leading_bytes (0.00s)
+        r7r2_final_test.go:315: row 0 = "…/a.txt", want "目录支/…/a.txt"
+    --- FAIL: TestR7R2FinalDistinguishShortenedPaths/a_shown_row_differs_from_one_that_is_not_shown (0.00s)
+        r7r2_final_test.go:315: row 0 = "…/config/app.yaml", want "…/auth/…/config/app.yaml"
+    --- FAIL: TestR7R2FinalDistinguishShortenedPaths/difference_wider_than_the_bound_stays (0.00s)
+        r7r2_final_test.go:315: row 2 = "…/f.kt", want "b/…/f.kt"
+--- FAIL: TestR7R2FinalRefusedPathSurvivesOverflow (0.02s)
+    r7r2_final_test.go:346: overflow envelope does not name the refused file: path=""
+--- FAIL: TestR7R2FinalOverflowBoundWorstCase (0.45s)
+    r7r2_final_test.go:376: row 0 = "…/f.kt" is repeated or does not name file 0
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/toolset	11.287s
+FAIL
+exit=1
+RED as expected

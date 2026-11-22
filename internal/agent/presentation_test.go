@@ -68,3 +68,19 @@ func TestPresentFeedbackCompactDropsTails(t *testing.T) {
 		t.Fatalf("compact feedback is %d bytes", len(got))
 	}
 }
+
+// CommonMark fences open with at least three backticks or tildes. A line starting with "~~"
+// (strikethrough) or a two-backtick span is prose: folding it as an example fence drops real text.
+func TestFoldVerifiedExampleFencesNeedsThreeFenceChars(t *testing.T) {
+	for _, c := range []struct{ opener, closer string }{{"~~legacy~~ flag", "~~"}, {"~ home dir", "~"}, {"``x literal", "``"}} {
+		desc := "Look up an item.\n\nExample:\n" + c.opener + "\nkept body line\n" + c.closer + "\ntrailer"
+		got := foldVerifiedExampleFences(desc)
+		if strings.Contains(got, "[example omitted]") || !strings.Contains(got, "kept body line") {
+			t.Fatalf("opener %q folded as a fence:\n%s", c.opener, got)
+		}
+	}
+	fenced := "Look up an item.\n\nExample:\n~~~\nlookup(1)\n~~~\ntrailer"
+	if got := foldVerifiedExampleFences(fenced); !strings.Contains(got, "[example omitted]") || strings.Contains(got, "lookup(1)") {
+		t.Fatalf("a real three-tilde example fence was not folded:\n%s", got)
+	}
+}

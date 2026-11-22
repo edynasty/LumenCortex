@@ -1,0 +1,17 @@
+$ go test -count=1 -v -run ^TestR7R2 ./internal/toolset
+# HEAD 31172bc274c3a4c54243a72e554862d539d7759d + uncommitted fix
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n16
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n20
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n32_last
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/cancelled_n20
+--- PASS: TestR7R2DeepPathRowsStayIdentifiable (0.22s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n16 (0.03s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n20 (0.05s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n32_last (0.10s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/cancelled_n20 (0.04s)
+=== RUN   TestR7R2OversizedFailedPathKeepsFilename
+--- PASS: TestR7R2OversizedFailedPathKeepsFilename (1.36s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	3.149s
+exit=0

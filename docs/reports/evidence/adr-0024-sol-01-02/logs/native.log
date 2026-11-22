@@ -1,0 +1,490 @@
+===== HEADER =====
+go version go1.26.5 darwin/arm64
+Darwin arm64
+10f135d1f904ab88c6a086319ca5820ea6b9e09c
+60092139a1ca4df42a11d8349a4349a27a358aa4
+4bf967d21460b0fe1bce362c0ab3299c83329e09
+ec411dd8ee268e8a176891ede724dc96c5729c4e
+f3565d6c7bbc9dafadd620092977f20c8efce367
+===== END HEADER =====
+
+===== COMMAND: go build ./... =====
+===== START: 2026-11-22T00:35:21Z =====
+===== ELAPSED_SECONDS: 6 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go vet ./... =====
+===== START: 2026-11-22T00:35:27Z =====
+===== ELAPSED_SECONDS: 4 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -count=1 ./internal/toolset =====
+===== START: 2026-11-22T00:35:31Z =====
+ok  	github.com/edynasty/LumenCortex/internal/toolset	26.338s
+===== ELAPSED_SECONDS: 28 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -race -count=1 ./internal/toolset =====
+===== START: 2026-11-22T00:35:59Z =====
+ok  	github.com/edynasty/LumenCortex/internal/toolset	38.817s
+===== ELAPSED_SECONDS: 45 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: bash docs/reports/evidence/adr-0024-r7r2-final/verify.sh carbon-probe =====
+===== START: 2026-11-22T00:36:44Z =====
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD fc107ba867e8d4e6ef3c7db975a67c1c210069ac
+working tree: modified
+cmd= go test -count=1 -v -overlay /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.bgHu4PTc4m/probe.json -run \^TestCarbonR7R2 ./internal/toolset
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_12_fail_0_bare_EIO: len=2684 rows=12 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_6_bare_EIO
+    r7r2_results_test.go:619: deep_12_fail_6_bare_EIO: len=3788 rows=12 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter06.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_11_bare_EIO
+    r7r2_results_test.go:619: deep_12_fail_11_bare_EIO: len=3878 rows=12 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter11.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_16_fail_0_bare_EIO: len=3380 rows=16 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_8_bare_EIO
+    r7r2_results_test.go:619: deep_16_fail_8_bare_EIO: len=4021 rows=16 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter08.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_15_bare_EIO
+    r7r2_results_test.go:619: deep_16_fail_15_bare_EIO: len=3183 rows=16 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter15.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_20_fail_0_bare_EIO: len=4076 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_10_bare_EIO
+    r7r2_results_test.go:619: deep_20_fail_10_bare_EIO: len=3869 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter10.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_19_bare_EIO
+    r7r2_results_test.go:619: deep_20_fail_19_bare_EIO: len=3887 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter19.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_32_fail_0_bare_EIO: len=4083 rows=21 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_16_bare_EIO
+    r7r2_results_test.go:619: deep_32_fail_16_bare_EIO: len=3942 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter16.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_31_bare_EIO
+    r7r2_results_test.go:619: deep_32_fail_31_bare_EIO: len=3953 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter31.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_2_normal_deep
+    r7r2_results_test.go:669: multi_2: len=3946 rows=18 both failed rows preserved
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_5_very_long_dirs_overflow_order
+    r7r2_results_test.go:705: OBSERVED multi_5_longdir: len=3268 overflow=true rows=5 omitted=1 omittedByState=map[not_attempted:1] firstPath=…/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg/Adapter00.kt
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/long_unicode_spaces_and_identical_basenames
+    r7r2_results_test.go:755: unicode_spaces_basenames: len=3973 rows=15 first4=[src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_支付_🔥_01.kt src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/OneDrive - Acme Corp/Stripe Adapter With Spaces.kt src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/auth/config.yaml src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/billing/config.yaml]
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/cancellation_without_path_and_near_4096
+    r7r2_results_test.go:806: cancel_mid_batch: len=3929/4096 err="context canceled" state=partially_published rows=20 omitted=2 omittedByState=map[not_attempted:2]
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/truncatePathTail_boundary_unit
+    r7r2_results_test.go:820: OBSERVED >1024B common-tail identical basename: t1==t2 is true (len=15)
+--- PASS: TestCarbonR7R2Results01AdversarialMatrix (0.34s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_0_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_6_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_11_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_0_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_8_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_15_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_0_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_10_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_19_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_0_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_16_bare_EIO (0.03s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_31_bare_EIO (0.04s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_2_normal_deep (0.03s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_5_very_long_dirs_overflow_order (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/long_unicode_spaces_and_identical_basenames (0.03s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/cancellation_without_path_and_near_4096 (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/truncatePathTail_boundary_unit (0.00s)
+=== RUN   TestCarbonR7R2CT02ReplaySemantics
+    r7r2_results_test.go:870: CT-02 blind replay OK=true, a.txt="anchor\nadded\nadded\n"
+--- PASS: TestCarbonR7R2CT02ReplaySemantics (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	1.024s
+exit=0
+===== ELAPSED_SECONDS: 3 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -race -count=1 -v -run '^TestR7|^TestR201|^TestR5ResultPropagationAndResumeIntegrity$|^TestR6NestedJSONPreservationAndProvenance$|^TestR6StructuredPathsAndSanitizeErrorText$' ./internal/editing ./internal/toolset ./internal/agent ./internal/session =====
+===== START: 2026-11-22T00:36:47Z =====
+=== RUN   TestR7CrashBeforePublicationHelper
+--- PASS: TestR7CrashBeforePublicationHelper (0.00s)
+=== RUN   TestR7CreateRecreationFaultMatrix
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_zero_write
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_partial_write
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_generic_write_error
+=== RUN   TestR7CreateRecreationFaultMatrix/path_created_concurrently_at_publication
+=== RUN   TestR7CreateRecreationFaultMatrix/child_exits_before_publication
+--- PASS: TestR7CreateRecreationFaultMatrix (1.04s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_zero_write (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_partial_write (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_generic_write_error (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/path_created_concurrently_at_publication (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/child_exits_before_publication (1.02s)
+=== RUN   TestR7ExplicitRecreateSuccessBaseline
+--- PASS: TestR7ExplicitRecreateSuccessBaseline (0.00s)
+=== RUN   TestR7DisplayPathsStructuredAndFreeText
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/structured_path_error_with_spaces
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/sibling_path_error_spaces_keeps_basename_only
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/link_error_old_and_new_are_separate
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/joined_errors_keep_every_cause
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/free_text_quoted_and_windows_unc
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/file_url_path_is_scrubbed
+--- PASS: TestR7DisplayPathsStructuredAndFreeText (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/structured_path_error_with_spaces (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/sibling_path_error_spaces_keeps_basename_only (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/link_error_old_and_new_are_separate (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/joined_errors_keep_every_cause (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/free_text_quoted_and_windows_unc (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/file_url_path_is_scrubbed (0.00s)
+=== RUN   TestR7DiagnosticPathFailsClosed
+--- PASS: TestR7DiagnosticPathFailsClosed (0.00s)
+=== RUN   TestR7RlimitChildHelper
+--- PASS: TestR7RlimitChildHelper (0.00s)
+=== RUN   TestR7InPlaceRLimitFaults
+=== RUN   TestR7InPlaceRLimitFaults/zero_byte_write_efbig
+=== RUN   TestR7InPlaceRLimitFaults/short_write_crossing_limit
+--- PASS: TestR7InPlaceRLimitFaults (2.04s)
+    --- PASS: TestR7InPlaceRLimitFaults/zero_byte_write_efbig (1.02s)
+    --- PASS: TestR7InPlaceRLimitFaults/short_write_crossing_limit (1.02s)
+=== RUN   TestR7CreateEFBIGIsolated
+--- PASS: TestR7CreateEFBIGIsolated (1.02s)
+=== RUN   TestR7CreateRecreationUnixFaultMatrix
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/enospc_injection
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/permission_refuses_staging
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/unsupported_filesystem_refuses_create
+--- PASS: TestR7CreateRecreationUnixFaultMatrix (0.01s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/enospc_injection (0.00s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/permission_refuses_staging (0.00s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/unsupported_filesystem_refuses_create (0.00s)
+=== RUN   TestR7ConsumedStageIsNotUnlinked
+--- PASS: TestR7ConsumedStageIsNotUnlinked (0.00s)
+=== RUN   TestR7DeletePermissionRefusalLeavesFileIntact
+--- PASS: TestR7DeletePermissionRefusalLeavesFileIntact (0.00s)
+=== RUN   TestR7PrefixExternalAppendBeforeLaterConflict
+--- PASS: TestR7PrefixExternalAppendBeforeLaterConflict (1.03s)
+=== RUN   TestR7PrefixExternalSameByteReplacement
+--- PASS: TestR7PrefixExternalSameByteReplacement (1.02s)
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/update
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/create
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/delete
+--- PASS: TestR7VerifiedPrefixUpdateCreateDelete (0.01s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/update (0.00s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/create (0.00s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/delete (0.00s)
+=== RUN   TestR7CleanFailureSettlesEveryPathAndKeepsSnapshots
+--- PASS: TestR7CleanFailureSettlesEveryPathAndKeepsSnapshots (0.00s)
+=== RUN   TestR7NoOpVerification
+=== RUN   TestR7NoOpVerification/committed_noop
+=== RUN   TestR7NoOpVerification/noop_prefix_in_failed_plan
+--- PASS: TestR7NoOpVerification (0.00s)
+    --- PASS: TestR7NoOpVerification/committed_noop (0.00s)
+    --- PASS: TestR7NoOpVerification/noop_prefix_in_failed_plan (0.00s)
+=== RUN   TestR7DeleteVerification
+=== RUN   TestR7DeleteVerification/committed_delete_observes_absence
+=== RUN   TestR7DeleteVerification/external_change_refuses_delete_and_preserves_foreign_bytes
+--- PASS: TestR7DeleteVerification (0.00s)
+    --- PASS: TestR7DeleteVerification/committed_delete_observes_absence (0.00s)
+    --- PASS: TestR7DeleteVerification/external_change_refuses_delete_and_preserves_foreign_bytes (0.00s)
+=== RUN   TestR7CreateContention
+=== RUN   TestR7CreateContention/before_staging
+=== RUN   TestR7CreateContention/at_publication
+--- PASS: TestR7CreateContention (0.00s)
+    --- PASS: TestR7CreateContention/before_staging (0.00s)
+    --- PASS: TestR7CreateContention/at_publication (0.00s)
+=== RUN   TestR7CustomHostWithoutStagerIsUnsupported
+--- PASS: TestR7CustomHostWithoutStagerIsUnsupported (0.00s)
+=== RUN   TestR7ExplicitRecreateAfterDeleteUsesFreshCreate
+--- PASS: TestR7ExplicitRecreateAfterDeleteUsesFreshCreate (0.00s)
+=== RUN   TestR7TimeBoundaryNoOpIdentifiesSameBytes
+--- PASS: TestR7TimeBoundaryNoOpIdentifiesSameBytes (0.00s)
+=== RUN   TestR7R2CaseCollisionFollowsFilesystemSemantics
+--- PASS: TestR7R2CaseCollisionFollowsFilesystemSemantics (0.00s)
+=== RUN   TestR7R2CaseProbeReadsTheVolume
+--- PASS: TestR7R2CaseProbeReadsTheVolume (0.00s)
+=== RUN   TestR7R2HardLinkAliasRefusedBeforeWrite
+--- PASS: TestR7R2HardLinkAliasRefusedBeforeWrite (0.00s)
+=== RUN   TestR7R2CaseVariantOfExistingFileRefused
+--- PASS: TestR7R2CaseVariantOfExistingFileRefused (0.00s)
+=== RUN   TestR7R2CaseVariantCreatesRefused
+=== RUN   TestR7R2CaseVariantCreatesRefused/leaf
+=== RUN   TestR7R2CaseVariantCreatesRefused/existing_dir_spelling
+=== RUN   TestR7R2CaseVariantCreatesRefused/new_dir
+--- PASS: TestR7R2CaseVariantCreatesRefused (0.01s)
+    --- PASS: TestR7R2CaseVariantCreatesRefused/leaf (0.00s)
+    --- PASS: TestR7R2CaseVariantCreatesRefused/existing_dir_spelling (0.00s)
+    --- PASS: TestR7R2CaseVariantCreatesRefused/new_dir (0.00s)
+=== RUN   TestR7R2StaleBaseIsFailedBeforeWrite
+--- PASS: TestR7R2StaleBaseIsFailedBeforeWrite (0.00s)
+=== RUN   TestR7R2SelfReplayIsFailedBeforeWrite
+--- PASS: TestR7R2SelfReplayIsFailedBeforeWrite (0.00s)
+=== RUN   TestR7R2SessionViewConflictIsFailedBeforeWrite
+--- PASS: TestR7R2SessionViewConflictIsFailedBeforeWrite (0.00s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_a_lc_wins_exclusive_creation
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b0_external_wins_before_exclusive_create_prepare
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b1_external_wins_before_no_replace_publish
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b2_external_creates_empty_writes_before_inplace_truncate
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b3_external_creates_empty_overlaps_inplace_write
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b4_external_creates_empty_writes_inside_truncate_window
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b5_external_complete_before_prepare_replaced_as_read
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_exclusive_create_stress
+    remediation_r2_01_test.go:448: stress (Create=true) excl_after_signal released before_commit: rounds=10 exists_before_prepare=10
+    remediation_r2_01_test.go:448: stress (Create=true) excl_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:448: stress (Create=true) excl_after_signal released before_publish: rounds=10 staged_publish_refused=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress
+    remediation_r2_01_test.go:456: stress (Create=false) atomic_after_signal released before_commit: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:456: stress (Create=false) atomic_after_signal released after_prepare: rounds=10 lc_created=2 staged_publish_refused=8
+    remediation_r2_01_test.go:456: stress (Create=false) atomic_after_signal released before_publish: rounds=10 lc_created=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress
+    remediation_r2_01_test.go:466: stress (Create=false) excl_after_signal released before_commit: rounds=10 lc_replaced_read_foreign=9 staged_publish_refused=1
+    remediation_r2_01_test.go:466: stress (Create=false) excl_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:466: stress (Create=false) excl_after_signal released before_publish: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released before_commit: rounds=10 lc_replaced_read_foreign=10
+    remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released after_prepare: rounds=10 inplace_refused_before_truncate=10
+    remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released after_truncate: rounds=10 external_write_after_verified=1 inplace_overlap_foreign_whole=9
+    remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released after_write_close: rounds=10 inplace_overlap_foreign_whole=10
+--- PASS: TestR201TwoOSProcessesCreateRace (1.58s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_a_lc_wins_exclusive_creation (0.36s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b0_external_wins_before_exclusive_create_prepare (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b1_external_wins_before_no_replace_publish (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b2_external_creates_empty_writes_before_inplace_truncate (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b3_external_creates_empty_overlaps_inplace_write (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b4_external_creates_empty_writes_inside_truncate_window (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b5_external_complete_before_prepare_replaced_as_read (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_exclusive_create_stress (0.22s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress (0.24s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress (0.53s)
+=== RUN   TestR201ExistingCASConflictPreservesForeignBytes
+--- PASS: TestR201ExistingCASConflictPreservesForeignBytes (0.00s)
+=== RUN   TestR7ForwardPublicationFaultMatrix
+=== RUN   TestR7ForwardPublicationFaultMatrix/01_failure_before_publication_is_clean
+=== RUN   TestR7ForwardPublicationFaultMatrix/05b_inplace_close_failure_is_uncertain
+=== RUN   TestR7ForwardPublicationFaultMatrix/02_link_succeeds_then_error
+=== RUN   TestR7ForwardPublicationFaultMatrix/03_rename_succeeds_then_error
+=== RUN   TestR7ForwardPublicationFaultMatrix/04_stat_fails_after_publication
+=== RUN   TestR7ForwardPublicationFaultMatrix/05_close_fails_after_publication
+=== RUN   TestR7ForwardPublicationFaultMatrix/06_identity_capture_fails
+=== RUN   TestR7ForwardPublicationFaultMatrix/07_identity_failure_keeps_published_prefix_and_skips_suffix
+=== RUN   TestR7ForwardPublicationFaultMatrix/08_second_path_refusal_keeps_verified_first
+=== RUN   TestR7ForwardPublicationFaultMatrix/09_external_append_on_prefix_is_external
+=== RUN   TestR7ForwardPublicationFaultMatrix/10_external_same_length_replacement_is_external
+=== RUN   TestR7ForwardPublicationFaultMatrix/11_uncertain_publication_reports_dirty_failure
+--- PASS: TestR7ForwardPublicationFaultMatrix (0.02s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/01_failure_before_publication_is_clean (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/05b_inplace_close_failure_is_uncertain (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/02_link_succeeds_then_error (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/03_rename_succeeds_then_error (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/04_stat_fails_after_publication (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/05_close_fails_after_publication (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/06_identity_capture_fails (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/07_identity_failure_keeps_published_prefix_and_skips_suffix (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/08_second_path_refusal_keeps_verified_first (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/09_external_append_on_prefix_is_external (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/10_external_same_length_replacement_is_external (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/11_uncertain_publication_reports_dirty_failure (0.00s)
+=== RUN   TestR7SameInodeExternalOverwriteIsExternal
+--- PASS: TestR7SameInodeExternalOverwriteIsExternal (1.02s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	10.260s
+=== RUN   TestR7FailurePayloadEveryReceiptState
+=== RUN   TestR7FailurePayloadEveryReceiptState/partial_failed_path_first_verified_effect_and_recovery
+=== RUN   TestR7FailurePayloadEveryReceiptState/clean_external_conflict_is_not_dirty_without_an_effect
+=== RUN   TestR7FailurePayloadEveryReceiptState/truncation_keeps_the_failed_path
+--- PASS: TestR7FailurePayloadEveryReceiptState (0.01s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/partial_failed_path_first_verified_effect_and_recovery (0.00s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/clean_external_conflict_is_not_dirty_without_an_effect (0.00s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/truncation_keeps_the_failed_path (0.01s)
+=== RUN   TestR7GenericLSPErrorScrubsHostPaths
+--- PASS: TestR7GenericLSPErrorScrubsHostPaths (0.00s)
+=== RUN   TestR7StructuredPathSpacesAndPlatformMatrix
+--- PASS: TestR7StructuredPathSpacesAndPlatformMatrix (0.00s)
+=== RUN   TestR7EditSpecsDoNotClaimAllOrNone
+--- PASS: TestR7EditSpecsDoNotClaimAllOrNone (0.00s)
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_17
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_20
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_22
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_23
+--- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits (0.74s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_17 (0.16s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_20 (0.17s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_22 (0.21s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_23 (0.20s)
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_50
+    r7r2_final_test.go:133: bytes=4015 shown=30 omitted=21 byState=map[external_modification_detected:4 not_attempted:1 partially_modified:4 publication_uncertain:4 published_post_error:4 rollback_failed:4]
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_100
+    r7r2_final_test.go:133: bytes=4021 shown=30 omitted=71 byState=map[external_modification_detected:14 not_attempted:1 partially_modified:14 publication_uncertain:14 published_post_error:14 rollback_failed:14]
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_200
+    r7r2_final_test.go:133: bytes=4022 shown=30 omitted=171 byState=map[external_modification_detected:34 not_attempted:1 partially_modified:34 publication_uncertain:34 published_post_error:34 rollback_failed:34]
+--- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix (2.61s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_50 (0.42s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_100 (0.72s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_200 (1.47s)
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/five_modules_long_shared_tail
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/eight_modules_between_long_shared_ends
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/sixteen_long_names_differing_at_the_end
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/twenty_four_services_one_package
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/twelve_unicode_names_with_spaces
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/two_paths_over_the_failed_row_bound
+--- PASS: TestR7R2FinalSameNameRowsStayDistinct (0.11s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/five_modules_long_shared_tail (0.01s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/eight_modules_between_long_shared_ends (0.01s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/sixteen_long_names_differing_at_the_end (0.01s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/twenty_four_services_one_package (0.02s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/twelve_unicode_names_with_spaces (0.03s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/two_paths_over_the_failed_row_bound (0.04s)
+=== RUN   TestR7R2FinalFiveFailedSameNameFilesStayDistinct
+--- PASS: TestR7R2FinalFiveFailedSameNameFilesStayDistinct (0.04s)
+=== RUN   TestR7R2FinalRefusedPathSurvivesOverflow
+--- PASS: TestR7R2FinalRefusedPathSurvivesOverflow (0.02s)
+=== RUN   TestR7R2FinalOverflowBoundWorstCase
+--- PASS: TestR7R2FinalOverflowBoundWorstCase (0.07s)
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n16
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n20
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n32_last
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/cancelled_n20
+--- PASS: TestR7R2DeepPathRowsStayIdentifiable (0.19s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n16 (0.03s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n20 (0.04s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n32_last (0.08s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/cancelled_n20 (0.04s)
+=== RUN   TestR7R2OversizedFailedPathKeepsFilename
+--- PASS: TestR7R2OversizedFailedPathKeepsFilename (0.41s)
+=== RUN   TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities
+--- PASS: TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities (0.03s)
+=== RUN   TestR7R2New01OverflowBoundaryMatrix
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/single_failed_long_path_bare_eio
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/mixed_failed_unicode_longname_and_identical_basenames
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/eight_failed_rows_long_paths
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/cancellation_without_path_long_dirs
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/impossible_to_fit_50_failed_rows_discloses_omissions
+--- PASS: TestR7R2New01OverflowBoundaryMatrix (0.26s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/single_failed_long_path_bare_eio (0.04s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/mixed_failed_unicode_longname_and_identical_basenames (0.04s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/eight_failed_rows_long_paths (0.05s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/cancellation_without_path_long_dirs (0.04s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/impossible_to_fit_50_failed_rows_discloses_omissions (0.09s)
+=== RUN   TestR201WriteFileInPlaceForeignWriterRealRace
+=== RUN   TestR201WriteFileInPlaceForeignWriterRealRace/write_file_300_iterations
+    remediation_r2_01_test.go:93: R2-01 toolset write_file: iterations=300 okRuns=3 lost=0 (refusedLost=0) mixed=0 kept=300
+--- PASS: TestR201WriteFileInPlaceForeignWriterRealRace (1.00s)
+    --- PASS: TestR201WriteFileInPlaceForeignWriterRealRace/write_file_300_iterations (1.00s)
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/structured_path_classification_matrix
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/unstructured_error_text_boundary_sanitization_r5_05
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/windows_drive_and_unc_workspace_boundaries
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/unknown_rev_and_sibling_gotype_diagnostics_do_not_leak_host_paths
+--- PASS: TestR6StructuredPathsAndSanitizeErrorText (0.01s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/structured_path_classification_matrix (0.00s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/unstructured_error_text_boundary_sanitization_r5_05 (0.00s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/windows_drive_and_unc_workspace_boundaries (0.00s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/unknown_rev_and_sibling_gotype_diagnostics_do_not_leak_host_paths (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	7.111s
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown/exists_before_prepare
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown/staged_publish_refused
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown/inplace_refused_before_truncate
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown/inplace_overlap_reported_dirty
+--- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown (0.00s)
+    --- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown/exists_before_prepare (0.00s)
+    --- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown/staged_publish_refused (0.00s)
+    --- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown/inplace_refused_before_truncate (0.00s)
+    --- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown/inplace_overlap_reported_dirty (0.00s)
+=== RUN   TestR5ResultPropagationAndResumeIntegrity
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/top_level_multifile_partial_publication_persists_and_resumes_identically
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/cancelled_multi_file_receipt_is_paired_without_replay
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/nested_eval_callback_partial_publication_preserved_in_callback_and_parent_row
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/preserve_error_tool_content_bounds_oversized_and_plain_details
+--- PASS: TestR5ResultPropagationAndResumeIntegrity (0.59s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/top_level_multifile_partial_publication_persists_and_resumes_identically (0.24s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/cancelled_multi_file_receipt_is_paired_without_replay (0.18s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/nested_eval_callback_partial_publication_preserved_in_callback_and_parent_row (0.17s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/preserve_error_tool_content_bounds_oversized_and_plain_details (0.00s)
+=== RUN   TestR6NestedJSONPreservationAndProvenance
+=== RUN   TestR6NestedJSONPreservationAndProvenance/unit_under_exact_and_over_8192_limit_plus_int64_and_provenance
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_under_limit
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_seeded_origin
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_unseeded_origin
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/adopt_then_apply_8500pad
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/protected_source_overflow
+=== RUN   TestR6NestedJSONPreservationAndProvenance/nested_eval_oversized_json_and_clean_proven_semantics
+--- PASS: TestR6NestedJSONPreservationAndProvenance (1.17s)
+    --- PASS: TestR6NestedJSONPreservationAndProvenance/unit_under_exact_and_over_8192_limit_plus_int64_and_provenance (0.02s)
+    --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges (0.94s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_under_limit (0.18s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_seeded_origin (0.18s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_unseeded_origin (0.18s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/adopt_then_apply_8500pad (0.19s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/protected_source_overflow (0.20s)
+    --- PASS: TestR6NestedJSONPreservationAndProvenance/nested_eval_oversized_json_and_clean_proven_semantics (0.21s)
+=== RUN   TestR7PartialCommitAndDiagnosticsColdResume
+--- PASS: TestR7PartialCommitAndDiagnosticsColdResume (1.29s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	4.635s
+testing: warning: no tests to run
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/session	1.454s [no tests to run]
+===== ELAPSED_SECONDS: 12 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -timeout=45m -count=1 ./... =====
+===== START: 2026-11-22T00:36:59Z =====
+?   	github.com/edynasty/LumenCortex/cmd/lcx-experience-demo	[no test files]
+ok  	github.com/edynasty/LumenCortex/cmd/lcx-go	15.299s
+ok  	github.com/edynasty/LumenCortex/config	2.935s
+?   	github.com/edynasty/LumenCortex/docs	[no test files]
+ok  	github.com/edynasty/LumenCortex/evalapi	0.517s
+ok  	github.com/edynasty/LumenCortex/evalruntime	119.903s
+ok  	github.com/edynasty/LumenCortex/internal/agent	30.574s
+?   	github.com/edynasty/LumenCortex/internal/cgroupv2	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/cognition	0.385s
+ok  	github.com/edynasty/LumenCortex/internal/debugger	9.315s
+ok  	github.com/edynasty/LumenCortex/internal/debugger/dap	0.410s
+?   	github.com/edynasty/LumenCortex/internal/debugger/dapfake	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/diag	2.122s
+ok  	github.com/edynasty/LumenCortex/internal/editing	4.819s
+ok  	github.com/edynasty/LumenCortex/internal/editing/goedit	6.761s
+ok  	github.com/edynasty/LumenCortex/internal/evaluator	21.861s
+ok  	github.com/edynasty/LumenCortex/internal/instructions	0.551s
+ok  	github.com/edynasty/LumenCortex/internal/ipynb	0.453s
+ok  	github.com/edynasty/LumenCortex/internal/jobs	23.370s
+ok  	github.com/edynasty/LumenCortex/internal/knowledge	0.431s
+ok  	github.com/edynasty/LumenCortex/internal/lsp	11.127s
+ok  	github.com/edynasty/LumenCortex/internal/mcp	7.443s
+ok  	github.com/edynasty/LumenCortex/internal/mcptemplates	0.418s
+ok  	github.com/edynasty/LumenCortex/internal/migrate	20.835s
+ok  	github.com/edynasty/LumenCortex/internal/notebook	0.384s
+ok  	github.com/edynasty/LumenCortex/internal/ompsession	0.416s
+ok  	github.com/edynasty/LumenCortex/internal/procrt	0.663s
+ok  	github.com/edynasty/LumenCortex/internal/repository	11.885s
+ok  	github.com/edynasty/LumenCortex/internal/resource	0.377s
+ok  	github.com/edynasty/LumenCortex/internal/runlock	0.397s
+ok  	github.com/edynasty/LumenCortex/internal/safefs	0.899s
+ok  	github.com/edynasty/LumenCortex/internal/schedule	7.318s
+ok  	github.com/edynasty/LumenCortex/internal/session	43.153s
+ok  	github.com/edynasty/LumenCortex/internal/shell	5.133s
+ok  	github.com/edynasty/LumenCortex/internal/skills	3.293s
+ok  	github.com/edynasty/LumenCortex/internal/streambuf	0.376s
+ok  	github.com/edynasty/LumenCortex/internal/taskstate	0.402s
+ok  	github.com/edynasty/LumenCortex/internal/threadctx	0.361s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	29.356s
+ok  	github.com/edynasty/LumenCortex/internal/verify	0.450s
+ok  	github.com/edynasty/LumenCortex/internal/window	3.092s
+ok  	github.com/edynasty/LumenCortex/internal/workflow	0.347s
+?   	github.com/edynasty/LumenCortex/pluginapi	[no test files]
+ok  	github.com/edynasty/LumenCortex/protocol	0.366s
+ok  	github.com/edynasty/LumenCortex/provider	0.414s
+ok  	github.com/edynasty/LumenCortex/provider/anthropic	1.660s
+?   	github.com/edynasty/LumenCortex/provider/internal/retryafter	[no test files]
+ok  	github.com/edynasty/LumenCortex/provider/openai	1.322s
+ok  	github.com/edynasty/LumenCortex/runtime	755.463s
+===== ELAPSED_SECONDS: 786 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: git diff --check =====
+===== START: 2026-11-22T00:50:05Z =====
+===== ELAPSED_SECONDS: 0 =====
+===== EXIT CODE: 0 =====
+
+ALLGATES_DONE

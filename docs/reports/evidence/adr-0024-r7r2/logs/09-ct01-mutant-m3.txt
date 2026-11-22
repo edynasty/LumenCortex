@@ -1,0 +1,9 @@
+$ go test -count=1 -v -overlay /tmp/lc-r7r2-m3.json -run ^TestR7PartialCommitAndDiagnosticsColdResume$ ./internal/agent
+# HEAD e37976dafca4dc2882d44df9859b96b2661e81ce + uncommitted CT-01 assertions
+=== RUN   TestR7PartialCommitAndDiagnosticsColdResume
+    remediation_r6_test.go:698: patch row {Path:b.txt PublishState:published_verified Published:true Verified:true NewRev:kwgxuv47 SHA256:sha256:550d594f5d87bd540b72a207fd32c27894f378088bd355d4f0b2bb7d43e58df9}, want state "partially_modified" without a trusted revision
+--- FAIL: TestR7PartialCommitAndDiagnosticsColdResume (0.33s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/agent	0.840s
+FAIL
+exit=1

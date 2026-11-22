@@ -241,8 +241,12 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 	}
 	r := &run{ts: ts, wf: wf, units: ts.Units(), saved: saved, spend: spend}
-	if err := r.load(ctx, l.Store, sessionID, opts.Withheld); err != nil {
-		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+	if err := r.load(ctx, l.Store, sessionID, opts.Withheld, l.maxContext()); err != nil {
+		kind := KindStorage
+		if errors.Is(err, window.ErrUnpaired) {
+			kind = KindTranscriptUnpaired
+		}
+		return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: kind, Err: err})
 	}
 	startStep, err := l.Store.NextStep(ctx, sessionID)
 	if err != nil {
@@ -301,7 +305,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 		if r.wf != nil {
 			allowlist = r.wf.EffectiveAllowlist(allowlist)
 		}
-		specs := StepSpecs(l.Tools, StepToolsInput{
+		includedTools := IncludedStepTools(l.Tools, StepToolsInput{
 			Allowlist:  allowlist,
 			Denylist:   opts.ToolDenylist,
 			Delegation: opts.Delegation,
@@ -309,37 +313,36 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 			TaskAgents: opts.TaskAgents,
 			Claims:     l.verificationOffered(opts),
 		})
-		// The model profile presents the same catalog in its chosen form; authority is unchanged.
-		specs = presentSpecs(specs, opts.Presentation.ToolDescriptions)
+		specs := make([]protocol.ToolSpec, len(includedTools))
+		for i, st := range includedTools {
+			specs[i] = st.Spec
+		}
 		activeWorkUnit, _ := r.units.EnsureActive()
 		r.ts.SetUnits(r.units)
-		// The request window (design §3.3 steps 4-6, §5): System, the Task State block and the newest
-		// whole groups of the transcript that fit the budget of the candidate being asked.
+		if _, err := r.deriveRepairContext(ctx, l.Store, sessionID); err != nil {
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
+		}
 		groups, err := r.groups(l.maxContext())
 		if err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindTranscriptUnpaired, Err: err})
 		}
-		in := window.Input{
-			System:     systemMessages(opts),
-			State:      protocol.Message{Role: "user", Content: taskstate.Render(state.Goal, r.ts, r.wf)},
-			Transcript: r.transcript,
-			ToolTokens: window.Estimate(specs),
+		renderedState := taskstate.RenderBlock(state.Goal, r.ts, r.wf)
+		canonical := canonicalStepInput{
+			SystemPrompt:  opts.SystemPrompt,
+			Layers:        opts.SystemLayers,
+			Instructions:  opts.Instructions,
+			State:         protocol.Message{Role: "user", Content: renderedState.Text},
+			StateRefs:     renderedState.ItemRefs,
+			IncludedTools: includedTools,
 		}
-		fixed := window.Fixed(in)
-		base := fixed // §3.3 step 4: the newest group counts without echo
-		if len(groups) > 0 {
-			for _, e := range groups[len(groups)-1] {
-				base += window.Estimate(e.Msg)
-			}
-		}
-		cands, candidatesDecision := l.candidates(opts, base)
+		cands, candidatesDecision := l.candidatesByStaticPrefix(opts, canonical)
 		stepDecisions := append(append([]Decision(nil), opts.Decisions...), candidatesDecision)
 		if len(cands) == 0 {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindWindowOverflow,
-				Err: fmt.Errorf("no model can take this request: it needs about %d tokens before the reply, and no candidate of %s has the context, tool calling and health for it", base, refList(append([]config.ModelRef{opts.Session}, opts.Failover...)))})
+				Err: fmt.Errorf("no model can take this request: static minimal prefix exceeds every candidate of %s", refList(append([]config.ModelRef{opts.Session}, opts.Failover...)))})
 		}
 		sent := time.Now()
-		answered, cause := l.send(ctx, sessionID, state.Goal, step, opts, r.ts.Version, cands, r, in, len(groups), specs, &usage, &stepDecisions)
+		answered, cause := l.send(ctx, sessionID, state.Goal, step, opts, r.ts.Version, cands, r, canonical, len(groups), &usage, &stepDecisions)
 		clock.observeModel(time.Since(sent), answered.Elapsed)
 		if cause != nil {
 			return l.exit(ctx, state, usage, *cause)
@@ -490,8 +493,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 			}
 			if correction != "" {
+				fbVariant := effectiveFeedbackVariant(answered.Model, opts.Presentation, answered.Mode)
 				blocked := protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked,
-					Content: presentFeedback(correction, opts.Presentation.Feedback)}
+					Content: presentFeedback(correction, fbVariant)}
 				seq, _, err := l.Store.AppendMessage(ctx, sessionID, blocked, nil)
 				if err != nil {
 					return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
@@ -561,6 +565,11 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				post       *session.ExecutionResult
 				edges      []session.DerivedEdge
 				cb         *callbackDispatcher
+				// Lineage is extracted from the ORIGINAL result before any display compaction, hook
+				// feedback, clock annotation or error preservation. It is persisted through the
+				// existing session edges; incomplete extraction fails closed (ADR-0024 R6-F03).
+				resultSourceSessions []string
+				resultSourceComplete = true
 			)
 			if denied {
 				content := "tool is not allowed in the current working set"
@@ -664,6 +673,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 								}
 							}
 						}
+						toolCtx = x.bindContext(toolCtx)
 						toolResult, toolErr = l.Tools.Execute(toolCtx, call.Name, args, func(output protocol.ToolOutput) {
 							l.emit("tool.output", sessionID, map[string]any{"step": step, "toolCallId": call.ID, "name": call.Name, "stream": output.Stream, "chunk": output.Chunk})
 						})
@@ -671,19 +681,21 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 						if cb != nil {
 							cb.close()
 						}
+						resultSourceSessions, resultSourceComplete = resultSessions(call.Name, sessionID, toolResult)
 						if cb != nil && cb.stop != nil && (cb.stop.Kind == KindStorage || cb.stop.Kind == KindFenced) {
 							// Its state/lineage transaction did not commit; never publish the
 							// in-memory transition in the outer tool response.
 							return l.exit(ctx, state, usage, *cb.stop)
 						}
 						if ctx.Err() != nil {
-							// The command tool reports a killed command as a result, not an error, and its
-							// call is answered before the run ends: one terminal row with the partial
-							// output and its execution settled, so the transcript and the execution are
-							// terminal rather than waiting for the next Start. Every other tool keeps the
-							// older contract: its stopped call stays unanswered and Reconcile closes it.
-							if call.Name == protocol.ToolBash {
-								if closeErr := l.closeStoppedCall(ctx, sessionID, opts.RunID, call, x, toolResult, toolErr, r); closeErr != nil {
+							// A returned editing receipt can be settled without replay. An admission
+							// without one stays unanswered for Reconcile; bash keeps its stopped output.
+							hasEditReceipt := false
+							if x != nil && x.tier == tierFiles {
+								_, hasEditReceipt = x.recorder.Receipt()
+							}
+							if call.Name == protocol.ToolBash || hasEditReceipt {
+								if closeErr := l.closeStoppedCall(ctx, sessionID, opts.RunID, call, x, toolResult, toolErr, answered.RequestID, r); closeErr != nil {
 									// The run was cancelled; its closing write failed. The cause stays the
 									// cancellation the run really had (a cancelled run's storage error is the
 									// cancellation, loop exit rule), and the failure is joined so it is reported
@@ -699,7 +711,15 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 						}
 						if toolErr != nil {
 							toolResult.OK = false
-							toolResult.Content = fmt.Sprintf(`{"error":%q}`, toolErr.Error())
+							toolResult.Content = preserveErrorToolContent(toolResult.Content, toolErr)
+						}
+						if cb != nil {
+							if notes, hadDirty := cb.dirtyPartialSummary(); len(notes) > 0 {
+								toolResult.Content = appendNestedPartialPublication(toolResult.Content, notes)
+								if hadDirty {
+									toolResult.MutatesWorkspace = true
+								}
+							}
 						}
 						if toolResult.MutatesWorkspace {
 							// A change to the workspace is a new obligation, whether or not the call succeeded.
@@ -709,7 +729,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 					}
 					clock.observeTool(call.Name, time.Since(toolStarted))
 					if x != nil {
-						post, edges = l.postExecution(ctx, x, toolResult, toolErr, answered.RequestID, answered.Lineage)
+						post, edges = l.postExecutionWithResultLineage(ctx, x, toolResult, toolErr, answered.RequestID, answered.Lineage, resultSourceComplete)
 					}
 					if l.Checks != nil && ((x != nil && (x.tier != tierAdmit || !opts.RecordExperienceActions || !callbackAllowedBuiltins[call.Name])) || toolResult.MutatesWorkspace) {
 						// Recorded local reads do not invalidate a closed check episode.
@@ -759,7 +779,7 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				}
 				edges = append(edges, modelStateEdges(before, change.Next, answered.RequestID, answered.Lineage)...)
 			}
-			edges = append(edges, l.sessionResultEdges(ctx, sessionID, call, toolResult, answered.RequestID, answered.Lineage)...)
+			edges = append(edges, l.sessionSourceEdges(ctx, call, answered.RequestID, answered.Lineage, resultSourceSessions, resultSourceComplete)...)
 			toolResult.Content = clock.annotate(toolResult.Content, time.Now())
 			messageSeq, err := l.persistToolResult(ctx, sessionID, opts.RunID, call, toolResult, change, post, edges, r)
 			if err != nil {
@@ -803,6 +823,9 @@ func (l *Loop) Run(ctx context.Context, sessionID string, opts Options) (result 
 				})
 			}
 			record.ToolCalls = append(record.ToolCalls, toolCallRecord{ID: call.ID, Name: call.Name, Args: args, OK: toolResult.OK, Denied: toolResult.Denied})
+		}
+		if err := r.refreshGroupMutation(ctx, l.Store, sessionID, seq); err != nil {
+			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
 		}
 		if err := l.flush(ctx, sessionID, r, taskstate.ReasonStep); err != nil {
 			return l.exit(ctx, state, usage, ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err})
@@ -905,24 +928,6 @@ func (l *Loop) putTaskState(ctx context.Context, sessionID string, r *run, chang
 	return nil
 }
 
-// systemMessages is the request's fixed system prefix: the default prompt, then each labelled layer
-// in order (the global instructions, the project instructions, the skills prompt), then the agent's
-// instructions. Instructions never replace or precede the default prompt, and every layer is a
-// message of its own so the model can attribute it to its source.
-func systemMessages(opts Options) []protocol.Message {
-	system := []protocol.Message{{Role: "system", Content: opts.SystemPrompt}}
-	for _, layer := range opts.SystemLayers {
-		if strings.TrimSpace(layer.Text) == "" {
-			continue
-		}
-		system = append(system, protocol.Message{Role: "system", Content: layer.Text})
-	}
-	if strings.TrimSpace(opts.Instructions) != "" {
-		system = append(system, protocol.Message{Role: "system", Content: opts.Instructions})
-	}
-	return system
-}
-
 // persistToolResult commits a tool row with, when change is non-nil, the Task State version it caused,
 // the execution's post record (post is nil for a call that was not admitted) and its derived edges,
 // in one transaction; the run's state then carries the stored version.
@@ -948,20 +953,24 @@ func (l *Loop) persistToolResult(ctx context.Context, sessionID, runID string, c
 //
 // A failed write is returned, never swallowed: the caller reports it with the run's exit, and the
 // transcript keeps the gap Reconcile closes at the next Start.
-func (l *Loop) closeStoppedCall(ctx context.Context, sessionID, runID string, call protocol.ToolCall, x *execution, result protocol.ToolResult, toolErr error, r *run) error {
+func (l *Loop) closeStoppedCall(ctx context.Context, sessionID, runID string, call protocol.ToolCall, x *execution, result protocol.ToolResult, toolErr error, requestID string, r *run) error {
 	content := session.InterruptedToolResult
-	if toolErr == nil && strings.TrimSpace(result.Content) != "" {
-		// The partial output the tool had read, with the reason it stopped.
+	if x != nil && x.tier == tierFiles && toolErr != nil {
+		content = preserveErrorToolContent(result.Content, toolErr)
+	} else if toolErr == nil && strings.TrimSpace(result.Content) != "" {
 		content = result.Content
 	}
 	row := protocol.Message{Role: "tool", ToolCallID: call.ID, Name: call.Name, Content: content, Origin: protocol.OriginToolInterrupted}
 	var post *session.ExecutionResult
-	if x != nil {
-		post = &session.ExecutionResult{ExecutionID: x.id, Outcome: session.OutcomeUnknown, Coverage: session.CoverageUnavailable}
-	}
+	var edges []session.DerivedEdge
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishTimeout)
 	defer cancel()
-	seq, _, err := l.Store.CommitToolResult(writeCtx, ToolResultCommit{SessionID: sessionID, RunID: runID, Message: row, Execution: post})
+	if x != nil && x.tier == tierFiles {
+		post, edges = l.postExecutionWithResultLineage(writeCtx, x, result, toolErr, requestID, false, false)
+	} else if x != nil {
+		post = &session.ExecutionResult{ExecutionID: x.id, Outcome: session.OutcomeUnknown, Coverage: session.CoverageUnavailable}
+	}
+	seq, _, err := l.Store.CommitToolResult(writeCtx, ToolResultCommit{SessionID: sessionID, RunID: runID, Message: row, Execution: post, Edges: edges})
 	if err != nil {
 		l.emit("tool.end", sessionID, map[string]any{"toolCallId": call.ID, "name": call.Name, "ok": false, "stopped": true, "error": err.Error()})
 		return fmt.Errorf("persist the interrupted result of call %s: %w", call.ID, err)

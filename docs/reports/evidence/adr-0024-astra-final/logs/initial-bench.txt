@@ -1,0 +1,13 @@
+old CPU ms/payload 30.176, MiB/payload 8.148, allocations/payload 32196.2
+sol CPU ms/payload 9.091, MiB/payload 2.871, allocations/payload 10014.0
+sol longname_end_n1000 wall ms/render 28.53, allocs/render 57059
+sol longname_middle_n100 wall ms/render 3.43, allocs/render 7317
+sol longname_middle_n1000 wall ms/render 28.60, allocs/render 56907
+sol longname_middle_n50000 wall ms/render 1695.17, allocs/render 2753034
+sol longname_start_n1000 wall ms/render 31.99, allocs/render 56899
+candidate CPU ms/payload 10.081, MiB/payload 2.872, allocations/payload 10023.8
+candidate longname_end_n1000 wall ms/render 44.02, allocs/render 57587
+candidate longname_middle_n100 wall ms/render 4.45, allocs/render 8516
+candidate longname_middle_n1000 wall ms/render 37.34, allocs/render 58263
+candidate longname_middle_n50000 wall ms/render 1584.14, allocs/render 2753584
+candidate longname_start_n1000 wall ms/render 30.30, allocs/render 57519

@@ -57,6 +57,7 @@ type memoryStore struct {
 type memoryExecution struct {
 	admission session.ExecutionAdmission
 	post      *session.ExecutionResult
+	fileEdges int
 }
 
 func (s *memoryStore) AdmitExecution(_ context.Context, a session.ExecutionAdmission) error {
@@ -72,8 +73,9 @@ func (s *memoryStore) AdmitExecution(_ context.Context, a session.ExecutionAdmis
 func (s *memoryStore) CommitToolResult(_ context.Context, c ToolResultCommit) (int64, int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var x *memoryExecution
 	if c.Execution != nil {
-		x := s.execution(c.Execution.ExecutionID)
+		x = s.execution(c.Execution.ExecutionID)
 		if x == nil {
 			return 0, 0, session.ErrExecutionNotFound
 		}
@@ -96,9 +98,73 @@ func (s *memoryStore) CommitToolResult(_ context.Context, c ToolResultCommit) (i
 		}
 		version = v
 	}
+	if x != nil {
+		for _, e := range c.Edges {
+			if e.Kind == "file" {
+				x.fileEdges++
+			}
+		}
+	}
 	s.messages = append(s.messages, c.Message)
 	s.edges = append(s.edges, c.Edges...)
 	return int64(len(s.messages) - 1), version, nil
+}
+
+func (s *memoryStore) ListAnsweredExecutions(_ context.Context, sessionID string, fromSeq int64) ([]session.AnsweredExecutionSummary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if fromSeq < 0 {
+		fromSeq = 0
+	}
+	answeredByReq := map[string]int64{}
+	for _, r := range s.requests {
+		if r.SessionID == sessionID && r.State == session.RequestAnswered && r.AnsweredSeq != nil && *r.AnsweredSeq >= fromSeq {
+			answeredByReq[r.RequestID] = *r.AnsweredSeq
+		}
+	}
+	var out []session.AnsweredExecutionSummary
+	for _, x := range s.executions {
+		if sessionID != "" && x.admission.SessionID != sessionID {
+			continue
+		}
+		seq, ok := answeredByReq[x.admission.RequestID]
+		if !ok {
+			continue
+		}
+		outcome := session.OutcomeAdmitted
+		postRef := ""
+		var coverage session.Coverage
+		if x.post != nil {
+			outcome = x.post.Outcome
+			postRef = x.post.PostRef
+			coverage = x.post.Coverage
+		}
+		out = append(out, session.AnsweredExecutionSummary{
+			AnsweredSeq:      seq,
+			RequestID:        x.admission.RequestID,
+			ExecutionID:      x.admission.ExecutionID,
+			ToolCallID:       x.admission.ToolCallID,
+			ParentToolCallID: x.admission.ParentToolCallID,
+			ToolName:         x.admission.ToolName,
+			PreRef:           x.admission.PreRef,
+			PostRef:          postRef,
+			PreUnavailable:   x.admission.PreUnavailable,
+			Coverage:         coverage,
+			Outcome:          outcome,
+			FileEdgeCount:    x.fileEdges,
+		})
+	}
+	slices.SortStableFunc(out, func(a, b session.AnsweredExecutionSummary) int {
+		switch {
+		case a.AnsweredSeq < b.AnsweredSeq:
+			return -1
+		case a.AnsweredSeq > b.AnsweredSeq:
+			return 1
+		default:
+			return 0
+		}
+	})
+	return out, nil
 }
 
 func (s *memoryStore) execution(id string) *memoryExecution {

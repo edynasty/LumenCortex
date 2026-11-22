@@ -1,0 +1,122 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+working tree: modified
+cmd= go test -count=35 -v -overlay /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.H5Th7FE0Zq/r201-r7r2.json -run \^TestR201TwoOSProcessesCreateRace\$ ./internal/editing
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=17 agentWins=13 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.64s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=9 agentWins=21 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.76s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=12 agentWins=18 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.72s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=10 agentWins=20 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.64s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=13 agentWins=17 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.70s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=12 agentWins=18 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.63s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=17 agentWins=13 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.63s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=18 agentWins=12 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.66s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=15 agentWins=15 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.72s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=12 agentWins=18 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.64s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=10 agentWins=20 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.70s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=9 agentWins=21 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.64s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=11 agentWins=19 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.64s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=16 agentWins=14 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.62s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=9 agentWins=21 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.70s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=14 agentWins=16 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.63s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=14 agentWins=16 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.66s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=15 agentWins=15 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.61s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=16 agentWins=14 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.62s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=7 agentWins=23 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.63s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=9 agentWins=21 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.64s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=10 agentWins=20 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.63s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=14 agentWins=16 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.64s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=13 agentWins=17 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.70s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=15 agentWins=15 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.75s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=11 agentWins=19 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.63s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=15 agentWins=15 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.75s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=10 agentWins=20 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.63s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=9 agentWins=21 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.73s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=12 agentWins=18 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.75s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=7 agentWins=23 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.63s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=14 agentWins=16 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.64s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=13 agentWins=17 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.62s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=16 agentWins=14 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.70s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+    remediation_r2_01_test.go:111: two-OS-process create race: rounds=30 childWins=18 agentWins=12 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (0.63s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	23.674s
+exit=0
+cmd(expected to fail)= go test -count=1 -v -overlay /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.H5Th7FE0Zq/r201-red.json -run \^TestR201DeterministicRound8RedReproducer\$ ./internal/editing
+=== RUN   TestR201DeterministicRound8RedReproducer
+    remediation_r2_01_test.go:195: clean create loser reported a dirty failure: {Committed:false DirtyFailure:true State:published_with_post_error Files:[{Path:shared.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR201DeterministicRound8RedReproducer3309384588/001/shared.txt Staged:false Published:true Verified:false RolledBack:false Wrote:true PublishState:external_modification_detected Created:false Deleted:false OldSHA256:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 NewSHA256: Error:concurrent_write_detected shared.txt: the published target bytes changed after verification (current rev wccqirux); another writer changed the file during the write; re-read it before editing again}]}
+--- FAIL: TestR201DeterministicRound8RedReproducer (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	0.514s
+FAIL
+exit=1
+RED as expected

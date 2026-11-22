@@ -1,0 +1,62 @@
+$ go test -count=1 -v -overlay <carbon-r7r2-probe> -run ^TestCarbonR7R2 ./internal/toolset
+# HEAD d8e2d719ea4e03e8ceb1258593b16ecee86dd8da
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_12_fail_0_bare_EIO: len=2684 rows=12 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_6_bare_EIO
+    r7r2_results_test.go:619: deep_12_fail_6_bare_EIO: len=3788 rows=12 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter06.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_11_bare_EIO
+    r7r2_results_test.go:619: deep_12_fail_11_bare_EIO: len=3878 rows=12 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter11.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_16_fail_0_bare_EIO: len=3380 rows=16 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_8_bare_EIO
+    r7r2_results_test.go:619: deep_16_fail_8_bare_EIO: len=4021 rows=16 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter08.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_15_bare_EIO
+    r7r2_results_test.go:619: deep_16_fail_15_bare_EIO: len=3183 rows=16 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter15.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_20_fail_0_bare_EIO: len=4076 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_10_bare_EIO
+    r7r2_results_test.go:619: deep_20_fail_10_bare_EIO: len=3869 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter10.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_19_bare_EIO
+    r7r2_results_test.go:619: deep_20_fail_19_bare_EIO: len=3887 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter19.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_32_fail_0_bare_EIO: len=4083 rows=21 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_16_bare_EIO
+    r7r2_results_test.go:619: deep_32_fail_16_bare_EIO: len=3942 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter16.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_31_bare_EIO
+    r7r2_results_test.go:619: deep_32_fail_31_bare_EIO: len=3953 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter31.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_2_normal_deep
+    r7r2_results_test.go:669: multi_2: len=3946 rows=18 both failed rows preserved
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_5_very_long_dirs_overflow_order
+    r7r2_results_test.go:705: OBSERVED multi_5_longdir: len=3268 overflow=true rows=5 omitted=1 omittedByState=map[not_attempted:1] firstPath=…/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg/Adapter00.kt
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/long_unicode_spaces_and_identical_basenames
+    r7r2_results_test.go:755: unicode_spaces_basenames: len=3973 rows=15 first4=[src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_支付_🔥_01.kt src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/OneDrive - Acme Corp/Stripe Adapter With Spaces.kt src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/auth/config.yaml src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/billing/config.yaml]
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/cancellation_without_path_and_near_4096
+    r7r2_results_test.go:806: cancel_mid_batch: len=3929/4096 err="context canceled" state=partially_published rows=20 omitted=2 omittedByState=map[not_attempted:2]
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/truncatePathTail_boundary_unit
+    r7r2_results_test.go:820: OBSERVED >1024B common-tail identical basename: t1==t2 is true (len=15)
+--- PASS: TestCarbonR7R2Results01AdversarialMatrix (0.76s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_0_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_6_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_11_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_0_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_8_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_15_bare_EIO (0.04s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_0_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_10_bare_EIO (0.04s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_19_bare_EIO (0.14s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_0_bare_EIO (0.07s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_16_bare_EIO (0.10s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_31_bare_EIO (0.11s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_2_normal_deep (0.05s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_5_very_long_dirs_overflow_order (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/long_unicode_spaces_and_identical_basenames (0.05s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/cancellation_without_path_and_near_4096 (0.05s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/truncatePathTail_boundary_unit (0.00s)
+=== RUN   TestCarbonR7R2CT02ReplaySemantics
+    r7r2_results_test.go:870: CT-02 blind replay OK=true, a.txt="anchor\nadded\nadded\n"
+--- PASS: TestCarbonR7R2CT02ReplaySemantics (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	1.505s
+
+exit=0

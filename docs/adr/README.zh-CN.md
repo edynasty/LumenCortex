@@ -35,5 +35,6 @@ ADR 用来记录重要架构决定、选择原因和长期约束。英文文件�
 | 0021 | Capability Registry 和 MCP 生命周期 | [中文](0021-capability-registry-and-mcp-lifecycle.zh-CN.md) |
 | 0022 | 可观察、可控制的执行平台 | [中文](0022-cognitive-execution-platform.zh-CN.md) |
 | 0023 | 统一认知生命周期与实际应用证据（候选） | [中文](0023-unified-cognitive-lifecycle.zh-CN.md) |
+| 0024 | 候选级上下文确定性投影、因果修复下界与精确预算守卫（候选实施） | [中文](0024-candidate-context-projection-and-budget-guards.zh-CN.md) |
 
 模板：[ADR 中文模板](0000-template.zh-CN.md)。新增 ADR 使用下一个编号；取代旧决策时必须双向链接。普通 Bug 修复不需要 ADR。

@@ -1,0 +1,22 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD fa909ad555f8ba42a7a910cd12f6bf153ea645ae
+working tree: modified
+cmd= env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+exit=0
+cmd= env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+exit=0
+cmd= env GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+exit=0
+cmd= env GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+exit=0
+cmd= env GOOS=freebsd GOARCH=amd64 CGO_ENABLED=0 go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+exit=0
+cmd= env GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go test -c -o /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.peMRyCqoNj/editing.test.exe ./internal/editing
+exit=0
+cmd= env GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go test -c -o /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.peMRyCqoNj/toolset.test.exe ./internal/toolset
+exit=0
+cmd= env GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go test -c -o /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.peMRyCqoNj/agent.test.exe ./internal/agent
+exit=0
+cmd= env GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go test -c -o /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.peMRyCqoNj/session.test.exe ./internal/session
+exit=0

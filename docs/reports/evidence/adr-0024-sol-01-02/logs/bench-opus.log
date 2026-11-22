@@ -1,0 +1,12 @@
+variant=opus source=10f135d1f904ab88c6a086319ca5820ea6b9e09c
+cmd=env GOMAXPROCS=2 go test -overlay /private/tmp/lc-adr0024-sol-0102-20261122/replay-opus-bench/overlay.json -run '^$' -bench '^BenchmarkSOLArchivedCorpus$' -benchmem -benchtime=1x -count=3 ./internal/toolset
+goos: darwin
+goarch: arm64
+pkg: github.com/edynasty/LumenCortex/internal/toolset
+cpu: Apple M1 Pro
+BenchmarkSOLArchivedCorpus-2   	       1	32268720042 ns/op	  40897874 cpu-ns/payload	  47176491 wall-ns/payload	5865291432 B/op	22022615 allocs/op
+BenchmarkSOLArchivedCorpus-2   	       1	29575508209 ns/op	  39462981 cpu-ns/payload	  43239047 wall-ns/payload	5870215192 B/op	22022395 allocs/op
+BenchmarkSOLArchivedCorpus-2   	       1	40604027792 ns/op	  39761364 cpu-ns/payload	  59362614 wall-ns/payload	5866356208 B/op	22022437 allocs/op
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	103.172s
+exit=0

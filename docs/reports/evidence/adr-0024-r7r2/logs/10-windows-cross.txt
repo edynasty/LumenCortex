@@ -1,0 +1,4 @@
+$ GOOS=windows GOARCH=amd64 go vet ./internal/editing && go test -c
+exit=0
+$ GOOS=windows GOARCH=arm64 go vet ./internal/editing && go test -c
+exit=0

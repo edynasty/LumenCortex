@@ -205,10 +205,18 @@ func (e *Engine) planModels(req startRequest) (*modelPlan, error) {
 				return nil, fmt.Errorf("agent %s model %s: %w", agentID, candidate, err)
 			}
 		}
+		var pres agent.PresentationOptions
+		if m.Profile != nil {
+			pres = agent.PresentationOptions{
+				ToolDescriptions: m.Profile.ToolDescriptions,
+				Feedback:         m.Profile.Feedback,
+			}
+		}
 		built := agent.Model{
 			Ref: candidate, ProviderID: m.ProviderID, ModelID: m.ModelID,
 			Context: m.Context, DefaultContext: !m.ContextSet, Output: m.Output, OutputSet: m.OutputSet,
 			ToolCalling: m.ToolCalling, Efforts: m.Efforts, Price: m.Cost,
+			ProviderPkg: m.Package, Presentation: pres,
 		}
 		if m.ToolCalling {
 			if built.Client, err = e.providerFactory(m); err != nil {

@@ -1,0 +1,140 @@
+package toolset
+
+// Independent scaling probe for the final Astra renderer review (Claude Opus 5.5). Not part of the
+// repository. Inputs are built before the timer starts; each workload renders through the public
+// commit-outcome path.
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+type ovWorkload struct {
+	name  string
+	sizes []int
+	build func(n int) []ovItem
+}
+
+var ovSink2 string
+
+func ovWorkloads() []ovWorkload {
+	fill := strings.Repeat(strings.Repeat("m", 170)+"/", 6)
+	amp := "/" + strings.Repeat(strings.Repeat("&", 162)+"/", 4) + "f.kt"
+	return []ovWorkload{
+		// Mostly unique filenames in one deep package.
+		{"unique_deep", []int{32, 100, 1024, 4096, 16384}, func(n int) []ovItem {
+			var it []ovItem
+			for i := 0; i < n; i++ {
+				it = append(it, ovItem{path: fmt.Sprintf("src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter%05d.kt", i), state: rvStates[i%len(rvStates)]})
+			}
+			return it
+		}},
+		// One repeated basename, distinguished by a short module directory.
+		{"samebase_modules", []int{32, 100, 1024, 4096, 16384}, func(n int) []ovItem {
+			var it []ovItem
+			for i := 0; i < n; i++ {
+				it = append(it, ovItem{path: fmt.Sprintf("services/m%05d/src/main/resources/config/application.yaml", i), state: rvStates[i%len(rvStates)]})
+			}
+			return it
+		}},
+		// One repeated basename with a long shared suffix: the large-group suffix index.
+		{"samebase_longsuffix", []int{32, 100, 1024, 4096}, func(n int) []ovItem {
+			var it []ovItem
+			for i := 0; i < n; i++ {
+				it = append(it, ovItem{path: fmt.Sprintf("r/x%05d/%scommon/f.kt", i, fill), state: rvStates[i%len(rvStates)]})
+			}
+			return it
+		}},
+		// Long middle-distinguished unique basenames (the filename shortener's widest search).
+		{"longname_middle", []int{32, 100, 1024, 4096}, func(n int) []ovItem {
+			var it []ovItem
+			for i := 0; i < n; i++ {
+				it = append(it, ovItem{path: "pkg/" + strings.Repeat("L", 100) + fmt.Sprintf("%05d", i) + strings.Repeat("L", 100) + ".kt", state: rvStates[i%len(rvStates)]})
+			}
+			return it
+		}},
+		// Individually unrenderable literal rows (realistic 162-byte components) ahead of one cheap row.
+		{"blocked_literal", []int{32, 100, 1024, 4096}, func(n int) []ovItem {
+			var it []ovItem
+			for i := 0; i < n; i++ {
+				it = append(it, ovItem{path: fmt.Sprintf("r%05d…r", i) + amp, state: rvStates[i%len(rvStates)]})
+			}
+			return append(it, ovItem{path: "good.kt", state: editing.PublishPartial})
+		}},
+		// Adversarial: individually unrenderable ordinary rows whose only unique component is longer than
+		// any real filesystem allows (NAME_MAX is 255 bytes), so each skipped row scans every owner.
+		{"blocked_ordinary_oversize", []int{32, 128, 512, 1024}, func(n int) []ovItem {
+			var it []ovItem
+			for i := 0; i < n; i++ {
+				it = append(it, ovItem{path: fmt.Sprintf("r/u%05d%s/f.kt", i, strings.Repeat("z", 3900)), state: rvStates[i%len(rvStates)]})
+			}
+			return append(it, ovItem{path: "good.kt", state: editing.PublishPartial})
+		}},
+	}
+}
+
+func BenchmarkOVScale(b *testing.B) {
+	for _, w := range ovWorkloads() {
+		for _, n := range w.sizes {
+			b.Run(fmt.Sprintf("%s/%d", w.name, n), func(b *testing.B) {
+				set, err := New(Options{Workspace: b.TempDir(), Policy: PolicyWorkspace, SessionID: "b-ov"})
+				if err != nil {
+					b.Fatal(err)
+				}
+				c := ovCommit("bench", w.name, set, w.build(n))
+				c.top = syscall.EIO
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					ovSink2 = c.render()
+				}
+			})
+		}
+	}
+}
+
+// TestOVBenchOutputs records the payload digest, size and row count of every workload once, so the
+// optimized and unoptimized renderers can be compared for identical output.
+func TestOVBenchOutputs(t *testing.T) {
+	out := os.Getenv("OV_OUT")
+	if out == "" {
+		t.Skip("OV_OUT not set")
+	}
+	set := ovWorkspace(t, nil)
+	var b strings.Builder
+	for _, w := range ovWorkloads() {
+		for _, n := range w.sizes {
+			if w.name == "blocked_ordinary_oversize" && n > 128 {
+				continue
+			}
+			c := ovCommit("bench", fmt.Sprintf("%s_%d", w.name, n), set, w.build(n))
+			content := c.render()
+			sum := sha256.Sum256([]byte(content))
+			probs := -1
+			var rows, omitted int
+			if n <= 1024 {
+				r := ovCheck(c, content)
+				probs, rows, omitted = len(r.Problems), r.Rows, r.Omitted
+			} else {
+				var body struct {
+					Files        []any `json:"files"`
+					FilesOmitted int   `json:"filesOmitted"`
+				}
+				_ = json.Unmarshal([]byte(content), &body)
+				rows, omitted = len(body.Files), body.FilesOmitted
+			}
+			fmt.Fprintf(&b, "%s %d sha=%s bytes=%d rows=%d omitted=%d problems=%d\n", w.name, n, hex.EncodeToString(sum[:]), len(content), rows, omitted, probs)
+		}
+	}
+	ovWrite(t, out, "bench-outputs.txt", []byte(b.String()))
+	_ = filepath.Join
+}

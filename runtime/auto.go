@@ -91,7 +91,7 @@ func (e *Engine) resolveAutoEffort(ctx context.Context, sessionID, runID, input 
 		// The admission is the last write before the call and is committed before it: a request the
 		// store did not admit is not sent (R-1). A fenced session gets its failed envelope from the
 		// store, and ErrFenced ends the Start here, without a judge call.
-		requestID, err := e.admitAutoJudge(ctx, sessionID, runID, turn)
+		requestID, err := e.admitAutoJudge(ctx, sessionID, runID, auto.judge.Ref, turn)
 		if err != nil {
 			return autoResolution{}, err
 		}
@@ -163,8 +163,12 @@ func inputDigest(input string) string {
 // digest are all computed before the call; the store's transaction only reads the session's fence
 // and inserts the row. A session that has been fenced gets a failed envelope from the store and
 // ErrFenced, and the caller must not send the request.
-func (e *Engine) admitAutoJudge(ctx context.Context, sessionID, runID string, turn autoTurn) (string, error) {
+func (e *Engine) admitAutoJudge(ctx context.Context, sessionID, runID string, judgeRef config.ModelRef, turn autoTurn) (string, error) {
 	id, err := newAutoRequestID()
+	if err != nil {
+		return "", err
+	}
+	modelRefs, err := agent.EncodeEnvelopeModelRef(judgeRef)
 	if err != nil {
 		return "", err
 	}
@@ -175,6 +179,7 @@ func (e *Engine) admitAutoJudge(ctx context.Context, sessionID, runID string, tu
 		// the digest of the input BeginRun has not stored yet. A turn without new input has neither.
 		FirstSeq: turn.inputSeq, LastSeq: turn.inputSeq,
 		PendingInputDigest: turn.pendingInputDigest,
+		Refs:               modelRefs,
 		// The judge request has no Task State, system layer or tool: its context is the two seqs. An
 		// input that no pointer names makes the envelope incomplete rather than claim a full lineage.
 		LineageComplete: turn.newInput == "" || turn.inputSeq != nil || turn.pendingInputDigest != "",

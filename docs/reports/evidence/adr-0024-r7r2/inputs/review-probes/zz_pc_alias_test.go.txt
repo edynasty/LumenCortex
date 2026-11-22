@@ -1,0 +1,154 @@
+package editing
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// TestPCAliases: two spellings of one file in one plan must be refused before any write.
+func TestPCAliases(t *testing.T) {
+	type alias struct {
+		name   string
+		setup  func(c *pcCase) (string, string)
+		needCI bool
+	}
+	cases := []alias{
+		{"exact_duplicate", func(c *pcCase) (string, string) { return "a.txt", "a.txt" }, false},
+		{"dot_slash", func(c *pcCase) (string, string) { return "./a.txt", "a.txt" }, false},
+		{"dotdot", func(c *pcCase) (string, string) {
+			_ = os.MkdirAll(c.path("sub"), 0o755)
+			return "sub/../a.txt", "a.txt"
+		}, false},
+		{"absolute_vs_relative", func(c *pcCase) (string, string) { return c.path("a.txt"), "a.txt" }, false},
+		{"symlink_alias", func(c *pcCase) (string, string) {
+			if err := os.Symlink("a.txt", c.path("link.txt")); err != nil {
+				c.t.Fatal(err)
+			}
+			return "link.txt", "a.txt"
+		}, false},
+		{"symlinked_dir_alias", func(c *pcCase) (string, string) {
+			if err := os.Symlink(".", c.path("self")); err != nil {
+				c.t.Fatal(err)
+			}
+			return "self/a.txt", "a.txt"
+		}, false},
+		{"case_variant", func(c *pcCase) (string, string) { return "A.txt", "a.txt" }, true},
+		{"case_variant_dir", func(c *pcCase) (string, string) {
+			_ = os.MkdirAll(c.path("dir"), 0o755)
+			writeFile(c.t, c.root, "dir/a.txt", "A0\n")
+			return "DIR/a.txt", "dir/a.txt"
+		}, true},
+		{"hard_link_alias", func(c *pcCase) (string, string) {
+			if err := os.Link(c.path("a.txt"), c.path("hl.txt")); err != nil {
+				c.t.Fatal(err)
+			}
+			return "hl.txt", "a.txt"
+		}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := pcNew(t, "ALIAS_"+tc.name)
+			p1, p2 := tc.setup(c)
+			if tc.needCI {
+				if _, err := os.Stat(c.path(strings.ToUpper(p1[:1]) + p1[1:])); err != nil {
+					t.Logf("PCROW|%s|ALIAS_%s|SKIP: filesystem is case-sensitive", pcRev, tc.name)
+				}
+				i1, e1 := os.Stat(c.path(p1))
+				i2, e2 := os.Stat(c.path(p2))
+				t.Logf("PCROW|%s|ALIAS_%s|fs-check: stat(%s)=%v stat(%s)=%v same=%v", pcRev, tc.name, p1, e1, p2, e2, e1 == nil && e2 == nil && os.SameFile(i1, i2))
+			}
+			cur, _ := os.ReadFile(c.path(p2))
+			writes := []string{}
+			c.e.beforeWrite = func(p string) { writes = append(writes, filepath.Base(filepath.Dir(p))+"/"+filepath.Base(p)) }
+			res, err := c.e.Commit(c.ctx, Plan{Actor: testActor(), Tool: "apply_patch", Changes: []FileChange{
+				{Path: p1, BaseRev: RevOf(cur), Edits: []TextEdit{{Old: "A0\n", New: "A0\nFIRST-SPELLING\n"}}},
+				{Path: p2, BaseRev: RevOf(cur), Edits: []TextEdit{{Old: "A0\n", New: "A0\nSECOND-SPELLING\n"}}},
+			}})
+			final, _ := os.ReadFile(c.path(p2))
+			t.Logf("PCROW|%s|ALIAS_%s|spellings=%q,%q|err=%s:%s|writeAttempts=%v|final=%q|%s|receipt: %s", pcRev, tc.name, p1, p2, CodeOf(err), errShort(err), writes, final, pcResult(res), c.rec())
+			pcLastReceiptReset()
+		})
+	}
+}
+
+// TestPCOrdering records the write order for several input orders.
+func TestPCOrdering(t *testing.T) {
+	for _, order := range [][]string{{"c.txt", "a.txt", "b.txt"}, {"b.txt", "c.txt", "a.txt"}, {"a.txt", "b.txt", "c.txt"}} {
+		c := pcNew(t, "ORDER")
+		writeFile(t, c.root, "a/b.txt", "N0\n")
+		writeFile(t, c.root, "a-b.txt", "M0\n")
+		var seq []string
+		c.e.beforeWrite = func(p string) { rel, _ := filepath.Rel(c.root, p); seq = append(seq, rel) }
+		plan := c.planEdits(order...)
+		n0, m0 := []byte("N1\n"), []byte("M1\n")
+		plan.Changes = append([]FileChange{{Path: "a/b.txt", Content: &n0}}, plan.Changes...)
+		plan.Changes = append(plan.Changes, FileChange{Path: "a-b.txt", Content: &m0})
+		_, err := c.e.Commit(c.ctx, plan)
+		t.Logf("PCROW|%s|ORDER|input=%v+[a/b.txt first, a-b.txt last]|writeSequence=%v|err=%v", pcRev, order, seq, err)
+		pcLastReceiptReset()
+	}
+}
+
+// TestPCPreflight: every refusal class on the LAST canonical file must leave all files untouched.
+func TestPCPreflight(t *testing.T) {
+	type pf struct {
+		name string
+		mut  func(c *pcCase, p *Plan)
+	}
+	cases := []pf{
+		{"edit_old_text_not_found_on_C", func(c *pcCase, p *Plan) { p.Changes[2].Edits[0].Old = "NOPE" }},
+		{"stale_base_on_C", func(c *pcCase, p *Plan) { p.Changes[2].BaseRev = "zzzzzzzz" }},
+		{"validator_rejects_C", func(c *pcCase, p *Plan) {
+			p.Validate = []Validator{func(files map[string][]byte) []Diagnostic {
+				for k := range files {
+					if strings.HasSuffix(k, "c.txt") {
+						return []Diagnostic{{Path: k, Severity: SeverityError, Text: "probe rejects c"}}
+					}
+				}
+				return nil
+			}}
+		}},
+		{"non_utf8_result_on_C", func(c *pcCase, p *Plan) { p.Changes[2].Edits[0].New = "\xff\xfe" }},
+		{"lease_conflict_on_C", func(c *pcCase, p *Plan) {
+			if _, err := c.e.Leases().Acquire(c.root, CanonicalPath(c.path("c.txt")), "other-session", false, time.Minute); err != nil {
+				c.t.Fatal(err)
+			}
+		}},
+		{"missing_file_C", func(c *pcCase, p *Plan) { _ = os.Remove(c.path("c.txt")); c.orig["c.txt"] = "" }},
+		{"cancelled_before_commit", func(c *pcCase, p *Plan) { c.cancel() }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := pcNew(t, "PREFLIGHT_"+tc.name)
+			infos := map[string]os.FileInfo{}
+			for _, f := range pcFiles {
+				infos[f], _ = os.Stat(c.path(f))
+			}
+			plan := c.planEdits()
+			tc.mut(c, &plan)
+			writes := 0
+			c.e.beforeWrite = func(string) { writes++ }
+			time.Sleep(5 * time.Millisecond)
+			res, err := c.e.Commit(c.ctx, plan)
+			untouched := true
+			for _, f := range pcFiles {
+				after, serr := os.Stat(c.path(f))
+				if infos[f] == nil {
+					continue
+				}
+				if serr != nil || !os.SameFile(infos[f], after) || !after.ModTime().Equal(infos[f].ModTime()) || after.Size() != infos[f].Size() {
+					untouched = false
+				}
+			}
+			t.Logf("PCROW|%s|PREFLIGHT_%s|err=%s:%s|writeAttempts=%d|allUntouched(inode,mtime,size)=%v|disk: %s|%s|receipt: %s", pcRev, tc.name, CodeOf(err), errShort(err), writes, untouched, c.disk(), pcResult(res), c.rec())
+			pcLastReceiptReset()
+			_ = errors.New
+			_ = context.Background
+		})
+	}
+}

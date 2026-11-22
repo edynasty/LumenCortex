@@ -52,7 +52,7 @@ var callbackAllowedBuiltins = map[string]bool{
 }
 
 // callbackDeniedPrefixes are tool families a callback never reaches.
-var callbackDeniedPrefixes = []string{"eval", "job_", "wakeup_"}
+var callbackDeniedPrefixes = []string{"eval", "job_", "wakeup_", "debug_"}
 
 const (
 	// MaxCallbackJournal bounds the nested calls one eval tool call records.
@@ -106,9 +106,24 @@ type callbackDispatcher struct {
 	stop        *ExitCause
 	// mu serializes Call: an active call in a JavaScript kernel can dispatch several callbacks at
 	// once, and the dispatcher mutates the run's Spend and its own journal.
-	mu     sync.Mutex
-	seq    int
-	closed bool
+	mu              sync.Mutex
+	seq             int
+	closed          bool
+	partialNotes    []string
+	hadDirtyPublish bool
+}
+
+func (d *callbackDispatcher) dirtyPartialSummary() ([]string, bool) {
+	if d == nil {
+		return nil, false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.partialNotes) == 0 {
+		return nil, d.hadDirtyPublish
+	}
+	out := append([]string(nil), d.partialNotes...)
+	return out, d.hadDirtyPublish
 }
 
 // toolCallback binds the existing dispatcher for an eval or explicit Experience
@@ -296,7 +311,7 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 			return deny("tool has side effects and cannot be admitted inside a cell; call it from the run")
 		}
 		var cause *ExitCause
-		if x, cause = d.loop.admitCallbackExecution(ctx, d.sessionID, d.runID, d.requestID, name, args, tier); cause != nil {
+		if x, cause = d.loop.admitCallbackExecution(ctx, d.sessionID, d.runID, d.requestID, callID, d.parentCall, name, args, tier); cause != nil {
 			return deny("admission failed: " + cause.Err.Error())
 		}
 		entry.ExecutionID = x.id
@@ -305,21 +320,22 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 	if until, ok := protocol.ToolDeadline(ctx); ok {
 		toolCtx = protocol.WithToolDeadline(toolCtx, until)
 	}
+	toolCtx = x.bindContext(toolCtx)
 	result, toolErr := d.loop.Tools.Execute(toolCtx, name, args, nil)
 	// A tool cannot manufacture dispatcher-owned execution or provenance metadata.
 	result.ExecutionID, result.ExecutionOutcome, result.SourceSessions = "", "", nil
-	if toolErr != nil {
-		result.OK = false
-		result.Content = toolErrorContent(toolErr.Error())
-	}
 	var sources []string
 	sourceComplete := true
 	if d.application {
 		sources, sourceComplete = resultSessions(name, d.sessionID, result)
-		if !sourceComplete {
-			result.OK, result.Interrupted = false, true
-			result.Content = toolErrorContent("nested result provenance is incomplete; content withheld")
-		}
+	}
+	if toolErr != nil {
+		result.OK = false
+		result.Content = preserveErrorToolContent(result.Content, toolErr)
+	}
+	if !sourceComplete {
+		result.OK, result.Interrupted = false, true
+		result.Content = toolErrorContent("nested result provenance is incomplete; content withheld")
 	}
 	postHook := d.loop.runHook(ctx, d.sessionID, d.runID, verifyEventAfterToolCall, HookRequest{
 		Step: d.step, ToolCallID: callID, ToolName: name, ToolArgs: args, ToolResult: &result,
@@ -347,7 +363,17 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 	if x != nil {
 		settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishTimeout)
 		defer cancel()
-		post, edges := d.loop.postExecution(settleCtx, x, result, toolErr, d.requestID, d.lineage)
+		post, edges := d.loop.postExecutionWithResultLineage(settleCtx, x, result, toolErr, d.requestID, d.lineage, sourceComplete)
+		if rec, ok := x.recorder.Receipt(); ok && receiptHasDirtyOrUncommittedPublish(rec) {
+			d.hadDirtyPublish = true
+			note := formatDirtyReceiptSummary(name, rec)
+			if len(d.partialNotes) < maxNestedPartialNotes {
+				d.partialNotes = append(d.partialNotes, note)
+			}
+			if entry.Reason == "" {
+				entry.Reason = note
+			}
+		}
 		// Sources bind to the actual parent tool row, not an unmatched nested row.
 		edges = append(edges, d.loop.sessionSourceEdges(settleCtx, protocol.ToolCall{ID: d.parentCall, Name: name}, d.requestID, d.lineage, sources, sourceComplete)...)
 		var change *TaskStateChange
@@ -397,13 +423,14 @@ func (d *callbackDispatcher) Call(ctx context.Context, name string, args map[str
 }
 
 // admitCallbackExecution is admitExecution for a nested call: it takes the pre-state and records the
-// admission under a unique execution id, with the top-level request as the exposure it inherits.
-func (l *Loop) admitCallbackExecution(ctx context.Context, sessionID, runID, requestID, name string, args map[string]any, tier executionTier) (*execution, *ExitCause) {
+// admission under a unique execution id, preserving both the nested callID and originating top-level
+// parentCallID alongside the top-level request exposure it inherits (ADR-0024 R4-01).
+func (l *Loop) admitCallbackExecution(ctx context.Context, sessionID, runID, requestID, callID, parentCallID, name string, args map[string]any, tier executionTier) (*execution, *ExitCause) {
 	id, err := newExecutionID()
 	if err != nil {
 		return nil, &ExitCause{Status: StatusFailed, Kind: KindStorage, Err: err}
 	}
-	x := &execution{id: id, tier: tier}
+	x := &execution{id: id, toolName: name, tier: tier, recorder: &commitRecorder{}}
 	sctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
 	var preRef string
 	switch tier {
@@ -424,18 +451,22 @@ func (l *Loop) admitCallbackExecution(ctx context.Context, sessionID, runID, req
 	raw, _ := json.Marshal(args)
 	a := session.ExecutionAdmission{
 		SessionID: sessionID, RunID: runID, ExecutionID: id, RequestID: requestID,
+		ToolCallID: callID, ParentToolCallID: parentCallID,
 		ToolName: name, ArgsDigest: digestOf(raw),
 	}
 	if tier != tierAdmit {
 		if x.preOK {
 			a.PreRef = preRef
+			x.preRef = preRef
 		} else {
 			a.PreUnavailable = true
+			x.preUnavailable = true
 		}
 	}
 	if err := l.Store.AdmitExecution(ctx, a); err != nil {
 		return nil, storeExit(err)
 	}
+	runAfterToolAdmitHook(name, x.targets)
 	return x, nil
 }
 
@@ -458,8 +489,14 @@ func appendHookFeedback(content, feedback string) string {
 	if feedback == "" {
 		return content
 	}
-	if len(feedback) > 1024 {
-		feedback = feedback[:1024] + "…"
+	feedback = truncateAgentUTF8(feedback, 1024)
+	var obj map[string]json.RawMessage
+	if json.Unmarshal([]byte(content), &obj) == nil && obj != nil && isCommitDisplay(obj) {
+		obj["hookFeedback"] = marshalJSONValue(feedback)
+		if raw, err := json.Marshal(obj); err == nil && len(raw) <= maxPreservedToolErrorBytes {
+			return string(raw)
+		}
+		return content // Optional feedback cannot displace the tool receipt or sources.
 	}
 	if strings.TrimSpace(content) == "" {
 		return "[hook] " + feedback

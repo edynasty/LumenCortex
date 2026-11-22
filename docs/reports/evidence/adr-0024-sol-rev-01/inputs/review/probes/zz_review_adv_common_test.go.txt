@@ -1,0 +1,95 @@
+package toolset
+
+// Independent review probe (not part of the repository): shared case construction and IO.
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+type rvCase struct {
+	Name     string                      `json:"name"`
+	Receipts []editing.FileCommitReceipt `json:"receipts"`
+	Results  []editing.FileResult        `json:"results"`
+	Top      string                      `json:"top"`
+	EditErr  *editing.Error              `json:"editErr,omitempty"`
+	State    editing.CommitState         `json:"state"`
+	Dirty    bool                        `json:"dirty"`
+}
+
+var rvStates = []editing.PublishState{editing.PublishExternalModification, editing.PublishPartial,
+	editing.PublishSucceededWithPostError, editing.PublishUncertain, editing.PublishRollbackFailed}
+
+func rvTopError(s string) error {
+	switch {
+	case s == "eio":
+		return syscall.EIO
+	case s == "canceled":
+		return context.Canceled
+	case s == "none":
+		return nil
+	case strings.HasPrefix(s, "text:"):
+		return errors.New(strings.TrimPrefix(s, "text:"))
+	}
+	panic("unknown top " + s)
+}
+
+func rvMake(name string, failed, verified, untouched []string, top string) rvCase {
+	c := rvCase{Name: name, Top: top, State: editing.CommitStatePartiallyPublished, Dirty: true}
+	for i, p := range failed {
+		st := rvStates[i%len(rvStates)]
+		c.Receipts = append(c.Receipts, editing.FileCommitReceipt{Path: p, PublishState: st, Published: true, Wrote: true, Error: "input/output error"})
+		c.Results = append(c.Results, editing.FileResult{Path: p, PublishState: st, Published: true, Error: "input/output error"})
+	}
+	for i, p := range verified {
+		c.Receipts = append(c.Receipts, editing.FileCommitReceipt{Path: p, PublishState: editing.PublishSucceededAndVerified, Published: true, Verified: true, Wrote: true, NewSHA256: "sha256:" + strings.Repeat("ab", 32)})
+		c.Results = append(c.Results, editing.FileResult{Path: p, PublishState: editing.PublishSucceededAndVerified, Published: true, Verified: true, NewRev: fmt.Sprintf("rev%05d", i)})
+	}
+	for _, p := range untouched {
+		c.Receipts = append(c.Receipts, editing.FileCommitReceipt{Path: p, PublishState: editing.PublishNotAttempted})
+		c.Results = append(c.Results, editing.FileResult{Path: p, PublishState: editing.PublishNotAttempted})
+	}
+	return c
+}
+
+func rvSeq(format string, n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf(format, i)
+	}
+	return out
+}
+
+func rvRender(set *Set, c rvCase) string {
+	rec := editing.CommitReceipt{DirtyFailure: c.Dirty, State: c.State, Files: c.Receipts}
+	res := editing.Result{CommitState: c.State, Files: c.Results}
+	if c.EditErr != nil {
+		e := *c.EditErr
+		return set.editFailure(res, rec, &e).Content
+	}
+	tr, _ := set.commitOutcome(res, rec, rvTopError(c.Top))
+	return tr.Content
+}
+
+func rvWrite(dir, name, content string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, name+".json"), []byte(content), 0o644)
+}
+
+func rvWriteCase(dir string, c rvCase) error {
+	b, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	return rvWrite(dir, c.Name, string(b))
+}

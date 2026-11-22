@@ -11,6 +11,10 @@ const (
 	MaxStateBytes = 64 << 10
 	// MaxDescriptionBytes is the Agent Skills limit on a description; the catalog carries it whole.
 	MaxDescriptionBytes = 1024
+	// CompactTriggerBytes bounds one skill's trigger snippet in a ModeCompact system catalog.
+	CompactTriggerBytes = 160
+	// MaxCompactCatalogBytes bounds the ModeCompact skills layer body (8 KiB).
+	MaxCompactCatalogBytes = 8 << 10
 	// MaxResourceBytes bounds one file read_skill returns; MaxResourceEntries one directory listing.
 	MaxResourceBytes   = 128 << 10
 	MaxResourceEntries = 200
@@ -60,6 +64,13 @@ type Skill struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// SnapshottedSkill pairs an eligible skill's metadata with the SKILL.md UTF-8 body captured during
+// Registry.Prompt so a run's Prompt, ListSkills, and ReadSkill share one immutable snapshot (RC33-F02).
+type SnapshottedSkill struct {
+	Skill
+	Content string
+}
+
 type stateEntry struct {
 	Enabled bool `json:"enabled"`
 }
@@ -72,15 +83,21 @@ type PromptOptions struct {
 	IncludeProject bool
 }
 
-// PromptResult is a skills prompt and what it carries.
+// PromptResult is a skills prompt and the immutable run-level skill snapshot it captured.
 type PromptResult struct {
-	// Text is the catalog, "" when no skill is included. It names each skill and its description
-	// only; the model loads a skill's instructions with read_skill when a task needs them.
+	// Text is the ModeFull catalog (at most MaxCatalogBytes), "" when no skill is eligible.
 	Text string
-	// Included are the skills the catalog offers.
+	// CompactText is the ModeCompact catalog (at most MaxCompactCatalogBytes), "" when no skill is eligible.
+	CompactText string
+	// Included are the skills listed inline in Text.
 	Included []Skill
+	// Eligible are all enabled, error-free, non-shadowed skills in the run's trusted scope, sorted by ID
+	// ascending, with their snapshotted SKILL.md content.
+	Eligible []SnapshottedSkill
 	// Withheld are the project skills left out because the workspace is untrusted.
 	Withheld []Skill
+	// Warnings reports non-fatal catalog conditions such as a root exceeding MaxSkills (128).
+	Warnings []string
 }
 
 // Resource is one read through read_skill: a file's text or a directory's entries.

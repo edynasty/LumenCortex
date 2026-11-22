@@ -26,11 +26,11 @@ const maxAnchorRows = 4000
 func (s *Set) readFile(_ context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	file, rel, err := s.resolve(fmt.Sprint(args["path"]), false)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	f, info, err := s.openRead(file)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	defer f.Close()
 	if !info.Mode().IsRegular() {
@@ -38,7 +38,7 @@ func (s *Set) readFile(_ context.Context, args map[string]any, _ func(protocol.T
 	}
 	raw, err := io.ReadAll(io.LimitReader(f, editing.MaxFileBytes+1))
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	complete := len(raw) <= editing.MaxFileBytes
 	if !complete {
@@ -101,11 +101,11 @@ func (s *Set) readFile(_ context.Context, args map[string]any, _ func(protocol.T
 func (s *Set) listDir(_ context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	dir, rel, err := s.resolve(fmt.Sprint(args["path"]), false)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	truncated := len(entries) > maxListEntries
 	if truncated {
@@ -129,13 +129,13 @@ func (s *Set) writeFile(ctx context.Context, args map[string]any, _ func(protoco
 	}
 	file, rel, err := s.resolve(fmt.Sprint(args["path"]), true)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	body := []byte(content)
-	result, err := s.edit.Commit(ctx, editing.Plan{
+	result, receipt, err := s.commitPlan(ctx, editing.Plan{
 		Actor: s.actor(),
 		Host:  s,
 		Tool:  "write_file",
@@ -145,10 +145,10 @@ func (s *Set) writeFile(ctx context.Context, args map[string]any, _ func(protoco
 		}},
 	})
 	if err != nil {
-		return editOutcome(err)
+		return s.commitOutcome(result, receipt, err)
 	}
 	out, _ := json.Marshal(map[string]any{"path": rel, "bytes": len(content), "rev": result.Files[0].NewRev})
-	return protocol.ToolResult{OK: true, Content: string(out), MutatesWorkspace: true}, nil
+	return protocol.ToolResult{OK: true, Content: string(out), MutatesWorkspace: receiptWrote(receipt)}, nil
 }
 
 // replaceFile replaces one exact text occurrence. The replacement is computed against the bytes read
@@ -156,11 +156,11 @@ func (s *Set) writeFile(ctx context.Context, args map[string]any, _ func(protoco
 func (s *Set) replaceFile(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	file, rel, err := s.resolve(fmt.Sprint(args["path"]), false)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	raw, err := s.readChecked(file)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	if len(raw) > maxEditBytes {
 		return protocol.ToolResult{}, errors.New("replace target exceeds 4 MiB limit")
@@ -179,7 +179,7 @@ func (s *Set) replaceFile(ctx context.Context, args map[string]any, _ func(proto
 		return protocol.ToolResult{}, errors.New("old_text is ambiguous")
 	}
 	splices := []editing.Splice{{Start: first, End: first + len(old), Text: next}}
-	result, err := s.edit.Commit(ctx, editing.Plan{
+	result, receipt, err := s.commitPlan(ctx, editing.Plan{
 		Actor: s.actor(),
 		Host:  s,
 		Tool:  "replace_in_file",
@@ -188,8 +188,8 @@ func (s *Set) replaceFile(ctx context.Context, args map[string]any, _ func(proto
 		}},
 	})
 	if err != nil {
-		return editOutcome(err)
+		return s.commitOutcome(result, receipt, err)
 	}
 	out, _ := json.Marshal(map[string]any{"path": rel, "replaced": true, "rev": result.Files[0].NewRev})
-	return protocol.ToolResult{OK: true, Content: string(out), MutatesWorkspace: true}, nil
+	return protocol.ToolResult{OK: true, Content: string(out), MutatesWorkspace: receiptWrote(receipt)}, nil
 }

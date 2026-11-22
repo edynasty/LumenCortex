@@ -1,0 +1,63 @@
+package toolset
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+func TestOpusToolsetChildAppend(t *testing.T) {
+	target := os.Getenv("OPUS_TARGET")
+	if target == "" {
+		return
+	}
+	f, err := os.OpenFile(target, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString("gamma\n")
+	_ = f.Close()
+}
+
+// P3: Carbon 02 claims a blind replay of batch1 "fails cleanly before touching any file" but never runs it.
+func TestOpusP3BlindReplayAfterPartialCommit(t *testing.T) {
+	ctx := context.Background()
+	ws := t.TempDir()
+	_ = os.WriteFile(filepath.Join(ws, "a.txt"), []byte("header\nbody\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(ws, "b.txt"), []byte("alpha\nbeta\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(ws, "c.txt"), []byte("one\ntwo\n"), 0o644)
+	eng, _ := editing.New(editing.Options{Root: ws})
+	ts, err := New(Options{Workspace: ws, Policy: PolicyFull, SessionID: "s-blind", Editing: eng})
+	if err != nil {
+		t.Fatal(err)
+	}
+	injected := false
+	eng.SetPublishFaultHooks(editing.PublishFaultHooks{AfterInPlaceWriteClose: func(dst string) error {
+		if filepath.Base(dst) == "a.txt" && !injected {
+			injected = true
+			cmd := exec.Command(os.Args[0], "-test.run=^TestOpusToolsetChildAppend$")
+			cmd.Env = append(os.Environ(), "OPUS_TARGET="+filepath.Join(ws, "b.txt"))
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("child: %v %s", err, out)
+			}
+		}
+		return nil
+	}})
+	batch1 := map[string]any{"patches": []map[string]any{
+		{"path": "a.txt", "operation": "update", "edits": []map[string]any{{"old_text": "body\n", "new_text": "body\nadded-once\n"}}},
+		{"path": "b.txt", "operation": "update", "edits": []map[string]any{{"old_text": "beta\n", "new_text": "beta-updated\n"}}},
+		{"path": "c.txt", "operation": "update", "edits": []map[string]any{{"old_text": "two\n", "new_text": "two-updated\n"}}},
+	}}
+	r1, err1 := ts.Execute(ctx, "apply_patch", batch1, nil)
+	t.Logf("attempt1 ok=%v err=%v content=%s", r1.OK, err1, r1.Content)
+	r2, err2 := ts.Execute(ctx, "apply_patch", batch1, nil)
+	t.Logf("blind replay ok=%v err=%v content=%s", r2.OK, err2, r2.Content)
+	for _, n := range []string{"a.txt", "b.txt", "c.txt"} {
+		b, _ := os.ReadFile(filepath.Join(ws, n))
+		t.Logf("disk %s = %q", n, b)
+	}
+}

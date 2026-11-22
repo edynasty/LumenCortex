@@ -1,0 +1,7 @@
+cases=684 problems=0
+opus sizes {'min': 166, 'p50': 3875.0, 'p95': 4075, 'max': 4096, 'mean': 3572.0} {'dup_rows': 0, 'dup_cases': 0, 'strict_rows': 0, 'strict_cases': 0, 'lenient_rows': 0, 'lenient_cases': 0, 'loose_rows': 0, 'loose_cases': 0, 'pub_ambiguous_rows': 12, 'pub_ambiguous_cases': 4}
+sol sizes {'min': 166, 'p50': 3836.0, 'p95': 4075, 'max': 4096, 'mean': 3501.74} {'dup_rows': 0, 'dup_cases': 0, 'strict_rows': 0, 'strict_cases': 0, 'lenient_rows': 0, 'lenient_cases': 0, 'loose_rows': 0, 'loose_cases': 0, 'pub_ambiguous_rows': 0, 'pub_ambiguous_cases': 0}
+new sizes {'min': 166, 'p50': 3836.0, 'p95': 4075, 'max': 4096, 'mean': 3501.74} {'dup_rows': 0, 'dup_cases': 0, 'strict_rows': 0, 'strict_cases': 0, 'lenient_rows': 0, 'lenient_cases': 0, 'loose_rows': 0, 'loose_cases': 0, 'pub_ambiguous_rows': 0, 'pub_ambiguous_cases': 0}
+opus -> sol {'identical': 509, 'more_rows': 106, 'fewer_rows': 0, 'more_failed': 92, 'fewer_failed': 0, 'new_ambiguity_loose': 0, 'new_ambiguity_lenient': 0, 'less_ambiguity_loose': 0}
+opus -> new {'identical': 509, 'more_rows': 106, 'fewer_rows': 0, 'more_failed': 92, 'fewer_failed': 0, 'new_ambiguity_loose': 0, 'new_ambiguity_lenient': 0, 'less_ambiguity_loose': 0}
+sol -> new {'identical': 684, 'more_rows': 0, 'fewer_rows': 0, 'more_failed': 0, 'fewer_failed': 0, 'new_ambiguity_loose': 0, 'new_ambiguity_lenient': 0, 'less_ambiguity_loose': 0}

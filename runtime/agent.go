@@ -545,7 +545,7 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		Threads:         threadReader{engine: e, sessionID: sessionID, workspace: agentWorkspace},
 		Knowledge:       knowledgeAccess,
 		Cognitive:       cognitiveTools,
-		Skills:          newSkillReader(prompt.Skills.Included),
+		Skills:          newSkillReader(prompt.Skills.Eligible),
 		Notebook:        newNotebookAccess(e, sessionID, runID),
 		Protected:       e.protected,
 		ShellTimeout:    time.Duration(execution.ShellTimeoutSeconds) * time.Second,
@@ -682,9 +682,9 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	if opts.Deadline != nil {
 		loopOpts.Deadline = *opts.Deadline
 	}
-	// The session model's execution profile supplies the defaults its runs start with: a step or
-	// per-step cap when the host set none, its own budget, and the presentation variant. None of it
-	// changes policy, permissions or checks.
+	// The session model's execution profile supplies the run-level defaults its runs start with: a step or
+	// per-step cap when the host set none, and its default run budget. Candidate presentation lives on each
+	// agent.Model independently so failover never pollutes another candidate's presentation (ADR-0024 §5).
 	if profile := plan.resolved.Profile; profile != nil {
 		if loopOpts.MaxSteps == 0 && profile.MaxSteps > 0 {
 			loopOpts.MaxSteps = profile.MaxSteps
@@ -694,10 +694,6 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 		}
 		if profile.Budget != nil {
 			loopOpts.Budget = *profile.Budget
-		}
-		loopOpts.Presentation = agent.PresentationOptions{
-			ToolDescriptions: profile.ToolDescriptions,
-			Feedback:         profile.Feedback,
 		}
 	}
 	if global := execution.Budget; global != nil {
@@ -731,8 +727,8 @@ func (e *Engine) prepareRun(ctx context.Context, sessionID string, opts AgentOpt
 	loopOpts.SystemLayers = systemLayers(prompt.Layers)
 	if prompt.SkillsErr != nil {
 		e.events.publish("skills.error", sessionID, map[string]any{"error": prompt.SkillsErr.Error()})
-	} else if len(prompt.Skills.Included) > 0 || len(prompt.Skills.Withheld) > 0 {
-		data := map[string]any{"skills": skillIDs(prompt.Skills.Included)}
+	} else if len(prompt.Skills.Eligible) > 0 || len(prompt.Skills.Withheld) > 0 {
+		data := map[string]any{"skills": snapshottedSkillIDs(prompt.Skills.Eligible)}
 		if len(prompt.Skills.Withheld) > 0 {
 			// A project skill is repository content: it is read only in a trusted workspace (ADR-0013).
 			data["excluded"] = skillIDs(prompt.Skills.Withheld)
@@ -1080,6 +1076,10 @@ func (s agentStore) CommitToolResult(ctx context.Context, c agent.ToolResultComm
 		testHookAfterToolCommit()
 	}
 	return seq, version, err
+}
+
+func (s agentStore) ListAnsweredExecutions(ctx context.Context, sessionID string, fromSeq int64) ([]session.AnsweredExecutionSummary, error) {
+	return s.store.ListAnsweredExecutions(ctx, sessionID, fromSeq)
 }
 
 func (s agentStore) AdmitRequest(ctx context.Context, a session.RequestAdmission) (session.RequestEnvelope, error) {

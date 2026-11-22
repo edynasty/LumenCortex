@@ -2,6 +2,7 @@ package editing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -153,8 +154,9 @@ func TestWriteLeasePrefixAndExpiry(t *testing.T) {
 	}
 }
 
-// A failure while writing the second file restores the first: a plan is all or nothing.
-func TestMultiFileCommitRollsBackOnWriteFailure(t *testing.T) {
+// A failure while writing the second file keeps the first published: R7 never compensates. The
+// first path reports its verified write and the failed path reports no publication.
+func TestMultiFileCommitStopsAtFirstWriteFailure(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "a.txt", "alpha\n")
 	writeFile(t, root, "sub/b.txt", "beta\n")
@@ -167,15 +169,31 @@ func TestMultiFileCommitRollsBackOnWriteFailure(t *testing.T) {
 	}
 	first := []byte("alpha 2\n")
 	next := []byte("beta 2\n")
-	_, err := engine.Commit(context.Background(), Plan{Actor: testActor(), Tool: "apply_patch", Changes: []FileChange{
+	var receipt CommitReceipt
+	ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { receipt = r })
+	result, err := engine.Commit(ctx, Plan{Actor: testActor(), Tool: "apply_patch", Changes: []FileChange{
 		{Path: "a.txt", Content: &first},
 		{Path: "sub/b.txt", Content: &next},
 	}})
 	if err == nil {
 		t.Fatal("expected the second write to fail")
 	}
-	if got := readFileContent(t, root, "a.txt"); got != "alpha\n" {
-		t.Fatalf("the first file was not rolled back: %q", got)
+	if got := readFileContent(t, root, "a.txt"); got != "alpha 2\n" {
+		t.Fatalf("the first file was compensated: %q", got)
+	}
+	if result.CommitState != CommitStatePartiallyPublished || !receipt.DirtyFailure {
+		t.Fatalf("state: %+v %+v", result, receipt)
+	}
+	fa, ra := r7Files(t, result, receipt, "a.txt")
+	if fa.PublishState != PublishSucceededAndVerified || !fa.Verified || fa.NewRev == "" || ra.NewSHA256 == "" {
+		t.Fatalf("first file: %+v %+v", fa, ra)
+	}
+	fb, rb := r7Files(t, result, receipt, "sub/b.txt")
+	if fb.Published || rb.Wrote || fb.Verified || rb.NewSHA256 != "" || fb.RolledBack || rb.RolledBack {
+		t.Fatalf("failed second file: %+v %+v", fb, rb)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sub", "b.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("second file unexpectedly exists: %v", err)
 	}
 }
 

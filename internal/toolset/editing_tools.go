@@ -86,7 +86,7 @@ func (s *Set) registerEditingTools() {
 func (s *Set) editLines(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	file, rel, err := s.resolve(stringArg(args, "path"), false)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	rev := strings.TrimSpace(stringArg(args, "rev"))
 	if rev == "" {
@@ -94,17 +94,17 @@ func (s *Set) editLines(ctx context.Context, args map[string]any, _ func(protoco
 	}
 	ops, err := decodeAnchorOps(args["ops"])
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	snap, err := s.edit.SnapshotFor(s.actor(), file, rev)
 	if err != nil {
-		return editOutcome(err)
+		return s.editOutcome(err)
 	}
 	lineOps, err := editing.ParseOps(snap, ops)
 	if err != nil {
-		return editOutcome(err)
+		return s.editOutcome(err)
 	}
-	result, err := s.edit.Commit(ctx, editing.Plan{
+	result, receipt, err := s.commitPlan(ctx, editing.Plan{
 		Host:     s,
 		Actor:    s.actor(),
 		Tool:     "edit_lines",
@@ -112,7 +112,7 @@ func (s *Set) editLines(ctx context.Context, args map[string]any, _ func(protoco
 		Validate: validatorsFor(rel),
 	})
 	if err != nil {
-		return editOutcome(err)
+		return s.commitOutcome(result, receipt, err)
 	}
 	file1 := result.Files[0]
 	extra := map[string]any{"path": rel, "rev": file1.NewRev, "applied": len(lineOps)}
@@ -123,9 +123,9 @@ func (s *Set) editLines(ctx context.Context, args map[string]any, _ func(protoco
 		}
 	}
 	if note := typeCheckNote(result.Diagnostics); note != "" {
-		extra["typeCheck"] = note
+		extra["typeCheck"] = s.sanitizeErrorText(note)
 	}
-	return editResult(result, extra), nil
+	return s.editResult(result, receipt, extra), nil
 }
 
 // anchorWindows turns the landed line ranges into the windows a caller shows: each edit plus two lines
@@ -186,21 +186,21 @@ func validatorsFor(relative string) []editing.Validator {
 func (s *Set) editGo(ctx context.Context, args map[string]any, _ func(protocol.ToolOutput)) (protocol.ToolResult, error) {
 	file, rel, err := s.resolve(stringArg(args, "path"), false)
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	if !strings.HasSuffix(rel, ".go") {
 		return protocol.ToolResult{}, errors.New("edit_go edits Go files; use lsp_rename or edit_lines for other languages")
 	}
 	ops, err := decodeGoOps(args["ops"])
 	if err != nil {
-		return protocol.ToolResult{}, err
+		return protocol.ToolResult{}, s.sanitizeToolError(err)
 	}
 	plan, err := goedit.Plan(s, file, ops)
 	if err != nil {
-		return editOutcome(err)
+		return s.editOutcome(err)
 	}
 	preview := boolArg(args, "preview")
-	result, err := s.edit.Commit(ctx, editing.Plan{
+	result, receipt, err := s.commitPlan(ctx, editing.Plan{
 		Host:     s,
 		Actor:    s.actor(),
 		Tool:     "edit_go",
@@ -209,24 +209,30 @@ func (s *Set) editGo(ctx context.Context, args map[string]any, _ func(protocol.T
 		Preview:  preview,
 	})
 	if err != nil {
-		return editOutcome(err)
+		return s.commitOutcome(result, receipt, err)
 	}
 	extra := map[string]any{"path": rel, "symbols": plan.Symbols, "notes": plan.Notes, "preview": preview}
 	if note := typeCheckNote(result.Diagnostics); note != "" {
-		extra["typeCheck"] = note
+		extra["typeCheck"] = s.sanitizeErrorText(note)
 	}
 	if preview {
-		payload := map[string]any{"path": rel, "preview": true, "files": result.Files, "diffs": result.Diffs}
+		files := make([]editing.FileResult, 0, len(result.Files))
+		for _, f := range result.Files {
+			f.Path = s.sanitizeStructuredPath(f.Path)
+			f.Error = s.sanitizeErrorText(f.Error)
+			files = append(files, f)
+		}
+		payload := map[string]any{"path": rel, "preview": true, "files": files, "diffs": result.Diffs}
 		for key, value := range extra {
 			payload[key] = value
 		}
 		content, err := json.Marshal(payload)
 		if err != nil {
-			return protocol.ToolResult{}, err
+			return protocol.ToolResult{}, s.sanitizeToolError(err)
 		}
 		return protocol.ToolResult{OK: true, Content: string(content)}, nil
 	}
-	return editResult(result, extra), nil
+	return s.editResult(result, receipt, extra), nil
 }
 
 // decodeGoOps reads the ops argument, accepting a decoded slice as well as JSON.

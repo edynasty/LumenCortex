@@ -1,0 +1,901 @@
+package toolset
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+	"unicode/utf8"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+type r7r2Payload struct {
+	Error string `json:"error"`
+	Code  string `json:"code"`
+	Path  string `json:"path"`
+	Files []struct {
+		Path         string `json:"path"`
+		PublishState string `json:"publishState"`
+		Published    bool   `json:"published"`
+		Verified     bool   `json:"verified"`
+		Wrote        bool   `json:"wrote"`
+	} `json:"files"`
+	FilesOmitted        int            `json:"filesOmitted"`
+	FilesOmittedByState map[string]int `json:"filesOmittedByState"`
+	CommitState         string         `json:"commitState"`
+	DirtyFailure        bool           `json:"dirtyFailure"`
+	PartialPublication  bool           `json:"partialPublication"`
+	Truncated           bool           `json:"truncated"`
+	Overflow            bool           `json:"overflow"`
+}
+
+// r7r2DeepBatch runs apply_patch over n files that share a deep package prefix; the file at failAt
+// fails after its write with failErr, which names no path.
+func r7r2DeepBatch(t *testing.T, n, failAt int, failErr error) (string, []string) {
+	t.Helper()
+	const pkg = "src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/"
+	ws := filepath.Join(t.TempDir(), "ws")
+	if err := os.MkdirAll(filepath.Join(ws, pkg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rels := make([]string, n)
+	var patches []any
+	for i := range rels {
+		rels[i] = fmt.Sprintf("%sStripeAdapterComponent%02d.kt", pkg, i)
+		if err := os.WriteFile(filepath.Join(ws, rels[i]), []byte(fmt.Sprintf("old-%03d\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		patches = append(patches, map[string]any{"path": rels[i], "operation": "update",
+			"edits": []any{map[string]any{"old_text": fmt.Sprintf("old-%03d", i), "new_text": fmt.Sprintf("new-%03d", i)}}})
+	}
+	eng, err := editing.New(editing.Options{Root: ws})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := New(Options{Workspace: ws, Policy: PolicyFull, SessionID: "s-r7r2", Editing: eng})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failName := filepath.Base(rels[failAt])
+	eng.SetPublishFaultHooks(editing.PublishFaultHooks{AfterInPlaceWriteClose: func(dst string) error {
+		if filepath.Base(dst) == failName {
+			return failErr
+		}
+		return nil
+	}})
+	res, _ := set.Execute(context.Background(), "apply_patch", map[string]any{"patches": patches}, nil)
+	return res.Content, rels
+}
+
+// TestR7R2DeepPathRowsStayIdentifiable reproduces R7R2-Results-01: with many deep paths the shrink
+// loop cut every path to one shared prefix before it dropped rows, so the failed file vanished.
+func TestR7R2DeepPathRowsStayIdentifiable(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		n      int
+		failAt int
+		err    error
+	}{
+		{"eio_n16", 16, 8, syscall.EIO},
+		{"eio_n20", 20, 10, syscall.EIO},
+		{"eio_n32_last", 32, 31, syscall.EIO},
+		{"cancelled_n20", 20, 10, context.Canceled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content, rels := r7r2DeepBatch(t, tc.n, tc.failAt, tc.err)
+			if !json.Valid([]byte(content)) {
+				t.Fatalf("invalid JSON: %s", content)
+			}
+			if len(content) > maxPartialPayloadBytes {
+				t.Fatalf("payload %d bytes exceeds %d", len(content), maxPartialPayloadBytes)
+			}
+			var p r7r2Payload
+			if err := json.Unmarshal([]byte(content), &p); err != nil {
+				t.Fatal(err)
+			}
+			failed := rels[tc.failAt]
+			if len(p.Files) == 0 || p.Files[0].Path != failed || p.Files[0].Verified {
+				t.Fatalf("failed row is not first with its exact path %q: %+v", failed, p.Files)
+			}
+			known := map[string]bool{}
+			for _, r := range rels {
+				known[r] = true
+			}
+			seen := map[string]bool{}
+			for _, f := range p.Files {
+				if !known[f.Path] {
+					t.Fatalf("row path %q is not an exact requested path", f.Path)
+				}
+				if seen[f.Path] {
+					t.Fatalf("row path %q repeated", f.Path)
+				}
+				seen[f.Path] = true
+			}
+			if len(p.Files)+p.FilesOmitted != tc.n {
+				t.Fatalf("rows %d + omitted %d != %d", len(p.Files), p.FilesOmitted, tc.n)
+			}
+			byState := 0
+			for _, c := range p.FilesOmittedByState {
+				byState += c
+			}
+			if byState != p.FilesOmitted {
+				t.Fatalf("filesOmittedByState %v does not account for %d omitted rows", p.FilesOmittedByState, p.FilesOmitted)
+			}
+			if p.FilesOmitted > 0 && !p.Truncated {
+				t.Fatal("omitted rows without truncated:true")
+			}
+		})
+	}
+}
+
+// TestR7R2OversizedFailedPathKeepsFilename: a failed path too long for the envelope keeps its
+// filename; the shortened form is the path's tail, never a shared prefix.
+func TestR7R2OversizedFailedPathKeepsFilename(t *testing.T) {
+	root := t.TempDir()
+	set, err := New(Options{Workspace: root, Policy: PolicyWorkspace, SessionID: "s-r7r2-long"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deep := strings.Repeat("very-long-directory-name-segment/", 120)
+	failed := deep + "FailedTarget.kt"
+	files := []editing.FileCommitReceipt{
+		{Path: failed, PublishState: editing.PublishSucceededWithPostError, Published: true, Wrote: true, Error: "input/output error"},
+	}
+	results := []editing.FileResult{
+		{Path: failed, PublishState: editing.PublishSucceededWithPostError, Published: true, Error: "input/output error"},
+	}
+	for i := 0; i < 24; i++ {
+		rel := fmt.Sprintf("%sSibling%02d.kt", deep, i)
+		files = append(files, editing.FileCommitReceipt{Path: rel, PublishState: editing.PublishNotAttempted})
+		results = append(results, editing.FileResult{Path: rel, PublishState: editing.PublishNotAttempted})
+	}
+	receipt := editing.CommitReceipt{DirtyFailure: true, State: editing.CommitStatePublishedWithPostError, Files: files}
+	result := editing.Result{CommitState: editing.CommitStatePublishedWithPostError, Files: results}
+	res, _ := set.commitOutcome(result, receipt, errors.New("input/output error"))
+	if !json.Valid([]byte(res.Content)) || len(res.Content) > maxPartialPayloadBytes {
+		t.Fatalf("payload invalid or %d bytes over budget", len(res.Content))
+	}
+	var p r7r2Payload
+	if err := json.Unmarshal([]byte(res.Content), &p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Files) == 0 || !strings.HasSuffix(p.Files[0].Path, "/FailedTarget.kt") {
+		t.Fatalf("failed row lost its filename: %+v", p.Files)
+	}
+	if p.Files[0].PublishState != string(editing.PublishSucceededWithPostError) {
+		t.Fatalf("failed row state: %+v", p.Files[0])
+	}
+	for _, f := range p.Files[1:] {
+		if !strings.Contains(f.Path, "Sibling") {
+			t.Fatalf("row %q lost its filename", f.Path)
+		}
+	}
+	if !p.Truncated {
+		t.Fatal("shortened failed path without truncated:true")
+	}
+}
+
+func r7r2SetupLongDirFiles(t *testing.T, rels []string) (*Set, *editing.Engine, string) {
+	t.Helper()
+	ws := filepath.Join(t.TempDir(), "ws")
+	for i, rel := range rels {
+		full := filepath.Join(ws, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(fmt.Sprintf("OLD_%02d\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	eng, err := editing.New(editing.Options{Root: ws})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := New(Options{Workspace: ws, Policy: PolicyFull, SessionID: "s-r7r2-new01", Editing: eng})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return set, eng, ws
+}
+
+func r7r2ParseAndCheckBudget(t *testing.T, label, content string, ok bool) r7r2Payload {
+	t.Helper()
+	if ok {
+		t.Fatalf("%s: expected tool failure, got OK=true", label)
+	}
+	if !utf8.ValidString(content) {
+		t.Fatalf("%s: payload is not valid UTF-8", label)
+	}
+	if !json.Valid([]byte(content)) {
+		t.Fatalf("%s: payload is not valid JSON: %s", label, content)
+	}
+	if len(content) > maxPartialPayloadBytes {
+		t.Fatalf("%s: payload %d bytes exceeds %d limit", label, len(content), maxPartialPayloadBytes)
+	}
+	var p r7r2Payload
+	if err := json.Unmarshal([]byte(content), &p); err != nil {
+		t.Fatalf("%s: unmarshal failed: %v", label, err)
+	}
+	byState := 0
+	for _, n := range p.FilesOmittedByState {
+		byState += n
+	}
+	if byState != p.FilesOmitted {
+		t.Fatalf("%s: filesOmittedByState %v sums to %d, want %d", label, p.FilesOmittedByState, byState, p.FilesOmitted)
+	}
+	return p
+}
+
+// TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities reproduces R7R2-NEW-01:
+// 5 failed files under ~780-byte directory components with bare syscall.EIO must keep all 5
+// failed rows identifiable inside the 4096-byte JSON payload instead of collapsing to 1 row.
+func TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities(t *testing.T) {
+	longDir := strings.Repeat("d", 190) + "/" + strings.Repeat("e", 190) + "/" + strings.Repeat("f", 190) + "/" + strings.Repeat("g", 190)
+	rels := make([]string, 6)
+	var patches []any
+	for i := range rels {
+		rels[i] = fmt.Sprintf("%s/Adapter%02d.kt", longDir, i)
+		patches = append(patches, map[string]any{
+			"path":      rels[i],
+			"operation": "update",
+			"edits":     []any{map[string]any{"old_text": fmt.Sprintf("OLD_%02d", i), "new_text": fmt.Sprintf("NEW_%02d", i)}},
+		})
+	}
+	set, eng, ws := r7r2SetupLongDirFiles(t, rels)
+	eng.SetPublishFaultHooks(editing.PublishFaultHooks{
+		AfterTruncate: func(abs string) error {
+			if filepath.Base(abs) == "Adapter04.kt" {
+				for j := 0; j < 4; j++ {
+					_ = os.WriteFile(filepath.Join(ws, filepath.FromSlash(rels[j])), []byte("EXT\n"), 0o644)
+				}
+				return syscall.EIO
+			}
+			return nil
+		},
+	})
+	res, err := set.Execute(context.Background(), "apply_patch", map[string]any{"patches": patches}, nil)
+	if err != nil {
+		t.Fatalf("unexpected go error: %v", err)
+	}
+	p := r7r2ParseAndCheckBudget(t, "five_failed_longdir", res.Content, res.OK)
+	if !res.MutatesWorkspace || !p.DirtyFailure || !p.PartialPublication || !p.Truncated {
+		t.Fatalf("expected dirty partial failure flags, got mut=%v payload=%+v", res.MutatesWorkspace, p)
+	}
+	if p.CommitState != string(editing.CommitStatePartiallyPublished) {
+		t.Fatalf("commitState=%q, want %q", p.CommitState, editing.CommitStatePartiallyPublished)
+	}
+	if len(p.Files) != 5 {
+		t.Fatalf("expected all 5 failed rows preserved, got len=%d omitted=%d byState=%v content=%s",
+			len(p.Files), p.FilesOmitted, p.FilesOmittedByState, res.Content)
+	}
+	if p.FilesOmitted != 1 || p.FilesOmittedByState[string(editing.PublishNotAttempted)] != 1 {
+		t.Fatalf("expected only Adapter05.kt (not_attempted) omitted, got omitted=%d byState=%v", p.FilesOmitted, p.FilesOmittedByState)
+	}
+	wantStates := map[string]string{
+		"/Adapter00.kt": string(editing.PublishExternalModification),
+		"/Adapter01.kt": string(editing.PublishExternalModification),
+		"/Adapter02.kt": string(editing.PublishExternalModification),
+		"/Adapter03.kt": string(editing.PublishExternalModification),
+		"/Adapter04.kt": string(editing.PublishPartial),
+	}
+	for _, f := range p.Files {
+		var matchedSuffix string
+		for suffix := range wantStates {
+			if strings.HasSuffix(f.Path, suffix) {
+				matchedSuffix = suffix
+				break
+			}
+		}
+		if matchedSuffix == "" {
+			t.Fatalf("unidentifiable or duplicate row path %q in %+v", f.Path, p.Files)
+		}
+		if f.PublishState != wantStates[matchedSuffix] || f.Verified {
+			t.Fatalf("row %+v has state %q, want %q with verified=false", f, f.PublishState, wantStates[matchedSuffix])
+		}
+		delete(wantStates, matchedSuffix)
+	}
+	if len(wantStates) != 0 {
+		t.Fatalf("missing failed identities: %v", wantStates)
+	}
+}
+
+// TestR7R2New01OverflowBoundaryMatrix covers single/multiple failures, mixed states, >=5 failed
+// rows, Unicode/long filenames, identical basenames in different directories, bare errno,
+// pathless cancellation, budget boundaries, and impossible-to-fit omission disclosure.
+func TestR7R2New01OverflowBoundaryMatrix(t *testing.T) {
+	longDir := strings.Repeat("d", 185) + "/" + strings.Repeat("e", 185) + "/" + strings.Repeat("f", 185) + "/" + strings.Repeat("g", 185)
+
+	t.Run("single_failed_long_path_bare_eio", func(t *testing.T) {
+		var rels []string
+		var patches []any
+		for i := 0; i < 11; i++ {
+			rel := fmt.Sprintf("%s/Item%02d.kt", longDir, i)
+			rels = append(rels, rel)
+			patches = append(patches, map[string]any{
+				"path": rel, "operation": "update",
+				"edits": []any{map[string]any{"old_text": fmt.Sprintf("OLD_%02d", i), "new_text": fmt.Sprintf("NEW_%02d", i)}},
+			})
+		}
+		set, eng, _ := r7r2SetupLongDirFiles(t, rels)
+		eng.SetPublishFaultHooks(editing.PublishFaultHooks{
+			AfterTruncate: func(abs string) error {
+				if filepath.Base(abs) == "Item05.kt" {
+					return syscall.EIO
+				}
+				return nil
+			},
+		})
+		res, _ := set.Execute(context.Background(), "apply_patch", map[string]any{"patches": patches}, nil)
+		p := r7r2ParseAndCheckBudget(t, "single_failed_long_path", res.Content, res.OK)
+		if len(p.Files) == 0 || !strings.HasSuffix(p.Files[0].Path, "/Item05.kt") || p.Files[0].PublishState != string(editing.PublishPartial) {
+			t.Fatalf("failed row lost or wrong state: %+v", p.Files)
+		}
+	})
+
+	t.Run("mixed_failed_unicode_longname_and_identical_basenames", func(t *testing.T) {
+		unicodeDir := strings.Repeat("d", 155) + "/" + strings.Repeat("e", 155) + "/" + strings.Repeat("f", 155) + "/" + strings.Repeat("g", 155)
+		longUnicodeName := "aa_" + strings.Repeat("LongName_", 9) + "支付_🔥_01.kt"
+		rels := []string{
+			unicodeDir + "/" + longUnicodeName,
+			unicodeDir + "/auth/config.yaml",
+			unicodeDir + "/billing/config.yaml",
+			unicodeDir + "/mid/Adapter01.kt",
+			unicodeDir + "/z_fail/Adapter02.kt",
+			unicodeDir + "/z_not/Tail01.kt",
+			unicodeDir + "/z_not/Tail02.kt",
+			unicodeDir + "/z_not/Tail03.kt",
+			unicodeDir + "/z_not/Tail04.kt",
+		}
+		var patches []any
+		for i, rel := range rels {
+			patches = append(patches, map[string]any{
+				"path": rel, "operation": "update",
+				"edits": []any{map[string]any{"old_text": fmt.Sprintf("OLD_%02d", i), "new_text": fmt.Sprintf("NEW_%02d", i)}},
+			})
+		}
+		set, eng, ws := r7r2SetupLongDirFiles(t, rels)
+		eng.SetPublishFaultHooks(editing.PublishFaultHooks{
+			AfterTruncate: func(abs string) error {
+				if strings.HasSuffix(filepath.ToSlash(abs), "z_fail/Adapter02.kt") {
+					for j := 0; j < 4; j++ {
+						_ = os.WriteFile(filepath.Join(ws, filepath.FromSlash(rels[j])), []byte("EXT\n"), 0o644)
+					}
+					return syscall.EIO
+				}
+				return nil
+			},
+		})
+		res, _ := set.Execute(context.Background(), "apply_patch", map[string]any{"patches": patches}, nil)
+		p := r7r2ParseAndCheckBudget(t, "unicode_long_identical_basenames", res.Content, res.OK)
+		if len(p.Files) != 5 {
+			t.Fatalf("expected all 5 failed rows visible, got len=%d content=%s", len(p.Files), res.Content)
+		}
+		if p.FilesOmitted != 4 || p.FilesOmittedByState[string(editing.PublishNotAttempted)] != 4 {
+			t.Fatalf("unexpected omissions: omitted=%d byState=%v", p.FilesOmitted, p.FilesOmittedByState)
+		}
+		var gotUnicode, gotAuth, gotBilling, gotA1, gotA2 bool
+		for _, f := range p.Files {
+			switch {
+			case strings.Contains(f.Path, "支付_🔥_01.kt") && f.PublishState == string(editing.PublishExternalModification):
+				gotUnicode = true
+			case strings.HasSuffix(f.Path, "/auth/config.yaml") && f.PublishState == string(editing.PublishExternalModification):
+				gotAuth = true
+			case strings.HasSuffix(f.Path, "/billing/config.yaml") && f.PublishState == string(editing.PublishExternalModification):
+				gotBilling = true
+			case strings.HasSuffix(f.Path, "/mid/Adapter01.kt") && f.PublishState == string(editing.PublishExternalModification):
+				gotA1 = true
+			case strings.HasSuffix(f.Path, "/z_fail/Adapter02.kt") && f.PublishState == string(editing.PublishPartial):
+				gotA2 = true
+			}
+		}
+		if !gotUnicode || !gotAuth || !gotBilling || !gotA1 || !gotA2 {
+			t.Fatalf("lost distinct failed identity (unicode=%v auth=%v billing=%v a1=%v a2=%v): %+v",
+				gotUnicode, gotAuth, gotBilling, gotA1, gotA2, p.Files)
+		}
+	})
+
+	t.Run("eight_failed_rows_long_paths", func(t *testing.T) {
+		var rels []string
+		var patches []any
+		for i := 0; i < 12; i++ {
+			rel := fmt.Sprintf("%s/Service%02d.kt", longDir, i)
+			rels = append(rels, rel)
+			patches = append(patches, map[string]any{
+				"path": rel, "operation": "update",
+				"edits": []any{map[string]any{"old_text": fmt.Sprintf("OLD_%02d", i), "new_text": fmt.Sprintf("NEW_%02d", i)}},
+			})
+		}
+		set, eng, ws := r7r2SetupLongDirFiles(t, rels)
+		eng.SetPublishFaultHooks(editing.PublishFaultHooks{
+			AfterTruncate: func(abs string) error {
+				if filepath.Base(abs) == "Service07.kt" {
+					for j := 0; j < 7; j++ {
+						_ = os.WriteFile(filepath.Join(ws, filepath.FromSlash(rels[j])), []byte("EXT\n"), 0o644)
+					}
+					return syscall.EIO
+				}
+				return nil
+			},
+		})
+		res, _ := set.Execute(context.Background(), "apply_patch", map[string]any{"patches": patches}, nil)
+		p := r7r2ParseAndCheckBudget(t, "eight_failed_long_paths", res.Content, res.OK)
+		if len(p.Files) != 8 {
+			t.Fatalf("expected all 8 failed rows visible, got len=%d content=%s", len(p.Files), res.Content)
+		}
+		if p.FilesOmitted != 4 || p.FilesOmittedByState[string(editing.PublishNotAttempted)] != 4 {
+			t.Fatalf("unexpected omissions: %d %v", p.FilesOmitted, p.FilesOmittedByState)
+		}
+		seen := map[string]bool{}
+		for _, f := range p.Files {
+			seen[filepath.Base(f.Path)] = true
+		}
+		for i := 0; i < 8; i++ {
+			base := fmt.Sprintf("Service%02d.kt", i)
+			if !seen[base] {
+				t.Fatalf("missing failed row %s in %+v", base, p.Files)
+			}
+		}
+	})
+
+	t.Run("cancellation_without_path_long_dirs", func(t *testing.T) {
+		var rels []string
+		var patches []any
+		for i := 0; i < 12; i++ {
+			rel := fmt.Sprintf("%s/Cancel%02d.kt", longDir, i)
+			rels = append(rels, rel)
+			patches = append(patches, map[string]any{
+				"path": rel, "operation": "update",
+				"edits": []any{map[string]any{"old_text": fmt.Sprintf("OLD_%02d", i), "new_text": fmt.Sprintf("NEW_%02d", i)}},
+			})
+		}
+		set, eng, _ := r7r2SetupLongDirFiles(t, rels)
+		ctx, cancel := context.WithCancel(context.Background())
+		eng.SetPublishFaultHooks(editing.PublishFaultHooks{
+			AfterInPlaceWriteClose: func(abs string) error {
+				if filepath.Base(abs) == "Cancel05.kt" {
+					cancel()
+				}
+				return nil
+			},
+		})
+		res, _ := set.Execute(ctx, "apply_patch", map[string]any{"patches": patches}, nil)
+		p := r7r2ParseAndCheckBudget(t, "cancel_long_dirs", res.Content, res.OK)
+		if p.CommitState != string(editing.CommitStatePartiallyPublished) || len(p.Files)+p.FilesOmitted != 12 {
+			t.Fatalf("unexpected cancel payload: %+v", p)
+		}
+	})
+
+	t.Run("impossible_to_fit_50_failed_rows_discloses_omissions", func(t *testing.T) {
+		root := t.TempDir()
+		set, err := New(Options{Workspace: root, Policy: PolicyWorkspace, SessionID: "s-r7r2-50"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		prefix := strings.Repeat("seg/", 70)
+		var files []editing.FileCommitReceipt
+		var results []editing.FileResult
+		for i := 0; i < 50; i++ {
+			rel := fmt.Sprintf("%sFailedItem%02d.kt", prefix, i)
+			state := editing.PublishExternalModification
+			if i%2 == 1 {
+				state = editing.PublishPartial
+			}
+			files = append(files, editing.FileCommitReceipt{
+				Path:         rel,
+				PublishState: state,
+				Published:    true,
+				Wrote:        true,
+				Error:        "input/output error",
+			})
+			results = append(results, editing.FileResult{
+				Path:         rel,
+				PublishState: state,
+				Published:    true,
+				Error:        "input/output error",
+			})
+		}
+		rec := editing.CommitReceipt{DirtyFailure: true, State: editing.CommitStatePartiallyPublished, Files: files}
+		result := editing.Result{CommitState: editing.CommitStatePartiallyPublished, Files: results}
+		res, _ := set.commitOutcome(result, receiptCopy(rec), syscall.EIO)
+		p := r7r2ParseAndCheckBudget(t, "impossible_50_failed", res.Content, res.OK)
+		if !p.Overflow || !p.Truncated {
+			t.Fatalf("expected overflow=true truncated=true, got %+v", p)
+		}
+		if len(p.Files) <= 1 || len(p.Files)+p.FilesOmitted != 50 {
+			t.Fatalf("expected maximum fitting failed prefix (>1) with exact omission count, got len=%d omitted=%d", len(p.Files), p.FilesOmitted)
+		}
+		omittedFailed := p.FilesOmittedByState[string(editing.PublishExternalModification)] + p.FilesOmittedByState[string(editing.PublishPartial)]
+		if omittedFailed != p.FilesOmitted || omittedFailed == 0 {
+			t.Fatalf("expected omitted failed states disclosed in filesOmittedByState, got %v (omitted=%d)", p.FilesOmittedByState, p.FilesOmitted)
+		}
+		for _, f := range p.Files {
+			if !strings.Contains(f.Path, "/FailedItem") {
+				t.Fatalf("displayed row %q lost its filename", f.Path)
+			}
+		}
+	})
+}
+
+func receiptCopy(r editing.CommitReceipt) editing.CommitReceipt {
+	out := r
+	out.Files = append([]editing.FileCommitReceipt(nil), r.Files...)
+	return out
+}
+
+func TestCarbonR7R2Results01AdversarialMatrix(t *testing.T) {
+	const prefix = "src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/"
+
+	runPatch := func(t *testing.T, ctx context.Context, s *Set, rels []string) (string, bool) {
+		t.Helper()
+		var patches []any
+		for i, rel := range rels {
+			patches = append(patches, map[string]any{
+				"path":      rel,
+				"operation": "update",
+				"edits": []any{
+					map[string]any{"old_text": fmt.Sprintf("OLD_%02d", i), "new_text": fmt.Sprintf("NEW_%02d", i)},
+				},
+			})
+		}
+		res, _ := s.Execute(ctx, "apply_patch", map[string]any{"patches": patches}, nil)
+		return res.Content, res.OK
+	}
+
+	assertPayloadInvariants := func(t *testing.T, label string, content string, ok bool) map[string]any {
+		t.Helper()
+		if ok {
+			t.Fatalf("%s: expected OK=false", label)
+		}
+		if !utf8.ValidString(content) {
+			t.Fatalf("%s: invalid UTF-8 in Content", label)
+		}
+		if len(content) > maxPartialPayloadBytes {
+			t.Fatalf("%s: len(Content)=%d > %d", label, len(content), maxPartialPayloadBytes)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(content), &payload); err != nil {
+			t.Fatalf("%s: invalid JSON (%v): %s", label, err, content)
+		}
+		return payload
+	}
+
+	// 1. Reported sizes (12, 16, 20, 32) + Adversarial #1 (failAt=0, mid, last with 31 verified) + #8 (bare syscall.EIO)
+	for _, n := range []int{12, 16, 20, 32} {
+		for _, failIdx := range []int{0, n / 2, n - 1} {
+			name := fmt.Sprintf("deep_%d_fail_%d_bare_EIO", n, failIdx)
+			t.Run(name, func(t *testing.T) {
+				ws := filepath.Join(t.TempDir(), "ws")
+				var rels []string
+				for i := range n {
+					rel := fmt.Sprintf("%sAdapter%02d.kt", prefix, i)
+					full := filepath.Join(ws, filepath.FromSlash(rel))
+					if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(full, []byte(fmt.Sprintf("OLD_%02d\n", i)), 0o644); err != nil {
+						t.Fatal(err)
+					}
+					rels = append(rels, rel)
+				}
+				e, err := editing.New(editing.Options{Root: ws})
+				if err != nil {
+					t.Fatal(err)
+				}
+				failBase := filepath.Base(rels[failIdx])
+				e.SetPublishFaultHooks(editing.PublishFaultHooks{
+					AfterTruncate: func(abs string) error {
+						if filepath.Base(abs) == failBase {
+							return syscall.EIO // bare errno without path!
+						}
+						return nil
+					},
+				})
+				s, err := New(Options{Workspace: ws, Policy: PolicyFull, SessionID: "s-adv", Editing: e})
+				if err != nil {
+					t.Fatal(err)
+				}
+				content, ok := runPatch(t, context.Background(), s, rels)
+				payload := assertPayloadInvariants(t, name, content, ok)
+				files := payload["files"].([]any)
+				first := files[0].(map[string]any)
+				wantSuffix := fmt.Sprintf("Adapter%02d.kt", failIdx)
+				if !strings.HasSuffix(first["path"].(string), wantSuffix) || first["publishState"] != "partially_modified" {
+					t.Fatalf("%s: first row=%+v, want suffix %s partially_modified", name, first, wantSuffix)
+				}
+				seen := map[string]bool{}
+				for _, rf := range files {
+					p := rf.(map[string]any)["path"].(string)
+					if seen[p] {
+						t.Fatalf("%s: ambiguous duplicate shortened path %q in files", name, p)
+					}
+					seen[p] = true
+				}
+				t.Logf("%s: len=%d rows=%d first=%s state=%v", name, len(content), len(files), first["path"], payload["commitState"])
+			})
+		}
+	}
+
+	// 2a. Multiple failed files (2 failed files: Adapter00 externally modified after publish + Adapter10 partially_modified)
+	t.Run("multiple_failed_files_2_normal_deep", func(t *testing.T) {
+		ws := filepath.Join(t.TempDir(), "ws")
+		const n = 20
+		var rels []string
+		for i := range n {
+			rel := fmt.Sprintf("%sAdapter%02d.kt", prefix, i)
+			full := filepath.Join(ws, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(full, []byte(fmt.Sprintf("OLD_%02d\n", i)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			rels = append(rels, rel)
+		}
+		e, _ := editing.New(editing.Options{Root: ws})
+		firstTarget := filepath.Join(ws, filepath.FromSlash(rels[0]))
+		e.SetPublishFaultHooks(editing.PublishFaultHooks{
+			AfterTruncate: func(abs string) error {
+				if filepath.Base(abs) == "Adapter10.kt" {
+					_ = os.WriteFile(firstTarget, []byte("EXTERNAL_CONCURRENT_EDIT\n"), 0o644)
+					return syscall.EIO
+				}
+				return nil
+			},
+		})
+		s, _ := New(Options{Workspace: ws, Policy: PolicyFull, SessionID: "s-m2", Editing: e})
+		content, ok := runPatch(t, context.Background(), s, rels)
+		payload := assertPayloadInvariants(t, "multi_2", content, ok)
+		files := payload["files"].([]any)
+		found0, found10 := false, false
+		for _, rf := range files {
+			m := rf.(map[string]any)
+			p := m["path"].(string)
+			if strings.HasSuffix(p, "Adapter00.kt") && m["publishState"] == "external_modification_detected" {
+				found0 = true
+			}
+			if strings.HasSuffix(p, "Adapter10.kt") && m["publishState"] == "partially_modified" {
+				found10 = true
+			}
+		}
+		if !found0 || !found10 {
+			t.Fatalf("expected both failed files present: found0=%v found10=%v content=%s", found0, found10, content)
+		}
+		t.Logf("multi_2: len=%d rows=%d both failed rows preserved", len(content), len(files))
+	})
+
+	// 2b + 3. Multiple failed files (5 failed rows) under ~820B deep directory paths (testing overflow loop order!)
+	t.Run("multiple_failed_files_5_very_long_dirs_overflow_order", func(t *testing.T) {
+		ws := filepath.Join(t.TempDir(), "ws")
+		longDir := strings.Repeat("d", 190) + "/" + strings.Repeat("e", 190) + "/" + strings.Repeat("f", 190) + "/" + strings.Repeat("g", 190)
+		const n = 6
+		var rels []string
+		for i := range n {
+			rel := fmt.Sprintf("%s/Adapter%02d.kt", longDir, i)
+			full := filepath.Join(ws, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(full, []byte(fmt.Sprintf("OLD_%02d\n", i)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			rels = append(rels, rel)
+		}
+		e, _ := editing.New(editing.Options{Root: ws})
+		e.SetPublishFaultHooks(editing.PublishFaultHooks{
+			AfterTruncate: func(abs string) error {
+				if filepath.Base(abs) == "Adapter04.kt" {
+					for j := 0; j < 4; j++ {
+						_ = os.WriteFile(filepath.Join(ws, filepath.FromSlash(rels[j])), []byte("EXT\n"), 0o644)
+					}
+					return syscall.EIO
+				}
+				return nil
+			},
+		})
+		s, _ := New(Options{Workspace: ws, Policy: PolicyFull, SessionID: "s-m5", Editing: e})
+		content, ok := runPatch(t, context.Background(), s, rels)
+		payload := assertPayloadInvariants(t, "multi_5_longdir", content, ok)
+		files := payload["files"].([]any)
+		t.Logf("OBSERVED multi_5_longdir: len=%d overflow=%v rows=%d omitted=%v omittedByState=%v firstPath=%s",
+			len(content), payload["overflow"], len(files), payload["filesOmitted"], payload["filesOmittedByState"],
+			files[0].(map[string]any)["path"])
+	})
+
+	// 4 + 5 + 6 + 7. Long filename, Unicode filename, Spaces in filename, Identical basenames in different directories!
+	t.Run("long_unicode_spaces_and_identical_basenames", func(t *testing.T) {
+		ws := filepath.Join(t.TempDir(), "ws")
+		longFile := strings.Repeat("LongName_", 22) + "支付_🔥_01.kt"
+		rels := []string{
+			prefix + "billing/config.yaml",
+			prefix + "auth/config.yaml",
+			prefix + "OneDrive - Acme Corp/Stripe Adapter With Spaces.kt",
+			prefix + longFile,
+		}
+		for i := range 16 {
+			rels = append(rels, fmt.Sprintf("%sExtraSuccess%02d.kt", prefix, i))
+		}
+		for i, rel := range rels {
+			full := filepath.Join(ws, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(full, []byte(fmt.Sprintf("OLD_%02d\n", i)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		e, _ := editing.New(editing.Options{Root: ws})
+		authAbs := filepath.Join(ws, filepath.FromSlash(rels[1]))
+		unicodeAbs := filepath.Join(ws, filepath.FromSlash(rels[3]))
+		spacesAbs := filepath.Join(ws, filepath.FromSlash(rels[2]))
+		e.SetPublishFaultHooks(editing.PublishFaultHooks{
+			AfterTruncate: func(abs string) error {
+				if strings.HasSuffix(filepath.ToSlash(abs), "billing/config.yaml") {
+					_ = os.WriteFile(authAbs, []byte("EXT_AUTH\n"), 0o644)
+					_ = os.WriteFile(unicodeAbs, []byte("EXT_UNICODE\n"), 0o644)
+					_ = os.WriteFile(spacesAbs, []byte("EXT_SPACES\n"), 0o644)
+					return syscall.EIO
+				}
+				return nil
+			},
+		})
+		s, _ := New(Options{Workspace: ws, Policy: PolicyFull, SessionID: "s-usb", Editing: e})
+		content, ok := runPatch(t, context.Background(), s, rels)
+		payload := assertPayloadInvariants(t, "unicode_spaces_basenames", content, ok)
+		files := payload["files"].([]any)
+		var paths []string
+		for _, rf := range files {
+			paths = append(paths, rf.(map[string]any)["path"].(string))
+		}
+		t.Logf("unicode_spaces_basenames: len=%d rows=%d first4=%v", len(content), len(files), paths[:4])
+		hasBilling, hasAuth, hasUnicode, hasSpaces := false, false, false, false
+		for _, p := range paths {
+			if strings.HasSuffix(p, "billing/config.yaml") {
+				hasBilling = true
+			}
+			if strings.HasSuffix(p, "auth/config.yaml") {
+				hasAuth = true
+			}
+			if strings.Contains(p, "支付_🔥_01.kt") {
+				hasUnicode = true
+			}
+			if strings.Contains(p, "OneDrive - Acme Corp/Stripe Adapter With Spaces.kt") {
+				hasSpaces = true
+			}
+		}
+		if !hasBilling || !hasAuth || !hasUnicode || !hasSpaces {
+			t.Fatalf("missing distinct failed identities: billing=%v auth=%v unicode=%v spaces=%v paths=%v",
+				hasBilling, hasAuth, hasUnicode, hasSpaces, paths)
+		}
+	})
+
+	// 9 + 10. Cancellation without path in error + payload close to 4096 bytes!
+	t.Run("cancellation_without_path_and_near_4096", func(t *testing.T) {
+		ws := filepath.Join(t.TempDir(), "ws")
+		const n = 22
+		var rels []string
+		for i := range n {
+			rel := fmt.Sprintf("%sAdapter%02d.kt", prefix, i)
+			full := filepath.Join(ws, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(full, []byte(fmt.Sprintf("OLD_%02d\n", i)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			rels = append(rels, rel)
+		}
+		e, _ := editing.New(editing.Options{Root: ws})
+		ctx, cancel := context.WithCancel(context.Background())
+		e.SetPublishFaultHooks(editing.PublishFaultHooks{
+			AfterInPlaceWriteClose: func(abs string) error {
+				if filepath.Base(abs) == "Adapter12.kt" {
+					cancel()
+				}
+				return nil
+			},
+		})
+		s, _ := New(Options{Workspace: ws, Policy: PolicyFull, SessionID: "s-can", Editing: e})
+		content, ok := runPatch(t, ctx, s, rels)
+		payload := assertPayloadInvariants(t, "cancel_mid_batch", content, ok)
+		t.Logf("cancel_mid_batch: len=%d/4096 err=%q state=%v rows=%d omitted=%v omittedByState=%v",
+			len(content), payload["error"], payload["commitState"], len(payload["files"].([]any)), payload["filesOmitted"], payload["filesOmittedByState"])
+	})
+
+	// Unit check on truncatePathTail with >1024B single filename + >1024B identical basenames
+	t.Run("truncatePathTail_boundary_unit", func(t *testing.T) {
+		hugeSingle := strings.Repeat("あ", 400) + "_end.kt"
+		got := truncatePathTail(hugeSingle, 256)
+		if !utf8.ValidString(got) || len(got) > 256 || !strings.HasSuffix(got, "_end.kt") {
+			t.Fatalf("truncatePathTail single filename: len=%d valid=%v got=%q", len(got), utf8.ValidString(got), got)
+		}
+		sub := strings.Repeat("x", 1020)
+		t1 := truncatePathTail("billing/"+sub+"/config.yaml", 1024)
+		t2 := truncatePathTail("auth/"+sub+"/config.yaml", 1024)
+		t.Logf("OBSERVED >1024B common-tail identical basename: t1==t2 is %v (len=%d)", t1 == t2, len(t1))
+	})
+}
+
+func TestCarbonR7R2CT02ReplaySemantics(t *testing.T) {
+	ws := filepath.Join(t.TempDir(), "ws")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(ws, name), []byte("anchor\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e, _ := editing.New(editing.Options{Root: ws})
+	failOnce := true
+	e.SetPublishFaultHooks(editing.PublishFaultHooks{
+		AfterTruncate: func(abs string) error {
+			if filepath.Base(abs) == "b.txt" && failOnce {
+				failOnce = false
+				return syscall.EIO
+			}
+			return nil
+		},
+	})
+	s, _ := New(Options{Workspace: ws, Policy: PolicyFull, SessionID: "s-ct02", Editing: e})
+	batch := []any{
+		map[string]any{"path": "a.txt", "operation": "update", "edits": []any{map[string]any{"old_text": "anchor\n", "new_text": "anchor\nadded\n"}}},
+		map[string]any{"path": "b.txt", "operation": "update", "edits": []any{map[string]any{"old_text": "anchor\n", "new_text": "anchor\nadded\n"}}},
+		map[string]any{"path": "c.txt", "operation": "update", "edits": []any{map[string]any{"old_text": "anchor\n", "new_text": "anchor\nadded\n"}}},
+	}
+	res1, _ := s.Execute(context.Background(), "apply_patch", map[string]any{"patches": batch}, nil)
+	if res1.OK || !strings.Contains(res1.Content, "Do not replay a path whose verified state is true") {
+		t.Fatalf("expected partial failure with explicit do-not-replay recovery text: %s", res1.Content)
+	}
+	// Cooperative recovery: reread + repair b.txt, then apply ONLY unverified c.txt
+	_, _ = s.Execute(context.Background(), "read_file", map[string]any{"path": "b.txt"}, nil)
+	_, _ = s.Execute(context.Background(), "write_file", map[string]any{"path": "b.txt", "content": "anchor\nadded\n"}, nil)
+	resSub, _ := s.Execute(context.Background(), "apply_patch", map[string]any{"patches": batch[2:]}, nil)
+	if !resSub.OK {
+		t.Fatalf("cooperative subset retry failed: %s", resSub.Content)
+	}
+	aBytes, _ := os.ReadFile(filepath.Join(ws, "a.txt"))
+	if string(aBytes) != "anchor\nadded\n" {
+		t.Fatalf("cooperative retry duplicated a.txt: %q", aBytes)
+	}
+
+	// Uncooperative blind whole-batch replay duplicates anchored insertion:
+	resBlind, _ := s.Execute(context.Background(), "apply_patch", map[string]any{"patches": batch}, nil)
+	aAfterBlind, _ := os.ReadFile(filepath.Join(ws, "a.txt"))
+	t.Logf("CT-02 blind replay OK=%v, a.txt=%q", resBlind.OK, string(aAfterBlind))
+	if !resBlind.OK || string(aAfterBlind) != "anchor\nadded\nadded\n" {
+		t.Fatalf("expected blind replay of anchored insert to duplicate once: OK=%v a=%q", resBlind.OK, aAfterBlind)
+	}
+
+	// Contrast: replacement edit ("OLD\n" -> "NEW\n") is naturally refused on blind replay!
+	ws2 := filepath.Join(t.TempDir(), "ws2")
+	_ = os.MkdirAll(ws2, 0o755)
+	_ = os.WriteFile(filepath.Join(ws2, "a.txt"), []byte("OLD\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(ws2, "b.txt"), []byte("OLD\n"), 0o644)
+	e2, _ := editing.New(editing.Options{Root: ws2})
+	failB := true
+	e2.SetPublishFaultHooks(editing.PublishFaultHooks{
+		AfterTruncate: func(abs string) error {
+			if filepath.Base(abs) == "b.txt" && failB {
+				failB = false
+				return syscall.EIO
+			}
+			return nil
+		},
+	})
+	s2, _ := New(Options{Workspace: ws2, Policy: PolicyFull, SessionID: "s-ct02-repl", Editing: e2})
+	replBatch := []any{
+		map[string]any{"path": "a.txt", "operation": "update", "edits": []any{map[string]any{"old_text": "OLD\n", "new_text": "NEW\n"}}},
+		map[string]any{"path": "b.txt", "operation": "update", "edits": []any{map[string]any{"old_text": "OLD\n", "new_text": "NEW\n"}}},
+	}
+	_, _ = s2.Execute(context.Background(), "apply_patch", map[string]any{"patches": replBatch}, nil)
+	resReplBlind, _ := s2.Execute(context.Background(), "apply_patch", map[string]any{"patches": replBatch}, nil)
+	if resReplBlind.OK {
+		t.Fatalf("expected blind replay of replacement edit to be refused cleanly")
+	}
+}

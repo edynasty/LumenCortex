@@ -1,0 +1,19 @@
+package toolset
+
+import (
+	"context"
+	"testing"
+)
+
+// TestReviewEngineEscapingSameBasename drives apply_patch with two escaping paths that share a
+// basename, to observe the receipt shape the engine produces for unresolved entries.
+func TestReviewEngineEscapingSameBasename(t *testing.T) {
+	set, _, _ := r7r2SetupLongDirFiles(t, []string{"ok/a.txt"})
+	patches := []any{
+		map[string]any{"path": "ok/a.txt", "operation": "update", "edits": []any{map[string]any{"old_text": "OLD_00", "new_text": "NEW_00"}}},
+		map[string]any{"path": "../a/key.txt", "operation": "update", "edits": []any{map[string]any{"old_text": "x", "new_text": "y"}}},
+		map[string]any{"path": "../b/key.txt", "operation": "update", "edits": []any{map[string]any{"old_text": "x", "new_text": "y"}}},
+	}
+	res, err := set.Execute(context.Background(), "apply_patch", map[string]any{"patches": patches}, nil)
+	t.Logf("err=%v ok=%v mutates=%v content=%s", err, res.OK, res.MutatesWorkspace, res.Content)
+}

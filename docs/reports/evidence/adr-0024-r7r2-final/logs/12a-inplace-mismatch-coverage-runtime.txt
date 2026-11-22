@@ -1,0 +1,10 @@
+go version go1.26.5 darwin/arm64
+HEAD fa909ad555f8ba42a7a910cd12f6bf153ea645ae (Go sources equal HEAD; see 00-state.txt)
+cmd= go test -count=1 -timeout=45m -coverpkg=./internal/editing -coverprofile=<tmp>/cover-head-runtime.out ./runtime
+ok  	github.com/edynasty/LumenCortex/runtime	689.000s	coverage: 59.7% of statements in ./internal/editing
+exit=0
+cmd= grep -F publish_file.go:199.33,203.3 <tmp>/cover-head-runtime.out   # last number = hit count
+github.com/edynasty/LumenCortex/internal/editing/publish_file.go:199.33,203.3 2 0
+# ./runtime was measured at HEAD only. Its tests and internal/editing production code are unchanged since f3f77e35c98de4647243019568ed5ec3093cf072:
+cmd= git diff --stat f3f77e35c98de4647243019568ed5ec3093cf072 HEAD -- runtime internal/editing ":!internal/editing/*_test.go"
+exit=0 (no lines above: no difference)

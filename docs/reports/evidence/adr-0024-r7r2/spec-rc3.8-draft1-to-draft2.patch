@@ -1,0 +1,74 @@
+--- context-space-architecture-master.zh-CN.md (v0.4-rc3.8 draft 1, a24d8b18)
++++ context-space-architecture-master.zh-CN.md (v0.4-rc3.8 draft 2)
+@@ -1,7 +1,8 @@
+ # LumenCortex 认知上下文预算与候选级确定性投影架构主文档（v0.4-rc3.8 · R7 逐文件提交）
+ 
+ - **本地主文档路径：** `LumenCortex-architecture-audit/design/handoffs/context-space-architecture-master.zh-CN.md`
+-- **本次修订：** `v0.4-rc3.8`，按 Owner 授权修订 §4.6 场景 F 的 Editing Engine 事务边界。以该场景及 Core ADR-0024 §8 为准。下文的早期源码行号、审查发现、回滚方案和实验数据保留为历史记录。
++- **本次修订：** `v0.4-rc3.8`（草案第 2 版，2026-11-21），修订 §4.6 场景 F 的 Editing Engine 事务边界。以该场景及 Core ADR-0024 §8 为准。下文的早期源码行号、审查发现、回滚方案和实验数据保留为历史记录；仍描述 `rollback` 的段落已就地标注为历史。
++- **批准状态：** `PENDING_OWNER_APPROVAL`。本版由 R7 实施者按 R7 委托（"更新规格而不是留下矛盾文档"）起草，Owner 尚未显式批准本版文本。草案第 1 版原样归档为 `context-space-architecture-master.v0.4-rc3.8-draft1.zh-CN.md`（SHA256 `a24d8b18b04aa83ff144fd416d1c5b8751e307d8eb1b7baf08efec74b217fb3f`）；`v0.4-rc3.7` 输入归档 SHA256 `5c9edaeb6b917d7cf508677036f17ab1911dd6b5f1a78ee25d8e0082f6cbb89f`。
+ - **状态：** R7 设计采用整批预检、逐文件提交、首错停止和只读核验。历史 `published_rolled_back` / `rollback_failed` 仍保留原义。来源撤回、执行准入、证据格及冷恢复沿用既有架构。
+ - **基线变更独立核验声明（强制核查记录）：**
+   - **历史审查工作树说明：** 早期 `wt/core-cognitive-core-icra-cross-review-20261115`（`f8a87f5648221d546a77008bfd91f1387369efce`）已在 Cognitive Core v1.0 收口整合时清理（详见 `docs/reports/COGNITIVE_CORE_V1_GIT.md`）。
+@@ -461,7 +462,7 @@
+ 	MutationNone MutationEvidence = "none"
+ 	// MutationUnknown 表示证据不足以同时证明「零写入且未变」或「由当前 Agent 实际写入造成净文件内容改变」：
+ 	// 包含宿主并发修改后 Agent No-op 写相同内容（Wrote==false 但 PreRef!=PostRef）、宿主改 B 后 Agent 改回原 A（Wrote==true 但净 PreRef==PostRef）、
+-	// Agent 写入后被宿主并发覆盖（写后磁盘 SHA256 != NewSHA256）、CAS 冲突/陈旧读拒绝、单文件截断写失败或多文件部分写入回滚失败、
++	// Agent 写入后被宿主并发覆盖（写后磁盘 SHA256 != NewSHA256）、CAS 冲突/陈旧读拒绝、单文件截断写失败或多文件部分写入回滚失败（历史；rc3.8 起无回滚，见场景 F）、
+ 	// 未携带 ";cm=" 封签的历史旧行、全部内置 tierWorkspace（bash、edit_go、lsp_rename、eval_artifact）、全部已准入外部 mcp__*、
+ 	// 崩溃中断（OriginToolInterrupted / outcome_unknown）及含任一 Unknown 的复合原子组。
+ 	// 硬约束：MutationUnknown 在首次阻断前锁定潜在致错现场，在门禁阻断后绝不允许前移 MinRequiredSeq!
+@@ -485,7 +486,7 @@
+ 
+ type CommitReceipt struct {
+ 	Committed    bool                // Engine.Commit 整体无错完成时为 true
+-	DirtyFailure bool                // 错误发生在进入磁盘突变窗口后（Truncate 后写失败、CodeConcurrentWrite 或 rollback 出错）时为 true
++	DirtyFailure bool                // 错误发生在进入磁盘突变窗口后（Truncate 后写失败、CodeConcurrentWrite；历史 rollback 出错；rc3.8 起含已发布前缀后的失败或不确定发布）时为 true
+ 	Files        []FileCommitReceipt // 按规范化路径排序的目标文件提交明细
+ }
+ 
+@@ -740,6 +741,7 @@
+ 4. **`BaseRev`、`RejectStaleRead`、`staleUnless` 何时拒绝写入？何时放行？** `engine.go:404-431` & `store.go:163-204`：① 显式传入 `BaseRev != ""` 时（`edit_lines` 必传，其余可选），`!p.existed` 报 `CodeNotFound`、`p.rev != BaseRev` 报 `CodeConflict`；② 当 `BaseRev == ""` 且 `RejectStaleRead == true` 时（`write_file / replace_in_file / apply_patch` 默认路径），查询 `latest, ok := e.snaps.Latest(session, p.key)`：若曾读过且 `p.rev != latest.Rev`（或超 `MaxSessionEntries = 512` 淘汰致 `incomplete == true`）报 `CodeStale`；**致命放行缺口在于：当 `!ok && !e.snaps.incomplete(session)`——即当前会话从未读取过该路径，或进程重启 `Resume` 清空了纯内存 `editing.SnapshotStore`（`store.go:25-26`）时，`RejectStaleRead` 直接放行！** 且 `staleUnless` 仅在会话落盘后通知其他会话，宿主外部编辑器改盘完全不经过 `SnapshotStore`。
+ 5. **CAS 写入、写后重读校验与 `O_CREATE | O_EXCL` 创建身份清理守卫（闭合 `F-01`）：** `engine.go` 排序加进程内单路径互斥锁 `e.lockPaths(keys)` -> `prepare` 读取 `p.original` 算 `p.rev` 并生成 `p.next` -> `write` 阶段：删除调 `deleteCAS`（打开 fd 重读校验 `RevOf(current) == p.rev` + `SameFile` 防掉包后 `os.Remove`）；既有文件修改（`p.existed == true`）强制调用 `host.Open(p.abs, false)`（无 `O_CREATE`，期间被外部删除返 `CodeConflict`）；创建型写入（`!p.existed`）在 `LocalHost.Open(path, true)` 与 `(*toolset.Set).Open(path, true)` 中**强制使用 `os.O_RDWR | os.O_CREATE | os.O_EXCL`**：① 若返回 `os.ErrExist`（外部进程在 `prepare` 与 `Open` 之间创建了同名文件），立即无脏返回 `CodeConflict`（`dirty=false`，**严禁删除既有或外部文件**）；② 唯有本次 `O_CREATE | O_EXCL` 真正创建成功的文件才获得清理资格，当场从打开句柄提取平台文件身份 `fileIdentity`（Unix 校验 `Dev/Ino` + `os.SameFile` 且在保持 `f` 打开防止内核重用 inode 的前提下复核 `os.Lstat` 后删除；Windows 通过 `syscall.GetFileInformationByHandle` 记录 `VolumeSerialNumber + FileIndexHigh/Low + CreationTime` 并在清理及 `rollback` 删除前重新打开/校验路径仍指向同一常规文件且 `rollback` 阶段字节内容仍等于 `p.next`；若文件已被外部删除、替换或重建则一律禁止删除！）。
+ 6. **失败与多文件部分写入后的回滚是否是 best-effort？** **是，存在两类残留副作用窗口：** ① 单文件 `writeCAS` 在 `f.Truncate(0)` 清空原文件后若 `f.Write(p.next)` 报 I/O 错误或重读报 `CodeConcurrentWrite`（`590-605` 行），因 `p` 尚未加入 `written`（`540` 行），直接返回错误**不写回 `p.original`**（且 `toolset/editing.go:108` 漏将 `Truncate` 后的 `CodeIO` 置 `MutatesWorkspace: true`）；② 多文件 `apply_patch` 第 `k` 个文件失败时，`e.rollback(host, written)`（`609-632` 行）执行 `_ = os.Remove` 与 `_ = e.writeRestore` **显式忽略全部恢复错误**，回滚失败或中途崩溃会留下部分写入。
++   - 〔历史，rc3.8 起被场景 F 取代〕R7 已删除 `rollback` / `writeRestore` 及一切已发布文件的自动补偿。多文件失败按逐文件收据报告已核实前缀、失败文件和未执行后缀；截断后写失败报告 `partially_modified`（PRE-01）。
+ 7. **工具层返回给 Agent Loop 的 `protocol.ToolResult` 是否保留了 `Engine.Commit` 的细节？** **未保留！** `write_file`（`files.go:147`）与 `replace_in_file`（`files.go:188`）仅输出路径与修订号，`apply_patch`（`patch.go:112`）用 `_, err := s.edit.Commit(...)` 直接丢弃 `Result`，且四者在 `p.wrote == false` 时均硬编码 `MutatesWorkspace: true`。
+ 8. **`edit.committed` 事件是否持久化？** **完全不持久化！** `runtime/events.go:255-260` 对 `"edit.committed"` 硬编码 `durableEvent == false`（不写 `journal` 表），载荷（`engine.go:318-321`）无 `ExecutionID / RequestID / ToolCallID`，且订阅缓冲满时非阻塞丢弃（`events.go:195-207`）。
+ 9. **`Resume` 后能否仅凭现有数据库知道某次 `tierFiles` 调用是否真的执行过磁盘写入？** **现有 `c73d173` 数据库不能！** `derived_origins` 仅存 `pre_ref / post_ref / coverage / outcome`，场景 B（宿主改 `B` 后 Agent `write_file(B)` `p.wrote=false`）与场景 A（Agent 真实写 `B` `p.wrote=true`）持久化列逐字节雷同，必须在结算事务中持久化 Commit 级因果封签。
+@@ -764,6 +766,7 @@
+ - **场景 D（`初始 A -> Agent Write A` 幂等同内容写入）：** `Wrote=false` 且 `PreBlob(A) == PostBlob(A)`（`PreRef == PostRef && FileEdgeCount == 0`）$\implies$ 封签 **`;cm=none`（`MutationNone`）**。
+ - **场景 E（`Agent Read A -> 宿主并发改 B -> Agent Write A/C`）：** `RejectStaleRead / BaseRev` 在写盘前拒绝（`CodeStale / CodeConflict`，`Wrote=false, Outcome=OutcomeFailed`）；尽管 `postFiles` 观测到 `PreRef(A) != PostRef(B)` 并写入 `DerivedEdge(path@Blob(B))`，因 `Outcome != OutcomeComplete` 且零实写 $\implies$ 封签 **`;cm=unknown`（`MutationUnknown`）**。
+ - **场景 F（R7 规范性修订）：** 普通文本编辑先完成整批路径、租约、修订和内容校验，再按规范路径逐个执行。遇到首个写入、发布或核验错误即停止。既有文件更新保留描述符语义，新建及显式重建要求私有暂存与单路径 no-replace 发布；无法安全发布就拒绝。已发布的创建、更新、删除均原样保留，不因后续失败自动补偿。收据覆盖已核实、部分修改、外部改动、失败、不支持、不确定及未执行文件。仅核实的字节或不存在状态具有可信的 `NewSHA256`，仅核实的现存内容具有 `NewRev`。失败且存在已知或可能的副作用时，持久化 `outcome_unknown`，可用的文件 `post_ref` 封签 `;cm=unknown`；崩溃按场景 H 恢复。多个文件并非整体原子，普通文件 `PRE-01` 与 `PRE-02` 仍开放。验证只描述观测时刻，未承诺掉电持久性。
++  - **场景 F 补充（rc3.8 草案第 2 版，R7R2）：** ① 同一计划内经硬链接或大小写变体（在折叠大小写的卷上）指向同一物理文件的两个目标，在获取锁和写入前整体拒绝（`CodeInvalid`）；大小写比较只在目标目录实际折叠大小写时启用，不做全局小写化。② 准入准备阶段发现的陈旧修订或过期会话读取（`CodeStale` / `CodeConflict`，LC 尚未打开目标写入）记为 `failed_before_write` 并保留原错误码；`external_modification_detected` 只用于 LC 进入发布后观测到的外部改动。③ `PRE-02` 的截断—写入竞争可能是**静默**的：外部进程在 `Truncate(0)` 与 `Write` 之间写入的字节可被覆盖，而结果仍为 `published_verified`。④ 前缀保留后，整批盲目重放非幂等编辑（如锚点插入）会重复已提交的修改；Agent 必须按收据只重做未完成的部分，这是指引而非机制保证。
+ - **场景 G（同一 `answered_seq` 下多工具调用隔离与聚合）：** 无论并发/串行调用 `write_file(p1), write_file(p2), write_file(p3)` 还是对同一 `p1` 连续调用（如 `A->B` `;cm=proven` 后再调 `B->B` `;cm=none`），每次 `admitExecution` 均向当次 `toolCtx` 注入独占 `commitRecorder(x.id)`（嵌套回调生成独立子槽覆盖父键，零串线）；聚合严格服从偏序格 `Unknown > Proven > None`（`Proven + None = Proven`；只要任一调用为 `Unknown`，整组一票否决为 **`MutationUnknown`**）。
+ - **场景 H（崩溃与 `Resume` 恢复）：** ① **H1（`Engine.Commit` 写盘后、`CommitToolResult` 提交前崩溃）**：`Store.Reconcile`（`reconcile.go:118-137, 229-239`）补写 `OriginToolInterrupted` 并将 `admitted` 置为 `outcome_unknown` $\implies$ `Resume` 判为 **`MutationUnknown`**；② **H2（`CommitToolResult` 单事务提交后崩溃）**：`;cm=*` 已原子落盘于 `derived_origins.post_ref`，`Resume` 100% 逐位恢复原 `MutationEvidence`；③ **H3（`apply_experience` 嵌套 #1 已 `SettleExecution` `;cm=proven`，嵌套 #2 或外层提交前崩溃）**：外层 `OriginToolInterrupted` 一票否决整组为 **`MutationUnknown`**。
+ 
+@@ -825,7 +828,7 @@
+ | **3（场景 B 致命反例）.** 宿主并发先改 `A -> B`，Agent 未读过或 `Resume` 后调用 `write_file(B)`（`Wrote=false` No-op 返回 `OK: true`） | `Outcome=completed`, `Coverage=complete`, `PreRef(A) != snapRef(B)`, `FileEdgeCount=1`, **`;cm=unknown`** | **`MutationUnknown`** | **根除伪 `Proven`**：阻断后**绝不推进**下界；首次阻断前锁定现场防漏判 `None` |
+ | **4（场景 C2 / C3）.** 宿主先改 `A -> B` 后 Agent 写回 `A`（净 `PreRef == snapRef`），或 `Commit` 后被宿主迅速覆写为 `D`（写后 `SHA256 != NewSHA256`） | `Outcome=completed`, **`;cm=unknown`**（或旧库无 `;cm=` 后缀历史行） | **`MutationUnknown`** | **绝不推进** |
+ | **5（场景 E）.** `Agent Read A -> 宿主改 B -> Agent Write A/C` 触发 `CodeStale / CodeConflict` 写前拒绝 | `Outcome=failed`, `PreRef(A) != snapRef(B)`, `FileEdgeCount=1`, **`;cm=unknown`** | **`MutationUnknown`** | **绝不推进**（即使存在 `file` 边亦不误判） |
+-| **6（场景 F）.** `tierFiles` 写前失败（`old_text not found`、`files:0:`）或写盘中途失败（`Truncate` 后 I/O 错、`CodeConcurrentWrite`、多文件 `rollback` 成功/失败、超时） | 写前失败 `Outcome=failed`；进入写盘窗口失败 `DirtyFailure=true -> Outcome=outcome_unknown`，均带 **`;cm=unknown`** | **`MutationUnknown`** | **绝不推进**（绝不假设失败等于零副作用） |
++| **6（场景 F）.** `tierFiles` 写前失败（`old_text not found`、`files:0:`、陈旧修订或过期读取在准备阶段被拒）或写盘中途失败（`Truncate` 后 I/O 错、`CodeConcurrentWrite`、多文件部分提交即已发布前缀加失败/不确定后缀、超时；历史记录中的 `rollback` 成功/失败） | 写前失败 `Outcome=failed`；进入写盘窗口失败 `DirtyFailure=true -> Outcome=outcome_unknown`，均带 **`;cm=unknown`** | **`MutationUnknown`** | **绝不推进**（绝不假设失败等于零副作用） |
+ | **7–10（RC34-F01 反例 A–E）.** `tierWorkspace` 修改 / 新建 / 删除 / 批量覆盖 Git-ignored 文件（如 `build/generated.go`、`.env`、`build/*`） | `Coverage=complete`, `PreRef == PostRef == "ws:..."`, `FileEdgeCount=0` | **`MutationUnknown`** | **根除伪 `None`**：首次阻断前锁定 `preBlockFloor`；阻断后绝不推进 |
+ | **11–13（RC34-F01 反例 F）.** `bash("touch a.go")` 改 `mtime`、`bash("git add a.go")` 改暂存区、或 `git commit / checkout / reset` 改 `HEAD` | `ws:...`（`Coverage=complete` 或 `partial`，`FileEdgeCount >= 0`） | **`MutationUnknown`** | **绝不推进**（零 `mtime` / 索引 / `HEAD` 伪阳性） |
+ | **14.** `edit_go / lsp_rename / eval_artifact`（含 `preview=true`、`import/export/copy`） | `tierWorkspace`（`ws:...`） | **`MutationUnknown`** | **绝不判 `Proven` 或 `None`、绝不推进** |
+@@ -986,6 +989,7 @@
+ | **7** | `internal/taskstate/render.go` | `Render` (`60-85`) | 新增 `RenderBlock(goal, s, wf) RenderedBlock`，按 `MaxBlockBytes = 10240` 真实截断偏移 `cutoff` 导出 `startByteOffset < cutoff` 的实渲 `ItemRefs`；`Render` 委托 `RenderBlock(...).Text`（闭合 `REV-F05`）。 |
+ | **8** | `runtime/models.go`, `runtime/auto.go` & `runtime/verification.go` | `planModels` (`208`), `admitAutoJudge` (`173`), `admit` (`518`) | `planModels` 填入候选 `ProviderPkg` 与独立 `Presentation`；`admitAutoJudge` 与 `providerReviewer.admit` 调 `agent.EncodeEnvelopeModelRef(ref)` 写入信封 `Refs`。 |
+ | **9** | `internal/editing/engine.go` & `internal/toolset/{editing,files,patch,editing_tools}.go` | `Commit` (`254-325`), `write` (`520-544`), `writeCAS` (`568-606`), `rollback` (`609-632`), `commitFailure` (`95-110`) | `Engine.Commit` 输出精确 `CommitReceipt`（含全字节判定 `Wrote`、`OldSHA256`、`NewSHA256`、`writeCAS` 全字节重读校验，以及 `Truncate` 后写失败或 `rollback` 出错的 `DirtyFailure`）；`toolset` 统一经 `commitPlan` 将 `CommitReceipt` 写入宿主私有 Context 槽并按实际 `Wrote || DirtyFailure` 诚实设置 `MutatesWorkspace`（闭合 `RC34-F02`）。 |
++| | | 〔历史行号与 `rollback` 引用；rc3.8 起见场景 F〕 | R7 删除 `rollback`；`DirtyFailure` 覆盖已发布前缀后的失败、部分修改及不确定发布。 |
+ | **10** | `internal/agent/types.go`, `internal/agent/stepspecs.go` & `internal/session/executions.go` | `Store` (`40`), `StepTools` (`71`), `Execution` (`376`) | 定义三值 `MutationEvidence`（`toolCallRecord` 零改动）；`stepspecs.go` 新增 `IncludedStepTools`；`session/executions.go` 新增只读查询 `ListAnsweredExecutions(ctx, sessionID, fromSeq)`（供 `r.load` 与步末统一调用，闭合 `REV-F04`、`RC34-F01`）。 |
+ | **11** | `internal/agent/presentation.go` & `internal/agent/policy.go` | `presentSpecs` (`29`), `presentFeedback` (`61`), `Candidates` (`144`), `ReplayDecision` (`792`) | 新增 `presentStepTools`、`compactExternalToolDescription`（默认保围栏）、显式 `ProfileCompact` 内置防呆描述（`REV-F06` P3）、`presentFeedback` `2458B / 12346B` 双守卫，以及 `CandidatesByStaticPrefix / GuardTokens / BaseGateSlack / EffectiveGateSlack / WindowPrefixDecision / ReplayDecision`。 |
+ | **12** | `internal/agent/{execution,callback,transcript,envelope,loop,send}.go` | `postFiles` (`255-282`), `callback.go:292-360`, `load` (`37`), `groups` (`126`), `requestRefs` (`82`), `loop.go:530-615`, `send.go:180-365` | 每次准入后在 `loop.go` 与 `callback.go` 注入逐 `ExecutionID` 隔离的宿主私有 `commitRecorder`；`postFiles` 执行「`CommitReceipt` 实写 + `SnapshotFiles` 前后原始磁盘 `SHA256 == NewSHA256` 夹逼 + Git Blob 净变」三重核验并在 `post.PostRef` 原子追加 `;cm=proven|none|unknown`（`DirtyFailure` 升格 `OutcomeUnknown`）；`transcript.go` 实现 `splitFilesSnapshotPostRef / classifyExecutionSummary / aggregateGroupMutation / deriveRepairContext` 与 `r.groups` 防裁剪守卫；接入带 `.~` 终结符信封 `v2` 与 7 步无环 `projectCandidate`（闭合 `RC34-F01`、`RC34-F02`）。 |
+@@ -1165,8 +1169,8 @@
+    - **三分支全部严密闭环：** ① 若 `C != B` 且 `Blob(C) != Blob(A)` 且写后磁盘夹逼 `SHA256 == NewSHA256(C)`（C1），Agent 确实持锁覆写了磁盘并产出了异于步前的净新内容，判为 `;cm=proven`；② 若 `C == A` 改回步前原内容（C2，`PreBlob == PostBlob`），相对步前零净修复进展但发生过写盘，判为 `;cm=unknown`；③ 若 `Commit` 解锁后在 `postFiles` 前被宿主迅速覆写为 `D != C`（C3），写后夹逼 `SHA256(D) != NewSHA256(C)` 捕获并发篡改，判为 `;cm=unknown`。
+ 4. **是否把 `edit.committed` 运行时事件当作了持久化或崩溃恢复依据？**
+    - **绝对没有。** 已通过 `runtime/events.go:255-260` 源码查明 `"edit.committed"` 的 `durableEvent == false`（不写 `journal` 表、无 `ExecutionID`、慢消费者非阻塞丢弃），并在 §2 否决项 10 明令禁止将其用作证据或恢复源。
+-5. **工具校验失败、CAS/陈旧读拒绝、`f.Truncate(0)` 后写失败或 `apply_patch` 多文件部分写入回滚（场景 E / F）时，是否会假设「失败等于零副作用」？**
+-   - **绝不假设失败等于零副作用。** 场景 E（`CodeStale / CodeConflict`，哪怕 `postFiles` 因宿主改盘生成了 `DerivedEdge`）与场景 F 全部失败调用 100% 签发 `;cm=unknown`（`MutationUnknown`）；且针对进入磁盘突变窗口后的失败（`writeCAS` 在 `f.Truncate(0)` 后写失败/`CodeConcurrentWrite`，或 `apply_patch` 进入 `rollback`），`CommitReceipt.DirtyFailure = true` 同步将 `ToolResult.MutatesWorkspace` 置 `true` 并将 `post.Outcome` 升格为 `OutcomeUnknown`。
++5. **工具校验失败、CAS/陈旧读拒绝、`f.Truncate(0)` 后写失败或 `apply_patch` 多文件部分提交（场景 E / F）时，是否会假设「失败等于零副作用」？**
++   - **绝不假设失败等于零副作用。** 场景 E（`CodeStale / CodeConflict`，哪怕 `postFiles` 因宿主改盘生成了 `DerivedEdge`）与场景 F 全部失败调用 100% 签发 `;cm=unknown`（`MutationUnknown`）；且针对进入磁盘突变窗口后的失败（`writeCAS` 在 `f.Truncate(0)` 后写失败/`CodeConcurrentWrite`，或 `apply_patch` 在已发布前缀后失败；历史版本中为进入 `rollback`），`CommitReceipt.DirtyFailure = true` 同步将 `ToolResult.MutatesWorkspace` 置 `true` 并将 `post.Outcome` 升格为 `OutcomeUnknown`。
+ 6. **同一 `answered_seq` 下多工具调用（含对同一文件连续调用及 `eval / apply_experience` 嵌套调用，场景 G）是否会发生证据串线或局部覆盖？**
+    - **100% 物理隔离且保守聚合。** 每次 `admitExecution` / `admitCallbackExecution` 生成唯一 `ExecutionID` 后，在当次局部 `toolCtx` 上绑定独占 `commitRecorder` 闭包（嵌套回调创建新子闭包遮蔽外层 Context 键，工具参数与输出文本无法伪造），每条 `derived_origins` 行独立保存各自的 `;cm=*`；聚合函数 `aggregateGroupMutation` 严格按偏序格 `Unknown > Proven > None` 归并，同文件 `[A->B (;cm=proven), B->B (;cm=none)]` 精确得 `Proven`，而只要同组任一调用为 `Unknown` 即一票否决整组为 `MutationUnknown`。
+ 7. **崩溃与冷启动 `Resume`（场景 H）后是否会出现运行期与恢复期结论分叉？旧版无 `;cm=` 记录如何兼容？**

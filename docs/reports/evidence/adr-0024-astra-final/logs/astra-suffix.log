@@ -1,0 +1,7 @@
+HEAD 52dfd64f56d9b46dfbe7293c787b0f883a501717 editing.go 8cce4e4d8f1d12eef3b203cda8d1524ee8de4c7b GOMAXPROCS=2
+go test -overlay /private/tmp/lc-carbon-final.jQjddm/final-pass/astra/overlay-suffix.json -timeout=30m -count=1 -v -run ^TestAstraLargeSharedSuffix$ ./internal/toolset
+=== RUN   TestAstraLargeSharedSuffix
+--- PASS: TestAstraLargeSharedSuffix (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	1.724s
+exit 0

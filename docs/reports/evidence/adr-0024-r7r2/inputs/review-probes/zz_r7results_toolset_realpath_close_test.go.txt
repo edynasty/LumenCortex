@@ -1,0 +1,76 @@
+package toolset
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+// Realistic deep-package batch: is each files row still uniquely identifiable after shrinking?
+func TestR7RRealisticDeepPathsClose(t *testing.T) {
+	pkg := "src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/"
+	names := []string{"StripeWebhookHandler", "StripeWebhookVerifier", "StripeChargeMapper", "StripeChargeService", "StripeRefundMapper", "StripeRefundService", "StripeCustomerMapper", "StripeCustomerService",
+		"StripeInvoiceMapper", "StripeInvoiceService", "StripePayoutMapper", "StripePayoutService", "StripeDisputeMapper", "StripeDisputeService", "StripeConfig", "StripeClientFactory",
+		"StripeErrorTranslator", "StripeIdempotency", "StripeMetrics", "StripeRetryPolicy"}
+	for _, n := range []int{8, 12, 16, 20} {
+		t.Run(fmt.Sprintf("n%d", n), func(t *testing.T) {
+			ws := filepath.Join(t.TempDir(), "ws")
+			_ = os.MkdirAll(filepath.Join(ws, pkg), 0o755)
+			var rels []string
+			for i := 0; i < n; i++ {
+				rel := pkg + names[i] + ".kt"
+				_ = os.WriteFile(filepath.Join(ws, rel), []byte(fmt.Sprintf("old-%03d\n", i)), 0o644)
+				rels = append(rels, rel)
+			}
+			eng, _ := editing.New(editing.Options{Root: ws})
+			set, _ := New(Options{Workspace: ws, Policy: PolicyFull, SessionID: "s", Editing: eng})
+			failAt := n / 2
+			failName := filepath.Base(rels[failAt])
+			eng.SetPublishFaultHooks(editing.PublishFaultHooks{AfterInPlaceWriteClose: func(dst string) error {
+				if filepath.Base(dst) == failName {
+					return syscall.EIO
+				}
+				return nil
+			}})
+			var patches []any
+			for i, r := range rels {
+				patches = append(patches, map[string]any{"path": r, "operation": "update", "edits": []any{map[string]any{"old_text": fmt.Sprintf("old-%03d", i), "new_text": fmt.Sprintf("new-%03d", i)}}})
+			}
+			res, toolErr := set.Execute(context.Background(), "apply_patch", map[string]any{"patches": patches}, nil)
+			var p struct {
+				Error string `json:"error"`
+				Files []struct {
+					Path, PublishState string
+				} `json:"files"`
+				FilesOmitted int `json:"filesOmitted"`
+			}
+			_ = json.Unmarshal([]byte(res.Content), &p)
+			seen := map[string]int{}
+			exact := 0
+			for _, f := range p.Files {
+				seen[f.Path]++
+				for _, r := range rels {
+					if r == f.Path {
+						exact++
+					}
+				}
+			}
+			failedRow := ""
+			if len(p.Files) > 0 {
+				failedRow = p.Files[0].Path + " " + p.Files[0].PublishState
+			}
+			t.Logf("SUMMARY n=%d bytes=%d rows=%d omitted=%d distinctRowPaths=%d exactPaths=%d failedRow=%q error=%q toolErr=%v failedNameInContent=%v",
+				n, len(res.Content), len(p.Files), p.FilesOmitted, len(seen), exact, failedRow, p.Error, toolErr, strings.Contains(res.Content, failName))
+			if dir := os.Getenv("R7R_OUTDIR"); dir != "" {
+				_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("bounds-realistic-close-n%d.json", n)), []byte(res.Content), 0o644)
+			}
+		})
+	}
+}

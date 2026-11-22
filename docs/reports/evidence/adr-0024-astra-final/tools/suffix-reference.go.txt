@@ -1,0 +1,78 @@
+package toolset
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
+
+// astraReferenceSharedSuffix is the ground truth: the longest k such that the two paths share the last
+// k bytes, found by HasSuffix rather than by the production comparison.
+func astraReferenceSharedSuffix(a, b string) int {
+	best := 0
+	for k := 1; k <= len(a) && k <= len(b); k++ {
+		if !strings.HasSuffix(a, b[len(b)-k:]) {
+			break
+		}
+		best = k
+	}
+	return best
+}
+
+// TestAstraLargeSharedSuffix checks the sorted-neighbour shared-suffix helper on a group larger than the
+// candidate bound, against a pairwise ground truth, and checks selected compact labels still name only
+// their own path.
+func TestAstraLargeSharedSuffix(t *testing.T) {
+	set := astraSet(t)
+	dirs := []string{"src/main/", "src/Main/", "pkg/αβ/", "pkg/ΑΒ/", "deep/a/b/c/", "deep/a/B/c/", "x/", "y/z/"}
+	var paths []string
+	for i := 0; i < 128; i++ {
+		depth := 1 + i%4
+		var b strings.Builder
+		for d := 0; d < depth; d++ {
+			b.WriteString(dirs[(i+d)%len(dirs)])
+		}
+		paths = append(paths, fmt.Sprintf("%smod%03d/f.kt", b.String(), i))
+	}
+	index := newFailurePathIndex()
+	display := set.displayPaths()
+	for _, p := range paths {
+		index.add(p, display)
+	}
+	seen := map[string]bool{}
+	for _, full := range paths {
+		if seen[full] {
+			continue
+		}
+		seen[full] = true
+		want := 0
+		for _, other := range paths {
+			if other != full {
+				want = max(want, astraReferenceSharedSuffix(full, other))
+			}
+		}
+		if got := index.sharedPathSuffix(full, slashBase(full)); got != want {
+			t.Fatalf("sharedPathSuffix(%q) = %d, want %d", full, got, want)
+		}
+	}
+	for _, i := range []int{0, 17, 64, 127} {
+		full := paths[i]
+		label := index.label(full, 0)
+		if label == full {
+			continue
+		}
+		if !strings.HasPrefix(label, pathEllipsis) {
+			t.Fatalf("label %q for %q is neither the path nor a suffix form", label, full)
+		}
+		tail := strings.TrimPrefix(label, pathEllipsis+"/")
+		tail = strings.TrimPrefix(tail, pathEllipsis)
+		if !strings.HasSuffix(full, tail) {
+			t.Fatalf("label %q does not end the path %q", label, full)
+		}
+		for _, other := range paths {
+			if other != full && strings.HasSuffix(other, tail) {
+				t.Fatalf("label %q for %q also ends %q", label, full, other)
+			}
+		}
+	}
+}
