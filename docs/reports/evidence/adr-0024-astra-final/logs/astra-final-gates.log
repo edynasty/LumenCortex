@@ -1,0 +1,1554 @@
+===== HEADER =====
+HEAD: 52dfd64f56d9b46dfbe7293c787b0f883a501717
+branch: fix/adr-0024-sol-rev-01-astra-final-20261122
+status: []
+go version go1.26.5 darwin/arm64
+Darwin arm64
+Apple M1 Pro
+===== END HEADER =====
+
+===== COMMAND: gofmt -l internal/toolset/editing.go internal/toolset/r7r2_astra_final_test.go =====
+===== START: 2026-11-22T07:12:11Z =====
+===== ELAPSED_SECONDS: 0 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go build ./... =====
+===== START: 2026-11-22T07:12:11Z =====
+===== ELAPSED_SECONDS: 6 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go vet ./... =====
+===== START: 2026-11-22T07:12:17Z =====
+===== ELAPSED_SECONDS: 3 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -count=1 ./internal/toolset =====
+===== START: 2026-11-22T07:12:20Z =====
+ok  	github.com/edynasty/LumenCortex/internal/toolset	27.248s
+===== ELAPSED_SECONDS: 29 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -race -count=1 ./internal/toolset =====
+===== START: 2026-11-22T07:12:49Z =====
+ok  	github.com/edynasty/LumenCortex/internal/toolset	68.984s
+===== ELAPSED_SECONDS: 72 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: bash docs/reports/evidence/adr-0024-r7r2-final/verify.sh carbon-probe =====
+===== START: 2026-11-22T07:14:01Z =====
+go version go1.26.5 darwin/arm64
+Darwin arm64
+HEAD 52dfd64f56d9b46dfbe7293c787b0f883a501717
+working tree: clean
+cmd= go test -count=1 -v -overlay /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.Tpe5DZOSE3/probe.json -run \^TestCarbonR7R2 ./internal/toolset
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_12_fail_0_bare_EIO: len=2684 rows=12 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_6_bare_EIO
+    r7r2_results_test.go:619: deep_12_fail_6_bare_EIO: len=3788 rows=12 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter06.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_11_bare_EIO
+    r7r2_results_test.go:619: deep_12_fail_11_bare_EIO: len=3878 rows=12 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter11.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_16_fail_0_bare_EIO: len=3380 rows=16 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_8_bare_EIO
+    r7r2_results_test.go:619: deep_16_fail_8_bare_EIO: len=4021 rows=16 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter08.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_15_bare_EIO
+    r7r2_results_test.go:619: deep_16_fail_15_bare_EIO: len=3183 rows=16 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter15.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_20_fail_0_bare_EIO: len=4076 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_10_bare_EIO
+    r7r2_results_test.go:619: deep_20_fail_10_bare_EIO: len=3869 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter10.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_19_bare_EIO
+    r7r2_results_test.go:619: deep_20_fail_19_bare_EIO: len=3887 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter19.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_0_bare_EIO
+    r7r2_results_test.go:619: deep_32_fail_0_bare_EIO: len=4083 rows=21 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter00.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_16_bare_EIO
+    r7r2_results_test.go:619: deep_32_fail_16_bare_EIO: len=3942 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter16.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_31_bare_EIO
+    r7r2_results_test.go:619: deep_32_fail_31_bare_EIO: len=3953 rows=20 first=src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/Adapter31.kt state=partially_published
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_2_normal_deep
+    r7r2_results_test.go:669: multi_2: len=3946 rows=18 both failed rows preserved
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_5_very_long_dirs_overflow_order
+    r7r2_results_test.go:705: OBSERVED multi_5_longdir: len=3268 overflow=true rows=5 omitted=1 omittedByState=map[not_attempted:1] firstPath=…/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg/Adapter00.kt
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/long_unicode_spaces_and_identical_basenames
+    r7r2_results_test.go:755: unicode_spaces_basenames: len=3973 rows=15 first4=[src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_LongName_支付_🔥_01.kt src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/OneDrive - Acme Corp/Stripe Adapter With Spaces.kt src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/auth/config.yaml src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/billing/config.yaml]
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/cancellation_without_path_and_near_4096
+    r7r2_results_test.go:806: cancel_mid_batch: len=3929/4096 err="context canceled" state=partially_published rows=20 omitted=2 omittedByState=map[not_attempted:2]
+=== RUN   TestCarbonR7R2Results01AdversarialMatrix/truncatePathTail_boundary_unit
+    r7r2_results_test.go:820: OBSERVED >1024B common-tail identical basename: t1==t2 is true (len=15)
+--- PASS: TestCarbonR7R2Results01AdversarialMatrix (0.37s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_0_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_6_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_12_fail_11_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_0_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_8_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_16_fail_15_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_0_bare_EIO (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_10_bare_EIO (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_20_fail_19_bare_EIO (0.05s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_0_bare_EIO (0.05s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_16_bare_EIO (0.05s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/deep_32_fail_31_bare_EIO (0.06s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_2_normal_deep (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/multiple_failed_files_5_very_long_dirs_overflow_order (0.01s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/long_unicode_spaces_and_identical_basenames (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/cancellation_without_path_and_near_4096 (0.02s)
+    --- PASS: TestCarbonR7R2Results01AdversarialMatrix/truncatePathTail_boundary_unit (0.00s)
+=== RUN   TestCarbonR7R2CT02ReplaySemantics
+    r7r2_results_test.go:870: CT-02 blind replay OK=true, a.txt="anchor\nadded\nadded\n"
+--- PASS: TestCarbonR7R2CT02ReplaySemantics (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	2.100s
+exit=0
+===== ELAPSED_SECONDS: 4 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -race -count=1 -v -run '^TestR7|^TestR201|^TestR5ResultPropagationAndResumeIntegrity$|^TestR6NestedJSONPreservationAndProvenance$|^TestR6StructuredPathsAndSanitizeErrorText$' ./internal/editing ./internal/toolset ./internal/agent ./internal/session =====
+===== START: 2026-11-22T07:14:05Z =====
+=== RUN   TestR7CrashBeforePublicationHelper
+--- PASS: TestR7CrashBeforePublicationHelper (0.00s)
+=== RUN   TestR7CreateRecreationFaultMatrix
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_zero_write
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_partial_write
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_generic_write_error
+=== RUN   TestR7CreateRecreationFaultMatrix/path_created_concurrently_at_publication
+=== RUN   TestR7CreateRecreationFaultMatrix/child_exits_before_publication
+--- PASS: TestR7CreateRecreationFaultMatrix (1.05s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_zero_write (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_partial_write (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_generic_write_error (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/path_created_concurrently_at_publication (0.01s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/child_exits_before_publication (1.03s)
+=== RUN   TestR7ExplicitRecreateSuccessBaseline
+--- PASS: TestR7ExplicitRecreateSuccessBaseline (0.00s)
+=== RUN   TestR7DisplayPathsStructuredAndFreeText
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/structured_path_error_with_spaces
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/sibling_path_error_spaces_keeps_basename_only
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/link_error_old_and_new_are_separate
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/joined_errors_keep_every_cause
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/free_text_quoted_and_windows_unc
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/file_url_path_is_scrubbed
+--- PASS: TestR7DisplayPathsStructuredAndFreeText (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/structured_path_error_with_spaces (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/sibling_path_error_spaces_keeps_basename_only (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/link_error_old_and_new_are_separate (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/joined_errors_keep_every_cause (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/free_text_quoted_and_windows_unc (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/file_url_path_is_scrubbed (0.00s)
+=== RUN   TestR7DiagnosticPathFailsClosed
+--- PASS: TestR7DiagnosticPathFailsClosed (0.00s)
+=== RUN   TestR7RlimitChildHelper
+--- PASS: TestR7RlimitChildHelper (0.00s)
+=== RUN   TestR7InPlaceRLimitFaults
+=== RUN   TestR7InPlaceRLimitFaults/zero_byte_write_efbig
+=== RUN   TestR7InPlaceRLimitFaults/short_write_crossing_limit
+--- PASS: TestR7InPlaceRLimitFaults (2.04s)
+    --- PASS: TestR7InPlaceRLimitFaults/zero_byte_write_efbig (1.02s)
+    --- PASS: TestR7InPlaceRLimitFaults/short_write_crossing_limit (1.02s)
+=== RUN   TestR7CreateEFBIGIsolated
+--- PASS: TestR7CreateEFBIGIsolated (1.02s)
+=== RUN   TestR7CreateRecreationUnixFaultMatrix
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/enospc_injection
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/permission_refuses_staging
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/unsupported_filesystem_refuses_create
+--- PASS: TestR7CreateRecreationUnixFaultMatrix (0.01s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/enospc_injection (0.00s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/permission_refuses_staging (0.00s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/unsupported_filesystem_refuses_create (0.00s)
+=== RUN   TestR7ConsumedStageIsNotUnlinked
+--- PASS: TestR7ConsumedStageIsNotUnlinked (0.00s)
+=== RUN   TestR7DeletePermissionRefusalLeavesFileIntact
+--- PASS: TestR7DeletePermissionRefusalLeavesFileIntact (0.00s)
+=== RUN   TestR7PrefixExternalAppendBeforeLaterConflict
+--- PASS: TestR7PrefixExternalAppendBeforeLaterConflict (1.02s)
+=== RUN   TestR7PrefixExternalSameByteReplacement
+--- PASS: TestR7PrefixExternalSameByteReplacement (1.05s)
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/update
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/create
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/delete
+--- PASS: TestR7VerifiedPrefixUpdateCreateDelete (0.01s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/update (0.00s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/create (0.00s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/delete (0.00s)
+=== RUN   TestR7CleanFailureSettlesEveryPathAndKeepsSnapshots
+--- PASS: TestR7CleanFailureSettlesEveryPathAndKeepsSnapshots (0.00s)
+=== RUN   TestR7NoOpVerification
+=== RUN   TestR7NoOpVerification/committed_noop
+=== RUN   TestR7NoOpVerification/noop_prefix_in_failed_plan
+--- PASS: TestR7NoOpVerification (0.00s)
+    --- PASS: TestR7NoOpVerification/committed_noop (0.00s)
+    --- PASS: TestR7NoOpVerification/noop_prefix_in_failed_plan (0.00s)
+=== RUN   TestR7DeleteVerification
+=== RUN   TestR7DeleteVerification/committed_delete_observes_absence
+=== RUN   TestR7DeleteVerification/external_change_refuses_delete_and_preserves_foreign_bytes
+--- PASS: TestR7DeleteVerification (0.00s)
+    --- PASS: TestR7DeleteVerification/committed_delete_observes_absence (0.00s)
+    --- PASS: TestR7DeleteVerification/external_change_refuses_delete_and_preserves_foreign_bytes (0.00s)
+=== RUN   TestR7CreateContention
+=== RUN   TestR7CreateContention/before_staging
+=== RUN   TestR7CreateContention/at_publication
+--- PASS: TestR7CreateContention (0.00s)
+    --- PASS: TestR7CreateContention/before_staging (0.00s)
+    --- PASS: TestR7CreateContention/at_publication (0.00s)
+=== RUN   TestR7CustomHostWithoutStagerIsUnsupported
+--- PASS: TestR7CustomHostWithoutStagerIsUnsupported (0.00s)
+=== RUN   TestR7ExplicitRecreateAfterDeleteUsesFreshCreate
+--- PASS: TestR7ExplicitRecreateAfterDeleteUsesFreshCreate (0.00s)
+=== RUN   TestR7TimeBoundaryNoOpIdentifiesSameBytes
+--- PASS: TestR7TimeBoundaryNoOpIdentifiesSameBytes (0.00s)
+=== RUN   TestR7R2CaseCollisionFollowsFilesystemSemantics
+--- PASS: TestR7R2CaseCollisionFollowsFilesystemSemantics (0.00s)
+=== RUN   TestR7R2CaseProbeReadsTheVolume
+--- PASS: TestR7R2CaseProbeReadsTheVolume (0.00s)
+=== RUN   TestR7R2HardLinkAliasRefusedBeforeWrite
+--- PASS: TestR7R2HardLinkAliasRefusedBeforeWrite (0.00s)
+=== RUN   TestR7R2CaseVariantOfExistingFileRefused
+--- PASS: TestR7R2CaseVariantOfExistingFileRefused (0.00s)
+=== RUN   TestR7R2CaseVariantCreatesRefused
+=== RUN   TestR7R2CaseVariantCreatesRefused/leaf
+=== RUN   TestR7R2CaseVariantCreatesRefused/existing_dir_spelling
+=== RUN   TestR7R2CaseVariantCreatesRefused/new_dir
+--- PASS: TestR7R2CaseVariantCreatesRefused (0.00s)
+    --- PASS: TestR7R2CaseVariantCreatesRefused/leaf (0.00s)
+    --- PASS: TestR7R2CaseVariantCreatesRefused/existing_dir_spelling (0.00s)
+    --- PASS: TestR7R2CaseVariantCreatesRefused/new_dir (0.00s)
+=== RUN   TestR7R2StaleBaseIsFailedBeforeWrite
+--- PASS: TestR7R2StaleBaseIsFailedBeforeWrite (0.00s)
+=== RUN   TestR7R2SelfReplayIsFailedBeforeWrite
+--- PASS: TestR7R2SelfReplayIsFailedBeforeWrite (0.00s)
+=== RUN   TestR7R2SessionViewConflictIsFailedBeforeWrite
+--- PASS: TestR7R2SessionViewConflictIsFailedBeforeWrite (0.00s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_a_lc_wins_exclusive_creation
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b0_external_wins_before_exclusive_create_prepare
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b1_external_wins_before_no_replace_publish
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b2_external_creates_empty_writes_before_inplace_truncate
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b3_external_creates_empty_overlaps_inplace_write
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b4_external_creates_empty_writes_inside_truncate_window
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b5_external_complete_before_prepare_replaced_as_read
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_exclusive_create_stress
+    remediation_r2_01_test.go:448: stress (Create=true) excl_after_signal released before_commit: rounds=10 exists_before_prepare=10
+    remediation_r2_01_test.go:448: stress (Create=true) excl_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:448: stress (Create=true) excl_after_signal released before_publish: rounds=10 staged_publish_refused=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress
+    remediation_r2_01_test.go:456: stress (Create=false) atomic_after_signal released before_commit: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:456: stress (Create=false) atomic_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:456: stress (Create=false) atomic_after_signal released before_publish: rounds=10 lc_created=9 staged_publish_refused=1
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress
+    remediation_r2_01_test.go:466: stress (Create=false) excl_after_signal released before_commit: rounds=10 lc_replaced_read_foreign=10
+    remediation_r2_01_test.go:466: stress (Create=false) excl_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:466: stress (Create=false) excl_after_signal released before_publish: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released before_commit: rounds=10 lc_replaced_read_foreign=10
+    remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released after_prepare: rounds=10 inplace_refused_before_truncate=10
+    remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released after_truncate: rounds=10 inplace_overlap_foreign_whole=10
+    remediation_r2_01_test.go:466: stress (Create=false) create_empty_wait_then_write released after_write_close: rounds=10 inplace_overlap_foreign_whole=10
+--- PASS: TestR201TwoOSProcessesCreateRace (1.65s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_a_lc_wins_exclusive_creation (0.51s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b0_external_wins_before_exclusive_create_prepare (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b1_external_wins_before_no_replace_publish (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b2_external_creates_empty_writes_before_inplace_truncate (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b3_external_creates_empty_overlaps_inplace_write (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b4_external_creates_empty_writes_inside_truncate_window (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b5_external_complete_before_prepare_replaced_as_read (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_exclusive_create_stress (0.22s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress (0.23s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress (0.48s)
+=== RUN   TestR201ExistingCASConflictPreservesForeignBytes
+--- PASS: TestR201ExistingCASConflictPreservesForeignBytes (0.00s)
+=== RUN   TestR7ForwardPublicationFaultMatrix
+=== RUN   TestR7ForwardPublicationFaultMatrix/01_failure_before_publication_is_clean
+=== RUN   TestR7ForwardPublicationFaultMatrix/05b_inplace_close_failure_is_uncertain
+=== RUN   TestR7ForwardPublicationFaultMatrix/02_link_succeeds_then_error
+=== RUN   TestR7ForwardPublicationFaultMatrix/03_rename_succeeds_then_error
+=== RUN   TestR7ForwardPublicationFaultMatrix/04_stat_fails_after_publication
+=== RUN   TestR7ForwardPublicationFaultMatrix/05_close_fails_after_publication
+=== RUN   TestR7ForwardPublicationFaultMatrix/06_identity_capture_fails
+=== RUN   TestR7ForwardPublicationFaultMatrix/07_identity_failure_keeps_published_prefix_and_skips_suffix
+=== RUN   TestR7ForwardPublicationFaultMatrix/08_second_path_refusal_keeps_verified_first
+=== RUN   TestR7ForwardPublicationFaultMatrix/09_external_append_on_prefix_is_external
+=== RUN   TestR7ForwardPublicationFaultMatrix/10_external_same_length_replacement_is_external
+=== RUN   TestR7ForwardPublicationFaultMatrix/11_uncertain_publication_reports_dirty_failure
+--- PASS: TestR7ForwardPublicationFaultMatrix (0.02s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/01_failure_before_publication_is_clean (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/05b_inplace_close_failure_is_uncertain (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/02_link_succeeds_then_error (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/03_rename_succeeds_then_error (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/04_stat_fails_after_publication (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/05_close_fails_after_publication (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/06_identity_capture_fails (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/07_identity_failure_keeps_published_prefix_and_skips_suffix (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/08_second_path_refusal_keeps_verified_first (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/09_external_append_on_prefix_is_external (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/10_external_same_length_replacement_is_external (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/11_uncertain_publication_reports_dirty_failure (0.00s)
+=== RUN   TestR7SameInodeExternalOverwriteIsExternal
+--- PASS: TestR7SameInodeExternalOverwriteIsExternal (1.02s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	10.525s
+=== RUN   TestR7FailurePayloadEveryReceiptState
+=== RUN   TestR7FailurePayloadEveryReceiptState/partial_failed_path_first_verified_effect_and_recovery
+=== RUN   TestR7FailurePayloadEveryReceiptState/clean_external_conflict_is_not_dirty_without_an_effect
+=== RUN   TestR7FailurePayloadEveryReceiptState/truncation_keeps_the_failed_path
+--- PASS: TestR7FailurePayloadEveryReceiptState (0.01s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/partial_failed_path_first_verified_effect_and_recovery (0.00s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/clean_external_conflict_is_not_dirty_without_an_effect (0.00s)
+    --- PASS: TestR7FailurePayloadEveryReceiptState/truncation_keeps_the_failed_path (0.01s)
+=== RUN   TestR7GenericLSPErrorScrubsHostPaths
+--- PASS: TestR7GenericLSPErrorScrubsHostPaths (0.00s)
+=== RUN   TestR7StructuredPathSpacesAndPlatformMatrix
+--- PASS: TestR7StructuredPathSpacesAndPlatformMatrix (0.00s)
+=== RUN   TestR7EditSpecsDoNotClaimAllOrNone
+--- PASS: TestR7EditSpecsDoNotClaimAllOrNone (0.00s)
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_17
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_20
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_22
+=== RUN   TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_23
+--- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits (0.62s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_17 (0.13s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_20 (0.16s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_22 (0.16s)
+    --- PASS: TestR7R2FinalOverflowKeepsEveryFailedRowThatFits/failed_23 (0.17s)
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_50
+    r7r2_final_test.go:133: bytes=4015 shown=30 omitted=21 byState=map[external_modification_detected:4 not_attempted:1 partially_modified:4 publication_uncertain:4 published_post_error:4 rollback_failed:4]
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_100
+    r7r2_final_test.go:133: bytes=4021 shown=30 omitted=71 byState=map[external_modification_detected:14 not_attempted:1 partially_modified:14 publication_uncertain:14 published_post_error:14 rollback_failed:14]
+=== RUN   TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_200
+    r7r2_final_test.go:133: bytes=4022 shown=30 omitted=171 byState=map[external_modification_detected:34 not_attempted:1 partially_modified:34 publication_uncertain:34 published_post_error:34 rollback_failed:34]
+--- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix (2.29s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_50 (0.36s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_100 (0.65s)
+    --- PASS: TestR7R2FinalOverflowKeepsLongestFailedPrefix/failed_200 (1.27s)
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/five_modules_long_shared_tail
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/eight_modules_between_long_shared_ends
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/sixteen_long_names_differing_at_the_end
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/twenty_four_services_one_package
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/twelve_unicode_names_with_spaces
+=== RUN   TestR7R2FinalSameNameRowsStayDistinct/two_paths_over_the_failed_row_bound
+--- PASS: TestR7R2FinalSameNameRowsStayDistinct (0.10s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/five_modules_long_shared_tail (0.01s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/eight_modules_between_long_shared_ends (0.01s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/sixteen_long_names_differing_at_the_end (0.01s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/twenty_four_services_one_package (0.01s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/twelve_unicode_names_with_spaces (0.02s)
+    --- PASS: TestR7R2FinalSameNameRowsStayDistinct/two_paths_over_the_failed_row_bound (0.04s)
+=== RUN   TestR7R2FinalFiveFailedSameNameFilesStayDistinct
+--- PASS: TestR7R2FinalFiveFailedSameNameFilesStayDistinct (0.03s)
+=== RUN   TestR7R2FinalRefusedPathSurvivesOverflow
+--- PASS: TestR7R2FinalRefusedPathSurvivesOverflow (0.02s)
+=== RUN   TestR7R2FinalOverflowBoundWorstCase
+--- PASS: TestR7R2FinalOverflowBoundWorstCase (0.06s)
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n16
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n20
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/eio_n32_last
+=== RUN   TestR7R2DeepPathRowsStayIdentifiable/cancelled_n20
+--- PASS: TestR7R2DeepPathRowsStayIdentifiable (0.17s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n16 (0.03s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n20 (0.03s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/eio_n32_last (0.08s)
+    --- PASS: TestR7R2DeepPathRowsStayIdentifiable/cancelled_n20 (0.03s)
+=== RUN   TestR7R2OversizedFailedPathKeepsFilename
+--- PASS: TestR7R2OversizedFailedPathKeepsFilename (0.40s)
+=== RUN   TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities
+--- PASS: TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities (0.03s)
+=== RUN   TestR7R2New01OverflowBoundaryMatrix
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/single_failed_long_path_bare_eio
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/mixed_failed_unicode_longname_and_identical_basenames
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/eight_failed_rows_long_paths
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/cancellation_without_path_long_dirs
+=== RUN   TestR7R2New01OverflowBoundaryMatrix/impossible_to_fit_50_failed_rows_discloses_omissions
+--- PASS: TestR7R2New01OverflowBoundaryMatrix (0.24s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/single_failed_long_path_bare_eio (0.03s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/mixed_failed_unicode_longname_and_identical_basenames (0.03s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/eight_failed_rows_long_paths (0.06s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/cancellation_without_path_long_dirs (0.03s)
+    --- PASS: TestR7R2New01OverflowBoundaryMatrix/impossible_to_fit_50_failed_rows_discloses_omissions (0.08s)
+=== RUN   TestR201WriteFileInPlaceForeignWriterRealRace
+=== RUN   TestR201WriteFileInPlaceForeignWriterRealRace/write_file_300_iterations
+    remediation_r2_01_test.go:93: R2-01 toolset write_file: iterations=300 okRuns=1 lost=0 (refusedLost=0) mixed=0 kept=300
+--- PASS: TestR201WriteFileInPlaceForeignWriterRealRace (1.04s)
+    --- PASS: TestR201WriteFileInPlaceForeignWriterRealRace/write_file_300_iterations (1.04s)
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/structured_path_classification_matrix
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/unstructured_error_text_boundary_sanitization_r5_05
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/windows_drive_and_unc_workspace_boundaries
+=== RUN   TestR6StructuredPathsAndSanitizeErrorText/unknown_rev_and_sibling_gotype_diagnostics_do_not_leak_host_paths
+--- PASS: TestR6StructuredPathsAndSanitizeErrorText (0.01s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/structured_path_classification_matrix (0.00s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/unstructured_error_text_boundary_sanitization_r5_05 (0.00s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/windows_drive_and_unc_workspace_boundaries (0.00s)
+    --- PASS: TestR6StructuredPathsAndSanitizeErrorText/unknown_rev_and_sibling_gotype_diagnostics_do_not_leak_host_paths (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	6.774s
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown/exists_before_prepare
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown/staged_publish_refused
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown/inplace_refused_before_truncate
+=== RUN   TestR7R2FinalCreateRaceReceiptsSealUnknown/inplace_overlap_reported_dirty
+--- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown (0.00s)
+    --- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown/exists_before_prepare (0.00s)
+    --- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown/staged_publish_refused (0.00s)
+    --- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown/inplace_refused_before_truncate (0.00s)
+    --- PASS: TestR7R2FinalCreateRaceReceiptsSealUnknown/inplace_overlap_reported_dirty (0.00s)
+=== RUN   TestR5ResultPropagationAndResumeIntegrity
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/top_level_multifile_partial_publication_persists_and_resumes_identically
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/cancelled_multi_file_receipt_is_paired_without_replay
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/nested_eval_callback_partial_publication_preserved_in_callback_and_parent_row
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/preserve_error_tool_content_bounds_oversized_and_plain_details
+--- PASS: TestR5ResultPropagationAndResumeIntegrity (0.57s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/top_level_multifile_partial_publication_persists_and_resumes_identically (0.23s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/cancelled_multi_file_receipt_is_paired_without_replay (0.16s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/nested_eval_callback_partial_publication_preserved_in_callback_and_parent_row (0.18s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/preserve_error_tool_content_bounds_oversized_and_plain_details (0.00s)
+=== RUN   TestR6NestedJSONPreservationAndProvenance
+=== RUN   TestR6NestedJSONPreservationAndProvenance/unit_under_exact_and_over_8192_limit_plus_int64_and_provenance
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_under_limit
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_seeded_origin
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_unseeded_origin
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/adopt_then_apply_8500pad
+=== RUN   TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/protected_source_overflow
+=== RUN   TestR6NestedJSONPreservationAndProvenance/nested_eval_oversized_json_and_clean_proven_semantics
+--- PASS: TestR6NestedJSONPreservationAndProvenance (1.31s)
+    --- PASS: TestR6NestedJSONPreservationAndProvenance/unit_under_exact_and_over_8192_limit_plus_int64_and_provenance (0.02s)
+    --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges (0.94s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_under_limit (0.18s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_seeded_origin (0.18s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/apply_only_8500pad_over_limit_unseeded_origin (0.19s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/adopt_then_apply_8500pad (0.19s)
+        --- PASS: TestR6NestedJSONPreservationAndProvenance/apply_experience_runtime_sqlite_resume_and_revocation_edges/protected_source_overflow (0.19s)
+    --- PASS: TestR6NestedJSONPreservationAndProvenance/nested_eval_oversized_json_and_clean_proven_semantics (0.35s)
+=== RUN   TestR7PartialCommitAndDiagnosticsColdResume
+--- PASS: TestR7PartialCommitAndDiagnosticsColdResume (1.28s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	4.879s
+testing: warning: no tests to run
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/session	1.600s [no tests to run]
+===== ELAPSED_SECONDS: 12 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -count=1 ./... (repository-wide, one run) =====
+===== START: 2026-11-22T07:14:17Z =====
+?   	github.com/edynasty/LumenCortex/cmd/lcx-experience-demo	[no test files]
+ok  	github.com/edynasty/LumenCortex/cmd/lcx-go	13.809s
+ok  	github.com/edynasty/LumenCortex/config	3.283s
+?   	github.com/edynasty/LumenCortex/docs	[no test files]
+ok  	github.com/edynasty/LumenCortex/evalapi	0.545s
+ok  	github.com/edynasty/LumenCortex/evalruntime	127.798s
+ok  	github.com/edynasty/LumenCortex/internal/agent	38.331s
+?   	github.com/edynasty/LumenCortex/internal/cgroupv2	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/cognition	0.560s
+ok  	github.com/edynasty/LumenCortex/internal/debugger	9.128s
+ok  	github.com/edynasty/LumenCortex/internal/debugger/dap	0.587s
+?   	github.com/edynasty/LumenCortex/internal/debugger/dapfake	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/diag	1.485s
+ok  	github.com/edynasty/LumenCortex/internal/editing	3.982s
+ok  	github.com/edynasty/LumenCortex/internal/editing/goedit	6.191s
+ok  	github.com/edynasty/LumenCortex/internal/evaluator	26.652s
+ok  	github.com/edynasty/LumenCortex/internal/instructions	0.528s
+ok  	github.com/edynasty/LumenCortex/internal/ipynb	0.552s
+ok  	github.com/edynasty/LumenCortex/internal/jobs	28.293s
+ok  	github.com/edynasty/LumenCortex/internal/knowledge	0.605s
+ok  	github.com/edynasty/LumenCortex/internal/lsp	11.153s
+ok  	github.com/edynasty/LumenCortex/internal/mcp	7.548s
+ok  	github.com/edynasty/LumenCortex/internal/mcptemplates	0.556s
+ok  	github.com/edynasty/LumenCortex/internal/migrate	26.405s
+ok  	github.com/edynasty/LumenCortex/internal/notebook	0.553s
+ok  	github.com/edynasty/LumenCortex/internal/ompsession	0.584s
+ok  	github.com/edynasty/LumenCortex/internal/procrt	0.826s
+ok  	github.com/edynasty/LumenCortex/internal/repository	15.857s
+ok  	github.com/edynasty/LumenCortex/internal/resource	0.514s
+ok  	github.com/edynasty/LumenCortex/internal/runlock	0.563s
+ok  	github.com/edynasty/LumenCortex/internal/safefs	0.810s
+ok  	github.com/edynasty/LumenCortex/internal/schedule	8.076s
+ok  	github.com/edynasty/LumenCortex/internal/session	46.854s
+ok  	github.com/edynasty/LumenCortex/internal/shell	6.439s
+ok  	github.com/edynasty/LumenCortex/internal/skills	3.535s
+ok  	github.com/edynasty/LumenCortex/internal/streambuf	0.668s
+ok  	github.com/edynasty/LumenCortex/internal/taskstate	0.600s
+ok  	github.com/edynasty/LumenCortex/internal/threadctx	0.776s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	39.957s
+ok  	github.com/edynasty/LumenCortex/internal/verify	0.693s
+ok  	github.com/edynasty/LumenCortex/internal/window	6.562s
+ok  	github.com/edynasty/LumenCortex/internal/workflow	0.606s
+?   	github.com/edynasty/LumenCortex/pluginapi	[no test files]
+ok  	github.com/edynasty/LumenCortex/protocol	0.592s
+ok  	github.com/edynasty/LumenCortex/provider	0.707s
+ok  	github.com/edynasty/LumenCortex/provider/anthropic	3.008s
+?   	github.com/edynasty/LumenCortex/provider/internal/retryafter	[no test files]
+ok  	github.com/edynasty/LumenCortex/provider/openai	1.852s
+panic: test timed out after 10m0s
+	running tests:
+		TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord (4s)
+
+goroutine 555124 [running]:
+testing.(*M).startAlarm.func1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2802 +0x2cc
+created by time.goFunc
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/time/sleep.go:215 +0x38
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0x7148292b0908, {0x104f4ee56?, 0x1b168260044f05e0?}, 0x105932748)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2109 +0x3bc
+testing.runTests.func1(0x7148292b0908)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2585 +0x40
+testing.tRunner(0x7148292b0908, 0x7148291bf9e8)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2036 +0xc4
+testing.runTests({0x104f1614f, 0x1f}, {0x104f2a093, 0x27}, 0x714828f3c888, {0x1059f2580, 0x29b, 0x29b}, {0x7148291bfa88?, 0x10443a848?, ...})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2583 +0x3f0
+testing.(*M).Run(0x714829340dc0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2443 +0x578
+github.com/edynasty/LumenCortex/runtime.TestMain(0x714829340dc0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/testutil_test.go:76 +0x4e4
+main.main()
+	_testmain.go:1380 +0x88
+
+goroutine 370808 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x714829786420)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370922
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:235 +0x300
+
+goroutine 548748 [select]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).retentionLoop(0x71482fd578c0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:686 +0xc0
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:239 +0x3bc
+
+goroutine 548745 [select]:
+github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge.func1()
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/diagnostics.go:194 +0x108
+created by github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/diagnostics.go:188 +0xe8
+
+goroutine 371258 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x71482e7049a0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371253
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:235 +0x300
+
+goroutine 555113 [IO wait]:
+internal/poll.runtime_pollWait(0x11322ca00, 0x72)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0x71482dbd2d80?, 0x71482f21e000?, 0x1)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x28
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x71482dbd2d80, {0x71482f21e000, 0x200, 0x200})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_unix.go:165 +0x234
+os.(*File).read(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_posix.go:30
+os.(*File).Read(0x71482eb2cdc0, {0x71482f21e000?, 0x714830107d28?, 0x0?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:144 +0x68
+bytes.(*Buffer).ReadFrom(0x71482f094ae0, {0x10593d4e8, 0x71482eb2cdc0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/bytes/buffer.go:229 +0x90
+io.copyBuffer({0x10593de40, 0x71482f094ae0}, {0x10593d4e8, 0x71482eb2cdc0}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:415 +0x14c
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:388
+os.genericWriteTo(0x104dcc600?, {0x10593de40?, 0x71482f094ae0?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:295 +0x44
+os.(*File).WriteTo(0x7952898ca0?, {0x10593de40?, 0x71482f094ae0?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:273 +0x5c
+io.copyBuffer({0x10593de40, 0x71482f094ae0}, {0x10593d5e0, 0x71482eb2cdc0}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:411 +0x98
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:388
+os/exec.(*Cmd).writerDescriptor.func1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:602 +0x40
+os/exec.(*Cmd).Start.func2(0x71482bf59490?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:757 +0x30
+created by os/exec.(*Cmd).Start in goroutine 550710
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756 +0x6c8
+
+goroutine 548751 [select]:
+github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).loop(0x71482aac2880, {0x105945e80, 0x71482e826a50})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/schedule/scheduler.go:224 +0xf0
+created by github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).Start in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/schedule/scheduler.go:128 +0x3b0
+
+goroutine 550703 [runnable]:
+syscall.syscalln(0x104471e40, {0x714833ce2960, 0x3, 0x3})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/sys_darwin.go:38 +0x20
+syscall.syscall(0x714833ce29a8?, 0x10448d8ac?, 0x105a255a0?, 0x1135aea00?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/syscall/syscall_darwin.go:384 +0x24
+syscall.Close(0x714833ce29f8?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/syscall/zsyscall_darwin_arm64.go:545 +0x34
+internal/poll.(*SysFile).destroy(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_unixjs.go:24
+internal/poll.(*FD).destroy(0x71482fbe06c0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_unix.go:82 +0x58
+internal/poll.(*FD).decref(0x1135aea00?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_mutex.go:213 +0x80
+internal/poll.(*FD).Close(0x71482fbe06c0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_unix.go:105 +0x48
+os.(*file).close(0x71482fbe06c0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_unix.go:315 +0x58
+os.(*File).Close(0x714833ce2af8?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_posix.go:24 +0x24
+os/exec.closeDescriptors(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:611
+os/exec.(*Cmd).Start.func1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:651 +0x48
+os/exec.(*Cmd).Start(0x71482cfe84e0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:786 +0x6b0
+os/exec.(*Cmd).Run(0x71482cfe84e0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:629 +0x20
+github.com/edynasty/LumenCortex/internal/evaluator.git({0x105945eb8, 0x71482d91f3b0}, {0x71482e09e820?, 0x104450b2c?}, {0x714833ce31b0?, 0x4?, 0x714833ce2ec8?})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:880 +0x160
+github.com/edynasty/LumenCortex/internal/evaluator.(*Evaluator).snapshot(0x71482ad3a3c0, {0x105945eb8, 0x71482d91f3b0}, 0x1)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:652 +0xb8
+github.com/edynasty/LumenCortex/internal/evaluator.(*Evaluator).Decide(0x71482ad3a3c0, {0x105945eb8, 0x71482d91f3b0}, {0x71482ce59c20, 0x1, 0x20?}, {0x0, 0x0}, 0x714833ce4080)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:166 +0x5c
+github.com/edynasty/LumenCortex/runtime.runChecks.Decide({0x7148337ba788, 0x71482ad3a3c0, {0x71483197ab40, 0x3, 0x3}, 0x7148294ad090, {0x714830de8540, 0x20}}, {0x105945eb8, 0x71482d91f3b0}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/checks.go:169 +0x518
+github.com/edynasty/LumenCortex/runtime.(*Engine).decideForCognition(0x7148337ba788, {0x105945e48, 0x71482f69c090}, {0x714830de8540, 0x20}, {0x71483197ab40, 0x3, 0x3}, {0x714833ce4b58, 0x1, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognition.go:678 +0x14c
+github.com/edynasty/LumenCortex/runtime.(*Engine).verifyAssertion(_, {_, _}, {_, _}, {{_, _}, {_, _}, {_, ...}, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognitive_graph.go:237 +0x44c
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.apply({0x7148337ba788, {0x714830de8540, 0x20}, {0x714834701b80, 0x20}}, {0x105945e48, 0x71482f69c090}, {0x7148292a9b30, 0x4b}, {0x71482aae7b30, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:281 +0x1a80
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.CognitiveCall({0x7148337ba788, {0x714830de8540, 0x20}, {0x714834701b80, 0x20}}, {0x105945e48, 0x71482f69c090}, {0x104ef721e, 0x10}, 0x71483237b5f0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:134 +0x5f8
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).registerCognitiveTools.func1({0x105945e48?, 0x71482f69c090?}, 0x714833ce6c78?, 0x10445163c?)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/cognitive.go:28 +0x6c
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).Execute(0x7148327366e0, {0x105945e48, 0x71482f69c090}, {0x104ef721e, 0x10}, 0x71483237b5f0, 0x7148321b8d20)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/toolset.go:267 +0x2fc
+github.com/edynasty/LumenCortex/internal/agent.(*Loop).Run(_, {_, _}, {_, _}, {0x6, 0x0, {0x0, 0x0, 0x0}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/agent/loop.go:677 +0x828c
+github.com/edynasty/LumenCortex/runtime.(*preparedRun).execute(0x71482eda8488, {0x105945e80, 0x71482c352370})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:262 +0x10c
+github.com/edynasty/LumenCortex/runtime.(*Engine).RunAgent(_, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, 0x0}, {0x714834b14240, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:229 +0x34c
+github.com/edynasty/LumenCortex/runtime.(*Engine).runAgentWith(_, {_, _}, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/testutil_test.go:139 +0x104
+github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord.func1(0x71483480c008)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:146 +0x2d4
+created by github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:136 +0x3c8
+
+goroutine 555030 [runnable]:
+internal/poll.runtime_pollWait(0x1135ae600, 0x72)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0x71482ae742a0?, 0x71482c2d0600?, 0x1)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x28
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x71482ae742a0, {0x71482c2d0600, 0x200, 0x200})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_unix.go:165 +0x234
+os.(*File).read(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_posix.go:30
+os.(*File).Read(0x71482feed6e8, {0x71482c2d0600?, 0x714835e3bcf8?, 0x0?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:144 +0x68
+bytes.(*Buffer).ReadFrom(0x71483201fd10, {0x10593d4e8, 0x71482feed6e8})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/bytes/buffer.go:229 +0x90
+io.copyBuffer({0x10593de40, 0x71483201fd10}, {0x10593d4e8, 0x71482feed6e8}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:415 +0x14c
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:388
+os.genericWriteTo(0x71482ecca5d8?, {0x10593de40?, 0x71483201fd10?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:295 +0x44
+os.(*File).WriteTo(0x714829013680?, {0x10593de40?, 0x71483201fd10?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:273 +0x5c
+io.copyBuffer({0x10593de40, 0x71483201fd10}, {0x10593d5e0, 0x71482feed6e8}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:411 +0x98
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:388
+os/exec.(*Cmd).writerDescriptor.func1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:602 +0x40
+os/exec.(*Cmd).Start.func2(0x7148306eadc0?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:757 +0x30
+created by os/exec.(*Cmd).Start in goroutine 550705
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756 +0x6c8
+
+goroutine 550708 [runnable]:
+github.com/mattn/go-sqlite3._Cfunc_sqlite3_finalize(0x7952890960)
+	_cgo_gotypes.go:900 +0x30
+github.com/mattn/go-sqlite3.(*SQLiteStmt).Close.func1(...)
+	/Users/tangxingpeng/go/pkg/mod/github.com/mattn/go-sqlite3@v1.14.49/sqlite3.go:2178
+github.com/mattn/go-sqlite3.(*SQLiteStmt).Close(0x71482f82e960)
+	/Users/tangxingpeng/go/pkg/mod/github.com/mattn/go-sqlite3@v1.14.49/sqlite3.go:2178 +0x2f8
+github.com/mattn/go-sqlite3.(*SQLiteConn).exec(0x71482f914180, {0x105945eb8, 0x71482e582310}, {0x104f7b13d?, 0x1?}, {0x71482cfe1088, 0x10, 0x10})
+	/Users/tangxingpeng/go/pkg/mod/github.com/mattn/go-sqlite3@v1.14.49/sqlite3.go:982 +0x1d8
+github.com/mattn/go-sqlite3.(*SQLiteConn).ExecContext(0x714834d17be8?, {0x105945eb8?, 0x71482e582310?}, {0x104f7b13d?, 0x71482e582310?}, {0x71482cfe1088?, 0x714834d17be8?, 0x1043e4cc8?})
+	/Users/tangxingpeng/go/pkg/mod/github.com/mattn/go-sqlite3@v1.14.49/sqlite3_sql.go:32 +0x2c
+database/sql.ctxDriverExec({0x105945eb8?, 0x71482e582310?}, {0x1130ac110?, 0x71482f914180?}, {0x0?, 0x0?}, {0x104f7b13d?, 0x10445483c?}, {0x71482cfe1088?, 0x8?, ...})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/ctxutil.go:31 +0xac
+database/sql.(*DB).execDC.func2()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1713 +0xe0
+database/sql.withLock({0x1059426a0, 0x71482f914380}, 0x714834d17e88)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:3572 +0x74
+database/sql.(*DB).execDC(0x71482eca7800?, {0x105945eb8, 0x71482e582310}, 0x71482f914380, 0x714834d17f78?, {0x104f7b13d, 0x15a}, {0x714834d18268, 0x10, 0x10})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1708 +0x128
+database/sql.(*Conn).ExecContext(0x71482eca7800, {0x105945eb8, 0x71482e582310}, {0x104f7b13d, 0x15a}, {0x714834d18268, 0x10, 0x10})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:2027 +0x88
+github.com/edynasty/LumenCortex/internal/session.(*Store).AppendEvalResult(_, {_, _}, {_, _}, {0x0, {0x0, 0x0}, {0x71482b50e470, 0x6}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/session/evaluator.go:162 +0x950
+github.com/edynasty/LumenCortex/internal/evaluator.(*Evaluator).store(_, {_, _}, {0x0, {0x0, 0x0}, {0x71482b50e470, 0x6}, {0x71482b50e468, 0x4}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:406 +0x180
+github.com/edynasty/LumenCortex/internal/evaluator.(*Evaluator).run(_, {_, _}, {{0x71482b50e470, 0x6}, {0x71482b50e468, 0x4}, {0x71482d3ac930, 0x14}, {0x0, ...}, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:465 +0x5f0
+github.com/edynasty/LumenCortex/internal/evaluator.(*Evaluator).Decide.func1()
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:204 +0xf0
+github.com/edynasty/LumenCortex/internal/evaluator.CheckVerdict(_, {_, _}, {{0x71482b50e470, 0x6}, {0x71482b50e468, 0x4}, {0x71482d3ac930, 0x14}, {0x0, ...}, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/evaluator.go:302 +0x1f8
+github.com/edynasty/LumenCortex/internal/evaluator.(*Evaluator).Decide(0x71482b434360, {0x105945eb8, 0x71482e582310}, {0x71482c717860, 0x1, 0x20?}, {0x0, 0x0}, 0x714834d1a080)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:202 +0x95c
+github.com/edynasty/LumenCortex/runtime.runChecks.Decide({0x7148337ba788, 0x71482b434360, {0x71482b3b4f00, 0x3, 0x3}, 0x7148294ad090, {0x714830716ee0, 0x20}}, {0x105945eb8, 0x71482e582310}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/checks.go:169 +0x518
+github.com/edynasty/LumenCortex/runtime.(*Engine).decideForCognition(0x7148337ba788, {0x105945e48, 0x714832e7fc80}, {0x714830716ee0, 0x20}, {0x71482b3b4f00, 0x3, 0x3}, {0x714834d1ab58, 0x1, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognition.go:678 +0x14c
+github.com/edynasty/LumenCortex/runtime.(*Engine).verifyAssertion(_, {_, _}, {_, _}, {{_, _}, {_, _}, {_, ...}, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognitive_graph.go:237 +0x44c
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.apply({0x7148337ba788, {0x714830716ee0, 0x20}, {0x7148347017c0, 0x20}}, {0x105945e48, 0x714832e7fc80}, {0x71483585caa0, 0x4b}, {0x71482e365680, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:281 +0x1a80
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.CognitiveCall({0x7148337ba788, {0x714830716ee0, 0x20}, {0x7148347017c0, 0x20}}, {0x105945e48, 0x714832e7fc80}, {0x104ef721e, 0x10}, 0x71482f861170)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:134 +0x5f8
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).registerCognitiveTools.func1({0x105945e48?, 0x714832e7fc80?}, 0x714834d1cc78?, 0x10445163c?)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/cognitive.go:28 +0x6c
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).Execute(0x71482f86fb80, {0x105945e48, 0x714832e7fc80}, {0x104ef721e, 0x10}, 0x71482f861170, 0x714834a210e0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/toolset.go:267 +0x2fc
+github.com/edynasty/LumenCortex/internal/agent.(*Loop).Run(_, {_, _}, {_, _}, {0x6, 0x0, {0x0, 0x0, 0x0}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/agent/loop.go:677 +0x828c
+github.com/edynasty/LumenCortex/runtime.(*preparedRun).execute(0x714834d81208, {0x105945e80, 0x71482c352460})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:262 +0x10c
+github.com/edynasty/LumenCortex/runtime.(*Engine).RunAgent(_, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, 0x0}, {0x714834b14250, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:229 +0x34c
+github.com/edynasty/LumenCortex/runtime.(*Engine).runAgentWith(_, {_, _}, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/testutil_test.go:139 +0x104
+github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord.func1(0x71483480c490)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:146 +0x2d4
+created by github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:136 +0x3c8
+
+goroutine 371145 [select]:
+github.com/edynasty/LumenCortex/internal/diag.(*Log).run(0x71482d3a9040)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/diag/diag.go:234 +0x11c
+created by github.com/edynasty/LumenCortex/internal/diag.Open in goroutine 371253
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/diag/diag.go:167 +0x418
+
+goroutine 370812 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x714829786a50)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370570
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:235 +0x300
+
+goroutine 371257 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x71482e7049a0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371253
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:235 +0x300
+
+goroutine 371363 [select]:
+github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).loop(0x71482e796500, {0x105945e80, 0x71482f111770})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/schedule/scheduler.go:224 +0xf0
+created by github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).Start in goroutine 371334
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/schedule/scheduler.go:128 +0x3b0
+
+goroutine 554800 [IO wait]:
+internal/poll.runtime_pollWait(0x11322c200, 0x72)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0x71482fce5800?, 0x71482dd36a00?, 0x1)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x28
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x71482fce5800, {0x71482dd36a00, 0x200, 0x200})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_unix.go:165 +0x234
+os.(*File).read(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_posix.go:30
+os.(*File).Read(0x714829803338, {0x71482dd36a00?, 0x714828f43a40?, 0x0?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:144 +0x68
+bytes.(*Buffer).ReadFrom(0x714830b85b60, {0x10593d4e8, 0x714829803338})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/bytes/buffer.go:229 +0x90
+io.copyBuffer({0x10593de40, 0x714830b85b60}, {0x10593d4e8, 0x714829803338}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:415 +0x14c
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:388
+os.genericWriteTo(0x71482cc28f50?, {0x10593de40?, 0x714830b85b60?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:295 +0x44
+os.(*File).WriteTo(0x714835e41fa8?, {0x10593de40?, 0x714830b85b60?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:273 +0x5c
+io.copyBuffer({0x10593de40, 0x714830b85b60}, {0x10593d5e0, 0x714829803338}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:411 +0x98
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:388
+os/exec.(*Cmd).writerDescriptor.func1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:602 +0x40
+os/exec.(*Cmd).Start.func2(0x71482da20340?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:757 +0x30
+created by os/exec.(*Cmd).Start in goroutine 550706
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756 +0x6c8
+
+goroutine 371099 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).retentionLoop(0x71482e7042c0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:686 +0xc0
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371077
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:239 +0x3bc
+
+goroutine 370933 [select]:
+github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).loop(0x714831b1e000, {0x105945e80, 0x714831c94280})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/schedule/scheduler.go:224 +0xf0
+created by github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).Start in goroutine 370922
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/schedule/scheduler.go:128 +0x3b0
+
+goroutine 555033 [runnable]:
+os/exec.(*Cmd).Start.gowrap2()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:783
+runtime.goexit({})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/asm_arm64.s:1447 +0x4
+created by os/exec.(*Cmd).Start in goroutine 550706
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:783 +0x69c
+
+goroutine 370799 [select]:
+github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).loop(0x71483034b300, {0x105945e80, 0x7148292f2e10})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/schedule/scheduler.go:224 +0xf0
+created by github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).Start in goroutine 371077
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/schedule/scheduler.go:128 +0x3b0
+
+goroutine 555118 [runnable]:
+os/exec.(*Cmd).Start.gowrap2()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:783
+runtime.goexit({})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/asm_arm64.s:1447 +0x4
+created by os/exec.(*Cmd).Start in goroutine 550703
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:783 +0x69c
+
+goroutine 550707 [runnable]:
+os/exec.(*Cmd).Start(0x714829faa9c0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756 +0x6fc
+os/exec.(*Cmd).Run(0x714829faa9c0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:629 +0x20
+github.com/edynasty/LumenCortex/internal/evaluator.ignoredPaths({0x714832dbf040, 0xa0}, {0x714834d39c88, 0x2, 0x2})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/inputs.go:578 +0x1d0
+github.com/edynasty/LumenCortex/internal/evaluator.ResolveInputs({0x71482e09e820, 0xa0}, {0x71482f9e23c0, 0x3, 0x3})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/inputs.go:461 +0x678
+github.com/edynasty/LumenCortex/runtime.(*Engine).effectiveChecks(0x7148337ba788)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/checks.go:63 +0x21c
+github.com/edynasty/LumenCortex/runtime.(*Engine).approvedChecks(0x7148337ba788, {0x105945e48, 0x71482c1f4900})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/approvals.go:139 +0x44
+github.com/edynasty/LumenCortex/runtime.(*Engine).verifyAssertion(_, {_, _}, {_, _}, {{_, _}, {_, _}, {_, ...}, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognitive_graph.go:225 +0x78
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.apply({0x7148337ba788, {0x71482f46bea0, 0x20}, {0x714834701be0, 0x20}}, {0x105945e48, 0x71482c1f4900}, {0x714832560dc0, 0x4b}, {0x71482aae7c98, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:281 +0x1a80
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.CognitiveCall({0x7148337ba788, {0x71482f46bea0, 0x20}, {0x714834701be0, 0x20}}, {0x105945e48, 0x71482c1f4900}, {0x104ef721e, 0x10}, 0x71482f69d230)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:134 +0x5f8
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).registerCognitiveTools.func1({0x105945e48?, 0x71482c1f4900?}, 0x714834d3cc78?, 0x10445163c?)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/cognitive.go:28 +0x6c
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).Execute(0x71482f86fce0, {0x105945e48, 0x71482c1f4900}, {0x104ef721e, 0x10}, 0x71482f69d230, 0x714834cafe00)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/toolset.go:267 +0x2fc
+github.com/edynasty/LumenCortex/internal/agent.(*Loop).Run(_, {_, _}, {_, _}, {0x6, 0x0, {0x0, 0x0, 0x0}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/agent/loop.go:677 +0x828c
+github.com/edynasty/LumenCortex/runtime.(*preparedRun).execute(0x71482ed4a008, {0x105945e80, 0x714834f8e2d0})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:262 +0x10c
+github.com/edynasty/LumenCortex/runtime.(*Engine).RunAgent(_, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, 0x0}, {0x714834b14210, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:229 +0x34c
+github.com/edynasty/LumenCortex/runtime.(*Engine).runAgentWith(_, {_, _}, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/testutil_test.go:139 +0x104
+github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord.func1(0x71483480c3a8)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:146 +0x2d4
+created by github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:136 +0x3c8
+
+goroutine 555032 [select]:
+os/exec.(*Cmd).watchCtx(0x71482ba501a0, 0x71482cc29030)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:797 +0x74
+created by os/exec.(*Cmd).Start in goroutine 550705
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:783 +0x69c
+
+goroutine 371310 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x7148303960b0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371334
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:235 +0x300
+
+goroutine 371094 [select]:
+github.com/edynasty/LumenCortex/internal/diag.(*Log).run(0x71482a05af70)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/diag/diag.go:234 +0x11c
+created by github.com/edynasty/LumenCortex/internal/diag.Open in goroutine 371077
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/diag/diag.go:167 +0x418
+
+goroutine 370811 [select]:
+github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge.func1()
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/diagnostics.go:194 +0x108
+created by github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge in goroutine 370570
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/diagnostics.go:188 +0xe8
+
+goroutine 371259 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).retentionLoop(0x71482e7049a0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:686 +0xc0
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371253
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:239 +0x3bc
+
+goroutine 555117 [runnable]:
+os/exec.(*Cmd).Start.gowrap1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756
+runtime.goexit({})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/asm_arm64.s:1447 +0x4
+created by os/exec.(*Cmd).Start in goroutine 550703
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756 +0x6c8
+
+goroutine 549545 [sync.WaitGroup.Wait]:
+sync.runtime_SemacquireWaitGroup(0x714834fe9798?, 0xf8?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/sema.go:114 +0x38
+sync.(*WaitGroup).Wait(0x714834b8daf0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/sync/waitgroup.go:206 +0xa8
+github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord(0x714830fcc248)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:150 +0x4dc
+testing.tRunner(0x714830fcc248, 0x105932748)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2036 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/testing/testing.go:2101 +0x3a8
+
+goroutine 549550 [select]:
+github.com/edynasty/LumenCortex/internal/diag.(*Log).run(0x7148324068f0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/diag/diag.go:234 +0x11c
+created by github.com/edynasty/LumenCortex/internal/diag.Open in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/diag/diag.go:167 +0x418
+
+goroutine 370577 [select]:
+github.com/edynasty/LumenCortex/internal/diag.(*Log).run(0x71482aeb8340)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/diag/diag.go:234 +0x11c
+created by github.com/edynasty/LumenCortex/internal/diag.Open in goroutine 370570
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/diag/diag.go:167 +0x418
+
+goroutine 370807 [select]:
+github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge.func1()
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/diagnostics.go:194 +0x108
+created by github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge in goroutine 370922
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/diagnostics.go:188 +0xe8
+
+goroutine 371150 [select]:
+github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).loop(0x71482e396d80, {0x105945e80, 0x714831c21720})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/schedule/scheduler.go:224 +0xf0
+created by github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).Start in goroutine 371253
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/schedule/scheduler.go:128 +0x3b0
+
+goroutine 371312 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).retentionLoop(0x7148303960b0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:686 +0xc0
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371334
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:239 +0x3bc
+
+goroutine 550704 [select]:
+database/sql.(*DB).conn(0x714832f2dc70, {0x105945eb8, 0x71482f605260}, 0x1)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1369 +0x45c
+database/sql.(*DB).query(0x714832f2dc70, {0x105945eb8, 0x71482f605260}, {0x104f814d4, 0x20d}, {0x71483463f1a8, 0x5, 0x5}, 0x68?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1759 +0x40
+database/sql.(*DB).QueryContext.func1(0xc8?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1742 +0x40
+database/sql.(*DB).retry(0x107a9bff0?, 0x71483463ede0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1576 +0x4c
+database/sql.(*DB).QueryContext(0x33047093cfd6d930?, {0x105945eb8?, 0x71482f605260?}, {0x104f814d4?, 0x71483463ef38?}, {0x71483463f1a8?, 0x33047093cfd6d930?, 0xb46d38f6031c07ee?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1741 +0x64
+database/sql.(*DB).QueryRowContext(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1842
+github.com/edynasty/LumenCortex/internal/session.(*Store).oneEvalRow(0x7148294ad090, {0x105945eb8, 0x71482f605260}, {0x104f814d4, 0x20d}, {0x71483463f1a8, 0x5, 0x5})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/session/evaluator.go:253 +0x78
+github.com/edynasty/LumenCortex/internal/session.(*Store).DecidingEvalResult(0x7148294ad090, {0x105945eb8, 0x71482f605260}, {0x71483008b7e0?, 0x71482f99ac90?}, {0x71482ee49ed0, 0x6}, {0x71482bb126c0, 0x81}, {0x714831c372c0, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/session/evaluator.go:213 +0xfc
+github.com/edynasty/LumenCortex/internal/evaluator.(*Evaluator).Decide(0x71482ff39140, {0x105945eb8, 0x71482f605260}, {0x7148311f9b80, 0x1, 0x20?}, {0x0, 0x0}, 0x714834640080)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:191 +0x640
+github.com/edynasty/LumenCortex/runtime.runChecks.Decide({0x7148337ba788, 0x71482ff39140, {0x71483295dc20, 0x3, 0x3}, 0x7148294ad090, {0x71483008b7e0, 0x20}}, {0x105945eb8, 0x71482f605260}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/checks.go:169 +0x518
+github.com/edynasty/LumenCortex/runtime.(*Engine).decideForCognition(0x7148337ba788, {0x105945e48, 0x71482f69ced0}, {0x71483008b7e0, 0x20}, {0x71483295dc20, 0x3, 0x3}, {0x714834640b58, 0x1, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognition.go:678 +0x14c
+github.com/edynasty/LumenCortex/runtime.(*Engine).verifyAssertion(_, {_, _}, {_, _}, {{_, _}, {_, _}, {_, ...}, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognitive_graph.go:237 +0x44c
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.apply({0x7148337ba788, {0x71483008b7e0, 0x20}, {0x714831675120, 0x20}}, {0x105945e48, 0x71482f69ced0}, {0x7148291e09b0, 0x4b}, {0x7148358f77a0, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:281 +0x1a80
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.CognitiveCall({0x7148337ba788, {0x71483008b7e0, 0x20}, {0x714831675120, 0x20}}, {0x105945e48, 0x71482f69ced0}, {0x104ef721e, 0x10}, 0x71482c1274a0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:134 +0x5f8
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).registerCognitiveTools.func1({0x105945e48?, 0x71482f69ced0?}, 0x714834642c78?, 0x10445163c?)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/cognitive.go:28 +0x6c
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).Execute(0x71482fdb6000, {0x105945e48, 0x71482f69ced0}, {0x104ef721e, 0x10}, 0x71482c1274a0, 0x7148321b9380)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/toolset.go:267 +0x2fc
+github.com/edynasty/LumenCortex/internal/agent.(*Loop).Run(_, {_, _}, {_, _}, {0x6, 0x0, {0x0, 0x0, 0x0}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/agent/loop.go:677 +0x828c
+github.com/edynasty/LumenCortex/runtime.(*preparedRun).execute(0x714835c27b08, {0x105945e80, 0x714834e5cc80})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:262 +0x10c
+github.com/edynasty/LumenCortex/runtime.(*Engine).RunAgent(_, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, 0x0}, {0x714835d03530, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:229 +0x34c
+github.com/edynasty/LumenCortex/runtime.(*Engine).runAgentWith(_, {_, _}, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/testutil_test.go:139 +0x104
+github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord.func1(0x71483480c0f0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:146 +0x2d4
+created by github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:136 +0x3c8
+
+goroutine 370814 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).retentionLoop(0x714829786a50)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:686 +0xc0
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370570
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:239 +0x3bc
+
+goroutine 370813 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x714829786a50)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370570
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:235 +0x300
+
+goroutine 371343 [select]:
+github.com/edynasty/LumenCortex/internal/diag.(*Log).run(0x7148298d9d40)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/diag/diag.go:234 +0x11c
+created by github.com/edynasty/LumenCortex/internal/diag.Open in goroutine 371334
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/diag/diag.go:167 +0x418
+
+goroutine 371144 [select, 3 minutes]:
+database/sql.(*DB).connectionOpener(0x71482944e340, {0x105945e80, 0x714831c21130})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1261 +0x84
+created by database/sql.OpenDB in goroutine 371253
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:841 +0x114
+
+goroutine 555060 [runnable]:
+os/exec.(*Cmd).Start.gowrap1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756
+runtime.goexit({})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/asm_arm64.s:1447 +0x4
+created by os/exec.(*Cmd).Start in goroutine 550707
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756 +0x6c8
+
+goroutine 550705 [runnable]:
+syscall.syscalln(0x104471d20, {0x714833d08ac8, 0x6, 0x6})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/sys_darwin.go:38 +0x20
+syscall.syscall6(0x12981a610?, 0x113afcd18?, 0x107a9ae00?, 0x90?, 0x71482b900008?, 0x714830b6fe60?, 0x714833d08b68?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/syscall/syscall_darwin.go:407 +0x28
+syscall.wait4(0x714833d08b98?, 0x10449272c?, 0x90?, 0x10590cd20?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/syscall/zsyscall_darwin_arm64.go:44 +0x4c
+syscall.Wait4(0x71482eccf3b0?, 0x714833d08bd4, 0x71482981a610?, 0x71482eccf340?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/syscall/syscall_bsd.go:144 +0x28
+os.(*Process).pidWait.func1(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec_unix.go:64
+os.ignoringEINTR2[...](...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_posix.go:273
+os.(*Process).pidWait(0x71482b86ec40)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec_unix.go:63 +0x9c
+os.(*Process).wait(0x107a8ade0?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec_unix.go:28 +0x24
+os.(*Process).Wait(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec.go:346
+os/exec.(*Cmd).Wait(0x71482ba501a0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:930 +0x38
+os/exec.(*Cmd).Run(0x71482ba501a0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:632 +0x38
+github.com/edynasty/LumenCortex/internal/evaluator.git({0x105945eb8, 0x71482eccf180}, {0x71482e09e820?, 0x104450b2c?}, {0x714833d091b0?, 0x4?, 0x714833d08ec8?})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:880 +0x160
+github.com/edynasty/LumenCortex/internal/evaluator.(*Evaluator).snapshot(0x71482f175bc0, {0x105945eb8, 0x71482eccf180}, 0x1)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:652 +0xb8
+github.com/edynasty/LumenCortex/internal/evaluator.(*Evaluator).Decide(0x71482f175bc0, {0x105945eb8, 0x71482eccf180}, {0x71482eeb92c0, 0x1, 0x20?}, {0x0, 0x0}, 0x714833d0a080)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:166 +0x5c
+github.com/edynasty/LumenCortex/runtime.runChecks.Decide({0x7148337ba788, 0x71482f175bc0, {0x714831ab85a0, 0x3, 0x3}, 0x7148294ad090, {0x71482d9cd620, 0x20}}, {0x105945eb8, 0x71482eccf180}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/checks.go:169 +0x518
+github.com/edynasty/LumenCortex/runtime.(*Engine).decideForCognition(0x7148337ba788, {0x105945e48, 0x714832e11650}, {0x71482d9cd620, 0x20}, {0x714831ab85a0, 0x3, 0x3}, {0x714833d0ab58, 0x1, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognition.go:678 +0x14c
+github.com/edynasty/LumenCortex/runtime.(*Engine).verifyAssertion(_, {_, _}, {_, _}, {{_, _}, {_, _}, {_, ...}, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognitive_graph.go:237 +0x44c
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.apply({0x7148337ba788, {0x71482d9cd620, 0x20}, {0x714831675260, 0x20}}, {0x105945e48, 0x714832e11650}, {0x714834b4f6d0, 0x4b}, {0x71482b1f84e0, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:281 +0x1a80
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.CognitiveCall({0x7148337ba788, {0x71482d9cd620, 0x20}, {0x714831675260, 0x20}}, {0x105945e48, 0x714832e11650}, {0x104ef721e, 0x10}, 0x71483237b350)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:134 +0x5f8
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).registerCognitiveTools.func1({0x105945e48?, 0x714832e11650?}, 0x714833d0cc78?, 0x10445163c?)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/cognitive.go:28 +0x6c
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).Execute(0x71482fdb7b80, {0x105945e48, 0x714832e11650}, {0x104ef721e, 0x10}, 0x71483237b350, 0x7148296f62a0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/toolset.go:267 +0x2fc
+github.com/edynasty/LumenCortex/internal/agent.(*Loop).Run(_, {_, _}, {_, _}, {0x6, 0x0, {0x0, 0x0, 0x0}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/agent/loop.go:677 +0x828c
+github.com/edynasty/LumenCortex/runtime.(*preparedRun).execute(0x71482dabe008, {0x105945e80, 0x7148324b6be0})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:262 +0x10c
+github.com/edynasty/LumenCortex/runtime.(*Engine).RunAgent(_, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, 0x0}, {0x714834b8db00, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:229 +0x34c
+github.com/edynasty/LumenCortex/runtime.(*Engine).runAgentWith(_, {_, _}, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/testutil_test.go:139 +0x104
+github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord.func1(0x71483480c1d8)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:146 +0x2d4
+created by github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:136 +0x3c8
+
+goroutine 371093 [select, 3 minutes]:
+database/sql.(*DB).connectionOpener(0x71482b088ea0, {0x105945e80, 0x714831c95310})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1261 +0x84
+created by database/sql.OpenDB in goroutine 371077
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:841 +0x114
+
+goroutine 370963 [select]:
+github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).loop(0x714830060780, {0x105945e80, 0x714831c94910})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/schedule/scheduler.go:224 +0xf0
+created by github.com/edynasty/LumenCortex/internal/schedule.(*Scheduler).Start in goroutine 370570
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/schedule/scheduler.go:128 +0x3b0
+
+goroutine 371097 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x71482e7042c0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371077
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:235 +0x300
+
+goroutine 370929 [select, 3 minutes]:
+database/sql.(*DB).connectionOpener(0x7148316bf520, {0x105945e80, 0x714830bcbea0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1261 +0x84
+created by database/sql.OpenDB in goroutine 370922
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:841 +0x114
+
+goroutine 555116 [runnable]:
+os/exec.(*Cmd).Start.gowrap1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756
+runtime.goexit({})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/asm_arm64.s:1447 +0x4
+created by os/exec.(*Cmd).Start in goroutine 550703
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756 +0x6c8
+
+goroutine 371098 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x71482e7042c0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371077
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:235 +0x300
+
+goroutine 548747 [select]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x71482fd578c0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:235 +0x300
+
+goroutine 548746 [select]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x71482fd578c0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:235 +0x300
+
+goroutine 371342 [select, 3 minutes]:
+database/sql.(*DB).connectionOpener(0x71482ae51ad0, {0x105945e80, 0x714830b5e190})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1261 +0x84
+created by database/sql.OpenDB in goroutine 371334
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:841 +0x114
+
+goroutine 371309 [runnable]:
+github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge.func1()
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/diagnostics.go:194 +0x108
+created by github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge in goroutine 371334
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/diagnostics.go:188 +0xe8
+
+goroutine 370809 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x714829786420)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370922
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:235 +0x300
+
+goroutine 370568 [select]:
+github.com/edynasty/LumenCortex/internal/diag.(*Log).run(0x714831a35ba0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/diag/diag.go:234 +0x11c
+created by github.com/edynasty/LumenCortex/internal/diag.Open in goroutine 370922
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/diag/diag.go:167 +0x418
+
+goroutine 370576 [select, 3 minutes]:
+database/sql.(*DB).connectionOpener(0x71482b7fcc30, {0x105945e80, 0x714831c204b0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1261 +0x84
+created by database/sql.OpenDB in goroutine 370570
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:841 +0x114
+
+goroutine 371096 [select]:
+github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge.func1()
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/diagnostics.go:194 +0x108
+created by github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge in goroutine 371077
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/diagnostics.go:188 +0xe8
+
+goroutine 550710 [syscall]:
+syscall.syscalln(0x104471d20, {0x714834d58ac8, 0x6, 0x6})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/sys_darwin.go:38 +0x20
+syscall.syscall6(0x12981aa00?, 0x1136b54e0?, 0x107a8ade0?, 0x90?, 0x7148319f7008?, 0x71482d4dfa70?, 0x714834d58b68?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/syscall/syscall_darwin.go:407 +0x28
+syscall.wait4(0x714834d58b98?, 0x10449272c?, 0x90?, 0x10590cd20?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/syscall/zsyscall_darwin_arm64.go:44 +0x4c
+syscall.Wait4(0x71482f53a620?, 0x714834d58bd4, 0x71482981aa00?, 0x71482f53a4d0?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/syscall/syscall_bsd.go:144 +0x28
+os.(*Process).pidWait.func1(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec_unix.go:64
+os.ignoringEINTR2[...](...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_posix.go:273
+os.(*Process).pidWait(0x71482dd2c700)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec_unix.go:63 +0x9c
+os.(*Process).wait(0x107a8ade0?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec_unix.go:28 +0x24
+os.(*Process).Wait(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec.go:346
+os/exec.(*Cmd).Wait(0x71482ba50340)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:930 +0x38
+os/exec.(*Cmd).Run(0x71482ba50340)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:632 +0x38
+github.com/edynasty/LumenCortex/internal/evaluator.git({0x105945eb8, 0x71482d91f650}, {0x71482e09e820?, 0x104450b2c?}, {0x714834d591b0?, 0x4?, 0x714834d58ec8?})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:880 +0x160
+github.com/edynasty/LumenCortex/internal/evaluator.(*Evaluator).snapshot(0x71482ad3a540, {0x105945eb8, 0x71482d91f650}, 0x1)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:652 +0xb8
+github.com/edynasty/LumenCortex/internal/evaluator.(*Evaluator).Decide(0x71482ad3a540, {0x105945eb8, 0x71482d91f650}, {0x71482eeb9860, 0x1, 0x20?}, {0x0, 0x0}, 0x714834d5a080)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/run.go:166 +0x5c
+github.com/edynasty/LumenCortex/runtime.runChecks.Decide({0x7148337ba788, 0x71482ad3a540, {0x71482f9e2000, 0x3, 0x3}, 0x7148294ad090, {0x7148330a7ca0, 0x20}}, {0x105945eb8, 0x71482d91f650}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/checks.go:169 +0x518
+github.com/edynasty/LumenCortex/runtime.(*Engine).decideForCognition(0x7148337ba788, {0x105945e48, 0x71482c126ff0}, {0x7148330a7ca0, 0x20}, {0x71482f9e2000, 0x3, 0x3}, {0x714834d5ab58, 0x1, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognition.go:678 +0x14c
+github.com/edynasty/LumenCortex/runtime.(*Engine).verifyAssertion(_, {_, _}, {_, _}, {{_, _}, {_, _}, {_, ...}, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognitive_graph.go:237 +0x44c
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.apply({0x7148337ba788, {0x7148330a7ca0, 0x20}, {0x714834701820, 0x20}}, {0x105945e48, 0x71482c126ff0}, {0x7148291e07d0, 0x4b}, {0x7148358f7788, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:281 +0x1a80
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.CognitiveCall({0x7148337ba788, {0x7148330a7ca0, 0x20}, {0x714834701820, 0x20}}, {0x105945e48, 0x71482c126ff0}, {0x104ef721e, 0x10}, 0x71482cc5a540)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:134 +0x5f8
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).registerCognitiveTools.func1({0x105945e48?, 0x71482c126ff0?}, 0x714834d5cc78?, 0x10445163c?)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/cognitive.go:28 +0x6c
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).Execute(0x714832736580, {0x105945e48, 0x71482c126ff0}, {0x104ef721e, 0x10}, 0x71482cc5a540, 0x71483051e180)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/toolset.go:267 +0x2fc
+github.com/edynasty/LumenCortex/internal/agent.(*Loop).Run(_, {_, _}, {_, _}, {0x6, 0x0, {0x0, 0x0, 0x0}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/agent/loop.go:677 +0x828c
+github.com/edynasty/LumenCortex/runtime.(*preparedRun).execute(0x714835d7d688, {0x105945e80, 0x7148324b6e60})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:262 +0x10c
+github.com/edynasty/LumenCortex/runtime.(*Engine).RunAgent(_, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, 0x0}, {0x714834b14230, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:229 +0x34c
+github.com/edynasty/LumenCortex/runtime.(*Engine).runAgentWith(_, {_, _}, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/testutil_test.go:139 +0x104
+github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord.func1(0x71483480c660)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:146 +0x2d4
+created by github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:136 +0x3c8
+
+goroutine 554799 [runnable]:
+runtime.goexit1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/proc.go:4475 +0xb4
+runtime.goexit({})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/asm_arm64.s:1448 +0x8
+created by os/exec.(*Cmd).Start in goroutine 550706
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756 +0x6c8
+
+goroutine 371311 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).worker(0x7148303960b0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:712 +0x138
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 371334
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:235 +0x300
+
+goroutine 371256 [select]:
+github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge.func1()
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/diagnostics.go:194 +0x108
+created by github.com/edynasty/LumenCortex/runtime.(*Engine).startDiagnosticsBridge in goroutine 371253
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/diagnostics.go:188 +0xe8
+
+goroutine 550709 [syscall]:
+syscall.syscalln(0x104471f60, {0x714833c43380, 0x3, 0x3})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/sys_darwin.go:38 +0x20
+syscall.syscall(0x71482f5cb8c0?, 0xab?, 0x714833c433f8?, 0x104498190?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/syscall/syscall_darwin.go:384 +0x24
+syscall.Open({0x71482f5cb8c0?, 0x1046f8e50?}, 0x1000000, 0x0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/syscall/zsyscall_darwin_arm64.go:1162 +0x70
+os.open(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_open_unix.go:15
+os.openFileNolog.func1(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_unix.go:261
+os.ignoringEINTR(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_posix.go:263
+os.openFileNolog({0x71482f5cb8c0, 0xab}, 0x0, 0x0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_unix.go:260 +0xd4
+os.OpenFile({0x71482f5cb8c0, 0xab}, 0x0, 0x0)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:412 +0x40
+os.Open(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:390
+github.com/edynasty/LumenCortex/internal/evaluator.fileDigest({0x714831f52000?, 0xa0?}, {0x71482cddb340?, 0x2?})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/inputs.go:634 +0x48
+github.com/edynasty/LumenCortex/internal/evaluator.ResolveInputs({0x71482e09e820, 0xa0}, {0x71483197b2c0, 0x3, 0x3})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/inputs.go:466 +0x78c
+github.com/edynasty/LumenCortex/runtime.(*Engine).effectiveChecks(0x7148337ba788)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/checks.go:63 +0x21c
+github.com/edynasty/LumenCortex/runtime.(*Engine).approvedChecks(0x7148337ba788, {0x105945eb8, 0x71482ed34150})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/approvals.go:139 +0x44
+github.com/edynasty/LumenCortex/runtime.runChecks.Decide({0x7148337ba788, 0x71482f537500, {0x71483197af00, 0x3, 0x3}, 0x7148294ad090, {0x71482f7bdd80, 0x20}}, {0x105945eb8, 0x71482ed34150}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/checks.go:159 +0xa0
+github.com/edynasty/LumenCortex/runtime.(*Engine).decideForCognition(0x7148337ba788, {0x105945e48, 0x714832c088a0}, {0x71482f7bdd80, 0x20}, {0x71483197af00, 0x3, 0x3}, {0x714833c44b58, 0x1, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognition.go:678 +0x14c
+github.com/edynasty/LumenCortex/runtime.(*Engine).verifyAssertion(_, {_, _}, {_, _}, {{_, _}, {_, _}, {_, ...}, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognitive_graph.go:237 +0x44c
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.apply({0x7148337ba788, {0x71482f7bdd80, 0x20}, {0x714834701660, 0x20}}, {0x105945e48, 0x714832c088a0}, {0x7148291e1360, 0x4b}, {0x7148358f77d0, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:281 +0x1a80
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.CognitiveCall({0x7148337ba788, {0x71482f7bdd80, 0x20}, {0x714834701660, 0x20}}, {0x105945e48, 0x714832c088a0}, {0x104ef721e, 0x10}, 0x71483237b9b0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:134 +0x5f8
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).registerCognitiveTools.func1({0x105945e48?, 0x714832c088a0?}, 0x714833c46c78?, 0x10445163c?)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/cognitive.go:28 +0x6c
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).Execute(0x7148298aa6e0, {0x105945e48, 0x714832c088a0}, {0x104ef721e, 0x10}, 0x71483237b9b0, 0x714834c29620)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/toolset.go:267 +0x2fc
+github.com/edynasty/LumenCortex/internal/agent.(*Loop).Run(_, {_, _}, {_, _}, {0x6, 0x0, {0x0, 0x0, 0x0}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/agent/loop.go:677 +0x828c
+github.com/edynasty/LumenCortex/runtime.(*preparedRun).execute(0x71482ed4a488, {0x105945e80, 0x71482db0bb30})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:262 +0x10c
+github.com/edynasty/LumenCortex/runtime.(*Engine).RunAgent(_, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, 0x0}, {0x7148346b62a0, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:229 +0x34c
+github.com/edynasty/LumenCortex/runtime.(*Engine).runAgentWith(_, {_, _}, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/testutil_test.go:139 +0x104
+github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord.func1(0x71483480c578)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:146 +0x2d4
+created by github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:136 +0x3c8
+
+goroutine 550706 [runnable]:
+internal/poll.(*FD).decref(0x71482f537b60?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_mutex.go:211 +0xc4
+internal/poll.(*FD).Close(0x71482f537b60)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_unix.go:105 +0x48
+os.(*file).close(0x71482f537b60)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_unix.go:315 +0x58
+os.(*File).Close(0x714833c232b8?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_posix.go:24 +0x24
+os/exec.closeDescriptors(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:611
+os/exec.(*Cmd).Start.func1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:651 +0x48
+os/exec.(*Cmd).Start(0x71482b47b520)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:786 +0x6b0
+os/exec.(*Cmd).Run(0x71482b47b520)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:629 +0x20
+github.com/edynasty/LumenCortex/internal/evaluator.ignoredPaths({0x71482ecbb900, 0xa0}, {0x714833c23718, 0x2, 0x2})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/inputs.go:578 +0x1d0
+github.com/edynasty/LumenCortex/internal/evaluator.ResolveInputs({0x71482e09e820, 0xa0}, {0x71482d5ff4a0, 0x3, 0x3})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/evaluator/inputs.go:461 +0x678
+github.com/edynasty/LumenCortex/runtime.(*Engine).effectiveChecks(0x7148337ba788)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/checks.go:63 +0x21c
+github.com/edynasty/LumenCortex/runtime.(*Engine).approvedChecks(0x7148337ba788, {0x105945eb8, 0x71482c6b9570})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/approvals.go:139 +0x44
+github.com/edynasty/LumenCortex/runtime.runChecks.Decide({0x7148337ba788, 0x71482fbe0060, {0x714831ab8780, 0x3, 0x3}, 0x7148294ad090, {0x71483017cf80, 0x20}}, {0x105945eb8, 0x71482c6b9570}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/checks.go:159 +0xa0
+github.com/edynasty/LumenCortex/runtime.(*Engine).decideForCognition(0x7148337ba788, {0x105945e48, 0x714832c08f60}, {0x71483017cf80, 0x20}, {0x714831ab8780, 0x3, 0x3}, {0x714833c24b58, 0x1, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognition.go:678 +0x14c
+github.com/edynasty/LumenCortex/runtime.(*Engine).verifyAssertion(_, {_, _}, {_, _}, {{_, _}, {_, _}, {_, ...}, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/cognitive_graph.go:237 +0x44c
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.apply({0x7148337ba788, {0x71483017cf80, 0x20}, {0x714831675180, 0x20}}, {0x105945e48, 0x714832c08f60}, {0x714834dfa320, 0x4b}, {0x714835b3f638, ...}, ...)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:281 +0x1a80
+github.com/edynasty/LumenCortex/runtime.cognitiveAccess.CognitiveCall({0x7148337ba788, {0x71483017cf80, 0x20}, {0x714831675180, 0x20}}, {0x105945e48, 0x714832c08f60}, {0x104ef721e, 0x10}, 0x71482d2d1200)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_execution.go:134 +0x5f8
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).registerCognitiveTools.func1({0x105945e48?, 0x714832c08f60?}, 0x714833c26c78?, 0x10445163c?)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/cognitive.go:28 +0x6c
+github.com/edynasty/LumenCortex/internal/toolset.(*Set).Execute(0x714831b6a580, {0x105945e48, 0x714832c08f60}, {0x104ef721e, 0x10}, 0x71482d2d1200, 0x714834c29860)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/toolset/toolset.go:267 +0x2fc
+github.com/edynasty/LumenCortex/internal/agent.(*Loop).Run(_, {_, _}, {_, _}, {0x6, 0x0, {0x0, 0x0, 0x0}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/agent/loop.go:677 +0x828c
+github.com/edynasty/LumenCortex/runtime.(*preparedRun).execute(0x71482ed4a908, {0x105945e80, 0x714834e5cd70})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:262 +0x10c
+github.com/edynasty/LumenCortex/runtime.(*Engine).RunAgent(_, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, 0x0}, {0x714834b14262, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/agent.go:229 +0x34c
+github.com/edynasty/LumenCortex/runtime.(*Engine).runAgentWith(_, {_, _}, {_, _}, {_, _}, {{0x0, 0x0}, {0x0, ...}, ...})
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/testutil_test.go:139 +0x104
+github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord.func1(0x71483480c2c0)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:146 +0x2d4
+created by github.com/edynasty/LumenCortex/runtime.TestExperienceSettlesEveryConcurrentConsumerOfAFullRecord in goroutine 549545
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/runtime/experience_settlement_contention_review_test.go:136 +0x3c8
+
+goroutine 370810 [select, 3 minutes]:
+github.com/edynasty/LumenCortex/internal/jobs.(*Manager).retentionLoop(0x714829786420)
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:686 +0xc0
+created by github.com/edynasty/LumenCortex/internal/jobs.(*Manager).Start in goroutine 370922
+	/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-sol-rev-01-astra-final-20261122/internal/jobs/jobs.go:239 +0x3bc
+
+goroutine 555114 [IO wait]:
+internal/poll.runtime_pollWait(0x1135ae200, 0x72)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0x71482dbd2e40?, 0x71482e051800?, 0x1)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x28
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x71482dbd2e40, {0x71482e051800, 0x200, 0x200})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_unix.go:165 +0x234
+os.(*File).read(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_posix.go:30
+os.(*File).Read(0x71482eb2cdd8, {0x71482e051800?, 0x714832327d08?, 0x0?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:144 +0x68
+bytes.(*Buffer).ReadFrom(0x71482f094b10, {0x10593d4e8, 0x71482eb2cdd8})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/bytes/buffer.go:229 +0x90
+io.copyBuffer({0x10593de40, 0x71482f094b10}, {0x10593d4e8, 0x71482eb2cdd8}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:415 +0x14c
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:388
+os.genericWriteTo(0x71482eeb9398?, {0x10593de40?, 0x71482f094b10?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:295 +0x44
+os.(*File).WriteTo(0x714829b41a40?, {0x10593de40?, 0x71482f094b10?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:273 +0x5c
+io.copyBuffer({0x10593de40, 0x71482f094b10}, {0x10593d5e0, 0x71482eb2cdd8}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:411 +0x98
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:388
+os/exec.(*Cmd).writerDescriptor.func1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:602 +0x40
+os/exec.(*Cmd).Start.func2(0x7148294ad9f0?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:757 +0x30
+created by os/exec.(*Cmd).Start in goroutine 550710
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756 +0x6c8
+
+goroutine 549549 [select]:
+database/sql.(*DB).connectionOpener(0x714832f2dc70, {0x105945e80, 0x7148294accd0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:1261 +0x84
+created by database/sql.OpenDB in goroutine 549545
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/database/sql/sql.go:841 +0x114
+
+goroutine 555115 [select]:
+os/exec.(*Cmd).watchCtx(0x71482ba50340, 0x71482bf59500)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:797 +0x74
+created by os/exec.(*Cmd).Start in goroutine 550710
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:783 +0x69c
+
+goroutine 555031 [IO wait]:
+internal/poll.runtime_pollWait(0x1135aec00, 0x72)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0x71482ae74360?, 0x71482c2d0800?, 0x1)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x28
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x71482ae74360, {0x71482c2d0800, 0x200, 0x200})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/internal/poll/fd_unix.go:165 +0x234
+os.(*File).read(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file_posix.go:30
+os.(*File).Read(0x71482feed700, {0x71482c2d0800?, 0x104471e40?, 0x0?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:144 +0x68
+bytes.(*Buffer).ReadFrom(0x71483201fd40, {0x10593d4e8, 0x71482feed700})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/bytes/buffer.go:229 +0x90
+io.copyBuffer({0x10593de40, 0x71483201fd40}, {0x10593d4e8, 0x71482feed700}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:415 +0x14c
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:388
+os.genericWriteTo(0x714829defe98?, {0x10593de40?, 0x71483201fd40?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:295 +0x44
+os.(*File).WriteTo(0x714829defe98?, {0x10593de40?, 0x71483201fd40?})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/file.go:273 +0x5c
+io.copyBuffer({0x10593de40, 0x71483201fd40}, {0x10593d5e0, 0x71482feed700}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:411 +0x98
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/io/io.go:388
+os/exec.(*Cmd).writerDescriptor.func1()
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:602 +0x40
+os/exec.(*Cmd).Start.func2(0x71482f372e70?)
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:757 +0x30
+created by os/exec.(*Cmd).Start in goroutine 550705
+	/opt/homebrew/Cellar/go/1.26.5/libexec/src/os/exec/exec.go:756 +0x6c8
+FAIL	github.com/edynasty/LumenCortex/runtime	601.006s
+FAIL
+===== ELAPSED_SECONDS: 637 =====
+===== EXIT CODE: 1 =====
+
+===== COMMAND: RED: go test -overlay overlay-red-astra-v2.json -count=1 -v -run '^TestAstra' ./internal/toolset (Opus editing.go, expected exit 1) =====
+===== START: 2026-11-22T07:24:54Z =====
+=== RUN   TestAstraDepthTailArchived40
+=== RUN   TestAstraDepthTailArchived40/original
+    r7r2_astra_final_test.go:342: 3 failed rows shown, want at least 30
+=== RUN   TestAstraDepthTailArchived40/reverse
+    r7r2_astra_final_test.go:342: 3 failed rows shown, want at least 30
+=== RUN   TestAstraDepthTailArchived40/rotate1
+    r7r2_astra_final_test.go:342: 3 failed rows shown, want at least 30
+=== RUN   TestAstraDepthTailArchived40/by_shape
+    r7r2_astra_final_test.go:342: 3 failed rows shown, want at least 30
+=== RUN   TestAstraDepthTailArchived40/seed7
+    r7r2_astra_final_test.go:342: 2 failed rows shown, want at least 30
+=== RUN   TestAstraDepthTailArchived40/seed31
+    r7r2_astra_final_test.go:342: 3 failed rows shown, want at least 30
+--- FAIL: TestAstraDepthTailArchived40 (0.06s)
+    --- FAIL: TestAstraDepthTailArchived40/original (0.01s)
+    --- FAIL: TestAstraDepthTailArchived40/reverse (0.01s)
+    --- FAIL: TestAstraDepthTailArchived40/rotate1 (0.01s)
+    --- FAIL: TestAstraDepthTailArchived40/by_shape (0.01s)
+    --- FAIL: TestAstraDepthTailArchived40/seed7 (0.01s)
+    --- FAIL: TestAstraDepthTailArchived40/seed31 (0.01s)
+=== RUN   TestAstraDepthTailNeverMasquerades
+    r7r2_astra_final_test.go:360: shown 3 rows, want 30: {"commitState":"partially_published","dirtyFailure":true,"error":"input/output error","files":[{"path":"r00/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/common/f.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true,"error":"input/output error"},{"path":"r00/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/common/deep/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/common/f.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true,"error":"input/output error"},{"path":"r00/x/…/f.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true,"error":"input/output error"}],"filesOmitted":37,"filesOmittedByState":{"external_modification_detected":7,"partially_modified":7,"publication_uncertain":8,"published_post_error":7,"rollback_failed":8},"overflow":true,"partialPublication":true,"publishedFilesOmitted":40,"recovery":"LC does not roll back published paths. Re-read every path listed in files, including the failed path, from disk and reconcile manually. Do not replay a path whose verified state is true.","truncated":true}
+--- FAIL: TestAstraDepthTailNeverMasquerades (0.01s)
+=== RUN   TestAstraLiteralEllipsisOnDisk
+    r7r2_astra_final_test.go:376: row 0 label "a/…/f.kt" resolves to [a/…/f.kt a/b/c/f.kt a/%E2%80%A6/f.kt a/…{2}/f.kt] (loose=false), want only "a/…/f.kt"
+--- FAIL: TestAstraLiteralEllipsisOnDisk (0.01s)
+=== RUN   TestAstraSyntheticQuoteNames
+    r7r2_astra_final_test.go:391: shown=2 omitted=0 byState=map[] published=2 publishedOmitted=0 bytes=983
+--- PASS: TestAstraSyntheticQuoteNames (0.00s)
+=== RUN   TestAstraLiteralOmittedComparisons
+    r7r2_astra_final_test.go:408: row 0 label "a/…/f.kt" resolves to [a/…/f.kt a/b/c/f.kt a/%E2%80%A6/f.kt] (loose=false), want only "a/…/f.kt"
+--- FAIL: TestAstraLiteralOmittedComparisons (0.01s)
+=== RUN   TestAstraStandaloneRefusalNames
+    r7r2_astra_final_test.go:422: path="a/…/f.kt" code="stale", want "./a/…/f.kt" and "stale"
+--- FAIL: TestAstraStandaloneRefusalNames (0.00s)
+=== RUN   TestAstraSharedDirectoryNeverHidesSuccessors
+    r7r2_astra_final_test.go:450: good.kt is not the first shown row: {"commitState":"partially_published","dirtyFailure":true,"error":"input/output error","files":[],"filesOmitted":3,"filesOmittedByState":{"external_modification_detected":1,"not_attempted":1,"partially_modified":1},"overflow":true,"partialPublication":true,"publishedFilesOmitted":2,"recovery":"LC does not roll back published paths. Re-read every path listed in files, including the failed path, from disk and reconcile manually. Do not replay a path whose verified state is true.","truncated":true}
+--- FAIL: TestAstraSharedDirectoryNeverHidesSuccessors (0.00s)
+=== RUN   TestAstraExpensiveLiteralDirectoryKeepsNormalBasename
+    r7r2_astra_final_test.go:475: shown 0 rows, want 2: {"commitState":"partially_published","dirtyFailure":true,"error":"input/output error","files":[],"filesOmitted":2,"filesOmittedByState":{"external_modification_detected":1,"partially_modified":1},"overflow":true,"partialPublication":true,"publishedFilesOmitted":2,"recovery":"LC does not roll back published paths. Re-read every path listed in files, including the failed path, from disk and reconcile manually. Do not replay a path whose verified state is true.","truncated":true}
+--- FAIL: TestAstraExpensiveLiteralDirectoryKeepsNormalBasename (0.00s)
+=== RUN   TestAstraLiteralTailExemptionRedactedSegment
+    r7r2_astra_final_test.go:492: target label = [{rootlong/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/<outside-workspace>/…/f.kt external_modification_detected true false true} {b/…/f.kt partially_modified true false true}], want the exact literal tail: {"commitState":"partially_published","dirtyFailure":true,"error":"input/output error","files":[{"path":"rootlong/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/\u003coutside-workspace\u003e/…/f.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true,"error":"input/output error"},{"path":"b/…/f.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true,"error":"input/output error"}],"partialPublication":true,"publishedFiles":[{"path":"rootlong/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr/\u003coutside-workspace\u003e/…/f.kt","oldRev":"","newRev":"","changed":false,"published":true,"publishState":"external_modification_detected","error":"input/output error"},{"path":"b/…/f.kt","oldRev":"","newRev":"","changed":false,"published":true,"publishState":"partially_modified","error":"input/output error"}],"recovery":"LC does not roll back published paths. Re-read every path listed in files, including the failed path, from disk and reconcile manually. Do not replay a path whose verified state is true."}
+--- FAIL: TestAstraLiteralTailExemptionRedactedSegment (0.00s)
+=== RUN   TestAstraEscapedJointBatch
+    r7r2_astra_final_test.go:518: 20 failed rows shown, want at least 29: {"commitState":"partially_published","dirtyFailure":true,"error":"input/output error","files":[{"path":"pkg/00…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"pkg/01…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"pkg/02…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"pkg/03…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"pkg/04…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true},{"path":"pkg/05…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"pkg/06…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"pkg/07…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"pkg/08…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"pkg/09…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true},{"path":"pkg/10…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"pkg/11…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"pkg/12…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"pkg/13…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"pkg/14…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true},{"path":"pkg/15…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"pkg/16…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"pkg/17…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"pkg/18…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"pkg/19…\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u0026\u00260.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true}],"filesOmitted":108,"filesOmittedByState":{"external_modification_detected":3,"not_attempted":96,"partially_modified":3,"publication_uncertain":2,"published_post_error":2,"rollback_failed":2},"overflow":true,"partialPublication":true,"publishedFilesOmitted":32,"recovery":"LC does not roll back published paths. Re-read every path listed in files, including the failed path, from disk and reconcile manually. Do not replay a path whose verified state is true.","truncated":true}
+--- FAIL: TestAstraEscapedJointBatch (0.00s)
+=== RUN   TestAstraOmittedRootSuffix
+=== RUN   TestAstraOmittedRootSuffix/exact_j3
+    r7r2_astra_final_test.go:553: first label "…/common/f.kt" names the omitted root file: {"commitState":"partially_published","dirtyFailure":true,"error":"input/output error","files":[{"path":"…/common/f.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq00.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq01.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq02.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq03.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq04.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq05.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq06.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq07.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq08.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq09.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq10.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq11.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq12.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq13.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq14.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq15.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq16.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq17.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq18.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq19.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq20.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq21.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq22.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq23.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq24.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq25.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq26.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq27.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true}],"filesOmitted":33,"filesOmittedByState":{"external_modification_detected":7,"partially_modified":7,"publication_uncertain":6,"published_post_error":6,"rollback_failed":7},"overflow":true,"partialPublication":true,"publishedFilesOmitted":62,"recovery":"LC does not roll back published paths. Re-read every path listed in files, including the failed path, from disk and reconcile manually. Do not replay a path whose verified state is true.","truncated":true}
+=== RUN   TestAstraOmittedRootSuffix/long_root
+    r7r2_astra_final_test.go:553: first label "…/common/f.kt" names the omitted root file: {"commitState":"partially_published","dirtyFailure":true,"error":"input/output error","files":[{"path":"…/common/f.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq00.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq01.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq02.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq03.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq04.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq05.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq06.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq07.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq08.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq09.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq10.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq11.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq12.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq13.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq14.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq15.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq16.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq17.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq18.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq19.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq20.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq21.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq22.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq23.kt","publishState":"rollback_failed","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq24.kt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq25.kt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq26.kt","publishState":"published_post_error","published":true,"verified":false,"wrote":true},{"path":"…/…qqqqqqqqqqq27.kt","publishState":"publication_uncertain","published":true,"verified":false,"wrote":true}],"filesOmitted":33,"filesOmittedByState":{"external_modification_detected":7,"partially_modified":7,"publication_uncertain":6,"published_post_error":6,"rollback_failed":7},"overflow":true,"partialPublication":true,"publishedFilesOmitted":62,"recovery":"LC does not roll back published paths. Re-read every path listed in files, including the failed path, from disk and reconcile manually. Do not replay a path whose verified state is true.","truncated":true}
+--- FAIL: TestAstraOmittedRootSuffix (0.00s)
+    --- FAIL: TestAstraOmittedRootSuffix/exact_j3 (0.00s)
+    --- FAIL: TestAstraOmittedRootSuffix/long_root (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/toolset	1.847s
+FAIL
+===== ELAPSED_SECONDS: 4 =====
+===== EXIT CODE: 1 =====
+
+===== COMMAND: GREEN: go test -count=1 -v -run '^TestAstra' ./internal/toolset =====
+===== START: 2026-11-22T07:24:58Z =====
+=== RUN   TestAstraDepthTailArchived40
+=== RUN   TestAstraDepthTailArchived40/original
+    r7r2_astra_final_test.go:344: shown=31 omitted=9 byState=map[external_modification_detected:1 partially_modified:2 publication_uncertain:2 published_post_error:2 rollback_failed:2] published=0 publishedOmitted=40 bytes=4093
+=== RUN   TestAstraDepthTailArchived40/reverse
+    r7r2_astra_final_test.go:344: shown=31 omitted=9 byState=map[external_modification_detected:2 partially_modified:2 publication_uncertain:2 published_post_error:2 rollback_failed:1] published=0 publishedOmitted=40 bytes=4083
+=== RUN   TestAstraDepthTailArchived40/rotate1
+    r7r2_astra_final_test.go:344: shown=31 omitted=9 byState=map[external_modification_detected:2 partially_modified:1 publication_uncertain:2 published_post_error:2 rollback_failed:2] published=0 publishedOmitted=40 bytes=4086
+=== RUN   TestAstraDepthTailArchived40/by_shape
+    r7r2_astra_final_test.go:344: shown=31 omitted=9 byState=map[external_modification_detected:2 partially_modified:2 publication_uncertain:1 published_post_error:2 rollback_failed:2] published=0 publishedOmitted=40 bytes=4054
+=== RUN   TestAstraDepthTailArchived40/seed7
+    r7r2_astra_final_test.go:344: shown=31 omitted=9 byState=map[external_modification_detected:3 partially_modified:2 publication_uncertain:2 published_post_error:1 rollback_failed:1] published=0 publishedOmitted=40 bytes=4075
+=== RUN   TestAstraDepthTailArchived40/seed31
+    r7r2_astra_final_test.go:344: shown=31 omitted=9 byState=map[external_modification_detected:2 partially_modified:1 publication_uncertain:2 published_post_error:2 rollback_failed:2] published=0 publishedOmitted=40 bytes=4076
+--- PASS: TestAstraDepthTailArchived40 (0.09s)
+    --- PASS: TestAstraDepthTailArchived40/original (0.02s)
+    --- PASS: TestAstraDepthTailArchived40/reverse (0.01s)
+    --- PASS: TestAstraDepthTailArchived40/rotate1 (0.01s)
+    --- PASS: TestAstraDepthTailArchived40/by_shape (0.01s)
+    --- PASS: TestAstraDepthTailArchived40/seed7 (0.02s)
+    --- PASS: TestAstraDepthTailArchived40/seed31 (0.01s)
+=== RUN   TestAstraDepthTailNeverMasquerades
+    r7r2_astra_final_test.go:360: shown=30 omitted=10 byState=map[external_modification_detected:2 partially_modified:2 publication_uncertain:2 published_post_error:2 rollback_failed:2] published=0 publishedOmitted=40 bytes=3980
+--- PASS: TestAstraDepthTailNeverMasquerades (0.01s)
+=== RUN   TestAstraLiteralEllipsisOnDisk
+    r7r2_astra_final_test.go:376: shown=15 omitted=0 byState=map[] published=7 publishedOmitted=8 bytes=3664
+--- PASS: TestAstraLiteralEllipsisOnDisk (0.01s)
+=== RUN   TestAstraSyntheticQuoteNames
+    r7r2_astra_final_test.go:391: shown=2 omitted=0 byState=map[] published=2 publishedOmitted=0 bytes=1004
+--- PASS: TestAstraSyntheticQuoteNames (0.00s)
+=== RUN   TestAstraLiteralOmittedComparisons
+    r7r2_astra_final_test.go:408: shown=29 omitted=24 byState=map[external_modification_detected:5 not_attempted:1 partially_modified:4 publication_uncertain:4 published_post_error:4 published_verified:1 rollback_failed:5] published=0 publishedOmitted=52 bytes=4036
+--- PASS: TestAstraLiteralOmittedComparisons (0.03s)
+=== RUN   TestAstraStandaloneRefusalNames
+--- PASS: TestAstraStandaloneRefusalNames (0.00s)
+=== RUN   TestAstraSharedDirectoryNeverHidesSuccessors
+    r7r2_astra_final_test.go:462: shown=1 omitted=2 byState=map[external_modification_detected:1 not_attempted:1] published=0 publishedOmitted=2 bytes=606
+--- PASS: TestAstraSharedDirectoryNeverHidesSuccessors (0.00s)
+=== RUN   TestAstraExpensiveLiteralDirectoryKeepsNormalBasename
+    r7r2_astra_final_test.go:475: shown=2 omitted=0 byState=map[] published=0 publishedOmitted=2 bytes=659
+--- PASS: TestAstraExpensiveLiteralDirectoryKeepsNormalBasename (0.00s)
+=== RUN   TestAstraLiteralTailExemptionRedactedSegment
+    r7r2_astra_final_test.go:494: shown=2 omitted=0 byState=map[] published=2 publishedOmitted=0 bytes=1010
+--- PASS: TestAstraLiteralTailExemptionRedactedSegment (0.00s)
+=== RUN   TestAstraEscapedJointBatch
+    r7r2_astra_final_test.go:520: shown=29 omitted=99 byState=map[external_modification_detected:1 not_attempted:96 partially_modified:1 rollback_failed:1] published=0 publishedOmitted=32 bytes=4030
+--- PASS: TestAstraEscapedJointBatch (0.05s)
+=== RUN   TestAstraOmittedRootSuffix
+=== RUN   TestAstraOmittedRootSuffix/exact_j3
+    r7r2_astra_final_test.go:555: shown=29 omitted=33 byState=map[external_modification_detected:7 partially_modified:7 publication_uncertain:6 published_post_error:6 rollback_failed:7] published=0 publishedOmitted=62 bytes=4067
+=== RUN   TestAstraOmittedRootSuffix/long_root
+    r7r2_astra_final_test.go:555: shown=29 omitted=33 byState=map[external_modification_detected:7 partially_modified:7 publication_uncertain:6 published_post_error:6 rollback_failed:7] published=0 publishedOmitted=62 bytes=4067
+--- PASS: TestAstraOmittedRootSuffix (0.06s)
+    --- PASS: TestAstraOmittedRootSuffix/exact_j3 (0.03s)
+    --- PASS: TestAstraOmittedRootSuffix/long_root (0.03s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	1.117s
+===== ELAPSED_SECONDS: 2 =====
+===== EXIT CODE: 0 =====
+
+===== STATUS AFTER: [] =====
+ASTRA_FINAL_DONE

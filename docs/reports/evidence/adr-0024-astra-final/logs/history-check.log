@@ -1,0 +1,10 @@
+git ls-remote origin refs/heads/main refs/heads/fix/adr-0024-r6-safety-20261120 refs/heads/fix/adr-0024-r7-partial-commit-20261120 refs/heads/fix/adr-0024-r7r2-remediation-20261121 refs/heads/fix/adr-0024-r7r2-carbon-p3-20261121 refs/heads/fix/adr-0024-r7r2-opus-final-20261121 refs/heads/fix/adr-0024-sol-01-02-remediation-20261122 refs/heads/fix/adr-0024-sol-rev-01-opus-20261122
+ref | local | remote | status --porcelain=v1 --untracked-files=all
+refs/heads/main c73d17359f5d9dd16ef88b0de4525862593fddaa c73d17359f5d9dd16ef88b0de4525862593fddaa ' M AGENTS.md'
+refs/heads/fix/adr-0024-r6-safety-20261120 4aaf8e7168743d6c8ae8fa6fe87a350ca69f9af2 4aaf8e7168743d6c8ae8fa6fe87a350ca69f9af2 ''
+refs/heads/fix/adr-0024-r7-partial-commit-20261120 31172bc274c3a4c54243a72e554862d539d7759d 31172bc274c3a4c54243a72e554862d539d7759d ''
+refs/heads/fix/adr-0024-r7r2-remediation-20261121 fc1c4368507bea3f4e13099c62ca35936a6fba48 fc1c4368507bea3f4e13099c62ca35936a6fba48 ''
+refs/heads/fix/adr-0024-r7r2-carbon-p3-20261121 f3f77e35c98de4647243019568ed5ec3093cf072 f3f77e35c98de4647243019568ed5ec3093cf072 ''
+refs/heads/fix/adr-0024-r7r2-opus-final-20261121 10f135d1f904ab88c6a086319ca5820ea6b9e09c 10f135d1f904ab88c6a086319ca5820ea6b9e09c ''
+refs/heads/fix/adr-0024-sol-01-02-remediation-20261122 3d85d06e31ae8b424b2ed3d0b9b94be70627e5ac 3d85d06e31ae8b424b2ed3d0b9b94be70627e5ac ''
+refs/heads/fix/adr-0024-sol-rev-01-opus-20261122 52ac7d7df7d582bc2cb95e36618381cf30f7ab80 52ac7d7df7d582bc2cb95e36618381cf30f7ab80 ''

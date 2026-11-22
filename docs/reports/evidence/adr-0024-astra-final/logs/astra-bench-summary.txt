@@ -1,0 +1,6 @@
+astra CPU ms/payload 9.864, MiB/payload 2.869, allocations/payload 10024.7
+astra longname_end_n1000 wall ms/render 33.61, allocs/render 57576
+astra longname_middle_n100 wall ms/render 4.15, allocs/render 8522
+astra longname_middle_n1000 wall ms/render 36.89, allocs/render 58250
+astra longname_middle_n50000 wall ms/render 1847.24, allocs/render 2753583
+astra longname_start_n1000 wall ms/render 40.12, allocs/render 57519

@@ -21,7 +21,7 @@ def framed(parts):
     return h.hexdigest()
 
 @functools.lru_cache(24000)
-def rx(l,loose,typed):
+def rx(l,loose,typed,zero=False):
     if typed and l.startswith("./"): return re.compile(re.escape(l[2:])+r"\Z",re.S)
     if typed and l.startswith("…/./"): return re.compile(r"(?:[^/]+/)+"+re.escape(l[4:])+r"\Z",re.S)
     if l.startswith("<outside-workspace>/") and typed: return re.compile(re.escape(l)+r"\Z",re.S)
@@ -31,13 +31,13 @@ def rx(l,loose,typed):
         n=re.fullmatch(r"…\{([1-9][0-9]{0,3})\}",c) if typed and i and not last else None
         if n:
             a.append("(?:[^/]+/){%d}"%int(n[1])); continue
-        if not loose and c=="…" and not last: a.append("(?:[^/]+/)+"); continue
-        a.append((".+" if loose else "[^/]+").join(map(re.escape,c.split("…"))))
+        if not loose and c=="…" and not last: a.append("(?:[^/]+/)*" if zero else "(?:[^/]+/)+"); continue
+        a.append((".+" if loose else ("[^/]*" if zero else "[^/]+")).join(map(re.escape,c.split("…"))))
         if not last:a.append("/")
     return re.compile("".join(a)+r"\Z",re.S)
 @functools.lru_cache(45000)
-def targets(l,raws,loose,typed):
-    pattern=rx(l,loose,typed)
+def targets(l,raws,loose,typed,zero=False):
+    pattern=rx(l,loose,typed,zero)
     return tuple(raw for raw in raws if pattern.match(display(raw)))
 def compact_max(payload,receipts,labels):
     def make(k):
@@ -96,6 +96,7 @@ def analyse(v,kind,name,b,rec,res,meta):
     for view,rows in [("file",files),("pub",pub)]:
         for i,f in enumerate(rows):
             l=f["path"]; a=targets(l,raws,False,typed); z=targets(l,raws,True,typed)
+            ct[view+"ZeroGapNotOne"]+=len(targets(l,raws,False,typed,True))!=1
             ct[view+"ComponentNotOne"]+=len(a)!=1;ct[view+"LooseNotOne"]+=len(z)!=1
             ct[view+"Labels"]+=1; ct[view+"Duplicates"]+=sum(row["path"]==l for row in rows[:i])>0
             if v=="old" or not rec or len(a)!=1 or len(z)!=1:continue

@@ -1,0 +1,33 @@
+===== HEADER =====
+HEAD: b1b459ac1e64400913a98f78427f0e7da974d166
+branch: fix/adr-0024-sol-rev-01-astra-final-20261122
+status: []
+go version go1.26.5 darwin/arm64
+Darwin arm64
+Apple M1 Pro
+===== END HEADER =====
+
+===== COMMAND: gofmt -l internal/toolset/editing.go internal/toolset/r7r2_astra_final_test.go =====
+===== START: 2026-11-22T07:07:53Z =====
+===== ELAPSED_SECONDS: 0 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go build ./... =====
+===== START: 2026-11-22T07:07:53Z =====
+===== ELAPSED_SECONDS: 6 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go vet ./... =====
+===== START: 2026-11-22T07:07:59Z =====
+===== ELAPSED_SECONDS: 2 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -count=1 ./internal/toolset =====
+===== START: 2026-11-22T07:08:01Z =====
+ok  	github.com/edynasty/LumenCortex/internal/toolset	25.703s
+===== ELAPSED_SECONDS: 27 =====
+===== EXIT CODE: 0 =====
+
+===== COMMAND: go test -race -count=1 ./internal/toolset =====
+===== START: 2026-11-22T07:08:28Z =====
+===== CANCELLED BY OPERATOR-DIRECTED STOP (own gate processes 91157/95615/95728) =====

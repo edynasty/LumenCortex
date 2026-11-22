@@ -1,0 +1,12 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/edynasty/LumenCortex/internal/toolset
+cpu: Apple M1 Pro
+BenchmarkAstraBlockedPrefix/64-2         	       1	   6353041 ns/op	 1225752 B/op	    4831 allocs/op
+BenchmarkAstraBlockedPrefix/64-2         	       1	   6022083 ns/op	 1195672 B/op	    4657 allocs/op
+BenchmarkAstraBlockedPrefix/256-2        	       1	  51799792 ns/op	 4760976 B/op	   17950 allocs/op
+BenchmarkAstraBlockedPrefix/256-2        	       1	  51288708 ns/op	 4775064 B/op	   17955 allocs/op
+BenchmarkAstraBlockedPrefix/1024-2       	       1	 659725416 ns/op	19229800 B/op	   70985 allocs/op
+BenchmarkAstraBlockedPrefix/1024-2       	       1	 664408375 ns/op	19098808 B/op	   70986 allocs/op
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	2.225s
