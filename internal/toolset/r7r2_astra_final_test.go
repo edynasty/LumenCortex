@@ -519,3 +519,40 @@ func TestAstraEscapedJointBatch(t *testing.T) {
 	}
 	astraCheck(t, items, content, p, syscall.EIO, 29)
 }
+
+// astraOmittedRootSuffixItems is the J3 shape: a long-root first failure, sixty fillers, and the real
+// root file common/f.kt. Its suffix "…/common/f.kt" would also name the root file if the wildcard may
+// name zero components, so the first label must not be that suffix.
+func astraOmittedRootSuffixItems(first string) []astraItem {
+	var paths []string
+	paths = append(paths, first)
+	for k := 0; k < 60; k++ {
+		paths = append(paths, fmt.Sprintf("filler/%s%02d.kt", strings.Repeat("q", 30), k))
+	}
+	paths = append(paths, "common/f.kt")
+	return astraFailed(paths, astraCycle)
+}
+
+// TestAstraOmittedRootSuffix renders the exact J3 shape and a long-root variant (which uses a positive
+// byte budget). The first emitted label must not be the zero-gap suffix that names the omitted root file.
+func TestAstraOmittedRootSuffix(t *testing.T) {
+	const zeroGap = "…/common/f.kt"
+	shapes := map[string]string{
+		"exact_j3":  strings.Repeat("z", 60) + "/common/f.kt",
+		"long_root": strings.Repeat(strings.Repeat("z", 200)+"/", 6) + "common/f.kt",
+	}
+	for name, first := range shapes {
+		t.Run(name, func(t *testing.T) {
+			items := astraOmittedRootSuffixItems(first)
+			set := astraSet(t)
+			content, p := astraRun(t, set, items, syscall.EIO)
+			if len(p.Files) == 0 {
+				t.Fatalf("no failed row shown: %s", content)
+			}
+			if p.Files[0].Path == zeroGap {
+				t.Fatalf("first label %q names the omitted root file: %s", p.Files[0].Path, content)
+			}
+			astraCheck(t, items, content, p, syscall.EIO, 29)
+		})
+	}
+}

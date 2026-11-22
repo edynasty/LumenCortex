@@ -337,6 +337,7 @@ type failurePathIndex struct {
 	indexed    bool
 	bases      map[string]string
 	depthTails map[string]map[depthTailKey]int
+	pathSuffix map[string]int
 }
 
 type depthTailKey struct {
@@ -723,6 +724,43 @@ func (p *failurePathIndex) parentOwners(base, root string) map[string]string {
 	return owners
 }
 
+// sharedPathSuffix is the longest common byte suffix between full and another path of its basename
+// group. For a large group only reverse-lexicographic neighbours can share the longest suffix, so the
+// group is sorted once and each path's maximum is stored.
+func (p *failurePathIndex) sharedPathSuffix(full, base string) int {
+	group := p.groups[base]
+	if len(group) < 2 {
+		return 0
+	}
+	if v, ok := p.pathSuffix[full]; ok {
+		return v
+	}
+	if len(group) <= maxCandidateFileRows {
+		best := 0
+		for _, other := range group {
+			if full != other {
+				best = max(best, commonSuffixBytes(full, other))
+			}
+		}
+		return best
+	}
+	ordered := append([]string(nil), group...)
+	sort.Slice(ordered, func(i, j int) bool { return compareBackward(ordered[i], ordered[j]) < 0 })
+	if p.pathSuffix == nil {
+		p.pathSuffix = make(map[string]int)
+	}
+	prev := 0
+	for i, s := range ordered {
+		next := 0
+		if i+1 < len(ordered) {
+			next = commonSuffixBytes(s, ordered[i+1])
+		}
+		p.pathSuffix[s] = max(prev, next)
+		prev = next
+	}
+	return p.pathSuffix[full]
+}
+
 func (p *failurePathIndex) makeLabel(full string) failurePathLabel {
 	best := failurePathLabel{compact: exactFailureLabel(full)}
 	// The redaction prefix must not turn into display shorthand.
@@ -732,11 +770,7 @@ func (p *failurePathIndex) makeLabel(full string) failurePathLabel {
 	base := slashBase(full)
 	if strings.Contains(full, pathEllipsis) {
 		// A literal path is never abbreviated by unqualified "…", only by its exact tail.
-		for _, other := range p.groups[base] {
-			if full != other {
-				best.sharedSuffix = max(best.sharedSuffix, commonSuffixBytes(full, other))
-			}
-		}
+		best.sharedSuffix = p.sharedPathSuffix(full, base)
 		if cut := strings.LastIndexByte(full[:len(full)-best.sharedSuffix], '/'); cut >= 0 {
 			tail := full[cut+1:]
 			tailLabel := tail
@@ -744,7 +778,7 @@ func (p *failurePathIndex) makeLabel(full string) failurePathLabel {
 				tailLabel = "./" + tail
 			}
 			candidate := pathEllipsis + "/" + tailLabel
-			if p.count[candidate] == 0 && p.count[pathEllipsis+"/"+tail] == 0 && encodedLen(candidate) < encodedLen(best.compact) {
+			if p.count[candidate] == 0 && p.count[pathEllipsis+"/"+tail] == 0 && p.count[tail] == 0 && encodedLen(candidate) < encodedLen(best.compact) {
 				best.compact = candidate
 			}
 		}
@@ -754,6 +788,10 @@ func (p *failurePathIndex) makeLabel(full string) failurePathLabel {
 	consider := func(candidate string) {
 		// No shorthand may masquerade as a literal workspace path in the batch.
 		if p.count[candidate] != 0 {
+			return
+		}
+		// A leading wildcard may name zero components, so "…/x" also names the batch path "x".
+		if tail, ok := strings.CutPrefix(candidate, pathEllipsis+"/"); ok && p.count[tail] != 0 {
 			return
 		}
 		if bestCost < 0 {
@@ -777,11 +815,7 @@ func (p *failurePathIndex) makeLabel(full string) failurePathLabel {
 	if base == full {
 		return best
 	}
-	for _, other := range group {
-		if full != other {
-			best.sharedSuffix = max(best.sharedSuffix, commonSuffixBytes(full, other))
-		}
-	}
+	best.sharedSuffix = p.sharedPathSuffix(full, base)
 	// The slash at the start of the suffix counts as a distinguishing byte too.
 	if cut := strings.LastIndexByte(full[:len(full)-best.sharedSuffix], '/'); cut >= 0 {
 		consider(pathEllipsis + full[cut:])
@@ -868,7 +902,7 @@ func (p *failurePathIndex) label(raw string, budget int) string {
 		tail := truncatePathTail(full, budget)
 		if suffix, ok := strings.CutPrefix(tail, pathEllipsis+"/"); ok &&
 			len(suffix) >= len(slashBase(full)) && len(suffix)+1 > label.sharedSuffix &&
-			p.count[tail] == 0 {
+			p.count[tail] == 0 && p.count[suffix] == 0 {
 			return tail
 		}
 	}
