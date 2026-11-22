@@ -1,0 +1,36 @@
+===== COMMAND: go test -count=1 -v -run '^TestSOL0[12]' ./internal/toolset =====
+===== START: 2026-11-22T00:31:55Z =====
+=== RUN   TestSOL01ArchivedDeep32
+    r7r2_sol_test.go:35: bytes=3987 rows=22 omitted=10 byState=map[external_modification_detected:2 partially_modified:2 publication_uncertain:2 published_post_error:2 rollback_failed:2]
+    r7r2_sol_test.go:37: the original 32 failed rows fit at 4030 encoded bytes without dropping required fields
+--- FAIL: TestSOL01ArchivedDeep32 (0.01s)
+=== RUN   TestSOL02PathIdentity
+=== RUN   TestSOL02PathIdentity/wide_distinction
+    r7r2_sol_test.go:99: row 1 has ambiguous identity or incorrect state: "…/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/f.kt" ({Path:…/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/f.kt PublishState:partially_modified Published:true Verified:false Wrote:true RolledBack:false Created:false Deleted:false NewRev: SHA256: Error:input/output error})
+=== RUN   TestSOL02PathIdentity/repeated_directories_at_different_depths
+    r7r2_sol_test.go:99: row 1 has ambiguous identity or incorrect state: "…/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/common/f.kt" ({Path:…/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm/common/f.kt PublishState:partially_modified Published:true Verified:false Wrote:true RolledBack:false Created:false Deleted:false NewRev: SHA256: Error:input/output error})
+=== RUN   TestSOL02PathIdentity/same_basename
+    r7r2_sol_test.go:103: bytes=1859 rows=5 unique=5 omitted=0 byState=map[]
+=== RUN   TestSOL02PathIdentity/similar_basenames
+    r7r2_sol_test.go:103: bytes=1567 rows=4 unique=4 omitted=0 byState=map[]
+=== RUN   TestSOL02PathIdentity/long_parent_components
+    r7r2_sol_test.go:103: bytes=3082 rows=2 unique=2 omitted=0 byState=map[]
+=== RUN   TestSOL02PathIdentity/reserved_literal_label
+    r7r2_sol_test.go:103: bytes=3268 rows=3 unique=3 omitted=0 byState=map[]
+--- FAIL: TestSOL02PathIdentity (0.01s)
+    --- FAIL: TestSOL02PathIdentity/wide_distinction (0.00s)
+    --- FAIL: TestSOL02PathIdentity/repeated_directories_at_different_depths (0.00s)
+    --- PASS: TestSOL02PathIdentity/same_basename (0.00s)
+    --- PASS: TestSOL02PathIdentity/similar_basenames (0.00s)
+    --- PASS: TestSOL02PathIdentity/long_parent_components (0.00s)
+    --- PASS: TestSOL02PathIdentity/reserved_literal_label (0.00s)
+=== RUN   TestSOL02UnidentifiableRedactionsAreOmitted
+    r7r2_sol_test.go:155: redacted collisions must be explicitly omitted in both views: {"commitState":"partially_published","dirtyFailure":true,"error":"input/output error","files":[{"path":"\u003coutside-workspace\u003e/key.txt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"\u003coutside-workspace\u003e/key.txt","publishState":"partially_modified","published":true,"verified":false,"wrote":true},{"path":"workspace/key.txt","publishState":"external_modification_detected","published":true,"verified":false,"wrote":true},{"path":"workspace/other.txt","publishState":"partially_modified","published":true,"verified":false,"wrote":true}],"partialPublication":true,"publishedFiles":[{"path":"\u003coutside-workspace\u003e/key.txt","oldRev":"","newRev":"","changed":true,"published":true,"publishState":"external_modification_detected"},{"path":"\u003coutside-workspace\u003e/key.txt","oldRev":"","newRev":"","changed":true,"published":true,"publishState":"partially_modified"},{"path":"workspace/key.txt","oldRev":"","newRev":"","changed":true,"published":true,"publishState":"external_modification_detected"},{"path":"workspace/other.txt","oldRev":"","newRev":"","changed":true,"published":true,"publishState":"partially_modified"}],"recovery":"LC does not roll back published paths. Re-read every path listed in files, including the failed path, from disk and reconcile manually. Do not replay a path whose verified state is true."}
+--- FAIL: TestSOL02UnidentifiableRedactionsAreOmitted (0.00s)
+=== RUN   TestSOL02PressureLeavesUniqueLabels
+    r7r2_sol_test.go:182: bytes=3969 rows=26 unique=26 omitted=74 byState=map[external_modification_detected:14 partially_modified:15 publication_uncertain:15 published_post_error:15 rollback_failed:15]
+--- PASS: TestSOL02PressureLeavesUniqueLabels (0.04s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/toolset	0.982s
+FAIL
+===== EXIT CODE: 1 =====

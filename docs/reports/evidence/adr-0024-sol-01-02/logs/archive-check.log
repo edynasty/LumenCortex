@@ -1,0 +1,22 @@
+SOL baseline and replay integrity
+10f135d1f904ab88c6a086319ca5820ea6b9e09c
+Opus production.diff: match
+adr-0024-r7 at 31172bc: SHA256SUMS OK
+adr-0024-r7r2 at fc1c436: SHA256SUMS OK
+adr-0024-r7r2-carbon-p3 at f3f77e3: SHA256SUMS OK
+adr-0024-r7r2-final at 10f135d1f904ab88c6a086319ca5820ea6b9e09c: SHA256SUMS OK
+== carbon ==
+=== RUN   TestOpusProbeDump
+--- PASS: TestOpusProbeDump (126.60s)
+PASS
+684 original output files byte-identical to replay: exit 0
+== opus ==
+=== RUN   TestOpusProbeDump
+--- PASS: TestOpusProbeDump (19.08s)
+PASS
+684 original output files byte-identical to replay: exit 0
+captured inputs match: exit 0
+52d60d5bb7f0f94051188442838e63a056b59fc04ce9e21d0a0c0dfa459e63f8  docs/reports/evidence/adr-0024-sol-01-02/inputs/deep_f32_v00_u00_eio.carbon.json
+9edfced41eddac057c4de696488dae69287166b0866007f732a883160701d81f  docs/reports/evidence/adr-0024-sol-01-02/inputs/deep_f32_v00_u00_eio.opus.json
+6c1eb3683862357d40c63c1764d6d51d131b1e52acc30776df76a1a3d328af94  docs/reports/evidence/adr-0024-sol-01-02/inputs/deep_f32_v00_u00_eio.sol.json
+67075d57807bd271f03a091c393b1401e210767746183fa1f56e1ab06f6dc78a  internal/toolset/testdata/adr0024-sol/deep_f32_v00_u00_eio.input.json

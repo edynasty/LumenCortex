@@ -337,3 +337,74 @@ Verify from the Core root with `shasum -a 256 -c docs/reports/evidence/adr-0024-
 | `R3-01` | Owner-accepted exFAT limit |
 | `R7R2-CT-02`, `R7-F01`, `R3-02`, `R3-04`, `R2-03`, `F-05`..`F-08` (P3) | OPEN, unchanged |
 | `v0.4-rc3.8` draft 2 | `PENDING_OWNER_APPROVAL`; Owner decision still required |
+
+## SOL-01 / SOL-02 remediation
+
+- **Scope:** Agent-visible commit failure rendering only. No change to publication, receipts, snapshots, mutation evidence, SQLite, Resume, or the specification.
+- **Verified base:** `10f135d1f904ab88c6a086319ca5820ea6b9e09c`, equal to `origin/fix/adr-0024-r7r2-opus-final-20261121`; the Go tree equals `fa909ad555f8ba42a7a910cd12f6bf153ea645ae`. The isolated remediation branch is `fix/adr-0024-sol-01-02-remediation-20261122`.
+- **Findings (P3):** The fixed path-budget ladder leaves room for more identifiable failed rows in the archived `deep_f32_v00_u00_eio` case (SOL-01). Distinct workspace paths can also have identical shortened labels (SOL-02). Finding owner: Sol; independent closure belongs to a different reviewer.
+- **Unchanged gates:** `PRE-01` and `PRE-02` remain OPEN P2. `v0.4-rc3.8` draft 2 remains `PENDING_OWNER_APPROVAL`, SHA256 `4a56762c9b74b5ad2065082f8dc12ad9fd12ca93ab70b56ee510461b0971da9b`.
+
+### Rendering strategy
+
+Index sanitized paths from the whole attempted batch, including the omitted suffix and `publishedFiles`. The renderer considers full paths, unique whole-component tails, and distinguishing parent components, including a root-anchored parent when two components are needed (for example `alpha/…/deep/…/f.kt`). A long parent may keep a UTF-8-safe distinguishing suffix. An ellipsis marks removed text; it is not a literal workspace path to open. Use the shown components to locate the original file. Generated shorthands cannot equal a literal path from the batch. Paths conflated by redaction or invalid UTF-8 are not given invented identities; their rows are omitted and counted by state.
+
+The rich envelope keeps failures before verified and untouched rows, including explicit failure/refusal states that have no error text. It preserves optional diagnostics, error detail, revisions, hashes and `publishedFiles` where space permits. The overflow form keeps error classification, commit flags, recovery guidance, per-file states and accurate omissions, without repeating the published view or retaining optional row details. It selects the cheapest eligible label for each row using its actual JSON byte cost, including escaping. Labels are stable across prefix lengths. Cumulative exact row costs give an upper bound; the renderer descends through feasible prefix lengths including their exact omission metadata. This does not assume that a longer payload always costs more (the last omission of a state removes a key). Longer readable labels are tried only at the winning row count. This maximizes the failed-row prefix within the stated candidate space, not across all possible encodings. A prefix that cannot fit is shortened, not replaced by ambiguous labels. With no failed rows, existing priority behavior for other rows applies.
+
+### RED → GREEN
+
+The [archived Carbon output](evidence/adr-0024-sol-01-02/inputs/deep_f32_v00_u00_eio.carbon.json) had 19 rows at 3,975 bytes; the [archived Opus output](evidence/adr-0024-sol-01-02/inputs/deep_f32_v00_u00_eio.opus.json) had 22 at 3,987 bytes. Replaying the original corpus source against both revisions matched every archived output byte-for-byte. The [exact receipt and result](../../internal/toolset/testdata/adr0024-sol/deep_f32_v00_u00_eio.input.json) were captured immediately before the original probe invoked the renderer. `TestSOL01ArchivedDeep32` uses them as input, not a reconstructed similar fixture. With the same `syscall.EIO`, all 32 rows fit at **4,030 bytes**, without omitted receipt rows, changed states, or fabricated revisions/hashes.
+
+`TestSOL02PathIdentity` failed at the Opus baseline for both a wide distinguishing span and repeated directory names at different depths. The new renderer keeps 3/3 unique rows in the first case (1,240 bytes) and 4/4 in the second (3,350 bytes). Tests also cover identical and similar basenames, long Unicode names with spaces, literal ellipsis paths, redaction collisions across the two result views, accurate omissions under pressure, escaped stand-alone refusals, and pathless cancellation. The exact baseline assertions and final results are in the [RED](evidence/adr-0024-sol-01-02/logs/red.log) and [GREEN](evidence/adr-0024-sol-01-02/logs/green.log) logs.
+
+### Differential corpus
+
+| Comparison (684 paired cases) | Byte-identical | More / fewer rows | More / fewer failed rows | Cases with fewer duplicate labels (`files` / `publishedFiles`) |
+|---|---:|---:|---:|---:|
+| Carbon → Opus | 482 | 134 / 12 | 134 / 8 | 68 / 0 |
+| Carbon → Sol | 450 | 156 / 8 | 142 / 8 | 68 / 4 |
+| Opus → Sol | 509 | 106 / 0 | 92 / 0 | 0 / 4 |
+
+All eight fewer-row cases versus Carbon replace its repeated same-basename labels with distinct identities; none is a loss relative to Opus. In the 32-file same-name case Carbon displays 32 rows with one shared label, whereas both Opus and Sol display 29 unique rows and account for the omitted three by state. Across the corpus, `files` emits 850 / 0 / 0 repeated labels and `publishedFiles` emits 4 / 4 / 0 for Carbon / Opus / Sol. No new duplicate label appears in either view. The check resolves every candidate label against the actual input paths and verifies its row fields and omission totals, rather than relying on distinct strings alone.
+
+| Serialized bytes | Min | Median | P95 | Max |
+|---|---:|---:|---:|---:|
+| Carbon | 166 | 3,901.5 | 4,070 | 4,096 |
+| Opus | 166 | 3,875 | 4,075 | 4,096 |
+| Sol | 166 | 3,836 | 4,075 | 4,096 |
+
+All 2,052 outputs are valid UTF-8 JSON. See the [per-case measurements](evidence/adr-0024-sol-01-02/corpus.csv) and [comparison log](evidence/adr-0024-sol-01-02/logs/comparison.log).
+
+| Renderer | Median process CPU ms/payload | Allocated MiB/payload | Allocation count/payload |
+|---|---:|---:|---:|
+| Carbon | 196.00 | 50.39 | 205,159 |
+| Opus | 39.76 | 8.18 | 32,197 |
+| Sol | 11.67 | 2.88 | 10,014 |
+
+Each of three samples per renderer is one pass over all 684 cases, on an Apple M1 Pro (Darwin arm64, Go 1.26.5, `GOMAXPROCS=2`). CPU is process user + system time divided by case count; allocations are cumulative Go benchmark allocations, not peak memory. Timings are for this synthetic corpus, including display-path resolution but excluding fixture construction and output writes. CPU and allocation totals improve by 71% and 69% respectively versus Opus. Build and test jobs also ran on the host, so elapsed times are noisy. Raw samples: [Carbon](evidence/adr-0024-sol-01-02/logs/bench-carbon.log), [Opus](evidence/adr-0024-sol-01-02/logs/bench-opus.log), [Sol](evidence/adr-0024-sol-01-02/logs/bench-sol.log).
+
+### Validation
+
+| Check (Darwin arm64) | Result |
+|---|---|
+| `gofmt -w` on the three changed Go files; `go build ./...`; `go vet ./...` | Exit 0 each |
+| `go test -count=1 ./internal/toolset`; `go test -race -count=1 ./internal/toolset` | Exit 0 each |
+| SOL and R7R2 focused adversarial tests, including 20/23/32/50/100/200 failed rows | Exit 0. The 50/100/200 cases retain 30 failed rows at 4,015/4,021/4,022 bytes, respectively. The independent size oracle verifies that adding the next row does not fit. |
+| `bash docs/reports/evidence/adr-0024-r7r2-final/verify.sh carbon-probe` | Exit 0; 17/17 subtests and the existing CT-02 replay observation |
+| Targeted race run for R7 Partial Commit, cold Resume, receipt seal and earlier propagation/provenance regressions | Exit 0; 149 PASS lines including subtests. No session test matched the filter. |
+| `go test -timeout=45m -count=1 ./...` | Exit 0; 43 packages `ok`, 6 without tests. `runtime` took 755.463 s. |
+
+See the [native log](evidence/adr-0024-sol-01-02/logs/native.log) for exact commands and exit codes. Its initial HEAD is the reviewed base; all four tested source/fixture blob IDs match the code commit.
+
+### Reproduction and handoff
+
+Run `go test -count=1 -v -run '^TestSOL0[12]|^TestR7R2(Final|New01)|^TestR7FailurePayload' ./internal/toolset` from Core. For RED, use `-run '^TestSOL0[12]'` with a Go build overlay replacing only `internal/toolset/editing.go` with the file at `10f135d1f904ab88c6a086319ca5820ea6b9e09c`.
+
+The [replay tool](evidence/adr-0024-sol-01-02/replay.py) takes an existing scratch directory outside Core, a mode (`dump` or `bench`), and a renderer (`carbon`, `opus`, or `sol`). Use `dump sol --capture` to save independent input receipts alongside the outputs. Compare the three output directories and the candidate's inputs with [compare.py](evidence/adr-0024-sol-01-02/compare.py); its fifth argument is a new per-case CSV path. Benchmark mode uses Go 1.24+ and Unix `getrusage`. It uses all 684 cases, prebuilds inputs before timing, and excludes file I/O from the measured rendering loop. No provider calls or filesystem mutation benchmarks are involved.
+
+- **Code and tests:** `fc107ba867e8d4e6ef3c7db975a67c1c210069ac`; [production diff](evidence/adr-0024-sol-01-02/production.diff) confined to `internal/toolset/editing.go` (`git diff -U0 10f135d fc107ba -- internal/toolset/editing.go`). There are no new output fields and no changes to editing/publication or Agent persistence. Earlier evidence directories remain intact; verify each historical manifest against its own commit. Run `shasum -a 256 -c docs/reports/evidence/adr-0024-sol-01-02/SHA256SUMS` from Core.
+- **SOL-01 (P3):** `FIXED_BY_IMPLEMENTER / SELF_VERIFIED / PENDING_INDEPENDENT_REVIEW`.
+- **SOL-02 (P3):** `FIXED_BY_IMPLEMENTER / SELF_VERIFIED / PENDING_INDEPENDENT_REVIEW`.
+- **Carry forward:** PRE-01/PRE-02 OPEN P2; BASE-01/R6-07 (R5-06) OPEN/UNVERIFIED; R7-F01, CT-02, R3-02, R3-04, R2-03 and F-05–F-08 OPEN P3. R3-01 stays Owner-accepted. Native Windows, Linux and FreeBSD were not tested here. Owner specification approval and risk acceptance remain separate from remediation verification.
+
+Handoff status: `SOL_01_02_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`. The implementer does not grant independent closure or merge authorization.

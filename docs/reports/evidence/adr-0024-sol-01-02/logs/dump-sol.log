@@ -1,0 +1,7 @@
+variant=sol source=working tree
+cmd=env OPUS_DUMP_DIR=/private/tmp/lc-adr0024-sol-0102-20261122/replay-sol-dump/outputs SOL_INPUT_DIR=/private/tmp/lc-adr0024-sol-0102-20261122/replay-sol-dump/inputs go test -overlay /private/tmp/lc-adr0024-sol-0102-20261122/replay-sol-dump/overlay.json -count=1 -v -run '^TestOpusProbeDump$' ./internal/toolset
+=== RUN   TestOpusProbeDump
+--- PASS: TestOpusProbeDump (12.64s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	13.605s
+exit=0
