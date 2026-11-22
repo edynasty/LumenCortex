@@ -58,8 +58,8 @@ func r7r2FinalOmittedByState(failed, shown, untouched int) map[string]int {
 	return want
 }
 
-// r7r2FinalHoldsRows re-encodes the returned envelope with count failed rows at the shortest path
-// budget and reports whether that still fits. It does not go through the production ladder, so it
+// r7r2FinalHoldsRows re-encodes the returned envelope with count failed rows at a compact basename
+// candidate and reports whether that still fits. It does not go through the production ladder, so it
 // tells whether a row the payload omitted could have been kept.
 func r7r2FinalHoldsRows(t *testing.T, content string, failed []string, untouched, count int) bool {
 	t.Helper()
@@ -69,7 +69,7 @@ func r7r2FinalHoldsRows(t *testing.T, content string, failed []string, untouched
 	}
 	rows := make([]toolFileState, 0, count)
 	for i, p := range failed[:count] {
-		rows = append(rows, toolFileState{Path: truncatePathTail(p, 64), PublishState: r7r2FinalFailedStates[i%len(r7r2FinalFailedStates)], Published: true, Wrote: true})
+		rows = append(rows, toolFileState{Path: "…/" + filepath.Base(p), PublishState: r7r2FinalFailedStates[i%len(r7r2FinalFailedStates)], Published: true, Wrote: true})
 	}
 	envelope["files"], _ = json.Marshal(rows)
 	delete(envelope, "filesOmitted")
@@ -90,7 +90,7 @@ func r7r2FinalHoldsRows(t *testing.T, content string, failed []string, untouched
 // so twenty failed files that all fit at 64 bytes came back as fifteen.
 func TestR7R2FinalOverflowKeepsEveryFailedRowThatFits(t *testing.T) {
 	dir := strings.TrimSuffix(strings.Repeat("pkg/", 195), "/")
-	for _, n := range []int{17, 20, 22} {
+	for _, n := range []int{17, 20, 22, 23} {
 		t.Run(fmt.Sprintf("failed_%d", n), func(t *testing.T) {
 			failed := make([]string, n)
 			for i := range failed {
@@ -119,7 +119,7 @@ func TestR7R2FinalOverflowKeepsEveryFailedRowThatFits(t *testing.T) {
 // keeps the longest prefix any path budget holds, and the omission counts name the rest by state.
 func TestR7R2FinalOverflowKeepsLongestFailedPrefix(t *testing.T) {
 	dir := strings.TrimSuffix(strings.Repeat("pkg/", 195), "/")
-	for _, n := range []int{23, 50, 200} {
+	for _, n := range []int{50, 100, 200} {
 		t.Run(fmt.Sprintf("failed_%d", n), func(t *testing.T) {
 			failed := make([]string, n)
 			for i := range failed {
@@ -130,6 +130,7 @@ func TestR7R2FinalOverflowKeepsLongestFailedPrefix(t *testing.T) {
 			if !p.Overflow || shown == 0 || shown >= n {
 				t.Fatalf("expected a proper prefix of the failed rows, got %d of %d: %s", shown, n, content)
 			}
+			t.Logf("bytes=%d shown=%d omitted=%d byState=%v", len(content), shown, p.FilesOmitted, p.FilesOmittedByState)
 			for i, f := range p.Files {
 				if !strings.HasSuffix(f.Path, fmt.Sprintf("/Adapter%03d.kt", i)) {
 					t.Fatalf("row %d = %q is not failed file %d", i, f.Path, i)
@@ -262,60 +263,6 @@ func TestR7R2FinalFiveFailedSameNameFilesStayDistinct(t *testing.T) {
 		if !strings.HasPrefix(f.Path, fmt.Sprintf("module%02d/", i)) || !strings.HasSuffix(f.Path, "/config.yaml") || f.PublishState != want || f.Verified {
 			t.Fatalf("row %d = %+v, want module%02d's config.yaml in state %s", i, f, i, want)
 		}
-	}
-}
-
-// TestR7R2FinalDistinguishShortenedPaths pins the exact form of a distinguished row and the cases
-// the helper leaves alone.
-func TestR7R2FinalDistinguishShortenedPaths(t *testing.T) {
-	longName := strings.Repeat("p", 60)
-	filler := strings.Repeat("m", 60)
-	for _, tc := range []struct {
-		name   string
-		budget int
-		paths  []string
-		want   []string
-	}{
-		{"unique_tails_are_left_alone", 16,
-			[]string{"services/auth/One.kt", "services/auth/Two.kt"},
-			[]string{"…/auth/One.kt", "…/auth/Two.kt"}},
-		{"names_in_front_of_the_shared_tail", 24,
-			[]string{"services/auth/internal/config/app.yaml", "services/billing/internal/config/app.yaml"},
-			[]string{"…/auth/…/config/app.yaml", "…/billing/…/config/app.yaml"}},
-		{"first_name_differs", 24,
-			[]string{"auth/internal/config/app.yaml", "billing/internal/config/app.yaml"},
-			[]string{"auth/…/config/app.yaml", "billing/…/config/app.yaml"}},
-		{"segment_reaches_the_tail", 12,
-			[]string{"shared/prefix/auth/app.yaml", "shared/prefix/billing/app.yaml"},
-			[]string{"…/auth/app.yaml", "…/billing/app.yaml"}},
-		{"long_name_differs_at_its_end", 12,
-			[]string{longName + "-a/app.yaml", longName + "-b/app.yaml"},
-			[]string{"…" + strings.Repeat("p", 15) + "-a/app.yaml", "…" + strings.Repeat("p", 15) + "-b/app.yaml"}},
-		{"multibyte_names_sharing_leading_bytes", 12,
-			[]string{"目录支/" + filler + "/a.txt", "目录收/" + filler + "/a.txt"},
-			[]string{"目录支/…/a.txt", "目录收/…/a.txt"}},
-		{"a_shown_row_differs_from_one_that_is_not_shown", 24,
-			[]string{"services/auth/internal/config/app.yaml", "services/billing/internal/config/app.yaml", "services/audit/internal/config/app.yaml"},
-			[]string{"…/auth/…/config/app.yaml", "…/billing/…/config/app.yaml"}},
-		{"equal_display_paths_stay", 16,
-			[]string{"<outside-workspace>/" + filler + "/key.txt", "<outside-workspace>/" + filler + "/key.txt"},
-			[]string{"…/key.txt", "…/key.txt"}},
-		{"difference_wider_than_the_bound_stays", 12,
-			[]string{"a/" + filler + "/x/" + filler + "/f.kt", "a/" + filler + "/y/" + filler + "/f.kt", "b/" + filler + "/x/" + filler + "/f.kt"},
-			[]string{"…/f.kt", "…/f.kt", "b/…/f.kt"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			rows := make([]toolFileState, len(tc.want))
-			for i := range rows {
-				rows[i].Path = truncatePathTail(tc.paths[i], tc.budget)
-			}
-			distinguishShortenedPaths(rows, len(tc.paths), func(i int) string { return tc.paths[i] })
-			for i, row := range rows {
-				if row.Path != tc.want[i] || !utf8.ValidString(row.Path) {
-					t.Fatalf("row %d = %q, want %q", i, row.Path, tc.want[i])
-				}
-			}
-		})
 	}
 }
 
