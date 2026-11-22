@@ -330,14 +330,57 @@ type failurePathIndex struct {
 	labels  map[string]failurePathLabel
 	// names and ends are built by ensureNames: every distinct component sorted by bytes, and every
 	// distinct filename sorted by bytes read backwards.
-	names      []string
-	ends       []string
-	dirNames   map[string]bool
-	nameBytes  int
-	indexed    bool
-	bases      map[string]string
-	depthTails map[string]map[depthTailKey]int
-	pathSuffix map[string]int
+	names       []string
+	ends        []string
+	dirNames    map[string]bool
+	nameBytes   int
+	indexed     bool
+	bases       map[string]string
+	depthTails  map[string]map[depthTailKey]int
+	pathSuffix  map[string]int
+	braced      map[string]map[bracedTailKey]int
+	ownerSuffix map[[2]string]map[string]int
+	roots       map[string]map[string][]string
+}
+
+type bracedTailKey struct {
+	root, tail string
+	n          int
+}
+
+// bracedCount returns n when the component ends with a canonical "{n}" count from 1 to 9999.
+func bracedCount(c string) int {
+	if !strings.HasSuffix(c, "}") {
+		return 0
+	}
+	open := strings.LastIndexByte(c, '{')
+	if open < 0 {
+		return 0
+	}
+	inner := c[open+1 : len(c)-1]
+	n, err := strconv.Atoi(inner)
+	if err != nil || n < 1 || n > 9999 || strconv.Itoa(n) != inner {
+		return 0
+	}
+	return n
+}
+
+// bracedKeys records the braced component that sits just before a one- or two-component tail. A
+// reader that takes "…" as elided characters and "{n}" as literal text would see that component as a
+// counted gap, so the keys let a counted label be vetoed for any batch path.
+func bracedKeys(full string) []bracedTailKey {
+	parts := strings.Split(full, "/")
+	var keys []bracedTailKey
+	for t := 1; t <= 2; t++ {
+		i := len(parts) - 1 - t
+		if i < 1 {
+			continue
+		}
+		if n := bracedCount(parts[i]); n > 0 {
+			keys = append(keys, bracedTailKey{root: parts[0], tail: strings.Join(parts[len(parts)-t:], "/"), n: n})
+		}
+	}
+	return keys
 }
 
 type depthTailKey struct {
@@ -390,9 +433,31 @@ func (p *failurePathIndex) countedTails(full, base string, consider func(string)
 			counts[k]++
 		}
 		p.depthTails[base] = counts
+		if p.braced == nil {
+			p.braced = make(map[string]map[bracedTailKey]int)
+		}
+		braced := make(map[bracedTailKey]int)
+		for _, other := range p.groups[base] {
+			for _, bk := range bracedKeys(other) {
+				braced[bk]++
+			}
+		}
+		p.braced[base] = braced
+	}
+	braced := p.braced[base]
+	self := bracedKeys(full)
+	clash := func(root, tail string, n int) bool {
+		bk := bracedTailKey{root: root, tail: tail, n: n}
+		own := 0
+		for _, sk := range self {
+			if sk == bk {
+				own++
+			}
+		}
+		return braced[bk]-own > 0
 	}
 	emit := func(k depthTailKey, gap int, tail string) {
-		if gap > 0 && counts[k] == 1 {
+		if gap > 0 && counts[k] == 1 && !clash(k.root, tail, gap) {
 			consider(k.root + "/" + pathEllipsis + "{" + strconv.Itoa(gap) + "}/" + tail)
 		}
 	}
@@ -700,6 +765,83 @@ func eachPathParent(full string, visit func(start, end int)) {
 	}
 }
 
+// rootGroup returns the paths of a basename group whose first component is root, or the whole group
+// when root is empty. The root index is built once per basename.
+func (p *failurePathIndex) rootGroup(base, root string) []string {
+	if root == "" {
+		return p.groups[base]
+	}
+	if p.roots == nil {
+		p.roots = make(map[string]map[string][]string)
+	}
+	index, ok := p.roots[base]
+	if !ok {
+		index = make(map[string][]string)
+		for _, full := range p.groups[base] {
+			if first, _, found := strings.Cut(full, "/"); found {
+				index[first] = append(index[first], full)
+			}
+		}
+		p.roots[base] = index
+	}
+	return index[root]
+}
+
+// ownedSuffix is the longest common byte suffix between name and another owned name whose owner
+// differs. In reverse-byte order the longest suffix shared with a subset is attained at the nearest
+// subset member on either side, so each name needs only its nearest neighbours with another owner.
+// The table is built once per key.
+func (p *failurePathIndex) ownedSuffix(key [2]string, owners map[string]string, name string) int {
+	table, ok := p.ownerSuffix[key]
+	if !ok {
+		names := make([]string, 0, len(owners))
+		for k := range owners {
+			names = append(names, k)
+		}
+		sort.Slice(names, func(i, j int) bool { return compareBackward(names[i], names[j]) < 0 })
+		left, right := make([]int, len(names)), make([]int, len(names))
+		for i := range names {
+			left[i] = -1
+			if i > 0 {
+				if owners[names[i-1]] != owners[names[i]] {
+					left[i] = i - 1
+				} else {
+					left[i] = left[i-1]
+				}
+			}
+		}
+		for i := len(names) - 1; i >= 0; i-- {
+			right[i] = -1
+			if i+1 < len(names) {
+				if owners[names[i+1]] != owners[names[i]] {
+					right[i] = i + 1
+				} else {
+					right[i] = right[i+1]
+				}
+			}
+		}
+		table = make(map[string]int, len(names))
+		for i, k := range names {
+			if owners[k] == "" {
+				continue
+			}
+			v := 0
+			if left[i] >= 0 {
+				v = max(v, commonSuffixBytes(k, names[left[i]]))
+			}
+			if right[i] >= 0 {
+				v = max(v, commonSuffixBytes(k, names[right[i]]))
+			}
+			table[k] = v
+		}
+		if p.ownerSuffix == nil {
+			p.ownerSuffix = make(map[[2]string]map[string]int)
+		}
+		p.ownerSuffix[key] = table
+	}
+	return table[name]
+}
+
 func (p *failurePathIndex) parentOwners(base, root string) map[string]string {
 	key := [2]string{base, root}
 	owners, ok := p.parents[key]
@@ -707,10 +849,7 @@ func (p *failurePathIndex) parentOwners(base, root string) map[string]string {
 		return owners
 	}
 	owners = make(map[string]string)
-	for _, full := range p.groups[base] {
-		if root != "" && !strings.HasPrefix(full, root+"/") {
-			continue
-		}
+	for _, full := range p.rootGroup(base, root) {
 		eachPathParent(full, func(start, end int) {
 			name := full[start:end]
 			if owner, ok := owners[name]; !ok {
@@ -847,12 +986,7 @@ func (p *failurePathIndex) makeLabel(full string) failurePathLabel {
 			if len(name) <= 2*labelContextBytes {
 				return
 			}
-			shared := 0
-			for other, owner := range owners {
-				if owner != full {
-					shared = max(shared, commonSuffixBytes(name, other))
-				}
-			}
+			shared := p.ownedSuffix([2]string{base, root}, owners, name)
 			if cut := len(name) - max(labelContextBytes, shared+1); cut > 0 {
 				for cut > 0 && !utf8.RuneStart(name[cut]) {
 					cut--
