@@ -1,0 +1,8 @@
+=== RUN   TestOVSuites
+--- PASS: TestOVSuites (25.55s)
+=== RUN   TestOV40Costs
+--- PASS: TestOV40Costs (0.01s)
+=== RUN   TestOVCorpus
+--- PASS: TestOVCorpus (65.91s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	91.922s

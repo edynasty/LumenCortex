@@ -346,19 +346,19 @@ func solRevRunCase(t *testing.T, c solRevCase) {
 func TestSOLREV01SolFloorCases(t *testing.T) {
 	dir := "src/main/kotlin/pkg/"
 	for _, tc := range []solRevCase{
-		{name: "end_k70", minRows: 21, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+		{name: "end_k70", minRows: 21, rows: 29, failedRows: 29, // OV-04: compressed legend
 			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix(dir, 32, func(i int) string {
 				return strings.Repeat("L", 70) + fmt.Sprintf("%03d", i) + ".kt"
 			})},
-		{name: "end_k100", minRows: 21, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+		{name: "end_k100", minRows: 21, rows: 29, failedRows: 29, // OV-04: compressed legend
 			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix(dir, 32, func(i int) string {
 				return strings.Repeat("L", 100) + fmt.Sprintf("%03d", i) + ".kt"
 			})},
-		{name: "end_k240", minRows: 20, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+		{name: "end_k240", minRows: 20, rows: 29, failedRows: 29, // OV-04: compressed legend
 			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix(dir, 32, func(i int) string {
 				return strings.Repeat("L", 240) + fmt.Sprintf("%03d", i) + ".kt"
 			})},
-		{name: "start_k240", minRows: 20, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+		{name: "start_k240", minRows: 20, rows: 29, failedRows: 29, // OV-04: compressed legend
 			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix(dir, 32, func(i int) string {
 				return fmt.Sprintf("%03d", i) + strings.Repeat("L", 240) + ".kt"
 			})},
@@ -386,9 +386,9 @@ func TestSOLREV01PositionSweep(t *testing.T) {
 	}
 	// OV-04: pathNotation bytes shift the shown counts by one row.
 	exact := map[string][]int{
-		"end":    {27, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28},
-		"middle": {27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27},
-		"start":  {27, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28},
+		"end":    {27, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29},
+		"middle": {27, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28},
+		"start":  {27, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29},
 	}
 	for _, pos := range []string{"end", "middle", "start"} {
 		for j, k := range sizes {
@@ -434,11 +434,11 @@ func TestSOLREV01LongNameShapes(t *testing.T) {
 		return b.String()
 	}
 	for _, tc := range []solRevCase{
-		{name: "identical_long_prefixes", minRows: 1, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+		{name: "identical_long_prefixes", minRows: 1, rows: 29, failedRows: 29, // OV-04: compressed legend
 			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("dir/", 32, func(i int) string {
 				return strings.Repeat("p", 220) + fmt.Sprintf("_%02d_end.kt", i)
 			})},
-		{name: "identical_long_suffixes", minRows: 1, rows: 29, failedRows: 29, // OV-04: pathNotation bytes
+		{name: "identical_long_suffixes", minRows: 1, rows: 30, failedRows: 30, // OV-04: compressed legend
 			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("", 32, func(i int) string {
 				return fmt.Sprintf("m%02d_", i) + strings.Repeat("s", 200) + ".kt"
 			})},
@@ -452,7 +452,7 @@ func TestSOLREV01LongNameShapes(t *testing.T) {
 			solRevPathsPrefix("中/", 16, func(i int) string {
 				return strings.Repeat("界", 40) + fmt.Sprintf("%02d", i) + strings.Repeat("界", 40) + ".kt"
 			})...)},
-		{name: "filenames_with_spaces", minRows: 1, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+		{name: "filenames_with_spaces", minRows: 1, rows: 29, failedRows: 29, // OV-04: compressed legend
 			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("dir a/", 32, func(i int) string {
 				return strings.Repeat("sp ace ", 40) + fmt.Sprintf("%02d", i) + ".kt"
 			})},
@@ -460,20 +460,20 @@ func TestSOLREV01LongNameShapes(t *testing.T) {
 			"left/" + strings.Repeat("L", 200) + ".kt",
 			"right/" + strings.Repeat("L", 200) + ".kt",
 		}},
-		{name: "long_names_under_190_byte_dirs", minRows: 1, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+		{name: "long_names_under_190_byte_dirs", minRows: 1, rows: 29, failedRows: 29, // OV-04: compressed legend
 			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("", 32, func(i int) string {
 				return fmt.Sprintf("%02d", i) + strings.Repeat("q", 188) + "/" + strings.Repeat("r", 190) + "/" +
 					fmt.Sprintf("f%02d", i) + strings.Repeat("z", 100) + ".kt"
 			})},
-		{name: "repeated_dirs_at_different_depths", minRows: 1, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+		{name: "repeated_dirs_at_different_depths", minRows: 1, rows: 29, failedRows: 29, // OV-04: compressed legend
 			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("", 32, func(i int) string {
 				return strings.Repeat("rep/", i%4+1) + fmt.Sprintf("%02d", i) + strings.Repeat("L", 200) + ".kt"
 			})},
-		{name: "directory_shares_unique_prefix", minRows: 1, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+		{name: "directory_shares_unique_prefix", minRows: 1, rows: 29, failedRows: 29, // OV-04: compressed legend
 			attempted: 33, failedTotal: 32, failed: solRevPathsPrefix("pkg/", 32, func(i int) string {
 				return "000" + strings.Repeat("L", 240) + fmt.Sprintf("%02d.kt", i)
 			}), untouched: []string{"000" + strings.Repeat("L", 20) + "_dir/other.kt"}},
-		{name: "case_variants_stay_distinct", minRows: 1, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+		{name: "case_variants_stay_distinct", minRows: 1, rows: 29, failedRows: 29, // OV-04: compressed legend
 			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("case/", 32, func(i int) string {
 				return caseVariant(i) + ".kt"
 			})},
@@ -489,7 +489,7 @@ func TestSOLREV01LongNameShapes(t *testing.T) {
 func TestSOLREV01PathlessCancellation(t *testing.T) {
 	solRevRunCase(t, solRevCase{
 		name:    "pathless",
-		minRows: 20, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+		minRows: 20, rows: 29, failedRows: 29, // OV-04: compressed legend
 		attempted: 32, failedTotal: 32,
 		top: context.Canceled,
 		failed: solRevPathsPrefix("src/main/kotlin/pkg/", 32, func(i int) string {

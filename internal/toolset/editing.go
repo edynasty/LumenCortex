@@ -1146,11 +1146,11 @@ func (s *Set) sanitizeDiagnostics(in []editing.Diagnostic, limit, pathBytes, tex
 }
 
 const (
-	notationShort    = "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent."
-	notationCount    = "…{N}/ is exactly N directories."
-	notationTail     = "…/./x is omitted directories, then exactly x."
-	notationExact    = "./x is exactly workspace path x; any … in it is literal."
-	notationRedacted = "<outside-workspace>/x is a file outside the workspace named exactly x."
+	notationShort    = "…/ = 1+ omitted dirs; … in a name = omitted chars. Display-only labels, not file paths."
+	notationCount    = "…{N}/ = exactly N dirs."
+	notationTail     = "…/./x = omitted dirs, then exactly x."
+	notationExact    = "./x = exactly path x, … literal."
+	notationRedacted = "<outside-workspace>/x = outside file named x."
 )
 
 type notationForms uint8

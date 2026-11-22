@@ -618,3 +618,25 @@ The production diff is confined to `internal/toolset/editing.go`. There are no t
 **Unchanged.** PRE-01 and PRE-02 remain OPEN P2. BASE-01/R6-07 remains OPEN/UNVERIFIED. The historical P3 ledger is unchanged. Native Windows, Linux and FreeBSD remain unverified, and rc3.8 draft 2 remains `PENDING_OWNER_APPROVAL`.
 
 **Status:** `OV_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`. Gemini 4 Carbon must verify independently. Do not merge.
+
+## OV-04 follow-up: compressed path-notation legend
+
+The Owner first asked to move the legend into the editing tool descriptions. I measured that and the Owner rejected it for **option C**: keep the legend in results and compress it. Runtime scope stays unchanged.
+
+- Putting the contract on every editing tool broke admission for an 8K-context model.
+- Stating it once per request would cost about 660 B on every request, and would also need changes to the runtime schema-cost surfaces.
+
+Only the five legend constants in `internal/toolset/editing.go` change. The selection algorithm, identity rules, omission accounting and the 4,096-byte bound are untouched.
+
+- **Legend member size:** short only 166 → 109 B; short + count 200 → 135 B; exact only 76 → 52 B.
+- **Display-only:** the short form now says `Display-only labels, not file paths`.
+
+Over 2,229 renders, the oracle found 0 problems, and failed rows rise from 25,758 to 25,932. No payload loses a row.
+
+- **Five long-filename cases:** 29, 29, 29, 29 and 3 rows.
+- **40-file batch:** 31 rows in all 60 orders.
+- **Archived deep-32:** 31 rows.
+
+All gates pass, including `go test -timeout=45m -count=1 ./...` (800 s). [Evidence](evidence/adr-0024-ov-legend-compression/README.md).
+
+Status: **`FIXED_BY_IMPLEMENTER / SELF_VERIFIED / PENDING_INDEPENDENT_REVIEW`**, pending Gemini 4 Carbon. Do not merge. PRE-01 and PRE-02 remain OPEN P2, and the rest of the ledger is unchanged. Native Windows, Linux and FreeBSD remain unverified, and rc3.8 draft 2 remains `PENDING_OWNER_APPROVAL`.

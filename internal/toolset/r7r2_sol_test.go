@@ -33,9 +33,9 @@ func TestSOL01ArchivedDeep32(t *testing.T) {
 	out, returned := set.commitOutcome(fixture.Result, fixture.Receipt, syscall.EIO)
 	payload := r7r2ParseAndCheckBudget(t, "archived deep_f32", out.Content, out.OK)
 	t.Logf("bytes=%d rows=%d omitted=%d byState=%v", len(out.Content), len(payload.Files), payload.FilesOmitted, payload.FilesOmittedByState)
-	// OV-04: pathNotation bytes; the legend leaves 30 of the 32 failed rows, with two named omissions.
-	if len(out.Content) != 4061 || len(payload.Files) != 30 || payload.FilesOmitted != 2 || payload.FilesOmittedByState["external_modification_detected"] != 1 || payload.FilesOmittedByState["partially_modified"] != 1 {
-		t.Fatalf("expected 30 rows at 4061 bytes with two named omissions, got bytes=%d rows=%d omitted=%d byState=%v", len(out.Content), len(payload.Files), payload.FilesOmitted, payload.FilesOmittedByState)
+	// OV-04: compressed legend; 31 of 32 failed rows fit, one partially_modified row is omitted by name.
+	if len(out.Content) != 4092 || len(payload.Files) != 31 || payload.FilesOmitted != 1 || payload.FilesOmittedByState["partially_modified"] != 1 {
+		t.Fatalf("expected 31 rows at 4092 bytes with one named omission, got bytes=%d rows=%d omitted=%d byState=%v", len(out.Content), len(payload.Files), payload.FilesOmitted, payload.FilesOmittedByState)
 	}
 	ovCheckOverflowFull(t, set, fixture.Receipt, fixture.Result, out.Content, payload)
 	if !out.MutatesWorkspace || returned != syscall.EIO || payload.Code != "" ||

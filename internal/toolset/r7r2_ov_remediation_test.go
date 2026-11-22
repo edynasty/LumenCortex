@@ -17,11 +17,11 @@ import (
 // Agent-facing legend text, copied from the specification (OV-04). The tests compare the emitted
 // pathNotation with these strings, so any drift in the production constants fails here.
 const (
-	ovNotationShort    = "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent."
-	ovNotationCount    = "…{N}/ is exactly N directories."
-	ovNotationTail     = "…/./x is omitted directories, then exactly x."
-	ovNotationExact    = "./x is exactly workspace path x; any … in it is literal."
-	ovNotationRedacted = "<outside-workspace>/x is a file outside the workspace named exactly x."
+	ovNotationShort    = "…/ = 1+ omitted dirs; … in a name = omitted chars. Display-only labels, not file paths."
+	ovNotationCount    = "…{N}/ = exactly N dirs."
+	ovNotationTail     = "…/./x = omitted dirs, then exactly x."
+	ovNotationExact    = "./x = exactly path x, … literal."
+	ovNotationRedacted = "<outside-workspace>/x = outside file named x."
 )
 
 // ovCounted reports whether a component is exactly "…{N}" with a canonical count from 1 to 9999.
@@ -445,6 +445,9 @@ func TestOVPathNotation(t *testing.T) {
 		if !strings.Contains(doc.PathNotation, ovNotationShort) || strings.Contains(doc.PathNotation, ovNotationCount) {
 			t.Fatalf("pathNotation = %q, want the short legend only", doc.PathNotation)
 		}
+		if !strings.Contains(doc.PathNotation, "Display-only labels, not file paths") {
+			t.Fatalf("pathNotation = %q, want the compressed legend", doc.PathNotation)
+		}
 	})
 	t.Run("abbreviated_filename", func(t *testing.T) {
 		var paths []string
@@ -455,11 +458,17 @@ func TestOVPathNotation(t *testing.T) {
 		if !strings.Contains(doc.PathNotation, ovNotationShort) {
 			t.Fatalf("pathNotation = %q, want the short legend", doc.PathNotation)
 		}
+		if !strings.Contains(doc.PathNotation, "Display-only labels, not file paths") {
+			t.Fatalf("pathNotation = %q, want the compressed legend", doc.PathNotation)
+		}
 	})
 	t.Run("counted", func(t *testing.T) {
 		_, _, doc := render(t, astraSet(t), astraFailed(astraArchived40(), astraCycle))
 		if want := ovNotationShort + " " + ovNotationCount; doc.PathNotation != want {
 			t.Fatalf("pathNotation = %q, want %q", doc.PathNotation, want)
+		}
+		if !strings.Contains(doc.PathNotation, "Display-only labels, not file paths") {
+			t.Fatalf("pathNotation = %q, want the compressed legend", doc.PathNotation)
 		}
 	})
 	t.Run("literal_tail", func(t *testing.T) {

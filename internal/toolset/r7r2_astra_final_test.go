@@ -372,7 +372,7 @@ func TestAstraDepthTailArchived40(t *testing.T) {
 			if len(p.Files) < 30 {
 				t.Fatalf("%d failed rows shown, want at least 30", len(p.Files))
 			}
-			astraCheck(t, items, content, p, syscall.EIO, 30) // OV-04: pathNotation bytes
+			astraCheck(t, items, content, p, syscall.EIO, 31) // OV-04: compressed legend
 		})
 	}
 }
@@ -388,7 +388,7 @@ func TestAstraDepthTailNeverMasquerades(t *testing.T) {
 	if len(p.Files) == 0 || p.Files[0].Path == "r00/…{7}/f.kt" {
 		t.Fatalf("first row is the result-only literal: %s", content)
 	}
-	astraCheck(t, items, content, p, syscall.EIO, 30)
+	astraCheck(t, items, content, p, syscall.EIO, 31) // OV-04: compressed legend
 }
 
 // TestAstraLiteralEllipsisOnDisk renders real literal paths: single and multiple literal ellipses,
@@ -436,7 +436,7 @@ func TestAstraLiteralOmittedComparisons(t *testing.T) {
 		newRev: "rev00000", newSHA: "sha256:" + strings.Repeat("ab", 32),
 	}, astraItem{raw: literals[2], disp: literals[2], state: editing.PublishNotAttempted})
 	content, p := astraRun(t, set, items, syscall.EIO)
-	astraCheck(t, items, content, p, syscall.EIO, 28) // OV-04: pathNotation bytes
+	astraCheck(t, items, content, p, syscall.EIO, 29) // OV-04: compressed legend
 }
 
 // TestAstraStandaloneRefusalNames: a refusal naming a literal path with no receipt rows is named by its
@@ -545,11 +545,11 @@ func TestAstraEscapedJointBatch(t *testing.T) {
 		items = append(items, astraItem{raw: c, disp: c, state: editing.PublishNotAttempted})
 	}
 	content, p := astraRun(t, set, items, syscall.EIO)
-	// OV-04: pathNotation bytes; the legend leaves 28 rows, one fewer than before.
-	if len(p.Files) < 28 {
-		t.Fatalf("%d failed rows shown, want at least 28: %s", len(p.Files), content)
+	// OV-04: compressed legend
+	if len(p.Files) < 29 {
+		t.Fatalf("%d failed rows shown, want at least 29: %s", len(p.Files), content)
 	}
-	astraCheck(t, items, content, p, syscall.EIO, 28)
+	astraCheck(t, items, content, p, syscall.EIO, 29)
 }
 
 // astraOmittedRootSuffixItems is the J3 shape: a long-root first failure, sixty fillers, and the real
