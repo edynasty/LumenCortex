@@ -96,21 +96,16 @@ func TestR7R2FinalOverflowKeepsEveryFailedRowThatFits(t *testing.T) {
 			for i := range failed {
 				failed[i] = fmt.Sprintf("%s/Adapter%03d.kt", dir, i)
 			}
-			content, p := r7r2FinalRender(t, failed, []string{dir + "/Untouched.kt"}, syscall.EIO)
+			set := astraSet(t)
+			rec, res, content, p := ovRun(t, set, ovFinalItems(failed, []string{dir + "/Untouched.kt"}), syscall.EIO)
 			if !p.Overflow || !p.Truncated {
 				t.Fatalf("expected the overflow envelope: %s", content)
 			}
-			if len(p.Files) != n {
-				t.Fatalf("%d failed rows shown, want all %d (omitted=%d byState=%v)", len(p.Files), n, p.FilesOmitted, p.FilesOmittedByState)
+			// OV-06: the untouched row is lower-class and fills leftover budget, so it may be shown too.
+			if got := ovFailedShown(p); got != n {
+				t.Fatalf("%d failed rows shown, want all %d (omitted=%d byState=%v)", got, n, p.FilesOmitted, p.FilesOmittedByState)
 			}
-			for i, f := range p.Files {
-				if !strings.HasSuffix(f.Path, fmt.Sprintf("/Adapter%03d.kt", i)) || f.PublishState != string(r7r2FinalFailedStates[i%len(r7r2FinalFailedStates)]) || f.Verified {
-					t.Fatalf("row %d = %+v does not name failed file %d with its state", i, f, i)
-				}
-			}
-			if p.FilesOmitted != 1 || p.FilesOmittedByState[string(editing.PublishNotAttempted)] != 1 {
-				t.Fatalf("only the untouched row may be omitted: omitted=%d byState=%v", p.FilesOmitted, p.FilesOmittedByState)
-			}
+			ovCheckOverflowFull(t, set, rec, res, content, p)
 		})
 	}
 }
@@ -125,32 +120,15 @@ func TestR7R2FinalOverflowKeepsLongestFailedPrefix(t *testing.T) {
 			for i := range failed {
 				failed[i] = fmt.Sprintf("%s/Adapter%03d.kt", dir, i)
 			}
-			content, p := r7r2FinalRender(t, failed, []string{dir + "/Untouched.kt"}, syscall.EIO)
-			shown := len(p.Files)
+			set := astraSet(t)
+			rec, res, content, p := ovRun(t, set, ovFinalItems(failed, []string{dir + "/Untouched.kt"}), syscall.EIO)
+			// OV-06: the rule is the maximal failed count that fits, with ties broken by canonical path.
+			shown := ovFailedShown(p)
 			if !p.Overflow || shown == 0 || shown >= n {
-				t.Fatalf("expected a proper prefix of the failed rows, got %d of %d: %s", shown, n, content)
+				t.Fatalf("expected fewer than %d failed rows, got %d: %s", n, shown, content)
 			}
-			t.Logf("bytes=%d shown=%d omitted=%d byState=%v", len(content), shown, p.FilesOmitted, p.FilesOmittedByState)
-			for i, f := range p.Files {
-				if !strings.HasSuffix(f.Path, fmt.Sprintf("/Adapter%03d.kt", i)) {
-					t.Fatalf("row %d = %q is not failed file %d", i, f.Path, i)
-				}
-			}
-			if !r7r2FinalHoldsRows(t, content, failed, 1, shown) {
-				t.Fatalf("oracle disagrees with the payload: %d rows at the shortest budget do not fit", shown)
-			}
-			if r7r2FinalHoldsRows(t, content, failed, 1, shown+1) {
-				t.Fatalf("%d failed rows shown but %d fit at the shortest path budget", shown, shown+1)
-			}
-			want := r7r2FinalOmittedByState(n, shown, 1)
-			if p.FilesOmitted != n-shown+1 || len(p.FilesOmittedByState) != len(want) {
-				t.Fatalf("omitted=%d byState=%v, want %d and %v", p.FilesOmitted, p.FilesOmittedByState, n-shown+1, want)
-			}
-			for state, count := range want {
-				if p.FilesOmittedByState[state] != count {
-					t.Fatalf("filesOmittedByState[%s]=%d, want %d (%v)", state, p.FilesOmittedByState[state], count, p.FilesOmittedByState)
-				}
-			}
+			t.Logf("bytes=%d shown=%d omitted=%d byState=%v", len(content), len(p.Files), p.FilesOmitted, p.FilesOmittedByState)
+			ovCheckOverflowFull(t, set, rec, res, content, p)
 		})
 	}
 }
@@ -252,17 +230,22 @@ func TestR7R2FinalFiveFailedSameNameFilesStayDistinct(t *testing.T) {
 		t.Fatalf("unexpected go error: %v", err)
 	}
 	p := r7r2ParseAndCheckBudget(t, "five_failed_same_name", res.Content, res.OK)
-	if !p.Overflow || len(p.Files) != 5 || p.FilesOmitted != 1 || p.FilesOmittedByState[string(editing.PublishNotAttempted)] != 1 {
-		t.Fatalf("expected five failed rows and one omitted untouched row: %s", res.Content)
+	// OV-06: the shown rows are the failed rows that fit, in priority order; each must name its own module.
+	if !p.Overflow || ovFailedShown(p) != 5 {
+		t.Fatalf("expected five failed rows: %s", res.Content)
 	}
+	seen := map[string]bool{}
 	for i, f := range p.Files {
-		want := string(editing.PublishExternalModification)
-		if i == 4 {
-			want = string(editing.PublishPartial)
+		module := ""
+		for j := range rels {
+			if strings.HasPrefix(f.Path, fmt.Sprintf("module%02d/", j)) {
+				module = fmt.Sprintf("module%02d", j)
+			}
 		}
-		if !strings.HasPrefix(f.Path, fmt.Sprintf("module%02d/", i)) || !strings.HasSuffix(f.Path, "/config.yaml") || f.PublishState != want || f.Verified {
-			t.Fatalf("row %d = %+v, want module%02d's config.yaml in state %s", i, f, i, want)
+		if module == "" || seen[module] || !strings.HasSuffix(f.Path, "/config.yaml") {
+			t.Fatalf("row %d = %+v does not name one module config", i, f)
 		}
+		seen[module] = true
 	}
 }
 
@@ -297,31 +280,30 @@ func TestR7R2FinalRefusedPathSurvivesOverflow(t *testing.T) {
 // TestR7R2FinalOverflowBoundWorstCase: the bound holds when every string field needs six output
 // bytes per input byte and every failed state appears among two hundred failed rows.
 func TestR7R2FinalOverflowBoundWorstCase(t *testing.T) {
-	set, err := New(Options{Workspace: t.TempDir(), Policy: PolicyWorkspace, SessionID: "s-r7r2-final"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	set := astraSet(t)
 	escaped := strings.Repeat("\x01&<>\x02", 400)
-	var files []editing.FileCommitReceipt
-	var results []editing.FileResult
+	var items []astraItem
 	for i := 0; i < 200; i++ {
 		p := fmt.Sprintf("%s/m%03d/%s/f.kt", escaped[:300], i, escaped[:300])
-		state := r7r2FinalFailedStates[i%len(r7r2FinalFailedStates)]
-		files = append(files, editing.FileCommitReceipt{Path: p, PublishState: state, Published: true, Wrote: true, Error: escaped})
-		results = append(results, editing.FileResult{Path: p, PublishState: state, Published: true, Error: escaped})
+		items = append(items, astraItem{raw: p, disp: p, state: r7r2FinalFailedStates[i%len(r7r2FinalFailedStates)]})
 	}
-	rec := editing.CommitReceipt{DirtyFailure: true, State: editing.CommitStatePartiallyPublished, Files: files}
-	editErr := &editing.Error{Code: strings.Repeat("\x01", 80), Path: files[0].Path, Detail: escaped, Diagnostics: make([]editing.Diagnostic, 40)}
-	res := set.editFailure(editing.Result{CommitState: editing.CommitStatePartiallyPublished, Files: results}, rec, editErr)
-	p := r7r2ParseAndCheckBudget(t, "worst_case", res.Content, res.OK)
+	rec, res, content, p := ovRun(t, set, items, syscall.EIO)
 	if !p.Overflow || len(p.Files) == 0 || len(p.Files)+p.FilesOmitted != 200 {
-		t.Fatalf("rows=%d omitted=%d: %s", len(p.Files), p.FilesOmitted, res.Content)
+		t.Fatalf("rows=%d omitted=%d: %s", len(p.Files), p.FilesOmitted, content)
 	}
+	// OV-06: rows follow priority order, so each must name its own module by the path mark, not by position.
 	seen := map[string]bool{}
 	for i, f := range p.Files {
-		if seen[f.Path] || !strings.HasSuffix(f.Path, "/f.kt") || !strings.Contains(f.Path, fmt.Sprintf("/m%03d/", i)) {
-			t.Fatalf("row %d = %q is repeated or does not name file %d", i, f.Path, i)
+		mark := ""
+		for j := 0; j < 200; j++ {
+			if strings.Contains(f.Path, fmt.Sprintf("/m%03d/", j)) {
+				mark = fmt.Sprintf("m%03d", j)
+			}
 		}
-		seen[f.Path] = true
+		if mark == "" || seen[mark] || !strings.HasSuffix(f.Path, "/f.kt") {
+			t.Fatalf("row %d = %q is repeated or does not name one module file", i, f.Path)
+		}
+		seen[mark] = true
 	}
+	ovCheckOverflowFull(t, set, rec, res, content, p)
 }

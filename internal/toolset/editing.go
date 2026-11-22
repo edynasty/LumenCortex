@@ -1145,6 +1145,255 @@ func (s *Set) sanitizeDiagnostics(in []editing.Diagnostic, limit, pathBytes, tex
 	return out, truncated
 }
 
+const (
+	notationShort    = "… marks omitted text: …/ is one or more directories, … in a name is characters. Such labels are IDs, not paths: match each to a path you sent."
+	notationCount    = "…{N}/ is exactly N directories."
+	notationTail     = "…/./x is omitted directories, then exactly x."
+	notationExact    = "./x is exactly workspace path x; any … in it is literal."
+	notationRedacted = "<outside-workspace>/x is a file outside the workspace named exactly x."
+)
+
+type notationForms uint8
+
+const (
+	formShort notationForms = 1 << iota
+	formCount
+	formTail
+	formExact
+	formRedacted
+)
+
+// isCountedComponent reports whether a component is exactly "…{N}" with a canonical count from 1 to 9999.
+func isCountedComponent(c string) bool {
+	inner, ok := strings.CutPrefix(c, pathEllipsis+"{")
+	if !ok {
+		return false
+	}
+	inner, ok = strings.CutSuffix(inner, "}")
+	if !ok {
+		return false
+	}
+	n, err := strconv.Atoi(inner)
+	return err == nil && n >= 1 && n <= 9999 && strconv.Itoa(n) == inner
+}
+
+// labelForms names the notation forms one emitted label relies on.
+func labelForms(label string) notationForms {
+	switch {
+	case label == "":
+		return 0
+	case strings.HasPrefix(label, "./"):
+		return formExact
+	case strings.HasPrefix(label, "<outside-workspace>/"):
+		if strings.Contains(label, pathEllipsis) {
+			return formRedacted
+		}
+		return 0
+	case strings.HasPrefix(label, pathEllipsis+"/./"):
+		return formShort | formTail
+	case !strings.Contains(label, pathEllipsis):
+		return 0
+	}
+	forms := formShort
+	for _, c := range strings.Split(label, "/") {
+		if isCountedComponent(c) {
+			forms |= formCount
+		}
+	}
+	return forms
+}
+
+// pathNotation is the fixed legend for the forms in use, in a fixed order.
+func pathNotation(forms notationForms) string {
+	var parts []string
+	if forms&(formShort|formCount|formTail) != 0 {
+		parts = append(parts, notationShort)
+	}
+	if forms&formCount != 0 {
+		parts = append(parts, notationCount)
+	}
+	if forms&formTail != 0 {
+		parts = append(parts, notationTail)
+	}
+	if forms&formExact != 0 {
+		parts = append(parts, notationExact)
+	}
+	if forms&formRedacted != 0 {
+		parts = append(parts, notationRedacted)
+	}
+	return strings.Join(parts, " ")
+}
+
+func setPathNotation(payload map[string]any, forms notationForms) {
+	if text := pathNotation(forms); text != "" {
+		payload["pathNotation"] = text
+	} else {
+		delete(payload, "pathNotation")
+	}
+}
+
+const maxOverflowCandidates = 256 // renderable rows considered per priority class
+
+// overflowRow is one renderable row of the overflow search. at is its index in orderedFiles, key its
+// sanitized display path, and cost the exact JSON bytes of its compact row.
+type overflowRow struct {
+	at    int
+	key   string
+	state editing.PublishState
+	cost  int
+	forms notationForms
+}
+
+// stateEntryBytes is the exact size of one `"state":count,` entry of filesOmittedByState.
+func stateEntryBytes(state editing.PublishState, count int) int {
+	if count <= 0 {
+		return 0
+	}
+	return len(state) + 4 + len(strconv.Itoa(count))
+}
+
+// omissionBytes is the exact size of the filesOmitted and filesOmittedByState keys added to an object.
+func omissionBytes(n int, byState map[editing.PublishState]int) int {
+	if n == 0 {
+		return 0
+	}
+	total := 40 + len(strconv.Itoa(n))
+	for state, count := range byState {
+		total += stateEntryBytes(state, count)
+	}
+	return total
+}
+
+// rowBudget is the exact size of a payload whose rows are already chosen. base is the payload with
+// "files":[] and no omission keys; rows and rowBytes are the chosen rows; shown counts their states.
+type rowBudget struct {
+	limit, base, total, rows, rowBytes int
+	shown, stateTotal                  map[editing.PublishState]int
+}
+
+func (b rowBudget) size(extraRows, extraBytes int, extraShown map[editing.PublishState]int) int {
+	n := b.rows + extraRows
+	byState := map[editing.PublishState]int{}
+	for state, total := range b.stateTotal {
+		if left := total - b.shown[state] - extraShown[state]; left > 0 {
+			byState[state] = left
+		}
+	}
+	commas := max(n-1, 0)
+	return b.base + b.rowBytes + extraBytes + commas + omissionBytes(b.total-n, byState)
+}
+
+// fewestBytes returns, for each k up to maxK, the least bytes of k pool rows together with the omitted
+// state entries they leave. Rows of one state are taken cheapest first. Unreachable counts hold a
+// sentinel.
+func fewestBytes(pool []overflowRow, maxK int, shown, stateTotal map[editing.PublishState]int) []int {
+	const unreachable = 1 << 60
+	states := make([]editing.PublishState, 0, len(stateTotal))
+	for state := range stateTotal {
+		states = append(states, state)
+	}
+	sort.Slice(states, func(i, j int) bool { return states[i] < states[j] })
+	costs := map[editing.PublishState][]int{}
+	for _, row := range pool {
+		costs[row.state] = append(costs[row.state], row.cost)
+	}
+	best := make([]int, maxK+1)
+	for k := range best {
+		best[k] = unreachable
+	}
+	best[0] = 0
+	for _, state := range states {
+		stateCosts := costs[state]
+		sort.Ints(stateCosts)
+		prefix := make([]int, len(stateCosts)+1)
+		for i, c := range stateCosts {
+			prefix[i+1] = prefix[i] + c
+		}
+		next := make([]int, maxK+1)
+		for k := range next {
+			next[k] = unreachable
+		}
+		for k := 0; k <= maxK; k++ {
+			if best[k] == unreachable {
+				continue
+			}
+			for j := 0; j <= len(stateCosts) && k+j <= maxK; j++ {
+				cost := best[k] + prefix[j] + stateEntryBytes(state, stateTotal[state]-shown[state]-j)
+				if cost < next[k+j] {
+					next[k+j] = cost
+				}
+			}
+		}
+		best = next
+	}
+	return best
+}
+
+// selectRows returns the largest feasible set of at most maxK pool rows, and among equal sizes the
+// lexicographically smallest by key. cands must be sorted by key.
+func selectRows(cands []overflowRow, maxK int, b rowBudget) []overflowRow {
+	head := func(n int) int {
+		if n > 0 {
+			return 40 + len(strconv.Itoa(n))
+		}
+		return 0
+	}
+	dp := fewestBytes(cands, maxK, b.shown, b.stateTotal)
+	kStar := 0
+	for k := maxK; k >= 1; k-- {
+		if dp[k] < 1<<60 && b.base+b.rowBytes+dp[k]+max(b.rows+k-1, 0)+head(b.total-b.rows-k) <= b.limit {
+			kStar = k
+			break
+		}
+	}
+	if kStar == 0 {
+		return nil
+	}
+	if b.size(kStar, sumCost(cands[:min(kStar, len(cands))]), stateCounts(cands[:min(kStar, len(cands))])) <= b.limit {
+		return cands[:kStar]
+	}
+	var picked []overflowRow
+	forced := 0
+	forcedShown := map[editing.PublishState]int{}
+	for i, c := range cands {
+		if len(picked) == kStar {
+			break
+		}
+		need := kStar - len(picked) - 1
+		trial := map[editing.PublishState]int{}
+		for state, n := range b.shown {
+			trial[state] = n
+		}
+		for state, n := range forcedShown {
+			trial[state] += n
+		}
+		trial[c.state]++
+		dpNeed := fewestBytes(cands[i+1:], need, trial, b.stateTotal)
+		if dpNeed[need] < 1<<60 && b.base+b.rowBytes+forced+c.cost+dpNeed[need]+max(b.rows+kStar-1, 0)+head(b.total-b.rows-kStar) <= b.limit {
+			picked = append(picked, c)
+			forced += c.cost
+			forcedShown[c.state]++
+		}
+	}
+	return picked
+}
+
+func sumCost(rows []overflowRow) int {
+	total := 0
+	for _, r := range rows {
+		total += r.cost
+	}
+	return total
+}
+
+func stateCounts(rows []overflowRow) map[editing.PublishState]int {
+	counts := map[editing.PublishState]int{}
+	for _, r := range rows {
+		counts[r.state]++
+	}
+	return counts
+}
+
 func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.CommitReceipt, err error, editErr *editing.Error) string {
 	dirty := receiptDirtyOrPublished(receipt)
 	partial := partialPublicationFlag(receipt, dirty)
@@ -1290,7 +1539,10 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 	}
 
 	build := func(errBytes, pBytes, fErrBytes, dLimit, dTextBytes, fLimit, pLimit int, hashes bool) []byte {
+		// truncated means removed content (shortened text or paths, omitted rows or diagnostics, dropped
+		// optional evidence), never the reversible "./" qualifier or redaction.
 		wasTruncated := false
+		var forms notationForms
 		errStr := truncateUTF8Bytes(sanitizedErr, errBytes)
 		if errStr != sanitizedErr {
 			wasTruncated = true
@@ -1310,13 +1562,14 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 			label := truncatePathTail(errPath, maxFailedPathBytesInResult)
 			clean := errPath
 			if !standalonePath {
-				clean = paths.full[editErr.Path]
+				clean = exactFailureLabel(paths.full[editErr.Path])
 				label = paths.label(editErr.Path, maxFailedPathBytesInResult)
 			}
 			if label != clean {
 				wasTruncated = true
 			}
 			payload["path"] = label
+			forms |= labelForms(label)
 			if editErr.CurrentRev != "" {
 				payload["currentRev"] = truncateUTF8Bytes(editErr.CurrentRev, 64)
 			}
@@ -1351,8 +1604,9 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 			files := make([]toolFileState, 0, fLimit)
 			for i, rf := range orderedFiles[:fLimit] {
 				label := paths.label(rf.Path, rowPathLimit(rf, pBytes))
+				forms |= labelForms(label)
 				state, rowTrunc := receiptFileState(rf, label, rowErr(i), byPath, fErrBytes, hashes)
-				if rowTrunc || label != paths.full[rf.Path] {
+				if rowTrunc || label != exactFailureLabel(paths.full[rf.Path]) {
 					wasTruncated = true
 				}
 				files = append(files, state)
@@ -1372,8 +1626,9 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 				if !ok {
 					path = paths.label(pf.Path, pBytes)
 				}
+				forms |= labelForms(path)
 				cleanE := display.Text(pf.Error)
-				if path != paths.full[pf.Path] || len(cleanE) > fErrBytes {
+				if path != exactFailureLabel(paths.full[pf.Path]) || len(cleanE) > fErrBytes {
 					wasTruncated = true
 				}
 				pf.Path, pf.Error = path, truncateUTF8Bytes(cleanE, fErrBytes)
@@ -1388,6 +1643,7 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 		if wasTruncated {
 			payload["truncated"] = true
 		}
+		setPathNotation(payload, forms)
 		raw, _ := json.Marshal(payload)
 		return raw
 	}
@@ -1432,87 +1688,140 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 						payload["path"] = label
 					}
 				}
+				pathLabel, _ := payload["path"].(string)
+				setPathNotation(payload, labelForms(pathLabel))
 				if raw := encode(); len(raw) <= maxPartialPayloadBytes {
 					return string(raw)
 				}
 			}
 			delete(payload, "path")
+			setPathNotation(payload, 0)
 			return string(encode())
 		}
 
-		// Compact labels depend on the whole attempt, not on how many rows are retained.
-		// First use exact row costs to cap the search. Then try prefixes in descending order,
-		// since dropping omission metadata can make a longer prefix cheaper.
-		compact := make([]toolFileState, 0, min(fileFloor, maxCandidateFileRows))
-		indices := make([]int, 0, cap(compact))
-		payload["files"] = compact
-		emptySize := len(encode())
-		size := emptySize
-		for at := 0; at < fileFloor && len(compact) < maxCandidateFileRows; at++ {
-			f := orderedFiles[at]
-			row, _ := receiptFileState(f, paths.label(f.Path, 0), "", byPath, 0, false)
-			raw, _ := json.Marshal(row)
-			if emptySize+len(raw) > maxPartialPayloadBytes {
-				// This row cannot fit even alone with the mandatory envelope. Later rows may still fit.
-				continue
+		stateTotal := map[editing.PublishState]int{}
+		for _, f := range receipt.Files {
+			stateTotal[f.PublishState]++
+		}
+		total := len(receipt.Files)
+		payload["files"] = []toolFileState{}
+		delete(payload, "filesOmitted")
+		delete(payload, "filesOmittedByState")
+		delete(payload, "pathNotation")
+		bare := len(encode())
+
+		var classes [3][]int
+		for at, f := range orderedFiles {
+			c := receiptFileRank(f)
+			classes[c] = append(classes[c], at)
+		}
+		var cands [3][]overflowRow
+		forms := notationForms(0)
+		for c := range classes {
+			sort.Slice(classes[c], func(i, j int) bool {
+				return paths.full[orderedFiles[classes[c][i]].Path] < paths.full[orderedFiles[classes[c][j]].Path]
+			})
+			for _, at := range classes[c] {
+				f := orderedFiles[at]
+				label := paths.label(f.Path, 0)
+				row, _ := receiptFileState(f, label, "", byPath, 0, false)
+				raw, _ := json.Marshal(row)
+				alone := rowBudget{limit: maxPartialPayloadBytes, base: bare, total: total, stateTotal: stateTotal, shown: map[editing.PublishState]int{}}
+				if alone.size(1, len(raw), map[editing.PublishState]int{f.PublishState: 1}) > maxPartialPayloadBytes {
+					continue
+				}
+				r := overflowRow{at: at, key: paths.full[f.Path], state: f.PublishState, cost: len(raw), forms: labelForms(label)}
+				cands[c] = append(cands[c], r)
+				forms |= r.forms
+				if len(cands[c]) == maxOverflowCandidates {
+					break
+				}
 			}
-			size += len(raw)
-			if len(compact) > 0 {
-				size++ // comma
+		}
+
+		var chosen []overflowRow
+		for {
+			setPathNotation(payload, forms)
+			b := rowBudget{limit: maxPartialPayloadBytes, base: len(encode()), total: total, stateTotal: stateTotal, shown: map[editing.PublishState]int{}}
+			chosen = nil
+			for c := 0; c < 3; c++ {
+				maxK := maxCandidateFileRows
+				if c > 0 {
+					maxK = maxPartialFilesInToolResult - b.rows
+				}
+				if maxK <= 0 {
+					continue
+				}
+				var pool []overflowRow
+				for _, r := range cands[c] {
+					if r.forms&^forms == 0 {
+						pool = append(pool, r)
+					}
+				}
+				for _, r := range selectRows(pool, maxK, b) {
+					chosen = append(chosen, r)
+					b.rows++
+					b.rowBytes += r.cost
+					b.shown[r.state]++
+				}
 			}
-			if size > maxPartialPayloadBytes {
+			got := notationForms(0)
+			for _, r := range chosen {
+				got |= r.forms
+			}
+			if got == forms {
 				break
 			}
-			compact = append(compact, row)
-			indices = append(indices, at)
+			forms = got
 		}
-		// Omitted states start as every receipt row and lose each shown row once. Shortening the prefix
-		// moves one row back into the omitted counts, so no per-prefix copy is needed.
-		counts := map[editing.PublishState]int{}
-		for _, f := range receipt.Files {
-			counts[f.PublishState]++
-		}
-		for _, at := range indices {
-			state := orderedFiles[at].PublishState
-			counts[state]--
-			if counts[state] == 0 {
-				delete(counts, state)
+		sort.Slice(chosen, func(i, j int) bool { return chosen[i].at < chosen[j].at })
+
+		setOverflowRows := func(rows []overflowRow, rowLabel func(f editing.FileCommitReceipt) string, rowError func(at int) string, rowErrBytes int) {
+			files := make([]toolFileState, len(rows))
+			shownState := map[editing.PublishState]int{}
+			rowForms := notationForms(0)
+			for i, r := range rows {
+				f := orderedFiles[r.at]
+				label := rowLabel(f)
+				rowForms |= labelForms(label)
+				files[i], _ = receiptFileState(f, label, rowError(r.at), byPath, rowErrBytes, false)
+				shownState[f.PublishState]++
 			}
-		}
-		var best []byte
-		kept := len(compact)
-		for {
-			payload["files"] = compact[:kept]
+			payload["files"] = files
 			delete(payload, "filesOmitted")
 			delete(payload, "filesOmittedByState")
-			if omitted := len(receipt.Files) - kept; omitted > 0 {
+			if omitted := total - len(rows); omitted > 0 {
+				byState := map[editing.PublishState]int{}
+				for state, n := range stateTotal {
+					if left := n - shownState[state]; left > 0 {
+						byState[state] = left
+					}
+				}
 				payload["filesOmitted"] = omitted
-				payload["filesOmittedByState"] = counts
+				payload["filesOmittedByState"] = byState
 			}
-			best = encode()
-			if len(best) <= maxPartialPayloadBytes || kept == 0 {
-				break
-			}
-			kept--
-			counts[compact[kept].PublishState]++
+			setPathNotation(payload, rowForms)
 		}
-		// With engine states and codes, the mandatory envelope plus omissions always fits.
-		if kept <= 0 {
-			return string(best)
-		}
-		rows := make([]toolFileState, kept)
+		fits := func() bool { return len(encode()) <= maxPartialPayloadBytes }
 		for _, b := range budgets {
-			for i, at := range indices[:kept] {
-				f := orderedFiles[at]
-				label := paths.label(f.Path, b.path)
-				rows[i], _ = receiptFileState(f, label, rowErr(at), byPath, b.rowError, false)
-			}
-			payload["files"] = rows
-			if raw := encode(); len(raw) <= maxPartialPayloadBytes {
-				return string(raw)
+			setOverflowRows(chosen, func(f editing.FileCommitReceipt) string {
+				return paths.label(f.Path, b.path)
+			}, rowErr, b.rowError)
+			if fits() {
+				return string(encode())
 			}
 		}
-		return string(best)
+		for len(chosen) > 0 {
+			setOverflowRows(chosen, func(f editing.FileCommitReceipt) string {
+				return paths.label(f.Path, 0)
+			}, func(int) string { return "" }, 0)
+			if fits() {
+				return string(encode())
+			}
+			chosen = chosen[:len(chosen)-1]
+		}
+		setOverflowRows(nil, nil, nil, 0)
+		return string(encode())
 	}
 	if fileFloor > maxCandidateFileRows {
 		return overflow()

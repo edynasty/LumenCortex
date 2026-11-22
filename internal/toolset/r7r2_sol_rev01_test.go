@@ -184,25 +184,30 @@ func solRevCheck(t *testing.T, set *Set, rec editing.CommitReceipt, res editing.
 			attemptedPaths = append(attemptedPaths, d)
 		}
 	}
-	seen := map[string]bool{}
+	// Each shown label names one receipt path (OV-06: rows need not follow input order), so the state
+	// and accounting are checked against the path it names, not against the input position.
+	byDisp := map[string]editing.FileCommitReceipt{}
+	for _, f := range rec.Files {
+		byDisp[display.Path(f.Path)] = f
+	}
+	shownDisp := map[string]bool{}
 	for i, row := range p.Files {
-		f := ordered[i]
-		want := display.Path(f.Path)
-		if seen[row.Path] {
-			t.Fatalf("row %d label %q repeats an earlier row", i, row.Path)
+		matches := solRevMatches(row.Path, attemptedPaths, solRevLenient)
+		if len(matches) != 1 {
+			t.Fatalf("row %d label %q resolves to %v, want exactly one path", i, row.Path, matches)
 		}
-		seen[row.Path] = true
-		for _, reading := range []int{solRevLenient, solRevStrict, solRevLoose} {
-			matches := solRevMatches(row.Path, attemptedPaths, reading)
-			if len(matches) == 1 && matches[0] == want {
-				continue
+		for _, reading := range []int{solRevStrict, solRevLoose} {
+			loose := solRevMatches(row.Path, attemptedPaths, reading)
+			if reading == solRevLoose && (len(loose) != 1 || loose[0] != matches[0]) {
+				t.Fatalf("row %d label %q resolves to %v under the loose reading, want only %q", i, row.Path, loose, matches[0])
 			}
-			if reading == solRevStrict {
-				t.Logf("row %d label %q does not resolve under the strict reading: %v", i, row.Path, matches)
-				continue
-			}
-			t.Fatalf("row %d label %q resolves to %v under reading %d, want only %q", i, row.Path, matches, reading, want)
 		}
+		want := matches[0]
+		f, ok := byDisp[want]
+		if !ok || shownDisp[want] {
+			t.Fatalf("row %d label %q names %q, which is not a new receipt row", i, row.Path, want)
+		}
+		shownDisp[want] = true
 		if row.PublishState != string(f.PublishState) || row.Verified != f.Verified ||
 			row.Published != f.Published || row.Wrote != f.Wrote {
 			t.Fatalf("row %d = %+v does not carry the state of %q", i, row, want)
@@ -222,15 +227,30 @@ func solRevCheck(t *testing.T, set *Set, rec editing.CommitReceipt, res editing.
 		}
 	}
 	omitted := map[string]int{}
-	for _, f := range ordered[shown:] {
-		omitted[string(f.PublishState)]++
+	for _, f := range rec.Files {
+		if !shownDisp[display.Path(f.Path)] {
+			omitted[string(f.PublishState)]++
+		}
 	}
-	if p.FilesOmitted != len(ordered)-shown || !reflect.DeepEqual(emptyAsNil(p.FilesOmittedByState), emptyAsNil(omitted)) {
-		t.Fatalf("omitted=%d byState=%v, want %d and %v", p.FilesOmitted, p.FilesOmittedByState, len(ordered)-shown, omitted)
+	if p.FilesOmitted != len(rec.Files)-shown || !reflect.DeepEqual(emptyAsNil(p.FilesOmittedByState), emptyAsNil(omitted)) {
+		t.Fatalf("omitted=%d byState=%v, want %d and %v", p.FilesOmitted, p.FilesOmittedByState, len(rec.Files)-shown, omitted)
 	}
-	if p.Overflow {
-		solRevMaximal(t, set, rec, res, content, shown)
+	failedShownSet := 0
+	for d := range shownDisp {
+		if receiptFileRank(byDisp[d]) == 0 {
+			failedShownSet++
+		}
 	}
+	if failedShownSet != wantFailedRows {
+		t.Fatalf("retained %d failed rows, want %d", failedShownSet, wantFailedRows)
+	}
+	shownRaw := map[string]bool{}
+	for _, f := range rec.Files {
+		if shownDisp[display.Path(f.Path)] {
+			shownRaw[f.Path] = true
+		}
+	}
+	ovAssertFull(t, set, rec, res, content, shownRaw)
 	t.Logf("bytes=%d shown=%d omitted=%d byState=%v", len(content), shown, p.FilesOmitted, p.FilesOmittedByState)
 }
 
@@ -326,18 +346,22 @@ func solRevRunCase(t *testing.T, c solRevCase) {
 func TestSOLREV01SolFloorCases(t *testing.T) {
 	dir := "src/main/kotlin/pkg/"
 	for _, tc := range []solRevCase{
-		{name: "end_k70", minRows: 21, rows: 29, failedRows: 29, attempted: 32, failedTotal: 32, failed: solRevPathsPrefix(dir, 32, func(i int) string {
-			return strings.Repeat("L", 70) + fmt.Sprintf("%03d", i) + ".kt"
-		})},
-		{name: "end_k100", minRows: 21, rows: 29, failedRows: 29, attempted: 32, failedTotal: 32, failed: solRevPathsPrefix(dir, 32, func(i int) string {
-			return strings.Repeat("L", 100) + fmt.Sprintf("%03d", i) + ".kt"
-		})},
-		{name: "end_k240", minRows: 20, rows: 29, failedRows: 29, attempted: 32, failedTotal: 32, failed: solRevPathsPrefix(dir, 32, func(i int) string {
-			return strings.Repeat("L", 240) + fmt.Sprintf("%03d", i) + ".kt"
-		})},
-		{name: "start_k240", minRows: 20, rows: 29, failedRows: 29, attempted: 32, failedTotal: 32, failed: solRevPathsPrefix(dir, 32, func(i int) string {
-			return fmt.Sprintf("%03d", i) + strings.Repeat("L", 240) + ".kt"
-		})},
+		{name: "end_k70", minRows: 21, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix(dir, 32, func(i int) string {
+				return strings.Repeat("L", 70) + fmt.Sprintf("%03d", i) + ".kt"
+			})},
+		{name: "end_k100", minRows: 21, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix(dir, 32, func(i int) string {
+				return strings.Repeat("L", 100) + fmt.Sprintf("%03d", i) + ".kt"
+			})},
+		{name: "end_k240", minRows: 20, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix(dir, 32, func(i int) string {
+				return strings.Repeat("L", 240) + fmt.Sprintf("%03d", i) + ".kt"
+			})},
+		{name: "start_k240", minRows: 20, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix(dir, 32, func(i int) string {
+				return fmt.Sprintf("%03d", i) + strings.Repeat("L", 240) + ".kt"
+			})},
 		{name: "three_1404", minRows: 3, rows: 3, failedRows: 3, attempted: 3, failedTotal: 3, failed: []string{
 			"a/" + strings.Repeat("n", 1400) + "1.kt",
 			"b/" + strings.Repeat("n", 1400) + "2.kt",
@@ -360,10 +384,11 @@ func TestSOLREV01PositionSweep(t *testing.T) {
 		"middle": {27, 23, 22, 21, 21, 21, 21, 19, 18, 19, 19},
 		"start":  {27, 23, 22, 21, 19, 18, 17, 20, 20, 20, 20},
 	}
+	// OV-04: pathNotation bytes shift the shown counts by one row.
 	exact := map[string][]int{
-		"end":    {27, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29},
-		"middle": {27, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28},
-		"start":  {27, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29},
+		"end":    {27, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28},
+		"middle": {27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27},
+		"start":  {27, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28},
 	}
 	for _, pos := range []string{"end", "middle", "start"} {
 		for j, k := range sizes {
@@ -409,12 +434,14 @@ func TestSOLREV01LongNameShapes(t *testing.T) {
 		return b.String()
 	}
 	for _, tc := range []solRevCase{
-		{name: "identical_long_prefixes", minRows: 1, rows: 29, failedRows: 29, attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("dir/", 32, func(i int) string {
-			return strings.Repeat("p", 220) + fmt.Sprintf("_%02d_end.kt", i)
-		})},
-		{name: "identical_long_suffixes", minRows: 1, rows: 31, failedRows: 31, attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("", 32, func(i int) string {
-			return fmt.Sprintf("m%02d_", i) + strings.Repeat("s", 200) + ".kt"
-		})},
+		{name: "identical_long_prefixes", minRows: 1, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("dir/", 32, func(i int) string {
+				return strings.Repeat("p", 220) + fmt.Sprintf("_%02d_end.kt", i)
+			})},
+		{name: "identical_long_suffixes", minRows: 1, rows: 29, failedRows: 29, // OV-04: pathNotation bytes
+			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("", 32, func(i int) string {
+				return fmt.Sprintf("m%02d_", i) + strings.Repeat("s", 200) + ".kt"
+			})},
 		{name: "same_name_32_modules", minRows: 1, rows: 26, failedRows: 26, attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("", 32, func(i int) string {
 			return fmt.Sprintf("services/module%02d/src/", i) + strings.Repeat("L", 200) + ".kt"
 		})},
@@ -425,26 +452,31 @@ func TestSOLREV01LongNameShapes(t *testing.T) {
 			solRevPathsPrefix("中/", 16, func(i int) string {
 				return strings.Repeat("界", 40) + fmt.Sprintf("%02d", i) + strings.Repeat("界", 40) + ".kt"
 			})...)},
-		{name: "filenames_with_spaces", minRows: 1, rows: 29, failedRows: 29, attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("dir a/", 32, func(i int) string {
-			return strings.Repeat("sp ace ", 40) + fmt.Sprintf("%02d", i) + ".kt"
-		})},
+		{name: "filenames_with_spaces", minRows: 1, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("dir a/", 32, func(i int) string {
+				return strings.Repeat("sp ace ", 40) + fmt.Sprintf("%02d", i) + ".kt"
+			})},
 		{name: "same_long_name_two_siblings", minRows: 2, rows: 2, failedRows: 2, attempted: 2, failedTotal: 2, failed: []string{
 			"left/" + strings.Repeat("L", 200) + ".kt",
 			"right/" + strings.Repeat("L", 200) + ".kt",
 		}},
-		{name: "long_names_under_190_byte_dirs", minRows: 1, rows: 29, failedRows: 29, attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("", 32, func(i int) string {
-			return fmt.Sprintf("%02d", i) + strings.Repeat("q", 188) + "/" + strings.Repeat("r", 190) + "/" +
-				fmt.Sprintf("f%02d", i) + strings.Repeat("z", 100) + ".kt"
-		})},
-		{name: "repeated_dirs_at_different_depths", minRows: 1, rows: 29, failedRows: 29, attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("", 32, func(i int) string {
-			return strings.Repeat("rep/", i%4+1) + fmt.Sprintf("%02d", i) + strings.Repeat("L", 200) + ".kt"
-		})},
-		{name: "directory_shares_unique_prefix", minRows: 1, rows: 29, failedRows: 29, attempted: 33, failedTotal: 32, failed: solRevPathsPrefix("pkg/", 32, func(i int) string {
-			return "000" + strings.Repeat("L", 240) + fmt.Sprintf("%02d.kt", i)
-		}), untouched: []string{"000" + strings.Repeat("L", 20) + "_dir/other.kt"}},
-		{name: "case_variants_stay_distinct", minRows: 1, rows: 29, failedRows: 29, attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("case/", 32, func(i int) string {
-			return caseVariant(i) + ".kt"
-		})},
+		{name: "long_names_under_190_byte_dirs", minRows: 1, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("", 32, func(i int) string {
+				return fmt.Sprintf("%02d", i) + strings.Repeat("q", 188) + "/" + strings.Repeat("r", 190) + "/" +
+					fmt.Sprintf("f%02d", i) + strings.Repeat("z", 100) + ".kt"
+			})},
+		{name: "repeated_dirs_at_different_depths", minRows: 1, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("", 32, func(i int) string {
+				return strings.Repeat("rep/", i%4+1) + fmt.Sprintf("%02d", i) + strings.Repeat("L", 200) + ".kt"
+			})},
+		{name: "directory_shares_unique_prefix", minRows: 1, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+			attempted: 33, failedTotal: 32, failed: solRevPathsPrefix("pkg/", 32, func(i int) string {
+				return "000" + strings.Repeat("L", 240) + fmt.Sprintf("%02d.kt", i)
+			}), untouched: []string{"000" + strings.Repeat("L", 20) + "_dir/other.kt"}},
+		{name: "case_variants_stay_distinct", minRows: 1, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+			attempted: 32, failedTotal: 32, failed: solRevPathsPrefix("case/", 32, func(i int) string {
+				return caseVariant(i) + ".kt"
+			})},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.top = syscall.EIO
@@ -457,7 +489,8 @@ func TestSOLREV01LongNameShapes(t *testing.T) {
 func TestSOLREV01PathlessCancellation(t *testing.T) {
 	solRevRunCase(t, solRevCase{
 		name:    "pathless",
-		minRows: 20, rows: 29, failedRows: 29, attempted: 32, failedTotal: 32,
+		minRows: 20, rows: 28, failedRows: 28, // OV-04: pathNotation bytes
+		attempted: 32, failedTotal: 32,
 		top: context.Canceled,
 		failed: solRevPathsPrefix("src/main/kotlin/pkg/", 32, func(i int) string {
 			return strings.Repeat("L", 100) + fmt.Sprintf("%03d", i) + ".kt"

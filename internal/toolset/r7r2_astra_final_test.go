@@ -163,10 +163,10 @@ func astraResolves(label string, attempted []string, loose bool) []string {
 	return matches
 }
 
-// astraCheck asserts the invariants shared by every scenario in this file: the envelope classifies
-// the failure, every shown label resolves to exactly its row under both readings, states and flags
-// match, no unverified row carries a revision or hash, and the omissions and published rows count
-// exactly. Result-only paths take part in resolution but have no receipt row.
+// astraCheck asserts the invariants shared by every scenario in this file. Each shown label must name
+// exactly one attempted path under both readings, and that path's receipt row must match the shown
+// state and flags. Omissions and published rows are counted from the receipt rows not shown, so no
+// check assumes that rows follow input order (OV-06). Result-only paths take part in resolution only.
 func astraCheck(t *testing.T, all []astraItem, content string, p r7r2Payload, top error, wantRows int) {
 	t.Helper()
 	var envelope struct {
@@ -186,19 +186,33 @@ func astraCheck(t *testing.T, all []astraItem, content string, p r7r2Payload, to
 		attempted = append(attempted, it.disp)
 	}
 	items := astraReceiptRows(all)
-	shown := len(p.Files)
-	if shown != wantRows {
+	byDisp := make(map[string]astraItem, len(items))
+	for _, it := range items {
+		byDisp[it.disp] = it
+	}
+	if shown := len(p.Files); shown != wantRows {
 		t.Fatalf("shown %d rows, want %d: %s", shown, wantRows, content)
 	}
+	shownSet := map[string]bool{}
 	for i, row := range p.Files {
-		want := items[i]
+		var named []string
 		for _, loose := range []bool{false, true} {
-			if got := astraResolves(row.Path, attempted, loose); len(got) != 1 || got[0] != want.disp {
-				t.Fatalf("row %d label %q resolves to %v (loose=%v), want only %q", i, row.Path, got, loose, want.disp)
+			got := astraResolves(row.Path, attempted, loose)
+			if len(got) != 1 {
+				t.Fatalf("row %d label %q resolves to %v (loose=%v), want exactly one", i, row.Path, got, loose)
 			}
+			named = got
 		}
+		want, ok := byDisp[named[0]]
+		if !ok {
+			t.Fatalf("row %d label %q names %q, which has no receipt row", i, row.Path, named[0])
+		}
+		if shownSet[want.disp] {
+			t.Fatalf("row %d label %q repeats %q", i, row.Path, want.disp)
+		}
+		shownSet[want.disp] = true
 		if row.PublishState != string(want.state) || row.Verified != want.verified {
-			t.Fatalf("row %d = %+v, want state %s verified %v", i, row, want.state, want.verified)
+			t.Fatalf("row %d = %+v, want state %s verified %v for %q", i, row, want.state, want.verified, want.disp)
 		}
 		published := want.state != editing.PublishNotAttempted
 		if row.Published != published || row.Wrote != published {
@@ -216,13 +230,15 @@ func astraCheck(t *testing.T, all []astraItem, content string, p r7r2Payload, to
 		}
 	}
 	omitted := map[string]int{}
-	for _, it := range items[shown:] {
-		omitted[string(it.state)]++
+	for _, it := range items {
+		if !shownSet[it.disp] {
+			omitted[string(it.state)]++
+		}
 	}
-	if p.FilesOmitted != len(items)-shown || !reflect.DeepEqual(emptyAsNil(p.FilesOmittedByState), emptyAsNil(omitted)) {
-		t.Fatalf("omitted=%d byState=%v, want %d and %v", p.FilesOmitted, p.FilesOmittedByState, len(items)-shown, omitted)
+	if p.FilesOmitted != len(items)-len(p.Files) || !reflect.DeepEqual(emptyAsNil(p.FilesOmittedByState), emptyAsNil(omitted)) {
+		t.Fatalf("omitted=%d byState=%v, want %d and %v", p.FilesOmitted, p.FilesOmittedByState, len(items)-len(p.Files), omitted)
 	}
-	// publishedFiles lists the published rows in receipt order, each shown label naming its own path.
+	// publishedFiles lists published rows; each label names one published path, with no repeats.
 	var published []astraItem
 	for _, it := range items {
 		if it.state != editing.PublishNotAttempted {
@@ -239,14 +255,29 @@ func astraCheck(t *testing.T, all []astraItem, content string, p r7r2Payload, to
 	if len(pub.PublishedFiles)+pub.PublishedFilesOmitted != len(published) {
 		t.Fatalf("publishedFiles %d plus omitted %d, want %d published rows", len(pub.PublishedFiles), pub.PublishedFilesOmitted, len(published))
 	}
+	pubSeen := map[string]bool{}
 	for i, row := range pub.PublishedFiles {
-		for _, loose := range []bool{false, true} {
-			if got := astraResolves(row.Path, attempted, loose); len(got) != 1 || got[0] != published[i].disp {
-				t.Fatalf("published row %d label %q resolves to %v (loose=%v), want only %q", i, row.Path, got, loose, published[i].disp)
+		got := astraResolves(row.Path, attempted, false)
+		if len(got) != 1 || pubSeen[got[0]] {
+			t.Fatalf("published row %d label %q resolves to %v, want one unrepeated path", i, row.Path, got)
+		}
+		pubSeen[got[0]] = true
+	}
+	if p.Overflow {
+		rec, res := ovItemsRecRes(all)
+		shownRaw := map[string]bool{}
+		for _, row := range p.Files {
+			if got := astraResolves(row.Path, attempted, false); len(got) == 1 {
+				for _, it := range items {
+					if it.disp == got[0] {
+						shownRaw[it.raw] = true
+					}
+				}
 			}
 		}
+		ovAssertFull(t, astraSet(t), rec, res, content, shownRaw)
 	}
-	t.Logf("shown=%d omitted=%d byState=%v published=%d publishedOmitted=%d bytes=%d", shown, p.FilesOmitted, p.FilesOmittedByState, len(pub.PublishedFiles), pub.PublishedFilesOmitted, len(content))
+	t.Logf("shown=%d omitted=%d byState=%v published=%d publishedOmitted=%d bytes=%d", len(p.Files), p.FilesOmitted, p.FilesOmittedByState, len(pub.PublishedFiles), pub.PublishedFilesOmitted, len(content))
 }
 
 // astraOrders returns the permutations of 0..n-1 that the ordering scenario applies to whole pairs.
@@ -341,7 +372,7 @@ func TestAstraDepthTailArchived40(t *testing.T) {
 			if len(p.Files) < 30 {
 				t.Fatalf("%d failed rows shown, want at least 30", len(p.Files))
 			}
-			astraCheck(t, items, content, p, syscall.EIO, 31)
+			astraCheck(t, items, content, p, syscall.EIO, 30) // OV-04: pathNotation bytes
 		})
 	}
 }
@@ -405,7 +436,7 @@ func TestAstraLiteralOmittedComparisons(t *testing.T) {
 		newRev: "rev00000", newSHA: "sha256:" + strings.Repeat("ab", 32),
 	}, astraItem{raw: literals[2], disp: literals[2], state: editing.PublishNotAttempted})
 	content, p := astraRun(t, set, items, syscall.EIO)
-	astraCheck(t, items, content, p, syscall.EIO, 29)
+	astraCheck(t, items, content, p, syscall.EIO, 28) // OV-04: pathNotation bytes
 }
 
 // TestAstraStandaloneRefusalNames: a refusal naming a literal path with no receipt rows is named by its
@@ -514,10 +545,11 @@ func TestAstraEscapedJointBatch(t *testing.T) {
 		items = append(items, astraItem{raw: c, disp: c, state: editing.PublishNotAttempted})
 	}
 	content, p := astraRun(t, set, items, syscall.EIO)
-	if len(p.Files) < 29 {
-		t.Fatalf("%d failed rows shown, want at least 29: %s", len(p.Files), content)
+	// OV-04: pathNotation bytes; the legend leaves 28 rows, one fewer than before.
+	if len(p.Files) < 28 {
+		t.Fatalf("%d failed rows shown, want at least 28: %s", len(p.Files), content)
 	}
-	astraCheck(t, items, content, p, syscall.EIO, 29)
+	astraCheck(t, items, content, p, syscall.EIO, 28)
 }
 
 // astraOmittedRootSuffixItems is the J3 shape: a long-root first failure, sixty fillers, and the real

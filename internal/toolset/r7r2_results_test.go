@@ -270,12 +270,10 @@ func TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities(t *testing.T
 	if p.CommitState != string(editing.CommitStatePartiallyPublished) {
 		t.Fatalf("commitState=%q, want %q", p.CommitState, editing.CommitStatePartiallyPublished)
 	}
-	if len(p.Files) != 5 {
-		t.Fatalf("expected all 5 failed rows preserved, got len=%d omitted=%d byState=%v content=%s",
+	// OV-06: the untouched row is lower-class and may use leftover budget, so failed rows are counted apart.
+	if ovFailedShown(p) != 5 || len(p.Files)+p.FilesOmitted != 6 {
+		t.Fatalf("expected all 5 failed rows preserved with accounting for 6 receipt rows, got len=%d omitted=%d byState=%v content=%s",
 			len(p.Files), p.FilesOmitted, p.FilesOmittedByState, res.Content)
-	}
-	if p.FilesOmitted != 1 || p.FilesOmittedByState[string(editing.PublishNotAttempted)] != 1 {
-		t.Fatalf("expected only Adapter05.kt (not_attempted) omitted, got omitted=%d byState=%v", p.FilesOmitted, p.FilesOmittedByState)
 	}
 	wantStates := map[string]string{
 		"/Adapter00.kt": string(editing.PublishExternalModification),
@@ -285,6 +283,10 @@ func TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities(t *testing.T
 		"/Adapter04.kt": string(editing.PublishPartial),
 	}
 	for _, f := range p.Files {
+		// OV-06: an untouched lower-class row may fill leftover budget; only failed rows are identified here.
+		if f.PublishState == string(editing.PublishNotAttempted) {
+			continue
+		}
 		var matchedSuffix string
 		for suffix := range wantStates {
 			if strings.HasSuffix(f.Path, suffix) {
@@ -373,11 +375,9 @@ func TestR7R2New01OverflowBoundaryMatrix(t *testing.T) {
 		})
 		res, _ := set.Execute(context.Background(), "apply_patch", map[string]any{"patches": patches}, nil)
 		p := r7r2ParseAndCheckBudget(t, "unicode_long_identical_basenames", res.Content, res.OK)
-		if len(p.Files) != 5 {
-			t.Fatalf("expected all 5 failed rows visible, got len=%d content=%s", len(p.Files), res.Content)
-		}
-		if p.FilesOmitted != 4 || p.FilesOmittedByState[string(editing.PublishNotAttempted)] != 4 {
-			t.Fatalf("unexpected omissions: omitted=%d byState=%v", p.FilesOmitted, p.FilesOmittedByState)
+		// OV-06: lower-class untouched rows may fill leftover budget; every failed row must be shown.
+		if ovFailedShown(p) != 5 || len(p.Files)+p.FilesOmitted != 9 {
+			t.Fatalf("expected all 5 failed rows visible with accounting for 9 receipt rows, got len=%d omitted=%d content=%s", len(p.Files), p.FilesOmitted, res.Content)
 		}
 		var gotUnicode, gotAuth, gotBilling, gotA1, gotA2 bool
 		for _, f := range p.Files {
@@ -425,11 +425,9 @@ func TestR7R2New01OverflowBoundaryMatrix(t *testing.T) {
 		})
 		res, _ := set.Execute(context.Background(), "apply_patch", map[string]any{"patches": patches}, nil)
 		p := r7r2ParseAndCheckBudget(t, "eight_failed_long_paths", res.Content, res.OK)
-		if len(p.Files) != 8 {
-			t.Fatalf("expected all 8 failed rows visible, got len=%d content=%s", len(p.Files), res.Content)
-		}
-		if p.FilesOmitted != 4 || p.FilesOmittedByState[string(editing.PublishNotAttempted)] != 4 {
-			t.Fatalf("unexpected omissions: %d %v", p.FilesOmitted, p.FilesOmittedByState)
+		// OV-06: lower-class untouched rows may fill leftover budget; every failed row must be shown.
+		if ovFailedShown(p) != 8 || len(p.Files)+p.FilesOmitted != 12 {
+			t.Fatalf("expected all 8 failed rows visible with accounting for 12 receipt rows, got len=%d omitted=%d", len(p.Files), p.FilesOmitted)
 		}
 		seen := map[string]bool{}
 		for _, f := range p.Files {

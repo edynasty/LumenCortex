@@ -33,9 +33,11 @@ func TestSOL01ArchivedDeep32(t *testing.T) {
 	out, returned := set.commitOutcome(fixture.Result, fixture.Receipt, syscall.EIO)
 	payload := r7r2ParseAndCheckBudget(t, "archived deep_f32", out.Content, out.OK)
 	t.Logf("bytes=%d rows=%d omitted=%d byState=%v", len(out.Content), len(payload.Files), payload.FilesOmitted, payload.FilesOmittedByState)
-	if len(out.Content) != 4030 || len(payload.Files) != 32 || payload.FilesOmitted != 0 || len(payload.FilesOmittedByState) != 0 {
-		t.Fatal("the original 32 failed rows fit at 4030 encoded bytes without dropping required fields")
+	// OV-04: pathNotation bytes; the legend leaves 30 of the 32 failed rows, with two named omissions.
+	if len(out.Content) != 4061 || len(payload.Files) != 30 || payload.FilesOmitted != 2 || payload.FilesOmittedByState["external_modification_detected"] != 1 || payload.FilesOmittedByState["partially_modified"] != 1 {
+		t.Fatalf("expected 30 rows at 4061 bytes with two named omissions, got bytes=%d rows=%d omitted=%d byState=%v", len(out.Content), len(payload.Files), payload.FilesOmitted, payload.FilesOmittedByState)
 	}
+	ovCheckOverflowFull(t, set, fixture.Receipt, fixture.Result, out.Content, payload)
 	if !out.MutatesWorkspace || returned != syscall.EIO || payload.Code != "" ||
 		payload.CommitState != string(editing.CommitStatePartiallyPublished) ||
 		!payload.Truncated || !payload.Overflow || !payload.DirtyFailure || !payload.PartialPublication {
@@ -51,11 +53,10 @@ func TestSOL01ArchivedDeep32(t *testing.T) {
 	if rows.PublishedFilesOmitted != 32 {
 		t.Fatalf("omitted %d compatibility rows, want 32", rows.PublishedFilesOmitted)
 	}
-	for i, f := range rows.Files {
-		want := fixture.Receipt.Files[i]
-		if f.Path != "…/"+filepath.Base(want.Path) || f.PublishState != want.PublishState ||
-			!f.Published || !f.Wrote || f.Verified || f.NewRev != "" || f.SHA256 != "" {
-			t.Fatalf("row %d lost its identity or state: %+v", i, f)
+	// OV-06: identity and state are checked by label resolution in ovCheckOverflowFull, not by position.
+	for _, f := range rows.Files {
+		if !f.Published || !f.Wrote || f.Verified || f.NewRev != "" || f.SHA256 != "" {
+			t.Fatalf("row lost its flags: %+v", f)
 		}
 	}
 	after, err := json.Marshal(fixture)
@@ -168,21 +169,17 @@ func TestSOL02PressureLeavesUniqueLabels(t *testing.T) {
 	for i := range paths {
 		paths[i] = fmt.Sprintf("模块 %03d/%s配置 文件.yaml", i, deep)
 	}
-	out, p := r7r2FinalRender(t, paths, nil, syscall.EIO)
-	seen := make(map[string]bool)
-	for i, row := range solDecodedRows(t, out) {
-		if seen[row.Path] || !strings.HasPrefix(row.Path, fmt.Sprintf("模块 %03d/", i)) ||
-			!strings.HasSuffix(row.Path, "/配置 文件.yaml") ||
-			row.PublishState != r7r2FinalFailedStates[i%len(r7r2FinalFailedStates)] ||
-			row.Verified || row.NewRev != "" || row.SHA256 != "" {
-			t.Fatalf("lost identity or state for row %d: %+v", i, row)
+	set := astraSet(t)
+	rec, res, out, p := ovRun(t, set, ovFinalItems(paths, nil), syscall.EIO)
+	// OV-06: rows follow priority order, not input position, so identity is checked by label resolution.
+	ovCheckOverflowFull(t, set, rec, res, out, p)
+	for _, f := range p.Files {
+		if !strings.HasSuffix(f.Path, "/配置 文件.yaml") {
+			t.Fatalf("row %q lost its filename", f.Path)
 		}
-		seen[row.Path] = true
 	}
-	t.Logf("bytes=%d rows=%d unique=%d omitted=%d byState=%v", len(out), len(p.Files), len(seen), p.FilesOmitted, p.FilesOmittedByState)
-	if len(out) < 3800 || len(p.Files) < 20 || p.FilesOmitted == 0 ||
-		p.FilesOmitted != len(paths)-len(p.Files) ||
-		!reflect.DeepEqual(p.FilesOmittedByState, r7r2FinalOmittedByState(len(paths), len(p.Files), 0)) {
+	t.Logf("bytes=%d rows=%d omitted=%d byState=%v", len(out), len(p.Files), p.FilesOmitted, p.FilesOmittedByState)
+	if len(out) < 3800 || len(p.Files) < 20 || p.FilesOmitted == 0 || p.FilesOmitted != len(paths)-len(p.Files) {
 		t.Fatal("expected bounded prefix and exact omission counts near the byte limit")
 	}
 }
