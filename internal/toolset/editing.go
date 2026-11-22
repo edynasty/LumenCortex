@@ -305,6 +305,15 @@ func truncatePathTail(p string, maxBytes int) string {
 
 const pathEllipsis = "…"
 
+const (
+	// labelContextBytes is how many visible bytes an abbreviated name keeps.
+	labelContextBytes = 16
+	// labelExtMaxBytes bounds the kept extension, dot included.
+	labelExtMaxBytes = 8
+	// labelScanMaxBytes bounds the component bytes a window check may scan.
+	labelScanMaxBytes = 256 << 10
+)
+
 type failurePathLabel struct {
 	compact      string
 	sharedSuffix int
@@ -318,6 +327,14 @@ type failurePathIndex struct {
 	groups  map[string][]string
 	parents map[[2]string]map[string]string
 	labels  map[string]failurePathLabel
+	// names and ends are built by ensureNames: every distinct component sorted by bytes, and every
+	// distinct filename sorted by bytes read backwards.
+	names     []string
+	ends      []string
+	dirNames  map[string]bool
+	nameBytes int
+	indexed   bool
+	bases     map[string]string
 }
 
 func newFailurePathIndex() *failurePathIndex {
@@ -327,6 +344,7 @@ func newFailurePathIndex() *failurePathIndex {
 		groups:  make(map[string][]string),
 		parents: make(map[[2]string]map[string]string),
 		labels:  make(map[string]failurePathLabel),
+		bases:   make(map[string]string),
 	}
 }
 
@@ -353,6 +371,233 @@ func commonSuffixBytes(a, b string) int {
 		i++
 	}
 	return i
+}
+
+func commonPrefixLen(a, b string) int {
+	n := min(len(a), len(b))
+	for i := 0; i < n; i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	return n
+}
+
+func encodedLen(s string) int {
+	encoded, _ := json.Marshal(s)
+	return len(encoded)
+}
+
+// compareBackward orders strings by the bytes read from their end, then by length.
+func compareBackward(a, b string) int {
+	i, j := len(a)-1, len(b)-1
+	for i >= 0 && j >= 0 {
+		if a[i] != b[j] {
+			if a[i] < b[j] {
+				return -1
+			}
+			return 1
+		}
+		i--
+		j--
+	}
+	switch {
+	case i < 0 && j < 0:
+		return 0
+	case i < 0:
+		return -1
+	default:
+		return 1
+	}
+}
+
+// ensureNames indexes the components and filenames of the batch. It runs after every path is added.
+func (p *failurePathIndex) ensureNames() {
+	if p.indexed {
+		return
+	}
+	p.indexed = true
+	p.dirNames = make(map[string]bool)
+	for _, fulls := range p.groups {
+		for _, full := range fulls {
+			eachPathParent(full, func(start, end int) {
+				p.dirNames[full[start:end]] = true
+			})
+		}
+	}
+	all := make(map[string]bool, len(p.groups)+len(p.dirNames))
+	for base := range p.groups {
+		all[base] = true
+		p.ends = append(p.ends, base)
+	}
+	for dir := range p.dirNames {
+		all[dir] = true
+	}
+	p.names = make([]string, 0, len(all))
+	for name := range all {
+		p.names = append(p.names, name)
+		p.nameBytes += len(name)
+	}
+	sort.Strings(p.names)
+	sort.Slice(p.ends, func(i, j int) bool { return compareBackward(p.ends[i], p.ends[j]) < 0 })
+}
+
+// uniquePrefix is the shortest prefix length that tells name apart from every other component.
+func (p *failurePathIndex) uniquePrefix(name string) int {
+	p.ensureNames()
+	i := sort.SearchStrings(p.names, name)
+	shared := 0
+	if i > 0 {
+		shared = max(shared, commonPrefixLen(name, p.names[i-1]))
+	}
+	if i+1 < len(p.names) {
+		shared = max(shared, commonPrefixLen(name, p.names[i+1]))
+	}
+	return shared + 1
+}
+
+// uniqueSuffix is the shortest suffix length that tells filename name apart from every other filename.
+func (p *failurePathIndex) uniqueSuffix(name string) int {
+	p.ensureNames()
+	i := sort.Search(len(p.ends), func(j int) bool { return compareBackward(p.ends[j], name) >= 0 })
+	shared := 0
+	if i > 0 {
+		shared = max(shared, commonSuffixBytes(name, p.ends[i-1]))
+	}
+	if i+1 < len(p.ends) {
+		shared = max(shared, commonSuffixBytes(name, p.ends[i+1]))
+	}
+	return shared + 1
+}
+
+// shortBase abbreviates one filename to the cheapest encoded form that still names it. A suffix is
+// anchored at the end, so a filename-unique suffix suffices. A prefix or window may let "…" span a
+// directory, so it must also be unique among directory names; otherwise a reader could find another file.
+func (p *failurePathIndex) shortBase(name string) string {
+	if len(name) <= 2*labelContextBytes {
+		return name
+	}
+	if short, ok := p.bases[name]; ok {
+		return short
+	}
+	p.ensureNames()
+	best, bestCost := name, encodedLen(name)
+	try := func(candidate string) {
+		if cost := encodedLen(candidate); cost < bestCost {
+			best, bestCost = candidate, cost
+		}
+	}
+	ext := ""
+	if i := strings.LastIndexByte(name, '.'); i > 0 && len(name)-i <= labelExtMaxBytes {
+		ext = name[i:]
+	}
+	n := max(p.uniqueSuffix(name), labelContextBytes)
+	if start := len(name) - n; start > 0 {
+		for start > 0 && !utf8.RuneStart(name[start]) {
+			start--
+		}
+		if start > 0 {
+			try(pathEllipsis + name[start:])
+		}
+	}
+	if !p.dirNames[name] {
+		end := max(p.uniquePrefix(name), labelContextBytes-len(ext))
+		for end < len(name) && !utf8.RuneStart(name[end]) {
+			end++
+		}
+		if end+len(ext) < len(name) {
+			try(name[:end] + pathEllipsis + ext)
+		}
+		if bestCost > 2+len(pathEllipsis)+labelContextBytes && p.nameBytes <= labelScanMaxBytes {
+			// Both ends together tell the name apart from every other filename. The prefix also starts
+			// no directory name, so a reader who lets "…" span "/" still finds one file.
+			type point struct{ a, b int }
+			dirBound := 1
+			for dir := range p.dirNames {
+				dirBound = max(dirBound, 1+commonPrefixLen(name, dir))
+			}
+			points := make([]point, 0, len(p.ends))
+			for _, other := range p.ends {
+				if other != name {
+					points = append(points, point{commonPrefixLen(name, other), commonSuffixBytes(name, other)})
+				}
+			}
+			sort.Slice(points, func(i, j int) bool { return points[i].a > points[j].a })
+			qs := []int{dirBound}
+			for _, pt := range points {
+				if pt.a+1 >= dirBound && pt.a+1 < len(name) {
+					qs = append(qs, pt.a+1)
+				}
+			}
+			sort.Sort(sort.Reverse(sort.IntSlice(qs)))
+			bestQ, bestS := 0, 0
+			idx, maxB := 0, 0
+			for _, q := range qs {
+				for idx < len(points) && points[idx].a >= q {
+					maxB = max(maxB, points[idx].b)
+					idx++
+				}
+				required := 0
+				if idx > 0 {
+					required = maxB + 1
+				}
+				s := max(required, len(ext), labelContextBytes-q, 1)
+				start := len(name) - s
+				for start > 0 && !utf8.RuneStart(name[start]) {
+					start--
+				}
+				qq := q
+				for qq < len(name) && !utf8.RuneStart(name[qq]) {
+					qq++
+				}
+				if qq >= start {
+					continue
+				}
+				if cost := qq + len(name) - start; bestQ == 0 || cost < bestQ+bestS || cost == bestQ+bestS && qq < bestQ {
+					bestQ, bestS = qq, len(name)-start
+				}
+			}
+			if bestQ > 0 {
+				try(name[:bestQ] + pathEllipsis + name[len(name)-bestS:])
+			}
+		}
+		if bestCost > 2+2*len(pathEllipsis)+labelContextBytes+len(ext) && p.nameBytes <= labelScanMaxBytes {
+			d := p.uniquePrefix(name) - 1
+			for _, half := range []int{labelContextBytes / 2, labelContextBytes} {
+				from := max(1, d-half)
+				if from >= len(name) {
+					continue
+				}
+				for from > 0 && !utf8.RuneStart(name[from]) {
+					from--
+				}
+				if from == 0 {
+					continue
+				}
+				to := from + 2*half
+				for to < len(name) && !utf8.RuneStart(name[to]) {
+					to++
+				}
+				if d < from || d >= to || to+len(ext) >= len(name) {
+					continue
+				}
+				window := name[from:to]
+				shared := false
+				for _, other := range p.names {
+					if other != name && strings.Contains(other, window) {
+						shared = true
+						break
+					}
+				}
+				if !shared {
+					try(pathEllipsis + window + pathEllipsis + ext)
+					break
+				}
+			}
+		}
+	}
+	p.bases[name] = best
+	return best
 }
 
 func (p *failurePathIndex) hasIdentity(raw string) bool {
@@ -403,9 +648,6 @@ func (p *failurePathIndex) makeLabel(full string) failurePathLabel {
 		return best
 	}
 	base := slashBase(full)
-	if base == full {
-		return best
-	}
 	bestCost := -1
 	consider := func(candidate string) {
 		// No shorthand may masquerade as a literal workspace path in the batch.
@@ -421,7 +663,18 @@ func (p *failurePathIndex) makeLabel(full string) failurePathLabel {
 			best.compact, bestCost = candidate, len(encoded)
 		}
 	}
+	short := p.shortBase(base)
 	group := p.groups[base]
+	// Only a filename unique in the batch may be abbreviated: a repeated one would not name one file.
+	if short != base && len(group) == 1 {
+		consider(full[:len(full)-len(base)] + short)
+		if base != full {
+			consider(pathEllipsis + "/" + short)
+		}
+	}
+	if base == full {
+		return best
+	}
 	for _, other := range group {
 		if full != other {
 			best.sharedSuffix = max(best.sharedSuffix, commonSuffixBytes(full, other))
@@ -442,7 +695,7 @@ func (p *failurePathIndex) makeLabel(full string) failurePathLabel {
 			if owners[name] != full || (root != "" && start == 0) {
 				return
 			}
-			lead, rest := "", "/"+base
+			lead, rest := "", "/"+short
 			if root != "" {
 				lead = root + "/"
 				if start != len(lead) {
@@ -455,8 +708,7 @@ func (p *failurePathIndex) makeLabel(full string) failurePathLabel {
 				rest = "/" + pathEllipsis + rest
 			}
 			consider(lead + name + rest)
-			const parentContext = 16
-			if len(name) <= 2*parentContext {
+			if len(name) <= 2*labelContextBytes {
 				return
 			}
 			shared := 0
@@ -465,7 +717,7 @@ func (p *failurePathIndex) makeLabel(full string) failurePathLabel {
 					shared = max(shared, commonSuffixBytes(name, other))
 				}
 			}
-			if cut := len(name) - max(parentContext, shared+1); cut > 0 {
+			if cut := len(name) - max(labelContextBytes, shared+1); cut > 0 {
 				for cut > 0 && !utf8.RuneStart(name[cut]) {
 					cut--
 				}
@@ -657,15 +909,14 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 			return false
 		}
 		full := paths.full[raw]
-		required := slashBase(full)
 		if strings.HasPrefix(full, "<outside-workspace>/") || strings.Contains(full, pathEllipsis) {
-			required = full
+			return len(full) < maxPartialPayloadBytes/6 || encodedLen(full) < maxPartialPayloadBytes
 		}
-		if len(required) < maxPartialPayloadBytes/6 {
+		base := slashBase(full)
+		if len(base) < maxPartialPayloadBytes/6 || encodedLen(base) < maxPartialPayloadBytes {
 			return true
 		}
-		path, _ := json.Marshal(required)
-		return len(path) < maxPartialPayloadBytes
+		return encodedLen(paths.shortBase(base)) < maxPartialPayloadBytes
 	}
 	orderedFiles := make([]editing.FileCommitReceipt, 0, len(receipt.Files))
 	unidentifiable := make(map[editing.PublishState]int)
