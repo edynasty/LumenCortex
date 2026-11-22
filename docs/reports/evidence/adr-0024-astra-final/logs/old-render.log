@@ -1,0 +1,17 @@
+HEAD 10f135d1f904ab88c6a086319ca5820ea6b9e09c editing.go 8992bc78ed07d053eaa2e09626796daf4c6ec587 GOMAXPROCS=2
+go test -overlay /private/tmp/lc-carbon-final.jQjddm/old/overlay-render.json -timeout=30m -count=1 -v -run ^(TestCarbonAuditCapture|TestReviewCorpusDump|TestReviewBasenameSweep|TestReviewBoundary)$ ./internal/toolset
+=== RUN   TestCarbonAuditCapture
+--- PASS: TestCarbonAuditCapture (4.33s)
+=== RUN   TestReviewBoundary
+    zz_review_boundary_test.go:45: esc=false pad=104 first truncated k=794 bytes=3381
+    zz_review_boundary_test.go:52: esc=false pad=104 last untruncated k=793 bytes=4096
+    zz_review_boundary_test.go:45: esc=true pad=104 first truncated k=133 bytes=3385
+    zz_review_boundary_test.go:52: esc=true pad=104 last untruncated k=132 bytes=4095
+--- PASS: TestReviewBoundary (1.32s)
+=== RUN   TestReviewCorpusDump
+--- PASS: TestReviewCorpusDump (28.28s)
+=== RUN   TestReviewBasenameSweep
+--- PASS: TestReviewBasenameSweep (0.16s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	34.981s
+exit 0

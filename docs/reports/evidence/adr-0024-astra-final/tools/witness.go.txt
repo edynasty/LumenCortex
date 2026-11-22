@@ -1,0 +1,51 @@
+package toolset
+
+import(
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// Capture every compact candidate selected by the original renderer, not only the rows it emits.
+func TestAstraWitness(t *testing.T){
+	dir:=os.Getenv("WITNESS"); ws:=os.Getenv("REVIEW_ADV_WS")
+	set,err:=New(Options{Workspace:ws,Policy:PolicyWorkspace,SessionID:"witness"});if err!=nil{t.Fatal(err)}
+	var cases []rvCase
+	for _,c:=range rvCases(){if c.Name=="B_repeated_dirs_40_pressure"{cases=append(cases,c)}}
+	var main,extra []string
+	for i:=0;i<32;i++{
+		root:=fmt.Sprintf("%02d",i)
+		pre:=root+"A"+strings.Repeat("a",70)
+		target:=pre+strings.Repeat("&",16)+"0.kt"
+		main=append(main,"pkg/"+target)
+		extra=append(extra,"pkg/"+pre+strings.Repeat("&",16)+"1.kt","pkg/B"+target,"pkg/"+target[:12]+"zOTHER.kt")
+	}
+	cases=append(cases,rvMake("escaped-joint",main,nil,extra,"eio"))
+	literals:=[]string{"tree/…/…/…","tree/alpha/beta/filename","tree/lit…eral/na…me.kt","tree/litXeral/naYme.kt","tree/…{6}/quote\"&.kt","tree/ümlaut /quote\"&.kt"}
+	for _,p:=range literals{
+		f:=filepath.Join(ws,filepath.FromSlash(p));if err:=os.MkdirAll(filepath.Dir(f),0700);err!=nil{t.Fatal(err)}
+		if err:=os.WriteFile(f,[]byte("literal"),0600);err!=nil{t.Fatal(err)}
+	}
+	cases=append(cases,rvMake("multiple-literal",literals,nil,nil,"eio"))
+	large:="lit/…/"+strings.Repeat(strings.Repeat("&",162)+"/",4)+"item.kt"
+	for _,p:=range []string{large,"good.kt"}{
+		f:=filepath.Join(ws,filepath.FromSlash(p));if err:=os.MkdirAll(filepath.Dir(f),0700);err!=nil{t.Fatal(err)}
+		if err:=os.WriteFile(f,[]byte("fixture"),0600);err!=nil{t.Fatal(err)}
+	}
+	cases=append(cases,rvMake("expensive-literal",[]string{large,"good.kt"},nil,nil,"eio"))
+	tail:="/"+strings.Repeat(strings.Repeat("&",162)+"/",4)+"f.kt"
+	cases=append(cases,rvMake("blocked-row",[]string{"a…a"+tail,"good.kt"},nil,[]string{"b…b"+tail},"eio"))
+	for _,c:=range cases{
+		index:=newFailurePathIndex();display:=set.displayPaths()
+		for _,f:=range c.Receipts{index.add(f.Path,display)}
+		labels:=make([]string,0,len(c.Receipts))
+		for _,f:=range c.Receipts{labels=append(labels,index.label(f.Path,0))}
+		b,_:=json.Marshal(labels)
+		if err:=rvWrite(dir+"/compact",c.Name,string(b));err!=nil{t.Fatal(err)}
+		if err:=rvWriteCase(dir+"/witness-in",c);err!=nil{t.Fatal(err)}
+		if err:=rvWrite(dir+"/witness",c.Name,rvRender(set,c));err!=nil{t.Fatal(err)}
+	}
+}

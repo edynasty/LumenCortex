@@ -1,0 +1,147 @@
+corpus old N 684 input-set 599d1d87074bf79b00df3976efa3b12addc75609b1acb832e404cd74c2399897 output-set bdbc21679e3699fe5d87f8c92bd4200f895b79bb47384a08b26d7531c40ee990 maxB 4096 omitted 11095 {'fileComponentNotOne': 0, 'fileLooseNotOne': 0, 'fileLabels': 8903, 'fileDuplicates': 0, 'pubComponentNotOne': 8, 'pubLooseNotOne': 8, 'pubLabels': 283, 'pubDuplicates': 4}
+corpus sol N 684 input-set 599d1d87074bf79b00df3976efa3b12addc75609b1acb832e404cd74c2399897 output-set 54cf5a071b902e33eb61cc19fd61fad0fa5e601b3faa94496193ec447c254098 maxB 4096 omitted 10350 {'fileComponentNotOne': 0, 'fileLooseNotOne': 0, 'fileLabels': 9648, 'fileDuplicates': 0, 'pubComponentNotOne': 0, 'pubLooseNotOne': 0, 'pubLabels': 283, 'pubDuplicates': 0}
+corpus candidate N 684 input-set 599d1d87074bf79b00df3976efa3b12addc75609b1acb832e404cd74c2399897 output-set 54cf5a071b902e33eb61cc19fd61fad0fa5e601b3faa94496193ec447c254098 maxB 4096 omitted 10350 {'fileComponentNotOne': 0, 'fileLooseNotOne': 0, 'fileLabels': 9648, 'fileDuplicates': 0, 'pubComponentNotOne': 0, 'pubLooseNotOne': 0, 'pubLabels': 283, 'pubDuplicates': 0}
+COMPARE corpus old sol {'identical': 509, 'moreRows': 106, 'fewerRows': 0, 'moreFailed': 92, 'fewerFailed': 0}
+COMPARE corpus sol candidate {'identical': 684, 'moreRows': 0, 'fewerRows': 0, 'moreFailed': 0, 'fewerFailed': 0}
+SAMPLE corpus deep_f32_v00_u00_eio [('old', (3987, 22, 22, 10), 0), ('sol', (4030, 32, 32, 0), 0), ('candidate', (4030, 32, 32, 0), 0)]
+matrix old N 1180 input-set 66ce79fdd089943a124998088db4e3bc57308552fda65105a59715d489fcaee2 output-set f79b7d1cc5d3e78783889c8ad66dbe619dd1e80cf9381836918f5345a2fd13ee maxB 4096 omitted 2149 {'fileComponentNotOne': 57, 'fileLooseNotOne': 45, 'fileLabels': 16596, 'fileDuplicates': 39, 'pubComponentNotOne': 7, 'pubLooseNotOne': 7, 'pubLabels': 5320, 'pubDuplicates': 2}
+matrix sol N 1180 input-set 66ce79fdd089943a124998088db4e3bc57308552fda65105a59715d489fcaee2 output-set a79a2015d0d8187cfd1e988e2847674d03047d6c8281dcc3351aaf9997df7286 maxB 4096 omitted 2128 {'fileComponentNotOne': 1, 'fileLooseNotOne': 1, 'fileLabels': 16617, 'fileDuplicates': 0, 'pubComponentNotOne': 0, 'pubLooseNotOne': 0, 'pubLabels': 5320, 'pubDuplicates': 0}
+matrix candidate N 1180 input-set 66ce79fdd089943a124998088db4e3bc57308552fda65105a59715d489fcaee2 output-set e1a426d91428a935796009627a077c5d5abb42afdebc4d570e6cce1afbb2b4e9 maxB 4096 omitted 2019 {'fileComponentNotOne': 1, 'fileLooseNotOne': 1, 'fileLabels': 16726, 'fileDuplicates': 0, 'pubComponentNotOne': 0, 'pubLooseNotOne': 0, 'pubLabels': 5323, 'pubDuplicates': 0}
+delta matrix B_repeated_dirs_40_pressure old (3993, 30, 30, 10) sol (4073, 3, 3, 37)
+delta matrix E_long_prefix_suffix_40 old (3969, 20, 20, 20) sol (4004, 29, 29, 11)
+delta matrix F_unicode_60_pressure old (4050, 23, 23, 37) sol (4064, 27, 27, 33)
+delta matrix H_combined_100 old (4068, 30, 30, 80) sol (3961, 8, 8, 102)
+delta matrix J2_distinct_raw_same_redaction old (1311, 3, 3, 0) sol (765, 1, 1, 2)
+delta matrix J3_zero_gap_tail_vs_omitted_literal old (4078, 25, 25, 37) sol (4095, 26, 26, 36)
+delta matrix J4_literal_ellipsis_omitted old (4075, 25, 25, 37) sol (4092, 26, 26, 36)
+delta matrix J5_literal_ellipsis_shown old (4016, 25, 25, 37) sol (4090, 26, 26, 36)
+delta matrix J6_in_workspace_dir_named_like_redaction old (1315, 3, 3, 0) sol (769, 1, 1, 2)
+delta matrix K_three_1400B_basenames old (3823, 3, 3, 0) sol (3519, 2, 2, 1)
+delta matrix L_mixed_states old (4047, 21, 9, 2) sol (4047, 21, 10, 2)
+delta matrix M_pathless_cancel_rows old (3976, 21, 21, 12) sol (3673, 30, 30, 3)
+delta matrix size_deep_unique_f032 old (4027, 22, 22, 11) sol (4032, 31, 31, 2)
+delta matrix size_deep_unique_f050 old (4027, 22, 22, 29) sol (4015, 30, 30, 21)
+delta matrix size_deep_unique_f100 old (4033, 22, 22, 79) sol (4021, 30, 30, 71)
+delta matrix size_deep_unique_f200 old (4034, 22, 22, 179) sol (4022, 30, 30, 171)
+delta matrix size_longbase_f020 old (3758, 20, 20, 0) sol (4031, 10, 10, 10)
+delta matrix size_longbase_f023 old (4025, 21, 21, 2) sol (4031, 10, 10, 13)
+delta matrix size_longbase_f032 old (3929, 20, 20, 12) sol (4031, 10, 10, 22)
+delta matrix size_longbase_f050 old (3929, 20, 20, 30) sol (4031, 10, 10, 40)
+delta matrix size_longbase_f100 old (3935, 20, 20, 80) sol (4037, 10, 10, 90)
+delta matrix size_longbase_f200 old (3936, 20, 20, 180) sol (4038, 10, 10, 190)
+delta matrix size_middle_distinct_f032 old (4075, 22, 22, 10) sol (4015, 30, 30, 2)
+delta matrix size_middle_distinct_f050 old (4075, 22, 22, 28) sol (4087, 30, 30, 20)
+delta matrix size_middle_distinct_f100 old (4081, 22, 22, 78) sol (4093, 30, 30, 70)
+delta matrix size_middle_distinct_f200 old (4082, 22, 22, 178) sol (4094, 30, 30, 170)
+delta matrix size_mixed_f032_v10_u10 old (4052, 22, 22, 30) sol (4058, 31, 31, 21)
+delta matrix size_mixed_f050_v10_u10 old (4052, 22, 22, 48) sol (4040, 30, 30, 40)
+delta matrix size_mixed_f100_v10_u10 old (4058, 22, 22, 98) sol (4046, 30, 30, 90)
+delta matrix size_mixed_f200_v10_u10 old (4059, 22, 22, 198) sol (4047, 30, 30, 190)
+delta matrix size_samebase_modules_f032 old (4095, 23, 23, 9) sol (3988, 26, 26, 6)
+delta matrix size_samebase_modules_f050 old (4096, 23, 23, 27) sol (3989, 26, 26, 24)
+delta matrix size_samebase_modules_f100 old (3949, 22, 22, 78) sol (3995, 26, 26, 74)
+delta matrix size_samebase_modules_f200 old (3950, 22, 22, 178) sol (3996, 26, 26, 174)
+COMPARE matrix old sol {'identical': 1128, 'moreRows': 22, 'fewerRows': 12, 'moreFailed': 23, 'fewerFailed': 11}
+delta matrix J3_zero_gap_tail_vs_omitted_literal sol (4095, 26, 26, 36) candidate (4054, 29, 29, 33)
+delta matrix J4_literal_ellipsis_omitted sol (4092, 26, 26, 36) candidate (4051, 29, 29, 33)
+delta matrix J5_literal_ellipsis_shown sol (4090, 26, 26, 36) candidate (4049, 29, 29, 33)
+delta matrix K_three_1400B_basenames sol (3519, 2, 2, 1) candidate (1286, 3, 3, 0)
+delta matrix size_longbase_f020 sol (4031, 10, 10, 10) candidate (2798, 20, 20, 0)
+delta matrix size_longbase_f023 sol (4031, 10, 10, 13) candidate (3166, 23, 23, 0)
+delta matrix size_longbase_f032 sol (4031, 10, 10, 22) candidate (4010, 29, 29, 3)
+delta matrix size_longbase_f050 sol (4031, 10, 10, 40) candidate (4062, 29, 29, 21)
+delta matrix size_longbase_f100 sol (4037, 10, 10, 90) candidate (4068, 29, 29, 71)
+delta matrix size_longbase_f200 sol (4038, 10, 10, 190) candidate (4069, 29, 29, 171)
+COMPARE matrix sol candidate {'identical': 1170, 'moreRows': 10, 'fewerRows': 0, 'moreFailed': 10, 'fewerFailed': 0}
+SAMPLE matrix K_three_1400B_basenames [('old', (3823, 3, 3, 0), 0), ('sol', (3519, 2, 2, 1), 0), ('candidate', (1286, 3, 3, 0), 0)]
+SAMPLE matrix B_repeated_dirs_40_pressure [('old', (3993, 30, 30, 10), 16), ('sol', (4073, 3, 3, 37), 0), ('candidate', (4073, 3, 3, 37), 0)]
+SAMPLE matrix J5_literal_ellipsis_shown [('old', (4016, 25, 25, 37), 1), ('sol', (4090, 26, 26, 36), 1), ('candidate', (4049, 29, 29, 33), 1)]
+sweep old N 33 input-set 0b151c6acb1533371e68c0e4a4c0c82d9d3da712e556022ac319ec3f1c273c4c output-set aabd57ab00a57c850ce438a764c62fc5741c2f126270c4644bca80378cd5a561 maxB 4092 omitted 373 {'fileComponentNotOne': 327, 'fileLooseNotOne': 0, 'fileLabels': 683, 'fileDuplicates': 0}
+sweep sol N 33 input-set 0b151c6acb1533371e68c0e4a4c0c82d9d3da712e556022ac319ec3f1c273c4c output-set 7a05164fc4a2086a52bba2c9536dbf59b9d8278d79ffaa6fe950e6c56b9ef2d3 maxB 4092 omitted 468 {'fileComponentNotOne': 0, 'fileLooseNotOne': 0, 'fileLabels': 588, 'fileDuplicates': 0}
+sweep candidate N 33 input-set 0b151c6acb1533371e68c0e4a4c0c82d9d3da712e556022ac319ec3f1c273c4c output-set efafa962efec45a55c37bd761ff86c7bf64bf61c2b5f128ce07c17c1ade7c420 maxB 4083 omitted 115 {'fileComponentNotOne': 0, 'fileLooseNotOne': 0, 'fileLabels': 941, 'fileDuplicates': 0}
+delta sweep sweep_end_k020 old (4009, 24, 24, 8) sol (4009, 27, 27, 5)
+delta sweep sweep_end_k040 old (4053, 22, 22, 10) sol (3957, 23, 23, 9)
+delta sweep sweep_end_k050 old (3960, 21, 21, 11) sol (4031, 22, 22, 10)
+delta sweep sweep_end_k070 old (3960, 21, 21, 11) sol (3937, 19, 19, 13)
+delta sweep sweep_end_k080 old (3960, 21, 21, 11) sol (4011, 18, 18, 14)
+delta sweep sweep_end_k100 old (3960, 21, 21, 11) sol (4092, 17, 17, 15)
+delta sweep sweep_end_k120 old (3960, 21, 21, 11) sol (3970, 15, 15, 17)
+delta sweep sweep_end_k160 old (3960, 21, 21, 11) sol (4040, 13, 13, 19)
+delta sweep sweep_end_k200 old (3960, 21, 21, 11) sol (3948, 11, 11, 21)
+delta sweep sweep_end_k240 old (3960, 21, 21, 11) sol (4071, 10, 10, 22)
+delta sweep sweep_middle_k020 old (4009, 24, 24, 8) sol (4009, 27, 27, 5)
+delta sweep sweep_middle_k040 old (4053, 22, 22, 10) sol (3957, 23, 23, 9)
+delta sweep sweep_middle_k050 old (3960, 21, 21, 11) sol (4031, 22, 22, 10)
+delta sweep sweep_middle_k070 old (3960, 21, 21, 11) sol (3937, 19, 19, 13)
+delta sweep sweep_middle_k080 old (3960, 21, 21, 11) sol (4011, 18, 18, 14)
+delta sweep sweep_middle_k100 old (3960, 21, 21, 11) sol (4092, 17, 17, 15)
+delta sweep sweep_middle_k120 old (4013, 19, 19, 13) sol (3970, 15, 15, 17)
+delta sweep sweep_middle_k160 old (4047, 18, 18, 14) sol (4040, 13, 13, 19)
+delta sweep sweep_middle_k200 old (4032, 19, 19, 13) sol (3948, 11, 11, 21)
+delta sweep sweep_middle_k240 old (4032, 19, 19, 13) sol (4071, 10, 10, 22)
+delta sweep sweep_start_k020 old (4009, 24, 24, 8) sol (4009, 27, 27, 5)
+delta sweep sweep_start_k040 old (4053, 22, 22, 10) sol (3957, 23, 23, 9)
+delta sweep sweep_start_k050 old (3960, 21, 21, 11) sol (4031, 22, 22, 10)
+delta sweep sweep_start_k120 old (3929, 20, 20, 12) sol (3970, 15, 15, 17)
+delta sweep sweep_start_k160 old (3929, 20, 20, 12) sol (4040, 13, 13, 19)
+delta sweep sweep_start_k200 old (3929, 20, 20, 12) sol (3948, 11, 11, 21)
+delta sweep sweep_start_k240 old (3929, 20, 20, 12) sol (4071, 10, 10, 22)
+COMPARE sweep old sol {'identical': 4, 'moreRows': 9, 'fewerRows': 18, 'moreFailed': 9, 'fewerFailed': 18}
+delta sweep sweep_end_k040 sol (3957, 23, 23, 9) candidate (4010, 29, 29, 3)
+delta sweep sweep_end_k050 sol (4031, 22, 22, 10) candidate (4010, 29, 29, 3)
+delta sweep sweep_end_k060 sol (4086, 21, 21, 11) candidate (4010, 29, 29, 3)
+delta sweep sweep_end_k070 sol (3937, 19, 19, 13) candidate (4010, 29, 29, 3)
+delta sweep sweep_end_k080 sol (4011, 18, 18, 14) candidate (4010, 29, 29, 3)
+delta sweep sweep_end_k100 sol (4092, 17, 17, 15) candidate (4010, 29, 29, 3)
+delta sweep sweep_end_k120 sol (3970, 15, 15, 17) candidate (4010, 29, 29, 3)
+delta sweep sweep_end_k160 sol (4040, 13, 13, 19) candidate (4010, 29, 29, 3)
+delta sweep sweep_end_k200 sol (3948, 11, 11, 21) candidate (4010, 29, 29, 3)
+delta sweep sweep_end_k240 sol (4071, 10, 10, 22) candidate (4010, 29, 29, 3)
+delta sweep sweep_middle_k040 sol (3957, 23, 23, 9) candidate (4083, 28, 28, 4)
+delta sweep sweep_middle_k050 sol (4031, 22, 22, 10) candidate (4083, 28, 28, 4)
+delta sweep sweep_middle_k060 sol (4086, 21, 21, 11) candidate (4083, 28, 28, 4)
+delta sweep sweep_middle_k070 sol (3937, 19, 19, 13) candidate (4083, 28, 28, 4)
+delta sweep sweep_middle_k080 sol (4011, 18, 18, 14) candidate (4083, 28, 28, 4)
+delta sweep sweep_middle_k100 sol (4092, 17, 17, 15) candidate (4083, 28, 28, 4)
+delta sweep sweep_middle_k120 sol (3970, 15, 15, 17) candidate (4083, 28, 28, 4)
+delta sweep sweep_middle_k160 sol (4040, 13, 13, 19) candidate (4083, 28, 28, 4)
+delta sweep sweep_middle_k200 sol (3948, 11, 11, 21) candidate (4083, 28, 28, 4)
+delta sweep sweep_middle_k240 sol (4071, 10, 10, 22) candidate (4083, 28, 28, 4)
+delta sweep sweep_start_k040 sol (3957, 23, 23, 9) candidate (4010, 29, 29, 3)
+delta sweep sweep_start_k050 sol (4031, 22, 22, 10) candidate (4010, 29, 29, 3)
+delta sweep sweep_start_k060 sol (4086, 21, 21, 11) candidate (4010, 29, 29, 3)
+delta sweep sweep_start_k070 sol (3937, 19, 19, 13) candidate (4010, 29, 29, 3)
+delta sweep sweep_start_k080 sol (4011, 18, 18, 14) candidate (4010, 29, 29, 3)
+delta sweep sweep_start_k100 sol (4092, 17, 17, 15) candidate (4010, 29, 29, 3)
+delta sweep sweep_start_k120 sol (3970, 15, 15, 17) candidate (4010, 29, 29, 3)
+delta sweep sweep_start_k160 sol (4040, 13, 13, 19) candidate (4010, 29, 29, 3)
+delta sweep sweep_start_k200 sol (3948, 11, 11, 21) candidate (4010, 29, 29, 3)
+delta sweep sweep_start_k240 sol (4071, 10, 10, 22) candidate (4010, 29, 29, 3)
+COMPARE sweep sol candidate {'identical': 3, 'moreRows': 30, 'fewerRows': 0, 'moreFailed': 30, 'fewerFailed': 0}
+SAMPLE sweep sweep_end_k070 [('old', (3960, 21, 21, 11), 0), ('sol', (3937, 19, 19, 13), 0), ('candidate', (4010, 29, 29, 3), 0)]
+SAMPLE sweep sweep_end_k100 [('old', (3960, 21, 21, 11), 0), ('sol', (4092, 17, 17, 15), 0), ('candidate', (4010, 29, 29, 3), 0)]
+SAMPLE sweep sweep_end_k240 [('old', (3960, 21, 21, 11), 0), ('sol', (4071, 10, 10, 22), 0), ('candidate', (4010, 29, 29, 3), 0)]
+SAMPLE sweep sweep_start_k240 [('old', (3929, 20, 20, 12), 0), ('sol', (4071, 10, 10, 22), 0), ('candidate', (4010, 29, 29, 3), 0)]
+extra old N 8 input-set 26fb43f80f05ca0891136a12a48027d5e74a1e0c50639612a98dc748bf14f7e5 output-set bcf5ad0562fa6f2e9367eb20d00a256a18f0747f2324201fd32fa0a175b475ed maxB 4061 omitted 89 {'fileComponentNotOne': 97, 'fileLooseNotOne': 97, 'fileLabels': 213, 'fileDuplicates': 87, 'pubComponentNotOne': 3, 'pubLooseNotOne': 3, 'pubLabels': 9, 'pubDuplicates': 0}
+extra sol N 8 input-set 26fb43f80f05ca0891136a12a48027d5e74a1e0c50639612a98dc748bf14f7e5 output-set 3a6f2329e0abcd4b38c18502dea0344f236983b5aeb9e7e1027a445ca79a4559 maxB 4073 omitted 252 {'fileComponentNotOne': 4, 'fileLooseNotOne': 4, 'fileLabels': 50, 'fileDuplicates': 0, 'pubComponentNotOne': 3, 'pubLooseNotOne': 3, 'pubLabels': 9, 'pubDuplicates': 0}
+extra candidate N 8 input-set 26fb43f80f05ca0891136a12a48027d5e74a1e0c50639612a98dc748bf14f7e5 output-set 023af9422938c2012113a307b3b19c8b306f692dcd419965d9fc816cfb4a35a5 maxB 4073 omitted 247 {'fileComponentNotOne': 4, 'fileLooseNotOne': 4, 'fileLabels': 55, 'fileDuplicates': 0, 'pubComponentNotOne': 3, 'pubLooseNotOne': 3, 'pubLabels': 9, 'pubDuplicates': 0}
+delta extra by_shape old (3997, 30, 30, 10) sol (4060, 3, 3, 37)
+delta extra original old (3993, 30, 30, 10) sol (4073, 3, 3, 37)
+delta extra reverse old (4001, 30, 30, 10) sol (4066, 3, 3, 37)
+delta extra rotate1 old (3999, 30, 30, 10) sol (4069, 3, 3, 37)
+delta extra seed31 old (4000, 30, 30, 10) sol (2015, 3, 3, 37)
+delta extra seed7 old (3984, 30, 30, 10) sol (3923, 2, 2, 38)
+COMPARE extra old sol {'identical': 2, 'moreRows': 0, 'fewerRows': 6, 'moreFailed': 0, 'fewerFailed': 6}
+delta extra omitted-literal sol (4061, 24, 24, 29) candidate (4034, 29, 29, 24)
+COMPARE extra sol candidate {'identical': 7, 'moreRows': 1, 'fewerRows': 0, 'moreFailed': 1, 'fewerFailed': 0}
+SAMPLE extra by_shape [('old', (3997, 30, 30, 10), 20), ('sol', (4060, 3, 3, 37), 0), ('candidate', (4060, 3, 3, 37), 0)]
+SAMPLE extra omitted-literal [('old', (4061, 24, 24, 29), 1), ('sol', (4061, 24, 24, 29), 1), ('candidate', (4034, 29, 29, 24), 1)]
+SAMPLE extra original [('old', (3993, 30, 30, 10), 16), ('sol', (4073, 3, 3, 37), 0), ('candidate', (4073, 3, 3, 37), 0)]
+SAMPLE extra real-literals [('old', (3011, 9, 9, 0), 3), ('sol', (3011, 9, 9, 0), 3), ('candidate', (3011, 9, 9, 0), 3)]
+SAMPLE extra reverse [('old', (4001, 30, 30, 10), 14), ('sol', (4066, 3, 3, 37), 0), ('candidate', (4066, 3, 3, 37), 0)]
+SAMPLE extra rotate1 [('old', (3999, 30, 30, 10), 15), ('sol', (4069, 3, 3, 37), 0), ('candidate', (4069, 3, 3, 37), 0)]
+SAMPLE extra seed31 [('old', (4000, 30, 30, 10), 16), ('sol', (2015, 3, 3, 37), 0), ('candidate', (2015, 3, 3, 37), 0)]
+SAMPLE extra seed7 [('old', (3984, 30, 30, 10), 12), ('sol', (3923, 2, 2, 38), 0), ('candidate', (3923, 2, 2, 38), 0)]
+WITNESS candidate B_repeated_dirs_40_pressure actual (4073, 3, 3, 37) compact (3, 3986, [5130]) alternative (31, 4093, [4208]) compact path costs [1043, 2081, 16, 1048] alternative labels ['r00/…{7}/f.kt', 'r00/…{15}/f.kt', 'r00/x/…/f.kt', 'r00/…{7}/deep/f.kt']
+WITNESS candidate escaped-joint actual (3989, 20, 20, 108) compact (20, 3989, [4169]) alternative (29, 4059, [4155]) compact path costs [75, 75, 75, 75] alternative labels ['pkg/00Aaaaaaaaaaa…0.kt', 'pkg/01Aaaaaaaaaaa…0.kt', 'pkg/02Aaaaaaaaaaa…0.kt', 'pkg/03Aaaaaaaaaaa…0.kt']
+LITERAL candidate ['tree/…/…/…', 'tree/alpha/beta/filename', 'tree/lit…eral/na…me.kt', 'tree/litXeral/naYme.kt', 'tree/…{6}/quote"&.kt', 'tree/ümlaut /quote"&.kt'] {'fileComponentNotOne': 2, 'fileLooseNotOne': 2, 'fileLabels': 6, 'fileDuplicates': 0, 'pubComponentNotOne': 2, 'pubLooseNotOne': 2, 'pubLabels': 6, 'pubDuplicates': 0}

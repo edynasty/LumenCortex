@@ -1,0 +1,39 @@
+package toolset
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+// Expose only label choices; prefix feasibility and state accounting are independently evaluated
+// from the captured receipt and actual wire envelope in Python.
+func TestAstraSelectedLabels(t *testing.T) {
+	dir:=os.Getenv("CARBON_CAPTURE")
+	set,err:=New(Options{Workspace:os.Getenv("REVIEW_ADV_WS"),Policy:PolicyWorkspace,SessionID:"s-prefix"})
+	if err!=nil{t.Fatal(err)}
+	for _,grp:=range []struct{kind,out,in string}{{"corpus","corpus","in"},{"matrix","matrix","matrix-in"},{"sweep","sweep/out","sweep/in"},{"extra","extra","extra-in"},{"witness","witness","witness-in"}}{
+		ff,err:=filepath.Glob(filepath.Join(dir,grp.out,"*.json"));if err!=nil||len(ff)==0{t.Fatalf("%s: %v files, %v",grp.kind,len(ff),err)}
+		for _,f:=range ff{
+			filename:=filepath.Base(f)
+			payload,err:=os.ReadFile(f);if err!=nil{t.Fatal(err)}
+			var env struct{Overflow bool};if err=json.Unmarshal(payload,&env);err!=nil{t.Fatal(err)};if !env.Overflow{continue}
+			input,err:=os.ReadFile(filepath.Join(dir,grp.in,filename));if err!=nil{t.Fatal(err)}
+			var c rvCase; var ep string
+			if grp.kind=="corpus"{
+				var x struct{Result editing.Result;Receipt editing.CommitReceipt};if err=json.Unmarshal(input,&x);err!=nil{t.Fatal(err)}
+				c.Receipts,c.Results=x.Receipt.Files,x.Result.Files
+				m,err:=os.ReadFile(filepath.Join(dir,grp.in,filename[:len(filename)-5]+".meta"));if err!=nil{t.Fatal(err)}
+				var meta struct{Path string};if err=json.Unmarshal(m,&meta);err!=nil{t.Fatal(err)};ep=meta.Path
+			}else{if err=json.Unmarshal(input,&c);err!=nil{t.Fatal(err)};if c.EditErr!=nil{ep=c.EditErr.Path}}
+			index:=newFailurePathIndex();disp:=set.displayPaths()
+			for _,r:=range c.Receipts{index.add(r.Path,disp)};for _,r:=range c.Results{index.add(r.Path,disp)};if ep!=""{index.add(ep,disp)}
+			out:=map[string]string{};for _,r:=range c.Receipts{out[r.Path]=index.label(r.Path,0)}
+			b,err:=json.Marshal(out);if err!=nil{t.Fatal(err)};dest:=filepath.Join(dir,"selected",grp.kind)
+			if err=os.MkdirAll(dest,0700);err!=nil{t.Fatal(err)};if err=os.WriteFile(filepath.Join(dest,filename),b,0600);err!=nil{t.Fatal(err)}
+		}
+	}
+}

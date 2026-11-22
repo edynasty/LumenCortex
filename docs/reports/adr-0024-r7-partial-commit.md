@@ -533,3 +533,16 @@ For the differential, export trees with [setup_tree.sh](evidence/adr-0024-sol-re
   - Native Windows, Linux and FreeBSD were not tested here.
 
 Handoff status: `SOL_REV_01_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`. The implementer does not grant independent closure or merge authorization.
+
+## Final architecture audit of the Opus filename renderer
+
+**Original Opus verdict: REVISE.** The five SOL-REV-01 regressions are fixed. The original branch is not ready to merge: recovery can still identify the wrong file when a literal path contains `…`. There are also three reproducible ways to lose identifiable rows. The read-only audit was completed before opening `fix/adr-0024-sol-rev-01-astra-final-20261122`. Baseline: `52ac7d7df7d582bc2cb95e36618381cf30f7ab80`; production `6588f37a92c43fbc4ce908e07dcaffd747e7ba48`; tested tree `4eb9b082fa6a5c7d708e2428003ba75efb71d1be`. Nothing was written to the reviewed branch.
+
+| ID | Finding on Opus | Attribution |
+|---|---|---|
+| ASTRA-02, P2, CONFIRMED | A displayed `a/…/f.kt` resolves to the literal path and an omitted file under `a/b/`. A real `a/real…tail.kt` likewise matches `a/realXYZtail.kt`. This is a recovery identity defect, not a filesystem write. | Predates Opus. |
+| ASTRA-01, P3, CONFIRMED | The 40-file repeated-directory case retains 3 rows at 4,073 B. An anchored, counted component gap gives 31 unique rows at 4,093 B on the same envelope. The older 30-row result has 16 ambiguous rows. | Inherited from Sol. |
+| ASTRA-03, P3, CONFIRMED | The joint filename abbreviation chooses a split by unescaped byte length. With ampersands near the end, Opus keeps 20 failures at 3,989 B; an equally identifiable split keeps 29 at 4,059 B. | Introduced by Opus. |
+| ASTRA-04, P3, CONFIRMED | A first compact row requiring at least 4,390 B leaves `files:[]` despite a later identifiable failure fitting at 577 B with omissions. | Inherited from Sol. |
+
+The read-only replay and individual reproducers are documented in the [audit evidence](evidence/adr-0024-astra-final/README.md). The independent measurements apply to the renderer, not to transactions or production workloads. The code changes on this branch are limited to the confirmed findings; prior architecture and risk decisions remain in force.

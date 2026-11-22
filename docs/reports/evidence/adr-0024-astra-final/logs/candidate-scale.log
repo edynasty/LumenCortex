@@ -1,0 +1,19 @@
+HEAD 52ac7d7df7d582bc2cb95e36618381cf30f7ab80 editing.go b413e07aa8a22b072ece68fa1f27ff98a1973c74 GOMAXPROCS=2
+go test -overlay /private/tmp/lc-carbon-final.jQjddm/candidate/overlay-scale.json -timeout=30m -count=2 -run ^$ -bench ^BenchmarkReviewScale$/(longname_middle_n(100|1000|50000)|longname_(end|start)_n1000)$ -benchtime=1x -benchmem ./internal/toolset
+goos: darwin
+goarch: arm64
+pkg: github.com/edynasty/LumenCortex/internal/toolset
+cpu: Apple M1 Pro
+BenchmarkReviewScale/longname_end_n1000-2         	       1	  57050750 ns/op	 8025800 B/op	   57741 allocs/op
+BenchmarkReviewScale/longname_end_n1000-2         	       1	  30982000 ns/op	 8013000 B/op	   57433 allocs/op
+BenchmarkReviewScale/longname_middle_n100-2       	       1	   4766750 ns/op	 1517696 B/op	    8517 allocs/op
+BenchmarkReviewScale/longname_middle_n100-2       	       1	   4132583 ns/op	 1484928 B/op	    8516 allocs/op
+BenchmarkReviewScale/longname_middle_n1000-2      	       1	  38144292 ns/op	 9299368 B/op	   58264 allocs/op
+BenchmarkReviewScale/longname_middle_n1000-2      	       1	  36541375 ns/op	 9299128 B/op	   58262 allocs/op
+BenchmarkReviewScale/longname_middle_n50000-2     	       1	1652428125 ns/op	342456056 B/op	 2753591 allocs/op
+BenchmarkReviewScale/longname_middle_n50000-2     	       1	1515853917 ns/op	342436432 B/op	 2753578 allocs/op
+BenchmarkReviewScale/longname_start_n1000-2       	       1	  30896417 ns/op	 8023264 B/op	   57529 allocs/op
+BenchmarkReviewScale/longname_start_n1000-2       	       1	  29693709 ns/op	 7989016 B/op	   57509 allocs/op
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	4.298s
+exit 0

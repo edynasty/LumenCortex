@@ -1,0 +1,5 @@
+=== RUN   TestReviewRenderCases
+    zz_review_adv_render_test.go:36: rendered 5 cases
+--- PASS: TestReviewRenderCases (0.03s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	0.790s

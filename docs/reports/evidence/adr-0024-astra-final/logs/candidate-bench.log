@@ -1,0 +1,12 @@
+HEAD 52ac7d7df7d582bc2cb95e36618381cf30f7ab80 editing.go b413e07aa8a22b072ece68fa1f27ff98a1973c74 GOMAXPROCS=2
+go test -overlay /private/tmp/lc-carbon-final.jQjddm/candidate/overlay-bench.json -timeout=30m -count=3 -run ^$ -bench ^BenchmarkReviewCorpus$ -benchtime=1x -benchmem ./internal/toolset
+goos: darwin
+goarch: arm64
+pkg: github.com/edynasty/LumenCortex/internal/toolset
+cpu: Apple M1 Pro
+BenchmarkReviewCorpus-2   	       1	6584988292 ns/op	   9094765 cpu-ns/payload	   9627176 wall-ns/payload	2058919064 B/op	 6856258 allocs/op
+BenchmarkReviewCorpus-2   	       1	7736732416 ns/op	  10317981 cpu-ns/payload	  11311012 wall-ns/payload	2060162360 B/op	 6856306 allocs/op
+BenchmarkReviewCorpus-2   	       1	6806344667 ns/op	  10081126 cpu-ns/payload	   9950796 wall-ns/payload	2060681936 B/op	 6856271 allocs/op
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	23.307s
+exit 0
