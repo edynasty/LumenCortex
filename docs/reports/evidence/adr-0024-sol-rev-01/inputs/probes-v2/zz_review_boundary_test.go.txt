@@ -1,0 +1,54 @@
+package toolset
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+)
+
+// TestReviewBoundary finds the top-level error length at which an untruncated rich payload is
+// exactly 4096 bytes and checks the next byte forces a bounded, truncated result.
+func TestReviewBoundary(t *testing.T) {
+	set, err := New(Options{Workspace: os.Getenv("REVIEW_ADV_WS"), Policy: PolicyWorkspace, SessionID: "s-review-boundary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	render := func(pad, k int, esc bool) string {
+		paths := make([]string, 6)
+		for i := range paths {
+			paths[i] = fmt.Sprintf("pkg/%s/F%02d.kt", strings.Repeat("p", pad), i)
+		}
+		unit := "e"
+		if esc {
+			unit = "<"
+		}
+		return rvRender(set, rvMake("b", paths, nil, nil, "text:"+strings.Repeat(unit, k)))
+	}
+	for _, esc := range []bool{false, true} {
+		pad := 0
+		for p := 1; p < 400; p++ {
+			if s := render(p, 0, esc); len(s) >= 3300 && !strings.Contains(s, `"truncated":true`) {
+				pad = p
+				break
+			}
+		}
+		lastUntrunc, firstTrunc := -1, -1
+		for k := 0; k <= 1024; k++ {
+			s := render(pad, k, esc)
+			if len(s) > maxPartialPayloadBytes {
+				t.Fatalf("over budget at k=%d: %d", k, len(s))
+			}
+			if strings.Contains(s, `"truncated":true`) {
+				if firstTrunc < 0 {
+					firstTrunc = k
+					t.Logf("esc=%v pad=%d first truncated k=%d bytes=%d", esc, pad, k, len(s))
+				}
+			} else {
+				lastUntrunc = k
+			}
+		}
+		s := render(pad, lastUntrunc, esc)
+		t.Logf("esc=%v pad=%d last untruncated k=%d bytes=%d", esc, pad, lastUntrunc, len(s))
+	}
+}

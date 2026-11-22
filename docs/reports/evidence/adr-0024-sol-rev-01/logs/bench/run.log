@@ -1,0 +1,14 @@
+go version go1.26.5 darwin/arm64
+Darwin arm64
+Apple M1 Pro
+== corpus opus 2026-11-22T03:29:50Z
+exit=0
+== corpus sol 2026-11-22T03:36:20Z
+exit=0
+== corpus new 2026-11-22T03:38:23Z
+exit=0
+== scale sol 2026-11-22T03:40:26Z
+exit=0
+== scale new 2026-11-22T03:41:03Z
+exit=0
+BENCH_DONE

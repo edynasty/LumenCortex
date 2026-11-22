@@ -1,0 +1,23 @@
+cases=1180 problems=1
+  problem ('opus', 'J1_engine_redacted_same_raw', 'row fields')
+opus sizes {'min': 541, 'p50': 3823.0, 'p95': 4054, 'max': 4096, 'mean': 3781.41} {'dup_rows': 39, 'dup_cases': 7, 'strict_rows': 53, 'strict_cases': 9, 'lenient_rows': 53, 'lenient_cases': 9, 'loose_rows': 41, 'loose_cases': 5, 'pub_ambiguous_rows': 5, 'pub_ambiguous_cases': 5}
+sol sizes {'min': 488, 'p50': 3822.5, 'p95': 4052, 'max': 4096, 'mean': 3775.03} {'dup_rows': 0, 'dup_cases': 0, 'strict_rows': 2, 'strict_cases': 2, 'lenient_rows': 1, 'lenient_cases': 1, 'loose_rows': 1, 'loose_cases': 1, 'pub_ambiguous_rows': 0, 'pub_ambiguous_cases': 0}
+new sizes {'min': 488, 'p50': 3821.5, 'p95': 4053, 'max': 4096, 'mean': 3771.32} {'dup_rows': 0, 'dup_cases': 0, 'strict_rows': 2, 'strict_cases': 2, 'lenient_rows': 1, 'lenient_cases': 1, 'loose_rows': 1, 'loose_cases': 1, 'pub_ambiguous_rows': 0, 'pub_ambiguous_cases': 0}
+opus -> sol {'identical': 1128, 'more_rows': 22, 'fewer_rows': 12, 'more_failed': 23, 'fewer_failed': 11, 'new_ambiguity_loose': 0, 'new_ambiguity_lenient': 0, 'less_ambiguity_loose': 4}
+   fewer failed rows: B_repeated_dirs_40_pressure opus=30 (ambiguous 16) sol=3 (ambiguous 0)
+   fewer failed rows: H_combined_100 opus=30 (ambiguous 16) sol=8 (ambiguous 0)
+   fewer failed rows: J2_distinct_raw_same_redaction opus=3 (ambiguous 0) sol=1 (ambiguous 0)
+   fewer failed rows: J6_in_workspace_dir_named_like_redaction opus=3 (ambiguous 0) sol=1 (ambiguous 0)
+   fewer failed rows: K_three_1400B_basenames opus=3 (ambiguous 0) sol=2 (ambiguous 0)
+   fewer failed rows: size_longbase_f020 opus=20 (ambiguous 0) sol=10 (ambiguous 0)
+   fewer failed rows: size_longbase_f023 opus=21 (ambiguous 0) sol=10 (ambiguous 0)
+   fewer failed rows: size_longbase_f032 opus=20 (ambiguous 0) sol=10 (ambiguous 0)
+   fewer failed rows: size_longbase_f050 opus=20 (ambiguous 0) sol=10 (ambiguous 0)
+   fewer failed rows: size_longbase_f100 opus=20 (ambiguous 0) sol=10 (ambiguous 0)
+   fewer failed rows: size_longbase_f200 opus=20 (ambiguous 0) sol=10 (ambiguous 0)
+opus -> new {'identical': 1128, 'more_rows': 27, 'fewer_rows': 5, 'more_failed': 28, 'fewer_failed': 4, 'new_ambiguity_loose': 0, 'new_ambiguity_lenient': 0, 'less_ambiguity_loose': 4}
+   fewer failed rows: B_repeated_dirs_40_pressure opus=30 (ambiguous 16) new=3 (ambiguous 0)
+   fewer failed rows: H_combined_100 opus=30 (ambiguous 16) new=8 (ambiguous 0)
+   fewer failed rows: J2_distinct_raw_same_redaction opus=3 (ambiguous 0) new=1 (ambiguous 0)
+   fewer failed rows: J6_in_workspace_dir_named_like_redaction opus=3 (ambiguous 0) new=1 (ambiguous 0)
+sol -> new {'identical': 1170, 'more_rows': 10, 'fewer_rows': 0, 'more_failed': 10, 'fewer_failed': 0, 'new_ambiguity_loose': 0, 'new_ambiguity_lenient': 0, 'less_ambiguity_loose': 0}

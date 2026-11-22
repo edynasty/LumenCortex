@@ -1,0 +1,141 @@
+package toolset
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+var rvSink string
+
+type rvRenderFn func() string
+
+func rvLoadCorpus(b *testing.B, set *Set) []rvRenderFn {
+	in := os.Getenv("REVIEW_CORPUS_IN")
+	metas, _ := filepath.Glob(filepath.Join(in, "*.meta"))
+	var fns []rvRenderFn
+	for _, m := range metas {
+		name := strings.TrimSuffix(filepath.Base(m), ".meta")
+		var meta map[string]string
+		mraw, _ := os.ReadFile(m)
+		if err := json.Unmarshal(mraw, &meta); err != nil {
+			b.Fatal(err)
+		}
+		raw, err := os.ReadFile(filepath.Join(in, name+".json"))
+		if err != nil {
+			e := &editing.Error{Code: meta["code"], Path: meta["path"], Detail: "refused before any write", CurrentRev: "r9"}
+			fns = append(fns, func() string { tr, _ := set.editOutcome(e); return tr.Content })
+			continue
+		}
+		var fx struct {
+			Result  editing.Result        `json:"result"`
+			Receipt editing.CommitReceipt `json:"receipt"`
+		}
+		if err := json.Unmarshal(raw, &fx); err != nil {
+			b.Fatal(err)
+		}
+		res, rec := fx.Result, fx.Receipt
+		switch {
+		case meta["code"] != "":
+			diags := make([]editing.Diagnostic, 30)
+			for d := range diags {
+				diags[d] = editing.Diagnostic{Severity: editing.SeverityError, Code: editing.CodeType, Path: meta["path"], Line: d + 1, Text: strings.Repeat("cannot use x as y; ", 20)}
+			}
+			e := &editing.Error{Code: meta["code"], Path: meta["path"], Detail: "another writer changed the file during the write", CurrentRev: "r123", Diagnostics: diags}
+			fns = append(fns, func() string { return set.editFailure(res, rec, e).Content })
+		default:
+			var top error
+			switch meta["top"] {
+			case "input/output error":
+				top = syscall.EIO
+			case "context canceled":
+				top = context.Canceled
+			default:
+				top = fmt.Errorf("%s", meta["top"])
+			}
+			fns = append(fns, func() string { tr, _ := set.commitOutcome(res, rec, top); return tr.Content })
+		}
+	}
+	if len(fns) != 684 {
+		b.Fatalf("loaded %d corpus cases", len(fns))
+	}
+	return fns
+}
+
+func rvCPU() time.Duration {
+	var r syscall.Rusage
+	_ = syscall.Getrusage(syscall.RUSAGE_SELF, &r)
+	return time.Duration(r.Utime.Nano() + r.Stime.Nano())
+}
+
+// BenchmarkReviewCorpus renders all 684 corpus payloads per iteration with prebuilt inputs.
+func BenchmarkReviewCorpus(b *testing.B) {
+	set, err := New(Options{Workspace: b.TempDir(), Policy: PolicyWorkspace, SessionID: "s-review-bench"})
+	if err != nil {
+		b.Fatal(err)
+	}
+	fns := rvLoadCorpus(b, set)
+	b.ReportAllocs()
+	b.ResetTimer()
+	cpu0 := rvCPU()
+	for i := 0; i < b.N; i++ {
+		for _, f := range fns {
+			rvSink = f()
+		}
+	}
+	b.StopTimer()
+	n := float64(b.N * len(fns))
+	b.ReportMetric(float64(rvCPU()-cpu0)/n, "cpu-ns/payload")
+	b.ReportMetric(float64(b.Elapsed().Nanoseconds())/n, "wall-ns/payload")
+}
+
+// BenchmarkReviewScale renders one failed commit with n attempted files; the first 40 fail.
+func BenchmarkReviewScale(b *testing.B) {
+	for _, shape := range []string{"unique", "samebase", "samebase_longparents", "longname_end", "longname_middle", "longname_start"} {
+		for _, n := range []int{100, 1000, 10000, 50000} {
+			b.Run(fmt.Sprintf("%s_n%d", shape, n), func(b *testing.B) {
+				set, err := New(Options{Workspace: b.TempDir(), Policy: PolicyWorkspace, SessionID: "s-review-scale"})
+				if err != nil {
+					b.Fatal(err)
+				}
+				paths := make([]string, n)
+				for i := range paths {
+					switch shape {
+					case "unique":
+						paths[i] = fmt.Sprintf("src/pkg%03d/File%06d.kt", i%997, i)
+					case "samebase":
+						paths[i] = fmt.Sprintf("services/m%06d/src/main/resources/config/application.yaml", i)
+					case "samebase_longparents":
+						paths[i] = fmt.Sprintf("%s/m%06d/%s/application.yaml", strings.Repeat("p", 40), i, strings.Repeat("q", 40)+"/"+strings.Repeat("r", 40))
+					case "longname_end":
+						paths[i] = fmt.Sprintf("src/pkg%03d/%s%06d.kt", i%997, strings.Repeat("L", 120), i)
+					case "longname_middle":
+						paths[i] = fmt.Sprintf("src/pkg%03d/%s%06d%s.kt", i%997, strings.Repeat("L", 60), i, strings.Repeat("L", 60))
+					default:
+						paths[i] = fmt.Sprintf("src/pkg%03d/%06d%s.kt", i%997, i, strings.Repeat("L", 120))
+					}
+				}
+				c := rvMake("scale", paths[:40], nil, paths[40:], "eio")
+				rec := editing.CommitReceipt{DirtyFailure: true, State: c.State, Files: c.Receipts}
+				res := editing.Result{CommitState: c.State, Files: c.Results}
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					tr, _ := set.commitOutcome(res, rec, syscall.EIO)
+					rvSink = tr.Content
+				}
+				if len(rvSink) > maxPartialPayloadBytes {
+					b.Fatalf("over budget")
+				}
+			})
+		}
+	}
+}

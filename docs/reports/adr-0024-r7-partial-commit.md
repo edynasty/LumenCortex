@@ -408,3 +408,128 @@ The [replay tool](evidence/adr-0024-sol-01-02/replay.py) takes an existing scrat
 - **Carry forward:** PRE-01/PRE-02 OPEN P2; BASE-01/R6-07 (R5-06) OPEN/UNVERIFIED; R7-F01, CT-02, R3-02, R3-04, R2-03 and F-05–F-08 OPEN P3. R3-01 stays Owner-accepted. Native Windows, Linux and FreeBSD were not tested here. Owner specification approval and risk acceptance remain separate from remediation verification.
 
 Handoff status: `SOL_01_02_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`. The implementer does not grant independent closure or merge authorization.
+
+## SOL-01 / SOL-02 independent review and SOL-REV-01 remediation
+
+- **Status:** `SOL_REV_01_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW` on `fix/adr-0024-sol-rev-01-opus-20261122`, based on `3d85d06e31ae8b424b2ed3d0b9b94be70627e5ac`. Fix `6588f37a92c43fbc4ce908e07dcaffd747e7ba48`; tests `4eb9b082fa6a5c7d708e2428003ba75efb71d1be` (the tested Go tree). Independent review: Gemini 4 Carbon.
+- **Review of Sol's branch (Claude Opus 5.5, read-only):** `PASS_WITH_LIMITATIONS`. SOL-01 `PARTIALLY_CONFIRMED`, SOL-02 `CONFIRMED`; no branch-introduced P0/P1/P2. The review raised SOL-REV-01 (P3); finding owner: Opus. See the archived [review report](evidence/adr-0024-sol-rev-01/inputs/review/REVIEW-adr-0024-sol-01-02-independent-20261122.md); its probes and [digests](evidence/adr-0024-sol-rev-01/inputs/review/REVIEW-SHA256SUMS) are alongside.
+- **Scope:** the [production diff](evidence/adr-0024-sol-rev-01/production.diff) is confined to `internal/toolset/editing.go`; tests are in `internal/toolset/r7r2_sol_rev01_test.go`. No change to publication, receipts, mutation evidence, snapshots, SQLite, Resume, public APIs, row priority, the 4,096-byte limit or the specification. PRE-01 and PRE-02 are untouched.
+
+### Root cause
+
+Sol's compact labels shorten directories only: `makeLabel`, the readable tail check in `label` and `identifiable` all keep the filename whole. In the overflow form a long filename costs its full length on every row. Opus's tail labels cut long filenames while staying unique, so Opus kept more identifiable failed rows (review sweep: 21 vs 10 at 246-byte filenames).
+
+### Filename abbreviation
+
+Label grammar: a component that is exactly `…` stands for removed components; `…` inside a component stands for removed bytes of that component (`…abc`, `abc…kt`, `…abc…kt`). Only a filename longer than 32 bytes is abbreviated. Each form keeps at least 16 visible bytes and matches exactly one filename of the attempt; the cheapest encoded form wins, otherwise the whole name stays:
+
+1. `…suffix`: no other filename ends with the suffix. It is anchored at the end, so filename uniqueness suffices.
+2. `prefix…ext`: no other component, filename or directory, starts with the prefix; `ext` is a kept extension of at most 8 bytes.
+3. `prefix…suffix`: every other filename shares a shorter prefix or a shorter suffix than the kept ones, found in one sweep over (common prefix, common suffix) pairs; the prefix starts no directory component.
+4. `…window…ext`: the bytes around the first byte that the nearest sorted names do not share; no other component contains the window.
+
+Forms 3 and 4 run only when the cheaper forms are not already minimal and the attempt's components total at most 256 KiB. Prefix-based forms also avoid directory names, so a reader who lets `…` span `/` still finds one file. A label abbreviates the filename only when the filename is unique in the attempt (`dir/abbrev` or `…/abbrev`). A repeated filename keeps Sol's presence-based parent labels, now with the abbreviation; Sol's tail form keeps the whole filename because its directory adjacency would not survive the loose reading. Outside-workspace and literal-ellipsis paths are never abbreviated. A filename whose JSON exceeds the budget can now be shown abbreviated. Readable labels at the winning row count still use whole filenames.
+
+### RED → GREEN
+
+The five original cases, exactly as defined by the archived review probes (32 or 3 failed rows, bare `syscall.EIO`, dirty `partially_published` receipt, all rows failed):
+
+| Case | Opus | Sol (RED) | New (GREEN) | New bytes / omitted | New labels |
+|---|---:|---:|---:|---:|---|
+| `src/main/kotlin/pkg/` + `L`×70 + `NNN.kt` | 21 | 19 | **29** | 4,010 / 3 | `…/…LLLLLLLLLL000.kt` |
+| same, `L`×100 | 21 | 17 | **29** | 4,010 / 3 | `…/…LLLLLLLLLL000.kt` |
+| same, `L`×240 | 21 | 10 | **29** | 4,010 / 3 | `…/…LLLLLLLLLL000.kt` |
+| `NNN` + `L`×240 + `.kt` | 20 | 10 | **29** | 4,010 / 3 | `…/000LLLLLLLLLL….kt` |
+| three 1,404-byte filenames | 3 | 2 | **3** | 1,286 / 0 | `a/…nnnnnnnnnnnn1.kt` |
+
+Omissions are reported by state (for the 32-row cases: one each of `external_modification_detected`, `partially_modified`, `rollback_failed`). No label repeats or resolves to another file. The [five-case record](evidence/adr-0024-sol-rev-01/logs/five-cases.jsonl) holds the bytes, labels and per-state counts for all three renderers. The new tests fail on Sol's renderer and pass on the fix; see the [native log](evidence/adr-0024-sol-rev-01/logs/native.log).
+
+### Regression matrix
+
+`r7r2_sol_rev01_test.go` covers the five floors and a start/middle/end sweep at eleven lengths. Every sweep case meets the higher of Opus's and Sol's measured row counts. It also covers:
+
+- identical long prefixes and suffixes;
+- one long filename in 32 modules and in two siblings;
+- Unicode filenames and filenames with spaces;
+- long names under 190-byte directories, and repeated directories at different depths;
+- case variants;
+- a directory that shares a filename's prefix;
+- pathless cancellation;
+- mixed states, including `failed_before_write` and `unsupported` rows without error text;
+- the exact 4,096-byte boundary;
+- 200 failed rows;
+- an omitted file that shares the shown file's long suffix;
+- a filename whose JSON exceeds the budget;
+- each abbreviation form, including the whole-name fallback and a directory named like the filename.
+
+Each case asserts:
+
+- attempted and failed counts, exact retained rows, and omissions by state;
+- unique labels that resolve to the expected row under both the component and loose readings;
+- error classification;
+- no revision or hash on unverified rows, and unchanged inputs;
+- for overflow payloads, a maximal prefix.
+
+### Differential evidence
+
+| Set | Comparison | Result |
+|---|---|---|
+| 684-case corpus | Sol → new | 684 byte-identical (longest corpus filename: 27 bytes) |
+| 684-case corpus | Opus → new | 509 identical, 106 more rows, 0 fewer; no duplicate or ambiguous label |
+| 1,180-case review matrix | Sol → new | 1,170 identical, 10 more failed rows, 0 fewer, no new ambiguity |
+| 1,180-case review matrix | Opus → new | 28 more failed rows, 4 fewer |
+| 33-case filename sweep | new vs Opus, Sol | more rows than Opus in all 33; at least Sol's rows in all 33 (30 more) |
+
+In the four matrix cases with fewer failed rows than Opus, Opus's extra rows were 16 ambiguous labels (`B_repeated_dirs_40_pressure`, `H_combined_100`) or duplicate redacted labels (`J2`, `J6`). That is unchanged SOL-02 behavior. The only ambiguous label in all three renderers is a literal directory named `…` (`J5`), which is inherent to the notation. A maximal-prefix oracle passes every overflow payload: 348 in the corpus and 43 in the matrix. See [corpus](evidence/adr-0024-sol-rev-01/logs/corpus-compare3.log), [matrix](evidence/adr-0024-sol-rev-01/logs/matrix-compare3.log) and [sweep](evidence/adr-0024-sol-rev-01/logs/sweep-compare3.log) comparisons, the [new](evidence/adr-0024-sol-rev-01/logs/matrix-check-new.log) and [Sol](evidence/adr-0024-sol-rev-01/logs/matrix-check-sol.log) matrix checks, and per-case [tables](evidence/adr-0024-sol-rev-01/tables/).
+
+### Performance
+
+| Renderer (684 corpus payloads) | Median CPU ms/payload | MiB/payload | Allocations/payload |
+|---|---:|---:|---:|
+| Opus | 28.20 | 8.15 | 32,196 |
+| Sol | 8.64 | 2.87 | 10,014 |
+| New | 8.68 | 2.87 | 10,024 |
+
+Inputs are prebuilt. Each sample renders all 684 payloads three times; there are five samples per renderer. Runs used `GOMAXPROCS=2` on an idle Apple M1 Pro (Darwin arm64, Go 1.26.5). CPU is process user + system time; allocations are per-payload means. No corpus filename exceeds 32 bytes, so the corpus cost of the change is its length check.
+
+At scale (one failed render, first 40 rows failed, median of three runs), short filenames stay within ±7% of Sol at 100 to 50,000 attempted files. With 126-byte filenames, abbreviation adds:
+
+- 2–3% when the ID is at the end;
+- 6–10% when it is at the start;
+- 5–26% when it is in the middle: +0.9 ms at 100 files and +7.2 ms at 1,000.
+
+The window check scans at most 256 KiB of component bytes and is skipped above that. Cost stays linear in the number of attempted files, and allocations rise by at most about 1,200 per render. Raw logs: [corpus](evidence/adr-0024-sol-rev-01/logs/bench/) and scale (`scale3-*.log`).
+
+### Validation
+
+| Check (Darwin arm64, HEAD `4eb9b082fa6a5c7d708e2428003ba75efb71d1be`) | Result |
+|---|---|
+| `gofmt -l` on both changed Go files; `go build ./...`; `go vet ./...` | Exit 0 each |
+| `go test -count=1 ./internal/toolset`; `go test -race -count=1 ./internal/toolset` | Exit 0 each |
+| `go test -count=1 -v -run '^TestSOLREV01' ./internal/toolset` (GREEN) | Exit 0; 69 PASS lines |
+| Same tests with Sol's `editing.go` overlaid (RED) | Exit 1 as expected; 52 FAIL lines across floors, sweep, shapes, cancellation, 200 rows, shared suffix and over-budget JSON. The boundary and mixed-state cases also pass at baseline and act as regression guards |
+| SOL-01/SOL-02 and R7R2 focused tests | Exit 0; 40 PASS lines |
+| `bash docs/reports/evidence/adr-0024-r7r2-final/verify.sh carbon-probe` | Exit 0; 17/17 |
+| R7/R201/R5/R6 race run over `internal/editing`, `toolset`, `agent`, `session` | Exit 0; 149 PASS lines, including cold Resume and the receipt seal |
+| `go test -timeout=45m -count=1 ./...` | Exit 0; 43 packages `ok`, 6 without tests; `runtime` took 737 s |
+| `git status` before and after | Clean both times |
+
+The [native log](evidence/adr-0024-sol-rev-01/logs/native.log) records the commands, exit codes and the HEAD blob IDs of both changed Go files; the [RED test file](evidence/adr-0024-sol-rev-01/inputs/red-test-file.go.txt) is archived. No native Windows, Linux or FreeBSD run took place.
+
+### Reproduction and handoff
+
+From Core, run `go test -count=1 -v -run '^TestSOLREV01' ./internal/toolset`. For RED, replace only `internal/toolset/editing.go` with the file at `3d85d06e31ae8b424b2ed3d0b9b94be70627e5ac` through a Go build overlay. Drop `TestSOLREV01ShortBaseForms` from that run, since it calls the new helper.
+
+For the differential, export trees with [setup_tree.sh](evidence/adr-0024-sol-rev-01/scripts/setup_tree.sh) (`opus` = `10f135d`, `sol` = `fc107ba`, new = `4eb9b08`). Then run the v2 probes with `REVIEW_DUMP_DIR`/`REVIEW_INPUT_DIR` (corpus), `REVIEW_ADV_IN`/`REVIEW_ADV_OUT` (matrix) or `REVIEW_SWEEP_OUT`/`REVIEW_VARIANT` (sweep). Compare with [compare3.py](evidence/adr-0024-sol-rev-01/scripts/compare3.py), which uses the grammar in [labelgrammar.py](evidence/adr-0024-sol-rev-01/scripts/labelgrammar.py). The matrix inputs are generated by the archived probes. Run `shasum -a 256 -c docs/reports/evidence/adr-0024-sol-rev-01/SHA256SUMS` from Core.
+
+- **SOL-REV-01 (P3):** `FIXED_BY_IMPLEMENTER / SELF_VERIFIED / PENDING_INDEPENDENT_REVIEW`.
+- **Carried forward:**
+  - PRE-01 and PRE-02 remain OPEN P2.
+  - BASE-01/R6-07 (R5-06) remain OPEN/UNVERIFIED.
+  - R7-F01, CT-02, R3-02, R3-04, R2-03 and F-05–F-08 remain OPEN P3.
+  - R3-01 stays Owner-accepted.
+  - The review's SOL-01/SOL-02 limits remain for Owner decision. Directory distinctions that depend only on component order fall back to whole paths, and a literal `…` path is inherently ambiguous.
+  - The specification (`v0.4-rc3.8` draft 2, `4a56762c…`) is unchanged and `PENDING_OWNER_APPROVAL`.
+  - Native Windows, Linux and FreeBSD were not tested here.
+
+Handoff status: `SOL_REV_01_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`. The implementer does not grant independent closure or merge authorization.

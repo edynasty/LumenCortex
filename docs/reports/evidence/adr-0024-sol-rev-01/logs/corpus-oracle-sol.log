@@ -1,0 +1,5 @@
+=== RUN   TestReviewCorpusOracle
+    zz_review_corpus_oracle_test.go:69: corpus receipt cases checked=666 reconstruction_mismatches=0 needing_attention=0
+--- PASS: TestReviewCorpusOracle (68.40s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	69.063s

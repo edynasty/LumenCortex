@@ -1,0 +1,46 @@
+package toolset
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// TestReviewBasenameSweep renders 32 failed rows whose long basenames differ at the start, middle or end.
+func TestReviewBasenameSweep(t *testing.T) {
+	out := os.Getenv("REVIEW_SWEEP_OUT")
+	if out == "" {
+		t.Skip("REVIEW_SWEEP_OUT not set")
+	}
+	set, err := New(Options{Workspace: os.Getenv("REVIEW_ADV_WS"), Policy: PolicyWorkspace, SessionID: "s-review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []int{20, 40, 50, 60, 70, 80, 100, 120, 160, 200, 240} {
+		for _, where := range []string{"start", "middle", "end"} {
+			paths := make([]string, 32)
+			for i := range paths {
+				id := fmt.Sprintf("%03d", i)
+				var base string
+				switch where {
+				case "start":
+					base = id + strings.Repeat("L", k) + ".kt"
+				case "middle":
+					base = strings.Repeat("L", k/2) + id + strings.Repeat("L", k-k/2) + ".kt"
+				default:
+					base = strings.Repeat("L", k) + id + ".kt"
+				}
+				paths[i] = "src/main/kotlin/pkg/" + base
+			}
+			c := rvMake(fmt.Sprintf("sweep_%s_k%03d", where, k), paths, nil, nil, "eio")
+			if err := rvWriteCase(filepath.Join(out, "in"), c); err != nil {
+				t.Fatal(err)
+			}
+			if err := rvWrite(filepath.Join(out, os.Getenv("REVIEW_VARIANT")), c.Name, rvRender(set, c)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}

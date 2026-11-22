@@ -1,0 +1,37 @@
+package toolset
+
+// Renders every captured review case with this tree's renderer (used for the Opus comparison).
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestReviewRenderCases(t *testing.T) {
+	in, out := os.Getenv("REVIEW_ADV_IN"), os.Getenv("REVIEW_ADV_OUT")
+	if in == "" || out == "" {
+		t.Skip("REVIEW_ADV_IN/OUT not set")
+	}
+	set, err := New(Options{Workspace: os.Getenv("REVIEW_ADV_WS"), Policy: PolicyWorkspace, SessionID: "s-review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := filepath.Glob(filepath.Join(in, "*.json"))
+	for _, e := range entries {
+		raw, err := os.ReadFile(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var c rvCase
+		if err := json.Unmarshal(raw, &c); err != nil {
+			t.Fatal(err)
+		}
+		if err := rvWrite(out, strings.TrimSuffix(filepath.Base(e), ".json"), rvRender(set, c)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Logf("rendered %d cases", len(entries))
+}

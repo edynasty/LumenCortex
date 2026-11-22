@@ -1,0 +1,138 @@
+package toolset
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+func rvCases() []rvCase {
+	var cs []rvCase
+	add := func(c rvCase) { cs = append(cs, c) }
+	d190 := strings.Repeat("d", 190) + "/" + strings.Repeat("e", 190) + "/" + strings.Repeat("f", 190)
+	deep := "src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/"
+	for _, n := range []int{1, 5, 20, 23, 32, 50, 100, 200} {
+		add(rvMake(fmt.Sprintf("size_deep_unique_f%03d", n), rvSeq(deep+"Adapter%03d.kt", n), nil, []string{deep + "Untouched.kt"}, "eio"))
+		add(rvMake(fmt.Sprintf("size_samebase_modules_f%03d", n), rvSeq("services/platform/module%03d/src/main/resources/config/application.yaml", n), nil, nil, "eio"))
+		add(rvMake(fmt.Sprintf("size_samebase_longdirs_f%03d", n), rvSeq("m%03d/"+d190+"/config.yaml", n), nil, nil, "eio"))
+		add(rvMake(fmt.Sprintf("size_middle_distinct_f%03d", n), rvSeq(strings.Repeat("shared-prefix/", 12)+"v%03d/"+strings.Repeat("shared-suffix/", 12)+"Main.kt", n), nil, nil, "eio"))
+		add(rvMake(fmt.Sprintf("size_mixed_f%03d_v10_u10", n), rvSeq(deep+"Adapter%03d.kt", n), rvSeq(deep+"Verified%03d.kt", 10), rvSeq(deep+"Untouched%03d.kt", 10), "eio"))
+		add(rvMake(fmt.Sprintf("size_longbase_f%03d", n), rvSeq("pkg/%03d"+strings.Repeat("L", 240)+".kt", n), nil, nil, "eio"))
+	}
+	// A. same basename
+	a := []string{"module00/config.yaml", "module01/config.yaml", "module02/config.yaml", "module03/config.yaml", "module04/config.yaml"}
+	add(rvMake("A_same_basename", a, nil, nil, "eio"))
+	var aP []string
+	for _, p := range a {
+		aP = append(aP, strings.Replace(p, "/", "/"+d190+"/", 1))
+	}
+	add(rvMake("A_same_basename_pressure", aP, nil, nil, "eio"))
+	// B. repeated directory names at different depths
+	b := []string{"alpha/common/f.kt", "alpha/common/deep/f.kt", "beta/common/f.kt", "beta/common/deep/f.kt"}
+	add(rvMake("B_repeated_dirs", b, nil, nil, "eio"))
+	fill := strings.Repeat(strings.Repeat("m", 170)+"/", 6)
+	bP := []string{"alpha/" + fill + "common/f.kt", "alpha/" + fill + "common/deep/" + fill + "common/f.kt", "beta/" + fill + "common/f.kt", "beta/" + fill + "common/deep/" + fill + "common/f.kt"}
+	add(rvMake("B_repeated_dirs_pressure", bP, nil, nil, "eio"))
+	var bMany []string
+	for i := 0; i < 10; i++ {
+		r := fmt.Sprintf("r%02d", i)
+		bMany = append(bMany, r+"/"+fill+"common/f.kt", r+"/"+fill+"common/deep/"+fill+"common/f.kt", r+"/x/"+fill+"common/f.kt", r+"/common/"+fill+"deep/f.kt")
+	}
+	add(rvMake("B_repeated_dirs_40_pressure", bMany, nil, nil, "eio"))
+	// C. long distinguishing component (> 48 bytes), differing at start, middle and end
+	x60 := strings.Repeat("x", 60)
+	add(rvMake("C_long_component_differs_at_end", []string{"shared/" + x60 + "-alpha/" + fill + "f.kt", "shared/" + x60 + "-beta/" + fill + "f.kt", "shared/" + x60 + "-gamma/" + fill + "f.kt"}, nil, nil, "eio"))
+	add(rvMake("C_long_component_differs_at_start", []string{"shared/alpha-" + x60 + "/" + fill + "f.kt", "shared/beta-" + x60 + "/" + fill + "f.kt", "shared/gamma-" + x60 + "/" + fill + "f.kt"}, nil, nil, "eio"))
+	add(rvMake("C_long_component_differs_in_middle", []string{"shared/" + x60 + "A" + x60 + "/" + fill + "f.kt", "shared/" + x60 + "B" + x60 + "/" + fill + "f.kt", "shared/" + x60 + "C" + x60 + "/" + fill + "f.kt"}, nil, nil, "eio"))
+	// D. common prefix overlapping the retained tail (old last >= keep guard)
+	add(rvMake("D_prefix_overlaps_tail", []string{"alpha/common/f.kt", "alpha/common/deep/alpha/common/f.kt", "beta/common/f.kt", "beta/common/deep/beta/common/f.kt"}, nil, nil, "eio"))
+	add(rvMake("D_prefix_overlaps_tail_pressure", []string{"alpha/" + fill + "common/f.kt", "alpha/" + fill + "common/deep/alpha/" + fill + "common/f.kt", "beta/" + fill + "common/f.kt", "beta/" + fill + "common/deep/beta/" + fill + "common/f.kt"}, nil, nil, "eio"))
+	// E. long common prefixes and suffixes, 40 rows
+	add(rvMake("E_long_prefix_suffix_40", rvSeq(strings.Repeat("p/", 60)+"mod%02d/"+strings.Repeat("s/", 60)+"Main.kt", 40), nil, nil, "eio"))
+	// F. Unicode, spaces and JSON escaping
+	uni := strings.Repeat("目录 甲/", 30)
+	add(rvMake("F_unicode_spaces", []string{uni + "模块 一/配置 文件.yaml", uni + "模块 二/配置 文件.yaml", uni + "模块 三/配置 文件.yaml", uni + "e\u0301 combin/🔥 file.kt", uni + "e\u0301 combin/🔥 fïle.kt"}, nil, nil, "eio"))
+	esc := strings.Repeat("a&b<c>\"q\\/", 40)
+	add(rvMake("F_json_escaping", []string{esc + "x\t1/f.kt", esc + "x\t2/f.kt", esc + "x\u2028/f.kt", esc + "y/f<1>.kt"}, nil, nil, "eio"))
+	var fMany []string
+	for i := 0; i < 60; i++ {
+		fMany = append(fMany, fmt.Sprintf("%s模块 %02d/配置 文件.yaml", uni, i))
+	}
+	add(rvMake("F_unicode_60_pressure", fMany, nil, nil, "eio"))
+	// G. similar basenames
+	g := []string{"auth/config.yaml", "billing/config.yaml", "auth/config.yaml.bak", "auth/config.yaml.template"}
+	add(rvMake("G_similar_basenames", g, nil, nil, "eio"))
+	var gP []string
+	for _, p := range g {
+		gP = append(gP, d190+"/"+p)
+	}
+	add(rvMake("G_similar_basenames_pressure", gP, nil, nil, "eio"))
+	// H. combined pressure: 100 rows mixing the shapes above
+	var h []string
+	for i := 0; i < 25; i++ {
+		h = append(h, fmt.Sprintf("svc%02d/%sconfig.yaml", i, fill), fmt.Sprintf("svc%02d/%scommon/deep/%sconfig.yaml", i, fill, fill), fmt.Sprintf("svc%02d/auth/%sconfig.yaml.bak", i, fill), fmt.Sprintf("%ssvc%02d/Main.kt", fill, i))
+	}
+	add(rvMake("H_combined_100", h, rvSeq(deep+"V%02d.kt", 5), rvSeq(deep+"U%02d.kt", 5), "eio"))
+	// I. letter case is significant (no global lowercasing); physical aliases are refused earlier
+	i := []string{"src/Config.kt", "src/config.kt", "SRC/config.kt", "src/CONFIG.kt"}
+	add(rvMake("I_case_variants", i, nil, nil, "eio"))
+	var iP []string
+	for _, p := range i {
+		iP = append(iP, d190+"/"+p)
+	}
+	add(rvMake("I_case_variants_pressure", iP, nil, nil, "eio"))
+	// J. omitted rows whose identity could collide with displayed rows
+	j1 := rvMake("J1_engine_redacted_same_raw", []string{"<outside-workspace>/key.txt"}, nil, []string{"<outside-workspace>/key.txt", "ok/a.txt"}, "text:path escapes workspace: ../b/key.txt")
+	j1.Receipts[0].PublishState, j1.Results[0].PublishState = editing.PublishFailedBeforeWrite, editing.PublishFailedBeforeWrite
+	j1.Receipts[0].Published, j1.Results[0].Published, j1.Receipts[0].Wrote = false, false, false
+	j1.State, j1.Dirty = editing.CommitStatePrePublishFailure, false
+	add(j1)
+	add(rvMake("J2_distinct_raw_same_redaction", []string{"../unrelated-a/key.txt", "../unrelated-b/key.txt", "ws/key.txt"}, nil, nil, "eio"))
+	var j3 []string
+	j3 = append(j3, strings.Repeat("z", 60)+"/common/f.kt")
+	for k := 0; k < 60; k++ {
+		j3 = append(j3, fmt.Sprintf("filler/%s%02d.kt", strings.Repeat("q", 30), k))
+	}
+	j3 = append(j3, "common/f.kt")
+	add(rvMake("J3_zero_gap_tail_vs_omitted_literal", j3, nil, nil, "eio"))
+	var j4 []string
+	j4 = append(j4, "a/b/"+strings.Repeat("w", 60)+"/f.kt")
+	for k := 0; k < 60; k++ {
+		j4 = append(j4, fmt.Sprintf("filler/%s%02d.kt", strings.Repeat("q", 30), k))
+	}
+	j4 = append(j4, "a/…/f.kt")
+	add(rvMake("J4_literal_ellipsis_omitted", j4, nil, nil, "eio"))
+	j5 := append([]string{"a/…/f.kt"}, j4[1:61]...)
+	j5 = append(j5, "a/b/"+strings.Repeat("w", 60)+"/f.kt")
+	add(rvMake("J5_literal_ellipsis_shown", j5, nil, nil, "eio"))
+	add(rvMake("J6_in_workspace_dir_named_like_redaction", []string{"<outside-workspace>/key.txt", "../x/key.txt", "ws/other.txt"}, nil, nil, "eio"))
+	// K. extremely long single path, and three paths that cannot all be shown
+	long := strings.Repeat(strings.Repeat("k", 195)+"/", 20)
+	add(rvMake("K_single_4000B_path", []string{long + "f.kt"}, nil, nil, "eio"))
+	add(rvMake("K_three_1400B_basenames", []string{"a/" + strings.Repeat("n", 1400) + "1.kt", "b/" + strings.Repeat("n", 1400) + "2.kt", "c/" + strings.Repeat("n", 1400) + "3.kt"}, nil, nil, "eio"))
+	// L. mixed states, including explicit failure states without error text
+	l := rvMake("L_mixed_states", rvSeq(deep+"F%02d.kt", 8), rvSeq(deep+"V%02d.kt", 6), rvSeq(deep+"U%02d.kt", 6), "eio")
+	for k, st := range []editing.PublishState{editing.PublishFailedBeforeWrite, editing.PublishUnsupported, editing.PublishRolledBack} {
+		p := fmt.Sprintf("%sX%02d.kt", deep, k)
+		l.Receipts = append(l.Receipts, editing.FileCommitReceipt{Path: p, PublishState: st, RolledBack: st == editing.PublishRolledBack})
+		l.Results = append(l.Results, editing.FileResult{Path: p, PublishState: st})
+	}
+	add(l)
+	// M. pathless cancellation and errno classification
+	add(rvMake("M_pathless_cancel_rows", rvSeq(deep+"C%02d.kt", 30), nil, rvSeq(deep+"U%02d.kt", 3), "canceled"))
+	add(rvMake("M_bare_eio_one_row", []string{deep + "Only.kt"}, nil, nil, "eio"))
+	// N. edit error naming a failed path, with many diagnostics
+	n := rvMake("N_editerr_diagnostics", rvSeq("m%03d/"+d190+"/config.yaml", 6), rvSeq(deep+"V%02d.kt", 3), rvSeq(deep+"U%02d.kt", 2), "none")
+	diags := make([]editing.Diagnostic, 30)
+	for k := range diags {
+		diags[k] = editing.Diagnostic{Severity: editing.SeverityError, Code: editing.CodeType, Path: n.Receipts[0].Path, Line: k + 1, Text: strings.Repeat("cannot use x as y; ", 20)}
+	}
+	n.EditErr = &editing.Error{Code: editing.CodeConcurrentWrite, Path: n.Receipts[0].Path, Detail: "another writer changed the file", CurrentRev: "r1", Diagnostics: diags}
+	add(n)
+	// O. top-level error sized so that the rich payload is just below, at and above the limit
+	for k := 0; k <= 1100; k++ {
+		add(rvMake(fmt.Sprintf("O_boundary_err%04d", k), rvSeq("pkg/sub/File%02d.kt", 12), rvSeq("pkg/sub/Ver%02d.kt", 2), nil, "text:"+strings.Repeat("e", k)))
+	}
+	return cs
+}

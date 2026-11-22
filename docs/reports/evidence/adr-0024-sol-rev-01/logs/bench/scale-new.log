@@ -1,0 +1,30 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/edynasty/LumenCortex/internal/toolset
+cpu: Apple M1 Pro
+BenchmarkReviewScale/unique_n100-2         	       2	   2848396 ns/op	 1098684 B/op	    7539 allocs/op
+BenchmarkReviewScale/unique_n1000-2        	       2	  25303416 ns/op	 6727232 B/op	   57131 allocs/op
+BenchmarkReviewScale/unique_n10000-2       	       2	 234743896 ns/op	60999080 B/op	  552386 allocs/op
+BenchmarkReviewScale/unique_n50000-2       	       2	1175868520 ns/op	294434616 B/op	 2753258 allocs/op
+BenchmarkReviewScale/samebase_n100-2       	       2	   4436062 ns/op	 1336756 B/op	    9161 allocs/op
+BenchmarkReviewScale/samebase_n1000-2      	       2	  49695334 ns/op	 8884324 B/op	   72273 allocs/op
+BenchmarkReviewScale/samebase_n10000-2     	       2	 346365084 ns/op	81961752 B/op	  702595 allocs/op
+BenchmarkReviewScale/samebase_n50000-2     	       2	1728238354 ns/op	400627836 B/op	 3503671 allocs/op
+BenchmarkReviewScale/samebase_longparents_n100-2         	       2	   4574416 ns/op	 1467540 B/op	    8506 allocs/op
+BenchmarkReviewScale/samebase_longparents_n1000-2        	       2	  36314854 ns/op	 9227328 B/op	   65339 allocs/op
+BenchmarkReviewScale/samebase_longparents_n10000-2       	       2	 353096000 ns/op	83669524 B/op	  632651 allocs/op
+BenchmarkReviewScale/samebase_longparents_n50000-2       	       2	1845872625 ns/op	408379240 B/op	 3153714 allocs/op
+BenchmarkReviewScale/longname_end_n100-2                 	       2	   3860438 ns/op	 1345852 B/op	    7806 allocs/op
+BenchmarkReviewScale/longname_end_n1000-2                	       2	  30831020 ns/op	 7997020 B/op	   57425 allocs/op
+BenchmarkReviewScale/longname_end_n10000-2               	       2	 332131000 ns/op	70110040 B/op	  552711 allocs/op
+BenchmarkReviewScale/longname_end_n50000-2               	       2	1463482167 ns/op	340863376 B/op	 2753695 allocs/op
+BenchmarkReviewScale/longname_middle_n100-2              	       2	   4574334 ns/op	 1484924 B/op	    8516 allocs/op
+BenchmarkReviewScale/longname_middle_n1000-2             	       2	  35826312 ns/op	 9292536 B/op	   58264 allocs/op
+BenchmarkReviewScale/longname_middle_n10000-2            	       2	 279030458 ns/op	70413016 B/op	  552602 allocs/op
+BenchmarkReviewScale/longname_middle_n50000-2            	       2	1416241396 ns/op	341636584 B/op	 2753579 allocs/op
+BenchmarkReviewScale/longname_start_n100-2               	       2	   3892375 ns/op	 1389676 B/op	    7907 allocs/op
+BenchmarkReviewScale/longname_start_n1000-2              	       2	  29346958 ns/op	 7989280 B/op	   57511 allocs/op
+BenchmarkReviewScale/longname_start_n10000-2             	       2	 290458666 ns/op	70279464 B/op	  552804 allocs/op
+BenchmarkReviewScale/longname_start_n50000-2             	       2	1475444270 ns/op	341672744 B/op	 2753788 allocs/op
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	34.496s

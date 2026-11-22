@@ -1,0 +1,131 @@
+package toolset
+
+// Differential corpus for the R7R2-NEW-01 audit (not committed): writes every rendered failure payload
+// to $OPUS_DUMP_DIR so two production versions can be compared byte for byte.
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+
+	"github.com/edynasty/LumenCortex/internal/editing"
+)
+
+func TestReviewCorpusDump(t *testing.T) {
+	dir := os.Getenv("REVIEW_DUMP_DIR")
+	inDir := os.Getenv("REVIEW_INPUT_DIR")
+	if dir == "" {
+		t.Skip("OPUS_DUMP_DIR not set")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	set, err := New(Options{Workspace: t.TempDir(), Policy: PolicyWorkspace, SessionID: "s-opus-dump"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := opusFailedStates()
+	dump := func(name, content string) {
+		if len(content) > maxPartialPayloadBytes {
+			t.Errorf("%s: %d bytes over the bound", name, len(content))
+		}
+		if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte(content+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// commit renders nFailed failed rows, nVerified verified rows and nUntouched untouched rows.
+	commit := func(name string, pathOf func(kind string, i int) string, nFailed, nVerified, nUntouched int, top error, editErr *editing.Error) {
+		var files []editing.FileCommitReceipt
+		var results []editing.FileResult
+		for i := 0; i < nVerified; i++ {
+			p := pathOf("verified", i)
+			files = append(files, editing.FileCommitReceipt{Path: p, PublishState: editing.PublishSucceededAndVerified, Published: true, Verified: true, Wrote: true, NewSHA256: "sha256:" + strings.Repeat("ab", 32)})
+			results = append(results, editing.FileResult{Path: p, PublishState: editing.PublishSucceededAndVerified, Published: true, Verified: true, NewRev: fmt.Sprintf("rev%05d", i)})
+		}
+		for i := 0; i < nFailed; i++ {
+			p := pathOf("failed", i)
+			st := states[i%len(states)]
+			files = append(files, editing.FileCommitReceipt{Path: p, PublishState: st, Published: true, Wrote: true, Error: "input/output error on " + p})
+			results = append(results, editing.FileResult{Path: p, PublishState: st, Published: true, Error: "input/output error on " + p})
+		}
+		for i := 0; i < nUntouched; i++ {
+			p := pathOf("untouched", i)
+			files = append(files, editing.FileCommitReceipt{Path: p, PublishState: editing.PublishNotAttempted})
+			results = append(results, editing.FileResult{Path: p, PublishState: editing.PublishNotAttempted})
+		}
+		rec := editing.CommitReceipt{DirtyFailure: true, State: editing.CommitStatePartiallyPublished, Files: files}
+		res := editing.Result{CommitState: editing.CommitStatePartiallyPublished, Files: results}
+		if inDir != "" {
+			topText, errCode, errPath := "", "", ""
+			if top != nil { topText = top.Error() }
+			if editErr != nil { errCode, errPath = editErr.Code, editErr.Path }
+			b, err := json.MarshalIndent(struct {
+				Result  editing.Result        `json:"result"`
+				Receipt editing.CommitReceipt `json:"receipt"`
+			}{res, rec}, "", "  ")
+			if err != nil { t.Fatal(err) }
+			if err := os.WriteFile(filepath.Join(inDir, name+".json"), append(b, '\n'), 0o644); err != nil { t.Fatal(err) }
+			meta, _ := json.Marshal(map[string]string{"top": topText, "code": errCode, "path": errPath})
+			if err := os.WriteFile(filepath.Join(inDir, name+".meta"), meta, 0o644); err != nil { t.Fatal(err) }
+		}
+		var out string
+		if editErr != nil {
+			out = set.editFailure(res, rec, editErr).Content
+		} else {
+			tr, _ := set.commitOutcome(res, rec, top)
+			out = tr.Content
+		}
+		dump(name, out)
+	}
+
+	shapes := map[string]func(kind string, i int) string{
+		"short":      func(kind string, i int) string { return fmt.Sprintf("internal/pkg/%s_%03d.go", kind, i) },
+		"deep":       func(kind string, i int) string { return fmt.Sprintf("src/main/kotlin/com/example/platform/payments/gateway/adapters/stripe/%s%03d.kt", kind, i) },
+		"longdir":    func(kind string, i int) string { return fmt.Sprintf("%s/%s%03d.kt", strings.TrimSuffix(strings.Repeat("pkg/", 195), "/"), kind, i) },
+		"longdir190": func(kind string, i int) string { return fmt.Sprintf("%s/%s/%s/%s/%s%03d.kt", strings.Repeat("d", 190), strings.Repeat("e", 190), strings.Repeat("f", 190), strings.Repeat("g", 190), kind, i) },
+		"unicode":    func(kind string, i int) string { return fmt.Sprintf("%s%s_%03d_支付🔥.kt", strings.Repeat("支付网关适配器/", 40), kind, i) },
+		"escape":     func(kind string, i int) string { return fmt.Sprintf("%s%s&%03d.kt", strings.Repeat("a&b<c>/", 110), kind, i) },
+		"spaces":     func(kind string, i int) string { return fmt.Sprintf("%s%s file %03d.kt", strings.Repeat("One Drive - Acme Corp/", 30), kind, i) },
+		"samename_head": func(kind string, i int) string {
+			return fmt.Sprintf("%s%02d/%s/%s/%s/%s/config.yaml", kind, i, strings.Repeat("d", 190), strings.Repeat("e", 190), strings.Repeat("f", 190), strings.Repeat("g", 190))
+		},
+		"samename_monorepo": func(kind string, i int) string {
+			return fmt.Sprintf("services/%s%02d/src/main/kotlin/com/example/platform/payments/gateway/config/AppConfig.kt", kind, i)
+		},
+	}
+	for shape, pathOf := range shapes {
+		for _, nFailed := range []int{1, 2, 5, 8, 12, 16, 19, 20, 22, 24, 32, 50} {
+			for _, mix := range []struct{ verified, untouched int }{{0, 0}, {3, 2}, {12, 12}, {40, 0}} {
+				name := fmt.Sprintf("%s_f%02d_v%02d_u%02d", shape, nFailed, mix.verified, mix.untouched)
+				commit(name+"_eio", pathOf, nFailed, mix.verified, mix.untouched, syscall.EIO, nil)
+				if nFailed <= 5 {
+					commit(name+"_cancel", pathOf, nFailed, mix.verified, mix.untouched, context.Canceled, nil)
+					diags := make([]editing.Diagnostic, 30)
+					for d := range diags {
+						diags[d] = editing.Diagnostic{Severity: editing.SeverityError, Code: editing.CodeType, Path: pathOf("failed", 0), Line: d + 1, Text: strings.Repeat("cannot use x as y; ", 20)}
+					}
+					commit(name+"_editerr", pathOf, nFailed, mix.verified, mix.untouched, nil,
+						&editing.Error{Code: editing.CodeConcurrentWrite, Path: pathOf("failed", 0), Detail: "another writer changed the file during the write", CurrentRev: "r123", Diagnostics: diags})
+				}
+			}
+		}
+		// A refusal without receipt rows.
+		for _, code := range []string{editing.CodeStale, editing.CodeNotFound} {
+			tr, _ := set.editOutcome(&editing.Error{Code: code, Path: pathOf("refused", 0), Detail: "refused before any write", CurrentRev: "r9"})
+			dump(fmt.Sprintf("%s_refusal_%s", shape, code), tr.Content)
+			if inDir != "" {
+				meta, _ := json.Marshal(map[string]string{"top": "", "code": code, "path": pathOf("refused", 0)})
+				if err := os.WriteFile(filepath.Join(inDir, fmt.Sprintf("%s_refusal_%s", shape, code)+".meta"), meta, 0o644); err != nil { t.Fatal(err) }
+			}
+		}
+		// A verified prefix and an untouched suffix: no failed row at all.
+		commit(shape+"_f00_v06_u06_cancel", pathOf, 0, 6, 6, context.Canceled, nil)
+		commit(shape+"_f00_v30_u30_err", pathOf, 0, 30, 30, errors.New(strings.Repeat("long failure text ", 100)), nil)
+	}
+}
