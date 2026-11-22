@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -329,12 +330,74 @@ type failurePathIndex struct {
 	labels  map[string]failurePathLabel
 	// names and ends are built by ensureNames: every distinct component sorted by bytes, and every
 	// distinct filename sorted by bytes read backwards.
-	names     []string
-	ends      []string
-	dirNames  map[string]bool
-	nameBytes int
-	indexed   bool
-	bases     map[string]string
+	names      []string
+	ends       []string
+	dirNames   map[string]bool
+	nameBytes  int
+	indexed    bool
+	bases      map[string]string
+	depthTails map[string]map[depthTailKey]int
+}
+
+type depthTailKey struct {
+	root, parent string
+	depth        int
+}
+
+// exactFailureLabel returns the reversible label of a path. A literal path, one that contains
+// U+2026, is qualified by "./" so that it means exactly that sanitized relative path, and it is never
+// shorthand. Unqualified "…" is shorthand: "…/" elides one or more directories, "…{n}" elides exactly
+// n directories, and "…" inside a component elides bytes. "…/./tail" elides directories, then matches
+// the remainder literally. Redacted paths are never qualified.
+func exactFailureLabel(full string) string {
+	if strings.Contains(full, pathEllipsis) && !strings.HasPrefix(full, "<outside-workspace>/") {
+		return "./" + full
+	}
+	return full
+}
+
+// depthTail keys a path by its root and slash count, and returns the name of its parent directory.
+func depthTail(full string) (depthTailKey, string) {
+	root, _, _ := strings.Cut(full, "/")
+	last := strings.LastIndexByte(full, '/')
+	if last < 0 {
+		return depthTailKey{}, ""
+	}
+	return depthTailKey{root: root, depth: strings.Count(full, "/")}, slashBase(full[:last])
+}
+
+// countedTails offers "root/…{n}/base" and "root/…{n}/parent/base" when exactly one path of the batch
+// with that basename has the same root and depth, so the counted gap names only that file.
+func (p *failurePathIndex) countedTails(full, base string, consider func(string)) {
+	key, parent := depthTail(full)
+	if key.depth < 2 || key.depth > 10000 {
+		return
+	}
+	if p.depthTails == nil {
+		p.depthTails = make(map[string]map[depthTailKey]int)
+	}
+	counts := p.depthTails[base]
+	if counts == nil {
+		counts = make(map[depthTailKey]int)
+		for _, other := range p.groups[base] {
+			k, tail := depthTail(other)
+			if k.depth < 2 {
+				continue
+			}
+			counts[k]++
+			k.parent = tail
+			counts[k]++
+		}
+		p.depthTails[base] = counts
+	}
+	emit := func(k depthTailKey, gap int, tail string) {
+		if gap > 0 && counts[k] == 1 {
+			consider(k.root + "/" + pathEllipsis + "{" + strconv.Itoa(gap) + "}/" + tail)
+		}
+	}
+	emit(key, key.depth-1, base)
+	key.parent = parent
+	emit(key, key.depth-2, parent+"/"+base)
 }
 
 func newFailurePathIndex() *failurePathIndex {
@@ -482,6 +545,7 @@ func (p *failurePathIndex) shortBase(name string) string {
 	}
 	p.ensureNames()
 	best, bestCost := name, encodedLen(name)
+	fullCost := bestCost
 	try := func(candidate string) {
 		if cost := encodedLen(candidate); cost < bestCost {
 			best, bestCost = candidate, cost
@@ -529,9 +593,24 @@ func (p *failurePathIndex) shortBase(name string) string {
 					qs = append(qs, pt.a+1)
 				}
 			}
+			if fullCost != 2+len(name) {
+				for q := dirBound; q <= min(labelContextBytes, len(name)-1); q++ {
+					qs = append(qs, q)
+				}
+			}
 			sort.Sort(sort.Reverse(sort.IntSlice(qs)))
+			// Splits are priced by the JSON fragments they keep, so escaped bytes count as they will be
+			// written. Raw names keep the byte count. Breakpoints move monotonically down the sweep.
+			fragmentCost := func(s string) int {
+				if len(s) == 0 || fullCost == 2+len(name) {
+					return len(s)
+				}
+				return encodedLen(s) - 2
+			}
 			bestQ, bestS := 0, 0
 			idx, maxB := 0, 0
+			prevQ, prevStart := len(name), len(name)
+			jointCost, minCost := fullCost-2, 0
 			for _, q := range qs {
 				for idx < len(points) && points[idx].a >= q {
 					maxB = max(maxB, points[idx].b)
@@ -553,8 +632,11 @@ func (p *failurePathIndex) shortBase(name string) string {
 				if qq >= start {
 					continue
 				}
-				if cost := qq + len(name) - start; bestQ == 0 || cost < bestQ+bestS || cost == bestQ+bestS && qq < bestQ {
-					bestQ, bestS = qq, len(name)-start
+				jointCost -= fragmentCost(name[qq:prevQ])
+				jointCost += fragmentCost(name[start:prevStart])
+				prevQ, prevStart = qq, start
+				if bestQ == 0 || jointCost < minCost || jointCost == minCost && qq < bestQ {
+					bestQ, bestS, minCost = qq, len(name)-start, jointCost
 				}
 			}
 			if bestQ > 0 {
@@ -642,12 +724,32 @@ func (p *failurePathIndex) parentOwners(base, root string) map[string]string {
 }
 
 func (p *failurePathIndex) makeLabel(full string) failurePathLabel {
-	best := failurePathLabel{compact: full}
-	// The redaction prefix and a literal ellipsis must not turn into display shorthand.
-	if strings.HasPrefix(full, "<outside-workspace>/") || strings.Contains(full, pathEllipsis) {
+	best := failurePathLabel{compact: exactFailureLabel(full)}
+	// The redaction prefix must not turn into display shorthand.
+	if strings.HasPrefix(full, "<outside-workspace>/") {
 		return best
 	}
 	base := slashBase(full)
+	if strings.Contains(full, pathEllipsis) {
+		// A literal path is never abbreviated by unqualified "…", only by its exact tail.
+		for _, other := range p.groups[base] {
+			if full != other {
+				best.sharedSuffix = max(best.sharedSuffix, commonSuffixBytes(full, other))
+			}
+		}
+		if cut := strings.LastIndexByte(full[:len(full)-best.sharedSuffix], '/'); cut >= 0 {
+			tail := full[cut+1:]
+			tailLabel := tail
+			if strings.Contains(tail, pathEllipsis) {
+				tailLabel = "./" + tail
+			}
+			candidate := pathEllipsis + "/" + tailLabel
+			if p.count[candidate] == 0 && p.count[pathEllipsis+"/"+tail] == 0 && encodedLen(candidate) < encodedLen(best.compact) {
+				best.compact = candidate
+			}
+		}
+		return best
+	}
 	bestCost := -1
 	consider := func(candidate string) {
 		// No shorthand may masquerade as a literal workspace path in the batch.
@@ -735,6 +837,9 @@ func (p *failurePathIndex) makeLabel(full string) failurePathLabel {
 	if owners[root] != full {
 		considerParents(p.parentOwners(base, root), root)
 	}
+	if best.compact == full {
+		p.countedTails(full, base, consider)
+	}
 	return best
 }
 
@@ -745,16 +850,19 @@ func (p *failurePathIndex) label(raw string, budget int) string {
 		return ""
 	}
 	full := p.full[raw]
-	if budget > 0 && len(full) <= budget {
+	if strings.HasPrefix(full, "<outside-workspace>/") {
 		return full
 	}
-	if strings.HasPrefix(full, "<outside-workspace>/") || strings.Contains(full, pathEllipsis) {
-		return full
+	if budget > 0 && len(full) <= budget {
+		return exactFailureLabel(full)
 	}
 	label, ok := p.labels[full]
 	if !ok {
 		label = p.makeLabel(full)
 		p.labels[full] = label
+	}
+	if strings.Contains(full, pathEllipsis) {
+		return label.compact
 	}
 	if budget > 0 {
 		tail := truncatePathTail(full, budget)
@@ -899,6 +1007,10 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 	if editErr != nil {
 		if standalonePath {
 			errPath = display.Path(editErr.Path)
+			if strings.Contains(errPath, pathEllipsis) {
+				paths.add(editErr.Path, display)
+				errPath, standalonePath = "", false
+			}
 		} else {
 			paths.add(editErr.Path, display)
 		}
@@ -909,8 +1021,11 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 			return false
 		}
 		full := paths.full[raw]
-		if strings.HasPrefix(full, "<outside-workspace>/") || strings.Contains(full, pathEllipsis) {
+		if strings.HasPrefix(full, "<outside-workspace>/") {
 			return len(full) < maxPartialPayloadBytes/6 || encodedLen(full) < maxPartialPayloadBytes
+		}
+		if strings.Contains(full, pathEllipsis) {
+			return len(full)+2 < maxPartialPayloadBytes/6 || encodedLen(paths.label(raw, 0)) < maxPartialPayloadBytes
 		}
 		base := slashBase(full)
 		if len(base) < maxPartialPayloadBytes/6 || encodedLen(base) < maxPartialPayloadBytes {
@@ -1161,29 +1276,57 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 		// First use exact row costs to cap the search. Then try prefixes in descending order,
 		// since dropping omission metadata can make a longer prefix cheaper.
 		compact := make([]toolFileState, 0, min(fileFloor, maxCandidateFileRows))
+		indices := make([]int, 0, cap(compact))
 		payload["files"] = compact
-		size := len(encode())
-		for i, f := range orderedFiles[:min(fileFloor, maxCandidateFileRows)] {
+		emptySize := len(encode())
+		size := emptySize
+		for at := 0; at < fileFloor && len(compact) < maxCandidateFileRows; at++ {
+			f := orderedFiles[at]
 			row, _ := receiptFileState(f, paths.label(f.Path, 0), "", byPath, 0, false)
 			raw, _ := json.Marshal(row)
+			if emptySize+len(raw) > maxPartialPayloadBytes {
+				// This row cannot fit even alone with the mandatory envelope. Later rows may still fit.
+				continue
+			}
 			size += len(raw)
-			if i != 0 {
+			if len(compact) > 0 {
 				size++ // comma
 			}
 			if size > maxPartialPayloadBytes {
 				break
 			}
 			compact = append(compact, row)
+			indices = append(indices, at)
+		}
+		// Omitted states start as every receipt row and lose each shown row once. Shortening the prefix
+		// moves one row back into the omitted counts, so no per-prefix copy is needed.
+		counts := map[editing.PublishState]int{}
+		for _, f := range receipt.Files {
+			counts[f.PublishState]++
+		}
+		for _, at := range indices {
+			state := orderedFiles[at].PublishState
+			counts[state]--
+			if counts[state] == 0 {
+				delete(counts, state)
+			}
 		}
 		var best []byte
 		kept := len(compact)
-		for ; kept >= 0; kept-- {
+		for {
 			payload["files"] = compact[:kept]
-			setFileOmissions(payload, kept)
+			delete(payload, "filesOmitted")
+			delete(payload, "filesOmittedByState")
+			if omitted := len(receipt.Files) - kept; omitted > 0 {
+				payload["filesOmitted"] = omitted
+				payload["filesOmittedByState"] = counts
+			}
 			best = encode()
-			if len(best) <= maxPartialPayloadBytes {
+			if len(best) <= maxPartialPayloadBytes || kept == 0 {
 				break
 			}
+			kept--
+			counts[compact[kept].PublishState]++
 		}
 		// With engine states and codes, the mandatory envelope plus omissions always fits.
 		if kept <= 0 {
@@ -1191,9 +1334,10 @@ func (s *Set) formatCommitFailurePayload(result editing.Result, receipt editing.
 		}
 		rows := make([]toolFileState, kept)
 		for _, b := range budgets {
-			for i, f := range orderedFiles[:kept] {
+			for i, at := range indices[:kept] {
+				f := orderedFiles[at]
 				label := paths.label(f.Path, b.path)
-				rows[i], _ = receiptFileState(f, label, rowErr(i), byPath, b.rowError, false)
+				rows[i], _ = receiptFileState(f, label, rowErr(at), byPath, b.rowError, false)
 			}
 			payload["files"] = rows
 			if raw := encode(); len(raw) <= maxPartialPayloadBytes {
