@@ -533,6 +533,11 @@ func TestR7PartialCommitAndDiagnosticsColdResume(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "b.txt"), []byte("old-b\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A second link outside the workspace keeps B on the in-place update path, the only path where a
+	// fault after truncate still produces a partial publication (single-link files are staged).
+	if err := os.Link(filepath.Join(ws, "b.txt"), filepath.Join(base, "b-inplace-alias.txt")); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(ws, "c.txt"), []byte("old-c\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

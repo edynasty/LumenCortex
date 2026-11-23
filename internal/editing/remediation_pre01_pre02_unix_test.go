@@ -668,10 +668,14 @@ func TestPRE02DeleteConcurrentExternalWritePreserved(t *testing.T) {
 			var wg sync.WaitGroup
 			start := make(chan struct{})
 			var extErr, delErr error
-			var commitFinished atomic.Bool
-			var extCompletedBeforeCommitReturn atomic.Bool
+			// The guarantee covers external writes completed before the final post-unlink check of the
+			// held descriptor; a write through a pre-opened descriptor after that check reaches only the
+			// unlinked inode (documented limitation), so it must not count as a loss here.
+			var pastFinalCheck atomic.Bool
+			var extCompletedBeforeFinalCheck atomic.Bool
 			var rec CommitReceipt
 
+			e.SetPublishFaultHooks(PublishFaultHooks{BeforeFinalExternalCheck: func(string) { pastFinalCheck.Store(true) }})
 			e.beforeWrite = func(string) {
 				close(start)
 				runtime.Gosched()
@@ -688,8 +692,8 @@ func TestPRE02DeleteConcurrentExternalWritePreserved(t *testing.T) {
 						return
 					}
 					extErr = os.Rename(tmp, target)
-					if extErr == nil && !commitFinished.Load() {
-						extCompletedBeforeCommitReturn.Store(true)
+					if extErr == nil && !pastFinalCheck.Load() {
+						extCompletedBeforeFinalCheck.Store(true)
 					}
 					return
 				}
@@ -699,8 +703,8 @@ func TestPRE02DeleteConcurrentExternalWritePreserved(t *testing.T) {
 					return
 				}
 				_, extErr = f.Write([]byte("EXTERNAL-APPEND-MUST-SURVIVE\n"))
-				if extErr == nil && !commitFinished.Load() {
-					extCompletedBeforeCommitReturn.Store(true)
+				if extErr == nil && !pastFinalCheck.Load() {
+					extCompletedBeforeFinalCheck.Store(true)
 				}
 				if cerr := f.Close(); extErr == nil {
 					extErr = cerr
@@ -712,11 +716,11 @@ func TestPRE02DeleteConcurrentExternalWritePreserved(t *testing.T) {
 				Tool:    "apply_patch",
 				Changes: []FileChange{{Path: "victim.txt", BaseRev: RevOf(orig), Delete: true}},
 			})
-			commitFinished.Store(true)
+			pastFinalCheck.Store(true)
 			wg.Wait()
 
 			raw, statErr := os.ReadFile(target)
-			if extErr == nil && extCompletedBeforeCommitReturn.Load() && (delErr == nil || rec.Committed) {
+			if extErr == nil && extCompletedBeforeFinalCheck.Load() && (delErr == nil || rec.Committed) {
 				if errors.Is(statErr, os.ErrNotExist) || !bytes.Equal(raw, foreign) {
 					lostCount.Add(1)
 				}

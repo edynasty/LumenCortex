@@ -316,6 +316,10 @@ type PublishFaultHooks struct {
 	WriteStaged            func(dstPath string, f *os.File, data []byte) (int, error)
 	AfterTruncate          func(dstPath string) error
 	BeforeDeleteUnlink     func(dstPath string) error
+	// BeforeFinalExternalCheck and AfterFinalExternalRead bracket the final read of a still-open
+	// displaced (update) or unlinked (delete) original descriptor. They only order tests.
+	BeforeFinalExternalCheck func(dstPath string)
+	AfterFinalExternalRead   func(dstPath string)
 }
 
 // SetPublishFaultHooks installs deterministic atomic-publication fault hooks for tests; pass zero

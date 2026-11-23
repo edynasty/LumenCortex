@@ -204,6 +204,17 @@ func r7r2SetupLongDirFiles(t *testing.T, rels []string) (*Set, *editing.Engine, 
 	return set, eng, ws
 }
 
+// r7r2KeepInPlace hard-links rel outside the workspace. A multi-link file keeps its shared inode and
+// is updated in place, the only path where an AfterTruncate fault still yields a partial publication
+// (single-link files are staged and swapped, so the same fault is a clean pre-write refusal).
+func r7r2KeepInPlace(t *testing.T, ws, rel string) {
+	t.Helper()
+	full := filepath.Join(ws, filepath.FromSlash(rel))
+	if err := os.Link(full, filepath.Join(filepath.Dir(ws), "inplace-alias-"+filepath.Base(full))); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func r7r2ParseAndCheckBudget(t *testing.T, label, content string, ok bool) r7r2Payload {
 	t.Helper()
 	if ok {
@@ -248,6 +259,7 @@ func TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities(t *testing.T
 		})
 	}
 	set, eng, ws := r7r2SetupLongDirFiles(t, rels)
+	r7r2KeepInPlace(t, ws, rels[4])
 	eng.SetPublishFaultHooks(editing.PublishFaultHooks{
 		AfterTruncate: func(abs string) error {
 			if filepath.Base(abs) == "Adapter04.kt" {
@@ -324,7 +336,8 @@ func TestR7R2New01OverflowBoundaryMatrix(t *testing.T) {
 				"edits": []any{map[string]any{"old_text": fmt.Sprintf("OLD_%02d", i), "new_text": fmt.Sprintf("NEW_%02d", i)}},
 			})
 		}
-		set, eng, _ := r7r2SetupLongDirFiles(t, rels)
+		set, eng, ws := r7r2SetupLongDirFiles(t, rels)
+		r7r2KeepInPlace(t, ws, rels[5])
 		eng.SetPublishFaultHooks(editing.PublishFaultHooks{
 			AfterTruncate: func(abs string) error {
 				if filepath.Base(abs) == "Item05.kt" {
@@ -362,6 +375,7 @@ func TestR7R2New01OverflowBoundaryMatrix(t *testing.T) {
 			})
 		}
 		set, eng, ws := r7r2SetupLongDirFiles(t, rels)
+		r7r2KeepInPlace(t, ws, rels[4])
 		eng.SetPublishFaultHooks(editing.PublishFaultHooks{
 			AfterTruncate: func(abs string) error {
 				if strings.HasSuffix(filepath.ToSlash(abs), "z_fail/Adapter02.kt") {
