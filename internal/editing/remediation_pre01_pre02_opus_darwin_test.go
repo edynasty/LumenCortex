@@ -124,10 +124,10 @@ func TestOpusPRE01SwapReplicatesMetadata(t *testing.T) {
 	assertNoLCXTempLeftovers(t, root)
 }
 
-// TestOpusPRE01ACLFileKeepsInodeAndACL pins that a file with an ACL, which the swap cannot
-// reproduce, keeps its inode and ACL; a deny-delete ACL must not turn an editable file into a
-// permission failure.
-func TestOpusPRE01ACLFileKeepsInodeAndACL(t *testing.T) {
+// TestOpusPRE01ACLFileRefusedIntact pins the fail-closed policy for a file with an ACL, which a
+// swap cannot reproduce: the update is refused as unsupported before the file is touched, so its
+// inode, bytes, ACL and other metadata are unchanged (a deny-delete ACL included).
+func TestOpusPRE01ACLFileRefusedIntact(t *testing.T) {
 	for _, ace := range []string{"user:nobody allow read", "everyone deny delete"} {
 		t.Run(strings.ReplaceAll(ace, " ", "_"), func(t *testing.T) {
 			root, err := filepath.EvalSymlinks(t.TempDir())
@@ -145,12 +145,19 @@ func TestOpusPRE01ACLFileKeepsInodeAndACL(t *testing.T) {
 			}
 			e := newTestEngine(t, root)
 			next := []byte("updated\n")
-			if _, err := e.Commit(context.Background(), Plan{Actor: testActor(), Tool: "write_file",
-				Changes: []FileChange{{Path: "acl.txt", Content: &next}}}); err != nil {
-				t.Fatalf("commit: %v", err)
+			var rec CommitReceipt
+			ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
+			res, err := e.Commit(ctx, Plan{Actor: testActor(), Tool: "write_file",
+				Changes: []FileChange{{Path: "acl.txt", Content: &next}}})
+			if CodeOf(err) != CodeUnsupportedFilesystem || rec.Committed || rec.DirtyFailure {
+				t.Fatalf("expected clean unsupported refusal, got err=%v rec=%+v", err, rec)
 			}
-			if got, _ := os.ReadFile(target); !bytes.Equal(got, next) {
-				t.Fatalf("content = %q, want %q", got, next)
+			f, r := r7Files(t, res, rec, "acl.txt")
+			if f.PublishState != PublishUnsupported || f.Published || r.Wrote || f.NewRev != "" || r.NewSHA256 != "" {
+				t.Fatalf("unsupported receipt: %+v %+v", f, r)
+			}
+			if got, _ := os.ReadFile(target); string(got) != "original\n" {
+				t.Fatalf("content = %q, want the original", got)
 			}
 			after := opusReadDarwinMeta(t, target)
 			if after.ino != before.ino {

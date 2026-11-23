@@ -5,7 +5,6 @@ package editing
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -42,76 +41,6 @@ func TestR7RlimitChildHelper(t *testing.T) {
 	e := newTestEngine(t, root)
 	actor := testActor()
 	switch mode {
-	case "inplace_zero", "inplace_short":
-		lh, err := NewLocalHost(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		plainHost := &r7PlainHost{LocalHost: lh}
-		e, err = New(Options{Root: root, Host: plainHost})
-		if err != nil {
-			t.Fatal(err)
-		}
-		rawA, _ := os.ReadFile(filepath.Join(root, "a.txt"))
-		rawB, _ := os.ReadFile(filepath.Join(root, "b.txt"))
-		rawC, _ := os.ReadFile(filepath.Join(root, "c.txt"))
-		for name, raw := range map[string][]byte{"a.txt": rawA, "b.txt": rawB, "c.txt": rawC} {
-			e.RegisterRead(actor, filepath.Join(root, name), RevOf(raw))
-		}
-		limit := 0
-		if mode == "inplace_short" {
-			limit = 3
-		}
-		e.SetPublishFaultHooks(PublishFaultHooks{AfterTruncate: func(dst string) error {
-			if filepath.Base(dst) != "a.txt" {
-				return nil
-			}
-			lim := syscall.Rlimit{Max: orig.Max}
-			lim.Cur = 0
-			if limit == 3 {
-				lim.Cur = 3
-			}
-			return syscall.Setrlimit(syscall.RLIMIT_FSIZE, &lim)
-		}})
-		content := []byte("abcdefghij")
-		var rec CommitReceipt
-		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
-		res, err := e.Commit(ctx, Plan{Actor: actor, Host: plainHost, Tool: "write_file", Changes: []FileChange{
-			{Path: "a.txt", Content: &content},
-			{Path: "b.txt", Content: bytesPtr("new-b\n")},
-			{Path: "c.txt", Content: bytesPtr("new-c\n")},
-		}})
-		_ = syscall.Setrlimit(syscall.RLIMIT_FSIZE, &orig)
-		if limit == 0 {
-			if !errors.Is(err, syscall.EFBIG) {
-				t.Fatalf("zero-byte write at the limit: err=%v, want EFBIG", err)
-			}
-		} else if !errors.Is(err, io.ErrShortWrite) && !errors.Is(err, syscall.EFBIG) {
-			t.Fatalf("short write crossing the limit: err=%v, want io.ErrShortWrite or EFBIG", err)
-		}
-		r7AssertSettledCount(t, res, rec, 3)
-		if res.CommitState != CommitStatePartiallyPublished || rec.State != CommitStatePartiallyPublished || !rec.DirtyFailure {
-			t.Fatalf("state: %+v %+v", res, rec)
-		}
-		want := ""
-		if limit == 3 {
-			want = "abc"
-		}
-		if got := readFileContent(t, root, "a.txt"); got != want {
-			t.Fatalf("partial destination = %q, want %q", got, want)
-		}
-		fa, ra := r7Files(t, res, rec, "a.txt")
-		if fa.PublishState != PublishPartial || ra.PublishState != PublishPartial || !fa.Published || !ra.Published ||
-			!ra.Wrote || fa.Verified || ra.Verified || fa.NewRev != "" || ra.NewSHA256 != "" || fa.RolledBack || ra.RolledBack || fa.Error == "" {
-			t.Fatalf("partial update: %+v %+v", fa, ra)
-		}
-		if got := e.LatestRev(actor, filepath.Join(root, "a.txt")); got != "" {
-			t.Fatalf("partial update kept snapshot %q", got)
-		}
-		for _, name := range []string{"b.txt", "c.txt"} {
-			f, r := r7Files(t, res, rec, name)
-			r7AssertNotAttempted(t, f, r)
-		}
 	case "create_efbig":
 		e.SetPublishFaultHooks(PublishFaultHooks{WriteStaged: func(_ string, f *os.File, data []byte) (int, error) {
 			// A write that starts at the limit must fail with EFBIG, not a silent short file.
@@ -143,36 +72,52 @@ func TestR7RlimitChildHelper(t *testing.T) {
 	}
 }
 
-// TestR7InPlaceRLimitFaults keeps real truncate-then-write failures: a zero-byte EFBIG and a
-// short crossing write. The destination is a known partial mutation, so it is reported with no
-// trusted revision or hash, the snapshot is invalidated, and the suffix is untouched.
-func TestR7InPlaceRLimitFaults(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		mode   string
-		prefix string
-	}{
-		{name: "zero_byte_write_efbig", mode: "inplace_zero", prefix: ""},
-		{name: "short_write_crossing_limit", mode: "inplace_short", prefix: "abc"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			root := t.TempDir()
-			writeFile(t, root, "a.txt", "old-a\n")
-			writeFile(t, root, "b.txt", "old-b\n")
-			writeFile(t, root, "c.txt", "old-c\n")
-			r7RunRlimitChild(t, tc.mode, root)
-			if got := readFileContent(t, root, "a.txt"); got != tc.prefix {
-				t.Fatalf("partial destination = %q, want %q", got, tc.prefix)
-			}
-			if got := readFileContent(t, root, "b.txt"); got != "old-b\n" {
-				t.Fatalf("B attempted: %q", got)
-			}
-			if got := readFileContent(t, root, "c.txt"); got != "old-c\n" {
-				t.Fatalf("C attempted: %q", got)
-			}
-			assertNoCreateTempLeftovers(t, root)
-		})
+// TestR7NonStagingHostRefusesUpdate pins the fail-closed policy for a host without private sibling
+// staging: an update cannot be published atomically there, so it is refused as unsupported before
+// any byte of any file changes, instead of truncating and rewriting the live file.
+func TestR7NonStagingHostRefusesUpdate(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "a.txt", "old-a\n")
+	writeFile(t, root, "b.txt", "old-b\n")
+	lh, err := NewLocalHost(root)
+	if err != nil {
+		t.Fatal(err)
 	}
+	host := &r7PlainHost{LocalHost: lh}
+	e, err := New(Options{Root: root, Host: host})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := testActor()
+	for _, name := range []string{"a.txt", "b.txt"} {
+		e.RegisterRead(actor, filepath.Join(root, name), RevOf([]byte(readFileContent(t, root, name))))
+	}
+	var rec CommitReceipt
+	ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
+	res, err := e.Commit(ctx, Plan{Actor: actor, Host: host, Tool: "write_file", Changes: []FileChange{
+		{Path: "a.txt", Content: bytesPtr("new-a\n")},
+		{Path: "b.txt", Content: bytesPtr("new-b\n")},
+	}})
+	if CodeOf(err) != CodeUnsupportedFilesystem {
+		t.Fatalf("err=%v, want %s", err, CodeUnsupportedFilesystem)
+	}
+	if rec.Committed || rec.DirtyFailure {
+		t.Fatalf("refusal reported a destination effect: %+v", rec)
+	}
+	fa, ra := r7Files(t, res, rec, "a.txt")
+	if fa.PublishState != PublishUnsupported || ra.PublishState != PublishUnsupported || fa.Published || ra.Wrote ||
+		fa.Verified || fa.NewRev != "" || ra.NewSHA256 != "" {
+		t.Fatalf("unsupported update receipt: %+v %+v", fa, ra)
+	}
+	fb, rb := r7Files(t, res, rec, "b.txt")
+	r7AssertNotAttempted(t, fb, rb)
+	if got := readFileContent(t, root, "a.txt"); got != "old-a\n" {
+		t.Fatalf("a.txt changed: %q", got)
+	}
+	if got := readFileContent(t, root, "b.txt"); got != "old-b\n" {
+		t.Fatalf("b.txt changed: %q", got)
+	}
+	assertNoCreateTempLeftovers(t, root)
 }
 
 // TestR7CreateEFBIGIsolated stages a recreation through a fresh Create plan under a real kernel

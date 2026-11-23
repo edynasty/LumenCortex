@@ -204,17 +204,6 @@ func r7r2SetupLongDirFiles(t *testing.T, rels []string) (*Set, *editing.Engine, 
 	return set, eng, ws
 }
 
-// r7r2KeepInPlace hard-links rel outside the workspace. A multi-link file keeps its shared inode and
-// is updated in place, the only path where an AfterTruncate fault still yields a partial publication
-// (single-link files are staged and swapped, so the same fault is a clean pre-write refusal).
-func r7r2KeepInPlace(t *testing.T, ws, rel string) {
-	t.Helper()
-	full := filepath.Join(ws, filepath.FromSlash(rel))
-	if err := os.Link(full, filepath.Join(filepath.Dir(ws), "inplace-alias-"+filepath.Base(full))); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func r7r2ParseAndCheckBudget(t *testing.T, label, content string, ok bool) r7r2Payload {
 	t.Helper()
 	if ok {
@@ -259,9 +248,8 @@ func TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities(t *testing.T
 		})
 	}
 	set, eng, ws := r7r2SetupLongDirFiles(t, rels)
-	r7r2KeepInPlace(t, ws, rels[4])
 	eng.SetPublishFaultHooks(editing.PublishFaultHooks{
-		AfterTruncate: func(abs string) error {
+		AfterInPlaceWriteClose: func(abs string) error {
 			if filepath.Base(abs) == "Adapter04.kt" {
 				for j := 0; j < 4; j++ {
 					_ = os.WriteFile(filepath.Join(ws, filepath.FromSlash(rels[j])), []byte("EXT\n"), 0o644)
@@ -292,7 +280,7 @@ func TestR7R2New01FiveFailedLongDirOverflowKeepsAllFailedIdentities(t *testing.T
 		"/Adapter01.kt": string(editing.PublishExternalModification),
 		"/Adapter02.kt": string(editing.PublishExternalModification),
 		"/Adapter03.kt": string(editing.PublishExternalModification),
-		"/Adapter04.kt": string(editing.PublishPartial),
+		"/Adapter04.kt": string(editing.PublishUncertain),
 	}
 	for _, f := range p.Files {
 		// OV-06: an untouched lower-class row may fill leftover budget; only failed rows are identified here.
@@ -336,10 +324,9 @@ func TestR7R2New01OverflowBoundaryMatrix(t *testing.T) {
 				"edits": []any{map[string]any{"old_text": fmt.Sprintf("OLD_%02d", i), "new_text": fmt.Sprintf("NEW_%02d", i)}},
 			})
 		}
-		set, eng, ws := r7r2SetupLongDirFiles(t, rels)
-		r7r2KeepInPlace(t, ws, rels[5])
+		set, eng, _ := r7r2SetupLongDirFiles(t, rels)
 		eng.SetPublishFaultHooks(editing.PublishFaultHooks{
-			AfterTruncate: func(abs string) error {
+			AfterInPlaceWriteClose: func(abs string) error {
 				if filepath.Base(abs) == "Item05.kt" {
 					return syscall.EIO
 				}
@@ -348,7 +335,7 @@ func TestR7R2New01OverflowBoundaryMatrix(t *testing.T) {
 		})
 		res, _ := set.Execute(context.Background(), "apply_patch", map[string]any{"patches": patches}, nil)
 		p := r7r2ParseAndCheckBudget(t, "single_failed_long_path", res.Content, res.OK)
-		if len(p.Files) == 0 || !strings.HasSuffix(p.Files[0].Path, "/Item05.kt") || p.Files[0].PublishState != string(editing.PublishPartial) {
+		if len(p.Files) == 0 || !strings.HasSuffix(p.Files[0].Path, "/Item05.kt") || p.Files[0].PublishState != string(editing.PublishUncertain) {
 			t.Fatalf("failed row lost or wrong state: %+v", p.Files)
 		}
 	})
@@ -375,9 +362,8 @@ func TestR7R2New01OverflowBoundaryMatrix(t *testing.T) {
 			})
 		}
 		set, eng, ws := r7r2SetupLongDirFiles(t, rels)
-		r7r2KeepInPlace(t, ws, rels[4])
 		eng.SetPublishFaultHooks(editing.PublishFaultHooks{
-			AfterTruncate: func(abs string) error {
+			AfterInPlaceWriteClose: func(abs string) error {
 				if strings.HasSuffix(filepath.ToSlash(abs), "z_fail/Adapter02.kt") {
 					for j := 0; j < 4; j++ {
 						_ = os.WriteFile(filepath.Join(ws, filepath.FromSlash(rels[j])), []byte("EXT\n"), 0o644)
@@ -404,7 +390,7 @@ func TestR7R2New01OverflowBoundaryMatrix(t *testing.T) {
 				gotBilling = true
 			case strings.HasSuffix(f.Path, "/mid/Adapter01.kt") && f.PublishState == string(editing.PublishExternalModification):
 				gotA1 = true
-			case strings.HasSuffix(f.Path, "/z_fail/Adapter02.kt") && f.PublishState == string(editing.PublishPartial):
+			case strings.HasSuffix(f.Path, "/z_fail/Adapter02.kt") && f.PublishState == string(editing.PublishUncertain):
 				gotA2 = true
 			}
 		}

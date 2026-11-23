@@ -533,11 +533,6 @@ func TestR7PartialCommitAndDiagnosticsColdResume(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "b.txt"), []byte("old-b\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// A second link outside the workspace keeps B on the in-place update path, the only path where a
-	// fault after truncate still produces a partial publication (single-link files are staged).
-	if err := os.Link(filepath.Join(ws, "b.txt"), filepath.Join(base, "b-inplace-alias.txt")); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(ws, "c.txt"), []byte("old-c\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -601,9 +596,9 @@ func TestR7PartialCommitAndDiagnosticsColdResume(t *testing.T) {
 		"ops":  []map[string]any{{"op": "replace", "start": anchor, "text": badGo.String()}},
 	})
 
-	// A is verified first. While B fails after truncate a separate process appends to A.
+	// A is verified first. While B's post-publication close fails, a separate process appends to A.
 	eng.SetPublishFaultHooks(editing.PublishFaultHooks{
-		AfterTruncate: func(dst string) error {
+		AfterInPlaceWriteClose: func(dst string) error {
 			if filepath.Base(dst) == "b.txt" {
 				cmd := exec.Command(os.Args[0], "-test.run=^TestR6AgentExternalAppendHelper$")
 				cmd.Env = append(os.Environ(), "LC_R6_AGENT_APPEND_TARGET="+filepath.Join(ws, "a.txt"))
@@ -611,7 +606,7 @@ func TestR7PartialCommitAndDiagnosticsColdResume(t *testing.T) {
 				if cmdErr != nil {
 					return fmt.Errorf("%w: %s", cmdErr, out)
 				}
-				return errors.New("B failed after truncate")
+				return errors.New("B failed after publication")
 			}
 			return nil
 		},
@@ -634,7 +629,7 @@ func TestR7PartialCommitAndDiagnosticsColdResume(t *testing.T) {
 	}
 	_ = raw.Close()
 
-	// A retained both LC's write and the child's append. B was truncated, not restored.
+	// A retained both LC's write and the child's append. B holds the unverified swapped-in bytes.
 	gotA, err := os.ReadFile(filepath.Join(ws, "a.txt"))
 	if err != nil {
 		t.Fatal(err)
@@ -642,7 +637,7 @@ func TestR7PartialCommitAndDiagnosticsColdResume(t *testing.T) {
 	if string(gotA) != "longer-new-a\nFOREIGN\n" {
 		t.Fatalf("published/external bytes lost: %q", gotA)
 	}
-	if b, err := os.ReadFile(filepath.Join(ws, "b.txt")); err != nil || len(b) != 0 {
+	if b, err := os.ReadFile(filepath.Join(ws, "b.txt")); err != nil || string(b) != "new-b\n" {
 		t.Fatalf("B = %q, err = %v", b, err)
 	}
 
@@ -677,8 +672,8 @@ func TestR7PartialCommitAndDiagnosticsColdResume(t *testing.T) {
 		t.Fatalf("patch SQLite content missing partial-publication reconciliation details: %s", patchContent)
 	}
 	// R7R2-CT-01: the per-file rows the agent and a cold Resume see, and the persisted seal. A keeps
-	// LC's write plus the foreign append; B was truncated and failed; C was never attempted. None of
-	// them may carry a trusted revision or hash.
+	// LC's write plus the foreign append; B was published but its outcome is unverified; C was never
+	// attempted. None of them may carry a trusted revision or hash.
 	var patchPayload struct {
 		Files []struct {
 			Path         string `json:"path"`
@@ -694,7 +689,7 @@ func TestR7PartialCommitAndDiagnosticsColdResume(t *testing.T) {
 	}
 	wantStates := map[string]editing.PublishState{
 		"a.txt": editing.PublishExternalModification,
-		"b.txt": editing.PublishPartial,
+		"b.txt": editing.PublishUncertain,
 		"c.txt": editing.PublishNotAttempted,
 	}
 	for _, f := range patchPayload.Files {

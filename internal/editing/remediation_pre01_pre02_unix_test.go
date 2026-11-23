@@ -34,6 +34,25 @@ func assertNoLCXTempLeftovers(t *testing.T, dir string) {
 	}
 }
 
+// assertOnlyReportedLCXLeftovers allows a private leftover only when err names its path and it holds
+// exactly want (a deliberately kept original); any other leftover is debris.
+func assertOnlyReportedLCXLeftovers(t *testing.T, dir string, err error, want []byte) {
+	t.Helper()
+	entries, rerr := os.ReadDir(dir)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	for _, ent := range entries {
+		if !strings.HasPrefix(ent.Name(), ".lcx-") {
+			continue
+		}
+		raw, readErr := os.ReadFile(filepath.Join(dir, ent.Name()))
+		if err == nil || !strings.Contains(err.Error(), ent.Name()) || readErr != nil || !bytes.Equal(raw, want) {
+			t.Fatalf("unreported or unexpected private leftover in %s: %s (err=%v)", dir, ent.Name(), err)
+		}
+	}
+}
+
 func attachSmallMacOSDiskImage(t *testing.T, fsType string, sizeMB int) string {
 	t.Helper()
 	if runtime.GOOS != "darwin" {
@@ -154,13 +173,11 @@ func TestPRE01SimulatedBlockQuotaENOSPC(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		quotaBytes int
-		hardLinked bool
 		fallbackFS bool
 	}{
-		{"zero_free_blocks", 0, false, false},
-		{"partial_320KiB_before_enospc", 320 * 1024, false, false},
-		{"partial_320KiB_hardlinked_file", 320 * 1024, true, false},
-		{"partial_320KiB_fallback_no_rename_swap", 320 * 1024, false, true},
+		{"zero_free_blocks", 0, false},
+		{"partial_320KiB_before_enospc", 320 * 1024, false},
+		{"partial_320KiB_fallback_no_rename_swap", 320 * 1024, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.fallbackFS {
@@ -173,11 +190,6 @@ func TestPRE01SimulatedBlockQuotaENOSPC(t *testing.T) {
 			existPath := filepath.Join(root, "exist.txt")
 			if err := os.WriteFile(existPath, origBytes, 0o640); err != nil {
 				t.Fatal(err)
-			}
-			if tc.hardLinked {
-				if err := os.Link(existPath, filepath.Join(root, "exist-hard.txt")); err != nil {
-					t.Skipf("hard links unavailable: %v", err)
-				}
 			}
 			beforeInfo, err := os.Lstat(existPath)
 			if err != nil {
@@ -367,7 +379,8 @@ func TestPRE01UpdatePreservesPermissionsSymlinksAndHardlinks(t *testing.T) {
 		t.Fatalf("real.txt = %q, want %q", got, "after-via-symlink\n")
 	}
 
-	// 3. Hard-linked regular files stay linked on update.
+	// 3. Hard-linked regular files are refused (fail-closed policy): a swap would detach the other
+	// link and an in-place rewrite is not failure-safe. Both names keep the shared original.
 	h1 := filepath.Join(root, "h1.txt")
 	h2 := filepath.Join(root, "h2.txt")
 	if err := os.WriteFile(h1, []byte("shared-v1\n"), 0o644); err != nil {
@@ -381,13 +394,14 @@ func TestPRE01UpdatePreservesPermissionsSymlinksAndHardlinks(t *testing.T) {
 		Actor:   actor,
 		Tool:    "write_file",
 		Changes: []FileChange{{Path: "h1.txt", Content: &hv2}},
-	}); err != nil {
-		t.Fatalf("update hardlink: %v", err)
+	}); CodeOf(err) != CodeUnsupportedFilesystem {
+		t.Fatalf("update hardlink: err=%v, want %s", err, CodeUnsupportedFilesystem)
 	}
 	i1, _ := os.Lstat(h1)
 	i2, _ := os.Lstat(h2)
-	if !os.SameFile(i1, i2) || readFileContent(t, root, "h2.txt") != "shared-v2\n" {
-		t.Fatalf("hardlink broken or out of sync: sameFile=%v h2=%q", os.SameFile(i1, i2), readFileContent(t, root, "h2.txt"))
+	if !os.SameFile(i1, i2) || readFileContent(t, root, "h1.txt") != "shared-v1\n" || readFileContent(t, root, "h2.txt") != "shared-v1\n" {
+		t.Fatalf("refused hardlink update changed the file: sameFile=%v h1=%q h2=%q", os.SameFile(i1, i2),
+			readFileContent(t, root, "h1.txt"), readFileContent(t, root, "h2.txt"))
 	}
 	assertNoLCXTempLeftovers(t, root)
 }
@@ -725,7 +739,9 @@ func TestPRE02DeleteConcurrentExternalWritePreserved(t *testing.T) {
 					lostCount.Add(1)
 				}
 			}
-			assertNoLCXTempLeftovers(t, root)
+			// A path recreated by the external writer after the move aside keeps the original in
+			// quarantine; that copy is allowed only when the error reports it and it holds the original.
+			assertOnlyReportedLCXLeftovers(t, root, delErr, orig)
 		}
 		if n := lostCount.Load(); n > 0 {
 			t.Fatalf("EDITING-PRE-02 deleteCAS lost %d concurrent external writes while reporting success", n)

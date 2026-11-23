@@ -139,7 +139,7 @@ const (
 	PublishNone                   PublishState = "not_published"
 	PublishNotAttempted           PublishState = "not_attempted"
 	PublishFailedBeforeWrite      PublishState = "failed_before_write"
-	PublishPartial                PublishState = "partially_modified"
+	PublishPartial                PublishState = "partially_modified" // no longer produced; decodes persisted receipts
 	PublishUnsupported            PublishState = "unsupported"
 	PublishSucceededAndVerified   PublishState = "published_verified"
 	PublishSucceededWithPostError PublishState = "published_post_error"
@@ -296,7 +296,8 @@ type Engine struct {
 	afterRead func(path string)
 	// foldsCase is a test hook that replaces the read-only case-folding probe of a directory.
 	foldsCase func(dir string) bool
-	// afterTruncate is a test fault hook invoked immediately after f.Truncate(0) inside writeCAS.
+	// afterTruncate is a test fault hook invoked at the last pre-publication boundary of an update
+	// (historically right after the in-place truncate, which no longer exists).
 	afterTruncate  func(path string) error
 	publishHooksMu sync.RWMutex
 	publishHooks   PublishFaultHooks
@@ -707,6 +708,10 @@ func (e *Engine) prepare(host Host, p *prepared, plan Plan) error {
 			return errors.Join(idErr, f.Close())
 		}
 		p.writtenID = id
+		if !change.Delete && id.linkCount() > 1 {
+			// Refuse before any file of the plan is written (EDITING-PRE-01 fail-closed policy).
+			return errors.Join(errMultiLinkUpdate(p.rel, id.linkCount()), f.Close())
+		}
 		raw, readErr := readLimited(f, MaxFileBytes)
 		closeErr := f.Close()
 		if readErr != nil {

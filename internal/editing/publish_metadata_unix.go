@@ -12,7 +12,7 @@ import (
 )
 
 // errSwapMetadata reports metadata of an existing file that a staged swap cannot reproduce exactly.
-// The update then keeps the destination inode instead of silently dropping that metadata.
+// The update is then refused as unsupported instead of silently dropping that metadata.
 func errSwapMetadata(format string, args ...any) error {
 	return fmt.Errorf("staged swap cannot reproduce destination metadata: "+format, args...)
 }
