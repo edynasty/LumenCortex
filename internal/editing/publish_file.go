@@ -416,18 +416,10 @@ func (e *Engine) updateAtomicSwap(host Host, p *prepared) (bool, error) {
 		return abortBeforeSwap(errMultiLinkUpdate(p.rel, links), p.next)
 	}
 
-	usedSwap := true
 	swapErr := renameSwapForPublish(tmpPath, targetAbs)
-	if swapErr != nil && isSwapRenameUnsupportedErr(swapErr) {
-		usedSwap = false
-		if closeHandlesBeforeFallbackRename {
-			if cerr := errors.Join(closeTmp(), closeOrig()); cerr != nil {
-				_ = os.Remove(tmpPath)
-				p.publishState = PublishFailedBeforeWrite
-				return false, cerr
-			}
-		}
-		swapErr = os.Rename(tmpPath, targetAbs)
+	if isSwapRenameUnsupportedErr(swapErr) {
+		return abortBeforeSwap(&Error{Code: CodeUnsupportedFilesystem, Path: p.rel,
+			Detail: "the filesystem cannot atomically exchange the staged and existing files; nothing was written"}, p.next)
 	}
 	if swapErr != nil {
 		// Nothing swapped: clean up our private staging file if it is still ours.
@@ -452,25 +444,10 @@ func (e *Engine) updateAtomicSwap(host Host, p *prepared) (bool, error) {
 	p.published = true
 	p.wrote = true
 
-	var postID fileIdentity
-	var postIDErr error
-	if !tmpClosed {
-		postID, postIDErr = captureFileIdentity(tmpFile)
-	} else {
-		postID, postIDErr = e.captureIdentityThroughHost(host, p)
-	}
+	postID, postIDErr := captureFileIdentity(tmpFile)
 	closeErr := closeTmp()
 	if hooks.AfterInPlaceWriteClose != nil {
 		closeErr = errors.Join(closeErr, hooks.AfterInPlaceWriteClose(p.abs))
-	}
-
-	removeDisplacedOrig := func() {
-		if !usedSwap {
-			return
-		}
-		if linfo, lerr := os.Lstat(tmpPath); lerr == nil && openedID.matchesInfo(linfo) {
-			_ = os.Remove(tmpPath)
-		}
 	}
 
 	if postIDErr != nil || closeErr != nil {
@@ -478,61 +455,40 @@ func (e *Engine) updateAtomicSwap(host Host, p *prepared) (bool, error) {
 		// than deleting it to tidy up a private name.
 		_ = closeOrig()
 		p.publishState = PublishUncertain
-		if usedSwap {
-			return true, errors.Join(postIDErr, closeErr,
-				fmt.Errorf("the displaced original was kept at %s", tmpPath))
-		}
-		return true, errors.Join(postIDErr, closeErr)
+		return true, errors.Join(postIDErr, closeErr,
+			fmt.Errorf("the displaced original was kept at %s", tmpPath))
 	}
 	p.writtenID = postID
 
-	// Check whether an uncooperative external writer wrote to the displaced original descriptor while
-	// the swap was in flight. If so, put the intact external inode back (swap) or preserve its bytes
-	// (no-swap fallback) without overwriting any entry another writer may have placed at targetAbs.
-	// Writes through a pre-opened descriptor after this final check reach the displaced inode only
-	// and are outside the guarantee.
-	if !origClosed {
-		if hooks.BeforeFinalExternalCheck != nil {
-			hooks.BeforeFinalExternalCheck(p.abs)
+	// Check whether an uncooperative writer modified the displaced inode during the exchange.
+	// Restore it only while the names still match; otherwise keep it at its private name.
+	// Writes through a pre-opened descriptor after the final check are outside the guarantee.
+	if hooks.BeforeFinalExternalCheck != nil {
+		hooks.BeforeFinalExternalCheck(p.abs)
+	}
+	afterOrig, afterOrigErr := readOrig()
+	if hooks.AfterFinalExternalRead != nil {
+		hooks.AfterFinalExternalRead(p.abs)
+	}
+	if watch.wrote() || afterOrigErr != nil || !bytes.Equal(afterOrig, p.original) {
+		if afterOrigErr == nil {
+			// Include writes that landed between the read and the event poll in CurrentRev.
+			afterOrig, afterOrigErr = readOrig()
 		}
-		afterOrig, afterOrigErr := readOrig()
-		if hooks.AfterFinalExternalRead != nil {
-			hooks.AfterFinalExternalRead(p.abs)
+		outcome := restoreDisplacedOriginal(tmpPath, targetAbs, postID, openedID)
+		_ = closeOrig()
+		p.publishState = PublishExternalModification
+		curRev := ""
+		if afterOrigErr == nil {
+			curRev = RevOf(afterOrig)
 		}
-		if watch.wrote() || afterOrigErr != nil || !bytes.Equal(afterOrig, p.original) {
-			if afterOrigErr == nil {
-				// Read again after detection so a write that landed between the read and the event
-				// poll is part of what is preserved.
-				afterOrig, afterOrigErr = readOrig()
-			}
-			var outcome string
-			switch {
-			case usedSwap:
-				outcome = restoreDisplacedOriginal(tmpPath, targetAbs, postID, openedID)
-			case afterOrigErr != nil:
-				outcome = fmt.Sprintf("the external bytes could not be read back (%v)", afterOrigErr)
-			default:
-				// Without an exchange primitive the original name was replaced, so the external bytes
-				// survive only in the open descriptor. Never rename over targetAbs: another writer
-				// may own it now.
-				if savedAt, saveErr := preserveExternalBytes(host, targetAbs, afterOrig, openedID.info.Mode().Perm()); saveErr != nil {
-					outcome = fmt.Sprintf("the external bytes could not be preserved (%v)", saveErr)
-				} else {
-					outcome = "the external bytes were preserved at " + savedAt
-				}
-			}
-			_ = closeOrig()
-			p.publishState = PublishExternalModification
-			curRev := ""
-			if afterOrigErr == nil {
-				curRev = RevOf(afterOrig)
-			}
-			return true, &Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: curRev,
-				Detail: "another writer changed the file during publication; " + outcome}
-		}
+		return true, &Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: curRev,
+			Detail: "another writer changed the file during publication; " + outcome}
 	}
 
-	removeDisplacedOrig()
+	if linfo, lerr := os.Lstat(tmpPath); lerr == nil && openedID.matchesInfo(linfo) {
+		_ = os.Remove(tmpPath)
+	}
 	if origCloseErr := closeOrig(); origCloseErr != nil {
 		p.publishState = PublishUncertain
 		return true, origCloseErr

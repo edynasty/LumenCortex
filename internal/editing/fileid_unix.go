@@ -12,8 +12,6 @@ import (
 	"time"
 )
 
-const closeHandlesBeforeFallbackRename = false
-
 // fileIdentity records an observation of a regular descriptor. It is not a content lock.
 type fileIdentity struct {
 	valid     bool

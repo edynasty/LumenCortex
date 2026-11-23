@@ -32,64 +32,54 @@ func opusConflictCopies(t *testing.T, dir, base string) map[string]string {
 	return copies
 }
 
-// TestOpusPRE02FallbackRecoveryNeverOverwritesThirdParty forces the no-exchange fallback (plain
-// rename publication). A held descriptor writes to the original inode and a third process atomically
-// replaces the target before the post-publication check. Recovery must keep the third party's file
-// at the target and preserve the external bytes elsewhere instead of renaming over the target.
-func TestOpusPRE02FallbackRecoveryNeverOverwritesThirdParty(t *testing.T) {
+// TestSolPREL1UnsupportedSwapRefused injects ENOTSUP at exchange with complete staging.
+func TestSolPREL1UnsupportedSwapRefused(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
+	writeFile(t, root, "f.txt", "original-content\n")
+	writeFile(t, root, "third-party.txt", "untouched-third-party\n")
 	target := filepath.Join(root, "f.txt")
-	orig := []byte("original-content-25bytes\n")
-	if err := os.WriteFile(target, orig, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	ext, err := os.OpenFile(target, os.O_WRONLY, 0)
+	third := filepath.Join(root, "third-party.txt")
+	before, err := os.Lstat(target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ext.Close()
+	thirdBefore, err := os.Lstat(third)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := []byte("agent replacement\n")
 	saved := renameSwapForPublish
-	renameSwapForPublish = func(_, _ string) error { return syscall.ENOTSUP }
+	swapCalls := 0
+	renameSwapForPublish = func(src, dst string) error {
+		swapCalls++
+		staged, err := os.ReadFile(src)
+		if err != nil || string(staged) != string(next) || dst != target {
+			t.Errorf("exchange did not reach complete staging: src=%s dst=%s bytes=%q err=%v", src, dst, staged, err)
+		}
+		return syscall.ENOTSUP
+	}
 	t.Cleanup(func() { renameSwapForPublish = saved })
-
 	e := newTestEngine(t, root)
-	e.RegisterRead(testActor(), target, RevOf(orig))
-	e.SetPublishFaultHooks(PublishFaultHooks{AfterInPlaceWriteClose: func(dst string) error {
-		if _, err := ext.WriteAt([]byte("FOREIGN\n"), 0); err != nil {
-			return err
-		}
-		tmp := target + ".third"
-		if err := os.WriteFile(tmp, []byte("THIRD-PARTY-REPLACEMENT\n"), 0o644); err != nil {
-			return err
-		}
-		return os.Rename(tmp, target)
+	e.SetPublishFaultHooks(PublishFaultHooks{AfterInPlaceWriteClose: func(string) error {
+		t.Error("unsupported exchange entered the post-publication path")
+		return nil
 	}})
-	next := []byte("agent os process content\n")
 	var rec CommitReceipt
-	_, commitErr := e.Commit(WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r }), Plan{
-		Actor: testActor(), Tool: "write_file",
-		Changes: []FileChange{{Path: "f.txt", BaseRev: RevOf(orig), Content: &next}},
+	res, commitErr := e.Commit(WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r }), Plan{
+		Actor: testActor(), Tool: "write_file", Changes: []FileChange{{Path: "f.txt", Content: &next}},
 	})
-	if CodeOf(commitErr) != CodeConcurrentWrite || rec.Committed {
-		t.Fatalf("expected concurrent write refusal, got err=%v rec=%+v", commitErr, rec)
+	if swapCalls != 1 {
+		t.Errorf("exchange calls=%d, want exactly one after successful staging", swapCalls)
 	}
-	if got, _ := os.ReadFile(target); string(got) != "THIRD-PARTY-REPLACEMENT\n" {
-		t.Fatalf("third-party replacement overwritten during recovery: target=%q", got)
-	}
-	copies := opusConflictCopies(t, root, "f.txt")
-	if len(copies) != 1 {
-		t.Fatalf("external bytes not preserved exactly once: %v", copies)
-	}
-	for name, content := range copies {
-		if content != "FOREIGN\n-content-25bytes\n" {
-			t.Fatalf("conflict copy %s = %q", name, content)
-		}
-		if !strings.Contains(commitErr.Error(), name) {
-			t.Fatalf("error does not name the preserved copy %s: %v", name, commitErr)
-		}
+	r7AssertSettledCount(t, res, rec, 1)
+	assertL1UnsupportedUpdate(t, "f.txt", commitErr, res, rec)
+	assertL1OriginalFile(t, target, before, "original-content\n")
+	assertL1OriginalFile(t, third, thirdBefore, "untouched-third-party\n")
+	if copies := opusConflictCopies(t, root, "f.txt"); len(copies) != 0 {
+		t.Errorf("unsupported exchange generated recovery copies: %v", copies)
 	}
 	assertNoLCXTempLeftovers(t, root)
 }

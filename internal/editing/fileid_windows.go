@@ -12,8 +12,6 @@ import (
 	"unsafe"
 )
 
-const closeHandlesBeforeFallbackRename = true
-
 const (
 	windowsAttrReparsePoint = 0x0400
 	winErrFileExists        = syscall.Errno(80)

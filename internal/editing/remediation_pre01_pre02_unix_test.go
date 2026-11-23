@@ -173,19 +173,11 @@ func TestPRE01SimulatedBlockQuotaENOSPC(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		quotaBytes int
-		fallbackFS bool
 	}{
-		{"zero_free_blocks", 0, false},
-		{"partial_320KiB_before_enospc", 320 * 1024, false},
-		{"partial_320KiB_fallback_no_rename_swap", 320 * 1024, true},
+		{"zero_free_blocks", 0},
+		{"partial_320KiB_before_enospc", 320 * 1024},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.fallbackFS {
-				oldSwap := renameSwapForPublish
-				renameSwapForPublish = func(_, _ string) error { return syscall.ENOTSUP }
-				t.Cleanup(func() { renameSwapForPublish = oldSwap })
-			}
-
 			root := t.TempDir()
 			existPath := filepath.Join(root, "exist.txt")
 			if err := os.WriteFile(existPath, origBytes, 0o640); err != nil {
