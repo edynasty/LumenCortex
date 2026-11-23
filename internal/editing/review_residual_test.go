@@ -9,6 +9,7 @@ import (
 )
 
 func TestReviewByteEvictionKeepsNewestViewFence(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "a", "R1")
 	e := newTestEngine(t, root)

@@ -63,13 +63,24 @@ func TestR301CreateWithoutNoReplacePublishIsRefusedClearly(t *testing.T) {
 			}
 
 			updated := []byte("new content\n")
-			if _, err := engine.Commit(ctx, Plan{Actor: testActor(), Tool: "write_file", Changes: []FileChange{
+			_, err = engine.Commit(ctx, Plan{Actor: testActor(), Tool: "write_file", Changes: []FileChange{
 				{Path: "keep.txt", Content: &updated, AllowCreate: true},
-			}}); err != nil {
+			}})
+			switch {
+			case !platformExchangesExistingFiles:
+				// No atomic exchange on this platform: the update is refused and keep.txt stays (OPUS-V-01).
+				if CodeOf(err) != CodeUnsupportedFilesystem {
+					t.Fatalf("edit of an existing file without exchange: %v, want unsupported_filesystem", err)
+				}
+				if got := readFileContent(t, root, "keep.txt"); got != "old\n" {
+					t.Fatalf("keep.txt = %q after a refused update", got)
+				}
+			case err != nil:
 				t.Fatalf("edit of an existing file: %v", err)
-			}
-			if got := readFileContent(t, root, "keep.txt"); got != "new content\n" {
-				t.Fatalf("keep.txt = %q", got)
+			default:
+				if got := readFileContent(t, root, "keep.txt"); got != "new content\n" {
+					t.Fatalf("keep.txt = %q", got)
+				}
 			}
 			if _, err := os.Stat(filepath.Join(root, "new.txt")); !os.IsNotExist(err) {
 				t.Fatalf("new.txt exists after the refused create: %v", err)

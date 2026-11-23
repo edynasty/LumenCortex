@@ -15,6 +15,7 @@ import (
 // Four agents edit different lines of one file from the same snapshot: no update is lost, and every
 // edit that was refused was refused explicitly.
 func TestConcurrentLineEditsLoseNoUpdate(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	var b strings.Builder
 	for line := 1; line <= 40; line++ {
@@ -65,6 +66,7 @@ func TestConcurrentLineEditsLoseNoUpdate(t *testing.T) {
 
 // A large file's anchor and edit are bounded: the edit is a line splice, not a re-render of the file.
 func TestLargeFileAnchorEditIsBounded(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	var b strings.Builder
 	const total = 50_000
@@ -99,6 +101,7 @@ func TestLargeFileAnchorEditIsBounded(t *testing.T) {
 // A write lease held by another holder refuses the write with a lease_conflict that names the holder;
 // releasing it restores the normal path.
 func TestWriteLeaseRefusesOtherHolder(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "a.txt", "alpha\n")
 	engine := newTestEngine(t, root)
@@ -157,6 +160,7 @@ func TestWriteLeasePrefixAndExpiry(t *testing.T) {
 // A failure while writing the second file keeps the first published: R7 never compensates. The
 // first path reports its verified write and the failed path reports no publication.
 func TestMultiFileCommitStopsAtFirstWriteFailure(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "a.txt", "alpha\n")
 	writeFile(t, root, "sub/b.txt", "beta\n")
@@ -199,6 +203,7 @@ func TestMultiFileCommitStopsAtFirstWriteFailure(t *testing.T) {
 
 // Two files commit together and both report their new revisions.
 func TestMultiFileCommitIsAtomic(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "a.txt", "alpha\n")
 	writeFile(t, root, "b.txt", "beta\n")

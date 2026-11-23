@@ -81,6 +81,7 @@ func commitLineOps(t *testing.T, engine *Engine, name string, rev string, ops []
 
 // S1: a fresh edit on the snapshot just read changes only the addressed line.
 func TestHashlineFreshEditOnSnapshot(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "demo.go", hashBase)
 	engine := newTestEngine(t, root)
@@ -125,6 +126,7 @@ func TestHashlineRefusesChangedAnchoredLine(t *testing.T) {
 
 // S3: an unrelated insertion above is relocated; the duplicate "\treturn 1" lines do not confuse it.
 func TestHashlineRelocatesAcrossUnrelatedInsertion(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "demo.go", hashBase)
 	engine := newTestEngine(t, root)
@@ -170,6 +172,7 @@ func TestHashlineRefusesInsertionInsideEditedRange(t *testing.T) {
 
 // S5: several ops on one snapshot apply atomically, each in the original numbering.
 func TestHashlineAppliesBatchAgainstOneSnapshot(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "demo.go", hashBase)
 	engine := newTestEngine(t, root)
@@ -212,6 +215,7 @@ func TestHashlineRefusesOverlappingOps(t *testing.T) {
 
 // S6: BOM, CRLF and a missing final newline are preserved byte for byte.
 func TestHashlinePreservesEncoding(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	const original = "\xef\xbb\xbfline one\r\nline two\r\nline three"
 	writeFile(t, root, "notes.txt", original)

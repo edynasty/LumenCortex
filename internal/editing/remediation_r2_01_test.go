@@ -405,6 +405,9 @@ func main() {
 		{"outcome_b5_external_complete_before_prepare_replaced_as_read", false, "excl_after_signal", beforeCommit, lcReplacedReadForeign},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.want == inplaceOverlapForeignWhole || tc.want == lcReplacedReadForeign {
+				requireExistingFileUpdate(t) // these outcomes replace the existing external file
+			}
 			if got := runRound(t, tc.exclusive, tc.mode, tc.release, true); got != tc.want {
 				t.Fatalf("outcome %q, want %q", got, tc.want)
 			}
@@ -465,6 +468,7 @@ func main() {
 	// EDITING-PRE-02 closed via staged atomic swap, pre02MixedReportedDirty and pre02ExternalWriteOverwritten
 	// are excluded from valid outcomes.
 	t.Run("concurrent_two_syscall_allow_create_stress", func(t *testing.T) {
+		requireExistingFileUpdate(t)
 		runStress(t, false, []raceStep{
 			{"excl_after_signal", beforeCommit, append(append([]string{lcReplacedReadForeign}, staged...), inPlace...)},
 			{"excl_after_signal", afterPrepare, staged},

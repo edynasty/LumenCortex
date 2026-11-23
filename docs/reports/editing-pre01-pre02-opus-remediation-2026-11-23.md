@@ -81,6 +81,6 @@ Not executed natively: Windows and FreeBSD remain **UNVERIFIED**. Linux ran in a
   - kqueue cannot tell our own write from a foreign write on the same vnode, so in-place detection is not a viable third option.
 - **L2:** kqueue is a notification, not a lock. A process that already holds a descriptor can write after the final check. For an update the write lands in the displaced inode, which is then removed; for a delete it lands in the unlinked inode. Those bytes are lost. macOS offers no non-cooperative mandatory lock, so universal protection against held-descriptor writers is **not** claimed.
 - **L3:** private `.lcx-create-*` and `.lcx-del-*` files left after SIGKILL contain recoverable data but are not swept or reported on restart.
-- **L4:** on Windows and FreeBSD, `replicateSwapMetadata` is a no-op, so alternate data streams, ACLs and xattrs are not carried across a replacement. Native behavior is unverified.
+- **L4:** on Windows and FreeBSD, `replicateSwapMetadata` is a no-op, so alternate data streams, ACLs and xattrs are not carried across a replacement. Native behavior is unverified. *Superseded at Sol `4c79bc0`:* these platforms no longer replace existing files; updates are refused with `unsupported_filesystem` (OPUS-V-01).
 - Set-uid/set-gid bits are cleared on update. `main`'s in-place write clears them as well.
 - `com.apple.provenance` on the new inode is kernel-assigned.

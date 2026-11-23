@@ -83,6 +83,7 @@ func TestReviewSnapshotBudget(t *testing.T) {
 }
 
 func TestReviewEvictedReadRequiresFreshRevision(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "a", "old")
 	e := newTestEngine(t, root)
@@ -125,6 +126,7 @@ func TestReviewCancelledValidationDoesNotMutate(t *testing.T) {
 }
 
 func TestReviewLeaseAcquisitionWaitsForCommit(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "a", "original")
 	e := newTestEngine(t, root)
