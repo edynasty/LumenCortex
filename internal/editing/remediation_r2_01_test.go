@@ -457,19 +457,25 @@ func main() {
 	})
 
 	t.Run("concurrent_atomic_allow_create_stress", func(t *testing.T) {
-		runStress(t, false, []raceStep{
+		for _, step := range []raceStep{
 			{"atomic_after_signal", beforeCommit, append([]string{lcReplacedReadForeign}, staged...)},
 			{"atomic_after_signal", afterPrepare, staged},
 			{"atomic_after_signal", beforePublish, staged},
-		})
+		} {
+			t.Run(step.release, func(t *testing.T) {
+				if step.release == beforeCommit {
+					requireExistingFileUpdate(t)
+				}
+				runStress(t, false, []raceStep{step})
+			})
+		}
 	})
 
 	// The original R2-01 scenario: AllowCreate against an external create followed by a write. With
 	// EDITING-PRE-02 closed via staged atomic swap, pre02MixedReportedDirty and pre02ExternalWriteOverwritten
 	// are excluded from valid outcomes.
 	t.Run("concurrent_two_syscall_allow_create_stress", func(t *testing.T) {
-		requireExistingFileUpdate(t)
-		runStress(t, false, []raceStep{
+		for _, step := range []raceStep{
 			{"excl_after_signal", beforeCommit, append(append([]string{lcReplacedReadForeign}, staged...), inPlace...)},
 			{"excl_after_signal", afterPrepare, staged},
 			{"excl_after_signal", beforePublish, staged},
@@ -477,7 +483,14 @@ func main() {
 			{"create_empty_wait_then_write", afterPrepare, inPlace},
 			{"create_empty_wait_then_write", afterTruncate, []string{inplaceRefusedBeforeTruncate, inplaceOverlapForeignWhole, externalWriteAfterVerified, displacedOpenFDAfterVerified}},
 			{"create_empty_wait_then_write", afterWriteClose, []string{inplaceOverlapForeignWhole, externalWriteAfterVerified, displacedOpenFDAfterVerified}},
-		})
+		} {
+			t.Run(step.mode+"/"+step.release, func(t *testing.T) {
+				if step.mode == "create_empty_wait_then_write" || step.release == beforeCommit {
+					requireExistingFileUpdate(t)
+				}
+				runStress(t, false, []raceStep{step})
+			})
+		}
 	})
 }
 

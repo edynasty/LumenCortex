@@ -81,13 +81,13 @@ func commitLineOps(t *testing.T, engine *Engine, name string, rev string, ops []
 
 // S1: a fresh edit on the snapshot just read changes only the addressed line.
 func TestHashlineFreshEditOnSnapshot(t *testing.T) {
-	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "demo.go", hashBase)
 	engine := newTestEngine(t, root)
 	snap := readSnapshot(t, engine, "demo.go")
 
 	ops := resolveOps(t, snap, AnchorOp{Op: OpReplace, Start: anchorAt(snap.Doc, 8), Text: "\treturn 2"})
+	requireExistingFileUpdate(t)
 	result, err := commitLineOps(t, engine, "demo.go", snap.Rev, ops)
 	if err != nil {
 		t.Fatalf("commit: %v", err)
@@ -126,7 +126,6 @@ func TestHashlineRefusesChangedAnchoredLine(t *testing.T) {
 
 // S3: an unrelated insertion above is relocated; the duplicate "\treturn 1" lines do not confuse it.
 func TestHashlineRelocatesAcrossUnrelatedInsertion(t *testing.T) {
-	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "demo.go", hashBase)
 	engine := newTestEngine(t, root)
@@ -135,6 +134,7 @@ func TestHashlineRelocatesAcrossUnrelatedInsertion(t *testing.T) {
 	moved := strings.Replace(hashBase, "package demo\n", "package demo\n\nimport \"fmt\"\n\nvar _ = fmt.Sprint\n", 1)
 	writeFile(t, root, "demo.go", moved)
 	ops := resolveOps(t, snap, AnchorOp{Op: OpReplace, Start: anchorAt(snap.Doc, 8), Text: "\treturn 2"})
+	requireExistingFileUpdate(t)
 	result, err := commitLineOps(t, engine, "demo.go", snap.Rev, ops)
 	if err != nil {
 		t.Fatalf("commit: %v", err)
@@ -172,7 +172,6 @@ func TestHashlineRefusesInsertionInsideEditedRange(t *testing.T) {
 
 // S5: several ops on one snapshot apply atomically, each in the original numbering.
 func TestHashlineAppliesBatchAgainstOneSnapshot(t *testing.T) {
-	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "demo.go", hashBase)
 	engine := newTestEngine(t, root)
@@ -183,6 +182,7 @@ func TestHashlineAppliesBatchAgainstOneSnapshot(t *testing.T) {
 		AnchorOp{Op: OpInsertAfter, Start: anchorAt(snap.Doc, 5), Text: "\n// between"},
 		AnchorOp{Op: OpReplace, Start: anchorAt(snap.Doc, 8), Text: "\treturn 20"},
 	)
+	requireExistingFileUpdate(t)
 	if _, err := commitLineOps(t, engine, "demo.go", snap.Rev, ops); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -215,7 +215,6 @@ func TestHashlineRefusesOverlappingOps(t *testing.T) {
 
 // S6: BOM, CRLF and a missing final newline are preserved byte for byte.
 func TestHashlinePreservesEncoding(t *testing.T) {
-	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	const original = "\xef\xbb\xbfline one\r\nline two\r\nline three"
 	writeFile(t, root, "notes.txt", original)
@@ -223,6 +222,7 @@ func TestHashlinePreservesEncoding(t *testing.T) {
 	snap := readSnapshot(t, engine, "notes.txt")
 
 	ops := resolveOps(t, snap, AnchorOp{Op: OpReplace, Start: anchorAt(snap.Doc, 2), Text: "line 2"})
+	requireExistingFileUpdate(t)
 	if _, err := commitLineOps(t, engine, "notes.txt", snap.Rev, ops); err != nil {
 		t.Fatalf("commit: %v", err)
 	}

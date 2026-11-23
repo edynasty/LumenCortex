@@ -83,7 +83,6 @@ func TestReviewSnapshotBudget(t *testing.T) {
 }
 
 func TestReviewEvictedReadRequiresFreshRevision(t *testing.T) {
-	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "a", "old")
 	e := newTestEngine(t, root)
@@ -94,16 +93,19 @@ func TestReviewEvictedReadRequiresFreshRevision(t *testing.T) {
 	writeFile(t, root, "a", "new user content")
 	next := []byte("from old")
 	plan := Plan{Actor: testActor(), Changes: []FileChange{{Path: "a", Content: &next, RejectStaleRead: true}}}
-	if _, err := e.Commit(context.Background(), plan); err == nil {
-		t.Error("evicted stale read silently accepted")
+	if _, err := e.Commit(context.Background(), plan); CodeOf(err) != CodeUnknownRev {
+		t.Fatalf("evicted stale read: %v, want unknown_rev", err)
 	}
 	if got := readFileContent(t, root, "a"); got != "new user content" {
 		t.Fatalf("new content lost: %q", got)
 	}
 	e.RegisterRead(testActor(), filepath.Join(root, "a"), RevOf([]byte("new user content")))
-	if _, err := e.Commit(context.Background(), plan); err != nil {
-		t.Fatalf("fresh reread must unblock write: %v", err)
-	}
+	t.Run("update_after_reread", func(t *testing.T) {
+		requireExistingFileUpdate(t)
+		if _, err := e.Commit(context.Background(), plan); err != nil {
+			t.Fatalf("fresh reread must unblock write: %v", err)
+		}
+	})
 }
 
 func TestReviewCancelledValidationDoesNotMutate(t *testing.T) {
@@ -126,39 +128,51 @@ func TestReviewCancelledValidationDoesNotMutate(t *testing.T) {
 }
 
 func TestReviewLeaseAcquisitionWaitsForCommit(t *testing.T) {
-	requireExistingFileUpdate(t)
-	root := t.TempDir()
-	writeFile(t, root, "a", "original")
-	e := newTestEngine(t, root)
-	entered, finish := make(chan struct{}), make(chan struct{})
-	e.beforeWrite = func(string) { close(entered); <-finish }
-	committed := make(chan error, 1)
-	go func() {
-		next := []byte("committed")
-		_, err := e.Commit(context.Background(), Plan{Actor: testActor(), Changes: []FileChange{{Path: "a", Content: &next}}})
-		committed <- err
-	}()
-	<-entered
-	acquired := make(chan error, 1)
-	go func() {
-		_, err := e.Leases().Acquire(root, CanonicalPath(filepath.Join(root, "a")), "other", false, time.Minute)
-		acquired <- err
-	}()
-	select {
-	case err := <-acquired:
-		close(finish)
-		<-committed
-		t.Fatalf("lease completed while commit was inside its mutation window: %v", err)
-	case <-time.After(20 * time.Millisecond):
-	}
-	close(finish)
-	if err := <-committed; err != nil {
-		t.Fatal(err)
-	}
-	if err := <-acquired; err != nil {
-		t.Fatal(err)
-	}
-	if got := readFileContent(t, root, "a"); got != "committed" {
-		t.Fatalf("commit lost: %q", got)
+	for _, create := range []bool{true, false} {
+		name := "create"
+		if !create {
+			name = "update"
+		}
+		t.Run(name, func(t *testing.T) {
+			if !create {
+				requireExistingFileUpdate(t)
+			}
+			root := t.TempDir()
+			if !create {
+				writeFile(t, root, "a", "original")
+			}
+			e := newTestEngine(t, root)
+			entered, finish := make(chan struct{}), make(chan struct{})
+			e.beforeWrite = func(string) { close(entered); <-finish }
+			committed := make(chan error, 1)
+			go func() {
+				next := []byte("committed")
+				_, err := e.Commit(context.Background(), Plan{Actor: testActor(), Changes: []FileChange{{Path: "a", Content: &next, Create: create}}})
+				committed <- err
+			}()
+			<-entered
+			acquired := make(chan error, 1)
+			go func() {
+				_, err := e.Leases().Acquire(root, CanonicalPath(filepath.Join(root, "a")), "other", false, time.Minute)
+				acquired <- err
+			}()
+			select {
+			case err := <-acquired:
+				close(finish)
+				<-committed
+				t.Fatalf("lease completed while commit was inside its mutation window: %v", err)
+			case <-time.After(20 * time.Millisecond):
+			}
+			close(finish)
+			if err := <-committed; err != nil {
+				t.Fatal(err)
+			}
+			if err := <-acquired; err != nil {
+				t.Fatal(err)
+			}
+			if got := readFileContent(t, root, "a"); got != "committed" {
+				t.Fatalf("commit lost: %q", got)
+			}
+		})
 	}
 }
