@@ -43,6 +43,15 @@ func TestR7RlimitChildHelper(t *testing.T) {
 	actor := testActor()
 	switch mode {
 	case "inplace_zero", "inplace_short":
+		lh, err := NewLocalHost(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plainHost := &r7PlainHost{LocalHost: lh}
+		e, err = New(Options{Root: root, Host: plainHost})
+		if err != nil {
+			t.Fatal(err)
+		}
 		rawA, _ := os.ReadFile(filepath.Join(root, "a.txt"))
 		rawB, _ := os.ReadFile(filepath.Join(root, "b.txt"))
 		rawC, _ := os.ReadFile(filepath.Join(root, "c.txt"))
@@ -67,7 +76,7 @@ func TestR7RlimitChildHelper(t *testing.T) {
 		content := []byte("abcdefghij")
 		var rec CommitReceipt
 		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
-		res, err := e.Commit(ctx, Plan{Actor: actor, Tool: "write_file", Changes: []FileChange{
+		res, err := e.Commit(ctx, Plan{Actor: actor, Host: plainHost, Tool: "write_file", Changes: []FileChange{
 			{Path: "a.txt", Content: &content},
 			{Path: "b.txt", Content: bytesPtr("new-b\n")},
 			{Path: "c.txt", Content: bytesPtr("new-c\n")},

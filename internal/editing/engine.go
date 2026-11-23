@@ -315,6 +315,7 @@ type PublishFaultHooks struct {
 	AfterInPlaceWriteClose func(dstPath string) error
 	WriteStaged            func(dstPath string, f *os.File, data []byte) (int, error)
 	AfterTruncate          func(dstPath string) error
+	BeforeDeleteUnlink     func(dstPath string) error
 }
 
 // SetPublishFaultHooks installs deterministic atomic-publication fault hooks for tests; pass zero
@@ -389,6 +390,7 @@ type prepared struct {
 	moved    map[int]int
 	ops      []LineOp
 	// Publication and verification are independent: a visible write may fail verification.
+	viaSymlink   bool
 	staged       bool
 	published    bool
 	verified     bool
@@ -689,6 +691,9 @@ func (e *Engine) prepare(host Host, p *prepared, plan Plan) error {
 	}
 	var original []byte
 	if existed {
+		if linfo, lerr := os.Lstat(p.abs); lerr == nil && linfo.Mode()&os.ModeSymlink != 0 {
+			p.viaSymlink = true
+		}
 		f, err := host.Open(p.abs, false)
 		if err != nil {
 			return err
