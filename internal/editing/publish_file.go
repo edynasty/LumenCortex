@@ -406,6 +406,15 @@ func (e *Engine) updateAtomicSwap(host Host, p *prepared) (bool, error) {
 		return abortBeforeSwap(&Error{Code: CodeConflict, Path: p.rel, Rev: p.rev,
 			Detail: "the file was replaced after the change was computed; nothing was written"}, p.next)
 	}
+	// Sample the opened inode again after staging and the pathname check. Planning and open-time
+	// counts miss aliases created while staging; this observation is not atomic with the swap.
+	currentID, idErr := captureFileIdentity(origFile)
+	if idErr != nil {
+		return abortBeforeSwap(idErr, p.next)
+	}
+	if links := currentID.linkCount(); links > 1 {
+		return abortBeforeSwap(errMultiLinkUpdate(p.rel, links), p.next)
+	}
 
 	usedSwap := true
 	swapErr := renameSwapForPublish(tmpPath, targetAbs)

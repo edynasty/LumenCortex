@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -209,6 +210,39 @@ func TestOpusPRE02UncertainSwapKeepsDisplacedOriginal(t *testing.T) {
 	}
 }
 
+// TestSolPREL1LinkChild creates the alias from a separate process at the staging barrier.
+func TestSolPREL1LinkChild(t *testing.T) {
+	if target := os.Getenv("LC_SOL_PRE_L1_LINK_TARGET"); target != "" {
+		if err := os.Link(target, os.Getenv("LC_SOL_PRE_L1_LINK_ALIAS")); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func assertL1UnsupportedUpdate(t *testing.T, rel string, err error, res Result, rec CommitReceipt) {
+	t.Helper()
+	if CodeOf(err) != CodeUnsupportedFilesystem || rec.Committed || rec.DirtyFailure ||
+		res.CommitState != CommitStatePrePublishFailure || rec.State != CommitStatePrePublishFailure {
+		t.Errorf("expected clean unsupported refusal for %s: err=%v res=%+v rec=%+v", rel, err, res, rec)
+	}
+	f, r := r7Files(t, res, rec, rel)
+	if f.PublishState != PublishUnsupported || f.Changed || f.Published || r.Wrote || f.Verified ||
+		f.NewRev != "" || r.NewSHA256 != "" || f.Error == "" || r.Error == "" {
+		t.Errorf("unsupported update result and receipt: %+v %+v", f, r)
+	}
+}
+
+func assertL1OriginalFile(t *testing.T, path string, before os.FileInfo, want string) {
+	t.Helper()
+	after, statErr := os.Lstat(path)
+	raw, readErr := os.ReadFile(path)
+	same := statErr == nil && os.SameFile(before, after)
+	if !same || readErr != nil || string(raw) != want {
+		t.Errorf("%s did not retain original inode and bytes: same inode=%v, bytes=%q, stat=%v, read=%v",
+			path, same, raw, statErr, readErr)
+	}
+}
+
 // TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite pins the fail-closed hard-link policy. An update
 // of a file with several links (across directories, one outside the workspace) is refused in the
 // plan preflight, so a batch that also changes an ordinary file writes nothing; a link that appears
@@ -228,7 +262,7 @@ func TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if err := os.WriteFile(filepath.Join(root, "plain.txt"), []byte("plain-v1\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(root, "0-plain.txt"), []byte("plain-v1\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		aliases = []string{filepath.Join(root, "a", "x.txt"), filepath.Join(root, "b", "y.txt"),
@@ -259,56 +293,114 @@ func TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite(t *testing.T) {
 			}
 		}
 	}
-	assertRefused := func(t *testing.T, err error, rec CommitReceipt, res Result) {
-		t.Helper()
-		if CodeOf(err) != CodeUnsupportedFilesystem || rec.Committed || rec.DirtyFailure {
-			t.Fatalf("expected clean unsupported refusal, got err=%v rec=%+v", err, rec)
-		}
-		f, r := r7Files(t, res, rec, "a/x.txt")
-		if f.PublishState != PublishUnsupported || f.Published || r.Wrote || f.NewRev != "" || r.NewSHA256 != "" {
-			t.Fatalf("hard-link receipt: %+v %+v", f, r)
-		}
-	}
 
 	t.Run("batch_preflight_refuses_everything", func(t *testing.T) {
 		_, root, aliases := setup(t)
+		plain := filepath.Join(root, "0-plain.txt")
+		plainBefore, err := os.Lstat(plain)
+		if err != nil {
+			t.Fatal(err)
+		}
+		linkedBefore, err := os.Lstat(aliases[0])
+		if err != nil {
+			t.Fatal(err)
+		}
 		e := newTestEngine(t, root)
+		writeAttempts := 0
+		e.beforeWrite = func(string) { writeAttempts++ }
 		var rec CommitReceipt
 		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
 		res, err := e.Commit(ctx, Plan{Actor: testActor(), Tool: "write_file", Changes: []FileChange{
-			{Path: "plain.txt", Content: bytesPtr("plain-v2\n")},
+			{Path: "0-plain.txt", Content: bytesPtr("plain-v2\n")},
 			{Path: "a/x.txt", Content: bytesPtr("shared-v2\n")},
 		}})
-		assertRefused(t, err, rec, res)
-		if got := readFileContent(t, root, "plain.txt"); got != "plain-v1\n" {
-			t.Fatalf("preflight refusal still wrote plain.txt: %q", got)
+		r7AssertSettledCount(t, res, rec, 2)
+		assertL1UnsupportedUpdate(t, "a/x.txt", err, res, rec)
+		f, r := r7Files(t, res, rec, "0-plain.txt")
+		r7AssertNotAttempted(t, f, r)
+		if writeAttempts != 0 || f.Changed || r.Staged || r.Wrote {
+			t.Errorf("preflight reached writer: attempts=%d result=%+v receipt=%+v", writeAttempts, f, r)
 		}
-		assertAliasesIntact(t, aliases, "shared-v1\n")
+		assertL1OriginalFile(t, plain, plainBefore, "plain-v1\n")
+		for _, alias := range aliases {
+			assertL1OriginalFile(t, alias, linkedBefore, "shared-v1\n")
+		}
 		assertNoLCXTempLeftovers(t, root)
+		assertNoLCXTempLeftovers(t, filepath.Dir(aliases[0]))
 	})
 
-	t.Run("link_created_after_preflight", func(t *testing.T) {
-		base, root, _ := setup(t)
-		single := filepath.Join(root, "a", "single.txt")
-		if err := os.WriteFile(single, []byte("single-v1\n"), 0o644); err != nil {
+	t.Run("link_created_after_staging", func(t *testing.T) {
+		base, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
 			t.Fatal(err)
 		}
-		late := filepath.Join(base, "late-alias.txt")
+		root := filepath.Join(base, "ws")
+		if err := os.Mkdir(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, root, "single.txt", "single-v1\n")
+		writeFile(t, root, "unrelated.txt", "untouched\n")
+		target := filepath.Join(root, "single.txt")
+		unrelated := filepath.Join(root, "unrelated.txt")
+		before, err := os.Lstat(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		unrelatedBefore, err := os.Lstat(unrelated)
+		if err != nil {
+			t.Fatal(err)
+		}
+		alias := filepath.Join(base, "late-alias.txt")
+		var stagedPath string
+		linkCreated := false
 		e := newTestEngine(t, root)
-		e.beforeWrite = func(dst string) {
-			if dst == single {
-				if err := os.Link(single, late); err != nil {
-					t.Errorf("late link: %v", err)
+		e.SetPublishFaultHooks(PublishFaultHooks{
+			WriteStaged: func(_ string, f *os.File, data []byte) (int, error) {
+				stagedPath = f.Name()
+				return f.Write(data)
+			},
+			BeforePublish: func(string) error {
+				if staged, err := os.ReadFile(stagedPath); err != nil || string(staged) != "single-v2\n" {
+					t.Errorf("barrier did not observe complete stage: %q (%v)", staged, err)
+					return errors.New("invalid staging barrier")
 				}
-			}
+				cmd := exec.Command(os.Args[0], "-test.run=^TestSolPREL1LinkChild$")
+				cmd.Env = append(os.Environ(), "LC_SOL_PRE_L1_LINK_TARGET="+target, "LC_SOL_PRE_L1_LINK_ALIAS="+alias)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Errorf("hard-link child: %v: %s", err, out)
+					return err
+				}
+				info, err := os.Lstat(alias)
+				if err != nil || !os.SameFile(before, info) {
+					t.Errorf("child did not link original inode at barrier: %v", err)
+					return errors.New("invalid hard-link barrier")
+				}
+				linkCreated = true
+				t.Logf("child pid=%d linked original inode after complete staging", cmd.ProcessState.Pid())
+				return nil
+			},
+		})
+		saved := renameSwapForPublish
+		swapCalls := 0
+		renameSwapForPublish = func(src, dst string) error {
+			swapCalls++
+			return saved(src, dst)
 		}
-		_, err := e.Commit(context.Background(), Plan{Actor: testActor(), Tool: "write_file",
-			Changes: []FileChange{{Path: "a/single.txt", Content: bytesPtr("single-v2\n")}}})
-		if CodeOf(err) != CodeUnsupportedFilesystem {
-			t.Fatalf("err=%v, want %s", err, CodeUnsupportedFilesystem)
+		t.Cleanup(func() { renameSwapForPublish = saved })
+		var rec CommitReceipt
+		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
+		res, err := e.Commit(ctx, Plan{Actor: testActor(), Tool: "write_file",
+			Changes: []FileChange{{Path: "single.txt", Content: bytesPtr("single-v2\n")}}})
+		if !linkCreated || swapCalls != 0 {
+			t.Errorf("late-link barrier completed=%v, exchange calls=%d; want true and 0", linkCreated, swapCalls)
 		}
-		assertAliasesIntact(t, []string{single, late}, "single-v1\n")
-		assertNoLCXTempLeftovers(t, filepath.Join(root, "a"))
+		r7AssertSettledCount(t, res, rec, 1)
+		assertL1UnsupportedUpdate(t, "single.txt", err, res, rec)
+		assertL1OriginalFile(t, target, before, "single-v1\n")
+		assertL1OriginalFile(t, alias, before, "single-v1\n")
+		assertL1OriginalFile(t, unrelated, unrelatedBefore, "untouched\n")
+		assertNoLCXTempLeftovers(t, root)
+		assertNoLCXTempLeftovers(t, base)
 	})
 
 	t.Run("delete_one_name_keeps_other_links", func(t *testing.T) {
