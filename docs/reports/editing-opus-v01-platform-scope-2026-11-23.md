@@ -51,11 +51,8 @@ Source-derived. Only the "Native evidence" column reports execution.
   - The timestamp subtest now asserts the refusal through the same helper.
   - The prefix-not-compensated subtest keeps its purpose with new files, which Windows publishes. The prefix `a.txt` must read exactly `new-a\nWIN-FOREIGN\n`; it previously only had to contain the appended text. `b.txt` must keep the foreign bytes, and `c.txt`, an update, must be `not_attempted` and unchanged.
 - `remediation_r3_01_unix_test.go` (also built on FreeBSD): the final existing-file edit expects refusal with `keep.txt` unchanged when the platform has no exchange; otherwise it expects the edit as before.
-- These 22 update-dependent tests and subtests are gated:
-  - 19 tests: 5 in `concurrency_test.go`, 4 hashline tests in `engine_test.go`, `history_test.go`, 2 R7 prefix tests, `r7r2` self-replay, `r5` same inode, 2 review regression, 1 review residual, 2 xreview.
-  - 3 subtests: R7 verified-prefix `update`, R4 `05b`, and R201 `b3`/`b5`/`stress`, which together count as 1 entry.
-
-  No assertion was removed or weakened.
+- **SOL-OV01-02 correction:** at `9ad5f2aa`, there were 23 helper call sites, 19 top-level gated tests and five selected nested cases (R7 update, R4 05b, R201 b3, b5 and stress). These are different counting levels, not additive totals. The nested b3/b5 cases share a call site.
+- **SOL-OV01-01 correction:** whole-test gating also suppressed independent lease/refusal/read checks on unsupported platforms. The superseding final-P3 report documents their preservation and the recounted final gate scopes; the original “no assertion weakened” statement did not account for this coverage reduction.
 
 ## Verification
 
@@ -64,7 +61,8 @@ All commands used `GOWORK=off GOFLAGS=`. Exit codes and logs are in `bench/evide
 | Check | Result |
 |---|---|
 | RED: original `remediation_r6_windows_test.go` (tag removed; the darwin-absent `lastWriteTime` log replaced) with `renameSwapForPublish` returning `ENOSYS` | exit 1. Both subtests fail with `unsupported_filesystem` |
-| GREEN: the whole editing package with the same simulation, plus the no-exchange files compiled on darwin | refusal test, both Windows subtests and the 3 R301 subtests PASS. 24 gated SKIP lines. The only failures are in 4 tests from darwin- or darwin‖linux-tagged files, which are not built on Windows or FreeBSD |
+| Full-package no-exchange simulation (historical; corrected by SOL-OV01-02) | **FAIL / exit 1: 152 PASS, 6 FAIL, 24 SKIP** including subtests; 78/4/19 at top level. Four top-level failures are in Darwin/Linux-only test files excluded from Windows/FreeBSD builds. This explains failures; it does not make the complete run GREEN |
+| Selected assertions in that historical simulation | **PASS — focused simulation only:** refusal test, both Windows subtests and three R301 subtests. Not native Windows/FreeBSD acceptance and not a separate whole-package PASS |
 | Mutant: no-exchange tests run where the update succeeds | refusal test, R301 and the Windows timestamp subtest FAIL (`err=<nil>`) |
 | macOS 27.0.1 arm64 APFS, Go 1.26.5: `gofmt -l internal/editing` | exit 0, no files |
 | `go test -count=1 -v ./internal/editing` | exit 0. 175 PASS lines (including subtests), 0 FAIL, 0 SKIP. Real `hdiutil` 8 MiB ENOSPC test PASS. The set of test names and outcomes is identical to `b03c91e` |
