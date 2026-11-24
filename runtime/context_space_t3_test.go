@@ -2,11 +2,13 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,6 +20,91 @@ import (
 	"github.com/edynasty/LumenCortex/internal/window"
 	"github.com/edynasty/LumenCortex/protocol"
 )
+
+type t6ToolFileRow struct {
+	Path         string `json:"path"`
+	PublishState string `json:"publishState"`
+	Published    bool   `json:"published"`
+	Verified     bool   `json:"verified"`
+	Wrote        bool   `json:"wrote"`
+	NewRev       string `json:"newRev"`
+	SHA256       string `json:"sha256"`
+	Error        string `json:"error"`
+}
+
+type t6ToolFailurePayload struct {
+	Error              string          `json:"error"`
+	CommitState        string          `json:"commitState"`
+	DirtyFailure       bool            `json:"dirtyFailure"`
+	PartialPublication bool            `json:"partialPublication"`
+	Recovery           string          `json:"recovery"`
+	Files              []t6ToolFileRow `json:"files"`
+}
+
+func stripCMSeal(postRef string) string {
+	for _, suffix := range []string{";cm=proven", ";cm=none", ";cm=unknown"} {
+		if trimmed, ok := strings.CutSuffix(postRef, suffix); ok {
+			return trimmed
+		}
+	}
+	return postRef
+}
+
+func listStagingFiles(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".lcx-create-") {
+			out = append(out, entry.Name())
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func findToolResultJSON(t *testing.T, engine *Engine, sessionID, toolCallID string) t6ToolFailurePayload {
+	t.Helper()
+	as := agentStore{store: engine.store}
+	var raw string
+	if err := as.Transcript(context.Background(), sessionID, 0, func(_ int64, msg protocol.Message) error {
+		if msg.Role == "tool" && msg.ToolCallID == toolCallID {
+			raw = msg.Content
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if raw == "" {
+		t.Fatalf("missing tool result message for tool_call_id=%q in session=%q", toolCallID, sessionID)
+	}
+	var payload t6ToolFailurePayload
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("unmarshal tool result %q: %v (raw=%s)", toolCallID, err, raw)
+	}
+	return payload
+}
+
+func drainCommittedEvents(ch <-chan Event) []map[string]any {
+	var out []map[string]any
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Type != "edit.committed" {
+				continue
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(ev.Data, &payload); err == nil {
+				out = append(out, payload)
+			}
+		default:
+			return out
+		}
+	}
+}
 
 // inspectPersistedRepairState loads all messages and answered executions from the session's SQLite
 // store and returns (mutations map[answeredSeq]MutationEvidence, RepairContext, summaries).
@@ -272,19 +359,18 @@ func TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix(t *testing.T) {
 	// Helper that sets up an active completion-gate repair session (u -> G0(Unknown) -> Proposal -> Block1)
 	// using an open work_unit so the completion gate blocks on Proposal 1 without external shell checks,
 	// then runs one candidate repair step `actCall`, then closes the work_unit or inspects (MutationEvidence, MinRequiredSeq)!
-	runPostBlockScenario := func(t *testing.T, name string, setup func(), actCalls []protocol.ToolCall) (agent.MutationEvidence, int64, int64, []session.AnsweredExecutionSummary) {
+	runPostBlockScenarioOn := func(t *testing.T, eng *Engine, name string, setup func(), actCalls []protocol.ToolCall) (string, agent.MutationEvidence, int64, agent.RepairContext, []session.AnsweredExecutionSummary) {
 		t.Helper()
 		agent.SetTestExecutionHooks(nil, nil)
-		engine.editing.SetPublishFaultHooks(editing.PublishFaultHooks{})
+		eng.editing.SetPublishFaultHooks(editing.PublishFaultHooks{})
 		if setup != nil {
 			setup()
 		}
-		h := newTestSession(t, engine, "scenario-"+name)
+		h := newTestSession(t, eng, "scenario-"+name)
 		// Step 1: create an open work unit + run bash("true") (Unknown, seq=G0)
 		// Step 2: propose completion -> blocked by incomplete work unit (OriginCompletionBlocked at Block1)!
 		// Step 3: execute `actCalls` (the post-block repair step under test!)
-		// Step 4: complete the work unit and finish!
-		// Wait: inspect repair state right after Step 3 by stopping at MaxSteps=3!
+		// Inspect repair state right after Step 3 by stopping at MaxSteps=3!
 		prov := &stepProvider{steps: []protocol.ProviderResponse{
 			toolCalls(
 				tc("wu", "work_unit_create", `{"id":"u1","goal":"verify fix"}`),
@@ -293,11 +379,11 @@ func TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix(t *testing.T) {
 			{Message: protocol.Message{Content: "premature completion proposal"}, FinishReason: "stop"},
 			toolCalls(actCalls...),
 		}}
-		_, _ = runWithB0(context.Background(), engine, h.ID, prov, AgentOptions{Policy: "full", MaxSteps: 3})
+		_, _ = runWithB0(context.Background(), eng, h.ID, prov, AgentOptions{Policy: "full", MaxSteps: 3})
 		agent.SetTestExecutionHooks(nil, nil)
-		engine.editing.SetPublishFaultHooks(editing.PublishFaultHooks{})
+		eng.editing.SetPublishFaultHooks(editing.PublishFaultHooks{})
 
-		muts, rep, sums := inspectPersistedRepairState(t, engine, h.ID)
+		muts, rep, sums := inspectPersistedRepairState(t, eng, h.ID)
 		// Find G0 seq (step 1 assistant) and actCalls seq (step 3 assistant):
 		var seqs []int64
 		for k := range muts {
@@ -322,7 +408,12 @@ func TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix(t *testing.T) {
 				actSums = append(actSums, s)
 			}
 		}
-		return muts[actSeq], g0Seq, rep.MinRequiredSeq, actSums
+		return h.ID, muts[actSeq], g0Seq, rep, actSums
+	}
+	runPostBlockScenario := func(t *testing.T, name string, setup func(), actCalls []protocol.ToolCall) (agent.MutationEvidence, int64, int64, []session.AnsweredExecutionSummary) {
+		t.Helper()
+		_, ev, g0Seq, rep, actSums := runPostBlockScenarioOn(t, engine, name, setup, actCalls)
+		return ev, g0Seq, rep.MinRequiredSeq, actSums
 	}
 
 	// RC34-F02-T1: Initial A -> Agent write_file B (tracked, Git-ignored, and .gitattributes clean-filtered!)
@@ -460,27 +551,48 @@ func TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix(t *testing.T) {
 		}
 	})
 
-	// RC34-F02-T6: dirty partial commits and clean pre-write refusals keep the repair floor.
+	// RC34-F02-T6: dirty partial commits, uncertain publication/cleanup failures, and clean pre-publication
+	// atomic staging failures keep accurate outcomes, receipts, Repair Watermark, and Cold Resume state.
 	t.Run("RC34_F02_T6_dirty_and_clean_write_failures", func(t *testing.T) {
-		// A verified prefix remains on disk when file #2 fails after truncation.
-		ev1, g01, min1, sums1 := runPostBlockScenario(t, "t6-1", func() {
+		// T6-1: Multi-file Partial Commit First — p1.txt is verified published before p2.txt fails in AfterTruncate pre-swap.
+		sid1, ev1, g01, rep1, sums1 := runPostBlockScenarioOn(t, engine, "t6-1", func() {
 			_ = os.WriteFile(filepath.Join(workspace, "p1.txt"), []byte("old1\n"), 0o644)
 			_ = os.WriteFile(filepath.Join(workspace, "p2.txt"), []byte("old2\n"), 0o644)
 			engine.editing.SetPublishFaultHooks(editing.PublishFaultHooks{AfterTruncate: func(path string) error {
 				if strings.HasSuffix(path, "p2.txt") {
-					return errors.New("injected disk write error after truncate")
+					return errors.New("injected disk write error before p2 swap")
 				}
 				return nil
 			}})
 		}, []protocol.ToolCall{tc("ap1", "apply_patch", `{"patches":[{"path":"p1.txt","operation":"update","edits":[{"old_text":"old1","new_text":"new1"}]},{"path":"p2.txt","operation":"update","edits":[{"old_text":"old2","new_text":"new2"}]}]}`)})
-		if ev1 != agent.MutationUnknown || sums1[0].Outcome != session.OutcomeUnknown || !strings.HasSuffix(sums1[0].PostRef, ";cm=unknown") || min1 != g01 {
-			t.Fatalf("T6-1: ev=%s sum=%+v min=%d (want %d)", ev1, sums1[0], min1, g01)
+		if ev1 != agent.MutationUnknown || sums1[0].Outcome != session.OutcomeUnknown || !strings.HasSuffix(sums1[0].PostRef, ";cm=unknown") || rep1.MinRequiredSeq != g01 {
+			t.Fatalf("T6-1: ev=%s sum=%+v min=%d (want %d)", ev1, sums1[0], rep1.MinRequiredSeq, g01)
 		}
 		if got, err := os.ReadFile(filepath.Join(workspace, "p1.txt")); err != nil || string(got) != "new1\n" {
-			t.Fatalf("verified prefix = %q, error = %v", got, err)
+			t.Fatalf("T6-1 verified prefix = %q, error = %v", got, err)
+		}
+		if got, err := os.ReadFile(filepath.Join(workspace, "p2.txt")); err != nil || string(got) != "old2\n" {
+			t.Fatalf("T6-1 unpublished second file = %q, error = %v, want orig old2", got, err)
+		}
+		if rem := listStagingFiles(t, workspace); len(rem) != 0 {
+			t.Fatalf("T6-1 leftover staging files = %v, want cleaned", rem)
+		}
+		pay1 := findToolResultJSON(t, engine, sid1, "ap1")
+		if pay1.CommitState != string(editing.CommitStatePartiallyPublished) || !pay1.DirtyFailure || !pay1.PartialPublication || len(pay1.Files) != 2 {
+			t.Fatalf("T6-1 payload=%+v", pay1)
+		}
+		byPath1 := map[string]t6ToolFileRow{}
+		for _, f := range pay1.Files {
+			byPath1[f.Path] = f
+		}
+		if r1 := byPath1["p1.txt"]; r1.PublishState != string(editing.PublishSucceededAndVerified) || !r1.Published || !r1.Verified || !r1.Wrote || r1.NewRev == "" || r1.SHA256 == "" {
+			t.Fatalf("T6-1 p1 row=%+v, want verified published", r1)
+		}
+		if r2 := byPath1["p2.txt"]; r2.PublishState != string(editing.PublishFailedBeforeWrite) || r2.Published || r2.Verified || r2.Wrote || r2.NewRev != "" || r2.SHA256 != "" {
+			t.Fatalf("T6-1 p2 row=%+v, want clean failed_before_write", r2)
 		}
 
-		// An external writer replaces the prefix while #2 fails. Settlement preserves its bytes.
+		// T6-2: Multi-file external writer replaces p1.txt while p2.txt fails pre-swap. Settlement preserves foreign bytes.
 		ev2, g02, min2, sums2 := runPostBlockScenario(t, "t6-2", func() {
 			_ = os.WriteFile(filepath.Join(workspace, "p1.txt"), []byte("old1\n"), 0o644)
 			_ = os.WriteFile(filepath.Join(workspace, "p2.txt"), []byte("old2\n"), 0o644)
@@ -498,26 +610,310 @@ func TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix(t *testing.T) {
 			t.Fatalf("T6-2: ev=%s sum=%+v min=%d (want %d)", ev2, sums2[0], min2, g02)
 		}
 		if got, err := os.ReadFile(filepath.Join(workspace, "p1.txt")); err != nil || string(got) != "foreign\n" {
-			t.Fatalf("external content = %q, error = %v", got, err)
+			t.Fatalf("T6-2 external content = %q, error = %v", got, err)
+		}
+		if rem := listStagingFiles(t, workspace); len(rem) != 0 {
+			t.Fatalf("T6-2 leftover staging files = %v, want cleaned", rem)
 		}
 
-		// ③ Single-file write_file failing after f.Truncate(0)
-		ev3, g03, min3, sums3 := runPostBlockScenario(t, "t6-3", func() {
-			_ = os.WriteFile(filepath.Join(workspace, "single.txt"), []byte("orig\n"), 0o644)
+		// T6-3a (INT-PRE-REG-01): Single-file atomic staging failure before swap, with clean staging cleanup
+		// -> PublishFailedBeforeWrite + OutcomeFailed + zero mutations + zero trusted rev/hash + locked Watermark.
+		singlePath := filepath.Join(workspace, "single.txt")
+		var origInfo os.FileInfo
+		var hookCalled atomic.Bool
+		evCh, unsubEv := engine.Events(128)
+		defer unsubEv()
+		sid3a, ev3a, g03a, rep3a, sums3a := runPostBlockScenarioOn(t, engine, "t6-3a", func() {
+			if err := os.WriteFile(singlePath, []byte("orig\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			if origInfo, err = os.Lstat(singlePath); err != nil {
+				t.Fatal(err)
+			}
+			_ = drainCommittedEvents(evCh)
 			engine.editing.SetPublishFaultHooks(editing.PublishFaultHooks{AfterTruncate: func(_ string) error {
-				return errors.New("short write after truncate")
+				hookCalled.Store(true)
+				return errors.New("short write in private staging before swap")
 			}})
 		}, []protocol.ToolCall{tc("wf3", "write_file", `{"path":"single.txt","content":"next\n"}`)})
-		if ev3 != agent.MutationUnknown || sums3[0].Outcome != session.OutcomeUnknown || !strings.HasSuffix(sums3[0].PostRef, ";cm=unknown") || min3 != g03 {
-			t.Fatalf("T6-3: ev=%s sum=%+v min=%d (want %d)", ev3, sums3[0], min3, g03)
+		if !hookCalled.Load() {
+			t.Fatal("T6-3a: expected staging fault hook to run")
+		}
+		// A. Original bytes and file identity must remain completely untouched.
+		if got, err := os.ReadFile(singlePath); err != nil || string(got) != "orig\n" {
+			t.Fatalf("T6-3a: original bytes altered = %q err=%v, want \"orig\\n\"", got, err)
+		}
+		if afterInfo, err := os.Lstat(singlePath); err != nil || !os.SameFile(origInfo, afterInfo) {
+			t.Fatalf("T6-3a: file identity changed across failed pre-swap staging (err=%v)", err)
+		}
+		// B. No publication, no live edit.committed event, no trusted NewRev/NewSHA256.
+		for _, ev := range drainCommittedEvents(evCh) {
+			if p, _ := ev["path"].(string); p == "single.txt" {
+				t.Fatalf("T6-3a: unexpected edit.committed event published for %q: %+v", p, ev)
+			}
+		}
+		if revNow, _, revErr := engine.editing.FileRevision(engine.editing.Host(), singlePath); revErr != nil || revNow != editing.RevOf([]byte("orig\n")) {
+			t.Fatalf("T6-3a: disk revision=%q err=%v, want RevOf(orig)", revNow, revErr)
+		}
+		if _, diffErr := engine.editing.Diff(engine.editing.Host(), singlePath, editing.RevOf([]byte("orig\n")), editing.RevOf([]byte("next\n"))); editing.CodeOf(diffErr) != editing.CodeUnknownRev {
+			t.Fatalf("T6-3a: unpublished revision unexpectedly recorded in history (diffErr=%v)", diffErr)
+		}
+		if gotRev := engine.editing.LatestRev(editing.Actor{Session: sid3a}, singlePath); gotRev != "" {
+			t.Fatalf("T6-3a: unexpected actor LatestRev=%q", gotRev)
+		}
+		// C. Private staging cleanup succeeded -> clean pre-publication failure -> OutcomeFailed.
+		if rem := listStagingFiles(t, workspace); len(rem) != 0 {
+			t.Fatalf("T6-3a: staging file leaked on disk: %v", rem)
+		}
+		if len(sums3a) != 1 || sums3a[0].Outcome != session.OutcomeFailed || sums3a[0].Coverage != session.CoverageComplete ||
+			sums3a[0].PreUnavailable || sums3a[0].FileEdgeCount != 0 ||
+			!strings.HasSuffix(sums3a[0].PostRef, ";cm=unknown") ||
+			stripCMSeal(sums3a[0].PostRef) != sums3a[0].PreRef {
+			t.Fatalf("T6-3a summary=%+v, want OutcomeFailed + CoverageComplete + FileEdgeCount=0 + unchanged PreRef==PostRef;cm=unknown", sums3a)
+		}
+		if ev3a != agent.MutationUnknown {
+			t.Fatalf("T6-3a ev=%s, want MutationUnknown", ev3a)
+		}
+		pay3a := findToolResultJSON(t, engine, sid3a, "wf3")
+		if pay3a.CommitState != string(editing.CommitStatePrePublishFailure) || pay3a.DirtyFailure || pay3a.PartialPublication || len(pay3a.Files) != 1 {
+			t.Fatalf("T6-3a tool payload=%+v, want clean failed_before_publication", pay3a)
+		}
+		if f := pay3a.Files[0]; f.Path != "single.txt" || f.PublishState != string(editing.PublishFailedBeforeWrite) ||
+			f.Published || f.Verified || f.Wrote || f.NewRev != "" || f.SHA256 != "" {
+			t.Fatalf("T6-3a file row=%+v, want clean failed_before_write with empty rev/sha", f)
+		}
+		// D. Repair Watermark: locked at g03a (no advance, no regression), not falsely acknowledged across Block2,
+		// and subsequently advances when a valid write_file succeeds.
+		if !rep3a.Active || rep3a.MinRequiredSeq != g03a || rep3a.OriginalMinRequiredSeq != g03a ||
+			rep3a.PostBlockProvenCount != 0 || rep3a.PostBlockUnknownCount != 1 || rep3a.Stage != agent.RepairStageUnknownMutated {
+			t.Fatalf("T6-3a repair=%+v, want Active MinRequiredSeq=%d Stage=%s", rep3a, g03a, agent.RepairStageUnknownMutated)
+		}
+		resBlock2, err := runWithB0(context.Background(), engine, sid3a, &stepProvider{steps: []protocol.ProviderResponse{
+			{Message: protocol.Message{Content: "premature proposal 2 after failed staging"}, FinishReason: "stop"},
+		}}, AgentOptions{Policy: "full", MaxSteps: 1})
+		if err == nil || resBlock2.Status != agent.StatusInterrupted {
+			t.Fatalf("T6-3a Block2 expected MaxSteps=1 stop, got res=%+v err=%v", resBlock2, err)
+		}
+		_, repBlock2, _ := inspectPersistedRepairState(t, engine, sid3a)
+		if repBlock2.BlockCount != 2 || repBlock2.BlockSeq <= rep3a.BlockSeq || repBlock2.MinRequiredSeq != g03a {
+			t.Fatalf("T6-3a Block2=%+v, failed staging falsely advanced or regressed MinRequiredSeq (want %d)", repBlock2, g03a)
+		}
+		resFix, err := runWithB0(context.Background(), engine, sid3a, &stepProvider{steps: []protocol.ProviderResponse{
+			toolCalls(tc("wf3-fix", "write_file", `{"path":"single.txt","content":"repaired\n"}`)),
+		}}, AgentOptions{Policy: "full", MaxSteps: 1})
+		if err == nil || resFix.Status != agent.StatusInterrupted {
+			t.Fatalf("T6-3a follow-up repair expected MaxSteps=1 stop, got res=%+v err=%v", resFix, err)
+		}
+		if got, err := os.ReadFile(singlePath); err != nil || string(got) != "repaired\n" {
+			t.Fatalf("T6-3a follow-up repair bytes = %q err=%v, want \"repaired\\n\"", got, err)
+		}
+		committedAfter := drainCommittedEvents(evCh)
+		if len(committedAfter) != 1 || committedAfter[0]["path"] != "single.txt" || committedAfter[0]["newRev"] == "" {
+			t.Fatalf("T6-3a follow-up committed events = %+v, want 1 edit.committed for single.txt", committedAfter)
+		}
+		mutsAfter3a, repAfter3a, sumsAfter3a := inspectPersistedRepairState(t, engine, sid3a)
+		lastAfter3a := sumsAfter3a[len(sumsAfter3a)-1]
+		if lastAfter3a.Outcome != session.OutcomeComplete || lastAfter3a.FileEdgeCount != 1 ||
+			!strings.HasSuffix(lastAfter3a.PostRef, ";cm=proven") ||
+			mutsAfter3a[lastAfter3a.AnsweredSeq] != agent.MutationProven ||
+			repAfter3a.MinRequiredSeq != repBlock2.BlockSeq || repAfter3a.MinRequiredSeq <= g03a {
+			t.Fatalf("T6-3a post-repair state mut=%s sum=%+v rep=%+v, want proven & MinRequiredSeq=%d > %d",
+				mutsAfter3a[lastAfter3a.AnsweredSeq], lastAfter3a, repAfter3a, repBlock2.BlockSeq, g03a)
 		}
 
-		// ④ Pre-write validation failures (old_text not found & path escape)
+		// T6-3b: Single-file staging failure where staging cleanup fails (tampered .lcx-create-* prevents safe unlink)
+		// -> PublishUncertain + DirtyFailure=true + OutcomeUnknown (MUST NOT falsely claim OutcomeFailed).
+		dirtyStagePath := filepath.Join(workspace, "single_dirty_stage.txt")
+		var origStageInfo os.FileInfo
+		var leftoverStage []string
+		t.Cleanup(func() {
+			for _, name := range listStagingFiles(t, workspace) {
+				_ = os.Remove(filepath.Join(workspace, name))
+			}
+		})
+		sid3b, ev3b, g03b, rep3b, sums3b := runPostBlockScenarioOn(t, engine, "t6-3b", func() {
+			if err := os.WriteFile(dirtyStagePath, []byte("orig-stage\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			if origStageInfo, err = os.Lstat(dirtyStagePath); err != nil {
+				t.Fatal(err)
+			}
+			engine.editing.SetPublishFaultHooks(editing.PublishFaultHooks{AfterTruncate: func(_ string) error {
+				for _, name := range listStagingFiles(t, workspace) {
+					f, err := os.OpenFile(filepath.Join(workspace, name), os.O_WRONLY|os.O_APPEND, 0)
+					if err != nil {
+						return err
+					}
+					_, _ = f.Write([]byte("!"))
+					_ = f.Close()
+				}
+				return errors.New("staging failure with uncleaned temp residue")
+			}})
+		}, []protocol.ToolCall{tc("wf3b", "write_file", `{"path":"single_dirty_stage.txt","content":"next-stage\n"}`)})
+		if got, err := os.ReadFile(dirtyStagePath); err != nil || string(got) != "orig-stage\n" {
+			t.Fatalf("T6-3b original bytes = %q err=%v, want \"orig-stage\\n\"", got, err)
+		}
+		if afterInfo, err := os.Lstat(dirtyStagePath); err != nil || !os.SameFile(origStageInfo, afterInfo) {
+			t.Fatalf("T6-3b file identity changed across failed swap (err=%v)", err)
+		}
+		leftoverStage = listStagingFiles(t, workspace)
+		if len(leftoverStage) != 1 {
+			t.Fatalf("T6-3b expected 1 leftover staging file when cleanup refuses modified temp, got %v", leftoverStage)
+		}
+		for _, name := range leftoverStage {
+			_ = os.Remove(filepath.Join(workspace, name))
+		}
+		if sums3b[0].Outcome != session.OutcomeUnknown || ev3b != agent.MutationUnknown ||
+			!strings.HasSuffix(sums3b[0].PostRef, ";cm=unknown") || rep3b.MinRequiredSeq != g03b {
+			t.Fatalf("T6-3b ev=%s sum=%+v rep=%+v, want OutcomeUnknown & locked MinRequiredSeq=%d", ev3b, sums3b[0], rep3b, g03b)
+		}
+		pay3b := findToolResultJSON(t, engine, sid3b, "wf3b")
+		if pay3b.CommitState != string(editing.CommitStatePublicationUncertain) || !pay3b.DirtyFailure || pay3b.Recovery == "" || len(pay3b.Files) != 1 {
+			t.Fatalf("T6-3b payload=%+v, want publication_uncertain + dirtyFailure + recovery", pay3b)
+		}
+		if f := pay3b.Files[0]; f.PublishState != string(editing.PublishUncertain) || f.Published || f.Verified || f.Wrote || f.NewRev != "" || f.SHA256 != "" {
+			t.Fatalf("T6-3b file row=%+v, want publication_uncertain without fabricated rev/sha", f)
+		}
+
+		// T6-3c: Single-file genuinely uncertain post-swap publication (AfterInPlaceWriteClose error after renameSwap)
+		// -> PublishUncertain + DirtyFailure=true + OutcomeUnknown + no trusted rev/hash + locked Watermark.
+		postSwapPath := filepath.Join(workspace, "single_post_swap.txt")
+		sid3c, ev3c, g03c, rep3c, sums3c := runPostBlockScenarioOn(t, engine, "t6-3c", func() {
+			if err := os.WriteFile(postSwapPath, []byte("orig-swap\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			engine.editing.SetPublishFaultHooks(editing.PublishFaultHooks{AfterInPlaceWriteClose: func(_ string) error {
+				return errors.New("injected close error after atomic swap")
+			}})
+		}, []protocol.ToolCall{tc("wf3c", "write_file", `{"path":"single_post_swap.txt","content":"swapped\n"}`)})
+		displaced := listStagingFiles(t, workspace)
+		if len(displaced) != 1 {
+			t.Fatalf("T6-3c expected 1 displaced original retained at temp path, got %v", displaced)
+		}
+		displacedBytes, dErr := os.ReadFile(filepath.Join(workspace, displaced[0]))
+		for _, name := range displaced {
+			_ = os.Remove(filepath.Join(workspace, name))
+		}
+		if dErr != nil || string(displacedBytes) != "orig-swap\n" {
+			t.Fatalf("T6-3c displaced original bytes=%q err=%v, want \"orig-swap\\n\"", displacedBytes, dErr)
+		}
+		if sums3c[0].Outcome != session.OutcomeUnknown || ev3c != agent.MutationUnknown ||
+			!strings.HasSuffix(sums3c[0].PostRef, ";cm=unknown") || rep3c.MinRequiredSeq != g03c {
+			t.Fatalf("T6-3c ev=%s sum=%+v rep=%+v, want OutcomeUnknown & locked MinRequiredSeq=%d", ev3c, sums3c[0], rep3c, g03c)
+		}
+		pay3c := findToolResultJSON(t, engine, sid3c, "wf3c")
+		if pay3c.CommitState != string(editing.CommitStatePartiallyPublished) || !pay3c.DirtyFailure || !pay3c.PartialPublication || pay3c.Recovery == "" || len(pay3c.Files) != 1 {
+			t.Fatalf("T6-3c payload=%+v, want partially_published + dirtyFailure + partialPublication + recovery", pay3c)
+		}
+		if f := pay3c.Files[0]; f.PublishState != string(editing.PublishUncertain) || !f.Published || !f.Wrote || f.Verified || f.NewRev != "" || f.SHA256 != "" {
+			t.Fatalf("T6-3c file row=%+v, want publication_uncertain with published=true wrote=true verified=false and empty rev/sha", f)
+		}
+
+		// T6-3d: Cold SQLite Resume preserves both (1) clean pre-publication OutcomeFailed and (2) uncertain
+		// post-swap OutcomeUnknown without turning either into success, and permits subsequent valid repair.
+		t63dWorkspace := t.TempDir()
+		gitInit(t, t63dWorkspace)
+		t63dCleanPath := filepath.Join(t63dWorkspace, "resume_clean.txt")
+		if err := os.WriteFile(t63dCleanPath, []byte("orig-resume\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		eng1, err := Open(Options{Workspace: t63dWorkspace})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sidClean, _, g0Clean, _, sumsCleanBefore := runPostBlockScenarioOn(t, eng1, "t6-3d-clean", func() {
+			eng1.editing.SetPublishFaultHooks(editing.PublishFaultHooks{AfterTruncate: func(_ string) error {
+				return errors.New("cold resume pre-swap staging error")
+			}})
+		}, []protocol.ToolCall{tc("wf3d-clean", "write_file", `{"path":"resume_clean.txt","content":"next-resume\n"}`)})
+		preRefClean := sumsCleanBefore[0].PreRef
+		_ = eng1.Close()
+
+		eng2 := openEngineAt(t, t63dWorkspace)
+		mutsColdClean, repColdClean, sumsColdClean := inspectPersistedRepairState(t, eng2, sidClean)
+		streamRepClean, sErr := agent.StreamRepairContextFromStore(context.Background(), agentStore{store: eng2.store}, sidClean, 0)
+		if sErr != nil {
+			t.Fatal(sErr)
+		}
+		lastColdClean := sumsColdClean[len(sumsColdClean)-1]
+		if lastColdClean.Outcome != session.OutcomeFailed || lastColdClean.FileEdgeCount != 0 ||
+			lastColdClean.PostRef != preRefClean+";cm=unknown" ||
+			mutsColdClean[lastColdClean.AnsweredSeq] != agent.MutationUnknown ||
+			repColdClean.MinRequiredSeq != g0Clean || streamRepClean.MinRequiredSeq != g0Clean {
+			t.Fatalf("T6-3d cold clean sum=%+v mut=%s rep=%+v stream=%+v", lastColdClean, mutsColdClean[lastColdClean.AnsweredSeq], repColdClean, streamRepClean)
+		}
+		if got, err := os.ReadFile(t63dCleanPath); err != nil || string(got) != "orig-resume\n" {
+			t.Fatalf("T6-3d cold clean bytes=%q err=%v, want \"orig-resume\\n\"", got, err)
+		}
+		payColdClean := findToolResultJSON(t, eng2, sidClean, "wf3d-clean")
+		if payColdClean.CommitState != string(editing.CommitStatePrePublishFailure) || payColdClean.DirtyFailure || len(payColdClean.Files) != 1 ||
+			payColdClean.Files[0].PublishState != string(editing.PublishFailedBeforeWrite) || payColdClean.Files[0].NewRev != "" || payColdClean.Files[0].SHA256 != "" {
+			t.Fatalf("T6-3d cold clean payload=%+v", payColdClean)
+		}
+		if _, err := runWithB0(context.Background(), eng2, sidClean, &stepProvider{steps: []protocol.ProviderResponse{
+			toolCalls(tc("wf3d-fix", "write_file", `{"path":"resume_clean.txt","content":"resumed-repaired\n"}`)),
+		}}, AgentOptions{Policy: "full", MaxSteps: 1}); err == nil {
+			t.Fatal("T6-3d follow-up repair expected MaxSteps=1 stop")
+		}
+		if got, err := os.ReadFile(t63dCleanPath); err != nil || string(got) != "resumed-repaired\n" {
+			t.Fatalf("T6-3d repaired bytes=%q err=%v", got, err)
+		}
+		mutsColdFixed, repColdFixed, sumsColdFixed := inspectPersistedRepairState(t, eng2, sidClean)
+		lastColdFixed := sumsColdFixed[len(sumsColdFixed)-1]
+		if lastColdFixed.Outcome != session.OutcomeComplete || lastColdFixed.FileEdgeCount != 1 ||
+			!strings.HasSuffix(lastColdFixed.PostRef, ";cm=proven") ||
+			mutsColdFixed[lastColdFixed.AnsweredSeq] != agent.MutationProven ||
+			repColdFixed.MinRequiredSeq != repColdClean.BlockSeq || repColdFixed.MinRequiredSeq <= g0Clean {
+			t.Fatalf("T6-3d cold post-repair sum=%+v mut=%s rep=%+v", lastColdFixed, mutsColdFixed[lastColdFixed.AnsweredSeq], repColdFixed)
+		}
+		_ = eng2.Close()
+
+		t63dUncPath := filepath.Join(t63dWorkspace, "resume_uncertain.txt")
+		if err := os.WriteFile(t63dUncPath, []byte("orig-unc\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		eng3, err := Open(Options{Workspace: t63dWorkspace})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sidUnc, _, g0Unc, _, _ := runPostBlockScenarioOn(t, eng3, "t6-3d-uncertain", func() {
+			eng3.editing.SetPublishFaultHooks(editing.PublishFaultHooks{AfterInPlaceWriteClose: func(_ string) error {
+				return errors.New("cold resume uncertain close error")
+			}})
+		}, []protocol.ToolCall{tc("wf3d-unc", "write_file", `{"path":"resume_uncertain.txt","content":"swapped-unc\n"}`)})
+		_ = eng3.Close()
+
+		eng4 := openEngineAt(t, t63dWorkspace)
+		mutsColdUnc, repColdUnc, sumsColdUnc := inspectPersistedRepairState(t, eng4, sidUnc)
+		streamRepUnc, uErr := agent.StreamRepairContextFromStore(context.Background(), agentStore{store: eng4.store}, sidUnc, 0)
+		if uErr != nil {
+			t.Fatal(uErr)
+		}
+		lastColdUnc := sumsColdUnc[len(sumsColdUnc)-1]
+		if lastColdUnc.Outcome != session.OutcomeUnknown || !strings.HasSuffix(lastColdUnc.PostRef, ";cm=unknown") ||
+			mutsColdUnc[lastColdUnc.AnsweredSeq] != agent.MutationUnknown ||
+			repColdUnc.MinRequiredSeq != g0Unc || streamRepUnc.MinRequiredSeq != g0Unc {
+			t.Fatalf("T6-3d cold uncertain sum=%+v mut=%s rep=%+v stream=%+v", lastColdUnc, mutsColdUnc[lastColdUnc.AnsweredSeq], repColdUnc, streamRepUnc)
+		}
+		payColdUnc := findToolResultJSON(t, eng4, sidUnc, "wf3d-unc")
+		if payColdUnc.CommitState != string(editing.CommitStatePartiallyPublished) || !payColdUnc.DirtyFailure || !payColdUnc.PartialPublication || len(payColdUnc.Files) != 1 ||
+			payColdUnc.Files[0].PublishState != string(editing.PublishUncertain) || !payColdUnc.Files[0].Published || !payColdUnc.Files[0].Wrote ||
+			payColdUnc.Files[0].Verified || payColdUnc.Files[0].NewRev != "" || payColdUnc.Files[0].SHA256 != "" {
+			t.Fatalf("T6-3d cold uncertain payload=%+v", payColdUnc)
+		}
+		_ = eng4.Close()
+
+		// T6-4a & T6-4b: Pre-write validation failures (old_text not found & path escape) preserve original bytes and lock Watermark.
 		ev4a, g04a, min4a, sums4a := runPostBlockScenario(t, "t6-4a", func() {
 			_ = os.WriteFile(filepath.Join(workspace, "pre.txt"), []byte("hello\n"), 0o644)
 		}, []protocol.ToolCall{tc("rf", "replace_in_file", `{"path":"pre.txt","old_text":"missing","new_text":"x"}`)})
 		if ev4a != agent.MutationUnknown || sums4a[0].Outcome != session.OutcomeFailed || !strings.HasSuffix(sums4a[0].PostRef, ";cm=unknown") || min4a != g04a {
 			t.Fatalf("T6-4a: ev=%s sum=%+v min=%d", ev4a, sums4a[0], min4a)
+		}
+		if got, err := os.ReadFile(filepath.Join(workspace, "pre.txt")); err != nil || string(got) != "hello\n" {
+			t.Fatalf("T6-4a: original bytes=%q err=%v, want \"hello\\n\"", got, err)
 		}
 		ev4b, g04b, min4b, sums4b := runPostBlockScenario(t, "t6-4b", nil,
 			[]protocol.ToolCall{tc("esc", "write_file", `{"path":"../escape.txt","content":"x"}`)})
