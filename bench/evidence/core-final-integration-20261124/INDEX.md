@@ -2,6 +2,7 @@
 
 Candidate: 51316603974d916295bc6f0560d46e7772f304e5. Original main: 7aeb1607ffa588727c6fe04873f7b58a1dc16f15. Integration branch: integ/pre01-pre02-final-20261124.
 
+Archive root `go.mod` isolates historical probe `.go` files from production `go build/test ./...` traversal. Original probe bytes and manifests remain unchanged; this module is evidence only, not production code.
 ## Archive map
 
 - `history/adr-0024-*`: architecture, R2–R7 remediation/review evidence, original merge/integration, Carbon independent post-merge acceptance and GOFLAGS full-suite recovery. Original architecture and versioned reports also remain reachable in main history and `docs/adr/0024-*`, `docs/reports/evidence/adr-0024-*`.
