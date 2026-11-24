@@ -1,0 +1,15 @@
+# date_utc: 2026-11-24T01:38:24Z
+# go_version: go version go1.26.5 darwin/arm64
+# uname: Darwin arm64
+# go_env_GOFLAGS: []
+# baseline_sha: ef10ca7c8e8031e75fdf27f449924b8254f0e2bb
+# command: go test -count=1 -v ./runtime -run '^TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures$'
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures
+    context_space_t3_test.go:512: T6-3: ev=unknown sum={AnsweredSeq:6 RequestID:rq-9b9a03b4769a6c31ef7c47df97e203bd ExecutionID:ex-cb41fe8a28b32b4274b4d6886ffc7256 ToolCallID:wf3 ParentToolCallID: ToolName:write_file PreRef:files:1:sha256:222a71ab7fdcbed8d6cb31d50f974b0ce92674eaf8c108a68fb74c4aaba6e44e PostRef:files:1:sha256:222a71ab7fdcbed8d6cb31d50f974b0ce92674eaf8c108a68fb74c4aaba6e44e;cm=unknown PreUnavailable:false Coverage:complete Outcome:failed FileEdgeCount:0} min=1 (want 1)
+--- FAIL: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix (1.11s)
+    --- FAIL: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures (0.49s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/runtime	1.660s
+FAIL
+# exit_code: 1
