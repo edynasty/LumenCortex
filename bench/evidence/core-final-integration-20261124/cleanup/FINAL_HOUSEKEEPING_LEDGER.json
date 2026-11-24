@@ -1,0 +1,198 @@
+{
+  "regression_baseline_M2": "d0cb171d0319bd0d523bbc19241343b9d1c3e60c",
+  "pre_housekeeping_origin_main_M3": "83304dc163ee54bdd8bfa254339a7cfc0ade0dea",
+  "owner_agents_md_protection": {
+    "repo_path": "LumenCortex-Core/AGENTS.md",
+    "sha256": "84bb06cd73eb37997966e2d2e3cb8e8b181b27f97ff367d209f327bee818d1a0",
+    "private_backup_path": "/Users/tangxingpeng/IdeaProjects/me/LumenCortex/archives/owner-backups-20261124/LumenCortex-Core.AGENTS.md",
+    "private_backup_verified": true,
+    "git_status": " M AGENTS.md"
+  },
+  "cleanup_accounting": {
+    "previous_cleanup": {
+      "worktrees_removed": 24,
+      "local_branches_deleted": 22,
+      "remote_branches_deleted": 21,
+      "manifest": "PREVIOUS_SHA256SUMS (2/2 OK)"
+    },
+    "current_housekeeping": {
+      "worktrees_removed": 2,
+      "local_branches_deleted": 1,
+      "remote_branches_deleted": 1,
+      "temporary_reporting_worktree_post_merge": "wt/core-final-housekeeping-20261124 / docs/core-final-housekeeping-20261124"
+    },
+    "cumulative_historical_cleanup": {
+      "worktrees_removed": 26,
+      "local_branches_deleted": 23,
+      "remote_branches_deleted": 22
+    }
+  },
+  "current_housekeeping_deletions": [
+    {
+      "worktree_path": "/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-editing-pre01-pre02-opus-20261123",
+      "branch": "fix/editing-pre01-pre02-opus-remediation-20261123",
+      "head_sha": "71cce56acb06b457dad2a4fec3a2c3db56537fd6",
+      "remote_deleted": true,
+      "unique_commits_vs_M3": 0,
+      "tracked_dirty_count": 0,
+      "ignored_files_removed": 12,
+      "ignored_empty_dirs_removed": [
+        ".lumencortex/logs",
+        ".lumencortex"
+      ],
+      "all_ignored_identical_to_core": true,
+      "removal_method": "git worktree remove + git branch -d + git push origin --delete (no force)"
+    },
+    {
+      "worktree_path": "/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-final-merged-verification-20261124",
+      "branch": "(detached)",
+      "head_sha": "ef10ca7c8e8031e75fdf27f449924b8254f0e2bb",
+      "remote_deleted": false,
+      "unique_commits_vs_M3": 0,
+      "tracked_dirty_count": 0,
+      "ignored_files_removed": 12,
+      "ignored_empty_dirs_removed": [
+        ".history/.omp",
+        ".history",
+        ".lumencortex/backups",
+        ".lumencortex/logs",
+        ".lumencortex"
+      ],
+      "all_ignored_identical_to_core": true,
+      "removal_method": "git worktree remove (no force)"
+    }
+  ],
+  "ignored_files_classification": [
+    {
+      "relative_path": ".history/.gitignore_20260921161831",
+      "size_bytes": 54,
+      "sha256": "850f1ba993ec152603495de255670076b01114ce682f51d50bbb763e608ef69b",
+      "classification": "Sensitive/local-history duplicate (exact match in LumenCortex-Core; retained in Core)",
+      "present_and_identical_in_core": true,
+      "present_and_identical_in_wt1": true,
+      "present_and_identical_in_wt2": true,
+      "treatment": "Retain intact private/local copy in LumenCortex-Core; delete redundant duplicates in WT1/WT2; do not upload contents to Git"
+    },
+    {
+      "relative_path": ".history/.gitignore_20261021184250",
+      "size_bytes": 63,
+      "sha256": "ba960edcc01bd034977527251b8a8434eb43dddd60216e26dc083594672b6852",
+      "classification": "Sensitive/local-history duplicate (exact match in LumenCortex-Core; retained in Core)",
+      "present_and_identical_in_core": true,
+      "present_and_identical_in_wt1": true,
+      "present_and_identical_in_wt2": true,
+      "treatment": "Retain intact private/local copy in LumenCortex-Core; delete redundant duplicates in WT1/WT2; do not upload contents to Git"
+    },
+    {
+      "relative_path": ".history/.omp/config_20261009164623.yml",
+      "size_bytes": 277,
+      "sha256": "f2236aabec163aa67d589341fd9c2f95aeed7ba2581e8e9ec97e5d7dcfe1cd1a",
+      "classification": "Sensitive/internal-config duplicate (exact match in LumenCortex-Core; never upload to Git)",
+      "present_and_identical_in_core": true,
+      "present_and_identical_in_wt1": true,
+      "present_and_identical_in_wt2": true,
+      "treatment": "Retain intact private/local copy in LumenCortex-Core; delete redundant duplicates in WT1/WT2; do not upload contents to Git"
+    },
+    {
+      "relative_path": ".history/.omp/config_20261021072738.yml",
+      "size_bytes": 277,
+      "sha256": "cd855da2795fb939fddfb023cc411d5d052b995e4dfedd79f776071ceb73a7ff",
+      "classification": "Sensitive/internal-config duplicate (exact match in LumenCortex-Core; never upload to Git)",
+      "present_and_identical_in_core": true,
+      "present_and_identical_in_wt1": true,
+      "present_and_identical_in_wt2": true,
+      "treatment": "Retain intact private/local copy in LumenCortex-Core; delete redundant duplicates in WT1/WT2; do not upload contents to Git"
+    },
+    {
+      "relative_path": ".history/.omp/config_20261021073019.yml",
+      "size_bytes": 278,
+      "sha256": "8cf03ec031c01bd5fdfd01655bbf6875ed9e1a7c03673f516c3df27283930fa7",
+      "classification": "Sensitive/internal-config duplicate (exact match in LumenCortex-Core; never upload to Git)",
+      "present_and_identical_in_core": true,
+      "present_and_identical_in_wt1": true,
+      "present_and_identical_in_wt2": true,
+      "treatment": "Retain intact private/local copy in LumenCortex-Core; delete redundant duplicates in WT1/WT2; do not upload contents to Git"
+    },
+    {
+      "relative_path": ".lumencortex/backups/lumencortex.db.v1.20261019T120919Z",
+      "size_bytes": 77824,
+      "sha256": "bce9a36bc308b4fceeaac0c2ca27cdf4fa64def22778ae4a8ab2804f65b86fc1",
+      "classification": "Sensitive/private-session-db duplicate (exact match in LumenCortex-Core; never upload to Git)",
+      "present_and_identical_in_core": true,
+      "present_and_identical_in_wt1": true,
+      "present_and_identical_in_wt2": true,
+      "treatment": "Retain intact private/local copy in LumenCortex-Core; delete redundant duplicates in WT1/WT2; do not upload contents to Git"
+    },
+    {
+      "relative_path": ".lumencortex/backups/lumencortex.db.v4.20261021T052324Z",
+      "size_bytes": 122880,
+      "sha256": "daf7a6190b9dfbb654f711d175d6557d191ae4cdf04ac1499d48706bbc0e9bc1",
+      "classification": "Sensitive/private-session-db duplicate (exact match in LumenCortex-Core; never upload to Git)",
+      "present_and_identical_in_core": true,
+      "present_and_identical_in_wt1": true,
+      "present_and_identical_in_wt2": true,
+      "treatment": "Retain intact private/local copy in LumenCortex-Core; delete redundant duplicates in WT1/WT2; do not upload contents to Git"
+    },
+    {
+      "relative_path": ".lumencortex/backups/lumencortex.db.v5.20261111T091608Z",
+      "size_bytes": 122880,
+      "sha256": "8f1f6ecb64af012bf9fae1224f2cbc5bfcfb62b81264d8a94410e6b6cf665aaf",
+      "classification": "Sensitive/private-session-db duplicate (exact match in LumenCortex-Core; never upload to Git)",
+      "present_and_identical_in_core": true,
+      "present_and_identical_in_wt1": true,
+      "present_and_identical_in_wt2": true,
+      "treatment": "Retain intact private/local copy in LumenCortex-Core; delete redundant duplicates in WT1/WT2; do not upload contents to Git"
+    },
+    {
+      "relative_path": ".lumencortex/bind.lock",
+      "size_bytes": 34,
+      "sha256": "454f1399091263ce9fa2a0189139b6e8e96cc254fc5eb28163e98acef777730d",
+      "classification": "Sensitive/private-session-db duplicate (exact match in LumenCortex-Core; never upload to Git)",
+      "present_and_identical_in_core": true,
+      "present_and_identical_in_wt1": true,
+      "present_and_identical_in_wt2": true,
+      "treatment": "Retain intact private/local copy in LumenCortex-Core; delete redundant duplicates in WT1/WT2; do not upload contents to Git"
+    },
+    {
+      "relative_path": ".lumencortex/db.lock",
+      "size_bytes": 34,
+      "sha256": "454f1399091263ce9fa2a0189139b6e8e96cc254fc5eb28163e98acef777730d",
+      "classification": "Sensitive/private-session-db duplicate (exact match in LumenCortex-Core; never upload to Git)",
+      "present_and_identical_in_core": true,
+      "present_and_identical_in_wt1": true,
+      "present_and_identical_in_wt2": true,
+      "treatment": "Retain intact private/local copy in LumenCortex-Core; delete redundant duplicates in WT1/WT2; do not upload contents to Git"
+    },
+    {
+      "relative_path": ".lumencortex/lumencortex.db",
+      "size_bytes": 368640,
+      "sha256": "320a37762664e1b770177b6cc0b8a4d2817e8199aa868f16e45a25a9f54e90c4",
+      "classification": "Sensitive/private-session-db duplicate (exact match in LumenCortex-Core; never upload to Git)",
+      "present_and_identical_in_core": true,
+      "present_and_identical_in_wt1": true,
+      "present_and_identical_in_wt2": true,
+      "treatment": "Retain intact private/local copy in LumenCortex-Core; delete redundant duplicates in WT1/WT2; do not upload contents to Git"
+    },
+    {
+      "relative_path": "internal/ompsession/testdata/sessions/-fixture-workspace/2026-10-01T08-00-00-000Z_01a10000-0000-7000-8000-000000000001/12.eval.log",
+      "size_bytes": 9,
+      "sha256": "5b3513f580c8397212ff2c8f459c199efc0c90e4354a5f3533adf0a3fff3a530",
+      "classification": "Test fixture log duplicate (exact match in LumenCortex-Core; retained in Core)",
+      "present_and_identical_in_core": true,
+      "present_and_identical_in_wt1": true,
+      "present_and_identical_in_wt2": true,
+      "treatment": "Retain intact private/local copy in LumenCortex-Core; delete redundant duplicates in WT1/WT2; do not upload contents to Git"
+    }
+  ],
+  "retained_items": {
+    "main_checkout": "/Users/tangxingpeng/IdeaProjects/me/LumenCortex/LumenCortex-Core (main, Owner M AGENTS.md + 12 intact local ignored files + .lumencortex/logs)",
+    "tags_preserved": [
+      "v0.1.0",
+      "v0.1.1",
+      "v0.1.2",
+      "v0.1.3",
+      "v0.1.4"
+    ],
+    "unrelated_worktrees_and_branches": "All unrelated active/historical worktrees and branches (cog/*, rt/*, tb2-*, od11a-*, etc.) untouched"
+  }
+}
