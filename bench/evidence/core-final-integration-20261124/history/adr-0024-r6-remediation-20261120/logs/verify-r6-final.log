@@ -1,0 +1,70 @@
+=== R6 FINAL CANDIDATE VERIFICATION MATRIX (ADR-0024 §14) ===
+timestamp=2026-11-20T11:49:11Z
+platform=Darwin/arm64 (macOS 27.0.1)
+go_version=go version go1.26.5 darwin/arm64
+branch=fix/adr-0024-r6-safety-20261120
+commit=aa7b77a63c86d1951d36bfc12234cb17495cd871
+r5_base=bfc493634d819bc3be7d30d669bbb2fbef30212e
+dirty_files=0
+--- changed_files_vs_r5 ---
+M	internal/agent/execution.go
+A	internal/agent/remediation_r6_test.go
+M	internal/editing/engine.go
+M	internal/editing/fileid_unix.go
+M	internal/editing/fileid_windows.go
+A	internal/editing/remediation_r6_test.go
+A	internal/editing/remediation_r6_unix_test.go
+A	internal/editing/remediation_r6_windows_test.go
+M	internal/toolset/editing.go
+M	internal/toolset/editing_tools.go
+M	internal/toolset/lsp.go
+A	internal/toolset/remediation_r6_test.go
+
+--- [go_build_all] cmd=go build ./... ---
+step_exit=0
+
+--- [go_vet_all] cmd=go vet ./... ---
+step_exit=0
+
+--- [go_test_nonrace] cmd=go test -count=1 ./internal/editing ./internal/toolset ./internal/agent ./internal/session ---
+ok  	github.com/edynasty/LumenCortex/internal/editing	3.170s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	22.809s
+ok  	github.com/edynasty/LumenCortex/internal/agent	17.532s
+ok  	github.com/edynasty/LumenCortex/internal/session	38.233s
+step_exit=0
+
+--- [go_test_race] cmd=go test -race -count=1 ./internal/editing ./internal/toolset ./internal/agent ./internal/session ---
+ok  	github.com/edynasty/LumenCortex/internal/editing	36.187s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	27.003s
+ok  	github.com/edynasty/LumenCortex/internal/agent	47.309s
+ok  	github.com/edynasty/LumenCortex/internal/session	42.240s
+step_exit=0
+
+--- [go_test_runtime_t3_t4_race] cmd=go test -race -count=1 -run TestT3|TestT4 ./runtime ---
+ok  	github.com/edynasty/LumenCortex/runtime	12.383s
+step_exit=0
+
+--- [cross_build_vet_linux_arm64] cmd=GOOS=linux GOARCH=arm64 go build & go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session ---
+step_exit=0
+
+--- [cross_build_vet_linux_amd64] cmd=GOOS=linux GOARCH=amd64 go build & go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session ---
+step_exit=0
+
+--- [cross_build_vet_windows_amd64] cmd=GOOS=windows GOARCH=amd64 go build & go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session ---
+step_exit=0
+
+--- [cross_build_vet_freebsd_amd64] cmd=GOOS=freebsd GOARCH=amd64 go build & go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session ---
+step_exit=0
+
+--- [windows_amd64_test_binaries_compile_only_NOT_native_execution] ---
+pkg=internal/editing compile_exit=0
+pkg=internal/toolset compile_exit=0
+pkg=internal/agent compile_exit=0
+pkg=internal/session compile_exit=0
+-rwxr-xr-x@ 1 tangxingpeng  staff    20M Nov 20 19:51 /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T//lc-r6-xbuild.llOoag/agent-r6-win.test.exe
+-rwxr-xr-x@ 1 tangxingpeng  staff   8.6M Nov 20 19:51 /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T//lc-r6-xbuild.llOoag/editing-r6-win.test.exe
+-rwxr-xr-x@ 1 tangxingpeng  staff   7.7M Nov 20 19:51 /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T//lc-r6-xbuild.llOoag/session-r6-win.test.exe
+-rwxr-xr-x@ 1 tangxingpeng  staff    16M Nov 20 19:51 /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T//lc-r6-xbuild.llOoag/toolset-r6-win.test.exe
+
+post_dirty_files=0
+exit=0

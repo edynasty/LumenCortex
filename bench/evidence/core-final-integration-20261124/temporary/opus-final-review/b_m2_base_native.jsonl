@@ -1,0 +1,8 @@
+{"Time":"2026-11-24T08:41:26.224493+08:00","Action":"start","Package":"github.com/edynasty/LumenCortex/internal/editing"}
+{"Time":"2026-11-24T08:41:26.663743+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewEvictedReadRequiresFreshRevision"}
+{"Time":"2026-11-24T08:41:26.663814+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewEvictedReadRequiresFreshRevision","Output":"=== RUN   TestReviewEvictedReadRequiresFreshRevision\n"}
+{"Time":"2026-11-24T08:41:26.681354+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewEvictedReadRequiresFreshRevision","Output":"--- PASS: TestReviewEvictedReadRequiresFreshRevision (0.02s)\n"}
+{"Time":"2026-11-24T08:41:26.681395+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewEvictedReadRequiresFreshRevision","Elapsed":0.02}
+{"Time":"2026-11-24T08:41:26.681426+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"PASS\n"}
+{"Time":"2026-11-24T08:41:26.682085+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"ok  \tgithub.com/edynasty/LumenCortex/internal/editing\t0.457s\n"}
+{"Time":"2026-11-24T08:41:26.682132+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/internal/editing","Elapsed":0.458}

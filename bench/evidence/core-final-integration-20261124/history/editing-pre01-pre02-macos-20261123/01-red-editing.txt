@@ -1,0 +1,35 @@
+=== RUN   TestPRE01RealDiskImageENOSPC
+    remediation_pre01_pre02_unix_test.go:81: hdiutil create (HFS+) unavailable in this environment: exit status 1
+        hdiutil: WARNING: 'hdiutil create -size -volname ...' is deprecated. Please use 'diskutil image create from/blank -size --volumeName ...' instead.
+        hdiutil: create failed - 设备未配置
+--- SKIP: TestPRE01RealDiskImageENOSPC (1.05s)
+=== RUN   TestPRE01RLimitChildHelper
+--- PASS: TestPRE01RLimitChildHelper (0.00s)
+=== RUN   TestPRE01RLimitEFBIGPreservesExistingFile
+=== RUN   TestPRE01RLimitEFBIGPreservesExistingFile/zero_0
+    remediation_pre01_pre02_unix_test.go:204: child (zero_0): exit status 1
+        --- FAIL: TestPRE01RLimitChildHelper (0.00s)
+            remediation_pre01_pre02_unix_test.go:189: EDITING-PRE-01 EFBIG (zero_0): a.txt became "", want original "important-original-content\n" preserved
+        FAIL
+=== RUN   TestPRE01RLimitEFBIGPreservesExistingFile/short_3
+    remediation_pre01_pre02_unix_test.go:204: child (short_3): exit status 1
+        --- FAIL: TestPRE01RLimitChildHelper (0.00s)
+            remediation_pre01_pre02_unix_test.go:189: EDITING-PRE-01 EFBIG (short_3): a.txt became "rep", want original "important-original-content\n" preserved
+        FAIL
+--- FAIL: TestPRE01RLimitEFBIGPreservesExistingFile (0.02s)
+    --- FAIL: TestPRE01RLimitEFBIGPreservesExistingFile/zero_0 (0.01s)
+    --- FAIL: TestPRE01RLimitEFBIGPreservesExistingFile/short_3 (0.01s)
+=== RUN   TestPRE02UpdateWindowPreservesShortAndLongExternalWrites
+=== RUN   TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/short_foreign_write_8B
+    remediation_pre01_pre02_unix_test.go:310: EDITING-PRE-02 false success on short_foreign_write_8B: err=<nil> res={Files:[{Path:shared.txt OldRev:6q2nisw2 NewRev:spbzvghb Created:false Deleted:false Changed:true Published:true Verified:true RolledBack:false PublishState:published_verified Error: Landed:[]}] Diffs:[] Diagnostics:[] CommitState:committed} rec={Committed:true DirtyFailure:false State:committed Files:[{Path:shared.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestPRE02UpdateWindowPreservesShortAndLongExternalWritesshort_f786088685/001/shared.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 NewSHA256:sha256:83437998e1744f987fc14c5b3ec919f388e9f2af96b202d9eb434c0143aeb69f Error:}]}
+=== RUN   TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/long_foreign_write_44B
+    remediation_pre01_pre02_unix_test.go:317: EDITING-PRE-02 external bytes corrupted/lost on long_foreign_write_44B: got "agent os process content\nD 0123456789ABCDEF\n", want "FOREIGN OS PROCESS PAYLOAD 0123456789ABCDEF\n"
+--- FAIL: TestPRE02UpdateWindowPreservesShortAndLongExternalWrites (0.68s)
+    --- FAIL: TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/short_foreign_write_8B (0.53s)
+    --- FAIL: TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/long_foreign_write_44B (0.01s)
+=== RUN   TestPRE02DeleteConcurrentExternalWritePreserved
+    remediation_pre01_pre02_unix_test.go:383: EDITING-PRE-02 deleteCAS lost 8 concurrent external appends while reporting success
+--- FAIL: TestPRE02DeleteConcurrentExternalWritePreserved (0.07s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	3.066s
+FAIL

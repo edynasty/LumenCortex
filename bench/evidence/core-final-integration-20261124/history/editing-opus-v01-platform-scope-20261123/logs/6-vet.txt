@@ -1,0 +1,4 @@
+start=2026-11-23T13:23:34Z
+command=go vet ./internal/editing
+end=2026-11-23T13:23:35Z
+exit=0

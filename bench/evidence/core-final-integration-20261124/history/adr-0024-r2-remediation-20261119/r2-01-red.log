@@ -1,0 +1,41 @@
+=== RUN   TestR201InPlaceForeignMutationsNeverDeleted
+=== RUN   TestR201InPlaceForeignMutationsNeverDeleted/cas_conflict_after_inplace_foreign_write
+    remediation_r2_01_test.go:75: expected Committed=false DirtyFailure=false on pre-write CAS refusal, got {Committed:false DirtyFailure:true Files:[]}
+=== RUN   TestR201InPlaceForeignMutationsNeverDeleted/inplace_foreign_append_preserved
+    remediation_r2_01_test.go:120: foreign appended content lost: err=open /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR201InPlaceForeignMutationsNeverDeletedinplace_foreign_appe1204961134/001/gen/append.txt: no such file or directory got=""
+=== RUN   TestR201InPlaceForeignMutationsNeverDeleted/inplace_foreign_oversized_write_preserved
+    remediation_r2_01_test.go:153: foreign oversized content lost/corrupted: err=open /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR201InPlaceForeignMutationsNeverDeletedinplace_foreign_over3452970490/001/gen/huge.bin: no such file or directory len=0 want=4194368
+=== RUN   TestR201InPlaceForeignMutationsNeverDeleted/inplace_foreign_partial_overwrite_during_write_preserved
+    remediation_r2_01_test.go:198: foreign partial overwrite deleted on failDirty: open /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR201InPlaceForeignMutationsNeverDeletedinplace_foreign_part4258968120/001/gen/partial.txt: no such file or directory
+=== RUN   TestR201InPlaceForeignMutationsNeverDeleted/rollback_preserves_file_modified_and_restored_by_foreign_process
+--- FAIL: TestR201InPlaceForeignMutationsNeverDeleted (0.05s)
+    --- FAIL: TestR201InPlaceForeignMutationsNeverDeleted/cas_conflict_after_inplace_foreign_write (0.02s)
+    --- FAIL: TestR201InPlaceForeignMutationsNeverDeleted/inplace_foreign_append_preserved (0.00s)
+    --- FAIL: TestR201InPlaceForeignMutationsNeverDeleted/inplace_foreign_oversized_write_preserved (0.02s)
+    --- FAIL: TestR201InPlaceForeignMutationsNeverDeleted/inplace_foreign_partial_overwrite_during_write_preserved (0.00s)
+    --- PASS: TestR201InPlaceForeignMutationsNeverDeleted/rollback_preserves_file_modified_and_restored_by_foreign_process (0.00s)
+=== RUN   TestR201InPlaceForeignWriterRealRace
+    remediation_r2_01_test.go:311: R2-01 real race: iterations=400 lost=325 foreignKept=42 agentKept=33 mixed=0 other=0
+    remediation_r2_01_test.go:314: R2-01 DATA LOSS/CORRUPTION: lost=325 mixed=0 out of 400 iterations
+--- FAIL: TestR201InPlaceForeignWriterRealRace (0.33s)
+=== RUN   TestR201ChildForeignWriterHelper
+--- PASS: TestR201ChildForeignWriterHelper (0.00s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+=== RUN   TestR201TwoOSProcessesCreateRace/create
+=== RUN   TestR201TwoOSProcessesCreateRace/inplace
+    remediation_r2_01_test.go:407: two-OS-process inplace race: lost=25 mixed=0 in 40 rounds
+--- FAIL: TestR201TwoOSProcessesCreateRace (0.58s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/create (0.29s)
+    --- FAIL: TestR201TwoOSProcessesCreateRace/inplace (0.29s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	2.542s
+FAIL
+=== RUN   TestR201WriteFileInPlaceForeignWriterRealRace
+=== RUN   TestR201WriteFileInPlaceForeignWriterRealRace/write_file_300_iterations
+    remediation_r2_01_test.go:90: R2-01 toolset write_file: iterations=300 okRuns=9 lost=291 (refusedLost=291) mixed=0 kept=9
+    remediation_r2_01_test.go:93: R2-01 DATA LOSS: write_file lost=291 mixed=0 out of 300 iterations
+--- FAIL: TestR201WriteFileInPlaceForeignWriterRealRace (0.34s)
+    --- FAIL: TestR201WriteFileInPlaceForeignWriterRealRace/write_file_300_iterations (0.34s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/toolset	1.059s
+FAIL

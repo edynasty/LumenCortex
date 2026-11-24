@@ -1,0 +1,324 @@
+[
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/debugger/dap",
+  "test": "TestRealAdapterCrashClosesTransport",
+  "skip_reason_lines": [
+   "crash_integration_test.go:17: explicit real adapter crash matrix"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/debugger/dap",
+  "test": "TestRealLLDBTransport",
+  "skip_reason_lines": [
+   "lldb_integration_test.go:20: set LC_TEST_LLDB for installed LLDB integration"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/debugger",
+  "test": "TestCapabilityFourLanguageFaults",
+  "skip_reason_lines": [
+   "capability_experiment_test.go:21: explicit local adapter experiment"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/debugger",
+  "test": "TestFakeDAPAdapterHelper",
+  "skip_reason_lines": [
+   "fake_adapter_test.go:18: only runs as a fake DAP adapter child"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/debugger",
+  "test": "TestRealDelveManager",
+  "skip_reason_lines": [
+   "go_integration_test.go:20: set LC_TEST_DELVE"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/debugger",
+  "test": "TestRealIntelliJManagedSession",
+  "skip_reason_lines": [
+   "intellij_integration_test.go:18: set isolated IntelliJ project and endpoint"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/debugger",
+  "test": "TestRealLLDBManagerPermissionAndOwnership",
+  "skip_reason_lines": [
+   "manager_integration_test.go:19: set LC_TEST_LLDB for real adapter"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/debugger",
+  "test": "TestRealNodeManager",
+  "skip_reason_lines": [
+   "node_integration_test.go:15: set LC_TEST_NODE and LC_TEST_JS_DEBUG"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/debugger",
+  "test": "TestRealPythonManager",
+  "skip_reason_lines": [
+   "python_integration_test.go:15: set LC_TEST_PYTHON and LC_TEST_DEBUGPY"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/debugger",
+  "test": "TestXReviewRealAdapterIsolationAcrossSessions",
+  "skip_reason_lines": [
+   "xreview_process_targeted_test.go:79: set LC_TEST_LLDB for the real adapter"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/runlock",
+  "test": "TestHelperHold",
+  "skip_reason_lines": [
+   "runlock_kill_unix_test.go:27: helper process only"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/shell",
+  "test": "TestCrashOwnerHelper",
+  "skip_reason_lines": [
+   "process_crash_unix_test.go:20: helper process of TestOwnerKillStopsTheRunningCommand"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/migrate",
+  "test": "TestEmitVersionFixtures",
+  "skip_reason_lines": [
+   "emit_fixtures_test.go:18: tooling only: set LCX_EMIT_FIXTURES to a directory"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/provider",
+  "test": "TestProbeAnthropic",
+  "skip_reason_lines": [
+   "probe_test.go:59: no real probe configured: set LCX_PROBE_ANTHROPIC_BASE_URL, LCX_PROBE_ANTHROPIC_KEY_ENV (naming the variable that holds the key) and LCX_PROBE_ANTHROPIC_MODEL"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/provider",
+  "test": "TestProbeOpenAICompatible",
+  "skip_reason_lines": [
+   "probe_test.go:63: no real probe configured: set LCX_PROBE_OPENAI_BASE_URL, LCX_PROBE_OPENAI_KEY_ENV (naming the variable that holds the key) and LCX_PROBE_OPENAI_MODEL"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/migrate",
+  "test": "TestHelperProcess",
+  "skip_reason_lines": [
+   "lock_test.go:213: helper process only"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/provider/openai",
+  "test": "TestMissingArgumentsAreAnObjectOnlyAfterANormalFinish/[DONE]_without_finish_reason/stream=false",
+  "skip_reason_lines": [
+   "errors_test.go:465: a non-streaming response has no [DONE]"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/provider/openai",
+  "test": "TestCapturedFinalResponsesReplay",
+  "skip_reason_lines": [
+   "malformed_dsml_replay_test.go:24: set LCX_BENCH004_TRACE_ROOT for captured local replay"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/jobs",
+  "test": "TestHelperRunsJobsAndWaits",
+  "skip_reason_lines": [
+   "restart_unix_test.go:27: helper process only"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestCapabilityExecutionArms",
+  "skip_reason_lines": [
+   "capability_experiment_test.go:19: explicit deterministic experiment"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/session",
+  "test": "TestMaintenanceHelperProcess",
+  "skip_reason_lines": [
+   "maintenance_test.go:464: helper process only"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/internal/session",
+  "test": "TestT1StoreTransactionLatency",
+  "skip_reason_lines": [
+   "txlatency_test.go:28: measurement only: set LCX_T1_PERF=1"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/evalruntime",
+  "test": "TestJavaScriptCancelCleansDetachedDescendants",
+  "skip_reason_lines": [
+   "js_test.go:103: macOS denies fork; Linux contains descendants in a PID namespace"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/evalruntime",
+  "test": "TestCgroupMemoryBreachIsHard",
+  "skip_reason_lines": [
+   "memory_enforcement_test.go:217: cgroup memory.max only exists on linux"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/evalruntime",
+  "test": "TestPythonCancelCleansDetachedDescendants",
+  "skip_reason_lines": [
+   "python_test.go:328: macOS denies fork; Linux contains descendants in a PID namespace"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/evalruntime",
+  "test": "TestOpusLinuxRunSocketIsolation",
+  "skip_reason_lines": [
+   "sandbox_security_test.go:220: requires Linux bubblewrap"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestHelperCrashAfterATool",
+  "skip_reason_lines": [
+   "crash_combined_unix_test.go:32: helper process only"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestHelperCrossProcess",
+  "skip_reason_lines": [
+   "crossprocess_unix_test.go:103: helper process only"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestAgentLoopDebugsRealDelve",
+  "skip_reason_lines": [
+   "dap_agent_delve_test.go:213: set LC_TEST_DELVE for the real adapter"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestDelveExceptionStop",
+  "skip_reason_lines": [
+   "dap_agent_delve_test.go:258: set LC_TEST_DELVE for the real adapter"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestAgentLoopDebugsRealLLDB",
+  "skip_reason_lines": [
+   "dap_agent_lldb_test.go:348: set LC_TEST_LLDB for the real adapter"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestDebugEngineRealPreparedAttach",
+  "skip_reason_lines": [
+   "dap_attach_test.go:18: set LC_TEST_LLDB"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestDebugEngineRealGrantRevocationAndDurableEvents",
+  "skip_reason_lines": [
+   "dap_debugger_test.go:17: set LC_TEST_LLDB for real adapter"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestFakeDAPAdapterHelper",
+  "skip_reason_lines": [
+   "dap_e1_test.go:26: only runs as a fake DAP adapter child"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestRealLLDBExceptionStopCarriesInfo",
+  "skip_reason_lines": [
+   "dap_real_test.go:18: set LC_TEST_LLDB for the real adapter"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestRealLLDBAdapterCrashIsLost",
+  "skip_reason_lines": [
+   "dap_real_test.go:74: set LC_TEST_LLDB for the real adapter"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestHelperKillDuringDeletion",
+  "skip_reason_lines": [
+   "deletion_crash_unix_test.go:28: helper process only"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestFailedChildStartRevokesTheSharedKernelGrant",
+  "skip_reason_lines": [
+   "eval_integration_test.go:196: LCX_TEST_PYTHON is not set: the shared-kernel scenario needs a Python runtime"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestAgentScientificWorkflowPassesIndependentCheckAfterLanguageRoundTrip",
+  "skip_reason_lines": [
+   "eval_science_test.go:154: set LCX_TEST_PYTHON to a Python with NumPy/SciPy/Matplotlib; dependencies are never installed by this test"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestHelperCrashAtToolPoint",
+  "skip_reason_lines": [
+   "execution_crash_unix_test.go:52: helper process only"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestHelperRuntimeMCPServer",
+  "skip_reason_lines": [
+   "execution_test.go:35: helper process only"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestHelperCrashAtRequestPoint",
+  "skip_reason_lines": [
+   "request_crash_unix_test.go:38: helper process only"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestHelperHoldRun",
+  "skip_reason_lines": [
+   "runlock_process_unix_test.go:31: helper process only"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestHelperOpenWorkspace",
+  "skip_reason_lines": [
+   "state_test.go:546: helper process only"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestT1PerfBaseline",
+  "skip_reason_lines": [
+   "t1_perf_test.go:80: measurement only: set LCX_T1_PERF=1"
+  ]
+ },
+ {
+  "package": "github.com/edynasty/LumenCortex/runtime",
+  "test": "TestScenarioCExecutionChildSharedKernelAndReview",
+  "skip_reason_lines": [
+   "verification_flow_test.go:222: LCX_TEST_PYTHON is not set: the shared-kernel scenario needs a Python runtime"
+  ]
+ }
+]

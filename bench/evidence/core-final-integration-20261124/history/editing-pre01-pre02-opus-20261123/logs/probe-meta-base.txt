@@ -1,0 +1,7 @@
+    zz_opus_probe_darwin_test.go:112: BEFORE ino=461562691 uid=501 gid=12 mode=grw-r--r-- flags=0x8000 xattrs=[com.apple.ResourceFork com.apple.provenance com.apple.quarantine com.example.lc-probe] acl=" 0: user:nobody allow read"
+    zz_opus_probe_darwin_test.go:113: AFTER  ino=461562691 uid=501 gid=12 mode=-rw-r--r-- flags=0x8000 xattrs=[com.apple.ResourceFork com.apple.provenance com.apple.quarantine com.example.lc-probe] acl=" 0: user:nobody allow read"
+    zz_opus_probe_darwin_test.go:145: METADATA LOST on update: mode grw-r--r--->-rw-r--r--
+--- FAIL: TestOpusProbeMetadataOnUpdate (0.03s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	0.484s
+FAIL

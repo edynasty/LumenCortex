@@ -1,0 +1,117 @@
+Linux 7.0.14-linuxkit aarch64
+go version go1.23.12 linux/arm64
+fs-type=tmpfs
+--- PASS: TestConcurrentLineEditsLoseNoUpdate (0.00s)
+--- PASS: TestLargeFileAnchorEditIsBounded (0.04s)
+--- PASS: TestWriteLeaseRefusesOtherHolder (0.00s)
+--- PASS: TestWriteLeasePrefixAndExpiry (0.00s)
+--- PASS: TestMultiFileCommitStopsAtFirstWriteFailure (0.00s)
+--- PASS: TestMultiFileCommitIsAtomic (0.00s)
+--- PASS: TestCreateAndDeleteChanges (0.00s)
+--- PASS: TestSnapshotStoreIsBounded (0.00s)
+--- PASS: TestRelocationRefusesBeyondBudget (0.00s)
+--- PASS: TestCreateRaceForeignFilePreserved (0.00s)
+--- PASS: TestCreateRaceOversizedForeignFilePreserved (0.00s)
+--- PASS: TestCreateStagingFailureNeverPublishes (0.00s)
+--- PASS: TestCreatePrefixForeignReplacementSurvivesLaterConflict (0.00s)
+--- PASS: TestCreateNeverFollowsSymlinkSwap (0.00s)
+--- PASS: TestModifyCASConflictPreservesExistingFile (0.00s)
+--- PASS: TestFileIdentityUnitSemantics (0.00s)
+--- PASS: TestHashlineFreshEditOnSnapshot (0.00s)
+--- PASS: TestHashlineRefusesChangedAnchoredLine (0.00s)
+--- PASS: TestHashlineRelocatesAcrossUnrelatedInsertion (0.00s)
+--- PASS: TestHashlineRefusesInsertionInsideEditedRange (0.00s)
+--- PASS: TestHashlineAppliesBatchAgainstOneSnapshot (0.00s)
+--- PASS: TestHashlineRefusesOverlappingOps (0.00s)
+--- PASS: TestHashlinePreservesEncoding (0.00s)
+--- PASS: TestHashlineRefusesConcurrentWriteWithCompareAndSwap (0.00s)
+--- PASS: TestWholeFileWriteRefusesStaleBaseRevision (0.00s)
+--- PASS: TestHashlineRefusesUnknownRevision (0.00s)
+--- PASS: TestHashlineRefusesWrongOrUnseenAnchor (0.00s)
+--- PASS: TestCommitRefusesNonUTF8File (0.00s)
+--- PASS: TestDiffHistoryIsBounded (0.00s)
+--- PASS: TestEvictedRevisionIsNotRetained (0.00s)
+--- PASS: TestR7CrashBeforePublicationHelper (0.00s)
+--- PASS: TestR7CreateRecreationFaultMatrix (0.00s)
+--- PASS: TestR7ExplicitRecreateSuccessBaseline (0.00s)
+--- PASS: TestR7DisplayPathsStructuredAndFreeText (0.00s)
+--- PASS: TestR7DiagnosticPathFailsClosed (0.00s)
+--- PASS: TestR7RlimitChildHelper (0.00s)
+--- PASS: TestR7NonStagingHostRefusesUpdate (0.00s)
+--- PASS: TestR7CreateEFBIGIsolated (0.00s)
+--- PASS: TestR7CreateRecreationUnixFaultMatrix (0.00s)
+--- PASS: TestR7ConsumedStageIsNotUnlinked (0.00s)
+--- PASS: TestR7DeletePermissionRefusalLeavesFileIntact (0.00s)
+--- PASS: TestR7PrefixExternalAppendBeforeLaterConflict (0.00s)
+--- PASS: TestR7PrefixExternalSameByteReplacement (0.00s)
+--- PASS: TestR7VerifiedPrefixUpdateCreateDelete (0.00s)
+--- PASS: TestR7CleanFailureSettlesEveryPathAndKeepsSnapshots (0.00s)
+--- PASS: TestR7NoOpVerification (0.00s)
+--- PASS: TestR7DeleteVerification (0.00s)
+--- PASS: TestR7CreateContention (0.00s)
+--- PASS: TestR7CustomHostWithoutStagerIsUnsupported (0.00s)
+--- PASS: TestR7ExplicitRecreateAfterDeleteUsesFreshCreate (0.00s)
+--- PASS: TestR7TimeBoundaryNoOpIdentifiesSameBytes (0.00s)
+--- PASS: TestR7R2CaseCollisionFollowsFilesystemSemantics (0.00s)
+--- PASS: TestR7R2CaseProbeReadsTheVolume (0.00s)
+--- PASS: TestR7R2HardLinkAliasRefusedBeforeWrite (0.00s)
+--- PASS: TestR7R2CaseVariantOfExistingFileRefused (0.00s)
+    r7r2_remediation_test.go:124: DIR is a distinct missing directory on a case-sensitive volume
+--- PASS: TestR7R2CaseVariantCreatesRefused (0.00s)
+--- PASS: TestR7R2StaleBaseIsFailedBeforeWrite (0.00s)
+--- PASS: TestR7R2SelfReplayIsFailedBeforeWrite (0.00s)
+--- PASS: TestR7R2SessionViewConflictIsFailedBeforeWrite (0.00s)
+--- PASS: TestOpusPRE02FallbackRecoveryNeverOverwritesThirdParty (0.00s)
+--- PASS: TestOpusPRE02DeleteRecoveryPreservesBytesWhenPathRecreated (0.00s)
+--- PASS: TestOpusPRE02UncertainSwapKeepsDisplacedOriginal (0.00s)
+--- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite (0.00s)
+--- PASS: TestOpusPRE02DeleteRecreatedPathKeepsQuarantinedOriginal (0.00s)
+--- PASS: TestOpusPRE02DeleteWithoutNoReplaceMoveRefused (0.00s)
+    remediation_pre01_pre02_unix_test.go:106: macOS hdiutil disk image test
+--- SKIP: TestPRE01RealDiskImageENOSPC (0.00s)
+--- PASS: TestPRE01SimulatedBlockQuotaENOSPC (0.00s)
+--- PASS: TestPRE01RLimitChildHelper (0.00s)
+--- PASS: TestPRE01RLimitEFBIGPreservesExistingFile (0.00s)
+--- PASS: TestPRE01UpdatePreservesPermissionsSymlinksAndHardlinks (0.00s)
+--- PASS: TestPRE02UpdateWindowPreservesShortAndLongExternalWrites (0.11s)
+--- PASS: TestPRE02PostSwapDisplacedOpenFDWriteRestored (0.00s)
+--- PASS: TestPRE02DeleteConcurrentExternalWritePreserved (0.01s)
+    remediation_r2_01_test.go:449: stress (Create=true) excl_after_signal released before_commit: rounds=10 exists_before_prepare=7 staged_publish_refused=3
+    remediation_r2_01_test.go:449: stress (Create=true) excl_after_signal released after_prepare: rounds=10 lc_created=4 staged_publish_refused=6
+    remediation_r2_01_test.go:449: stress (Create=true) excl_after_signal released before_publish: rounds=10 lc_created=10
+    remediation_r2_01_test.go:457: stress (Create=false) atomic_after_signal released before_commit: rounds=10 lc_replaced_read_foreign=9 staged_publish_refused=1
+    remediation_r2_01_test.go:457: stress (Create=false) atomic_after_signal released after_prepare: rounds=10 lc_created=2 staged_publish_refused=8
+    remediation_r2_01_test.go:457: stress (Create=false) atomic_after_signal released before_publish: rounds=10 lc_created=10
+    remediation_r2_01_test.go:468: stress (Create=false) excl_after_signal released before_commit: rounds=10 inplace_refused_before_truncate=7 lc_replaced_read_foreign=1 staged_publish_refused=2
+    remediation_r2_01_test.go:468: stress (Create=false) excl_after_signal released after_prepare: rounds=10 lc_created=3 staged_publish_refused=7
+    remediation_r2_01_test.go:468: stress (Create=false) excl_after_signal released before_publish: rounds=10 lc_created=10
+    remediation_r2_01_test.go:468: stress (Create=false) create_empty_wait_then_write released before_commit: rounds=10 inplace_refused_before_truncate=3 lc_replaced_read_foreign=7
+    remediation_r2_01_test.go:468: stress (Create=false) create_empty_wait_then_write released after_prepare: rounds=10 displaced_open_fd_after_verified=1 inplace_overlap_foreign_whole=1 inplace_refused_before_truncate=8
+    remediation_r2_01_test.go:468: stress (Create=false) create_empty_wait_then_write released after_truncate: rounds=10 displaced_open_fd_after_verified=10
+    remediation_r2_01_test.go:468: stress (Create=false) create_empty_wait_then_write released after_write_close: rounds=10 displaced_open_fd_after_verified=10
+--- PASS: TestR201TwoOSProcessesCreateRace (0.22s)
+--- PASS: TestR201ExistingCASConflictPreservesForeignBytes (0.00s)
+--- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly (0.00s)
+--- PASS: TestR7ForwardPublicationFaultMatrix (0.00s)
+--- PASS: TestR5ExternalProcessWriterHelper (0.00s)
+--- PASS: TestR7SameInodeExternalOverwriteIsExternal (0.00s)
+--- PASS: TestR6ExternalWriterProcessHelper (0.00s)
+--- PASS: TestR6ValidateRelativizesDiagnosticsAndSiblingPaths (0.00s)
+--- PASS: TestReviewDeletePreservesChangedFile (0.00s)
+--- PASS: TestReviewLeaseAcquiredDuringValidation (0.00s)
+--- PASS: TestReviewSnapshotBudget (0.17s)
+--- PASS: TestReviewEvictedReadRequiresFreshRevision (0.00s)
+--- PASS: TestReviewCancelledValidationDoesNotMutate (0.00s)
+--- PASS: TestReviewLeaseAcquisitionWaitsForCommit (0.02s)
+--- PASS: TestReviewByteEvictionKeepsNewestViewFence (0.04s)
+--- PASS: TestXReviewSnapshotRegistrationRaceFree (0.00s)
+--- PASS: TestXReviewSnapshotRegisterCopiesInsteadOfMutating (0.00s)
+--- PASS: TestXReviewConcurrentLineEditAndWholeFileWrite (0.00s)
+--- PASS: TestXReviewDeleteCASAgainstConcurrentWrite (0.01s)
+--- PASS: TestXReviewMultiFileAtomicAgainstSingleWrite (0.01s)
+--- PASS: TestXReviewHashlineAnchorsAfterOtherSessionCommit (0.00s)
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.685s
+race
+ok  	github.com/edynasty/LumenCortex/internal/editing	11.143s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	85.997s
+docker-exit=0

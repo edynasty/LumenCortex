@@ -1,0 +1,15 @@
+start=2026-11-23T12:34:38Z
+=== RUN   TestSolPREL1UnsupportedSwapRefused
+--- PASS: TestSolPREL1UnsupportedSwapRefused (0.02s)
+=== RUN   TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite
+=== RUN   TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/batch_preflight_refuses_everything
+=== RUN   TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/link_created_after_staging
+    remediation_pre01_pre02_opus_unix_test.go:369: child pid=7454 linked original inode after complete staging
+=== RUN   TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/delete_one_name_keeps_other_links
+--- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite (0.02s)
+    --- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/batch_preflight_refuses_everything (0.00s)
+    --- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/link_created_after_staging (0.02s)
+    --- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/delete_one_name_keeps_other_links (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.410s
+exit=0

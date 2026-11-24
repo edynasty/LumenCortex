@@ -1,0 +1,40 @@
+# R3 post-commit FS + Linux verification; code candidate 0155df659341dfa5e92904d461da669f69b3f305 (git archive snapshot); 2026-11-19T14:34:54Z; macOS 27.0.1 arm64; go1.26.5 darwin/arm64
+##### real exFAT (macOS) at 0155df659341dfa5e92904d461da669f69b3f305
+hdiutil: WARNING: 'hdiutil attach -nobrowse -mountpoint ...' is deprecated. Please use 'diskutil image attach --mountOptions nobrowse --mountPoint ...' instead.
+    zz_probe_r301_exfat_test.go:34: CREATE err=unsupported_filesystem new.txt: filesystem supports neither hard links nor no-replace rename (link: link /tmp/lc-adr0024-r3/mnt-ExFAT/ws-1795098899943839000/.lcx-create-e5ef009e6a2f7f5ac5c7a0d5e97c1e6b /tmp/lc-adr
+    zz_probe_r301_exfat_test.go:35: CREATE code="unsupported_filesystem"
+    zz_probe_r301_exfat_test.go:39: EDIT existing err=<nil> keep.txt="edited\n"
+    zz_probe_r301_exfat_test.go:45: WORKSPACE entries=[._keep.txt keep.txt]
+--- PASS: TestZZR301RealFS (0.05s)
+PASS
+    zz_probe_r301_toolset_test.go:33: TOOL write_file(new.txt) ok=false err=<nil> content={"code":"unsupported_filesystem","currentRev":"","diagnostics":null,"error":"unsupported_filesystem new.txt: filesystem supports neither hard links nor no-replace rename 
+    zz_probe_r301_toolset_test.go:36: TOOL write_file(keep.txt) ok=true err=<nil> keep.txt="edited\n"
+    zz_probe_r301_toolset_test.go:42: WORKSPACE entries=[._keep.txt keep.txt]
+--- PASS: TestZZR301ToolsetRealFS (0.05s)
+PASS
+leftover .lcx-create files on exFAT: 0
+##### docker lc-ubuntu-go:24.04 uid 1000 at 0155df659341dfa5e92904d461da669f69b3f305: editing.test (all) + toolset.test (-run Create|R201|WriteFile), overlayfs and tmpfs TMPDIR
+# snapshot mounted read-only at its host path so toolset TestMain can 'go build ../lsp/testdata/fakeserver' (stdlib only; GOPROXY=off, no network)
+Linux 7.0.14-linuxkit aarch64
+uid=1000(ubuntu) gid=1000(ubuntu) groups=1000(ubuntu)
+go version go1.27.1 linux/arm64
+--- TMPDIR=/tmp (overlayfs)
+PASS
+editing exit=0
+PASS
+toolset exit=0
+--- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly (0.01s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/operation_not_supported (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/invalid_argument (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/function_not_implemented (0.00s)
+--- TMPDIR=/tmpfs (tmpfs)
+PASS
+editing exit=0
+PASS
+toolset exit=0
+--- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/operation_not_supported (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/invalid_argument (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/function_not_implemented (0.00s)
+docker exit=0
+script exit=0

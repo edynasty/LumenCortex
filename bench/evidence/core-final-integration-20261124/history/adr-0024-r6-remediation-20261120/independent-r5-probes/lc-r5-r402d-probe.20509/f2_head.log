@@ -1,0 +1,7 @@
+=== RUN   TestZZR402DF2GoTypesReachableBound
+    zz_r402d_f2_gotypes_test.go:45: PROBE F2 ok=false execErr=<nil> len=27243 bound=4096 valid=true code=type commitState=failed_before_publication diagnostics=100 contains_root=true
+    zz_r402d_f2_gotypes_test.go:47: PROBE F2 disk_unchanged=true
+--- PASS: TestZZR402DF2GoTypesReachableBound (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	0.692s
+EXIT=0

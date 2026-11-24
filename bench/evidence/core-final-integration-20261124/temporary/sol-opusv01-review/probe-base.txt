@@ -1,0 +1,84 @@
+start=2026-11-23T12:34:15Z
+go version go1.26.5 darwin/arm64
+=== RUN   TestZZOpusVerifyLinkChild
+--- PASS: TestZZOpusVerifyLinkChild (0.00s)
+=== RUN   TestZZOpusVerifyLateLinkBeforeFinalCheck
+    zz_opus_verify_test.go:193: childPID=7217 swapCalls=1 err=<nil> state=committed
+    zz_opus_verify_test.go:198: swap invoked 1 times after late link
+    zz_opus_verify_test.go:200: f.txt: code="" want "unsupported_filesystem" (err=<nil>)
+    zz_opus_verify_test.go:200: f.txt: refusal reported committed: res=committed rec={Committed:true DirtyFailure:false State:committed Files:[{Path:f.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyLateLinkBeforeFinalCheck2198127366/001/ws/f.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:8769e36adbcef16a05fed92be280f4286295c5e8266a9dd9c8814486ad963b99 NewSHA256:sha256:6af218ac7cb1974b1792a8c544d0d32181d94abe4963742b8e4f04aa8ea3497d Error:}]}
+    zz_opus_verify_test.go:200: f.txt: publishState result=published_verified receipt=published_verified want unsupported
+    zz_opus_verify_test.go:200: f.txt: trusted publication fields on refusal: {Path:f.txt OldRev:s7w8g4y5 NewRev:pm3btmd6 Created:false Deleted:false Changed:true Published:true Verified:true RolledBack:false PublishState:published_verified Error: Landed:[]} {Path:f.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyLateLinkBeforeFinalCheck2198127366/001/ws/f.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:8769e36adbcef16a05fed92be280f4286295c5e8266a9dd9c8814486ad963b99 NewSHA256:sha256:6af218ac7cb1974b1792a8c544d0d32181d94abe4963742b8e4f04aa8ea3497d Error:}
+    zz_opus_verify_test.go:202: not a clean pre-publication failure: dirty=false state=committed
+    zz_opus_verify_test.go:206: alias relationship or bytes changed: target={ino:461966803 nlink:1 data:agent-next
+        } alias={ino:461966802 nlink:1 data:orig-bytes
+        } before={ino:461966802 nlink:1 data:orig-bytes
+        }
+    zz_opus_verify_test.go:212: snapshot store registered refused revision
+    zz_opus_verify_test.go:222: follow-up commit: err=<nil> rec={Committed:true DirtyFailure:false State:committed Files:[{Path:f.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyLateLinkBeforeFinalCheck2198127366/001/ws/f.txt Staged:false Published:false Verified:true RolledBack:false Wrote:false PublishState:not_published Created:false Deleted:false OldSHA256:sha256:6af218ac7cb1974b1792a8c544d0d32181d94abe4963742b8e4f04aa8ea3497d NewSHA256:sha256:6af218ac7cb1974b1792a8c544d0d32181d94abe4963742b8e4f04aa8ea3497d Error:}]} swaps=1
+--- FAIL: TestZZOpusVerifyLateLinkBeforeFinalCheck (0.03s)
+=== RUN   TestZZOpusVerifyLateLinkAfterFinalCheckBoundary
+    zz_opus_verify_test.go:249: BOUNDARY swaps=1 err=<nil> state=published_verified committed=true target={ino:461966810 nlink:1 data:agent-next
+        } alias={ino:461966809 nlink:1 data:orig-bytes
+        }
+--- PASS: TestZZOpusVerifyLateLinkAfterFinalCheckBoundary (0.02s)
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos/ENOTSUP
+    zz_opus_verify_test.go:286: swap calls=1 stagedComplete=true postPublishEntered=1
+    zz_opus_verify_test.go:288: f.txt: code="" want "unsupported_filesystem" (err=<nil>)
+    zz_opus_verify_test.go:288: f.txt: refusal reported committed: res=committed rec={Committed:true DirtyFailure:false State:committed Files:[{Path:f.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedSwapErrnosENOTSUP4227516257/001/ws/f.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:8769e36adbcef16a05fed92be280f4286295c5e8266a9dd9c8814486ad963b99 NewSHA256:sha256:6af218ac7cb1974b1792a8c544d0d32181d94abe4963742b8e4f04aa8ea3497d Error:}]}
+    zz_opus_verify_test.go:288: f.txt: publishState result=published_verified receipt=published_verified want unsupported
+    zz_opus_verify_test.go:288: f.txt: trusted publication fields on refusal: {Path:f.txt OldRev:s7w8g4y5 NewRev:pm3btmd6 Created:false Deleted:false Changed:true Published:true Verified:true RolledBack:false PublishState:published_verified Error: Landed:[]} {Path:f.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedSwapErrnosENOTSUP4227516257/001/ws/f.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:8769e36adbcef16a05fed92be280f4286295c5e8266a9dd9c8814486ad963b99 NewSHA256:sha256:6af218ac7cb1974b1792a8c544d0d32181d94abe4963742b8e4f04aa8ea3497d Error:}
+    zz_opus_verify_test.go:298: target changed: before={ino:461966816 nlink:1 data:orig-bytes
+        } after={ino:461966817 nlink:1 data:agent-next
+        } mode=-rw-r-----
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos/EOPNOTSUPP
+    zz_opus_verify_test.go:286: swap calls=1 stagedComplete=true postPublishEntered=1
+    zz_opus_verify_test.go:288: f.txt: code="" want "unsupported_filesystem" (err=<nil>)
+    zz_opus_verify_test.go:288: f.txt: refusal reported committed: res=committed rec={Committed:true DirtyFailure:false State:committed Files:[{Path:f.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedSwapErrnosEOPNOTSUPP3982760925/001/ws/f.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:8769e36adbcef16a05fed92be280f4286295c5e8266a9dd9c8814486ad963b99 NewSHA256:sha256:6af218ac7cb1974b1792a8c544d0d32181d94abe4963742b8e4f04aa8ea3497d Error:}]}
+    zz_opus_verify_test.go:288: f.txt: publishState result=published_verified receipt=published_verified want unsupported
+    zz_opus_verify_test.go:288: f.txt: trusted publication fields on refusal: {Path:f.txt OldRev:s7w8g4y5 NewRev:pm3btmd6 Created:false Deleted:false Changed:true Published:true Verified:true RolledBack:false PublishState:published_verified Error: Landed:[]} {Path:f.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedSwapErrnosEOPNOTSUPP3982760925/001/ws/f.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:8769e36adbcef16a05fed92be280f4286295c5e8266a9dd9c8814486ad963b99 NewSHA256:sha256:6af218ac7cb1974b1792a8c544d0d32181d94abe4963742b8e4f04aa8ea3497d Error:}
+    zz_opus_verify_test.go:298: target changed: before={ino:461966821 nlink:1 data:orig-bytes
+        } after={ino:461966822 nlink:1 data:agent-next
+        } mode=-rw-r-----
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos/EINVAL
+    zz_opus_verify_test.go:286: swap calls=1 stagedComplete=true postPublishEntered=1
+    zz_opus_verify_test.go:288: f.txt: code="" want "unsupported_filesystem" (err=<nil>)
+    zz_opus_verify_test.go:288: f.txt: refusal reported committed: res=committed rec={Committed:true DirtyFailure:false State:committed Files:[{Path:f.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedSwapErrnosEINVAL3573435123/001/ws/f.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:8769e36adbcef16a05fed92be280f4286295c5e8266a9dd9c8814486ad963b99 NewSHA256:sha256:6af218ac7cb1974b1792a8c544d0d32181d94abe4963742b8e4f04aa8ea3497d Error:}]}
+    zz_opus_verify_test.go:288: f.txt: publishState result=published_verified receipt=published_verified want unsupported
+    zz_opus_verify_test.go:288: f.txt: trusted publication fields on refusal: {Path:f.txt OldRev:s7w8g4y5 NewRev:pm3btmd6 Created:false Deleted:false Changed:true Published:true Verified:true RolledBack:false PublishState:published_verified Error: Landed:[]} {Path:f.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedSwapErrnosEINVAL3573435123/001/ws/f.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:8769e36adbcef16a05fed92be280f4286295c5e8266a9dd9c8814486ad963b99 NewSHA256:sha256:6af218ac7cb1974b1792a8c544d0d32181d94abe4963742b8e4f04aa8ea3497d Error:}
+    zz_opus_verify_test.go:298: target changed: before={ino:461966826 nlink:1 data:orig-bytes
+        } after={ino:461966827 nlink:1 data:agent-next
+        } mode=-rw-r-----
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos/ENOSYS
+    zz_opus_verify_test.go:286: swap calls=1 stagedComplete=true postPublishEntered=1
+    zz_opus_verify_test.go:288: f.txt: code="" want "unsupported_filesystem" (err=<nil>)
+    zz_opus_verify_test.go:288: f.txt: refusal reported committed: res=committed rec={Committed:true DirtyFailure:false State:committed Files:[{Path:f.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedSwapErrnosENOSYS2950900757/001/ws/f.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:8769e36adbcef16a05fed92be280f4286295c5e8266a9dd9c8814486ad963b99 NewSHA256:sha256:6af218ac7cb1974b1792a8c544d0d32181d94abe4963742b8e4f04aa8ea3497d Error:}]}
+    zz_opus_verify_test.go:288: f.txt: publishState result=published_verified receipt=published_verified want unsupported
+    zz_opus_verify_test.go:288: f.txt: trusted publication fields on refusal: {Path:f.txt OldRev:s7w8g4y5 NewRev:pm3btmd6 Created:false Deleted:false Changed:true Published:true Verified:true RolledBack:false PublishState:published_verified Error: Landed:[]} {Path:f.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedSwapErrnosENOSYS2950900757/001/ws/f.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:8769e36adbcef16a05fed92be280f4286295c5e8266a9dd9c8814486ad963b99 NewSHA256:sha256:6af218ac7cb1974b1792a8c544d0d32181d94abe4963742b8e4f04aa8ea3497d Error:}
+    zz_opus_verify_test.go:298: target changed: before={ino:461966831 nlink:1 data:orig-bytes
+        } after={ino:461966832 nlink:1 data:agent-next
+        } mode=-rw-r-----
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos/EACCES_not_unsupported
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos/EIO_not_unsupported
+--- FAIL: TestZZOpusVerifyUnsupportedSwapErrnos (0.04s)
+    --- FAIL: TestZZOpusVerifyUnsupportedSwapErrnos/ENOTSUP (0.01s)
+    --- FAIL: TestZZOpusVerifyUnsupportedSwapErrnos/EOPNOTSUPP (0.01s)
+    --- FAIL: TestZZOpusVerifyUnsupportedSwapErrnos/EINVAL (0.01s)
+    --- FAIL: TestZZOpusVerifyUnsupportedSwapErrnos/ENOSYS (0.01s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/EACCES_not_unsupported (0.01s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/EIO_not_unsupported (0.01s)
+=== RUN   TestZZOpusVerifyUnsupportedAfterVerifiedPrefix
+    zz_opus_verify_test.go:328: batch outcome: err=<nil> state=committed rec={Committed:true DirtyFailure:false State:committed Files:[{Path:a.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedAfterVerifiedPrefix3241642163/001/ws/a.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:503951843183256d952e466bf962f91cb757b6a2ae5eff8f113be9e817e71b0a NewSHA256:sha256:d90876701c4c5c65ece1d286fcae9e08b4b047706f148436fc21cb1b25511515 Error:} {Path:b.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedAfterVerifiedPrefix3241642163/001/ws/b.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:f30115c0a0d3459bdff3a87dfe8e25b87df167106f46228fe46e4d8fcbb72d2d NewSHA256:sha256:f4fd4c7a1ab85acc46eee0f79852de0155ec22f3872125bdca158ee722873532 Error:} {Path:c.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedAfterVerifiedPrefix3241642163/001/ws/c.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:e650804d801f16dc2d58ff61f01eb1fedfb27352f69bfd6888b562619ef48eb3 NewSHA256:sha256:7022331e5635af20a258af897a2192bc8d63568a726a831aa4df2d7b98186a6b Error:}]}
+    zz_opus_verify_test.go:334: b.txt: code="" want "unsupported_filesystem" (err=<nil>)
+    zz_opus_verify_test.go:334: b.txt: refusal reported committed: res=committed rec={Committed:true DirtyFailure:false State:committed Files:[{Path:a.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedAfterVerifiedPrefix3241642163/001/ws/a.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:503951843183256d952e466bf962f91cb757b6a2ae5eff8f113be9e817e71b0a NewSHA256:sha256:d90876701c4c5c65ece1d286fcae9e08b4b047706f148436fc21cb1b25511515 Error:} {Path:b.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedAfterVerifiedPrefix3241642163/001/ws/b.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:f30115c0a0d3459bdff3a87dfe8e25b87df167106f46228fe46e4d8fcbb72d2d NewSHA256:sha256:f4fd4c7a1ab85acc46eee0f79852de0155ec22f3872125bdca158ee722873532 Error:} {Path:c.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedAfterVerifiedPrefix3241642163/001/ws/c.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:e650804d801f16dc2d58ff61f01eb1fedfb27352f69bfd6888b562619ef48eb3 NewSHA256:sha256:7022331e5635af20a258af897a2192bc8d63568a726a831aa4df2d7b98186a6b Error:}]}
+    zz_opus_verify_test.go:334: b.txt: publishState result=published_verified receipt=published_verified want unsupported
+    zz_opus_verify_test.go:334: b.txt: trusted publication fields on refusal: {Path:b.txt OldRev:8natmsfa NewRev:8v8w28s4 Created:false Deleted:false Changed:true Published:true Verified:true RolledBack:false PublishState:published_verified Error: Landed:[]} {Path:b.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedAfterVerifiedPrefix3241642163/001/ws/b.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:f30115c0a0d3459bdff3a87dfe8e25b87df167106f46228fe46e4d8fcbb72d2d NewSHA256:sha256:f4fd4c7a1ab85acc46eee0f79852de0155ec22f3872125bdca158ee722873532 Error:}
+    zz_opus_verify_test.go:336: b changed
+    zz_opus_verify_test.go:340: suffix attempted: {Path:c.txt OldRev:63iiavna NewRev:qatdghuy Created:false Deleted:false Changed:true Published:true Verified:true RolledBack:false PublishState:published_verified Error: Landed:[]} {Path:c.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifyUnsupportedAfterVerifiedPrefix3241642163/001/ws/c.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:e650804d801f16dc2d58ff61f01eb1fedfb27352f69bfd6888b562619ef48eb3 NewSHA256:sha256:7022331e5635af20a258af897a2192bc8d63568a726a831aa4df2d7b98186a6b Error:}
+--- FAIL: TestZZOpusVerifyUnsupportedAfterVerifiedPrefix (0.02s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	0.508s
+FAIL
+exit=1
+end=2026-11-23T12:34:16Z

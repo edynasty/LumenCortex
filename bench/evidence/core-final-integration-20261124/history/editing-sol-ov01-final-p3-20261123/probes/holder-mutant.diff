@@ -1,0 +1,4 @@
+505c505
+< 				err = &Error{Code: CodeLeaseConflict, Path: p.rel, Holder: conflict.Holder,
+---
+> 				err = &Error{Code: CodeLeaseConflict, Path: p.rel, Holder: "WRONG-HOLDER",

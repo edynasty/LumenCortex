@@ -1,0 +1,44 @@
+=== ADR-0024 R5 Commit 2 GREEN Evidence ===
+timestamp=2026-11-20T06:57:30Z
+branch=fix/adr-0024-r5-rollback-safety-20261120
+commit=b1fb4324da96d066a360a90ca792d81ac2a37d68
+dirty_files=0
+
+$ go test -race -count=1 -v -run 'TestR5|TestR402' ./internal/toolset ./internal/agent
+=== RUN   TestR402ToolsetPostPublicationAndPartialCommitOutcomes
+=== RUN   TestR402ToolsetPostPublicationAndPartialCommitOutcomes/pre_publish_failure_keeps_mutates_workspace_false
+=== RUN   TestR402ToolsetPostPublicationAndPartialCommitOutcomes/post_publish_close_error_sets_mutates_workspace_true_and_reports_published_file
+=== RUN   TestR402ToolsetPostPublicationAndPartialCommitOutcomes/apply_patch_multifile_external_append_plus_conflict_reports_partial_publication
+--- PASS: TestR402ToolsetPostPublicationAndPartialCommitOutcomes (0.01s)
+    --- PASS: TestR402ToolsetPostPublicationAndPartialCommitOutcomes/pre_publish_failure_keeps_mutates_workspace_false (0.00s)
+    --- PASS: TestR402ToolsetPostPublicationAndPartialCommitOutcomes/post_publish_close_error_sets_mutates_workspace_true_and_reports_published_file (0.00s)
+    --- PASS: TestR402ToolsetPostPublicationAndPartialCommitOutcomes/apply_patch_multifile_external_append_plus_conflict_reports_partial_publication (0.00s)
+=== RUN   TestR5PartialPublicationPayloadAndBounds
+=== RUN   TestR5PartialPublicationPayloadAndBounds/distinguishes_pre_publish_rolled_back_and_partial_publication
+=== RUN   TestR5PartialPublicationPayloadAndBounds/editing_error_preserves_joined_rollback_error_without_host_paths
+=== RUN   TestR5PartialPublicationPayloadAndBounds/large_multifile_failure_payload_is_bounded
+--- PASS: TestR5PartialPublicationPayloadAndBounds (0.01s)
+    --- PASS: TestR5PartialPublicationPayloadAndBounds/distinguishes_pre_publish_rolled_back_and_partial_publication (0.00s)
+    --- PASS: TestR5PartialPublicationPayloadAndBounds/editing_error_preserves_joined_rollback_error_without_host_paths (0.00s)
+    --- PASS: TestR5PartialPublicationPayloadAndBounds/large_multifile_failure_payload_is_bounded (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	1.745s
+=== RUN   TestR402EndToEndPostPublicationAndUncertainResume
+=== RUN   TestR402EndToEndPostPublicationAndUncertainResume/post_publish_close_failure_preserves_disk_edge_unknown_and_resume
+=== RUN   TestR402EndToEndPostPublicationAndUncertainResume/uncertain_publication_eio_never_becomes_mutation_none_across_resume
+=== RUN   TestR402EndToEndPostPublicationAndUncertainResume/multifile_partial_publish_external_append_records_edge_and_unknown_across_resume
+--- PASS: TestR402EndToEndPostPublicationAndUncertainResume (0.64s)
+    --- PASS: TestR402EndToEndPostPublicationAndUncertainResume/post_publish_close_failure_preserves_disk_edge_unknown_and_resume (0.31s)
+    --- PASS: TestR402EndToEndPostPublicationAndUncertainResume/uncertain_publication_eio_never_becomes_mutation_none_across_resume (0.16s)
+    --- PASS: TestR402EndToEndPostPublicationAndUncertainResume/multifile_partial_publish_external_append_records_edge_and_unknown_across_resume (0.17s)
+=== RUN   TestR5ResultPropagationAndResumeIntegrity
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/top_level_multifile_partial_publication_persists_and_resumes_identically
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/nested_eval_callback_partial_publication_preserved_in_callback_and_parent_row
+=== RUN   TestR5ResultPropagationAndResumeIntegrity/preserve_error_tool_content_bounds_oversized_and_plain_details
+--- PASS: TestR5ResultPropagationAndResumeIntegrity (0.42s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/top_level_multifile_partial_publication_persists_and_resumes_identically (0.18s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/nested_eval_callback_partial_publication_preserved_in_callback_and_parent_row (0.24s)
+    --- PASS: TestR5ResultPropagationAndResumeIntegrity/preserve_error_tool_content_bounds_oversized_and_plain_details (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	2.484s
+exit=0

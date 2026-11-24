@@ -1,0 +1,18 @@
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/case_A_invalid_first_call_then_valid_same_name_call
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/two_valid_same_name_calls_stay_distinguishable
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/top_level_eval_with_single_and_multiple_nested_executions
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/case_B_eval_nested_write_then_top_level_write
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/case_C_read_file_then_eval_nested_write_and_cold_resume_run
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/mixed_failed_and_proven_plus_unknown_veto_over_proven
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/legacy_and_unmatched_records_on_real_sqlite_stay_unbound_unknown
+--- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases (1.43s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/case_A_invalid_first_call_then_valid_same_name_call (0.23s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/two_valid_same_name_calls_stay_distinguishable (0.19s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/top_level_eval_with_single_and_multiple_nested_executions (0.20s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/case_B_eval_nested_write_then_top_level_write (0.24s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/case_C_read_file_then_eval_nested_write_and_cold_resume_run (0.18s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/mixed_failed_and_proven_plus_unknown_veto_over_proven (0.31s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/legacy_and_unmatched_records_on_real_sqlite_stay_unbound_unknown (0.08s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	2.814s

@@ -1,0 +1,516 @@
+### history/adr-0024-merged-7aeb160-20261122/SHA256SUMS exit=0
+after/diff-before-after.txt: OK
+after/go-env.stderr: OK
+after/go-env.txt: OK
+after/go-list-m-all.exit: OK
+after/go-list-m-all.stderr: OK
+after/go-list-m-all.txt: OK
+after/go-mod-verify.exit: OK
+after/go-mod-verify.stderr: OK
+after/go-mod-verify.txt: OK
+after/go-version.txt: OK
+after/head-tree.txt: OK
+after/porcelain-v1.txt: OK
+after/sqlite-cgo.exit: OK
+after/sqlite-cgo.stderr: OK
+after/sqlite-cgo.txt: OK
+after/sw_vers.txt: OK
+after/uname.txt: OK
+before/go-env.stderr: OK
+before/go-env.txt: OK
+before/go-list-m-all.exit: OK
+before/go-list-m-all.stderr: OK
+before/go-list-m-all.txt: OK
+before/go-mod-verify.exit: OK
+before/go-mod-verify.stderr: OK
+before/go-mod-verify.txt: OK
+before/go-version.stderr: OK
+before/go-version.txt: OK
+before/head-tree.stderr: OK
+before/head-tree.txt: OK
+before/porcelain-v1.stderr: OK
+before/porcelain-v1.txt: OK
+before/sqlite-cgo.exit: OK
+before/sqlite-cgo.stderr: OK
+before/sqlite-cgo.txt: OK
+before/sw_vers.stderr: OK
+before/sw_vers.txt: OK
+before/uname.stderr: OK
+before/uname.txt: OK
+gates/01-go-build/exit.txt: OK
+gates/01-go-build/meta.txt: OK
+gates/01-go-build/stderr.txt: OK
+gates/01-go-build/stdout.txt: OK
+gates/02-go-vet/exit.txt: OK
+gates/02-go-vet/meta.txt: OK
+gates/02-go-vet/stderr.txt: OK
+gates/02-go-vet/stdout.txt: OK
+gates/03-go-test-all/exit.txt: OK
+gates/03-go-test-all/meta.txt: OK
+gates/03-go-test-all/package-results.json: OK
+gates/03-go-test-all/stderr.txt: OK
+gates/03-go-test-all/stdout.json: OK
+gates/03-go-test-all/test-skips-with-output.json: OK
+gates/04-race-scoped/exit.txt: OK
+gates/04-race-scoped/meta.txt: OK
+gates/04-race-scoped/stderr.txt: OK
+gates/04-race-scoped/stdout.txt: OK
+gates/05-race-runtime-selected/exit.txt: OK
+gates/05-race-runtime-selected/meta.txt: OK
+gates/05-race-runtime-selected/stderr.txt: OK
+gates/05-race-runtime-selected/stdout.txt: OK
+
+### history/adr-0024-merged-7aeb160-carbon-acceptance-20261123/SHA256SUMS exit=0
+CARBON-POST-MERGE-ACCEPTANCE.md: OK
+
+### history/adr-0024-merged-7aeb160-full-suite-recovery-20261123/SHA256SUMS exit=0
+CARBON-HANDOFF.md: OK
+INTEGRATION-after.md: OK
+INTEGRATION-before.md: OK
+exit.txt: OK
+head-after.txt: OK
+historical-manifest-check.txt: OK
+historical-manifest.sha256: OK
+live-origin-main.txt: OK
+main-agents-after.sha256: OK
+main-agents-before.sha256: OK
+package-results.tsv: OK
+preflight.txt: OK
+run.txt: OK
+stderr.txt: OK
+stdout.txt: OK
+worktree-after.txt: OK
+worktree-before.txt: OK
+
+### history/adr-0024-r3-remediation-20261119/SHA256SUMS exit=0
+README.md: OK
+logs/post-commit-fs-linux.log: OK
+logs/pre-commit/build-vet-cross-linux.log: OK
+logs/pre-commit/r3-01-green.log: OK
+logs/pre-commit/r3-03-04-green.log: OK
+logs/pre-commit/r3-03-green.log: OK
+logs/pre-commit/r3-03-red.log: OK
+logs/pre-commit/race-agent-editing-toolset.log: OK
+logs/pre-commit/resume-parity-fixed.log: OK
+logs/r3-01-exfat-real.log: OK
+logs/r3-04-red.log: OK
+logs/red-green-at-commits.log: OK
+logs/resume-parity-at-commit.log: OK
+logs/verify-at-0155df6.log: OK
+probes/r3-01/zz_probe_r301_exfat_test.go: OK
+probes/r3-01/zz_probe_r301_toolset_test.go: OK
+probes/r3-04-red-overlay/remediation_r3_04_test.go: OK
+probes/r3-04-red-overlay/zz_red_overlay_test.go: OK
+scripts/post-commit-fs-linux.sh: OK
+scripts/red-green-at-commits.sh: OK
+
+### history/adr-0024-r3-review-20261119/SHA256SUMS exit=0
+README.md: OK
+checks/r2-evidence-sha256-actual.txt: OK
+checks/r2-evidence-sha256-claimed.txt: OK
+checks/r2-report-identifiers.txt: OK
+diffs/f02test.diff: OK
+diffs/r2-02.diff: OK
+diffs/r2-04.diff: OK
+logs/cross-vet-freebsd-amd64.err: OK
+logs/cross-vet-linux-amd64.err: OK
+logs/cross-vet-linux-arm64.err: OK
+logs/cross-vet-netbsd-amd64.err: OK
+logs/cross-vet-openbsd-arm64.err: OK
+logs/cross-vet-solaris-amd64.err: OK
+logs/cross-vet-windows-amd64.err: OK
+logs/cross-vet-windows-arm64.err: OK
+logs/r201-linux.log: OK
+logs/r201-macos.log: OK
+logs/r202-agent.log: OK
+logs/r202-giant.log: OK
+logs/r204-profile.log: OK
+logs/race-editing-toolset.log: OK
+logs/resume-parity-all.log: OK
+logs/resume-parity-fresh.log: OK
+probes/head/internal/agent/zz_probe_r3_failover_test.go: OK
+probes/head/internal/agent/zz_probe_r3_fold_test.go: OK
+probes/head/internal/agent/zz_probe_r3_giant2_test.go: OK
+probes/head/internal/agent/zz_probe_r3_giant3_test.go: OK
+probes/head/internal/agent/zz_probe_r3_giant_test.go: OK
+probes/head/internal/agent/zz_probe_r3_prof_test.go: OK
+probes/head/internal/agent/zz_probe_r3_resume_test.go: OK
+probes/head/internal/editing/zz_probe_r3_fs_test.go: OK
+probes/head/internal/editing/zz_probe_r3_publish_test.go: OK
+probes/head/internal/editing/zz_probe_r3_rollback_test.go: OK
+probes/main/internal/editing/zz_probe_r3_rollback_test.go: OK
+probes/prev/internal/agent/zz_probe_r3_giant2_test.go: OK
+probes/prev/internal/agent/zz_probe_r3_giant3_test.go: OK
+probes/prev/internal/editing/zz_probe_r3_prevfs_test.go: OK
+probes/prev/internal/editing/zz_probe_r3_rollback_test.go: OK
+probes/r202/internal/agent/zz_copied_r2_04_helpers_test.go: OK
+probes/r202/internal/agent/zz_probe_r3_prof_test.go: OK
+probes/r202/internal/agent/zz_stub_test.go: OK
+scope/r3-review-commission.txt: OK
+scripts/r201-macos.sh: OK
+scripts/r202-agent.sh: OK
+
+### history/adr-0024-r4-remediation-20261120/SHA256SUMS exit=0
+README.md: OK
+logs/r4-01-green.log: OK
+logs/r4-01-red.log: OK
+logs/r4-02-green.log: OK
+logs/r4-02-red.log: OK
+logs/verify-r4-final.log: OK
+probes/r4_02_red_repro_test.go: OK
+scripts/run_final_verify.sh: OK
+scripts/verify_r4_evidence.py: OK
+
+### history/adr-0024-r5-remediation-20261120/SHA256SUMS exit=0
+README.md: OK
+logs/r5-commit1-green.log: OK
+logs/r5-commit2-green.log: OK
+logs/r5-r402a-red.log: OK
+logs/r5-r402b-red.log: OK
+logs/r5-r402c-red.log: OK
+logs/r5-r402d-red.log: OK
+logs/verify-r5-final.log: OK
+probes/overlay_ab.json: OK
+probes/overlay_c.json: OK
+probes/overlay_d.json: OK
+probes/r5_r402ab_red_probe_test.go: OK
+probes/r5_r402c_engine_overlay.go: OK
+probes/r5_r402c_red_probe_test.go: OK
+probes/r5_r402d_red_probe_test.go: OK
+scripts/run_r5_verify.sh: OK
+scripts/verify_r5_evidence.py: OK
+
+### history/adr-0024-r6-remediation-20261120/SHA256SUMS exit=0
+README.md: OK
+independent-r5-probes/ARCHIVE_SHA256SUMS: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/diff/docs.diff: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/diff/independent-base-instrumentation.diff: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/diff/independent-head-instrumentation.diff: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/diff/independent-main-instrumentation.diff: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/diff/production.diff: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/logs/implementer-verifier.log: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/logs/independent-r5-targeted.exit: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/logs/independent-r5-targeted.jsonl: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/logs/independent-rollback-races.exit: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/logs/independent-rollback-races.jsonl: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/logs/ordering-base-actual.jsonl: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/logs/ordering-base.jsonl: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/logs/ordering-commands.jsonl: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/logs/ordering-head-actual.jsonl: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/logs/ordering-head.jsonl: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/logs/ordering-main-actual.jsonl: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/logs/ordering-main.jsonl: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/logs/r5-01-safety-red.jsonl: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/probes/base_engine_overlay.go: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/probes/engine_overlay.go: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/probes/main_engine_overlay.go: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/probes/ordering_base.json: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/probes/ordering_head.json: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/probes/ordering_main.json: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/probes/overlay.json: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/probes/zz_independent_r5_ordering_test.go: OK
+independent-r5-probes/lc-r5-final-audit.OHWLHa/probes/zz_independent_r5_races_test.go: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/agent/zz_r402d_f1_runtime_test.go: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/agent/zz_r402d_probe_apply_test.go: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/agent/zz_r402d_probe_helpers_test.go: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/agent/zz_r402d_probe_loop_test.go: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/base_run.log: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/f1_base.log: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/f1_head.log: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/f2_head.log: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/head_apply_run.log: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/head_apply_run2.log: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/head_run.log: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/overlay_base.json: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/overlay_f1_base.json: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/overlay_f1_head.json: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/overlay_f2_head.json: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/overlay_head.json: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/overlay_head_apply.json: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/toolset/zz_r402d_f2_gotypes_test.go: OK
+independent-r5-probes/lc-r5-r402d-probe.20509/toolset/zz_r402d_probe_test.go: OK
+independent-r5-probes/lc-r5-statefault-probe.iVTt3s/fastfat_cleanup.c: OK
+independent-r5-probes/lc-r5-statefault-probe.iVTt3s/fastfat_dirsup.c: OK
+independent-r5-probes/lc-r5-statefault-probe.iVTt3s/logs/base-probes.log: OK
+independent-r5-probes/lc-r5-statefault-probe.iVTt3s/logs/head-probes.log: OK
+independent-r5-probes/lc-r5-statefault-probe.iVTt3s/probes/probe_r5_statefault_base_test.go: OK
+independent-r5-probes/lc-r5-statefault-probe.iVTt3s/probes/probe_r5_statefault_test.go: OK
+logs/r6-commit1-green.log: OK
+logs/r6-commit2-green.log: OK
+logs/r6-r501-red.log: OK
+logs/r6-r502-05-red.log: OK
+logs/verify-r6-final.log: OK
+scripts/run_r6_red.sh: OK
+scripts/run_r6_verify.sh: OK
+scripts/verify_r6_evidence.py: OK
+
+### history/adr-0024-r6-remediation-20261120/independent-r5-probes/ARCHIVE_SHA256SUMS exit=0
+lc-r5-final-audit.OHWLHa/diff/docs.diff: OK
+lc-r5-final-audit.OHWLHa/diff/independent-base-instrumentation.diff: OK
+lc-r5-final-audit.OHWLHa/diff/independent-head-instrumentation.diff: OK
+lc-r5-final-audit.OHWLHa/diff/independent-main-instrumentation.diff: OK
+lc-r5-final-audit.OHWLHa/diff/production.diff: OK
+lc-r5-final-audit.OHWLHa/logs/implementer-verifier.log: OK
+lc-r5-final-audit.OHWLHa/logs/independent-r5-targeted.exit: OK
+lc-r5-final-audit.OHWLHa/logs/independent-r5-targeted.jsonl: OK
+lc-r5-final-audit.OHWLHa/logs/independent-rollback-races.exit: OK
+lc-r5-final-audit.OHWLHa/logs/independent-rollback-races.jsonl: OK
+lc-r5-final-audit.OHWLHa/logs/ordering-base-actual.jsonl: OK
+lc-r5-final-audit.OHWLHa/logs/ordering-base.jsonl: OK
+lc-r5-final-audit.OHWLHa/logs/ordering-commands.jsonl: OK
+lc-r5-final-audit.OHWLHa/logs/ordering-head-actual.jsonl: OK
+lc-r5-final-audit.OHWLHa/logs/ordering-head.jsonl: OK
+lc-r5-final-audit.OHWLHa/logs/ordering-main-actual.jsonl: OK
+lc-r5-final-audit.OHWLHa/logs/ordering-main.jsonl: OK
+lc-r5-final-audit.OHWLHa/logs/r5-01-safety-red.jsonl: OK
+lc-r5-final-audit.OHWLHa/probes/base_engine_overlay.go: OK
+lc-r5-final-audit.OHWLHa/probes/engine_overlay.go: OK
+lc-r5-final-audit.OHWLHa/probes/main_engine_overlay.go: OK
+lc-r5-final-audit.OHWLHa/probes/ordering_base.json: OK
+lc-r5-final-audit.OHWLHa/probes/ordering_head.json: OK
+lc-r5-final-audit.OHWLHa/probes/ordering_main.json: OK
+lc-r5-final-audit.OHWLHa/probes/overlay.json: OK
+lc-r5-final-audit.OHWLHa/probes/zz_independent_r5_ordering_test.go: OK
+lc-r5-final-audit.OHWLHa/probes/zz_independent_r5_races_test.go: OK
+lc-r5-r402d-probe.20509/agent/zz_r402d_f1_runtime_test.go: OK
+lc-r5-r402d-probe.20509/agent/zz_r402d_probe_apply_test.go: OK
+lc-r5-r402d-probe.20509/agent/zz_r402d_probe_helpers_test.go: OK
+lc-r5-r402d-probe.20509/agent/zz_r402d_probe_loop_test.go: OK
+lc-r5-r402d-probe.20509/base_run.log: OK
+lc-r5-r402d-probe.20509/f1_base.log: OK
+lc-r5-r402d-probe.20509/f1_head.log: OK
+lc-r5-r402d-probe.20509/f2_head.log: OK
+lc-r5-r402d-probe.20509/head_apply_run.log: OK
+lc-r5-r402d-probe.20509/head_apply_run2.log: OK
+lc-r5-r402d-probe.20509/head_run.log: OK
+lc-r5-r402d-probe.20509/overlay_base.json: OK
+lc-r5-r402d-probe.20509/overlay_f1_base.json: OK
+lc-r5-r402d-probe.20509/overlay_f1_head.json: OK
+lc-r5-r402d-probe.20509/overlay_f2_head.json: OK
+lc-r5-r402d-probe.20509/overlay_head.json: OK
+lc-r5-r402d-probe.20509/overlay_head_apply.json: OK
+lc-r5-r402d-probe.20509/toolset/zz_r402d_f2_gotypes_test.go: OK
+lc-r5-r402d-probe.20509/toolset/zz_r402d_probe_test.go: OK
+lc-r5-statefault-probe.iVTt3s/fastfat_cleanup.c: OK
+lc-r5-statefault-probe.iVTt3s/fastfat_dirsup.c: OK
+lc-r5-statefault-probe.iVTt3s/logs/base-probes.log: OK
+lc-r5-statefault-probe.iVTt3s/logs/head-probes.log: OK
+lc-r5-statefault-probe.iVTt3s/probes/probe_r5_statefault_base_test.go: OK
+lc-r5-statefault-probe.iVTt3s/probes/probe_r5_statefault_test.go: OK
+
+### history/adr-0024-r7-partial-commit-20261120/ORIGINALS.sha256 exit=1
+./lc-adr0024-r6-fallback-probe.go: FAILED open or read
+./lc-adr0024-r6-overlay.json: FAILED open or read
+./lc-r6-independent.AHyB1T/compatibility-race.log: FAILED open or read
+./lc-r6-independent.AHyB1T/fence-privacy-race.log: FAILED open or read
+./lc-r6-independent.AHyB1T/final_gap_compare_test.go: FAILED open or read
+./lc-r6-independent.AHyB1T/final_json_probe_test.go: FAILED open or read
+./lc-r6-independent.AHyB1T/final_path_probe_test.go: FAILED open or read
+./lc-r6-independent.AHyB1T/gap.json: FAILED open or read
+./lc-r6-independent.AHyB1T/jsonpath.json: FAILED open or read
+./lc-r6-independent.AHyB1T/jsonpath.log: FAILED open or read
+./lc-r6-independent.AHyB1T/main-gap.json: FAILED open or read
+./lc-r6-independent.AHyB1T/main-gap.log: FAILED open or read
+./lc-r6-independent.AHyB1T/overlay.json: FAILED open or read
+./lc-r6-independent.AHyB1T/r4-gap.json: FAILED open or read
+./lc-r6-independent.AHyB1T/r4-gap.log: FAILED open or read
+./lc-r6-independent.AHyB1T/r401-race.log: FAILED open or read
+./lc-r6-independent.AHyB1T/r5-gap.json: FAILED open or read
+./lc-r6-independent.AHyB1T/r5-gap.log: FAILED open or read
+./lc-r6-independent.AHyB1T/r6-gap.log: FAILED open or read
+./lc-r6-independent.AHyB1T/r6_engine_gap.go: FAILED open or read
+./lc-r6-independent.AHyB1T/targeted-race.log: FAILED open or read
+./lc-r6-independent.AHyB1T/zz_r6_gap_probe_test.go: FAILED open or read
+shasum: ./lc-adr0024-r6-fallback-probe.go: No such file or directory
+shasum: ./lc-adr0024-r6-overlay.json: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/compatibility-race.log: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/fence-privacy-race.log: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/final_gap_compare_test.go: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/final_json_probe_test.go: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/final_path_probe_test.go: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/gap.json: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/jsonpath.json: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/jsonpath.log: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/main-gap.json: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/main-gap.log: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/overlay.json: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/r4-gap.json: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/r4-gap.log: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/r401-race.log: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/r5-gap.json: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/r5-gap.log: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/r6-gap.log: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/r6_engine_gap.go: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/targeted-race.log: No such file or directory
+shasum: ./lc-r6-independent.AHyB1T/zz_r6_gap_probe_test.go: No such file or directory
+shasum: WARNING: 22 listed files could not be read
+
+### history/editing-opus-v01-platform-scope-20261123/SHA256SUMS exit=0
+MANIFEST.txt: OK
+logs/1-gofmt.txt: OK
+logs/2-editing-normal-v.txt: OK
+logs/3-editing-race-v.txt: OK
+logs/4-four-pkg-race.txt: OK
+logs/5-build.txt: OK
+logs/6-vet.txt: OK
+logs/7-cross-freebsd.txt: OK
+logs/7-cross-linux.txt: OK
+logs/7-cross-windows.txt: OK
+logs/8-linux-container.txt: OK
+logs/green-sim-no-exchange.txt: OK
+logs/mutant-update-succeeds.txt: OK
+logs/red-original-windows-test.txt: OK
+logs/sim-freebsd-primitives-at-b03c91e.txt: OK
+logs/sim-windows-primitives-at-b03c91e.txt: OK
+sim/ov-mut.json: OK
+sim/ov-new.json: OK
+sim/ov-old.json: OK
+sim/sim_none.go: OK
+sim/sim_swap.go: OK
+sim/sim_swap_mut.go: OK
+sim/sim_win_new.go: OK
+sim/sim_win_old.go: OK
+sim/zz_sim_test.go: OK
+sim/zz_simfb_test.go: OK
+
+### history/editing-pre01-pre02-macos-20261123/SHA256SUMS exit=0
+01-red-editing.txt: OK
+02-green-pre01-pre02.txt: OK
+03-full-editing-safefs.txt: OK
+03-full-editing-normal.txt: OK
+04-full-editing-race.txt: OK
+05-gofmt-vet-crossbuild.txt: OK
+REMEDIATION-REPORT.md: OK
+
+### history/editing-pre01-pre02-opus-20261123/SHA256SUMS exit=0
+./MANIFEST.txt: OK
+./REPORT.md: OK
+./logs/carbon-01-editing-normal.txt: OK
+./logs/carbon-02-editing-race.txt: OK
+./logs/carbon-03-four-pkg-race.txt: OK
+./logs/opus-01-editing-normal.txt: OK
+./logs/opus-02-editing-race.txt: OK
+./logs/opus-03-four-pkg-race.txt: OK
+./logs/opus-04-pre02-race-x30.txt: OK
+./logs/opus-05-crossbuild.txt: OK
+./logs/opus-06-linux-native-overlay.txt: OK
+./logs/opus-06-linux-native-tmpfs.txt: OK
+./logs/probe-all-fix.txt: OK
+./logs/probe-hardlink-fix.txt: OK
+./logs/probe-kill-fix.txt: OK
+./logs/probe-meta-base.txt: OK
+./logs/probe-meta-carbon.txt: OK
+./logs/probe-races-base.txt: OK
+./logs/probe-races-carbon.txt: OK
+./logs/red-opus-tests-on-carbon.txt: OK
+./logs/red-overlay-engine.diff: OK
+./logs/red-overlay-publish.diff: OK
+./probes/zz_opus_hardlink_probe_test.go: OK
+./probes/zz_opus_kill_probe_test.go: OK
+./probes/zz_opus_probe_base_darwin_test.go: OK
+./probes/zz_opus_probe_darwin_test.go: OK
+
+### history/editing-pre01-pre02-opus-20261123/failclosed/SHA256SUMS exit=0
+./MANIFEST.txt: OK
+./REPORT.md: OK
+./logs/01-editing-normal.txt: OK
+./logs/02-editing-race.txt: OK
+./logs/03-four-pkg-race.txt: OK
+./logs/04-pre02-race-x30.txt: OK
+./logs/05-crossbuild.txt: OK
+./logs/06-linux-native-overlay.txt: OK
+./logs/06-linux-native-tmpfs.txt: OK
+./logs/probe-hardlink-matrix.txt: OK
+./logs/probe-kill.txt: OK
+./logs/probe-l1-hardlink.txt: OK
+./logs/red2-failclosed-on-2c950cf.txt: OK
+./probes/zz_opus_hardlink_probe_test.go: OK
+./probes/zz_opus_kill_probe_test.go: OK
+./probes/zz_opus_probe_base_darwin_test.go: OK
+./probes/zz_opus_probe_darwin_test.go: OK
+
+### history/editing-pre01-pre02-sol-l1-20261123/SHA256SUMS exit=0
+MANIFEST.txt: OK
+environment.txt: OK
+historical-evidence.txt: OK
+protected-baseline.txt: OK
+red-overlay.json: OK
+red-source.txt: OK
+regression_test.go: OK
+verify.sh: OK
+logs/01-red.txt: OK
+logs/02-green-regressions.txt: OK
+logs/03-gofmt.txt: OK
+logs/04-editing-normal.txt: OK
+logs/05-editing-race.txt: OK
+logs/06-four-package-race.txt: OK
+logs/07-build.txt: OK
+logs/08-vet.txt: OK
+logs/09-push-and-verify.txt: OK
+
+### history/editing-pre01-pre02-sol-l1-opus-verify-20261123/SHA256SUMS exit=0
+REPORT.md: OK
+logs/baseline-and-evidence.txt: OK
+logs/cross.txt: OK
+logs/env-macos.txt: OK
+logs/gate-1-gofmt.txt: OK
+logs/gate-2-editing-normal-v.txt: OK
+logs/gate-3-editing-race-v.txt: OK
+logs/gate-4-four-pkg-race.txt: OK
+logs/gate-5-build.txt: OK
+logs/gate-6-vet.txt: OK
+logs/linux-native.txt: OK
+logs/mutant-nopreflight.txt: OK
+logs/probe-base.txt: OK
+logs/probe-final.txt: OK
+logs/probe-thirdparty-base.txt: OK
+logs/probe-thirdparty-final.txt: OK
+logs/sol-tests-on-base.txt: OK
+logs/sol-tests-on-final.txt: OK
+probes/mutant-nopreflight.diff: OK
+probes/overlay-mutant-nopreflight.json: OK
+probes/overlay-sol-on-base.json: OK
+probes/zz_opus_verify_test.go: OK
+
+### history/editing-sol-ov01-final-p3-20261123/SHA256SUMS exit=0
+./COMMANDS.md: OK
+./COUNTS.json: OK
+./ENVIRONMENT.txt: OK
+./FINAL_HANDOFF.md: OK
+./GATE_INVENTORY.json: OK
+./MANIFEST.txt: OK
+./PRIOR_INDEPENDENT_REVIEW.md: OK
+./PROTECTED_STATE.txt: OK
+./REMOTE_HEADS.txt: OK
+./logs/base-coverage.txt: OK
+./logs/base-noexchange.jsonl: OK
+./logs/baseline-holder-mutant.jsonl: OK
+./logs/baseline-lease-only.jsonl: OK
+./logs/build-selection-freebsd.log: OK
+./logs/build-selection-windows.log: OK
+./logs/candidate-coverage.txt: OK
+./logs/candidate-holder-mutant.jsonl: OK
+./logs/candidate-noexchange-final.jsonl: OK
+./logs/candidate-noexchange.jsonl: OK
+./logs/cross-freebsd.log: OK
+./logs/cross-windows.log: OK
+./logs/final-focused-refusal-simulation.jsonl: OK
+./logs/final-full-simulation.jsonl: OK
+./logs/gofmt.log: OK
+./logs/linux-focused.log: OK
+./logs/macos-fourpkg-race.log: OK
+./logs/macos-normal.log: OK
+./logs/macos-race.log: OK
+./probes/base.json: OK
+./probes/baseline-mutant.json: OK
+./probes/candidate.json: OK
+./probes/check_coverage.py: OK
+./probes/holder-mutant-engine.go: OK
+./probes/holder-mutant.diff: OK
+./probes/mutant.json: OK
+./probes/no_exchange_test.go: OK
+./probes/refusal-overlay.json: OK
+./probes/sim_none.go: OK
+./probes/sim_swap.go: OK
+./probes/sim_win_new.go: OK
+

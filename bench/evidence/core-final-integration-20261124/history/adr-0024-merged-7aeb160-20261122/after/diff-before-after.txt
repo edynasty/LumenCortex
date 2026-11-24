@@ -1,0 +1,15 @@
+Only in /Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-merged-7aeb160-20261122/after: diff-before-after.txt
+Only in /Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-merged-7aeb160-20261122/before: go-version.stderr
+Only in /Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-merged-7aeb160-20261122/before: head-tree.stderr
+diff -r /Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-merged-7aeb160-20261122/before/head-tree.txt /Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-merged-7aeb160-20261122/after/head-tree.txt
+1c1
+< start_utc=2026-11-22T14:43:23Z
+---
+> start_utc=2026-11-22T15:00:18Z
+6c6
+< end_utc=2026-11-22T14:43:24Z
+---
+> end_utc=2026-11-22T15:00:18Z
+Only in /Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-merged-7aeb160-20261122/before: porcelain-v1.stderr
+Only in /Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-merged-7aeb160-20261122/before: sw_vers.stderr
+Only in /Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-merged-7aeb160-20261122/before: uname.stderr

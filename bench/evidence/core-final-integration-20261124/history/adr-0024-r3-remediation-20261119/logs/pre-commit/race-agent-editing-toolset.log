@@ -1,0 +1,15 @@
+# go test -race -count=1 ./internal/agent ./internal/editing ./internal/toolset @ worktree 2ba79ae+uncommitted R3 fixes, 2026-11-19T14:22:16Z, go1.26.5 darwin/arm64
+internal/cognition/governor_curator.go
+internal/lsp/client_test.go
+internal/lsp/features.go
+internal/repository/service_test.go
+internal/repository/worktree.go
+internal/resource/manager_test.go
+internal/session/migration_test.go
+internal/session/relations_test.go
+internal/shell/process_unix.go
+internal/window/window.go
+ok  	github.com/edynasty/LumenCortex/internal/agent	48.958s
+ok  	github.com/edynasty/LumenCortex/internal/editing	6.144s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	31.419s
+exit=0

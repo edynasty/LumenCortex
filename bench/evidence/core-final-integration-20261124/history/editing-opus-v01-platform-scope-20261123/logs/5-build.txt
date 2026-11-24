@@ -1,0 +1,4 @@
+start=2026-11-23T13:23:29Z
+command=go build ./...
+end=2026-11-23T13:23:34Z
+exit=0

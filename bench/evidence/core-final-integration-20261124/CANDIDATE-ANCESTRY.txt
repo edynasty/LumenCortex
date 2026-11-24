@@ -1,0 +1,9 @@
+51316603974d916295bc6f0560d46e7772f304e5 docs(editing): correct simulation evidence and hand off final P3 fixes
+93a285593bd80820e2aaaf951ab4318a3783c3f1 test(editing): retain independent assertions without exchange (SOL-OV01-01)
+9ad5f2aa1c4ace22829be574b562ea41b1dfe127 test(editing): assert update refusal on platforms without atomic exchange (OPUS-V-01)
+b03c91e5db6969f0345a2034ecb172cf826bc792 docs(editing): record Sol fail-closed evidence and handoff
+4c79bc05f4fc89e375550b30d61950be58ce1b3f fix(editing): refuse unsupported exchange without rename fallback
+315dc74f779e40c55c513e0bd65630ca9da19a33 fix(editing): revalidate hard links before final exchange
+71cce56acb06b457dad2a4fec3a2c3db56537fd6 fix(editing): fail closed instead of rewriting files in place (PRE-01 L1 option B)
+2c950cfc455a987adab9f6f2dc3cac2edc7c45d2 fix(editing): preserve metadata and external bytes in PRE-01/PRE-02 recovery
+aa9281fe1618acd87ffb322559d4ccd643b37e8a fix(editing): close PRE-01 and PRE-02 via staged atomic swap and delete quarantine

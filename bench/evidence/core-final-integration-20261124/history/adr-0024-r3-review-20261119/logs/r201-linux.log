@@ -1,0 +1,83 @@
+7.0.14-linuxkit
+0
+##### linux FS=/tmp type=overlayfs
+    zz_probe_r3_fs_test.go:36: primitives: os.Link=<nil> isLinkFallbackErr=false | renameNoReplace(existing)=file exists | renameNoReplace(new)=<nil>
+    zz_probe_r3_fs_test.go:50: engine create: commit=ok err=<nil> committed=true dirty=false | file="created by agent\n" readErr=<nil> | debris=[]
+    zz_probe_r3_fs_test.go:61: engine create vs foreign create before publish: commit=conflict dirty=false | file="FOREIGN\n" | debris=[]
+    zz_probe_r3_fs_test.go:126: multi-process race on /tmp: rounds=25 procs=4 exactlyOneCreatorViolations(anomalies)=0 creators=25 overwritersOfExistingAtPrepare=20 conflicts=55 others=0
+--- PASS: TestZZR3FSMatrix (0.51s)
+    zz_probe_r3_publish_test.go:280: foreign rename race: rounds=120 agentOK=113 agentConflict=7 lost=0 other=0 overwriteOfFileExistingAtPrepare=0
+--- PASS: TestZZR3ForeignRenameReplaceRace (1.27s)
+    zz_probe_r3_publish_test.go:366: untouched: commit=conflict dirty=true committed=false | a.txt absent | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: foreign_append_in_place: commit=conflict dirty=true committed=false | a.txt file body="agent A content\nFOREIGN APPEND\n" | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: foreign_rename_replace_identical_bytes: commit=conflict dirty=true committed=false | a.txt file body="agent A content\n" | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: foreign_inplace_rewrite_identical_bytes: commit=conflict dirty=true committed=false | a.txt file body="agent A content\n" | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: foreign_inplace_rewrite_identical_bytes_mtime_restored: commit=conflict dirty=true committed=false | a.txt absent | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: replaced_by_symlink_to_external: commit=conflict dirty=true committed=false | a.txt symlink->external-ws body="EXTERNAL\n" | b.txt="FOREIGN B\n" | debris=[]
+--- PASS: TestZZR3RollbackOfPublishedCreate (0.01s)
+    zz_probe_r3_publish_test.go:415: foreign_regular_file: commit=conflict dirty=false | dst=file "FOREIGN\n" mode=-rw------- | external="" outsideCreated=false | debris=[]
+    zz_probe_r3_publish_test.go:415: symlink_to_external_file: commit=conflict dirty=false | dst=symlink->external.txt | external="EXTERNAL\n" outsideCreated=false | debris=[]
+    zz_probe_r3_publish_test.go:415: dangling_symlink_outside_workspace: commit=conflict dirty=false | dst=symlink->would-be-created.txt | external="" outsideCreated=false | debris=[]
+    zz_probe_r3_publish_test.go:415: directory: commit=conflict dirty=false | dst=dir | external="" outsideCreated=false | debris=[]
+--- PASS: TestZZR3DestinationAppearsBeforePublish (0.00s)
+    zz_probe_r3_publish_test.go:458: directory_removed: commit=err dirty=false committed=false err=link ws/sub/.lcx-create-e787343f8ac764362a73f9bb6fc50ad7 ws/sub/new.txt: no such file or directory | files under base=[]
+    zz_probe_r3_publish_test.go:458: directory_made_read_only: commit=ok dirty=false committed=true err=<nil> | files under base=[ws/sub/new.txt]
+    zz_probe_r3_publish_test.go:458: directory_replaced_by_symlink_outside: commit=err dirty=false committed=false err=link ws/sub/.lcx-create-8897263d6fb5b6075b684a5b3a943eef ws/sub/new.txt: no such file or directory | files under base=[ws/sub ws/sub.moved/.lcx-create-8897263d6fb5b6075b684a5b3a943eef]
+--- PASS: TestZZR3PublishFaults (0.00s)
+    zz_probe_r3_publish_test.go:484: pause-before-publish: after SIGKILL files=[.lcx-create-35bb5156ad896c5f6fa7decbd718096c(nlink=1,size=12)]
+    zz_probe_r3_publish_test.go:484: pause-after-publish: after SIGKILL files=[a.txt(nlink=1,size=12)]
+--- PASS: TestZZR3KillAroundPublication (0.01s)
+##### linux FS=/mnt/tmpfs type=tmpfs
+    zz_probe_r3_fs_test.go:36: primitives: os.Link=<nil> isLinkFallbackErr=false | renameNoReplace(existing)=file exists | renameNoReplace(new)=<nil>
+    zz_probe_r3_fs_test.go:50: engine create: commit=ok err=<nil> committed=true dirty=false | file="created by agent\n" readErr=<nil> | debris=[]
+    zz_probe_r3_fs_test.go:61: engine create vs foreign create before publish: commit=conflict dirty=false | file="FOREIGN\n" | debris=[]
+    zz_probe_r3_fs_test.go:126: multi-process race on /mnt/tmpfs: rounds=25 procs=4 exactlyOneCreatorViolations(anomalies)=0 creators=25 overwritersOfExistingAtPrepare=37 conflicts=38 others=0
+--- PASS: TestZZR3FSMatrix (0.42s)
+    zz_probe_r3_publish_test.go:280: foreign rename race: rounds=120 agentOK=117 agentConflict=3 lost=0 other=0 overwriteOfFileExistingAtPrepare=1
+--- PASS: TestZZR3ForeignRenameReplaceRace (1.23s)
+    zz_probe_r3_publish_test.go:366: untouched: commit=conflict dirty=true committed=false | a.txt absent | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: foreign_append_in_place: commit=conflict dirty=true committed=false | a.txt file body="agent A content\nFOREIGN APPEND\n" | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: foreign_rename_replace_identical_bytes: commit=conflict dirty=true committed=false | a.txt file body="agent A content\n" | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: foreign_inplace_rewrite_identical_bytes: commit=conflict dirty=true committed=false | a.txt file body="agent A content\n" | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: foreign_inplace_rewrite_identical_bytes_mtime_restored: commit=conflict dirty=true committed=false | a.txt absent | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: replaced_by_symlink_to_external: commit=conflict dirty=true committed=false | a.txt symlink->external-ws body="EXTERNAL\n" | b.txt="FOREIGN B\n" | debris=[]
+--- PASS: TestZZR3RollbackOfPublishedCreate (0.00s)
+    zz_probe_r3_publish_test.go:415: foreign_regular_file: commit=conflict dirty=false | dst=file "FOREIGN\n" mode=-rw------- | external="" outsideCreated=false | debris=[]
+    zz_probe_r3_publish_test.go:415: symlink_to_external_file: commit=conflict dirty=false | dst=symlink->external.txt | external="EXTERNAL\n" outsideCreated=false | debris=[]
+    zz_probe_r3_publish_test.go:415: dangling_symlink_outside_workspace: commit=conflict dirty=false | dst=symlink->would-be-created.txt | external="" outsideCreated=false | debris=[]
+    zz_probe_r3_publish_test.go:415: directory: commit=conflict dirty=false | dst=dir | external="" outsideCreated=false | debris=[]
+--- PASS: TestZZR3DestinationAppearsBeforePublish (0.00s)
+    zz_probe_r3_publish_test.go:458: directory_removed: commit=err dirty=false committed=false err=link ws/sub/.lcx-create-8d7b878e8afbea7b1fd1bdbdb4d8f207 ws/sub/new.txt: no such file or directory | files under base=[]
+    zz_probe_r3_publish_test.go:458: directory_made_read_only: commit=ok dirty=false committed=true err=<nil> | files under base=[ws/sub/new.txt]
+    zz_probe_r3_publish_test.go:458: directory_replaced_by_symlink_outside: commit=err dirty=false committed=false err=link ws/sub/.lcx-create-fb8a02788aeaaca67e7bf043ca0c02d0 ws/sub/new.txt: no such file or directory | files under base=[ws/sub ws/sub.moved/.lcx-create-fb8a02788aeaaca67e7bf043ca0c02d0]
+--- PASS: TestZZR3PublishFaults (0.00s)
+    zz_probe_r3_publish_test.go:484: pause-before-publish: after SIGKILL files=[.lcx-create-38f8acd41845c393087bf14f7a2e7ec6(nlink=1,size=12)]
+    zz_probe_r3_publish_test.go:484: pause-after-publish: after SIGKILL files=[a.txt(nlink=1,size=12)]
+--- PASS: TestZZR3KillAroundPublication (0.01s)
+##### linux FS=/mnt/bind type=fuseblk
+    zz_probe_r3_fs_test.go:36: primitives: os.Link=<nil> isLinkFallbackErr=false | renameNoReplace(existing)=file exists | renameNoReplace(new)=<nil>
+    zz_probe_r3_fs_test.go:50: engine create: commit=ok err=<nil> committed=true dirty=false | file="created by agent\n" readErr=<nil> | debris=[]
+    zz_probe_r3_fs_test.go:61: engine create vs foreign create before publish: commit=conflict dirty=false | file="FOREIGN\n" | debris=[]
+    zz_probe_r3_fs_test.go:126: multi-process race on /mnt/bind: rounds=25 procs=4 exactlyOneCreatorViolations(anomalies)=0 creators=25 overwritersOfExistingAtPrepare=21 conflicts=54 others=0
+--- PASS: TestZZR3FSMatrix (0.62s)
+    zz_probe_r3_publish_test.go:280: foreign rename race: rounds=120 agentOK=108 agentConflict=12 lost=0 other=0 overwriteOfFileExistingAtPrepare=5
+--- PASS: TestZZR3ForeignRenameReplaceRace (1.86s)
+    zz_probe_r3_publish_test.go:366: untouched: commit=conflict dirty=true committed=false | a.txt absent | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: foreign_append_in_place: commit=conflict dirty=true committed=false | a.txt file body="agent A content\nFOREIGN APPEND\n" | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: foreign_rename_replace_identical_bytes: commit=conflict dirty=true committed=false | a.txt file body="agent A content\n" | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: foreign_inplace_rewrite_identical_bytes: commit=conflict dirty=true committed=false | a.txt file body="agent A content\n" | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: foreign_inplace_rewrite_identical_bytes_mtime_restored: commit=conflict dirty=true committed=false | a.txt absent | b.txt="FOREIGN B\n" | debris=[]
+    zz_probe_r3_publish_test.go:366: replaced_by_symlink_to_external: commit=conflict dirty=true committed=false | a.txt symlink->external-ws body="EXTERNAL\n" | b.txt="FOREIGN B\n" | debris=[]
+--- PASS: TestZZR3RollbackOfPublishedCreate (0.03s)
+    zz_probe_r3_publish_test.go:415: foreign_regular_file: commit=conflict dirty=false | dst=file "FOREIGN\n" mode=-rw------- | external="" outsideCreated=false | debris=[]
+    zz_probe_r3_publish_test.go:415: symlink_to_external_file: commit=conflict dirty=false | dst=symlink->external.txt | external="EXTERNAL\n" outsideCreated=false | debris=[]
+    zz_probe_r3_publish_test.go:415: dangling_symlink_outside_workspace: commit=conflict dirty=false | dst=symlink->would-be-created.txt | external="" outsideCreated=false | debris=[]
+    zz_probe_r3_publish_test.go:415: directory: commit=conflict dirty=false | dst=dir | external="" outsideCreated=false | debris=[]
+--- PASS: TestZZR3DestinationAppearsBeforePublish (0.01s)
+    zz_probe_r3_publish_test.go:458: directory_removed: commit=err dirty=false committed=false err=link ws/sub/.lcx-create-73b6a964fe936d9ff94eeac61745cc35 ws/sub/new.txt: no such file or directory | files under base=[]
+    zz_probe_r3_publish_test.go:458: directory_made_read_only: commit=err dirty=false committed=false err=link ws/sub/.lcx-create-a2e9ff2976b9bafebe7fd6a999342283 ws/sub/new.txt: permission denied | files under base=[ws/sub/.lcx-create-a2e9ff2976b9bafebe7fd6a999342283]
+    zz_probe_r3_publish_test.go:458: directory_replaced_by_symlink_outside: commit=err dirty=false committed=false err=link ws/sub/.lcx-create-fb16119c12f4f161aacc93ff1a161574 ws/sub/new.txt: no such file or directory | files under base=[ws/sub ws/sub.moved/.lcx-create-fb16119c12f4f161aacc93ff1a161574]
+--- PASS: TestZZR3PublishFaults (0.01s)
+    zz_probe_r3_publish_test.go:484: pause-before-publish: after SIGKILL files=[.lcx-create-6f06f954689bfc73cff693de181423e3(nlink=1,size=12)]
+    zz_probe_r3_publish_test.go:484: pause-after-publish: after SIGKILL files=[a.txt(nlink=1,size=12)]
+--- PASS: TestZZR3KillAroundPublication (0.02s)

@@ -1,0 +1,11 @@
+=== RUN   TestAuditFinalGapCommit
+    zz_final_gap_test.go:6: child==== RUN   TestAuditFinalGapChild
+            zz_final_gap_test.go:5: writer_pid=48770 parent=48759
+        --- PASS: TestAuditFinalGapChild (0.00s)
+        PASS
+    zz_final_gap_test.go:6: hit=true disk="old\n" result={Files:[] Diffs:[] Diagnostics:[] CommitState:rolled_back} err=conflict z.txt: the file changed after the change was computed; nothing was written (current rev 3d43fjsp); something else wrote the file; re-read it and redo the edit
+    zz_final_gap_test.go:6: external append lost
+--- FAIL: TestAuditFinalGapCommit (1.06s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	1.519s
+FAIL

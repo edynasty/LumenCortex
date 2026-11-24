@@ -1,0 +1,6 @@
+{"commit_references": 45, "invalid": []}
+{"report_hash_rows": 48, "bad": []}
+{"manifest": "adr-0024-r3-review-20261119", "entries": 44, "bad": [], "unlisted": [], "missing": [], "sha256": "122f887274547d2b64a401855816c48b2f7a4077927ecf6dcb1567ca5d011225"}
+{"manifest": "adr-0024-r3-remediation-20261119", "entries": 20, "bad": [], "unlisted": [], "missing": [], "sha256": "51920df5eae6a1db06d9218ca29c90fcb586b3eea31e66569ecadf86e165ab7e"}
+{"manifest": "adr-0024-r4-remediation-20261120", "entries": 9, "bad": [], "unlisted": [], "missing": [], "sha256": "02f63da7d1b8be68552edc86eb3553f6aa1ffb27a5d2c073705ad7a0cbd0c042"}
+{"manifest": "adr-0024-r5-remediation-20261120", "entries": 17, "bad": [], "unlisted": [], "missing": [], "sha256": "bbeec3d8eb87230bea63d05677d1ab9f9baa0481e784a06cba62e0575c5592e6"}

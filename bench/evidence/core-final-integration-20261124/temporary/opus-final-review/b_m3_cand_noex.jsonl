@@ -1,0 +1,9 @@
+{"Time":"2026-11-24T08:41:31.84571+08:00","Action":"start","Package":"github.com/edynasty/LumenCortex/internal/editing"}
+{"Time":"2026-11-24T08:41:32.244371+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder"}
+{"Time":"2026-11-24T08:41:32.244474+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder","Output":"=== RUN   TestWriteLeaseRefusesOtherHolder\n"}
+{"Time":"2026-11-24T08:41:32.245696+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder","Output":"    concurrency_test.go:125: a leased file was written: \"leaked\\n\"\n"}
+{"Time":"2026-11-24T08:41:32.246165+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder","Output":"--- FAIL: TestWriteLeaseRefusesOtherHolder (0.00s)\n"}
+{"Time":"2026-11-24T08:41:32.246185+08:00","Action":"fail","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder","Elapsed":0}
+{"Time":"2026-11-24T08:41:32.246206+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"FAIL\n"}
+{"Time":"2026-11-24T08:41:32.246833+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"FAIL\tgithub.com/edynasty/LumenCortex/internal/editing\t0.401s\n"}
+{"Time":"2026-11-24T08:41:32.246856+08:00","Action":"fail","Package":"github.com/edynasty/LumenCortex/internal/editing","Elapsed":0.401}

@@ -1,0 +1,12 @@
+=== RUN   TestCallbackSettlementHonorsFence
+--- PASS: TestCallbackSettlementHonorsFence (0.05s)
+=== RUN   TestCognitionCommitRefusesRevokedSupportAtomically
+--- PASS: TestCognitionCommitRefusesRevokedSupportAtomically (0.04s)
+=== RUN   TestRewriteChainInheritsLineageAndResolves
+--- PASS: TestRewriteChainInheritsLineageAndResolves (0.05s)
+=== RUN   TestRevokeSessionFencesWhatItReachesAndReports
+--- PASS: TestRevokeSessionFencesWhatItReachesAndReports (0.05s)
+=== RUN   TestWorkerMessagesReopenFencesAndPrivacy
+--- PASS: TestWorkerMessagesReopenFencesAndPrivacy (0.06s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/session	1.508s

@@ -1,0 +1,11 @@
+go version go1.26.5 darwin/arm64
+darwin
+arm64
+1
+
+off
+ProductName:		macOS
+ProductVersion:		27.0.1
+BuildVersion:		26A434
+Filesystem   512-blocks       Used Available Capacity iused      ifree %iused  Mounted on
+/dev/disk3s5 1942700360 1656996176 221779568    89% 9912842 1108897840    1%   /System/Volumes/Data

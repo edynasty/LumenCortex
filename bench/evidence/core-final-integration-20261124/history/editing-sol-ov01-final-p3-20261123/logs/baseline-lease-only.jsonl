@@ -1,0 +1,9 @@
+{"Time":"2026-11-23T23:16:44.600144+08:00","Action":"start","Package":"github.com/edynasty/LumenCortex/internal/editing"}
+{"Time":"2026-11-23T23:16:44.839884+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder"}
+{"Time":"2026-11-23T23:16:44.839998+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder","Output":"=== RUN   TestWriteLeaseRefusesOtherHolder\n"}
+{"Time":"2026-11-23T23:16:44.840131+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder","Output":"    concurrency_test.go:104: GOOS=darwin has no atomic exchange primitive, so LC refuses existing-file updates (OPUS-V-01)\n"}
+{"Time":"2026-11-23T23:16:44.840162+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder","Output":"--- SKIP: TestWriteLeaseRefusesOtherHolder (0.00s)\n"}
+{"Time":"2026-11-23T23:16:44.840177+08:00","Action":"skip","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder","Elapsed":0}
+{"Time":"2026-11-23T23:16:44.840186+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"PASS\n"}
+{"Time":"2026-11-23T23:16:44.84071+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"ok  \tgithub.com/edynasty/LumenCortex/internal/editing\t0.240s\n"}
+{"Time":"2026-11-23T23:16:44.840724+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/internal/editing","Elapsed":0.241}

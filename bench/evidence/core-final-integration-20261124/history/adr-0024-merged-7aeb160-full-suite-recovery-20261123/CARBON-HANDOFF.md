@@ -1,0 +1,8 @@
+# Gemini 4 Carbon — independent post-merge acceptance
+
+Review PR [#10](https://github.com/edynasty/LumenCortex/pull/10) at merge SHA `7aeb1607ffa588727c6fe04873f7b58a1dc16f15`, tree `15ad21e5e6128e6a5f96c5621da2f40bc8115e58`. The [integration report](../adr-0024-merged-7aeb160-20261122/INTEGRATION.md) records the recovery disposition. This handoff is not independent acceptance.
+
+1. Verify the merge identity and test worktree identity using `live-origin-main.txt`, `preflight.txt`, `head-after.txt`, and the before/after porcelain files. Check the Owner's `AGENTS.md` diff digests match.
+2. Verify both SHA256 manifests. Keep the [historical exit-1 run](../adr-0024-merged-7aeb160-20261122/gates/03-go-test-all/) separate from this recovery. Trace `cmd/lcx-go/provider_test.go:27–56` to `cmd/lcx-go/db_test.go:152–157`; the old JSON-formatted cache path was not a valid absolute path. Compare it with the clean preflight and package result in the new run.
+3. Verify the one authorized default test run used exactly `go test -count=1 -timeout=45m ./...`, with `GOFLAGS` absent and effective Go flags empty. Check exit code, stderr, and package totals against stdout. `[no test files]` is not a passed test package; non-verbose stdout does not enumerate individual skips in passing packages. Do not transplant historical skip counts onto this run.
+4. Reuse Build, Vet, scoped Race, and selected Runtime Race evidence from the same SHA. Do not infer native Windows, Linux, or FreeBSD acceptance. PRE-01 and PRE-02 remain OPEN P2. Report an independent decision based on evidence, without running a second full suite, changing code, merging, releasing, running TB2, touching Desktop, or cleaning up worktrees/branches.

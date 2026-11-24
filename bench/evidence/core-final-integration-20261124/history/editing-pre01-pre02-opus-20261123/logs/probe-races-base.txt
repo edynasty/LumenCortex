@@ -1,0 +1,11 @@
+    zz_opus_probe_darwin_test.go:176: err=<nil> committed=true dirty=false state=[{h1.txt /private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestOpusProbeHardlinkPRE023957110497/001/h1.txt false true true false true published_verified false false sha256:49d6effc804e9eed9a69f8c4b3429bcb7a921ffe693e19ff8d7d9b003e5ea60f sha256:83437998e1744f987fc14c5b3ec919f388e9f2af96b202d9eb434c0143aeb69f }] content="agent os process content\n"
+    zz_opus_probe_darwin_test.go:178: PRE-02 RESIDUAL (multi-link): external 8B write silently overwritten while committed
+--- FAIL: TestOpusProbeHardlinkPRE02 (0.00s)
+    zz_opus_probe_darwin_test.go:211: LIMITATION update: err=<nil> committed=true target="agent os process content\nLATE-HELD-FD-APPEND\n" statErr=<nil>
+    zz_opus_probe_darwin_test.go:211: LIMITATION delete: err=<nil> committed=true target="" statErr=open /private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestOpusProbeHeldFDWriteBeforeCommitReturndelete3847325763/001/f.txt: no such file or directory
+--- PASS: TestOpusProbeHeldFDWriteBeforeCommitReturn (0.00s)
+    --- PASS: TestOpusProbeHeldFDWriteBeforeCommitReturn/update (0.00s)
+    --- PASS: TestOpusProbeHeldFDWriteBeforeCommitReturn/delete (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	0.378s
+FAIL

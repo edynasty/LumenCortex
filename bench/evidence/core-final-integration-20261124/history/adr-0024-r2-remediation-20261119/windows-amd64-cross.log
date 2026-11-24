@@ -1,0 +1,10 @@
+=== HEAD: 7d064d0796844d2925e5257d7bd733b9695e6f76 ===
+=== GOOS=windows GOARCH=amd64 go build ./... ===
+EXIT=0
+=== GOOS=windows GOARCH=amd64 go vet ./... ===
+EXIT=0
+=== GOOS=windows GOARCH=amd64 go test -c ./internal/editing ./internal/toolset ./internal/agent ===
+total 83912
+-rwxr-xr-x@ 1 tangxingpeng  staff    19M Nov 19 15:45 agent.test.exe
+-rwxr-xr-x@ 1 tangxingpeng  staff   5.6M Nov 19 15:45 editing.test.exe
+-rwxr-xr-x@ 1 tangxingpeng  staff    16M Nov 19 15:45 toolset.test.exe

@@ -1,0 +1,26 @@
+--- /tmp/lc-r5-final-audit.OHWLHa/head/internal/editing/engine.go	2026-11-20 15:07:52.000000000 +0800
++++ /tmp/lc-r5-final-audit.OHWLHa/probes/engine_overlay.go	2026-11-20 15:46:09.416907412 +0800
+@@ -1478,6 +1478,11 @@
+ 			return PublishRollbackFailed, errors.Join(err, f.Close())
+ 		}
+ 	}
++	if auditR5AfterRestorePayloadWrite != nil {
++		if err := auditR5AfterRestorePayloadWrite(p.abs); err != nil {
++			return PublishRollbackFailed, errors.Join(err, f.Close())
++		}
++	}
+ 	if err := f.Truncate(int64(len(p.original))); err != nil {
+ 		return PublishRollbackFailed, errors.Join(err, f.Close())
+ 	}
+@@ -1496,6 +1501,11 @@
+ 	if !bytes.Equal(after, p.original) {
+ 		return PublishExternalModification, errors.Join(errors.New("external writer modified file during rollback restore"), f.Close())
+ 	}
++	if auditR5AfterRestoreReadback != nil {
++		if err := auditR5AfterRestoreReadback(p.abs, f); err != nil {
++			return PublishRollbackFailed, errors.Join(err, f.Close())
++		}
++	}
+ 	if err := f.Close(); err != nil {
+ 		return PublishRollbackFailed, err
+ 	}

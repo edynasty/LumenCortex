@@ -1,0 +1,9 @@
+OPUS-V-01 evidence (local, outside Git). Owner: Claude Opus 5.5.
+Branch fix/editing-opus-v01-platform-scope-20261123, HEAD 9ad5f2aa1c4ace22829be574b562ea41b1dfe127 (pushed), base b03c91e5db6969f0345a2034ecb172cf826bc792.
+Production diff b03c91e..9ad5f2a outside *_test.go and docs: 0 lines.
+logs/sim-*-at-b03c91e.txt: failure inventory with ENOSYS exchange (Windows) and ENOSYS exchange+no-replace (FreeBSD) simulated on darwin.
+logs/red-original-windows-test.txt: original Windows R6 test under simulation, exit 1.
+logs/green-sim-no-exchange.txt: full editing suite with no-exchange files compiled on darwin; remaining FAILs are darwin/darwin||linux-tagged files not built on Windows/FreeBSD.
+logs/mutant-update-succeeds.txt: refusal assertions with a working exchange, exit 1.
+logs/1..7: macOS native gates and cross vet/test -c; logs/8-linux-container.txt: Docker linuxkit run.
+Windows/FreeBSD native execution: UNVERIFIED.

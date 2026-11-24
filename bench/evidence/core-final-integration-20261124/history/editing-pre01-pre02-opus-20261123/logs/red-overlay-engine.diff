@@ -1,0 +1,5 @@
+318a319,322
+> 	// BeforeFinalExternalCheck and AfterFinalExternalRead bracket the final read of a still-open
+> 	// displaced (update) or unlinked (delete) original descriptor. They only order tests.
+> 	BeforeFinalExternalCheck func(dstPath string)
+> 	AfterFinalExternalRead   func(dstPath string)

@@ -1,0 +1,33 @@
+# R2-04 profile: same probe source (zz_probe_r3_prof_test.go), r202=1a68226 vs head=2ba79ae(code 7d064d0), 2026-11-19T14:01:25Z, macOS 27.0.1 arm64, go1.26.5
+##### r202
+    zz_probe_r3_prof_test.go:74: groups=2049 rep=0 40x derive: wall=1771.816ms cpu=2157.339ms alloc=895247544B mallocs=3597021 txScans=40 txRows=163800 execQ=40 | seeding this range: wall=412ms cpu=505ms | inMemGroups=0
+    zz_probe_r3_prof_test.go:74: groups=2049 rep=1 40x derive: wall=1721.857ms cpu=2146.211ms alloc=895244784B mallocs=3597034 txScans=40 txRows=163800 execQ=40 | seeding this range: wall=412ms cpu=505ms | inMemGroups=0
+    zz_probe_r3_prof_test.go:74: groups=2049 rep=2 40x derive: wall=1773.197ms cpu=2166.017ms alloc=895246352B mallocs=3597048 txScans=40 txRows=163800 execQ=40 | seeding this range: wall=412ms cpu=505ms | inMemGroups=0
+    zz_probe_r3_prof_test.go:88: groups=2049 cold load+derive: wall=93.1ms cpu=114.1ms txScans=2 execQ=2
+    zz_probe_r3_prof_test.go:74: groups=6000 rep=0 40x derive: wall=5108.315ms cpu=6060.488ms alloc=2623569712B mallocs=10550784 txScans=40 txRows=479880 execQ=40 | seeding this range: wall=815ms cpu=911ms | inMemGroups=0
+    zz_probe_r3_prof_test.go:74: groups=6000 rep=1 40x derive: wall=5902.173ms cpu=6283.388ms alloc=2623577728B mallocs=10550849 txScans=40 txRows=479880 execQ=40 | seeding this range: wall=815ms cpu=911ms | inMemGroups=0
+    zz_probe_r3_prof_test.go:74: groups=6000 rep=2 40x derive: wall=5129.747ms cpu=6113.814ms alloc=2623583472B mallocs=10550901 txScans=40 txRows=479880 execQ=40 | seeding this range: wall=815ms cpu=911ms | inMemGroups=0
+    zz_probe_r3_prof_test.go:88: groups=6000 cold load+derive: wall=264.2ms cpu=324.1ms txScans=2 execQ=2
+    zz_probe_r3_prof_test.go:74: groups=12000 rep=0 40x derive: wall=10103.799ms cpu=11834.769ms alloc=5270038336B mallocs=21111596 txScans=40 txRows=959880 execQ=40 | seeding this range: wall=1073ms cpu=1301ms | inMemGroups=0
+    zz_probe_r3_prof_test.go:74: groups=12000 rep=1 40x derive: wall=10008.002ms cpu=11783.726ms alloc=5270051032B mallocs=21111668 txScans=40 txRows=959880 execQ=40 | seeding this range: wall=1073ms cpu=1301ms | inMemGroups=0
+    zz_probe_r3_prof_test.go:74: groups=12000 rep=2 40x derive: wall=9778.391ms cpu=11679.575ms alloc=5270053328B mallocs=21111732 txScans=40 txRows=959880 execQ=40 | seeding this range: wall=1073ms cpu=1301ms | inMemGroups=0
+    zz_probe_r3_prof_test.go:88: groups=12000 cold load+derive: wall=542.7ms cpu=625.9ms txScans=2 execQ=2
+--- PASS: TestZZR3Profile (54.59s)
+PASS
+exit=0
+##### head
+    zz_probe_r3_prof_test.go:74: groups=2049 rep=0 40x derive: wall=6.045ms cpu=1.139ms alloc=0B mallocs=0 txScans=0 txRows=0 execQ=0 | seeding this range: wall=394ms cpu=509ms | inMemGroups=1025
+    zz_probe_r3_prof_test.go:74: groups=2049 rep=1 40x derive: wall=1.031ms cpu=1.035ms alloc=0B mallocs=0 txScans=0 txRows=0 execQ=0 | seeding this range: wall=394ms cpu=509ms | inMemGroups=1025
+    zz_probe_r3_prof_test.go:74: groups=2049 rep=2 40x derive: wall=1.037ms cpu=1.041ms alloc=0B mallocs=0 txScans=0 txRows=0 execQ=0 | seeding this range: wall=394ms cpu=509ms | inMemGroups=1025
+    zz_probe_r3_prof_test.go:88: groups=2049 cold load+derive: wall=54.1ms cpu=63.2ms txScans=1 execQ=1
+    zz_probe_r3_prof_test.go:74: groups=6000 rep=0 40x derive: wall=1.847ms cpu=1.818ms alloc=0B mallocs=0 txScans=0 txRows=0 execQ=0 | seeding this range: wall=712ms cpu=910ms | inMemGroups=1904
+    zz_probe_r3_prof_test.go:74: groups=6000 rep=1 40x derive: wall=1.792ms cpu=1.796ms alloc=0B mallocs=0 txScans=0 txRows=0 execQ=0 | seeding this range: wall=712ms cpu=910ms | inMemGroups=1904
+    zz_probe_r3_prof_test.go:74: groups=6000 rep=2 40x derive: wall=1.770ms cpu=1.771ms alloc=0B mallocs=0 txScans=0 txRows=0 execQ=0 | seeding this range: wall=712ms cpu=910ms | inMemGroups=1904
+    zz_probe_r3_prof_test.go:88: groups=6000 cold load+derive: wall=176.9ms cpu=178.0ms txScans=1 execQ=1
+    zz_probe_r3_prof_test.go:74: groups=12000 rep=0 40x derive: wall=1.639ms cpu=1.679ms alloc=0B mallocs=0 txScans=0 txRows=0 execQ=0 | seeding this range: wall=1077ms cpu=1349ms | inMemGroups=1760
+    zz_probe_r3_prof_test.go:74: groups=12000 rep=1 40x derive: wall=1.608ms cpu=1.611ms alloc=0B mallocs=0 txScans=0 txRows=0 execQ=0 | seeding this range: wall=1077ms cpu=1349ms | inMemGroups=1760
+    zz_probe_r3_prof_test.go:74: groups=12000 rep=2 40x derive: wall=1.667ms cpu=1.665ms alloc=0B mallocs=0 txScans=0 txRows=0 execQ=0 | seeding this range: wall=1077ms cpu=1349ms | inMemGroups=1760
+    zz_probe_r3_prof_test.go:88: groups=12000 cold load+derive: wall=292.0ms cpu=341.7ms txScans=1 execQ=1
+--- PASS: TestZZR3Profile (2.81s)
+PASS
+exit=0

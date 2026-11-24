@@ -1,0 +1,8 @@
+    zz_opus_kill_probe_test.go:76: KILL update_before_swap: .lcx-create-<nonce> = "new-content\n"
+    zz_opus_kill_probe_test.go:76: KILL update_before_swap: f.txt = "original-content\n"
+    zz_opus_kill_probe_test.go:76: KILL update_after_swap: .lcx-create-<nonce> = "original-content\n"
+    zz_opus_kill_probe_test.go:76: KILL update_after_swap: f.txt = "new-content\n"
+    zz_opus_kill_probe_test.go:76: KILL delete_before_quarantine: f.txt = "original-content\n"
+    zz_opus_kill_probe_test.go:79: KILL delete_after_quarantine_unlink: directory empty
+--- PASS: TestOpusKillProbe (0.47s)
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.913s

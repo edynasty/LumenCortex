@@ -1,0 +1,43 @@
+=== RUN   TestZZR402DProbeHelpers
+    zz_r402d_probe_helpers_test.go:17: PROBE nested_in={"z":1,"big":9007199254740993,"stdout":"a<b&c","a":true}
+    zz_r402d_probe_helpers_test.go:18: PROBE nested_out={"a":true,"big":9007199254740992,"nestedPartialPublications":["write_file commitState=published_with_post_error"],"stdout":"a\u003cb\u0026c","z":1}
+    zz_r402d_probe_helpers_test.go:22: PROBE nested_big_valid_json=false tail="xxxxxxxxxxxxxxxxxxxxxxxxx\"}\n\n[nested_partial_publication] n1"
+    zz_r402d_probe_helpers_test.go:25: PROBE preserve_error_key={"error":"tool-said","commitState":"committed","dirtyFailure":false}
+    zz_r402d_probe_helpers_test.go:28: PROBE preserve_no_error_key={"error":"real-err","ok":true}
+    zz_r402d_probe_helpers_test.go:32: PROBE preserve("[1,2]")={"details":"[1,2]","error":"e\ufffdrr"} valid=true
+    zz_r402d_probe_helpers_test.go:32: PROBE preserve("null")={"details":"null","error":"e\ufffdrr"} valid=true
+    zz_r402d_probe_helpers_test.go:32: PROBE preserve("\"s\"")={"details":"\"s\"","error":"e\ufffdrr"} valid=true
+    zz_r402d_probe_helpers_test.go:32: PROBE preserve("plain\x00text\xff")={"details":"plain\u0000text\ufffd","error":"e\ufffdrr"} valid=true
+    zz_r402d_probe_helpers_test.go:37: PROBE preserve_empty_len=6012 (no truncation; baseline-equivalent)
+    zz_r402d_probe_helpers_test.go:41: PROBE preserve_long_len=1088 valid=true err=<nil> keys_files_present=false
+    zz_r402d_probe_helpers_test.go:45: PROBE summary("")=apply_patch commitState=publication_uncertain dirtyFailure=true partialPublication=true files=[d/a.txt:published_rolled_back]
+    zz_r402d_probe_helpers_test.go:45: PROBE summary("rolled_back")=apply_patch commitState=rolled_back dirtyFailure=true partialPublication=false files=[d/a.txt:published_rolled_back]
+    zz_r402d_probe_helpers_test.go:45: PROBE summary("partially_published")=apply_patch commitState=partially_published dirtyFailure=true partialPublication=true files=[d/a.txt:published_rolled_back]
+    zz_r402d_probe_helpers_test.go:45: PROBE summary("failed_before_publication")=apply_patch commitState=failed_before_publication dirtyFailure=true partialPublication=false files=[d/a.txt:published_rolled_back]
+    zz_r402d_probe_helpers_test.go:52: PROBE summary_long_len=512 tail="k_failed,pppppppppppppppppppppppppppp…"
+--- PASS: TestZZR402DProbeHelpers (0.00s)
+=== RUN   TestZZR402DProbeGoDiagnosticsAbsPathPersisted
+=== RUN   TestZZR402DProbeGoDiagnosticsAbsPathPersisted/bad_lines_1
+    zz_r402d_probe_loop_test.go:106: PROBE ws=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1367781226/001/ws realWS=/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1367781226/001/ws
+    zz_r402d_probe_loop_test.go:107: PROBE cold_row_bytes=1877 valid_json=true code=syntax path=/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1367781226/001/ws/p.go diagnostics=6
+    zz_r402d_probe_loop_test.go:108: PROBE contains_ws=true contains_realWS=true
+    zz_r402d_probe_loop_test.go:113: PROBE row_head={"code":"syntax","commitState":"failed_before_publication","currentRev":"","diagnostics":[{"severity":"error","code":"syntax","path":"/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1367781226/001/ws/p.go","line":3,"column":9,"message":"expected ')', found '{'"},{"severity":"error","code":"syntax","path":"/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1367781226/001/ws/p.go","line":4,"column":3,"message":"expected ')', found 'EOF'"},{"severity":"error","code":"syntax","path":"/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsP
+=== RUN   TestZZR402DProbeGoDiagnosticsAbsPathPersisted/bad_lines_120
+    zz_r402d_probe_loop_test.go:106: PROBE ws=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1201086710573/001/ws realWS=/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1201086710573/001/ws
+    zz_r402d_probe_loop_test.go:107: PROBE cold_row_bytes=1908 valid_json=true code=syntax path=/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1201086710573/001/ws/p.go diagnostics=6
+    zz_r402d_probe_loop_test.go:108: PROBE contains_ws=true contains_realWS=true
+    zz_r402d_probe_loop_test.go:113: PROBE row_head={"code":"syntax","commitState":"failed_before_publication","currentRev":"","diagnostics":[{"severity":"error","code":"syntax","path":"/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1201086710573/001/ws/p.go","line":3,"column":9,"message":"expected ')', found '{'"},{"severity":"error","code":"syntax","path":"/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1201086710573/001/ws/p.go","line":123,"column":3,"message":"expected ')', found 'EOF'"},{"severity":"error","code":"syntax","path":"/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnos
+--- PASS: TestZZR402DProbeGoDiagnosticsAbsPathPersisted (0.32s)
+    --- PASS: TestZZR402DProbeGoDiagnosticsAbsPathPersisted/bad_lines_1 (0.17s)
+    --- PASS: TestZZR402DProbeGoDiagnosticsAbsPathPersisted/bad_lines_120 (0.14s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	0.808s
+=== RUN   TestZZR402DProbePayloadBound
+    zz_r402d_probe_test.go:28: PROBE A len=7089 bound=4096 valid=true outErr=<nil> filesOmitted=1
+    zz_r402d_probe_test.go:36: PROBE B len=18163 contains_root=true errorField_contains_root=false
+    zz_r402d_probe_test.go:38: PROBE C sanitize="open .-sibling/secret: denied; open x: e"
+    zz_r402d_probe_test.go:49: PROBE D len=4073 files=8 filesOmitted=32 err=rollback failed mutates=true
+--- PASS: TestZZR402DProbePayloadBound (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	0.657s
+EXIT=0

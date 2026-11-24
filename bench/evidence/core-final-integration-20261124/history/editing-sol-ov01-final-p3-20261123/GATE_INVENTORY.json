@@ -1,0 +1,130 @@
+{
+  "helper_callsites": 24,
+  "immediate_whole_test_gates": 11,
+  "later_top_level_gates": 5,
+  "nested_callsites": 8,
+  "nested_selected_cases": 13,
+  "enclosing_top_level_functions": 22,
+  "calls": [
+    {
+      "file": "remediation_r4_02_test.go",
+      "line": 61,
+      "test": "TestR7ForwardPublicationFaultMatrix"
+    },
+    {
+      "file": "concurrency_test.go",
+      "line": 18,
+      "test": "TestConcurrentLineEditsLoseNoUpdate"
+    },
+    {
+      "file": "concurrency_test.go",
+      "line": 83,
+      "test": "TestLargeFileAnchorEditIsBounded"
+    },
+    {
+      "file": "concurrency_test.go",
+      "line": 139,
+      "test": "TestWriteLeaseRefusesOtherHolder"
+    },
+    {
+      "file": "concurrency_test.go",
+      "line": 177,
+      "test": "TestMultiFileCommitStopsAtFirstWriteFailure"
+    },
+    {
+      "file": "concurrency_test.go",
+      "line": 220,
+      "test": "TestMultiFileCommitIsAtomic"
+    },
+    {
+      "file": "review_residual_test.go",
+      "line": 12,
+      "test": "TestReviewByteEvictionKeepsNewestViewFence"
+    },
+    {
+      "file": "xreview_editing_concurrency_test.go",
+      "line": 97,
+      "test": "TestXReviewConcurrentLineEditAndWholeFileWrite"
+    },
+    {
+      "file": "xreview_editing_concurrency_test.go",
+      "line": 264,
+      "test": "TestXReviewHashlineAnchorsAfterOtherSessionCommit"
+    },
+    {
+      "file": "r7r2_remediation_test.go",
+      "line": 176,
+      "test": "TestR7R2SelfReplayIsFailedBeforeWrite"
+    },
+    {
+      "file": "history_test.go",
+      "line": 16,
+      "test": "TestDiffHistoryIsBounded"
+    },
+    {
+      "file": "engine_test.go",
+      "line": 90,
+      "test": "TestHashlineFreshEditOnSnapshot"
+    },
+    {
+      "file": "engine_test.go",
+      "line": 137,
+      "test": "TestHashlineRelocatesAcrossUnrelatedInsertion"
+    },
+    {
+      "file": "engine_test.go",
+      "line": 185,
+      "test": "TestHashlineAppliesBatchAgainstOneSnapshot"
+    },
+    {
+      "file": "engine_test.go",
+      "line": 225,
+      "test": "TestHashlinePreservesEncoding"
+    },
+    {
+      "file": "remediation_r5_test.go",
+      "line": 91,
+      "test": "TestR7SameInodeExternalOverwriteIsExternal"
+    },
+    {
+      "file": "remediation_r2_01_test.go",
+      "line": 409,
+      "test": "TestR201TwoOSProcessesCreateRace"
+    },
+    {
+      "file": "remediation_r2_01_test.go",
+      "line": 467,
+      "test": "TestR201TwoOSProcessesCreateRace"
+    },
+    {
+      "file": "remediation_r2_01_test.go",
+      "line": 489,
+      "test": "TestR201TwoOSProcessesCreateRace"
+    },
+    {
+      "file": "review_regression_test.go",
+      "line": 104,
+      "test": "TestReviewEvictedReadRequiresFreshRevision"
+    },
+    {
+      "file": "review_regression_test.go",
+      "line": 138,
+      "test": "TestReviewLeaseAcquisitionWaitsForCommit"
+    },
+    {
+      "file": "r7_partial_commit_test.go",
+      "line": 76,
+      "test": "TestR7PrefixExternalAppendBeforeLaterConflict"
+    },
+    {
+      "file": "r7_partial_commit_test.go",
+      "line": 150,
+      "test": "TestR7PrefixExternalSameByteReplacement"
+    },
+    {
+      "file": "r7_partial_commit_test.go",
+      "line": 247,
+      "test": "TestR7VerifiedPrefixUpdateCreateDelete"
+    }
+  ]
+}

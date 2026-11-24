@@ -1,0 +1,4 @@
+711c711
+< 		if !change.Delete && id.linkCount() > 1 {
+---
+> 		if false && !change.Delete && id.linkCount() > 1 {

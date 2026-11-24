@@ -1,0 +1,33 @@
+=== RUN   TestR7NonStagingHostRefusesUpdate
+    r7_fault_matrix_unix_test.go:102: err=<nil>, want unsupported_filesystem
+--- FAIL: TestR7NonStagingHostRefusesUpdate (0.00s)
+=== RUN   TestOpusPRE01ACLFileRefusedIntact
+=== RUN   TestOpusPRE01ACLFileRefusedIntact/user:nobody_allow_read
+    remediation_pre01_pre02_opus_darwin_test.go:153: expected clean unsupported refusal, got err=<nil> rec={Committed:true DirtyFailure:false State:committed Files:[{Path:acl.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestOpusPRE01ACLFileRefusedIntactusernobody_allow_read599289285/001/acl.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:25718360e05d3c2d0963d1381e9dd4dae5fca789244ee4b9f861adcc0cc96218 NewSHA256:sha256:e06f60fa8cf5bea891e59dc0ed5b7af55b8cccd081ba9cfbca0ff1acadd9a47f Error:}]}
+=== RUN   TestOpusPRE01ACLFileRefusedIntact/everyone_deny_delete
+    remediation_pre01_pre02_opus_darwin_test.go:153: expected clean unsupported refusal, got err=<nil> rec={Committed:true DirtyFailure:false State:committed Files:[{Path:acl.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestOpusPRE01ACLFileRefusedIntacteveryone_deny_delete2743297239/001/acl.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:25718360e05d3c2d0963d1381e9dd4dae5fca789244ee4b9f861adcc0cc96218 NewSHA256:sha256:e06f60fa8cf5bea891e59dc0ed5b7af55b8cccd081ba9cfbca0ff1acadd9a47f Error:}]}
+--- FAIL: TestOpusPRE01ACLFileRefusedIntact (0.07s)
+    --- FAIL: TestOpusPRE01ACLFileRefusedIntact/user:nobody_allow_read (0.03s)
+    --- FAIL: TestOpusPRE01ACLFileRefusedIntact/everyone_deny_delete (0.04s)
+=== RUN   TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite
+=== RUN   TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/batch_preflight_refuses_everything
+    remediation_pre01_pre02_opus_unix_test.go:282: expected clean unsupported refusal, got err=<nil> rec={Committed:true DirtyFailure:false State:committed Files:[{Path:a/x.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWritebatch_preflig3080489000/001/ws/a/x.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:1e77dbfb6aae26cdd398e8597410112991e6bba06ac63815327c0018b397c900 NewSHA256:sha256:987d9c9efa20357327df2dc3db6bb260e0f1d3ab5cce47171920b384a991ec0b Error:} {Path:plain.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWritebatch_preflig3080489000/001/ws/plain.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:1f03a86223c2d25f174178d0a22f0bb23d50d643bdd86dcd4f0698650e1705dc NewSHA256:sha256:6430b4c5c6ea08b0e9f12cb95c937d37e2edcbf448d3190753b81c59e6fe19c1 Error:}]}
+=== RUN   TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/link_created_after_preflight
+    remediation_pre01_pre02_opus_unix_test.go:308: err=<nil>, want unsupported_filesystem
+=== RUN   TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/delete_one_name_keeps_other_links
+--- FAIL: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite (0.03s)
+    --- FAIL: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/batch_preflight_refuses_everything (0.01s)
+    --- FAIL: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/link_created_after_preflight (0.01s)
+    --- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/delete_one_name_keeps_other_links (0.01s)
+=== RUN   TestOpusPRE02DeleteRecreatedPathKeepsQuarantinedOriginal
+    remediation_pre01_pre02_opus_unix_test.go:374: original not kept exactly once: entries=[- victim.txt] err=conflict victim.txt: delete target exists after the removal was published; something else wrote the file; re-read it and redo the edit
+--- FAIL: TestOpusPRE02DeleteRecreatedPathKeepsQuarantinedOriginal (0.00s)
+=== RUN   TestOpusPRE02DeleteWithoutNoReplaceMoveRefused
+    remediation_pre01_pre02_opus_unix_test.go:402: expected clean unsupported refusal, got err=<nil> rec={Committed:true DirtyFailure:false State:committed Files:[{Path:victim.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestOpusPRE02DeleteWithoutNoReplaceMoveRefused1988343522/001/victim.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:true OldSHA256:sha256:e5aa49099ad4b1ecf98030ed8b5074ea9cb1bd104ed87508168566d647b5b286 NewSHA256:- Error:}]}
+--- FAIL: TestOpusPRE02DeleteWithoutNoReplaceMoveRefused (0.00s)
+=== RUN   TestPRE01UpdatePreservesPermissionsSymlinksAndHardlinks
+    remediation_pre01_pre02_unix_test.go:398: update hardlink: err=<nil>, want unsupported_filesystem
+--- FAIL: TestPRE01UpdatePreservesPermissionsSymlinksAndHardlinks (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	0.557s
+FAIL

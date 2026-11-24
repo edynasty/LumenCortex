@@ -1,0 +1,22 @@
+expected=7aeb1607ffa588727c6fe04873f7b58a1dc16f15
+cwd=/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-merged-verification-20261122
+GOFLAGS_process=<unset>
+argv=go test -count=1 -timeout=45m ./...
+sha=7aeb1607ffa588727c6fe04873f7b58a1dc16f15
+parents=c73d17359f5d9dd16ef88b0de4525862593fddaa daa5cb8edb7e729d017a0f1588c4bc97d387f005
+tree=15ad21e5e6128e6a5f96c5621da2f40bc8115e58
+go version go1.26.5 darwin/arm64
+ProductName:		macOS
+ProductVersion:		27.0.1
+BuildVersion:		26A434
+{
+	"CGO_ENABLED": "1",
+	"GOARCH": "arm64",
+	"GOENV": "/Users/tangxingpeng/Library/Application Support/go/env",
+	"GOFLAGS": "",
+	"GOMODCACHE": "/Users/tangxingpeng/go/pkg/mod",
+	"GOOS": "darwin",
+	"GOWORK": ""
+}
+nested_go_env_GOMODCACHE=/Users/tangxingpeng/go/pkg/mod
+nested_go_env_GOCACHE=/Users/tangxingpeng/Library/Caches/go-build

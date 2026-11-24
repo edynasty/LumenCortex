@@ -1,0 +1,21 @@
+Task: SOL-PRE-L1-01 / SOL-PRE-L1-02 narrow remediation
+Finding owner: GPT-6.2 Sol (local/combo/gpt-6.2-sol)
+Status: SOL_PRE_L1_REMEDIATION_COMPLETE_PENDING_INDEPENDENT_REVIEW
+Branch: fix/editing-pre01-pre02-sol-l1-remediation-20261123
+Worktree: wt/core-editing-pre01-pre02-sol-l1-20261123
+Baseline: 71cce56acb06b457dad2a4fec3a2c3db56537fd6
+Commit 1: 315dc74f779e40c55c513e0bd65630ca9da19a33
+Commit 2 / exact production gate candidate: 4c79bc05f4fc89e375550b30d61950be58ce1b3f
+Commit 3 / final published HEAD: b03c91e5db6969f0345a2034ecb172cf826bc792 (report only)
+Report: docs/reports/editing-pre01-pre02-sol-l1-remediation-2026-11-23.md
+Independent reviewer requested: Claude Opus 5.5 Max
+Review range: 71cce56acb06b457dad2a4fec3a2c3db56537fd6..b03c91e5db6969f0345a2034ecb172cf826bc792
+Original Opus evidence SHA256SUMS hash (unchanged): 8192f238e8bc5068027ad7bd4bb8226e4791e5a7f1a8d9f28bafd6ce82b5121e
+RED: exact baseline export, test-only overlay, exit 1 with both intended failures.
+GREEN: both regression paths plus existing whole-plan preflight and hard-link deletion, exit 0.
+Final gates: gofmt -l internal/editing; go test -count=1 ./internal/editing; go test -race -count=1 ./internal/editing; four-package Race; go build ./...; go vet ./.... Each once, exit 0; gofmt listed no files.
+Environment: Go 1.26.5; macOS 27.0.1 arm64, APFS Data volume. GOWORK=off GOFLAGS= CGO_ENABLED=1.
+No full Core test suite; no new Linux/Windows/FreeBSD native run; no merge, release, PR, or historical cleanup.
+L2 old-FD-after-final-check and L3 SIGKILL orphan limitations remain open. Post-final-link-check alias creation is not universally prevented.
+Both findings: FIXED_BY_IMPLEMENTER / SELF_VERIFIED / PENDING_INDEPENDENT_REVIEW.
+Evidence outside Core Git: this directory. Original audit probe/logs remain /tmp/lc-sol-pre0102-ro.vnifCA/.

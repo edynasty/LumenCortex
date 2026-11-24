@@ -1,0 +1,5 @@
+--- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly (0.01s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/operation_not_supported (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/invalid_argument (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/function_not_implemented (0.00s)
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.732s

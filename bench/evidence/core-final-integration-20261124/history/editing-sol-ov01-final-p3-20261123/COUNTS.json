@@ -1,0 +1,27 @@
+{
+  "candidate-noexchange-final.jsonl": {
+    "pass": 17,
+    "fail": 0,
+    "skip": 11
+  },
+  "final-focused-refusal-simulation.jsonl": {
+    "pass": 33,
+    "fail": 0,
+    "skip": 16
+  },
+  "final-full-simulation.jsonl": {
+    "pass": 161,
+    "fail": 6,
+    "skip": 29
+  },
+  "macos-normal.log": {
+    "pass": 189,
+    "fail": 0,
+    "skip": 0
+  },
+  "macos-race.log": {
+    "pass": 189,
+    "fail": 0,
+    "skip": 0
+  }
+}

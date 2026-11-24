@@ -1,0 +1,15 @@
+base_commit=0b3b8e721163890ebb664abb4b5c9fc3ef39f4f1
+worktree_dirty=0
+date_utc=2026-11-20T06:33:25Z
+
+$ go test -overlay /Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-r5-remediation-20261120/probes/overlay_d.json -count=1 -v -run '^TestR5RedR402DLoopAndCallbackDropPartialDetails$' ./internal/agent
+=== RUN   TestR5RedR402DLoopAndCallbackDropPartialDetails
+    zz_r5_red_d_test.go:88: top-level tool row content = {"error":"input/output error"}
+    zz_r5_red_d_test.go:90: R4-02-D DEFECT (loop.go): top-level tool row dropped partial publication details: {"error":"input/output error"}
+    zz_r5_red_d_test.go:119: nested callback result content = {"error":"input/output error"}
+    zz_r5_red_d_test.go:121: R4-02-D DEFECT (callback.go): nested callback dropped partial publication details: {"error":"input/output error"}
+--- FAIL: TestR5RedR402DLoopAndCallbackDropPartialDetails (0.16s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/agent	0.693s
+FAIL
+exit=1

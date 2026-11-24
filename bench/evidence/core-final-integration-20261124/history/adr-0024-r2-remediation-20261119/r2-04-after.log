@@ -1,0 +1,32 @@
+=== Apples-to-apples non-race profile: go test -v -count=1 -run 'TestR204' ./internal/agent ===
+=== RUN   TestR204MeasureProfile
+    remediation_r2_04_test.go:233: R2-04_PROFILE_HEADER	groups	single_derive_us	step40_calls_ms	step40_alloc_bytes	live_heap_bytes	step40_tx_scans	step40_tx_rows	step40_exec_queries	cold_resume_ms	history_slice_len	transcript_entries
+    remediation_r2_04_test.go:290: R2-04_PROFILE_ROW	2048	73	2.029	0	2869128	0	0	0	49.670	2048	62
+    remediation_r2_04_test.go:290: R2-04_PROFILE_ROW	2049	27	1.074	0	2810584	0	0	0	49.290	1025	62
+    remediation_r2_04_test.go:290: R2-04_PROFILE_ROW	6000	46	1.794	0	4262696	0	0	0	171.848	1904	62
+    remediation_r2_04_test.go:290: R2-04_PROFILE_ROW	12000	44	1.785	0	5732840	0	0	0	339.737	1760	62
+--- PASS: TestR204MeasureProfile (3.03s)
+=== RUN   TestR204IncrementalBaseSMParityAndZeroPerStepSQLiteScans
+--- PASS: TestR204IncrementalBaseSMParityAndZeroPerStepSQLiteScans (2.83s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	6.761s
+=== Race verification: go test -v -race -count=1 -run 'TestR204|TestF02' ./internal/agent ===
+=== RUN   TestF02LiveAndColdSQLiteResumeRepairFloorParity
+--- PASS: TestF02LiveAndColdSQLiteResumeRepairFloorParity (0.25s)
+=== RUN   TestF02MultiToolCallAttributionAndUserResetOnRealSQLite
+--- PASS: TestF02MultiToolCallAttributionAndUserResetOnRealSQLite (0.05s)
+=== RUN   TestF02HistoryOverflowStreamsFromRealSQLite
+--- PASS: TestF02HistoryOverflowStreamsFromRealSQLite (1.17s)
+=== RUN   TestR204MeasureProfile
+    remediation_r2_04_test.go:233: R2-04_PROFILE_HEADER	groups	single_derive_us	step40_calls_ms	step40_alloc_bytes	live_heap_bytes	step40_tx_scans	step40_tx_rows	step40_exec_queries	cold_resume_ms	history_slice_len	transcript_entries
+    remediation_r2_04_test.go:290: R2-04_PROFILE_ROW	2048	414	11.512	0	2922776	0	0	0	617.004	2048	62
+    remediation_r2_04_test.go:290: R2-04_PROFILE_ROW	2049	215	5.693	0	2857704	0	0	0	571.729	1025	62
+    remediation_r2_04_test.go:290: R2-04_PROFILE_ROW	6000	572	10.062	0	4269176	0	0	0	1653.454	1904	62
+    remediation_r2_04_test.go:290: R2-04_PROFILE_ROW	12000	479	12.051	0	5720600	0	0	0	3798.122	1760	62
+--- PASS: TestR204MeasureProfile (12.77s)
+=== RUN   TestR204IncrementalBaseSMParityAndZeroPerStepSQLiteScans
+--- PASS: TestR204IncrementalBaseSMParityAndZeroPerStepSQLiteScans (12.49s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	28.368s
+=== Full agent package race: go test -race -count=1 ./internal/agent/... ===
+ok  	github.com/edynasty/LumenCortex/internal/agent	48.614s

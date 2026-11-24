@@ -1,0 +1,4 @@
+start=2026-11-23T12:35:21Z
+command=gofmt -l internal/editing
+end=2026-11-23T12:35:21Z
+exit=0

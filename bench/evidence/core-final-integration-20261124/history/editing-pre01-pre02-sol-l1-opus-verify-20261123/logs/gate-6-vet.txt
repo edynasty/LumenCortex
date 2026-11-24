@@ -1,0 +1,4 @@
+start=2026-11-23T12:37:50Z
+command=go vet ./...
+end=2026-11-23T12:37:53Z
+exit=0

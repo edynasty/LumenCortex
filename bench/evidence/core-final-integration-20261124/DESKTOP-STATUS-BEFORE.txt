@@ -1,0 +1,10 @@
+ M AGENTS.md
+ M README.md
+ M docs/architecture.md
+ D frontend/dist/.keep
+?? .omp/
+?? LumenCortex-Desktop
+?? build/darwin/Info.dev.plist
+?? build/darwin/Info.plist
+?? frontend/package.json.md5
+?? frontend/wailsjs/

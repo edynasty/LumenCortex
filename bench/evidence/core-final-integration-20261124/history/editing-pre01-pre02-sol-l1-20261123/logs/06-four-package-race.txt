@@ -1,0 +1,10 @@
+start=2026-11-23T09:28:52Z
+cwd=/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-editing-pre01-pre02-sol-l1-20261123
+command=go test -race -count=1 ./internal/editing ./internal/toolset ./internal/agent ./internal/session 
+ok  	github.com/edynasty/LumenCortex/internal/editing	18.839s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	104.806s
+ok  	github.com/edynasty/LumenCortex/internal/agent	55.350s
+ok  	github.com/edynasty/LumenCortex/internal/session	43.452s
+
+end=2026-11-23T09:30:44Z
+exit=0

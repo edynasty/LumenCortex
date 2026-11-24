@@ -1,0 +1,24 @@
+command=env GOOS=freebsd GOARCH=amd64 CGO_ENABLED=0 go list -f {{range .TestGoFiles}}{{println .}}{{end}} ./internal/editing
+start=2026-11-23T15:19:53Z
+concurrency_test.go
+create_race_test.go
+engine_test.go
+history_test.go
+platform_exchange_none_test.go
+platform_exchange_test.go
+r7_create_fault_matrix_test.go
+r7_displaypath_test.go
+r7_fault_matrix_unix_test.go
+r7_partial_commit_test.go
+r7r2_casefold_test.go
+r7r2_remediation_test.go
+remediation_r2_01_test.go
+remediation_r3_01_unix_test.go
+remediation_r4_02_test.go
+remediation_r5_test.go
+remediation_r6_test.go
+review_regression_test.go
+review_residual_test.go
+xreview_editing_concurrency_test.go
+exit=0
+end=2026-11-23T15:19:53Z

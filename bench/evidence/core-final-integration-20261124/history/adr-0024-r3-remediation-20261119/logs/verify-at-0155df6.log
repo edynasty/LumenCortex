@@ -1,0 +1,55 @@
+# R3 remediation verification at committed HEAD
+HEAD=0155df659341dfa5e92904d461da669f69b3f305 branch=fix/adr-0024-r3-remediation-20261119 porcelain_lines=0
+date=2026-11-19T14:27:02Z host=macOS 27.0.1 arm64 go1.26.5 darwin/arm64
+=== intermediate 87a3166 (87a3166711277c0ea311374f0eecaeb03d0d4b7d): go vet ./internal/editing ./internal/toolset ./internal/agent
+exit=0
+=== intermediate b7830e4 (b7830e4c4737bab130cc0bc3638c771c54c97639): go vet ./internal/editing ./internal/toolset ./internal/agent
+exit=0
+=== intermediate b7830e4: go test -count=1 -run '^(TestR304|TestF02)' ./internal/agent
+ok  	github.com/edynasty/LumenCortex/internal/agent	1.640s
+exit=0
+=== gofmt -l on files changed in 2ba79ae..HEAD
+exit=0
+=== go build ./... && go vet ./internal/... ./runtime/... (darwin/arm64)
+exit=0
+=== go test -count=1 -v -run '^(TestR301|TestR303|TestR304|TestF02)' ./internal/editing ./internal/agent
+--- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/operation_not_supported (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/invalid_argument (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/function_not_implemented (0.00s)
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.564s
+--- PASS: TestF02LiveAndColdSQLiteResumeRepairFloorParity (0.09s)
+--- PASS: TestF02MultiToolCallAttributionAndUserResetOnRealSQLite (0.05s)
+--- PASS: TestF02HistoryOverflowStreamsFromRealSQLite (0.37s)
+--- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/write_proven_after_a_read_with_no_execution (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/write_proven_after_an_admitted_read (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/write_unknown_after_an_admitted_read (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/interrupted_second_call_without_execution (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/unpaired_second_call (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/same-name_calls_bind_executions_in_admission_order (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/no-change_group_keeps_the_first_call_with_only_its_own_execution (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/single_call (0.00s)
+--- PASS: TestR303GatedLedgerNamesTheExecutingCallLiveAndCold (0.04s)
+--- PASS: TestR304ResumeNoticeDoesNotClaimOmittedLatestStepPreserved (0.23s)
+--- PASS: TestR304NoticesClaimLatestStepOnlyWhenGuaranteed (0.00s)
+ok  	github.com/edynasty/LumenCortex/internal/agent	1.229s
+exit=0
+=== go test -race -count=1 ./internal/agent ./internal/editing ./internal/toolset
+ok  	github.com/edynasty/LumenCortex/internal/agent	47.951s
+ok  	github.com/edynasty/LumenCortex/internal/editing	5.698s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	29.869s
+exit=0
+=== GOOS=linux GOARCH=amd64 go build ./... && go vet ./internal/editing ./internal/toolset ./internal/agent
+exit=0
+=== GOOS=linux GOARCH=arm64 go build ./... && go vet ./internal/editing ./internal/toolset ./internal/agent
+exit=0
+=== GOOS=windows GOARCH=amd64 go build ./... && go vet ./internal/editing ./internal/toolset ./internal/agent
+exit=0
+=== GOOS=freebsd GOARCH=amd64 go build ./... && go vet ./internal/editing ./internal/toolset ./internal/agent
+exit=0
+=== GOOS=windows GOARCH=amd64 go test -c (editing, toolset, agent)
+20100096 /tmp/lc-adr0024-r3/remed/agent-0155df6.test.exe
+5907968 /tmp/lc-adr0024-r3/remed/editing-0155df6.test.exe
+17033728 /tmp/lc-adr0024-r3/remed/toolset-0155df6.test.exe
+HEAD_AFTER=0155df659341dfa5e92904d461da669f69b3f305 porcelain_lines=0

@@ -1,0 +1,29 @@
+# Oversized newest group without a completion gate: prev=a8b4786 vs head=2ba79ae, 2026-11-19T14:02:23Z
+##### prevprobe
+    zz_probe_r3_giant2_test.go:139: LIVE: status=failed err=model test/m-32768_4096: window: context budget overflow: newest group does not fit in 23948 available tokens requests=7
+    zz_probe_r3_giant2_test.go:142: COLD RESUME of the same DB: status=failed err=model test/m-32768_4096: window: context budget overflow: required context floor seq 8 evicted (window firstSeq=15) requests=0
+--- PASS: TestZZR3GiantNewestLiveVsResume (0.24s)
+    zz_probe_r3_giant3_test.go:104: NOGATE LIVE: status=failed err=model test/m-32768_4096: window: context budget overflow: newest group does not fit in 18090 available tokens requests=6
+    zz_probe_r3_giant3_test.go:106: NOGATE COLD RESUME of the same DB: status=completed err=<nil> requests=1
+    zz_probe_r3_giant3_test.go:116: NOGATE COLD request messages=[system/(1539B) user/(145B) user/resume(131B)] giantToolResultSent=false
+    zz_probe_r3_giant3_test.go:125: NOGATE COLD decision rule=window.dropped inputs={"ref":"test/m-32768_4096","budget":{"context":32768,"output":4096,"margin":8078},"fixed":2504,"groups":8,"costs":[69,77082]}
+--- PASS: TestZZR3GiantNewestNoGate (0.22s)
+ok  	github.com/edynasty/LumenCortex/internal/agent	1.607s
+##### probe
+    zz_probe_r3_giant2_test.go:139: LIVE: status=failed err=model test/m-32768_4096: window: context budget overflow: newest group does not fit in 23634 available tokens requests=7
+    zz_probe_r3_giant2_test.go:142: COLD RESUME of the same DB: status=completed err=<nil> requests=1
+    zz_probe_r3_giant2_test.go:152: COLD request messages=[system/(1539B) user/(1470B) user/resume(131B)] giantToolResultSent=false
+    zz_probe_r3_giant2_test.go:159: COLD msg[1] user/: "[Task State — maintained by the LumenCortex runtime from durable session state; it is not a new user message.]\n\nObjective:\nmake the suite pass\n\n\n[Pinned Completion-Gate State — seq 8 (refusal #1, stage: unknown_mutated)]\nCompletion refused: 1 background job(s) this run started are still queued or running (job_zz_gate running: make test). Wait for them with job_wait and check their results, or cancel the ones you no longer need with job_cancel, before you give the final answer. Jobs still active when the run ends are cancelled.\nCausal repair ledger: originalAnchorSeq=5, strictFloorSeq=5, postGateProven=0, postGateUnknown=3; originalEvidence=[seq=5 tool=read_file evidence=none]; recentPostGateMutations=[seq=9 tool=bash exec=ex-bcf0c8c6c8a0dde066938960f2667483 evidence=unknown, seq=11 tool=bash exec=ex-6c4e2d19304a490000827a9eeae1e514 evidence=unknown, seq=13 tool=bash exec=ex-5cdf1aad7acae02050cb7cba3b274981 evidence=unknown]\n\n[Context Window Notice — Floor Relaxation]\nTranscript messages from seq 5 through gate refusal seq 8 and older post-gate steps prior to the transmitted rolling suffix have been omitted to fit the largest available model window; active gate feedback (seq 8) and causal repair progress are pinned above, and the latest atomic step is preserved. Before modifying code or proposing completion, re-inspect current workspace state (for example via read_file, search_text, or git status/git diff) rather than assuming omitted steps."
+    zz_probe_r3_giant2_test.go:159: COLD msg[2] user/resume: "[runtime] A new run continues this session. The transcript and the Task State above are the state of the work; continue from there."
+    zz_probe_r3_giant2_test.go:173: COLD decision rule=model.candidates inputs={"session":"test/m-32768_4096","failover":[],"models":{"test/m-32768_4096":{"context":32768,"output":4096,"toolCalling":true}},"base":0,"compactFixedByModel":{"test/m-32768_4096":2504},"guardByModel":{"test/m-32768_4096":2048},"maxTokens":0,"unavailable":[]}
+    zz_probe_r3_giant2_test.go:173: COLD decision rule=window.prefix inputs={"ref":"test/m-32768_4096","usableFull":18906,"usableCompact":24674,"fullFixed":2990,"compactFixed":2990,"requiredTranscript":69}
+    zz_probe_r3_giant2_test.go:173: COLD decision rule=window.dropped inputs={"ref":"test/m-32768_4096","budget":{"context":32768,"output":4096,"margin":9766},"fixed":2990,"groups":10,"costs":[69,77082]}
+    zz_probe_r3_giant2_test.go:173: COLD decision rule=window.floor_relaxed inputs={"ref":"test/m-32768_4096","context":32768,"usableInput":18906,"fixed":2990,"originalMinRequiredSeq":5,"preBlockAnchorSeq":5,"postBlockCausalFloorSeq":9,"relaxedFloorSeq":15,"blockSeq":8,"newestGroupFirstSeq":15,"windowFirstSeq":15,"windowTokens":3059,"gatePinnedInState":true,"largerCandidatesExhausted":true}
+    zz_probe_r3_giant2_test.go:173: COLD decision rule=effort.default inputs={"default":"","override":"","stall":{"sameFailure":0,"noProgressSteps":0},"taskStateVersion":0,"efforts":[]}
+--- PASS: TestZZR3GiantNewestLiveVsResume (0.26s)
+    zz_probe_r3_giant3_test.go:104: NOGATE LIVE: status=failed err=model test/m-32768_4096: window: context budget overflow: newest group does not fit in 18090 available tokens requests=6
+    zz_probe_r3_giant3_test.go:106: NOGATE COLD RESUME of the same DB: status=completed err=<nil> requests=1
+    zz_probe_r3_giant3_test.go:116: NOGATE COLD request messages=[system/(1539B) user/(145B) user/resume(131B)] giantToolResultSent=false
+    zz_probe_r3_giant3_test.go:125: NOGATE COLD decision rule=window.dropped inputs={"ref":"test/m-32768_4096","budget":{"context":32768,"output":4096,"margin":8078},"fixed":2504,"groups":8,"costs":[69,77082]}
+--- PASS: TestZZR3GiantNewestNoGate (0.22s)
+ok  	github.com/edynasty/LumenCortex/internal/agent	0.932s

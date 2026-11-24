@@ -1,0 +1,35 @@
+# R3 remediation build/vet/cross + Linux container editing/toolset tests @ worktree 2ba79ae+uncommitted R3 fixes, 2026-11-19T14:23:54Z, host go1.26.5 darwin/arm64
+=== go build ./... (darwin/arm64)
+exit=0
+=== go vet ./internal/... ./runtime/... (darwin/arm64)
+exit=0
+=== GOOS=linux GOARCH=amd64 go build ./... && go vet ./internal/editing ./internal/toolset ./internal/agent
+exit=0
+=== GOOS=linux GOARCH=arm64 go build ./... && go vet ./internal/editing ./internal/toolset ./internal/agent
+exit=0
+=== GOOS=windows GOARCH=amd64 go build ./... && go vet ./internal/editing ./internal/toolset ./internal/agent
+exit=0
+=== GOOS=freebsd GOARCH=amd64 go build ./... && go vet ./internal/editing ./internal/toolset ./internal/agent
+exit=0
+=== cross-compile linux/arm64 test binaries
+exit=0
+=== docker lc-ubuntu-go:24.04 uid 1000: editing.test (all) + toolset.test (-run Create|R201|WriteFile) on overlayfs workdir and tmpfs TMPDIR
+Linux 7.0.14-linuxkit aarch64
+uid=1000(ubuntu) gid=1000(ubuntu) groups=1000(ubuntu)
+--- TMPDIR=/tmp (overlayfs)
+PASS
+--- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/operation_not_supported (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/invalid_argument (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/function_not_implemented (0.00s)
+PASS
+build ../lsp/testdata/fakeserver: chdir /Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r3-20261119/internal/toolset: no such file or directory
+--- TMPDIR=/tmpfs (tmpfs)
+PASS
+--- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/operation_not_supported (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/invalid_argument (0.00s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/function_not_implemented (0.00s)
+PASS
+build ../lsp/testdata/fakeserver: chdir /Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r3-20261119/internal/toolset: no such file or directory
+docker exit=0

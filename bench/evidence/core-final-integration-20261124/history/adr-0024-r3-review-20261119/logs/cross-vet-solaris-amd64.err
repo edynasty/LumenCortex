@@ -1,0 +1,7 @@
+# github.com/edynasty/LumenCortex/internal/runlock
+internal/runlock/runlock_unix.go:12:64: undefined: syscall.LOCK_EX
+internal/runlock/runlock_unix.go:14:61: undefined: syscall.LOCK_SH
+internal/runlock/runlock_unix.go:17:20: undefined: syscall.Flock
+internal/runlock/runlock_unix.go:17:51: undefined: syscall.LOCK_NB
+internal/runlock/runlock_unix.go:26:48: undefined: syscall.Flock
+internal/runlock/runlock_unix.go:26:75: undefined: syscall.LOCK_UN

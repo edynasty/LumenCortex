@@ -1,0 +1,20 @@
+    zz_opus_probe_darwin_test.go:112: BEFORE ino=461572011 uid=501 gid=12 mode=grw-r--r-- flags=0x8000 xattrs=[com.apple.ResourceFork com.apple.provenance com.apple.quarantine com.example.lc-probe] acl=" 0: user:nobody allow read"
+    zz_opus_probe_darwin_test.go:113: AFTER  ino=461572011 uid=501 gid=12 mode=-rw-r--r-- flags=0x8000 xattrs=[com.apple.ResourceFork com.apple.provenance com.apple.quarantine com.example.lc-probe] acl=" 0: user:nobody allow read"
+    zz_opus_probe_darwin_test.go:145: METADATA LOST on update: mode grw-r--r--->-rw-r--r--
+--- FAIL: TestOpusProbeMetadataOnUpdate (0.04s)
+    zz_opus_probe_darwin_test.go:176: err=<nil> committed=true dirty=false state=[{h1.txt /private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestOpusProbeHardlinkPRE022222119349/001/h1.txt false true true false true published_verified false false sha256:49d6effc804e9eed9a69f8c4b3429bcb7a921ffe693e19ff8d7d9b003e5ea60f sha256:83437998e1744f987fc14c5b3ec919f388e9f2af96b202d9eb434c0143aeb69f }] content="agent os process content\n"
+    zz_opus_probe_darwin_test.go:178: PRE-02 RESIDUAL (multi-link): external 8B write silently overwritten while committed
+--- FAIL: TestOpusProbeHardlinkPRE02 (0.00s)
+    zz_opus_probe_darwin_test.go:221: err=concurrent_write_detected f.txt: another writer changed the file during publication; the external bytes were preserved at /private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestOpusProbeFallbackRestoreOverwritesThirdParty2751946292/001/f.txt.lc-conflict-087694fd309fb664c2f343c275811969 (current rev 82yhwpz5); another writer changed the file during the write; re-read it before editing again committed=false content="THIRD-PARTY-REPLACEMENT\n" dir=[f.txt f.txt.lc-conflict-087694fd309fb664c2f343c275811969]
+--- PASS: TestOpusProbeFallbackRestoreOverwritesThirdParty (0.00s)
+    zz_opus_probe_darwin_test.go:239: savedAt=/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestOpusProbeDeleteRestoreOccupiedDiscardsBytes187055311/001/victim.txt.lc-conflict-0a720103f9b12b85822c0d8e20007503
+    zz_opus_probe_darwin_test.go:248: restoreErr=<nil> externalBytesPersisted=true entries=2
+--- PASS: TestOpusProbeDeleteRestoreOccupiedDiscardsBytes (0.00s)
+    zz_opus_probe_darwin_test.go:283: LIMITATION update: err=<nil> committed=true target="agent os process content\n" statErr=<nil>
+    zz_opus_probe_darwin_test.go:283: LIMITATION delete: err=<nil> committed=true target="" statErr=open /private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestOpusProbeHeldFDWriteBeforeCommitReturndelete202159252/001/f.txt: no such file or directory
+--- PASS: TestOpusProbeHeldFDWriteBeforeCommitReturn (0.00s)
+    --- PASS: TestOpusProbeHeldFDWriteBeforeCommitReturn/update (0.00s)
+    --- PASS: TestOpusProbeHeldFDWriteBeforeCommitReturn/delete (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	0.822s
+FAIL

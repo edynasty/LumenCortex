@@ -1,0 +1,9 @@
+=== RUN   TestAuditFinalGapCommit
+    zz_final_gap_test.go:6: child==== RUN   TestAuditFinalGapChild
+            zz_final_gap_test.go:5: writer_pid=48855 parent=48840
+        --- PASS: TestAuditFinalGapChild (0.00s)
+        PASS
+    zz_final_gap_test.go:6: hit=true disk="old\nFOREIGN-GAP\n" result={Files:[] Diffs:[] Diagnostics:[] CommitState:partially_published} err=conflict z.txt: the file changed after the change was computed; nothing was written (current rev 3d43fjsp); something else wrote the file; re-read it and redo the edit
+--- PASS: TestAuditFinalGapCommit (1.04s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	2.464s

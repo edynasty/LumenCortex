@@ -1,0 +1,16 @@
+520a521,523
+> 		if hooks.BeforeFinalExternalCheck != nil {
+> 			hooks.BeforeFinalExternalCheck(p.abs)
+> 		}
+521a525,527
+> 		if hooks.AfterFinalExternalRead != nil {
+> 			hooks.AfterFinalExternalRead(p.abs)
+> 		}
+1083a1090,1092
+> 		if hooks.BeforeFinalExternalCheck != nil {
+> 			hooks.BeforeFinalExternalCheck(p.abs)
+> 		}
+1084a1094,1096
+> 		if hooks.AfterFinalExternalRead != nil {
+> 			hooks.AfterFinalExternalRead(p.abs)
+> 		}

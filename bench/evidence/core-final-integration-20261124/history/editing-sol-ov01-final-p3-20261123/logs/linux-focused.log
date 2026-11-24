@@ -1,0 +1,194 @@
+start=2026-11-23T15:17:32Z
+Linux 7.0.14-linuxkit
+go version go1.23.12 linux/arm64
+overlayfs
+=== RUN   TestLargeFileAnchorEditIsBounded
+--- PASS: TestLargeFileAnchorEditIsBounded (0.05s)
+=== RUN   TestWriteLeaseRefusesOtherHolder
+=== RUN   TestWriteLeaseRefusesOtherHolder/update_after_release
+--- PASS: TestWriteLeaseRefusesOtherHolder (0.00s)
+    --- PASS: TestWriteLeaseRefusesOtherHolder/update_after_release (0.00s)
+=== RUN   TestHashlineFreshEditOnSnapshot
+--- PASS: TestHashlineFreshEditOnSnapshot (0.00s)
+=== RUN   TestHashlineRefusesChangedAnchoredLine
+--- PASS: TestHashlineRefusesChangedAnchoredLine (0.00s)
+=== RUN   TestHashlineRelocatesAcrossUnrelatedInsertion
+--- PASS: TestHashlineRelocatesAcrossUnrelatedInsertion (0.00s)
+=== RUN   TestHashlineRefusesInsertionInsideEditedRange
+--- PASS: TestHashlineRefusesInsertionInsideEditedRange (0.00s)
+=== RUN   TestHashlineAppliesBatchAgainstOneSnapshot
+--- PASS: TestHashlineAppliesBatchAgainstOneSnapshot (0.00s)
+=== RUN   TestHashlineRefusesOverlappingOps
+--- PASS: TestHashlineRefusesOverlappingOps (0.00s)
+=== RUN   TestHashlinePreservesEncoding
+--- PASS: TestHashlinePreservesEncoding (0.00s)
+=== RUN   TestHashlineRefusesConcurrentWriteWithCompareAndSwap
+--- PASS: TestHashlineRefusesConcurrentWriteWithCompareAndSwap (0.00s)
+=== RUN   TestHashlineRefusesUnknownRevision
+--- PASS: TestHashlineRefusesUnknownRevision (0.00s)
+=== RUN   TestHashlineRefusesWrongOrUnseenAnchor
+--- PASS: TestHashlineRefusesWrongOrUnseenAnchor (0.00s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_a_lc_wins_exclusive_creation
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b0_external_wins_before_exclusive_create_prepare
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b1_external_wins_before_no_replace_publish
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b2_external_creates_empty_writes_before_inplace_truncate
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b3_external_creates_empty_overlaps_inplace_write
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b4_external_creates_empty_writes_inside_truncate_window
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b5_external_complete_before_prepare_replaced_as_read
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_exclusive_create_stress
+    remediation_r2_01_test.go:452: stress (Create=true) excl_after_signal released before_commit: rounds=10 exists_before_prepare=1 lc_created=2 staged_publish_refused=7
+    remediation_r2_01_test.go:452: stress (Create=true) excl_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:452: stress (Create=true) excl_after_signal released before_publish: rounds=10 lc_created=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress/before_commit
+    remediation_r2_01_test.go:469: stress (Create=false) atomic_after_signal released before_commit: rounds=10 lc_replaced_read_foreign=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress/after_prepare
+    remediation_r2_01_test.go:469: stress (Create=false) atomic_after_signal released after_prepare: rounds=10 lc_created=1 staged_publish_refused=9
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress/before_publish
+    remediation_r2_01_test.go:469: stress (Create=false) atomic_after_signal released before_publish: rounds=10 lc_created=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/excl_after_signal/before_commit
+    remediation_r2_01_test.go:491: stress (Create=false) excl_after_signal released before_commit: rounds=10 inplace_refused_before_truncate=5 lc_replaced_read_foreign=1 staged_publish_refused=4
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/excl_after_signal/after_prepare
+    remediation_r2_01_test.go:491: stress (Create=false) excl_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/excl_after_signal/before_publish
+    remediation_r2_01_test.go:491: stress (Create=false) excl_after_signal released before_publish: rounds=10 lc_created=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/before_commit
+    remediation_r2_01_test.go:491: stress (Create=false) create_empty_wait_then_write released before_commit: rounds=10 inplace_refused_before_truncate=1 lc_replaced_read_foreign=9
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/after_prepare
+    remediation_r2_01_test.go:491: stress (Create=false) create_empty_wait_then_write released after_prepare: rounds=10 inplace_refused_before_truncate=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/after_truncate
+    remediation_r2_01_test.go:491: stress (Create=false) create_empty_wait_then_write released after_truncate: rounds=10 displaced_open_fd_after_verified=7 inplace_overlap_foreign_whole=3
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/after_write_close
+    remediation_r2_01_test.go:491: stress (Create=false) create_empty_wait_then_write released after_write_close: rounds=10 displaced_open_fd_after_verified=10
+--- PASS: TestR201TwoOSProcessesCreateRace (0.33s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_a_lc_wins_exclusive_creation (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b0_external_wins_before_exclusive_create_prepare (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b1_external_wins_before_no_replace_publish (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b2_external_creates_empty_writes_before_inplace_truncate (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b3_external_creates_empty_overlaps_inplace_write (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b4_external_creates_empty_writes_inside_truncate_window (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b5_external_complete_before_prepare_replaced_as_read (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_exclusive_create_stress (0.07s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress (0.04s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress/before_commit (0.02s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress/after_prepare (0.01s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress/before_publish (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress (0.10s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/excl_after_signal/before_commit (0.01s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/excl_after_signal/after_prepare (0.01s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/excl_after_signal/before_publish (0.01s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/before_commit (0.02s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/after_prepare (0.02s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/after_truncate (0.02s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/after_write_close (0.02s)
+=== RUN   TestReviewEvictedReadRequiresFreshRevision
+=== RUN   TestReviewEvictedReadRequiresFreshRevision/update_after_reread
+--- PASS: TestReviewEvictedReadRequiresFreshRevision (0.00s)
+    --- PASS: TestReviewEvictedReadRequiresFreshRevision/update_after_reread (0.00s)
+=== RUN   TestReviewLeaseAcquisitionWaitsForCommit
+=== RUN   TestReviewLeaseAcquisitionWaitsForCommit/create
+=== RUN   TestReviewLeaseAcquisitionWaitsForCommit/update
+--- PASS: TestReviewLeaseAcquisitionWaitsForCommit (0.04s)
+    --- PASS: TestReviewLeaseAcquisitionWaitsForCommit/create (0.02s)
+    --- PASS: TestReviewLeaseAcquisitionWaitsForCommit/update (0.02s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.452s
+normal_exit=0
+=== RUN   TestLargeFileAnchorEditIsBounded
+--- PASS: TestLargeFileAnchorEditIsBounded (0.37s)
+=== RUN   TestWriteLeaseRefusesOtherHolder
+=== RUN   TestWriteLeaseRefusesOtherHolder/update_after_release
+--- PASS: TestWriteLeaseRefusesOtherHolder (0.00s)
+    --- PASS: TestWriteLeaseRefusesOtherHolder/update_after_release (0.00s)
+=== RUN   TestHashlineFreshEditOnSnapshot
+--- PASS: TestHashlineFreshEditOnSnapshot (0.00s)
+=== RUN   TestHashlineRefusesChangedAnchoredLine
+--- PASS: TestHashlineRefusesChangedAnchoredLine (0.00s)
+=== RUN   TestHashlineRelocatesAcrossUnrelatedInsertion
+--- PASS: TestHashlineRelocatesAcrossUnrelatedInsertion (0.00s)
+=== RUN   TestHashlineRefusesInsertionInsideEditedRange
+--- PASS: TestHashlineRefusesInsertionInsideEditedRange (0.00s)
+=== RUN   TestHashlineAppliesBatchAgainstOneSnapshot
+--- PASS: TestHashlineAppliesBatchAgainstOneSnapshot (0.00s)
+=== RUN   TestHashlineRefusesOverlappingOps
+--- PASS: TestHashlineRefusesOverlappingOps (0.00s)
+=== RUN   TestHashlinePreservesEncoding
+--- PASS: TestHashlinePreservesEncoding (0.00s)
+=== RUN   TestHashlineRefusesConcurrentWriteWithCompareAndSwap
+--- PASS: TestHashlineRefusesConcurrentWriteWithCompareAndSwap (0.00s)
+=== RUN   TestHashlineRefusesUnknownRevision
+--- PASS: TestHashlineRefusesUnknownRevision (0.00s)
+=== RUN   TestHashlineRefusesWrongOrUnseenAnchor
+--- PASS: TestHashlineRefusesWrongOrUnseenAnchor (0.00s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_a_lc_wins_exclusive_creation
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b0_external_wins_before_exclusive_create_prepare
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b1_external_wins_before_no_replace_publish
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b2_external_creates_empty_writes_before_inplace_truncate
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b3_external_creates_empty_overlaps_inplace_write
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b4_external_creates_empty_writes_inside_truncate_window
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b5_external_complete_before_prepare_replaced_as_read
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_exclusive_create_stress
+    remediation_r2_01_test.go:452: stress (Create=true) excl_after_signal released before_commit: rounds=10 exists_before_prepare=10
+    remediation_r2_01_test.go:452: stress (Create=true) excl_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:452: stress (Create=true) excl_after_signal released before_publish: rounds=10 lc_created=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress/before_commit
+    remediation_r2_01_test.go:469: stress (Create=false) atomic_after_signal released before_commit: rounds=10 lc_replaced_read_foreign=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress/after_prepare
+    remediation_r2_01_test.go:469: stress (Create=false) atomic_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress/before_publish
+    remediation_r2_01_test.go:469: stress (Create=false) atomic_after_signal released before_publish: rounds=10 lc_created=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/excl_after_signal/before_commit
+    remediation_r2_01_test.go:491: stress (Create=false) excl_after_signal released before_commit: rounds=10 lc_replaced_read_foreign=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/excl_after_signal/after_prepare
+    remediation_r2_01_test.go:491: stress (Create=false) excl_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/excl_after_signal/before_publish
+    remediation_r2_01_test.go:491: stress (Create=false) excl_after_signal released before_publish: rounds=10 lc_created=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/before_commit
+    remediation_r2_01_test.go:491: stress (Create=false) create_empty_wait_then_write released before_commit: rounds=10 lc_replaced_read_foreign=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/after_prepare
+    remediation_r2_01_test.go:491: stress (Create=false) create_empty_wait_then_write released after_prepare: rounds=10 inplace_refused_before_truncate=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/after_truncate
+    remediation_r2_01_test.go:491: stress (Create=false) create_empty_wait_then_write released after_truncate: rounds=10 displaced_open_fd_after_verified=2 inplace_overlap_foreign_whole=8
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/after_write_close
+    remediation_r2_01_test.go:491: stress (Create=false) create_empty_wait_then_write released after_write_close: rounds=10 displaced_open_fd_after_verified=10
+--- PASS: TestR201TwoOSProcessesCreateRace (0.33s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_a_lc_wins_exclusive_creation (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b0_external_wins_before_exclusive_create_prepare (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b1_external_wins_before_no_replace_publish (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b2_external_creates_empty_writes_before_inplace_truncate (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b3_external_creates_empty_overlaps_inplace_write (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b4_external_creates_empty_writes_inside_truncate_window (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b5_external_complete_before_prepare_replaced_as_read (0.00s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_exclusive_create_stress (0.04s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress (0.05s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress/before_commit (0.02s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress/after_prepare (0.01s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress/before_publish (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress (0.13s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/excl_after_signal/before_commit (0.02s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/excl_after_signal/after_prepare (0.01s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/excl_after_signal/before_publish (0.01s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/before_commit (0.02s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/after_prepare (0.02s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/after_truncate (0.02s)
+        --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress/create_empty_wait_then_write/after_write_close (0.02s)
+=== RUN   TestReviewEvictedReadRequiresFreshRevision
+=== RUN   TestReviewEvictedReadRequiresFreshRevision/update_after_reread
+--- PASS: TestReviewEvictedReadRequiresFreshRevision (0.01s)
+    --- PASS: TestReviewEvictedReadRequiresFreshRevision/update_after_reread (0.00s)
+=== RUN   TestReviewLeaseAcquisitionWaitsForCommit
+=== RUN   TestReviewLeaseAcquisitionWaitsForCommit/create
+=== RUN   TestReviewLeaseAcquisitionWaitsForCommit/update
+--- PASS: TestReviewLeaseAcquisitionWaitsForCommit (0.05s)
+    --- PASS: TestReviewLeaseAcquisitionWaitsForCommit/create (0.02s)
+    --- PASS: TestReviewLeaseAcquisitionWaitsForCommit/update (0.02s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	1.810s
+race_exit=0
+docker_exit=0
+end=2026-11-23T15:17:47Z

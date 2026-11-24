@@ -1,0 +1,6 @@
+=== RUN   TestZZOpusVerifySwapRecoveryNeverOverwritesThirdParty
+    zz_opus_verify_test.go:377: swaps=1 err=concurrent_write_detected f.txt: another writer changed the file during publication; another writer replaced the target, so the externally modified original was kept at /private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZOpusVerifySwapRecoveryNeverOverwritesThirdParty3310635697/001/ws/.lcx-create-2051b9ece5d111f2497a1f09badbd93a (current rev 82yhwpz5); another writer changed the file during the write; re-read it before editing again state=external_modification_detected
+--- PASS: TestZZOpusVerifySwapRecoveryNeverOverwritesThirdParty (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.379s
+exit=0

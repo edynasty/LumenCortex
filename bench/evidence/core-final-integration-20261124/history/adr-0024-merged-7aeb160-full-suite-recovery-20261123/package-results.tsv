@@ -1,0 +1,50 @@
+result	package	detail
+SKIP_NO_TEST_FILES	github.com/edynasty/LumenCortex/cmd/lcx-experience-demo	[no test files]
+PASS	github.com/edynasty/LumenCortex/cmd/lcx-go	10.669s
+PASS	github.com/edynasty/LumenCortex/config	3.399s
+SKIP_NO_TEST_FILES	github.com/edynasty/LumenCortex/docs	[no test files]
+PASS	github.com/edynasty/LumenCortex/evalapi	1.144s
+PASS	github.com/edynasty/LumenCortex/evalruntime	146.495s
+PASS	github.com/edynasty/LumenCortex/internal/agent	35.727s
+SKIP_NO_TEST_FILES	github.com/edynasty/LumenCortex/internal/cgroupv2	[no test files]
+PASS	github.com/edynasty/LumenCortex/internal/cognition	1.177s
+PASS	github.com/edynasty/LumenCortex/internal/debugger	10.359s
+PASS	github.com/edynasty/LumenCortex/internal/debugger/dap	1.002s
+SKIP_NO_TEST_FILES	github.com/edynasty/LumenCortex/internal/debugger/dapfake	[no test files]
+PASS	github.com/edynasty/LumenCortex/internal/diag	2.476s
+PASS	github.com/edynasty/LumenCortex/internal/editing	4.489s
+PASS	github.com/edynasty/LumenCortex/internal/editing/goedit	4.405s
+PASS	github.com/edynasty/LumenCortex/internal/evaluator	26.993s
+PASS	github.com/edynasty/LumenCortex/internal/instructions	0.462s
+PASS	github.com/edynasty/LumenCortex/internal/ipynb	0.446s
+PASS	github.com/edynasty/LumenCortex/internal/jobs	28.786s
+PASS	github.com/edynasty/LumenCortex/internal/knowledge	0.446s
+PASS	github.com/edynasty/LumenCortex/internal/lsp	10.880s
+PASS	github.com/edynasty/LumenCortex/internal/mcp	7.249s
+PASS	github.com/edynasty/LumenCortex/internal/mcptemplates	0.396s
+PASS	github.com/edynasty/LumenCortex/internal/migrate	23.502s
+PASS	github.com/edynasty/LumenCortex/internal/notebook	0.373s
+PASS	github.com/edynasty/LumenCortex/internal/ompsession	0.409s
+PASS	github.com/edynasty/LumenCortex/internal/procrt	0.677s
+PASS	github.com/edynasty/LumenCortex/internal/repository	12.695s
+PASS	github.com/edynasty/LumenCortex/internal/resource	0.485s
+PASS	github.com/edynasty/LumenCortex/internal/runlock	0.513s
+PASS	github.com/edynasty/LumenCortex/internal/safefs	0.935s
+PASS	github.com/edynasty/LumenCortex/internal/schedule	7.608s
+PASS	github.com/edynasty/LumenCortex/internal/session	53.333s
+PASS	github.com/edynasty/LumenCortex/internal/shell	5.363s
+PASS	github.com/edynasty/LumenCortex/internal/skills	3.037s
+PASS	github.com/edynasty/LumenCortex/internal/streambuf	0.499s
+PASS	github.com/edynasty/LumenCortex/internal/taskstate	0.410s
+PASS	github.com/edynasty/LumenCortex/internal/threadctx	0.429s
+PASS	github.com/edynasty/LumenCortex/internal/toolset	61.453s
+PASS	github.com/edynasty/LumenCortex/internal/verify	0.495s
+PASS	github.com/edynasty/LumenCortex/internal/window	3.171s
+PASS	github.com/edynasty/LumenCortex/internal/workflow	0.382s
+SKIP_NO_TEST_FILES	github.com/edynasty/LumenCortex/pluginapi	[no test files]
+PASS	github.com/edynasty/LumenCortex/protocol	0.442s
+PASS	github.com/edynasty/LumenCortex/provider	0.498s
+PASS	github.com/edynasty/LumenCortex/provider/anthropic	2.666s
+SKIP_NO_TEST_FILES	github.com/edynasty/LumenCortex/provider/internal/retryafter	[no test files]
+PASS	github.com/edynasty/LumenCortex/provider/openai	1.606s
+PASS	github.com/edynasty/LumenCortex/runtime	1084.795s

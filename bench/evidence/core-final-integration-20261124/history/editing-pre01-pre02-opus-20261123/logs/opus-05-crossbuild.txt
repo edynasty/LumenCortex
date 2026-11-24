@@ -1,0 +1,6 @@
+darwin/arm64 build+vet+test-c ok
+linux/amd64 build+vet+test-c ok
+linux/arm64 build+vet+test-c ok
+windows/amd64 build+vet+test-c ok
+freebsd/amd64 build+vet+test-c ok
+gofmt-listed-end

@@ -1,0 +1,34 @@
+=== RUN   TestZZR402DF1ApplyExperienceRuntimeEdges
+=== RUN   TestZZR402DF1ApplyExperienceRuntimeEdges/apply_only_small
+    zz_r402d_f1_runtime_test.go:128: PROBE run status=completed err=<nil>
+    zz_r402d_f1_runtime_test.go:130: PROBE disk applied.txt="applied\n"
+    zz_r402d_f1_runtime_test.go:146: PROBE edge kind=execution target=ex-fe077836df14fe38028995b88144734a source_kind=request source_ref=rq-a54f82cae1b1c7f9ba1be0226126a460 lineage_complete=0 tool=write_file outcome=outcome_unknown
+    zz_r402d_f1_runtime_test.go:146: PROBE edge kind=file target=applied.txt@de78b68804c7d45cfb82c645c73efc5388f1327d source_kind=request source_ref=rq-a54f82cae1b1c7f9ba1be0226126a460 lineage_complete=0 tool= outcome=
+    zz_r402d_f1_runtime_test.go:146: PROBE edge kind=message target=tool:rq-a54f82cae1b1c7f9ba1be0226126a460:tc-apply source_kind=session source_ref=s-zz-origin lineage_complete=0 tool= outcome=
+    zz_r402d_f1_runtime_test.go:157: PROBE cold apply row seq=4 bytes=848 valid_json=true has_text_block=false tail="\\\"created\\\":true,\\\"changed\\\":true,\\\"published\\\":true,\\\"publishState\\\":\\\"published_post_error\\\",\\\"error\\\":\\\"input/output error\\\"}]}\",\"mutatesWorkspace\":true,\"ok\":false}],\"sourceSessions\":[\"s-zz-origin\"],\"state\":\"unknown\"}"
+    zz_r402d_f1_runtime_test.go:165: PROBE revoke origin err=<nil> sessionCount=2 sessions=[s-zz-origin s-zz-f1] consumer_reached=true
+    zz_r402d_f1_runtime_test.go:174: PROBE consumer projection err=<nil> epoch=1 isolated="incomplete_lineage" withheld=[] apply_seq_withheld=false
+=== RUN   TestZZR402DF1ApplyExperienceRuntimeEdges/apply_only_8500pad
+    zz_r402d_f1_runtime_test.go:128: PROBE run status=completed err=<nil>
+    zz_r402d_f1_runtime_test.go:130: PROBE disk applied.txt="applied\n"
+    zz_r402d_f1_runtime_test.go:146: PROBE edge kind=execution target=ex-5bb39db655530a606f608f103ccd032b source_kind=request source_ref=rq-22a7456398fef7b5f39199f4ad942316 lineage_complete=0 tool=write_file outcome=outcome_unknown
+    zz_r402d_f1_runtime_test.go:146: PROBE edge kind=file target=applied.txt@de78b68804c7d45cfb82c645c73efc5388f1327d source_kind=request source_ref=rq-22a7456398fef7b5f39199f4ad942316 lineage_complete=0 tool= outcome=
+    zz_r402d_f1_runtime_test.go:157: PROBE cold apply row seq=4 bytes=9371 valid_json=false has_text_block=true tail="rrr\"}],\"sourceSessions\":[\"s-zz-origin\"],\"state\":\"unknown\"}\n\n[nested_partial_publication] write_file commitState=published_with_post_error dirtyFailure=true partialPublication=true files=[applied.txt:published_post_error]"
+    zz_r402d_f1_runtime_test.go:165: PROBE revoke origin err=<nil> sessionCount=1 sessions=[s-zz-origin] consumer_reached=false
+    zz_r402d_f1_runtime_test.go:174: PROBE consumer projection err=<nil> epoch=0 isolated="" withheld=[] apply_seq_withheld=false
+=== RUN   TestZZR402DF1ApplyExperienceRuntimeEdges/adopt_then_apply_8500pad
+    zz_r402d_f1_runtime_test.go:128: PROBE run status=completed err=<nil>
+    zz_r402d_f1_runtime_test.go:130: PROBE disk applied.txt="applied\n"
+    zz_r402d_f1_runtime_test.go:146: PROBE edge kind=message target=tool:rq-cbcc9f56dad870f5a1a95920ea4b1c4e:tc-adopt source_kind=session source_ref=s-zz-origin lineage_complete=0 tool= outcome=
+    zz_r402d_f1_runtime_test.go:146: PROBE edge kind=execution target=ex-ebef132b5c2c46a2ffb9c4ba1ce26d70 source_kind=request source_ref=rq-59e4dfaa76ae3c38b152b416c69b16fb lineage_complete=0 tool=write_file outcome=outcome_unknown
+    zz_r402d_f1_runtime_test.go:146: PROBE edge kind=file target=applied.txt@de78b68804c7d45cfb82c645c73efc5388f1327d source_kind=request source_ref=rq-59e4dfaa76ae3c38b152b416c69b16fb lineage_complete=0 tool= outcome=
+    zz_r402d_f1_runtime_test.go:157: PROBE cold apply row seq=6 bytes=9371 valid_json=false has_text_block=true tail="rrr\"}],\"sourceSessions\":[\"s-zz-origin\"],\"state\":\"unknown\"}\n\n[nested_partial_publication] write_file commitState=published_with_post_error dirtyFailure=true partialPublication=true files=[applied.txt:published_post_error]"
+    zz_r402d_f1_runtime_test.go:165: PROBE revoke origin err=<nil> sessionCount=2 sessions=[s-zz-origin s-zz-f1] consumer_reached=true
+    zz_r402d_f1_runtime_test.go:174: PROBE consumer projection err=<nil> epoch=1 isolated="incomplete_lineage" withheld=[] apply_seq_withheld=false
+--- PASS: TestZZR402DF1ApplyExperienceRuntimeEdges (0.51s)
+    --- PASS: TestZZR402DF1ApplyExperienceRuntimeEdges/apply_only_small (0.20s)
+    --- PASS: TestZZR402DF1ApplyExperienceRuntimeEdges/apply_only_8500pad (0.15s)
+    --- PASS: TestZZR402DF1ApplyExperienceRuntimeEdges/adopt_then_apply_8500pad (0.15s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	0.984s
+EXIT=0
