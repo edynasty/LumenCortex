@@ -1,0 +1,22 @@
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T1_tracked_file
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T1_git_ignored_file
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T1_gitattributes_filtered_file
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T2_host_writes_B_then_agent_noop_writes_B_is_unknown
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T3_C1_C2_C3
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T4_idempotent_write_same_content_is_none
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T5_stale_read_conflict_with_host_edge_is_unknown
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F01_workspace_ignored_mcp_and_readonly_matrix
+--- PASS: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix (5.30s)
+    --- PASS: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T1_tracked_file (0.19s)
+    --- PASS: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T1_git_ignored_file (0.22s)
+    --- PASS: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T1_gitattributes_filtered_file (0.19s)
+    --- PASS: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T2_host_writes_B_then_agent_noop_writes_B_is_unknown (0.14s)
+    --- PASS: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T3_C1_C2_C3 (0.46s)
+    --- PASS: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T4_idempotent_write_same_content_is_none (0.15s)
+    --- PASS: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T5_stale_read_conflict_with_host_edge_is_unknown (0.15s)
+    --- PASS: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures (1.80s)
+    --- PASS: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F01_workspace_ignored_mcp_and_readonly_matrix (1.55s)
+PASS
+ok  	github.com/edynasty/LumenCortex/runtime	5.688s

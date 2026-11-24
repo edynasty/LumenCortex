@@ -1,0 +1,8 @@
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures
+    context_space_t3_test.go:645: T6-3a: original bytes altered = "corrupted\n" err=<nil>, want "orig\n"
+--- FAIL: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix (1.07s)
+    --- FAIL: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures (0.64s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/runtime	1.664s
+FAIL

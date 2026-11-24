@@ -1,0 +1,8 @@
+date_utc: 2026-11-24T02:43:15Z
+tested_sha: d0cb171d0319bd0d523bbc19241343b9d1c3e60c
+go_version: go version go1.26.5 darwin/arm64
+uname: Darwin tangxingpengdeMacBook-Pro.local 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:22:49 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6000 arm64
+go_env_GOFLAGS: []
+go_env_CGO_ENABLED: 1
+go_env_GOWORK: off
+go_env_GOMODCACHE: /Users/tangxingpeng/go/pkg/mod
