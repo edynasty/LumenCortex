@@ -1,0 +1,32 @@
+# INT-PRE-REG-01 Original Post-Merge Failure Reference
+
+- Repository: LumenCortex-Core (`https://github.com/edynasty/LumenCortex.git`)
+- Merged baseline (`main` / `origin/main`): `ef10ca7c8e8031e75fdf27f449924b8254f0e2bb`
+- Finding ID / Severity: `INT-PRE-REG-01` / `P1 — Integration Acceptance Blocker`
+- Integration status at assignment: `INTEGRATION_BLOCKED`
+- Failing test: `TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures`
+- Failing location (pre-remediation): `runtime/context_space_t3_test.go:512`
+
+## Preserved Upstream Artifacts (Immutable / Untouched)
+
+1. Full post-merge run stdout (`go test -count=1 -timeout=45m ./...` during PR #11 post-merge verification):
+   - Path: `bench/evidence/core-final-integration-postmerge-20261124/04-test-all.stdout`
+   - SHA256: `eda4550cfe8a4b6c33e34b2dc6ea1b27920850f57e8e1d73743b9da5566cc961`
+   - Result: 42 packages `ok`, 6 packages `[no test files]`, 1 package `FAIL` (`github.com/edynasty/LumenCortex/runtime`, `848.399s`)
+   - Excerpt (lines 49-54):
+     ```
+     --- FAIL: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix (3.43s)
+         --- FAIL: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures (0.45s)
+             context_space_t3_test.go:512: T6-3: ev=unknown sum={AnsweredSeq:6 RequestID:rq-574eb7a5941cf4d224ac5a0498edc74f ExecutionID:ex-6e0911b10b74565ac4c63d63a54d09a3 ToolCallID:wf3 ParentToolCallID: ToolName:write_file PreRef:files:1:sha256:222a71ab7fdcbed8d6cb31d50f974b0ce92674eaf8c108a68fb74c4aaba6e44e PostRef:files:1:sha256:222a71ab7fdcbed8d6cb31d50f974b0ce92674eaf8c108a68fb74c4aaba6e44e;cm=unknown PreUnavailable:false Coverage:complete Outcome:failed FileEdgeCount:0} min=1 (want 1)
+     FAIL
+     FAIL	github.com/edynasty/LumenCortex/runtime	848.399s
+     FAIL
+     ```
+
+2. Core PRE-01/PRE-02 final integration report & PR #12 branch:
+   - Worktree path: `/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-final-integration-20261124/docs/reports/core-final-integration-2026-11-24.md`
+   - Commit / Branch / PR: `35409ca0e2015c631d3dd620a354124436a27d2d` / `integ/pre01-pre02-final-20261124` / PR #12 (`OPEN`, `https://github.com/edynasty/LumenCortex/pull/12`)
+   - SHA256: `00eec92b1313c9e93723ff2912060c6d9abb2dad4128b39b519c7308bcbb518f`
+
+3. Local Focused RED Reproduction on `ef10ca7c8e8031e75fdf27f449924b8254f0e2bb`:
+   - File: `red-baseline.txt` in this directory (`exit_code: 1`, runtime package `1.660s`, subtest `0.49s`, exact failure at `context_space_t3_test.go:512`).
