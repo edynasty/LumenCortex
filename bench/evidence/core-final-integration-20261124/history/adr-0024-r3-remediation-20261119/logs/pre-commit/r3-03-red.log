@@ -1,0 +1,38 @@
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/write_proven_after_a_read_with_no_execution
+    remediation_r3_03_test.go:153: ref = {AnsweredSeq:10 ToolCallID:c-r ToolName:read_file ExecutionID:ex-w PostRef:files:1:sha256:2222222222222222222222222222222222222222222222222222222222222222;cm=proven MutationEvidence:proven}
+        want toolCallId=c-w tool=write_file exec=ex-w postRef="files:1:sha256:2222222222222222222222222222222222222222222222222222222222222222;cm=proven" evidence=proven
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/write_proven_after_an_admitted_read
+    remediation_r3_03_test.go:153: ref = {AnsweredSeq:10 ToolCallID:c-r ToolName:read_file ExecutionID:ex-r PostRef: MutationEvidence:proven}
+        want toolCallId=c-w tool=write_file exec=ex-w postRef="files:1:sha256:2222222222222222222222222222222222222222222222222222222222222222;cm=proven" evidence=proven
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/write_unknown_after_an_admitted_read
+    remediation_r3_03_test.go:153: ref = {AnsweredSeq:10 ToolCallID:c-r ToolName:read_file ExecutionID:ex-r PostRef: MutationEvidence:unknown}
+        want toolCallId=c-w tool=write_file exec=ex-w postRef="files:1:sha256:2222222222222222222222222222222222222222222222222222222222222222" evidence=unknown
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/interrupted_second_call_without_execution
+    remediation_r3_03_test.go:153: ref = {AnsweredSeq:10 ToolCallID:c-r ToolName:read_file ExecutionID:ex-r PostRef: MutationEvidence:unknown}
+        want toolCallId=c-b tool=bash exec= postRef="" evidence=unknown
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/unpaired_second_call
+    remediation_r3_03_test.go:153: ref = {AnsweredSeq:10 ToolCallID:c-r ToolName:read_file ExecutionID:ex-r PostRef: MutationEvidence:unknown}
+        want toolCallId=c-b tool=bash exec= postRef="" evidence=unknown
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/same-name_calls_bind_executions_in_admission_order
+    remediation_r3_03_test.go:153: ref = {AnsweredSeq:10 ToolCallID:c-w1 ToolName:write_file ExecutionID:ex-w1 PostRef:files:1:sha256:1111111111111111111111111111111111111111111111111111111111111111;cm=none MutationEvidence:proven}
+        want toolCallId=c-w2 tool=write_file exec=ex-w2 postRef="files:1:sha256:2222222222222222222222222222222222222222222222222222222222222222;cm=proven" evidence=proven
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/no-change_group_keeps_the_first_call_with_only_its_own_execution
+    remediation_r3_03_test.go:153: ref = {AnsweredSeq:10 ToolCallID:c-r ToolName:read_file ExecutionID:ex-l PostRef: MutationEvidence:none}
+        want toolCallId=c-r tool=read_file exec= postRef="" evidence=none
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/single_call
+--- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/write_proven_after_a_read_with_no_execution (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/write_proven_after_an_admitted_read (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/write_unknown_after_an_admitted_read (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/interrupted_second_call_without_execution (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/unpaired_second_call (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/same-name_calls_bind_executions_in_admission_order (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/no-change_group_keeps_the_first_call_with_only_its_own_execution (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/single_call (0.00s)
+=== RUN   TestR303GatedLedgerNamesTheExecutingCallLiveAndCold
+    remediation_r3_03_test.go:283: post-gate ref = {AnsweredSeq:3 ToolCallID:c-read ToolName:read_file ExecutionID:ex-write PostRef:files:1:sha256:2222222222222222222222222222222222222222222222222222222222222222;cm=proven MutationEvidence:proven}, want seq=3 toolCallId=c-write tool=write_file exec=ex-write evidence=proven
+--- FAIL: TestR303GatedLedgerNamesTheExecutingCallLiveAndCold (0.06s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/agent	1.003s
+FAIL

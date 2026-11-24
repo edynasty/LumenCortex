@@ -1,0 +1,17 @@
+=== RUN   TestZZR402DProbeGoDiagnosticsAbsPathPersisted
+=== RUN   TestZZR402DProbeGoDiagnosticsAbsPathPersisted/bad_lines_1
+    zz_r402d_probe_loop_test.go:106: PROBE ws=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_11866920900/001/ws realWS=/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_11866920900/001/ws
+    zz_r402d_probe_loop_test.go:107: PROBE cold_row_bytes=1925 valid_json=true code=syntax path=/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_11866920900/001/ws/p.go diagnostics=6
+    zz_r402d_probe_loop_test.go:108: PROBE contains_ws=true contains_realWS=true
+    zz_r402d_probe_loop_test.go:113: PROBE row_head={"code":"syntax","currentRev":"","diagnostics":[{"severity":"error","code":"syntax","path":"/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_11866920900/001/ws/p.go","line":3,"column":9,"message":"expected ')', found '{'"},{"severity":"error","code":"syntax","path":"/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_11866920900/001/ws/p.go","line":4,"column":3,"message":"expected ')', found 'EOF'"},{"severity":"error","code":"syntax","path":"/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_11866920900/001/ws
+=== RUN   TestZZR402DProbeGoDiagnosticsAbsPathPersisted/bad_lines_120
+    zz_r402d_probe_loop_test.go:106: PROBE ws=/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1201410917296/001/ws realWS=/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1201410917296/001/ws
+    zz_r402d_probe_loop_test.go:107: PROBE cold_row_bytes=1951 valid_json=true code=syntax path=/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1201410917296/001/ws/p.go diagnostics=6
+    zz_r402d_probe_loop_test.go:108: PROBE contains_ws=true contains_realWS=true
+    zz_r402d_probe_loop_test.go:113: PROBE row_head={"code":"syntax","currentRev":"","diagnostics":[{"severity":"error","code":"syntax","path":"/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1201410917296/001/ws/p.go","line":3,"column":9,"message":"expected ')', found '{'"},{"severity":"error","code":"syntax","path":"/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_1201410917296/001/ws/p.go","line":123,"column":3,"message":"expected ')', found 'EOF'"},{"severity":"error","code":"syntax","path":"/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR402DProbeGoDiagnosticsAbsPathPersistedbad_lines_120141091729
+--- PASS: TestZZR402DProbeGoDiagnosticsAbsPathPersisted (0.31s)
+    --- PASS: TestZZR402DProbeGoDiagnosticsAbsPathPersisted/bad_lines_1 (0.16s)
+    --- PASS: TestZZR402DProbeGoDiagnosticsAbsPathPersisted/bad_lines_120 (0.15s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	0.812s
+EXIT=0

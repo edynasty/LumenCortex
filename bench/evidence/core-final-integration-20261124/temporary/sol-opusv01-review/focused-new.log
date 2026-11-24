@@ -1,0 +1,25 @@
+=== RUN   TestWriteLeaseRefusesOtherHolder
+    concurrency_test.go:104: GOOS=darwin has no atomic exchange primitive, so LC refuses existing-file updates (OPUS-V-01)
+--- SKIP: TestWriteLeaseRefusesOtherHolder (0.00s)
+=== RUN   TestOpusV01ExistingFileUpdateRefusedWithoutExchange
+=== RUN   TestOpusV01ExistingFileUpdateRefusedWithoutExchange/single_update
+=== RUN   TestOpusV01ExistingFileUpdateRefusedWithoutExchange/batch_stops_at_first_update
+--- PASS: TestOpusV01ExistingFileUpdateRefusedWithoutExchange (0.02s)
+    --- PASS: TestOpusV01ExistingFileUpdateRefusedWithoutExchange/single_update (0.01s)
+    --- PASS: TestOpusV01ExistingFileUpdateRefusedWithoutExchange/batch_stops_at_first_update (0.01s)
+=== RUN   TestR301CreateWithoutNoReplacePublishIsRefusedClearly
+=== RUN   TestR301CreateWithoutNoReplacePublishIsRefusedClearly/operation_not_supported
+=== RUN   TestR301CreateWithoutNoReplacePublishIsRefusedClearly/invalid_argument
+=== RUN   TestR301CreateWithoutNoReplacePublishIsRefusedClearly/function_not_implemented
+--- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly (0.02s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/operation_not_supported (0.01s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/invalid_argument (0.01s)
+    --- PASS: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/function_not_implemented (0.01s)
+=== RUN   TestR7WindowsNativeTimestampAndNoCompensation
+=== RUN   TestR7WindowsNativeTimestampAndNoCompensation/timestamp_observation_and_update_refused
+=== RUN   TestR7WindowsNativeTimestampAndNoCompensation/published_prefix_not_compensated_after_later_refusal
+--- PASS: TestR7WindowsNativeTimestampAndNoCompensation (0.04s)
+    --- PASS: TestR7WindowsNativeTimestampAndNoCompensation/timestamp_observation_and_update_refused (0.03s)
+    --- PASS: TestR7WindowsNativeTimestampAndNoCompensation/published_prefix_not_compensated_after_later_refusal (0.01s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.454s

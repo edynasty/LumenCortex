@@ -1,0 +1,77 @@
+=== ADR-0024 R5 Final Verification ===
+commit=b1fb4324da96d066a360a90ca792d81ac2a37d68
+branch=fix/adr-0024-r5-rollback-safety-20261120
+dirty_files=0
+go_version=go version go1.26.5 darwin/arm64
+host_uname=Darwin 27.0.0 arm64
+date_utc=2026-11-20T06:57:35Z
+
+$ go build ./...
+exit=0
+
+$ go vet ./...
+exit=0
+
+$ go test -count=1 ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+ok  	github.com/edynasty/LumenCortex/internal/editing	3.973s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	26.873s
+ok  	github.com/edynasty/LumenCortex/internal/agent	20.256s
+ok  	github.com/edynasty/LumenCortex/internal/session	38.940s
+exit=0
+
+$ go test -race -count=1 ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+ok  	github.com/edynasty/LumenCortex/internal/editing	8.677s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	29.346s
+ok  	github.com/edynasty/LumenCortex/internal/agent	57.962s
+ok  	github.com/edynasty/LumenCortex/internal/session	44.649s
+exit=0
+
+$ go test -race -count=1 -run 'TestT3|TestT4' ./runtime
+ok  	github.com/edynasty/LumenCortex/runtime	14.218s
+exit=0
+
+$ GOOS=linux GOARCH=arm64 go build ./...
+exit=0
+
+$ GOOS=linux GOARCH=arm64 go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+exit=0
+
+$ GOOS=linux GOARCH=amd64 go build ./...
+exit=0
+
+$ GOOS=linux GOARCH=amd64 go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+exit=0
+
+$ GOOS=windows GOARCH=amd64 go build ./...
+exit=0
+
+$ GOOS=windows GOARCH=amd64 go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+exit=0
+
+$ GOOS=freebsd GOARCH=amd64 go build ./...
+exit=0
+
+$ GOOS=freebsd GOARCH=amd64 go vet ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+exit=0
+
+$ GOOS=windows GOARCH=amd64 go test -c -o /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.Npx6s1fCnT/editing.test.exe ./internal/editing
+exit=0
+
+$ GOOS=windows GOARCH=amd64 go test -c -o /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.Npx6s1fCnT/toolset.test.exe ./internal/toolset
+exit=0
+
+$ GOOS=windows GOARCH=amd64 go test -c -o /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.Npx6s1fCnT/agent.test.exe ./internal/agent
+exit=0
+
+$ GOOS=windows GOARCH=amd64 go test -c -o /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/tmp.Npx6s1fCnT/session.test.exe ./internal/session
+exit=0
+
+total 101000
+drwx------@    6 tangxingpeng  staff       192 Nov 20 15:00 .
+drwx------@ 2229 tangxingpeng  staff     71328 Nov 20 15:00 ..
+-rwxr-xr-x@    1 tangxingpeng  staff  20418560 Nov 20 15:00 agent.test.exe
+-rwxr-xr-x@    1 tangxingpeng  staff   6094848 Nov 20 14:59 editing.test.exe
+-rwxr-xr-x@    1 tangxingpeng  staff   8046080 Nov 20 15:00 session.test.exe
+-rwxr-xr-x@    1 tangxingpeng  staff  17147392 Nov 20 15:00 toolset.test.exe
+
+overall_exit=0

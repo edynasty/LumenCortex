@@ -26,8 +26,7 @@ import (
 func TestR201TwoOSProcessesCreateRace(t *testing.T) {
 	foreign := []byte("FOREIGN OS PROCESS PAYLOAD 0123456789ABCDEF\n")
 	agentBytes := []byte("agent os process content\n")
-	// What an external write of foreign into the truncated file leaves once LC writes agentBytes
-	// over its start.
+	// What an external write of foreign into a truncated file would leave if in-place truncation mixed bytes.
 	mixedBytes := append(append([]byte(nil), agentBytes...), foreign[len(agentBytes):]...)
 
 	helperDir := t.TempDir()
@@ -155,14 +154,15 @@ func main() {
 			t.Fatal(err)
 		}
 		for _, ent := range entries {
-			if strings.HasPrefix(ent.Name(), ".lcx-create-") {
+			if strings.HasPrefix(ent.Name(), ".lcx-") {
 				t.Fatalf("unexpected private staging leftover: %s", ent.Name())
 			}
 		}
 	}
 
 	// The outcomes a round can end in. Staged means prepare saw no file and LC staged a private
-	// temp for no-replace publication; otherwise the external inode existed and LC wrote in place.
+	// temp for no-replace publication; otherwise an external inode already existed at prepare and
+	// LC ran staged atomic swap over it.
 	const (
 		// LC published its staged file; the external create lost with EEXIST.
 		lcCreated = "lc_created"
@@ -172,24 +172,24 @@ func main() {
 		stagedPublishRefused = "staged_publish_refused"
 		// The external file was complete when LC read it; LC replaced the bytes it had read.
 		lcReplacedReadForeign = "lc_replaced_read_foreign"
-		// The external write landed before LC's in-place compare; LC wrote nothing.
+		// The external write landed before LC's swap; LC wrote nothing to the destination.
 		inplaceRefusedBeforeTruncate = "inplace_refused_before_truncate"
-		// The external write landed after LC's in-place write; the foreign bytes are whole.
+		// The external write overlapped LC's swap window; LC restored the intact foreign bytes.
 		inplaceOverlapForeignWhole = "inplace_overlap_foreign_whole"
-		// The external write landed after LC verified its own bytes: a later external change.
+		// The external write landed after LC verified its own bytes on the same inode.
 		externalWriteAfterVerified = "external_write_after_verified"
-		// PRE-02 (open): the external write landed between LC's truncate and write, so the file
-		// holds mixed bytes. LC must report it as an unverified, dirty failure.
-		pre02MixedReportedDirty = "pre02_mixed_bytes_reported_dirty"
-		// PRE-02 (open): the external write landed between LC's compare and truncate and was
-		// overwritten. LC cannot observe it. The round is named and counted, not held to be right.
+		// LC verified its atomic swap while the pre-existing external descriptor was still empty;
+		// the late external write landed on the displaced unlinked descriptor after Commit returned.
+		displacedOpenFDAfterVerified = "displaced_open_fd_after_verified"
+		// Legacy broken outcomes kept out of valid sets so any regression fails immediately.
+		pre02MixedReportedDirty       = "pre02_mixed_bytes_reported_dirty"
 		pre02ExternalWriteOverwritten = "pre02_external_write_overwritten"
 	)
 
 	// raceOutcome checks one finished round against every interleaving the two processes can produce
 	// and returns its name; a round that fits none fails. exclusive is Plan{Create:true}. atomic is an
 	// external process that links a complete file and never writes to the published inode.
-	raceOutcome := func(t *testing.T, root, target string, e *Engine, actor Actor, res Result, rec CommitReceipt, commitErr error, childExit int, exclusive, atomic bool) string {
+	raceOutcome := func(t *testing.T, root, target string, preCommitInfo os.FileInfo, e *Engine, actor Actor, res Result, rec CommitReceipt, commitErr error, childExit int, exclusive, atomic bool) string {
 		t.Helper()
 		if childExit != 0 && childExit != 10 {
 			t.Fatalf("child exited with unexpected code %d", childExit)
@@ -225,12 +225,12 @@ func main() {
 				}
 				return lcCreated
 			}
-			// Exactly one creator: the external process. LC wrote the existing inode in place.
+			// Exactly one creator: the external process. LC updated the existing path.
 			if exclusive {
-				t.Fatalf("Plan{Create:true} must never succeed via writeInPlace: %+v", rf)
+				t.Fatalf("Plan{Create:true} must never succeed via existing-file update: %+v", rf)
 			}
 			if !childWrote || rf.Created || f.Created {
-				t.Fatalf("in-place success invariant violated: childWrote=%v f=%+v rf=%+v", childWrote, f, rf)
+				t.Fatalf("existing-file update success invariant violated: childWrote=%v f=%+v rf=%+v", childWrote, f, rf)
 			}
 			switch {
 			case rf.OldSHA256 == foreignSHA && f.OldRev == RevOf(foreign) && bytes.Equal(got, agentBytes):
@@ -240,9 +240,12 @@ func main() {
 			case rf.OldSHA256 == emptySHA && bytes.Equal(got, foreign):
 				return externalWriteAfterVerified
 			case rf.OldSHA256 == emptySHA && bytes.Equal(got, agentBytes):
+				if afterInfo, statErr := os.Lstat(target); statErr == nil && preCommitInfo != nil && !os.SameFile(preCommitInfo, afterInfo) {
+					return displacedOpenFDAfterVerified
+				}
 				return pre02ExternalWriteOverwritten
 			}
-			t.Fatalf("in-place success left unexplained bytes: rf=%+v disk=%q", rf, got)
+			t.Fatalf("update success left unexplained bytes: rf=%+v disk=%q", rf, got)
 		}
 
 		// A failed commit. The external process created the file, LC claims no creation, and nothing
@@ -267,18 +270,15 @@ func main() {
 			}
 			return stagedPublishRefused
 		case exclusive || atomic:
-			// Create:true never writes in place, and an atomically published file never changes
-			// under LC's in-place write.
-			t.Fatalf("unexpected in-place failure: exclusive=%v atomic=%v err=%v rec=%+v", exclusive, atomic, commitErr, rec)
+			t.Fatalf("unexpected existing-file failure: exclusive=%v atomic=%v err=%v rec=%+v", exclusive, atomic, commitErr, rec)
 		case rf.OldSHA256 != emptySHA || rf.PublishState != PublishExternalModification:
-			t.Fatalf("in-place conflict invariant violated: err=%v rec=%+v", commitErr, rec)
+			t.Fatalf("existing-file conflict invariant violated: err=%v rec=%+v", commitErr, rec)
 		case !rec.DirtyFailure:
 			if CodeOf(commitErr) != CodeConflict || !clean || !bytes.Equal(got, foreign) {
-				t.Fatalf("pre-truncate external conflict mismatch: err=%v rec=%+v disk=%q", commitErr, rec, got)
+				t.Fatalf("pre-swap external conflict mismatch: err=%v rec=%+v disk=%q", commitErr, rec, got)
 			}
 			return inplaceRefusedBeforeTruncate
 		}
-		// LC truncated and wrote, then observed other bytes: the failure is dirty and unverified.
 		if CodeOf(commitErr) != CodeConcurrentWrite || rec.State != CommitStatePublishedWithPostError || !rf.Published || !rf.Wrote {
 			t.Fatalf("dirty concurrent write conflict mismatch: err=%v rec=%+v", commitErr, rec)
 		}
@@ -298,8 +298,8 @@ func main() {
 		afterPrepare    = "after_prepare"     // LC has read the target's state
 		beforePublish   = "before_publish"    // LC is about to publish its staged file
 		afterPublish    = "after_publish"     // LC published its staged file
-		afterTruncate   = "after_truncate"    // LC truncated the existing file in place
-		afterWriteClose = "after_write_close" // LC wrote the existing file and closed it
+		afterTruncate   = "after_truncate"    // LC reached the pre-swap / truncate fault boundary
+		afterWriteClose = "after_write_close" // LC swapped/wrote the file and closed its staged handle
 	)
 
 	// runRound starts the external process in mode, lets it go at the release point and returns the
@@ -366,6 +366,7 @@ func main() {
 		default:
 			t.Fatalf("unknown release point %q", release)
 		}
+		preCommitInfo, _ := os.Lstat(target)
 		var rec CommitReceipt
 		res, commitErr := e.Commit(WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r }), Plan{
 			Actor:   actor,
@@ -380,7 +381,7 @@ func main() {
 		if !wait {
 			childExit = childExitCode(t, cmd.Wait())
 		}
-		return raceOutcome(t, root, target, e, actor, res, rec, commitErr, childExit, exclusive, mode == "atomic_after_signal")
+		return raceOutcome(t, root, target, preCommitInfo, e, actor, res, rec, commitErr, childExit, exclusive, mode == "atomic_after_signal")
 	}
 
 	// One interleaving each: the external process runs to its end at the release point.
@@ -394,16 +395,19 @@ func main() {
 		{"outcome_b0_external_wins_before_exclusive_create_prepare", true, "excl_after_signal", beforeCommit, existsBeforePrepare},
 		{"outcome_b1_external_wins_before_no_replace_publish", false, "excl_after_signal", beforePublish, stagedPublishRefused},
 		{"outcome_b2_external_creates_empty_writes_before_inplace_truncate", false, "create_empty_wait_then_write", afterPrepare, inplaceRefusedBeforeTruncate},
-		// The round-8 interleaving of R7R2-NEW-02: LC wrote the external inode in place and the
-		// external write (44B over 25B) landed before LC's verification. DirtyFailure=true is right.
+		// LC swapped its staged file and the external write landed on the displaced descriptor before
+		// post-swap verification, so LC restored the intact 44B foreign file and reported dirty failure.
 		{"outcome_b3_external_creates_empty_overlaps_inplace_write", false, "create_empty_wait_then_write", afterWriteClose, inplaceOverlapForeignWhole},
-		// The PRE-02 window: the bytes on disk are mixed, and LC reports them as a dirty,
-		// unverified failure, never as a write.
-		{"outcome_b4_external_creates_empty_writes_inside_truncate_window", false, "create_empty_wait_then_write", afterTruncate, pre02MixedReportedDirty},
+		// Former PRE-02 window: staged atomic swap re-checks the live descriptor after AfterTruncate
+		// and refuses cleanly before swapping, leaving the external bytes untouched and never mixed.
+		{"outcome_b4_external_creates_empty_writes_inside_truncate_window", false, "create_empty_wait_then_write", afterTruncate, inplaceRefusedBeforeTruncate},
 		// The external file was whole before LC looked: LC replaces it and records what it read.
 		{"outcome_b5_external_complete_before_prepare_replaced_as_read", false, "excl_after_signal", beforeCommit, lcReplacedReadForeign},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.want == inplaceOverlapForeignWhole || tc.want == lcReplacedReadForeign {
+				requireExistingFileUpdate(t) // these outcomes replace the existing external file
+			}
 			if got := runRound(t, tc.exclusive, tc.mode, tc.release, true); got != tc.want {
 				t.Fatalf("outcome %q, want %q", got, tc.want)
 			}
@@ -442,7 +446,7 @@ func main() {
 		}
 	}
 	staged := []string{lcCreated, stagedPublishRefused}
-	inPlace := []string{inplaceRefusedBeforeTruncate, pre02ExternalWriteOverwritten, pre02MixedReportedDirty, inplaceOverlapForeignWhole, externalWriteAfterVerified}
+	inPlace := []string{inplaceRefusedBeforeTruncate, inplaceOverlapForeignWhole, externalWriteAfterVerified, displacedOpenFDAfterVerified}
 
 	t.Run("concurrent_exclusive_create_stress", func(t *testing.T) {
 		runStress(t, true, []raceStep{
@@ -453,29 +457,44 @@ func main() {
 	})
 
 	t.Run("concurrent_atomic_allow_create_stress", func(t *testing.T) {
-		runStress(t, false, []raceStep{
+		for _, step := range []raceStep{
 			{"atomic_after_signal", beforeCommit, append([]string{lcReplacedReadForeign}, staged...)},
 			{"atomic_after_signal", afterPrepare, staged},
 			{"atomic_after_signal", beforePublish, staged},
-		})
+		} {
+			t.Run(step.release, func(t *testing.T) {
+				if step.release == beforeCommit {
+					requireExistingFileUpdate(t)
+				}
+				runStress(t, false, []raceStep{step})
+			})
+		}
 	})
 
-	// The original R2-01 scenario: AllowCreate against an external create followed by a write. The
-	// in-place steps release the external write only, on an inode that already exists.
+	// The original R2-01 scenario: AllowCreate against an external create followed by a write. With
+	// EDITING-PRE-02 closed via staged atomic swap, pre02MixedReportedDirty and pre02ExternalWriteOverwritten
+	// are excluded from valid outcomes.
 	t.Run("concurrent_two_syscall_allow_create_stress", func(t *testing.T) {
-		runStress(t, false, []raceStep{
+		for _, step := range []raceStep{
 			{"excl_after_signal", beforeCommit, append(append([]string{lcReplacedReadForeign}, staged...), inPlace...)},
 			{"excl_after_signal", afterPrepare, staged},
 			{"excl_after_signal", beforePublish, staged},
 			{"create_empty_wait_then_write", beforeCommit, append([]string{lcReplacedReadForeign}, inPlace...)},
 			{"create_empty_wait_then_write", afterPrepare, inPlace},
-			{"create_empty_wait_then_write", afterTruncate, []string{pre02MixedReportedDirty, inplaceOverlapForeignWhole, externalWriteAfterVerified}},
-			{"create_empty_wait_then_write", afterWriteClose, []string{inplaceOverlapForeignWhole, externalWriteAfterVerified}},
-		})
+			{"create_empty_wait_then_write", afterTruncate, []string{inplaceRefusedBeforeTruncate, inplaceOverlapForeignWhole, externalWriteAfterVerified, displacedOpenFDAfterVerified}},
+			{"create_empty_wait_then_write", afterWriteClose, []string{inplaceOverlapForeignWhole, externalWriteAfterVerified, displacedOpenFDAfterVerified}},
+		} {
+			t.Run(step.mode+"/"+step.release, func(t *testing.T) {
+				if step.mode == "create_empty_wait_then_write" || step.release == beforeCommit {
+					requireExistingFileUpdate(t)
+				}
+				runStress(t, false, []raceStep{step})
+			})
+		}
 	})
 }
 
-// TestR201ExistingCASConflictPreservesForeignBytes pins the guarded in-place path without rollback:
+// TestR201ExistingCASConflictPreservesForeignBytes pins the guarded update path without rollback:
 // the foreign bytes stay and the receipt reports an external change, not a write.
 func TestR201ExistingCASConflictPreservesForeignBytes(t *testing.T) {
 	root := t.TempDir()

@@ -1,0 +1,12 @@
+start=2026-11-23T13:21:17Z
+Linux 7.0.14-linuxkit
+go version go1.23.12 linux/arm64
+fs-type=overlayfs
+normal_exit=0
+PASS=168 FAIL=0 SKIP=2
+    --- SKIP: TestR7R2CaseVariantCreatesRefused/existing_dir_spelling (0.00s)
+--- SKIP: TestPRE01RealDiskImageENOSPC (0.00s)
+ok  	github.com/edynasty/LumenCortex/internal/editing	12.317s
+race_exit=0
+docker_exit=0
+end=2026-11-23T13:21:45Z

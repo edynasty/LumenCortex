@@ -1,0 +1,16 @@
+base_commit=0b3b8e721163890ebb664abb4b5c9fc3ef39f4f1
+worktree_dirty=0
+date_utc=2026-11-20T06:32:51Z
+
+$ go test -overlay /Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-r5-remediation-20261120/probes/overlay_ab.json -count=1 -v -run '^TestR5RedR402ARollbackRestoreFailure$' ./internal/editing
+=== RUN   TestR5RedR402ARollbackRestoreFailure
+    zz_r5_red_ab_test.go:65: err=conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit diskB="" (rev=6q2nisw2) intendedRev=kwgxuv47 rec={Committed:false DirtyFailure:true State:partially_published Files:[{Path:a.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR5RedR402ARollbackRestoreFailure2210399043/001/a.txt Staged:false Published:true Verified:true RolledBack:true Wrote:false PublishState:published_rolled_back Created:false Deleted:false OldSHA256:sha256:96cdfb91ba2c74be3baa1902d9b100039a4d67decdef72a3ee1e67c886cbb875 NewSHA256:sha256:54578a36036ade573160b2eb3ba5d8557897aa8c6b4ce4742e556d37eb81c680} {Path:b.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR5RedR402ARollbackRestoreFailure2210399043/001/b.txt Staged:false Published:true Verified:true RolledBack:false Wrote:true PublishState:published_verified Created:false Deleted:false OldSHA256:sha256:28434c80688e88d8f2955a9d77b92594343aa1cd8b168b9001fe5096c97c8022 NewSHA256:sha256:550d594f5d87bd540b72a207fd32c27894f378088bd355d4f0b2bb7d43e58df9} {Path:c.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR5RedR402ARollbackRestoreFailure2210399043/001/c.txt Staged:false Published:false Verified:false RolledBack:false Wrote:false PublishState:not_published Created:false Deleted:false OldSHA256:sha256:78b304795cd710a73b979439a587bd84daa172c7659315036f8405f88da78280 NewSHA256:sha256:5794ad7f9958d98da9b9afd8e09f3b47e23a8d510a933d8001435a5f2755152c}]} res={Files:[{Path:b.txt OldRev:fbbw3adi NewRev:kwgxuv47 Created:false Deleted:false Changed:true Published:true RolledBack:false PublishState:published_verified Landed:[]}] Diffs:[] Diagnostics:[] CommitState:partially_published}
+    zz_r5_red_ab_test.go:69: R4-02-A DEFECT: rollback failure error was swallowed behind CAS error: conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit
+    zz_r5_red_ab_test.go:75: R4-02-A DEFECT: failed rollback on b.txt (disk="") still claims Verified=true PublishState=published_verified
+    zz_r5_red_ab_test.go:83: R4-02-A DEFECT: Result.Files reports stale state for b.txt: {Path:b.txt OldRev:fbbw3adi NewRev:kwgxuv47 Created:false Deleted:false Changed:true Published:true RolledBack:false PublishState:published_verified Landed:[]} (disk="")
+    zz_r5_red_ab_test.go:89: R4-02-A DEFECT: SnapshotStore registered intended NewRev kwgxuv47 for b.txt even though disk=""
+--- FAIL: TestR5RedR402ARollbackRestoreFailure (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	1.800s
+FAIL
+exit=1

@@ -13,6 +13,7 @@ import (
 // TestDiffHistoryIsBounded: the diff history keeps the last revisions of a file and refuses an evicted
 // one instead of approximating it; a delete is diffable against the absent file.
 func TestDiffHistoryIsBounded(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	engine := newTestEngine(t, root)
 	ctx := context.Background()

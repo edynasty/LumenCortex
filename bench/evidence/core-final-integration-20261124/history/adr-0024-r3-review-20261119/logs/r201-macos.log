@@ -1,0 +1,175 @@
+##### APFS real-process probes (head)
+=== RUN   TestZZR3MultiProcessPublishRace
+    zz_probe_r3_publish_test.go:227: multi-process publish: rounds=60 procs=4 winnerDistribution=map[0:11 1:11 2:17 3:21] anomalies=11
+    zz_probe_r3_publish_test.go:229: round 1: oks=3 conflicts=1
+    zz_probe_r3_publish_test.go:229: round 14: oks=2 conflicts=2
+    zz_probe_r3_publish_test.go:229: round 21: oks=2 conflicts=2
+    zz_probe_r3_publish_test.go:229: round 38: oks=2 conflicts=2
+    zz_probe_r3_publish_test.go:229: round 42: oks=2 conflicts=2
+    zz_probe_r3_publish_test.go:229: round 43: oks=2 conflicts=2
+    zz_probe_r3_publish_test.go:229: round 50: oks=2 conflicts=2
+    zz_probe_r3_publish_test.go:229: round 53: oks=3 conflicts=1
+    zz_probe_r3_publish_test.go:229: round 54: oks=2 conflicts=2
+    zz_probe_r3_publish_test.go:229: round 56: oks=2 conflicts=2
+    zz_probe_r3_publish_test.go:229: round 58: oks=2 conflicts=2
+--- FAIL: TestZZR3MultiProcessPublishRace (1.48s)
+=== RUN   TestZZR3ForeignRenameReplaceRace
+    zz_probe_r3_publish_test.go:280: foreign rename race: rounds=120 agentOK=69 agentConflict=51 lost=0 other=0 overwriteOfFileExistingAtPrepare=6
+--- PASS: TestZZR3ForeignRenameReplaceRace (2.55s)
+=== RUN   TestZZR3RollbackOfPublishedCreate
+=== RUN   TestZZR3RollbackOfPublishedCreate/untouched
+    zz_probe_r3_publish_test.go:366: untouched: commit=conflict dirty=true committed=false | a.txt absent | b.txt="FOREIGN B\n" | debris=[]
+=== RUN   TestZZR3RollbackOfPublishedCreate/foreign_append_in_place
+    zz_probe_r3_publish_test.go:366: foreign_append_in_place: commit=conflict dirty=true committed=false | a.txt file body="agent A content\nFOREIGN APPEND\n" | b.txt="FOREIGN B\n" | debris=[]
+=== RUN   TestZZR3RollbackOfPublishedCreate/foreign_rename_replace_identical_bytes
+    zz_probe_r3_publish_test.go:366: foreign_rename_replace_identical_bytes: commit=conflict dirty=true committed=false | a.txt file body="agent A content\n" | b.txt="FOREIGN B\n" | debris=[]
+=== RUN   TestZZR3RollbackOfPublishedCreate/foreign_inplace_rewrite_identical_bytes
+    zz_probe_r3_publish_test.go:366: foreign_inplace_rewrite_identical_bytes: commit=conflict dirty=true committed=false | a.txt file body="agent A content\n" | b.txt="FOREIGN B\n" | debris=[]
+=== RUN   TestZZR3RollbackOfPublishedCreate/foreign_inplace_rewrite_identical_bytes_mtime_restored
+    zz_probe_r3_publish_test.go:366: foreign_inplace_rewrite_identical_bytes_mtime_restored: commit=conflict dirty=true committed=false | a.txt absent | b.txt="FOREIGN B\n" | debris=[]
+=== RUN   TestZZR3RollbackOfPublishedCreate/replaced_by_symlink_to_external
+    zz_probe_r3_publish_test.go:366: replaced_by_symlink_to_external: commit=conflict dirty=true committed=false | a.txt symlink->external-ws body="EXTERNAL\n" | b.txt="FOREIGN B\n" | debris=[]
+--- PASS: TestZZR3RollbackOfPublishedCreate (0.02s)
+=== RUN   TestZZR3DestinationAppearsBeforePublish
+=== RUN   TestZZR3DestinationAppearsBeforePublish/foreign_regular_file
+    zz_probe_r3_publish_test.go:415: foreign_regular_file: commit=conflict dirty=false | dst=file "FOREIGN\n" mode=-rw------- | external="" outsideCreated=false | debris=[]
+=== RUN   TestZZR3DestinationAppearsBeforePublish/symlink_to_external_file
+    zz_probe_r3_publish_test.go:415: symlink_to_external_file: commit=conflict dirty=false | dst=symlink->external.txt | external="EXTERNAL\n" outsideCreated=false | debris=[]
+=== RUN   TestZZR3DestinationAppearsBeforePublish/dangling_symlink_outside_workspace
+    zz_probe_r3_publish_test.go:415: dangling_symlink_outside_workspace: commit=conflict dirty=false | dst=symlink->would-be-created.txt | external="" outsideCreated=false | debris=[]
+=== RUN   TestZZR3DestinationAppearsBeforePublish/directory
+    zz_probe_r3_publish_test.go:415: directory: commit=conflict dirty=false | dst=dir | external="" outsideCreated=false | debris=[]
+--- PASS: TestZZR3DestinationAppearsBeforePublish (0.01s)
+=== RUN   TestZZR3PublishFaults
+=== RUN   TestZZR3PublishFaults/directory_removed
+    zz_probe_r3_publish_test.go:458: directory_removed: commit=err dirty=false committed=false err=link /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR3PublishFaultsdirectory_removed4110508699/001/ws/sub/.lcx-create-ac74fd32bb2a5b9a1db9b2fbfe353cdf /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR3PublishFaultsdirectory_removed4110508699/001/ws/sub/new.txt: no such file or directory | files under base=[]
+=== RUN   TestZZR3PublishFaults/directory_made_read_only
+    zz_probe_r3_publish_test.go:458: directory_made_read_only: commit=err dirty=false committed=false err=link /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR3PublishFaultsdirectory_made_read_only500227868/001/ws/sub/.lcx-create-95dc0cc451ad21b0c9a6f8e95250595b /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR3PublishFaultsdirectory_made_read_only500227868/001/ws/sub/new.txt: permission denied | files under base=[ws/sub/.lcx-create-95dc0cc451ad21b0c9a6f8e95250595b]
+=== RUN   TestZZR3PublishFaults/directory_replaced_by_symlink_outside
+    zz_probe_r3_publish_test.go:458: directory_replaced_by_symlink_outside: commit=err dirty=false committed=false err=link /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR3PublishFaultsdirectory_replaced_by_symlink_outside3029254136/001/ws/sub/.lcx-create-5766243d57e531b2a5f5d5268ac0a11a /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR3PublishFaultsdirectory_replaced_by_symlink_outside3029254136/001/ws/sub/new.txt: no such file or directory | files under base=[ws/sub ws/sub.moved/.lcx-create-5766243d57e531b2a5f5d5268ac0a11a]
+--- PASS: TestZZR3PublishFaults (0.01s)
+=== RUN   TestZZR3KillAroundPublication
+=== RUN   TestZZR3KillAroundPublication/pause-before-publish
+    zz_probe_r3_publish_test.go:484: pause-before-publish: after SIGKILL files=[.lcx-create-1e256e84f5a21d012e92218b4848512b(nlink=1,size=12)]
+=== RUN   TestZZR3KillAroundPublication/pause-after-publish
+    zz_probe_r3_publish_test.go:484: pause-after-publish: after SIGKILL files=[a.txt(nlink=1,size=12)]
+--- PASS: TestZZR3KillAroundPublication (0.02s)
+=== RUN   TestZZR3TempWriteFailsEFBIG
+    zz_probe_r3_publish_test.go:509: EFBIG: child=err dirty=false committed=false err=write /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestZZR3TempWriteFailsEFBIG3850519299/001/.lcx-create-153529bfb3ea491f64366229aeb4a0d9: file too large | files=[]
+--- PASS: TestZZR3TempWriteFailsEFBIG (0.02s)
+FAIL
+##### rollback restore vs foreign append (main/prev/head)
+--- main
+    zz_probe_r3_rollback_test.go:43: rollback of overwritten a.txt after foreign append: commit err=conflict b.txt: the file changed after the change was computed; nothing was written (current rev gju5nrr2); something else wrote the file; re-read it and redo the edit | a.txt="A0\n" -> foreign append LOST (rollback restored A0 over it) | b.txt="B-foreign\n"
+--- PASS: TestZZR3RollbackRestoreVsForeign (0.00s)
+--- prev
+    zz_probe_r3_rollback_test.go:43: rollback of overwritten a.txt after foreign append: commit err=conflict b.txt: the file changed after the change was computed; nothing was written (current rev gju5nrr2); something else wrote the file; re-read it and redo the edit | a.txt="A0\n" -> foreign append LOST (rollback restored A0 over it) | b.txt="B-foreign\n"
+--- PASS: TestZZR3RollbackRestoreVsForeign (0.00s)
+--- head
+    zz_probe_r3_rollback_test.go:43: rollback of overwritten a.txt after foreign append: commit err=conflict b.txt: the file changed after the change was computed; nothing was written (current rev gju5nrr2); something else wrote the file; re-read it and redo the edit | a.txt="A0\n" -> foreign append LOST (rollback restored A0 over it) | b.txt="B-foreign\n"
+--- PASS: TestZZR3RollbackRestoreVsForeign (0.00s)
+hdiutil: WARNING: 'hdiutil attach -nobrowse -mountpoint ...' is deprecated. Please use 'diskutil image attach --mountOptions nobrowse --mountPoint ...' instead.
+hdiutil: WARNING: 'hdiutil attach -nobrowse -mountpoint ...' is deprecated. Please use 'diskutil image attach --mountOptions nobrowse --mountPoint ...' instead.
+hdiutil: WARNING: 'hdiutil attach -nobrowse -mountpoint ...' is deprecated. Please use 'diskutil image attach --mountOptions nobrowse --mountPoint ...' instead.
+hdiutil: WARNING: 'hdiutil attach -nobrowse -mountpoint ...' is deprecated. Please use 'diskutil image attach --mountOptions nobrowse --mountPoint ...' instead.
+attached: /tmp/lc-adr0024-r3/mnt-ExFAT /tmp/lc-adr0024-r3/mnt-HFS /tmp/lc-adr0024-r3/mnt-MSDOSFAT32 /tmp/lc-adr0024-r3/mnt-small
+##### FS=ExFAT (exfat)
+--- head
+    zz_probe_r3_fs_test.go:36: primitives: os.Link=link /tmp/lc-adr0024-r3/mnt-ExFAT/zz-1795832775/prim-a /tmp/lc-adr0024-r3/mnt-ExFAT/zz-1795832775/prim-link: operation not supported isLinkFallbackErr=true | renameNoReplace(existing)=file exists | renameNoReplace(new)=operation not supported
+    zz_probe_r3_fs_test.go:50: engine create: commit=err err=operation not supported committed=false dirty=false | file="" readErr=open /tmp/lc-adr0024-r3/mnt-ExFAT/zz-1795832775/ws/new.txt: no such file or directory | debris=[]
+    zz_probe_r3_fs_test.go:61: engine create vs foreign create before publish: commit=conflict dirty=false | file="FOREIGN\n" | debris=[]
+    zz_probe_r3_fs_test.go:104: round 0 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 0 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:122: round 0 ANOMALY: creators=0 overwriters=0 conflicts=0 others=4 finalIsAnOkWriter=false finalErr=open /tmp/lc-adr0024-r3/mnt-ExFAT/zz-1795832775/race-0/shared.txt: no such file or directory debris=[]
+    zz_probe_r3_fs_test.go:104: round 1 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 1 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:122: round 1 ANOMALY: creators=0 overwriters=0 conflicts=0 others=4 finalIsAnOkWriter=false finalErr=open /tmp/lc-adr0024-r3/mnt-ExFAT/zz-1795832775/race-1/shared.txt: no such file or directory debris=[]
+    zz_probe_r3_fs_test.go:104: round 2 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 2 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:122: round 2 ANOMALY: creators=0 overwriters=0 conflicts=0 others=4 finalIsAnOkWriter=false finalErr=open /tmp/lc-adr0024-r3/mnt-ExFAT/zz-1795832775/race-2/shared.txt: no such file or directory debris=[]
+    zz_probe_r3_fs_test.go:104: round 3 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 3 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:122: round 3 ANOMALY: creators=0 overwriters=0 conflicts=0 others=4 finalIsAnOkWriter=false finalErr=open /tmp/lc-adr0024-r3/mnt-ExFAT/zz-1795832775/race-3/shared.txt: no such file or directory debris=[]
+    zz_probe_r3_fs_test.go:104: round 4 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 4 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:122: round 4 ANOMALY: creators=0 overwriters=0 conflicts=0 others=4 finalIsAnOkWriter=false finalErr=open /tmp/lc-adr0024-r3/mnt-ExFAT/zz-1795832775/race-4/shared.txt: no such file or directory debris=[]
+    zz_probe_r3_fs_test.go:104: round 5 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 5 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:122: round 5 ANOMALY: creators=0 overwriters=0 conflicts=0 others=4 finalIsAnOkWriter=false finalErr=open /tmp/lc-adr0024-r3/mnt-ExFAT/zz-1795832775/race-5/shared.txt: no such file or directory debris=[]
+    zz_probe_r3_fs_test.go:104: round 6 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 6 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 7 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 7 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 8 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 8 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 9 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 9 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 10 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 10 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 11 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 11 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 12 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 12 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 13 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 13 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 14 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 14 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 15 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 15 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 16 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 16 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 17 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 17 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 18 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 18 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 19 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 19 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 20 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 20 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 21 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 21 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 22 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 22 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 23 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 23 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 24 child 0: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:104: round 24 child 1: err dirty=false committed=false sawExistingAtPrepare=false err=operation not supported
+    zz_probe_r3_fs_test.go:126: multi-process race on /tmp/lc-adr0024-r3/mnt-ExFAT: rounds=25 procs=4 exactlyOneCreatorViolations(anomalies)=25 creators=0 overwritersOfExistingAtPrepare=0 conflicts=0 others=100
+--- PASS: TestZZR3FSMatrix (1.24s)
+--- prev (a8b4786)
+    zz_probe_r3_prevfs_test.go:29: a8b4786 engine create: err=<nil> file="created by agent\n" readErr=<nil>
+--- PASS: TestZZR3PrevFSCreate (0.01s)
+##### FS=HFS (hfs)
+--- head
+    zz_probe_r3_fs_test.go:36: primitives: os.Link=<nil> isLinkFallbackErr=false | renameNoReplace(existing)=file exists | renameNoReplace(new)=<nil>
+    zz_probe_r3_fs_test.go:50: engine create: commit=ok err=<nil> committed=true dirty=false | file="created by agent\n" readErr=<nil> | debris=[]
+    zz_probe_r3_fs_test.go:61: engine create vs foreign create before publish: commit=conflict dirty=false | file="FOREIGN\n" | debris=[]
+    zz_probe_r3_fs_test.go:126: multi-process race on /tmp/lc-adr0024-r3/mnt-HFS: rounds=25 procs=4 exactlyOneCreatorViolations(anomalies)=0 creators=25 overwritersOfExistingAtPrepare=1 conflicts=74 others=0
+--- PASS: TestZZR3FSMatrix (0.43s)
+--- prev (a8b4786)
+    zz_probe_r3_prevfs_test.go:29: a8b4786 engine create: err=<nil> file="created by agent\n" readErr=<nil>
+--- PASS: TestZZR3PrevFSCreate (0.00s)
+##### FS=MSDOSFAT32 (msdos)
+--- head
+    zz_probe_r3_fs_test.go:36: primitives: os.Link=link /tmp/lc-adr0024-r3/mnt-MSDOSFAT32/zz-628274040/prim-a /tmp/lc-adr0024-r3/mnt-MSDOSFAT32/zz-628274040/prim-link: operation not supported isLinkFallbackErr=true | renameNoReplace(existing)=file exists | renameNoReplace(new)=<nil>
+    zz_probe_r3_fs_test.go:50: engine create: commit=ok err=<nil> committed=true dirty=false | file="created by agent\n" readErr=<nil> | debris=[]
+    zz_probe_r3_fs_test.go:61: engine create vs foreign create before publish: commit=conflict dirty=false | file="FOREIGN\n" | debris=[]
+    zz_probe_r3_fs_test.go:126: multi-process race on /tmp/lc-adr0024-r3/mnt-MSDOSFAT32: rounds=25 procs=4 exactlyOneCreatorViolations(anomalies)=0 creators=25 overwritersOfExistingAtPrepare=0 conflicts=75 others=0
+--- PASS: TestZZR3FSMatrix (2.06s)
+--- prev (a8b4786)
+    zz_probe_r3_prevfs_test.go:29: a8b4786 engine create: err=<nil> file="created by agent\n" readErr=<nil>
+--- PASS: TestZZR3PrevFSCreate (0.04s)
+##### ENOSPC on 8MiB image (main/prev/head)
+--- main
+    zz_probe_r3_rollback_test.go:94: ENOSPC create (1036000 bytes, ~320KiB free): err=write /tmp/lc-adr0024-r3/mnt-small/ws-1048291002/new.txt: no space left on device | new.txt statErr=<nil> | entries=[exist.txt new.txt]
+    zz_probe_r3_rollback_test.go:102: ENOSPC overwrite of existing 14000-byte file: err=write /tmp/lc-adr0024-r3/mnt-small/ws-1048291002/exist.txt: no space left on device | exist.txt now 0 bytes, original DESTROYED, prefixIsNew=true
+--- PASS: TestZZR3ENOSPC (0.02s)
+--- prev
+    zz_probe_r3_rollback_test.go:94: ENOSPC create (1036000 bytes, ~320KiB free): err=write /tmp/lc-adr0024-r3/mnt-small/ws-2351601372/new.txt: no space left on device | new.txt statErr=stat /tmp/lc-adr0024-r3/mnt-small/ws-2351601372/new.txt: no such file or directory | entries=[exist.txt]
+    zz_probe_r3_rollback_test.go:102: ENOSPC overwrite of existing 14000-byte file: err=write /tmp/lc-adr0024-r3/mnt-small/ws-2351601372/exist.txt: no space left on device | exist.txt now 0 bytes, original DESTROYED, prefixIsNew=true
+--- PASS: TestZZR3ENOSPC (0.01s)
+--- head
+    zz_probe_r3_rollback_test.go:94: ENOSPC create (1036000 bytes, ~320KiB free): err=write /tmp/lc-adr0024-r3/mnt-small/ws-681227174/.lcx-create-b16f96f03a86af95b8e1959aebb742d4: no space left on device | new.txt statErr=stat /tmp/lc-adr0024-r3/mnt-small/ws-681227174/new.txt: no such file or directory | entries=[exist.txt]
+    zz_probe_r3_rollback_test.go:102: ENOSPC overwrite of existing 14000-byte file: err=write /tmp/lc-adr0024-r3/mnt-small/ws-681227174/exist.txt: no space left on device | exist.txt now 0 bytes, original DESTROYED, prefixIsNew=true
+--- PASS: TestZZR3ENOSPC (0.01s)
+leftover on small fs: 

@@ -1,0 +1,47 @@
+# R3 commit-stamped RED/GREEN; 2026-11-19T14:35:38Z; macOS 27.0.1 arm64; go1.26.5 darwin/arm64
+##### R3-01 RED: production code 2ba79ae4aedd35d597604168894c3d65167e9cde + tests from 87a3166711277c0ea311374f0eecaeb03d0d4b7d (internal/editing/remediation_r3_01_unix_test.go)
+# github.com/edynasty/LumenCortex/internal/editing [github.com/edynasty/LumenCortex/internal/editing.test]
+internal/editing/remediation_r3_01_unix_test.go:22:4: undefined: linkForPublish
+internal/editing/remediation_r3_01_unix_test.go:25:4: undefined: renameNoReplaceForPublish
+internal/editing/remediation_r3_01_unix_test.go:26:23: undefined: linkForPublish
+internal/editing/remediation_r3_01_unix_test.go:26:39: undefined: renameNoReplaceForPublish
+internal/editing/remediation_r3_01_unix_test.go:39:30: undefined: CodeUnsupportedFilesystem
+FAIL	github.com/edynasty/LumenCortex/internal/editing [build failed]
+FAIL
+exit=1
+##### R3-01 GREEN: production code 87a3166711277c0ea311374f0eecaeb03d0d4b7d + tests from 87a3166711277c0ea311374f0eecaeb03d0d4b7d (internal/editing/remediation_r3_01_unix_test.go)
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.415s
+exit=0
+##### R3-04 RED: production code 87a3166711277c0ea311374f0eecaeb03d0d4b7d + tests from b7830e4c4737bab130cc0bc3638c771c54c97639 (internal/agent/remediation_r3_04_test.go)
+# github.com/edynasty/LumenCortex/internal/agent [github.com/edynasty/LumenCortex/internal/agent.test]
+internal/agent/remediation_r3_04_test.go:177:21: undefined: latestAtomicStepSeq
+internal/agent/remediation_r3_04_test.go:178:124: undefined: latestAtomicStepSeq
+internal/agent/remediation_r3_04_test.go:222:12: undefined: latestAtomicStepSeq
+internal/agent/remediation_r3_04_test.go:225:12: undefined: latestAtomicStepSeq
+internal/agent/remediation_r3_04_test.go:235:68: too many arguments in call to appendPinnedGateAndRelaxationNotice
+internal/agent/remediation_r3_04_test.go:236:52: too many arguments in call to appendFloorRelaxationNotice
+FAIL	github.com/edynasty/LumenCortex/internal/agent [build failed]
+FAIL
+exit=1
+##### R3-04 GREEN: production code b7830e4c4737bab130cc0bc3638c771c54c97639 + tests from b7830e4c4737bab130cc0bc3638c771c54c97639 (internal/agent/remediation_r3_04_test.go)
+ok  	github.com/edynasty/LumenCortex/internal/agent	0.898s
+exit=0
+##### R3-03 RED: production code b7830e4c4737bab130cc0bc3638c771c54c97639 + tests from 0155df659341dfa5e92904d461da669f69b3f305 (internal/agent/remediation_r3_03_test.go internal/agent/remediation_f02_test.go)
+--- FAIL: TestF02MultiToolCallAttributionAndUserResetOnRealSQLite (0.10s)
+--- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/write_proven_after_a_read_with_no_execution (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/write_proven_after_an_admitted_read (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/write_unknown_after_an_admitted_read (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/interrupted_second_call_without_execution (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/unpaired_second_call (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/same-name_calls_bind_executions_in_admission_order (0.00s)
+    --- FAIL: TestR303CausalRefBindsAllFieldsToOneToolCall/no-change_group_keeps_the_first_call_with_only_its_own_execution (0.00s)
+--- FAIL: TestR303GatedLedgerNamesTheExecutingCallLiveAndCold (0.06s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/agent	1.279s
+FAIL
+exit=1
+##### R3-03 GREEN: production code 0155df659341dfa5e92904d461da669f69b3f305 + tests from 0155df659341dfa5e92904d461da669f69b3f305 (internal/agent/remediation_r3_03_test.go internal/agent/remediation_f02_test.go)
+ok  	github.com/edynasty/LumenCortex/internal/agent	1.109s
+exit=0
+script exit=0

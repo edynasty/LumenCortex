@@ -1,0 +1,20 @@
+=== R6 PHASE A: R5-02 .. R5-05 RED REPRODUCTION ===
+timestamp=2026-11-20T11:20:52Z
+commit=bfc493634d819bc3be7d30d669bbb2fbef30212e
+dirty_files=0
+cmd=go test -overlay <tmp>/r502_05_red.json -v -count=1 -run '^TestR6Red' ./internal/agent ./internal/toolset
+=== RUN   TestR6RedR502ApplyExperienceInvalidJSONAndLostEdge
+    zz_r6_red_r502_test.go:140: R5-02 observed: bytes=9371 valid_json=false consumer_reached=false
+    zz_r6_red_r502_test.go:142: R5-02 RED: valid_json=false consumer_reached=false
+--- FAIL: TestR6RedR502ApplyExperienceInvalidJSONAndLostEdge (0.17s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/agent	0.655s
+=== RUN   TestR6RedR503ToR505
+    zz_r6_red_r503_05_test.go:37: R5-05 observed: input="/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR6RedR503ToR505123648245/001/ws-sibling/secret.txt" sanitized="failed opening .-sibling/secret.txt" corrupted_sibling=true
+    zz_r6_red_r503_05_test.go:60: R5-03/04 observed: len=26031 bound=4096 valid=true contains_root=true
+    zz_r6_red_r503_05_test.go:62: R5-03/04/05 RED: len=26031 bound=4096 contains_root=true corrupted_sibling=true
+--- FAIL: TestR6RedR503ToR505 (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/toolset	0.665s
+FAIL
+exit=1

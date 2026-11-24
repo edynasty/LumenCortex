@@ -1,0 +1,41 @@
+=== TestR201 (-race) ===
+=== RUN   TestR201InPlaceForeignMutationsNeverDeleted
+=== RUN   TestR201InPlaceForeignMutationsNeverDeleted/cas_conflict_after_inplace_foreign_write
+=== RUN   TestR201InPlaceForeignMutationsNeverDeleted/inplace_foreign_append_preserved
+=== RUN   TestR201InPlaceForeignMutationsNeverDeleted/inplace_foreign_oversized_write_preserved
+=== RUN   TestR201InPlaceForeignMutationsNeverDeleted/inplace_foreign_partial_overwrite_during_write_preserved
+=== RUN   TestR201InPlaceForeignMutationsNeverDeleted/rollback_preserves_file_modified_and_restored_by_foreign_process
+=== RUN   TestR201InPlaceForeignMutationsNeverDeleted/rollback_preserves_file_touched_and_restored_to_same_bytes_by_foreign_process
+--- PASS: TestR201InPlaceForeignMutationsNeverDeleted (0.04s)
+    --- PASS: TestR201InPlaceForeignMutationsNeverDeleted/cas_conflict_after_inplace_foreign_write (0.00s)
+    --- PASS: TestR201InPlaceForeignMutationsNeverDeleted/inplace_foreign_append_preserved (0.00s)
+    --- PASS: TestR201InPlaceForeignMutationsNeverDeleted/inplace_foreign_oversized_write_preserved (0.03s)
+    --- PASS: TestR201InPlaceForeignMutationsNeverDeleted/inplace_foreign_partial_overwrite_during_write_preserved (0.00s)
+    --- PASS: TestR201InPlaceForeignMutationsNeverDeleted/rollback_preserves_file_modified_and_restored_by_foreign_process (0.00s)
+    --- PASS: TestR201InPlaceForeignMutationsNeverDeleted/rollback_preserves_file_touched_and_restored_to_same_bytes_by_foreign_process (0.00s)
+=== RUN   TestR201InPlaceForeignWriterRealRace
+    remediation_r2_01_test.go:353: R2-01 real race: iterations=400 lost=0 foreignKept=399 agentKept=1 mixed=0 other=0
+--- PASS: TestR201InPlaceForeignWriterRealRace (0.61s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+=== RUN   TestR201TwoOSProcessesCreateRace/create
+    remediation_r2_01_test.go:457: two-OS-process create race: rounds=50 childWins=2 agentWins=48 lost=0 mixed=0
+=== RUN   TestR201TwoOSProcessesCreateRace/inplace
+    remediation_r2_01_test.go:457: two-OS-process inplace race: rounds=50 childWins=50 agentWins=0 lost=0 mixed=0
+--- PASS: TestR201TwoOSProcessesCreateRace (1.36s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/create (0.80s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/inplace (0.41s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	3.424s
+=== RUN   TestR201WriteFileInPlaceForeignWriterRealRace
+=== RUN   TestR201WriteFileInPlaceForeignWriterRealRace/write_file_300_iterations
+    remediation_r2_01_test.go:90: R2-01 toolset write_file: iterations=300 okRuns=300 lost=0 (refusedLost=0) mixed=0 kept=300
+--- PASS: TestR201WriteFileInPlaceForeignWriterRealRace (0.60s)
+    --- PASS: TestR201WriteFileInPlaceForeignWriterRealRace/write_file_300_iterations (0.60s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/toolset	2.376s
+=== Full internal/editing/... & internal/toolset/... (-race) ===
+ok  	github.com/edynasty/LumenCortex/internal/editing	5.816s
+ok  	github.com/edynasty/LumenCortex/internal/editing/goedit	15.424s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	26.359s
+=== Windows & Linux cross-build + vet + test binary compile ===
+=== R2-01 ALL CHECKS PASSED ===

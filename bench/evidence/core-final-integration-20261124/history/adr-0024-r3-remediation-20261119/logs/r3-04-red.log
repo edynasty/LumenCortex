@@ -1,0 +1,18 @@
+=== RUN   TestR304ResumeNoticeDoesNotClaimOmittedLatestStepPreserved
+    remediation_r3_04_test.go:198: notice claims the omitted latest atomic step is preserved:
+        [Task State — maintained by the LumenCortex runtime from durable session state; it is not a new user message.]
+        
+        Objective:
+        make the suite pass
+        
+        
+        [Pinned Completion-Gate State — seq 8 (refusal #1, stage: unknown_mutated)]
+        Completion refused: 1 background job(s) this run started are still queued or running (job_r304_gate running: make test). Wait for them with job_wait and check their results, or cancel the ones you no longer need with job_cancel, before you give the final answer. Jobs still active when the run ends are cancelled.
+        Causal repair ledger: originalAnchorSeq=5, strictFloorSeq=5, postGateProven=0, postGateUnknown=3; originalEvidence=[seq=5 tool=read_file evidence=none]; recentPostGateMutations=[seq=9 tool=bash exec=ex-b931aa0578cc75935d3b52779cef315a evidence=unknown, seq=11 tool=bash exec=ex-db2593f3035b61a41b72e87ba0922273 evidence=unknown, seq=13 tool=bash exec=ex-e2c87c5556076252abf332648db56afb evidence=unknown]
+        
+        [Context Window Notice — Floor Relaxation]
+        Transcript messages from seq 5 through gate refusal seq 8 and older post-gate steps prior to the transmitted rolling suffix have been omitted to fit the largest available model window; active gate feedback (seq 8) and causal repair progress are pinned above, and the latest atomic step is preserved. Before modifying code or proposing completion, re-inspect current workspace state (for example via read_file, search_text, or git status/git diff) rather than assuming omitted steps.
+--- FAIL: TestR304ResumeNoticeDoesNotClaimOmittedLatestStepPreserved (0.29s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/agent	0.747s
+FAIL

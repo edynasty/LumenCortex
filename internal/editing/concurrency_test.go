@@ -15,6 +15,7 @@ import (
 // Four agents edit different lines of one file from the same snapshot: no update is lost, and every
 // edit that was refused was refused explicitly.
 func TestConcurrentLineEditsLoseNoUpdate(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	var b strings.Builder
 	for line := 1; line <= 40; line++ {
@@ -79,6 +80,7 @@ func TestLargeFileAnchorEditIsBounded(t *testing.T) {
 		t.Fatalf("lines = %d", got)
 	}
 	ops := resolveOps(t, snap, AnchorOp{Op: OpReplace, Start: anchorAt(snap.Doc, 25_000), Text: "func generated025000() { panic(1) }"})
+	requireExistingFileUpdate(t)
 	if _, err := commitLineOps(t, engine, "big.go", snap.Rev, ops); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -111,7 +113,9 @@ func TestWriteLeaseRefusesOtherHolder(t *testing.T) {
 		t.Fatalf("lease = %+v", lease)
 	}
 	content := []byte("beta\n")
-	_, err = engine.Commit(context.Background(), Plan{Actor: testActor(), Tool: "write_file",
+	var receipt CommitReceipt
+	ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { receipt = r })
+	result, err := engine.Commit(ctx, Plan{Actor: testActor(), Tool: "write_file",
 		Changes: []FileChange{{Path: "a.txt", Content: &content}}})
 	editErr, ok := AsError(err)
 	if !ok || editErr.Code != CodeLeaseConflict || editErr.Holder != "other-agent" {
@@ -120,14 +124,27 @@ func TestWriteLeaseRefusesOtherHolder(t *testing.T) {
 	if got := readFileContent(t, root, "a.txt"); got != "alpha\n" {
 		t.Fatalf("a leased file was written: %q", got)
 	}
+	if receipt.Committed || receipt.DirtyFailure || result.CommitState != CommitStatePrePublishFailure {
+		t.Fatalf("lease refusal claims publication: %+v %+v", result, receipt)
+	}
+	fr, rc := r7Files(t, result, receipt, "a.txt")
+	if fr.Published || rc.Wrote || fr.Verified || fr.NewRev != "" || rc.NewSHA256 != "" {
+		t.Fatalf("lease refusal claims a file effect: %+v %+v", fr, rc)
+	}
 	engine.Leases().Release(target, "other-agent")
-	if _, err := engine.Commit(context.Background(), Plan{Actor: testActor(), Tool: "write_file",
-		Changes: []FileChange{{Path: "a.txt", Content: &content}}}); err != nil {
-		t.Fatalf("commit after release: %v", err)
+	if err := engine.Leases().Check(testActor().Session, target); err != nil {
+		t.Fatalf("lease still held after release: %v", err)
 	}
-	if got := readFileContent(t, root, "a.txt"); got != "beta\n" {
-		t.Fatalf("content = %q", got)
-	}
+	t.Run("update_after_release", func(t *testing.T) {
+		requireExistingFileUpdate(t)
+		if _, err := engine.Commit(context.Background(), Plan{Actor: testActor(), Tool: "write_file",
+			Changes: []FileChange{{Path: "a.txt", Content: &content}}}); err != nil {
+			t.Fatalf("commit after release: %v", err)
+		}
+		if got := readFileContent(t, root, "a.txt"); got != "beta\n" {
+			t.Fatalf("content = %q", got)
+		}
+	})
 }
 
 // A lease covers a directory prefix and expires, so a holder that dies cannot lock a path forever.
@@ -157,6 +174,7 @@ func TestWriteLeasePrefixAndExpiry(t *testing.T) {
 // A failure while writing the second file keeps the first published: R7 never compensates. The
 // first path reports its verified write and the failed path reports no publication.
 func TestMultiFileCommitStopsAtFirstWriteFailure(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "a.txt", "alpha\n")
 	writeFile(t, root, "sub/b.txt", "beta\n")
@@ -199,6 +217,7 @@ func TestMultiFileCommitStopsAtFirstWriteFailure(t *testing.T) {
 
 // Two files commit together and both report their new revisions.
 func TestMultiFileCommitIsAtomic(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "a.txt", "alpha\n")
 	writeFile(t, root, "b.txt", "beta\n")

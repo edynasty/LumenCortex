@@ -1,0 +1,13 @@
+base_commit=0b3b8e721163890ebb664abb4b5c9fc3ef39f4f1
+worktree_dirty=0
+date_utc=2026-11-20T06:32:54Z
+
+$ go test -overlay /Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-r5-remediation-20261120/probes/overlay_c.json -count=1 -v -run '^TestR5RedR402CCloseFailOverwritesForeignData$' ./internal/editing
+=== RUN   TestR5RedR402CCloseFailOverwritesForeignData
+    zz_r5_red_c_test.go:52: err=input/output error diskA="old-a\n" diskB="old-b\n" receipt={Committed:false DirtyFailure:true State:partially_published Files:[{Path:a.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR5RedR402CCloseFailOverwritesForeignData2113193860/001/a.txt Staged:false Published:true Verified:true RolledBack:true Wrote:false PublishState:published_rolled_back Created:false Deleted:false OldSHA256:sha256:96cdfb91ba2c74be3baa1902d9b100039a4d67decdef72a3ee1e67c886cbb875 NewSHA256:sha256:54578a36036ade573160b2eb3ba5d8557897aa8c6b4ce4742e556d37eb81c680} {Path:b.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR5RedR402CCloseFailOverwritesForeignData2113193860/001/b.txt Staged:false Published:true Verified:false RolledBack:true Wrote:false PublishState:published_rolled_back Created:false Deleted:false OldSHA256:sha256:28434c80688e88d8f2955a9d77b92594343aa1cd8b168b9001fe5096c97c8022 NewSHA256:sha256:550d594f5d87bd540b72a207fd32c27894f378088bd355d4f0b2bb7d43e58df9}]}
+    zz_r5_red_c_test.go:54: R4-02-C DATA LOSS DEFECT: rollback overwrote external append on b.txt! got="old-b\n" want="new-b\nFOREIGN\n"
+--- FAIL: TestR5RedR402CCloseFailOverwritesForeignData (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	0.468s
+FAIL
+exit=1

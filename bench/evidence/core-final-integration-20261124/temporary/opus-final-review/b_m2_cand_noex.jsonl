@@ -1,0 +1,9 @@
+{"Time":"2026-11-24T08:41:27.418264+08:00","Action":"start","Package":"github.com/edynasty/LumenCortex/internal/editing"}
+{"Time":"2026-11-24T08:41:27.823418+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewEvictedReadRequiresFreshRevision"}
+{"Time":"2026-11-24T08:41:27.823573+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewEvictedReadRequiresFreshRevision","Output":"=== RUN   TestReviewEvictedReadRequiresFreshRevision\n"}
+{"Time":"2026-11-24T08:41:27.826808+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewEvictedReadRequiresFreshRevision","Output":"    review_regression_test.go:97: evicted stale read: conflict a: read history is unavailable; reread this file before replacing it (current rev m2bm8wgg); something else wrote the file; re-read it and redo the edit, want unknown_rev\n"}
+{"Time":"2026-11-24T08:41:27.827235+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewEvictedReadRequiresFreshRevision","Output":"--- FAIL: TestReviewEvictedReadRequiresFreshRevision (0.00s)\n"}
+{"Time":"2026-11-24T08:41:27.827255+08:00","Action":"fail","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewEvictedReadRequiresFreshRevision","Elapsed":0}
+{"Time":"2026-11-24T08:41:27.82727+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"FAIL\n"}
+{"Time":"2026-11-24T08:41:27.827884+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"FAIL\tgithub.com/edynasty/LumenCortex/internal/editing\t0.409s\n"}
+{"Time":"2026-11-24T08:41:27.827912+08:00","Action":"fail","Package":"github.com/edynasty/LumenCortex/internal/editing","Elapsed":0.41}

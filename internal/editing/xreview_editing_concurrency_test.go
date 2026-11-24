@@ -94,6 +94,7 @@ func TestXReviewSnapshotRegisterCopiesInsteadOfMutating(t *testing.T) {
 // write_file) against the same revision. Exactly one lands; the other is refused as stale/conflict;
 // the final bytes are one writer's, never a mix.
 func TestXReviewConcurrentLineEditAndWholeFileWrite(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "f.txt", xrevLines(20))
 	engine := newTestEngine(t, root)
@@ -260,6 +261,7 @@ func TestXReviewMultiFileAtomicAgainstSingleWrite(t *testing.T) {
 // A hashline edit made after another session committed an unrelated line relocates and lands; an edit
 // whose own line the other session changed is refused, never applied at guessed coordinates.
 func TestXReviewHashlineAnchorsAfterOtherSessionCommit(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "g.txt", xrevLines(12))
 	engine := newTestEngine(t, root)

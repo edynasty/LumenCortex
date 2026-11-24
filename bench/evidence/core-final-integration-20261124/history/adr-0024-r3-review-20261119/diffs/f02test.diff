@@ -1,0 +1,34 @@
+diff --git a/internal/agent/remediation_f02_test.go b/internal/agent/remediation_f02_test.go
+index 88060f1..dcf27c3 100644
+--- a/internal/agent/remediation_f02_test.go
++++ b/internal/agent/remediation_f02_test.go
+@@ -614,9 +614,9 @@ func TestF02HistoryOverflowStreamsFromRealSQLite(t *testing.T) {
+ 	}
+ 	rLive.appendRow(bSeq, protocol.Message{Role: "user", Origin: protocol.OriginCompletionBlocked, Content: "gate failed"})
+ 
+-	if !rLive.historyOverflowed || len(rLive.historyGroups) != 0 {
+-		t.Fatalf("expected historyOverflowed=true and nil slice past %d groups, got overflow=%v len=%d",
+-			MaxInMemoryHistoryGroups, rLive.historyOverflowed, len(rLive.historyGroups))
++	if !rLive.historyOverflowed || !rLive.hasBaseSM || len(rLive.historyGroups) == 0 || len(rLive.historyGroups) > MaxInMemoryHistoryGroups {
++		t.Fatalf("expected historyOverflowed=true, hasBaseSM=true, and 0 < len(historyGroups) <= %d, got overflow=%v hasBaseSM=%v len=%d",
++			MaxInMemoryHistoryGroups, rLive.historyOverflowed, rLive.hasBaseSM, len(rLive.historyGroups))
+ 	}
+ 
+ 	liveRep, err := rLive.deriveRepairContext(ctx, store, sid)
+@@ -624,7 +624,15 @@ func TestF02HistoryOverflowStreamsFromRealSQLite(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 	if !liveRep.Active || liveRep.MinRequiredSeq != firstMutSeq || liveRep.BlockSeq != bSeq {
+-		t.Fatalf("streaming live deriveRepairContext = %+v, want MinRequiredSeq=%d BlockSeq=%d", liveRep, firstMutSeq, bSeq)
++		t.Fatalf("incremental baseSM live deriveRepairContext = %+v, want MinRequiredSeq=%d BlockSeq=%d", liveRep, firstMutSeq, bSeq)
++	}
++
++	streamedRep, err := StreamRepairContextFromStore(ctx, store, sid, rLive.latestUserSeq)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if streamedRep != liveRep {
++		t.Fatalf("SQLite StreamRepairContextFromStore %+v != live deriveRepairContext %+v", streamedRep, liveRep)
+ 	}
+ 
+ 	rCold := &run{}

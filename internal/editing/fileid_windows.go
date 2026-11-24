@@ -23,6 +23,41 @@ var (
 	procMoveFileExW = modkernel32.NewProc("MoveFileExW")
 )
 
+type vnodeWriteWatch struct{}
+
+func newVnodeWriteWatch(_ *os.File) (*vnodeWriteWatch, error) {
+	return &vnodeWriteWatch{}, nil
+}
+
+func (*vnodeWriteWatch) wrote() bool { return false }
+
+func (*vnodeWriteWatch) Close() error { return nil }
+
+var renameSwapForPublish = func(_, _ string) error {
+	return syscall.ENOSYS
+}
+
+func isSwapRenameUnsupportedErr(err error) bool {
+	return errors.Is(err, syscall.ENOSYS) || errors.Is(err, syscall.EINVAL)
+}
+
+func quarantineMoveForDelete(srcPath, dstPath string, openFile *os.File) (bool, error) {
+	if openFile != nil {
+		if err := openFile.Close(); err != nil {
+			return true, err
+		}
+	}
+	return true, moveFileNoReplaceWindows(srcPath, dstPath)
+}
+
+func quarantineRestoreForDelete(quarantinePath, dstPath string) error {
+	return moveFileNoReplaceWindows(quarantinePath, dstPath)
+}
+
+func isQuarantineUnsupportedErr(err error) bool {
+	return errors.Is(err, syscall.ENOSYS) || errors.Is(err, errNoReplacePublishUnsupported)
+}
+
 // fileIdentity captures the Windows handle identity (VolumeSerialNumber + 64-bit FileIndex +
 // CreationTime + LastWriteTime) of a file created by the current Commit call.
 type fileIdentity struct {
@@ -31,6 +66,7 @@ type fileIdentity struct {
 	volSerial     uint32
 	idxHigh       uint32
 	idxLow        uint32
+	nlink         uint32
 	creationTime  syscall.Filetime
 	lastWriteTime syscall.Filetime
 }
@@ -59,9 +95,17 @@ func captureFileIdentity(f *os.File) (fileIdentity, error) {
 		volSerial:     d.VolumeSerialNumber,
 		idxHigh:       d.FileIndexHigh,
 		idxLow:        d.FileIndexLow,
+		nlink:         d.NumberOfLinks,
 		creationTime:  d.CreationTime,
 		lastWriteTime: d.LastWriteTime,
 	}, nil
+}
+
+func (id fileIdentity) linkCount() uint64 {
+	if !id.valid || id.nlink == 0 {
+		return 1
+	}
+	return uint64(id.nlink)
 }
 
 func (id fileIdentity) matchesHandleInfo(other os.FileInfo, d syscall.ByHandleFileInformation, checkMtime bool) bool {
@@ -88,6 +132,13 @@ func (id fileIdentity) matchesInfo(other os.FileInfo) bool {
 		return false
 	}
 	return os.SameFile(id.info, other)
+}
+
+func (id fileIdentity) matchesOwnedCleanup(other os.FileInfo) bool {
+	if !id.matchesInfo(other) {
+		return false
+	}
+	return other.ModTime().Equal(id.info.ModTime())
 }
 
 func pathMatchesIdentity(path string, id fileIdentity, checkMtime bool) bool {
@@ -162,6 +213,10 @@ const (
 	winErrFilenameExced = syscall.Errno(206)
 )
 
+func isCleanPrePublishErr(err error) bool {
+	return isCleanPrePublishErrWindows(err)
+}
+
 func isCleanPrePublishErrWindows(err error) bool {
 	return errors.Is(err, os.ErrExist) ||
 		errors.Is(err, errNoReplacePublishUnsupported) ||
@@ -220,6 +275,7 @@ func capturePostPublishIdentityWindows(dstPath string, f *os.File, hooks Publish
 		volSerial:     d.VolumeSerialNumber,
 		idxHigh:       d.FileIndexHigh,
 		idxLow:        d.FileIndexLow,
+		nlink:         d.NumberOfLinks,
 		creationTime:  d.CreationTime,
 		lastWriteTime: d.LastWriteTime,
 	}, nil, false

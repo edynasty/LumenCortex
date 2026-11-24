@@ -1,0 +1,19 @@
+base_commit=0b3b8e721163890ebb664abb4b5c9fc3ef39f4f1
+worktree_dirty=0
+date_utc=2026-11-20T06:32:54Z
+
+$ go test -overlay /Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-r5-remediation-20261120/probes/overlay_ab.json -count=1 -v -run '^TestR5RedR402BStalePerFileState$' ./internal/editing
+=== RUN   TestR5RedR402BStalePerFileState
+=== RUN   TestR5RedR402BStalePerFileState/created_file_refused_rollback_not_published_verified
+    zz_r5_red_ab_test.go:134: R4-02-B DEFECT: externally modified created b.txt still claims Verified=true PublishState=published_verified
+    zz_r5_red_ab_test.go:139: R4-02-B DEFECT: externally modified created b.txt carries stale Result: {Path:b.txt OldRev:6q2nisw2 NewRev:kwgxuv47 Created:true Deleted:false Changed:true Published:true RolledBack:false PublishState:published_verified Landed:[]}
+    zz_r5_red_ab_test.go:143: R4-02-B DEFECT: SnapshotStore registered stale RevOf(new-b) kwgxuv47 for externally modified b.txt
+=== RUN   TestR5RedR402BStalePerFileState/all_files_rolled_back_not_partially_published
+    zz_r5_red_ab_test.go:176: R4-02-B DEFECT: fully rolled-back commit still reports State=partially_published Result.CommitState=partially_published
+--- FAIL: TestR5RedR402BStalePerFileState (0.01s)
+    --- FAIL: TestR5RedR402BStalePerFileState/created_file_refused_rollback_not_published_verified (0.00s)
+    --- FAIL: TestR5RedR402BStalePerFileState/all_files_rolled_back_not_partially_published (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	0.328s
+FAIL
+exit=1

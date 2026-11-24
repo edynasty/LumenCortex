@@ -2,14 +2,19 @@ package editing
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 )
 
-// A binary artifact host uses descriptor-relative replacement. Ordinary existing files keep
-// their inode; new files require staged no-replace publication. Neither is a multi-file CAS.
+// A binary artifact host uses descriptor-relative replacement. Existing files on stageable hosts are
+// replaced by a staged atomic swap; new files require staged no-replace publication. Anything that
+// cannot be published that way (hard-linked files, metadata a swap cannot reproduce, hosts without
+// staging) is refused as unsupported, never rewritten in place. Neither is a multi-file CAS.
 type replaceFileHost interface {
 	ReplaceFile(path string, before, after []byte, existed bool) error
 }
@@ -20,6 +25,14 @@ func isPlainLocalHost(host Host) bool {
 		return true
 	}
 	return false
+}
+
+func allocateSiblingName(dir, prefix string) (string, error) {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, prefix+hex.EncodeToString(nonce[:])), nil
 }
 
 // writeCAS applies one non-deleted change. It returns true when the destination may have changed
@@ -36,7 +49,20 @@ func (e *Engine) writeCAS(host Host, p *prepared) (bool, error) {
 	if p.created {
 		return e.createAtomicNoReplace(host, p)
 	}
-	return e.writeInPlace(host, p)
+	if _, hasStager := host.(AtomicFileStager); hasStager || isPlainLocalHost(host) {
+		return e.updateAtomicSwap(host, p)
+	}
+	// A host without private sibling staging could only truncate and rewrite the live file.
+	p.publishState = PublishUnsupported
+	return false, &Error{Code: CodeUnsupportedFilesystem, Path: p.rel,
+		Detail: "this host cannot stage a replacement next to the file, so it cannot be updated atomically; nothing was written"}
+}
+
+// errMultiLinkUpdate refuses an update of a file that more than one directory entry names: atomic
+// replacement would detach the other hard links, and an in-place rewrite is not failure-safe.
+func errMultiLinkUpdate(rel string, links uint64) error {
+	return &Error{Code: CodeUnsupportedFilesystem, Path: rel,
+		Detail: fmt.Sprintf("the file has %d hard links; LC does not update hard-linked files because replacing it would detach the other links; nothing was written", links)}
 }
 
 // replaceBinary publishes binary content through a host's descriptor-rooted replacement
@@ -109,12 +135,56 @@ func (e *Engine) observeBeforeWrite(host Host, p *prepared) ([]byte, error) {
 	return nil, nil
 }
 
-// writeInPlace updates an existing regular file on its guarded descriptor. The opened descriptor
-// identity is compared with the identity captured at prepare, so an external same-byte inode
-// replacement is refused instead of truncating a file this commit did not plan. Bytes, not a
-// short revision hash, decide the compare-and-swap.
-func (e *Engine) writeInPlace(host Host, p *prepared) (bool, error) {
-	f, err := host.Open(p.abs, false)
+func openPrivateStageTemp(host Host, targetAbs string) (*os.File, string, AtomicFileStager, bool, error) {
+	stager, hasStager := host.(AtomicFileStager)
+	switch {
+	case hasStager:
+		f, path, err := stager.OpenCreateTemp(targetAbs)
+		return f, path, stager, true, err
+	case isPlainLocalHost(host):
+		f, path, err := NewCreateTempFile(filepath.Dir(targetAbs))
+		return f, path, nil, false, err
+	default:
+		return nil, "", nil, false, errNoReplacePublishUnsupported
+	}
+}
+
+// updateAtomicSwap updates an existing regular file by staging the full replacement into a private
+// sibling temporary file first (closing EDITING-PRE-01: ENOSPC, EFBIG and short writes never touch
+// the live destination) and then publishing via kernel atomic swap (RENAME_SWAP on macOS,
+// RENAME_EXCHANGE on Linux) while holding the original descriptor and EVFILT_VNODE watch across the
+// compare-to-publish window so concurrent external writes are neither overwritten nor corrupted into
+// mixed bytes (closing EDITING-PRE-02).
+func (e *Engine) updateAtomicSwap(host Host, p *prepared) (bool, error) {
+	linfo, lerr := os.Lstat(p.abs)
+	if lerr != nil {
+		p.publishState = PublishFailedBeforeWrite
+		if errors.Is(lerr, os.ErrNotExist) {
+			return false, &Error{Code: CodeConflict, Path: p.rel, Rev: p.rev,
+				Detail: "the file was removed after the change was computed; nothing was written"}
+		}
+		return false, lerr
+	}
+	targetAbs := p.abs
+	if linfo.Mode()&os.ModeSymlink != 0 {
+		evalPath, err := filepath.EvalSymlinks(p.abs)
+		if err != nil {
+			p.publishState = PublishFailedBeforeWrite
+			if errors.Is(err, os.ErrNotExist) {
+				return false, &Error{Code: CodeConflict, Path: p.rel, Rev: p.rev,
+					Detail: "the symlink target was removed after the change was computed; nothing was written"}
+			}
+			return false, err
+		}
+		resolvedAbs, _, err := host.Resolve(evalPath, false)
+		if err != nil {
+			p.publishState = PublishFailedBeforeWrite
+			return false, err
+		}
+		targetAbs = resolvedAbs
+	}
+
+	origFile, err := host.Open(targetAbs, false)
 	if err != nil {
 		p.publishState = PublishFailedBeforeWrite
 		if errors.Is(err, os.ErrNotExist) {
@@ -123,101 +193,305 @@ func (e *Engine) writeInPlace(host Host, p *prepared) (bool, error) {
 		}
 		return false, err
 	}
-	openedID, idErr := captureFileIdentity(f)
+	origClosed := false
+	closeOrig := func() error {
+		if origClosed || origFile == nil {
+			return nil
+		}
+		origClosed = true
+		return origFile.Close()
+	}
+
+	openedID, idErr := captureFileIdentity(origFile)
 	if idErr != nil {
 		p.publishState = PublishFailedBeforeWrite
-		return false, errors.Join(idErr, f.Close())
+		return false, errors.Join(idErr, closeOrig())
 	}
 	if p.writtenID.valid && !p.writtenID.matchesInfo(openedID.info) {
 		p.publishState = PublishFailedBeforeWrite
 		return false, errors.Join(&Error{Code: CodeConflict, Path: p.rel, Rev: p.rev,
-			Detail: "the file was replaced after the change was computed; nothing was written"}, f.Close())
+			Detail: "the file was replaced after the change was computed; nothing was written"}, closeOrig())
 	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		p.publishState = PublishFailedBeforeWrite
-		return false, errors.Join(err, f.Close())
+
+	// A swap would leave the other hard links on the old inode. Refuse instead of breaking the aliases
+	// or rewriting the shared inode in place (prepare refuses this too; the link count can change).
+	if openedID.linkCount() > 1 {
+		p.publishState = PublishUnsupported
+		return false, errors.Join(errMultiLinkUpdate(p.rel, openedID.linkCount()), closeOrig())
 	}
-	current, err := readLimited(f, MaxFileBytes)
+
+	watch, _ := newVnodeWriteWatch(origFile)
+	defer func() { _ = watch.Close() }()
+
+	readOrig := func() ([]byte, error) {
+		if _, err := origFile.Seek(0, io.SeekStart); err != nil {
+			return nil, err
+		}
+		return readLimited(origFile, MaxFileBytes)
+	}
+
+	current, err := readOrig()
 	if err != nil {
 		p.publishState = PublishFailedBeforeWrite
 		if CodeOf(err) == CodeTooLarge {
 			return false, errors.Join(&Error{Code: CodeConcurrentWrite, Path: p.rel, Rev: p.rev,
-				Detail: "the file grew beyond the edit limit after the change was computed; nothing was written"}, f.Close())
+				Detail: "the file grew beyond the edit limit after the change was computed; nothing was written"}, closeOrig())
 		}
-		return false, errors.Join(err, f.Close())
+		return false, errors.Join(err, closeOrig())
 	}
 	if !bytes.Equal(current, p.original) {
 		p.publishState = PublishFailedBeforeWrite
 		return false, errors.Join(&Error{Code: CodeConflict, Path: p.rel, Rev: p.rev, CurrentRev: RevOf(current),
-			Detail: "the file changed after the change was computed; nothing was written"}, f.Close())
+			Detail: "the file changed after the change was computed; nothing was written"}, closeOrig())
 	}
 
-	// A successful truncate is the first point where the destination is known to have changed.
-	if err := f.Truncate(0); err != nil {
+	tmpFile, tmpPath, stager, hasStager, err := openPrivateStageTemp(host, targetAbs)
+	if err != nil {
 		p.publishState = PublishFailedBeforeWrite
-		return false, errors.Join(err, f.Close())
+		return false, errors.Join(err, closeOrig())
 	}
-	p.published = true
-	p.wrote = true
-	p.publishState = PublishPartial
-	partialFail := func(cause error) (bool, error) {
-		p.publishState = PublishPartial
-		return true, errors.Join(cause, f.Close())
+	tmpClosed := false
+	closeTmp := func() error {
+		if tmpClosed || tmpFile == nil {
+			return nil
+		}
+		tmpClosed = true
+		return tmpFile.Close()
 	}
-	uncertainFail := func(cause error) (bool, error) {
+
+	tmpID, idErr := captureFileIdentity(tmpFile)
+	if idErr != nil {
 		p.publishState = PublishUncertain
-		return true, errors.Join(cause, f.Close())
+		return true, errors.Join(idErr, closeTmp(), closeOrig())
+	}
+
+	abortBeforeSwap := func(cause error, expected []byte) (bool, error) {
+		id, cerr := captureFileIdentity(tmpFile)
+		if cerr != nil || !tmpID.matchesInfo(id.info) {
+			p.publishState = PublishUncertain
+			return true, errors.Join(cause, cerr, closeTmp(), closeOrig())
+		}
+		tmpClosed = true
+		removed, rmCloseErr := removeCreatedWhileOpen(tmpPath, tmpFile, id, expected)
+		origCloseErr := closeOrig()
+		if removed {
+			p.publishState = PublishFailedBeforeWrite
+			return false, errors.Join(cause, rmCloseErr, origCloseErr)
+		}
+		p.publishState = PublishUncertain
+		return true, errors.Join(cause, rmCloseErr, origCloseErr)
+	}
+
+	// A swap publishes a different inode. Reproduce the metadata it would otherwise drop (owner,
+	// group, extended attributes, file flags, birth time) on the staged file; when that cannot be
+	// reproduced exactly (for example a macOS ACL), refuse before the destination is touched.
+	if metaErr := replicateSwapMetadata(origFile, tmpFile, tmpPath); metaErr != nil {
+		return abortBeforeSwap(&Error{Code: CodeUnsupportedFilesystem, Path: p.rel,
+			Detail: metaErr.Error() + "; nothing was written"}, nil)
+	}
+
+	if err := tmpFile.Chmod(openedID.info.Mode().Perm()); err != nil {
+		return abortBeforeSwap(err, nil)
+	}
+
+	hooks := e.getPublishFaultHooks()
+	var (
+		n        int
+		writeErr error
+	)
+	if hooks.WriteStaged != nil {
+		n, writeErr = hooks.WriteStaged(targetAbs, tmpFile, p.next)
+	} else {
+		n, writeErr = tmpFile.Write(p.next)
+	}
+	if n < 0 || n > len(p.next) {
+		p.publishState = PublishUncertain
+		return true, errors.Join(io.ErrShortWrite, writeErr, closeTmp(), closeOrig())
+	}
+	if n != len(p.next) || writeErr != nil {
+		if writeErr == nil {
+			writeErr = io.ErrShortWrite
+		}
+		return abortBeforeSwap(writeErr, p.next[:n])
+	}
+	// Flush the staged bytes so a deferred allocation or quota failure surfaces before publication.
+	if err := tmpFile.Sync(); err != nil {
+		return abortBeforeSwap(err, p.next)
+	}
+	if _, err := tmpFile.Seek(0, io.SeekStart); err != nil {
+		return abortBeforeSwap(err, p.next)
+	}
+	staged, err := readLimited(tmpFile, MaxFileBytes)
+	if err != nil {
+		return abortBeforeSwap(err, p.next)
+	}
+	if !bytes.Equal(staged, p.next) {
+		return abortBeforeSwap(&Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: RevOf(staged),
+			Detail: "staged temporary file content changed before publication"}, nil)
+	}
+
+	// Capture post-write temp identity (including updated mtime) and verify tmpPath before swapping.
+	stagedID, idErr := captureFileIdentity(tmpFile)
+	if idErr != nil || !tmpID.matchesInfo(stagedID.info) {
+		p.publishState = PublishUncertain
+		return true, errors.Join(idErr, closeTmp(), closeOrig())
+	}
+	tmpNamed, err := os.Lstat(tmpPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			p.publishState = PublishFailedBeforeWrite
+			return false, errors.Join(&Error{Code: CodeConflict, Path: p.rel,
+				Detail: "the staged temporary file disappeared before publication; nothing was written"}, closeTmp(), closeOrig())
+		}
+		p.publishState = PublishUncertain
+		return true, errors.Join(err, closeTmp(), closeOrig())
+	}
+	if !stagedID.matchesInfo(tmpNamed) || !os.SameFile(stagedID.info, tmpNamed) || tmpNamed.Size() != int64(len(p.next)) {
+		p.publishState = PublishUncertain
+		return true, errors.Join(&Error{Code: CodeConcurrentWrite, Path: p.rel,
+			Detail: "the staged temporary file was replaced before publication; nothing was written"}, closeTmp(), closeOrig())
+	}
+
+	if hasStager {
+		if err := stager.BeforeAtomicPublish(p.abs); err != nil {
+			return abortBeforeSwap(err, p.next)
+		}
+		if targetAbs != p.abs {
+			if err := stager.BeforeAtomicPublish(targetAbs); err != nil {
+				return abortBeforeSwap(err, p.next)
+			}
+		}
+	}
+	if hooks.BeforePublish != nil {
+		if err := hooks.BeforePublish(p.abs); err != nil {
+			return abortBeforeSwap(err, p.next)
+		}
 	}
 	if e.afterTruncate != nil {
 		if err := e.afterTruncate(p.abs); err != nil {
-			return partialFail(err)
+			return abortBeforeSwap(err, p.next)
 		}
 	}
-	hooks := e.getPublishFaultHooks()
 	if hooks.AfterTruncate != nil {
 		if err := hooks.AfterTruncate(p.abs); err != nil {
-			return partialFail(err)
+			return abortBeforeSwap(err, p.next)
 		}
 	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return partialFail(err)
+
+	// Re-verify the live destination descriptor and path immediately before swapping so any external
+	// write (short, same-length or long) or replacement in the compare-to-swap window is refused cleanly
+	// without ever modifying targetAbs.
+	preSwapBytes, preSwapReadErr := readOrig()
+	if preSwapReadErr != nil {
+		if CodeOf(preSwapReadErr) == CodeTooLarge {
+			return abortBeforeSwap(&Error{Code: CodeConcurrentWrite, Path: p.rel, Rev: p.rev,
+				Detail: "the file grew beyond the edit limit after the change was computed; nothing was written"}, p.next)
+		}
+		return abortBeforeSwap(preSwapReadErr, p.next)
 	}
-	n, writeErr := f.Write(p.next)
-	if writeErr != nil {
-		return partialFail(writeErr)
+	if watch.wrote() || !bytes.Equal(preSwapBytes, p.original) {
+		return abortBeforeSwap(&Error{Code: CodeConflict, Path: p.rel, Rev: p.rev, CurrentRev: RevOf(preSwapBytes),
+			Detail: "the file changed after the change was computed; nothing was written"}, p.next)
 	}
-	if n != len(p.next) {
-		return partialFail(io.ErrShortWrite)
-	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return uncertainFail(err)
-	}
-	after, err := readLimited(f, MaxFileBytes)
+	dstNamed, err := os.Lstat(targetAbs)
 	if err != nil {
-		return uncertainFail(err)
-	}
-	if !bytes.Equal(after, p.next) {
-		p.publishState = PublishExternalModification
-		return true, errors.Join(&Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: RevOf(after),
-			Detail: "another writer changed the file during the write"}, f.Close())
-	}
-	if postID, idErr := captureFileIdentity(f); idErr == nil {
-		if p.created {
-			p.createdID = postID
-		} else {
-			p.writtenID = postID
+		if errors.Is(err, os.ErrNotExist) {
+			return abortBeforeSwap(&Error{Code: CodeConflict, Path: p.rel, Rev: p.rev,
+				Detail: "the file was removed after the change was computed; nothing was written"}, p.next)
 		}
-	} else {
-		return uncertainFail(idErr)
+		return abortBeforeSwap(err, p.next)
 	}
-	closeErr := f.Close()
+	if !dstNamed.Mode().IsRegular() || !os.SameFile(openedID.info, dstNamed) ||
+		!openedID.matchesInfo(dstNamed) || dstNamed.Size() != int64(len(p.original)) {
+		return abortBeforeSwap(&Error{Code: CodeConflict, Path: p.rel, Rev: p.rev,
+			Detail: "the file was replaced after the change was computed; nothing was written"}, p.next)
+	}
+	// Sample the opened inode again after staging and the pathname check. Planning and open-time
+	// counts miss aliases created while staging; this observation is not atomic with the swap.
+	currentID, idErr := captureFileIdentity(origFile)
+	if idErr != nil {
+		return abortBeforeSwap(idErr, p.next)
+	}
+	if links := currentID.linkCount(); links > 1 {
+		return abortBeforeSwap(errMultiLinkUpdate(p.rel, links), p.next)
+	}
+
+	swapErr := renameSwapForPublish(tmpPath, targetAbs)
+	if isSwapRenameUnsupportedErr(swapErr) {
+		return abortBeforeSwap(&Error{Code: CodeUnsupportedFilesystem, Path: p.rel,
+			Detail: "the filesystem cannot atomically exchange the staged and existing files; nothing was written"}, p.next)
+	}
+	if swapErr != nil {
+		// Nothing swapped: clean up our private staging file if it is still ours.
+		if linfo, lerr := os.Lstat(tmpPath); lerr == nil && stagedID.matchesOwnedCleanup(linfo) && linfo.Size() == int64(len(p.next)) {
+			_ = os.Remove(tmpPath)
+		}
+		_ = closeTmp()
+		_ = closeOrig()
+		if errors.Is(swapErr, os.ErrNotExist) {
+			p.publishState = PublishFailedBeforeWrite
+			return false, &Error{Code: CodeConflict, Path: p.rel, Rev: p.rev,
+				Detail: "the file was removed before publication; nothing was written"}
+		}
+		if errors.Is(swapErr, os.ErrPermission) || isCleanPrePublishErr(swapErr) {
+			p.publishState = PublishFailedBeforeWrite
+			return false, swapErr
+		}
+		p.publishState = PublishUncertain
+		return true, swapErr
+	}
+
+	p.published = true
+	p.wrote = true
+
+	postID, postIDErr := captureFileIdentity(tmpFile)
+	closeErr := closeTmp()
 	if hooks.AfterInPlaceWriteClose != nil {
 		closeErr = errors.Join(closeErr, hooks.AfterInPlaceWriteClose(p.abs))
 	}
-	if closeErr != nil {
-		// Bytes were read back equal, but the close is not verified: the outcome is uncertain.
+
+	if postIDErr != nil || closeErr != nil {
+		// The outcome is uncertain: keep the displaced original (it may hold external writes) rather
+		// than deleting it to tidy up a private name.
+		_ = closeOrig()
 		p.publishState = PublishUncertain
-		return true, closeErr
+		return true, errors.Join(postIDErr, closeErr,
+			fmt.Errorf("the displaced original was kept at %s", tmpPath))
+	}
+	p.writtenID = postID
+
+	// Check whether an uncooperative writer modified the displaced inode during the exchange.
+	// Restore it only while the names still match; otherwise keep it at its private name.
+	// Writes through a pre-opened descriptor after the final check are outside the guarantee.
+	if hooks.BeforeFinalExternalCheck != nil {
+		hooks.BeforeFinalExternalCheck(p.abs)
+	}
+	afterOrig, afterOrigErr := readOrig()
+	if hooks.AfterFinalExternalRead != nil {
+		hooks.AfterFinalExternalRead(p.abs)
+	}
+	if watch.wrote() || afterOrigErr != nil || !bytes.Equal(afterOrig, p.original) {
+		if afterOrigErr == nil {
+			// Include writes that landed between the read and the event poll in CurrentRev.
+			afterOrig, afterOrigErr = readOrig()
+		}
+		outcome := restoreDisplacedOriginal(tmpPath, targetAbs, postID, openedID)
+		_ = closeOrig()
+		p.publishState = PublishExternalModification
+		curRev := ""
+		if afterOrigErr == nil {
+			curRev = RevOf(afterOrig)
+		}
+		return true, &Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: curRev,
+			Detail: "another writer changed the file during publication; " + outcome}
+	}
+
+	if linfo, lerr := os.Lstat(tmpPath); lerr == nil && openedID.matchesInfo(linfo) {
+		_ = os.Remove(tmpPath)
+	}
+	if origCloseErr := closeOrig(); origCloseErr != nil {
+		p.publishState = PublishUncertain
+		return true, origCloseErr
 	}
 	p.publishState = PublishSucceededAndVerified
 	return false, nil
@@ -369,10 +643,80 @@ func (e *Engine) createAtomicNoReplace(host Host, p *prepared) (bool, error) {
 	return outcome.tempLeftover, nil
 }
 
-// deleteCAS checks the opened descriptor identity and exact bytes, then removes the name. The
-// check-to-unlink interval remains a PRE-02 window against an uncooperative writer; no
-// compensation or re-creation happens after this returns. A removal error that cannot prove the
-// name is still present is reported as uncertain, not as a clean refusal.
+// publishBytesNoReplace stages content privately next to dstAbs and publishes it at dstAbs without
+// replacing an existing entry. published reports that dstAbs now names the staged bytes, even if a
+// post-publication identity or close step failed.
+func publishBytesNoReplace(host Host, dstAbs string, content []byte, mode os.FileMode) (bool, error) {
+	tmpFile, tmpPath, _, _, err := openPrivateStageTemp(host, dstAbs)
+	if err != nil {
+		return false, err
+	}
+	if err := tmpFile.Chmod(mode); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
+		return false, err
+	}
+	n, werr := tmpFile.Write(content)
+	if werr != nil || n != len(content) {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
+		if werr != nil {
+			return false, werr
+		}
+		return false, io.ErrShortWrite
+	}
+	outcome, pubErr := publishTempNoReplace(tmpPath, tmpFile, dstAbs, PublishFaultHooks{})
+	return outcome.published, pubErr
+}
+
+// preserveExternalBytes persists bytes recovered from a still-open descriptor whose name is gone. It
+// publishes them at dstAbs when that name is free and otherwise at a new visible sibling
+// "<name>.lc-conflict-<hex>", never replacing an entry another writer created. It returns the path
+// that holds the bytes, and reports success only when such a path exists.
+func preserveExternalBytes(host Host, dstAbs string, content []byte, mode os.FileMode) (string, error) {
+	path := dstAbs
+	for range 8 {
+		published, err := publishBytesNoReplace(host, path, content, mode)
+		if published {
+			return path, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return "", err
+		}
+		if path, err = allocateSiblingName(filepath.Dir(dstAbs), filepath.Base(dstAbs)+".lc-conflict-"); err != nil {
+			return "", err
+		}
+	}
+	return "", errors.New("could not allocate a free name for the externally modified bytes")
+}
+
+// restoreDisplacedOriginal swaps the externally modified original inode (displaced to tmpPath by the
+// publication swap) back into targetAbs only while targetAbs still names this commit's staged inode
+// and tmpPath still names the original. It never deletes the original or another writer's entry,
+// and describes where each ended up.
+func restoreDisplacedOriginal(tmpPath, targetAbs string, postID, openedID fileIdentity) string {
+	curDst, errDst := os.Lstat(targetAbs)
+	curTmp, errTmp := os.Lstat(tmpPath)
+	if errTmp != nil || !openedID.matchesInfo(curTmp) {
+		return "the externally modified original is no longer at its private name " + tmpPath + " and was not restored"
+	}
+	if errDst != nil || !postID.matchesInfo(curDst) {
+		return "another writer replaced the target, so the externally modified original was kept at " + tmpPath
+	}
+	if err := renameSwapForPublish(tmpPath, targetAbs); err != nil {
+		return fmt.Sprintf("restoring the externally modified original failed (%v); it was kept at %s", err, tmpPath)
+	}
+	if linfo, lerr := os.Lstat(tmpPath); lerr == nil && postID.matchesInfo(linfo) {
+		_ = os.Remove(tmpPath)
+		return "the externally modified file was restored"
+	}
+	return "the externally modified file was restored; an entry another writer placed at the target was moved to " + tmpPath
+}
+
+// deleteCAS checks the opened descriptor identity and exact bytes, moves the entry to a private
+// sibling quarantine name via no-replace rename, re-verifies identity and content on the quarantined
+// entry, and either unlinks it or atomically restores it to p.abs if an external modification raced
+// the check-to-delete window (closing EDITING-PRE-02 for deletes).
 func (e *Engine) deleteCAS(host Host, p *prepared) (bool, error) {
 	if _, _, err := host.Resolve(p.rel, false); err != nil {
 		p.publishState = PublishFailedBeforeWrite
@@ -387,67 +731,228 @@ func (e *Engine) deleteCAS(host Host, p *prepared) (bool, error) {
 		}
 		return false, err
 	}
+	fClosed := false
+	closeF := func() error {
+		if fClosed || f == nil {
+			return nil
+		}
+		fClosed = true
+		return f.Close()
+	}
+
 	openedID, idErr := captureFileIdentity(f)
 	if idErr != nil {
 		p.publishState = PublishFailedBeforeWrite
-		return false, errors.Join(idErr, f.Close())
+		return false, errors.Join(idErr, closeF())
 	}
 	if p.writtenID.valid && !p.writtenID.matchesInfo(openedID.info) {
 		p.publishState = PublishFailedBeforeWrite
 		return false, errors.Join(&Error{Code: CodeConflict, Path: p.rel,
-			Detail: "delete target identity changed after validation; nothing was removed"}, f.Close())
+			Detail: "delete target identity changed after validation; nothing was removed"}, closeF())
 	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		p.publishState = PublishFailedBeforeWrite
-		return false, errors.Join(err, f.Close())
+
+	watch, _ := newVnodeWriteWatch(f)
+	defer func() { _ = watch.Close() }()
+
+	readOpened := func() ([]byte, error) {
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return nil, err
+		}
+		return readLimited(f, MaxFileBytes)
 	}
-	current, err := readLimited(f, MaxFileBytes)
+
+	current, err := readOpened()
 	if err != nil {
 		p.publishState = PublishFailedBeforeWrite
 		if CodeOf(err) == CodeTooLarge {
 			return false, errors.Join(&Error{Code: CodeConcurrentWrite, Path: p.rel, Rev: p.rev,
-				Detail: "delete target grew after validation; nothing was removed"}, f.Close())
+				Detail: "delete target grew after validation; nothing was removed"}, closeF())
 		}
-		return false, errors.Join(err, f.Close())
+		return false, errors.Join(err, closeF())
 	}
 	if !bytes.Equal(current, p.original) {
 		p.publishState = PublishFailedBeforeWrite
 		return false, errors.Join(&Error{Code: CodeConflict, Path: p.rel, Rev: p.rev, CurrentRev: RevOf(current),
-			Detail: "delete target changed after validation; nothing was removed"}, f.Close())
+			Detail: "delete target changed after validation; nothing was removed"}, closeF())
 	}
 	named, err := os.Lstat(p.abs)
 	if err != nil {
 		p.publishState = PublishFailedBeforeWrite
 		if errors.Is(err, os.ErrNotExist) {
 			return false, errors.Join(&Error{Code: CodeConflict, Path: p.rel,
-				Detail: "delete target was removed after validation; nothing was removed"}, f.Close())
+				Detail: "delete target was removed after validation; nothing was removed"}, closeF())
 		}
-		return false, errors.Join(err, f.Close())
+		return false, errors.Join(err, closeF())
 	}
 	if !named.Mode().IsRegular() || !os.SameFile(openedID.info, named) ||
 		!p.writtenID.matchesInfo(named) || named.Size() != int64(len(p.original)) {
 		p.publishState = PublishFailedBeforeWrite
 		return false, errors.Join(&Error{Code: CodeConflict, Path: p.rel,
-			Detail: "delete target was replaced after validation; nothing was removed"}, f.Close())
+			Detail: "delete target was replaced after validation; nothing was removed"}, closeF())
 	}
-	// Close before unlink so Windows can delete the name and the verified bytes are final.
-	if err := f.Close(); err != nil {
-		p.publishState = PublishFailedBeforeWrite
-		return false, err
+
+	if stager, hasStager := host.(AtomicFileStager); hasStager {
+		if err := stager.BeforeAtomicPublish(p.abs); err != nil {
+			p.publishState = PublishFailedBeforeWrite
+			return false, errors.Join(err, closeF())
+		}
 	}
-	if err := os.Remove(p.abs); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+	hooks := e.getPublishFaultHooks()
+	if hooks.BeforeDeleteUnlink != nil {
+		if err := hooks.BeforeDeleteUnlink(p.abs); err != nil {
+			p.publishState = PublishFailedBeforeWrite
+			return false, errors.Join(err, closeF())
+		}
+	}
+
+	var quarantinePath string
+	var moveErr error
+	for attempt := 0; attempt < 8; attempt++ {
+		quarantinePath, err = allocateSiblingName(filepath.Dir(p.abs), ".lcx-del-")
+		if err != nil {
+			p.publishState = PublishFailedBeforeWrite
+			return false, errors.Join(err, closeF())
+		}
+		var closedByPlatform bool
+		closedByPlatform, moveErr = quarantineMoveForDelete(p.abs, quarantinePath, f)
+		if closedByPlatform {
+			fClosed = true
+		}
+		if errors.Is(moveErr, os.ErrExist) && !closedByPlatform {
+			continue
+		}
+		break
+	}
+
+	if moveErr != nil && isQuarantineUnsupportedErr(moveErr) {
+		// Without a no-replace move the target could only be removed by name after a separate check,
+		// which loses a write landing in between. Refuse rather than delete unsafely.
+		_ = closeF()
+		p.publishState = PublishUnsupported
+		return false, &Error{Code: CodeUnsupportedFilesystem, Path: p.rel,
+			Detail: "the filesystem cannot move the file aside without replacing another entry (" + moveErr.Error() + "), so it cannot be deleted safely; nothing was removed"}
+	}
+
+	if moveErr != nil {
+		_ = closeF()
+		if errors.Is(moveErr, os.ErrNotExist) {
 			p.publishState = PublishFailedBeforeWrite
 			return false, &Error{Code: CodeConflict, Path: p.rel,
 				Detail: "delete target was removed by another writer; nothing was removed"}
 		}
-		if errors.Is(err, os.ErrPermission) {
+		if errors.Is(moveErr, os.ErrPermission) {
 			p.publishState = PublishFailedBeforeWrite
-			return false, err
+			return false, moveErr
 		}
 		p.publishState = PublishUncertain
-		return true, err
+		return true, moveErr
 	}
+
+	qNamed, lerr := os.Lstat(quarantinePath)
+	var (
+		qBytes []byte
+		qErr   error
+		rErr   error
+	)
+	if qf, openErr := os.Open(quarantinePath); openErr != nil {
+		qErr = openErr
+	} else {
+		qBytes, rErr = readLimited(qf, MaxFileBytes)
+		qErr = qf.Close()
+	}
+
+	unchanged := lerr == nil &&
+		qNamed.Mode().IsRegular() &&
+		os.SameFile(openedID.info, qNamed) &&
+		openedID.matchesInfo(qNamed) &&
+		p.writtenID.matchesInfo(qNamed) &&
+		qNamed.Size() == int64(len(p.original)) &&
+		!watch.wrote() &&
+		qErr == nil &&
+		rErr == nil &&
+		bytes.Equal(qBytes, p.original)
+
+	if !unchanged {
+		_ = closeF()
+		restoreErr := quarantineRestoreForDelete(quarantinePath, p.abs)
+		curRev := ""
+		code := CodeConflict
+		if CodeOf(rErr) == CodeTooLarge {
+			code = CodeConcurrentWrite
+		} else if qErr == nil && rErr == nil {
+			curRev = RevOf(qBytes)
+		}
+		conflictErr := &Error{Code: code, Path: p.rel, Rev: p.rev, CurrentRev: curRev,
+			Detail: "delete target changed after validation; nothing was removed"}
+		if restoreErr != nil {
+			p.publishState = PublishUncertain
+			return true, errors.Join(conflictErr, restoreErr,
+				fmt.Errorf("the changed delete target could not be moved back and was kept at %s", quarantinePath))
+		}
+		p.publishState = PublishFailedBeforeWrite
+		return false, conflictErr
+	}
+
+	// A path recreated by another writer after the move aside makes the delete outcome a conflict:
+	// keep the original in quarantine and leave the new file alone rather than reporting a delete.
+	if _, recreatedErr := os.Lstat(p.abs); !errors.Is(recreatedErr, os.ErrNotExist) {
+		_ = closeF()
+		if recreatedErr != nil {
+			p.publishState = PublishUncertain
+			return true, errors.Join(recreatedErr, fmt.Errorf("the delete target was kept at %s", quarantinePath))
+		}
+		p.publishState = PublishExternalModification
+		return true, &Error{Code: CodeConflict, Path: p.rel, Rev: p.rev,
+			Detail: "another writer recreated the path while it was being deleted; the original file was kept at " + quarantinePath}
+	}
+
+	if rmErr := os.Remove(quarantinePath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+		_ = closeF()
+		p.publishState = PublishUncertain
+		return true, rmErr
+	}
+
+	if !fClosed {
+		if hooks.BeforeFinalExternalCheck != nil {
+			hooks.BeforeFinalExternalCheck(p.abs)
+		}
+		postBytes, postReadErr := readOpened()
+		if hooks.AfterFinalExternalRead != nil {
+			hooks.AfterFinalExternalRead(p.abs)
+		}
+		wroteDuringUnlink := watch.wrote() || postReadErr != nil || !bytes.Equal(postBytes, p.original)
+		if wroteDuringUnlink && postReadErr == nil {
+			// Read again after detection so a write that landed between the read and the event poll
+			// is part of what is preserved.
+			postBytes, postReadErr = readOpened()
+		}
+		closeErr := closeF()
+		if wroteDuringUnlink {
+			if postReadErr != nil {
+				p.publishState = PublishUncertain
+				return true, errors.Join(&Error{Code: CodeConcurrentWrite, Path: p.rel,
+					Detail: "delete target changed during removal and its bytes could not be read back"}, postReadErr, closeErr)
+			}
+			curRev := RevOf(postBytes)
+			savedAt, saveErr := preserveExternalBytes(host, p.abs, postBytes, openedID.info.Mode().Perm())
+			if saveErr != nil {
+				p.publishState = PublishUncertain
+				return true, errors.Join(&Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: curRev,
+					Detail: "delete target changed during removal and the external bytes could not be preserved"}, saveErr, closeErr)
+			}
+			p.publishState = PublishExternalModification
+			detail := "delete target changed during removal; external modification restored"
+			if savedAt != p.abs {
+				detail = "delete target changed during removal and the path was recreated by another writer; the external bytes were preserved at " + savedAt
+			}
+			return true, errors.Join(&Error{Code: CodeConcurrentWrite, Path: p.rel, CurrentRev: curRev, Detail: detail}, closeErr)
+		}
+		if closeErr != nil {
+			p.publishState = PublishUncertain
+			return true, closeErr
+		}
+	}
+
 	p.published = true
 	p.wrote = true
 	p.publishState = PublishSucceededAndVerified
@@ -512,7 +1017,37 @@ func (e *Engine) verifyActual(host Host, p *prepared) error {
 		p.publishState = PublishUncertain
 		return closeErr
 	}
-	named, statErr := os.Lstat(p.abs)
+	checkAbs := p.abs
+	if p.viaSymlink && !p.created {
+		linkInfo, linkErr := os.Lstat(p.abs)
+		if linkErr != nil {
+			if errors.Is(linkErr, os.ErrNotExist) {
+				p.publishState = PublishExternalModification
+				return &Error{Code: CodeConflict, Path: p.rel,
+					Detail: "the published target was removed after verification"}
+			}
+			p.publishState = PublishUncertain
+			return linkErr
+		}
+		if linkInfo.Mode()&os.ModeSymlink == 0 {
+			p.publishState = PublishExternalModification
+			return &Error{Code: CodeConflict, Path: p.rel,
+				Detail: "the published symlink was replaced after verification"}
+		}
+		evalPath, evalErr := filepath.EvalSymlinks(p.abs)
+		if evalErr != nil {
+			p.publishState = PublishExternalModification
+			return &Error{Code: CodeConflict, Path: p.rel,
+				Detail: "the published symlink target could not be resolved after verification"}
+		}
+		resolvedAbs, _, resErr := host.Resolve(evalPath, false)
+		if resErr != nil {
+			p.publishState = PublishExternalModification
+			return resErr
+		}
+		checkAbs = resolvedAbs
+	}
+	named, statErr := os.Lstat(checkAbs)
 	if statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
 			p.publishState = PublishExternalModification

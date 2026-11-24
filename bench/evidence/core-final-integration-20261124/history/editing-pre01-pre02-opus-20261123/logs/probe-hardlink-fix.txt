@@ -1,0 +1,12 @@
+    zz_opus_hardlink_probe_test.go:30: single update err=<nil>
+    zz_opus_hardlink_probe_test.go:35: HL alias x.txt = "shared-v2\n" same=true
+    zz_opus_hardlink_probe_test.go:35: HL alias y.txt = "shared-v2\n" same=true
+    zz_opus_hardlink_probe_test.go:35: HL alias z.txt = "shared-v2\n" same=true
+    zz_opus_hardlink_probe_test.go:35: HL alias outside.txt = "shared-v2\n" same=true
+    zz_opus_hardlink_probe_test.go:40: HL batch err=invalid b/y.txt: change 2 names the same file as change 1 (a/x.txt) through another spelling: a hard link or a letter-case variant
+    zz_opus_hardlink_probe_test.go:43: HL batch alias x.txt = "shared-v2\n"
+    zz_opus_hardlink_probe_test.go:43: HL batch alias y.txt = "shared-v2\n"
+    zz_opus_hardlink_probe_test.go:43: HL batch alias z.txt = "shared-v2\n"
+    zz_opus_hardlink_probe_test.go:43: HL batch alias outside.txt = "shared-v2\n"
+--- PASS: TestOpusHardlinkMatrix (0.01s)
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.797s

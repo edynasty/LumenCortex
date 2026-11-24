@@ -1,0 +1,3 @@
+Pre-run observation: git -C LumenCortex-Core ls-remote origin refs/heads/main
+origin: https://github.com/edynasty/LumenCortex.git
+7aeb1607ffa588727c6fe04873f7b58a1dc16f15	refs/heads/main

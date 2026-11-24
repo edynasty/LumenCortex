@@ -73,6 +73,7 @@ func r7AssertVerified(t *testing.T, fr FileResult, rc FileCommitReceipt) {
 // and verified, an independent OS child appends to A, then B fails. A keeps the child's bytes but
 // loses its trusted revision and hash; the snapshot is invalidated; C is never attempted.
 func TestR7PrefixExternalAppendBeforeLaterConflict(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "a.txt", "old-a\n")
 	writeFile(t, root, "b.txt", "old-b\n")
@@ -146,6 +147,7 @@ func TestR7PrefixExternalAppendBeforeLaterConflict(t *testing.T) {
 // TestR7PrefixExternalSameByteReplacement replaces A with the exact intended bytes but on a new
 // inode. Bytes alone must not authorize a trusted revision; identity divergence is external.
 func TestR7PrefixExternalSameByteReplacement(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "a.txt", "old-a\n")
 	writeFile(t, root, "b.txt", "old-b\n")
@@ -241,6 +243,9 @@ func TestR7VerifiedPrefixUpdateCreateDelete(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "update" {
+				requireExistingFileUpdate(t)
+			}
 			root := t.TempDir()
 			tc.prepare(t, root)
 			writeFile(t, root, "b.txt", "old-b\n")

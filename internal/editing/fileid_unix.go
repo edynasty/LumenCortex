@@ -19,6 +19,7 @@ type fileIdentity struct {
 	hasDevIno bool
 	dev       uint64
 	ino       uint64
+	nlink     uint64
 	modTime   time.Time
 }
 
@@ -33,13 +34,21 @@ func captureFileIdentity(f *os.File) (fileIdentity, error) {
 	if !info.Mode().IsRegular() {
 		return fileIdentity{}, fmt.Errorf("exclusively created target is not a regular file (mode=%v)", info.Mode())
 	}
-	id := fileIdentity{valid: true, info: info, modTime: info.ModTime()}
+	id := fileIdentity{valid: true, info: info, nlink: 1, modTime: info.ModTime()}
 	if st, ok := info.Sys().(*syscall.Stat_t); ok && st != nil {
 		id.hasDevIno = true
 		id.dev = uint64(st.Dev)
 		id.ino = uint64(st.Ino)
+		id.nlink = uint64(st.Nlink)
 	}
 	return id, nil
+}
+
+func (id fileIdentity) linkCount() uint64 {
+	if !id.valid || id.nlink == 0 {
+		return 1
+	}
+	return id.nlink
 }
 
 func (id fileIdentity) matchesInfo(other os.FileInfo) bool {
@@ -85,12 +94,36 @@ func isNoReplaceRenameUnsupportedErr(err error) bool {
 		errors.Is(err, syscall.ENOSYS)
 }
 
-// linkForPublish and renameNoReplaceForPublish are the kernel primitives publishTempNoReplace uses;
-// tests replace them to simulate a filesystem that supports neither.
+// isSwapRenameUnsupportedErr reports an atomic exchange rename the filesystem or kernel does not
+// implement (for example FAT32/exFAT or non-darwin/linux Unix).
+func isSwapRenameUnsupportedErr(err error) bool {
+	return errors.Is(err, syscall.EOPNOTSUPP) ||
+		errors.Is(err, syscall.ENOTSUP) ||
+		errors.Is(err, syscall.EINVAL) ||
+		errors.Is(err, syscall.ENOSYS)
+}
+
+// linkForPublish, renameNoReplaceForPublish, renameNoReplaceForQuarantine and renameSwapForPublish
+// are the kernel primitives publication uses; tests may replace them individually to simulate
+// filesystem support boundaries.
 var (
-	linkForPublish            = os.Link
-	renameNoReplaceForPublish = renameNoReplacePlatform
+	linkForPublish               = os.Link
+	renameNoReplaceForPublish    = renameNoReplacePlatform
+	renameNoReplaceForQuarantine = renameNoReplacePlatform
+	renameSwapForPublish         = renameSwapPlatform
 )
+
+func quarantineMoveForDelete(srcPath, dstPath string, _ *os.File) (bool, error) {
+	return false, renameNoReplaceForQuarantine(srcPath, dstPath)
+}
+
+func quarantineRestoreForDelete(quarantinePath, dstPath string) error {
+	return renameNoReplaceForQuarantine(quarantinePath, dstPath)
+}
+
+func isQuarantineUnsupportedErr(err error) bool {
+	return isNoReplaceRenameUnsupportedErr(err)
+}
 
 func isCleanPrePublishErr(err error) bool {
 	return errors.Is(err, os.ErrExist) ||
@@ -142,11 +175,12 @@ func capturePostPublishIdentity(dstPath string, f *os.File, hooks PublishFaultHo
 			return fileIdentity{}, cerr, true
 		}
 	}
-	id := fileIdentity{valid: true, info: info, modTime: info.ModTime()}
+	id := fileIdentity{valid: true, info: info, nlink: 1, modTime: info.ModTime()}
 	if st, ok := info.Sys().(*syscall.Stat_t); ok && st != nil {
 		id.hasDevIno = true
 		id.dev = uint64(st.Dev)
 		id.ino = uint64(st.Ino)
+		id.nlink = uint64(st.Nlink)
 	}
 	return id, nil, false
 }

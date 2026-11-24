@@ -1,0 +1,33 @@
+start=2026-11-23T12:35:21Z
+Linux 7.0.14-linuxkit aarch64
+go version go1.23.12 linux/arm64
+fs-type=fuseblk
+1000
+--- SKIP: TestPRE01RealDiskImageENOSPC (0.00s)
+ok  	github.com/edynasty/LumenCortex/internal/editing	1.050s
+normal PASS=99
+ok  	github.com/edynasty/LumenCortex/internal/editing	14.723s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	86.343s
+race_exit=0
+fs-type=overlayfs
+--- PASS: TestSolPREL1UnsupportedSwapRefused (0.01s)
+--- PASS: TestSolPREL1LinkChild (0.00s)
+--- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite (0.00s)
+    --- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/batch_preflight_refuses_everything (0.00s)
+    --- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/link_created_after_staging (0.00s)
+    --- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/delete_one_name_keeps_other_links (0.00s)
+--- PASS: TestZZOpusVerifyLinkChild (0.00s)
+--- PASS: TestZZOpusVerifyLateLinkBeforeFinalCheck (0.01s)
+    zz_opus_verify_test.go:249: BOUNDARY swaps=1 err=<nil> state=published_verified committed=true target={ino:2683359 nlink:1 data:agent-next
+--- PASS: TestZZOpusVerifyLateLinkAfterFinalCheckBoundary (0.00s)
+--- PASS: TestZZOpusVerifyUnsupportedSwapErrnos (0.01s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/ENOTSUP (0.00s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/EOPNOTSUPP (0.00s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/EINVAL (0.00s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/ENOSYS (0.00s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/EACCES_not_unsupported (0.01s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/EIO_not_unsupported (0.00s)
+--- PASS: TestZZOpusVerifyUnsupportedAfterVerifiedPrefix (0.01s)
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.044s
+docker_exit=0
+end=2026-11-23T12:37:39Z

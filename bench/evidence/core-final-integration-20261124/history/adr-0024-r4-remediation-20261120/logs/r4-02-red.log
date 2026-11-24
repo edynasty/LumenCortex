@@ -1,0 +1,23 @@
+base_commit=4ac972483cb0197179c4a1938a07c2a045cfd886
+editing_baseline_diff_lines=0
+date=2026-11-20T01:42:07Z
+
+$ go test -count=1 -v -run 'TestR402PostPublishDefectsReproducer' ./internal/editing
+=== RUN   TestR402PostPublishDefectsReproducer
+=== RUN   TestR402PostPublishDefectsReproducer/single_file_link_succeeds_then_post_publish_error
+    remediation_r4_02_test.go:75: R4-02 DEFECT: new.txt="published\n" published on disk, yet CommitReceipt reported clean failure ({Committed:false DirtyFailure:false Files:[]})
+    remediation_r4_02_test.go:78: R4-02 DEFECT: published file new.txt omitted from Result.Files: []
+    remediation_r4_02_test.go:81: R4-02 DEFECT: published file new.txt omitted/unmarked in CommitReceipt.Files: []
+=== RUN   TestR402PostPublishDefectsReproducer/single_file_rename_fallback_succeeds_then_post_publish_error
+    remediation_r4_02_test.go:125: R4-02 DEFECT: new.txt="published-via-rename\n" published via rename, yet CommitReceipt reported clean failure ({Committed:false DirtyFailure:false Files:[]})
+    remediation_r4_02_test.go:128: R4-02 DEFECT: published file new.txt omitted from Result.Files: []
+=== RUN   TestR402PostPublishDefectsReproducer/multi_file_second_file_post_publish_error_must_not_skip_rollback
+    remediation_r4_02_test.go:174: R4-02 DEFECT: multi-file rollback skipped published b.txt ("published-b\n" still on disk, err=<nil>)
+--- FAIL: TestR402PostPublishDefectsReproducer (0.01s)
+    --- FAIL: TestR402PostPublishDefectsReproducer/single_file_link_succeeds_then_post_publish_error (0.00s)
+    --- FAIL: TestR402PostPublishDefectsReproducer/single_file_rename_fallback_succeeds_then_post_publish_error (0.00s)
+    --- FAIL: TestR402PostPublishDefectsReproducer/multi_file_second_file_post_publish_error_must_not_skip_rollback (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	1.090s
+FAIL
+exit=1

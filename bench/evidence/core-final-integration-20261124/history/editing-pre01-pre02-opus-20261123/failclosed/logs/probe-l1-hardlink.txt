@@ -1,0 +1,6 @@
+    zz_opus_probe_darwin_test.go:176: err=unsupported_filesystem h1.txt: the file has 2 hard links; LC does not update hard-linked files because replacing it would detach the other links; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rena
+--- PASS: TestOpusProbeHardlinkPRE02 (0.00s)
+    zz_opus_probe_darwin_test.go:283: LIMITATION update: err=<nil> committed=true target="agent os process content\n" statErr=<nil>
+    zz_opus_probe_darwin_test.go:283: LIMITATION delete: err=<nil> committed=true target="" statErr=open /private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestOpusProbeHeldFDWriteBeforeCommitReturndelete1674749919/001/f.txt: no such file or directory
+--- PASS: TestOpusProbeHeldFDWriteBeforeCommitReturn (0.01s)
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.437s

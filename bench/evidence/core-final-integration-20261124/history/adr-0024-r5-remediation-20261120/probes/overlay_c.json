@@ -1,0 +1,6 @@
+{
+  "Replace": {
+    "/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r5-20261120/internal/editing/engine.go": "/Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-r5-remediation-20261120/probes/r5_r402c_engine_overlay.go",
+    "/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r5-20261120/internal/editing/zz_r5_red_c_test.go": "/Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-r5-remediation-20261120/probes/r5_r402c_red_probe_test.go"
+  }
+}

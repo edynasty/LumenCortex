@@ -1,0 +1,12 @@
+--- /tmp/lc-r5-final-audit.OHWLHa/main/internal/editing/engine.go	2026-11-16 14:52:37.000000000 +0800
++++ /tmp/lc-r5-final-audit.OHWLHa/probes/main_engine_overlay.go	2026-11-20 15:46:31.219961907 +0800
+@@ -768,6 +768,9 @@
+ 		return errors.Join(err, f.Close())
+ 	}
+ 	_, err = f.Write(data)
++	if err == nil && auditR5AfterRestorePayloadWrite != nil {
++		err = auditR5AfterRestorePayloadWrite(path)
++	}
+ 	return errors.Join(err, f.Close())
+ }
+ 

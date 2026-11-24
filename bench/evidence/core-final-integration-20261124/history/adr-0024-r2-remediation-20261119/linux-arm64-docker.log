@@ -1,0 +1,79 @@
+=== Linux container env ===
+Linux 906c730dbd24 7.0.14-linuxkit #1 SMP PREEMPT Sun Sep 20 16:14:09 UTC 2026 aarch64 aarch64 aarch64 GNU/Linux
+uid=1000(ubuntu) gid=1000(ubuntu) groups=1000(ubuntu)
+go version go1.27.1 linux/arm64
+gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+=== HEAD: ro-worktree ===
+=== go build ./... ===
+=== go vet ./... ===
+=== Non-runtime/evalruntime package count: 48 ===
+=== go test -count=1 (47 non-runtime/evalruntime packages; 41 with tests) ===
+?   	github.com/edynasty/LumenCortex/cmd/lcx-broker	[no test files]
+?   	github.com/edynasty/LumenCortex/cmd/lcx-experience-demo	[no test files]
+ok  	github.com/edynasty/LumenCortex/cmd/lcx-go	3.064s
+ok  	github.com/edynasty/LumenCortex/config	1.004s
+?   	github.com/edynasty/LumenCortex/docs	[no test files]
+ok  	github.com/edynasty/LumenCortex/evalapi	0.003s
+ok  	github.com/edynasty/LumenCortex/internal/agent	13.280s
+ok  	github.com/edynasty/LumenCortex/internal/cgroupv2	0.005s
+ok  	github.com/edynasty/LumenCortex/internal/cognition	0.009s
+ok  	github.com/edynasty/LumenCortex/internal/debugger	0.025s
+ok  	github.com/edynasty/LumenCortex/internal/debugger/dap	0.022s
+?   	github.com/edynasty/LumenCortex/internal/debugger/dapfake	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/diag	0.609s
+ok  	github.com/edynasty/LumenCortex/internal/editing	1.450s
+ok  	github.com/edynasty/LumenCortex/internal/editing/goedit	2.179s
+ok  	github.com/edynasty/LumenCortex/internal/evaluator	4.331s
+ok  	github.com/edynasty/LumenCortex/internal/instructions	0.034s
+ok  	github.com/edynasty/LumenCortex/internal/ipynb	0.065s
+ok  	github.com/edynasty/LumenCortex/internal/jobs	11.377s
+ok  	github.com/edynasty/LumenCortex/internal/knowledge	0.038s
+ok  	github.com/edynasty/LumenCortex/internal/lsp	9.736s
+ok  	github.com/edynasty/LumenCortex/internal/mcp	6.227s
+ok  	github.com/edynasty/LumenCortex/internal/mcptemplates	0.004s
+ok  	github.com/edynasty/LumenCortex/internal/migrate	11.415s
+ok  	github.com/edynasty/LumenCortex/internal/notebook	0.002s
+ok  	github.com/edynasty/LumenCortex/internal/ompsession	0.015s
+ok  	github.com/edynasty/LumenCortex/internal/procrt	0.267s
+ok  	github.com/edynasty/LumenCortex/internal/repository	1.000s
+ok  	github.com/edynasty/LumenCortex/internal/resource	0.003s
+ok  	github.com/edynasty/LumenCortex/internal/runlock	0.011s
+ok  	github.com/edynasty/LumenCortex/internal/safefs	0.173s
+ok  	github.com/edynasty/LumenCortex/internal/schedule	5.021s
+ok  	github.com/edynasty/LumenCortex/internal/session	37.212s
+ok  	github.com/edynasty/LumenCortex/internal/shell	3.709s
+ok  	github.com/edynasty/LumenCortex/internal/skills	0.287s
+ok  	github.com/edynasty/LumenCortex/internal/streambuf	0.002s
+ok  	github.com/edynasty/LumenCortex/internal/taskstate	0.007s
+ok  	github.com/edynasty/LumenCortex/internal/threadctx	0.002s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	10.970s
+ok  	github.com/edynasty/LumenCortex/internal/verify	0.096s
+ok  	github.com/edynasty/LumenCortex/internal/window	2.000s
+ok  	github.com/edynasty/LumenCortex/internal/workflow	0.004s
+?   	github.com/edynasty/LumenCortex/pluginapi	[no test files]
+ok  	github.com/edynasty/LumenCortex/protocol	0.003s
+ok  	github.com/edynasty/LumenCortex/provider	0.010s
+ok  	github.com/edynasty/LumenCortex/provider/anthropic	0.915s
+?   	github.com/edynasty/LumenCortex/provider/internal/retryafter	[no test files]
+ok  	github.com/edynasty/LumenCortex/provider/openai	0.829s
+=== Race package count: 16 ===
+=== go test -race -count=1 (core & remediated packages) ===
+ok  	github.com/edynasty/LumenCortex/config	2.721s
+ok  	github.com/edynasty/LumenCortex/provider	1.036s
+ok  	github.com/edynasty/LumenCortex/provider/anthropic	2.901s
+?   	github.com/edynasty/LumenCortex/provider/internal/retryafter	[no test files]
+ok  	github.com/edynasty/LumenCortex/provider/openai	2.070s
+ok  	github.com/edynasty/LumenCortex/internal/window	31.933s
+ok  	github.com/edynasty/LumenCortex/internal/editing	6.092s
+ok  	github.com/edynasty/LumenCortex/internal/skills	2.924s
+ok  	github.com/edynasty/LumenCortex/internal/taskstate	1.095s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	15.588s
+ok  	github.com/edynasty/LumenCortex/internal/session	42.696s
+ok  	github.com/edynasty/LumenCortex/internal/agent	48.138s
+ok  	github.com/edynasty/LumenCortex/internal/cognition	1.027s
+ok  	github.com/edynasty/LumenCortex/internal/knowledge	1.875s
+ok  	github.com/edynasty/LumenCortex/internal/verify	1.267s
+ok  	github.com/edynasty/LumenCortex/internal/migrate	15.125s
+=== go test -race -count=1 (targeted ./runtime Context Space / 8K / Prompt / Skill) ===
+ok  	github.com/edynasty/LumenCortex/runtime	20.318s
+=== LINUX_ARM64_ALL_PASSED ===

@@ -1,0 +1,56 @@
+=== HEAD: 7d064d0796844d2925e5257d7bd733b9695e6f76 ===
+=== go test -race -timeout 60m -count=1 ./... ===
+?   	github.com/edynasty/LumenCortex/cmd/lcx-experience-demo	[no test files]
+ok  	github.com/edynasty/LumenCortex/cmd/lcx-go	21.269s
+ok  	github.com/edynasty/LumenCortex/config	5.023s
+?   	github.com/edynasty/LumenCortex/docs	[no test files]
+ok  	github.com/edynasty/LumenCortex/evalapi	2.078s
+ok  	github.com/edynasty/LumenCortex/evalruntime	142.716s
+ok  	github.com/edynasty/LumenCortex/internal/agent	69.837s
+?   	github.com/edynasty/LumenCortex/internal/cgroupv2	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/cognition	2.085s
+ok  	github.com/edynasty/LumenCortex/internal/debugger	14.705s
+ok  	github.com/edynasty/LumenCortex/internal/debugger/dap	2.267s
+?   	github.com/edynasty/LumenCortex/internal/debugger/dapfake	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/diag	6.951s
+ok  	github.com/edynasty/LumenCortex/internal/editing	12.118s
+ok  	github.com/edynasty/LumenCortex/internal/editing/goedit	28.505s
+ok  	github.com/edynasty/LumenCortex/internal/evaluator	29.968s
+ok  	github.com/edynasty/LumenCortex/internal/instructions	1.495s
+ok  	github.com/edynasty/LumenCortex/internal/ipynb	2.066s
+ok  	github.com/edynasty/LumenCortex/internal/jobs	27.744s
+ok  	github.com/edynasty/LumenCortex/internal/knowledge	2.519s
+ok  	github.com/edynasty/LumenCortex/internal/lsp	12.043s
+ok  	github.com/edynasty/LumenCortex/internal/mcp	22.346s
+ok  	github.com/edynasty/LumenCortex/internal/mcptemplates	1.489s
+ok  	github.com/edynasty/LumenCortex/internal/migrate	28.592s
+ok  	github.com/edynasty/LumenCortex/internal/notebook	1.442s
+ok  	github.com/edynasty/LumenCortex/internal/ompsession	1.565s
+ok  	github.com/edynasty/LumenCortex/internal/procrt	1.724s
+ok  	github.com/edynasty/LumenCortex/internal/repository	13.331s
+ok  	github.com/edynasty/LumenCortex/internal/resource	1.565s
+ok  	github.com/edynasty/LumenCortex/internal/runlock	1.509s
+ok  	github.com/edynasty/LumenCortex/internal/safefs	1.937s
+ok  	github.com/edynasty/LumenCortex/internal/schedule	8.509s
+ok  	github.com/edynasty/LumenCortex/internal/session	47.678s
+ok  	github.com/edynasty/LumenCortex/internal/shell	5.558s
+ok  	github.com/edynasty/LumenCortex/internal/skills	2.750s
+ok  	github.com/edynasty/LumenCortex/internal/streambuf	1.427s
+ok  	github.com/edynasty/LumenCortex/internal/taskstate	1.451s
+ok  	github.com/edynasty/LumenCortex/internal/threadctx	1.391s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	36.870s
+ok  	github.com/edynasty/LumenCortex/internal/verify	1.563s
+ok  	github.com/edynasty/LumenCortex/internal/window	29.717s
+ok  	github.com/edynasty/LumenCortex/internal/workflow	1.465s
+?   	github.com/edynasty/LumenCortex/pluginapi	[no test files]
+ok  	github.com/edynasty/LumenCortex/protocol	1.422s
+ok  	github.com/edynasty/LumenCortex/provider	1.640s
+ok  	github.com/edynasty/LumenCortex/provider/anthropic	3.350s
+?   	github.com/edynasty/LumenCortex/provider/internal/retryafter	[no test files]
+ok  	github.com/edynasty/LumenCortex/provider/openai	2.507s
+--- FAIL: TestHubPauseSurvivesRestart (0.28s)
+    hub_control_test.go:298: pause not recorded: map[] <nil>
+FAIL
+FAIL	github.com/edynasty/LumenCortex/runtime	1457.988s
+FAIL
+=== MACOS_FULL_RACE_OK ===

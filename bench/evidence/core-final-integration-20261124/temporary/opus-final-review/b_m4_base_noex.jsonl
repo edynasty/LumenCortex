@@ -1,0 +1,9 @@
+{"Time":"2026-11-24T08:43:11.39368+08:00","Action":"start","Package":"github.com/edynasty/LumenCortex/internal/editing"}
+{"Time":"2026-11-24T08:43:12.085995+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewLeaseAcquisitionWaitsForCommit"}
+{"Time":"2026-11-24T08:43:12.086117+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewLeaseAcquisitionWaitsForCommit","Output":"=== RUN   TestReviewLeaseAcquisitionWaitsForCommit\n"}
+{"Time":"2026-11-24T08:43:12.086397+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewLeaseAcquisitionWaitsForCommit","Output":"    review_regression_test.go:129: GOOS=darwin has no atomic exchange primitive, so LC refuses existing-file updates (OPUS-V-01)\n"}
+{"Time":"2026-11-24T08:43:12.086422+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewLeaseAcquisitionWaitsForCommit","Output":"--- SKIP: TestReviewLeaseAcquisitionWaitsForCommit (0.00s)\n"}
+{"Time":"2026-11-24T08:43:12.08643+08:00","Action":"skip","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestReviewLeaseAcquisitionWaitsForCommit","Elapsed":0}
+{"Time":"2026-11-24T08:43:12.086504+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"PASS\n"}
+{"Time":"2026-11-24T08:43:12.086978+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"ok  \tgithub.com/edynasty/LumenCortex/internal/editing\t0.693s\n"}
+{"Time":"2026-11-24T08:43:12.087054+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/internal/editing","Elapsed":0.693}

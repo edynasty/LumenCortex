@@ -1,0 +1,3 @@
+# Preserve historical logs despite repository-wide *.log exclusion.
+!**/
+!**/*

@@ -1,0 +1,35 @@
+=== go test -v -race -count=1 -run 'TestR202' ./internal/agent ===
+=== RUN   TestR202LiveGatedRepairPhase40StepsSurvivesOnRealSQLite
+=== RUN   TestR202LiveGatedRepairPhase40StepsSurvivesOnRealSQLite/5_pre_refusal_then_10_post_repair_steps
+=== RUN   TestR202LiveGatedRepairPhase40StepsSurvivesOnRealSQLite/5_pre_refusal_then_40_post_repair_steps
+--- PASS: TestR202LiveGatedRepairPhase40StepsSurvivesOnRealSQLite (1.48s)
+    --- PASS: TestR202LiveGatedRepairPhase40StepsSurvivesOnRealSQLite/5_pre_refusal_then_10_post_repair_steps (0.23s)
+    --- PASS: TestR202LiveGatedRepairPhase40StepsSurvivesOnRealSQLite/5_pre_refusal_then_40_post_repair_steps (1.24s)
+=== RUN   TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume
+=== RUN   TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/32768_4096
+=== RUN   TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/64000_8192
+=== RUN   TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/128000_8192
+=== RUN   TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/200000_16384
+=== RUN   TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/600000_32768
+--- PASS: TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume (5.68s)
+    --- PASS: TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/32768_4096 (0.28s)
+    --- PASS: TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/64000_8192 (0.46s)
+    --- PASS: TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/128000_8192 (0.66s)
+    --- PASS: TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/200000_16384 (0.92s)
+    --- PASS: TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/600000_32768 (3.36s)
+=== RUN   TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst
+=== RUN   TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/post_block_overflow_fails_over_from_32k_to_200k_without_relaxation
+=== RUN   TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/stage_r2_drops_post_block_reads_while_preserving_proven_edit_and_pinned_gate
+=== RUN   TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/controlled_overflow_when_pinned_gate_and_newest_group_exceed_largest_candidate
+=== RUN   TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/three_way_sqlite_resume_parity_unknown_veto_and_post_resume_repair
+--- PASS: TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst (5.57s)
+    --- PASS: TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/post_block_overflow_fails_over_from_32k_to_200k_without_relaxation (0.04s)
+    --- PASS: TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/stage_r2_drops_post_block_reads_while_preserving_proven_edit_and_pinned_gate (0.32s)
+    --- PASS: TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/controlled_overflow_when_pinned_gate_and_newest_group_exceed_largest_candidate (0.05s)
+    --- PASS: TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/three_way_sqlite_resume_parity_unknown_veto_and_post_resume_repair (5.16s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	14.994s
+=== go test -race -count=1 ./internal/agent/... ===
+ok  	github.com/edynasty/LumenCortex/internal/agent	27.178s
+=== go test -race -count=1 -run 'TestT1|TestT2|TestT3|TestT4|TestT11' ./runtime ===
+ok  	github.com/edynasty/LumenCortex/runtime	22.864s

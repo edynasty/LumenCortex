@@ -58,6 +58,7 @@ func TestR7ForwardPublicationFaultMatrix(t *testing.T) {
 	})
 
 	t.Run("05b_inplace_close_failure_is_uncertain", func(t *testing.T) {
+		requireExistingFileUpdate(t)
 		root := t.TempDir()
 		writeFile(t, root, "a.txt", "old-a\n")
 		e := newTestEngine(t, root)

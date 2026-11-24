@@ -1,0 +1,14 @@
+refs/heads/fix/editing-pre01-pre02-macos-20261123 aa9281fe1618acd87ffb322559d4ccd643b37e8a
+refs/heads/fix/editing-pre01-pre02-opus-remediation-20261123 71cce56acb06b457dad2a4fec3a2c3db56537fd6
+refs/heads/fix/editing-pre01-pre02-sol-l1-remediation-20261123 b03c91e5db6969f0345a2034ecb172cf826bc792
+71cce56acb06b457dad2a4fec3a2c3db56537fd6	refs/heads/fix/editing-pre01-pre02-opus-remediation-20261123
+b03c91e5db6969f0345a2034ecb172cf826bc792	refs/heads/fix/editing-pre01-pre02-sol-l1-remediation-20261123
+7aeb1607ffa588727c6fe04873f7b58a1dc16f15	refs/heads/main
+84bb06cd73eb37997966e2d2e3cb8e8b181b27f97ff367d209f327bee818d1a0  LumenCortex-Core/AGENTS.md
+wt/core-editing-pre01-pre02-sol-l1-20261123 b03c91e5db6969f0345a2034ecb172cf826bc792 dirty=0
+wt/core-editing-pre01-pre02-opus-20261123 71cce56acb06b457dad2a4fec3a2c3db56537fd6 dirty=0
+wt/core-adr-0024-integration-20261122 aa9281fe1618acd87ffb322559d4ccd643b37e8a dirty=0
+23cdabe953e91d8b5510bbd6af72124c52c58ec2fce485cdf73722e6a1b8c21c  SHA256SUMS
+17
+8192f238e8bc5068027ad7bd4bb8226e4791e5a7f1a8d9f28bafd6ce82b5121e  SHA256SUMS
+17

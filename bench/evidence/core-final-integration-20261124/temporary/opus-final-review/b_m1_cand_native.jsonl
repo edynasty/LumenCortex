@@ -1,0 +1,9 @@
+{"Time":"2026-11-24T08:41:23.228605+08:00","Action":"start","Package":"github.com/edynasty/LumenCortex/internal/editing"}
+{"Time":"2026-11-24T08:41:24.292505+08:00","Action":"run","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder"}
+{"Time":"2026-11-24T08:41:24.292604+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder","Output":"=== RUN   TestWriteLeaseRefusesOtherHolder\n"}
+{"Time":"2026-11-24T08:41:24.293596+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder","Output":"    concurrency_test.go:122: err = lease_conflict a.txt: a write lease is held until 2026-11-24T00:42:24Z (held by SOMEONE-ELSE); another agent holds the write lease; wait for it to be released, or ask its holder to release it, want lease_conflict held by other-agent\n"}
+{"Time":"2026-11-24T08:41:24.294138+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder","Output":"--- FAIL: TestWriteLeaseRefusesOtherHolder (0.00s)\n"}
+{"Time":"2026-11-24T08:41:24.294188+08:00","Action":"fail","Package":"github.com/edynasty/LumenCortex/internal/editing","Test":"TestWriteLeaseRefusesOtherHolder","Elapsed":0}
+{"Time":"2026-11-24T08:41:24.294203+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"FAIL\n"}
+{"Time":"2026-11-24T08:41:24.29505+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"FAIL\tgithub.com/edynasty/LumenCortex/internal/editing\t1.066s\n"}
+{"Time":"2026-11-24T08:41:24.295074+08:00","Action":"fail","Package":"github.com/edynasty/LumenCortex/internal/editing","Elapsed":1.066}

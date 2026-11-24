@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -31,11 +30,12 @@ func TestR7WindowsExternalAppendHelper(t *testing.T) {
 }
 
 // TestR7WindowsNativeTimestampAndNoCompensation is native-ready for a Windows host (NTFS/ReFS/
-// exFAT). It observes post-close identity/timestamps and asserts a published prefix is never
-// compensated after a later refusal. It has not been executed in the R7 macOS evidence run and
-// must be run natively before any Windows PASS is claimed.
+// exFAT). It observes post-close identity/timestamps, asserts that an update of an existing file is
+// refused (Windows has no atomic exchange primitive; OPUS-V-01), and asserts a published prefix of
+// new files is never compensated after a later refusal. It has not been executed natively and
+// must be run on Windows before any Windows PASS is claimed.
 func TestR7WindowsNativeTimestampAndNoCompensation(t *testing.T) {
-	t.Run("timestamp_observation_on_committed_update", func(t *testing.T) {
+	t.Run("timestamp_observation_and_update_refused", func(t *testing.T) {
 		root := t.TempDir()
 		target := filepath.Join(root, "a.txt")
 		if err := os.WriteFile(target, []byte("old-a\n"), 0o644); err != nil {
@@ -73,6 +73,10 @@ func TestR7WindowsNativeTimestampAndNoCompensation(t *testing.T) {
 		if err := os.WriteFile(target, []byte("old-a\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		before, err := os.Lstat(target)
+		if err != nil {
+			t.Fatal(err)
+		}
 		e := newTestEngine(t, root)
 		next := []byte("new-a\n")
 		var rec CommitReceipt
@@ -80,19 +84,13 @@ func TestR7WindowsNativeTimestampAndNoCompensation(t *testing.T) {
 		res, err := e.Commit(ctx, Plan{Actor: testActor(), Tool: "write_file", Changes: []FileChange{
 			{Path: "a.txt", Content: &next},
 		}})
-		if err != nil {
-			t.Fatalf("committed update: %v", err)
-		}
-		fa, ra := r7Files(t, res, rec, "a.txt")
-		if fa.PublishState != PublishSucceededAndVerified || !fa.Verified || fa.RolledBack || ra.RolledBack {
-			t.Fatalf("committed update on Windows: %+v %+v", fa, ra)
-		}
+		assertExistingFileUpdateRefused(t, root, "a.txt", before, "old-a\n", err, res, rec)
 	})
 
 	t.Run("published_prefix_not_compensated_after_later_refusal", func(t *testing.T) {
+		// The prefix consists of new files: Windows publishes them by no-replace MoveFileExW, while
+		// updates of existing files are refused.
 		root := t.TempDir()
-		writeFile(t, root, "a.txt", "old-a\n")
-		writeFile(t, root, "b.txt", "old-b\n")
 		writeFile(t, root, "c.txt", "old-c\n")
 		e := newTestEngine(t, root)
 		e.beforeWrite = func(path string) {
@@ -111,20 +109,25 @@ func TestR7WindowsNativeTimestampAndNoCompensation(t *testing.T) {
 		var rec CommitReceipt
 		ctx := WithCommitRecorder(context.Background(), func(r CommitReceipt) { rec = r })
 		res, err := e.Commit(ctx, Plan{Actor: testActor(), Tool: "apply_patch", Changes: []FileChange{
-			{Path: "a.txt", Content: &na},
-			{Path: "b.txt", Content: &nb},
+			{Path: "a.txt", Content: &na, Create: true},
+			{Path: "b.txt", Content: &nb, Create: true},
 			{Path: "c.txt", Content: &nc},
 		}})
 		if err == nil || CodeOf(err) != CodeConflict {
 			t.Fatalf("want B conflict, got %v", err)
 		}
-		got := readFileContent(t, root, "a.txt")
-		if !strings.Contains(got, "WIN-FOREIGN\n") {
-			t.Fatalf("external append lost on Windows: %q", got)
+		if res.CommitState != CommitStatePartiallyPublished || rec.State != CommitStatePartiallyPublished || !rec.DirtyFailure || rec.Committed {
+			t.Fatalf("state: result=%+v receipt=%+v", res, rec)
+		}
+		if got := readFileContent(t, root, "a.txt"); got != "new-a\nWIN-FOREIGN\n" {
+			t.Fatalf("external append lost or prefix compensated on Windows: %q", got)
 		}
 		fa, ra := r7Files(t, res, rec, "a.txt")
-		if fa.PublishState != PublishExternalModification || fa.Verified || fa.RolledBack || ra.RolledBack || ra.NewSHA256 != "" {
+		if fa.PublishState != PublishExternalModification || !fa.Published || fa.Verified || fa.RolledBack || ra.RolledBack || ra.NewSHA256 != "" {
 			t.Fatalf("Windows prefix after external append: %+v %+v", fa, ra)
+		}
+		if got := readFileContent(t, root, "b.txt"); got != "child-b\n" {
+			t.Fatalf("foreign B lost: %q", got)
 		}
 		fc, rc := r7Files(t, res, rec, "c.txt")
 		r7AssertNotAttempted(t, fc, rc)

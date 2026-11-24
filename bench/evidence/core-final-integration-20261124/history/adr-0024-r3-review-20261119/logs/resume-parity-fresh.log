@@ -1,0 +1,263 @@
+=== RUN   TestZZR3ResumeParity
+=== RUN   TestZZR3ResumeParity/32768_4096
+=== PAUSE TestZZR3ResumeParity/32768_4096
+=== RUN   TestZZR3ResumeParity/64000_8192
+=== PAUSE TestZZR3ResumeParity/64000_8192
+=== RUN   TestZZR3ResumeParity/128000_8192
+=== PAUSE TestZZR3ResumeParity/128000_8192
+=== RUN   TestZZR3ResumeParity/200000_16384
+=== PAUSE TestZZR3ResumeParity/200000_16384
+=== RUN   TestZZR3ResumeParity/600000_32768
+=== PAUSE TestZZR3ResumeParity/600000_32768
+=== CONT  TestZZR3ResumeParity/32768_4096
+=== CONT  TestZZR3ResumeParity/200000_16384
+=== CONT  TestZZR3ResumeParity/600000_32768
+=== CONT  TestZZR3ResumeParity/128000_8192
+=== CONT  TestZZR3ResumeParity/64000_8192
+=== NAME  TestZZR3ResumeParity/32768_4096
+    zz_probe_r3_resume_test.go:481: [32768_4096] stage counts=map[R1:8 R2:9 R3:24 strict:34]
+    zz_probe_r3_resume_test.go:482: [32768_4096] stages: 1:strict 2:strict 3:strict 4:strict 5:strict 6:strict 7:strict 8:strict 9:strict 10:strict 11:strict 12:strict 13:strict 14:strict 15:strict 16:strict 17:strict 18:strict 19:strict 20:strict 21:strict 22:R1 23:R1 24:R1 25:R1 26:R1 27:strict 28:strict 29:strict 30:strict 31:strict 32:strict 33:R2 34:R2 35:strict 36:strict 37:strict 38:R1 39:R1 40:R1 41:strict 42:strict 43:strict 44:strict 45:R2 46:R2 47:R2 48:R2 49:R2 50:R2 51:R2 52:R3 53:R3 54:R3 55:R3 56:R3 57:R3 58:R3 59:R3 60:R3 61:R3 62:R3 63:R3 64:R3 65:R3 66:R3 67:R3 68:R3 69:R3 70:R3 71:R3 72:R3 73:R3 74:R3 75:R3
+=== NAME  TestZZR3ResumeParity/64000_8192
+    zz_probe_r3_resume_test.go:481: [64000_8192] stage counts=map[R1:8 R2:9 R3:24 strict:34]
+    zz_probe_r3_resume_test.go:482: [64000_8192] stages: 1:strict 2:strict 3:strict 4:strict 5:strict 6:strict 7:strict 8:strict 9:strict 10:strict 11:strict 12:strict 13:strict 14:strict 15:strict 16:strict 17:strict 18:strict 19:strict 20:strict 21:strict 22:R1 23:R1 24:R1 25:R1 26:R1 27:strict 28:strict 29:strict 30:strict 31:strict 32:strict 33:R2 34:R2 35:strict 36:strict 37:strict 38:R1 39:R1 40:R1 41:strict 42:strict 43:strict 44:strict 45:R2 46:R2 47:R2 48:R2 49:R2 50:R2 51:R2 52:R3 53:R3 54:R3 55:R3 56:R3 57:R3 58:R3 59:R3 60:R3 61:R3 62:R3 63:R3 64:R3 65:R3 66:R3 67:R3 68:R3 69:R3 70:R3 71:R3 72:R3 73:R3 74:R3 75:R3
+=== NAME  TestZZR3ResumeParity/128000_8192
+    zz_probe_r3_resume_test.go:481: [128000_8192] stage counts=map[R1:6 R2:7 R3:22 strict:40]
+    zz_probe_r3_resume_test.go:482: [128000_8192] stages: 1:strict 2:strict 3:strict 4:strict 5:strict 6:strict 7:strict 8:strict 9:strict 10:strict 11:strict 12:strict 13:strict 14:strict 15:strict 16:strict 17:strict 18:strict 19:strict 20:strict 21:strict 22:R1 23:R1 24:R1 25:R1 26:R1 27:strict 28:strict 29:strict 30:strict 31:strict 32:strict 33:strict 34:strict 35:strict 36:strict 37:strict 38:strict 39:strict 40:R1 41:strict 42:strict 43:strict 44:strict 45:strict 46:strict 47:R2 48:R2 49:R2 50:R2 51:R2 52:R2 53:R2 54:R3 55:R3 56:R3 57:R3 58:R3 59:R3 60:R3 61:R3 62:R3 63:R3 64:R3 65:R3 66:R3 67:R3 68:R3 69:R3 70:R3 71:R3 72:R3 73:R3 74:R3 75:R3
+=== NAME  TestZZR3ResumeParity/32768_4096
+    zz_probe_r3_resume_test.go:635:     cut 22 persisted tail after resume: [39:assistant//0B 40:tool//6723B 41:assistant//29B 42:user/completion_blocked/311B 43:assistant//0B 44:tool//6723B]
+    zz_probe_r3_resume_test.go:667: [32768_4096] cut n=22 (first-R1): cont=R1 cold=R1 | RC(pre-begin) active=true stage=blocked block=42 count=1 min=5 orig=5 postFloor=-1 proven=0 unknown=0 refs=0
+    zz_probe_r3_resume_test.go:671: [32768_4096] cut n=22 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+=== NAME  TestZZR3ResumeParity/64000_8192
+    zz_probe_r3_resume_test.go:635:     cut 22 persisted tail after resume: [39:assistant//0B 40:tool//13148B 41:assistant//29B 42:user/completion_blocked/311B 43:assistant//0B 44:tool//13148B]
+    zz_probe_r3_resume_test.go:667: [64000_8192] cut n=22 (first-R1): cont=R1 cold=R1 | RC(pre-begin) active=true stage=blocked block=42 count=1 min=5 orig=5 postFloor=-1 proven=0 unknown=0 refs=0
+    zz_probe_r3_resume_test.go:671: [64000_8192] cut n=22 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+=== NAME  TestZZR3ResumeParity/200000_16384
+    zz_probe_r3_resume_test.go:481: [200000_16384] stage counts=map[R1:7 R2:7 R3:23 strict:38]
+    zz_probe_r3_resume_test.go:482: [200000_16384] stages: 1:strict 2:strict 3:strict 4:strict 5:strict 6:strict 7:strict 8:strict 9:strict 10:strict 11:strict 12:strict 13:strict 14:strict 15:strict 16:strict 17:strict 18:strict 19:strict 20:strict 21:strict 22:R1 23:R1 24:R1 25:R1 26:R1 27:strict 28:strict 29:strict 30:strict 31:strict 32:strict 33:strict 34:R2 35:strict 36:strict 37:strict 38:strict 39:R1 40:R1 41:strict 42:strict 43:strict 44:strict 45:strict 46:strict 47:R2 48:R2 49:R2 50:R2 51:R2 52:R2 53:R3 54:R3 55:R3 56:R3 57:R3 58:R3 59:R3 60:R3 61:R3 62:R3 63:R3 64:R3 65:R3 66:R3 67:R3 68:R3 69:R3 70:R3 71:R3 72:R3 73:R3 74:R3 75:R3
+=== NAME  TestZZR3ResumeParity/128000_8192
+    zz_probe_r3_resume_test.go:635:     cut 22 persisted tail after resume: [39:assistant//0B 40:tool//26260B 41:assistant//29B 42:user/completion_blocked/311B 43:assistant//0B 44:tool//26260B]
+    zz_probe_r3_resume_test.go:667: [128000_8192] cut n=22 (first-R1): cont=R1 cold=R1 | RC(pre-begin) active=true stage=blocked block=42 count=1 min=5 orig=5 postFloor=-1 proven=0 unknown=0 refs=0
+    zz_probe_r3_resume_test.go:671: [128000_8192] cut n=22 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+=== NAME  TestZZR3ResumeParity/32768_4096
+    zz_probe_r3_resume_test.go:613: cut 33 PROVENANCE MISMATCH: ref seq=53 tool=read_file toolCallId=c27a exec=ex-0e98fe9ed9e4383f69eb4bb2bae82470 evidence=proven, but exec ex-0e98fe9ed9e4383f69eb4bb2bae82470 is tool write_file
+    zz_probe_r3_resume_test.go:667: [32768_4096] cut n=33 (first-R2): cont=R2 cold=R2 | RC(pre-begin) active=true stage=unknown_mutated block=42 count=1 min=42 orig=5 postFloor=51 proven=2 unknown=5 refs=7
+    zz_probe_r3_resume_test.go:671: [32768_4096] cut n=33 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-32768_4096 Context:32768 UsableInput:18906 Fixed:3141 OriginalMinRequiredSeq:42 PreBlockAnchorSeq:5 PostBlockCausalFloorSeq:51 RelaxedFloorSeq:51 BlockSeq:42 NewestGroupFirstSeq:64 WindowFirstSeq:51 WindowTokens:17098 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-32768_4096 Context:32768 UsableInput:18906 Fixed:3142 OriginalMinRequiredSeq:42 PreBlockAnchorSeq:5 PostBlockCausalFloorSeq:51 RelaxedFloorSeq:51 BlockSeq:42 NewestGroupFirstSeq:66 WindowFirstSeq:51 WindowTokens:17168 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=8 (cold CausalProgressLen=7 + original=true)
+=== NAME  TestZZR3ResumeParity/200000_16384
+    zz_probe_r3_resume_test.go:635:     cut 22 persisted tail after resume: [39:assistant//0B 40:tool//41000B 41:assistant//29B 42:user/completion_blocked/311B 43:assistant//0B 44:tool//41000B]
+    zz_probe_r3_resume_test.go:667: [200000_16384] cut n=22 (first-R1): cont=R1 cold=R1 | RC(pre-begin) active=true stage=blocked block=42 count=1 min=5 orig=5 postFloor=-1 proven=0 unknown=0 refs=0
+    zz_probe_r3_resume_test.go:671: [200000_16384] cut n=22 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+=== NAME  TestZZR3ResumeParity/64000_8192
+    zz_probe_r3_resume_test.go:613: cut 33 PROVENANCE MISMATCH: ref seq=53 tool=read_file toolCallId=c27a exec=ex-5f56ee529d55eac75355a9f2b4560af6 evidence=proven, but exec ex-5f56ee529d55eac75355a9f2b4560af6 is tool write_file
+    zz_probe_r3_resume_test.go:667: [64000_8192] cut n=33 (first-R2): cont=R2 cold=R2 | RC(pre-begin) active=true stage=unknown_mutated block=42 count=1 min=42 orig=5 postFloor=51 proven=2 unknown=5 refs=7
+    zz_probe_r3_resume_test.go:671: [64000_8192] cut n=33 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-64000_8192 Context:64000 UsableInput:44090 Fixed:3142 OriginalMinRequiredSeq:42 PreBlockAnchorSeq:5 PostBlockCausalFloorSeq:51 RelaxedFloorSeq:51 BlockSeq:42 NewestGroupFirstSeq:64 WindowFirstSeq:47 WindowTokens:41318 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-64000_8192 Context:64000 UsableInput:44090 Fixed:3146 OriginalMinRequiredSeq:42 PreBlockAnchorSeq:5 PostBlockCausalFloorSeq:51 RelaxedFloorSeq:51 BlockSeq:42 NewestGroupFirstSeq:66 WindowFirstSeq:47 WindowTokens:41391 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=8 (cold CausalProgressLen=7 + original=true)
+=== NAME  TestZZR3ResumeParity/128000_8192
+    zz_probe_r3_resume_test.go:667: [128000_8192] cut n=35 (after-gate2): cont=strict cold=strict | RC(pre-begin) active=true stage=blocked block=69 count=2 min=51 orig=51 postFloor=-1 proven=0 unknown=0 refs=0
+    zz_probe_r3_resume_test.go:671: [128000_8192] cut n=35 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+=== NAME  TestZZR3ResumeParity/32768_4096
+    zz_probe_r3_resume_test.go:667: [32768_4096] cut n=35 (after-gate2): cont=strict cold=strict | RC(pre-begin) active=true stage=blocked block=69 count=2 min=51 orig=51 postFloor=-1 proven=0 unknown=0 refs=0
+    zz_probe_r3_resume_test.go:671: [32768_4096] cut n=35 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+=== NAME  TestZZR3ResumeParity/600000_32768
+    zz_probe_r3_resume_test.go:481: [600000_32768] stage counts=map[R1:6 R2:6 R3:22 strict:41]
+    zz_probe_r3_resume_test.go:482: [600000_32768] stages: 1:strict 2:strict 3:strict 4:strict 5:strict 6:strict 7:strict 8:strict 9:strict 10:strict 11:strict 12:strict 13:strict 14:strict 15:strict 16:strict 17:strict 18:strict 19:strict 20:strict 21:strict 22:R1 23:R1 24:R1 25:R1 26:R1 27:strict 28:strict 29:strict 30:strict 31:strict 32:strict 33:strict 34:strict 35:strict 36:strict 37:strict 38:strict 39:strict 40:R1 41:strict 42:strict 43:strict 44:strict 45:strict 46:strict 47:strict 48:R2 49:R2 50:R2 51:R2 52:R2 53:R2 54:R3 55:R3 56:R3 57:R3 58:R3 59:R3 60:R3 61:R3 62:R3 63:R3 64:R3 65:R3 66:R3 67:R3 68:R3 69:R3 70:R3 71:R3 72:R3 73:R3 74:R3 75:R3
+=== NAME  TestZZR3ResumeParity/200000_16384
+    zz_probe_r3_resume_test.go:613: cut 34 PROVENANCE MISMATCH: ref seq=53 tool=read_file toolCallId=c27a exec=ex-64499a10f138c5280643ac8f3651bd63 evidence=proven, but exec ex-64499a10f138c5280643ac8f3651bd63 is tool write_file
+    zz_probe_r3_resume_test.go:667: [200000_16384] cut n=34 (first-R2): cont=R2 cold=R2 | RC(pre-begin) active=true stage=unknown_mutated block=42 count=1 min=42 orig=5 postFloor=51 proven=2 unknown=6 refs=8
+    zz_probe_r3_resume_test.go:671: [200000_16384] cut n=34 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-200000_16384 Context:200000 UsableInput:163398 Fixed:3176 OriginalMinRequiredSeq:42 PreBlockAnchorSeq:5 PostBlockCausalFloorSeq:51 RelaxedFloorSeq:51 BlockSeq:42 NewestGroupFirstSeq:66 WindowFirstSeq:45 WindowTokens:154369 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-200000_16384 Context:200000 UsableInput:163398 Fixed:3176 OriginalMinRequiredSeq:42 PreBlockAnchorSeq:5 PostBlockCausalFloorSeq:51 RelaxedFloorSeq:51 BlockSeq:42 NewestGroupFirstSeq:68 WindowFirstSeq:45 WindowTokens:154438 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/64000_8192
+    zz_probe_r3_resume_test.go:667: [64000_8192] cut n=35 (after-gate2): cont=strict cold=strict | RC(pre-begin) active=true stage=blocked block=69 count=2 min=51 orig=51 postFloor=-1 proven=0 unknown=0 refs=0
+    zz_probe_r3_resume_test.go:671: [64000_8192] cut n=35 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+=== NAME  TestZZR3ResumeParity/600000_32768
+    zz_probe_r3_resume_test.go:635:     cut 22 persisted tail after resume: [39:assistant//0B 40:tool//122841B 41:assistant//29B 42:user/completion_blocked/311B 43:assistant//0B 44:tool//122841B]
+    zz_probe_r3_resume_test.go:667: [600000_32768] cut n=22 (first-R1): cont=R1 cold=R1 | RC(pre-begin) active=true stage=blocked block=42 count=1 min=5 orig=5 postFloor=-1 proven=0 unknown=0 refs=0
+    zz_probe_r3_resume_test.go:671: [600000_32768] cut n=22 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+=== NAME  TestZZR3ResumeParity/32768_4096
+    zz_probe_r3_resume_test.go:667: [32768_4096] cut n=46 (after-proven): cont=R2 cold=R2 | RC(pre-begin) active=true stage=proven_progress block=69 count=2 min=69 orig=51 postFloor=80 proven=2 unknown=2 refs=4
+    zz_probe_r3_resume_test.go:671: [32768_4096] cut n=46 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-32768_4096 Context:32768 UsableInput:18906 Fixed:3051 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:90 WindowFirstSeq:78 WindowTokens:17615 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-32768_4096 Context:32768 UsableInput:18906 Fixed:3052 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:92 WindowFirstSeq:78 WindowTokens:17685 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=5 (cold CausalProgressLen=4 + original=true)
+=== NAME  TestZZR3ResumeParity/128000_8192
+    zz_probe_r3_resume_test.go:667: [128000_8192] cut n=47 (first-R2): cont=R2 cold=R2 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=2 unknown=3 refs=5
+    zz_probe_r3_resume_test.go:671: [128000_8192] cut n=47 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-128000_8192 Context:128000 UsableInput:104090 Fixed:3083 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:92 WindowFirstSeq:72 WindowTokens:102536 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-128000_8192 Context:128000 UsableInput:104090 Fixed:3082 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:94 WindowFirstSeq:72 WindowTokens:102604 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=6 (cold CausalProgressLen=5 + original=true)
+=== NAME  TestZZR3ResumeParity/200000_16384
+    zz_probe_r3_resume_test.go:667: [200000_16384] cut n=35 (after-gate2): cont=strict cold=strict | RC(pre-begin) active=true stage=blocked block=69 count=2 min=51 orig=51 postFloor=-1 proven=0 unknown=0 refs=0
+    zz_probe_r3_resume_test.go:671: [200000_16384] cut n=35 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+=== NAME  TestZZR3ResumeParity/64000_8192
+    zz_probe_r3_resume_test.go:667: [64000_8192] cut n=46 (after-proven): cont=R2 cold=R2 | RC(pre-begin) active=true stage=proven_progress block=69 count=2 min=69 orig=51 postFloor=80 proven=2 unknown=2 refs=4
+    zz_probe_r3_resume_test.go:671: [64000_8192] cut n=46 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-64000_8192 Context:64000 UsableInput:44090 Fixed:3052 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:90 WindowFirstSeq:74 WindowTokens:42357 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-64000_8192 Context:64000 UsableInput:44090 Fixed:3053 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:92 WindowFirstSeq:74 WindowTokens:42427 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=5 (cold CausalProgressLen=4 + original=true)
+=== NAME  TestZZR3ResumeParity/32768_4096
+    zz_probe_r3_resume_test.go:667: [32768_4096] cut n=52 (first-R3 after-unknown): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=3 unknown=5 refs=8
+    zz_probe_r3_resume_test.go:671: [32768_4096] cut n=52 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-32768_4096 Context:32768 UsableInput:18906 Fixed:3185 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:102 BlockSeq:69 NewestGroupFirstSeq:102 WindowFirstSeq:90 WindowTokens:17509 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-32768_4096 Context:32768 UsableInput:18906 Fixed:3181 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:104 BlockSeq:69 NewestGroupFirstSeq:104 WindowFirstSeq:90 WindowTokens:17574 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/600000_32768
+    zz_probe_r3_resume_test.go:667: [600000_32768] cut n=35 (after-gate2): cont=strict cold=strict | RC(pre-begin) active=true stage=blocked block=69 count=2 min=51 orig=51 postFloor=-1 proven=0 unknown=0 refs=0
+    zz_probe_r3_resume_test.go:671: [600000_32768] cut n=35 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+=== NAME  TestZZR3ResumeParity/128000_8192
+    zz_probe_r3_resume_test.go:667: [128000_8192] cut n=51 (after-proven): cont=R2 cold=R2 | RC(pre-begin) active=true stage=proven_progress block=69 count=2 min=69 orig=51 postFloor=80 proven=3 unknown=4 refs=7
+    zz_probe_r3_resume_test.go:671: [128000_8192] cut n=51 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-128000_8192 Context:128000 UsableInput:104090 Fixed:3151 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:100 WindowFirstSeq:78 WindowTokens:101944 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-128000_8192 Context:128000 UsableInput:104090 Fixed:3152 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:102 WindowFirstSeq:78 WindowTokens:102014 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=8 (cold CausalProgressLen=7 + original=true)
+=== NAME  TestZZR3ResumeParity/64000_8192
+    zz_probe_r3_resume_test.go:667: [64000_8192] cut n=52 (first-R3 after-unknown): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=3 unknown=5 refs=8
+    zz_probe_r3_resume_test.go:671: [64000_8192] cut n=52 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-64000_8192 Context:64000 UsableInput:44090 Fixed:3188 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:102 BlockSeq:69 NewestGroupFirstSeq:102 WindowFirstSeq:86 WindowTokens:42079 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-64000_8192 Context:64000 UsableInput:44090 Fixed:3184 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:104 BlockSeq:69 NewestGroupFirstSeq:104 WindowFirstSeq:86 WindowTokens:42144 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/200000_16384
+    zz_probe_r3_resume_test.go:667: [200000_16384] cut n=51 (after-proven): cont=R2 cold=R2 | RC(pre-begin) active=true stage=proven_progress block=69 count=2 min=69 orig=51 postFloor=80 proven=3 unknown=4 refs=7
+    zz_probe_r3_resume_test.go:671: [200000_16384] cut n=51 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-200000_16384 Context:200000 UsableInput:163398 Fixed:3153 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:100 WindowFirstSeq:78 WindowTokens:156779 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-200000_16384 Context:200000 UsableInput:163398 Fixed:3149 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:102 WindowFirstSeq:78 WindowTokens:156844 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=8 (cold CausalProgressLen=7 + original=true)
+=== NAME  TestZZR3ResumeParity/32768_4096
+    zz_probe_r3_resume_test.go:667: [32768_4096] cut n=74 (late): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=7 unknown=14 refs=8
+    zz_probe_r3_resume_test.go:671: [32768_4096] cut n=74 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-32768_4096 Context:32768 UsableInput:18906 Fixed:3182 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:146 BlockSeq:69 NewestGroupFirstSeq:146 WindowFirstSeq:136 WindowTokens:17619 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-32768_4096 Context:32768 UsableInput:18906 Fixed:3185 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:148 BlockSeq:69 NewestGroupFirstSeq:148 WindowFirstSeq:136 WindowTokens:17691 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/128000_8192
+    zz_probe_r3_resume_test.go:667: [128000_8192] cut n=54 (first-R3): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=3 unknown=6 refs=8
+    zz_probe_r3_resume_test.go:671: [128000_8192] cut n=54 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-128000_8192 Context:128000 UsableInput:104090 Fixed:3183 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:106 BlockSeq:69 NewestGroupFirstSeq:106 WindowFirstSeq:86 WindowTokens:101850 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-128000_8192 Context:128000 UsableInput:104090 Fixed:3181 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:108 BlockSeq:69 NewestGroupFirstSeq:108 WindowFirstSeq:86 WindowTokens:101917 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/200000_16384
+    zz_probe_r3_resume_test.go:667: [200000_16384] cut n=53 (first-R3 after-unknown): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=3 unknown=6 refs=8
+    zz_probe_r3_resume_test.go:671: [200000_16384] cut n=53 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-200000_16384 Context:200000 UsableInput:163398 Fixed:3184 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:104 BlockSeq:69 NewestGroupFirstSeq:104 WindowFirstSeq:84 WindowTokens:155475 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-200000_16384 Context:200000 UsableInput:163398 Fixed:3182 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:106 BlockSeq:69 NewestGroupFirstSeq:106 WindowFirstSeq:84 WindowTokens:155542 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/64000_8192
+    zz_probe_r3_resume_test.go:667: [64000_8192] cut n=74 (late): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=7 unknown=14 refs=8
+    zz_probe_r3_resume_test.go:671: [64000_8192] cut n=74 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-64000_8192 Context:64000 UsableInput:44090 Fixed:3187 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:146 BlockSeq:69 NewestGroupFirstSeq:146 WindowFirstSeq:130 WindowTokens:41665 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-64000_8192 Context:64000 UsableInput:44090 Fixed:3185 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:148 BlockSeq:69 NewestGroupFirstSeq:148 WindowFirstSeq:130 WindowTokens:41732 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/600000_32768
+    zz_probe_r3_resume_test.go:667: [600000_32768] cut n=48 (first-R2): cont=R2 cold=R2 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=2 unknown=4 refs=6
+    zz_probe_r3_resume_test.go:671: [600000_32768] cut n=48 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-600000_32768 Context:600000 UsableInput:522014 Fixed:3112 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:94 WindowFirstSeq:72 WindowTokens:513732 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-600000_32768 Context:600000 UsableInput:522014 Fixed:3114 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:96 WindowFirstSeq:72 WindowTokens:513803 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=7 (cold CausalProgressLen=6 + original=true)
+=== NAME  TestZZR3ResumeParity/128000_8192
+    zz_probe_r3_resume_test.go:667: [128000_8192] cut n=57 (after-unknown): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=4 unknown=7 refs=8
+    zz_probe_r3_resume_test.go:671: [128000_8192] cut n=57 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-128000_8192 Context:128000 UsableInput:104090 Fixed:3185 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:112 BlockSeq:69 NewestGroupFirstSeq:112 WindowFirstSeq:90 WindowTokens:101192 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-128000_8192 Context:128000 UsableInput:104090 Fixed:3190 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:114 BlockSeq:69 NewestGroupFirstSeq:114 WindowFirstSeq:90 WindowTokens:101266 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/32768_4096
+    zz_probe_r3_resume_test.go:667: [32768_4096] cut n=75 (final-answer): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=7 unknown=14 refs=8
+    zz_probe_r3_resume_test.go:671: [32768_4096] cut n=75 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-32768_4096 Context:32768 UsableInput:18906 Fixed:3182 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:148 BlockSeq:69 NewestGroupFirstSeq:148 WindowFirstSeq:138 WindowTokens:17619 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-32768_4096 Context:32768 UsableInput:18906 Fixed:3181 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:150 BlockSeq:69 NewestGroupFirstSeq:150 WindowFirstSeq:138 WindowTokens:17687 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/64000_8192
+    zz_probe_r3_resume_test.go:667: [64000_8192] cut n=75 (final-answer): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=7 unknown=14 refs=8
+    zz_probe_r3_resume_test.go:671: [64000_8192] cut n=75 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-64000_8192 Context:64000 UsableInput:44090 Fixed:3187 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:148 BlockSeq:69 NewestGroupFirstSeq:148 WindowFirstSeq:134 WindowTokens:41952 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-64000_8192 Context:64000 UsableInput:44090 Fixed:3185 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:150 BlockSeq:69 NewestGroupFirstSeq:150 WindowFirstSeq:134 WindowTokens:42019 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/200000_16384
+    zz_probe_r3_resume_test.go:667: [200000_16384] cut n=74 (late): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=7 unknown=14 refs=8
+    zz_probe_r3_resume_test.go:671: [200000_16384] cut n=74 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-200000_16384 Context:200000 UsableInput:163398 Fixed:3186 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:146 BlockSeq:69 NewestGroupFirstSeq:146 WindowFirstSeq:126 WindowTokens:156686 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-200000_16384 Context:200000 UsableInput:163398 Fixed:3184 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:148 BlockSeq:69 NewestGroupFirstSeq:148 WindowFirstSeq:126 WindowTokens:156753 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/600000_32768
+    zz_probe_r3_resume_test.go:667: [600000_32768] cut n=51 (after-proven): cont=R2 cold=R2 | RC(pre-begin) active=true stage=proven_progress block=69 count=2 min=69 orig=51 postFloor=80 proven=3 unknown=4 refs=7
+    zz_probe_r3_resume_test.go:671: [600000_32768] cut n=51 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-600000_32768 Context:600000 UsableInput:522014 Fixed:3146 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:100 WindowFirstSeq:76 WindowTokens:513891 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-600000_32768 Context:600000 UsableInput:522014 Fixed:3149 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:80 BlockSeq:69 NewestGroupFirstSeq:102 WindowFirstSeq:76 WindowTokens:513963 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=8 (cold CausalProgressLen=7 + original=true)
+=== NAME  TestZZR3ResumeParity/128000_8192
+    zz_probe_r3_resume_test.go:667: [128000_8192] cut n=74 (late): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=7 unknown=14 refs=8
+    zz_probe_r3_resume_test.go:671: [128000_8192] cut n=74 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-128000_8192 Context:128000 UsableInput:104090 Fixed:3183 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:146 BlockSeq:69 NewestGroupFirstSeq:146 WindowFirstSeq:126 WindowTokens:101850 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-128000_8192 Context:128000 UsableInput:104090 Fixed:3183 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:148 BlockSeq:69 NewestGroupFirstSeq:148 WindowFirstSeq:126 WindowTokens:101919 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/200000_16384
+    zz_probe_r3_resume_test.go:667: [200000_16384] cut n=75 (final-answer): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=7 unknown=14 refs=8
+    zz_probe_r3_resume_test.go:671: [200000_16384] cut n=75 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-200000_16384 Context:200000 UsableInput:163398 Fixed:3186 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:148 BlockSeq:69 NewestGroupFirstSeq:148 WindowFirstSeq:128 WindowTokens:156686 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-200000_16384 Context:200000 UsableInput:163398 Fixed:3183 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:150 BlockSeq:69 NewestGroupFirstSeq:150 WindowFirstSeq:128 WindowTokens:156752 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/600000_32768
+    zz_probe_r3_resume_test.go:667: [600000_32768] cut n=54 (first-R3): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=3 unknown=6 refs=8
+    zz_probe_r3_resume_test.go:671: [600000_32768] cut n=54 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-600000_32768 Context:600000 UsableInput:522014 Fixed:3180 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:106 BlockSeq:69 NewestGroupFirstSeq:106 WindowFirstSeq:84 WindowTokens:510291 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-600000_32768 Context:600000 UsableInput:522014 Fixed:3182 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:108 BlockSeq:69 NewestGroupFirstSeq:108 WindowFirstSeq:84 WindowTokens:510362 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/128000_8192
+    zz_probe_r3_resume_test.go:667: [128000_8192] cut n=75 (final-answer): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=7 unknown=14 refs=8
+    zz_probe_r3_resume_test.go:671: [128000_8192] cut n=75 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-128000_8192 Context:128000 UsableInput:104090 Fixed:3183 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:148 BlockSeq:69 NewestGroupFirstSeq:148 WindowFirstSeq:128 WindowTokens:101850 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-128000_8192 Context:128000 UsableInput:104090 Fixed:3184 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:150 BlockSeq:69 NewestGroupFirstSeq:150 WindowFirstSeq:128 WindowTokens:101920 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+=== NAME  TestZZR3ResumeParity/600000_32768
+    zz_probe_r3_resume_test.go:667: [600000_32768] cut n=57 (after-unknown): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=4 unknown=7 refs=8
+    zz_probe_r3_resume_test.go:671: [600000_32768] cut n=57 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-600000_32768 Context:600000 UsableInput:522014 Fixed:3184 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:112 BlockSeq:69 NewestGroupFirstSeq:112 WindowFirstSeq:88 WindowTokens:510420 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-600000_32768 Context:600000 UsableInput:522014 Fixed:3190 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:114 BlockSeq:69 NewestGroupFirstSeq:114 WindowFirstSeq:88 WindowTokens:510495 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+    zz_probe_r3_resume_test.go:667: [600000_32768] cut n=74 (late): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=7 unknown=14 refs=8
+    zz_probe_r3_resume_test.go:671: [600000_32768] cut n=74 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-600000_32768 Context:600000 UsableInput:522014 Fixed:3187 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:146 BlockSeq:69 NewestGroupFirstSeq:146 WindowFirstSeq:124 WindowTokens:510298 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-600000_32768 Context:600000 UsableInput:522014 Fixed:3186 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:148 BlockSeq:69 NewestGroupFirstSeq:148 WindowFirstSeq:124 WindowTokens:510366 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+    zz_probe_r3_resume_test.go:667: [600000_32768] cut n=75 (final-answer): cont=R3 cold=R3 | RC(pre-begin) active=true stage=unknown_mutated block=69 count=2 min=69 orig=51 postFloor=80 proven=7 unknown=14 refs=8
+    zz_probe_r3_resume_test.go:671: [600000_32768] cut n=75 parity: live==cold state:true msgs:true | cont==cold state:true msgs:true | live==cont:true
+    zz_probe_r3_resume_test.go:683:     floor_relaxed inputs differ:
+              cont={Ref:test/m-600000_32768 Context:600000 UsableInput:522014 Fixed:3187 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:148 BlockSeq:69 NewestGroupFirstSeq:148 WindowFirstSeq:126 WindowTokens:513806 GatePinnedInState:true LargerCandidatesExhausted:true}
+              cold={Ref:test/m-600000_32768 Context:600000 UsableInput:522014 Fixed:3187 OriginalMinRequiredSeq:69 PreBlockAnchorSeq:51 PostBlockCausalFloorSeq:80 RelaxedFloorSeq:150 BlockSeq:69 NewestGroupFirstSeq:150 WindowFirstSeq:126 WindowTokens:513875 GatePinnedInState:true LargerCandidatesExhausted:true}
+    zz_probe_r3_resume_test.go:708:     live ledger refs=9 (cold CausalProgressLen=8 + original=true)
+--- PASS: TestZZR3ResumeParity (0.00s)
+    --- PASS: TestZZR3ResumeParity/32768_4096 (9.96s)
+    --- PASS: TestZZR3ResumeParity/64000_8192 (10.52s)
+    --- PASS: TestZZR3ResumeParity/200000_16384 (12.76s)
+    --- PASS: TestZZR3ResumeParity/128000_8192 (13.26s)
+    --- PASS: TestZZR3ResumeParity/600000_32768 (20.95s)
+PASS

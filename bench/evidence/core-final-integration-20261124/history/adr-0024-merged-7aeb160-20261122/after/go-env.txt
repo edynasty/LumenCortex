@@ -1,0 +1,7 @@
+darwin
+arm64
+1
+cc
+
+/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-merged-verification-20261122/go.mod
+

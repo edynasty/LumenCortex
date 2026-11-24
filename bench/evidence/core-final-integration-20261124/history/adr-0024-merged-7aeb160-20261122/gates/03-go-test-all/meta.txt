@@ -1,0 +1,6 @@
+argv=go test -count=1 -timeout=45m ./...
+env_GOFLAGS=-json
+sha=7aeb1607ffa588727c6fe04873f7b58a1dc16f15 tree=15ad21e5e6128e6a5f96c5621da2f40bc8115e58
+start_utc=2026-11-22T14:43:52Z
+end_utc=2026-11-22T14:57:41Z
+elapsed_s=829

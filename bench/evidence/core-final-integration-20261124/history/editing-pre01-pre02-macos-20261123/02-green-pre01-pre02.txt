@@ -1,0 +1,53 @@
+=== RUN   TestPRE01RealDiskImageENOSPC
+    remediation_pre01_pre02_unix_test.go:87: hdiutil create (HFS+) unavailable in this environment: exit status 1
+        hdiutil: WARNING: 'hdiutil create -size -volname ...' is deprecated. Please use 'diskutil image create from/blank -size --volumeName ...' instead.
+        hdiutil: create failed - 设备未配置
+--- SKIP: TestPRE01RealDiskImageENOSPC (1.05s)
+=== RUN   TestPRE01SimulatedBlockQuotaENOSPC
+=== RUN   TestPRE01SimulatedBlockQuotaENOSPC/zero_free_blocks
+=== RUN   TestPRE01SimulatedBlockQuotaENOSPC/partial_320KiB_before_enospc
+=== RUN   TestPRE01SimulatedBlockQuotaENOSPC/partial_320KiB_hardlinked_file
+=== RUN   TestPRE01SimulatedBlockQuotaENOSPC/partial_320KiB_fallback_no_rename_swap
+--- PASS: TestPRE01SimulatedBlockQuotaENOSPC (0.01s)
+    --- PASS: TestPRE01SimulatedBlockQuotaENOSPC/zero_free_blocks (0.00s)
+    --- PASS: TestPRE01SimulatedBlockQuotaENOSPC/partial_320KiB_before_enospc (0.00s)
+    --- PASS: TestPRE01SimulatedBlockQuotaENOSPC/partial_320KiB_hardlinked_file (0.00s)
+    --- PASS: TestPRE01SimulatedBlockQuotaENOSPC/partial_320KiB_fallback_no_rename_swap (0.00s)
+=== RUN   TestPRE01RLimitChildHelper
+--- PASS: TestPRE01RLimitChildHelper (0.00s)
+=== RUN   TestPRE01RLimitEFBIGPreservesExistingFile
+=== RUN   TestPRE01RLimitEFBIGPreservesExistingFile/zero_0
+=== RUN   TestPRE01RLimitEFBIGPreservesExistingFile/short_3
+--- PASS: TestPRE01RLimitEFBIGPreservesExistingFile (0.02s)
+    --- PASS: TestPRE01RLimitEFBIGPreservesExistingFile/zero_0 (0.01s)
+    --- PASS: TestPRE01RLimitEFBIGPreservesExistingFile/short_3 (0.01s)
+=== RUN   TestPRE01UpdatePreservesPermissionsSymlinksAndHardlinks
+--- PASS: TestPRE01UpdatePreservesPermissionsSymlinksAndHardlinks (0.01s)
+=== RUN   TestPRE02UpdateWindowPreservesShortAndLongExternalWrites
+=== RUN   TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/short_foreign_write_8B
+=== RUN   TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/same_len_foreign_write_25B
+=== RUN   TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/long_foreign_write_44B
+--- PASS: TestPRE02UpdateWindowPreservesShortAndLongExternalWrites (0.84s)
+    --- PASS: TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/short_foreign_write_8B (0.68s)
+    --- PASS: TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/same_len_foreign_write_25B (0.01s)
+    --- PASS: TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/long_foreign_write_44B (0.01s)
+=== RUN   TestPRE02PostSwapDisplacedOpenFDWriteRestored
+=== RUN   TestPRE02PostSwapDisplacedOpenFDWriteRestored/short_8B_after_swap
+=== RUN   TestPRE02PostSwapDisplacedOpenFDWriteRestored/long_44B_after_swap
+--- PASS: TestPRE02PostSwapDisplacedOpenFDWriteRestored (0.00s)
+    --- PASS: TestPRE02PostSwapDisplacedOpenFDWriteRestored/short_8B_after_swap (0.00s)
+    --- PASS: TestPRE02PostSwapDisplacedOpenFDWriteRestored/long_44B_after_swap (0.00s)
+=== RUN   TestPRE02DeleteConcurrentExternalWritePreserved
+=== RUN   TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window
+=== RUN   TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window/external_append
+=== RUN   TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window/external_same_length_overwrite
+=== RUN   TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window/external_atomic_rename_replace
+=== RUN   TestPRE02DeleteConcurrentExternalWritePreserved/concurrent_stress_80_rounds
+--- PASS: TestPRE02DeleteConcurrentExternalWritePreserved (0.08s)
+    --- PASS: TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window (0.00s)
+        --- PASS: TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window/external_append (0.00s)
+        --- PASS: TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window/external_same_length_overwrite (0.00s)
+        --- PASS: TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window/external_atomic_rename_replace (0.00s)
+    --- PASS: TestPRE02DeleteConcurrentExternalWritePreserved/concurrent_stress_80_rounds (0.08s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	2.438s

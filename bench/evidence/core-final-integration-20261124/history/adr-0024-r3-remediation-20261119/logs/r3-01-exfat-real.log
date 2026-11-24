@@ -1,0 +1,27 @@
+# R3-01 real exFAT probe, 2026-11-19T14:19:56Z, macOS 27.0.1 arm64, go1.26.5
+# mount: /dev/disk8s1 on /private/tmp/lc-adr0024-r3/mnt-ExFAT (exfat, local, nodev, nosuid, noowners, noatime, nobrowse, fskit, mounted by tangxingpeng)
+##### head 2ba79ae (pre-fix)
+    zz_probe_r301_exfat_test.go:34: CREATE err=operation not supported
+    zz_probe_r301_exfat_test.go:35: CREATE code=""
+    zz_probe_r301_exfat_test.go:39: EDIT existing err=<nil> keep.txt="edited\n"
+    zz_probe_r301_exfat_test.go:45: WORKSPACE entries=[._keep.txt keep.txt]
+--- PASS: TestZZR301RealFS (0.09s)
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.458s
+    zz_probe_r301_toolset_test.go:33: TOOL write_file(new.txt) ok=false err=operation not supported content=
+    zz_probe_r301_toolset_test.go:36: TOOL write_file(keep.txt) ok=true err=<nil> keep.txt="edited\n"
+    zz_probe_r301_toolset_test.go:42: WORKSPACE entries=[._keep.txt keep.txt]
+--- PASS: TestZZR301ToolsetRealFS (0.04s)
+ok  	github.com/edynasty/LumenCortex/internal/toolset	0.669s
+##### remediation worktree (fix)
+    zz_probe_r301_exfat_test.go:34: CREATE err=unsupported_filesystem new.txt: filesystem supports neither hard links nor no-replace rename (link: link <exfat>/ws-1795098000391841000/.lcx-create-e3ad0711f35f85cdd744b3eeb24c64e4 <exfat>/ws-1795098000391841000/new.txt: operation not supported; no-replace rename: operation not supported), so a new file cannot be published atomically; nothing was written; this filesystem cannot create new files safely; existing files can still be edited, and new files need a workspace on a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS)
+    zz_probe_r301_exfat_test.go:35: CREATE code="unsupported_filesystem"
+    zz_probe_r301_exfat_test.go:39: EDIT existing err=<nil> keep.txt="edited\n"
+    zz_probe_r301_exfat_test.go:45: WORKSPACE entries=[._keep.txt keep.txt]
+--- PASS: TestZZR301RealFS (0.03s)
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.400s
+    zz_probe_r301_toolset_test.go:33: TOOL write_file(new.txt) ok=false err=<nil> content={"code":"unsupported_filesystem","currentRev":"","diagnostics":null,"error":"unsupported_filesystem new.txt: filesystem supports neither hard links nor no-replace rename (link: link <exfat>/tws-1795098001482372000/.lcx-create-c56e1d768fe534bb93e38422671c720e <exfat>/tws-1795098001482372000/new.txt: operation not supported; no-replace rename: operation not supported), so a new file cannot be published atomically; nothing was written; this filesystem cannot create new files safely; existing files can still be edited, and new files need a workspace on a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS)","hint":"this filesystem cannot create new files safely; existing files can still be edited, and new files need a workspace on a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS)","holder":"","path":"new.txt"}
+    zz_probe_r301_toolset_test.go:36: TOOL write_file(keep.txt) ok=true err=<nil> keep.txt="edited\n"
+    zz_probe_r301_toolset_test.go:42: WORKSPACE entries=[._keep.txt keep.txt]
+--- PASS: TestZZR301ToolsetRealFS (0.03s)
+ok  	github.com/edynasty/LumenCortex/internal/toolset	0.740s
+leftover .lcx-create files on exFAT: 0

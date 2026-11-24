@@ -1,0 +1,392 @@
+=== RUN   TestConcurrentLineEditsLoseNoUpdate
+    concurrency_test.go:45: edit 5 was refused: unsupported_filesystem f.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestConcurrentLineEditsLoseNoUpdate (0.03s)
+=== RUN   TestLargeFileAnchorEditIsBounded
+    concurrency_test.go:83: commit: unsupported_filesystem big.go: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestLargeFileAnchorEditIsBounded (0.03s)
+=== RUN   TestWriteLeaseRefusesOtherHolder
+    concurrency_test.go:126: commit after release: unsupported_filesystem a.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestWriteLeaseRefusesOtherHolder (0.01s)
+=== RUN   TestWriteLeasePrefixAndExpiry
+--- PASS: TestWriteLeasePrefixAndExpiry (0.00s)
+=== RUN   TestMultiFileCommitStopsAtFirstWriteFailure
+    concurrency_test.go:182: the first file was compensated: "alpha\n"
+--- FAIL: TestMultiFileCommitStopsAtFirstWriteFailure (0.01s)
+=== RUN   TestMultiFileCommitIsAtomic
+    concurrency_test.go:213: commit: unsupported_filesystem a.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestMultiFileCommitIsAtomic (0.01s)
+=== RUN   TestCreateAndDeleteChanges
+--- PASS: TestCreateAndDeleteChanges (0.00s)
+=== RUN   TestSnapshotStoreIsBounded
+--- PASS: TestSnapshotStoreIsBounded (0.00s)
+=== RUN   TestRelocationRefusesBeyondBudget
+--- PASS: TestRelocationRefusesBeyondBudget (0.00s)
+=== RUN   TestCreateRaceForeignFilePreserved
+=== RUN   TestCreateRaceForeignFilePreserved/create_flag
+=== RUN   TestCreateRaceForeignFilePreserved/allow_create
+--- PASS: TestCreateRaceForeignFilePreserved (0.00s)
+    --- PASS: TestCreateRaceForeignFilePreserved/create_flag (0.00s)
+    --- PASS: TestCreateRaceForeignFilePreserved/allow_create (0.00s)
+=== RUN   TestCreateRaceOversizedForeignFilePreserved
+--- PASS: TestCreateRaceOversizedForeignFilePreserved (0.00s)
+=== RUN   TestCreateStagingFailureNeverPublishes
+=== RUN   TestCreateStagingFailureNeverPublishes/error
+=== RUN   TestCreateStagingFailureNeverPublishes/short
+--- PASS: TestCreateStagingFailureNeverPublishes (0.00s)
+    --- PASS: TestCreateStagingFailureNeverPublishes/error (0.00s)
+    --- PASS: TestCreateStagingFailureNeverPublishes/short (0.00s)
+=== RUN   TestCreatePrefixForeignReplacementSurvivesLaterConflict
+--- PASS: TestCreatePrefixForeignReplacementSurvivesLaterConflict (0.00s)
+=== RUN   TestCreateNeverFollowsSymlinkSwap
+--- PASS: TestCreateNeverFollowsSymlinkSwap (0.00s)
+=== RUN   TestModifyCASConflictPreservesExistingFile
+--- PASS: TestModifyCASConflictPreservesExistingFile (0.00s)
+=== RUN   TestFileIdentityUnitSemantics
+--- PASS: TestFileIdentityUnitSemantics (0.00s)
+=== RUN   TestHashlineFreshEditOnSnapshot
+    engine_test.go:92: commit: unsupported_filesystem demo.go: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestHashlineFreshEditOnSnapshot (0.01s)
+=== RUN   TestHashlineRefusesChangedAnchoredLine
+--- PASS: TestHashlineRefusesChangedAnchoredLine (0.00s)
+=== RUN   TestHashlineRelocatesAcrossUnrelatedInsertion
+    engine_test.go:138: commit: unsupported_filesystem demo.go: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestHashlineRelocatesAcrossUnrelatedInsertion (0.01s)
+=== RUN   TestHashlineRefusesInsertionInsideEditedRange
+--- PASS: TestHashlineRefusesInsertionInsideEditedRange (0.00s)
+=== RUN   TestHashlineAppliesBatchAgainstOneSnapshot
+    engine_test.go:184: commit: unsupported_filesystem demo.go: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestHashlineAppliesBatchAgainstOneSnapshot (0.01s)
+=== RUN   TestHashlineRefusesOverlappingOps
+--- PASS: TestHashlineRefusesOverlappingOps (0.00s)
+=== RUN   TestHashlinePreservesEncoding
+    engine_test.go:223: commit: unsupported_filesystem notes.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestHashlinePreservesEncoding (0.01s)
+=== RUN   TestHashlineRefusesConcurrentWriteWithCompareAndSwap
+--- PASS: TestHashlineRefusesConcurrentWriteWithCompareAndSwap (0.00s)
+=== RUN   TestWholeFileWriteRefusesStaleBaseRevision
+--- PASS: TestWholeFileWriteRefusesStaleBaseRevision (0.00s)
+=== RUN   TestHashlineRefusesUnknownRevision
+--- PASS: TestHashlineRefusesUnknownRevision (0.00s)
+=== RUN   TestHashlineRefusesWrongOrUnseenAnchor
+--- PASS: TestHashlineRefusesWrongOrUnseenAnchor (0.00s)
+=== RUN   TestCommitRefusesNonUTF8File
+--- PASS: TestCommitRefusesNonUTF8File (0.00s)
+=== RUN   TestDiffHistoryIsBounded
+    history_test.go:28: commit 1: unsupported_filesystem f.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestDiffHistoryIsBounded (0.01s)
+=== RUN   TestEvictedRevisionIsNotRetained
+--- PASS: TestEvictedRevisionIsNotRetained (0.00s)
+=== RUN   TestR7CrashBeforePublicationHelper
+--- PASS: TestR7CrashBeforePublicationHelper (0.00s)
+=== RUN   TestR7CreateRecreationFaultMatrix
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_zero_write
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_partial_write
+=== RUN   TestR7CreateRecreationFaultMatrix/staged_generic_write_error
+=== RUN   TestR7CreateRecreationFaultMatrix/path_created_concurrently_at_publication
+=== RUN   TestR7CreateRecreationFaultMatrix/child_exits_before_publication
+--- PASS: TestR7CreateRecreationFaultMatrix (0.02s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_zero_write (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_partial_write (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/staged_generic_write_error (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/path_created_concurrently_at_publication (0.00s)
+    --- PASS: TestR7CreateRecreationFaultMatrix/child_exits_before_publication (0.01s)
+=== RUN   TestR7ExplicitRecreateSuccessBaseline
+--- PASS: TestR7ExplicitRecreateSuccessBaseline (0.00s)
+=== RUN   TestR7DisplayPathsStructuredAndFreeText
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/structured_path_error_with_spaces
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/sibling_path_error_spaces_keeps_basename_only
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/link_error_old_and_new_are_separate
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/joined_errors_keep_every_cause
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/free_text_quoted_and_windows_unc
+=== RUN   TestR7DisplayPathsStructuredAndFreeText/file_url_path_is_scrubbed
+--- PASS: TestR7DisplayPathsStructuredAndFreeText (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/structured_path_error_with_spaces (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/sibling_path_error_spaces_keeps_basename_only (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/link_error_old_and_new_are_separate (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/joined_errors_keep_every_cause (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/free_text_quoted_and_windows_unc (0.00s)
+    --- PASS: TestR7DisplayPathsStructuredAndFreeText/file_url_path_is_scrubbed (0.00s)
+=== RUN   TestR7DiagnosticPathFailsClosed
+--- PASS: TestR7DiagnosticPathFailsClosed (0.00s)
+=== RUN   TestR7RlimitChildHelper
+--- PASS: TestR7RlimitChildHelper (0.00s)
+=== RUN   TestR7NonStagingHostRefusesUpdate
+--- PASS: TestR7NonStagingHostRefusesUpdate (0.00s)
+=== RUN   TestR7CreateEFBIGIsolated
+--- PASS: TestR7CreateEFBIGIsolated (0.01s)
+=== RUN   TestR7CreateRecreationUnixFaultMatrix
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/enospc_injection
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/permission_refuses_staging
+=== RUN   TestR7CreateRecreationUnixFaultMatrix/unsupported_filesystem_refuses_create
+--- PASS: TestR7CreateRecreationUnixFaultMatrix (0.00s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/enospc_injection (0.00s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/permission_refuses_staging (0.00s)
+    --- PASS: TestR7CreateRecreationUnixFaultMatrix/unsupported_filesystem_refuses_create (0.00s)
+=== RUN   TestR7ConsumedStageIsNotUnlinked
+--- PASS: TestR7ConsumedStageIsNotUnlinked (0.00s)
+=== RUN   TestR7DeletePermissionRefusalLeavesFileIntact
+--- PASS: TestR7DeletePermissionRefusalLeavesFileIntact (0.00s)
+=== RUN   TestR7PrefixExternalAppendBeforeLaterConflict
+    r7_partial_commit_test.go:104: want CodeConflict from B, got unsupported_filesystem a.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestR7PrefixExternalAppendBeforeLaterConflict (0.01s)
+=== RUN   TestR7PrefixExternalSameByteReplacement
+    r7_partial_commit_test.go:174: want B conflict, got unsupported_filesystem a.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestR7PrefixExternalSameByteReplacement (0.01s)
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/update
+    r7_partial_commit_test.go:270: want B conflict, got unsupported_filesystem a.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/create
+=== RUN   TestR7VerifiedPrefixUpdateCreateDelete/delete
+--- FAIL: TestR7VerifiedPrefixUpdateCreateDelete (0.01s)
+    --- FAIL: TestR7VerifiedPrefixUpdateCreateDelete/update (0.01s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/create (0.00s)
+    --- PASS: TestR7VerifiedPrefixUpdateCreateDelete/delete (0.00s)
+=== RUN   TestR7CleanFailureSettlesEveryPathAndKeepsSnapshots
+--- PASS: TestR7CleanFailureSettlesEveryPathAndKeepsSnapshots (0.00s)
+=== RUN   TestR7NoOpVerification
+=== RUN   TestR7NoOpVerification/committed_noop
+=== RUN   TestR7NoOpVerification/noop_prefix_in_failed_plan
+--- PASS: TestR7NoOpVerification (0.00s)
+    --- PASS: TestR7NoOpVerification/committed_noop (0.00s)
+    --- PASS: TestR7NoOpVerification/noop_prefix_in_failed_plan (0.00s)
+=== RUN   TestR7DeleteVerification
+=== RUN   TestR7DeleteVerification/committed_delete_observes_absence
+=== RUN   TestR7DeleteVerification/external_change_refuses_delete_and_preserves_foreign_bytes
+--- PASS: TestR7DeleteVerification (0.00s)
+    --- PASS: TestR7DeleteVerification/committed_delete_observes_absence (0.00s)
+    --- PASS: TestR7DeleteVerification/external_change_refuses_delete_and_preserves_foreign_bytes (0.00s)
+=== RUN   TestR7CreateContention
+=== RUN   TestR7CreateContention/before_staging
+=== RUN   TestR7CreateContention/at_publication
+--- PASS: TestR7CreateContention (0.00s)
+    --- PASS: TestR7CreateContention/before_staging (0.00s)
+    --- PASS: TestR7CreateContention/at_publication (0.00s)
+=== RUN   TestR7CustomHostWithoutStagerIsUnsupported
+--- PASS: TestR7CustomHostWithoutStagerIsUnsupported (0.00s)
+=== RUN   TestR7ExplicitRecreateAfterDeleteUsesFreshCreate
+--- PASS: TestR7ExplicitRecreateAfterDeleteUsesFreshCreate (0.00s)
+=== RUN   TestR7TimeBoundaryNoOpIdentifiesSameBytes
+--- PASS: TestR7TimeBoundaryNoOpIdentifiesSameBytes (0.00s)
+=== RUN   TestR7R2CaseCollisionFollowsFilesystemSemantics
+--- PASS: TestR7R2CaseCollisionFollowsFilesystemSemantics (0.00s)
+=== RUN   TestR7R2CaseProbeReadsTheVolume
+--- PASS: TestR7R2CaseProbeReadsTheVolume (0.00s)
+=== RUN   TestR7R2HardLinkAliasRefusedBeforeWrite
+--- PASS: TestR7R2HardLinkAliasRefusedBeforeWrite (0.00s)
+=== RUN   TestR7R2CaseVariantOfExistingFileRefused
+--- PASS: TestR7R2CaseVariantOfExistingFileRefused (0.00s)
+=== RUN   TestR7R2CaseVariantCreatesRefused
+=== RUN   TestR7R2CaseVariantCreatesRefused/leaf
+=== RUN   TestR7R2CaseVariantCreatesRefused/existing_dir_spelling
+=== RUN   TestR7R2CaseVariantCreatesRefused/new_dir
+--- PASS: TestR7R2CaseVariantCreatesRefused (0.00s)
+    --- PASS: TestR7R2CaseVariantCreatesRefused/leaf (0.00s)
+    --- PASS: TestR7R2CaseVariantCreatesRefused/existing_dir_spelling (0.00s)
+    --- PASS: TestR7R2CaseVariantCreatesRefused/new_dir (0.00s)
+=== RUN   TestR7R2StaleBaseIsFailedBeforeWrite
+--- PASS: TestR7R2StaleBaseIsFailedBeforeWrite (0.00s)
+=== RUN   TestR7R2SelfReplayIsFailedBeforeWrite
+    r7r2_remediation_test.go:183: unsupported_filesystem a.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestR7R2SelfReplayIsFailedBeforeWrite (0.01s)
+=== RUN   TestR7R2SessionViewConflictIsFailedBeforeWrite
+--- PASS: TestR7R2SessionViewConflictIsFailedBeforeWrite (0.00s)
+=== RUN   TestOpusPRE01SwapReplicatesMetadata
+    remediation_pre01_pre02_opus_darwin_test.go:114: commit: unsupported_filesystem meta.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestOpusPRE01SwapReplicatesMetadata (0.02s)
+=== RUN   TestOpusPRE01ACLFileRefusedIntact
+=== RUN   TestOpusPRE01ACLFileRefusedIntact/user:nobody_allow_read
+=== RUN   TestOpusPRE01ACLFileRefusedIntact/everyone_deny_delete
+--- PASS: TestOpusPRE01ACLFileRefusedIntact (0.07s)
+    --- PASS: TestOpusPRE01ACLFileRefusedIntact/user:nobody_allow_read (0.03s)
+    --- PASS: TestOpusPRE01ACLFileRefusedIntact/everyone_deny_delete (0.03s)
+=== RUN   TestOpusPRE02DeleteFinalCheckKeepsWriteAfterRead
+--- PASS: TestOpusPRE02DeleteFinalCheckKeepsWriteAfterRead (0.00s)
+=== RUN   TestSolPREL1UnsupportedSwapRefused
+--- PASS: TestSolPREL1UnsupportedSwapRefused (0.01s)
+=== RUN   TestOpusPRE02DeleteRecoveryPreservesBytesWhenPathRecreated
+--- PASS: TestOpusPRE02DeleteRecoveryPreservesBytesWhenPathRecreated (0.00s)
+=== RUN   TestOpusPRE02UncertainSwapKeepsDisplacedOriginal
+    remediation_pre01_pre02_opus_unix_test.go:177: expected dirty uncertain failure, got err=unsupported_filesystem f.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC rec={Committed:false DirtyFailure:false State:failed_before_publication Files:[{Path:f.txt AbsPath:/private/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestOpusPRE02UncertainSwapKeepsDisplacedOriginal4109688436/001/f.txt Staged:false Published:false Verified:false RolledBack:false Wrote:false PublishState:unsupported Created:false Deleted:false OldSHA256:sha256:49d6effc804e9eed9a69f8c4b3429bcb7a921ffe693e19ff8d7d9b003e5ea60f NewSHA256: Error:unsupported_filesystem f.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC}]}
+--- FAIL: TestOpusPRE02UncertainSwapKeepsDisplacedOriginal (0.01s)
+=== RUN   TestSolPREL1LinkChild
+--- PASS: TestSolPREL1LinkChild (0.00s)
+=== RUN   TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite
+=== RUN   TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/batch_preflight_refuses_everything
+=== RUN   TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/link_created_after_staging
+    remediation_pre01_pre02_opus_unix_test.go:369: child pid=34062 linked original inode after complete staging
+=== RUN   TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/delete_one_name_keeps_other_links
+--- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite (0.02s)
+    --- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/batch_preflight_refuses_everything (0.00s)
+    --- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/link_created_after_staging (0.01s)
+    --- PASS: TestOpusPRE01HardLinkedUpdateRefusedBeforeAnyWrite/delete_one_name_keeps_other_links (0.00s)
+=== RUN   TestOpusPRE02DeleteRecreatedPathKeepsQuarantinedOriginal
+--- PASS: TestOpusPRE02DeleteRecreatedPathKeepsQuarantinedOriginal (0.00s)
+=== RUN   TestOpusPRE02DeleteWithoutNoReplaceMoveRefused
+--- PASS: TestOpusPRE02DeleteWithoutNoReplaceMoveRefused (0.00s)
+=== RUN   TestPRE01RealDiskImageENOSPC
+--- PASS: TestPRE01RealDiskImageENOSPC (11.97s)
+=== RUN   TestPRE01SimulatedBlockQuotaENOSPC
+=== RUN   TestPRE01SimulatedBlockQuotaENOSPC/zero_free_blocks
+=== RUN   TestPRE01SimulatedBlockQuotaENOSPC/partial_320KiB_before_enospc
+--- PASS: TestPRE01SimulatedBlockQuotaENOSPC (0.00s)
+    --- PASS: TestPRE01SimulatedBlockQuotaENOSPC/zero_free_blocks (0.00s)
+    --- PASS: TestPRE01SimulatedBlockQuotaENOSPC/partial_320KiB_before_enospc (0.00s)
+=== RUN   TestPRE01RLimitChildHelper
+--- PASS: TestPRE01RLimitChildHelper (0.00s)
+=== RUN   TestPRE01RLimitEFBIGPreservesExistingFile
+=== RUN   TestPRE01RLimitEFBIGPreservesExistingFile/zero_0
+=== RUN   TestPRE01RLimitEFBIGPreservesExistingFile/short_3
+--- PASS: TestPRE01RLimitEFBIGPreservesExistingFile (0.02s)
+    --- PASS: TestPRE01RLimitEFBIGPreservesExistingFile/zero_0 (0.01s)
+    --- PASS: TestPRE01RLimitEFBIGPreservesExistingFile/short_3 (0.01s)
+=== RUN   TestPRE01UpdatePreservesPermissionsSymlinksAndHardlinks
+    remediation_pre01_pre02_unix_test.go:336: update run.sh: unsupported_filesystem run.sh: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestPRE01UpdatePreservesPermissionsSymlinksAndHardlinks (0.01s)
+=== RUN   TestPRE02UpdateWindowPreservesShortAndLongExternalWrites
+=== RUN   TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/short_foreign_write_8B
+=== RUN   TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/same_len_foreign_write_25B
+=== RUN   TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/long_foreign_write_44B
+--- PASS: TestPRE02UpdateWindowPreservesShortAndLongExternalWrites (0.69s)
+    --- PASS: TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/short_foreign_write_8B (0.36s)
+    --- PASS: TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/same_len_foreign_write_25B (0.01s)
+    --- PASS: TestPRE02UpdateWindowPreservesShortAndLongExternalWrites/long_foreign_write_44B (0.02s)
+=== RUN   TestPRE02PostSwapDisplacedOpenFDWriteRestored
+=== RUN   TestPRE02PostSwapDisplacedOpenFDWriteRestored/short_8B_after_swap
+    remediation_pre01_pre02_unix_test.go:558: expected CodeConcurrentWrite, got err=unsupported_filesystem shared.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC res={Files:[{Path:shared.txt OldRev:6q2nisw2 NewRev: Created:false Deleted:false Changed:false Published:false Verified:false RolledBack:false PublishState:unsupported Error:unsupported_filesystem shared.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC Landed:[]}] Diffs:[] Diagnostics:[] CommitState:failed_before_publication} rec={Committed:false DirtyFailure:false State:failed_before_publication Files:[{Path:shared.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestPRE02PostSwapDisplacedOpenFDWriteRestoredshort_8B_after_swa2463881291/001/shared.txt Staged:false Published:false Verified:false RolledBack:false Wrote:false PublishState:unsupported Created:false Deleted:false OldSHA256:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 NewSHA256: Error:unsupported_filesystem shared.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC}]}
+=== RUN   TestPRE02PostSwapDisplacedOpenFDWriteRestored/long_44B_after_swap
+    remediation_pre01_pre02_unix_test.go:558: expected CodeConcurrentWrite, got err=unsupported_filesystem shared.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC res={Files:[{Path:shared.txt OldRev:6q2nisw2 NewRev: Created:false Deleted:false Changed:false Published:false Verified:false RolledBack:false PublishState:unsupported Error:unsupported_filesystem shared.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC Landed:[]}] Diffs:[] Diagnostics:[] CommitState:failed_before_publication} rec={Committed:false DirtyFailure:false State:failed_before_publication Files:[{Path:shared.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestPRE02PostSwapDisplacedOpenFDWriteRestoredlong_44B_after_swa3371627874/001/shared.txt Staged:false Published:false Verified:false RolledBack:false Wrote:false PublishState:unsupported Created:false Deleted:false OldSHA256:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 NewSHA256: Error:unsupported_filesystem shared.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC}]}
+--- FAIL: TestPRE02PostSwapDisplacedOpenFDWriteRestored (0.01s)
+    --- FAIL: TestPRE02PostSwapDisplacedOpenFDWriteRestored/short_8B_after_swap (0.01s)
+    --- FAIL: TestPRE02PostSwapDisplacedOpenFDWriteRestored/long_44B_after_swap (0.01s)
+=== RUN   TestPRE02DeleteConcurrentExternalWritePreserved
+=== RUN   TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window
+=== RUN   TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window/external_append
+=== RUN   TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window/external_same_length_overwrite
+=== RUN   TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window/external_atomic_rename_replace
+=== RUN   TestPRE02DeleteConcurrentExternalWritePreserved/concurrent_stress_80_rounds
+--- PASS: TestPRE02DeleteConcurrentExternalWritePreserved (0.08s)
+    --- PASS: TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window (0.00s)
+        --- PASS: TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window/external_append (0.00s)
+        --- PASS: TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window/external_same_length_overwrite (0.00s)
+        --- PASS: TestPRE02DeleteConcurrentExternalWritePreserved/deterministic_check_to_delete_window/external_atomic_rename_replace (0.00s)
+    --- PASS: TestPRE02DeleteConcurrentExternalWritePreserved/concurrent_stress_80_rounds (0.08s)
+=== RUN   TestR201TwoOSProcessesCreateRace
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_a_lc_wins_exclusive_creation
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b0_external_wins_before_exclusive_create_prepare
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b1_external_wins_before_no_replace_publish
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b2_external_creates_empty_writes_before_inplace_truncate
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b3_external_creates_empty_overlaps_inplace_write
+    remediation_r2_01_test.go:408: the commit never reached release point "after_write_close": err=unsupported_filesystem shared.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC rec={Committed:false DirtyFailure:false State:failed_before_publication Files:[{Path:shared.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR201TwoOSProcessesCreateRaceoutcome_b3_external_creates_emp4091036388/001/shared.txt Staged:false Published:false Verified:false RolledBack:false Wrote:false PublishState:unsupported Created:false Deleted:false OldSHA256:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 NewSHA256: Error:unsupported_filesystem shared.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC}]}
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b4_external_creates_empty_writes_inside_truncate_window
+=== RUN   TestR201TwoOSProcessesCreateRace/outcome_b5_external_complete_before_prepare_replaced_as_read
+    remediation_r2_01_test.go:408: existing-file conflict invariant violated: err=unsupported_filesystem shared.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC rec={Committed:false DirtyFailure:false State:failed_before_publication Files:[{Path:shared.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR201TwoOSProcessesCreateRaceoutcome_b5_external_complete_be2381387384/001/shared.txt Staged:false Published:false Verified:false RolledBack:false Wrote:false PublishState:unsupported Created:false Deleted:false OldSHA256:sha256:a084e43e55cb8fe4347b15e92f7acdec9286a4002618f79ac9a817340773808d NewSHA256: Error:unsupported_filesystem shared.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC}]}
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_exclusive_create_stress
+    remediation_r2_01_test.go:449: stress (Create=true) excl_after_signal released before_commit: rounds=10 exists_before_prepare=10
+    remediation_r2_01_test.go:449: stress (Create=true) excl_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:449: stress (Create=true) excl_after_signal released before_publish: rounds=10 staged_publish_refused=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress
+    remediation_r2_01_test.go:457: stress (Create=false) atomic_after_signal released before_commit: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:457: stress (Create=false) atomic_after_signal released after_prepare: rounds=10 staged_publish_refused=10
+    remediation_r2_01_test.go:457: stress (Create=false) atomic_after_signal released before_publish: rounds=10 lc_created=10
+=== RUN   TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress
+    remediation_r2_01_test.go:468: existing-file conflict invariant violated: err=unsupported_filesystem shared.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC rec={Committed:false DirtyFailure:false State:failed_before_publication Files:[{Path:shared.txt AbsPath:/var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestR201TwoOSProcessesCreateRaceconcurrent_two_syscall_allow_cr2383210840/001/shared.txt Staged:false Published:false Verified:false RolledBack:false Wrote:false PublishState:unsupported Created:false Deleted:false OldSHA256:sha256:a084e43e55cb8fe4347b15e92f7acdec9286a4002618f79ac9a817340773808d NewSHA256: Error:unsupported_filesystem shared.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC}]}
+--- FAIL: TestR201TwoOSProcessesCreateRace (1.12s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_a_lc_wins_exclusive_creation (0.36s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b0_external_wins_before_exclusive_create_prepare (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b1_external_wins_before_no_replace_publish (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b2_external_creates_empty_writes_before_inplace_truncate (0.01s)
+    --- FAIL: TestR201TwoOSProcessesCreateRace/outcome_b3_external_creates_empty_overlaps_inplace_write (0.02s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/outcome_b4_external_creates_empty_writes_inside_truncate_window (0.01s)
+    --- FAIL: TestR201TwoOSProcessesCreateRace/outcome_b5_external_complete_before_prepare_replaced_as_read (0.01s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_exclusive_create_stress (0.20s)
+    --- PASS: TestR201TwoOSProcessesCreateRace/concurrent_atomic_allow_create_stress (0.28s)
+    --- FAIL: TestR201TwoOSProcessesCreateRace/concurrent_two_syscall_allow_create_stress (0.02s)
+=== RUN   TestR201ExistingCASConflictPreservesForeignBytes
+--- PASS: TestR201ExistingCASConflictPreservesForeignBytes (0.00s)
+=== RUN   TestR301CreateWithoutNoReplacePublishIsRefusedClearly
+=== RUN   TestR301CreateWithoutNoReplacePublishIsRefusedClearly/operation_not_supported
+    remediation_r3_01_unix_test.go:69: edit of an existing file: unsupported_filesystem keep.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+=== RUN   TestR301CreateWithoutNoReplacePublishIsRefusedClearly/invalid_argument
+    remediation_r3_01_unix_test.go:69: edit of an existing file: unsupported_filesystem keep.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+=== RUN   TestR301CreateWithoutNoReplacePublishIsRefusedClearly/function_not_implemented
+    remediation_r3_01_unix_test.go:69: edit of an existing file: unsupported_filesystem keep.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestR301CreateWithoutNoReplacePublishIsRefusedClearly (0.02s)
+    --- FAIL: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/operation_not_supported (0.01s)
+    --- FAIL: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/invalid_argument (0.01s)
+    --- FAIL: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/function_not_implemented (0.01s)
+=== RUN   TestR7ForwardPublicationFaultMatrix
+=== RUN   TestR7ForwardPublicationFaultMatrix/01_failure_before_publication_is_clean
+=== RUN   TestR7ForwardPublicationFaultMatrix/05b_inplace_close_failure_is_uncertain
+    remediation_r4_02_test.go:76: err = unsupported_filesystem a.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC, want EIO
+=== RUN   TestR7ForwardPublicationFaultMatrix/02_link_succeeds_then_error
+=== RUN   TestR7ForwardPublicationFaultMatrix/03_rename_succeeds_then_error
+=== RUN   TestR7ForwardPublicationFaultMatrix/04_stat_fails_after_publication
+=== RUN   TestR7ForwardPublicationFaultMatrix/05_close_fails_after_publication
+=== RUN   TestR7ForwardPublicationFaultMatrix/06_identity_capture_fails
+=== RUN   TestR7ForwardPublicationFaultMatrix/07_identity_failure_keeps_published_prefix_and_skips_suffix
+=== RUN   TestR7ForwardPublicationFaultMatrix/08_second_path_refusal_keeps_verified_first
+=== RUN   TestR7ForwardPublicationFaultMatrix/09_external_append_on_prefix_is_external
+=== RUN   TestR7ForwardPublicationFaultMatrix/10_external_same_length_replacement_is_external
+=== RUN   TestR7ForwardPublicationFaultMatrix/11_uncertain_publication_reports_dirty_failure
+--- FAIL: TestR7ForwardPublicationFaultMatrix (0.02s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/01_failure_before_publication_is_clean (0.00s)
+    --- FAIL: TestR7ForwardPublicationFaultMatrix/05b_inplace_close_failure_is_uncertain (0.01s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/02_link_succeeds_then_error (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/03_rename_succeeds_then_error (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/04_stat_fails_after_publication (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/05_close_fails_after_publication (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/06_identity_capture_fails (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/07_identity_failure_keeps_published_prefix_and_skips_suffix (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/08_second_path_refusal_keeps_verified_first (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/09_external_append_on_prefix_is_external (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/10_external_same_length_replacement_is_external (0.00s)
+    --- PASS: TestR7ForwardPublicationFaultMatrix/11_uncertain_publication_reports_dirty_failure (0.00s)
+=== RUN   TestR5ExternalProcessWriterHelper
+--- PASS: TestR5ExternalProcessWriterHelper (0.00s)
+=== RUN   TestR7SameInodeExternalOverwriteIsExternal
+    remediation_r5_test.go:117: want B conflict, got unsupported_filesystem a.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestR7SameInodeExternalOverwriteIsExternal (0.01s)
+=== RUN   TestR6ExternalWriterProcessHelper
+--- PASS: TestR6ExternalWriterProcessHelper (0.00s)
+=== RUN   TestR6ValidateRelativizesDiagnosticsAndSiblingPaths
+--- PASS: TestR6ValidateRelativizesDiagnosticsAndSiblingPaths (0.00s)
+=== RUN   TestReviewDeletePreservesChangedFile
+=== RUN   TestReviewDeletePreservesChangedFile/before
+=== RUN   TestReviewDeletePreservesChangedFile/validation
+=== RUN   TestReviewDeletePreservesChangedFile/write
+--- PASS: TestReviewDeletePreservesChangedFile (0.00s)
+    --- PASS: TestReviewDeletePreservesChangedFile/before (0.00s)
+    --- PASS: TestReviewDeletePreservesChangedFile/validation (0.00s)
+    --- PASS: TestReviewDeletePreservesChangedFile/write (0.00s)
+=== RUN   TestReviewLeaseAcquiredDuringValidation
+--- PASS: TestReviewLeaseAcquiredDuringValidation (0.00s)
+=== RUN   TestReviewSnapshotBudget
+--- PASS: TestReviewSnapshotBudget (0.15s)
+=== RUN   TestReviewEvictedReadRequiresFreshRevision
+    review_regression_test.go:104: fresh reread must unblock write: unsupported_filesystem a: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestReviewEvictedReadRequiresFreshRevision (0.01s)
+=== RUN   TestReviewCancelledValidationDoesNotMutate
+--- PASS: TestReviewCancelledValidationDoesNotMutate (0.00s)
+=== RUN   TestReviewLeaseAcquisitionWaitsForCommit
+    review_regression_test.go:154: unsupported_filesystem a: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestReviewLeaseAcquisitionWaitsForCommit (0.03s)
+=== RUN   TestReviewByteEvictionKeepsNewestViewFence
+    review_residual_test.go:20: unsupported_filesystem a: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestReviewByteEvictionKeepsNewestViewFence (0.01s)
+=== RUN   TestXReviewSnapshotRegistrationRaceFree
+--- PASS: TestXReviewSnapshotRegistrationRaceFree (0.00s)
+=== RUN   TestXReviewSnapshotRegisterCopiesInsteadOfMutating
+--- PASS: TestXReviewSnapshotRegisterCopiesInsteadOfMutating (0.00s)
+=== RUN   TestXReviewConcurrentLineEditAndWholeFileWrite
+    xreview_editing_concurrency_test.go:129: exactly one writer must win: line=unsupported_filesystem f.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC write=unsupported_filesystem f.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestXReviewConcurrentLineEditAndWholeFileWrite (0.01s)
+=== RUN   TestXReviewDeleteCASAgainstConcurrentWrite
+--- PASS: TestXReviewDeleteCASAgainstConcurrentWrite (0.23s)
+=== RUN   TestXReviewMultiFileAtomicAgainstSingleWrite
+--- PASS: TestXReviewMultiFileAtomicAgainstSingleWrite (0.47s)
+=== RUN   TestXReviewHashlineAnchorsAfterOtherSessionCommit
+    xreview_editing_concurrency_test.go:273: unsupported_filesystem g.txt: the filesystem cannot atomically exchange the staged and existing files; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC
+--- FAIL: TestXReviewHashlineAnchorsAfterOtherSessionCommit (0.01s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	15.996s
+FAIL

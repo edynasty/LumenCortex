@@ -1,0 +1,13 @@
+=== RUN   TestR204MeasureProfile
+    remediation_r2_04_test.go:233: R2-04_PROFILE_HEADER	groups	single_derive_us	step40_calls_ms	step40_alloc_bytes	live_heap_bytes	step40_tx_scans	step40_tx_rows	step40_exec_queries	cold_resume_ms	history_slice_len	transcript_entries
+    remediation_r2_04_test.go:290: R2-04_PROFILE_ROW	2048	52	2.112	0	2920024	0	0	0	47.821	2048	62
+    remediation_r2_04_test.go:290: R2-04_PROFILE_ROW	2049	43661	1858.648	895256328	2255472	40	163800	40	97.009	0	62
+    remediation_r2_04_test.go:290: R2-04_PROFILE_ROW	6000	119573	5483.320	2623581760	3622208	40	479880	40	265.406	0	62
+    remediation_r2_04_test.go:290: R2-04_PROFILE_ROW	12000	264533	10356.324	5270047856	5088288	40	959880	40	511.715	0	62
+--- PASS: TestR204MeasureProfile (21.59s)
+=== RUN   TestR204IncrementalBaseSMParityAndZeroPerStepSQLiteScans
+    remediation_r2_04_test.go:361: R2-04 O(n^2) REGRESSION at 2049 groups: 4 deriveRepairContext calls executed 4 SQLite Transcript scans (16380 rows) and 4 ListAnsweredExecutions queries, want 0!
+--- FAIL: TestR204IncrementalBaseSMParityAndZeroPerStepSQLiteScans (0.51s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/agent	23.170s
+FAIL

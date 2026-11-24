@@ -1,0 +1,5 @@
+ok  	github.com/edynasty/LumenCortex/internal/editing	18.164s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	114.755s
+ok  	github.com/edynasty/LumenCortex/internal/agent	61.947s
+ok  	github.com/edynasty/LumenCortex/internal/session	46.734s
+exit=0

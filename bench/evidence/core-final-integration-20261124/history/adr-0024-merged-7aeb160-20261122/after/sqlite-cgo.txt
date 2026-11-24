@@ -1,0 +1,1 @@
+github.com/mattn/go-sqlite3 [backup.go callback.go error.go sqlite3.go sqlite3_context.go sqlite3_load_extension.go sqlite3_opt_serialize.go sqlite3_opt_userauth_omit.go sqlite3_other.go sqlite3_type.go]

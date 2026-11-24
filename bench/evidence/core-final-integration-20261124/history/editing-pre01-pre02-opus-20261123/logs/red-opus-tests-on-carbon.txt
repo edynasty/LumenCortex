@@ -1,0 +1,26 @@
+=== RUN   TestOpusPRE01SwapReplicatesMetadata
+    remediation_pre01_pre02_opus_darwin_test.go:123: metadata changed: before gid=12 flags=0x8000 btime={1795411694 561149998} acl="", after gid=20 flags=0x0 btime={1795411694 570424617} acl=""
+--- FAIL: TestOpusPRE01SwapReplicatesMetadata (0.02s)
+=== RUN   TestOpusPRE01ACLFileKeepsInodeAndACL
+=== RUN   TestOpusPRE01ACLFileKeepsInodeAndACL/user:nobody_allow_read
+    remediation_pre01_pre02_opus_darwin_test.go:157: ACL file inode changed 461577813 -> 461577815
+=== RUN   TestOpusPRE01ACLFileKeepsInodeAndACL/everyone_deny_delete
+    remediation_pre01_pre02_opus_darwin_test.go:150: commit: permission denied
+--- FAIL: TestOpusPRE01ACLFileKeepsInodeAndACL (0.05s)
+    --- FAIL: TestOpusPRE01ACLFileKeepsInodeAndACL/user:nobody_allow_read (0.03s)
+    --- FAIL: TestOpusPRE01ACLFileKeepsInodeAndACL/everyone_deny_delete (0.02s)
+=== RUN   TestOpusPRE02DeleteFinalCheckKeepsWriteAfterRead
+    remediation_pre01_pre02_opus_darwin_test.go:205: restored bytes = "original-delete-target\n", want "original-delete-target\nAPPEND-AFTER-FINAL-READ\n"
+--- FAIL: TestOpusPRE02DeleteFinalCheckKeepsWriteAfterRead (0.00s)
+=== RUN   TestOpusPRE02FallbackRecoveryNeverOverwritesThirdParty
+    remediation_pre01_pre02_opus_unix_test.go:78: third-party replacement overwritten during recovery: target="FOREIGN\n-content-25bytes\n"
+--- FAIL: TestOpusPRE02FallbackRecoveryNeverOverwritesThirdParty (0.00s)
+=== RUN   TestOpusPRE02DeleteRecoveryPreservesBytesWhenPathRecreated
+    remediation_pre01_pre02_opus_unix_test.go:139: external bytes not preserved exactly once: map[] (err=concurrent_write_detected victim.txt: delete target changed during removal; external modification restored (current rev q5hr2qxk); another writer changed the file during the write; re-read it before editing again)
+--- FAIL: TestOpusPRE02DeleteRecoveryPreservesBytesWhenPathRecreated (0.00s)
+=== RUN   TestOpusPRE02UncertainSwapKeepsDisplacedOriginal
+    remediation_pre01_pre02_opus_unix_test.go:204: displaced original with the external write was deleted: entries=[- f.txt] err=input/output error
+--- FAIL: TestOpusPRE02UncertainSwapKeepsDisplacedOriginal (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	0.302s
+FAIL

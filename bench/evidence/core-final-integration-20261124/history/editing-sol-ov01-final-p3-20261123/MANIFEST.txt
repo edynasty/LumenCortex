@@ -1,0 +1,32 @@
+Task: SOL-OV01-01 / SOL-OV01-02 final scoped P3 remediation
+Implementer / Finding Owner: GPT-6.2 Sol
+Repository: LumenCortex-Core (origin https://github.com/edynasty/LumenCortex.git)
+Worktree: wt/core-editing-sol-ov01-final-p3-20261123
+Branch: fix/editing-sol-ov01-final-p3-20261123
+Base: 9ad5f2aa1c4ace22829be574b562ea41b1dfe127
+Test fix commit: 93a285593bd80820e2aaaf951ab4318a3783c3f1
+Final report correction commit: 51316603974d916295bc6f0560d46e7772f304e5
+Production files changed: none
+Independent-review status: PENDING_INDEPENDENT_REVIEW; no self-granted PASS
+Raw evidence location: workspace root, outside Core Git history
+Core-versioned report: docs/reports/editing-sol-ov01-final-p3-2026-11-23.md
+
+Historical preservation verified (26/26 files OK):
+bench/evidence/editing-opus-v01-platform-scope-20261123/SHA256SUMS
+SHA256: 3cac00bc0211c5cbabacfcf8ca62237ba302ea8b313337f7a31b89d11028f0d1
+Preserved independent-report copy SHA256:
+d38e829454d8ebcc66abdc0ce40304354bf27d9c879e3ba9808972a86def3b70
+
+Classification:
+Historical complete simulation: FAIL / exit 1; 152 PASS, 6 FAIL, 24 SKIP
+Final complete simulation: FAIL / exit 1; 161 PASS, 6 FAIL, 29 SKIP
+Final selected simulation: PASS / exit 0; 33 PASS, 0 FAIL, 16 SKIP
+macOS normal / Race: exit 0 each, 189 PASS including subtests, 0 FAIL / 0 SKIP
+macOS four-package Race: exit 0, all four packages ok
+Linux overlayfs VM focused normal / Race: exit 0 each, 39 PASS, 0 FAIL / 0 SKIP
+Windows / FreeBSD: cross-compilation exit 0, native UNVERIFIED
+See COMMANDS.md for exact commands, selected regexes and proof semantics.
+
+Unchanged limits: L2 old-FD writes; L3 SIGKILL debris; final hard-link check/exchange gap;
+FreeBSD delete unsupported; native ext4/Windows/FreeBSD acceptance UNVERIFIED;
+Option B PENDING_OWNER_APPROVAL. No main integration, tag, release or paid run authorized.

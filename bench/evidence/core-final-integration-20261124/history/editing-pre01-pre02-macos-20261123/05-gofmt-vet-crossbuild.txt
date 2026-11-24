@@ -1,0 +1,6 @@
+--- gofmt check (must be empty) ---
+--- darwin/arm64 build + vet ---
+--- linux/amd64 + linux/arm64 build + vet + test-compile ---
+--- windows/amd64 build + vet + test-compile ---
+--- freebsd/amd64 build + vet + test-compile ---
+ALL_GATES_EXIT_0

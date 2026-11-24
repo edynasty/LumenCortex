@@ -1,0 +1,4 @@
+command=env GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go test -c -o /tmp/lc-sol-finalp3.seqJnO/editing-windows.test ./internal/editing
+start=2026-11-23T15:19:51Z
+exit=0
+end=2026-11-23T15:19:52Z

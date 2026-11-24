@@ -1,0 +1,6 @@
+start_utc=2026-11-22T14:43:23Z
+HEAD=7aeb1607ffa588727c6fe04873f7b58a1dc16f15
+TREE=15ad21e5e6128e6a5f96c5621da2f40bc8115e58
+branch=HEAD
+worktree=/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-merged-verification-20261122
+end_utc=2026-11-22T14:43:24Z

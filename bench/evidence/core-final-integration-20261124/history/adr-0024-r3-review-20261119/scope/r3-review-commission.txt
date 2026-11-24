@@ -1,0 +1,478 @@
+<attachment>
+# LumenCortex ADR-0024 — Third Independent Incremental Review
+# R2-01 / R2-02 / R2-04 Final Verification
+
+## 一、Strong Role
+
+You are an Elite Principal Go Engineer, Filesystem Concurrency Specialist, Agent Runtime Architect, and Independent Cognitive Systems Auditor.
+
+You are conducting the third independent review of LumenCortex ADR-0024.
+
+Gemini 4 Carbon implemented the latest remediation. You must independently verify its correctness.
+
+You are not the implementer.
+
+Your responsibilities:
+
+- Challenge the actual implementation, not just its tests.
+- Verify filesystem atomicity and data preservation.
+- Verify repair-state lifecycle and crash recovery.
+- Verify incremental history folding and provenance preservation.
+- Discover regressions introduced by remediation.
+- Make an evidence-based merge-readiness decision.
+
+Do not trust Carbon's report, test summaries, comments, or previous review conclusions without checking the actual source.
+
+## 二、审计基线
+
+Repository: `LumenCortex-Core`
+
+Implementation branch:
+
+`fix/adr-0024-r2-remediation-20261119`
+
+Expected HEAD:
+
+`2ba79ae4aedd35d597604168894c3d65167e9cde`
+
+Production code candidate:
+
+`7d064d0796844d2925e5257d7bd733b9695e6f76`
+
+Original baseline:
+
+`c73d17359f5d9dd16ef88b0de4525862593fddaa`
+
+Previous implementation:
+
+`a8b478617fe15e8726d4009f94454b027b1a9ef9`
+
+Architecture specification:
+
+`v0.4-rc3.7`
+
+Expected architecture SHA256:
+
+`5c9edaeb6b917d7cf508677036f17ab1911dd6b5f1a78ee25d8e0082f6cbb89f`
+
+Implementation report:
+
+`docs/reports/adr-0024-context-space-implementation-2026-11-18.md`
+
+Evidence directory:
+
+`bench/evidence/adr-0024-r2-remediation-20261119/`
+
+First verify:
+
+- Actual HEAD and branch.
+- Working tree state.
+- Remote synchronization.
+- Commit ancestry.
+- Exact production diff.
+- Architecture and ADR hashes.
+- Original test logs.
+
+If the baseline differs, report the discrepancy before proceeding.
+
+## 三、审查模式
+
+Independent Incremental Review — Read Only.
+
+Allowed:
+
+- Read production source and tests.
+- Inspect database schemas and records.
+- Run targeted tests.
+- Create temporary probes outside the repository.
+- Inspect platform-specific implementations.
+- Compare behavior against the previous candidate.
+
+Forbidden:
+
+- Modify production code.
+- Modify official tests.
+- Modify ADR or architecture documents.
+- Create commits.
+- Push.
+- Merge.
+- Reset.
+- Clean the workspace.
+- Delete evidence.
+
+All temporary probes must remain outside the reviewed worktree.
+
+## 四、R2-01：原子文件发布与并发安全
+
+Priority: P2, data integrity.
+
+Inspect:
+
+- `internal/editing/engine.go`
+- `internal/editing/fileid_unix.go`
+- `internal/editing/fileid_windows.go`
+- `internal/editing/publish_darwin.go`
+- `internal/editing/publish_linux.go`
+- `internal/editing/publish_other_unix.go`
+- `internal/toolset/editing.go`
+
+Carbon's new design:
+
+1. Create a private sibling temporary file.
+2. Write and validate content in the temporary file.
+3. Publish to the destination using atomic no-replace semantics.
+4. Never overwrite an existing destination.
+5. Clean up only temporary files owned by the current operation.
+6. Preserve external files on conflict.
+
+### A. Unix publication
+
+Independently verify:
+
+- Darwin `os.Link` and `RenameatxNp(RENAME_EXCL)`.
+- Linux `Renameat2(RENAME_NOREPLACE)`.
+- Filesystem support and error handling.
+- Same-directory guarantees.
+- Cross-device behavior.
+- Directory synchronization and durability assumptions.
+- Symlink handling.
+- Permission preservation.
+- Temporary file cleanup.
+
+Do not assume all Unix filesystems provide identical semantics.
+
+### B. Windows publication
+
+Inspect the actual `MoveFileExW` flags and error handling.
+
+Verify:
+
+- Existing destination is never replaced.
+- Concurrent creation is rejected.
+- Reparse points and symlinks are handled safely.
+- File handles are closed at the correct time.
+- Temporary files are cleaned without deleting external files.
+- Unsupported filesystem behavior is handled conservatively.
+
+Windows cross-compilation is not native runtime verification.
+
+### C. Race and failure scenarios
+
+Test or independently reproduce:
+
+1. Two processes publish the same destination.
+2. Destination exists before publication.
+3. Destination is created during publication.
+4. Temporary file write fails.
+5. Publication fails.
+6. Destination is replaced externally.
+7. Symlink destination.
+8. Permission denied.
+9. Directory removed during publication.
+10. Disk or filesystem error.
+11. Process termination before publication.
+12. Process termination after publication.
+
+Verify the original external file remains byte-for-byte intact.
+
+### D. Final verdict for R2-01
+
+Determine whether the implementation genuinely guarantees:
+
+**An operation may never delete or overwrite a file that it did not atomically publish as its own destination.**
+
+Identify any filesystem-specific limitations.
+
+## 五、R2-02：Gate State 与滚动修复历史
+
+Priority: P2, long-run reliability.
+
+Inspect:
+
+- `internal/agent/policy.go`
+- `internal/agent/transcript.go`
+- `internal/agent/send.go`
+- `internal/agent/loop.go`
+- `internal/session/executions.go`
+- `internal/session/store.go`
+
+New design:
+
+- Persistent GateFeedback.
+- Repair Stage R1 / R2 / R3.
+- PostBlockCausalFloorSeq.
+- Up to eight body-free CausalEvidenceRef entries.
+- Rolling history strictly after BlockSeq.
+- Pinned Gate State and rolling Messages must not duplicate or lose evidence.
+
+### A. State lifecycle
+
+Verify:
+
+1. GateFeedback survives ordinary transcript sliding.
+2. GateFeedback survives process termination.
+3. Repair Stage advances monotonically.
+4. PostBlockCausalFloorSeq is derived from valid evidence.
+5. CausalEvidenceRef points to real persisted evidence.
+6. Unknown evidence cannot be promoted to Proven.
+7. Proven evidence only replaces history when the replacement relationship is actually valid.
+8. The eight-reference limit does not silently discard necessary evidence.
+9. New user input resets or closes the old repair cycle correctly.
+10. Multiple gate failures do not mix independent repair cycles.
+
+### B. Rolling history
+
+Verify:
+
+- Only eligible post-block history can slide.
+- Latest atomic message groups remain complete.
+- Tool calls and tool results remain paired.
+- Required gate feedback remains available.
+- Unresolved evidence is not discarded.
+- State and Messages do not duplicate the same content.
+- Compact and Full projections preserve the same repair semantics.
+
+### C. Resume
+
+Use a real SQLite database.
+
+Compare:
+
+- Continuous execution.
+- Process termination and cold Resume.
+- Resume after R1.
+- Resume after R2.
+- Resume after R3.
+- Resume after a Proven modification.
+- Resume after an Unknown modification.
+- Resume after multiple GateBlocked events.
+
+Compare the complete state, not just MinRequiredSeq:
+
+- GateFeedback.
+- Repair Stage.
+- Original BlockSeq.
+- PostBlockCausalFloorSeq.
+- CausalEvidenceRef.
+- MutationEvidence.
+- Current rolling history start.
+- Actual projected messages.
+- ReplayDecision.
+
+The same persisted history must produce the same repair state after Resume.
+
+### D. Long-run scenarios
+
+Use all five configurations:
+
+| Context | Output |
+|---:|---:|
+| 32768 | 4096 |
+| 64000 | 8192 |
+| 128000 | 8192 |
+| 200000 | 16384 |
+| 600000 | 32768 |
+
+Verify:
+
+- Long run before GateBlocked.
+- 40 steps after GateBlocked.
+- Multiple gate failures.
+- Proven repair progress.
+- Unknown tool effects.
+- Resume during repair.
+- Failover to larger candidates.
+- Floor Relaxation only after larger candidates are exhausted.
+- Controlled failure when necessary evidence cannot fit.
+
+**Critical question:**
+
+Does the implementation preserve enough causal evidence for the Agent to continue correctly, or does it merely keep the process running by dropping old repair information?
+
+## 六、R2-04：Incremental History Folding
+
+Priority: P3, performance and memory.
+
+Inspect:
+
+- `internal/agent/transcript.go`
+- `internal/agent/loop.go`
+- `internal/agent/send.go`
+
+New implementation:
+
+`baseSM` incremental folding.
+
+Verify:
+
+1. Folded history is semantically equivalent to the original full history.
+2. MutationEvidence is preserved.
+3. Unknown remains Unknown.
+4. Gate State remains correct.
+5. Causal evidence references remain valid.
+6. The 2048-group bound is strictly enforced.
+7. Folding order is deterministic.
+8. No group is skipped or folded twice.
+9. Candidate Failover does not mutate shared state.
+10. Resume reconstructs the same baseSM.
+
+### Performance verification
+
+Inspect the reported benchmark:
+
+12,000 groups × 40 calls:
+
+- Before: 10,356.324 ms.
+- After: 1.785 ms.
+- Allocation: 5.27 GB → 0 B.
+
+Independently check:
+
+- Benchmark methodology.
+- Equivalent workload.
+- Whether cached state makes the comparison unfair.
+- CPU time versus elapsed time.
+- SQLite query counts.
+- Allocation measurements.
+- Race safety.
+
+The performance improvement must not conceal correctness loss.
+
+## 七、R2-03：Workspace Recheck Boundary
+
+Verify the documentation accurately states:
+
+- Floor Relaxation injects a notification.
+- It does not implement a mandatory runtime tool-interception guard.
+- Editing CAS protects supported editing operations.
+- CAS does not automatically protect Bash or MCP writes.
+- Completion Gate performs final verification.
+
+R2-03 remains OPEN P3.
+
+Do not treat prompt text as an enforced security mechanism.
+
+## 八、R2-05：Report Accuracy
+
+Verify:
+
+- Function names and test names exist.
+- Commit IDs match the actual Git history.
+- SHA256 values match the delivered files.
+- Test package counts are accurate.
+- Original logs exist and support the reported claims.
+- Windows and Ubuntu limitations are honestly disclosed.
+- No self-verification is presented as independent review.
+
+## 九、Existing OPEN P3 Findings
+
+Verify that these remain correctly recorded:
+
+- F-05: EffectivePrompt versus actual request content.
+- F-06: Small-window GateSlack capacity trade-off.
+- F-07: Markdown container, HTML, and Setext parsing.
+- F-08: Third fence scanner inconsistency.
+- R2-03: No mandatory runtime workspace recheck guard.
+
+Do not require unrelated P3 work to be completed in this review unless it creates a P0/P1/P2 regression.
+
+## 十、Cognitive Core Compatibility
+
+Verify no regression to:
+
+- Memory.
+- Experience.
+- Evidence.
+- Provenance.
+- Governor.
+- CAS / Fence.
+- Privacy deletion.
+- Knowledge lifecycle.
+
+Confirm that ADR-0024 remains an integration of existing Cognitive Core capabilities, not a competing memory or governance system.
+
+## 十一、Verification Evidence
+
+Review the actual evidence files.
+
+Reported macOS ARM64:
+
+- Full build and vet.
+- 49 packages, 43 with tests.
+- Full normal tests passed.
+- Full Race first run had one intermittent failure in an unchanged runtime test.
+- `-count=5` passed.
+- Full runtime Race rerun passed.
+
+Reported Ubuntu ARM64:
+
+- Build and vet passed.
+- 48 non-runtime/evalruntime packages.
+- 16 core packages and targeted runtime Race passed.
+- Full runtime/evalruntime remains UNVERIFIED.
+
+Reported Windows AMD64:
+
+- Build and vet passed.
+- Editing/toolset/agent test binaries linked.
+- Native runtime remains UNVERIFIED.
+
+Do not upgrade UNVERIFIED to PASS.
+
+Run targeted tests only where source inspection identifies uncertainty.
+
+## 十二、Self-Criticism
+
+Challenge your own review:
+
+1. Did you verify actual atomic filesystem semantics?
+2. Did you test real processes rather than only goroutines?
+3. Did you confuse file identity with content ownership?
+4. Did you verify all repair-state fields across Resume?
+5. Did you check whether CausalEvidenceRef can point to deleted or superseded evidence?
+6. Did you mistake successful long-run execution for correct repair?
+7. Did you verify baseSM semantic equivalence?
+8. Did you overlook platform-specific behavior?
+9. Did you accept performance numbers without equivalent workloads?
+10. Did you overlook new regressions introduced by R2 remediation?
+
+## 十三、Final Deliverables
+
+Provide:
+
+1. Exact audit baseline and HEAD.
+2. R2-01 independent verdict.
+3. R2-02 independent verdict.
+4. R2-04 independent verdict.
+5. R2-03 and R2-05 documentation verdict.
+6. F-05 through F-08 ledger verification.
+7. New findings with severity and exact source locations.
+8. Targeted test evidence.
+9. Platform verification limitations.
+10. Cognitive Core compatibility.
+11. Merge-readiness decision.
+
+Each finding must be classified:
+
+- CONFIRMED
+- PARTIALLY_CONFIRMED
+- REJECTED
+- UNVERIFIED
+
+Final verdict must be exactly one of:
+
+- `PASS`
+- `PASS_WITH_LIMITATIONS`
+- `REVISE`
+- `BLOCK_MERGE`
+
+Any unresolved P0/P1 blocks merge.
+
+Any P2 affecting data integrity, repair correctness, Resume consistency, or long-run behavior blocks merge.
+
+P3 may remain open if accurately documented and explicitly accepted.
+
+Do not modify anything.
+
+Wait for Owner's final decision.
+</attachment>

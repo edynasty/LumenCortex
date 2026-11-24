@@ -1,0 +1,36 @@
+=== RUN   TestR202LiveGatedRepairPhase40StepsSurvivesOnRealSQLite
+=== RUN   TestR202LiveGatedRepairPhase40StepsSurvivesOnRealSQLite/5_pre_refusal_then_10_post_repair_steps
+=== RUN   TestR202LiveGatedRepairPhase40StepsSurvivesOnRealSQLite/5_pre_refusal_then_40_post_repair_steps
+    remediation_r2_02_test.go:89: R2-02 RUN DIED DURING REPAIR PHASE after 17 of 40 repair steps: status=failed err=model test/model: window: context budget overflow: required context floor seq 12 evicted (window firstSeq=15)
+--- FAIL: TestR202LiveGatedRepairPhase40StepsSurvivesOnRealSQLite (0.20s)
+    --- PASS: TestR202LiveGatedRepairPhase40StepsSurvivesOnRealSQLite/5_pre_refusal_then_10_post_repair_steps (0.10s)
+    --- FAIL: TestR202LiveGatedRepairPhase40StepsSurvivesOnRealSQLite/5_pre_refusal_then_40_post_repair_steps (0.10s)
+=== RUN   TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume
+=== RUN   TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/32768_4096
+    remediation_r2_02_test.go:275: 32768_4096 died after 30 post-block steps: status=failed err=model test/m-32768_4096: window: context budget overflow: required context floor seq 12 evicted (window firstSeq=41)
+=== RUN   TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/64000_8192
+    remediation_r2_02_test.go:275: 64000_8192 died after 50 post-block steps: status=failed err=model test/m-64000_8192: window: context budget overflow: required context floor seq 12 evicted (window firstSeq=49)
+=== RUN   TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/128000_8192
+    remediation_r2_02_test.go:275: 128000_8192 died after 32 post-block steps: status=failed err=model test/m-128000_8192: window: context budget overflow: required context floor seq 12 evicted (window firstSeq=41)
+=== RUN   TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/200000_16384
+    remediation_r2_02_test.go:275: 200000_16384 died after 45 post-block steps: status=failed err=model test/m-200000_16384: window: context budget overflow: required context floor seq 12 evicted (window firstSeq=45)
+=== RUN   TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/600000_32768
+    remediation_r2_02_test.go:275: 600000_32768 died after 50 post-block steps: status=failed err=model test/m-600000_32768: window: context budget overflow: required context floor seq 12 evicted (window firstSeq=41)
+--- FAIL: TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume (0.78s)
+    --- FAIL: TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/32768_4096 (0.07s)
+    --- FAIL: TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/64000_8192 (0.14s)
+    --- FAIL: TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/128000_8192 (0.11s)
+    --- FAIL: TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/200000_16384 (0.14s)
+    --- FAIL: TestR202FiveWindowConfigsPostBlockLongRepairAndColdResume/600000_32768 (0.33s)
+=== RUN   TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst
+=== RUN   TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/post_block_overflow_fails_over_from_32k_to_200k_without_relaxation
+=== RUN   TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/stage_r2_drops_post_block_reads_while_preserving_proven_edit_and_pinned_gate
+    remediation_r2_02_test.go:415: Stage R2 run failed: status=failed err=model test/m-32k: window: context budget overflow: required context floor seq 2 evicted (window firstSeq=39)
+=== RUN   TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/controlled_overflow_when_pinned_gate_and_newest_group_exceed_largest_candidate
+--- FAIL: TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst (0.14s)
+    --- PASS: TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/post_block_overflow_fails_over_from_32k_to_200k_without_relaxation (0.00s)
+    --- FAIL: TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/stage_r2_drops_post_block_reads_while_preserving_proven_edit_and_pinned_gate (0.13s)
+    --- PASS: TestR202PostBlockStageR2RetainsProvenAnchorAndFailoverFirst/controlled_overflow_when_pinned_gate_and_newest_group_exceed_largest_candidate (0.01s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/agent	2.075s
+FAIL

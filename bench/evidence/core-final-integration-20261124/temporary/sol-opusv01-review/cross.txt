@@ -1,0 +1,7 @@
+start=2026-11-23T12:38:39Z
+vet-windows exit=0
+testc-windows exit=0
+vet-linux exit=0
+testc-linux exit=0
+vet-freebsd exit=0
+testc-freebsd exit=0

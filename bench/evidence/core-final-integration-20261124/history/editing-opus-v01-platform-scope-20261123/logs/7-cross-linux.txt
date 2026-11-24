@@ -1,0 +1,4 @@
+start=2026-11-23T13:23:37Z
+command=env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 sh -c go vet ./internal/editing && go test -c -o /dev/null ./internal/editing
+end=2026-11-23T13:23:38Z
+exit=0

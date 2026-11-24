@@ -1,0 +1,5 @@
+{"Time":"2026-11-20T15:47:04.937851+08:00","Action":"start","Package":"github.com/edynasty/LumenCortex/internal/editing"}
+{"Time":"2026-11-20T15:47:05.346321+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"testing: warning: no tests to run\n"}
+{"Time":"2026-11-20T15:47:05.346549+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"PASS\n"}
+{"Time":"2026-11-20T15:47:05.346778+08:00","Action":"output","Package":"github.com/edynasty/LumenCortex/internal/editing","Output":"ok  \tgithub.com/edynasty/LumenCortex/internal/editing\t0.409s [no tests to run]\n"}
+{"Time":"2026-11-20T15:47:05.346793+08:00","Action":"pass","Package":"github.com/edynasty/LumenCortex/internal/editing","Elapsed":0.409}

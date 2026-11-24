@@ -1,0 +1,8 @@
+start=2026-11-23T12:35:57Z
+command=go test -race -count=1 ./internal/editing ./internal/toolset ./internal/agent ./internal/session
+ok  	github.com/edynasty/LumenCortex/internal/editing	17.934s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	102.550s
+ok  	github.com/edynasty/LumenCortex/internal/agent	53.338s
+ok  	github.com/edynasty/LumenCortex/internal/session	43.177s
+end=2026-11-23T12:37:45Z
+exit=0

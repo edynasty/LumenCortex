@@ -87,6 +87,7 @@ func TestHashlineFreshEditOnSnapshot(t *testing.T) {
 	snap := readSnapshot(t, engine, "demo.go")
 
 	ops := resolveOps(t, snap, AnchorOp{Op: OpReplace, Start: anchorAt(snap.Doc, 8), Text: "\treturn 2"})
+	requireExistingFileUpdate(t)
 	result, err := commitLineOps(t, engine, "demo.go", snap.Rev, ops)
 	if err != nil {
 		t.Fatalf("commit: %v", err)
@@ -133,6 +134,7 @@ func TestHashlineRelocatesAcrossUnrelatedInsertion(t *testing.T) {
 	moved := strings.Replace(hashBase, "package demo\n", "package demo\n\nimport \"fmt\"\n\nvar _ = fmt.Sprint\n", 1)
 	writeFile(t, root, "demo.go", moved)
 	ops := resolveOps(t, snap, AnchorOp{Op: OpReplace, Start: anchorAt(snap.Doc, 8), Text: "\treturn 2"})
+	requireExistingFileUpdate(t)
 	result, err := commitLineOps(t, engine, "demo.go", snap.Rev, ops)
 	if err != nil {
 		t.Fatalf("commit: %v", err)
@@ -180,6 +182,7 @@ func TestHashlineAppliesBatchAgainstOneSnapshot(t *testing.T) {
 		AnchorOp{Op: OpInsertAfter, Start: anchorAt(snap.Doc, 5), Text: "\n// between"},
 		AnchorOp{Op: OpReplace, Start: anchorAt(snap.Doc, 8), Text: "\treturn 20"},
 	)
+	requireExistingFileUpdate(t)
 	if _, err := commitLineOps(t, engine, "demo.go", snap.Rev, ops); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -219,6 +222,7 @@ func TestHashlinePreservesEncoding(t *testing.T) {
 	snap := readSnapshot(t, engine, "notes.txt")
 
 	ops := resolveOps(t, snap, AnchorOp{Op: OpReplace, Start: anchorAt(snap.Doc, 2), Text: "line 2"})
+	requireExistingFileUpdate(t)
 	if _, err := commitLineOps(t, engine, "notes.txt", snap.Rev, ops); err != nil {
 		t.Fatalf("commit: %v", err)
 	}

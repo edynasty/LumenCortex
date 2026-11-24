@@ -1,0 +1,8 @@
+    zz_opus_probe_darwin_test.go:112: BEFORE ino=461562502 uid=501 gid=12 mode=grw-r--r-- flags=0x8000 xattrs=[com.apple.ResourceFork com.apple.provenance com.apple.quarantine com.example.lc-probe] acl=" 0: user:nobody allow read"
+    zz_opus_probe_darwin_test.go:113: AFTER  ino=461562504 uid=501 gid=20 mode=-rw-r--r-- flags=0x0 xattrs=[com.apple.provenance] acl=""
+    zz_opus_probe_darwin_test.go:119: inode changed 461562502 -> 461562504
+    zz_opus_probe_darwin_test.go:145: METADATA LOST on update: mode grw-r--r--->-rw-r--r--; gid 12->20; flags 0x8000->0x0; acl " 0: user:nobody allow read"->""; xattr com.apple.quarantine "0081;00000000;LCProbe;"->""(present=false); xattr com.example.lc-probe "user-tag"->""(present=false); xattr com.apple.ResourceFork "rsrc-fork-bytes"->""(present=false)
+--- FAIL: TestOpusProbeMetadataOnUpdate (0.03s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	0.422s
+FAIL

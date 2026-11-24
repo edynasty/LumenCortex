@@ -25,9 +25,10 @@ const (
 	CodeTooLarge = "too_large"
 	// CodeConcurrentWrite: a write landed while the engine was writing; the file is not what it wrote.
 	CodeConcurrentWrite = "concurrent_write_detected"
-	// CodeUnsupportedFilesystem: a new file cannot be created atomically on the workspace filesystem
-	// (it supports neither hard links nor no-replace rename, for example exFAT on macOS); nothing was
-	// written. Edits to existing files are not affected.
+	// CodeUnsupportedFilesystem: the change cannot be published atomically, so it was refused before
+	// anything was written: a new file on a filesystem with neither hard links nor no-replace rename
+	// (for example exFAT on macOS), an update of a hard-linked file or of a file whose metadata (such
+	// as a macOS ACL) a replacement cannot reproduce, or a delete without a no-replace move.
 	CodeUnsupportedFilesystem = "unsupported_filesystem"
 	// CodeSyntax and CodeType: validation refused the result.
 	CodeSyntax = "syntax"
@@ -125,7 +126,7 @@ func (e *Error) Hint() string {
 	case CodeTooLarge:
 		return "the file is over the 4 MiB edit limit"
 	case CodeUnsupportedFilesystem:
-		return "this filesystem cannot create new files safely; existing files can still be edited, and new files need a workspace on a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS)"
+		return "LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC"
 	case CodeSyntax, CodeType:
 		return "fix the edit; nothing was written"
 	case CodeUnknownSymbol, CodeAmbiguous:

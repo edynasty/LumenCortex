@@ -173,6 +173,7 @@ func TestR7R2StaleBaseIsFailedBeforeWrite(t *testing.T) {
 // TestR7R2SelfReplayIsFailedBeforeWrite: replaying a plan after LC itself published A meets A's own
 // new revision. That is not an external change.
 func TestR7R2SelfReplayIsFailedBeforeWrite(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "a.txt", "A0\n")
 	e := newTestEngine(t, root)

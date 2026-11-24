@@ -1,0 +1,32 @@
+start=2026-11-23T12:34:16Z
+go version go1.26.5 darwin/arm64
+=== RUN   TestZZOpusVerifyLinkChild
+--- PASS: TestZZOpusVerifyLinkChild (0.00s)
+=== RUN   TestZZOpusVerifyLateLinkBeforeFinalCheck
+    zz_opus_verify_test.go:193: childPID=7240 swapCalls=0 err=unsupported_filesystem f.txt: the file has 2 hard links; LC does not update hard-linked files because replacing it would detach the other links; nothing was written; LC cannot change this file safely, so nothing was written: new files need a filesystem with hard links or no-replace rename (for example APFS, HFS+, ext4 or NTFS); hard-linked files and files with an ACL must be edited outside LC state=failed_before_publication
+--- PASS: TestZZOpusVerifyLateLinkBeforeFinalCheck (0.02s)
+=== RUN   TestZZOpusVerifyLateLinkAfterFinalCheckBoundary
+    zz_opus_verify_test.go:249: BOUNDARY swaps=1 err=<nil> state=published_verified committed=true target={ino:461967046 nlink:1 data:agent-next
+        } alias={ino:461967045 nlink:1 data:orig-bytes
+        }
+--- PASS: TestZZOpusVerifyLateLinkAfterFinalCheckBoundary (0.02s)
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos/ENOTSUP
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos/EOPNOTSUPP
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos/EINVAL
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos/ENOSYS
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos/EACCES_not_unsupported
+=== RUN   TestZZOpusVerifyUnsupportedSwapErrnos/EIO_not_unsupported
+--- PASS: TestZZOpusVerifyUnsupportedSwapErrnos (0.05s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/ENOTSUP (0.01s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/EOPNOTSUPP (0.01s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/EINVAL (0.01s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/ENOSYS (0.01s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/EACCES_not_unsupported (0.01s)
+    --- PASS: TestZZOpusVerifyUnsupportedSwapErrnos/EIO_not_unsupported (0.01s)
+=== RUN   TestZZOpusVerifyUnsupportedAfterVerifiedPrefix
+--- PASS: TestZZOpusVerifyUnsupportedAfterVerifiedPrefix (0.02s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.539s
+exit=0
+end=2026-11-23T12:34:17Z

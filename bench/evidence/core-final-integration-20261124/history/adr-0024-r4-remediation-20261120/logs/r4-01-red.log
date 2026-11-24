@@ -1,0 +1,21 @@
+base_commit=aeb2e5014697fa544ee855c4d6277be4c074fc16
+prod_diff_stat=
+cmd=go test -v -count=1 -run '^TestR401LiveLoopAndColdResumeExactIdentityCases$' ./internal/agent
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/case_A_invalid_first_call_then_valid_same_name_call
+    remediation_r4_01_test.go:206: R4-01 Case A misassociation: got ref={AnsweredSeq:3 ToolCallID:c1-bad ToolName:write_file ExecutionID:ex-7a989bca34e8d803f51f129355ba0c6e PostRef:files:1:sha256:7ff2e93a35d71e5c91d64e1322e6a23fc33bf720bed019cc52d31efe66b77e01;cm=proven MutationEvidence:proven}, want ToolCallID=c2-good ExecutionID=ex-7a989bca34e8d803f51f129355ba0c6e
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/case_B_eval_nested_write_then_top_level_write
+    remediation_r4_01_test.go:260: R4-01 Case B misassociation: c2-top bound to ExecutionID="ex-fb7986d2c1e3c885c09f6c2213d560a2" (nested=ex-fb7986d2c1e3c885c09f6c2213d560a2), want topExecID=ex-5a46fd8ba91c62db5c8c055c8c62fc5e
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/case_C_read_file_then_eval_nested_write
+    remediation_r4_01_test.go:312: R4-01 Case C misassociation: got ref={AnsweredSeq:3 ToolCallID:c0-read ToolName:read_file ExecutionID: PostRef: MutationEvidence:proven}, want nested execution ex-80ab160e59168d348975a71d9a73af40 (never c0-read/read_file)
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/legacy_record_without_tool_call_id_never_inferred_by_name_or_order
+    remediation_r4_01_test.go:341: legacy execution without ToolCallID was inferred by name/order instead of staying unbound Unknown: meta={Seq:20 LastSeq:22 Role:assistant Origin: HasToolCalls:true ExpectedCalls:2 PairedResults:2 HasInterrupted:false HasImportedTool:false HasDebugToolCall:false AnsweredSeq:20 ToolCallID:c-legacy-1 PrimaryToolName:write_file ExecutionID:ex-legacy-no-callid PrimaryPostRef:files:1:sha256:2222222222222222222222222222222222222222222222222222222222222222;cm=proven GateFeedback: ToolCalls:[{ToolCallID:c-legacy-1 Name:write_file AnsweredSeq:20 ExecutionID:ex-legacy-no-callid PostRef:files:1:sha256:2222222222222222222222222222222222222222222222222222222222222222;cm=proven ExecEvidence:proven ResultSeen:true ResultUnknown:false} {ToolCallID:c-legacy-2 Name:write_file AnsweredSeq:20 ExecutionID: PostRef: ExecEvidence: ResultSeen:true ResultUnknown:false}] MutationEvidence:proven} calls=[{ToolCallID:c-legacy-1 Name:write_file AnsweredSeq:20 ExecutionID:ex-legacy-no-callid PostRef:files:1:sha256:2222222222222222222222222222222222222222222222222222222222222222;cm=proven ExecEvidence:proven ResultSeen:true ResultUnknown:false} {ToolCallID:c-legacy-2 Name:write_file AnsweredSeq:20 ExecutionID: PostRef: ExecEvidence: ResultSeen:true ResultUnknown:false}]
+--- FAIL: TestR401LiveLoopAndColdResumeExactIdentityCases (0.47s)
+    --- FAIL: TestR401LiveLoopAndColdResumeExactIdentityCases/case_A_invalid_first_call_then_valid_same_name_call (0.18s)
+    --- FAIL: TestR401LiveLoopAndColdResumeExactIdentityCases/case_B_eval_nested_write_then_top_level_write (0.15s)
+    --- FAIL: TestR401LiveLoopAndColdResumeExactIdentityCases/case_C_read_file_then_eval_nested_write (0.14s)
+    --- FAIL: TestR401LiveLoopAndColdResumeExactIdentityCases/legacy_record_without_tool_call_id_never_inferred_by_name_or_order (0.00s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/agent	1.300s
+FAIL
+exit=1

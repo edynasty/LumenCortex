@@ -1,0 +1,29 @@
+=== RUN   TestOpusV01ExistingFileUpdateRefusedWithoutExchange
+=== RUN   TestOpusV01ExistingFileUpdateRefusedWithoutExchange/single_update
+    platform_exchange_none_test.go:65: update of a.txt: err=<nil>, want unsupported_filesystem with nothing written
+=== RUN   TestOpusV01ExistingFileUpdateRefusedWithoutExchange/batch_stops_at_first_update
+    platform_exchange_none_test.go:87: update of a.txt: err=<nil>, want unsupported_filesystem with nothing written
+--- FAIL: TestOpusV01ExistingFileUpdateRefusedWithoutExchange (0.02s)
+    --- FAIL: TestOpusV01ExistingFileUpdateRefusedWithoutExchange/single_update (0.01s)
+    --- FAIL: TestOpusV01ExistingFileUpdateRefusedWithoutExchange/batch_stops_at_first_update (0.01s)
+=== RUN   TestR301CreateWithoutNoReplacePublishIsRefusedClearly
+=== RUN   TestR301CreateWithoutNoReplacePublishIsRefusedClearly/operation_not_supported
+    remediation_r3_01_unix_test.go:73: edit of an existing file without exchange: <nil>, want unsupported_filesystem
+=== RUN   TestR301CreateWithoutNoReplacePublishIsRefusedClearly/invalid_argument
+    remediation_r3_01_unix_test.go:73: edit of an existing file without exchange: <nil>, want unsupported_filesystem
+=== RUN   TestR301CreateWithoutNoReplacePublishIsRefusedClearly/function_not_implemented
+    remediation_r3_01_unix_test.go:73: edit of an existing file without exchange: <nil>, want unsupported_filesystem
+--- FAIL: TestR301CreateWithoutNoReplacePublishIsRefusedClearly (0.02s)
+    --- FAIL: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/operation_not_supported (0.01s)
+    --- FAIL: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/invalid_argument (0.01s)
+    --- FAIL: TestR301CreateWithoutNoReplacePublishIsRefusedClearly/function_not_implemented (0.01s)
+=== RUN   TestR7WindowsNativeTimestampAndNoCompensation
+=== RUN   TestR7WindowsNativeTimestampAndNoCompensation/timestamp_observation_and_update_refused
+    zz_sim_win_test.go:84: update of a.txt: err=<nil>, want unsupported_filesystem with nothing written
+=== RUN   TestR7WindowsNativeTimestampAndNoCompensation/published_prefix_not_compensated_after_later_refusal
+--- FAIL: TestR7WindowsNativeTimestampAndNoCompensation (0.04s)
+    --- FAIL: TestR7WindowsNativeTimestampAndNoCompensation/timestamp_observation_and_update_refused (0.03s)
+    --- PASS: TestR7WindowsNativeTimestampAndNoCompensation/published_prefix_not_compensated_after_later_refusal (0.01s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/internal/editing	0.474s
+FAIL

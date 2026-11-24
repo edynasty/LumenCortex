@@ -1,0 +1,7 @@
+=== RUN   TestZZR402DProbeApplyExperienceSources
+    zz_r402d_probe_apply_test.go:22: PROBE before_len=7210 sources=[s-origin] ok=true
+    zz_r402d_probe_apply_test.go:23: PROBE after_len=7368 valid_json=true sources=[s-origin] ok=true
+--- PASS: TestZZR402DProbeApplyExperienceSources (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	0.496s
+EXIT=0

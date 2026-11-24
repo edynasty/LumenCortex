@@ -1,0 +1,180 @@
+cwd=/tmp/lc-r5-statefault-probe.iVTt3s/head cmd=go test ./internal/editing/ -run "^TestProbeH" -count=1 -v
+=== RUN   TestProbeH1PartialFSizeRestore
+    zz_probe_r5_statefault_test.go:32: [H1] err=conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit
+        rollback b.txt (rollback_failed): write /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestProbeH1PartialFSizeRestore3030415490/001/b.txt: file too large
+    zz_probe_r5_statefault_test.go:33: [H1] code="conflict" isEFBIG=true
+    zz_probe_r5_statefault_test.go:34: [H1] receipt committed=false dirty=true state=partially_published
+    zz_probe_r5_statefault_test.go:36: [H1]  rf a.txt state=published_rolled_back staged=false pub=true ver=true rb=true wrote=false created=false deleted=false new="sha256:96cdfb91ba2c74be3baa1902d9b100039a4d67decdef72a3ee1e67c886cbb875" err=""
+    zz_probe_r5_statefault_test.go:36: [H1]  rf b.txt state=rollback_failed staged=false pub=true ver=false rb=false wrote=true created=false deleted=false new="" err="write b.txt: file too large"
+    zz_probe_r5_statefault_test.go:36: [H1]  rf c.txt state=not_published staged=false pub=false ver=false rb=false wrote=false created=false deleted=false new="sha256:78b304795cd710a73b979439a587bd84daa172c7659315036f8405f88da78280" err="conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit"
+    zz_probe_r5_statefault_test.go:39: [H1] result.CommitState=partially_published files=1
+    zz_probe_r5_statefault_test.go:41: [H1]  res b.txt state=rollback_failed pub=true rb=false changed=true newRev="" err="write b.txt: file too large"
+    zz_probe_r5_statefault_test.go:53: [H1]  disk a.txt len=6 prefix="old-a\n"
+    zz_probe_r5_statefault_test.go:53: [H1]  disk b.txt len=8192 prefix="OOOOOOOOOOOOOOOO"
+    zz_probe_r5_statefault_test.go:53: [H1]  disk c.txt len=10 prefix="foreign-c\n"
+    zz_probe_r5_statefault_test.go:90: [H1] snapshot b latest=""
+--- PASS: TestProbeH1PartialFSizeRestore (0.00s)
+=== RUN   TestProbeH2PartialFSizeDeleteRestore
+    zz_probe_r5_statefault_test.go:32: [H2] err=conflict z.txt: the file changed after the change was computed; nothing was written (current rev 3d43fjsp); something else wrote the file; re-read it and redo the edit
+        rollback d.txt (rollback_failed): write /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestProbeH2PartialFSizeDeleteRestore1711068436/001/d.txt: file too large
+    zz_probe_r5_statefault_test.go:33: [H2] code="conflict" isEFBIG=true
+    zz_probe_r5_statefault_test.go:34: [H2] receipt committed=false dirty=true state=partially_published
+    zz_probe_r5_statefault_test.go:36: [H2]  rf a.txt state=published_rolled_back staged=false pub=true ver=true rb=true wrote=false created=false deleted=false new="sha256:96cdfb91ba2c74be3baa1902d9b100039a4d67decdef72a3ee1e67c886cbb875" err=""
+    zz_probe_r5_statefault_test.go:36: [H2]  rf d.txt state=rollback_failed staged=false pub=true ver=false rb=false wrote=true created=false deleted=true new="" err="write d.txt: file too large"
+    zz_probe_r5_statefault_test.go:36: [H2]  rf z.txt state=not_published staged=false pub=false ver=false rb=false wrote=false created=false deleted=false new="sha256:1af73bdb8fe3e45fcca39ded8fa1846e5ee013aaf5bb7e7c5d448d2511f60280" err="conflict z.txt: the file changed after the change was computed; nothing was written (current rev 3d43fjsp); something else wrote the file; re-read it and redo the edit"
+    zz_probe_r5_statefault_test.go:39: [H2] result.CommitState=partially_published files=1
+    zz_probe_r5_statefault_test.go:41: [H2]  res d.txt state=rollback_failed pub=true rb=false changed=true newRev="" err="write d.txt: file too large"
+    zz_probe_r5_statefault_test.go:53: [H2]  disk a.txt len=6 prefix="old-a\n"
+    zz_probe_r5_statefault_test.go:53: [H2]  disk d.txt len=8192 prefix="DDDDDDDDDDDDDDDD"
+    zz_probe_r5_statefault_test.go:53: [H2]  disk z.txt len=10 prefix="foreign-z\n"
+--- PASS: TestProbeH2PartialFSizeDeleteRestore (0.00s)
+=== RUN   TestProbeH3ReadbackFailure
+    zz_probe_r5_statefault_test.go:32: [H3] err=conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit
+        rollback a.txt (rollback_failed): seek /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestProbeH3ReadbackFailure3311884171/001/a.txt: file already closed
+        close /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestProbeH3ReadbackFailure3311884171/001/a.txt: file already closed
+    zz_probe_r5_statefault_test.go:33: [H3] code="conflict" isEFBIG=false
+    zz_probe_r5_statefault_test.go:34: [H3] receipt committed=false dirty=true state=partially_published
+    zz_probe_r5_statefault_test.go:36: [H3]  rf a.txt state=rollback_failed staged=false pub=true ver=false rb=false wrote=true created=false deleted=false new="" err="seek a.txt: file already closed\nclose a.txt: file already closed"
+    zz_probe_r5_statefault_test.go:36: [H3]  rf c.txt state=not_published staged=false pub=false ver=false rb=false wrote=false created=false deleted=false new="sha256:78b304795cd710a73b979439a587bd84daa172c7659315036f8405f88da78280" err="conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit"
+    zz_probe_r5_statefault_test.go:39: [H3] result.CommitState=partially_published files=1
+    zz_probe_r5_statefault_test.go:41: [H3]  res a.txt state=rollback_failed pub=true rb=false changed=true newRev="" err="seek a.txt: file already closed\nclose a.txt: file already closed"
+    zz_probe_r5_statefault_test.go:53: [H3]  disk a.txt len=6 prefix="old-a\n"
+    zz_probe_r5_statefault_test.go:53: [H3]  disk c.txt len=10 prefix="foreign-c\n"
+--- PASS: TestProbeH3ReadbackFailure (0.00s)
+=== RUN   TestProbeH4CreatedParentClassification
+    zz_probe_r5_statefault_test.go:32: [H4] err=conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit
+    zz_probe_r5_statefault_test.go:33: [H4] code="conflict" isEFBIG=false
+    zz_probe_r5_statefault_test.go:34: [H4] receipt committed=false dirty=true state=partially_published
+    zz_probe_r5_statefault_test.go:36: [H4]  rf a_dir/b.txt state=published_rolled_back staged=true pub=true ver=true rb=true wrote=false created=true deleted=false new="-" err=""
+    zz_probe_r5_statefault_test.go:36: [H4]  rf c.txt state=not_published staged=false pub=false ver=false rb=false wrote=false created=false deleted=false new="sha256:78b304795cd710a73b979439a587bd84daa172c7659315036f8405f88da78280" err="conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit"
+    zz_probe_r5_statefault_test.go:39: [H4] result.CommitState=partially_published files=0
+    zz_probe_r5_statefault_test.go:46: [H4]  disk a_dir/b.txt: open /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestProbeH4CreatedParentClassification1211270161/001/a_dir/b.txt: no such file or directory
+    zz_probe_r5_statefault_test.go:53: [H4]  disk c.txt len=10 prefix="foreign-c\n"
+    zz_probe_r5_statefault_test.go:166: [H4] a_dir stat err=<nil>
+--- PASS: TestProbeH4CreatedParentClassification (0.00s)
+=== RUN   TestProbeH5BinaryReplaceFileRollback
+    zz_probe_r5_statefault_test.go:32: [H5fail=] err=conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit
+        rollback b.bin (rollback_failed): created file identity unavailable; refused blind unlink
+    zz_probe_r5_statefault_test.go:33: [H5fail=] code="conflict" isEFBIG=false
+    zz_probe_r5_statefault_test.go:34: [H5fail=] receipt committed=false dirty=true state=partially_published
+    zz_probe_r5_statefault_test.go:36: [H5fail=]  rf a.bin state=published_rolled_back staged=false pub=true ver=true rb=true wrote=false created=false deleted=false new="sha256:cd522a413738bbdff1c710858a0410c83bcf515195ce35f856ef8086ad6af946" err=""
+    zz_probe_r5_statefault_test.go:36: [H5fail=]  rf b.bin state=rollback_failed staged=false pub=true ver=false rb=false wrote=true created=true deleted=false new="" err="created file identity unavailable; refused blind unlink"
+    zz_probe_r5_statefault_test.go:36: [H5fail=]  rf c.txt state=not_published staged=false pub=false ver=false rb=false wrote=false created=false deleted=false new="sha256:78b304795cd710a73b979439a587bd84daa172c7659315036f8405f88da78280" err="conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit"
+    zz_probe_r5_statefault_test.go:39: [H5fail=] result.CommitState=partially_published files=1
+    zz_probe_r5_statefault_test.go:41: [H5fail=]  res b.bin state=rollback_failed pub=true rb=false changed=true newRev="" err="created file identity unavailable; refused blind unlink"
+    zz_probe_r5_statefault_test.go:53: [H5fail=]  disk a.bin len=5 prefix="old-a"
+    zz_probe_r5_statefault_test.go:53: [H5fail=]  disk b.bin len=5 prefix="new-b"
+    zz_probe_r5_statefault_test.go:53: [H5fail=]  disk c.txt len=10 prefix="foreign-c\n"
+    zz_probe_r5_statefault_test.go:222: [H5fail=] ReplaceFile a.bin existed=true before="old-a" after="new-a"
+    zz_probe_r5_statefault_test.go:222: [H5fail=] ReplaceFile b.bin existed=false before="" after="new-b"
+    zz_probe_r5_statefault_test.go:222: [H5fail=] ReplaceFile a.bin existed=true before="new-a" after="old-a"
+    zz_probe_r5_statefault_test.go:32: [H5fail=a.bin] err=conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit
+        rollback b.bin (rollback_failed): created file identity unavailable; refused blind unlink
+        rollback a.bin (rollback_failed): input/output error
+    zz_probe_r5_statefault_test.go:33: [H5fail=a.bin] code="conflict" isEFBIG=false
+    zz_probe_r5_statefault_test.go:34: [H5fail=a.bin] receipt committed=false dirty=true state=partially_published
+    zz_probe_r5_statefault_test.go:36: [H5fail=a.bin]  rf a.bin state=rollback_failed staged=false pub=true ver=false rb=false wrote=true created=false deleted=false new="" err="input/output error"
+    zz_probe_r5_statefault_test.go:36: [H5fail=a.bin]  rf b.bin state=rollback_failed staged=false pub=true ver=false rb=false wrote=true created=true deleted=false new="" err="created file identity unavailable; refused blind unlink"
+    zz_probe_r5_statefault_test.go:36: [H5fail=a.bin]  rf c.txt state=not_published staged=false pub=false ver=false rb=false wrote=false created=false deleted=false new="sha256:78b304795cd710a73b979439a587bd84daa172c7659315036f8405f88da78280" err="conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit"
+    zz_probe_r5_statefault_test.go:39: [H5fail=a.bin] result.CommitState=partially_published files=2
+    zz_probe_r5_statefault_test.go:41: [H5fail=a.bin]  res a.bin state=rollback_failed pub=true rb=false changed=true newRev="" err="input/output error"
+    zz_probe_r5_statefault_test.go:41: [H5fail=a.bin]  res b.bin state=rollback_failed pub=true rb=false changed=true newRev="" err="created file identity unavailable; refused blind unlink"
+    zz_probe_r5_statefault_test.go:53: [H5fail=a.bin]  disk a.bin len=5 prefix="new-a"
+    zz_probe_r5_statefault_test.go:53: [H5fail=a.bin]  disk b.bin len=5 prefix="new-b"
+    zz_probe_r5_statefault_test.go:53: [H5fail=a.bin]  disk c.txt len=10 prefix="foreign-c\n"
+    zz_probe_r5_statefault_test.go:222: [H5fail=a.bin] ReplaceFile a.bin existed=true before="old-a" after="new-a"
+    zz_probe_r5_statefault_test.go:222: [H5fail=a.bin] ReplaceFile b.bin existed=false before="" after="new-b"
+    zz_probe_r5_statefault_test.go:222: [H5fail=a.bin] ReplaceFile a.bin existed=true before="new-a" after="old-a"
+--- PASS: TestProbeH5BinaryReplaceFileRollback (0.01s)
+=== RUN   TestProbeH6Pre01MultiFile
+    zz_probe_r5_statefault_test.go:32: [H6] err=write /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestProbeH6Pre01MultiFile3297936114/001/c.txt: file too large
+    zz_probe_r5_statefault_test.go:33: [H6] code="" isEFBIG=true
+    zz_probe_r5_statefault_test.go:34: [H6] receipt committed=false dirty=true state=partially_published
+    zz_probe_r5_statefault_test.go:36: [H6]  rf a.txt state=published_rolled_back staged=false pub=true ver=true rb=true wrote=false created=false deleted=false new="sha256:96cdfb91ba2c74be3baa1902d9b100039a4d67decdef72a3ee1e67c886cbb875" err=""
+    zz_probe_r5_statefault_test.go:36: [H6]  rf c.txt state=publication_uncertain staged=false pub=false ver=false rb=false wrote=false created=false deleted=false new="" err="write c.txt: file too large"
+    zz_probe_r5_statefault_test.go:39: [H6] result.CommitState=partially_published files=0
+    zz_probe_r5_statefault_test.go:53: [H6]  disk a.txt len=6 prefix="old-a\n"
+    zz_probe_r5_statefault_test.go:53: [H6]  disk c.txt len=8192 prefix="NNNNNNNNNNNNNNNN"
+--- PASS: TestProbeH6Pre01MultiFile (0.01s)
+=== RUN   TestProbeH7ClassifyMatrix
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=not_published pub=false createdParent=false -> publication_uncertain | receiptNew="sha256:65c74c15a686187bb6bbf9958f494fc6b80068034a659a9ad44991b08c58f2d2" | resNewRev="dnmmdz4v" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=not_published pub=false createdParent=true -> publication_uncertain | receiptNew="sha256:65c74c15a686187bb6bbf9958f494fc6b80068034a659a9ad44991b08c58f2d2" | resNewRev="dnmmdz4v" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=not_published pub=true createdParent=false -> partially_published | receiptNew="sha256:65c74c15a686187bb6bbf9958f494fc6b80068034a659a9ad44991b08c58f2d2" | resNewRev="dnmmdz4v" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=not_published pub=true createdParent=true -> partially_published | receiptNew="sha256:65c74c15a686187bb6bbf9958f494fc6b80068034a659a9ad44991b08c58f2d2" | resNewRev="dnmmdz4v" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=published_verified pub=false createdParent=false -> publication_uncertain | receiptNew="sha256:1b16b1df538ba12dc3f97edbb85caa7050d46c148134290feba80f8236c83db9" | resNewRev="dnmmdz4v" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=published_verified pub=false createdParent=true -> publication_uncertain | receiptNew="sha256:1b16b1df538ba12dc3f97edbb85caa7050d46c148134290feba80f8236c83db9" | resNewRev="dnmmdz4v" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=published_verified pub=true createdParent=false -> partially_published | receiptNew="sha256:1b16b1df538ba12dc3f97edbb85caa7050d46c148134290feba80f8236c83db9" | resNewRev="dnmmdz4v" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=published_verified pub=true createdParent=true -> partially_published | receiptNew="sha256:1b16b1df538ba12dc3f97edbb85caa7050d46c148134290feba80f8236c83db9" | resNewRev="dnmmdz4v" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=published_post_error pub=false createdParent=false -> publication_uncertain | receiptNew="" | resNewRev="" changed=false
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=published_post_error pub=false createdParent=true -> publication_uncertain | receiptNew="" | resNewRev="" changed=false
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=published_post_error pub=true createdParent=false -> published_with_post_error | receiptNew="" | resNewRev="" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=published_post_error pub=true createdParent=true -> published_with_post_error | receiptNew="" | resNewRev="" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=published_rolled_back pub=false createdParent=false -> publication_uncertain | receiptNew="sha256:65c74c15a686187bb6bbf9958f494fc6b80068034a659a9ad44991b08c58f2d2" | resNewRev="nzdw2fpg" changed=false
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=published_rolled_back pub=false createdParent=true -> publication_uncertain | receiptNew="sha256:65c74c15a686187bb6bbf9958f494fc6b80068034a659a9ad44991b08c58f2d2" | resNewRev="nzdw2fpg" changed=false
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=published_rolled_back pub=true createdParent=false -> rolled_back | receiptNew="sha256:65c74c15a686187bb6bbf9958f494fc6b80068034a659a9ad44991b08c58f2d2" | resNewRev="nzdw2fpg" changed=false
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=published_rolled_back pub=true createdParent=true -> partially_published | receiptNew="sha256:65c74c15a686187bb6bbf9958f494fc6b80068034a659a9ad44991b08c58f2d2" | resNewRev="nzdw2fpg" changed=false
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=rollback_failed pub=false createdParent=false -> publication_uncertain | receiptNew="" | resNewRev="" changed=false
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=rollback_failed pub=false createdParent=true -> publication_uncertain | receiptNew="" | resNewRev="" changed=false
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=rollback_failed pub=true createdParent=false -> partially_published | receiptNew="" | resNewRev="" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=rollback_failed pub=true createdParent=true -> partially_published | receiptNew="" | resNewRev="" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=external_modification_detected pub=false createdParent=false -> publication_uncertain | receiptNew="" | resNewRev="" changed=false
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=external_modification_detected pub=false createdParent=true -> publication_uncertain | receiptNew="" | resNewRev="" changed=false
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=external_modification_detected pub=true createdParent=false -> published_with_post_error | receiptNew="" | resNewRev="" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=external_modification_detected pub=true createdParent=true -> published_with_post_error | receiptNew="" | resNewRev="" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=publication_uncertain pub=false createdParent=false -> publication_uncertain | receiptNew="" | resNewRev="" changed=false
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=publication_uncertain pub=false createdParent=true -> publication_uncertain | receiptNew="" | resNewRev="" changed=false
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=publication_uncertain pub=true createdParent=false -> partially_published | receiptNew="" | resNewRev="" changed=true
+    zz_probe_r5_statefault_test.go:273: [H7 single] state=publication_uncertain pub=true createdParent=true -> partially_published | receiptNew="" | resNewRev="" changed=true
+    zz_probe_r5_statefault_test.go:281: [H7 multi] not_published(pub=false) + not_published(pub=false) -> publication_uncertain
+    zz_probe_r5_statefault_test.go:281: [H7 multi] not_published(pub=false) + published_verified(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] not_published(pub=false) + published_post_error(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] not_published(pub=false) + published_rolled_back(pub=true) -> rolled_back
+    zz_probe_r5_statefault_test.go:281: [H7 multi] not_published(pub=false) + rollback_failed(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] not_published(pub=false) + external_modification_detected(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] not_published(pub=false) + publication_uncertain(pub=false) -> publication_uncertain
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_verified(pub=true) + not_published(pub=false) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_verified(pub=true) + published_verified(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_verified(pub=true) + published_post_error(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_verified(pub=true) + published_rolled_back(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_verified(pub=true) + rollback_failed(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_verified(pub=true) + external_modification_detected(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_verified(pub=true) + publication_uncertain(pub=false) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_post_error(pub=true) + not_published(pub=false) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_post_error(pub=true) + published_verified(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_post_error(pub=true) + published_post_error(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_post_error(pub=true) + published_rolled_back(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_post_error(pub=true) + rollback_failed(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_post_error(pub=true) + external_modification_detected(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_post_error(pub=true) + publication_uncertain(pub=false) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_rolled_back(pub=true) + not_published(pub=false) -> rolled_back
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_rolled_back(pub=true) + published_verified(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_rolled_back(pub=true) + published_post_error(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_rolled_back(pub=true) + published_rolled_back(pub=true) -> rolled_back
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_rolled_back(pub=true) + rollback_failed(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_rolled_back(pub=true) + external_modification_detected(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] published_rolled_back(pub=true) + publication_uncertain(pub=false) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] rollback_failed(pub=true) + not_published(pub=false) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] rollback_failed(pub=true) + published_verified(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] rollback_failed(pub=true) + published_post_error(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] rollback_failed(pub=true) + published_rolled_back(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] rollback_failed(pub=true) + rollback_failed(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] rollback_failed(pub=true) + external_modification_detected(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] rollback_failed(pub=true) + publication_uncertain(pub=false) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] external_modification_detected(pub=true) + not_published(pub=false) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] external_modification_detected(pub=true) + published_verified(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] external_modification_detected(pub=true) + published_post_error(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] external_modification_detected(pub=true) + published_rolled_back(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] external_modification_detected(pub=true) + rollback_failed(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] external_modification_detected(pub=true) + external_modification_detected(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] external_modification_detected(pub=true) + publication_uncertain(pub=false) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] publication_uncertain(pub=false) + not_published(pub=false) -> publication_uncertain
+    zz_probe_r5_statefault_test.go:281: [H7 multi] publication_uncertain(pub=false) + published_verified(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] publication_uncertain(pub=false) + published_post_error(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] publication_uncertain(pub=false) + published_rolled_back(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] publication_uncertain(pub=false) + rollback_failed(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] publication_uncertain(pub=false) + external_modification_detected(pub=true) -> partially_published
+    zz_probe_r5_statefault_test.go:281: [H7 multi] publication_uncertain(pub=false) + publication_uncertain(pub=false) -> publication_uncertain
+--- PASS: TestProbeH7ClassifyMatrix (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.909s
+exit=0

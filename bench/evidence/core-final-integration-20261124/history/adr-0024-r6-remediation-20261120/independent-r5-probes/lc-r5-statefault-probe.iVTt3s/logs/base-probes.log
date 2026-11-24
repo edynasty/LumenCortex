@@ -1,0 +1,83 @@
+cwd=/tmp/lc-r5-statefault-probe.iVTt3s/base cmd=go test ./internal/editing/ -run "^TestProbeH(1|2|4|5|6)" -count=1 -v
+=== RUN   TestProbeH1PartialFSizeRestore
+    zz_probe_r5_statefault_test.go:32: [H1] err=conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit
+    zz_probe_r5_statefault_test.go:33: [H1] code="conflict" isEFBIG=false
+    zz_probe_r5_statefault_test.go:34: [H1] receipt committed=false dirty=true state=partially_published
+    zz_probe_r5_statefault_test.go:36: [H1]  rf a.txt state=published_rolled_back staged=false pub=true ver=true rb=true wrote=false created=false deleted=false new="sha256:54578a36036ade573160b2eb3ba5d8557897aa8c6b4ce4742e556d37eb81c680"
+    zz_probe_r5_statefault_test.go:36: [H1]  rf b.txt state=published_verified staged=false pub=true ver=true rb=false wrote=true created=false deleted=false new="sha256:550d594f5d87bd540b72a207fd32c27894f378088bd355d4f0b2bb7d43e58df9"
+    zz_probe_r5_statefault_test.go:36: [H1]  rf c.txt state=not_published staged=false pub=false ver=false rb=false wrote=false created=false deleted=false new="sha256:5794ad7f9958d98da9b9afd8e09f3b47e23a8d510a933d8001435a5f2755152c"
+    zz_probe_r5_statefault_test.go:39: [H1] result.CommitState=partially_published files=1
+    zz_probe_r5_statefault_test.go:41: [H1]  res b.txt state=published_verified pub=true rb=false changed=true newRev="kwgxuv47"
+    zz_probe_r5_statefault_test.go:53: [H1]  disk a.txt len=6 prefix="old-a\n"
+    zz_probe_r5_statefault_test.go:53: [H1]  disk b.txt len=8192 prefix="OOOOOOOOOOOOOOOO"
+    zz_probe_r5_statefault_test.go:53: [H1]  disk c.txt len=10 prefix="foreign-c\n"
+    zz_probe_r5_statefault_test.go:90: [H1] snapshot b latest="kwgxuv47"
+--- PASS: TestProbeH1PartialFSizeRestore (0.00s)
+=== RUN   TestProbeH2PartialFSizeDeleteRestore
+    zz_probe_r5_statefault_test.go:32: [H2] err=conflict z.txt: the file changed after the change was computed; nothing was written (current rev 3d43fjsp); something else wrote the file; re-read it and redo the edit
+    zz_probe_r5_statefault_test.go:33: [H2] code="conflict" isEFBIG=false
+    zz_probe_r5_statefault_test.go:34: [H2] receipt committed=false dirty=true state=partially_published
+    zz_probe_r5_statefault_test.go:36: [H2]  rf a.txt state=published_rolled_back staged=false pub=true ver=true rb=true wrote=false created=false deleted=false new="sha256:54578a36036ade573160b2eb3ba5d8557897aa8c6b4ce4742e556d37eb81c680"
+    zz_probe_r5_statefault_test.go:36: [H2]  rf d.txt state=published_verified staged=false pub=true ver=true rb=false wrote=true created=false deleted=true new="-"
+    zz_probe_r5_statefault_test.go:36: [H2]  rf z.txt state=not_published staged=false pub=false ver=false rb=false wrote=false created=false deleted=false new="sha256:9430e5d57ce059a99f8d1d8dee546500ba95dd5fb165953e439b7ad5715f9cbb"
+    zz_probe_r5_statefault_test.go:39: [H2] result.CommitState=partially_published files=1
+    zz_probe_r5_statefault_test.go:41: [H2]  res d.txt state=published_verified pub=true rb=false changed=true newRev="6q2nisw2"
+    zz_probe_r5_statefault_test.go:53: [H2]  disk a.txt len=6 prefix="old-a\n"
+    zz_probe_r5_statefault_test.go:53: [H2]  disk d.txt len=8192 prefix="DDDDDDDDDDDDDDDD"
+    zz_probe_r5_statefault_test.go:53: [H2]  disk z.txt len=10 prefix="foreign-z\n"
+--- PASS: TestProbeH2PartialFSizeDeleteRestore (0.00s)
+=== RUN   TestProbeH4CreatedParentClassification
+    zz_probe_r5_statefault_test.go:32: [H4] err=conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit
+    zz_probe_r5_statefault_test.go:33: [H4] code="conflict" isEFBIG=false
+    zz_probe_r5_statefault_test.go:34: [H4] receipt committed=false dirty=true state=partially_published
+    zz_probe_r5_statefault_test.go:36: [H4]  rf a_dir/b.txt state=published_rolled_back staged=true pub=true ver=true rb=true wrote=false created=true deleted=false new="sha256:550d594f5d87bd540b72a207fd32c27894f378088bd355d4f0b2bb7d43e58df9"
+    zz_probe_r5_statefault_test.go:36: [H4]  rf c.txt state=not_published staged=false pub=false ver=false rb=false wrote=false created=false deleted=false new="sha256:5794ad7f9958d98da9b9afd8e09f3b47e23a8d510a933d8001435a5f2755152c"
+    zz_probe_r5_statefault_test.go:39: [H4] result.CommitState=partially_published files=0
+    zz_probe_r5_statefault_test.go:46: [H4]  disk a_dir/b.txt: open /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestProbeH4CreatedParentClassification508393348/001/a_dir/b.txt: no such file or directory
+    zz_probe_r5_statefault_test.go:53: [H4]  disk c.txt len=10 prefix="foreign-c\n"
+    zz_probe_r5_statefault_test.go:144: [H4] a_dir stat err=<nil>
+--- PASS: TestProbeH4CreatedParentClassification (0.00s)
+=== RUN   TestProbeH5BinaryReplaceFileRollback
+    zz_probe_r5_statefault_test.go:32: [H5fail=] err=conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit
+    zz_probe_r5_statefault_test.go:33: [H5fail=] code="conflict" isEFBIG=false
+    zz_probe_r5_statefault_test.go:34: [H5fail=] receipt committed=false dirty=true state=partially_published
+    zz_probe_r5_statefault_test.go:36: [H5fail=]  rf a.bin state=published_rolled_back staged=false pub=true ver=true rb=true wrote=false created=false deleted=false new="sha256:eb087a81ad5b9b33e836750b8ca913107257aa6a4ad6c98b6b3806ad931c6f0d"
+    zz_probe_r5_statefault_test.go:36: [H5fail=]  rf b.bin state=published_verified staged=false pub=true ver=true rb=false wrote=true created=true deleted=false new="sha256:6ae725813d3c3aaaa1bcd8b15c4707b4f5aa2a529ea089af5d350e14c21c4647"
+    zz_probe_r5_statefault_test.go:36: [H5fail=]  rf c.txt state=not_published staged=false pub=false ver=false rb=false wrote=false created=false deleted=false new="sha256:5794ad7f9958d98da9b9afd8e09f3b47e23a8d510a933d8001435a5f2755152c"
+    zz_probe_r5_statefault_test.go:39: [H5fail=] result.CommitState=partially_published files=1
+    zz_probe_r5_statefault_test.go:41: [H5fail=]  res b.bin state=published_verified pub=true rb=false changed=true newRev="pmvumaj7"
+    zz_probe_r5_statefault_test.go:53: [H5fail=]  disk a.bin len=5 prefix="old-a"
+    zz_probe_r5_statefault_test.go:53: [H5fail=]  disk b.bin len=5 prefix="new-b"
+    zz_probe_r5_statefault_test.go:53: [H5fail=]  disk c.txt len=10 prefix="foreign-c\n"
+    zz_probe_r5_statefault_test.go:200: [H5fail=] ReplaceFile a.bin existed=true before="old-a" after="new-a"
+    zz_probe_r5_statefault_test.go:200: [H5fail=] ReplaceFile b.bin existed=false before="" after="new-b"
+    zz_probe_r5_statefault_test.go:200: [H5fail=] ReplaceFile a.bin existed=true before="new-a" after="old-a"
+    zz_probe_r5_statefault_test.go:32: [H5fail=a.bin] err=conflict c.txt: the file changed after the change was computed; nothing was written (current rev px349uns); something else wrote the file; re-read it and redo the edit
+    zz_probe_r5_statefault_test.go:33: [H5fail=a.bin] code="conflict" isEFBIG=false
+    zz_probe_r5_statefault_test.go:34: [H5fail=a.bin] receipt committed=false dirty=true state=partially_published
+    zz_probe_r5_statefault_test.go:36: [H5fail=a.bin]  rf a.bin state=published_verified staged=false pub=true ver=true rb=false wrote=true created=false deleted=false new="sha256:eb087a81ad5b9b33e836750b8ca913107257aa6a4ad6c98b6b3806ad931c6f0d"
+    zz_probe_r5_statefault_test.go:36: [H5fail=a.bin]  rf b.bin state=published_verified staged=false pub=true ver=true rb=false wrote=true created=true deleted=false new="sha256:6ae725813d3c3aaaa1bcd8b15c4707b4f5aa2a529ea089af5d350e14c21c4647"
+    zz_probe_r5_statefault_test.go:36: [H5fail=a.bin]  rf c.txt state=not_published staged=false pub=false ver=false rb=false wrote=false created=false deleted=false new="sha256:5794ad7f9958d98da9b9afd8e09f3b47e23a8d510a933d8001435a5f2755152c"
+    zz_probe_r5_statefault_test.go:39: [H5fail=a.bin] result.CommitState=partially_published files=2
+    zz_probe_r5_statefault_test.go:41: [H5fail=a.bin]  res a.bin state=published_verified pub=true rb=false changed=true newRev="7nehxapp"
+    zz_probe_r5_statefault_test.go:41: [H5fail=a.bin]  res b.bin state=published_verified pub=true rb=false changed=true newRev="pmvumaj7"
+    zz_probe_r5_statefault_test.go:53: [H5fail=a.bin]  disk a.bin len=5 prefix="new-a"
+    zz_probe_r5_statefault_test.go:53: [H5fail=a.bin]  disk b.bin len=5 prefix="new-b"
+    zz_probe_r5_statefault_test.go:53: [H5fail=a.bin]  disk c.txt len=10 prefix="foreign-c\n"
+    zz_probe_r5_statefault_test.go:200: [H5fail=a.bin] ReplaceFile a.bin existed=true before="old-a" after="new-a"
+    zz_probe_r5_statefault_test.go:200: [H5fail=a.bin] ReplaceFile b.bin existed=false before="" after="new-b"
+    zz_probe_r5_statefault_test.go:200: [H5fail=a.bin] ReplaceFile a.bin existed=true before="new-a" after="old-a"
+--- PASS: TestProbeH5BinaryReplaceFileRollback (0.00s)
+=== RUN   TestProbeH6Pre01MultiFile
+    zz_probe_r5_statefault_test.go:32: [H6] err=write /var/folders/cq/047kqj3x70bg9s6c6vpv4wxh0000gn/T/TestProbeH6Pre01MultiFile1492258852/001/c.txt: file too large
+    zz_probe_r5_statefault_test.go:33: [H6] code="" isEFBIG=true
+    zz_probe_r5_statefault_test.go:34: [H6] receipt committed=false dirty=true state=partially_published
+    zz_probe_r5_statefault_test.go:36: [H6]  rf a.txt state=published_rolled_back staged=false pub=true ver=true rb=true wrote=false created=false deleted=false new="sha256:54578a36036ade573160b2eb3ba5d8557897aa8c6b4ce4742e556d37eb81c680"
+    zz_probe_r5_statefault_test.go:36: [H6]  rf c.txt state=publication_uncertain staged=false pub=false ver=false rb=false wrote=false created=false deleted=false new="sha256:31063c303cd0dbe3ae4e3b0c39f75875d26935ae702488f567c8172084b6e79a"
+    zz_probe_r5_statefault_test.go:39: [H6] result.CommitState=partially_published files=0
+    zz_probe_r5_statefault_test.go:53: [H6]  disk a.txt len=6 prefix="old-a\n"
+    zz_probe_r5_statefault_test.go:53: [H6]  disk c.txt len=8192 prefix="NNNNNNNNNNNNNNNN"
+--- PASS: TestProbeH6Pre01MultiFile (0.00s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/editing	0.725s
+exit=0

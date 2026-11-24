@@ -88,6 +88,7 @@ func findResultFile(files []FileResult, rel string) (FileResult, bool) {
 // place (same inode, different bytes) before a later path fails. Bytes and identity both matter;
 // the child's bytes survive and the prefix loses its trusted revision and hash.
 func TestR7SameInodeExternalOverwriteIsExternal(t *testing.T) {
+	requireExistingFileUpdate(t)
 	root := t.TempDir()
 	writeFile(t, root, "a.txt", "old-a\n")
 	writeFile(t, root, "b.txt", "old-b\n")

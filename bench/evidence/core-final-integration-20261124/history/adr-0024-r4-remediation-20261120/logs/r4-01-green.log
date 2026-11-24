@@ -1,0 +1,62 @@
+commit=4ac972483cb0197179c4a1938a07c2a045cfd886
+branch=fix/adr-0024-r4-remediation-20261120
+status=0
+date=2026-11-20T01:35:04Z
+
+$ go test -race -count=1 -v -run 'TestExecutionAdmissionCallIDRoundTripAndConstraints' ./internal/session
+=== RUN   TestExecutionAdmissionCallIDRoundTripAndConstraints
+--- PASS: TestExecutionAdmissionCallIDRoundTripAndConstraints (0.07s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/session	1.430s
+exit=0
+
+$ go test -race -count=1 -v -run 'TestR401|TestR303|TestR304|TestF02' ./internal/agent
+=== RUN   TestF02LiveAndColdSQLiteResumeRepairFloorParity
+--- PASS: TestF02LiveAndColdSQLiteResumeRepairFloorParity (0.21s)
+=== RUN   TestF02MultiToolCallAttributionAndUserResetOnRealSQLite
+--- PASS: TestF02MultiToolCallAttributionAndUserResetOnRealSQLite (0.04s)
+=== RUN   TestF02HistoryOverflowStreamsFromRealSQLite
+--- PASS: TestF02HistoryOverflowStreamsFromRealSQLite (0.87s)
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/write_proven_after_a_read_with_no_execution
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/write_proven_after_an_admitted_read
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/write_unknown_after_an_admitted_read
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/interrupted_second_call_without_execution
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/unpaired_second_call
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/same-name_calls_bind_executions_in_admission_order
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/no-change_group_keeps_the_first_call_with_only_its_own_execution
+=== RUN   TestR303CausalRefBindsAllFieldsToOneToolCall/single_call
+--- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/write_proven_after_a_read_with_no_execution (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/write_proven_after_an_admitted_read (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/write_unknown_after_an_admitted_read (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/interrupted_second_call_without_execution (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/unpaired_second_call (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/same-name_calls_bind_executions_in_admission_order (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/no-change_group_keeps_the_first_call_with_only_its_own_execution (0.00s)
+    --- PASS: TestR303CausalRefBindsAllFieldsToOneToolCall/single_call (0.00s)
+=== RUN   TestR303GatedLedgerNamesTheExecutingCallLiveAndCold
+--- PASS: TestR303GatedLedgerNamesTheExecutingCallLiveAndCold (0.05s)
+=== RUN   TestR304ResumeNoticeDoesNotClaimOmittedLatestStepPreserved
+--- PASS: TestR304ResumeNoticeDoesNotClaimOmittedLatestStepPreserved (0.40s)
+=== RUN   TestR304NoticesClaimLatestStepOnlyWhenGuaranteed
+--- PASS: TestR304NoticesClaimLatestStepOnlyWhenGuaranteed (0.00s)
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/case_A_invalid_first_call_then_valid_same_name_call
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/two_valid_same_name_calls_stay_distinguishable
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/top_level_eval_with_single_and_multiple_nested_executions
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/case_B_eval_nested_write_then_top_level_write
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/case_C_read_file_then_eval_nested_write_and_cold_resume_run
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/mixed_failed_and_proven_plus_unknown_veto_over_proven
+=== RUN   TestR401LiveLoopAndColdResumeExactIdentityCases/legacy_and_unmatched_records_on_real_sqlite_stay_unbound_unknown
+--- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases (1.08s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/case_A_invalid_first_call_then_valid_same_name_call (0.16s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/two_valid_same_name_calls_stay_distinguishable (0.17s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/top_level_eval_with_single_and_multiple_nested_executions (0.17s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/case_B_eval_nested_write_then_top_level_write (0.18s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/case_C_read_file_then_eval_nested_write_and_cold_resume_run (0.16s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/mixed_failed_and_proven_plus_unknown_veto_over_proven (0.20s)
+    --- PASS: TestR401LiveLoopAndColdResumeExactIdentityCases/legacy_and_unmatched_records_on_real_sqlite_stay_unbound_unknown (0.04s)
+PASS
+ok  	github.com/edynasty/LumenCortex/internal/agent	4.097s
+exit=0

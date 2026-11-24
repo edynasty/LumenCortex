@@ -1,0 +1,6 @@
+start=2026-11-23T09:30:51Z
+cwd=/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-editing-pre01-pre02-sol-l1-20261123
+command=go vet ./... 
+
+end=2026-11-23T09:30:53Z
+exit=0

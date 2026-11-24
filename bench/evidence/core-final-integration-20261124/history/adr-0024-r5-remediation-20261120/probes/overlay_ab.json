@@ -1,0 +1,5 @@
+{
+  "Replace": {
+    "/Users/tangxingpeng/IdeaProjects/me/LumenCortex/wt/core-adr-0024-r5-20261120/internal/editing/zz_r5_red_ab_test.go": "/Users/tangxingpeng/IdeaProjects/me/LumenCortex/bench/evidence/adr-0024-r5-remediation-20261120/probes/r5_r402ab_red_probe_test.go"
+  }
+}

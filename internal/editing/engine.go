@@ -139,7 +139,7 @@ const (
 	PublishNone                   PublishState = "not_published"
 	PublishNotAttempted           PublishState = "not_attempted"
 	PublishFailedBeforeWrite      PublishState = "failed_before_write"
-	PublishPartial                PublishState = "partially_modified"
+	PublishPartial                PublishState = "partially_modified" // no longer produced; decodes persisted receipts
 	PublishUnsupported            PublishState = "unsupported"
 	PublishSucceededAndVerified   PublishState = "published_verified"
 	PublishSucceededWithPostError PublishState = "published_post_error"
@@ -296,7 +296,8 @@ type Engine struct {
 	afterRead func(path string)
 	// foldsCase is a test hook that replaces the read-only case-folding probe of a directory.
 	foldsCase func(dir string) bool
-	// afterTruncate is a test fault hook invoked immediately after f.Truncate(0) inside writeCAS.
+	// afterTruncate is a test fault hook invoked at the last pre-publication boundary of an update
+	// (historically right after the in-place truncate, which no longer exists).
 	afterTruncate  func(path string) error
 	publishHooksMu sync.RWMutex
 	publishHooks   PublishFaultHooks
@@ -315,6 +316,11 @@ type PublishFaultHooks struct {
 	AfterInPlaceWriteClose func(dstPath string) error
 	WriteStaged            func(dstPath string, f *os.File, data []byte) (int, error)
 	AfterTruncate          func(dstPath string) error
+	BeforeDeleteUnlink     func(dstPath string) error
+	// BeforeFinalExternalCheck and AfterFinalExternalRead bracket the final read of a still-open
+	// displaced (update) or unlinked (delete) original descriptor. They only order tests.
+	BeforeFinalExternalCheck func(dstPath string)
+	AfterFinalExternalRead   func(dstPath string)
 }
 
 // SetPublishFaultHooks installs deterministic atomic-publication fault hooks for tests; pass zero
@@ -389,6 +395,7 @@ type prepared struct {
 	moved    map[int]int
 	ops      []LineOp
 	// Publication and verification are independent: a visible write may fail verification.
+	viaSymlink   bool
 	staged       bool
 	published    bool
 	verified     bool
@@ -689,6 +696,9 @@ func (e *Engine) prepare(host Host, p *prepared, plan Plan) error {
 	}
 	var original []byte
 	if existed {
+		if linfo, lerr := os.Lstat(p.abs); lerr == nil && linfo.Mode()&os.ModeSymlink != 0 {
+			p.viaSymlink = true
+		}
 		f, err := host.Open(p.abs, false)
 		if err != nil {
 			return err
@@ -698,6 +708,10 @@ func (e *Engine) prepare(host Host, p *prepared, plan Plan) error {
 			return errors.Join(idErr, f.Close())
 		}
 		p.writtenID = id
+		if !change.Delete && id.linkCount() > 1 {
+			// Refuse before any file of the plan is written (EDITING-PRE-01 fail-closed policy).
+			return errors.Join(errMultiLinkUpdate(p.rel, id.linkCount()), f.Close())
+		}
 		raw, readErr := readLimited(f, MaxFileBytes)
 		closeErr := f.Close()
 		if readErr != nil {
