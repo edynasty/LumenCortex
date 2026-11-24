@@ -1,0 +1,10 @@
+ef10ca7c8e8031e75fdf27f449924b8254f0e2bb
+go version go1.26.5 darwin/arm64
+ProductName:		macOS
+ProductVersion:		27.0.1
+BuildVersion:		26A434
+arm64
+uid=501(tangxingpeng) gid=20(staff) groups=20(staff),501(access_bpf),12(everyone),61(localaccounts),79(_appserverusr),80(admin),81(_appserveradm),98(_lpadmin),33(_appstore),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae)
+
+/Users/tangxingpeng/go/pkg/mod
+1
