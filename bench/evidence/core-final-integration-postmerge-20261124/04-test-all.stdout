@@ -1,0 +1,54 @@
+?   	github.com/edynasty/LumenCortex/cmd/lcx-experience-demo	[no test files]
+ok  	github.com/edynasty/LumenCortex/cmd/lcx-go	10.546s
+ok  	github.com/edynasty/LumenCortex/config	2.668s
+?   	github.com/edynasty/LumenCortex/docs	[no test files]
+ok  	github.com/edynasty/LumenCortex/evalapi	0.826s
+ok  	github.com/edynasty/LumenCortex/evalruntime	115.917s
+ok  	github.com/edynasty/LumenCortex/internal/agent	27.865s
+?   	github.com/edynasty/LumenCortex/internal/cgroupv2	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/cognition	0.435s
+ok  	github.com/edynasty/LumenCortex/internal/debugger	9.105s
+ok  	github.com/edynasty/LumenCortex/internal/debugger/dap	0.439s
+?   	github.com/edynasty/LumenCortex/internal/debugger/dapfake	[no test files]
+ok  	github.com/edynasty/LumenCortex/internal/diag	1.138s
+ok  	github.com/edynasty/LumenCortex/internal/editing	18.866s
+ok  	github.com/edynasty/LumenCortex/internal/editing/goedit	4.075s
+ok  	github.com/edynasty/LumenCortex/internal/evaluator	20.481s
+ok  	github.com/edynasty/LumenCortex/internal/instructions	0.409s
+ok  	github.com/edynasty/LumenCortex/internal/ipynb	0.390s
+ok  	github.com/edynasty/LumenCortex/internal/jobs	23.882s
+ok  	github.com/edynasty/LumenCortex/internal/knowledge	0.392s
+ok  	github.com/edynasty/LumenCortex/internal/lsp	10.744s
+ok  	github.com/edynasty/LumenCortex/internal/mcp	7.209s
+ok  	github.com/edynasty/LumenCortex/internal/mcptemplates	0.407s
+ok  	github.com/edynasty/LumenCortex/internal/migrate	18.068s
+ok  	github.com/edynasty/LumenCortex/internal/notebook	0.376s
+ok  	github.com/edynasty/LumenCortex/internal/ompsession	0.398s
+ok  	github.com/edynasty/LumenCortex/internal/procrt	0.720s
+ok  	github.com/edynasty/LumenCortex/internal/repository	10.112s
+ok  	github.com/edynasty/LumenCortex/internal/resource	0.349s
+ok  	github.com/edynasty/LumenCortex/internal/runlock	0.403s
+ok  	github.com/edynasty/LumenCortex/internal/safefs	0.754s
+ok  	github.com/edynasty/LumenCortex/internal/schedule	6.642s
+ok  	github.com/edynasty/LumenCortex/internal/session	41.959s
+ok  	github.com/edynasty/LumenCortex/internal/shell	4.667s
+ok  	github.com/edynasty/LumenCortex/internal/skills	2.545s
+ok  	github.com/edynasty/LumenCortex/internal/streambuf	0.433s
+ok  	github.com/edynasty/LumenCortex/internal/taskstate	0.377s
+ok  	github.com/edynasty/LumenCortex/internal/threadctx	0.444s
+ok  	github.com/edynasty/LumenCortex/internal/toolset	35.879s
+ok  	github.com/edynasty/LumenCortex/internal/verify	0.461s
+ok  	github.com/edynasty/LumenCortex/internal/window	2.239s
+ok  	github.com/edynasty/LumenCortex/internal/workflow	0.410s
+?   	github.com/edynasty/LumenCortex/pluginapi	[no test files]
+ok  	github.com/edynasty/LumenCortex/protocol	0.369s
+ok  	github.com/edynasty/LumenCortex/provider	0.434s
+ok  	github.com/edynasty/LumenCortex/provider/anthropic	1.874s
+?   	github.com/edynasty/LumenCortex/provider/internal/retryafter	[no test files]
+ok  	github.com/edynasty/LumenCortex/provider/openai	1.403s
+--- FAIL: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix (3.43s)
+    --- FAIL: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures (0.45s)
+        context_space_t3_test.go:512: T6-3: ev=unknown sum={AnsweredSeq:6 RequestID:rq-574eb7a5941cf4d224ac5a0498edc74f ExecutionID:ex-6e0911b10b74565ac4c63d63a54d09a3 ToolCallID:wf3 ParentToolCallID: ToolName:write_file PreRef:files:1:sha256:222a71ab7fdcbed8d6cb31d50f974b0ce92674eaf8c108a68fb74c4aaba6e44e PostRef:files:1:sha256:222a71ab7fdcbed8d6cb31d50f974b0ce92674eaf8c108a68fb74c4aaba6e44e;cm=unknown PreUnavailable:false Coverage:complete Outcome:failed FileEdgeCount:0} min=1 (want 1)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/runtime	848.399s
+FAIL
