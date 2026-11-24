@@ -1,0 +1,8 @@
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures
+    context_space_t3_test.go:673: T6-3a summary=[{AnsweredSeq:6 RequestID:rq-df40b2587f353c1a29a679b410b9babb ExecutionID:ex-b909220122a2a1d05f281ce3651b351a ToolCallID:wf3 ParentToolCallID: ToolName:write_file PreRef:files:1:sha256:222a71ab7fdcbed8d6cb31d50f974b0ce92674eaf8c108a68fb74c4aaba6e44e PostRef:files:1:sha256:222a71ab7fdcbed8d6cb31d50f974b0ce92674eaf8c108a68fb74c4aaba6e44e;cm=unknown PreUnavailable:false Coverage:complete Outcome:outcome_unknown FileEdgeCount:0}], want OutcomeFailed + CoverageComplete + FileEdgeCount=0 + unchanged PreRef==PostRef;cm=unknown
+--- FAIL: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix (1.18s)
+    --- FAIL: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures (0.60s)
+FAIL
+FAIL	github.com/edynasty/LumenCortex/runtime	1.740s
+FAIL

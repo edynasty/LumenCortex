@@ -1,0 +1,16 @@
+cmd/lcx-go/main_test.go
+internal/cognition/governor_curator.go
+internal/lsp/client_test.go
+internal/lsp/features.go
+internal/repository/service_test.go
+internal/repository/worktree.go
+internal/resource/manager_test.go
+internal/session/migration_test.go
+internal/session/relations_test.go
+internal/shell/process_unix.go
+internal/window/window.go
+runtime/checkpoint_resume_test.go
+runtime/repository.go
+runtime/supervisor_test.go
+runtime/worktree.go
+runtime/worktree_handoff.go

@@ -1,0 +1,7 @@
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix
+=== RUN   TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures
+    context_space_t3_test.go:734: PROBE_NONVACUOUS_OK
+--- PASS: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix (2.36s)
+    --- PASS: TestT3B_CausalAuthorshipConcurrencyAndIgnoredFilesMatrix/RC34_F02_T6_dirty_and_clean_write_failures (1.83s)
+PASS
+ok  	github.com/edynasty/LumenCortex/runtime	2.946s

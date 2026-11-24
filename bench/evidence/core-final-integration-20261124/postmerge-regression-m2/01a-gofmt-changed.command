@@ -1,0 +1,1 @@
+{ gofmt -l internal/editing runtime/context_space_t3_test.go; files=$(git diff --name-only 7aeb1607ffa588727c6fe04873f7b58a1dc16f15..HEAD -- "*.go" | grep -v "^bench/evidence/" || true); if [ -n "$files" ]; then printf "%s\n" "$files" | xargs gofmt -l; fi; } | sort -u; test ! -s /dev/null
