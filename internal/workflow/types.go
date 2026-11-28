@@ -67,6 +67,21 @@ func (g *Gate) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalJSON writes "equals" only when the gate states it (or carries a value set in Go). Validate
+// clones definitions through JSON and snapshots persist them as JSON: an "equals": null written for a
+// human gate that never stated it would read back as a gate waiting for null, which an unset fact
+// already satisfies, so the gate would let the run through without an approval.
+func (g Gate) MarshalJSON() ([]byte, error) {
+	type alias Gate
+	if g.HasEquals || g.Equals != nil {
+		return json.Marshal(alias(g))
+	}
+	return json.Marshal(struct {
+		alias
+		Equals any `json:"equals,omitempty"`
+	}{alias: alias(g)})
+}
+
 type State struct {
 	CurrentAction string           `json:"currentAction"`
 	Facts         map[string]any   `json:"facts"`

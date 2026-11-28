@@ -178,6 +178,53 @@ func TestHumanGateWithFalseEqualsAndSnapshotRestore(t *testing.T) {
 	}
 }
 
+// A human gate that does not state "equals" waits for true (the gate's fact set by an approval). It must
+// still wait after Validate's clone, after a Snapshot is persisted as JSON and restored, and after the
+// runtime is restored from that snapshot; only Approve opens it.
+func TestHumanGateWithoutEqualsWaitsThroughCloneAndRestore(t *testing.T) {
+	def, err := Parse([]byte(`{
+      "id":"approval",
+      "facts":{"ready":true},
+      "actions":{"done":{"terminal":true,"completeWhen":{"fact":"ready","equals":true},
+        "gates":[{"id":"apply","type":"human","fact":"approved"}]}}
+    }`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.Actions["done"].Gates[0].HasEquals {
+		t.Fatal("a gate without equals reads back as one that states it")
+	}
+	rt, err := New(def, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.Status != "waiting_gate" || len(rt.WaitingHumanGates()) != 1 || rt.CanFinish() {
+		t.Fatalf("fresh runtime does not wait at the gate: %#v", rt.Summary())
+	}
+
+	stored, err := json.Marshal(rt.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap Snapshot
+	if err := json.Unmarshal(stored, &snap); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := New(snap.Definition, &State{CurrentAction: snap.CurrentAction, Facts: snap.Facts, FactSources: snap.FactSources, History: snap.History, Status: snap.Status})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Status != "waiting_gate" || len(restored.WaitingHumanGates()) != 1 {
+		t.Fatalf("restored runtime does not wait at the gate: %#v (stored %s)", restored.Summary(), stored)
+	}
+	if _, err := restored.Approve("apply", "tester"); err != nil {
+		t.Fatal(err)
+	}
+	if approved, _ := getPath(restored.Facts, "approved"); approved != true || !restored.CanFinish() {
+		t.Fatalf("approved=%v summary=%#v", approved, restored.Summary())
+	}
+}
+
 func TestUnsafePathRejected(t *testing.T) {
 	_, err := Parse([]byte(`{"id":"unsafe","actions":{"a":{"terminal":true,"completeWhen":{"fact":"__proto__.x","exists":true}}}}`))
 	if err == nil || !strings.Contains(err.Error(), "unsafe path") {
